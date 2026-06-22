@@ -1,4 +1,6 @@
 using Emi.Qms.Api;
+using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.Identity;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,11 +21,38 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<DatabaseConnectionStringProvider>();
 builder.Services.AddSingleton<DatabaseHealthChecker>();
+builder.Services.AddSingleton<DatabaseMigrationRunner>();
+builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
+builder.Services.AddQmsAuthorizationFoundation();
 
 var app = builder.Build();
 
+DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
+    DevelopmentFeaturePolicy.EvaluateDevelopmentAuthentication(app.Environment, app.Configuration),
+    app.Environment);
+DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
+    DevelopmentFeaturePolicy.EvaluateDevelopmentDataSeeding(app.Environment, app.Configuration),
+    app.Environment);
+
 app.UseCors("FrontendDevelopment");
+app.UseAuthentication();
+app.UseAuthorization();
+
+if (builder.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup")
+    || builder.Configuration.GetValue<bool>("DATABASE_APPLY_MIGRATIONS_ON_STARTUP"))
+{
+    await app.Services
+        .GetRequiredService<DatabaseMigrationRunner>()
+        .ApplyAsync(CancellationToken.None);
+}
+
+var developmentIdentitySeeder = app.Services.GetRequiredService<DevelopmentIdentitySeeder>();
+if (developmentIdentitySeeder.IsEnabled())
+{
+    await developmentIdentitySeeder.SeedAsync(CancellationToken.None);
+}
 
 app.MapGet("/health/live", (TimeProvider timeProvider) =>
 {
@@ -41,6 +70,8 @@ app.MapGet("/health/ready", async (DatabaseHealthChecker databaseHealthChecker, 
 })
 .AllowAnonymous()
 .WithName("ReadyHealth");
+
+app.MapIdentityEndpoints();
 
 app.Run();
 

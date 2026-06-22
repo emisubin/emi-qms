@@ -1,10 +1,9 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
 namespace Emi.Qms.Api.Tests;
 
-public sealed class HealthEndpointTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public sealed class HealthEndpointTests(QmsWebApplicationFactory factory) : IClassFixture<QmsWebApplicationFactory>
 {
     [Fact]
     public async Task LiveHealth_IsAnonymousAndReturnsOk()

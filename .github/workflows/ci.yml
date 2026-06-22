@@ -10,6 +10,26 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    env:
+      DATABASE_HOST: localhost
+      DATABASE_PORT: 5432
+      DATABASE_NAME: emi_qms_dev
+      DATABASE_USER: emi_qms
+      DATABASE_PASSWORD: local_only_change_me
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_DB: emi_qms_dev
+          POSTGRES_USER: emi_qms
+          POSTGRES_PASSWORD: local_only_change_me
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U emi_qms -d emi_qms_dev"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5

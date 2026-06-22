@@ -67,6 +67,8 @@ Copy-Item .env.example .env
 
 스크립트는 PostgreSQL 컨테이너를 시작하고, 백엔드는 `http://localhost:5080`, 프런트엔드는 `http://localhost:5173`에서 실행합니다.
 
+Development 환경에서는 `.env.example`의 명시적 설정으로 TASK-002의 개발용 인증과 개발 데이터 seeding이 활성화됩니다. 프런트엔드는 `VITE_DEV_USER_KEY` 값이 없으면 `dev-admin`으로 `/api/me`를 호출합니다.
+
 ### 전체 종료
 
 ```powershell
@@ -125,6 +127,28 @@ corepack pnpm --filter emi-qms-frontend run build
 
 - `GET http://localhost:5080/health/live`
 - `GET http://localhost:5080/health/ready`
+
+### 개발용 인증과 권한 확인
+
+실제 Microsoft Entra ID 연동 전까지 Development/Testing 환경에서만 `X-Dev-User` 헤더를 사용합니다. Production에서 개발용 인증을 활성화하면 애플리케이션 시작이 실패합니다.
+
+개발용 사용자 키:
+
+- `dev-admin`
+- `dev-sales`
+- `dev-production`
+- `dev-manufacturing`
+- `dev-quality`
+- `dev-logistics`
+- `dev-viewer`
+- `dev-no-role`
+
+예시:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing -Headers @{ "X-Dev-User" = "dev-viewer" } http://localhost:5080/api/projects/demo-project-alpha/overview
+Invoke-WebRequest -UseBasicParsing -Headers @{ "X-Dev-User" = "dev-viewer" } http://localhost:5080/api/projects/demo-project-beta/overview
+```
 
 ## 문서 우선순위
 

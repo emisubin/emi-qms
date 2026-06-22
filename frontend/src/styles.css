@@ -24,6 +24,7 @@ body {
 .shell {
   display: grid;
   min-height: 100vh;
+  gap: 24px;
   place-items: center;
   padding: 24px;
 }
@@ -48,6 +49,12 @@ h1 {
   margin: 0;
   font-size: clamp(1.65rem, 4vw, 2.4rem);
   line-height: 1.15;
+}
+
+h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
 }
 
 .status-grid {
@@ -87,6 +94,31 @@ dd[data-state='error'] {
   margin: 20px 0 0;
   color: #b42318;
   font-weight: 600;
+}
+
+.muted-text {
+  margin: 20px 0 0;
+  color: #52665a;
+  font-weight: 600;
+}
+
+.menu-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  margin: 20px 0 0;
+  list-style: none;
+}
+
+.menu-list li {
+  padding: 8px 10px;
+  border: 1px solid #d8ded9;
+  border-radius: 6px;
+  background: #f7faf8;
+  color: #17201b;
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
 @media (max-width: 560px) {

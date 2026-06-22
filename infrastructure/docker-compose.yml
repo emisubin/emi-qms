@@ -3,16 +3,16 @@ services:
     image: postgres:18.4
     container_name: emi-qms-postgres
     environment:
-      POSTGRES_DB: emi_qms_dev
-      POSTGRES_USER: emi_qms
-      POSTGRES_PASSWORD: local_only_change_me
+      POSTGRES_DB: ${DATABASE_NAME:?DATABASE_NAME is required}
+      POSTGRES_USER: ${DATABASE_USER:?DATABASE_USER is required}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
     ports:
       - "5432:5432"
     volumes:
       - emi-qms-postgres-data:/var/lib/postgresql
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U emi_qms -d emi_qms_dev"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 3s
       retries: 12

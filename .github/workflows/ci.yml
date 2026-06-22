@@ -10,20 +10,6 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18.4
-        env:
-          POSTGRES_DB: emi_qms_dev
-          POSTGRES_USER: emi_qms
-          POSTGRES_PASSWORD: local_only_change_me
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U emi_qms -d emi_qms_dev"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 12
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -49,12 +35,12 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.8.0 --activate
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
       - name: Lint
-        run: pnpm --filter emi-qms-frontend run lint
+        run: corepack pnpm --filter emi-qms-frontend run lint
       - name: Typecheck
-        run: pnpm --filter emi-qms-frontend run typecheck
+        run: corepack pnpm --filter emi-qms-frontend run typecheck
       - name: Test
-        run: pnpm --filter emi-qms-frontend test
+        run: corepack pnpm --filter emi-qms-frontend test
       - name: Build
-        run: pnpm --filter emi-qms-frontend run build
+        run: corepack pnpm --filter emi-qms-frontend run build

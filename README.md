@@ -61,6 +61,7 @@ corepack pnpm --version
 ### 전체 시작
 
 ```powershell
+Copy-Item .env.example .env
 .\scripts\dev-start.ps1
 ```
 
@@ -77,19 +78,20 @@ corepack pnpm --version
 PostgreSQL:
 
 ```powershell
-docker compose -f infrastructure\docker-compose.yml up -d
+Copy-Item .env.example .env
+docker compose --env-file .\.env -f infrastructure\docker-compose.yml up -d
 ```
 
 백엔드:
 
 ```powershell
-cd backend
+Copy-Item .env.example .env
+Get-Content .env | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object {
+  $name, $value = $_ -split "=", 2
+  [Environment]::SetEnvironmentVariable($name.Trim(), $value.Trim(), "Process")
+}
 $env:ASPNETCORE_ENVIRONMENT="Development"
-$env:DATABASE_HOST="localhost"
-$env:DATABASE_PORT="5432"
-$env:DATABASE_NAME="emi_qms_dev"
-$env:DATABASE_USER="emi_qms"
-$env:DATABASE_PASSWORD="local_only_change_me"
+cd backend
 dotnet run --project src\Emi.Qms.Api --urls http://localhost:5080
 ```
 

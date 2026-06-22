@@ -1,0 +1,33 @@
+name: Feature request
+description: 기능 또는 변경 요구를 기록합니다.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 해결할 업무 문제
+    validations:
+      required: true
+  - type: textarea
+    id: users
+    attributes:
+      label: 대상 사용자·부서
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: 원하는 업무 흐름
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 완료 조건
+    validations:
+      required: true
+  - type: textarea
+    id: permissions
+    attributes:
+      label: 조회·입력·승인 권한

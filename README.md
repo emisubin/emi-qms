@@ -48,8 +48,15 @@ infrastructure/  로컬·Azure 배포 구성
 - Git
 - .NET SDK 10 LTS
 - Node.js 24 LTS
-- pnpm 11
+- pnpm 11 via Corepack
 - Docker Desktop 또는 Docker Compose 호환 런타임
+
+Node.js 설치 후 pnpm은 Corepack으로 실행합니다.
+
+```powershell
+corepack enable
+corepack pnpm --version
+```
 
 ### 전체 시작
 
@@ -77,14 +84,20 @@ docker compose -f infrastructure\docker-compose.yml up -d
 
 ```powershell
 cd backend
+$env:ASPNETCORE_ENVIRONMENT="Development"
+$env:DATABASE_HOST="localhost"
+$env:DATABASE_PORT="5432"
+$env:DATABASE_NAME="emi_qms_dev"
+$env:DATABASE_USER="emi_qms"
+$env:DATABASE_PASSWORD="local_only_change_me"
 dotnet run --project src\Emi.Qms.Api --urls http://localhost:5080
 ```
 
 프런트엔드:
 
 ```powershell
-pnpm install
-pnpm --filter emi-qms-frontend run dev
+corepack pnpm install
+corepack pnpm --filter emi-qms-frontend run dev
 ```
 
 ### 검증 명령
@@ -100,10 +113,10 @@ dotnet test backend\Emi.Qms.sln
 프런트엔드:
 
 ```powershell
-pnpm --filter emi-qms-frontend run lint
-pnpm --filter emi-qms-frontend run typecheck
-pnpm --filter emi-qms-frontend test
-pnpm --filter emi-qms-frontend run build
+corepack pnpm --filter emi-qms-frontend run lint
+corepack pnpm --filter emi-qms-frontend run typecheck
+corepack pnpm --filter emi-qms-frontend test
+corepack pnpm --filter emi-qms-frontend run build
 ```
 
 ### Health endpoint

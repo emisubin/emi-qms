@@ -1,0 +1,5 @@
+{
+  "name": "emi-qms",
+  "private": true,
+  "packageManager": "pnpm@11.8.0"
+}

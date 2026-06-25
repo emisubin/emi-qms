@@ -5,7 +5,8 @@ Date: 2026-06-22
 The initial development environment uses these supported stable lines:
 
 - .NET 10 LTS for the ASP.NET Core Web API.
-- Node.js 24 LTS for the frontend toolchain.
+- Node.js 24.18.0 LTS for the frontend toolchain, pinned by `.node-version`.
+- pnpm 11.8.0 via Corepack, pinned by the root `package.json` `packageManager`.
 - React 19.2 for the frontend UI.
 - PostgreSQL 18 for local relational storage.
 - Npgsql 10 for PostgreSQL access from the backend health check.

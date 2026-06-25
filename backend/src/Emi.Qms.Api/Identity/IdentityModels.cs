@@ -37,7 +37,7 @@ public sealed record UserAuthorizationProfile(
 
     public bool CanAccessProject(string projectKey)
     {
-        return HasPermission(QmsPermissions.ProjectAccessAll)
+        return HasPermission(QmsPermissions.ProjectReadAll)
             || ProjectAccess.Any(project => string.Equals(project.ProjectKey, projectKey, StringComparison.Ordinal));
     }
 }

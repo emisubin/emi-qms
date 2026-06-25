@@ -1,53 +1,31 @@
 # 3. 상태 모델
 
-## 제품 상태
-
-```mermaid
-stateDiagram-v2
-    [*] --> Registered
-    Registered --> DesignPending
-    DesignPending --> DesignReleased
-    DesignReleased --> MaterialPreparing
-    MaterialPreparing --> ProductionPlanned
-    ProductionPlanned --> InProduction
-    InProduction --> ProductionCompleted
-    ProductionCompleted --> InspectionPending
-    InspectionPending --> Inspecting
-    Inspecting --> QualityApproved: all conforming
-    Inspecting --> Nonconforming: NCR opened
-    Nonconforming --> CorrectiveAction
-    CorrectiveAction --> ReinspectionPending
-    ReinspectionPending --> Inspecting
-    QualityApproved --> Packing
-    Packing --> Packed
-    Packed --> Dispatched
-    Dispatched --> Delivered
-    Delivered --> SalesConfirmed
-    SalesConfirmed --> Closed
-```
-
-## 예외 상태
-
-- OnHold: 보류
-- Cancelled: 취소
-- EmergencyStop: 긴급 중단
-- DesignChangePending: 설계변경 대기
-
-예외 상태 진입·해제에는 사유, 처리자, 일시, 필요 시 승인자를 기록합니다.
-
-## 통제 규칙
-
-- 설계 출도 전 생산 시작은 원칙적으로 불가합니다.
-- 생산 완료 전 최종 품질검사는 불가합니다.
-- 열린 NCR이 있으면 품질 승인 불가입니다.
-- 품질 승인 전 포장 완료·출발 처리는 불가합니다.
-- 포장 완료 전 출발 처리는 불가합니다.
-- 납품 증빙 전 납품 완료 처리는 불가합니다.
-- 영업 확인 전 제품 종료는 불가합니다.
-- 상태 전이는 서버가 검증하며 클라이언트가 임의로 상태값을 지정하지 못합니다.
-
 ## 프로젝트 상태
 
-등록, 진행예정, 진행중, 일부출하, 전량출하, 완료, 보류, 취소.
+- Project Active: 진행 가능한 기본 상태
+- Project On Hold: 영업이 보류 처리한 상태
+- Project Cancelled: 영업이 취소 처리한 상태
+- Project Completed: 모든 필수 완료조건 충족 상태
 
-프로젝트 상태는 하위 제품 상태를 바탕으로 자동 계산하는 것을 기본으로 합니다.
+보류·취소 상태가 되면 해당 프로젝트의 모든 진행 중 업무를 중단합니다. 보류·취소 상태에서도 기존 입력 데이터는 조회할 수 있습니다.
+
+## 업무 단계 상태
+
+각 업무단계의 정확한 시작조건, 완료조건, 차단조건, 뒤 단계가 이미 시작된 경우의 영향은 해당 TASK 시작 전에 확정합니다. 현재 문서는 엄격한 순차 상태전이를 확정하지 않습니다.
+
+확정된 제조 원칙은 다음과 같습니다.
+
+- 제조단계는 10개입니다.
+- 단계 순서는 강제하지 않습니다.
+- 한 제품에서 여러 제조단계가 동시에 진행될 수 있습니다.
+- 종료 결과는 단계 완료 또는 작업 중단입니다.
+- 작업 중단에는 사유가 필수입니다.
+
+## 진행률
+
+- 화면에는 퍼센트만 표시하고 완료 수 / 전체 수는 숨깁니다.
+- 내부적으로 적용된 체크리스트의 완료비율로 계산합니다.
+- 면수가 늘어나면 제품별 단계가 분모에 추가됩니다.
+- 완료 상태만 진행률에 반영하고, 진행 중·중단은 반영하지 않습니다.
+- 취소 제품과 승인된 해당 없음 항목은 분모에서 제외합니다.
+- 프로젝트 전체 완료조건 충족 전에는 최대 99%로 표시하고, 모든 필수 항목 완료 시 100%가 됩니다.

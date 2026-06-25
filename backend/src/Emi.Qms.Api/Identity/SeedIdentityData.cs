@@ -34,7 +34,10 @@ public static class SeedIdentityData
         new(new Guid("30000000-0000-0000-0000-000000000006"), QmsPermissions.QualityInspect, "Record quality inspection"),
         new(new Guid("30000000-0000-0000-0000-000000000007"), QmsPermissions.QualityApprove, "Approve quality release"),
         new(new Guid("30000000-0000-0000-0000-000000000008"), QmsPermissions.LogisticsShip, "Manage packing and shipping"),
-        new(new Guid("30000000-0000-0000-0000-000000000009"), QmsPermissions.UsersManage, "Manage users and roles")
+        new(new Guid("30000000-0000-0000-0000-000000000009"), QmsPermissions.UsersManage, "Manage users and roles"),
+        new(new Guid("30000000-0000-0000-0000-000000000010"), QmsPermissions.ProjectReadAll, "Read all projects"),
+        new(new Guid("30000000-0000-0000-0000-000000000011"), QmsPermissions.ProjectSalesAmountRead, "Read project sales amounts"),
+        new(new Guid("30000000-0000-0000-0000-000000000012"), QmsPermissions.ManufacturingWorkTimeRead, "Read manufacturing work time")
     ];
 
     public static readonly IReadOnlyList<QmsProject> Projects =
@@ -64,19 +67,54 @@ public static class SeedIdentityData
                 QmsPermissions.ProjectRead,
                 QmsPermissions.ProjectManage,
                 QmsPermissions.ProjectAccessAll,
+                QmsPermissions.ProjectReadAll,
+                QmsPermissions.ProjectSalesAmountRead,
                 QmsPermissions.ProductionPlan,
                 QmsPermissions.ManufacturingUpdate,
+                QmsPermissions.ManufacturingWorkTimeRead,
                 QmsPermissions.QualityInspect,
                 QmsPermissions.QualityApprove,
                 QmsPermissions.LogisticsShip,
                 QmsPermissions.UsersManage
             ],
-            [QmsRoles.Sales] = [QmsPermissions.ProjectRead, QmsPermissions.ProjectManage],
-            [QmsRoles.ProductionPlanning] = [QmsPermissions.ProjectRead, QmsPermissions.ProductionPlan],
-            [QmsRoles.Manufacturing] = [QmsPermissions.ProjectRead, QmsPermissions.ManufacturingUpdate],
-            [QmsRoles.Quality] = [QmsPermissions.ProjectRead, QmsPermissions.QualityInspect, QmsPermissions.QualityApprove],
-            [QmsRoles.Logistics] = [QmsPermissions.ProjectRead, QmsPermissions.LogisticsShip],
-            [QmsRoles.ReadOnly] = [QmsPermissions.ProjectRead]
+            [QmsRoles.Sales] =
+            [
+                QmsPermissions.ProjectRead,
+                QmsPermissions.ProjectManage,
+                QmsPermissions.ProjectReadAll,
+                QmsPermissions.ProjectSalesAmountRead,
+                QmsPermissions.ManufacturingWorkTimeRead
+            ],
+            [QmsRoles.ProductionPlanning] =
+            [
+                QmsPermissions.ProjectRead,
+                QmsPermissions.ProjectReadAll,
+                QmsPermissions.ProductionPlan
+            ],
+            [QmsRoles.Manufacturing] =
+            [
+                QmsPermissions.ProjectRead,
+                QmsPermissions.ProjectReadAll,
+                QmsPermissions.ManufacturingUpdate
+            ],
+            [QmsRoles.Quality] =
+            [
+                QmsPermissions.ProjectRead,
+                QmsPermissions.ProjectReadAll,
+                QmsPermissions.QualityInspect,
+                QmsPermissions.QualityApprove
+            ],
+            [QmsRoles.Logistics] =
+            [
+                QmsPermissions.ProjectRead,
+                QmsPermissions.ProjectReadAll,
+                QmsPermissions.LogisticsShip
+            ],
+            [QmsRoles.ReadOnly] =
+            [
+                QmsPermissions.ProjectRead,
+                QmsPermissions.ProjectReadAll
+            ]
         };
 
     public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> UserRoles =

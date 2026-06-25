@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+env:
+  # Non-secret disposable credential used only by this workflow's PostgreSQL service.
+  CI_DATABASE_PASSWORD: local_only_change_me
+
 jobs:
   backend:
     name: Backend
@@ -15,14 +19,14 @@ jobs:
       DATABASE_PORT: 5432
       DATABASE_NAME: emi_qms_dev
       DATABASE_USER: emi_qms
-      DATABASE_PASSWORD: local_only_change_me
+      DATABASE_PASSWORD: ${{ env.CI_DATABASE_PASSWORD }}
     services:
       postgres:
         image: postgres:18.4
         env:
           POSTGRES_DB: emi_qms_dev
           POSTGRES_USER: emi_qms
-          POSTGRES_PASSWORD: local_only_change_me
+          POSTGRES_PASSWORD: ${{ env.CI_DATABASE_PASSWORD }}
         ports:
           - 5432:5432
         options: >-
@@ -49,7 +53,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .node-version
       - name: Enable pnpm
         run: |
           corepack enable

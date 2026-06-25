@@ -47,11 +47,11 @@ infrastructure/  로컬·Azure 배포 구성
 
 - Git
 - .NET SDK 10 LTS
-- Node.js 24 LTS
-- pnpm 11 via Corepack
+- Node.js 24.18.0 LTS
+- pnpm 11.8.0 via Corepack
 - Docker Desktop 또는 Docker Compose 호환 런타임
 
-Node.js 설치 후 pnpm은 Corepack으로 실행합니다.
+Node.js 버전은 `.node-version`, pnpm 버전은 루트 `package.json`의 `packageManager`로 고정합니다. Node.js 설치 후 pnpm은 Corepack으로 실행합니다.
 
 ```powershell
 corepack enable
@@ -68,6 +68,7 @@ Copy-Item .env.example .env
 스크립트는 PostgreSQL 컨테이너를 시작하고, 백엔드는 `http://localhost:5080`, 프런트엔드는 `http://localhost:5173`에서 실행합니다.
 
 Development 환경에서는 `.env.example`의 명시적 설정으로 TASK-002의 개발용 인증과 개발 데이터 seeding이 활성화됩니다. 프런트엔드는 `VITE_DEV_USER_KEY` 값이 없으면 `dev-admin`으로 `/api/me`를 호출합니다.
+TASK-002A 기준으로 모든 활성 내부 개발 역할과 `dev-viewer`는 `Project.Read.All`을 통해 두 demo 프로젝트를 모두 조회할 수 있습니다.
 
 ### 전체 종료
 
@@ -100,7 +101,7 @@ dotnet run --project src\Emi.Qms.Api --urls http://localhost:5080
 프런트엔드:
 
 ```powershell
-corepack pnpm install
+corepack pnpm install --frozen-lockfile
 corepack pnpm --filter emi-qms-frontend run dev
 ```
 
@@ -110,13 +111,14 @@ corepack pnpm --filter emi-qms-frontend run dev
 
 ```powershell
 dotnet restore backend\Emi.Qms.sln
-dotnet build backend\Emi.Qms.sln
-dotnet test backend\Emi.Qms.sln
+dotnet build backend\Emi.Qms.sln --configuration Release --no-restore
+dotnet test backend\Emi.Qms.sln --configuration Release --no-build
 ```
 
 프런트엔드:
 
 ```powershell
+corepack pnpm install --frozen-lockfile
 corepack pnpm --filter emi-qms-frontend run lint
 corepack pnpm --filter emi-qms-frontend run typecheck
 corepack pnpm --filter emi-qms-frontend test

@@ -37,7 +37,7 @@ public sealed class ProjectAccessAuthorizationHandler(IAuthorizationAuditLogger 
                 CancellationToken.None);
         }
 
-        if (context.User.HasClaim(QmsClaimTypes.Permission, Identity.QmsPermissions.ProjectAccessAll)
+        if (context.User.HasClaim(QmsClaimTypes.Permission, Identity.QmsPermissions.ProjectReadAll)
             || context.User.HasClaim(QmsClaimTypes.Project, projectKey))
         {
             context.Succeed(requirement);

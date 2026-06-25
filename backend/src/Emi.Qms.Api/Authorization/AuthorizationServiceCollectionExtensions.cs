@@ -30,6 +30,30 @@ public static class AuthorizationServiceCollectionExtensions
                     new ProjectAccessRequirement());
             });
 
+            options.AddPolicy(QmsPolicies.ProjectManage, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectManage));
+            });
+
+            options.AddPolicy(QmsPolicies.ManufacturingUpdate, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ManufacturingUpdate));
+            });
+
+            options.AddPolicy(QmsPolicies.ProjectSalesAmountRead, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectSalesAmountRead));
+            });
+
+            options.AddPolicy(QmsPolicies.ManufacturingWorkTimeRead, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ManufacturingWorkTimeRead));
+            });
+
             options.AddPolicy(QmsPolicies.AdminUsersRead, policy =>
             {
                 policy.RequireAuthenticatedUser();

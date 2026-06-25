@@ -27,10 +27,159 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(7, counts.Roles);
-        Assert.Equal(9, counts.Permissions);
+        Assert.Equal(12, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
 
         await AssertCoreConstraintsExistAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task SchemaMigration_AssignsConfirmedProjectAndSensitivePermissions()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+        var runner = CreateMigrationRunner(database.RepositoryRoot, connectionStringProvider);
+
+        await runner.ApplyAsync(TestContext.Current.CancellationToken);
+
+        await AssertPermissionScopeAlignmentAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task PermissionScopeAlignmentMigration_AppliesAfterExisting0001WithoutDataLossOrDuplicates()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0001_identity_authorization_foundation.sql"),
+            TestContext.Current.CancellationToken);
+
+        var connectionString = connectionStringProvider.GetConnectionString();
+        Assert.False(string.IsNullOrWhiteSpace(connectionString));
+
+        await using (var dataSource = NpgsqlDataSource.Create(connectionString))
+        {
+            await using var command = dataSource.CreateCommand("""
+                insert into departments (id, code, name)
+                values ('70000000-0000-0000-0000-000000000001', 'existing-test', 'Existing Test')
+                on conflict (code) do nothing;
+
+                insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+                values (
+                    '70000000-0000-0000-0000-000000000002',
+                    'existing-user',
+                    'Existing User',
+                    '70000000-0000-0000-0000-000000000001',
+                    true
+                )
+                on conflict (development_user_key) do nothing;
+
+                insert into projects (id, project_key, project_number, name)
+                values (
+                    '70000000-0000-0000-0000-000000000003',
+                    'existing-project',
+                    'EXISTING-001',
+                    'Existing Project'
+                )
+                on conflict (project_key) do nothing;
+
+                insert into user_project_access (user_id, project_id)
+                values (
+                    '70000000-0000-0000-0000-000000000002',
+                    '70000000-0000-0000-0000-000000000003'
+                )
+                on conflict do nothing;
+                """);
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0002_permission_scope_alignment.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0002_permission_scope_alignment.sql"),
+            TestContext.Current.CancellationToken);
+
+        await AssertPermissionScopeAlignmentAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertExistingRowsPreservedAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertNoDuplicateRolePermissionsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task PermissionScopeAlignmentMigration_RemovesSingleSensitivePermissionFromDisallowedRoles()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0001_identity_authorization_foundation.sql"),
+            TestContext.Current.CancellationToken);
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into roles (id, code, name)
+            values ('70000000-0000-0000-0000-000000000004', 'production-management', 'Production Management')
+            on conflict (code) do nothing;
+            """,
+            TestContext.Current.CancellationToken);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0002_permission_scope_alignment.sql"),
+            TestContext.Current.CancellationToken);
+        await AssertPermissionScopeAlignmentAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into role_permissions (role_id, permission_id)
+            select roles.id, permissions.id
+            from roles
+            join permissions on permissions.code = 'Project.SalesAmount.Read'
+            where roles.code = 'manufacturing'
+            on conflict do nothing;
+
+            insert into role_permissions (role_id, permission_id)
+            select roles.id, permissions.id
+            from roles
+            join permissions on permissions.code = 'Manufacturing.WorkTime.Read'
+            where roles.code = 'production-management'
+            on conflict do nothing;
+            """,
+            TestContext.Current.CancellationToken);
+
+        var contaminated = await ReadDisallowedSensitivePermissionAssignmentsAsync(
+            connectionStringProvider,
+            TestContext.Current.CancellationToken);
+        Assert.Contains(
+            new SensitivePermissionAssignment("manufacturing", "Project.SalesAmount.Read"),
+            contaminated);
+        Assert.Contains(
+            new SensitivePermissionAssignment("production-management", "Manufacturing.WorkTime.Read"),
+            contaminated);
+
+        var exception = await Record.ExceptionAsync(() =>
+            AssertNoDisallowedSensitivePermissionsAsync(
+                connectionStringProvider,
+                TestContext.Current.CancellationToken));
+        Assert.NotNull(exception);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0002_permission_scope_alignment.sql"),
+            TestContext.Current.CancellationToken);
+
+        await AssertPermissionScopeAlignmentAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertNoDuplicateRolePermissionsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
     }
 
     [Theory]
@@ -178,6 +327,196 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(6L, value);
     }
 
+    private static async Task ApplyMigrationFileAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        string migrationFile,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString();
+        Assert.False(string.IsNullOrWhiteSpace(connectionString));
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var command = dataSource.CreateCommand(await File.ReadAllTextAsync(migrationFile, cancellationToken));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task ExecuteSqlAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        string commandText,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString();
+        Assert.False(string.IsNullOrWhiteSpace(connectionString));
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var command = dataSource.CreateCommand(commandText);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task AssertPermissionScopeAlignmentAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString();
+        Assert.False(string.IsNullOrWhiteSpace(connectionString));
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+
+        await using (var command = dataSource.CreateCommand("""
+            select roles.code
+            from roles
+            where roles.code in (
+                'system-administrator',
+                'sales',
+                'production-planning',
+                'manufacturing',
+                'quality',
+                'logistics',
+                'read-only'
+            )
+            except
+            select roles.code
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'Project.Read.All'
+            order by code;
+            """))
+        {
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            Assert.False(await reader.ReadAsync(cancellationToken));
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select roles.code
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code in ('Project.SalesAmount.Read', 'Manufacturing.WorkTime.Read')
+            group by roles.code
+            having count(distinct permissions.code) = 2
+            order by roles.code;
+            """))
+        {
+            var allowedRoles = new List<string>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                allowedRoles.Add(reader.GetString(0));
+            }
+
+            Assert.Equal(["sales", "system-administrator"], allowedRoles);
+        }
+
+        await AssertNoDisallowedSensitivePermissionsAsync(connectionStringProvider, cancellationToken);
+
+        await using (var command = dataSource.CreateCommand("""
+            select count(*)
+            from qms_users
+            where development_user_key like 'dev-%';
+            """))
+        {
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            Assert.Equal(0L, value);
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select count(*)
+            from projects
+            where project_key like 'demo-%';
+            """))
+        {
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            Assert.Equal(0L, value);
+        }
+    }
+
+    private static async Task AssertNoDisallowedSensitivePermissionsAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        var disallowed = await ReadDisallowedSensitivePermissionAssignmentsAsync(
+            connectionStringProvider,
+            cancellationToken);
+
+        Assert.Empty(disallowed);
+    }
+
+    private static async Task<IReadOnlyList<SensitivePermissionAssignment>> ReadDisallowedSensitivePermissionAssignmentsAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString();
+        Assert.False(string.IsNullOrWhiteSpace(connectionString));
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var command = dataSource.CreateCommand("""
+            select roles.code, permissions.code
+            from role_permissions
+            join roles on roles.id = role_permissions.role_id
+            join permissions on permissions.id = role_permissions.permission_id
+            where roles.code not in ('system-administrator', 'sales')
+              and permissions.code in (
+                  'Project.SalesAmount.Read',
+                  'Manufacturing.WorkTime.Read'
+              )
+            order by roles.code, permissions.code;
+            """);
+
+        var assignments = new List<SensitivePermissionAssignment>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            assignments.Add(new SensitivePermissionAssignment(reader.GetString(0), reader.GetString(1)));
+        }
+
+        return assignments;
+    }
+
+    private static async Task AssertExistingRowsPreservedAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString();
+        Assert.False(string.IsNullOrWhiteSpace(connectionString));
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var command = dataSource.CreateCommand("""
+            select
+                (select count(*) from qms_users where development_user_key = 'existing-user') as user_count,
+                (select count(*) from projects where project_key = 'existing-project') as project_count,
+                (select count(*) from user_project_access) as project_access_count;
+            """);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        Assert.True(await reader.ReadAsync(cancellationToken));
+        Assert.Equal(1L, reader.GetInt64(0));
+        Assert.Equal(1L, reader.GetInt64(1));
+        Assert.Equal(1L, reader.GetInt64(2));
+    }
+
+    private static async Task AssertNoDuplicateRolePermissionsAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString();
+        Assert.False(string.IsNullOrWhiteSpace(connectionString));
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var command = dataSource.CreateCommand("""
+            select count(*)
+            from (
+                select role_id, permission_id
+                from role_permissions
+                group by role_id, permission_id
+                having count(*) > 1
+            ) duplicated_role_permissions;
+            """);
+
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        Assert.Equal(0L, value);
+    }
+
     private sealed record DatabaseCounts(
         long Users,
         long Departments,
@@ -187,6 +526,8 @@ public sealed class PostgreSqlMigrationTests
         long Permissions,
         long RolePermissions,
         long DisabledUsers);
+
+    private sealed record SensitivePermissionAssignment(string RoleCode, string PermissionCode);
 
     private sealed class PostgreSqlTestDatabase : IAsyncDisposable
     {

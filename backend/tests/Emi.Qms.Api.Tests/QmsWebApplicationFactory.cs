@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Emi.Qms.Api.Identity;
 
 namespace Emi.Qms.Api.Tests;
 
@@ -10,6 +12,7 @@ public sealed class QmsWebApplicationFactory : WebApplicationFactory<Program>
     private readonly string environment;
     private readonly IReadOnlyDictionary<string, string?>? configuration;
     private readonly bool includeDefaultDevelopmentAuthentication;
+    private readonly IIdentityStore? identityStore;
 
     public TestLogSink Logs { get; } = new();
 
@@ -29,19 +32,22 @@ public sealed class QmsWebApplicationFactory : WebApplicationFactory<Program>
     private QmsWebApplicationFactory(
         string environment,
         IReadOnlyDictionary<string, string?>? configuration = null,
-        bool includeDefaultDevelopmentAuthentication = false)
+        bool includeDefaultDevelopmentAuthentication = false,
+        IIdentityStore? identityStore = null)
     {
         this.environment = environment;
         this.configuration = configuration;
         this.includeDefaultDevelopmentAuthentication = includeDefaultDevelopmentAuthentication;
+        this.identityStore = identityStore;
     }
 
     public static QmsWebApplicationFactory Create(
         string environment,
         IReadOnlyDictionary<string, string?>? configuration = null,
-        bool includeDefaultDevelopmentAuthentication = false)
+        bool includeDefaultDevelopmentAuthentication = false,
+        IIdentityStore? identityStore = null)
     {
-        return new QmsWebApplicationFactory(environment, configuration, includeDefaultDevelopmentAuthentication);
+        return new QmsWebApplicationFactory(environment, configuration, includeDefaultDevelopmentAuthentication, identityStore);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -76,6 +82,16 @@ public sealed class QmsWebApplicationFactory : WebApplicationFactory<Program>
         {
             logging.AddProvider(new TestLoggerProvider(Logs));
         });
+
+        if (identityStore is not null)
+        {
+            builder.ConfigureServices(services =>
+            {
+                var descriptor = services.Single(service => service.ServiceType == typeof(IIdentityStore));
+                services.Remove(descriptor);
+                services.AddSingleton(identityStore);
+            });
+        }
     }
 }
 

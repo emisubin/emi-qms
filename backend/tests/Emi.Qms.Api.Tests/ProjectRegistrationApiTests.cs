@@ -1,9 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Data;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.Projects;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Npgsql;
 using Xunit;
@@ -28,6 +31,7 @@ public sealed class ProjectRegistrationApiTests
         var projectId = root.GetProperty("projectId").GetGuid();
         Assert.Equal("TASK-003A-CREATE", root.GetProperty("projectCode").GetString());
         Assert.Equal("TASK 003A Create", root.GetProperty("projectTitle").GetString());
+        Assert.Equal("WoodenCrate", root.GetProperty("packagingMethod").GetString());
         Assert.Equal(4, root.GetProperty("activePanelCount").GetInt32());
         Assert.Equal(1250000.50m, root.GetProperty("salesAmount").GetDecimal());
         Assert.Equal("KRW", root.GetProperty("currencyCode").GetString());
@@ -153,6 +157,7 @@ public sealed class ProjectRegistrationApiTests
                 ProjectTitle = "Audit Sensitive",
                 DeliveryDate = "2026-10-10",
                 SalesOwnerUserId,
+                PackagingMethod = "WoodenCrate",
                 SalesAmount = 777m,
                 CurrencyCode = "KRW",
                 DeliveryLocation = "Audit Dock",
@@ -172,6 +177,109 @@ public sealed class ProjectRegistrationApiTests
             item.TryGetProperty("fieldName", out var fieldName) && fieldName.GetString() == "SalesAmount");
         Assert.DoesNotContain(manufacturingJson.RootElement.GetProperty("items").EnumerateArray(), item =>
             item.TryGetProperty("fieldName", out var fieldName) && fieldName.GetString() == "SalesAmount");
+    }
+
+    [Fact]
+    public async Task CreateAndUpdateProject_ValidatePackagingMethodAndAuditChanges()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+        using var manufacturingClient = context.CreateClient("dev-manufacturing");
+
+        var missing = await client.PostAsJsonAsync(
+            "/api/projects",
+            NewProjectRequest("PACK-MISSING", "Packaging Missing") with { PackagingMethod = null },
+            TestContext.Current.CancellationToken);
+        var invalid = await client.PostAsJsonAsync(
+            "/api/projects",
+            NewProjectRequest("PACK-BAD", "Packaging Bad") with { PackagingMethod = "LooseBox" },
+            TestContext.Current.CancellationToken);
+        var wooden = await client.PostAsJsonAsync(
+            "/api/projects",
+            NewProjectRequest("PACK-WOOD", "Packaging Wood") with { PackagingMethod = "WoodenCrate" },
+            TestContext.Current.CancellationToken);
+        var wrap = await client.PostAsJsonAsync(
+            "/api/projects",
+            NewProjectRequest("PACK-WRAP", "Packaging Wrap") with { PackagingMethod = "StretchWrap" },
+            TestContext.Current.CancellationToken);
+        var box = await client.PostAsJsonAsync(
+            "/api/projects",
+            NewProjectRequest("PACK-BOX", "Packaging Box") with { PackagingMethod = "HeavyDutyBox" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, wooden.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, wrap.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, box.StatusCode);
+
+        using var createdJson = await ReadJsonAsync(wooden);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var updateByManufacturing = await manufacturingClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}",
+            NewUpdateProjectRequest("PACK-WOOD", "Packaging Wood") with { PackagingMethod = "StretchWrap" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, updateByManufacturing.StatusCode);
+
+        var update = await client.PatchAsJsonAsync(
+            $"/api/projects/{projectId}",
+            NewUpdateProjectRequest("PACK-WOOD", "Packaging Wood") with { PackagingMethod = "StretchWrap" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+
+        Assert.Equal(1, await CountAuditFieldChangesAsync(client, projectId, "PackagingMethod"));
+    }
+
+    [Fact]
+    public async Task ExistingPackagingNullProject_CanBeReadButRequiresPackagingOnGeneralUpdate()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+
+        await context.ExecuteSqlAsync("""
+            insert into projects (
+                id,
+                project_key,
+                project_number,
+                name,
+                customer_name,
+                item,
+                project_code,
+                project_title,
+                project_title_normalized,
+                delivery_date,
+                sales_owner_user_id,
+                status
+            )
+            values (
+                '73000000-0000-0000-0000-000000000001',
+                'legacy-null-packaging',
+                'LEGACY-PACK',
+                'Legacy Packaging Null',
+                'Legacy Customer',
+                'Legacy Item',
+                'LEGACY-PACK',
+                'Legacy Packaging Null',
+                'LEGACY PACKAGING NULL',
+                '2026-10-10',
+                '50000000-0000-0000-0000-000000000002',
+                'Active'
+            );
+            """);
+
+        var detail = await client.GetAsync(
+            "/api/projects/73000000-0000-0000-0000-000000000001",
+            TestContext.Current.CancellationToken);
+        var updateWithoutPackaging = await client.PatchAsJsonAsync(
+            "/api/projects/73000000-0000-0000-0000-000000000001",
+            NewUpdateProjectRequest("LEGACY-PACK", "Legacy Packaging Null") with { PackagingMethod = null },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        using var json = await ReadJsonAsync(detail);
+        Assert.Equal(JsonValueKind.Null, json.RootElement.GetProperty("packagingMethod").ValueKind);
+        Assert.Equal(HttpStatusCode.BadRequest, updateWithoutPackaging.StatusCode);
     }
 
     [Fact]
@@ -530,6 +638,408 @@ public sealed class ProjectRegistrationApiTests
         Assert.Equal(1, await CountAuditActionsAsync(createClient, projectId, "ProjectReactivated"));
     }
 
+    [Fact]
+    public async Task CancelledProjects_AreShownInCancelledListButDeletedCancelledProjectsAreExcluded()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var manufacturingClient = context.CreateClient("dev-manufacturing");
+        using var created = await CreateProjectAsync(salesClient, "CANCEL-LIST", "Cancelled List Project", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var cancel = await salesClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/cancel",
+            new { Reason = "취소 목록 검증" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, cancel.StatusCode);
+
+        var cancelledList = await manufacturingClient.GetAsync("/api/projects?status=Cancelled", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, cancelledList.StatusCode);
+        using (var json = await ReadJsonAsync(cancelledList))
+        {
+            Assert.Contains(json.RootElement.GetProperty("items").EnumerateArray(), item =>
+                item.GetProperty("projectId").GetGuid() == projectId);
+        }
+
+        var delete = await salesClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "오등록 정리", ConfirmProjectTitle = " cancelled   list project " },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, delete.StatusCode);
+
+        var afterDelete = await manufacturingClient.GetAsync("/api/projects?status=Cancelled", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, afterDelete.StatusCode);
+        using var afterJson = await ReadJsonAsync(afterDelete);
+        Assert.DoesNotContain(afterJson.RootElement.GetProperty("items").EnumerateArray(), item =>
+            item.GetProperty("projectId").GetGuid() == projectId);
+    }
+
+    [Theory]
+    [InlineData("dev-admin")]
+    [InlineData("dev-manufacturing")]
+    [InlineData("dev-viewer")]
+    public async Task DeleteProject_AllowsOnlySales(string developmentUserKey)
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var client = context.CreateClient(developmentUserKey);
+        using var created = await CreateProjectAsync(salesClient, $"DELETE-FORBID-{developmentUserKey}", $"Delete Forbidden {developmentUserKey}", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "권한 없음", ConfirmProjectTitle = $"Delete Forbidden {developmentUserKey}" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteProject_SoftDeletesKeepsPanelsAndAllowsTitleReuse()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
+        using var manufacturingClient = context.CreateClient("dev-manufacturing");
+        using var created = await CreateProjectAsync(salesClient, "DELETE-001", "Delete Reusable Title", 2);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var missingReason = await salesClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "", ConfirmProjectTitle = "Delete Reusable Title" },
+            TestContext.Current.CancellationToken);
+        var mismatchTitle = await salesClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "오등록", ConfirmProjectTitle = "Wrong Title" },
+            TestContext.Current.CancellationToken);
+        var delete = await salesClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "오등록 프로젝트 정리", ConfirmProjectTitle = " delete   reusable   title " },
+            TestContext.Current.CancellationToken);
+        var duplicateDelete = await salesClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "중복 삭제", ConfirmProjectTitle = "Delete Reusable Title" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, missingReason.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, mismatchTitle.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, delete.StatusCode);
+        Assert.True(duplicateDelete.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Conflict);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await salesClient.GetAsync($"/api/projects/{projectId}", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await salesClient.GetAsync($"/api/projects/{projectId}/panels", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await manufacturingClient.GetAsync("/api/deleted-projects", TestContext.Current.CancellationToken)).StatusCode);
+
+        var deletedBySales = await salesClient.GetAsync("/api/deleted-projects?search=Reusable", TestContext.Current.CancellationToken);
+        var deletedByAdmin = await adminClient.GetAsync($"/api/deleted-projects/{projectId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, deletedBySales.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, deletedByAdmin.StatusCode);
+
+        using (var deletedJson = await ReadJsonAsync(deletedByAdmin))
+        {
+            Assert.Equal("오등록 프로젝트 정리", deletedJson.RootElement.GetProperty("deleteReason").GetString());
+            Assert.Equal(2, deletedJson.RootElement.GetProperty("panels").GetArrayLength());
+            Assert.Contains(deletedJson.RootElement.GetProperty("auditHistory").EnumerateArray(), item =>
+                item.GetProperty("action").GetString() == "ProjectDeleted");
+        }
+
+        var updateDeleted = await salesClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}",
+            NewUpdateProjectRequest("DELETE-001", "Delete Reusable Title"),
+            TestContext.Current.CancellationToken);
+        var changePanelDeleted = await salesClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/change-panel-count",
+            NewPanelCountRequest(3, 2, [], "삭제 후 면수변경"),
+            TestContext.Current.CancellationToken);
+        var holdDeleted = await salesClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/hold",
+            new { Reason = "삭제 후 보류" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, updateDeleted.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, changePanelDeleted.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, holdDeleted.StatusCode);
+
+        var reuse = await CreateProjectAsync(salesClient, "DELETE-REUSE", "Delete Reusable Title", 1);
+        Assert.Equal(HttpStatusCode.Created, reuse.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteProject_AllowedGuardRunsInsideDeletionTransactionAndUsesDatabaseTimestamp()
+    {
+        var guard = new RecordingDeletionGuard(ProjectDeletionGuardResult.Allowed());
+        await using var context = await ProjectApiTestContext.CreateAsync(services =>
+            services.AddSingleton<IProjectDeletionGuard>(guard));
+        using var client = context.CreateClient("dev-sales");
+        using var created = await CreateProjectAsync(client, "DELETE-GUARD-ALLOW", "Delete Guard Allow", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var delete = await client.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "Guard 허용", ConfirmProjectTitle = "Delete Guard Allow" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, delete.StatusCode);
+        Assert.True(guard.WasCalled);
+        Assert.True(guard.ReceivedOpenConnection);
+        Assert.True(guard.ReceivedOpenTransaction);
+        Assert.Equal(projectId, guard.ObservedProjectId);
+        var snapshot = await context.ReadDeletionSnapshotAsync(projectId);
+        var auditDeletedAt = await context.ReadDeletedAtAuditValueAsync(projectId);
+        using var deleteJson = await ReadJsonAsync(delete);
+        var responseDeletedAt = deleteJson.RootElement.GetProperty("deletedAtUtc").GetDateTimeOffset();
+
+        Assert.NotNull(snapshot.DeletedAtUtc);
+        Assert.Equal(snapshot.DeletedAtUtc.Value.ToUniversalTime(), auditDeletedAt!.Value.ToUniversalTime());
+        Assert.Equal(snapshot.DeletedAtUtc.Value.ToUniversalTime(), responseDeletedAt.ToUniversalTime());
+        Assert.Equal(1, await context.CountAuditActionAsync(projectId, "ProjectDeleted"));
+    }
+
+    [Fact]
+    public async Task DeleteProject_BlockedGuardRollsBackAndKeepsProjectData()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync(services =>
+            services.AddSingleton<IProjectDeletionGuard>(
+                new RecordingDeletionGuard(ProjectDeletionGuardResult.Blocked("test-blocked"))));
+        using var client = context.CreateClient("dev-sales");
+        using var created = await CreateProjectAsync(client, "DELETE-GUARD-BLOCK", "Delete Guard Block", 2);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var delete = await client.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "Guard 차단", ConfirmProjectTitle = "Delete Guard Block" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Conflict, delete.StatusCode);
+        var snapshot = await context.ReadDeletionSnapshotAsync(projectId);
+        Assert.Null(snapshot.DeletedAtUtc);
+        Assert.Null(snapshot.DeletedByUserId);
+        Assert.Null(snapshot.DeleteReason);
+        Assert.Equal(2, snapshot.ActivePanelCount);
+        Assert.Equal(2, snapshot.TotalPanelCount);
+        Assert.Equal(0, await context.CountAuditActionAsync(projectId, "ProjectDeleted"));
+    }
+
+    [Fact]
+    public async Task DeleteProject_GuardExceptionDoesNotCommitDeletionMetadataOrAudit()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync(services =>
+            services.AddSingleton<IProjectDeletionGuard>(new ThrowingDeletionGuard()));
+        using var client = context.CreateClient("dev-sales");
+        using var created = await CreateProjectAsync(client, "DELETE-GUARD-THROW", "Delete Guard Throw", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var exception = await Record.ExceptionAsync(async () =>
+        {
+            using var delete = await client.PostAsJsonAsync(
+                $"/api/projects/{projectId}/delete",
+                new { Reason = "Guard 예외", ConfirmProjectTitle = "Delete Guard Throw" },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Conflict, delete.StatusCode);
+            var body = await delete.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.DoesNotContain("InvalidOperationException", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("test guard failure", body, StringComparison.OrdinalIgnoreCase);
+        });
+
+        Assert.Null(exception);
+        var snapshot = await context.ReadDeletionSnapshotAsync(projectId);
+        Assert.Null(snapshot.DeletedAtUtc);
+        Assert.Null(snapshot.DeletedByUserId);
+        Assert.Null(snapshot.DeleteReason);
+        Assert.Equal(0, await context.CountAuditActionAsync(projectId, "ProjectDeleted"));
+    }
+
+    [Fact]
+    public async Task DeleteProject_BlocksCompletedAndNonDeletedTitleDuplicatesRemainBlocked()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+        using var cancelled = await CreateProjectAsync(client, "TITLE-CANCEL", "Title Still Reserved Cancelled", 1);
+        using var completed = await CreateProjectAsync(client, "TITLE-COMPLETE", "Title Still Reserved Completed", 1);
+        using var cancelledJson = await ReadJsonAsync(cancelled);
+        using var completedJson = await ReadJsonAsync(completed);
+        var cancelledId = cancelledJson.RootElement.GetProperty("projectId").GetGuid();
+        var completedId = completedJson.RootElement.GetProperty("projectId").GetGuid();
+
+        await context.ExecuteSqlAsync($"""
+            update projects
+            set status = 'Completed'
+            where id = '{completedId}';
+            """);
+
+        var cancel = await client.PostAsJsonAsync(
+            $"/api/projects/{cancelledId}/cancel",
+            new { Reason = "취소 title 예약" },
+            TestContext.Current.CancellationToken);
+        var deleteCompleted = await client.PostAsJsonAsync(
+            $"/api/projects/{completedId}/delete",
+            new { Reason = "완료 삭제", ConfirmProjectTitle = "Title Still Reserved Completed" },
+            TestContext.Current.CancellationToken);
+        var duplicateCancelled = await CreateProjectAsync(client, "TITLE-CANCEL-DUP", " title still   reserved cancelled ", 1);
+        var duplicateCompleted = await CreateProjectAsync(client, "TITLE-COMP-DUP", "title still reserved completed", 1);
+
+        Assert.Equal(HttpStatusCode.OK, cancel.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, deleteCompleted.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, duplicateCancelled.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, duplicateCompleted.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteProject_ConcurrentDeleteAndUpdateCommitsOneConsistentResult()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var createClient = context.CreateClient("dev-sales");
+        using var deleteClient = context.CreateClient("dev-sales");
+        using var updateClient = context.CreateClient("dev-sales");
+        using var created = await CreateProjectAsync(createClient, "DELETE-CONCURRENT", "Delete Concurrent", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var delete = deleteClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "동시 삭제", ConfirmProjectTitle = "Delete Concurrent" },
+            TestContext.Current.CancellationToken);
+        var update = updateClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}",
+            NewUpdateProjectRequest("DELETE-CONCURRENT", "Delete Concurrent Updated"),
+            TestContext.Current.CancellationToken);
+
+        var responses = await Task.WhenAll(delete, update);
+
+        Assert.DoesNotContain(responses, response => response.StatusCode == HttpStatusCode.InternalServerError);
+        Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.True(
+            (await createClient.GetAsync($"/api/projects/{projectId}", TestContext.Current.CancellationToken)).StatusCode is HttpStatusCode.OK or HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task DeleteProject_ConcurrentDeleteAndCancelDoesNotCreateLostUpdate()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var createClient = context.CreateClient("dev-sales");
+        using var deleteClient = context.CreateClient("dev-sales");
+        using var cancelClient = context.CreateClient("dev-sales");
+        using var created = await CreateProjectAsync(createClient, "DELETE-CANCEL", "Delete Cancel Concurrent", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var delete = deleteClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "동시 삭제", ConfirmProjectTitle = "Delete Cancel Concurrent" },
+            TestContext.Current.CancellationToken);
+        var cancel = cancelClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/cancel",
+            new { Reason = "동시 취소" },
+            TestContext.Current.CancellationToken);
+
+        var responses = await Task.WhenAll(delete, cancel);
+
+        Assert.DoesNotContain(responses, response => response.StatusCode == HttpStatusCode.InternalServerError);
+        Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.OK);
+
+        var normalDetailStatus = (await createClient.GetAsync($"/api/projects/{projectId}", TestContext.Current.CancellationToken)).StatusCode;
+        if (normalDetailStatus == HttpStatusCode.NotFound)
+        {
+            var deletedDetail = await createClient.GetAsync($"/api/deleted-projects/{projectId}", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, deletedDetail.StatusCode);
+        }
+        else
+        {
+            Assert.Equal("Cancelled", await ReadProjectStatusAsync(createClient, projectId));
+        }
+    }
+
+    [Fact]
+    public async Task DeleteProject_ConcurrentDeleteAndPanelIncreaseCommitsOneConsistentResult()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var createClient = context.CreateClient("dev-sales");
+        using var deleteClient = context.CreateClient("dev-sales");
+        using var panelClient = context.CreateClient("dev-sales");
+        using var created = await CreateProjectAsync(createClient, "DELETE-PANEL", "Delete Panel Concurrent", 4);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var delete = deleteClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "동시 삭제", ConfirmProjectTitle = "Delete Panel Concurrent" },
+            TestContext.Current.CancellationToken);
+        var panelIncrease = panelClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/change-panel-count",
+            NewPanelCountRequest(6, 4, [], "동시 면수 증가"),
+            TestContext.Current.CancellationToken);
+
+        var responses = await Task.WhenAll(delete, panelIncrease);
+        var deleteResponse = responses[0];
+        var panelResponse = responses[1];
+
+        Assert.Equal(HttpStatusCode.OK, deleteResponse.StatusCode);
+        Assert.True(panelResponse.StatusCode is HttpStatusCode.OK or HttpStatusCode.NotFound or HttpStatusCode.Conflict);
+        Assert.DoesNotContain(responses, response => response.StatusCode == HttpStatusCode.InternalServerError);
+
+        var snapshot = await context.ReadDeletionSnapshotAsync(projectId);
+        Assert.NotNull(snapshot.DeletedAtUtc);
+        Assert.Equal(SalesOwnerUserId, snapshot.DeletedByUserId);
+        Assert.Equal("동시 삭제", snapshot.DeleteReason);
+        Assert.Equal(0, snapshot.DuplicateSequenceCount);
+        Assert.Equal(1, await context.CountAuditActionAsync(projectId, "ProjectDeleted"));
+
+        var panelIncreaseAuditCount = await context.CountAuditActionAsync(projectId, "PanelCountIncreased");
+        if (panelIncreaseAuditCount == 1)
+        {
+            Assert.Equal(6, snapshot.ActivePanelCount);
+            Assert.Equal(6, snapshot.TotalPanelCount);
+            Assert.Equal(6, await context.CountAuditActionAsync(projectId, "PanelCreated"));
+        }
+        else
+        {
+            Assert.Equal(4, snapshot.ActivePanelCount);
+            Assert.Equal(4, snapshot.TotalPanelCount);
+            Assert.Equal(0, panelIncreaseAuditCount);
+            Assert.Equal(4, await context.CountAuditActionAsync(projectId, "PanelCreated"));
+        }
+    }
+
+    [Fact]
+    public async Task DeleteProject_ConcurrentDuplicateDeleteCreatesOneDeletedAuditSet()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var createClient = context.CreateClient("dev-sales");
+        using var firstClient = context.CreateClient("dev-sales");
+        using var secondClient = context.CreateClient("dev-sales");
+        using var created = await CreateProjectAsync(createClient, "DELETE-TWICE", "Delete Twice Concurrent", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var first = firstClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "첫 번째 삭제", ConfirmProjectTitle = "Delete Twice Concurrent" },
+            TestContext.Current.CancellationToken);
+        var second = secondClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/delete",
+            new { Reason = "두 번째 삭제", ConfirmProjectTitle = "Delete Twice Concurrent" },
+            TestContext.Current.CancellationToken);
+
+        var responses = await Task.WhenAll(first, second);
+
+        Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.OK));
+        Assert.Equal(1, responses.Count(response => response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound));
+        Assert.DoesNotContain(responses, response => response.StatusCode == HttpStatusCode.InternalServerError);
+
+        var snapshot = await context.ReadDeletionSnapshotAsync(projectId);
+        Assert.NotNull(snapshot.DeletedAtUtc);
+        Assert.Equal(SalesOwnerUserId, snapshot.DeletedByUserId);
+        Assert.True(snapshot.DeleteReason is "첫 번째 삭제" or "두 번째 삭제");
+        Assert.Equal(1, await context.CountAuditActionAsync(projectId, "ProjectDeleted"));
+        Assert.Equal(3, await context.CountAuditActionAsync(projectId, "ProjectDeletedSnapshot"));
+    }
+
     [Theory]
     [InlineData("dev-admin")]
     [InlineData("dev-sales")]
@@ -587,9 +1097,26 @@ public sealed class ProjectRegistrationApiTests
             2,
             "2026-10-10",
             SalesOwnerUserId,
+            "WoodenCrate",
             1250000.50m,
             "KRW",
             "Dock A");
+    }
+
+    private static UpdateProjectPayload NewUpdateProjectRequest(string projectCode, string projectTitle)
+    {
+        return new UpdateProjectPayload(
+            "EMI Demo Customer",
+            "Control Panel",
+            projectCode,
+            projectTitle,
+            "2026-10-10",
+            SalesOwnerUserId,
+            "WoodenCrate",
+            1250000.50m,
+            "KRW",
+            "Dock A",
+            "기본정보 수정");
     }
 
     private static object NewPanelCountRequest(
@@ -644,6 +1171,19 @@ public sealed class ProjectRegistrationApiTests
             .Count(item => item.GetProperty("action").GetString() == action);
     }
 
+    private static async Task<int> CountAuditFieldChangesAsync(HttpClient client, Guid projectId, string fieldName)
+    {
+        var response = await client.GetAsync($"/api/projects/{projectId}/audit-history", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = await ReadJsonAsync(response);
+        return json.RootElement.GetProperty("items")
+            .EnumerateArray()
+            .Count(item =>
+                item.GetProperty("action").GetString() == "ProjectFieldUpdated"
+                && item.TryGetProperty("fieldName", out var field)
+                && field.GetString() == fieldName);
+    }
+
     private sealed record CreateProjectPayload(
         string CustomerName,
         string Item,
@@ -652,11 +1192,74 @@ public sealed class ProjectRegistrationApiTests
         int PanelCount,
         string DeliveryDate,
         Guid SalesOwnerUserId,
+        string? PackagingMethod,
         decimal? SalesAmount,
         string? CurrencyCode,
         string? DeliveryLocation);
 
+    private sealed record UpdateProjectPayload(
+        string CustomerName,
+        string Item,
+        string ProjectCode,
+        string ProjectTitle,
+        string DeliveryDate,
+        Guid SalesOwnerUserId,
+        string? PackagingMethod,
+        decimal? SalesAmount,
+        string? CurrencyCode,
+        string? DeliveryLocation,
+        string Reason);
+
     private sealed record PanelSnapshot(Guid PanelId, string DisplayCode, string PanelStatus);
+
+    private sealed record ProjectDeletionSnapshot(
+        DateTimeOffset? DeletedAtUtc,
+        Guid? DeletedByUserId,
+        string? DeleteReason,
+        int ActivePanelCount,
+        int TotalPanelCount,
+        int DuplicateSequenceCount);
+
+    private sealed class RecordingDeletionGuard(ProjectDeletionGuardResult result) : IProjectDeletionGuard
+    {
+        public bool WasCalled { get; private set; }
+        public bool ReceivedOpenConnection { get; private set; }
+        public bool ReceivedOpenTransaction { get; private set; }
+        public Guid ObservedProjectId { get; private set; }
+
+        public async Task<ProjectDeletionGuardResult> CanDeleteAsync(
+            ProjectDeletionContext context,
+            CancellationToken cancellationToken)
+        {
+            WasCalled = true;
+            ObservedProjectId = context.ProjectId;
+            ReceivedOpenConnection = context.Connection.State == ConnectionState.Open;
+            ReceivedOpenTransaction = context.Transaction.Connection == context.Connection;
+
+            await using var command = context.Connection.CreateCommand();
+            command.Transaction = context.Transaction;
+            command.CommandText = """
+                select count(*)::integer
+                from projects
+                where id = @project_id
+                  and deleted_at_utc is null;
+                """;
+            command.Parameters.AddWithValue("project_id", context.ProjectId);
+            Assert.Equal(1, await command.ExecuteScalarAsync(cancellationToken));
+
+            return result;
+        }
+    }
+
+    private sealed class ThrowingDeletionGuard : IProjectDeletionGuard
+    {
+        public Task<ProjectDeletionGuardResult> CanDeleteAsync(
+            ProjectDeletionContext context,
+            CancellationToken cancellationToken)
+        {
+            throw new InvalidOperationException("test guard failure");
+        }
+    }
 
     private sealed class ProjectApiTestContext : IAsyncDisposable
     {
@@ -669,7 +1272,7 @@ public sealed class ProjectRegistrationApiTests
         private PostgreSqlTestDatabase Database { get; }
         private QmsWebApplicationFactory Factory { get; }
 
-        public static async Task<ProjectApiTestContext> CreateAsync()
+        public static async Task<ProjectApiTestContext> CreateAsync(Action<IServiceCollection>? configureTestServices = null)
         {
             var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
             var configuration = database.CreateConfiguration(new Dictionary<string, string?>
@@ -684,7 +1287,8 @@ public sealed class ProjectRegistrationApiTests
             var factory = QmsWebApplicationFactory.Create(
                 "Testing",
                 values,
-                includeDefaultDevelopmentAuthentication: true);
+                includeDefaultDevelopmentAuthentication: true,
+                configureTestServices: configureTestServices);
 
             return new ProjectApiTestContext(database, factory);
         }
@@ -701,6 +1305,83 @@ public sealed class ProjectRegistrationApiTests
             await using var dataSource = NpgsqlDataSource.Create(Database.ConnectionString);
             await using var command = dataSource.CreateCommand(commandText);
             await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        public async Task<ProjectDeletionSnapshot> ReadDeletionSnapshotAsync(Guid projectId)
+        {
+            await using var dataSource = NpgsqlDataSource.Create(Database.ConnectionString);
+            await using var command = dataSource.CreateCommand("""
+                select deleted_at_utc,
+                       deleted_by_user_id,
+                       delete_reason,
+                       (
+                           select count(*)
+                           from panel_placeholders
+                           where project_id = @project_id
+                             and status = 'Active'
+                       )::integer,
+                       (
+                           select count(*)
+                           from panel_placeholders
+                           where project_id = @project_id
+                       )::integer,
+                       (
+                           select count(*)
+                           from (
+                               select sequence_number
+                               from panel_placeholders
+                               where project_id = @project_id
+                               group by sequence_number
+                               having count(*) > 1
+                           ) duplicates
+                       )::integer
+                from projects
+                where id = @project_id;
+                """);
+            command.Parameters.AddWithValue("project_id", projectId);
+
+            await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+            Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken));
+            return new ProjectDeletionSnapshot(
+                reader.IsDBNull(0) ? null : reader.GetFieldValue<DateTimeOffset>(0),
+                reader.IsDBNull(1) ? null : reader.GetGuid(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.GetInt32(3),
+                reader.GetInt32(4),
+                reader.GetInt32(5));
+        }
+
+        public async Task<int> CountAuditActionAsync(Guid projectId, string action)
+        {
+            await using var dataSource = NpgsqlDataSource.Create(Database.ConnectionString);
+            await using var command = dataSource.CreateCommand("""
+                select count(*)::integer
+                from project_audit_events
+                where project_id = @project_id
+                  and action = @action;
+                """);
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("action", action);
+            return (int)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken) ?? 0);
+        }
+
+        public async Task<DateTimeOffset?> ReadDeletedAtAuditValueAsync(Guid projectId)
+        {
+            await using var dataSource = NpgsqlDataSource.Create(Database.ConnectionString);
+            await using var command = dataSource.CreateCommand("""
+                select new_value
+                from project_audit_events
+                where project_id = @project_id
+                  and action = 'ProjectDeleted'
+                  and field_name = 'DeletedAtUtc'
+                order by changed_at_utc desc
+                limit 1;
+                """);
+            command.Parameters.AddWithValue("project_id", projectId);
+            var value = await command.ExecuteScalarAsync(TestContext.Current.CancellationToken);
+            return value is string text && DateTimeOffset.TryParse(text, out var parsed)
+                ? parsed
+                : null;
         }
 
         public async ValueTask DisposeAsync()

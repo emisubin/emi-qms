@@ -9,6 +9,8 @@ public static class QmsPolicies
     public const string ProjectUpdate = "ProjectUpdate";
     public const string ProjectHold = "ProjectHold";
     public const string ProjectCancel = "ProjectCancel";
+    public const string ProjectDelete = "ProjectDelete";
+    public const string ProjectDeletedRead = "ProjectDeletedRead";
     public const string ManufacturingUpdate = "ManufacturingUpdate";
     public const string ProjectSalesAmountRead = "ProjectSalesAmountRead";
     public const string ManufacturingWorkTimeRead = "ManufacturingWorkTimeRead";

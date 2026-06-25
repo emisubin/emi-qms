@@ -5,12 +5,15 @@ import {
   changeProjectStatus,
   createProject,
   defaultDevelopmentUserKey,
+  deleteProject,
   getAuditHistory,
   getCurrentUser,
+  getDeletedProject,
   getPanel,
   getProject,
   getReadyHealth,
   getSalesOwners,
+  listDeletedProjects,
   listPanels,
   listProjects,
   updateProject
@@ -20,9 +23,13 @@ import type { CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
 import type {
   AuditEvent,
+  DeletedProjectDetail,
+  DeletedProjectListItem,
   PanelPlaceholder,
+  PackagingMethod,
   ProjectDetail,
   ProjectListItem,
+  ProjectListTab,
   ProjectStatus,
   SalesOwner
 } from './projects';
@@ -31,6 +38,7 @@ type View =
   | { kind: 'list' }
   | { kind: 'create' }
   | { kind: 'detail'; projectId: string }
+  | { kind: 'deleted-detail'; projectId: string }
   | { kind: 'edit'; projectId: string }
   | { kind: 'panel'; projectId: string; panelId: string };
 
@@ -50,6 +58,7 @@ type ProjectFormValues = {
   panelCount: string;
   deliveryDate: string;
   salesOwnerUserId: string;
+  packagingMethod: string;
   salesAmount: string;
   currencyCode: string;
   deliveryLocation: string;
@@ -75,6 +84,7 @@ const emptyForm: ProjectFormValues = {
   panelCount: '1',
   deliveryDate: '',
   salesOwnerUserId: '',
+  packagingMethod: '',
   salesAmount: '',
   currencyCode: 'KRW',
   deliveryLocation: '',
@@ -107,6 +117,8 @@ export function App() {
   const canUpdate = permissions.includes('Project.Update');
   const canHold = permissions.includes('Project.Hold');
   const canCancel = permissions.includes('Project.Cancel');
+  const canDelete = permissions.includes('Project.Delete');
+  const canReadDeleted = permissions.includes('Project.Deleted.Read');
   const canReadSalesAmount = permissions.includes('Project.SalesAmount.Read');
 
   return (
@@ -152,9 +164,11 @@ export function App() {
         <ProjectListPage
           developmentUserKey={developmentUserKey}
           canCreate={canCreate}
+          canReadDeleted={canReadDeleted}
           canReadSalesAmount={canReadSalesAmount}
           onCreate={() => setView({ kind: 'create' })}
           onOpen={(projectId) => setView({ kind: 'detail', projectId })}
+          onOpenDeleted={(projectId) => setView({ kind: 'deleted-detail', projectId })}
         />
       ) : null}
 
@@ -173,10 +187,20 @@ export function App() {
           canUpdate={canUpdate}
           canHold={canHold}
           canCancel={canCancel}
+          canDelete={canDelete}
           canReadSalesAmount={canReadSalesAmount}
           onBack={() => setView({ kind: 'list' })}
           onEdit={() => setView({ kind: 'edit', projectId: view.projectId })}
           onOpenPanel={(panelId) => setView({ kind: 'panel', projectId: view.projectId, panelId })}
+        />
+      ) : null}
+
+      {view.kind === 'deleted-detail' ? (
+        <DeletedProjectDetailPage
+          developmentUserKey={developmentUserKey}
+          projectId={view.projectId}
+          canReadSalesAmount={canReadSalesAmount}
+          onBack={() => setView({ kind: 'list' })}
         />
       ) : null}
 
@@ -204,27 +228,70 @@ export function App() {
 function ProjectListPage({
   developmentUserKey,
   canCreate,
+  canReadDeleted,
   canReadSalesAmount,
   onCreate,
-  onOpen
+  onOpen,
+  onOpenDeleted
 }: {
   developmentUserKey: string;
   canCreate: boolean;
+  canReadDeleted: boolean;
   canReadSalesAmount: boolean;
   onCreate: () => void;
   onOpen: (projectId: string) => void;
+  onOpenDeleted: (projectId: string) => void;
 }) {
   const [search, setSearch] = useState('');
-  const [state, setState] = useState<LoadState<ProjectListItem[]>>({ kind: 'loading' });
+  const [tab, setTab] = useState<ProjectListTab>('Active');
+  const [state, setState] = useState<LoadState<Array<ProjectListItem | DeletedProjectListItem>>>({ kind: 'loading' });
+  const requestIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const load = useCallback(() => {
-    listProjects(developmentUserKey, search)
-      .then((response) => setState(response.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: response.items }))
-      .catch((error: unknown) => setState(toLoadError(error, '프로젝트 목록을 불러올 수 없습니다.')));
-  }, [developmentUserKey, search]);
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const request = tab === 'Deleted'
+      ? listDeletedProjects(developmentUserKey, search, { signal: controller.signal })
+      : listProjects(developmentUserKey, search, tab, { signal: controller.signal });
+
+    queueMicrotask(() => {
+      if (requestId === requestIdRef.current && !controller.signal.aborted) {
+        setState({ kind: 'loading' });
+      }
+    });
+
+    request
+      .then((response) => {
+        if (requestId !== requestIdRef.current || controller.signal.aborted) {
+          return;
+        }
+
+        setState(response.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: response.items });
+      })
+      .catch((error: unknown) => {
+        if (requestId !== requestIdRef.current || controller.signal.aborted || isAbortError(error)) {
+          return;
+        }
+
+        setState(toLoadError(error, '프로젝트 목록을 불러올 수 없습니다.'));
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current && abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
+      });
+  }, [developmentUserKey, search, tab]);
 
   useEffect(() => {
     load();
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, [load]);
 
   return (
@@ -252,6 +319,21 @@ function ProjectListPage({
         <button type="submit">검색</button>
       </form>
 
+      <div className="tab-row" role="tablist" aria-label="프로젝트 상태">
+        {projectTabs(canReadDeleted).map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.value}
+            className={tab === item.value ? 'tab-button active' : 'tab-button'}
+            onClick={() => setTab(item.value)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
       {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
       {state.kind === 'empty' ? <p className="empty-text">등록된 프로젝트가 없습니다.</p> : null}
       {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
@@ -263,7 +345,7 @@ function ProjectListPage({
               className="project-row"
               key={project.projectId}
               type="button"
-              onClick={() => onOpen(project.projectId)}
+              onClick={() => tab === 'Deleted' ? onOpenDeleted(project.projectId) : onOpen(project.projectId)}
             >
               <span>
                 <strong>{project.projectTitle}</strong>
@@ -273,6 +355,7 @@ function ProjectListPage({
               <span>{project.activePanelCount}면</span>
               <span>{formatDate(project.deliveryDate)}</span>
               <ProjectStatusBadge status={project.status} />
+              {'deletedAtUtc' in project ? <span>{formatDateTime(project.deletedAtUtc)}</span> : null}
               {canReadSalesAmount && project.salesAmount !== undefined ? (
                 <SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} />
               ) : null}
@@ -357,6 +440,7 @@ function ProjectDetailPage({
   canUpdate,
   canHold,
   canCancel,
+  canDelete,
   canReadSalesAmount,
   onBack,
   onEdit,
@@ -367,6 +451,7 @@ function ProjectDetailPage({
   canUpdate: boolean;
   canHold: boolean;
   canCancel: boolean;
+  canDelete: boolean;
   canReadSalesAmount: boolean;
   onBack: () => void;
   onEdit: () => void;
@@ -375,8 +460,9 @@ function ProjectDetailPage({
   const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
   const [panels, setPanels] = useState<PanelPlaceholder[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
-  const [dialog, setDialog] = useState<null | 'hold' | 'resume' | 'cancel' | 'reactivate'>(null);
+  const [dialog, setDialog] = useState<null | 'hold' | 'resume' | 'cancel' | 'reactivate' | 'delete'>(null);
   const [reason, setReason] = useState('');
+  const [confirmProjectTitle, setConfirmProjectTitle] = useState('');
   const [dialogError, setDialogError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -399,7 +485,7 @@ function ProjectDetailPage({
   }, [load]);
 
   async function submitStatusChange() {
-    if (!dialog) {
+    if (!dialog || dialog === 'delete') {
       return;
     }
 
@@ -417,6 +503,33 @@ function ProjectDetailPage({
       load();
     } catch (error) {
       setDialogError(error instanceof Error ? error.message : '상태 변경에 실패했습니다.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function submitDelete() {
+    if (!reason.trim()) {
+      setDialogError('삭제 사유는 필수입니다.');
+      return;
+    }
+
+    if (!confirmProjectTitle.trim()) {
+      setDialogError('PJT Title 확인 입력은 필수입니다.');
+      return;
+    }
+
+    setIsSaving(true);
+    setDialogError('');
+    try {
+      await deleteProject(developmentUserKey, projectId, {
+        reason,
+        confirmProjectTitle
+      });
+      setDialog(null);
+      onBack();
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : '삭제에 실패했습니다.');
     } finally {
       setIsSaving(false);
     }
@@ -449,6 +562,7 @@ function ProjectDetailPage({
           {canUpdate && isOnHold ? <button type="button" onClick={() => setDialog('resume')}>보류 해제</button> : null}
           {canCancel && (project.status === 'Active' || isOnHold) ? <button type="button" onClick={() => setDialog('cancel')}>취소</button> : null}
           {canUpdate && isCancelled ? <button type="button" onClick={() => setDialog('reactivate')}>재활성</button> : null}
+          {canDelete && project.status !== 'Completed' ? <button type="button" className="danger-button" onClick={() => setDialog('delete')}>삭제</button> : null}
         </div>
       </div>
 
@@ -467,7 +581,7 @@ function ProjectDetailPage({
         <AuditHistory events={auditEvents} />
       </section>
 
-      {dialog ? (
+      {dialog && dialog !== 'delete' ? (
         <StatusReasonDialog
           action={dialog}
           reason={reason}
@@ -477,9 +591,28 @@ function ProjectDetailPage({
           onCancel={() => {
             setDialog(null);
             setReason('');
+            setConfirmProjectTitle('');
             setDialogError('');
           }}
           onSubmit={submitStatusChange}
+        />
+      ) : null}
+      {dialog === 'delete' ? (
+        <DeleteProjectDialog
+          projectTitle={project.projectTitle}
+          reason={reason}
+          confirmProjectTitle={confirmProjectTitle}
+          error={dialogError}
+          isSaving={isSaving}
+          onReasonChange={setReason}
+          onConfirmProjectTitleChange={setConfirmProjectTitle}
+          onCancel={() => {
+            setDialog(null);
+            setReason('');
+            setConfirmProjectTitle('');
+            setDialogError('');
+          }}
+          onSubmit={submitDelete}
         />
       ) : null}
     </section>
@@ -689,6 +822,64 @@ function PanelPlaceholderDetailPage({
   );
 }
 
+function DeletedProjectDetailPage({
+  developmentUserKey,
+  projectId,
+  canReadSalesAmount,
+  onBack
+}: {
+  developmentUserKey: string;
+  projectId: string;
+  canReadSalesAmount: boolean;
+  onBack: () => void;
+}) {
+  const [state, setState] = useState<LoadState<DeletedProjectDetail>>({ kind: 'loading' });
+
+  useEffect(() => {
+    getDeletedProject(developmentUserKey, projectId)
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '삭제 프로젝트 상세를 불러올 수 없습니다.')));
+  }, [developmentUserKey, projectId]);
+
+  if (state.kind === 'loading') {
+    return <section className="page-surface"><p className="muted-text">Loading</p></section>;
+  }
+
+  if (state.kind !== 'ready') {
+    return <section className="page-surface"><StateMessage state={state} /></section>;
+  }
+
+  const project = state.data;
+  return (
+    <section className="page-surface deleted-surface">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Deleted Archive</p>
+          <h2>{project.projectTitle}</h2>
+        </div>
+        <button type="button" onClick={onBack}>목록</button>
+      </div>
+
+      <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
+      <dl className="detail-grid">
+        <div><dt>삭제일시</dt><dd>{formatDateTime(project.deletedAtUtc)}</dd></div>
+        <div><dt>삭제자</dt><dd>{project.deletedByUserName ?? project.deletedByUserId ?? '-'}</dd></div>
+        <div><dt>삭제 사유</dt><dd>{project.deleteReason}</dd></div>
+      </dl>
+
+      <section className="subsection">
+        <h3>보존된 패널 Placeholder</h3>
+        <PanelPlaceholderList panels={project.panels} onOpenPanel={() => undefined} />
+      </section>
+
+      <section className="subsection">
+        <h3>삭제 프로젝트 변경이력</h3>
+        <AuditHistory events={project.auditHistory} />
+      </section>
+    </section>
+  );
+}
+
 function ProjectForm({
   form,
   owners,
@@ -744,6 +935,14 @@ function ProjectForm({
           ))}
         </select>
       </FormField>
+      <FormField label="포장방식*" error={errors.packagingMethod}>
+        <select value={form.packagingMethod} onChange={(event) => setField('packagingMethod', event.target.value)}>
+          <option value="">선택</option>
+          <option value="WoodenCrate">목포장</option>
+          <option value="StretchWrap">청랩포장</option>
+          <option value="HeavyDutyBox">고강도박스포장</option>
+        </select>
+      </FormField>
       <FormField label="판매금액" error={errors.salesAmount}>
         <input value={form.salesAmount} inputMode="decimal" onChange={(event) => setField('salesAmount', event.target.value)} />
       </FormField>
@@ -787,6 +986,7 @@ function ProjectSummary({ project, canReadSalesAmount }: { project: ProjectDetai
       <div><dt>면수</dt><dd>{project.activePanelCount}</dd></div>
       <div><dt>납기일</dt><dd>{formatDate(project.deliveryDate)}</dd></div>
       <div><dt>영업담당자</dt><dd>{project.salesOwnerName}</dd></div>
+      <div><dt>포장방식</dt><dd>{formatPackagingMethod(project.packagingMethod)}</dd></div>
       <div><dt>납품장소</dt><dd>{project.deliveryLocation ?? '-'}</dd></div>
       {canReadSalesAmount && project.salesAmount !== undefined ? (
         <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
@@ -909,6 +1109,55 @@ function StatusReasonDialog({
   );
 }
 
+function DeleteProjectDialog({
+  projectTitle,
+  reason,
+  confirmProjectTitle,
+  error,
+  isSaving,
+  onReasonChange,
+  onConfirmProjectTitleChange,
+  onCancel,
+  onSubmit
+}: {
+  projectTitle: string;
+  reason: string;
+  confirmProjectTitle: string;
+  error: string;
+  isSaving: boolean;
+  onReasonChange: (reason: string) => void;
+  onConfirmProjectTitleChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-label="프로젝트 삭제">
+      <div className="dialog">
+        <h3>프로젝트 삭제</h3>
+        <p className="warning-text">
+          삭제는 오등록·중복등록 프로젝트를 일반 업무목록에서 제거하는 기능입니다. 실제로 중단된 프로젝트는 취소 기능을 사용해 주세요.
+        </p>
+        <p className="muted-text">확인할 PJT Title: {projectTitle}</p>
+        <label className="form-field">
+          <span>삭제 사유*</span>
+          <textarea value={reason} onChange={(event) => onReasonChange(event.target.value)} />
+        </label>
+        <label className="form-field">
+          <span>PJT Title 확인 입력*</span>
+          <input value={confirmProjectTitle} onChange={(event) => onConfirmProjectTitleChange(event.target.value)} />
+        </label>
+        {error ? <p role="alert" className="error-text">{error}</p> : null}
+        <div className="button-row">
+          <button type="button" onClick={onCancel}>닫기</button>
+          <button type="button" className="danger-button" disabled={isSaving} onClick={onSubmit}>
+            {isSaving ? '삭제 중' : '삭제'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AuditHistory({ events }: { events: AuditEvent[] }) {
   if (events.length === 0) {
     return <p className="empty-text">변경이력이 없습니다.</p>;
@@ -978,6 +1227,10 @@ function validateProjectForm(form: ProjectFormValues, includeReason: boolean): R
     errors.panelCount = `1 이상 ${maxPanelsPerProject} 이하의 정수여야 합니다.`;
   }
 
+  if (!form.packagingMethod.trim()) {
+    errors.packagingMethod = '포장방식은 필수 선택값입니다.';
+  }
+
   if (form.salesAmount.trim() && Number(form.salesAmount) < 0) {
     errors.salesAmount = '0 이상의 금액이어야 합니다.';
   }
@@ -1002,10 +1255,19 @@ function toCreateRequest(form: ProjectFormValues) {
     panelCount: Number(form.panelCount),
     deliveryDate: form.deliveryDate,
     salesOwnerUserId: form.salesOwnerUserId,
+    packagingMethod: toPackagingMethod(form.packagingMethod),
     salesAmount: form.salesAmount.trim() ? Number(form.salesAmount) : null,
     currencyCode: form.salesAmount.trim() ? form.currencyCode.trim().toUpperCase() : null,
     deliveryLocation: form.deliveryLocation.trim() || null
   };
+}
+
+function toPackagingMethod(value: string): PackagingMethod | null {
+  if (value === 'WoodenCrate' || value === 'StretchWrap' || value === 'HeavyDutyBox') {
+    return value;
+  }
+
+  return null;
 }
 
 function projectToForm(project: ProjectDetail): ProjectFormValues {
@@ -1017,6 +1279,7 @@ function projectToForm(project: ProjectDetail): ProjectFormValues {
     panelCount: String(project.activePanelCount),
     deliveryDate: project.deliveryDate,
     salesOwnerUserId: project.salesOwnerUserId,
+    packagingMethod: project.packagingMethod ?? '',
     salesAmount: project.salesAmount === undefined ? '' : String(project.salesAmount),
     currencyCode: project.currencyCode ?? 'KRW',
     deliveryLocation: project.deliveryLocation ?? '',
@@ -1061,6 +1324,10 @@ function toLoadError<T>(error: unknown, fallback: string): LoadState<T> {
   return { kind: 'error', message: error instanceof Error ? error.message : fallback };
 }
 
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
 function lowerFirst(value: string) {
   return value.length === 0 ? value : `${value[0].toLowerCase()}${value.slice(1)}`;
 }
@@ -1071,6 +1338,37 @@ function formatDate(value: string) {
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString();
+}
+
+function formatPackagingMethod(value: string | null) {
+  if (value === 'WoodenCrate') {
+    return '목포장';
+  }
+
+  if (value === 'StretchWrap') {
+    return '청랩포장';
+  }
+
+  if (value === 'HeavyDutyBox') {
+    return '고강도박스포장';
+  }
+
+  return '미지정';
+}
+
+function projectTabs(canReadDeleted: boolean): Array<{ value: ProjectListTab; label: string }> {
+  const tabs: Array<{ value: ProjectListTab; label: string }> = [
+    { value: 'Active', label: '진행' },
+    { value: 'OnHold', label: '보류' },
+    { value: 'Completed', label: '완료' },
+    { value: 'Cancelled', label: '취소' }
+  ];
+
+  if (canReadDeleted) {
+    tabs.push({ value: 'Deleted', label: '삭제 보관함' });
+  }
+
+  return tabs;
 }
 
 function formatSize(panel: PanelPlaceholder) {

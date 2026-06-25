@@ -94,6 +94,7 @@ public sealed class DevelopmentIdentitySeeder(
             project_code,
             project_title,
             project_title_normalized,
+            packaging_method,
             delivery_date,
             sales_owner_user_id,
             status
@@ -109,6 +110,7 @@ public sealed class DevelopmentIdentitySeeder(
                 'DEMO-24001',
                 'Demo Project Alpha',
                 'DEMO PROJECT ALPHA',
+                'WoodenCrate',
                 '2026-07-31',
                 '50000000-0000-0000-0000-000000000002',
                 'Active'
@@ -123,6 +125,7 @@ public sealed class DevelopmentIdentitySeeder(
                 'DEMO-24002',
                 'Demo Project Beta',
                 'DEMO PROJECT BETA',
+                'StretchWrap',
                 '2026-08-15',
                 '50000000-0000-0000-0000-000000000002',
                 'Active'
@@ -135,6 +138,7 @@ public sealed class DevelopmentIdentitySeeder(
             project_code = excluded.project_code,
             project_title = excluded.project_title,
             project_title_normalized = excluded.project_title_normalized,
+            packaging_method = excluded.packaging_method,
             delivery_date = excluded.delivery_date,
             sales_owner_user_id = excluded.sales_owner_user_id,
             status = excluded.status;

@@ -40,6 +40,7 @@
 - PanelCount / 면수
 - DeliveryDate / 납기일
 - SalesOwnerUserId / 영업담당자
+- TASK-003A-1부터 PackagingMethod / 포장방식
 
 선택:
 
@@ -66,6 +67,7 @@
 
 - Sales가 필수값으로 프로젝트를 등록하면 프로젝트와 패널 Placeholder가 하나의 transaction으로 생성된다.
 - ProjectTitle은 정규화 기준으로 전체 시스템에서 유일하다.
+- TASK-003A-1부터 ProjectTitle은 삭제되지 않은 프로젝트끼리 정규화 기준으로 유일하며, 삭제 프로젝트는 신규 title 중복검사 대상에서 제외한다.
 - PanelCount만큼 P01, P02 형식의 패널이 생성된다.
 - 목록, 상세, 패널, 감사이력 API와 화면이 동작한다.
 - 판매금액은 Sales와 System Administrator에게만 응답된다.

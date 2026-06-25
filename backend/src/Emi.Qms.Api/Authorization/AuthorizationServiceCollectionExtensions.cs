@@ -66,6 +66,18 @@ public static class AuthorizationServiceCollectionExtensions
                 policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectCancel));
             });
 
+            options.AddPolicy(QmsPolicies.ProjectDelete, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectDelete));
+            });
+
+            options.AddPolicy(QmsPolicies.ProjectDeletedRead, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectDeletedRead));
+            });
+
             options.AddPolicy(QmsPolicies.ManufacturingUpdate, policy =>
             {
                 policy.RequireAuthenticatedUser();

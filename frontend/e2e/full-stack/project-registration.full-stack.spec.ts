@@ -16,6 +16,7 @@ test('full-stack: project registration, permissions, status, and panel count use
   await page.getByRole('button', { name: '등록' }).click();
 
   await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
+  await expect(page.getByText('목포장')).toBeVisible();
   await expect(page.getByRole('button', { name: /^P01 / })).toBeVisible();
   await expect(page.getByRole('button', { name: /^P04 / })).toBeVisible();
   await expect(page.getByText('KRW 1,250,000.5')).toBeVisible();
@@ -92,6 +93,54 @@ test('full-stack: project registration, permissions, status, and panel count use
     }
   });
   expect(stalePanelChange.status()).toBe(409);
+
+  await page.getByRole('button', { name: '취소' }).click();
+  await page.getByLabel('사유*').fill('Full-stack 취소');
+  await page.getByRole('button', { name: '확인' }).click();
+  await expect(page.locator('.status-badge', { hasText: 'Cancelled' })).toBeVisible();
+
+  await page.getByRole('button', { name: '목록' }).click();
+  await page.getByRole('tab', { name: '취소' }).click();
+  await openProject(page, projectTitle);
+
+  await page.getByRole('button', { name: '재활성' }).click();
+  await page.getByLabel('사유*').fill('Full-stack 재활성');
+  await page.getByRole('button', { name: '확인' }).click();
+  await expect(page.locator('.status-badge', { hasText: 'Active' })).toBeVisible();
+
+  await page.getByRole('button', { name: '삭제' }).click();
+  await page.getByLabel('삭제 사유*').fill('Full-stack 오등록 정리');
+  await page.getByLabel('PJT Title 확인 입력*').fill(projectTitle);
+  await page.getByRole('dialog', { name: '프로젝트 삭제' }).getByRole('button', { name: '삭제', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
+  await page.getByRole('tab', { name: '삭제 보관함' }).click();
+  await openProject(page, projectTitle);
+  await expect(page.getByText('Full-stack 오등록 정리')).toBeVisible();
+  expect(await queryDatabaseValue(`select count(*)::text from projects where id = '${projectId}' and deleted_at_utc is not null;`)).toBe('1');
+
+  await page.getByRole('button', { name: '목록' }).click();
+  await page.getByRole('tab', { name: '진행' }).click();
+  await page.getByRole('button', { name: '신규 프로젝트' }).click();
+  await fillProjectForm(page, `FS-REUSE-${unique}`, projectTitle, '1');
+  await page.getByRole('button', { name: '등록' }).click();
+  await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
+
+  await page.getByLabel('개발 사용자').selectOption('dev-admin');
+  await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '삭제 보관함' })).toBeVisible();
+  await page.getByRole('tab', { name: '삭제 보관함' }).click();
+  await openProject(page, projectTitle);
+  await expect(page.getByRole('button', { name: '삭제' })).toHaveCount(0);
+
+  await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
+  await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '삭제 보관함' })).toHaveCount(0);
+  const manufacturingDelete = await request.post(`${apiBaseUrl}/api/projects/${projectId}/delete`, {
+    headers: { 'X-Dev-User': 'dev-manufacturing' },
+    data: { reason: '제조 삭제 차단', confirmProjectTitle: projectTitle }
+  });
+  expect(manufacturingDelete.status()).toBe(403);
 });
 
 async function fillProjectForm(page: Page, projectCode: string, projectTitle: string, panelCount: string) {
@@ -102,6 +151,7 @@ async function fillProjectForm(page: Page, projectCode: string, projectTitle: st
   await page.getByLabel('면수*').fill(panelCount);
   await page.getByLabel('납기일*').fill('2026-10-10');
   await page.getByLabel('영업담당자*').selectOption(salesOwnerId);
+  await page.getByLabel('포장방식*').selectOption('WoodenCrate');
   await page.getByLabel('판매금액').fill('1250000.5');
 }
 

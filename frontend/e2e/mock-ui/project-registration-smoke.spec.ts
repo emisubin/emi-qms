@@ -13,6 +13,7 @@ type ProjectRecord = {
   deliveryDate: string;
   salesOwnerUserId: string;
   salesOwnerName: string;
+  packagingMethod: 'WoodenCrate' | 'StretchWrap' | 'HeavyDutyBox' | null;
   deliveryLocation: string | null;
   status: 'Active' | 'OnHold' | 'Cancelled' | 'Completed';
   createdAt: string;
@@ -86,6 +87,7 @@ async function fillProjectForm(page: Page, projectCode: string, projectTitle: st
   await page.getByLabel('면수*').fill(panelCount);
   await page.getByLabel('납기일*').fill('2026-10-10');
   await page.getByLabel('영업담당자*').selectOption(salesOwnerId);
+  await page.getByLabel('포장방식*').selectOption('WoodenCrate');
   await page.getByLabel('판매금액').fill('1250000.5');
 }
 
@@ -133,6 +135,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
         projectTitle: string;
         panelCount: number;
         deliveryDate: string;
+        packagingMethod: 'WoodenCrate' | 'StretchWrap' | 'HeavyDutyBox';
         salesAmount: number;
         currencyCode: string;
       };
@@ -151,6 +154,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
         deliveryDate: body.deliveryDate,
         salesOwnerUserId: salesOwnerId,
         salesOwnerName: 'Dev Sales User',
+        packagingMethod: body.packagingMethod,
         deliveryLocation: null,
         status: 'Active',
         createdAt: '2026-06-25T00:00:00Z',
@@ -239,10 +243,10 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
 function currentUser(userKey: string) {
   const permissions = ['projects.read', 'Project.Read.All'];
   if (userKey === 'dev-sales') {
-    permissions.push('Project.Create', 'Project.Update', 'Project.Hold', 'Project.Cancel', 'Project.SalesAmount.Read');
+    permissions.push('Project.Create', 'Project.Update', 'Project.Hold', 'Project.Cancel', 'Project.Delete', 'Project.Deleted.Read', 'Project.SalesAmount.Read');
   }
   if (userKey === 'dev-admin') {
-    permissions.push('Project.SalesAmount.Read');
+    permissions.push('Project.Deleted.Read', 'Project.SalesAmount.Read');
   }
 
   return {

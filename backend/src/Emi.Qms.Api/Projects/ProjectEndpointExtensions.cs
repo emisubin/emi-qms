@@ -70,6 +70,34 @@ public static class ProjectEndpointExtensions
         .RequireAuthorization()
         .WithName("ListProjects");
 
+        api.MapGet("/deleted-projects", async (
+            HttpRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await projectStore.ListDeletedProjectsAsync(
+                ParseDeletedProjectListQuery(request),
+                CanReadSalesAmount(user),
+                cancellationToken);
+
+            return Results.Ok(result);
+        })
+        .RequireAuthorization(QmsPolicies.ProjectDeletedRead)
+        .WithName("ListDeletedProjects");
+
+        api.MapGet("/deleted-projects/{projectId:guid}", async (
+            Guid projectId,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var project = await projectStore.GetDeletedProjectAsync(projectId, CanReadSalesAmount(user), true, cancellationToken);
+            return project is null ? Results.NotFound() : Results.Ok(project);
+        })
+        .RequireAuthorization(QmsPolicies.ProjectDeletedRead)
+        .WithName("GetDeletedProject");
+
         api.MapPost("/projects", async (
             CreateProjectRequest request,
             ProjectStore projectStore,
@@ -273,6 +301,39 @@ public static class ProjectEndpointExtensions
         .RequireAuthorization(QmsPolicies.ProjectUpdate)
         .WithName("ReactivateProject");
 
+        api.MapPost("/projects/{projectId:guid}/delete", async (
+            Guid projectId,
+            DeleteProjectRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var (input, validation) = ProjectRequestValidator.ValidateDelete(request);
+            if (validation.HasErrors || input is null)
+            {
+                return Results.ValidationProblem(validation.Errors);
+            }
+
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await projectStore.DeleteProjectAsync(
+                projectId,
+                input,
+                userId.Value,
+                httpContext.TraceIdentifier,
+                CanReadSalesAmount(user),
+                cancellationToken);
+
+            return ToProjectMutationResult(result, Results.Ok);
+        })
+        .RequireAuthorization(QmsPolicies.ProjectDelete)
+        .WithName("DeleteProject");
+
         api.MapGet("/projects/{projectId:guid}/panels", async (
             Guid projectId,
             ProjectStore projectStore,
@@ -406,6 +467,17 @@ public static class ProjectEndpointExtensions
             int.TryParse(request.Query["pageSize"].ToString(), out var pageSize) ? pageSize : 20);
     }
 
+    private static DeletedProjectListQuery ParseDeletedProjectListQuery(HttpRequest request)
+    {
+        return new DeletedProjectListQuery(
+            request.Query["search"].ToString(),
+            TryParseGuid(request.Query["deletedByUserId"].ToString()),
+            TryParseDateTimeOffset(request.Query["deletedAtFrom"].ToString()),
+            TryParseDateTimeOffset(request.Query["deletedAtTo"].ToString()),
+            int.TryParse(request.Query["page"].ToString(), out var page) ? page : 1,
+            int.TryParse(request.Query["pageSize"].ToString(), out var pageSize) ? pageSize : 20);
+    }
+
     private static IResult ToProjectMutationResult<T>(
         ProjectMutationResult<T> result,
         Func<T, IResult> success)
@@ -460,5 +532,10 @@ public static class ProjectEndpointExtensions
     private static DateOnly? TryParseDate(string? value)
     {
         return DateOnly.TryParse(value, out var parsed) ? parsed : null;
+    }
+
+    private static DateTimeOffset? TryParseDateTimeOffset(string? value)
+    {
+        return DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
     }
 }

@@ -17,6 +17,7 @@ export interface ProjectListItem {
   deliveryDate: string;
   salesOwnerUserId: string;
   salesOwnerName: string;
+  packagingMethod: PackagingMethod | null;
   deliveryLocation: string | null;
   status: ProjectStatus;
   createdAt: string;
@@ -30,6 +31,28 @@ export interface ProjectDetail extends ProjectListItem {
 }
 
 export type ProjectStatus = 'Active' | 'OnHold' | 'Cancelled' | 'Completed';
+export type ProjectListTab = 'Active' | 'OnHold' | 'Completed' | 'Cancelled' | 'Deleted';
+export type PackagingMethod = 'WoodenCrate' | 'StretchWrap' | 'HeavyDutyBox';
+
+export interface DeletedProjectListResponse {
+  items: DeletedProjectListItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+}
+
+export interface DeletedProjectListItem extends ProjectListItem {
+  deletedAtUtc: string;
+  deletedByUserId: string | null;
+  deletedByUserName: string | null;
+  deleteReason: string;
+}
+
+export interface DeletedProjectDetail extends DeletedProjectListItem {
+  statusReason: string | null;
+  panels: PanelPlaceholder[];
+  auditHistory: AuditEvent[];
+}
 
 export interface PanelPlaceholder {
   panelId: string;
@@ -80,6 +103,7 @@ export interface CreateProjectRequest {
   panelCount: number;
   deliveryDate: string;
   salesOwnerUserId: string;
+  packagingMethod: PackagingMethod | null;
   salesAmount: number | null;
   currencyCode: string | null;
   deliveryLocation: string | null;
@@ -92,6 +116,7 @@ export interface UpdateProjectRequest {
   projectTitle: string;
   deliveryDate: string;
   salesOwnerUserId: string;
+  packagingMethod: PackagingMethod | null;
   salesAmount: number | null;
   currencyCode: string | null;
   deliveryLocation: string | null;
@@ -107,4 +132,9 @@ export interface ChangePanelCountRequest {
 
 export interface ProjectStatusChangeRequest {
   reason: string;
+}
+
+export interface DeleteProjectRequest {
+  reason: string;
+  confirmProjectTitle: string;
 }

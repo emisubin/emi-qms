@@ -166,6 +166,12 @@ h3 {
   color: #ffffff;
 }
 
+.danger-button {
+  border-color: #b42318;
+  background: #b42318;
+  color: #ffffff;
+}
+
 .button-row,
 .form-actions {
   display: flex;
@@ -202,6 +208,28 @@ h3 {
   margin-top: 4px;
   color: #52665a;
   font-size: 0.82rem;
+}
+
+.tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.tab-button {
+  background: #f4f8f5;
+  color: #34443b;
+}
+
+.tab-button.active {
+  border-color: #1d6b4f;
+  background: #e8f4ee;
+  color: #164f3d;
+}
+
+.deleted-surface {
+  border-color: #e8d2cf;
 }
 
 .status-badge {
@@ -250,6 +278,11 @@ h3 {
 .form-field small,
 .error-text {
   color: #b42318;
+  font-weight: 700;
+}
+
+.warning-text {
+  color: #7a271a;
   font-weight: 700;
 }
 

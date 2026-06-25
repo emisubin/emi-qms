@@ -5,6 +5,13 @@ namespace Emi.Qms.Api.Projects;
 
 public static partial class ProjectInputNormalizer
 {
+    public static readonly IReadOnlySet<string> PackagingMethods = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "WoodenCrate",
+        "StretchWrap",
+        "HeavyDutyBox"
+    };
+
     public const int CustomerNameMaxLength = 200;
     public const int ItemMaxLength = 100;
     public const int ProjectCodeMaxLength = 80;
@@ -86,6 +93,7 @@ public sealed record NormalizedCreateProjectInput(
     int PanelCount,
     DateOnly DeliveryDate,
     Guid SalesOwnerUserId,
+    string PackagingMethod,
     decimal? SalesAmount,
     string? CurrencyCode,
     string? DeliveryLocation);
@@ -98,6 +106,7 @@ public sealed record NormalizedUpdateProjectInput(
     string ProjectTitleNormalized,
     DateOnly DeliveryDate,
     Guid SalesOwnerUserId,
+    string PackagingMethod,
     decimal? SalesAmount,
     string? CurrencyCode,
     string? DeliveryLocation,
@@ -108,6 +117,8 @@ public sealed record NormalizedPanelCountChangeInput(
     int ExpectedActivePanelCount,
     IReadOnlyList<Guid> CancelPanelIds,
     string Reason);
+
+public sealed record NormalizedDeleteProjectInput(string Reason, string ConfirmProjectTitleNormalized);
 
 public static partial class ProjectRequestValidator
 {
@@ -122,6 +133,7 @@ public static partial class ProjectRequestValidator
         var panelCount = RequiredPanelCount(request.PanelCount, nameof(request.PanelCount), validation);
         var deliveryDate = RequiredDate(request.DeliveryDate, nameof(request.DeliveryDate), validation);
         var salesOwnerUserId = RequiredGuid(request.SalesOwnerUserId, nameof(request.SalesOwnerUserId), validation);
+        var packagingMethod = RequiredPackagingMethod(request.PackagingMethod, nameof(request.PackagingMethod), validation);
         var salesAmount = ValidateSalesAmount(request.SalesAmount, validation);
         var currencyCode = ValidateCurrencyCode(request.CurrencyCode, salesAmount, validation);
         var deliveryLocation = OptionalText(request.DeliveryLocation, nameof(request.DeliveryLocation), ProjectInputNormalizer.DeliveryLocationMaxLength, validation);
@@ -133,7 +145,8 @@ public static partial class ProjectRequestValidator
             || projectTitle is null
             || panelCount is null
             || deliveryDate is null
-            || salesOwnerUserId is null)
+            || salesOwnerUserId is null
+            || packagingMethod is null)
         {
             return (null, validation);
         }
@@ -148,6 +161,7 @@ public static partial class ProjectRequestValidator
                 panelCount.Value,
                 deliveryDate.Value,
                 salesOwnerUserId.Value,
+                packagingMethod,
                 salesAmount,
                 currencyCode,
                 deliveryLocation),
@@ -164,6 +178,7 @@ public static partial class ProjectRequestValidator
         var projectTitle = RequiredText(request.ProjectTitle, nameof(request.ProjectTitle), ProjectInputNormalizer.ProjectTitleMaxLength, validation);
         var deliveryDate = RequiredDate(request.DeliveryDate, nameof(request.DeliveryDate), validation);
         var salesOwnerUserId = RequiredGuid(request.SalesOwnerUserId, nameof(request.SalesOwnerUserId), validation);
+        var packagingMethod = RequiredPackagingMethod(request.PackagingMethod, nameof(request.PackagingMethod), validation);
         var salesAmount = ValidateSalesAmount(request.SalesAmount, validation);
         var currencyCode = ValidateCurrencyCode(request.CurrencyCode, salesAmount, validation);
         var deliveryLocation = OptionalText(request.DeliveryLocation, nameof(request.DeliveryLocation), ProjectInputNormalizer.DeliveryLocationMaxLength, validation);
@@ -176,6 +191,7 @@ public static partial class ProjectRequestValidator
             || projectTitle is null
             || deliveryDate is null
             || salesOwnerUserId is null
+            || packagingMethod is null
             || reason is null)
         {
             return (null, validation);
@@ -190,6 +206,7 @@ public static partial class ProjectRequestValidator
                 ProjectInputNormalizer.NormalizeProjectTitle(projectTitle),
                 deliveryDate.Value,
                 salesOwnerUserId.Value,
+                packagingMethod,
                 salesAmount,
                 currencyCode,
                 deliveryLocation,
@@ -227,6 +244,25 @@ public static partial class ProjectRequestValidator
         var validation = new ProjectValidationResult();
         var reason = RequiredText(request.Reason, nameof(request.Reason), ProjectInputNormalizer.ReasonMaxLength, validation);
         return (reason, validation);
+    }
+
+    public static (NormalizedDeleteProjectInput? Input, ProjectValidationResult Validation) ValidateDelete(
+        DeleteProjectRequest request)
+    {
+        var validation = new ProjectValidationResult();
+        var reason = RequiredText(request.Reason, nameof(request.Reason), ProjectInputNormalizer.ReasonMaxLength, validation);
+        var confirmProjectTitle = RequiredText(
+            request.ConfirmProjectTitle,
+            nameof(request.ConfirmProjectTitle),
+            ProjectInputNormalizer.ProjectTitleMaxLength,
+            validation);
+
+        if (validation.HasErrors || reason is null || confirmProjectTitle is null)
+        {
+            return (null, validation);
+        }
+
+        return (new NormalizedDeleteProjectInput(reason, ProjectInputNormalizer.NormalizeProjectTitle(confirmProjectTitle)), validation);
     }
 
     private static string? RequiredText(
@@ -298,6 +334,24 @@ public static partial class ProjectRequestValidator
         }
 
         return value;
+    }
+
+    private static string? RequiredPackagingMethod(string? value, string fieldName, ProjectValidationResult validation)
+    {
+        var trimmed = ProjectInputNormalizer.TrimToNull(value);
+        if (trimmed is null)
+        {
+            validation.Add(fieldName, "포장방식은 필수 선택값입니다.");
+            return null;
+        }
+
+        if (!ProjectInputNormalizer.PackagingMethods.Contains(trimmed))
+        {
+            validation.Add(fieldName, "허용되지 않은 포장방식입니다.");
+            return null;
+        }
+
+        return trimmed;
     }
 
     private static Guid? RequiredGuid(Guid? value, string fieldName, ProjectValidationResult validation)

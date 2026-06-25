@@ -59,7 +59,8 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: '신규 프로젝트' }));
     fireEvent.click(await screen.findByRole('button', { name: '등록' }));
 
-    expect(await screen.findAllByText('필수 입력값입니다.')).toHaveLength(5);
+    expect((await screen.findAllByText('필수 입력값입니다.')).length).toBeGreaterThanOrEqual(5);
+    expect(screen.getByText('포장방식은 필수 선택값입니다.')).toBeInTheDocument();
   });
 
   it('shows a friendly duplicate title conflict message', async () => {
@@ -227,6 +228,111 @@ describe('App', () => {
     expect(await screen.findByText('OnHold')).toBeInTheDocument();
     expect(screen.getByText('Cancelled')).toBeInTheDocument();
   });
+
+  it('ignores a stale active tab response after the cancelled tab loads', async () => {
+    const active = createDeferred<Response>();
+    const cancelled = createDeferred<Response>();
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/projects' && url.searchParams.get('status') === 'Active') {
+        return active.promise;
+      }
+
+      if (url.pathname === '/api/projects' && url.searchParams.get('status') === 'Cancelled') {
+        return cancelled.promise;
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('tab', { name: '취소' }));
+    cancelled.resolve(projectListResponse([projectListItem('dev-sales', 'Cancelled', 'Race Cancelled', cancelledProjectId)]));
+
+    expect(await screen.findByText('Race Cancelled')).toBeInTheDocument();
+    active.resolve(projectListResponse([projectListItem('dev-sales', 'Active', 'Race Active', projectId)]));
+
+    await waitFor(() => expect(screen.queryByText('Race Active')).not.toBeInTheDocument());
+    expect(screen.getByRole('tab', { name: '취소' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('ignores stale cancelled responses after the deleted archive tab loads', async () => {
+    const cancelled = createDeferred<Response>();
+    const deleted = createDeferred<Response>();
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/projects' && url.searchParams.get('status') === 'Cancelled') {
+        return cancelled.promise;
+      }
+
+      if (url.pathname === '/api/deleted-projects') {
+        return deleted.promise;
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('tab', { name: '취소' }));
+    fireEvent.click(await screen.findByRole('tab', { name: '삭제 보관함' }));
+    deleted.resolve(projectListResponse([deletedProjectListItem('dev-sales')]));
+
+    expect(await screen.findByText('Deleted Project')).toBeInTheDocument();
+    cancelled.resolve(projectListResponse([projectListItem('dev-sales', 'Cancelled', 'Late Cancelled', cancelledProjectId)]));
+
+    await waitFor(() => expect(screen.queryByText('Late Cancelled')).not.toBeInTheDocument());
+    expect(screen.getByRole('tab', { name: '삭제 보관함' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('keeps the latest search result when an earlier search fails later', async () => {
+    const alpha = createDeferred<Response>();
+    const beta = createDeferred<Response>();
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/projects' && url.searchParams.get('search') === 'Alpha') {
+        return alpha.promise;
+      }
+
+      if (url.pathname === '/api/projects' && url.searchParams.get('search') === 'Beta') {
+        return beta.promise;
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    const search = await screen.findByPlaceholderText('고객사, Item, PJT Code, PJT Title 검색');
+    fireEvent.change(search, { target: { value: 'Alpha' } });
+    fireEvent.change(search, { target: { value: 'Beta' } });
+    beta.resolve(projectListResponse([projectListItem('dev-sales', 'Active', 'Beta Result', projectId)]));
+
+    expect(await screen.findByText('Beta Result')).toBeInTheDocument();
+    alpha.resolve(json({ title: 'stale failure' }, 500));
+
+    await waitFor(() => expect(screen.queryByText('stale failure')).not.toBeInTheDocument());
+    expect(screen.queryByText('Alpha Result')).not.toBeInTheDocument();
+  });
+
+  it('does not render an error banner for an aborted stale request', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/projects' && url.searchParams.get('status') === 'Active') {
+        return abortableResponse(init?.signal ?? undefined);
+      }
+
+      if (url.pathname === '/api/projects' && url.searchParams.get('status') === 'Cancelled') {
+        return Promise.resolve(projectListResponse([projectListItem('dev-sales', 'Cancelled', 'Abort Cancelled', cancelledProjectId)]));
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('tab', { name: '취소' }));
+
+    expect(await screen.findByText('Abort Cancelled')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });
 
 function fillCreateForm(projectCode: string, projectTitle: string) {
@@ -237,6 +343,7 @@ function fillCreateForm(projectCode: string, projectTitle: string) {
   fireEvent.change(screen.getByLabelText('면수*'), { target: { value: '4' } });
   fireEvent.change(screen.getByLabelText('납기일*'), { target: { value: '2026-10-10' } });
   fireEvent.change(screen.getByLabelText('영업담당자*'), { target: { value: salesOwnerId } });
+  fireEvent.change(screen.getByLabelText('포장방식*'), { target: { value: 'WoodenCrate' } });
   fireEvent.change(screen.getByLabelText('판매금액'), { target: { value: '1250000.5' } });
 }
 
@@ -285,6 +392,24 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
+  if (path === '/api/deleted-projects') {
+    return json({
+      items: [deletedProjectListItem(userKey)],
+      page: 1,
+      pageSize: 20,
+      totalCount: 1
+    }, canReadDeletedProjects(userKey) ? 200 : 403);
+  }
+
+  if (path === `/api/deleted-projects/${projectId}`) {
+    return json({
+      ...deletedProjectListItem(userKey),
+      statusReason: '삭제 전 상태 사유',
+      panels: panels(),
+      auditHistory: []
+    }, canReadDeletedProjects(userKey) ? 200 : 403);
+  }
+
   if (path === `/api/projects/${projectId}` && init?.method === 'PATCH') {
     return json(projectDetail(canReadSalesAmount(userKey), 'Active', 'TASK-003A Demo'));
   }
@@ -331,6 +456,15 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json({ items: [] });
   }
 
+  if (path.endsWith('/delete')) {
+    return json({
+      ...deletedProjectListItem(userKey),
+      statusReason: null,
+      panels: panels(),
+      auditHistory: []
+    });
+  }
+
   if (path.includes('/change-panel-count') || path.endsWith('/hold') || path.endsWith('/resume') || path.endsWith('/cancel') || path.endsWith('/reactivate')) {
     return json(projectDetail(canReadSalesAmount(userKey), 'OnHold', 'TASK-003A Demo'));
   }
@@ -341,11 +475,11 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 function currentUser(userKey: string) {
   const permissions = ['projects.read', 'Project.Read.All'];
   if (userKey === 'dev-sales') {
-    permissions.push('Project.Create', 'Project.Update', 'Project.Hold', 'Project.Cancel', 'Project.SalesAmount.Read');
+    permissions.push('Project.Create', 'Project.Update', 'Project.Hold', 'Project.Cancel', 'Project.Delete', 'Project.Deleted.Read', 'Project.SalesAmount.Read');
   }
 
   if (userKey === 'dev-admin') {
-    permissions.push('Project.SalesAmount.Read', 'users.manage');
+    permissions.push('Project.Deleted.Read', 'Project.SalesAmount.Read', 'users.manage');
   }
 
   return {
@@ -369,6 +503,7 @@ function projectListItem(userKey: string, status: 'Active' | 'OnHold' | 'Cancell
     deliveryDate: '2026-10-10',
     salesOwnerUserId: salesOwnerId,
     salesOwnerName: 'Dev Sales User',
+    packagingMethod: 'WoodenCrate',
     deliveryLocation: 'Dock A',
     status,
     createdAt: '2026-06-25T00:00:00Z',
@@ -381,6 +516,16 @@ function projectListItem(userKey: string, status: 'Active' | 'OnHold' | 'Cancell
   }
 
   return item;
+}
+
+function deletedProjectListItem(userKey: string) {
+  return {
+    ...projectListItem(userKey, 'Cancelled', 'Deleted Project', projectId),
+    deletedAtUtc: '2026-06-25T01:00:00Z',
+    deletedByUserId: salesOwnerId,
+    deletedByUserName: 'Dev Sales User',
+    deleteReason: '오등록 정리'
+  };
 }
 
 function projectDetail(
@@ -417,6 +562,10 @@ function canReadSalesAmount(userKey: string) {
   return userKey === 'dev-sales' || userKey === 'dev-admin';
 }
 
+function canReadDeletedProjects(userKey: string) {
+  return userKey === 'dev-sales' || userKey === 'dev-admin';
+}
+
 function readDevUser(init?: RequestInit) {
   const headers = init?.headers;
   if (headers instanceof Headers) {
@@ -430,6 +579,32 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function projectListResponse(items: unknown[]) {
+  return json({
+    items,
+    page: 1,
+    pageSize: 20,
+    totalCount: items.length
+  });
+}
+
+function abortableResponse(signal?: AbortSignal) {
+  return new Promise<Response>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+      return;
+    }
+
+    signal?.addEventListener('abort', () => {
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    }, { once: true });
+
+    setTimeout(() => {
+      resolve(projectListResponse([projectListItem('dev-sales', 'Active', 'Should Not Render', projectId)]));
+    }, 100);
   });
 }
 

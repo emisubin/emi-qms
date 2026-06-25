@@ -13,6 +13,7 @@ public sealed class QmsWebApplicationFactory : WebApplicationFactory<Program>
     private readonly IReadOnlyDictionary<string, string?>? configuration;
     private readonly bool includeDefaultDevelopmentAuthentication;
     private readonly IIdentityStore? identityStore;
+    private readonly Action<IServiceCollection>? configureTestServices;
 
     public TestLogSink Logs { get; } = new();
 
@@ -33,21 +34,29 @@ public sealed class QmsWebApplicationFactory : WebApplicationFactory<Program>
         string environment,
         IReadOnlyDictionary<string, string?>? configuration = null,
         bool includeDefaultDevelopmentAuthentication = false,
-        IIdentityStore? identityStore = null)
+        IIdentityStore? identityStore = null,
+        Action<IServiceCollection>? configureTestServices = null)
     {
         this.environment = environment;
         this.configuration = configuration;
         this.includeDefaultDevelopmentAuthentication = includeDefaultDevelopmentAuthentication;
         this.identityStore = identityStore;
+        this.configureTestServices = configureTestServices;
     }
 
     public static QmsWebApplicationFactory Create(
         string environment,
         IReadOnlyDictionary<string, string?>? configuration = null,
         bool includeDefaultDevelopmentAuthentication = false,
-        IIdentityStore? identityStore = null)
+        IIdentityStore? identityStore = null,
+        Action<IServiceCollection>? configureTestServices = null)
     {
-        return new QmsWebApplicationFactory(environment, configuration, includeDefaultDevelopmentAuthentication, identityStore);
+        return new QmsWebApplicationFactory(
+            environment,
+            configuration,
+            includeDefaultDevelopmentAuthentication,
+            identityStore,
+            configureTestServices);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -91,6 +100,11 @@ public sealed class QmsWebApplicationFactory : WebApplicationFactory<Program>
                 services.Remove(descriptor);
                 services.AddSingleton(identityStore);
             });
+        }
+
+        if (configureTestServices is not null)
+        {
+            builder.ConfigureServices(configureTestServices);
         }
     }
 }

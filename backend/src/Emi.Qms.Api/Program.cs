@@ -26,6 +26,7 @@ builder.Services.AddSingleton<DatabaseConnectionStringProvider>();
 builder.Services.AddSingleton<DatabaseHealthChecker>();
 builder.Services.AddSingleton<DatabaseMigrationRunner>();
 builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
+builder.Services.AddSingleton<IProjectDeletionGuard, ProjectDeletionGuard>();
 builder.Services.AddSingleton<ProjectStore>();
 builder.Services.AddQmsAuthorizationFoundation();
 

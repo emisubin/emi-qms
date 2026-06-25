@@ -27,7 +27,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(7, counts.Roles);
-        Assert.Equal(16, counts.Permissions);
+        Assert.Equal(18, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
 
         await AssertCoreConstraintsExistAsync(connectionStringProvider, TestContext.Current.CancellationToken);
@@ -369,6 +369,166 @@ public sealed class PostgreSqlMigrationTests
         await AssertProjectPanelFoundationAsync(connectionStringProvider, TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task ProjectPackagingSoftDeleteMigration_AddsNullablePackagingAndPartialTitleUniqueness()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0001_identity_authorization_foundation.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0002_permission_scope_alignment.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0003_project_panel_foundation.sql"),
+            TestContext.Current.CancellationToken);
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into departments (id, code, name)
+            values ('74000000-0000-0000-0000-000000000001', 'sales-test-0004', 'Sales Test 0004')
+            on conflict (code) do nothing;
+
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '74000000-0000-0000-0000-000000000002',
+                'migration-sales-0004',
+                'Migration Sales 0004',
+                '74000000-0000-0000-0000-000000000001',
+                true
+            )
+            on conflict (development_user_key) do nothing;
+
+            insert into projects (
+                id,
+                project_key,
+                project_number,
+                name,
+                customer_name,
+                item,
+                project_code,
+                project_title,
+                project_title_normalized,
+                delivery_date,
+                sales_owner_user_id
+            )
+            values (
+                '74000000-0000-0000-0000-000000000003',
+                'migration-0004-existing',
+                'MIG-0004',
+                'Migration 0004 Existing',
+                'Migration Customer',
+                'Migration Item',
+                'MIG-0004',
+                'Migration 0004 Existing',
+                'MIGRATION 0004 EXISTING',
+                '2026-09-01',
+                '74000000-0000-0000-0000-000000000002'
+            );
+            """,
+            TestContext.Current.CancellationToken);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0004_project_packaging_soft_delete.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0004_project_packaging_soft_delete.sql"),
+            TestContext.Current.CancellationToken);
+
+        await AssertProjectPackagingSoftDeleteAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertNoDuplicateRolePermissionsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from projects where project_key = 'migration-0004-existing' and packaging_method is null and deleted_at_utc is null;",
+            TestContext.Current.CancellationToken));
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            update projects
+            set deleted_at_utc = now(),
+                delete_reason = 'migration test'
+            where project_key = 'migration-0004-existing';
+
+            insert into projects (
+                id,
+                project_key,
+                project_number,
+                name,
+                customer_name,
+                item,
+                project_code,
+                project_title,
+                project_title_normalized,
+                packaging_method,
+                delivery_date,
+                sales_owner_user_id
+            )
+            values (
+                '74000000-0000-0000-0000-000000000004',
+                'migration-0004-reuse',
+                'MIG-0004-REUSE',
+                ' migration   0004   existing ',
+                'Migration Customer',
+                'Migration Item',
+                'MIG-0004-REUSE',
+                'Migration 0004 Existing',
+                'MIGRATION 0004 EXISTING',
+                'WoodenCrate',
+                '2026-09-02',
+                '74000000-0000-0000-0000-000000000002'
+            );
+            """,
+            TestContext.Current.CancellationToken);
+
+        var duplicateActive = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into projects (
+                id,
+                project_key,
+                project_number,
+                name,
+                customer_name,
+                item,
+                project_code,
+                project_title,
+                project_title_normalized,
+                packaging_method,
+                delivery_date,
+                sales_owner_user_id
+            )
+            values (
+                '74000000-0000-0000-0000-000000000005',
+                'migration-0004-duplicate-active',
+                'MIG-0004-DUP',
+                'Migration 0004 Existing',
+                'Migration Customer',
+                'Migration Item',
+                'MIG-0004-DUP',
+                'Migration 0004 Existing',
+                'MIGRATION 0004 EXISTING',
+                'StretchWrap',
+                '2026-09-03',
+                '74000000-0000-0000-0000-000000000002'
+            );
+            """,
+            TestContext.Current.CancellationToken));
+
+        Assert.IsType<PostgresException>(duplicateActive);
+        Assert.Equal(PostgresErrorCodes.UniqueViolation, ((PostgresException)duplicateActive!).SqlState);
+    }
+
     [Theory]
     [InlineData("Development", "DevelopmentData:SeedEnabled")]
     [InlineData("Testing", "DevelopmentData:SeedEnabled")]
@@ -707,6 +867,81 @@ public sealed class PostgreSqlMigrationTests
         {
             var value = await command.ExecuteScalarAsync(cancellationToken);
             Assert.Equal(false, value);
+        }
+    }
+
+    private static async Task AssertProjectPackagingSoftDeleteAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString();
+        Assert.False(string.IsNullOrWhiteSpace(connectionString));
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+
+        await using (var command = dataSource.CreateCommand("""
+            select count(*)
+            from information_schema.columns
+            where table_name = 'projects'
+              and column_name in (
+                  'packaging_method',
+                  'deleted_at_utc',
+                  'deleted_by_user_id',
+                  'delete_reason',
+                  'deleted_correlation_id'
+              );
+            """))
+        {
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            Assert.Equal(5L, value);
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select indexdef
+            from pg_indexes
+            where indexname = 'ux_projects_project_title_normalized_active';
+            """))
+        {
+            var value = Assert.IsType<string>(await command.ExecuteScalarAsync(cancellationToken));
+            Assert.Contains("deleted_at_utc IS NULL", value, StringComparison.OrdinalIgnoreCase);
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select roles.code
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'Project.Delete'
+            order by roles.code;
+            """))
+        {
+            var roles = new List<string>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                roles.Add(reader.GetString(0));
+            }
+
+            Assert.Equal(["sales"], roles);
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select roles.code
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'Project.Deleted.Read'
+            order by roles.code;
+            """))
+        {
+            var roles = new List<string>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                roles.Add(reader.GetString(0));
+            }
+
+            Assert.Equal(["sales", "system-administrator"], roles);
         }
     }
 

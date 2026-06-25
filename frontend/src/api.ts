@@ -4,9 +4,13 @@ import type {
   AuditHistoryResponse,
   ChangePanelCountRequest,
   CreateProjectRequest,
+  DeletedProjectDetail,
+  DeletedProjectListResponse,
+  DeleteProjectRequest,
   PanelPlaceholder,
   ProjectDetail,
   ProjectListResponse,
+  ProjectListTab,
   ProjectStatusChangeRequest,
   SalesOwner,
   UpdateProjectRequest
@@ -41,10 +45,28 @@ export async function getSalesOwners(developmentUserKey?: string): Promise<Sales
 
 export async function listProjects(
   developmentUserKey: string | undefined,
-  search = ''
+  search = '',
+  status: ProjectListTab = 'Active',
+  options: { signal?: AbortSignal } = {}
 ): Promise<ProjectListResponse> {
+  const params = new URLSearchParams();
+  if (search.trim()) {
+    params.set('search', search.trim());
+  }
+  if (status !== 'Deleted') {
+    params.set('status', status);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<ProjectListResponse>(`/api/projects${query}`, developmentUserKey, { signal: options.signal });
+}
+
+export async function listDeletedProjects(
+  developmentUserKey: string | undefined,
+  search = '',
+  options: { signal?: AbortSignal } = {}
+): Promise<DeletedProjectListResponse> {
   const query = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
-  return fetchJson<ProjectListResponse>(`/api/projects${query}`, developmentUserKey);
+  return fetchJson<DeletedProjectListResponse>(`/api/deleted-projects${query}`, developmentUserKey, { signal: options.signal });
 }
 
 export async function getProject(
@@ -52,6 +74,13 @@ export async function getProject(
   projectId: string
 ): Promise<ProjectDetail> {
   return fetchJson<ProjectDetail>(`/api/projects/${projectId}`, developmentUserKey);
+}
+
+export async function getDeletedProject(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<DeletedProjectDetail> {
+  return fetchJson<DeletedProjectDetail>(`/api/deleted-projects/${projectId}`, developmentUserKey);
 }
 
 export async function createProject(
@@ -93,6 +122,17 @@ export async function changeProjectStatus(
   request: ProjectStatusChangeRequest
 ): Promise<ProjectDetail> {
   return fetchJson<ProjectDetail>(`/api/projects/${projectId}/${action}`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function deleteProject(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  request: DeleteProjectRequest
+): Promise<DeletedProjectDetail> {
+  return fetchJson<DeletedProjectDetail>(`/api/projects/${projectId}/delete`, developmentUserKey, {
     method: 'POST',
     body: JSON.stringify(request)
   });

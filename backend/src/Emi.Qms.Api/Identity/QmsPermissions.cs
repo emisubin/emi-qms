@@ -12,6 +12,8 @@ public static class QmsPermissions
     public const string ProjectUpdate = "Project.Update";
     public const string ProjectHold = "Project.Hold";
     public const string ProjectCancel = "Project.Cancel";
+    public const string ProjectDelete = "Project.Delete";
+    public const string ProjectDeletedRead = "Project.Deleted.Read";
     public const string ProjectSalesAmountRead = "Project.SalesAmount.Read";
     public const string ProductionPlan = "production.plan";
     public const string ManufacturingUpdate = "manufacturing.update";

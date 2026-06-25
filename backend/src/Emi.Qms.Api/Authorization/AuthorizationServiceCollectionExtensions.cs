@@ -30,10 +30,40 @@ public static class AuthorizationServiceCollectionExtensions
                     new ProjectAccessRequirement());
             });
 
+            options.AddPolicy(QmsPolicies.ProjectReadAll, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectReadAll));
+            });
+
             options.AddPolicy(QmsPolicies.ProjectManage, policy =>
             {
                 policy.RequireAuthenticatedUser();
                 policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectManage));
+            });
+
+            options.AddPolicy(QmsPolicies.ProjectCreate, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectCreate));
+            });
+
+            options.AddPolicy(QmsPolicies.ProjectUpdate, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectUpdate));
+            });
+
+            options.AddPolicy(QmsPolicies.ProjectHold, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectHold));
+            });
+
+            options.AddPolicy(QmsPolicies.ProjectCancel, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProjectCancel));
             });
 
             options.AddPolicy(QmsPolicies.ManufacturingUpdate, policy =>

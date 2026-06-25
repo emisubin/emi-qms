@@ -8,6 +8,10 @@ public static class QmsPermissions
     // New endpoint policies must use ProjectReadAll for full project read scope.
     public const string ProjectAccessAll = "projects.access.all";
     public const string ProjectReadAll = "Project.Read.All";
+    public const string ProjectCreate = "Project.Create";
+    public const string ProjectUpdate = "Project.Update";
+    public const string ProjectHold = "Project.Hold";
+    public const string ProjectCancel = "Project.Cancel";
     public const string ProjectSalesAmountRead = "Project.SalesAmount.Read";
     public const string ProductionPlan = "production.plan";
     public const string ManufacturingUpdate = "manufacturing.update";

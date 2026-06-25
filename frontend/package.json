@@ -7,18 +7,22 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "tsc -b && vite build",
+    "e2e": "pnpm run e2e:mock",
+    "e2e:mock": "playwright test --config playwright.config.ts",
+    "e2e:full-stack": "bash ../scripts/e2e-full-stack.sh",
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
     "@vitejs/plugin-react": "5.1.2",
-    "vite": "7.3.0",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "vite": "7.3.0"
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",
+    "@playwright/test": "1.57.0",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.0",
     "@types/node": "24.10.2",

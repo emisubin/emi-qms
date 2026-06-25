@@ -123,7 +123,12 @@ corepack pnpm --filter emi-qms-frontend run lint
 corepack pnpm --filter emi-qms-frontend run typecheck
 corepack pnpm --filter emi-qms-frontend test
 corepack pnpm --filter emi-qms-frontend run build
+corepack pnpm --filter emi-qms-frontend exec playwright install chromium
+corepack pnpm --filter emi-qms-frontend run e2e:mock
+corepack pnpm --filter emi-qms-frontend run e2e:full-stack
 ```
+
+`e2e:mock`은 API route mock 기반 UI browser smoke test입니다. `e2e:full-stack`은 전용 임시 PostgreSQL DB, 실제 Backend, 실제 Frontend를 함께 실행합니다. full-stack E2E는 `emi_qms_e2e` 임시 DB만 reset/drop하며 기존 개발 DB와 Docker volume은 삭제하지 않습니다.
 
 ### Health endpoint
 

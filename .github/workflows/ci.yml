@@ -71,3 +71,80 @@ jobs:
         run: corepack pnpm --filter emi-qms-frontend test
       - name: Build
         run: corepack pnpm --filter emi-qms-frontend run build
+      - name: Install Playwright browsers
+        run: corepack pnpm --filter emi-qms-frontend exec playwright install --with-deps chromium
+      - name: E2E
+        run: corepack pnpm --filter emi-qms-frontend run e2e
+      - name: Upload mock UI Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-mock-ui-${{ github.job }}
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  full-stack-e2e:
+    name: Full-Stack E2E
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_HOST: localhost
+      DATABASE_PORT: 5432
+      DATABASE_USER: emi_qms
+      E2E_DATABASE_NAME: emi_qms_e2e
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: emi_qms
+          POSTGRES_PASSWORD: ${{ env.CI_DATABASE_PASSWORD }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U emi_qms -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.8.0 --activate
+      - name: Configure CI database password
+        shell: bash
+        run: echo "DATABASE_PASSWORD=${CI_DATABASE_PASSWORD}" >> "$GITHUB_ENV"
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Install
+        run: corepack pnpm install --frozen-lockfile
+      - name: Restore backend
+        run: dotnet restore backend/Emi.Qms.sln
+      - name: Build backend
+        run: dotnet build backend/Emi.Qms.sln --configuration Release --no-restore
+      - name: Install Playwright browsers
+        run: corepack pnpm --filter emi-qms-frontend exec playwright install --with-deps chromium
+      - name: Full-stack Playwright E2E
+        run: corepack pnpm --filter emi-qms-frontend run e2e:full-stack
+      - name: Upload full-stack Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-full-stack-${{ github.job }}
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 7

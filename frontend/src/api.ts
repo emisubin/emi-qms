@@ -1,29 +1,158 @@
 import type { ReadyHealth } from './health';
 import type { CurrentUser } from './identity';
+import type {
+  AuditHistoryResponse,
+  ChangePanelCountRequest,
+  CreateProjectRequest,
+  PanelPlaceholder,
+  ProjectDetail,
+  ProjectListResponse,
+  ProjectStatusChangeRequest,
+  SalesOwner,
+  UpdateProjectRequest
+} from './projects';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5080';
-const developmentUserKey = import.meta.env.DEV ? (import.meta.env.VITE_DEV_USER_KEY ?? 'dev-admin') : undefined;
+export const defaultDevelopmentUserKey = import.meta.env.DEV
+  ? (import.meta.env.VITE_DEV_USER_KEY ?? 'dev-sales')
+  : undefined;
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly errors?: Record<string, string[]>
+  ) {
+    super(message);
+  }
+}
 
 export async function getReadyHealth(): Promise<ReadyHealth> {
-  return fetchJson<ReadyHealth>('/health/ready', false);
+  return fetchJson<ReadyHealth>('/health/ready');
 }
 
-export async function getCurrentUser(): Promise<CurrentUser> {
-  return fetchJson<CurrentUser>('/api/me', true);
+export async function getCurrentUser(developmentUserKey?: string): Promise<CurrentUser> {
+  return fetchJson<CurrentUser>('/api/me', developmentUserKey);
 }
 
-async function fetchJson<T>(path: string, includeDevelopmentUser: boolean): Promise<T> {
-  const headers = new Headers();
+export async function getSalesOwners(developmentUserKey?: string): Promise<SalesOwner[]> {
+  return fetchJson<SalesOwner[]>('/api/sales-owners', developmentUserKey);
+}
 
-  if (includeDevelopmentUser && developmentUserKey) {
+export async function listProjects(
+  developmentUserKey: string | undefined,
+  search = ''
+): Promise<ProjectListResponse> {
+  const query = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
+  return fetchJson<ProjectListResponse>(`/api/projects${query}`, developmentUserKey);
+}
+
+export async function getProject(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<ProjectDetail> {
+  return fetchJson<ProjectDetail>(`/api/projects/${projectId}`, developmentUserKey);
+}
+
+export async function createProject(
+  developmentUserKey: string | undefined,
+  request: CreateProjectRequest
+): Promise<ProjectDetail> {
+  return fetchJson<ProjectDetail>('/api/projects', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function updateProject(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  request: UpdateProjectRequest
+): Promise<ProjectDetail> {
+  return fetchJson<ProjectDetail>(`/api/projects/${projectId}`, developmentUserKey, {
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function changePanelCount(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  request: ChangePanelCountRequest
+): Promise<ProjectDetail> {
+  return fetchJson<ProjectDetail>(`/api/projects/${projectId}/change-panel-count`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function changeProjectStatus(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  action: 'hold' | 'resume' | 'cancel' | 'reactivate',
+  request: ProjectStatusChangeRequest
+): Promise<ProjectDetail> {
+  return fetchJson<ProjectDetail>(`/api/projects/${projectId}/${action}`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function listPanels(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<PanelPlaceholder[]> {
+  return fetchJson<PanelPlaceholder[]>(`/api/projects/${projectId}/panels`, developmentUserKey);
+}
+
+export async function getPanel(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  panelId: string
+): Promise<PanelPlaceholder> {
+  return fetchJson<PanelPlaceholder>(`/api/projects/${projectId}/panels/${panelId}`, developmentUserKey);
+}
+
+export async function getAuditHistory(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<AuditHistoryResponse> {
+  return fetchJson<AuditHistoryResponse>(`/api/projects/${projectId}/audit-history`, developmentUserKey);
+}
+
+async function fetchJson<T>(path: string, developmentUserKey?: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+
+  if (developmentUserKey) {
     headers.set('X-Dev-User', developmentUserKey);
   }
 
-  const response = await fetch(`${apiBaseUrl}${path}`, { headers });
+  if (init?.body) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers });
 
   if (!response.ok) {
-    throw new Error(`API 상태 확인 실패: ${response.status}`);
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
   }
 
   return response.json() as Promise<T>;
+}
+
+async function readProblem(response: Response): Promise<{ message: string; errors?: Record<string, string[]> }> {
+  try {
+    const payload = await response.json() as {
+      title?: string;
+      detail?: string;
+      errors?: Record<string, string[]>;
+    };
+    return {
+      message: payload.title ?? payload.detail ?? `API 요청 실패: ${response.status}`,
+      errors: payload.errors
+    };
+  } catch {
+    return { message: `API 요청 실패: ${response.status}` };
+  }
 }

@@ -27,7 +27,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(7, counts.Roles);
-        Assert.Equal(12, counts.Permissions);
+        Assert.Equal(16, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
 
         await AssertCoreConstraintsExistAsync(connectionStringProvider, TestContext.Current.CancellationToken);
@@ -180,6 +180,193 @@ public sealed class PostgreSqlMigrationTests
 
         await AssertPermissionScopeAlignmentAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertNoDuplicateRolePermissionsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task ProjectPanelFoundationMigration_AllowsDuplicateProjectCodeButRejectsNormalizedTitleDuplicates()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0001_identity_authorization_foundation.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0002_permission_scope_alignment.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0003_project_panel_foundation.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0003_project_panel_foundation.sql"),
+            TestContext.Current.CancellationToken);
+
+        await AssertProjectPanelFoundationAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertNoDuplicateRolePermissionsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into departments (id, code, name)
+            values ('71000000-0000-0000-0000-000000000001', 'sales-test', 'Sales Test')
+            on conflict (code) do nothing;
+
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '71000000-0000-0000-0000-000000000002',
+                'migration-sales',
+                'Migration Sales',
+                '71000000-0000-0000-0000-000000000001',
+                true
+            )
+            on conflict (development_user_key) do nothing;
+
+            insert into projects (
+                id,
+                project_key,
+                project_number,
+                name,
+                customer_name,
+                item,
+                project_code,
+                project_title,
+                project_title_normalized,
+                delivery_date,
+                sales_owner_user_id
+            )
+            values
+                (
+                    '71000000-0000-0000-0000-000000000003',
+                    'migration-project-a',
+                    'DUP-CODE',
+                    'Migration Project A',
+                    'Migration Customer',
+                    'Migration Item',
+                    'DUP-CODE',
+                    'Migration Project A',
+                    'MIGRATION PROJECT A',
+                    '2026-09-01',
+                    '71000000-0000-0000-0000-000000000002'
+                ),
+                (
+                    '71000000-0000-0000-0000-000000000004',
+                    'migration-project-b',
+                    'DUP-CODE',
+                    'Migration Project B',
+                    'Migration Customer',
+                    'Migration Item',
+                    'DUP-CODE',
+                    'Migration Project B',
+                    'MIGRATION PROJECT B',
+                    '2026-09-02',
+                    '71000000-0000-0000-0000-000000000002'
+                );
+            """,
+            TestContext.Current.CancellationToken);
+
+        var exception = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into projects (
+                id,
+                project_key,
+                project_number,
+                name,
+                customer_name,
+                item,
+                project_code,
+                project_title,
+                project_title_normalized,
+                delivery_date,
+                sales_owner_user_id
+            )
+            values (
+                '71000000-0000-0000-0000-000000000005',
+                'migration-project-c',
+                'OTHER-CODE',
+                ' migration   project   a ',
+                'Migration Customer',
+                'Migration Item',
+                'OTHER-CODE',
+                'migration project a',
+                'MIGRATION PROJECT A',
+                '2026-09-03',
+                '71000000-0000-0000-0000-000000000002'
+            );
+            """,
+            TestContext.Current.CancellationToken));
+
+        Assert.IsType<PostgresException>(exception);
+        Assert.Equal(PostgresErrorCodes.UniqueViolation, ((PostgresException)exception!).SqlState);
+    }
+
+    [Fact]
+    public async Task ProjectPanelFoundationMigration_FailsClearlyForLegacyNormalizedTitleDuplicatesBeforeSchemaChanges()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0001_identity_authorization_foundation.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0002_permission_scope_alignment.sql"),
+            TestContext.Current.CancellationToken);
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into projects (id, project_key, project_number, name)
+            values
+                ('72000000-0000-0000-0000-000000000001', 'legacy-duplicate-a', 'LEGACY-A', 'Legacy Project'),
+                ('72000000-0000-0000-0000-000000000002', 'legacy-duplicate-b', 'LEGACY-B', ' legacy   project ');
+            """,
+            TestContext.Current.CancellationToken);
+
+        var exception = await Assert.ThrowsAsync<PostgresException>(() => ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0003_project_panel_foundation.sql"),
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "Project Title normalized duplicates were found. Resolve duplicate legacy titles before applying migration 0003.",
+            exception.MessageText,
+            StringComparison.Ordinal);
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from projects where project_key like 'legacy-duplicate-%';",
+            TestContext.Current.CancellationToken));
+        Assert.False(await ReadScalarAsync<bool>(
+            connectionStringProvider,
+            """
+            select exists (
+                select 1
+                from information_schema.columns
+                where table_name = 'projects'
+                  and column_name = 'customer_name'
+            );
+            """,
+            TestContext.Current.CancellationToken));
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            "update projects set name = 'Legacy Project B' where project_key = 'legacy-duplicate-b';",
+            TestContext.Current.CancellationToken);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0003_project_panel_foundation.sql"),
+            TestContext.Current.CancellationToken);
+
+        await AssertProjectPanelFoundationAsync(connectionStringProvider, TestContext.Current.CancellationToken);
     }
 
     [Theory]
@@ -353,6 +540,20 @@ public sealed class PostgreSqlMigrationTests
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task<T> ReadScalarAsync<T>(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        string commandText,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString();
+        Assert.False(string.IsNullOrWhiteSpace(connectionString));
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var command = dataSource.CreateCommand(commandText);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return Assert.IsType<T>(value);
+    }
+
     private static async Task AssertPermissionScopeAlignmentAsync(
         DatabaseConnectionStringProvider connectionStringProvider,
         CancellationToken cancellationToken)
@@ -440,6 +641,73 @@ public sealed class PostgreSqlMigrationTests
             cancellationToken);
 
         Assert.Empty(disallowed);
+    }
+
+    private static async Task AssertProjectPanelFoundationAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString();
+        Assert.False(string.IsNullOrWhiteSpace(connectionString));
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+
+        await using (var command = dataSource.CreateCommand("""
+            select count(*)
+            from permissions
+            where code in ('Project.Create', 'Project.Update', 'Project.Hold', 'Project.Cancel');
+            """))
+        {
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            Assert.Equal(4L, value);
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select roles.code
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code in ('Project.Create', 'Project.Update', 'Project.Hold', 'Project.Cancel')
+            group by roles.code
+            having count(distinct permissions.code) = 4
+            order by roles.code;
+            """))
+        {
+            var roles = new List<string>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                roles.Add(reader.GetString(0));
+            }
+
+            Assert.Equal(["sales"], roles);
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select count(*)
+            from pg_indexes
+            where indexname in (
+                'ux_projects_project_title_normalized',
+                'ux_panel_placeholders_project_sequence',
+                'ux_panel_placeholders_project_display_code'
+            );
+            """))
+        {
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            Assert.Equal(3L, value);
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select exists (
+                select 1
+                from pg_constraint
+                where conname = 'projects_project_number_key'
+            );
+            """))
+        {
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            Assert.Equal(false, value);
+        }
     }
 
     private static async Task<IReadOnlyList<SensitivePermissionAssignment>> ReadDisallowedSensitivePermissionAssignmentsAsync(

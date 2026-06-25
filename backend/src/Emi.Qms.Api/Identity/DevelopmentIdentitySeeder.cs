@@ -84,13 +84,60 @@ public sealed class DevelopmentIdentitySeeder(
             department_id = excluded.department_id,
             is_active = excluded.is_active;
 
-        insert into projects (id, project_key, project_number, name)
+        insert into projects (
+            id,
+            project_key,
+            project_number,
+            name,
+            customer_name,
+            item,
+            project_code,
+            project_title,
+            project_title_normalized,
+            delivery_date,
+            sales_owner_user_id,
+            status
+        )
         values
-            ('40000000-0000-0000-0000-000000000001', 'demo-project-alpha', 'DEMO-24001', 'Demo Project Alpha'),
-            ('40000000-0000-0000-0000-000000000002', 'demo-project-beta', 'DEMO-24002', 'Demo Project Beta')
+            (
+                '40000000-0000-0000-0000-000000000001',
+                'demo-project-alpha',
+                'DEMO-24001',
+                'Demo Project Alpha',
+                'Demo Customer Alpha',
+                'Demo Item Alpha',
+                'DEMO-24001',
+                'Demo Project Alpha',
+                'DEMO PROJECT ALPHA',
+                '2026-07-31',
+                '50000000-0000-0000-0000-000000000002',
+                'Active'
+            ),
+            (
+                '40000000-0000-0000-0000-000000000002',
+                'demo-project-beta',
+                'DEMO-24002',
+                'Demo Project Beta',
+                'Demo Customer Beta',
+                'Demo Item Beta',
+                'DEMO-24002',
+                'Demo Project Beta',
+                'DEMO PROJECT BETA',
+                '2026-08-15',
+                '50000000-0000-0000-0000-000000000002',
+                'Active'
+            )
         on conflict (project_key) do update
         set project_number = excluded.project_number,
-            name = excluded.name;
+            name = excluded.name,
+            customer_name = excluded.customer_name,
+            item = excluded.item,
+            project_code = excluded.project_code,
+            project_title = excluded.project_title,
+            project_title_normalized = excluded.project_title_normalized,
+            delivery_date = excluded.delivery_date,
+            sales_owner_user_id = excluded.sales_owner_user_id,
+            status = excluded.status;
 
         insert into user_roles (user_id, role_id)
         select qms_users.id, roles.id

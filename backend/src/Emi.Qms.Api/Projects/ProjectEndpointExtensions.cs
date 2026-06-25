@@ -1,0 +1,464 @@
+using System.Security.Claims;
+using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.Identity;
+
+namespace Emi.Qms.Api.Projects;
+
+public static class ProjectEndpointExtensions
+{
+    private static readonly IReadOnlySet<string> ActiveOnly = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "Active"
+    };
+
+    private static readonly IReadOnlySet<string> OnHoldOnly = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "OnHold"
+    };
+
+    private static readonly IReadOnlySet<string> ActiveOrOnHold = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "Active",
+        "OnHold"
+    };
+
+    private static readonly IReadOnlySet<string> CancelledOnly = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "Cancelled"
+    };
+
+    public static IEndpointRouteBuilder MapProjectEndpoints(this IEndpointRouteBuilder app)
+    {
+        var api = app.MapGroup("/api");
+
+        api.MapGet("/sales-owners", async (
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            if (!HasPermission(user, QmsPermissions.ProjectRead))
+            {
+                return Results.Forbid();
+            }
+
+            var owners = await projectStore.GetSalesOwnersAsync(cancellationToken);
+            return Results.Ok(owners);
+        })
+        .RequireAuthorization()
+        .WithName("GetSalesOwners");
+
+        api.MapGet("/projects", async (
+            HttpRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            if (!HasPermission(user, QmsPermissions.ProjectRead))
+            {
+                return Results.Forbid();
+            }
+
+            var query = ParseProjectListQuery(request);
+            var result = await projectStore.ListProjectsAsync(
+                query,
+                GetProjectAccessScope(user),
+                CanReadSalesAmount(user),
+                cancellationToken);
+
+            return Results.Ok(result);
+        })
+        .RequireAuthorization()
+        .WithName("ListProjects");
+
+        api.MapPost("/projects", async (
+            CreateProjectRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var (input, validation) = ProjectRequestValidator.ValidateCreate(request);
+            if (validation.HasErrors || input is null)
+            {
+                return Results.ValidationProblem(validation.Errors);
+            }
+
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await projectStore.CreateProjectAsync(
+                input,
+                userId.Value,
+                httpContext.TraceIdentifier,
+                CanReadSalesAmount(user),
+                cancellationToken);
+
+            return ToProjectMutationResult(result, value => Results.Created($"/api/projects/{value.ProjectId}", value));
+        })
+        .RequireAuthorization(QmsPolicies.ProjectCreate)
+        .WithName("CreateProject");
+
+        api.MapGet("/projects/{projectId:guid}", async (
+            Guid projectId,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null)
+            {
+                return access;
+            }
+
+            var project = await projectStore.GetProjectAsync(projectId, CanReadSalesAmount(user), cancellationToken);
+            return project is null ? Results.NotFound() : Results.Ok(project);
+        })
+        .RequireAuthorization()
+        .WithName("GetProject");
+
+        api.MapPatch("/projects/{projectId:guid}", async (
+            Guid projectId,
+            UpdateProjectRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var (input, validation) = ProjectRequestValidator.ValidateUpdate(request);
+            if (validation.HasErrors || input is null)
+            {
+                return Results.ValidationProblem(validation.Errors);
+            }
+
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await projectStore.UpdateProjectAsync(
+                projectId,
+                input,
+                userId.Value,
+                httpContext.TraceIdentifier,
+                CanReadSalesAmount(user),
+                cancellationToken);
+
+            return ToProjectMutationResult(result, Results.Ok);
+        })
+        .RequireAuthorization(QmsPolicies.ProjectUpdate)
+        .WithName("UpdateProject");
+
+        api.MapPost("/projects/{projectId:guid}/change-panel-count", async (
+            Guid projectId,
+            ChangePanelCountRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var (input, validation) = ProjectRequestValidator.ValidatePanelCountChange(request);
+            if (validation.HasErrors || input is null)
+            {
+                return Results.ValidationProblem(validation.Errors);
+            }
+
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await projectStore.ChangePanelCountAsync(
+                projectId,
+                input,
+                userId.Value,
+                httpContext.TraceIdentifier,
+                CanReadSalesAmount(user),
+                cancellationToken);
+
+            return ToProjectMutationResult(result, Results.Ok);
+        })
+        .RequireAuthorization(QmsPolicies.ProjectUpdate)
+        .WithName("ChangeProjectPanelCount");
+
+        api.MapPost("/projects/{projectId:guid}/hold", async (
+            Guid projectId,
+            ProjectStatusChangeRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            return await ChangeStatusAsync(
+                projectId,
+                request,
+                projectStore,
+                user,
+                httpContext,
+                "ProjectHeld",
+                "OnHold",
+                ActiveOnly,
+                cancellationToken);
+        })
+        .RequireAuthorization(QmsPolicies.ProjectHold)
+        .WithName("HoldProject");
+
+        api.MapPost("/projects/{projectId:guid}/resume", async (
+            Guid projectId,
+            ProjectStatusChangeRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            return await ChangeStatusAsync(
+                projectId,
+                request,
+                projectStore,
+                user,
+                httpContext,
+                "ProjectResumed",
+                "Active",
+                OnHoldOnly,
+                cancellationToken);
+        })
+        .RequireAuthorization(QmsPolicies.ProjectUpdate)
+        .WithName("ResumeProject");
+
+        api.MapPost("/projects/{projectId:guid}/cancel", async (
+            Guid projectId,
+            ProjectStatusChangeRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            return await ChangeStatusAsync(
+                projectId,
+                request,
+                projectStore,
+                user,
+                httpContext,
+                "ProjectCancelled",
+                "Cancelled",
+                ActiveOrOnHold,
+                cancellationToken);
+        })
+        .RequireAuthorization(QmsPolicies.ProjectCancel)
+        .WithName("CancelProject");
+
+        api.MapPost("/projects/{projectId:guid}/reactivate", async (
+            Guid projectId,
+            ProjectStatusChangeRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            return await ChangeStatusAsync(
+                projectId,
+                request,
+                projectStore,
+                user,
+                httpContext,
+                "ProjectReactivated",
+                "Active",
+                CancelledOnly,
+                cancellationToken);
+        })
+        .RequireAuthorization(QmsPolicies.ProjectUpdate)
+        .WithName("ReactivateProject");
+
+        api.MapGet("/projects/{projectId:guid}/panels", async (
+            Guid projectId,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null)
+            {
+                return access;
+            }
+
+            var panels = await projectStore.ListPanelsAsync(projectId, cancellationToken);
+            return panels is null ? Results.NotFound() : Results.Ok(panels);
+        })
+        .RequireAuthorization()
+        .WithName("ListProjectPanels");
+
+        api.MapGet("/projects/{projectId:guid}/panels/{panelId:guid}", async (
+            Guid projectId,
+            Guid panelId,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null)
+            {
+                return access;
+            }
+
+            var panel = await projectStore.GetPanelAsync(projectId, panelId, cancellationToken);
+            return panel is null ? Results.NotFound() : Results.Ok(panel);
+        })
+        .RequireAuthorization()
+        .WithName("GetProjectPanel");
+
+        api.MapGet("/projects/{projectId:guid}/audit-history", async (
+            Guid projectId,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null)
+            {
+                return access;
+            }
+
+            var history = await projectStore.GetAuditHistoryAsync(projectId, CanReadSalesAmount(user), cancellationToken);
+            return history is null ? Results.NotFound() : Results.Ok(history);
+        })
+        .RequireAuthorization()
+        .WithName("GetProjectAuditHistory");
+
+        return app;
+    }
+
+    private static async Task<IResult?> ChangeStatusAsync(
+        Guid projectId,
+        ProjectStatusChangeRequest request,
+        ProjectStore projectStore,
+        ClaimsPrincipal user,
+        HttpContext httpContext,
+        string action,
+        string targetStatus,
+        IReadOnlySet<string> allowedSourceStatuses,
+        CancellationToken cancellationToken)
+    {
+        var (reason, validation) = ProjectRequestValidator.ValidateReason(request);
+        if (validation.HasErrors || reason is null)
+        {
+            return Results.ValidationProblem(validation.Errors);
+        }
+
+        var userId = GetCurrentUserId(user);
+        if (userId is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var result = await projectStore.ChangeStatusAsync(
+            projectId,
+            action,
+            targetStatus,
+            allowedSourceStatuses,
+            reason,
+            userId.Value,
+            httpContext.TraceIdentifier,
+            CanReadSalesAmount(user),
+            cancellationToken);
+
+        return ToProjectMutationResult(result, Results.Ok);
+    }
+
+    private static async Task<IResult?> AuthorizeProjectReadAsync(
+        ProjectStore projectStore,
+        ClaimsPrincipal user,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        if (!HasPermission(user, QmsPermissions.ProjectRead))
+        {
+            return Results.Forbid();
+        }
+
+        var accessRecord = await projectStore.GetProjectAccessRecordAsync(projectId, cancellationToken);
+        if (accessRecord is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!CanAccessProject(user, accessRecord.ProjectKey))
+        {
+            return Results.Forbid();
+        }
+
+        return null;
+    }
+
+    private static ProjectListQuery ParseProjectListQuery(HttpRequest request)
+    {
+        return new ProjectListQuery(
+            request.Query["search"].ToString(),
+            request.Query["status"].ToString(),
+            TryParseGuid(request.Query["salesOwnerUserId"].ToString()),
+            TryParseDate(request.Query["deliveryDateFrom"].ToString()),
+            TryParseDate(request.Query["deliveryDateTo"].ToString()),
+            bool.TryParse(request.Query["includeCancelled"].ToString(), out var includeCancelled) && includeCancelled,
+            int.TryParse(request.Query["page"].ToString(), out var page) ? page : 1,
+            int.TryParse(request.Query["pageSize"].ToString(), out var pageSize) ? pageSize : 20);
+    }
+
+    private static IResult ToProjectMutationResult<T>(
+        ProjectMutationResult<T> result,
+        Func<T, IResult> success)
+    {
+        return result.Status switch
+        {
+            ProjectMutationStatus.Success when result.Value is not null => success(result.Value),
+            ProjectMutationStatus.NotFound => Results.NotFound(),
+            ProjectMutationStatus.ValidationFailed => Results.ValidationProblem(result.Errors ?? new Dictionary<string, string[]>()),
+            ProjectMutationStatus.Conflict => Results.Problem(
+                title: result.Message ?? "요청한 작업을 수행할 수 없습니다.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
+        };
+    }
+
+    private static ProjectAccessScope GetProjectAccessScope(ClaimsPrincipal user)
+    {
+        return new ProjectAccessScope(
+            HasPermission(user, QmsPermissions.ProjectReadAll),
+            user.FindAll(QmsClaimTypes.Project).Select(claim => claim.Value).ToList());
+    }
+
+    private static bool CanAccessProject(ClaimsPrincipal user, string projectKey)
+    {
+        return HasPermission(user, QmsPermissions.ProjectReadAll)
+            || user.FindAll(QmsClaimTypes.Project).Any(claim => string.Equals(claim.Value, projectKey, StringComparison.Ordinal));
+    }
+
+    private static bool CanReadSalesAmount(ClaimsPrincipal user)
+    {
+        return HasPermission(user, QmsPermissions.ProjectSalesAmountRead);
+    }
+
+    private static bool HasPermission(ClaimsPrincipal user, string permissionCode)
+    {
+        return user.Identity?.IsAuthenticated == true
+            && user.HasClaim(QmsClaimTypes.Permission, permissionCode);
+    }
+
+    private static Guid? GetCurrentUserId(ClaimsPrincipal user)
+    {
+        var value = user.FindFirst(QmsClaimTypes.UserId)?.Value;
+        return Guid.TryParse(value, out var userId) ? userId : null;
+    }
+
+    private static Guid? TryParseGuid(string? value)
+    {
+        return Guid.TryParse(value, out var parsed) ? parsed : null;
+    }
+
+    private static DateOnly? TryParseDate(string? value)
+    {
+        return DateOnly.TryParse(value, out var parsed) ? parsed : null;
+    }
+}

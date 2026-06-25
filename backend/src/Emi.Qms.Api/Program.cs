@@ -1,6 +1,7 @@
 using Emi.Qms.Api;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Projects;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +26,7 @@ builder.Services.AddSingleton<DatabaseConnectionStringProvider>();
 builder.Services.AddSingleton<DatabaseHealthChecker>();
 builder.Services.AddSingleton<DatabaseMigrationRunner>();
 builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
+builder.Services.AddSingleton<ProjectStore>();
 builder.Services.AddQmsAuthorizationFoundation();
 
 var app = builder.Build();
@@ -72,6 +74,7 @@ app.MapGet("/health/ready", async (DatabaseHealthChecker databaseHealthChecker, 
 .WithName("ReadyHealth");
 
 app.MapIdentityEndpoints();
+app.MapProjectEndpoints();
 
 app.Run();
 

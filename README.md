@@ -72,6 +72,8 @@ TASK-002A 기준으로 모든 활성 내부 개발 역할과 `dev-viewer`는 `Pr
 
 TASK-003B 기준으로 패널정보 직접 입력은 변경 의도를 명시하는 update mask 방식입니다. 화면은 canonical mm 저장값과 mm/inch 표시 문자열을 분리하므로 표시 단위 전환만으로 저장 요청, 감사이력, version 증가가 발생하지 않습니다. Excel Preview/Apply는 `.xlsx`만 허용하며 ZIP/Workbook 리소스 제한과 인스턴스 단위 parse 동시실행 제한을 적용하고, Apply 시 project row lock 이후 최신 포장방식과 panel version을 다시 검증합니다. Panel History는 Direct/Excel 입력방식, Import Batch 연결, 입력단위, 원본 입력값과 canonical mm 변경값을 함께 반환하며 legacy audit의 null metadata도 읽을 수 있습니다.
 
+TASK-003B-1 기준으로 프로젝트 상세은 읽기 전용 제품·패널 목록을 보여주고, 입력권한 사용자는 `/projects/{projectId}/panel-information/edit` 수정 페이지에서만 직접 입력과 Excel 다운로드·업로드를 수행합니다. 제품 업무상태는 패널 관리상태 `Active/Cancelled`와 분리된 `workflow_stage`로 저장하며 기본값은 `BeforeManufacturing`입니다. 프로젝트 상세 요약은 Backend가 계산한 QR 가능, 제조 완료, 검사 완료 집계를 활성 패널 수 기준으로 표시합니다. Excel Apply는 파일에 포함된 일부 No만 변경할 수 있고 빈 editable 행은 `Skipped`로 처리하며, Preview 상단 sticky action bar에서 건수·수정사유·Excel 저장 버튼을 제공합니다. Field-level audit row는 유지하되 관리자 전용 `Audit.Read.All` 권한을 가진 System Administrator만 ImportBatchId 또는 CorrelationId 기준으로 그룹화된 전체 이력을 조회합니다.
+
 ### 전체 종료
 
 ```powershell
@@ -122,6 +124,8 @@ dotnet restore backend\Emi.Qms.sln
 dotnet build backend\Emi.Qms.sln --configuration Release --no-restore
 dotnet test backend\Emi.Qms.sln --configuration Release --no-build
 ```
+
+백엔드 테스트는 각 테스트 factory가 Development Seed 활성/비활성 상태를 명시적으로 주입하므로, 로컬 `.env`의 `DEV_DATA_SEED_ENABLED` 값과 관계없이 같은 결과가 나와야 합니다.
 
 프런트엔드:
 

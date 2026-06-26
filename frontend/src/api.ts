@@ -51,14 +51,14 @@ export async function getSalesOwners(developmentUserKey?: string): Promise<Sales
 export async function listProjects(
   developmentUserKey: string | undefined,
   search = '',
-  status: ProjectListTab = 'Active',
+  status: ProjectListTab = 'All',
   options: { signal?: AbortSignal } = {}
 ): Promise<ProjectListResponse> {
   const params = new URLSearchParams();
   if (search.trim()) {
     params.set('search', search.trim());
   }
-  if (status !== 'Deleted') {
+  if (status !== 'Deleted' && status !== 'All') {
     params.set('status', status);
   }
   const query = params.toString() ? `?${params.toString()}` : '';

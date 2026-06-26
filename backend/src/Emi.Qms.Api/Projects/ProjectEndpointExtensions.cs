@@ -92,7 +92,11 @@ public static class ProjectEndpointExtensions
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
-            var project = await projectStore.GetDeletedProjectAsync(projectId, CanReadSalesAmount(user), true, cancellationToken);
+            var project = await projectStore.GetDeletedProjectAsync(
+                projectId,
+                CanReadSalesAmount(user),
+                HasPermission(user, QmsPermissions.AuditReadAll),
+                cancellationToken);
             return project is null ? Results.NotFound() : Results.Ok(project);
         })
         .RequireAuthorization(QmsPolicies.ProjectDeletedRead)
@@ -386,7 +390,7 @@ public static class ProjectEndpointExtensions
             var history = await projectStore.GetAuditHistoryAsync(projectId, CanReadSalesAmount(user), cancellationToken);
             return history is null ? Results.NotFound() : Results.Ok(history);
         })
-        .RequireAuthorization()
+        .RequireAuthorization(QmsPolicies.AuditReadAll)
         .WithName("GetProjectAuditHistory");
 
         return app;

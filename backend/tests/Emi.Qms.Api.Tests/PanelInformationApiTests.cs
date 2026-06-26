@@ -122,6 +122,27 @@ public sealed class PanelInformationApiTests
         Assert.Equal(expectedStatus, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("dev-admin", HttpStatusCode.OK)]
+    [InlineData("dev-sales", HttpStatusCode.Forbidden)]
+    [InlineData("dev-design", HttpStatusCode.Forbidden)]
+    [InlineData("dev-production", HttpStatusCode.Forbidden)]
+    [InlineData("dev-manufacturing", HttpStatusCode.Forbidden)]
+    [InlineData("dev-viewer", HttpStatusCode.Forbidden)]
+    public async Task PanelHistory_RequiresAuditReadAll(string developmentUserKey, HttpStatusCode expectedStatus)
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var client = context.CreateClient(developmentUserKey);
+        using var created = await CreateProjectAsync(salesClient, $"PANEL-HISTORY-AUTH-{developmentUserKey}", $"Panel History Auth {developmentUserKey}", "StretchWrap", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        using var response = await client.GetAsync($"/api/projects/{projectId}/panel-information/history", TestContext.Current.CancellationToken);
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+    }
+
     [Fact]
     public async Task ExcelPreviewAndApply_RevalidatesFileAndStoresBatchWithoutBinary()
     {
@@ -169,6 +190,90 @@ public sealed class PanelInformationApiTests
         Assert.Equal(HttpStatusCode.OK, apply.StatusCode);
         Assert.Equal(1, await context.CountExcelImportBatchesAsync(projectId));
         Assert.False(await context.ExcelBinaryColumnExistsAsync());
+    }
+
+    [Fact]
+    public async Task ExcelPartialInput_AppliesOnlyEnteredFieldsAndSkipsBlankRows()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var created = await CreateProjectAsync(salesClient, "PANEL-PARTIAL-001", "Panel Partial Excel", "WoodenCrate", 3);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        var file = CreateExcelFile(
+            ("No", "panel name", "w", "h", "d"),
+            ["1", "PNL-1", "800", "1800", "400"],
+            ["2", "", "", "", ""],
+            ["3", "PNL-3", "", "", ""]);
+
+        using var previewContent = new MultipartFormDataContent
+        {
+            { new ByteArrayContent(file), "file", "partial.xlsx" },
+            { new StringContent("Mm"), "inputUnit" }
+        };
+        var preview = await designClient.PostAsync(
+            $"/api/projects/{projectId}/panel-information/import/preview",
+            previewContent,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
+        using var previewJson = await ReadJsonAsync(preview);
+        Assert.Equal(2, previewJson.RootElement.GetProperty("newCount").GetInt32());
+        Assert.Equal(1, previewJson.RootElement.GetProperty("skippedCount").GetInt32());
+        Assert.Equal(0, previewJson.RootElement.GetProperty("errorCount").GetInt32());
+        var rows = previewJson.RootElement.GetProperty("rows").EnumerateArray().ToList();
+        Assert.Equal("Skipped", rows.Single(row => row.GetProperty("no").GetInt32() == 2).GetProperty("resultType").GetString());
+
+        var versions = previewJson.RootElement.GetProperty("expectedPanelInfoVersions").EnumerateArray()
+            .Select(item => new
+            {
+                PanelId = item.GetProperty("panelId").GetGuid(),
+                ExpectedPanelInfoVersion = item.GetProperty("expectedPanelInfoVersion").GetInt32()
+            })
+            .ToArray();
+
+        using var applyContent = new MultipartFormDataContent
+        {
+            { new ByteArrayContent(file), "file", "partial.xlsx" },
+            { new StringContent("Mm"), "inputUnit" },
+            { new StringContent(previewJson.RootElement.GetProperty("fileSha256").GetString()!), "expectedFileSha256" },
+            { new StringContent(previewJson.RootElement.GetProperty("expectedPackagingMethod").GetString()!), "expectedPackagingMethod" },
+            { new StringContent(JsonSerializer.Serialize(versions)), "expectedVersions" }
+        };
+        var apply = await designClient.PostAsync($"/api/projects/{projectId}/panel-information/import/apply", applyContent, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, apply.StatusCode);
+        using var appliedJson = await ReadJsonAsync(apply);
+        var panels = appliedJson.RootElement.GetProperty("panels").EnumerateArray().ToList();
+        Assert.Equal("PNL-1", panels[0].GetProperty("panelName").GetString());
+        Assert.Equal(800m, panels[0].GetProperty("widthMm").GetDecimal());
+        Assert.Equal(1, panels[0].GetProperty("panelInfoVersion").GetInt32());
+        Assert.True(panels[0].GetProperty("panelInfoCompleted").GetBoolean());
+        Assert.True(panels[0].GetProperty("qrEligible").GetBoolean());
+        Assert.True(panels[1].GetProperty("panelName").ValueKind == JsonValueKind.Null);
+        Assert.Equal(0, panels[1].GetProperty("panelInfoVersion").GetInt32());
+        Assert.Equal("PNL-3", panels[2].GetProperty("panelName").GetString());
+        Assert.Equal(1, panels[2].GetProperty("panelInfoVersion").GetInt32());
+        Assert.False(panels[2].GetProperty("panelInfoCompleted").GetBoolean());
+        Assert.True(panels[2].GetProperty("qrEligible").GetBoolean());
+
+        using var adminClient = context.CreateClient("dev-admin");
+        using var historyResponse = await adminClient.GetAsync($"/api/projects/{projectId}/panel-information/history", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, historyResponse.StatusCode);
+        using var history = await ReadJsonAsync(historyResponse);
+        var batch = history.RootElement.GetProperty("excelImportBatches").EnumerateArray().Single();
+        Assert.Equal(1, batch.GetProperty("skippedPanelCount").GetInt32());
+        Assert.Equal(5, history.RootElement.GetProperty("auditEvents").GetArrayLength());
+
+        var badFile = CreateExcelFile(("No", "panel name", "w", "h", "d"), ["2", "", "100", "", ""]);
+        using var badPreviewContent = new MultipartFormDataContent
+        {
+            { new ByteArrayContent(badFile), "file", "partial-bad.xlsx" },
+            { new StringContent("Mm"), "inputUnit" }
+        };
+        var badPreview = await designClient.PostAsync($"/api/projects/{projectId}/panel-information/import/preview", badPreviewContent, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, badPreview.StatusCode);
+        using var badPreviewJson = await ReadJsonAsync(badPreview);
+        Assert.Equal(1, badPreviewJson.RootElement.GetProperty("errorCount").GetInt32());
     }
 
     [Theory]
@@ -396,6 +501,7 @@ public sealed class PanelInformationApiTests
         await using var context = await PanelInfoTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
         using var designClient = context.CreateClient("dev-design");
+        using var adminClient = context.CreateClient("dev-admin");
         using var created = await CreateProjectAsync(salesClient, "PANEL-HISTORY-001", "Panel History", "StretchWrap", 1);
         using var createdJson = await ReadJsonAsync(created);
         var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
@@ -461,7 +567,10 @@ public sealed class PanelInformationApiTests
         var apply = await designClient.PostAsync($"/api/projects/{projectId}/panel-information/import/apply", applyContent, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, apply.StatusCode);
 
-        using var historyResponse = await designClient.GetAsync($"/api/projects/{projectId}/panel-information/history", TestContext.Current.CancellationToken);
+        using var forbiddenHistoryResponse = await designClient.GetAsync($"/api/projects/{projectId}/panel-information/history", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenHistoryResponse.StatusCode);
+
+        using var historyResponse = await adminClient.GetAsync($"/api/projects/{projectId}/panel-information/history", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, historyResponse.StatusCode);
         using var history = await ReadJsonAsync(historyResponse);
         var batches = history.RootElement.GetProperty("excelImportBatches").EnumerateArray().ToList();
@@ -470,6 +579,17 @@ public sealed class PanelInformationApiTests
         Assert.Equal("audit.xlsx", batches[0].GetProperty("originalFileName").GetString());
 
         var events = history.RootElement.GetProperty("auditEvents").EnumerateArray().ToList();
+        var groups = history.RootElement.GetProperty("groups").EnumerateArray().ToList();
+        Assert.Contains(groups, item =>
+            item.TryGetProperty("inputSource", out var excelSource)
+            && excelSource.GetString() == "Excel"
+            && item.TryGetProperty("importBatchId", out var importBatchId)
+            && importBatchId.GetGuid() == batchId
+            && item.GetProperty("changeCount").GetInt32() == 4);
+        Assert.Contains(groups, item =>
+            item.TryGetProperty("inputSource", out var directSource)
+            && directSource.GetString() == "Direct"
+            && item.GetProperty("affectedPanelCount").GetInt32() == 1);
         var directName = events.Single(item =>
             item.GetProperty("fieldName").GetString() == "PanelName"
             && item.GetProperty("newValue").GetString() == "HISTORY-A");
@@ -1292,10 +1412,7 @@ public sealed class PanelInformationApiTests
         {
             var values = LoadDotEnv(Path.Combine(repositoryRoot, ".env"));
 
-            return new ConfigurationBuilder()
-                .AddInMemoryCollection(values)
-                .AddEnvironmentVariables()
-                .Build();
+            return TestConfigurationIsolation.BuildBaseDatabaseConfiguration(values);
         }
 
         private static Dictionary<string, string?> LoadDotEnv(string envPath)

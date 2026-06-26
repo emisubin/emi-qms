@@ -27,7 +27,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(8, counts.Roles);
-        Assert.Equal(19, counts.Permissions);
+        Assert.Equal(20, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
@@ -696,6 +696,178 @@ public sealed class PostgreSqlMigrationTests
         await AssertNoDuplicateRolePermissionsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public async Task PanelWorkflowStageMigration_AddsDefaultConstraintAndIndexAfterExisting0006()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0001_identity_authorization_foundation.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0002_permission_scope_alignment.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0003_project_panel_foundation.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0004_project_packaging_soft_delete.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0005_panel_information_excel_import.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0006_admin_audit_access.sql"),
+            TestContext.Current.CancellationToken);
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into departments (id, code, name)
+            values ('76000000-0000-0000-0000-000000000001', 'sales-test-0007', 'Sales Test 0007')
+            on conflict (code) do nothing;
+
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '76000000-0000-0000-0000-000000000002',
+                'migration-sales-0007',
+                'Migration Sales 0007',
+                '76000000-0000-0000-0000-000000000001',
+                true
+            )
+            on conflict (development_user_key) do nothing;
+
+            insert into projects (
+                id,
+                project_key,
+                project_number,
+                name,
+                customer_name,
+                item,
+                project_code,
+                project_title,
+                project_title_normalized,
+                packaging_method,
+                delivery_date,
+                sales_owner_user_id
+            )
+            values (
+                '76000000-0000-0000-0000-000000000003',
+                'migration-0007-existing',
+                'MIG-0007',
+                'Migration 0007 Existing',
+                'Migration Customer',
+                'Migration Item',
+                'MIG-0007',
+                'Migration 0007 Existing',
+                'MIGRATION 0007 EXISTING',
+                'WoodenCrate',
+                '2026-09-01',
+                '76000000-0000-0000-0000-000000000002'
+            );
+
+            insert into panel_placeholders (
+                id,
+                project_id,
+                sequence_number,
+                display_code,
+                panel_name,
+                status
+            )
+            values (
+                '76000000-0000-0000-0000-000000000004',
+                '76000000-0000-0000-0000-000000000003',
+                1,
+                'P01',
+                'Workflow Existing',
+                'Cancelled'
+            );
+
+            insert into project_audit_events (
+                project_id,
+                entity_type,
+                entity_id,
+                action,
+                field_name,
+                old_value,
+                new_value,
+                changed_by_user_id,
+                correlation_id
+            )
+            values (
+                '76000000-0000-0000-0000-000000000003',
+                'Panel',
+                '76000000-0000-0000-0000-000000000004',
+                'PanelInfoUpdated',
+                'PanelName',
+                null,
+                'Workflow Existing',
+                '76000000-0000-0000-0000-000000000002',
+                'migration-0007-audit'
+            );
+            """,
+            TestContext.Current.CancellationToken);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0007_panel_workflow_stage.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0007_panel_workflow_stage.sql"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from panel_placeholders
+            where id = '76000000-0000-0000-0000-000000000004'
+              and panel_name = 'Workflow Existing'
+              and status = 'Cancelled'
+              and workflow_stage = 'BeforeManufacturing';
+            """,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from project_audit_events
+            where project_id = '76000000-0000-0000-0000-000000000003';
+            """,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_indexes
+            where indexname = 'ix_panel_placeholders_project_workflow_stage';
+            """,
+            TestContext.Current.CancellationToken));
+
+        var exception = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            update panel_placeholders
+            set workflow_stage = 'InvalidStage'
+            where id = '76000000-0000-0000-0000-000000000004';
+            """,
+            TestContext.Current.CancellationToken));
+
+        Assert.IsType<PostgresException>(exception);
+        Assert.Equal(PostgresErrorCodes.CheckViolation, ((PostgresException)exception!).SqlState);
+    }
+
     [Theory]
     [InlineData("Development", "DevelopmentData:SeedEnabled")]
     [InlineData("Testing", "DevelopmentData:SeedEnabled")]
@@ -937,6 +1109,36 @@ public sealed class PostgreSqlMigrationTests
         }
 
         await AssertNoDisallowedSensitivePermissionsAsync(connectionStringProvider, cancellationToken);
+
+        await using (var command = dataSource.CreateCommand("""
+            select exists (
+                select 1
+                from permissions
+                where code = 'Audit.Read.All'
+            );
+            """))
+        {
+            var auditReadAllExists = Assert.IsType<bool>(await command.ExecuteScalarAsync(cancellationToken));
+            if (auditReadAllExists)
+            {
+                await using var rolesCommand = dataSource.CreateCommand("""
+                    select roles.code
+                    from roles
+                    join role_permissions on role_permissions.role_id = roles.id
+                    join permissions on permissions.id = role_permissions.permission_id
+                    where permissions.code = 'Audit.Read.All'
+                    order by roles.code;
+                    """);
+                var roles = new List<string>();
+                await using var reader = await rolesCommand.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    roles.Add(reader.GetString(0));
+                }
+
+                Assert.Equal(["system-administrator"], roles);
+            }
+        }
 
         await using (var command = dataSource.CreateCommand("""
             select count(*)
@@ -1279,10 +1481,7 @@ public sealed class PostgreSqlMigrationTests
         {
             var values = LoadDotEnv(Path.Combine(repositoryRoot, ".env"));
 
-            return new ConfigurationBuilder()
-                .AddInMemoryCollection(values)
-                .AddEnvironmentVariables()
-                .Build();
+            return TestConfigurationIsolation.BuildBaseDatabaseConfiguration(values);
         }
 
         private static Dictionary<string, string?> LoadDotEnv(string envPath)

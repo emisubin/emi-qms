@@ -20,6 +20,8 @@ export interface ProjectListItem {
   packagingMethod: PackagingMethod | null;
   deliveryLocation: string | null;
   status: ProjectStatus;
+  projectWorkStatus: ProjectWorkStatus;
+  projectProgressPercent: number | null;
   createdAt: string;
   updatedAt: string;
   salesAmount?: number;
@@ -31,12 +33,25 @@ export interface ProjectDetail extends ProjectListItem {
   panelInfoCompletedCount: number;
   panelInfoPendingCount: number;
   qrEligibleCount: number;
+  manufacturingCompletedCount: number;
+  inspectionCompletedCount: number;
   duplicatePanelNameGroupCount: number;
   projectPanelInformationCompleted: boolean;
 }
 
 export type ProjectStatus = 'Active' | 'OnHold' | 'Cancelled' | 'Completed';
-export type ProjectListTab = 'Active' | 'OnHold' | 'Completed' | 'Cancelled' | 'Deleted';
+export type ProjectWorkStatus =
+  | 'BeforeManufacturing'
+  | 'ManufacturingInProgress'
+  | 'ManufacturingCompleted'
+  | 'InspectionInProgress'
+  | 'InspectionCompleted'
+  | 'ReadyForShipment'
+  | 'ShipmentCompleted'
+  | 'OnHold'
+  | 'Cancelled'
+  | 'Completed';
+export type ProjectListTab = 'All' | 'Active' | 'OnHold' | 'Completed' | 'Cancelled' | 'Deleted';
 export type PackagingMethod = 'WoodenCrate' | 'StretchWrap' | 'HeavyDutyBox';
 
 export interface DeletedProjectListResponse {
@@ -69,6 +84,7 @@ export interface PanelPlaceholder {
   height: number | null;
   depth: number | null;
   panelStatus: 'Active' | 'Cancelled';
+  workflowStage: ProductWorkflowStage;
   panelInfoCompleted: boolean;
   qrEligible: boolean;
   createdAt: string;
@@ -154,6 +170,14 @@ export interface DeleteProjectRequest {
 }
 
 export type PanelInputUnit = 'Mm' | 'Inch';
+export type ProductWorkflowStage =
+  | 'BeforeManufacturing'
+  | 'ManufacturingInProgress'
+  | 'ManufacturingCompleted'
+  | 'InspectionInProgress'
+  | 'InspectionCompleted'
+  | 'PackingCompleted'
+  | 'ShipmentCompleted';
 
 export interface PanelInformationResponse {
   projectId: string;
@@ -163,6 +187,8 @@ export interface PanelInformationResponse {
   panelInfoCompletedCount: number;
   panelInfoPendingCount: number;
   qrEligibleCount: number;
+  manufacturingCompletedCount: number;
+  inspectionCompletedCount: number;
   duplicatePanelNameGroupCount: number;
   projectPanelInformationCompleted: boolean;
   panelInformationStatusMessage: string | null;
@@ -181,6 +207,7 @@ export interface PanelInformationPanel {
   heightMm: number | null;
   depthMm: number | null;
   panelStatus: 'Active' | 'Cancelled';
+  workflowStage: ProductWorkflowStage;
   panelInfoCompleted: boolean;
   qrEligible: boolean;
   hasDuplicateName: boolean;
@@ -227,8 +254,38 @@ export interface PanelInformationLegacySizeFields {
 }
 
 export interface PanelInformationHistoryResponse {
+  groups: PanelInformationHistoryGroup[];
   auditEvents: AuditEvent[];
   excelImportBatches: PanelInformationExcelImportBatch[];
+}
+
+export interface PanelInformationHistoryGroup {
+  groupId: string;
+  actionType: string;
+  inputSource?: 'Direct' | 'Excel';
+  changedByUserId: string | null;
+  changedByName: string | null;
+  changedAtUtc: string;
+  reason?: string;
+  importBatchId?: string;
+  importFileName?: string;
+  importUploadedAtUtc?: string;
+  affectedPanelCount: number;
+  changeCount: number;
+  changes: PanelInformationHistoryChange[];
+}
+
+export interface PanelInformationHistoryChange {
+  entityType: 'Project' | 'PanelPlaceholder' | 'Panel';
+  entityId: string;
+  panelNumber?: string;
+  panelDisplayName?: string;
+  displayCode?: string;
+  fieldName?: string;
+  oldValue?: string;
+  newValue?: string;
+  inputUnit?: PanelInputUnit;
+  originalInputValue?: string;
 }
 
 export interface PanelInformationExcelImportBatch {
@@ -242,6 +299,7 @@ export interface PanelInformationExcelImportBatch {
   newPanelCount: number;
   changedPanelCount: number;
   unchangedPanelCount: number;
+  skippedPanelCount: number;
   uploadedByUserId: string | null;
   uploadedByUserName: string | null;
   uploadedAtUtc: string;
@@ -256,6 +314,7 @@ export interface PanelInformationExcelPreviewResponse {
   newCount: number;
   changedCount: number;
   unchangedCount: number;
+  skippedCount: number;
   errorCount: number;
   reasonRequired: boolean;
   expectedPanelInfoVersions: PanelInformationExcelExpectedVersion[];
@@ -274,7 +333,7 @@ export interface PanelInformationExcelPreviewRow {
   heightMm: number | null;
   depthMm: number | null;
   currentValue: PanelInformationPanel | null;
-  resultType: 'New' | 'Changed' | 'Unchanged' | 'Error';
+  resultType: 'New' | 'Changed' | 'Unchanged' | 'Skipped' | 'Error';
   errorMessages: string[];
   expectedPanelInfoVersion: number | null;
 }

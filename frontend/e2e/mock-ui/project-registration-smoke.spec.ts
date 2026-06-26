@@ -10,12 +10,17 @@ type ProjectRecord = {
   projectCode: string;
   projectTitle: string;
   activePanelCount: number;
+  qrEligibleCount: number;
+  manufacturingCompletedCount: number;
+  inspectionCompletedCount: number;
   deliveryDate: string;
   salesOwnerUserId: string;
   salesOwnerName: string;
   packagingMethod: 'WoodenCrate' | 'StretchWrap' | 'HeavyDutyBox' | null;
   deliveryLocation: string | null;
   status: 'Active' | 'OnHold' | 'Cancelled' | 'Completed';
+  projectWorkStatus: 'BeforeManufacturing' | 'OnHold' | 'Cancelled' | 'Completed';
+  projectProgressPercent: number | null;
   createdAt: string;
   updatedAt: string;
   salesAmount?: number;
@@ -33,6 +38,7 @@ type PanelRecord = {
   height: number | null;
   depth: number | null;
   panelStatus: 'Active' | 'Cancelled';
+  workflowStage: 'BeforeManufacturing' | 'ManufacturingInProgress' | 'ManufacturingCompleted' | 'InspectionInProgress' | 'InspectionCompleted' | 'PackingCompleted' | 'ShipmentCompleted';
   panelInfoCompleted: boolean;
   qrEligible: boolean;
   createdAt: string;
@@ -44,14 +50,15 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
   await routeApi(page, store);
 
   await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-sales');
 
   await page.getByRole('button', { name: '신규 프로젝트' }).click();
   await fillProjectForm(page, 'PJT-003A', 'TASK-003A E2E', '4');
   await page.getByRole('button', { name: '등록' }).click();
 
   await expect(page.getByRole('heading', { name: 'TASK-003A E2E' })).toBeVisible();
-  await expect(page.getByText('P01')).toBeVisible();
-  await expect(page.getByText('P04')).toBeVisible();
+  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('제조 전');
+  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('생성 불가');
 
   await page.getByRole('button', { name: '목록' }).click();
   await page.getByRole('button', { name: '신규 프로젝트' }).click();
@@ -60,23 +67,23 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
   await expect(page.getByText('동일한 PJT Title이 이미 존재합니다.')).toBeVisible();
 
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
-  await page.getByRole('button', { name: 'TASK-003A E2E' }).click();
-  await expect(page.getByText('P01')).toBeVisible();
+  await page.locator('.project-list-row').filter({ hasText: 'TASK-003A E2E' }).click();
+  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('미입력');
   await expect(page.getByText('KRW 1,250,000.5')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '수정' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '수정', exact: true })).toHaveCount(0);
 
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
-  await page.getByRole('button', { name: 'TASK-003A E2E' }).click();
-  await page.getByRole('button', { name: '수정' }).click();
+  await page.locator('.project-list-row').filter({ hasText: 'TASK-003A E2E' }).click();
+  await page.getByRole('button', { name: '수정', exact: true }).click();
   await page.getByLabel('면수*').fill('5');
   await page.getByLabel('수정사유*').fill('추가 발주 면수 반영');
   await page.getByRole('button', { name: '저장' }).click();
-  await expect(page.getByText('P05')).toBeVisible();
+  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('5');
 
   await page.getByRole('button', { name: '보류' }).click();
   await page.getByLabel('사유').fill('고객 일정 확인');
   await page.getByRole('button', { name: '확인' }).click();
-  await expect(page.getByText('OnHold')).toBeVisible();
+  await expect(page.locator('.status-badge', { hasText: '보류' })).toBeVisible();
 });
 
 async function fillProjectForm(page: Page, projectCode: string, projectTitle: string, panelCount: string) {
@@ -151,12 +158,17 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
         projectCode: body.projectCode,
         projectTitle: body.projectTitle.trim(),
         activePanelCount: body.panelCount,
+        qrEligibleCount: 0,
+        manufacturingCompletedCount: 0,
+        inspectionCompletedCount: 0,
         deliveryDate: body.deliveryDate,
         salesOwnerUserId: salesOwnerId,
         salesOwnerName: 'Dev Sales User',
         packagingMethod: body.packagingMethod,
         deliveryLocation: null,
         status: 'Active',
+        projectWorkStatus: 'BeforeManufacturing',
+        projectProgressPercent: 0,
         createdAt: '2026-06-25T00:00:00Z',
         updatedAt: '2026-06-25T00:00:00Z',
         salesAmount: body.salesAmount,
@@ -198,12 +210,54 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
     }
 
     if (path === `/api/projects/${projectId}/hold` && method === 'POST') {
-      store.project = { ...requireProject(store), status: 'OnHold', statusReason: '고객 일정 확인', updatedAt: '2026-06-25T00:03:00Z' };
+      store.project = { ...requireProject(store), status: 'OnHold', projectWorkStatus: 'OnHold', projectProgressPercent: null, statusReason: '고객 일정 확인', updatedAt: '2026-06-25T00:03:00Z' };
       return fulfillJson(route, filterProject(store.project, userKey));
     }
 
     if (path === `/api/projects/${projectId}/panels`) {
       return fulfillJson(route, store.panels);
+    }
+
+    if (path === `/api/projects/${projectId}/panel-information`) {
+      const panels = store.panels.filter((panel) => panel.panelStatus === 'Active');
+      return fulfillJson(route, {
+        projectId,
+        projectStatus: requireProject(store).status,
+        packagingMethod: requireProject(store).packagingMethod,
+        activePanelCount: panels.length,
+        panelInfoCompletedCount: 0,
+        panelInfoPendingCount: panels.length,
+        qrEligibleCount: 0,
+        manufacturingCompletedCount: 0,
+        inspectionCompletedCount: 0,
+        duplicatePanelNameGroupCount: 0,
+        projectPanelInformationCompleted: false,
+        panelInformationStatusMessage: null,
+        panels: panels.map((panel) => ({
+          panelId: panel.panelId,
+          projectId,
+          sequenceNumber: panel.sequenceNumber,
+          panelNumber: `No.${panel.sequenceNumber}`,
+          displayCode: panel.displayCode,
+          panelName: panel.panelName,
+          displayName: `No.${panel.sequenceNumber} · ${panel.panelName ?? '패널명 미입력'}`,
+          widthMm: panel.width,
+          heightMm: panel.height,
+          depthMm: panel.depth,
+          panelStatus: panel.panelStatus,
+          workflowStage: panel.workflowStage,
+          panelInfoCompleted: panel.panelInfoCompleted,
+          qrEligible: panel.qrEligible,
+          hasDuplicateName: false,
+          duplicateNameCount: 0,
+          panelInfoVersion: 0,
+          createdAt: panel.createdAt,
+          updatedAt: panel.updatedAt,
+          panelInfoUpdatedAtUtc: null,
+          panelInfoUpdatedByUserId: null,
+          panelInfoUpdatedByUserName: null
+        }))
+      });
     }
 
     if (path === `/api/projects/${projectId}/audit-history`) {
@@ -243,7 +297,7 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
 function currentUser(userKey: string) {
   const permissions = ['projects.read', 'Project.Read.All'];
   if (userKey === 'dev-sales') {
-    permissions.push('Project.Create', 'Project.Update', 'Project.Hold', 'Project.Cancel', 'Project.Delete', 'Project.Deleted.Read', 'Project.SalesAmount.Read');
+    permissions.push('Project.Create', 'Project.Update', 'Project.Hold', 'Project.Cancel', 'Project.Delete', 'Project.Deleted.Read', 'Project.SalesAmount.Read', 'PanelInfo.Update');
   }
   if (userKey === 'dev-admin') {
     permissions.push('Project.Deleted.Read', 'Project.SalesAmount.Read');
@@ -281,6 +335,7 @@ function createPanels(panelCount: number): PanelRecord[] {
     height: null,
     depth: null,
     panelStatus: 'Active',
+    workflowStage: 'BeforeManufacturing',
     panelInfoCompleted: false,
     qrEligible: false,
     createdAt: '2026-06-25T00:00:00Z',

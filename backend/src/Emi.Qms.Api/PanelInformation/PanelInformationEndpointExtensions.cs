@@ -86,7 +86,7 @@ public static class PanelInformationEndpointExtensions
             var history = await panelInformationStore.GetHistoryAsync(projectId, cancellationToken);
             return history is null ? Results.NotFound() : Results.Ok(history);
         })
-        .RequireAuthorization()
+        .RequireAuthorization(QmsPolicies.AuditReadAll)
         .WithName("GetPanelInformationHistory");
 
         api.MapPost("/import/preview", async (

@@ -37,6 +37,8 @@ public sealed class PanelInformationResponse
     public int PanelInfoCompletedCount { get; init; }
     public int PanelInfoPendingCount { get; init; }
     public int QrEligibleCount { get; init; }
+    public int ManufacturingCompletedCount { get; init; }
+    public int InspectionCompletedCount { get; init; }
     public int DuplicatePanelNameGroupCount { get; init; }
     public bool ProjectPanelInformationCompleted { get; init; }
     public string? PanelInformationStatusMessage { get; init; }
@@ -56,6 +58,7 @@ public sealed class PanelInformationPanelResponse
     public decimal? HeightMm { get; init; }
     public decimal? DepthMm { get; init; }
     public string PanelStatus { get; init; } = "";
+    public string WorkflowStage { get; init; } = "";
     public bool PanelInfoCompleted { get; init; }
     public bool QrEligible { get; init; }
     public bool HasDuplicateName { get; init; }
@@ -69,8 +72,68 @@ public sealed class PanelInformationPanelResponse
 }
 
 public sealed record PanelInformationHistoryResponse(
+    IReadOnlyList<PanelInformationHistoryGroupResponse> Groups,
     IReadOnlyList<PanelAuditEventResponse> AuditEvents,
     IReadOnlyList<PanelInformationExcelImportBatchResponse> ExcelImportBatches);
+
+public sealed class PanelInformationHistoryGroupResponse
+{
+    public string GroupId { get; init; } = "";
+    public string ActionType { get; init; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputSource { get; init; }
+
+    public Guid? ChangedByUserId { get; init; }
+    public string? ChangedByName { get; init; }
+    public DateTimeOffset ChangedAtUtc { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Reason { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? ImportBatchId { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ImportFileName { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? ImportUploadedAtUtc { get; init; }
+
+    public int AffectedPanelCount { get; init; }
+    public int ChangeCount { get; init; }
+    public IReadOnlyList<PanelInformationHistoryChangeResponse> Changes { get; init; } = [];
+}
+
+public sealed class PanelInformationHistoryChangeResponse
+{
+    public string EntityType { get; init; } = "";
+    public Guid EntityId { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PanelNumber { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PanelDisplayName { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayCode { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FieldName { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OldValue { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NewValue { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputUnit { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OriginalInputValue { get; init; }
+}
 
 public sealed class PanelAuditEventResponse
 {
@@ -142,6 +205,7 @@ public sealed class PanelInformationExcelImportBatchResponse
     public int NewPanelCount { get; init; }
     public int ChangedPanelCount { get; init; }
     public int UnchangedPanelCount { get; init; }
+    public int SkippedPanelCount { get; init; }
     public Guid? UploadedByUserId { get; init; }
     public string? UploadedByUserName { get; init; }
     public DateTimeOffset UploadedAtUtc { get; init; }
@@ -157,6 +221,7 @@ public sealed class PanelInformationExcelPreviewResponse
     public int NewCount { get; init; }
     public int ChangedCount { get; init; }
     public int UnchangedCount { get; init; }
+    public int SkippedCount { get; init; }
     public int ErrorCount { get; init; }
     public bool ReasonRequired { get; init; }
     public IReadOnlyList<PanelInformationExcelExpectedVersion> ExpectedPanelInfoVersions { get; init; } = [];

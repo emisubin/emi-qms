@@ -58,6 +58,8 @@ public class ProjectListItemResponse
     public string? PackagingMethod { get; init; }
     public string? DeliveryLocation { get; init; }
     public string Status { get; init; } = "";
+    public string ProjectWorkStatus { get; init; } = "";
+    public int? ProjectProgressPercent { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
 
@@ -74,6 +76,8 @@ public sealed class ProjectDetailResponse : ProjectListItemResponse
     public int PanelInfoCompletedCount { get; init; }
     public int PanelInfoPendingCount { get; init; }
     public int QrEligibleCount { get; init; }
+    public int ManufacturingCompletedCount { get; init; }
+    public int InspectionCompletedCount { get; init; }
     public int DuplicatePanelNameGroupCount { get; init; }
     public bool ProjectPanelInformationCompleted { get; init; }
 }
@@ -109,6 +113,7 @@ public sealed record PanelPlaceholderResponse(
     decimal? Height,
     decimal? Depth,
     string PanelStatus,
+    string WorkflowStage,
     bool PanelInfoCompleted,
     bool QrEligible,
     DateTimeOffset CreatedAt,

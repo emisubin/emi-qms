@@ -78,12 +78,7 @@ public sealed class ProjectStore(
         var parameters = new List<NpgsqlParameter>();
         where.Add("projects.deleted_at_utc is null");
 
-        if (!query.IncludeCancelled && string.IsNullOrWhiteSpace(query.Status))
-        {
-            where.Add("projects.status <> 'Cancelled'");
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Status))
+        if (!string.IsNullOrWhiteSpace(query.Status) && !string.Equals(query.Status, "All", StringComparison.OrdinalIgnoreCase))
         {
             where.Add("projects.status = @status");
             parameters.Add(new NpgsqlParameter("status", query.Status));
@@ -145,15 +140,49 @@ public sealed class ProjectStore(
                 projects.updated_at_utc,
                 projects.sales_amount,
                 projects.currency_code,
+                project_workflow.project_work_status,
+                project_workflow.project_progress_percent,
                 count(*) over() as total_count
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
-                select count(*)::integer as active_panel_count
+                select count(*)::integer as active_panel_count,
+                       coalesce(sum(case when workflow_stage in ('ManufacturingInProgress', 'ManufacturingCompleted', 'InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as manufacturing_started_count,
+                       coalesce(sum(case when workflow_stage in ('ManufacturingCompleted', 'InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as manufacturing_completed_count,
+                       coalesce(sum(case when workflow_stage in ('InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as inspection_started_count,
+                       coalesce(sum(case when workflow_stage in ('InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as inspection_completed_count,
+                       coalesce(sum(case when workflow_stage = 'PackingCompleted' then 1 else 0 end), 0)::integer as packing_count,
+                       coalesce(sum(case when workflow_stage = 'ShipmentCompleted' then 1 else 0 end), 0)::integer as shipment_count,
+                       coalesce(sum(case workflow_stage
+                           when 'BeforeManufacturing' then 0
+                           when 'ManufacturingInProgress' then 20
+                           when 'ManufacturingCompleted' then 40
+                           when 'InspectionInProgress' then 60
+                           when 'InspectionCompleted' then 75
+                           when 'PackingCompleted' then 90
+                           when 'ShipmentCompleted' then 100
+                           else 0
+                       end), 0)::integer as progress_score_sum
                 from panel_placeholders
                 where panel_placeholders.project_id = projects.id
                   and panel_placeholders.status = 'Active'
             ) active_panels on true
+            left join lateral (
+                select case
+                           when projects.status in ('OnHold', 'Cancelled', 'Completed') then projects.status
+                           when active_panels.active_panel_count > 0 and active_panels.shipment_count = active_panels.active_panel_count then 'ShipmentCompleted'
+                           when active_panels.packing_count > 0 then 'ReadyForShipment'
+                           when active_panels.active_panel_count > 0 and active_panels.inspection_completed_count = active_panels.active_panel_count and active_panels.packing_count = 0 and active_panels.shipment_count = 0 then 'InspectionCompleted'
+                           when active_panels.inspection_started_count > 0 and active_panels.inspection_completed_count < active_panels.active_panel_count then 'InspectionInProgress'
+                           when active_panels.active_panel_count > 0 and active_panels.manufacturing_completed_count = active_panels.active_panel_count and active_panels.inspection_started_count = 0 then 'ManufacturingCompleted'
+                           when active_panels.manufacturing_started_count > 0 and active_panels.manufacturing_completed_count < active_panels.active_panel_count then 'ManufacturingInProgress'
+                           else 'BeforeManufacturing'
+                       end as project_work_status,
+                       case
+                           when active_panels.active_panel_count = 0 then null
+                           else round(active_panels.progress_score_sum::numeric / active_panels.active_panel_count)::integer
+                       end as project_progress_percent
+            ) project_workflow on true
             {whereSql}
             order by
                 case projects.status
@@ -181,7 +210,7 @@ public sealed class ProjectStore(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            totalCount = reader.GetInt64(16);
+            totalCount = reader.GetInt64(18);
             items.Add(ReadProjectListItem(reader, includeSalesAmount));
         }
 
@@ -212,15 +241,49 @@ public sealed class ProjectStore(
                 projects.updated_at_utc,
                 projects.sales_amount,
                 projects.currency_code,
+                project_workflow.project_work_status,
+                project_workflow.project_progress_percent,
                 projects.status_reason
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
-                select count(*)::integer as active_panel_count
+                select count(*)::integer as active_panel_count,
+                       coalesce(sum(case when workflow_stage in ('ManufacturingInProgress', 'ManufacturingCompleted', 'InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as manufacturing_started_count,
+                       coalesce(sum(case when workflow_stage in ('ManufacturingCompleted', 'InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as manufacturing_completed_count,
+                       coalesce(sum(case when workflow_stage in ('InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as inspection_started_count,
+                       coalesce(sum(case when workflow_stage in ('InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as inspection_completed_count,
+                       coalesce(sum(case when workflow_stage = 'PackingCompleted' then 1 else 0 end), 0)::integer as packing_count,
+                       coalesce(sum(case when workflow_stage = 'ShipmentCompleted' then 1 else 0 end), 0)::integer as shipment_count,
+                       coalesce(sum(case workflow_stage
+                           when 'BeforeManufacturing' then 0
+                           when 'ManufacturingInProgress' then 20
+                           when 'ManufacturingCompleted' then 40
+                           when 'InspectionInProgress' then 60
+                           when 'InspectionCompleted' then 75
+                           when 'PackingCompleted' then 90
+                           when 'ShipmentCompleted' then 100
+                           else 0
+                       end), 0)::integer as progress_score_sum
                 from panel_placeholders
                 where panel_placeholders.project_id = projects.id
                   and panel_placeholders.status = 'Active'
             ) active_panels on true
+            left join lateral (
+                select case
+                           when projects.status in ('OnHold', 'Cancelled', 'Completed') then projects.status
+                           when active_panels.active_panel_count > 0 and active_panels.shipment_count = active_panels.active_panel_count then 'ShipmentCompleted'
+                           when active_panels.packing_count > 0 then 'ReadyForShipment'
+                           when active_panels.active_panel_count > 0 and active_panels.inspection_completed_count = active_panels.active_panel_count and active_panels.packing_count = 0 and active_panels.shipment_count = 0 then 'InspectionCompleted'
+                           when active_panels.inspection_started_count > 0 and active_panels.inspection_completed_count < active_panels.active_panel_count then 'InspectionInProgress'
+                           when active_panels.active_panel_count > 0 and active_panels.manufacturing_completed_count = active_panels.active_panel_count and active_panels.inspection_started_count = 0 then 'ManufacturingCompleted'
+                           when active_panels.manufacturing_started_count > 0 and active_panels.manufacturing_completed_count < active_panels.active_panel_count then 'ManufacturingInProgress'
+                           else 'BeforeManufacturing'
+                       end as project_work_status,
+                       case
+                           when active_panels.active_panel_count = 0 then null
+                           else round(active_panels.progress_score_sum::numeric / active_panels.active_panel_count)::integer
+                       end as project_progress_percent
+            ) project_workflow on true
             where projects.id = @project_id
               and projects.deleted_at_utc is null;
             """);
@@ -233,7 +296,7 @@ public sealed class ProjectStore(
         }
 
         var baseItem = ReadProjectListItem(reader, includeSalesAmount);
-        var statusReason = reader.IsDBNull(16) ? null : reader.GetString(16);
+        var statusReason = reader.IsDBNull(18) ? null : reader.GetString(18);
         await reader.DisposeAsync();
         var panelInfoSummary = await ReadPanelInformationSummaryAsync(dataSource, projectId, cancellationToken);
         return new ProjectDetailResponse
@@ -250,6 +313,8 @@ public sealed class ProjectStore(
             PackagingMethod = baseItem.PackagingMethod,
             DeliveryLocation = baseItem.DeliveryLocation,
             Status = baseItem.Status,
+            ProjectWorkStatus = baseItem.ProjectWorkStatus,
+            ProjectProgressPercent = baseItem.ProjectProgressPercent,
             CreatedAt = baseItem.CreatedAt,
             UpdatedAt = baseItem.UpdatedAt,
             SalesAmount = baseItem.SalesAmount,
@@ -258,6 +323,8 @@ public sealed class ProjectStore(
             PanelInfoCompletedCount = panelInfoSummary.CompletedCount,
             PanelInfoPendingCount = panelInfoSummary.PendingCount,
             QrEligibleCount = panelInfoSummary.QrEligibleCount,
+            ManufacturingCompletedCount = panelInfoSummary.ManufacturingCompletedCount,
+            InspectionCompletedCount = panelInfoSummary.InspectionCompletedCount,
             DuplicatePanelNameGroupCount = panelInfoSummary.DuplicatePanelNameGroupCount,
             ProjectPanelInformationCompleted = panelInfoSummary.ProjectPanelInformationCompleted
         };
@@ -991,6 +1058,8 @@ public sealed class ProjectStore(
                 projects.updated_at_utc,
                 projects.sales_amount,
                 projects.currency_code,
+                projects.status as project_work_status,
+                null::integer as project_progress_percent,
                 projects.deleted_at_utc,
                 projects.deleted_by_user_id,
                 deleter.display_name,
@@ -1023,7 +1092,7 @@ public sealed class ProjectStore(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            totalCount = reader.GetInt64(20);
+            totalCount = reader.GetInt64(22);
             items.Add(ReadDeletedProjectListItem(reader, includeSalesAmount));
         }
 
@@ -1055,6 +1124,8 @@ public sealed class ProjectStore(
                 projects.updated_at_utc,
                 projects.sales_amount,
                 projects.currency_code,
+                projects.status as project_work_status,
+                null::integer as project_progress_percent,
                 projects.deleted_at_utc,
                 projects.deleted_by_user_id,
                 deleter.display_name,
@@ -1081,7 +1152,7 @@ public sealed class ProjectStore(
         }
 
         var item = ReadDeletedProjectListItem(reader, includeSalesAmount);
-        var statusReason = reader.IsDBNull(20) ? null : reader.GetString(20);
+        var statusReason = reader.IsDBNull(22) ? null : reader.GetString(22);
         await reader.DisposeAsync();
         var detail = new DeletedProjectDetailResponse
         {
@@ -1097,6 +1168,8 @@ public sealed class ProjectStore(
             PackagingMethod = item.PackagingMethod,
             DeliveryLocation = item.DeliveryLocation,
             Status = item.Status,
+            ProjectWorkStatus = item.ProjectWorkStatus,
+            ProjectProgressPercent = item.ProjectProgressPercent,
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt,
             SalesAmount = item.SalesAmount,
@@ -1133,6 +1206,7 @@ public sealed class ProjectStore(
                    panel_placeholders.height_mm,
                    panel_placeholders.depth_mm,
                    panel_placeholders.status,
+                   panel_placeholders.workflow_stage,
                    case
                        when projects.packaging_method is null then false
                        when projects.packaging_method = 'WoodenCrate' then
@@ -1188,6 +1262,7 @@ public sealed class ProjectStore(
                    panel_placeholders.height_mm,
                    panel_placeholders.depth_mm,
                    panel_placeholders.status,
+                   panel_placeholders.workflow_stage,
                    case
                        when projects.packaging_method is null then false
                        when projects.packaging_method = 'WoodenCrate' then
@@ -1327,6 +1402,8 @@ public sealed class ProjectStore(
             PackagingMethod = reader.IsDBNull(9) ? null : reader.GetString(9),
             DeliveryLocation = reader.IsDBNull(10) ? null : reader.GetString(10),
             Status = reader.GetString(11),
+            ProjectWorkStatus = reader.GetString(16),
+            ProjectProgressPercent = reader.IsDBNull(17) ? null : reader.GetInt32(17),
             CreatedAt = reader.GetFieldValue<DateTimeOffset>(12),
             UpdatedAt = reader.GetFieldValue<DateTimeOffset>(13),
             SalesAmount = includeSalesAmount && !reader.IsDBNull(14) ? reader.GetDecimal(14) : null,
@@ -1351,14 +1428,16 @@ public sealed class ProjectStore(
             PackagingMethod = baseItem.PackagingMethod,
             DeliveryLocation = baseItem.DeliveryLocation,
             Status = baseItem.Status,
+            ProjectWorkStatus = baseItem.ProjectWorkStatus,
+            ProjectProgressPercent = baseItem.ProjectProgressPercent,
             CreatedAt = baseItem.CreatedAt,
             UpdatedAt = baseItem.UpdatedAt,
             SalesAmount = baseItem.SalesAmount,
             CurrencyCode = baseItem.CurrencyCode,
-            DeletedAtUtc = reader.GetFieldValue<DateTimeOffset>(16),
-            DeletedByUserId = reader.IsDBNull(17) ? null : reader.GetGuid(17),
-            DeletedByUserName = reader.IsDBNull(18) ? null : reader.GetString(18),
-            DeleteReason = reader.GetString(19)
+            DeletedAtUtc = reader.GetFieldValue<DateTimeOffset>(18),
+            DeletedByUserId = reader.IsDBNull(19) ? null : reader.GetGuid(19),
+            DeletedByUserName = reader.IsDBNull(20) ? null : reader.GetString(20),
+            DeleteReason = reader.GetString(21)
         };
     }
 
@@ -1374,10 +1453,11 @@ public sealed class ProjectStore(
             reader.IsDBNull(6) ? null : reader.GetDecimal(6),
             reader.IsDBNull(7) ? null : reader.GetDecimal(7),
             reader.GetString(8),
-            reader.GetBoolean(9),
+            reader.GetString(9),
             reader.GetBoolean(10),
-            reader.GetFieldValue<DateTimeOffset>(11),
-            reader.GetFieldValue<DateTimeOffset>(12));
+            reader.GetBoolean(11),
+            reader.GetFieldValue<DateTimeOffset>(12),
+            reader.GetFieldValue<DateTimeOffset>(13));
     }
 
     private static async Task<IReadOnlyList<PanelPlaceholderResponse>> ListDeletedProjectPanelsAsync(
@@ -1395,6 +1475,7 @@ public sealed class ProjectStore(
                    panel_placeholders.height_mm,
                    panel_placeholders.depth_mm,
                    panel_placeholders.status,
+                   panel_placeholders.workflow_stage,
                    case
                        when projects.packaging_method is null then false
                        when projects.packaging_method = 'WoodenCrate' then
@@ -1768,7 +1849,8 @@ public sealed class ProjectStore(
                    panel_placeholders.width_mm,
                    panel_placeholders.height_mm,
                    panel_placeholders.depth_mm,
-                   panel_placeholders.status
+                   panel_placeholders.status,
+                   panel_placeholders.workflow_stage
             from projects
             left join panel_placeholders on panel_placeholders.project_id = projects.id
             where projects.id = @project_id
@@ -1779,6 +1861,8 @@ public sealed class ProjectStore(
         var activePanelCount = 0;
         var completedCount = 0;
         var qrEligibleCount = 0;
+        var manufacturingCompletedCount = 0;
+        var inspectionCompletedCount = 0;
         string? projectStatus = null;
         string? packagingMethod = null;
         DateTimeOffset? deletedAtUtc = null;
@@ -1817,6 +1901,17 @@ public sealed class ProjectStore(
                 qrEligibleCount++;
             }
 
+            var workflowStage = reader.GetString(8);
+            if (PanelInformationDomain.IsManufacturingCompletedStage(workflowStage))
+            {
+                manufacturingCompletedCount++;
+            }
+
+            if (PanelInformationDomain.IsInspectionCompletedStage(workflowStage))
+            {
+                inspectionCompletedCount++;
+            }
+
             var duplicateName = PanelInformationDomain.NormalizeDuplicateName(panelName);
             if (duplicateName is not null)
             {
@@ -1829,6 +1924,8 @@ public sealed class ProjectStore(
             completedCount,
             pendingCount,
             qrEligibleCount,
+            manufacturingCompletedCount,
+            inspectionCompletedCount,
             duplicateNames.Count(item => item.Value > 1),
             activePanelCount > 0 && pendingCount == 0);
     }
@@ -2058,6 +2155,8 @@ public sealed class ProjectStore(
         int CompletedCount,
         int PendingCount,
         int QrEligibleCount,
+        int ManufacturingCompletedCount,
+        int InspectionCompletedCount,
         int DuplicatePanelNameGroupCount,
         bool ProjectPanelInformationCompleted);
 

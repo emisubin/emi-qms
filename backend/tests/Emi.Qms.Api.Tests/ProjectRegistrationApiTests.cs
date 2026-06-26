@@ -45,10 +45,166 @@ public sealed class ProjectRegistrationApiTests
         Assert.All(panelItems, panel =>
         {
             Assert.Equal("Active", panel.GetProperty("panelStatus").GetString());
+            Assert.Equal("BeforeManufacturing", panel.GetProperty("workflowStage").GetString());
             Assert.False(panel.GetProperty("panelInfoCompleted").GetBoolean());
             Assert.False(panel.GetProperty("qrEligible").GetBoolean());
             Assert.True(panel.GetProperty("panelName").ValueKind is JsonValueKind.Null);
         });
+    }
+
+    [Fact]
+    public async Task ProjectDetail_SummarizesWorkflowStagesAndQrEligibleOverActivePanels()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+        using var created = await CreateProjectAsync(client, "WORKFLOW-SUMMARY", "Workflow Summary", 11);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        await context.ExecuteSqlAsync($"""
+            update panel_placeholders
+            set workflow_stage = case sequence_number
+                    when 1 then 'BeforeManufacturing'
+                    when 2 then 'BeforeManufacturing'
+                    when 3 then 'ManufacturingInProgress'
+                    when 4 then 'ManufacturingInProgress'
+                    when 5 then 'ManufacturingCompleted'
+                    when 6 then 'ManufacturingCompleted'
+                    when 7 then 'InspectionInProgress'
+                    when 8 then 'InspectionCompleted'
+                    when 9 then 'PackingCompleted'
+                    when 10 then 'ShipmentCompleted'
+                    else 'ShipmentCompleted'
+                end,
+                panel_name = case
+                    when sequence_number in (1, 3, 5, 7) then 'QR-' || sequence_number::text
+                    else null
+                end,
+                status = case when sequence_number = 11 then 'Cancelled' else 'Active' end
+            where project_id = '{projectId}';
+            """);
+
+        var detailResponse = await client.GetAsync($"/api/projects/{projectId}", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        using var detailJson = await ReadJsonAsync(detailResponse);
+        var root = detailJson.RootElement;
+        Assert.Equal(10, root.GetProperty("activePanelCount").GetInt32());
+        Assert.Equal(4, root.GetProperty("qrEligibleCount").GetInt32());
+        Assert.Equal(6, root.GetProperty("manufacturingCompletedCount").GetInt32());
+        Assert.Equal(3, root.GetProperty("inspectionCompletedCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task ProjectList_DefaultAllAndStatusTabsExcludeDeletedProjects()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+        var unique = Guid.NewGuid().ToString("N")[..8];
+
+        var activeId = await CreateProjectAndReadIdAsync(client, $"LIST-A-{unique}", $"List Active {unique}");
+        var onHoldId = await CreateProjectAndReadIdAsync(client, $"LIST-H-{unique}", $"List Hold {unique}");
+        var completedId = await CreateProjectAndReadIdAsync(client, $"LIST-COMP-{unique}", $"List Complete {unique}");
+        var cancelledId = await CreateProjectAndReadIdAsync(client, $"LIST-CAN-{unique}", $"List Cancel {unique}");
+        var deletedId = await CreateProjectAndReadIdAsync(client, $"LIST-DEL-{unique}", $"List Deleted {unique}");
+
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(
+            $"/api/projects/{onHoldId}/hold",
+            new { Reason = "목록 보류" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        await context.ExecuteSqlAsync($"update projects set status = 'Completed' where id = '{completedId}';");
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(
+            $"/api/projects/{cancelledId}/cancel",
+            new { Reason = "목록 취소" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(
+            $"/api/projects/{deletedId}/delete",
+            new { Reason = "목록 삭제", ConfirmProjectTitle = $"List Deleted {unique}" },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        using var allJson = await ReadJsonAsync(await client.GetAsync($"/api/projects?search={unique}", TestContext.Current.CancellationToken));
+        var allTitles = allJson.RootElement.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("projectTitle").GetString()).ToList();
+        Assert.Contains($"List Active {unique}", allTitles);
+        Assert.Contains($"List Hold {unique}", allTitles);
+        Assert.Contains($"List Complete {unique}", allTitles);
+        Assert.Contains($"List Cancel {unique}", allTitles);
+        Assert.DoesNotContain($"List Deleted {unique}", allTitles);
+
+        await AssertProjectListStatusAsync(client, unique, "Active", $"List Active {unique}");
+        await AssertProjectListStatusAsync(client, unique, "OnHold", $"List Hold {unique}");
+        await AssertProjectListStatusAsync(client, unique, "Completed", $"List Complete {unique}");
+        await AssertProjectListStatusAsync(client, unique, "Cancelled", $"List Cancel {unique}");
+    }
+
+    [Fact]
+    public async Task ProjectList_ReturnsWorkflowBasedWorkStatusAndProgress()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+        var unique = Guid.NewGuid().ToString("N")[..8];
+
+        await AssertProjectWorkStatusAsync(context, client, unique, "Before", ["BeforeManufacturing", "BeforeManufacturing"], "BeforeManufacturing", 0);
+        await AssertProjectWorkStatusAsync(context, client, unique, "ManufacturingProgress", ["ManufacturingInProgress", "BeforeManufacturing"], "ManufacturingInProgress", 10);
+        await AssertProjectWorkStatusAsync(context, client, unique, "ManufacturingDone", ["ManufacturingCompleted", "ManufacturingCompleted"], "ManufacturingCompleted", 40);
+        await AssertProjectWorkStatusAsync(context, client, unique, "InspectionProgress", ["InspectionInProgress", "ManufacturingCompleted"], "InspectionInProgress", 50);
+        await AssertProjectWorkStatusAsync(context, client, unique, "InspectionDone", ["InspectionCompleted", "InspectionCompleted"], "InspectionCompleted", 75);
+        await AssertProjectWorkStatusAsync(context, client, unique, "ShipmentReady", ["PackingCompleted", "InspectionCompleted"], "ReadyForShipment", 83);
+        await AssertProjectWorkStatusAsync(context, client, unique, "ShipmentDone", ["ShipmentCompleted", "ShipmentCompleted"], "ShipmentCompleted", 100);
+
+        var heldId = await CreateProjectAndReadIdAsync(client, $"WORK-HOLD-{unique}", $"Work Hold {unique}");
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(
+            $"/api/projects/{heldId}/hold",
+            new { Reason = "상태 우선" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        var held = await ReadSingleProjectListItemAsync(client, $"Work Hold {unique}");
+        Assert.Equal("OnHold", held.GetProperty("projectWorkStatus").GetString());
+
+        var cancelledId = await CreateProjectAndReadIdAsync(client, $"WORK-CANCEL-{unique}", $"Work Cancel {unique}");
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(
+            $"/api/projects/{cancelledId}/cancel",
+            new { Reason = "상태 우선" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        var cancelled = await ReadSingleProjectListItemAsync(client, $"Work Cancel {unique}");
+        Assert.Equal("Cancelled", cancelled.GetProperty("projectWorkStatus").GetString());
+
+        var completedId = await CreateProjectAndReadIdAsync(client, $"WORK-COMP-{unique}", $"Work Complete {unique}");
+        await context.ExecuteSqlAsync($"update projects set status = 'Completed' where id = '{completedId}';");
+        var completed = await ReadSingleProjectListItemAsync(client, $"Work Complete {unique}");
+        Assert.Equal("Completed", completed.GetProperty("projectWorkStatus").GetString());
+
+        var excludedCancelledId = await CreateProjectAndReadIdAsync(client, $"WORK-ACTIVE-ONLY-{unique}", $"Work Active Only {unique}");
+        await context.ExecuteSqlAsync($"""
+            update panel_placeholders
+            set workflow_stage = case sequence_number when 1 then 'InspectionCompleted' else 'ShipmentCompleted' end,
+                status = case sequence_number when 1 then 'Active' else 'Cancelled' end
+            where project_id = '{excludedCancelledId}';
+            """);
+        var activeOnly = await ReadSingleProjectListItemAsync(client, $"Work Active Only {unique}");
+        Assert.Equal(1, activeOnly.GetProperty("activePanelCount").GetInt32());
+        Assert.Equal(75, activeOnly.GetProperty("projectProgressPercent").GetInt32());
+
+        await context.ExecuteSqlAsync($"update panel_placeholders set status = 'Cancelled' where project_id = '{excludedCancelledId}';");
+        var noActivePanels = await ReadSingleProjectListItemAsync(client, $"Work Active Only {unique}");
+        Assert.Equal(0, noActivePanels.GetProperty("activePanelCount").GetInt32());
+        Assert.Equal(JsonValueKind.Null, noActivePanels.GetProperty("projectProgressPercent").ValueKind);
+    }
+
+    [Fact]
+    public async Task WorkflowStage_RejectsUnsupportedValues()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+        using var created = await CreateProjectAsync(client, "WORKFLOW-CONSTRAINT", "Workflow Constraint", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        var exception = await Assert.ThrowsAsync<PostgresException>(() => context.ExecuteSqlAsync($"""
+            update panel_placeholders
+            set workflow_stage = 'InvalidStage'
+            where project_id = '{projectId}';
+            """));
+
+        Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
     }
 
     [Fact]
@@ -140,10 +296,11 @@ public sealed class ProjectRegistrationApiTests
     }
 
     [Fact]
-    public async Task AuditHistory_HidesSensitiveSalesAmountChangesFromUnauthorizedRoles()
+    public async Task AuditHistory_IsAdministratorOnlyAndIncludesSensitiveSalesAmountChanges()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
         using var manufacturingClient = context.CreateClient("dev-manufacturing");
         using var created = await CreateProjectAsync(salesClient, "AUDIT-001", "Audit Sensitive", 1);
         using var createdJson = await ReadJsonAsync(created);
@@ -169,15 +326,15 @@ public sealed class ProjectRegistrationApiTests
 
         Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
 
+        var adminHistory = await adminClient.GetAsync($"/api/projects/{projectId}/audit-history", TestContext.Current.CancellationToken);
         var salesHistory = await salesClient.GetAsync($"/api/projects/{projectId}/audit-history", TestContext.Current.CancellationToken);
         var manufacturingHistory = await manufacturingClient.GetAsync($"/api/projects/{projectId}/audit-history", TestContext.Current.CancellationToken);
 
-        using var salesJson = await ReadJsonAsync(salesHistory);
-        using var manufacturingJson = await ReadJsonAsync(manufacturingHistory);
+        Assert.Equal(HttpStatusCode.Forbidden, salesHistory.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, manufacturingHistory.StatusCode);
 
-        Assert.Contains(salesJson.RootElement.GetProperty("items").EnumerateArray(), item =>
-            item.TryGetProperty("fieldName", out var fieldName) && fieldName.GetString() == "SalesAmount");
-        Assert.DoesNotContain(manufacturingJson.RootElement.GetProperty("items").EnumerateArray(), item =>
+        using var adminJson = await ReadJsonAsync(adminHistory);
+        Assert.Contains(adminJson.RootElement.GetProperty("items").EnumerateArray(), item =>
             item.TryGetProperty("fieldName", out var fieldName) && fieldName.GetString() == "SalesAmount");
     }
 
@@ -186,6 +343,7 @@ public sealed class ProjectRegistrationApiTests
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var client = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
         using var manufacturingClient = context.CreateClient("dev-manufacturing");
 
         var missing = await client.PostAsJsonAsync(
@@ -230,7 +388,7 @@ public sealed class ProjectRegistrationApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, update.StatusCode);
 
-        Assert.Equal(1, await CountAuditFieldChangesAsync(client, projectId, "PackagingMethod"));
+        Assert.Equal(1, await CountAuditFieldChangesAsync(adminClient, projectId, "PackagingMethod"));
     }
 
     [Fact]
@@ -331,6 +489,7 @@ public sealed class ProjectRegistrationApiTests
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var createClient = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
         using var firstClient = context.CreateClient("dev-sales");
         using var secondClient = context.CreateClient("dev-sales");
         using var created = await CreateProjectAsync(createClient, "CONCURRENT-PANEL", "Concurrent Panel Count", 4);
@@ -356,7 +515,7 @@ public sealed class ProjectRegistrationApiTests
         var activePanels = panels.Where(panel => panel.PanelStatus == "Active").ToList();
         Assert.True(activePanels.Count is 6 or 7);
         Assert.Equal(activePanels.Count, activePanels.Select(panel => panel.DisplayCode).Distinct().Count());
-        Assert.Equal(1, await CountAuditActionsAsync(createClient, projectId, "PanelCountIncreased"));
+        Assert.Equal(1, await CountAuditActionsAsync(adminClient, projectId, "PanelCountIncreased"));
 
         var retry = await createClient.PostAsJsonAsync(
             $"/api/projects/{projectId}/change-panel-count",
@@ -555,6 +714,7 @@ public sealed class ProjectRegistrationApiTests
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var createClient = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
         using var holdClient = context.CreateClient("dev-sales");
         using var cancelClient = context.CreateClient("dev-sales");
         using var created = await CreateProjectAsync(createClient, "STATUS-CONCURRENT", "Status Concurrent", 1);
@@ -575,7 +735,7 @@ public sealed class ProjectRegistrationApiTests
         Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.DoesNotContain(responses, response => response.StatusCode == HttpStatusCode.InternalServerError);
         Assert.Equal("Cancelled", await ReadProjectStatusAsync(createClient, projectId));
-        Assert.Equal(1, await CountAuditActionsAsync(createClient, projectId, "ProjectCancelled"));
+        Assert.Equal(1, await CountAuditActionsAsync(adminClient, projectId, "ProjectCancelled"));
     }
 
     [Fact]
@@ -583,6 +743,7 @@ public sealed class ProjectRegistrationApiTests
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var createClient = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
         using var firstClient = context.CreateClient("dev-sales");
         using var secondClient = context.CreateClient("dev-sales");
         using var created = await CreateProjectAsync(createClient, "STATUS-HOLD-TWICE", "Status Hold Twice", 1);
@@ -603,7 +764,7 @@ public sealed class ProjectRegistrationApiTests
         Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.Conflict);
         Assert.Equal("OnHold", await ReadProjectStatusAsync(createClient, projectId));
-        Assert.Equal(1, await CountAuditActionsAsync(createClient, projectId, "ProjectHeld"));
+        Assert.Equal(1, await CountAuditActionsAsync(adminClient, projectId, "ProjectHeld"));
     }
 
     [Fact]
@@ -611,6 +772,7 @@ public sealed class ProjectRegistrationApiTests
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var createClient = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
         using var reactivateClient = context.CreateClient("dev-sales");
         using var holdClient = context.CreateClient("dev-sales");
         using var created = await CreateProjectAsync(createClient, "STATUS-REACTIVATE-HOLD", "Status Reactivate Hold", 1);
@@ -637,7 +799,7 @@ public sealed class ProjectRegistrationApiTests
         Assert.DoesNotContain(responses, response => response.StatusCode == HttpStatusCode.InternalServerError);
         Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.True((await ReadProjectStatusAsync(createClient, projectId)) is "Active" or "OnHold");
-        Assert.Equal(1, await CountAuditActionsAsync(createClient, projectId, "ProjectReactivated"));
+        Assert.Equal(1, await CountAuditActionsAsync(adminClient, projectId, "ProjectReactivated"));
     }
 
     [Fact]
@@ -1090,6 +1252,68 @@ public sealed class ProjectRegistrationApiTests
             TestContext.Current.CancellationToken);
     }
 
+    private static async Task<Guid> CreateProjectAndReadIdAsync(
+        HttpClient client,
+        string projectCode,
+        string projectTitle,
+        int panelCount = 2)
+    {
+        using var created = await CreateProjectAsync(client, projectCode, projectTitle, panelCount);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var json = await ReadJsonAsync(created);
+        return json.RootElement.GetProperty("projectId").GetGuid();
+    }
+
+    private static async Task AssertProjectListStatusAsync(
+        HttpClient client,
+        string search,
+        string status,
+        string expectedTitle)
+    {
+        using var response = await client.GetAsync($"/api/projects?search={search}&status={status}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = await ReadJsonAsync(response);
+        var titles = json.RootElement.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("projectTitle").GetString()).ToList();
+        Assert.Single(titles);
+        Assert.Equal(expectedTitle, titles[0]);
+    }
+
+    private static async Task AssertProjectWorkStatusAsync(
+        ProjectApiTestContext context,
+        HttpClient client,
+        string unique,
+        string suffix,
+        IReadOnlyList<string> stages,
+        string expectedStatus,
+        int expectedProgress)
+    {
+        var title = $"Work {suffix} {unique}";
+        var projectId = await CreateProjectAndReadIdAsync(client, $"WORK-{suffix}-{unique}", title, stages.Count);
+        var stageCases = string.Join(Environment.NewLine, stages.Select((stage, index) => $"when {index + 1} then '{stage}'"));
+        await context.ExecuteSqlAsync($"""
+            update panel_placeholders
+            set workflow_stage = case sequence_number
+                    {stageCases}
+                    else workflow_stage
+                end
+            where project_id = '{projectId}';
+            """);
+
+        var item = await ReadSingleProjectListItemAsync(client, title);
+        Assert.Equal(expectedStatus, item.GetProperty("projectWorkStatus").GetString());
+        Assert.Equal(expectedProgress, item.GetProperty("projectProgressPercent").GetInt32());
+    }
+
+    private static async Task<JsonElement> ReadSingleProjectListItemAsync(HttpClient client, string search)
+    {
+        using var response = await client.GetAsync($"/api/projects?search={Uri.EscapeDataString(search)}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = await ReadJsonAsync(response);
+        var items = json.RootElement.GetProperty("items").EnumerateArray().ToList();
+        Assert.Single(items);
+        return items[0].Clone();
+    }
+
     private static CreateProjectPayload NewProjectRequest(string projectCode, string projectTitle)
     {
         return new CreateProjectPayload(
@@ -1475,10 +1699,7 @@ public sealed class ProjectRegistrationApiTests
         {
             var values = LoadDotEnv(Path.Combine(repositoryRoot, ".env"));
 
-            return new ConfigurationBuilder()
-                .AddInMemoryCollection(values)
-                .AddEnvironmentVariables()
-                .Build();
+            return TestConfigurationIsolation.BuildBaseDatabaseConfiguration(values);
         }
 
         private static Dictionary<string, string?> LoadDotEnv(string envPath)

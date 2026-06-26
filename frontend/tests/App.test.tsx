@@ -17,9 +17,12 @@ const panelIds = [
 describe('App', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(mockFetch));
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:panel-template');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -84,7 +87,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('button', { name: '저장 중' })).toBeDisabled();
     expect(await screen.findByText('P01')).toBeInTheDocument();
-    expect(screen.getByText('P04')).toBeInTheDocument();
+    expect(screen.getAllByText('P04').length).toBeGreaterThan(0);
   });
 
   it('requires panel selections when decreasing panel count', async () => {
@@ -333,6 +336,132 @@ describe('App', () => {
     expect(await screen.findByText('Abort Cancelled')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+
+  it('downloads the xlsx panel template with the selected unit and server filename', async () => {
+    let requestedSearch = '';
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === `/api/projects/${projectId}/panel-information/import/template`) {
+        requestedSearch = url.search;
+        return Promise.resolve(new Response(new Blob(['xlsx']), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': "attachment; filename*=UTF-8''TASK-003A_Demo_Panel_Information_inch.xlsx"
+          }
+        }));
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    let downloadedFileName = '';
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function click(this: HTMLAnchorElement) {
+      downloadedFileName = this.download;
+    });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
+    await screen.findByRole('button', { name: '신규 프로젝트' });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.change(await screen.findByLabelText('입력 단위'), { target: { value: 'Inch' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Excel 양식 다운로드' }));
+
+    expect(await screen.findByText('Excel 양식을 다운로드했습니다.')).toBeInTheDocument();
+    expect(requestedSearch).toBe('?unit=inch');
+    expect(clickSpy).toHaveBeenCalled();
+    expect(downloadedFileName).toBe('TASK-003A_Demo_Panel_Information_inch.xlsx');
+    expect(screen.queryByText(/CSV/i)).not.toBeInTheDocument();
+  });
+
+  it('shows panel template download only to panel information editors', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
+    await screen.findByRole('button', { name: '신규 프로젝트' });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    expect(await screen.findByRole('button', { name: 'Excel 양식 다운로드' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('개발 사용자'), { target: { value: 'dev-manufacturing' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    await screen.findByText('패널정보');
+    expect(screen.queryByRole('button', { name: 'Excel 양식 다운로드' })).not.toBeInTheDocument();
+  });
+
+  it('shows a friendly template download server error', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === `/api/projects/${projectId}/panel-information/import/template`) {
+        return Promise.resolve(json({ title: '양식을 다운로드할 수 없습니다.' }, 500));
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
+    await screen.findByRole('button', { name: '신규 프로젝트' });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Excel 양식 다운로드' }));
+
+    expect(await screen.findByText('양식을 다운로드할 수 없습니다.')).toBeInTheDocument();
+  });
+
+  it('does not send size updates when only the panel name changes after switching the edit unit', async () => {
+    const savedRequests: Array<{
+      panels: Array<{
+        panelNameUpdate?: { isChanged: boolean; value: string | null };
+        sizeUpdate?: unknown;
+      }>;
+    }> = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === `/api/projects/${projectId}/panel-information` && init?.method === 'PATCH') {
+        savedRequests.push(JSON.parse(String(init.body)));
+        return Promise.resolve(json(panelInformationWithSize(projectId, 'DRIFT-B')));
+      }
+
+      if (url.pathname === `/api/projects/${projectId}/panel-information`) {
+        return Promise.resolve(json(panelInformationWithSize(projectId, 'DRIFT-A')));
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
+    await screen.findByRole('button', { name: '신규 프로젝트' });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.change(await screen.findByLabelText('입력 단위'), { target: { value: 'Inch' } });
+    fireEvent.change(await screen.findByLabelText('No.1 패널명'), { target: { value: 'DRIFT-B' } });
+    fireEvent.change(await screen.findByLabelText('수정사유*'), { target: { value: '패널명만 변경' } });
+    fireEvent.click(screen.getByRole('button', { name: '직접 입력 저장' }));
+
+    await screen.findByText('패널정보를 저장했습니다.');
+    const savedBody = savedRequests[0];
+    expect(savedBody.panels).toHaveLength(1);
+    expect(savedBody.panels[0].panelNameUpdate).toEqual({ isChanged: true, value: 'DRIFT-B' });
+    expect(savedBody.panels[0].sizeUpdate).toBeUndefined();
+  });
+
+  it('shows direct, excel, canonical, original input, and legacy panel audit metadata', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
+    await screen.findByRole('button', { name: '신규 프로젝트' });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+
+    expect(await screen.findByText('입력 방식: 직접 입력')).toBeInTheDocument();
+    expect(await screen.findByText('입력 방식: Excel 입력')).toBeInTheDocument();
+    expect(await screen.findByText('입력 방식: 기존 이력')).toBeInTheDocument();
+    expect(screen.getByText('입력 파일: panel_information_01.xlsx')).toBeInTheDocument();
+    expect(screen.getByText('입력 단위: inch')).toBeInTheDocument();
+    expect(screen.getAllByText('입력 단위: mm').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('입력값: 31.5 inch')).toBeInTheDocument();
+    expect(screen.getByText('저장값: 800.1 mm')).toBeInTheDocument();
+    expect(screen.getByText('Excel Batch: panel_information_01.xlsx')).toBeInTheDocument();
+    expect(screen.getByText('No.2 · PNL-2')).toBeInTheDocument();
+  });
 });
 
 function fillCreateForm(projectCode: string, projectTitle: string) {
@@ -456,6 +585,19 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json({ items: [] });
   }
 
+  if (path === `/api/projects/${projectId}/panel-information`) {
+    return json(panelInformation(projectId));
+  }
+
+  if (path === `/api/projects/${onHoldProjectId}/panel-information`) {
+    return json(panelInformation(onHoldProjectId));
+  }
+
+  if (path === `/api/projects/${projectId}/panel-information/history`
+      || path === `/api/projects/${onHoldProjectId}/panel-information/history`) {
+    return json(panelInformationHistory());
+  }
+
   if (path.endsWith('/delete')) {
     return json({
       ...deletedProjectListItem(userKey),
@@ -475,7 +617,11 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 function currentUser(userKey: string) {
   const permissions = ['projects.read', 'Project.Read.All'];
   if (userKey === 'dev-sales') {
-    permissions.push('Project.Create', 'Project.Update', 'Project.Hold', 'Project.Cancel', 'Project.Delete', 'Project.Deleted.Read', 'Project.SalesAmount.Read');
+    permissions.push('Project.Create', 'Project.Update', 'Project.Hold', 'Project.Cancel', 'Project.Delete', 'Project.Deleted.Read', 'Project.SalesAmount.Read', 'PanelInfo.Update');
+  }
+
+  if (userKey === 'dev-design' || userKey === 'dev-production') {
+    permissions.push('PanelInfo.Update');
   }
 
   if (userKey === 'dev-admin') {
@@ -556,6 +702,144 @@ function panels(id = projectId) {
     createdAt: '2026-06-25T00:00:00Z',
     updatedAt: '2026-06-25T00:00:00Z'
   }));
+}
+
+function panelInformation(id = projectId) {
+  return {
+    projectId: id,
+    projectStatus: id === onHoldProjectId ? 'OnHold' : 'Active',
+    packagingMethod: 'WoodenCrate',
+    activePanelCount: 4,
+    panelInfoCompletedCount: 0,
+    panelInfoPendingCount: 4,
+    qrEligibleCount: 0,
+    duplicatePanelNameGroupCount: 0,
+    projectPanelInformationCompleted: false,
+    panelInformationStatusMessage: null,
+    panels: panelIds.map((panelId, index) => ({
+      panelId,
+      projectId: id,
+      sequenceNumber: index + 1,
+      panelNumber: `No.${index + 1}`,
+      displayCode: `P0${index + 1}`,
+      panelName: null,
+      displayName: `No.${index + 1} · 패널명 미정`,
+      widthMm: null,
+      heightMm: null,
+      depthMm: null,
+      panelStatus: 'Active',
+      panelInfoCompleted: false,
+      qrEligible: false,
+      hasDuplicateName: false,
+      duplicateNameCount: 0,
+      panelInfoVersion: 0,
+      createdAt: '2026-06-25T00:00:00Z',
+      updatedAt: '2026-06-25T00:00:00Z',
+      panelInfoUpdatedAtUtc: null,
+      panelInfoUpdatedByUserId: null,
+      panelInfoUpdatedByUserName: null
+    }))
+  };
+}
+
+function panelInformationWithSize(id = projectId, panelName = 'DRIFT-A') {
+  const response = panelInformation(id);
+  Object.assign(response.panels[0] as unknown as Record<string, unknown>, {
+    panelName,
+    displayName: `No.1 · ${panelName}`,
+    widthMm: 800,
+    heightMm: 1800,
+    depthMm: 400,
+    panelInfoVersion: 2,
+    panelInfoCompleted: true,
+    qrEligible: true
+  });
+  return response;
+}
+
+function panelInformationHistory() {
+  return {
+    auditEvents: [
+      {
+        auditEventId: '90000000-0000-0000-0000-000000000001',
+        entityType: 'Panel',
+        entityId: panelIds[1],
+        projectId,
+        action: 'PanelInfoUpdated',
+        panelNumber: 'No.2',
+        panelDisplayName: 'No.2 · PNL-2',
+        displayCode: 'P02',
+        fieldName: 'WidthMm',
+        oldValue: '700',
+        newValue: '800.1',
+        reason: 'Excel inch 변경',
+        changedByUserId: salesOwnerId,
+        changedByUserName: 'Dev Design User',
+        changedAtUtc: '2026-06-26T01:30:00Z',
+        correlationId: 'corr-excel',
+        inputSource: 'Excel',
+        importBatchId: '91000000-0000-0000-0000-000000000001',
+        inputUnit: 'Inch',
+        originalInputValue: '31.5',
+        importFileName: 'panel_information_01.xlsx',
+        importUploadedAtUtc: '2026-06-26T01:29:00Z'
+      },
+      {
+        auditEventId: '90000000-0000-0000-0000-000000000002',
+        entityType: 'Panel',
+        entityId: panelIds[0],
+        projectId,
+        action: 'PanelInfoUpdated',
+        panelNumber: 'No.1',
+        panelDisplayName: 'No.1 · PNL-1',
+        displayCode: 'P01',
+        fieldName: 'PanelName',
+        oldValue: '',
+        newValue: 'PNL-1',
+        changedByUserId: salesOwnerId,
+        changedByUserName: 'Dev Design User',
+        changedAtUtc: '2026-06-26T01:00:00Z',
+        correlationId: 'corr-direct',
+        inputSource: 'Direct',
+        inputUnit: 'Mm'
+      },
+      {
+        auditEventId: '90000000-0000-0000-0000-000000000003',
+        entityType: 'Panel',
+        entityId: panelIds[2],
+        projectId,
+        action: 'PanelInfoUpdated',
+        panelNumber: 'No.3',
+        panelDisplayName: 'No.3 · PNL-LEGACY',
+        displayCode: 'P03',
+        fieldName: 'PanelName',
+        oldValue: '',
+        newValue: 'PNL-LEGACY',
+        changedByUserId: null,
+        changedByUserName: null,
+        changedAtUtc: '2026-06-26T00:30:00Z',
+        correlationId: 'corr-legacy'
+      }
+    ],
+    excelImportBatches: [
+      {
+        importBatchId: '91000000-0000-0000-0000-000000000001',
+        projectId,
+        originalFileName: 'panel_information_01.xlsx',
+        fileSizeBytes: 1234,
+        fileSha256: 'a'.repeat(64),
+        inputUnit: 'Inch',
+        totalRowCount: 1,
+        newPanelCount: 0,
+        changedPanelCount: 1,
+        unchangedPanelCount: 0,
+        uploadedByUserId: salesOwnerId,
+        uploadedByUserName: 'Dev Design User',
+        uploadedAtUtc: '2026-06-26T01:29:00Z',
+        reason: 'Excel inch 변경'
+      }
+    ]
+  };
 }
 
 function canReadSalesAmount(userKey: string) {

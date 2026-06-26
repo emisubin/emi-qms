@@ -281,6 +281,11 @@ h3 {
   font-weight: 700;
 }
 
+.success-text {
+  color: #146b3a;
+  font-weight: 800;
+}
+
 .warning-text {
   color: #7a271a;
   font-weight: 700;
@@ -367,6 +372,141 @@ dd {
   margin-top: 4px;
 }
 
+.panel-info-section {
+  border-top: 1px solid #e1e8e3;
+  padding-top: 20px;
+}
+
+.panel-info-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.panel-toolbar {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.panel-toolbar label {
+  display: grid;
+  gap: 6px;
+  color: #52665a;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.panel-template-help {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 14px;
+  border: 1px solid #d6e1d9;
+  border-radius: 8px;
+  background: #f7faf8;
+  padding: 10px 12px;
+  color: #52665a;
+  font-size: 0.84rem;
+}
+
+.panel-template-help strong {
+  color: #24362a;
+}
+
+.panel-reason-field {
+  margin: 12px 0;
+}
+
+.panel-info-table {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.panel-info-table-head,
+.panel-info-table-row {
+  display: grid;
+  grid-template-columns: 92px minmax(140px, 1.2fr) repeat(3, minmax(74px, 0.7fr)) 82px 72px minmax(110px, 0.9fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-info-table-head {
+  color: #52665a;
+  font-size: 0.8rem;
+  font-weight: 900;
+  padding: 0 8px;
+}
+
+.panel-info-table-row {
+  border: 1px solid #e1e8e3;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 8px;
+}
+
+.panel-info-table-row strong small {
+  display: block;
+  color: #52665a;
+  font-size: 0.74rem;
+}
+
+.panel-display-size {
+  grid-column: 2 / -1;
+  color: #52665a;
+  font-weight: 700;
+}
+
+.panel-info-cards {
+  display: none;
+}
+
+.panel-info-card {
+  border: 1px solid #e1e8e3;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 12px;
+}
+
+.dimension-grid,
+.mini-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mini-status-grid div {
+  border: 1px solid #e1e8e3;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.wide-dialog {
+  width: min(920px, 100%);
+  max-height: min(760px, 90vh);
+  overflow: auto;
+}
+
+.excel-preview-table {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.excel-preview-row {
+  display: grid;
+  grid-template-columns: 80px 70px minmax(120px, 1fr) minmax(130px, 1fr) 90px minmax(140px, 1.2fr);
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #e1e8e3;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.excel-preview-row[data-result='Error'] {
+  border-color: #f2b8b5;
+  background: #fff8f7;
+}
+
 .dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -401,12 +541,29 @@ dd {
 
   .system-strip,
   .detail-grid,
-  .project-form {
+  .project-form,
+  .panel-info-summary,
+  .panel-toolbar,
+  .dimension-grid,
+  .mini-status-grid {
     grid-template-columns: 1fr;
   }
 
   .project-row,
   .panel-row {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-info-table {
+    display: none;
+  }
+
+  .panel-info-cards {
+    display: grid;
+    gap: 10px;
+  }
+
+  .excel-preview-row {
     grid-template-columns: 1fr;
   }
 

@@ -1,21 +1,27 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApiError,
+  applyPanelInformationExcel,
   changePanelCount,
   changeProjectStatus,
   createProject,
   defaultDevelopmentUserKey,
   deleteProject,
+  downloadPanelInformationTemplate,
   getAuditHistory,
   getCurrentUser,
   getDeletedProject,
   getPanel,
+  getPanelInformation,
+  getPanelInformationHistory,
   getProject,
   getReadyHealth,
   getSalesOwners,
   listDeletedProjects,
   listPanels,
   listProjects,
+  previewPanelInformationExcel,
+  updatePanelInformation,
   updateProject
 } from './api';
 import type { ReadyHealth } from './health';
@@ -25,6 +31,11 @@ import type {
   AuditEvent,
   DeletedProjectDetail,
   DeletedProjectListItem,
+  PanelInformationExcelPreviewResponse,
+  PanelInformationHistoryResponse,
+  PanelInformationPanel,
+  PanelInformationResponse,
+  PanelInputUnit,
   PanelPlaceholder,
   PackagingMethod,
   ProjectDetail,
@@ -67,6 +78,7 @@ type ProjectFormValues = {
 
 const developmentUsers = [
   'dev-sales',
+  'dev-design',
   'dev-admin',
   'dev-production',
   'dev-manufacturing',
@@ -120,6 +132,7 @@ export function App() {
   const canDelete = permissions.includes('Project.Delete');
   const canReadDeleted = permissions.includes('Project.Deleted.Read');
   const canReadSalesAmount = permissions.includes('Project.SalesAmount.Read');
+  const canUpdatePanelInfo = permissions.includes('PanelInfo.Update');
 
   return (
     <main className="app-shell">
@@ -189,6 +202,7 @@ export function App() {
           canCancel={canCancel}
           canDelete={canDelete}
           canReadSalesAmount={canReadSalesAmount}
+          canUpdatePanelInfo={canUpdatePanelInfo}
           onBack={() => setView({ kind: 'list' })}
           onEdit={() => setView({ kind: 'edit', projectId: view.projectId })}
           onOpenPanel={(panelId) => setView({ kind: 'panel', projectId: view.projectId, panelId })}
@@ -442,6 +456,7 @@ function ProjectDetailPage({
   canCancel,
   canDelete,
   canReadSalesAmount,
+  canUpdatePanelInfo,
   onBack,
   onEdit,
   onOpenPanel
@@ -453,6 +468,7 @@ function ProjectDetailPage({
   canCancel: boolean;
   canDelete: boolean;
   canReadSalesAmount: boolean;
+  canUpdatePanelInfo: boolean;
   onBack: () => void;
   onEdit: () => void;
   onOpenPanel: (panelId: string) => void;
@@ -568,6 +584,13 @@ function ProjectDetailPage({
 
       <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
 
+      <PanelInformationSection
+        developmentUserKey={developmentUserKey}
+        projectId={projectId}
+        project={project}
+        canUpdatePanelInfo={canUpdatePanelInfo}
+      />
+
       <section className="subsection">
         <div className="subsection-header">
           <h3>패널 Placeholder</h3>
@@ -616,6 +639,598 @@ function ProjectDetailPage({
         />
       ) : null}
     </section>
+  );
+}
+
+type PanelInformationRowForm = {
+  panelId: string;
+  sequenceNumber: number;
+  panelNumber: string;
+  displayCode: string;
+  panelInfoVersion: number;
+  original: PanelInformationPanel;
+  originalPanelName: string;
+  currentPanelName: string;
+  panelNameDirty: boolean;
+  originalWidthMm: string | null;
+  originalHeightMm: string | null;
+  originalDepthMm: string | null;
+  widthInput: string;
+  heightInput: string;
+  depthInput: string;
+  sizeDirty: boolean;
+  sizeClearRequested: boolean;
+  sizeInputUnit: PanelInputUnit;
+};
+
+function PanelInformationSection({
+  developmentUserKey,
+  projectId,
+  project,
+  canUpdatePanelInfo
+}: {
+  developmentUserKey: string;
+  projectId: string;
+  project: ProjectDetail;
+  canUpdatePanelInfo: boolean;
+}) {
+  const [state, setState] = useState<LoadState<PanelInformationResponse>>({ kind: 'loading' });
+  const [historyState, setHistoryState] = useState<LoadState<PanelInformationHistoryResponse>>({ kind: 'loading' });
+  const [rows, setRows] = useState<PanelInformationRowForm[]>([]);
+  const [editInputUnit, setEditInputUnit] = useState<PanelInputUnit>('Mm');
+  const [displayUnit, setDisplayUnit] = useState<PanelInputUnit>(() => readDisplayUnit());
+  const [filter, setFilter] = useState<'All' | 'Completed' | 'Pending' | 'QrEligible'>('All');
+  const [search, setSearch] = useState('');
+  const [reason, setReason] = useState('');
+  const [message, setMessage] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
+  const [showExcel, setShowExcel] = useState(false);
+  const requestIdRef = useRef(0);
+  const dirtyRef = useRef(false);
+  const editInputUnitRef = useRef<PanelInputUnit>('Mm');
+
+  useEffect(() => {
+    editInputUnitRef.current = editInputUnit;
+  }, [editInputUnit]);
+
+  const load = useCallback(() => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    dirtyRef.current = false;
+    setState({ kind: 'loading' });
+    setHistoryState({ kind: 'loading' });
+    setMessage('');
+
+    Promise.all([
+      getPanelInformation(developmentUserKey, projectId),
+      getPanelInformationHistory(developmentUserKey, projectId)
+    ])
+      .then(([panelInfo, history]) => {
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+
+        setState({ kind: 'ready', data: panelInfo });
+        setHistoryState({ kind: 'ready', data: history });
+        setRows(panelInfo.panels.map((panel) => panelToRowForm(panel, editInputUnitRef.current)));
+      })
+      .catch((error: unknown) => {
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+
+        setState(toLoadError(error, '패널정보를 불러올 수 없습니다.'));
+      });
+  }, [developmentUserKey, projectId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    window.localStorage.setItem('emi-qms-panel-display-unit', displayUnit);
+  }, [displayUnit]);
+
+  const data = state.kind === 'ready' ? state.data : null;
+  const canEdit = canUpdatePanelInfo && project.status === 'Active';
+  const visibleRows = rows.filter((row) => {
+    const panel = row.original;
+    const matchesFilter = filter === 'All'
+      || (filter === 'Completed' && panel.panelInfoCompleted)
+      || (filter === 'Pending' && !panel.panelInfoCompleted)
+      || (filter === 'QrEligible' && panel.qrEligible);
+    const query = search.trim().toLowerCase();
+    const matchesSearch = !query
+      || row.panelNumber.toLowerCase().includes(query)
+      || row.displayCode.toLowerCase().includes(query)
+      || row.currentPanelName.toLowerCase().includes(query)
+      || (panel.panelName ?? '').toLowerCase().includes(query);
+    return matchesFilter && matchesSearch;
+  });
+  const reasonRequired = rows.some(panelRowNeedsReason);
+  const hasChanges = rows.some(panelRowChanged);
+
+  function setPanelName(panelId: string, value: string) {
+    dirtyRef.current = true;
+    setRows((current) => current.map((row) => row.panelId === panelId
+      ? { ...row, currentPanelName: value, panelNameDirty: true }
+      : row));
+  }
+
+  function setSizeInput(panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) {
+    dirtyRef.current = true;
+    setRows((current) => current.map((row) => {
+      if (row.panelId !== panelId) {
+        return row;
+      }
+
+      const next = { ...row, [field]: value, sizeDirty: true, sizeInputUnit: editInputUnit };
+      return { ...next, sizeClearRequested: !next.widthInput.trim() && !next.heightInput.trim() && !next.depthInput.trim() };
+    }));
+  }
+
+  function changeEditInputUnit(nextUnit: PanelInputUnit) {
+    if (rows.some((row) => row.sizeDirty)) {
+      setMessage('저장되지 않은 사이즈 입력이 있습니다. 저장하거나 변경을 취소한 후 단위를 변경해 주세요.');
+      return;
+    }
+
+    setEditInputUnit(nextUnit);
+    setRows((current) => current.map((row) => rowWithSizeInputs(row, nextUnit)));
+  }
+
+  async function save() {
+    if (!canEdit || !data) {
+      return;
+    }
+
+    if (reasonRequired && !reason.trim()) {
+      setMessage('기존 패널정보를 변경하려면 수정사유가 필요합니다.');
+      return;
+    }
+
+    setIsSaving(true);
+    setMessage('');
+    try {
+      const saved = await updatePanelInformation(developmentUserKey, projectId, {
+        reason: reason.trim() || null,
+        panels: rows.filter(panelRowChanged).map(panelRowToUpdateRequest)
+      });
+      dirtyRef.current = false;
+      setReason('');
+      setState({ kind: 'ready', data: saved });
+      setRows(saved.panels.map((panel) => panelToRowForm(panel, editInputUnit)));
+      getPanelInformationHistory(developmentUserKey, projectId)
+        .then((history) => setHistoryState({ kind: 'ready', data: history }))
+        .catch((error: unknown) => setHistoryState(toLoadError(error, '입력이력을 불러올 수 없습니다.')));
+      setMessage('패널정보를 저장했습니다.');
+    } catch (error) {
+      handleFormError(error, () => undefined, setMessage);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function downloadTemplate() {
+    if (!canUpdatePanelInfo) {
+      return;
+    }
+
+    setIsDownloadingTemplate(true);
+    setMessage('');
+    try {
+      const template = await downloadPanelInformationTemplate(developmentUserKey, projectId, editInputUnit);
+      const url = URL.createObjectURL(template.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = template.fileName;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setMessage('Excel 양식을 다운로드했습니다.');
+    } catch (error) {
+      handleFormError(error, () => undefined, setMessage);
+    } finally {
+      setIsDownloadingTemplate(false);
+    }
+  }
+
+  return (
+    <section className="subsection panel-info-section">
+      <div className="subsection-header">
+        <div>
+          <h3>패널정보</h3>
+          <span>{formatPackagingMethod(project.packagingMethod)}</span>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={load}>새로고침</button>
+          {canUpdatePanelInfo ? (
+            <button type="button" onClick={downloadTemplate} disabled={isDownloadingTemplate}>
+              {isDownloadingTemplate ? '다운로드 중' : 'Excel 양식 다운로드'}
+            </button>
+          ) : null}
+          <button type="button" onClick={() => setShowExcel(true)} disabled={!canEdit}>Excel 업로드</button>
+          <button type="button" className="primary-button" disabled={!canEdit || isSaving || !hasChanges} onClick={save}>
+            {isSaving ? '저장 중' : '직접 입력 저장'}
+          </button>
+        </div>
+      </div>
+
+      {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
+
+      {data ? (
+        <>
+          <div className="panel-info-summary">
+            <StatusChip label="완료" value={`${data.panelInfoCompletedCount}/${data.activePanelCount}`} />
+            <StatusChip label="미완료" value={String(data.panelInfoPendingCount)} />
+            <StatusChip label="QR 가능" value={String(data.qrEligibleCount)} />
+            <StatusChip label="동일명칭" value={String(data.duplicatePanelNameGroupCount)} />
+          </div>
+
+          {data.panelInformationStatusMessage ? (
+            <p role="status" className="warning-text">{data.panelInformationStatusMessage}</p>
+          ) : null}
+          {!canUpdatePanelInfo ? <p className="muted-text">읽기 전용</p> : null}
+          {canUpdatePanelInfo && project.status !== 'Active' ? (
+            <p role="alert" className="warning-text">현재 프로젝트 상태에서는 패널정보를 수정할 수 없습니다.</p>
+          ) : null}
+
+          <div className="toolbar panel-toolbar">
+            <label>
+              <span>입력 단위</span>
+              <select value={editInputUnit} onChange={(event) => changeEditInputUnit(event.target.value as PanelInputUnit)}>
+                <option value="Mm">mm</option>
+                <option value="Inch">inch</option>
+              </select>
+            </label>
+            <label>
+              <span>표시 단위</span>
+              <select value={displayUnit} onChange={(event) => setDisplayUnit(event.target.value as PanelInputUnit)}>
+                <option value="Mm">mm</option>
+                <option value="Inch">inch</option>
+              </select>
+            </label>
+            <label>
+              <span>필터</span>
+              <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
+                <option value="All">전체</option>
+                <option value="Completed">완료</option>
+                <option value="Pending">미완료</option>
+                <option value="QrEligible">QR 가능</option>
+              </select>
+            </label>
+            <label>
+              <span>검색</span>
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="No 또는 패널명" />
+            </label>
+          </div>
+
+          {canUpdatePanelInfo ? (
+            <div className="panel-template-help">
+              <strong>입력 단위: {editInputUnit === 'Inch' ? 'inch' : 'mm'}</strong>
+              <span>No는 수정하지 마세요.</span>
+              <span>도번은 업로드 시 저장되지 않습니다.</span>
+              <span>목포장은 panel name, w, h, d가 모두 필요합니다.</span>
+              <span>청랩·고강도박스 포장은 panel name만 필수입니다.</span>
+              <span>사이즈를 입력하는 경우 w, h, d를 모두 입력해야 합니다.</span>
+            </div>
+          ) : null}
+
+          {reasonRequired ? (
+            <label className="form-field panel-reason-field">
+              <span>수정사유*</span>
+              <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
+            </label>
+          ) : null}
+
+          <div className="panel-info-table" role="table" aria-label="패널정보 직접 입력">
+            <div className="panel-info-table-head" role="row">
+              <span>No</span>
+              <span>Panel Name</span>
+              <span>W</span>
+              <span>H</span>
+              <span>D</span>
+              <span>정보 상태</span>
+              <span>QR</span>
+              <span>동일명칭</span>
+            </div>
+            {visibleRows.map((row) => (
+              <PanelInformationEditableRow
+                key={row.panelId}
+                row={row}
+                displayUnit={displayUnit}
+                canEdit={canEdit && row.original.panelStatus === 'Active'}
+                onPanelNameChange={setPanelName}
+                onSizeChange={setSizeInput}
+              />
+            ))}
+          </div>
+
+          <div className="panel-info-cards">
+            {visibleRows.map((row) => (
+              <PanelInformationCard
+                key={row.panelId}
+                row={row}
+                displayUnit={displayUnit}
+                canEdit={canEdit && row.original.panelStatus === 'Active'}
+                onPanelNameChange={setPanelName}
+                onSizeChange={setSizeInput}
+              />
+            ))}
+          </div>
+
+          {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+
+          <section className="subsection">
+            <h3>입력이력</h3>
+            {historyState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+            {historyState.kind !== 'ready' && historyState.kind !== 'loading' ? <StateMessage state={historyState} /> : null}
+            {historyState.kind === 'ready' ? (
+              <>
+                <ExcelImportHistory batches={historyState.data.excelImportBatches} />
+                <AuditHistory events={historyState.data.auditEvents} />
+              </>
+            ) : null}
+          </section>
+        </>
+      ) : null}
+
+      {showExcel && data ? (
+        <PanelInformationExcelDialog
+          developmentUserKey={developmentUserKey}
+          projectId={projectId}
+          defaultInputUnit={editInputUnit}
+          onClose={() => setShowExcel(false)}
+          onApplied={(next) => {
+            setShowExcel(false);
+            dirtyRef.current = false;
+            setReason('');
+            setState({ kind: 'ready', data: next });
+            setRows(next.panels.map((panel) => panelToRowForm(panel, editInputUnit)));
+            load();
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function PanelInformationEditableRow({
+  row,
+  displayUnit,
+  canEdit,
+  onPanelNameChange,
+  onSizeChange
+}: {
+  row: PanelInformationRowForm;
+  displayUnit: PanelInputUnit;
+  canEdit: boolean;
+  onPanelNameChange: (panelId: string, value: string) => void;
+  onSizeChange: (panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) => void;
+}) {
+  return (
+    <div className="panel-info-table-row" role="row">
+      <strong>{row.panelNumber}<small>{row.displayCode}</small></strong>
+      <input aria-label={`${row.panelNumber} 패널명`} value={row.currentPanelName} disabled={!canEdit} onChange={(event) => onPanelNameChange(row.panelId, event.target.value)} />
+      <input aria-label={`${row.panelNumber} W`} inputMode="decimal" value={row.widthInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'widthInput', event.target.value)} />
+      <input aria-label={`${row.panelNumber} H`} inputMode="decimal" value={row.heightInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'heightInput', event.target.value)} />
+      <input aria-label={`${row.panelNumber} D`} inputMode="decimal" value={row.depthInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'depthInput', event.target.value)} />
+      <span>{row.original.panelInfoCompleted ? '완료' : '미완료'}</span>
+      <span>{row.original.qrEligible ? '가능' : '불가'}</span>
+      <span>{row.original.hasDuplicateName ? `동일 명칭 ${row.original.duplicateNameCount}면` : '-'}</span>
+      <small className="panel-display-size">{formatPanelSizeInUnit(row.original, displayUnit)}</small>
+    </div>
+  );
+}
+
+function PanelInformationCard({
+  row,
+  displayUnit,
+  canEdit,
+  onPanelNameChange,
+  onSizeChange
+}: {
+  row: PanelInformationRowForm;
+  displayUnit: PanelInputUnit;
+  canEdit: boolean;
+  onPanelNameChange: (panelId: string, value: string) => void;
+  onSizeChange: (panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) => void;
+}) {
+  return (
+    <article className="panel-info-card">
+      <div className="subsection-header">
+        <h3>{row.panelNumber}</h3>
+        <span>{row.displayCode}</span>
+      </div>
+      <FormField label="패널명">
+        <input value={row.currentPanelName} disabled={!canEdit} onChange={(event) => onPanelNameChange(row.panelId, event.target.value)} />
+      </FormField>
+      <div className="dimension-grid">
+        <FormField label="W">
+          <input inputMode="decimal" value={row.widthInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'widthInput', event.target.value)} />
+        </FormField>
+        <FormField label="H">
+          <input inputMode="decimal" value={row.heightInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'heightInput', event.target.value)} />
+        </FormField>
+        <FormField label="D">
+          <input inputMode="decimal" value={row.depthInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'depthInput', event.target.value)} />
+        </FormField>
+      </div>
+      <dl className="mini-status-grid">
+        <div><dt>패널정보</dt><dd>{row.original.panelInfoCompleted ? '완료' : '미완료'}</dd></div>
+        <div><dt>QR</dt><dd>{row.original.qrEligible ? '가능' : '불가'}</dd></div>
+        <div><dt>표시</dt><dd>{formatPanelSizeInUnit(row.original, displayUnit)}</dd></div>
+      </dl>
+      {row.original.hasDuplicateName ? <p className="muted-text">동일 명칭 {row.original.duplicateNameCount}면</p> : null}
+    </article>
+  );
+}
+
+function PanelInformationExcelDialog({
+  developmentUserKey,
+  projectId,
+  defaultInputUnit,
+  onClose,
+  onApplied
+}: {
+  developmentUserKey: string;
+  projectId: string;
+  defaultInputUnit: PanelInputUnit;
+  onClose: () => void;
+  onApplied: (response: PanelInformationResponse) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [inputUnit, setInputUnit] = useState<PanelInputUnit>(defaultInputUnit);
+  const [preview, setPreview] = useState<PanelInformationExcelPreviewResponse | null>(null);
+  const [reason, setReason] = useState('');
+  const [message, setMessage] = useState('');
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+
+  async function previewFile() {
+    if (!file) {
+      setMessage('Excel 파일을 선택하세요.');
+      return;
+    }
+
+    setIsPreviewing(true);
+    setMessage('');
+    try {
+      setPreview(await previewPanelInformationExcel(developmentUserKey, projectId, file, inputUnit));
+    } catch (error) {
+      handleFormError(error, () => undefined, setMessage);
+    } finally {
+      setIsPreviewing(false);
+    }
+  }
+
+  async function applyFile() {
+    if (!file || !preview) {
+      return;
+    }
+
+    if (preview.errorCount > 0) {
+      setMessage('오류가 있는 Excel은 적용할 수 없습니다.');
+      return;
+    }
+
+    if (preview.reasonRequired && !reason.trim()) {
+      setMessage('기존 패널정보를 변경하려면 수정사유가 필요합니다.');
+      return;
+    }
+
+    setIsApplying(true);
+    setMessage('');
+    try {
+      const expectedVersions = preview.rows
+        .filter((row) => row.panelId && row.expectedPanelInfoVersion !== null)
+        .map((row) => ({
+          panelId: row.panelId!,
+          expectedPanelInfoVersion: row.expectedPanelInfoVersion!
+        }));
+      const previewExpectedVersions = preview.expectedPanelInfoVersions.length > 0
+        ? preview.expectedPanelInfoVersions
+        : expectedVersions;
+      const response = await applyPanelInformationExcel(
+        developmentUserKey,
+        projectId,
+        file,
+        inputUnit,
+        preview.fileSha256,
+        preview.expectedPackagingMethod,
+        reason.trim() || null,
+        previewExpectedVersions);
+      onApplied(response);
+    } catch (error) {
+      handleFormError(error, () => undefined, setMessage);
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-label="Excel 업로드">
+      <div className="dialog wide-dialog">
+        <div className="subsection-header">
+          <h3>Excel 업로드</h3>
+          <button type="button" onClick={onClose}>닫기</button>
+        </div>
+        <div className="toolbar">
+          <label className="form-field">
+            <span>파일</span>
+            <input type="file" accept=".xlsx" onChange={(event) => {
+              setFile(event.target.files?.[0] ?? null);
+              setPreview(null);
+              setMessage('');
+            }} />
+          </label>
+          <label className="form-field">
+            <span>파일 단위</span>
+            <select value={inputUnit} onChange={(event) => setInputUnit(event.target.value as PanelInputUnit)}>
+              <option value="Mm">mm</option>
+              <option value="Inch">inch</option>
+            </select>
+          </label>
+          <button type="button" onClick={previewFile} disabled={isPreviewing}>{isPreviewing ? '미리보기 중' : 'Preview'}</button>
+        </div>
+
+        {preview ? (
+          <>
+            <div className="panel-info-summary">
+              <StatusChip label="신규" value={String(preview.newCount)} />
+              <StatusChip label="변경" value={String(preview.changedCount)} />
+              <StatusChip label="동일" value={String(preview.unchangedCount)} />
+              <StatusChip label="오류" value={String(preview.errorCount)} />
+            </div>
+            {preview.reasonRequired ? (
+              <label className="form-field">
+                <span>수정사유*</span>
+                <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
+              </label>
+            ) : null}
+            <div className="excel-preview-table">
+              {preview.rows.map((row) => (
+                <div key={`${row.excelRowNumber}-${row.no ?? 'no'}`} className="excel-preview-row" data-result={row.resultType}>
+                  <strong>Row {row.excelRowNumber}</strong>
+                  <span>{row.no ? `No.${row.no}` : 'No 없음'}</span>
+                  <span>{row.panelName ?? '패널명 없음'}</span>
+                  <span>{row.widthMm ?? '-'} / {row.heightMm ?? '-'} / {row.depthMm ?? '-'}</span>
+                  <span>{row.resultType}</span>
+                  <small>{row.errorMessages.join(' ')}</small>
+                </div>
+              ))}
+            </div>
+            <div className="button-row">
+              <button type="button" className="primary-button" disabled={isApplying || preview.errorCount > 0} onClick={applyFile}>
+                {isApplying ? '적용 중' : '전체 적용'}
+              </button>
+            </div>
+          </>
+        ) : null}
+        {message ? <p role="alert" className="error-text">{message}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function ExcelImportHistory({ batches }: { batches: PanelInformationHistoryResponse['excelImportBatches'] }) {
+  if (batches.length === 0) {
+    return <p className="empty-text">Excel 입력이력이 없습니다.</p>;
+  }
+
+  return (
+    <ol className="audit-list">
+      {batches.map((batch) => (
+        <li key={batch.importBatchId}>
+          <strong>{batch.originalFileName}</strong>
+          <span>신규 {batch.newPanelCount} · 변경 {batch.changedPanelCount} · 동일 {batch.unchangedPanelCount}</span>
+          <small>{batch.uploadedByUserName ?? batch.uploadedByUserId ?? '-'} · {formatDateTime(batch.uploadedAtUtc)}</small>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -976,7 +1591,7 @@ function FormField({ label, error, children }: { label: string; error?: string; 
   );
 }
 
-function ProjectSummary({ project, canReadSalesAmount }: { project: ProjectDetail; canReadSalesAmount: boolean }) {
+function ProjectSummary({ project, canReadSalesAmount }: { project: ProjectListItem; canReadSalesAmount: boolean }) {
   return (
     <dl className="detail-grid">
       <div><dt>상태</dt><dd><ProjectStatusBadge status={project.status} /></dd></div>
@@ -1167,13 +1782,38 @@ function AuditHistory({ events }: { events: AuditEvent[] }) {
     <ol className="audit-list">
       {events.map((event) => (
         <li key={event.auditEventId}>
-          <strong>{event.action}</strong>
+          <strong>{event.panelDisplayName ?? event.action}</strong>
           <span>{event.fieldName ? `${event.fieldName}: ${event.oldValue ?? '-'} → ${event.newValue ?? '-'}` : event.reason ?? '-'}</span>
+          {event.entityType === 'Panel' ? <small>입력 방식: {formatInputSource(event.inputSource)}</small> : null}
+          {event.importFileName ? <small>입력 파일: {event.importFileName}</small> : null}
+          {event.inputUnit ? <small>입력 단위: {formatInputUnit(event.inputUnit)}</small> : null}
+          {event.originalInputValue ? (
+            <small>입력값: {event.originalInputValue}{event.inputUnit ? ` ${formatInputUnit(event.inputUnit)}` : ''}</small>
+          ) : null}
+          {event.fieldName?.endsWith('Mm') && event.newValue ? <small>저장값: {event.newValue} mm</small> : null}
+          {event.importBatchId && event.importFileName ? <small>Excel Batch: {event.importFileName}</small> : null}
+          {event.reason ? <small>수정사유: {event.reason}</small> : null}
           <small>{event.changedByUserName ?? event.changedByUserId ?? '-'} · {formatDateTime(event.changedAtUtc)}</small>
         </li>
       ))}
     </ol>
   );
+}
+
+function formatInputSource(source: AuditEvent['inputSource']) {
+  if (source === 'Direct') {
+    return '직접 입력';
+  }
+
+  if (source === 'Excel') {
+    return 'Excel 입력';
+  }
+
+  return '기존 이력';
+}
+
+function formatInputUnit(unit: PanelInputUnit) {
+  return unit === 'Inch' ? 'inch' : 'mm';
 }
 
 function StatusChip({ label, value }: { label: string; value: string }) {
@@ -1354,6 +1994,169 @@ function formatPackagingMethod(value: string | null) {
   }
 
   return '미지정';
+}
+
+function readDisplayUnit(): PanelInputUnit {
+  return window.localStorage.getItem('emi-qms-panel-display-unit') === 'Inch' ? 'Inch' : 'Mm';
+}
+
+function panelToRowForm(panel: PanelInformationPanel, inputUnit: PanelInputUnit): PanelInformationRowForm {
+  const originalWidthMm = canonicalMmString(panel.widthMm);
+  const originalHeightMm = canonicalMmString(panel.heightMm);
+  const originalDepthMm = canonicalMmString(panel.depthMm);
+  return {
+    panelId: panel.panelId,
+    sequenceNumber: panel.sequenceNumber,
+    panelNumber: panel.panelNumber,
+    displayCode: panel.displayCode,
+    panelInfoVersion: panel.panelInfoVersion,
+    original: panel,
+    originalPanelName: panel.panelName ?? '',
+    currentPanelName: panel.panelName ?? '',
+    panelNameDirty: false,
+    originalWidthMm,
+    originalHeightMm,
+    originalDepthMm,
+    widthInput: formatInputDimension(originalWidthMm, inputUnit),
+    heightInput: formatInputDimension(originalHeightMm, inputUnit),
+    depthInput: formatInputDimension(originalDepthMm, inputUnit),
+    sizeDirty: false,
+    sizeClearRequested: false,
+    sizeInputUnit: inputUnit
+  };
+}
+
+function rowWithSizeInputs(row: PanelInformationRowForm, inputUnit: PanelInputUnit): PanelInformationRowForm {
+  return {
+    ...row,
+    widthInput: formatInputDimension(row.originalWidthMm, inputUnit),
+    heightInput: formatInputDimension(row.originalHeightMm, inputUnit),
+    depthInput: formatInputDimension(row.originalDepthMm, inputUnit),
+    sizeInputUnit: inputUnit,
+    sizeDirty: false,
+    sizeClearRequested: false
+  };
+}
+
+function canonicalMmString(valueMm: number | null) {
+  return valueMm === null ? null : trimTrailingZeros(valueMm.toFixed(3));
+}
+
+function formatInputDimension(valueMm: string | null, unit: PanelInputUnit) {
+  if (valueMm === null) {
+    return '';
+  }
+
+  const numericMm = Number(valueMm);
+  const value = unit === 'Inch' ? numericMm / 25.4 : numericMm;
+  return trimTrailingZeros(value.toFixed(unit === 'Inch' ? 3 : 3));
+}
+
+function decimalOrNull(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? Number(trimmed) : null;
+}
+
+function panelRowChanged(row: PanelInformationRowForm) {
+  return panelNameActuallyChanged(row) || sizeActuallyChanged(row);
+}
+
+function panelRowNeedsReason(row: PanelInformationRowForm) {
+  if (!panelRowChanged(row)) {
+    return false;
+  }
+
+  return (panelNameActuallyChanged(row) && row.originalPanelName !== '')
+    || (sizeActuallyChanged(row) && (
+      row.originalWidthMm !== null
+      || row.originalHeightMm !== null
+      || row.originalDepthMm !== null
+    ));
+}
+
+function panelNameActuallyChanged(row: PanelInformationRowForm) {
+  return row.panelNameDirty && row.currentPanelName.trim() !== row.originalPanelName;
+}
+
+function sizeActuallyChanged(row: PanelInformationRowForm) {
+  if (!row.sizeDirty) {
+    return false;
+  }
+
+  return row.originalWidthMm !== canonicalInputToMmString(decimalOrNull(row.widthInput), row.sizeInputUnit)
+    || row.originalHeightMm !== canonicalInputToMmString(decimalOrNull(row.heightInput), row.sizeInputUnit)
+    || row.originalDepthMm !== canonicalInputToMmString(decimalOrNull(row.depthInput), row.sizeInputUnit);
+}
+
+function canonicalInputToMmString(value: number | null, unit: PanelInputUnit) {
+  if (value === null) {
+    return null;
+  }
+
+  return trimTrailingZeros(round3(unit === 'Inch' ? value * 25.4 : value).toFixed(3));
+}
+
+function round3(value: number) {
+  return Math.round((value + Number.EPSILON) * 1000) / 1000;
+}
+
+function panelRowToUpdateRequest(row: PanelInformationRowForm) {
+  const request: {
+    panelId: string;
+    expectedPanelInfoVersion: number;
+    panelNameUpdate?: { isChanged: boolean; value: string | null };
+    sizeUpdate?: {
+      isChanged: boolean;
+      clear: boolean;
+      inputUnit: PanelInputUnit | null;
+      width: number | null;
+      height: number | null;
+      depth: number | null;
+    };
+  } = {
+    panelId: row.panelId,
+    expectedPanelInfoVersion: row.panelInfoVersion
+  };
+
+  if (panelNameActuallyChanged(row)) {
+    request.panelNameUpdate = {
+      isChanged: true,
+      value: row.currentPanelName.trim() || null
+    };
+  }
+
+  if (row.sizeDirty) {
+    request.sizeUpdate = {
+      isChanged: true,
+      clear: row.sizeClearRequested,
+      inputUnit: row.sizeClearRequested ? null : row.sizeInputUnit,
+      width: row.sizeClearRequested ? null : decimalOrNull(row.widthInput),
+      height: row.sizeClearRequested ? null : decimalOrNull(row.heightInput),
+      depth: row.sizeClearRequested ? null : decimalOrNull(row.depthInput)
+    };
+  }
+
+  return request;
+}
+
+function trimTrailingZeros(value: string) {
+  return value.replace(/\.?0+$/, '');
+}
+
+function successMessage(message: string) {
+  return message.includes('저장했습니다') || message.includes('다운로드했습니다');
+}
+
+function formatPanelSizeInUnit(panel: PanelInformationPanel, unit: PanelInputUnit) {
+  if (panel.widthMm === null || panel.heightMm === null || panel.depthMm === null) {
+    return '사이즈 미정';
+  }
+
+  if (unit === 'Inch') {
+    return `${(panel.widthMm / 25.4).toFixed(2)} x ${(panel.heightMm / 25.4).toFixed(2)} x ${(panel.depthMm / 25.4).toFixed(2)} inch`;
+  }
+
+  return `${trimTrailingZeros(panel.widthMm.toFixed(3))} x ${trimTrailingZeros(panel.heightMm.toFixed(3))} x ${trimTrailingZeros(panel.depthMm.toFixed(3))} mm`;
 }
 
 function projectTabs(canReadDeleted: boolean): Array<{ value: ProjectListTab; label: string }> {

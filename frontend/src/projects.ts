@@ -28,6 +28,11 @@ export interface ProjectListItem {
 
 export interface ProjectDetail extends ProjectListItem {
   statusReason: string | null;
+  panelInfoCompletedCount: number;
+  panelInfoPendingCount: number;
+  qrEligibleCount: number;
+  duplicatePanelNameGroupCount: number;
+  projectPanelInformationCompleted: boolean;
 }
 
 export type ProjectStatus = 'Active' | 'OnHold' | 'Cancelled' | 'Completed';
@@ -76,10 +81,13 @@ export interface AuditHistoryResponse {
 
 export interface AuditEvent {
   auditEventId: string;
-  entityType: 'Project' | 'PanelPlaceholder';
+  entityType: 'Project' | 'PanelPlaceholder' | 'Panel';
   entityId: string;
   projectId: string;
   action: string;
+  panelNumber?: string;
+  panelDisplayName?: string;
+  displayCode?: string;
   fieldName?: string;
   oldValue?: string;
   newValue?: string;
@@ -88,6 +96,12 @@ export interface AuditEvent {
   changedByUserName: string | null;
   changedAtUtc: string;
   correlationId: string;
+  inputSource?: 'Direct' | 'Excel';
+  importBatchId?: string;
+  inputUnit?: PanelInputUnit;
+  originalInputValue?: string;
+  importFileName?: string;
+  importUploadedAtUtc?: string;
 }
 
 export interface SalesOwner {
@@ -137,4 +151,130 @@ export interface ProjectStatusChangeRequest {
 export interface DeleteProjectRequest {
   reason: string;
   confirmProjectTitle: string;
+}
+
+export type PanelInputUnit = 'Mm' | 'Inch';
+
+export interface PanelInformationResponse {
+  projectId: string;
+  projectStatus: ProjectStatus;
+  packagingMethod: PackagingMethod | null;
+  activePanelCount: number;
+  panelInfoCompletedCount: number;
+  panelInfoPendingCount: number;
+  qrEligibleCount: number;
+  duplicatePanelNameGroupCount: number;
+  projectPanelInformationCompleted: boolean;
+  panelInformationStatusMessage: string | null;
+  panels: PanelInformationPanel[];
+}
+
+export interface PanelInformationPanel {
+  panelId: string;
+  projectId: string;
+  sequenceNumber: number;
+  panelNumber: string;
+  displayCode: string;
+  panelName: string | null;
+  displayName: string;
+  widthMm: number | null;
+  heightMm: number | null;
+  depthMm: number | null;
+  panelStatus: 'Active' | 'Cancelled';
+  panelInfoCompleted: boolean;
+  qrEligible: boolean;
+  hasDuplicateName: boolean;
+  duplicateNameCount: number;
+  panelInfoVersion: number;
+  createdAt: string;
+  updatedAt: string;
+  panelInfoUpdatedAtUtc: string | null;
+  panelInfoUpdatedByUserId: string | null;
+  panelInfoUpdatedByUserName: string | null;
+}
+
+export interface PanelInformationBulkUpdateRequest {
+  reason: string | null;
+  panels: PanelInformationUpdateItemRequest[];
+}
+
+export interface PanelInformationUpdateItemRequest {
+  panelId: string;
+  expectedPanelInfoVersion: number;
+  panelNameUpdate?: {
+    isChanged: boolean;
+    value: string | null;
+  };
+  sizeUpdate?: {
+    isChanged: boolean;
+    clear: boolean;
+    inputUnit: PanelInputUnit | null;
+    width: number | null;
+    height: number | null;
+    depth: number | null;
+  };
+}
+
+export interface PanelInformationExcelExpectedVersion {
+  panelId: string;
+  expectedPanelInfoVersion: number;
+}
+
+export interface PanelInformationLegacySizeFields {
+  width: number | null;
+  height: number | null;
+  depth: number | null;
+}
+
+export interface PanelInformationHistoryResponse {
+  auditEvents: AuditEvent[];
+  excelImportBatches: PanelInformationExcelImportBatch[];
+}
+
+export interface PanelInformationExcelImportBatch {
+  importBatchId: string;
+  projectId: string;
+  originalFileName: string;
+  fileSizeBytes: number;
+  fileSha256: string;
+  inputUnit: PanelInputUnit | null;
+  totalRowCount: number;
+  newPanelCount: number;
+  changedPanelCount: number;
+  unchangedPanelCount: number;
+  uploadedByUserId: string | null;
+  uploadedByUserName: string | null;
+  uploadedAtUtc: string;
+  reason: string | null;
+}
+
+export interface PanelInformationExcelPreviewResponse {
+  fileSha256: string;
+  expectedPackagingMethod: PackagingMethod | null;
+  expectedProjectStatus: ProjectStatus;
+  totalRows: number;
+  newCount: number;
+  changedCount: number;
+  unchangedCount: number;
+  errorCount: number;
+  reasonRequired: boolean;
+  expectedPanelInfoVersions: PanelInformationExcelExpectedVersion[];
+  rows: PanelInformationExcelPreviewRow[];
+}
+
+export interface PanelInformationExcelPreviewRow {
+  excelRowNumber: number;
+  no: number | null;
+  panelId: string | null;
+  panelName: string | null;
+  width: number | null;
+  height: number | null;
+  depth: number | null;
+  widthMm: number | null;
+  heightMm: number | null;
+  depthMm: number | null;
+  currentValue: PanelInformationPanel | null;
+  resultType: 'New' | 'Changed' | 'Unchanged' | 'Error';
+  errorMessages: string[];
+  expectedPanelInfoVersion: number | null;
 }

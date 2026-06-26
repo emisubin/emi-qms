@@ -1,6 +1,7 @@
 using Emi.Qms.Api;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.Projects;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,7 +18,8 @@ builder.Services.AddCors(options =>
         policy
             .WithOrigins(frontendOrigin)
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .WithExposedHeaders("Content-Disposition");
     });
 });
 
@@ -28,6 +30,8 @@ builder.Services.AddSingleton<DatabaseMigrationRunner>();
 builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
 builder.Services.AddSingleton<IProjectDeletionGuard, ProjectDeletionGuard>();
 builder.Services.AddSingleton<ProjectStore>();
+builder.Services.AddSingleton<PanelInformationExcelParser>();
+builder.Services.AddSingleton<PanelInformationStore>();
 builder.Services.AddQmsAuthorizationFoundation();
 
 var app = builder.Build();
@@ -76,6 +80,7 @@ app.MapGet("/health/ready", async (DatabaseHealthChecker databaseHealthChecker, 
 
 app.MapIdentityEndpoints();
 app.MapProjectEndpoints();
+app.MapPanelInformationEndpoints();
 
 app.Run();
 

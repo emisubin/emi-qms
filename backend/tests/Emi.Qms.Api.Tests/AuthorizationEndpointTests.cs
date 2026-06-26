@@ -37,6 +37,7 @@ public sealed class AuthorizationEndpointTests(QmsWebApplicationFactory factory)
     [Theory]
     [InlineData("dev-admin")]
     [InlineData("dev-sales")]
+    [InlineData("dev-design")]
     [InlineData("dev-production")]
     [InlineData("dev-manufacturing")]
     [InlineData("dev-quality")]
@@ -225,6 +226,7 @@ public sealed class AuthorizationEndpointTests(QmsWebApplicationFactory factory)
     [Theory]
     [InlineData("dev-admin", true)]
     [InlineData("dev-sales", true)]
+    [InlineData("dev-design", false)]
     [InlineData("dev-production", false)]
     [InlineData("dev-manufacturing", false)]
     [InlineData("dev-quality", false)]
@@ -244,6 +246,7 @@ public sealed class AuthorizationEndpointTests(QmsWebApplicationFactory factory)
     [Theory]
     [InlineData("dev-admin", true)]
     [InlineData("dev-sales", true)]
+    [InlineData("dev-design", false)]
     [InlineData("dev-production", false)]
     [InlineData("dev-manufacturing", false)]
     [InlineData("dev-quality", false)]
@@ -256,6 +259,26 @@ public sealed class AuthorizationEndpointTests(QmsWebApplicationFactory factory)
         var result = await AuthorizeSeedUserAsync(
             developmentUserKey,
             QmsPolicies.ManufacturingWorkTimeRead);
+
+        Assert.Equal(expectedAllowed, result.Succeeded);
+    }
+
+    [Theory]
+    [InlineData("dev-design", true)]
+    [InlineData("dev-sales", true)]
+    [InlineData("dev-production", true)]
+    [InlineData("dev-admin", false)]
+    [InlineData("dev-manufacturing", false)]
+    [InlineData("dev-quality", false)]
+    [InlineData("dev-logistics", false)]
+    [InlineData("dev-viewer", false)]
+    public async Task PanelInfoUpdatePolicy_AllowsDesignSalesAndProductionPlanningOnly(
+        string developmentUserKey,
+        bool expectedAllowed)
+    {
+        var result = await AuthorizeSeedUserAsync(
+            developmentUserKey,
+            QmsPolicies.PanelInfoUpdate);
 
         Assert.Equal(expectedAllowed, result.Succeeded);
     }

@@ -23,12 +23,16 @@ public sealed class PostgreSqlMigrationTests
 
         var counts = await ReadCountsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         Assert.Equal(0, counts.Users);
-        Assert.Equal(0, counts.Departments);
+        Assert.Equal(1, counts.Departments);
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
-        Assert.Equal(7, counts.Roles);
-        Assert.Equal(18, counts.Permissions);
+        Assert.Equal(8, counts.Roles);
+        Assert.Equal(19, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from departments where code = 'design';",
+            TestContext.Current.CancellationToken));
 
         await AssertCoreConstraintsExistAsync(connectionStringProvider, TestContext.Current.CancellationToken);
     }
@@ -529,6 +533,169 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(PostgresErrorCodes.UniqueViolation, ((PostgresException)duplicateActive!).SqlState);
     }
 
+    [Fact]
+    public async Task PanelInformationExcelImportMigration_AddsDesignPermissionAndPreservesExistingPanels()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0001_identity_authorization_foundation.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0002_permission_scope_alignment.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0003_project_panel_foundation.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0004_project_packaging_soft_delete.sql"),
+            TestContext.Current.CancellationToken);
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into departments (id, code, name)
+            values ('75000000-0000-0000-0000-000000000001', 'sales-test-0005', 'Sales Test 0005')
+            on conflict (code) do nothing;
+
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '75000000-0000-0000-0000-000000000002',
+                'migration-sales-0005',
+                'Migration Sales 0005',
+                '75000000-0000-0000-0000-000000000001',
+                true
+            )
+            on conflict (development_user_key) do nothing;
+
+            insert into projects (
+                id,
+                project_key,
+                project_number,
+                name,
+                customer_name,
+                item,
+                project_code,
+                project_title,
+                project_title_normalized,
+                packaging_method,
+                delivery_date,
+                sales_owner_user_id
+            )
+            values (
+                '75000000-0000-0000-0000-000000000003',
+                'migration-0005-existing',
+                'MIG-0005',
+                'Migration 0005 Existing',
+                'Migration Customer',
+                'Migration Item',
+                'MIG-0005',
+                'Migration 0005 Existing',
+                'MIGRATION 0005 EXISTING',
+                'StretchWrap',
+                '2026-09-01',
+                '75000000-0000-0000-0000-000000000002'
+            );
+
+            insert into panel_placeholders (
+                id,
+                project_id,
+                sequence_number,
+                display_code,
+                panel_name,
+                status,
+                panel_info_completed,
+                qr_eligible
+            )
+            values (
+                '75000000-0000-0000-0000-000000000004',
+                '75000000-0000-0000-0000-000000000003',
+                1,
+                'P01',
+                'Existing Panel',
+                'Active',
+                false,
+                false
+            );
+            """,
+            TestContext.Current.CancellationToken);
+
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0005_panel_information_excel_import.sql"),
+            TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(
+            connectionStringProvider,
+            Path.Combine(database.RepositoryRoot, "database", "migrations", "0005_panel_information_excel_import.sql"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from panel_placeholders
+            where id = '75000000-0000-0000-0000-000000000004'
+              and panel_name = 'Existing Panel'
+              and panel_info_version = 0
+              and panel_info_completed = true
+              and qr_eligible = true;
+            """,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'PanelInfo.Update'
+              and roles.code in ('design', 'sales', 'production-planning');
+            """,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'PanelInfo.Update'
+              and roles.code not in ('design', 'sales', 'production-planning');
+            """,
+            TestContext.Current.CancellationToken));
+
+        Assert.True(await ReadScalarAsync<bool>(
+            connectionStringProvider,
+            """
+            select exists (
+                select 1
+                from information_schema.tables
+                where table_name = 'panel_information_excel_import_batches'
+            );
+            """,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_name = 'project_audit_events'
+              and column_name in ('input_source', 'import_batch_id', 'input_unit', 'original_input_value');
+            """,
+            TestContext.Current.CancellationToken));
+
+        await AssertNoDuplicateRolePermissionsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+    }
+
     [Theory]
     [InlineData("Development", "DevelopmentData:SeedEnabled")]
     [InlineData("Testing", "DevelopmentData:SeedEnabled")]
@@ -550,8 +717,8 @@ public sealed class PostgreSqlMigrationTests
         await seeder.SeedAsync(TestContext.Current.CancellationToken);
 
         var counts = await ReadCountsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
-        Assert.Equal(9, counts.Users);
-        Assert.Equal(7, counts.Departments);
+        Assert.Equal(10, counts.Users);
+        Assert.Equal(8, counts.Departments);
         Assert.Equal(2, counts.Projects);
         Assert.Equal(9, counts.ProjectAccess);
         Assert.Equal(1, counts.DisabledUsers);

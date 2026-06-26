@@ -92,22 +92,9 @@ jobs:
     env:
       DATABASE_HOST: localhost
       DATABASE_PORT: 5432
+      DATABASE_NAME: emi_qms_dev
       DATABASE_USER: emi_qms
       E2E_DATABASE_NAME: emi_qms_e2e
-    services:
-      postgres:
-        image: postgres:18.4
-        env:
-          POSTGRES_DB: postgres
-          POSTGRES_USER: emi_qms
-          POSTGRES_PASSWORD: ${{ env.CI_DATABASE_PASSWORD }}
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U emi_qms -d postgres"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 12
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -124,10 +111,26 @@ jobs:
       - name: Configure CI database password
         shell: bash
         run: echo "DATABASE_PASSWORD=${CI_DATABASE_PASSWORD}" >> "$GITHUB_ENV"
-      - name: Install PostgreSQL client
+      - name: Write CI env file
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          cat > .env <<EOF
+          ASPNETCORE_ENVIRONMENT=Development
+          FRONTEND_ORIGIN=http://127.0.0.1:5174
+          VITE_API_BASE_URL=http://127.0.0.1:5081
+          VITE_DEV_USER_KEY=dev-sales
+          DEV_AUTHENTICATION_ENABLED=true
+          DATABASE_APPLY_MIGRATIONS_ON_STARTUP=true
+          DATABASE_HOST=localhost
+          DATABASE_PORT=5432
+          DATABASE_NAME=${DATABASE_NAME}
+          DATABASE_USER=${DATABASE_USER}
+          DATABASE_PASSWORD=${CI_DATABASE_PASSWORD}
+          EOF
+      - name: Start PostgreSQL with Docker Compose
+        run: docker compose --env-file .env -f infrastructure/docker-compose.yml up -d --wait --wait-timeout 120 postgres
+      - name: Verify PostgreSQL container
+        run: docker compose --env-file .env -f infrastructure/docker-compose.yml ps
       - name: Install
         run: corepack pnpm install --frozen-lockfile
       - name: Restore backend

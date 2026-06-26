@@ -88,6 +88,7 @@ public sealed class ProjectRegistrationApiTests
     }
 
     [Theory]
+    [InlineData("dev-design")]
     [InlineData("dev-manufacturing")]
     [InlineData("dev-admin")]
     public async Task CreateProject_AllowsOnlySales(string developmentUserKey)
@@ -106,6 +107,7 @@ public sealed class ProjectRegistrationApiTests
     [Theory]
     [InlineData("dev-sales", true)]
     [InlineData("dev-admin", true)]
+    [InlineData("dev-design", false)]
     [InlineData("dev-production", false)]
     [InlineData("dev-manufacturing", false)]
     [InlineData("dev-quality", false)]
@@ -1043,6 +1045,7 @@ public sealed class ProjectRegistrationApiTests
     [Theory]
     [InlineData("dev-admin")]
     [InlineData("dev-sales")]
+    [InlineData("dev-design")]
     [InlineData("dev-production")]
     [InlineData("dev-manufacturing")]
     [InlineData("dev-quality")]

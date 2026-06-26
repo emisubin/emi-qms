@@ -70,6 +70,8 @@ Copy-Item .env.example .env
 Development 환경에서는 `.env.example`의 명시적 설정으로 TASK-002의 개발용 인증과 개발 데이터 seeding이 활성화됩니다. 프런트엔드는 `VITE_DEV_USER_KEY` 값이 없으면 `dev-admin`으로 `/api/me`를 호출합니다.
 TASK-002A 기준으로 모든 활성 내부 개발 역할과 `dev-viewer`는 `Project.Read.All`을 통해 두 demo 프로젝트를 모두 조회할 수 있습니다.
 
+TASK-003B 기준으로 패널정보 직접 입력은 변경 의도를 명시하는 update mask 방식입니다. 화면은 canonical mm 저장값과 mm/inch 표시 문자열을 분리하므로 표시 단위 전환만으로 저장 요청, 감사이력, version 증가가 발생하지 않습니다. Excel Preview/Apply는 `.xlsx`만 허용하며 ZIP/Workbook 리소스 제한과 인스턴스 단위 parse 동시실행 제한을 적용하고, Apply 시 project row lock 이후 최신 포장방식과 panel version을 다시 검증합니다. Panel History는 Direct/Excel 입력방식, Import Batch 연결, 입력단위, 원본 입력값과 canonical mm 변경값을 함께 반환하며 legacy audit의 null metadata도 읽을 수 있습니다.
+
 ### 전체 종료
 
 ```powershell
@@ -83,6 +85,12 @@ PostgreSQL:
 ```powershell
 Copy-Item .env.example .env
 docker compose --env-file .\.env -f infrastructure\docker-compose.yml up -d
+```
+
+Full-Stack E2E와 CI에서는 PostgreSQL이 healthy가 될 때까지 기다린 뒤 실행합니다.
+
+```powershell
+docker compose --env-file .\.env -f infrastructure\docker-compose.yml up -d --wait --wait-timeout 120 postgres
 ```
 
 백엔드:

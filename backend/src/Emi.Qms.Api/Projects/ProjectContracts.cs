@@ -71,6 +71,11 @@ public class ProjectListItemResponse
 public sealed class ProjectDetailResponse : ProjectListItemResponse
 {
     public string? StatusReason { get; init; }
+    public int PanelInfoCompletedCount { get; init; }
+    public int PanelInfoPendingCount { get; init; }
+    public int QrEligibleCount { get; init; }
+    public int DuplicatePanelNameGroupCount { get; init; }
+    public bool ProjectPanelInformationCompleted { get; init; }
 }
 
 public class DeletedProjectListItemResponse : ProjectListItemResponse

@@ -1,4 +1,5 @@
 using System.Data;
+using Emi.Qms.Api.PanelInformation;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -232,6 +233,9 @@ public sealed class ProjectStore(
         }
 
         var baseItem = ReadProjectListItem(reader, includeSalesAmount);
+        var statusReason = reader.IsDBNull(16) ? null : reader.GetString(16);
+        await reader.DisposeAsync();
+        var panelInfoSummary = await ReadPanelInformationSummaryAsync(dataSource, projectId, cancellationToken);
         return new ProjectDetailResponse
         {
             ProjectId = baseItem.ProjectId,
@@ -250,7 +254,12 @@ public sealed class ProjectStore(
             UpdatedAt = baseItem.UpdatedAt,
             SalesAmount = baseItem.SalesAmount,
             CurrencyCode = baseItem.CurrencyCode,
-            StatusReason = reader.IsDBNull(16) ? null : reader.GetString(16)
+            StatusReason = statusReason,
+            PanelInfoCompletedCount = panelInfoSummary.CompletedCount,
+            PanelInfoPendingCount = panelInfoSummary.PendingCount,
+            QrEligibleCount = panelInfoSummary.QrEligibleCount,
+            DuplicatePanelNameGroupCount = panelInfoSummary.DuplicatePanelNameGroupCount,
+            ProjectPanelInformationCompleted = panelInfoSummary.ProjectPanelInformationCompleted
         };
     }
 
@@ -464,6 +473,8 @@ public sealed class ProjectStore(
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
+            await RecalculatePanelDerivedStateAsync(connection, transaction, projectId, cancellationToken);
+
             foreach (var change in changes)
             {
                 await InsertAuditEventAsync(
@@ -633,6 +644,8 @@ public sealed class ProjectStore(
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
+            await RecalculatePanelDerivedStateAsync(connection, transaction, projectId, cancellationToken);
+
             await InsertAuditEventAsync(
                 connection,
                 transaction,
@@ -730,6 +743,8 @@ public sealed class ProjectStore(
             command.Parameters.AddWithValue("project_id", projectId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+
+        await RecalculatePanelDerivedStateAsync(connection, transaction, projectId, cancellationToken);
 
         await InsertAuditEventAsync(
             connection,
@@ -843,6 +858,8 @@ public sealed class ProjectStore(
             command.Parameters.AddWithValue("correlation_id", correlationId);
             deletedAt = ToDateTimeOffset(await command.ExecuteScalarAsync(cancellationToken));
         }
+
+        await RecalculatePanelDerivedStateAsync(connection, transaction, projectId, cancellationToken);
 
         await InsertAuditEventAsync(
             connection,
@@ -1107,22 +1124,41 @@ public sealed class ProjectStore(
 
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
-            select id,
-                   project_id,
-                   sequence_number,
-                   display_code,
-                   panel_name,
-                   width_mm,
-                   height_mm,
-                   depth_mm,
-                   status,
-                   panel_info_completed,
-                   qr_eligible,
-                   created_at_utc,
-                   updated_at_utc
+            select panel_placeholders.id,
+                   panel_placeholders.project_id,
+                   panel_placeholders.sequence_number,
+                   panel_placeholders.display_code,
+                   panel_placeholders.panel_name,
+                   panel_placeholders.width_mm,
+                   panel_placeholders.height_mm,
+                   panel_placeholders.depth_mm,
+                   panel_placeholders.status,
+                   case
+                       when projects.packaging_method is null then false
+                       when projects.packaging_method = 'WoodenCrate' then
+                           panel_placeholders.panel_name is not null
+                           and panel_placeholders.width_mm is not null
+                           and panel_placeholders.height_mm is not null
+                           and panel_placeholders.depth_mm is not null
+                       when projects.packaging_method in ('StretchWrap', 'HeavyDutyBox') then
+                           panel_placeholders.panel_name is not null
+                           and (
+                               (panel_placeholders.width_mm is null and panel_placeholders.height_mm is null and panel_placeholders.depth_mm is null)
+                               or (panel_placeholders.width_mm is not null and panel_placeholders.height_mm is not null and panel_placeholders.depth_mm is not null)
+                           )
+                       else false
+                   end as panel_info_completed,
+                   projects.deleted_at_utc is null
+                       and projects.status = 'Active'
+                       and panel_placeholders.status = 'Active'
+                       and panel_placeholders.panel_name is not null as qr_eligible,
+                   panel_placeholders.created_at_utc,
+                   panel_placeholders.updated_at_utc
             from panel_placeholders
-            where project_id = @project_id
-            order by sequence_number;
+            join projects on projects.id = panel_placeholders.project_id
+            where panel_placeholders.project_id = @project_id
+              and projects.deleted_at_utc is null
+            order by panel_placeholders.sequence_number;
             """);
         command.Parameters.AddWithValue("project_id", projectId);
 
@@ -1143,22 +1179,41 @@ public sealed class ProjectStore(
     {
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
-            select id,
-                   project_id,
-                   sequence_number,
-                   display_code,
-                   panel_name,
-                   width_mm,
-                   height_mm,
-                   depth_mm,
-                   status,
-                   panel_info_completed,
-                   qr_eligible,
-                   created_at_utc,
-                   updated_at_utc
+            select panel_placeholders.id,
+                   panel_placeholders.project_id,
+                   panel_placeholders.sequence_number,
+                   panel_placeholders.display_code,
+                   panel_placeholders.panel_name,
+                   panel_placeholders.width_mm,
+                   panel_placeholders.height_mm,
+                   panel_placeholders.depth_mm,
+                   panel_placeholders.status,
+                   case
+                       when projects.packaging_method is null then false
+                       when projects.packaging_method = 'WoodenCrate' then
+                           panel_placeholders.panel_name is not null
+                           and panel_placeholders.width_mm is not null
+                           and panel_placeholders.height_mm is not null
+                           and panel_placeholders.depth_mm is not null
+                       when projects.packaging_method in ('StretchWrap', 'HeavyDutyBox') then
+                           panel_placeholders.panel_name is not null
+                           and (
+                               (panel_placeholders.width_mm is null and panel_placeholders.height_mm is null and panel_placeholders.depth_mm is null)
+                               or (panel_placeholders.width_mm is not null and panel_placeholders.height_mm is not null and panel_placeholders.depth_mm is not null)
+                           )
+                       else false
+                   end as panel_info_completed,
+                   projects.deleted_at_utc is null
+                       and projects.status = 'Active'
+                       and panel_placeholders.status = 'Active'
+                       and panel_placeholders.panel_name is not null as qr_eligible,
+                   panel_placeholders.created_at_utc,
+                   panel_placeholders.updated_at_utc
             from panel_placeholders
-            where project_id = @project_id
-              and id = @panel_id;
+            join projects on projects.id = panel_placeholders.project_id
+            where panel_placeholders.project_id = @project_id
+              and panel_placeholders.id = @panel_id
+              and projects.deleted_at_utc is null;
             """);
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("panel_id", panelId);
@@ -1331,22 +1386,37 @@ public sealed class ProjectStore(
         CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand("""
-            select id,
-                   project_id,
-                   sequence_number,
-                   display_code,
-                   panel_name,
-                   width_mm,
-                   height_mm,
-                   depth_mm,
-                   status,
-                   panel_info_completed,
-                   qr_eligible,
-                   created_at_utc,
-                   updated_at_utc
+            select panel_placeholders.id,
+                   panel_placeholders.project_id,
+                   panel_placeholders.sequence_number,
+                   panel_placeholders.display_code,
+                   panel_placeholders.panel_name,
+                   panel_placeholders.width_mm,
+                   panel_placeholders.height_mm,
+                   panel_placeholders.depth_mm,
+                   panel_placeholders.status,
+                   case
+                       when projects.packaging_method is null then false
+                       when projects.packaging_method = 'WoodenCrate' then
+                           panel_placeholders.panel_name is not null
+                           and panel_placeholders.width_mm is not null
+                           and panel_placeholders.height_mm is not null
+                           and panel_placeholders.depth_mm is not null
+                       when projects.packaging_method in ('StretchWrap', 'HeavyDutyBox') then
+                           panel_placeholders.panel_name is not null
+                           and (
+                               (panel_placeholders.width_mm is null and panel_placeholders.height_mm is null and panel_placeholders.depth_mm is null)
+                               or (panel_placeholders.width_mm is not null and panel_placeholders.height_mm is not null and panel_placeholders.depth_mm is not null)
+                           )
+                       else false
+                   end as panel_info_completed,
+                   false as qr_eligible,
+                   panel_placeholders.created_at_utc,
+                   panel_placeholders.updated_at_utc
             from panel_placeholders
-            where project_id = @project_id
-            order by sequence_number;
+            join projects on projects.id = panel_placeholders.project_id
+            where panel_placeholders.project_id = @project_id
+            order by panel_placeholders.sequence_number;
             """);
         command.Parameters.AddWithValue("project_id", projectId);
 
@@ -1648,6 +1718,121 @@ public sealed class ProjectStore(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task RecalculatePanelDerivedStateAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            update panel_placeholders
+            set panel_info_completed = case
+                    when projects.packaging_method is null then false
+                    when projects.packaging_method = 'WoodenCrate' then
+                        panel_placeholders.panel_name is not null
+                        and panel_placeholders.width_mm is not null
+                        and panel_placeholders.height_mm is not null
+                        and panel_placeholders.depth_mm is not null
+                    when projects.packaging_method in ('StretchWrap', 'HeavyDutyBox') then
+                        panel_placeholders.panel_name is not null
+                        and (
+                            (panel_placeholders.width_mm is null and panel_placeholders.height_mm is null and panel_placeholders.depth_mm is null)
+                            or (panel_placeholders.width_mm is not null and panel_placeholders.height_mm is not null and panel_placeholders.depth_mm is not null)
+                        )
+                    else false
+                end,
+                qr_eligible = projects.deleted_at_utc is null
+                    and projects.status = 'Active'
+                    and panel_placeholders.status = 'Active'
+                    and panel_placeholders.panel_name is not null
+            from projects
+            where projects.id = panel_placeholders.project_id
+              and panel_placeholders.project_id = @project_id;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<ProjectPanelInformationSummary> ReadPanelInformationSummaryAsync(
+        NpgsqlDataSource dataSource,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand("""
+            select projects.status,
+                   projects.packaging_method,
+                   projects.deleted_at_utc,
+                   panel_placeholders.panel_name,
+                   panel_placeholders.width_mm,
+                   panel_placeholders.height_mm,
+                   panel_placeholders.depth_mm,
+                   panel_placeholders.status
+            from projects
+            left join panel_placeholders on panel_placeholders.project_id = projects.id
+            where projects.id = @project_id
+              and projects.deleted_at_utc is null;
+            """);
+        command.Parameters.AddWithValue("project_id", projectId);
+
+        var activePanelCount = 0;
+        var completedCount = 0;
+        var qrEligibleCount = 0;
+        string? projectStatus = null;
+        string? packagingMethod = null;
+        DateTimeOffset? deletedAtUtc = null;
+        var duplicateNames = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            projectStatus ??= reader.GetString(0);
+            packagingMethod ??= reader.IsDBNull(1) ? null : reader.GetString(1);
+            deletedAtUtc ??= reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2);
+            if (reader.IsDBNull(7))
+            {
+                continue;
+            }
+
+            var panelStatus = reader.GetString(7);
+            if (panelStatus != "Active")
+            {
+                continue;
+            }
+
+            var panelName = reader.IsDBNull(3) ? null : reader.GetString(3);
+            decimal? widthMm = reader.IsDBNull(4) ? null : reader.GetDecimal(4);
+            decimal? heightMm = reader.IsDBNull(5) ? null : reader.GetDecimal(5);
+            decimal? depthMm = reader.IsDBNull(6) ? null : reader.GetDecimal(6);
+            activePanelCount++;
+
+            if (PanelInformationDomain.IsPanelInfoCompleted(packagingMethod, panelName, widthMm, heightMm, depthMm))
+            {
+                completedCount++;
+            }
+
+            if (PanelInformationDomain.IsQrEligible(deletedAtUtc is not null, projectStatus ?? "", panelStatus, panelName))
+            {
+                qrEligibleCount++;
+            }
+
+            var duplicateName = PanelInformationDomain.NormalizeDuplicateName(panelName);
+            if (duplicateName is not null)
+            {
+                duplicateNames[duplicateName] = duplicateNames.TryGetValue(duplicateName, out var count) ? count + 1 : 1;
+            }
+        }
+
+        var pendingCount = activePanelCount - completedCount;
+        return new ProjectPanelInformationSummary(
+            completedCount,
+            pendingCount,
+            qrEligibleCount,
+            duplicateNames.Count(item => item.Value > 1),
+            activePanelCount > 0 && pendingCount == 0);
+    }
+
     private static async Task<ProjectEditSnapshot?> ReadProjectEditSnapshotAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction? transaction,
@@ -1868,6 +2053,13 @@ public sealed class ProjectStore(
     }
 
     private sealed record ProjectFieldChange(string FieldName, string OldValue, string NewValue, bool IsSensitive);
+
+    private sealed record ProjectPanelInformationSummary(
+        int CompletedCount,
+        int PendingCount,
+        int QrEligibleCount,
+        int DuplicatePanelNameGroupCount,
+        bool ProjectPanelInformationCompleted);
 
     private static DateTimeOffset ToDateTimeOffset(object? value)
     {

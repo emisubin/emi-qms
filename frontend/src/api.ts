@@ -8,6 +8,11 @@ import type {
   DeletedProjectListResponse,
   DeleteProjectRequest,
   PanelPlaceholder,
+  PanelInformationBulkUpdateRequest,
+  PanelInformationExcelPreviewResponse,
+  PanelInformationHistoryResponse,
+  PanelInformationResponse,
+  PanelInputUnit,
   ProjectDetail,
   ProjectListResponse,
   ProjectListTab,
@@ -160,6 +165,116 @@ export async function getAuditHistory(
   return fetchJson<AuditHistoryResponse>(`/api/projects/${projectId}/audit-history`, developmentUserKey);
 }
 
+export async function getPanelInformation(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<PanelInformationResponse> {
+  return fetchJson<PanelInformationResponse>(`/api/projects/${projectId}/panel-information`, developmentUserKey);
+}
+
+export async function updatePanelInformation(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  request: PanelInformationBulkUpdateRequest
+): Promise<PanelInformationResponse> {
+  return fetchJson<PanelInformationResponse>(`/api/projects/${projectId}/panel-information`, developmentUserKey, {
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getPanelInformationHistory(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<PanelInformationHistoryResponse> {
+  return fetchJson<PanelInformationHistoryResponse>(`/api/projects/${projectId}/panel-information/history`, developmentUserKey);
+}
+
+export async function downloadPanelInformationTemplate(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  inputUnit: PanelInputUnit
+): Promise<{ blob: Blob; fileName: string }> {
+  const query = inputUnit === 'Inch' ? 'inch' : 'mm';
+  const response = await fetchWithAuth(
+    `/api/projects/${projectId}/panel-information/import/template?unit=${query}`,
+    developmentUserKey);
+
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? `Panel_Information_${query}.xlsx`
+  };
+}
+
+export async function previewPanelInformationExcel(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  file: File,
+  inputUnit: PanelInputUnit | null
+): Promise<PanelInformationExcelPreviewResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  if (inputUnit) {
+    form.append('inputUnit', inputUnit);
+  }
+
+  return fetchJson<PanelInformationExcelPreviewResponse>(
+    `/api/projects/${projectId}/panel-information/import/preview`,
+    developmentUserKey,
+    {
+      method: 'POST',
+      body: form
+    });
+}
+
+export async function applyPanelInformationExcel(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  file: File,
+  inputUnit: PanelInputUnit | null,
+  expectedFileSha256: string,
+  expectedPackagingMethod: string | null,
+  reason: string | null,
+  expectedVersions: Array<{ panelId: string; expectedPanelInfoVersion: number }>
+): Promise<PanelInformationResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  if (inputUnit) {
+    form.append('inputUnit', inputUnit);
+  }
+  form.append('expectedFileSha256', expectedFileSha256);
+  if (expectedPackagingMethod) {
+    form.append('expectedPackagingMethod', expectedPackagingMethod);
+  }
+  form.append('expectedVersions', JSON.stringify(expectedVersions));
+  if (reason) {
+    form.append('reason', reason);
+  }
+
+  return fetchJson<PanelInformationResponse>(
+    `/api/projects/${projectId}/panel-information/import/apply`,
+    developmentUserKey,
+    {
+      method: 'POST',
+      body: form
+    });
+}
+
+async function fetchWithAuth(path: string, developmentUserKey?: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+
+  if (developmentUserKey) {
+    headers.set('X-Dev-User', developmentUserKey);
+  }
+
+  return fetch(`${apiBaseUrl}${path}`, { ...init, headers });
+}
+
 async function fetchJson<T>(path: string, developmentUserKey?: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
 
@@ -167,11 +282,11 @@ async function fetchJson<T>(path: string, developmentUserKey?: string, init?: Re
     headers.set('X-Dev-User', developmentUserKey);
   }
 
-  if (init?.body) {
+  if (init?.body && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers });
+  const response = await fetchWithAuth(path, undefined, { ...init, headers });
 
   if (!response.ok) {
     const problem = await readProblem(response);
@@ -179,6 +294,25 @@ async function fetchJson<T>(path: string, developmentUserKey?: string, init?: Re
   }
 
   return response.json() as Promise<T>;
+}
+
+function readContentDispositionFileName(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(value);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+
+  const quotedMatch = /filename="([^"]+)"/i.exec(value);
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1];
+  }
+
+  const plainMatch = /filename=([^;]+)/i.exec(value);
+  return plainMatch?.[1]?.trim() ?? null;
 }
 
 async function readProblem(response: Response): Promise<{ message: string; errors?: Record<string, string[]> }> {

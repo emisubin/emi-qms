@@ -57,7 +57,7 @@ public sealed class PanelInformationStore(
 
         var auditEvents = await ReadPanelAuditEventsAsync(dataSource, projectId, cancellationToken);
         var batches = await ReadExcelImportBatchesAsync(dataSource, projectId, cancellationToken);
-        return new PanelInformationHistoryResponse(auditEvents, batches);
+        return new PanelInformationHistoryResponse(BuildHistoryGroups(auditEvents), auditEvents, batches);
     }
 
     public async Task<PanelInformationMutationResult<PanelInformationTemplateDownload>> CreateTemplateAsync(
@@ -322,7 +322,7 @@ public sealed class PanelInformationStore(
             }
 
             var updateItems = new List<NormalizedPanelInformationUpdateItem>();
-            foreach (var row in preview.Rows)
+            foreach (var row in preview.Rows.Where(row => row.ResultType is "New" or "Changed"))
             {
                 if (row.PanelId is null || row.ExpectedPanelInfoVersion is null)
                 {
@@ -339,9 +339,9 @@ public sealed class PanelInformationStore(
                 updateItems.Add(new NormalizedPanelInformationUpdateItem(
                     row.PanelId.Value,
                     expectedVersion,
-                    PanelNameChanged: true,
+                    PanelNameChanged: row.PanelName is not null,
                     PanelInformationDomain.NormalizePanelName(row.PanelName),
-                    SizeChanged: true,
+                    SizeChanged: row.WidthMm is not null && row.HeightMm is not null && row.DepthMm is not null,
                     row.WidthMm,
                     row.HeightMm,
                     row.DepthMm,
@@ -361,6 +361,7 @@ public sealed class PanelInformationStore(
                 preview.NewCount,
                 preview.ChangedCount,
                 preview.UnchangedCount,
+                preview.SkippedCount,
                 reason);
 
             var result = await PersistLockedUpdatesAsync(
@@ -581,6 +582,7 @@ public sealed class PanelInformationStore(
                     HeightMm = panel.HeightMm,
                     DepthMm = panel.DepthMm,
                     PanelStatus = panel.PanelStatus,
+                    WorkflowStage = panel.WorkflowStage,
                     PanelInfoCompleted = completed,
                     QrEligible = qrEligible,
                     HasDuplicateName = duplicateCount > 1,
@@ -598,6 +600,10 @@ public sealed class PanelInformationStore(
         var activePanels = panels.Where(panel => panel.PanelStatus == "Active").ToList();
         var completedCount = activePanels.Count(panel => panel.PanelInfoCompleted);
         var qrEligibleCount = activePanels.Count(panel => panel.QrEligible);
+        var manufacturingCompletedCount = activePanels.Count(panel =>
+            PanelInformationDomain.IsManufacturingCompletedStage(panel.WorkflowStage));
+        var inspectionCompletedCount = activePanels.Count(panel =>
+            PanelInformationDomain.IsInspectionCompletedStage(panel.WorkflowStage));
 
         return new PanelInformationResponse
         {
@@ -608,6 +614,8 @@ public sealed class PanelInformationStore(
             PanelInfoCompletedCount = completedCount,
             PanelInfoPendingCount = activePanels.Count - completedCount,
             QrEligibleCount = qrEligibleCount,
+            ManufacturingCompletedCount = manufacturingCompletedCount,
+            InspectionCompletedCount = inspectionCompletedCount,
             DuplicatePanelNameGroupCount = duplicateGroupCount,
             ProjectPanelInformationCompleted = activePanels.Count > 0 && activePanels.All(panel => panel.PanelInfoCompleted),
             PanelInformationStatusMessage = project.PackagingMethod is null ? "포장방식 미지정" : null,
@@ -624,9 +632,7 @@ public sealed class PanelInformationStore(
         var panelBySequence = panels.ToDictionary(panel => panel.SequenceNumber);
         var responsePanels = BuildResponse(project, panels).Panels.ToDictionary(panel => panel.PanelId);
         var rows = new List<PanelInformationExcelPreviewRowResponse>();
-        var hasWidthHeader = parsed.Headers.Contains("w", StringComparer.Ordinal);
-        var hasHeightHeader = parsed.Headers.Contains("h", StringComparer.Ordinal);
-        var hasDepthHeader = parsed.Headers.Contains("d", StringComparer.Ordinal);
+        var reasonRequired = false;
 
         foreach (var parsedRow in parsed.Rows)
         {
@@ -650,11 +656,12 @@ public sealed class PanelInformationStore(
             }
 
             var panelName = PanelInformationDomain.NormalizePanelName(parsedRow.PanelName);
-            if (panelName is null)
-            {
-                errors.Add("panel name은 필수값입니다.");
-            }
-            else if (panelName.Length > PanelInformationDomain.PanelNameMaxLength)
+            var panelNameChanged = panelName is not null;
+            var suppliedSizeCount = new[] { parsedRow.Width, parsedRow.Height, parsedRow.Depth }.Count(value => value is not null);
+            var sizeChanged = suppliedSizeCount > 0;
+            var hasEditableInput = panelNameChanged || sizeChanged || parsedRow.ErrorMessages.Count > 0;
+
+            if (panelName is not null && panelName.Length > PanelInformationDomain.PanelNameMaxLength)
             {
                 errors.Add($"panel name은 최대 {PanelInformationDomain.PanelNameMaxLength}자까지 입력할 수 있습니다.");
             }
@@ -666,39 +673,24 @@ public sealed class PanelInformationStore(
                 errors.Add(error);
             }
 
-            if (project.PackagingMethod == "WoodenCrate")
+            NormalizedPanelSize? size = new(null, null, null);
+            if (sizeChanged)
             {
-                if (!hasWidthHeader || !hasHeightHeader || !hasDepthHeader)
+                var sizeValidation = new ProjectValidationResult();
+                size = PanelInformationRequestValidator.NormalizeSize(
+                    parsedRow.Width,
+                    parsedRow.Height,
+                    parsedRow.Depth,
+                    normalizedUnit,
+                    $"Rows[{parsedRow.ExcelRowNumber}]",
+                    sizeValidation);
+                foreach (var error in sizeValidation.Errors.Values.SelectMany(value => value))
                 {
-                    errors.Add("WoodenCrate는 w/h/d 헤더가 필요합니다.");
-                }
-
-                if (normalizedUnit is null)
-                {
-                    errors.Add("WoodenCrate Excel 적용에는 입력 단위가 필요합니다.");
+                    errors.Add(error);
                 }
             }
 
-            var sizeValidation = new ProjectValidationResult();
-            var size = PanelInformationRequestValidator.NormalizeSize(
-                parsedRow.Width,
-                parsedRow.Height,
-                parsedRow.Depth,
-                normalizedUnit,
-                $"Rows[{parsedRow.ExcelRowNumber}]",
-                sizeValidation);
-            foreach (var error in sizeValidation.Errors.Values.SelectMany(value => value))
-            {
-                errors.Add(error);
-            }
-
-            if (project.PackagingMethod == "WoodenCrate"
-                && (size?.WidthMm is null || size.HeightMm is null || size.DepthMm is null))
-            {
-                errors.Add("WoodenCrate는 각 행의 W/H/D 값이 모두 필요합니다.");
-            }
-
-            var resultType = "Error";
+            var resultType = errors.Count > 0 ? "Error" : "Skipped";
             var currentResponse = current is not null && responsePanels.TryGetValue(current.PanelId, out var responsePanel)
                 ? responsePanel
                 : null;
@@ -708,9 +700,9 @@ public sealed class PanelInformationStore(
                 var item = new NormalizedPanelInformationUpdateItem(
                     current.PanelId,
                     current.PanelInfoVersion,
-                    PanelNameChanged: true,
+                    PanelNameChanged: panelNameChanged,
                     panelName,
-                    SizeChanged: true,
+                    SizeChanged: sizeChanged,
                     size?.WidthMm,
                     size?.HeightMm,
                     size?.DepthMm,
@@ -719,9 +711,16 @@ public sealed class PanelInformationStore(
                     parsedRow.Height,
                     parsedRow.Depth);
                 var changes = CollectChanges(current, item);
-                resultType = changes.Count == 0
-                    ? "Unchanged"
-                    : IsInitialPanelInput(current) ? "New" : "Changed";
+                if (changes.Count > 0 && RequiresReason(current, item))
+                {
+                    reasonRequired = true;
+                }
+
+                resultType = hasEditableInput
+                    ? changes.Count == 0
+                        ? "Unchanged"
+                        : IsInitialPanelInput(current) ? "New" : "Changed"
+                    : "Skipped";
             }
 
             rows.Add(new PanelInformationExcelPreviewRowResponse
@@ -752,12 +751,11 @@ public sealed class PanelInformationStore(
             NewCount = rows.Count(row => row.ResultType == "New"),
             ChangedCount = rows.Count(row => row.ResultType == "Changed"),
             UnchangedCount = rows.Count(row => row.ResultType == "Unchanged"),
+            SkippedCount = rows.Count(row => row.ResultType == "Skipped"),
             ErrorCount = rows.Count(row => row.ResultType == "Error"),
-            ReasonRequired = rows.Any(row =>
-                row.ResultType == "Changed"
-                && row.PanelId is not null
-                && panelBySequence.Values.Any(panel => panel.PanelId == row.PanelId && !IsInitialPanelInput(panel))),
+            ReasonRequired = reasonRequired,
             ExpectedPanelInfoVersions = rows
+                .Where(row => row.ResultType is "New" or "Changed")
                 .Where(row => row.PanelId is not null && row.ExpectedPanelInfoVersion is not null)
                 .Select(row => new PanelInformationExcelExpectedVersion(row.PanelId!.Value, row.ExpectedPanelInfoVersion!.Value))
                 .ToList(),
@@ -947,6 +945,7 @@ public sealed class PanelInformationStore(
                    panel_placeholders.height_mm,
                    panel_placeholders.depth_mm,
                    panel_placeholders.status,
+                   panel_placeholders.workflow_stage,
                    panel_placeholders.created_at_utc,
                    panel_placeholders.updated_at_utc,
                    panel_placeholders.panel_info_version,
@@ -989,6 +988,7 @@ public sealed class PanelInformationStore(
                    height_mm,
                    depth_mm,
                    status,
+                   workflow_stage,
                    created_at_utc,
                    updated_at_utc,
                    panel_info_version,
@@ -1031,6 +1031,7 @@ public sealed class PanelInformationStore(
                    height_mm,
                    depth_mm,
                    status,
+                   workflow_stage,
                    created_at_utc,
                    updated_at_utc,
                    panel_info_version,
@@ -1067,12 +1068,13 @@ public sealed class PanelInformationStore(
                 reader.IsDBNull(6) ? null : reader.GetDecimal(6),
                 reader.IsDBNull(7) ? null : reader.GetDecimal(7),
                 reader.GetString(8),
-                reader.GetFieldValue<DateTimeOffset>(9),
+                reader.GetString(9),
                 reader.GetFieldValue<DateTimeOffset>(10),
-                reader.GetInt32(11),
-                reader.IsDBNull(12) ? null : reader.GetFieldValue<DateTimeOffset>(12),
-                reader.IsDBNull(13) ? null : reader.GetGuid(13),
-                reader.IsDBNull(14) ? null : reader.GetString(14)));
+                reader.GetFieldValue<DateTimeOffset>(11),
+                reader.GetInt32(12),
+                reader.IsDBNull(13) ? null : reader.GetFieldValue<DateTimeOffset>(13),
+                reader.IsDBNull(14) ? null : reader.GetGuid(14),
+                reader.IsDBNull(15) ? null : reader.GetString(15)));
         }
 
         return panels;
@@ -1132,12 +1134,13 @@ public sealed class PanelInformationStore(
                 file_size_bytes,
                 file_sha256,
                 input_unit,
-                total_row_count,
-                new_panel_count,
-                changed_panel_count,
-                unchanged_panel_count,
-                uploaded_by_user_id,
-                reason
+            total_row_count,
+            new_panel_count,
+            changed_panel_count,
+            unchanged_panel_count,
+            skipped_panel_count,
+            uploaded_by_user_id,
+            reason
             )
             values (
                 @project_id,
@@ -1149,6 +1152,7 @@ public sealed class PanelInformationStore(
                 @new_panel_count,
                 @changed_panel_count,
                 @unchanged_panel_count,
+                @skipped_panel_count,
                 @uploaded_by_user_id,
                 @reason
             )
@@ -1163,6 +1167,7 @@ public sealed class PanelInformationStore(
         command.Parameters.AddWithValue("new_panel_count", batch.NewPanelCount);
         command.Parameters.AddWithValue("changed_panel_count", batch.ChangedPanelCount);
         command.Parameters.AddWithValue("unchanged_panel_count", batch.UnchangedPanelCount);
+        command.Parameters.AddWithValue("skipped_panel_count", batch.SkippedPanelCount);
         command.Parameters.AddWithValue("uploaded_by_user_id", changedByUserId);
         command.Parameters.Add("reason", NpgsqlDbType.Text).Value = batch.Reason ?? (object)DBNull.Value;
         return (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? throw new InvalidOperationException("Import batch id was not returned."));
@@ -1332,6 +1337,7 @@ public sealed class PanelInformationStore(
                    panel_information_excel_import_batches.new_panel_count,
                    panel_information_excel_import_batches.changed_panel_count,
                    panel_information_excel_import_batches.unchanged_panel_count,
+                   panel_information_excel_import_batches.skipped_panel_count,
                    panel_information_excel_import_batches.uploaded_by_user_id,
                    qms_users.display_name,
                    panel_information_excel_import_batches.uploaded_at_utc,
@@ -1360,14 +1366,83 @@ public sealed class PanelInformationStore(
                 NewPanelCount = reader.GetInt32(7),
                 ChangedPanelCount = reader.GetInt32(8),
                 UnchangedPanelCount = reader.GetInt32(9),
-                UploadedByUserId = reader.IsDBNull(10) ? null : reader.GetGuid(10),
-                UploadedByUserName = reader.IsDBNull(11) ? null : reader.GetString(11),
-                UploadedAtUtc = reader.GetFieldValue<DateTimeOffset>(12),
-                Reason = reader.IsDBNull(13) ? null : reader.GetString(13)
+                SkippedPanelCount = reader.GetInt32(10),
+                UploadedByUserId = reader.IsDBNull(11) ? null : reader.GetGuid(11),
+                UploadedByUserName = reader.IsDBNull(12) ? null : reader.GetString(12),
+                UploadedAtUtc = reader.GetFieldValue<DateTimeOffset>(13),
+                Reason = reader.IsDBNull(14) ? null : reader.GetString(14)
             });
         }
 
         return batches;
+    }
+
+    private static IReadOnlyList<PanelInformationHistoryGroupResponse> BuildHistoryGroups(
+        IReadOnlyList<PanelAuditEventResponse> auditEvents)
+    {
+        return auditEvents
+            .GroupBy(HistoryGroupKey, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var ordered = group
+                    .OrderByDescending(item => item.ChangedAtUtc)
+                    .ThenByDescending(item => item.AuditEventId)
+                    .ToList();
+                var representative = ordered[0];
+                var changes = ordered
+                    .OrderBy(item => item.PanelNumber, StringComparer.Ordinal)
+                    .ThenBy(item => item.FieldName, StringComparer.Ordinal)
+                    .Select(item => new PanelInformationHistoryChangeResponse
+                    {
+                        EntityType = item.EntityType,
+                        EntityId = item.EntityId,
+                        PanelNumber = item.PanelNumber,
+                        PanelDisplayName = item.PanelDisplayName,
+                        DisplayCode = item.DisplayCode,
+                        FieldName = item.FieldName,
+                        OldValue = item.OldValue,
+                        NewValue = item.NewValue,
+                        InputUnit = item.InputUnit,
+                        OriginalInputValue = item.OriginalInputValue
+                    })
+                    .ToList();
+
+                return new PanelInformationHistoryGroupResponse
+                {
+                    GroupId = group.Key,
+                    ActionType = representative.Action,
+                    InputSource = representative.InputSource,
+                    ChangedByUserId = representative.ChangedByUserId,
+                    ChangedByName = representative.ChangedByUserName,
+                    ChangedAtUtc = representative.ChangedAtUtc,
+                    Reason = representative.Reason,
+                    ImportBatchId = representative.ImportBatchId,
+                    ImportFileName = representative.ImportFileName,
+                    ImportUploadedAtUtc = representative.ImportUploadedAtUtc,
+                    AffectedPanelCount = ordered
+                        .Where(item => item.EntityType == "Panel")
+                        .Select(item => item.EntityId)
+                        .Distinct()
+                        .Count(),
+                    ChangeCount = ordered.Count,
+                    Changes = changes
+                };
+            })
+            .OrderByDescending(group => group.ChangedAtUtc)
+            .ThenByDescending(group => group.GroupId, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static string HistoryGroupKey(PanelAuditEventResponse auditEvent)
+    {
+        if (auditEvent.ImportBatchId is not null)
+        {
+            return $"import:{auditEvent.ImportBatchId.Value:N}";
+        }
+
+        return string.IsNullOrWhiteSpace(auditEvent.CorrelationId)
+            ? $"event:{auditEvent.AuditEventId:N}"
+            : $"correlation:{auditEvent.CorrelationId}";
     }
 
     private static async Task RollbackQuietlyAsync(NpgsqlTransaction transaction, CancellationToken cancellationToken)
@@ -1413,6 +1488,7 @@ public sealed class PanelInformationStore(
         decimal? HeightMm,
         decimal? DepthMm,
         string PanelStatus,
+        string WorkflowStage,
         DateTimeOffset CreatedAt,
         DateTimeOffset UpdatedAt,
         int PanelInfoVersion,
@@ -1442,5 +1518,6 @@ public sealed class PanelInformationStore(
         int NewPanelCount,
         int ChangedPanelCount,
         int UnchangedPanelCount,
+        int SkippedPanelCount,
         string? Reason);
 }

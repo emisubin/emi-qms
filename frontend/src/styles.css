@@ -133,6 +133,11 @@ h3 {
   padding: 12px 14px;
 }
 
+.status-chip[data-tone='danger'] strong,
+.negative-text {
+  color: #b42318;
+}
+
 .status-chip span {
   color: #52665a;
   font-size: 0.85rem;
@@ -177,12 +182,95 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
+}
+
+.unit-toggle {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.unit-toggle .secondary-button {
+  padding-inline: 12px;
+}
+
+.unit-toggle .secondary-button.active {
+  border-color: #1d6b4f;
+  color: #1d6b4f;
+  background: #e8f4ef;
 }
 
 .project-list,
 .panel-list {
   display: grid;
   gap: 8px;
+}
+
+.project-list-table {
+  display: grid;
+  gap: 6px;
+  overflow: visible;
+}
+
+.project-list-head,
+.project-list-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.45fr) minmax(130px, 1fr) minmax(100px, 0.75fr) minmax(130px, 1fr) 72px 108px 100px 86px;
+  min-width: 980px;
+  align-items: center;
+  gap: 10px;
+}
+
+.project-list-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  border-bottom: 1px solid #d8ded9;
+  background: #ffffff;
+  color: #52665a;
+  font-size: 0.8rem;
+  font-weight: 900;
+  padding: 8px;
+}
+
+.project-list-row {
+  width: 100%;
+  border: 1px solid #e1e8e3;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 10px 8px;
+  text-align: left;
+}
+
+.project-list-row small {
+  display: block;
+  margin-top: 4px;
+  color: #52665a;
+  font-size: 0.78rem;
+}
+
+.project-list-cards {
+  display: none;
+}
+
+.project-list-card {
+  border: 1px solid #e1e8e3;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 12px;
+}
+
+.project-list-card h3 {
+  margin: 0;
+}
+
+.align-left {
+  text-align: left;
+}
+
+.align-center {
+  text-align: center;
 }
 
 .project-row,
@@ -384,6 +472,10 @@ dd {
   margin: 16px 0;
 }
 
+.project-workflow-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .panel-toolbar {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -420,21 +512,28 @@ dd {
   display: grid;
   gap: 6px;
   margin-top: 14px;
+  overflow: visible;
 }
 
 .panel-info-table-head,
 .panel-info-table-row {
   display: grid;
-  grid-template-columns: 92px minmax(140px, 1.2fr) repeat(3, minmax(74px, 0.7fr)) 82px 72px minmax(110px, 0.9fr);
+  grid-template-columns: 72px minmax(150px, 1.2fr) repeat(3, minmax(74px, 0.7fr)) minmax(100px, 0.8fr) minmax(100px, 0.8fr);
   align-items: center;
   gap: 8px;
+  min-width: 760px;
 }
 
 .panel-info-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #ffffff;
   color: #52665a;
   font-size: 0.8rem;
   font-weight: 900;
-  padding: 0 8px;
+  border-bottom: 1px solid #d8ded9;
+  padding: 8px;
 }
 
 .panel-info-table-row {
@@ -454,6 +553,97 @@ dd {
   grid-column: 2 / -1;
   color: #52665a;
   font-weight: 700;
+}
+
+.product-panel-table {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  overflow: visible;
+}
+
+.product-panel-table-head,
+.product-panel-row {
+  display: grid;
+  grid-template-columns: 64px minmax(150px, 1.2fr) minmax(170px, 1.1fr) minmax(110px, 0.8fr) minmax(100px, 0.8fr) minmax(120px, 0.9fr);
+  min-width: 820px;
+  align-items: center;
+  gap: 10px;
+}
+
+.product-panel-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  border-bottom: 1px solid #d8ded9;
+  background: #ffffff;
+  color: #52665a;
+  font-size: 0.8rem;
+  font-weight: 900;
+  padding: 8px;
+}
+
+.product-panel-row {
+  width: 100%;
+  border: 1px solid #e1e8e3;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 10px 8px;
+  text-align: left;
+}
+
+.product-panel-row small {
+  display: block;
+  margin-top: 4px;
+  color: #52665a;
+  font-size: 0.78rem;
+}
+
+.product-panel-cards {
+  display: none;
+}
+
+.product-panel-card,
+.excel-preview-card {
+  border: 1px solid #e1e8e3;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 12px;
+}
+
+.product-panel-card h3,
+.excel-preview-card h3 {
+  margin: 0;
+}
+
+.mobile-detail-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+
+.mobile-detail-list div {
+  display: grid;
+  gap: 4px;
+}
+
+.mobile-detail-list dt {
+  color: #52665a;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.mobile-detail-list dd {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.mobile-detail-list small {
+  color: #52665a;
+  font-size: 0.78rem;
 }
 
 .panel-info-cards {
@@ -486,9 +676,41 @@ dd {
   overflow: auto;
 }
 
+.excel-preview-action-bar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d8ded9;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  box-shadow: 0 8px 18px rgb(23 32 27 / 8%);
+}
+
+.excel-preview-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  color: #52665a;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.excel-preview-reason textarea {
+  min-height: 64px;
+}
+
 .excel-preview-table {
   display: grid;
   gap: 6px;
+  margin: 12px 0;
+}
+
+.excel-preview-cards {
+  display: none;
+  gap: 10px;
   margin: 12px 0;
 }
 
@@ -554,11 +776,17 @@ dd {
     grid-template-columns: 1fr;
   }
 
-  .panel-info-table {
+  .project-list-desktop,
+  .product-panel-desktop,
+  .panel-info-edit-desktop,
+  .excel-preview-desktop {
     display: none;
   }
 
-  .panel-info-cards {
+  .project-list-mobile,
+  .product-panel-mobile,
+  .panel-info-edit-mobile,
+  .excel-preview-mobile {
     display: grid;
     gap: 10px;
   }

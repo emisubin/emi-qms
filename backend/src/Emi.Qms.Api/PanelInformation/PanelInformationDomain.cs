@@ -20,12 +20,42 @@ public static partial class PanelInformationDomain
     public const int MaxExcelCells = 35000;
     public const int MaxExcelHeaderSearchRows = 20;
     public const string StaleVersionMessage = "다른 사용자가 패널정보를 수정했습니다. 화면을 새로고침한 후 다시 시도해 주세요.";
+    public const string DefaultWorkflowStage = "BeforeManufacturing";
 
     public static readonly IReadOnlySet<string> InputUnits = new HashSet<string>(StringComparer.Ordinal)
     {
         "Mm",
         "Inch"
     };
+
+    public static readonly IReadOnlySet<string> WorkflowStages = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "BeforeManufacturing",
+        "ManufacturingInProgress",
+        "ManufacturingCompleted",
+        "InspectionInProgress",
+        "InspectionCompleted",
+        "PackingCompleted",
+        "ShipmentCompleted"
+    };
+
+    public static bool IsManufacturingCompletedStage(string workflowStage)
+    {
+        return workflowStage is
+            "ManufacturingCompleted" or
+            "InspectionInProgress" or
+            "InspectionCompleted" or
+            "PackingCompleted" or
+            "ShipmentCompleted";
+    }
+
+    public static bool IsInspectionCompletedStage(string workflowStage)
+    {
+        return workflowStage is
+            "InspectionCompleted" or
+            "PackingCompleted" or
+            "ShipmentCompleted";
+    }
 
     public static string? NormalizePanelName(string? value)
     {
@@ -49,7 +79,7 @@ public static partial class PanelInformationDomain
     public static string DisplayName(int sequenceNumber, string? panelName)
     {
         return panelName is null
-            ? $"{PanelNumber(sequenceNumber)} · 패널명 미정"
+            ? $"{PanelNumber(sequenceNumber)} · 패널명 미입력"
             : $"{PanelNumber(sequenceNumber)} · {panelName}";
     }
 

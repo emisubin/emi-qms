@@ -8,7 +8,6 @@ import {
   defaultDevelopmentUserKey,
   deleteProject,
   downloadPanelInformationTemplate,
-  getAuditHistory,
   getCurrentUser,
   getDeletedProject,
   getPanel,
@@ -42,6 +41,8 @@ import type {
   ProjectListItem,
   ProjectListTab,
   ProjectStatus,
+  ProjectWorkStatus,
+  ProductWorkflowStage,
   SalesOwner
 } from './projects';
 
@@ -51,6 +52,7 @@ type View =
   | { kind: 'detail'; projectId: string }
   | { kind: 'deleted-detail'; projectId: string }
   | { kind: 'edit'; projectId: string }
+  | { kind: 'panel-info-edit'; projectId: string }
   | { kind: 'panel'; projectId: string; panelId: string };
 
 type LoadState<T> =
@@ -103,11 +105,59 @@ const emptyForm: ProjectFormValues = {
   reason: ''
 };
 
+function initialViewFromLocation(): View {
+  if (typeof window === 'undefined') {
+    return { kind: 'list' };
+  }
+
+  const panelInformationEditMatch = window.location.pathname.match(/^\/projects\/([^/]+)\/panel-information\/edit$/);
+  if (panelInformationEditMatch?.[1]) {
+    return { kind: 'panel-info-edit', projectId: panelInformationEditMatch[1] };
+  }
+
+  const panelMatch = window.location.pathname.match(/^\/projects\/([^/]+)\/panels\/([^/]+)$/);
+  if (panelMatch?.[1] && panelMatch?.[2]) {
+    return { kind: 'panel', projectId: panelMatch[1], panelId: panelMatch[2] };
+  }
+
+  const detailMatch = window.location.pathname.match(/^\/projects\/([^/]+)$/);
+  if (detailMatch?.[1]) {
+    return { kind: 'detail', projectId: detailMatch[1] };
+  }
+
+  return { kind: 'list' };
+}
+
+function pathForView(view: View) {
+  switch (view.kind) {
+    case 'detail':
+      return `/projects/${view.projectId}`;
+    case 'panel-info-edit':
+      return `/projects/${view.projectId}/panel-information/edit`;
+    case 'panel':
+      return `/projects/${view.projectId}/panels/${view.panelId}`;
+    default:
+      return '/';
+  }
+}
+
 export function App() {
   const [developmentUserKey, setDevelopmentUserKey] = useState(defaultDevelopmentUserKey ?? 'dev-sales');
-  const [view, setView] = useState<View>({ kind: 'list' });
+  const [view, setViewState] = useState<View>(() => initialViewFromLocation());
   const [health, setHealth] = useState<LoadState<ReadyHealth>>({ kind: 'loading' });
   const [currentUser, setCurrentUser] = useState<LoadState<CurrentUser>>({ kind: 'loading' });
+
+  const setView = useCallback((nextView: View) => {
+    setViewState(nextView);
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const nextPath = pathForView(nextView);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState(null, '', nextPath);
+    }
+  }, []);
 
   const loadShell = useCallback(() => {
     getReadyHealth()
@@ -123,6 +173,15 @@ export function App() {
     loadShell();
   }, [loadShell]);
 
+  useEffect(() => {
+    const handlePopState = () => {
+      setViewState(initialViewFromLocation());
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const user = currentUser.kind === 'ready' ? currentUser.data : null;
   const permissions = user?.permissions ?? [];
   const canCreate = permissions.includes('Project.Create');
@@ -133,13 +192,14 @@ export function App() {
   const canReadDeleted = permissions.includes('Project.Deleted.Read');
   const canReadSalesAmount = permissions.includes('Project.SalesAmount.Read');
   const canUpdatePanelInfo = permissions.includes('PanelInfo.Update');
+  const canReadAuditAll = permissions.includes('Audit.Read.All');
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <div>
           <p className="eyebrow">EMI QMS</p>
-          <h1>프로젝트 등록·패널 Placeholder</h1>
+          <h1>프로젝트·제품 패널 관리</h1>
         </div>
         <label className="dev-user-select">
           <span>개발 사용자</span>
@@ -203,8 +263,10 @@ export function App() {
           canDelete={canDelete}
           canReadSalesAmount={canReadSalesAmount}
           canUpdatePanelInfo={canUpdatePanelInfo}
+          canReadAuditAll={canReadAuditAll}
           onBack={() => setView({ kind: 'list' })}
           onEdit={() => setView({ kind: 'edit', projectId: view.projectId })}
+          onEditPanelInformation={() => setView({ kind: 'panel-info-edit', projectId: view.projectId })}
           onOpenPanel={(panelId) => setView({ kind: 'panel', projectId: view.projectId, panelId })}
         />
       ) : null}
@@ -224,6 +286,15 @@ export function App() {
           projectId={view.projectId}
           onCancel={() => setView({ kind: 'detail', projectId: view.projectId })}
           onSaved={() => setView({ kind: 'detail', projectId: view.projectId })}
+        />
+      ) : null}
+
+      {view.kind === 'panel-info-edit' ? (
+        <PanelInformationEditPage
+          developmentUserKey={developmentUserKey}
+          projectId={view.projectId}
+          canUpdatePanelInfo={canUpdatePanelInfo}
+          onBack={() => setView({ kind: 'detail', projectId: view.projectId })}
         />
       ) : null}
 
@@ -257,7 +328,7 @@ function ProjectListPage({
   onOpenDeleted: (projectId: string) => void;
 }) {
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState<ProjectListTab>('Active');
+  const [tab, setTab] = useState<ProjectListTab>('All');
   const [state, setState] = useState<LoadState<Array<ProjectListItem | DeletedProjectListItem>>>({ kind: 'loading' });
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -353,31 +424,118 @@ function ProjectListPage({
       {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
 
       {state.kind === 'ready' ? (
-        <div className="project-list">
-          {state.data.map((project) => (
-            <button
-              className="project-row"
-              key={project.projectId}
-              type="button"
-              onClick={() => tab === 'Deleted' ? onOpenDeleted(project.projectId) : onOpen(project.projectId)}
-            >
-              <span>
-                <strong>{project.projectTitle}</strong>
-                <small>{project.customerName} · {project.item}</small>
-              </span>
-              <span>{project.projectCode}</span>
-              <span>{project.activePanelCount}면</span>
-              <span>{formatDate(project.deliveryDate)}</span>
-              <ProjectStatusBadge status={project.status} />
-              {'deletedAtUtc' in project ? <span>{formatDateTime(project.deletedAtUtc)}</span> : null}
-              {canReadSalesAmount && project.salesAmount !== undefined ? (
-                <SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} />
-              ) : null}
-            </button>
-          ))}
-        </div>
+        <ProjectListView
+          projects={state.data}
+          canReadSalesAmount={canReadSalesAmount}
+          onOpen={(projectId) => tab === 'Deleted' ? onOpenDeleted(projectId) : onOpen(projectId)}
+        />
       ) : null}
     </section>
+  );
+}
+
+function ProjectListView({
+  projects,
+  canReadSalesAmount,
+  onOpen
+}: {
+  projects: Array<ProjectListItem | DeletedProjectListItem>;
+  canReadSalesAmount: boolean;
+  onOpen: (projectId: string) => void;
+}) {
+  const isMobile = useIsMobileViewport();
+
+  return (
+    <div className="project-list">
+      {isMobile
+        ? <ProjectListMobile projects={projects} canReadSalesAmount={canReadSalesAmount} onOpen={onOpen} />
+        : <ProjectListDesktop projects={projects} canReadSalesAmount={canReadSalesAmount} onOpen={onOpen} />}
+    </div>
+  );
+}
+
+function ProjectListDesktop({
+  projects,
+  canReadSalesAmount,
+  onOpen
+}: {
+  projects: Array<ProjectListItem | DeletedProjectListItem>;
+  canReadSalesAmount: boolean;
+  onOpen: (projectId: string) => void;
+}) {
+  return (
+    <div className="project-list-table project-list-desktop" role="table" aria-label="프로젝트 목록" data-testid="project-list-desktop">
+      <div className="project-list-head" role="row">
+        <span className="align-left">프로젝트명</span>
+        <span className="align-left">고객사</span>
+        <span className="align-center">Code</span>
+        <span className="align-left">Item</span>
+        <span className="align-center">면수</span>
+        <span className="align-center">납기일</span>
+        <span className="align-center">상태</span>
+        <span className="align-center">진행률</span>
+      </div>
+      {projects.map((project) => (
+        <button
+          className="project-list-row"
+          key={project.projectId}
+          type="button"
+          role="row"
+          onClick={() => onOpen(project.projectId)}
+        >
+          <span className="align-left">
+            <strong>{project.projectTitle}</strong>
+            {'deletedAtUtc' in project ? <small>삭제일시 {formatDateTime(project.deletedAtUtc)}</small> : null}
+            {canReadSalesAmount && project.salesAmount !== undefined ? (
+              <small><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></small>
+            ) : null}
+          </span>
+          <span className="align-left">{project.customerName}</span>
+          <span className="align-center">{project.projectCode}</span>
+          <span className="align-left">{project.item}</span>
+          <span className="align-center">{project.activePanelCount}면</span>
+          <span className="align-center">{formatDate(project.deliveryDate)}</span>
+          <span className="align-center">{formatProjectWorkStatus(project.projectWorkStatus)}</span>
+          <span className="align-center">{formatProjectProgress(project.projectProgressPercent)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ProjectListMobile({
+  projects,
+  canReadSalesAmount,
+  onOpen
+}: {
+  projects: Array<ProjectListItem | DeletedProjectListItem>;
+  canReadSalesAmount: boolean;
+  onOpen: (projectId: string) => void;
+}) {
+  return (
+    <div className="project-list-cards project-list-mobile" data-testid="project-list-mobile">
+      {projects.map((project) => (
+        <article key={project.projectId} className="project-list-card" data-testid="project-list-card">
+          <div className="subsection-header">
+            <h3>{project.projectTitle}</h3>
+            <button type="button" onClick={() => onOpen(project.projectId)}>상세 보기</button>
+          </div>
+          <dl className="mobile-detail-list">
+            <div><dt>고객사</dt><dd>{project.customerName}</dd></div>
+            <div><dt>Code</dt><dd>{project.projectCode}</dd></div>
+            <div><dt>Item</dt><dd>{project.item}</dd></div>
+            <div><dt>면수</dt><dd>{project.activePanelCount}면</dd></div>
+            <div><dt>납기일</dt><dd>{formatDate(project.deliveryDate)}</dd></div>
+            <div><dt>상태</dt><dd>{formatProjectWorkStatus(project.projectWorkStatus)}</dd></div>
+            <div><dt>진행률</dt><dd>{formatProjectProgress(project.projectProgressPercent)}</dd></div>
+            {'deletedAtUtc' in project ? <div><dt>삭제일시</dt><dd>{formatDateTime(project.deletedAtUtc)}</dd></div> : null}
+            {canReadSalesAmount && project.salesAmount !== undefined ? (
+              <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
+            ) : null}
+          </dl>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -457,8 +615,10 @@ function ProjectDetailPage({
   canDelete,
   canReadSalesAmount,
   canUpdatePanelInfo,
+  canReadAuditAll,
   onBack,
   onEdit,
+  onEditPanelInformation,
   onOpenPanel
 }: {
   developmentUserKey: string;
@@ -469,13 +629,15 @@ function ProjectDetailPage({
   canDelete: boolean;
   canReadSalesAmount: boolean;
   canUpdatePanelInfo: boolean;
+  canReadAuditAll: boolean;
   onBack: () => void;
   onEdit: () => void;
+  onEditPanelInformation: () => void;
   onOpenPanel: (panelId: string) => void;
 }) {
   const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
-  const [panels, setPanels] = useState<PanelPlaceholder[]>([]);
-  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [panelInfoState, setPanelInfoState] = useState<LoadState<PanelInformationResponse>>({ kind: 'loading' });
+  const [historyState, setHistoryState] = useState<LoadState<PanelInformationHistoryResponse>>({ kind: 'empty' });
   const [dialog, setDialog] = useState<null | 'hold' | 'resume' | 'cancel' | 'reactivate' | 'delete'>(null);
   const [reason, setReason] = useState('');
   const [confirmProjectTitle, setConfirmProjectTitle] = useState('');
@@ -483,18 +645,26 @@ function ProjectDetailPage({
   const [isSaving, setIsSaving] = useState(false);
 
   const load = useCallback(() => {
+    setProjectState({ kind: 'loading' });
+    setPanelInfoState({ kind: 'loading' });
+    setHistoryState(canReadAuditAll ? { kind: 'loading' } : { kind: 'empty' });
+
     Promise.all([
       getProject(developmentUserKey, projectId),
-      listPanels(developmentUserKey, projectId),
-      getAuditHistory(developmentUserKey, projectId)
+      getPanelInformation(developmentUserKey, projectId),
+      canReadAuditAll ? getPanelInformationHistory(developmentUserKey, projectId) : Promise.resolve(null)
     ])
-      .then(([project, panelItems, history]) => {
+      .then(([project, panelInfo, history]) => {
         setProjectState({ kind: 'ready', data: project });
-        setPanels(panelItems);
-        setAuditEvents(history.items);
+        setPanelInfoState({ kind: 'ready', data: panelInfo });
+        setHistoryState(history ? { kind: 'ready', data: history } : { kind: 'empty' });
       })
-      .catch((error: unknown) => setProjectState(toLoadError(error, '프로젝트 상세를 불러올 수 없습니다.')));
-  }, [developmentUserKey, projectId]);
+      .catch((error: unknown) => {
+        const state = toLoadError<ProjectDetail>(error, '프로젝트 상세를 불러올 수 없습니다.');
+        setProjectState(state);
+        setPanelInfoState(toLoadError(error, '제품·패널 목록을 불러올 수 없습니다.'));
+      });
+  }, [canReadAuditAll, developmentUserKey, projectId]);
 
   useEffect(() => {
     load();
@@ -585,24 +755,21 @@ function ProjectDetailPage({
       <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
 
       <PanelInformationSection
-        developmentUserKey={developmentUserKey}
-        projectId={projectId}
         project={project}
+        state={panelInfoState}
         canUpdatePanelInfo={canUpdatePanelInfo}
+        onEdit={onEditPanelInformation}
+        onOpenPanel={onOpenPanel}
       />
 
-      <section className="subsection">
-        <div className="subsection-header">
-          <h3>패널 Placeholder</h3>
-          <span>진행률은 체크리스트 적용 후 계산</span>
-        </div>
-        <PanelPlaceholderList panels={panels} onOpenPanel={onOpenPanel} />
-      </section>
-
-      <section className="subsection">
-        <h3>변경이력</h3>
-        <AuditHistory events={auditEvents} />
-      </section>
+      {canReadAuditAll ? (
+        <section className="subsection">
+          <h3>전체 이력</h3>
+          {historyState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+          {historyState.kind !== 'ready' && historyState.kind !== 'loading' && historyState.kind !== 'empty' ? <StateMessage state={historyState} /> : null}
+          {historyState.kind === 'ready' ? <GroupedHistory groups={historyState.data.groups} /> : null}
+        </section>
+      ) : null}
 
       {dialog && dialog !== 'delete' ? (
         <StatusReasonDialog
@@ -664,18 +831,93 @@ type PanelInformationRowForm = {
 };
 
 function PanelInformationSection({
+  project,
+  state,
+  canUpdatePanelInfo,
+  onEdit,
+  onOpenPanel
+}: {
+  project: ProjectDetail;
+  state: LoadState<PanelInformationResponse>;
+  canUpdatePanelInfo: boolean;
+  onEdit: () => void;
+  onOpenPanel: (panelId: string) => void;
+}) {
+  const canShowEdit = canUpdatePanelInfo && project.status === 'Active';
+  const [displayUnit, setDisplayUnit] = useState<PanelInputUnit>(() => readDisplayUnit());
+
+  const changeDisplayUnit = (unit: PanelInputUnit) => {
+    setDisplayUnit(unit);
+    window.localStorage.setItem('emi-qms-panel-display-unit', unit);
+  };
+
+  return (
+    <section className="page-surface panel-info-section">
+      <div className="subsection-header">
+        <div>
+          <h3>제품·패널 목록</h3>
+          <span>{formatPackagingMethod(project.packagingMethod)}</span>
+        </div>
+        <div className="button-row">
+          <div className="unit-toggle" role="group" aria-label="표시 단위">
+            <button
+              type="button"
+              className={displayUnit === 'Mm' ? 'secondary-button active' : 'secondary-button'}
+              aria-pressed={displayUnit === 'Mm'}
+              onClick={() => changeDisplayUnit('Mm')}
+            >
+              mm
+            </button>
+            <button
+              type="button"
+              className={displayUnit === 'Inch' ? 'secondary-button active' : 'secondary-button'}
+              aria-pressed={displayUnit === 'Inch'}
+              onClick={() => changeDisplayUnit('Inch')}
+            >
+              inch
+            </button>
+          </div>
+          {canShowEdit ? <button type="button" className="primary-button" onClick={onEdit}>패널정보 수정</button> : null}
+        </div>
+      </div>
+
+      {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <>
+          <div className="panel-info-summary project-workflow-summary">
+            <StatusChip label="QR 가능" value={`${project.qrEligibleCount}/${project.activePanelCount}`} />
+            <StatusChip label="제조 완료" value={`${project.manufacturingCompletedCount}/${project.activePanelCount}`} />
+            <StatusChip label="검사 완료" value={`${project.inspectionCompletedCount}/${project.activePanelCount}`} />
+          </div>
+          {state.data.panelInformationStatusMessage ? (
+            <p role="status" className="warning-text">{state.data.panelInformationStatusMessage}</p>
+          ) : null}
+          <ProjectPanelList
+            panels={state.data.panels}
+            packagingMethod={state.data.packagingMethod}
+            displayUnit={displayUnit}
+            onOpenPanel={onOpenPanel}
+          />
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function PanelInformationEditPage({
   developmentUserKey,
   projectId,
-  project,
-  canUpdatePanelInfo
+  canUpdatePanelInfo,
+  onBack
 }: {
   developmentUserKey: string;
   projectId: string;
-  project: ProjectDetail;
   canUpdatePanelInfo: boolean;
+  onBack: () => void;
 }) {
+  const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
   const [state, setState] = useState<LoadState<PanelInformationResponse>>({ kind: 'loading' });
-  const [historyState, setHistoryState] = useState<LoadState<PanelInformationHistoryResponse>>({ kind: 'loading' });
   const [rows, setRows] = useState<PanelInformationRowForm[]>([]);
   const [editInputUnit, setEditInputUnit] = useState<PanelInputUnit>('Mm');
   const [displayUnit, setDisplayUnit] = useState<PanelInputUnit>(() => readDisplayUnit());
@@ -699,20 +941,20 @@ function PanelInformationSection({
     requestIdRef.current = requestId;
     dirtyRef.current = false;
     setState({ kind: 'loading' });
-    setHistoryState({ kind: 'loading' });
+    setProjectState({ kind: 'loading' });
     setMessage('');
 
     Promise.all([
-      getPanelInformation(developmentUserKey, projectId),
-      getPanelInformationHistory(developmentUserKey, projectId)
+      getProject(developmentUserKey, projectId),
+      getPanelInformation(developmentUserKey, projectId)
     ])
-      .then(([panelInfo, history]) => {
+      .then(([project, panelInfo]) => {
         if (requestId !== requestIdRef.current) {
           return;
         }
 
+        setProjectState({ kind: 'ready', data: project });
         setState({ kind: 'ready', data: panelInfo });
-        setHistoryState({ kind: 'ready', data: history });
         setRows(panelInfo.panels.map((panel) => panelToRowForm(panel, editInputUnitRef.current)));
       })
       .catch((error: unknown) => {
@@ -721,6 +963,7 @@ function PanelInformationSection({
         }
 
         setState(toLoadError(error, '패널정보를 불러올 수 없습니다.'));
+        setProjectState(toLoadError(error, '프로젝트를 불러올 수 없습니다.'));
       });
   }, [developmentUserKey, projectId]);
 
@@ -733,7 +976,8 @@ function PanelInformationSection({
   }, [displayUnit]);
 
   const data = state.kind === 'ready' ? state.data : null;
-  const canEdit = canUpdatePanelInfo && project.status === 'Active';
+  const project = projectState.kind === 'ready' ? projectState.data : null;
+  const canEdit = canUpdatePanelInfo && project?.status === 'Active';
   const visibleRows = rows.filter((row) => {
     const panel = row.original;
     const matchesFilter = filter === 'All'
@@ -801,9 +1045,6 @@ function PanelInformationSection({
       setReason('');
       setState({ kind: 'ready', data: saved });
       setRows(saved.panels.map((panel) => panelToRowForm(panel, editInputUnit)));
-      getPanelInformationHistory(developmentUserKey, projectId)
-        .then((history) => setHistoryState({ kind: 'ready', data: history }))
-        .catch((error: unknown) => setHistoryState(toLoadError(error, '입력이력을 불러올 수 없습니다.')));
       setMessage('패널정보를 저장했습니다.');
     } catch (error) {
       handleFormError(error, () => undefined, setMessage);
@@ -837,14 +1078,31 @@ function PanelInformationSection({
     }
   }
 
+  if (!canUpdatePanelInfo) {
+    return <section className="page-surface"><StateMessage state={{ kind: 'forbidden', message: '권한이 없습니다.' }} /></section>;
+  }
+
+  if (projectState.kind === 'loading' || state.kind === 'loading') {
+    return <section className="page-surface"><p className="muted-text">Loading</p></section>;
+  }
+
+  if (projectState.kind !== 'ready') {
+    return <section className="page-surface"><StateMessage state={projectState} /></section>;
+  }
+
+  if (state.kind !== 'ready') {
+    return <section className="page-surface"><StateMessage state={state} /></section>;
+  }
+
   return (
-    <section className="subsection panel-info-section">
+    <section className="page-surface panel-info-section">
       <div className="subsection-header">
         <div>
-          <h3>패널정보</h3>
-          <span>{formatPackagingMethod(project.packagingMethod)}</span>
+          <h3>패널정보 수정</h3>
+          <span>{formatPackagingMethod(projectState.data.packagingMethod)}</span>
         </div>
         <div className="button-row">
+          <button type="button" onClick={onBack}>상세</button>
           <button type="button" onClick={load}>새로고침</button>
           {canUpdatePanelInfo ? (
             <button type="button" onClick={downloadTemplate} disabled={isDownloadingTemplate}>
@@ -857,15 +1115,15 @@ function PanelInformationSection({
           </button>
         </div>
       </div>
-
-      {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
-      {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
-
       {data ? (
         <>
           <div className="panel-info-summary">
-            <StatusChip label="완료" value={`${data.panelInfoCompletedCount}/${data.activePanelCount}`} />
-            <StatusChip label="미완료" value={String(data.panelInfoPendingCount)} />
+            <StatusChip label="입력 완료" value={`${data.panelInfoCompletedCount}/${data.activePanelCount}`} />
+            <StatusChip
+              label="입력 미완료"
+              value={`${data.panelInfoPendingCount}/${data.activePanelCount}`}
+              tone={data.panelInfoPendingCount > 0 ? 'danger' : undefined}
+            />
             <StatusChip label="QR 가능" value={String(data.qrEligibleCount)} />
             <StatusChip label="동일명칭" value={String(data.duplicatePanelNameGroupCount)} />
           </div>
@@ -874,7 +1132,7 @@ function PanelInformationSection({
             <p role="status" className="warning-text">{data.panelInformationStatusMessage}</p>
           ) : null}
           {!canUpdatePanelInfo ? <p className="muted-text">읽기 전용</p> : null}
-          {canUpdatePanelInfo && project.status !== 'Active' ? (
+          {canUpdatePanelInfo && projectState.data.status !== 'Active' ? (
             <p role="alert" className="warning-text">현재 프로젝트 상태에서는 패널정보를 수정할 수 없습니다.</p>
           ) : null}
 
@@ -926,55 +1184,24 @@ function PanelInformationSection({
             </label>
           ) : null}
 
-          <div className="panel-info-table" role="table" aria-label="패널정보 직접 입력">
-            <div className="panel-info-table-head" role="row">
-              <span>No</span>
-              <span>Panel Name</span>
-              <span>W</span>
-              <span>H</span>
-              <span>D</span>
-              <span>정보 상태</span>
-              <span>QR</span>
-              <span>동일명칭</span>
-            </div>
-            {visibleRows.map((row) => (
-              <PanelInformationEditableRow
-                key={row.panelId}
-                row={row}
-                displayUnit={displayUnit}
-                canEdit={canEdit && row.original.panelStatus === 'Active'}
-                onPanelNameChange={setPanelName}
-                onSizeChange={setSizeInput}
-              />
-            ))}
-          </div>
+          <PanelInfoEditDesktop
+            rows={visibleRows}
+            displayUnit={displayUnit}
+            canEdit={canEdit}
+            onPanelNameChange={setPanelName}
+            onSizeChange={setSizeInput}
+          />
 
-          <div className="panel-info-cards">
-            {visibleRows.map((row) => (
-              <PanelInformationCard
-                key={row.panelId}
-                row={row}
-                displayUnit={displayUnit}
-                canEdit={canEdit && row.original.panelStatus === 'Active'}
-                onPanelNameChange={setPanelName}
-                onSizeChange={setSizeInput}
-              />
-            ))}
-          </div>
+          <PanelInfoEditMobile
+            rows={visibleRows}
+            displayUnit={displayUnit}
+            canEdit={canEdit}
+            onPanelNameChange={setPanelName}
+            onSizeChange={setSizeInput}
+          />
 
           {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
 
-          <section className="subsection">
-            <h3>입력이력</h3>
-            {historyState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
-            {historyState.kind !== 'ready' && historyState.kind !== 'loading' ? <StateMessage state={historyState} /> : null}
-            {historyState.kind === 'ready' ? (
-              <>
-                <ExcelImportHistory batches={historyState.data.excelImportBatches} />
-                <AuditHistory events={historyState.data.auditEvents} />
-              </>
-            ) : null}
-          </section>
         </>
       ) : null}
 
@@ -998,6 +1225,73 @@ function PanelInformationSection({
   );
 }
 
+function PanelInfoEditDesktop({
+  rows,
+  displayUnit,
+  canEdit,
+  onPanelNameChange,
+  onSizeChange
+}: {
+  rows: PanelInformationRowForm[];
+  displayUnit: PanelInputUnit;
+  canEdit: boolean;
+  onPanelNameChange: (panelId: string, value: string) => void;
+  onSizeChange: (panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) => void;
+}) {
+  return (
+    <div className="panel-info-table panel-info-edit-desktop" role="table" aria-label="패널정보 직접 입력" data-testid="panel-info-edit-desktop">
+      <div className="panel-info-table-head" role="row">
+        <span>No</span>
+        <span>패널명</span>
+        <span>W</span>
+        <span>H</span>
+        <span>D</span>
+        <span>제품정보</span>
+        <span>QR</span>
+      </div>
+      {rows.map((row) => (
+        <PanelInformationEditableRow
+          key={row.panelId}
+          row={row}
+          displayUnit={displayUnit}
+          canEdit={canEdit && row.original.panelStatus === 'Active'}
+          onPanelNameChange={onPanelNameChange}
+          onSizeChange={onSizeChange}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PanelInfoEditMobile({
+  rows,
+  displayUnit,
+  canEdit,
+  onPanelNameChange,
+  onSizeChange
+}: {
+  rows: PanelInformationRowForm[];
+  displayUnit: PanelInputUnit;
+  canEdit: boolean;
+  onPanelNameChange: (panelId: string, value: string) => void;
+  onSizeChange: (panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) => void;
+}) {
+  return (
+    <div className="panel-info-cards panel-info-edit-mobile" data-testid="panel-info-edit-mobile">
+      {rows.map((row) => (
+        <PanelInformationCard
+          key={row.panelId}
+          row={row}
+          displayUnit={displayUnit}
+          canEdit={canEdit && row.original.panelStatus === 'Active'}
+          onPanelNameChange={onPanelNameChange}
+          onSizeChange={onSizeChange}
+        />
+      ))}
+    </div>
+  );
+}
+
 function PanelInformationEditableRow({
   row,
   displayUnit,
@@ -1013,14 +1307,13 @@ function PanelInformationEditableRow({
 }) {
   return (
     <div className="panel-info-table-row" role="row">
-      <strong>{row.panelNumber}<small>{row.displayCode}</small></strong>
+      <strong>{row.sequenceNumber}<small>{row.displayCode}</small></strong>
       <input aria-label={`${row.panelNumber} 패널명`} value={row.currentPanelName} disabled={!canEdit} onChange={(event) => onPanelNameChange(row.panelId, event.target.value)} />
       <input aria-label={`${row.panelNumber} W`} inputMode="decimal" value={row.widthInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'widthInput', event.target.value)} />
       <input aria-label={`${row.panelNumber} H`} inputMode="decimal" value={row.heightInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'heightInput', event.target.value)} />
       <input aria-label={`${row.panelNumber} D`} inputMode="decimal" value={row.depthInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'depthInput', event.target.value)} />
-      <span>{row.original.panelInfoCompleted ? '완료' : '미완료'}</span>
-      <span>{row.original.qrEligible ? '가능' : '불가'}</span>
-      <span>{row.original.hasDuplicateName ? `동일 명칭 ${row.original.duplicateNameCount}면` : '-'}</span>
+      <span className={row.original.panelInfoCompleted ? undefined : 'negative-text'}>{row.original.panelInfoCompleted ? '입력 완료' : '미입력'}</span>
+      <span className={row.original.qrEligible ? undefined : 'negative-text'}>{row.original.qrEligible ? '생성 가능' : '생성 불가'}</span>
       <small className="panel-display-size">{formatPanelSizeInUnit(row.original, displayUnit)}</small>
     </div>
   );
@@ -1040,7 +1333,7 @@ function PanelInformationCard({
   onSizeChange: (panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) => void;
 }) {
   return (
-    <article className="panel-info-card">
+    <article className="panel-info-card" data-testid="panel-info-edit-card">
       <div className="subsection-header">
         <h3>{row.panelNumber}</h3>
         <span>{row.displayCode}</span>
@@ -1060,8 +1353,8 @@ function PanelInformationCard({
         </FormField>
       </div>
       <dl className="mini-status-grid">
-        <div><dt>패널정보</dt><dd>{row.original.panelInfoCompleted ? '완료' : '미완료'}</dd></div>
-        <div><dt>QR</dt><dd>{row.original.qrEligible ? '가능' : '불가'}</dd></div>
+        <div><dt>제품정보</dt><dd className={row.original.panelInfoCompleted ? undefined : 'negative-text'}>{row.original.panelInfoCompleted ? '입력 완료' : '미입력'}</dd></div>
+        <div><dt>QR</dt><dd className={row.original.qrEligible ? undefined : 'negative-text'}>{row.original.qrEligible ? '생성 가능' : '생성 불가'}</dd></div>
         <div><dt>표시</dt><dd>{formatPanelSizeInUnit(row.original, displayUnit)}</dd></div>
       </dl>
       {row.original.hasDuplicateName ? <p className="muted-text">동일 명칭 {row.original.duplicateNameCount}면</p> : null}
@@ -1122,6 +1415,11 @@ function PanelInformationExcelDialog({
       return;
     }
 
+    if (preview.newCount + preview.changedCount === 0) {
+      setMessage('적용할 변경사항이 없습니다.');
+      return;
+    }
+
     setIsApplying(true);
     setMessage('');
     try {
@@ -1151,6 +1449,12 @@ function PanelInformationExcelDialog({
     }
   }
 
+  const canApplyPreview = preview !== null
+    && preview.errorCount === 0
+    && preview.newCount + preview.changedCount > 0
+    && (!preview.reasonRequired || reason.trim().length > 0)
+    && !isApplying;
+
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-label="Excel 업로드">
       <div className="dialog wide-dialog">
@@ -1179,35 +1483,29 @@ function PanelInformationExcelDialog({
 
         {preview ? (
           <>
-            <div className="panel-info-summary">
-              <StatusChip label="신규" value={String(preview.newCount)} />
-              <StatusChip label="변경" value={String(preview.changedCount)} />
-              <StatusChip label="동일" value={String(preview.unchangedCount)} />
-              <StatusChip label="오류" value={String(preview.errorCount)} />
-            </div>
-            {preview.reasonRequired ? (
-              <label className="form-field">
-                <span>수정사유*</span>
-                <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
-              </label>
-            ) : null}
-            <div className="excel-preview-table">
-              {preview.rows.map((row) => (
-                <div key={`${row.excelRowNumber}-${row.no ?? 'no'}`} className="excel-preview-row" data-result={row.resultType}>
-                  <strong>Row {row.excelRowNumber}</strong>
-                  <span>{row.no ? `No.${row.no}` : 'No 없음'}</span>
-                  <span>{row.panelName ?? '패널명 없음'}</span>
-                  <span>{row.widthMm ?? '-'} / {row.heightMm ?? '-'} / {row.depthMm ?? '-'}</span>
-                  <span>{row.resultType}</span>
-                  <small>{row.errorMessages.join(' ')}</small>
-                </div>
-              ))}
-            </div>
-            <div className="button-row">
-              <button type="button" className="primary-button" disabled={isApplying || preview.errorCount > 0} onClick={applyFile}>
-                {isApplying ? '적용 중' : '전체 적용'}
+            <div className="excel-preview-action-bar">
+              <div className="excel-preview-counts">
+                <span>신규 {preview.newCount}건</span>
+                <span>변경 {preview.changedCount}건</span>
+                <span>동일 {preview.unchangedCount}건</span>
+                <span>건너뜀 {preview.skippedCount}건</span>
+                <span className={preview.errorCount > 0 ? 'negative-text' : undefined}>오류 {preview.errorCount}건</span>
+              </div>
+              {preview.reasonRequired ? (
+                <label className="form-field excel-preview-reason">
+                  <span>수정사유*</span>
+                  <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
+                </label>
+              ) : null}
+              {preview.newCount + preview.changedCount === 0 ? (
+                <p className="muted-text">적용할 변경사항이 없습니다.</p>
+              ) : null}
+              <button type="button" className="primary-button" disabled={!canApplyPreview} onClick={applyFile}>
+                {isApplying ? '저장 중' : 'Excel 저장'}
               </button>
             </div>
+            <ExcelPreviewDesktop rows={preview.rows} />
+            <ExcelPreviewMobile rows={preview.rows} />
           </>
         ) : null}
         {message ? <p role="alert" className="error-text">{message}</p> : null}
@@ -1216,21 +1514,57 @@ function PanelInformationExcelDialog({
   );
 }
 
-function ExcelImportHistory({ batches }: { batches: PanelInformationHistoryResponse['excelImportBatches'] }) {
-  if (batches.length === 0) {
-    return <p className="empty-text">Excel 입력이력이 없습니다.</p>;
-  }
-
+function ExcelPreviewDesktop({ rows }: { rows: PanelInformationExcelPreviewResponse['rows'] }) {
   return (
-    <ol className="audit-list">
-      {batches.map((batch) => (
-        <li key={batch.importBatchId}>
-          <strong>{batch.originalFileName}</strong>
-          <span>신규 {batch.newPanelCount} · 변경 {batch.changedPanelCount} · 동일 {batch.unchangedPanelCount}</span>
-          <small>{batch.uploadedByUserName ?? batch.uploadedByUserId ?? '-'} · {formatDateTime(batch.uploadedAtUtc)}</small>
-        </li>
+    <div className="excel-preview-table excel-preview-desktop" data-testid="excel-preview-desktop">
+      {rows.map((row) => (
+        <div key={`${row.excelRowNumber}-${row.no ?? 'no'}`} className="excel-preview-row" data-result={row.resultType}>
+          <strong>Row {row.excelRowNumber}</strong>
+          <span>{row.no ? `No.${row.no}` : 'No 없음'}</span>
+          <span>{row.panelName ?? '패널명 없음'}</span>
+          <span>{row.widthMm ?? '-'} / {row.heightMm ?? '-'} / {row.depthMm ?? '-'}</span>
+          <span>{row.resultType}</span>
+          <small>{row.errorMessages.join(' ')}</small>
+        </div>
       ))}
-    </ol>
+    </div>
+  );
+}
+
+function ExcelPreviewMobile({ rows }: { rows: PanelInformationExcelPreviewResponse['rows'] }) {
+  return (
+    <div className="excel-preview-cards excel-preview-mobile" data-testid="excel-preview-mobile">
+      {rows.map((row) => (
+        <article key={`${row.excelRowNumber}-${row.no ?? 'no'}-mobile`} className="excel-preview-card" data-result={row.resultType}>
+          <div className="subsection-header">
+            <h3>{row.no ? `No.${row.no}` : `Row ${row.excelRowNumber}`}</h3>
+            <span className={row.resultType === 'Error' ? 'negative-text' : undefined}>결과: {row.resultType}</span>
+          </div>
+          <dl className="mobile-detail-list">
+            <div>
+              <dt>Panel Name</dt>
+              <dd>
+                <span>기존: {row.currentValue?.panelName ?? '-'}</span>
+                <span>변경: {row.panelName ?? '-'}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>W/H/D</dt>
+              <dd>
+                <span>기존: {formatPreviewSize(row.currentValue)}</span>
+                <span>변경: {formatPreviewSize(row)}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>상태</dt>
+              <dd className={row.resultType === 'Error' ? 'negative-text' : undefined}>
+                {row.errorMessages.length > 0 ? row.errorMessages.join(' ') : previewResultLabel(row.resultType)}
+              </dd>
+            </div>
+          </dl>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -1417,8 +1751,8 @@ function PanelPlaceholderDetailPage({
     <section className="page-surface">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Panel Placeholder</p>
-          <h2>{state.kind === 'ready' ? state.data.displayCode : '패널 상세'}</h2>
+          <p className="eyebrow">Product Panel</p>
+          <h2>{state.kind === 'ready' ? `${state.data.displayCode} 제품 상세` : '제품 상세'}</h2>
         </div>
         <button type="button" onClick={onBack}>프로젝트</button>
       </div>
@@ -1426,9 +1760,9 @@ function PanelPlaceholderDetailPage({
       {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <dl className="detail-grid">
-          <div><dt>패널명</dt><dd>{state.data.panelName ?? '패널명 미정'}</dd></div>
-          <div><dt>패널 상태</dt><dd>{state.data.panelStatus}</dd></div>
-          <div><dt>패널정보</dt><dd>{state.data.panelInfoCompleted ? '완료' : '대기'}</dd></div>
+          <div><dt>패널명</dt><dd>{state.data.panelName ?? '패널명 미입력'}</dd></div>
+          <div><dt>제품상태</dt><dd>{formatPanelStatus(state.data.panelStatus)}</dd></div>
+          <div><dt>패널정보</dt><dd>{state.data.panelInfoCompleted ? '완료' : '미완료'}</dd></div>
           <div><dt>QR 조건</dt><dd>{state.data.qrEligible ? '충족' : '미충족'}</dd></div>
           <div><dt>W/H/D</dt><dd>{formatSize(state.data)}</dd></div>
         </dl>
@@ -1483,7 +1817,7 @@ function DeletedProjectDetailPage({
       </dl>
 
       <section className="subsection">
-        <h3>보존된 패널 Placeholder</h3>
+        <h3>보존된 제품·패널 목록</h3>
         <PanelPlaceholderList panels={project.panels} onOpenPanel={() => undefined} />
       </section>
 
@@ -1591,6 +1925,24 @@ function FormField({ label, error, children }: { label: string; error?: string; 
   );
 }
 
+function useIsMobileViewport() {
+  const query = '(max-width: 860px)';
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia?.(query).matches ?? false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.(query);
+    if (!mediaQuery) {
+      return;
+    }
+
+    const update = (event: MediaQueryListEvent) => setIsMobile(event.matches);
+    mediaQuery.addEventListener('change', update);
+    return () => mediaQuery.removeEventListener('change', update);
+  }, []);
+
+  return isMobile;
+}
+
 function ProjectSummary({ project, canReadSalesAmount }: { project: ProjectListItem; canReadSalesAmount: boolean }) {
   return (
     <dl className="detail-grid">
@@ -1612,7 +1964,7 @@ function ProjectSummary({ project, canReadSalesAmount }: { project: ProjectListI
 }
 
 function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
-  return <span className="status-badge" data-status={status}>{status}</span>;
+  return <span className="status-badge" data-status={status}>{formatProjectStatus(status)}</span>;
 }
 
 function SalesAmountField({ amount, currencyCode }: { amount: number; currencyCode?: string }) {
@@ -1627,7 +1979,7 @@ function PanelPlaceholderList({
   onOpenPanel: (panelId: string) => void;
 }) {
   if (panels.length === 0) {
-    return <p className="empty-text">패널 Placeholder가 없습니다.</p>;
+    return <p className="empty-text">제품·패널이 없습니다.</p>;
   }
 
   return (
@@ -1635,11 +1987,138 @@ function PanelPlaceholderList({
       {panels.map((panel) => (
         <button key={panel.panelId} type="button" className="panel-row" onClick={() => onOpenPanel(panel.panelId)}>
           <strong>{panel.displayCode}</strong>
-          <span>{panel.panelName ?? '패널명 미정'}</span>
+          <span>{panel.panelName ?? '패널명 미입력'}</span>
           <span>{panel.panelInfoCompleted ? '패널정보 완료' : '패널정보 대기'}</span>
           <span>{panel.qrEligible ? 'QR 생성 조건 충족' : 'QR 생성 조건 미충족'}</span>
-          <span>{panel.panelStatus}</span>
+          <span>{formatPanelStatus(panel.panelStatus)}</span>
         </button>
+      ))}
+    </div>
+  );
+}
+
+function ProjectPanelList({
+  panels,
+  packagingMethod,
+  displayUnit,
+  onOpenPanel
+}: {
+  panels: PanelInformationPanel[];
+  packagingMethod: PackagingMethod | null;
+  displayUnit: PanelInputUnit;
+  onOpenPanel: (panelId: string) => void;
+}) {
+  if (panels.length === 0) {
+    return <p className="empty-text">제품·패널이 없습니다.</p>;
+  }
+
+  return (
+    <>
+      <PanelListDesktop
+        panels={panels}
+        packagingMethod={packagingMethod}
+        displayUnit={displayUnit}
+        onOpenPanel={onOpenPanel}
+      />
+      <PanelListMobile
+        panels={panels}
+        packagingMethod={packagingMethod}
+        displayUnit={displayUnit}
+        onOpenPanel={onOpenPanel}
+      />
+    </>
+  );
+}
+
+function PanelListDesktop({
+  panels,
+  packagingMethod,
+  displayUnit,
+  onOpenPanel
+}: {
+  panels: PanelInformationPanel[];
+  packagingMethod: PackagingMethod | null;
+  displayUnit: PanelInputUnit;
+  onOpenPanel: (panelId: string) => void;
+}) {
+  return (
+    <div className="product-panel-table product-panel-desktop" role="table" aria-label="제품·패널 목록" data-testid="project-panel-list-desktop">
+      <div className="product-panel-table-head" role="row">
+        <span>No</span>
+        <span>패널명</span>
+        <span>사이즈</span>
+        <span>제품정보</span>
+        <span>QR</span>
+        <span>상태</span>
+      </div>
+      {panels.map((panel) => (
+        <button key={panel.panelId} type="button" className="product-panel-row" role="row" onClick={() => onOpenPanel(panel.panelId)}>
+          <span>{panel.sequenceNumber}</span>
+          <span>
+            <strong className={panel.panelName ? undefined : 'negative-text'}>{panel.panelName ?? '미입력'}</strong>
+            {panel.hasDuplicateName ? <small>동일 명칭 {panel.duplicateNameCount}면</small> : null}
+          </span>
+          <span className={panelSizeClass(panel, packagingMethod)}>
+            {formatPanelSizeForPackaging(panel, displayUnit, packagingMethod)}
+          </span>
+          <span className={panel.panelInfoCompleted ? undefined : 'negative-text'}>
+            {panel.panelInfoCompleted ? '입력 완료' : '미입력'}
+          </span>
+          <span className={panel.qrEligible ? undefined : 'negative-text'}>
+            {panel.qrEligible ? '생성 가능' : '생성 불가'}
+          </span>
+          <span>{formatWorkflowStage(panel.workflowStage)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PanelListMobile({
+  panels,
+  packagingMethod,
+  displayUnit,
+  onOpenPanel
+}: {
+  panels: PanelInformationPanel[];
+  packagingMethod: PackagingMethod | null;
+  displayUnit: PanelInputUnit;
+  onOpenPanel: (panelId: string) => void;
+}) {
+  return (
+    <div className="product-panel-cards product-panel-mobile" data-testid="project-panel-list-mobile">
+      {panels.map((panel) => (
+        <article key={panel.panelId} className="product-panel-card" data-testid="project-panel-card">
+          <div className="subsection-header">
+            <h3>{panel.panelNumber}</h3>
+            <button type="button" onClick={() => onOpenPanel(panel.panelId)}>상세 보기</button>
+          </div>
+          <dl className="mobile-detail-list">
+            <div>
+              <dt>패널명</dt>
+              <dd>
+                <strong className={panel.panelName ? undefined : 'negative-text'}>{panel.panelName ?? '미입력'}</strong>
+                {panel.hasDuplicateName ? <small>동일 명칭 {panel.duplicateNameCount}면</small> : null}
+              </dd>
+            </div>
+            <div>
+              <dt>사이즈</dt>
+              <dd className={panelSizeClass(panel, packagingMethod)}>{formatPanelSizeForPackaging(panel, displayUnit, packagingMethod)}</dd>
+            </div>
+            <div>
+              <dt>제품정보</dt>
+              <dd className={panel.panelInfoCompleted ? undefined : 'negative-text'}>{panel.panelInfoCompleted ? '입력 완료' : '미입력'}</dd>
+            </div>
+            <div>
+              <dt>QR</dt>
+              <dd className={panel.qrEligible ? undefined : 'negative-text'}>{panel.qrEligible ? '생성 가능' : '생성 불가'}</dd>
+            </div>
+            <div>
+              <dt>상태</dt>
+              <dd>{formatWorkflowStage(panel.workflowStage)}</dd>
+            </div>
+          </dl>
+        </article>
       ))}
     </div>
   );
@@ -1800,6 +2279,41 @@ function AuditHistory({ events }: { events: AuditEvent[] }) {
   );
 }
 
+function GroupedHistory({ groups }: { groups: PanelInformationHistoryResponse['groups'] }) {
+  if (groups.length === 0) {
+    return <p className="empty-text">전체 이력이 없습니다.</p>;
+  }
+
+  return (
+    <ol className="audit-list grouped-audit-list">
+      {groups.map((group) => (
+        <li key={group.groupId}>
+          <strong>{formatInputSource(group.inputSource)} · 대상 패널 {group.affectedPanelCount}면</strong>
+          <span>변경항목 {group.changeCount}건</span>
+          {group.importFileName ? <small>입력 파일: {group.importFileName}</small> : null}
+          {group.reason ? <small>수정사유: {group.reason}</small> : null}
+          <small>{group.changedByName ?? group.changedByUserId ?? '-'} · {formatDateTime(group.changedAtUtc)}</small>
+          <details>
+            <summary>변경 상세</summary>
+            <ol className="audit-change-list">
+              {group.changes.map((change, index) => (
+                <li key={`${group.groupId}-${change.entityId}-${change.fieldName ?? index}-${index}`}>
+                  <strong>{change.panelDisplayName ?? change.panelNumber ?? change.displayCode ?? change.entityType}</strong>
+                  <span>{change.fieldName ?? '-'}: {change.oldValue ?? '-'} → {change.newValue ?? '-'}</span>
+                  {change.originalInputValue ? (
+                    <small>원본 입력값: {change.originalInputValue}{change.inputUnit ? ` ${formatInputUnit(change.inputUnit)}` : ''}</small>
+                  ) : null}
+                  {change.inputUnit ? <small>입력단위: {formatInputUnit(change.inputUnit)}</small> : null}
+                </li>
+              ))}
+            </ol>
+          </details>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function formatInputSource(source: AuditEvent['inputSource']) {
   if (source === 'Direct') {
     return '직접 입력';
@@ -1816,9 +2330,9 @@ function formatInputUnit(unit: PanelInputUnit) {
   return unit === 'Inch' ? 'inch' : 'mm';
 }
 
-function StatusChip({ label, value }: { label: string; value: string }) {
+function StatusChip({ label, value, tone }: { label: string; value: string; tone?: 'danger' }) {
   return (
-    <div className="status-chip">
+    <div className="status-chip" data-tone={tone}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -1996,6 +2510,68 @@ function formatPackagingMethod(value: string | null) {
   return '미지정';
 }
 
+function formatProjectStatus(status: ProjectStatus) {
+  return {
+    Active: '진행',
+    OnHold: '보류',
+    Completed: '완료',
+    Cancelled: '취소'
+  }[status];
+}
+
+function formatProjectWorkStatus(status: ProjectWorkStatus) {
+  return {
+    BeforeManufacturing: '제조 전',
+    ManufacturingInProgress: '제조 중',
+    ManufacturingCompleted: '제조 완료',
+    InspectionInProgress: '검사 중',
+    InspectionCompleted: '검사 완료',
+    ReadyForShipment: '출하 준비',
+    ShipmentCompleted: '출하 완료',
+    OnHold: '보류',
+    Completed: '완료',
+    Cancelled: '취소'
+  }[status];
+}
+
+function formatProjectProgress(progressPercent: number | null) {
+  return progressPercent === null ? '-' : `${progressPercent}%`;
+}
+
+function formatPanelStatus(status: PanelInformationPanel['panelStatus'] | PanelPlaceholder['panelStatus']) {
+  return status === 'Active' ? '진행' : '취소';
+}
+
+function formatWorkflowStage(stage: ProductWorkflowStage) {
+  return {
+    BeforeManufacturing: '제조 전',
+    ManufacturingInProgress: '제조 중',
+    ManufacturingCompleted: '제조 완료',
+    InspectionInProgress: '검사 중',
+    InspectionCompleted: '검사 완료',
+    PackingCompleted: '포장 완료',
+    ShipmentCompleted: '출하 완료'
+  }[stage];
+}
+
+function previewResultLabel(resultType: PanelInformationExcelPreviewResponse['rows'][number]['resultType']) {
+  return {
+    New: '적용 예정',
+    Changed: '적용 예정',
+    Unchanged: '동일',
+    Skipped: '건너뜀',
+    Error: '오류'
+  }[resultType];
+}
+
+function formatPreviewSize(value: Pick<PanelInformationPanel, 'widthMm' | 'heightMm' | 'depthMm'> | PanelInformationExcelPreviewResponse['rows'][number] | null) {
+  if (!value || value.widthMm === null || value.heightMm === null || value.depthMm === null) {
+    return '-';
+  }
+
+  return `${canonicalMmString(value.widthMm)} / ${canonicalMmString(value.heightMm)} / ${canonicalMmString(value.depthMm)}`;
+}
+
 function readDisplayUnit(): PanelInputUnit {
   return window.localStorage.getItem('emi-qms-panel-display-unit') === 'Inch' ? 'Inch' : 'Mm';
 }
@@ -2149,18 +2725,38 @@ function successMessage(message: string) {
 
 function formatPanelSizeInUnit(panel: PanelInformationPanel, unit: PanelInputUnit) {
   if (panel.widthMm === null || panel.heightMm === null || panel.depthMm === null) {
-    return '사이즈 미정';
+    return '미입력';
   }
 
   if (unit === 'Inch') {
-    return `${(panel.widthMm / 25.4).toFixed(2)} x ${(panel.heightMm / 25.4).toFixed(2)} x ${(panel.depthMm / 25.4).toFixed(2)} inch`;
+    return `${(panel.widthMm / 25.4).toFixed(2)} × ${(panel.heightMm / 25.4).toFixed(2)} × ${(panel.depthMm / 25.4).toFixed(2)} inch`;
   }
 
-  return `${trimTrailingZeros(panel.widthMm.toFixed(3))} x ${trimTrailingZeros(panel.heightMm.toFixed(3))} x ${trimTrailingZeros(panel.depthMm.toFixed(3))} mm`;
+  return `${trimTrailingZeros(panel.widthMm.toFixed(3))} × ${trimTrailingZeros(panel.heightMm.toFixed(3))} × ${trimTrailingZeros(panel.depthMm.toFixed(3))} mm`;
+}
+
+function formatPanelSizeForPackaging(
+  panel: PanelInformationPanel,
+  unit: PanelInputUnit,
+  packagingMethod: PackagingMethod | null
+) {
+  if (panel.widthMm !== null && panel.heightMm !== null && panel.depthMm !== null) {
+    return formatPanelSizeInUnit(panel, unit);
+  }
+
+  return packagingMethod === 'WoodenCrate' ? '미입력' : '선택사항';
+}
+
+function panelSizeClass(panel: PanelInformationPanel, packagingMethod: PackagingMethod | null) {
+  return packagingMethod === 'WoodenCrate'
+    && (panel.widthMm === null || panel.heightMm === null || panel.depthMm === null)
+    ? 'negative-text'
+    : undefined;
 }
 
 function projectTabs(canReadDeleted: boolean): Array<{ value: ProjectListTab; label: string }> {
   const tabs: Array<{ value: ProjectListTab; label: string }> = [
+    { value: 'All', label: '전체' },
     { value: 'Active', label: '진행' },
     { value: 'OnHold', label: '보류' },
     { value: 'Completed', label: '완료' },
@@ -2176,8 +2772,8 @@ function projectTabs(canReadDeleted: boolean): Array<{ value: ProjectListTab; la
 
 function formatSize(panel: PanelPlaceholder) {
   if (panel.width === null || panel.height === null || panel.depth === null) {
-    return '사이즈 미정';
+    return '미입력';
   }
 
-  return `${panel.width} x ${panel.height} x ${panel.depth} mm`;
+  return `${panel.width} × ${panel.height} × ${panel.depth} mm`;
 }

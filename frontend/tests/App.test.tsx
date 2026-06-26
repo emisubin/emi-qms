@@ -22,6 +22,8 @@ describe('App', () => {
   });
 
   afterEach(() => {
+    window.history.pushState(null, '', '/');
+    Object.defineProperty(window, 'matchMedia', { writable: true, value: undefined });
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -31,6 +33,49 @@ describe('App', () => {
 
     expect(await screen.findByRole('button', { name: '신규 프로젝트' })).toBeInTheDocument();
     expect(screen.getAllByText('KRW 1,250,000.5').length).toBeGreaterThan(0);
+  });
+
+  it('shows all project tabs by default with a sticky desktop header and workflow progress', async () => {
+    render(<App />);
+
+    const tabs = await screen.findAllByRole('tab');
+    expect(tabs.slice(0, 5).map((tab) => tab.textContent)).toEqual(['전체', '진행', '보류', '완료', '취소']);
+    expect(screen.getByRole('tab', { name: '전체' })).toHaveAttribute('aria-selected', 'true');
+
+    const table = await screen.findByRole('table', { name: '프로젝트 목록' });
+    const header = table.querySelector('.project-list-head');
+    expect(header).not.toBeNull();
+    expect(header).toHaveTextContent('프로젝트명고객사CodeItem면수납기일상태진행률');
+    expect(header).toHaveClass('project-list-head');
+    expect(within(table).getByText('TASK-003A Demo')).toBeInTheDocument();
+    expect(within(table).getByText('OnHold Project')).toBeInTheDocument();
+    expect(within(table).getByText('Completed Project')).toBeInTheDocument();
+    expect(within(table).getByText('Cancelled Project')).toBeInTheDocument();
+    expect(within(table).getByText('제조 전')).toBeInTheDocument();
+    expect(within(table).getByText('0%')).toBeInTheDocument();
+    expect(table).not.toHaveTextContent('BeforeManufacturing');
+    expect(table).not.toHaveTextContent('0/4');
+
+    fireEvent.click(screen.getByRole('tab', { name: '진행' }));
+    await waitFor(() => expect(screen.queryByText('OnHold Project')).not.toBeInTheDocument());
+    expect(screen.getByText('TASK-003A Demo')).toBeInTheDocument();
+  });
+
+  it('renders project list cards for mobile layout without raw enum values', async () => {
+    mockMobileViewport(true);
+    render(<App />);
+
+    const mobileList = await screen.findByTestId('project-list-mobile');
+    const firstCard = within(mobileList).getAllByTestId('project-list-card')[0];
+    expect(firstCard).toHaveTextContent('TASK-003A Demo');
+    expect(firstCard).toHaveTextContent('고객사EMI Test Customer');
+    expect(firstCard).toHaveTextContent('CodePJT-003A');
+    expect(firstCard).toHaveTextContent('ItemControl Panel');
+    expect(firstCard).toHaveTextContent('면수4면');
+    expect(firstCard).toHaveTextContent('납기일2026-10-10');
+    expect(firstCard).toHaveTextContent('상태제조 전');
+    expect(firstCard).toHaveTextContent('진행률0%');
+    expect(firstCard).not.toHaveTextContent('BeforeManufacturing');
   });
 
   it('hides business action buttons from System Administrator while showing sales amount', async () => {
@@ -51,7 +96,7 @@ describe('App', () => {
     expect(screen.queryByText('KRW 1,250,000.5')).not.toBeInTheDocument();
 
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
-    await screen.findByText('패널 Placeholder');
+    await screen.findByText('제품·패널 목록');
 
     expect(screen.queryByRole('button', { name: '수정' })).not.toBeInTheDocument();
   });
@@ -86,8 +131,10 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '등록' }));
 
     expect(await screen.findByRole('button', { name: '저장 중' })).toBeDisabled();
-    expect(await screen.findByText('P01')).toBeInTheDocument();
-    expect(screen.getAllByText('P04').length).toBeGreaterThan(0);
+    const productPanelTable = await screen.findByRole('table', { name: '제품·패널 목록' });
+    expect(within(productPanelTable).getByText('No')).toBeInTheDocument();
+    expect(within(productPanelTable).getByText('패널명')).toBeInTheDocument();
+    expect(within(productPanelTable).getAllByText('미입력').length).toBeGreaterThanOrEqual(4);
   });
 
   it('requires panel selections when decreasing panel count', async () => {
@@ -214,11 +261,11 @@ describe('App', () => {
     }));
   });
 
-  it('requires reasons for hold and cancel dialogs and renders audit history', async () => {
+  it('requires reasons for hold and cancel dialogs', async () => {
     render(<App />);
 
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
-    await screen.findByText('ProjectCreated');
+    await screen.findByText('제품·패널 목록');
     fireEvent.click(screen.getByRole('button', { name: '보류' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: '프로젝트 보류' })).getByRole('button', { name: '확인' }));
 
@@ -228,8 +275,8 @@ describe('App', () => {
   it('renders OnHold and Cancelled status badges', async () => {
     render(<App />);
 
-    expect(await screen.findByText('OnHold')).toBeInTheDocument();
-    expect(screen.getByText('Cancelled')).toBeInTheDocument();
+    expect((await screen.findAllByText('보류')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('취소').length).toBeGreaterThan(0);
   });
 
   it('ignores a stale active tab response after the cancelled tab loads', async () => {
@@ -364,6 +411,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
     await screen.findByRole('button', { name: '신규 프로젝트' });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('button', { name: '패널정보 수정' }));
     fireEvent.change(await screen.findByLabelText('입력 단위'), { target: { value: 'Inch' } });
     fireEvent.click(screen.getByRole('button', { name: 'Excel 양식 다운로드' }));
 
@@ -380,11 +428,15 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
     await screen.findByRole('button', { name: '신규 프로젝트' });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    expect(await screen.findByRole('button', { name: '패널정보 수정' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Excel 양식 다운로드' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '패널정보 수정' }));
     expect(await screen.findByRole('button', { name: 'Excel 양식 다운로드' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('개발 사용자'), { target: { value: 'dev-manufacturing' } });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
-    await screen.findByText('패널정보');
+    await screen.findByText('제품·패널 목록');
+    expect(screen.queryByRole('button', { name: '패널정보 수정' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel 양식 다운로드' })).not.toBeInTheDocument();
   });
 
@@ -402,6 +454,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
     await screen.findByRole('button', { name: '신규 프로젝트' });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('button', { name: '패널정보 수정' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Excel 양식 다운로드' }));
 
     expect(await screen.findByText('양식을 다운로드할 수 없습니다.')).toBeInTheDocument();
@@ -432,6 +485,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
     await screen.findByRole('button', { name: '신규 프로젝트' });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('button', { name: '패널정보 수정' }));
     fireEvent.change(await screen.findByLabelText('입력 단위'), { target: { value: 'Inch' } });
     fireEvent.change(await screen.findByLabelText('No.1 패널명'), { target: { value: 'DRIFT-B' } });
     fireEvent.change(await screen.findByLabelText('수정사유*'), { target: { value: '패널명만 변경' } });
@@ -447,20 +501,19 @@ describe('App', () => {
   it('shows direct, excel, canonical, original input, and legacy panel audit metadata', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
 
-    expect(await screen.findByText('입력 방식: 직접 입력')).toBeInTheDocument();
-    expect(await screen.findByText('입력 방식: Excel 입력')).toBeInTheDocument();
-    expect(await screen.findByText('입력 방식: 기존 이력')).toBeInTheDocument();
+    expect(await screen.findByText('전체 이력')).toBeInTheDocument();
+    expect(await screen.findByText('직접 입력 · 대상 패널 1면')).toBeInTheDocument();
+    expect(await screen.findByText('Excel 입력 · 대상 패널 1면')).toBeInTheDocument();
+    expect(await screen.findByText('기존 이력 · 대상 패널 1면')).toBeInTheDocument();
     expect(screen.getByText('입력 파일: panel_information_01.xlsx')).toBeInTheDocument();
-    expect(screen.getByText('입력 단위: inch')).toBeInTheDocument();
-    expect(screen.getAllByText('입력 단위: mm').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('입력값: 31.5 inch')).toBeInTheDocument();
-    expect(screen.getByText('저장값: 800.1 mm')).toBeInTheDocument();
-    expect(screen.getByText('Excel Batch: panel_information_01.xlsx')).toBeInTheDocument();
-    expect(screen.getByText('No.2 · PNL-2')).toBeInTheDocument();
+    expect(screen.getAllByText('변경항목 1건').length).toBeGreaterThanOrEqual(3);
+    fireEvent.click(screen.getAllByText('변경 상세')[0]);
+    expect(screen.getByText('원본 입력값: 31.5 inch')).toBeInTheDocument();
+    expect(screen.getByText('입력단위: inch')).toBeInTheDocument();
+    expect(screen.getByText('WidthMm: 700 → 800.1')).toBeInTheDocument();
   });
 });
 
@@ -509,15 +562,19 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
   if (path === '/api/projects') {
+    const status = url.searchParams.get('status');
+    const items = [
+      projectListItem(userKey, 'Active', 'TASK-003A Demo', projectId),
+      projectListItem(userKey, 'OnHold', 'OnHold Project', onHoldProjectId),
+      projectListItem(userKey, 'Completed', 'Completed Project', '71000000-0000-0000-0000-000000000013'),
+      projectListItem(userKey, 'Cancelled', 'Cancelled Project', cancelledProjectId)
+    ].filter((item) => !status || item.status === status);
+
     return json({
-      items: [
-        projectListItem(userKey, 'Active', 'TASK-003A Demo', projectId),
-        projectListItem(userKey, 'OnHold', 'OnHold Project', onHoldProjectId),
-        projectListItem(userKey, 'Cancelled', 'Cancelled Project', cancelledProjectId)
-      ],
+      items,
       page: 1,
       pageSize: 20,
-      totalCount: 3
+      totalCount: items.length
     });
   }
 
@@ -564,6 +621,10 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
   if (path === `/api/projects/${projectId}/audit-history`) {
+    if (userKey !== 'dev-admin') {
+      return json({ title: 'Forbidden' }, 403);
+    }
+
     return json({
       items: [
         {
@@ -595,7 +656,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (path === `/api/projects/${projectId}/panel-information/history`
       || path === `/api/projects/${onHoldProjectId}/panel-information/history`) {
-    return json(panelInformationHistory());
+    return json(panelInformationHistory(), userKey === 'dev-admin' ? 200 : 403);
   }
 
   if (path.endsWith('/delete')) {
@@ -625,7 +686,7 @@ function currentUser(userKey: string) {
   }
 
   if (userKey === 'dev-admin') {
-    permissions.push('Project.Deleted.Read', 'Project.SalesAmount.Read', 'users.manage');
+    permissions.push('Project.Deleted.Read', 'Project.SalesAmount.Read', 'Audit.Read.All', 'users.manage');
   }
 
   return {
@@ -638,7 +699,7 @@ function currentUser(userKey: string) {
   };
 }
 
-function projectListItem(userKey: string, status: 'Active' | 'OnHold' | 'Cancelled', title: string, id = projectId) {
+function projectListItem(userKey: string, status: 'Active' | 'OnHold' | 'Cancelled' | 'Completed', title: string, id = projectId) {
   const item: Record<string, unknown> = {
     projectId: id,
     customerName: 'EMI Test Customer',
@@ -652,6 +713,8 @@ function projectListItem(userKey: string, status: 'Active' | 'OnHold' | 'Cancell
     packagingMethod: 'WoodenCrate',
     deliveryLocation: 'Dock A',
     status,
+    projectWorkStatus: status === 'Active' ? 'BeforeManufacturing' : status,
+    projectProgressPercent: status === 'Active' ? 0 : null,
     createdAt: '2026-06-25T00:00:00Z',
     updatedAt: '2026-06-25T00:00:00Z'
   };
@@ -682,6 +745,9 @@ function projectDetail(
 ) {
   return {
     ...projectListItem(includeSalesAmount ? 'dev-sales' : 'dev-manufacturing', status, title, id),
+    qrEligibleCount: 0,
+    manufacturingCompletedCount: 0,
+    inspectionCompletedCount: 0,
     statusReason: status === 'Active' ? null : '상태 사유'
   };
 }
@@ -697,6 +763,7 @@ function panels(id = projectId) {
     height: null,
     depth: null,
     panelStatus: 'Active',
+    workflowStage: 'BeforeManufacturing',
     panelInfoCompleted: false,
     qrEligible: false,
     createdAt: '2026-06-25T00:00:00Z',
@@ -713,6 +780,8 @@ function panelInformation(id = projectId) {
     panelInfoCompletedCount: 0,
     panelInfoPendingCount: 4,
     qrEligibleCount: 0,
+    manufacturingCompletedCount: 0,
+    inspectionCompletedCount: 0,
     duplicatePanelNameGroupCount: 0,
     projectPanelInformationCompleted: false,
     panelInformationStatusMessage: null,
@@ -723,11 +792,12 @@ function panelInformation(id = projectId) {
       panelNumber: `No.${index + 1}`,
       displayCode: `P0${index + 1}`,
       panelName: null,
-      displayName: `No.${index + 1} · 패널명 미정`,
+      displayName: `No.${index + 1} · 패널명 미입력`,
       widthMm: null,
       heightMm: null,
       depthMm: null,
       panelStatus: 'Active',
+      workflowStage: 'BeforeManufacturing',
       panelInfoCompleted: false,
       qrEligible: false,
       hasDuplicateName: false,
@@ -759,6 +829,92 @@ function panelInformationWithSize(id = projectId, panelName = 'DRIFT-A') {
 
 function panelInformationHistory() {
   return {
+    groups: [
+      {
+        groupId: 'import:91000000000000000000000000000001',
+        actionType: 'PanelInfoUpdated',
+        inputSource: 'Excel',
+        changedByUserId: salesOwnerId,
+        changedByName: 'Dev Design User',
+        changedAtUtc: '2026-06-26T01:30:00Z',
+        reason: 'Excel inch 변경',
+        importBatchId: '91000000-0000-0000-0000-000000000001',
+        importFileName: 'panel_information_01.xlsx',
+        importUploadedAtUtc: '2026-06-26T01:29:00Z',
+        affectedPanelCount: 1,
+        changeCount: 1,
+        changes: [
+          {
+            entityType: 'Panel',
+            entityId: panelIds[1],
+            panelNumber: 'No.2',
+            panelDisplayName: 'No.2 · PNL-2',
+            displayCode: 'P02',
+            fieldName: 'WidthMm',
+            oldValue: '700',
+            newValue: '800.1',
+            inputUnit: 'Inch',
+            originalInputValue: '31.5'
+          }
+        ]
+      },
+      {
+        groupId: 'correlation:corr-direct',
+        actionType: 'PanelInfoUpdated',
+        inputSource: 'Direct',
+        changedByUserId: salesOwnerId,
+        changedByName: 'Dev Design User',
+        changedAtUtc: '2026-06-26T01:00:00Z',
+        reason: '직접 입력',
+        importBatchId: null,
+        importFileName: null,
+        importUploadedAtUtc: null,
+        affectedPanelCount: 1,
+        changeCount: 1,
+        changes: [
+          {
+            entityType: 'Panel',
+            entityId: panelIds[0],
+            panelNumber: 'No.1',
+            panelDisplayName: 'No.1 · PNL-1',
+            displayCode: 'P01',
+            fieldName: 'PanelName',
+            oldValue: '',
+            newValue: 'PNL-1',
+            inputUnit: 'Mm',
+            originalInputValue: null
+          }
+        ]
+      },
+      {
+        groupId: 'correlation:corr-legacy',
+        actionType: 'PanelInfoUpdated',
+        inputSource: null,
+        changedByUserId: null,
+        changedByName: null,
+        changedAtUtc: '2026-06-26T00:30:00Z',
+        reason: null,
+        importBatchId: null,
+        importFileName: null,
+        importUploadedAtUtc: null,
+        affectedPanelCount: 1,
+        changeCount: 1,
+        changes: [
+          {
+            entityType: 'Panel',
+            entityId: panelIds[2],
+            panelNumber: 'No.3',
+            panelDisplayName: 'No.3 · PNL-LEGACY',
+            displayCode: 'P03',
+            fieldName: 'PanelName',
+            oldValue: '',
+            newValue: 'PNL-LEGACY',
+            inputUnit: null,
+            originalInputValue: null
+          }
+        ]
+      }
+    ],
     auditEvents: [
       {
         auditEventId: '90000000-0000-0000-0000-000000000001',
@@ -833,6 +989,7 @@ function panelInformationHistory() {
         newPanelCount: 0,
         changedPanelCount: 1,
         unchangedPanelCount: 0,
+        skippedPanelCount: 0,
         uploadedByUserId: salesOwnerId,
         uploadedByUserName: 'Dev Design User',
         uploadedAtUtc: '2026-06-26T01:29:00Z',
@@ -848,6 +1005,22 @@ function canReadSalesAmount(userKey: string) {
 
 function canReadDeletedProjects(userKey: string) {
   return userKey === 'dev-sales' || userKey === 'dev-admin';
+}
+
+function mockMobileViewport(matches: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }))
+  });
 }
 
 function readDevUser(init?: RequestInit) {

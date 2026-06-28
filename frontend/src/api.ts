@@ -13,7 +13,18 @@ import type {
   PanelInformationHistoryResponse,
   PanelInformationResponse,
   PanelInputUnit,
+  ProcurementBulkUpdateRequest,
+  ProcurementDashboardResponse,
+  ProcurementExcelPreviewResponse,
+  ProcurementHistoryResponse,
+  ProcurementListResponse,
+  ProcurementReceiptBulkUpdateRequest,
+  ProcurementResponse,
+  ProjectExcelApplyResponse,
+  ProjectExcelPreviewResponse,
   ProjectDetail,
+  ProjectDashboardSummary,
+  PurgeDeletedProjectsResponse,
   ProjectListResponse,
   ProjectListTab,
   ProjectStatusChangeRequest,
@@ -52,7 +63,7 @@ export async function listProjects(
   developmentUserKey: string | undefined,
   search = '',
   status: ProjectListTab = 'All',
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; deliveryDateFrom?: string; deliveryDateTo?: string } = {}
 ): Promise<ProjectListResponse> {
   const params = new URLSearchParams();
   if (search.trim()) {
@@ -61,8 +72,21 @@ export async function listProjects(
   if (status !== 'Deleted' && status !== 'All') {
     params.set('status', status);
   }
+  if (options.deliveryDateFrom) {
+    params.set('deliveryDateFrom', options.deliveryDateFrom);
+  }
+  if (options.deliveryDateTo) {
+    params.set('deliveryDateTo', options.deliveryDateTo);
+  }
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<ProjectListResponse>(`/api/projects${query}`, developmentUserKey, { signal: options.signal });
+}
+
+export async function getProjectSummary(
+  developmentUserKey: string | undefined,
+  options: { signal?: AbortSignal } = {}
+): Promise<ProjectDashboardSummary> {
+  return fetchJson<ProjectDashboardSummary>('/api/projects/summary', developmentUserKey, { signal: options.signal });
 }
 
 export async function listDeletedProjects(
@@ -88,6 +112,38 @@ export async function getDeletedProject(
   return fetchJson<DeletedProjectDetail>(`/api/deleted-projects/${projectId}`, developmentUserKey);
 }
 
+export async function purgeDeletedProject(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  confirmText: string
+): Promise<PurgeDeletedProjectsResponse> {
+  return fetchJson<PurgeDeletedProjectsResponse>(`/api/deleted-projects/${projectId}/purge`, developmentUserKey, {
+    method: 'DELETE',
+    body: JSON.stringify({ confirmText })
+  });
+}
+
+export async function restoreDeletedProject(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  reason: string | null = null
+): Promise<ProjectDetail> {
+  return fetchJson<ProjectDetail>(`/api/deleted-projects/${projectId}/restore`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ reason })
+  });
+}
+
+export async function purgeAllDeletedProjects(
+  developmentUserKey: string | undefined,
+  confirmText: string
+): Promise<PurgeDeletedProjectsResponse> {
+  return fetchJson<PurgeDeletedProjectsResponse>('/api/deleted-projects/purge-all', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ confirmText })
+  });
+}
+
 export async function createProject(
   developmentUserKey: string | undefined,
   request: CreateProjectRequest
@@ -95,6 +151,48 @@ export async function createProject(
   return fetchJson<ProjectDetail>('/api/projects', developmentUserKey, {
     method: 'POST',
     body: JSON.stringify(request)
+  });
+}
+
+export async function downloadProjectExcelTemplate(
+  developmentUserKey: string | undefined
+): Promise<{ blob: Blob; fileName: string }> {
+  const response = await fetchWithAuth('/api/projects/import/template', developmentUserKey);
+
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? 'Project_Create_Template.xlsx'
+  };
+}
+
+export async function previewProjectExcel(
+  developmentUserKey: string | undefined,
+  file: File
+): Promise<ProjectExcelPreviewResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  return fetchJson<ProjectExcelPreviewResponse>('/api/projects/import/preview', developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function applyProjectExcel(
+  developmentUserKey: string | undefined,
+  file: File,
+  expectedFileSha256: string
+): Promise<ProjectExcelApplyResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('expectedFileSha256', expectedFileSha256);
+  return fetchJson<ProjectExcelApplyResponse>('/api/projects/import/apply', developmentUserKey, {
+    method: 'POST',
+    body: form
   });
 }
 
@@ -265,6 +363,141 @@ export async function applyPanelInformationExcel(
     });
 }
 
+export async function getProjectProcurement(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<ProcurementResponse> {
+  return fetchJson<ProcurementResponse>(`/api/projects/${projectId}/procurement`, developmentUserKey);
+}
+
+export async function updateProjectProcurement(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  request: ProcurementBulkUpdateRequest
+): Promise<ProcurementResponse> {
+  return fetchJson<ProcurementResponse>(`/api/projects/${projectId}/procurement`, developmentUserKey, {
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getProjectProcurementHistory(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<ProcurementHistoryResponse> {
+  return fetchJson<ProcurementHistoryResponse>(`/api/projects/${projectId}/procurement/history`, developmentUserKey);
+}
+
+export async function downloadProcurementTemplate(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<{ blob: Blob; fileName: string }> {
+  const response = await fetchWithAuth(`/api/projects/${projectId}/procurement/import/template`, developmentUserKey);
+
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? 'Procurement_Plan_Template.xlsx'
+  };
+}
+
+export async function previewProcurementExcel(
+  developmentUserKey: string | undefined,
+  file: File,
+  projectSelections: Array<{ sourceGroupSequence: number; projectId: string }>
+): Promise<ProcurementExcelPreviewResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('projectSelections', JSON.stringify(projectSelections));
+  return fetchJson<ProcurementExcelPreviewResponse>('/api/procurement/import/preview', developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function applyProcurementExcel(
+  developmentUserKey: string | undefined,
+  file: File,
+  expectedFileSha256: string,
+  reason: string | null,
+  projectSelections: Array<{ sourceGroupSequence: number; projectId: string }>,
+  expectedVersions: Array<{ itemId: string; expectedRowVersion: number }>
+): Promise<ProcurementListResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('expectedFileSha256', expectedFileSha256);
+  form.append('projectSelections', JSON.stringify(projectSelections));
+  form.append('expectedVersions', JSON.stringify(expectedVersions));
+  if (reason) {
+    form.append('reason', reason);
+  }
+
+  return fetchJson<ProcurementListResponse>('/api/procurement/import/apply', developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function getProcurementDashboard(
+  developmentUserKey: string | undefined,
+  search = '',
+  expectedReceiptDateFrom = '',
+  expectedReceiptDateTo = ''
+): Promise<ProcurementDashboardResponse> {
+  const params = new URLSearchParams();
+  if (search.trim()) {
+    params.set('search', search.trim());
+  }
+  if (expectedReceiptDateFrom) {
+    params.set('expectedReceiptDateFrom', expectedReceiptDateFrom);
+  }
+  if (expectedReceiptDateTo) {
+    params.set('expectedReceiptDateTo', expectedReceiptDateTo);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<ProcurementDashboardResponse>(`/api/procurement/dashboard${query}`, developmentUserKey);
+}
+
+export async function getMaterialReceipts(
+  developmentUserKey: string | undefined,
+  search = '',
+  includeCompleted = false,
+  expectedReceiptDateFrom = '',
+  expectedReceiptDateTo = ''
+): Promise<ProcurementListResponse> {
+  const params = new URLSearchParams();
+  if (search.trim()) {
+    params.set('search', search.trim());
+  }
+
+  if (includeCompleted) {
+    params.set('includeCompleted', 'true');
+  }
+  if (expectedReceiptDateFrom) {
+    params.set('expectedReceiptDateFrom', expectedReceiptDateFrom);
+  }
+  if (expectedReceiptDateTo) {
+    params.set('expectedReceiptDateTo', expectedReceiptDateTo);
+  }
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<ProcurementListResponse>(`/api/materials/receipts${query}`, developmentUserKey);
+}
+
+export async function updateMaterialReceipts(
+  developmentUserKey: string | undefined,
+  request: ProcurementReceiptBulkUpdateRequest
+): Promise<ProcurementListResponse> {
+  return fetchJson<ProcurementListResponse>('/api/materials/receipts', developmentUserKey, {
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
+}
+
 async function fetchWithAuth(path: string, developmentUserKey?: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
 
@@ -286,7 +519,12 @@ async function fetchJson<T>(path: string, developmentUserKey?: string, init?: Re
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetchWithAuth(path, undefined, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetchWithAuth(path, undefined, { ...init, headers });
+  } catch {
+    throw new ApiError(0, '서버에 연결할 수 없습니다. 서버 실행 상태를 확인해 주세요.');
+  }
 
   if (!response.ok) {
     const problem = await readProblem(response);
@@ -322,11 +560,108 @@ async function readProblem(response: Response): Promise<{ message: string; error
       detail?: string;
       errors?: Record<string, string[]>;
     };
+    const errors = localizeProblemErrors(payload.errors);
     return {
-      message: payload.title ?? payload.detail ?? `API 요청 실패: ${response.status}`,
-      errors: payload.errors
+      message: chooseProblemMessage(response.status, payload.detail, payload.title, errors),
+      errors
     };
   } catch {
-    return { message: `API 요청 실패: ${response.status}` };
+    return { message: statusMessage(response.status) };
   }
+}
+
+function chooseProblemMessage(status: number, detail?: string, title?: string, errors?: Record<string, string[]>) {
+  const firstError = errors ? Object.values(errors).flat().find(Boolean) : undefined;
+  if (detail && !isEnglishProblemTitle(detail)) {
+    return detail;
+  }
+
+  if (firstError) {
+    return status === 400 ? '입력값을 확인해 주세요.' : firstError;
+  }
+
+  if (title && !isEnglishProblemTitle(title)) {
+    return title;
+  }
+
+  return statusMessage(status);
+}
+
+function localizeProblemErrors(errors?: Record<string, string[]>) {
+  if (!errors) {
+    return undefined;
+  }
+
+  return Object.fromEntries(Object.entries(errors).map(([key, values]) => [
+    localizeFieldName(key),
+    values.map(localizeErrorMessage)
+  ]));
+}
+
+function localizeFieldName(key: string) {
+  const normalized = key.replace(/^\$\.?/u, '').replace(/^request\./iu, '');
+  const labels: Record<string, string> = {
+    projectTitle: '프로젝트명',
+    ProjectTitle: '프로젝트명',
+    expectedReceiptDate: '입고예정일',
+    ExpectedReceiptDate: '입고예정일',
+    receiptCompletedAtUtc: '완료일',
+    ReceiptCompletedAtUtc: '완료일',
+    receiptCompletionNote: '완료 비고',
+    ReceiptCompletionNote: '완료 비고',
+    orderItem: '구매품목',
+    OrderItem: '구매품목',
+    Items: '항목',
+    Reason: '사유',
+    File: '파일'
+  };
+  return labels[normalized] ?? normalized;
+}
+
+function localizeErrorMessage(message: string) {
+  if (message.includes('could not be converted') || message.includes('is not valid')) {
+    return '입력 형식이 올바르지 않습니다.';
+  }
+
+  if (isEnglishProblemTitle(message)) {
+    return '입력값을 확인해 주세요.';
+  }
+
+  return message.replaceAll('QMS', '시스템');
+}
+
+function isEnglishProblemTitle(message: string) {
+  return [
+    'One or more validation errors occurred',
+    'Internal Server Error',
+    'Bad Request',
+    'Unauthorized',
+    'Forbidden',
+    'Conflict'
+  ].some((text) => message.includes(text));
+}
+
+function statusMessage(status: number) {
+  if (status === 0) {
+    return '서버에 연결할 수 없습니다. 서버 실행 상태를 확인해 주세요.';
+  }
+  if (status === 400) {
+    return '입력값을 확인해 주세요.';
+  }
+  if (status === 401) {
+    return '인증이 필요합니다.';
+  }
+  if (status === 403) {
+    return '이 작업을 수행할 권한이 없습니다.';
+  }
+  if (status === 404) {
+    return '대상을 찾을 수 없습니다.';
+  }
+  if (status === 409) {
+    return '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도해 주세요.';
+  }
+  if (status >= 500) {
+    return '처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
+  }
+  return '요청을 처리할 수 없습니다.';
 }

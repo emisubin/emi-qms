@@ -90,6 +90,18 @@ public static class AuthorizationServiceCollectionExtensions
                 policy.AddRequirements(new PermissionRequirement(QmsPermissions.AuditReadAll));
             });
 
+            options.AddPolicy(QmsPolicies.ProcurementPlanUpdate, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.ProcurementPlanUpdate));
+            });
+
+            options.AddPolicy(QmsPolicies.MaterialReceiptUpdate, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.MaterialReceiptUpdate));
+            });
+
             options.AddPolicy(QmsPolicies.ManufacturingUpdate, policy =>
             {
                 policy.RequireAuthenticatedUser();

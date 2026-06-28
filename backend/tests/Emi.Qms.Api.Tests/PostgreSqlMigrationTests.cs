@@ -23,11 +23,11 @@ public sealed class PostgreSqlMigrationTests
 
         var counts = await ReadCountsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         Assert.Equal(0, counts.Users);
-        Assert.Equal(1, counts.Departments);
+        Assert.Equal(3, counts.Departments);
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
-        Assert.Equal(8, counts.Roles);
-        Assert.Equal(20, counts.Permissions);
+        Assert.Equal(10, counts.Roles);
+        Assert.Equal(22, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
@@ -889,8 +889,8 @@ public sealed class PostgreSqlMigrationTests
         await seeder.SeedAsync(TestContext.Current.CancellationToken);
 
         var counts = await ReadCountsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
-        Assert.Equal(10, counts.Users);
-        Assert.Equal(8, counts.Departments);
+        Assert.Equal(12, counts.Users);
+        Assert.Equal(10, counts.Departments);
         Assert.Equal(2, counts.Projects);
         Assert.Equal(9, counts.ProjectAccess);
         Assert.Equal(1, counts.DisabledUsers);

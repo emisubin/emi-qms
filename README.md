@@ -70,6 +70,24 @@ Copy-Item .env.example .env
 Development 환경에서는 `.env.example`의 명시적 설정으로 TASK-002의 개발용 인증과 개발 데이터 seeding이 활성화됩니다. 프런트엔드는 `VITE_DEV_USER_KEY` 값이 없으면 `dev-admin`으로 `/api/me`를 호출합니다.
 TASK-002A 기준으로 모든 활성 내부 개발 역할과 `dev-viewer`는 `Project.Read.All`을 통해 두 demo 프로젝트를 모두 조회할 수 있습니다.
 
+### TASK-004A 수동 검수 고정 환경
+
+TASK-004A 수동 검수는 일반 개발 실행과 E2E 임시 DB를 혼동하지 않도록 고정 포트와 고정 DB를 사용한다.
+
+```bash
+./scripts/dev-uat-start.sh
+```
+
+고정값:
+
+- Backend: `http://127.0.0.1:5081`
+- Frontend: `http://127.0.0.1:5174`
+- Frontend origin: `http://127.0.0.1:5174`
+- Manual UAT DB: `emi_qms_uat_004a`
+- PostgreSQL container: `emi-qms-postgres`
+
+이 스크립트는 Docker volume을 삭제하지 않고, `emi_qms_uat_004a` DB가 없을 때만 생성한다. 기존 수동 검수 데이터는 `projects`, `panel_placeholders`, `project_procurement_items`, `project_audit_events`, `procurement_excel_import_batches`, `panel_information_excel_import_batches` 등에 유지된다. E2E 테스트는 별도 임시 DB를 만들고 테스트 종료 후 삭제하므로, E2E 중 만든 데이터는 수동 검수 DB에 남지 않는다.
+
 TASK-003B 기준으로 패널정보 직접 입력은 변경 의도를 명시하는 update mask 방식입니다. 화면은 canonical mm 저장값과 mm/inch 표시 문자열을 분리하므로 표시 단위 전환만으로 저장 요청, 감사이력, version 증가가 발생하지 않습니다. Excel Preview/Apply는 `.xlsx`만 허용하며 ZIP/Workbook 리소스 제한과 인스턴스 단위 parse 동시실행 제한을 적용하고, Apply 시 project row lock 이후 최신 포장방식과 panel version을 다시 검증합니다. Panel History는 Direct/Excel 입력방식, Import Batch 연결, 입력단위, 원본 입력값과 canonical mm 변경값을 함께 반환하며 legacy audit의 null metadata도 읽을 수 있습니다.
 
 TASK-003B-1 기준으로 프로젝트 상세은 읽기 전용 제품·패널 목록을 보여주고, 입력권한 사용자는 `/projects/{projectId}/panel-information/edit` 수정 페이지에서만 직접 입력과 Excel 다운로드·업로드를 수행합니다. 제품 업무상태는 패널 관리상태 `Active/Cancelled`와 분리된 `workflow_stage`로 저장하며 기본값은 `BeforeManufacturing`입니다. 프로젝트 상세 요약은 Backend가 계산한 QR 가능, 제조 완료, 검사 완료 집계를 활성 패널 수 기준으로 표시합니다. Excel Apply는 파일에 포함된 일부 No만 변경할 수 있고 빈 editable 행은 `Skipped`로 처리하며, Preview 상단 sticky action bar에서 건수·수정사유·Excel 저장 버튼을 제공합니다. Field-level audit row는 유지하되 관리자 전용 `Audit.Read.All` 권한을 가진 System Administrator만 ImportBatchId 또는 CorrelationId 기준으로 그룹화된 전체 이력을 조회합니다.

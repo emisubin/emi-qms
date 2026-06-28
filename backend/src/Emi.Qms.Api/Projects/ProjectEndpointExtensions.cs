@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.PanelInformation;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Emi.Qms.Api.Projects;
 
@@ -58,6 +60,12 @@ public static class ProjectEndpointExtensions
                 return Results.Forbid();
             }
 
+            var dateRange = ParseDateRange(request, "deliveryDateFrom", "deliveryDateTo");
+            if (dateRange.Errors.Count > 0)
+            {
+                return Results.ValidationProblem(dateRange.Errors);
+            }
+
             var query = ParseProjectListQuery(request);
             var result = await projectStore.ListProjectsAsync(
                 query,
@@ -69,6 +77,25 @@ public static class ProjectEndpointExtensions
         })
         .RequireAuthorization()
         .WithName("ListProjects");
+
+        api.MapGet("/projects/summary", async (
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            if (!HasPermission(user, QmsPermissions.ProjectRead))
+            {
+                return Results.Forbid();
+            }
+
+            var result = await projectStore.GetProjectDashboardSummaryAsync(
+                GetProjectAccessScope(user),
+                cancellationToken);
+
+            return Results.Ok(result);
+        })
+        .RequireAuthorization()
+        .WithName("GetProjectDashboardSummary");
 
         api.MapGet("/deleted-projects", async (
             HttpRequest request,
@@ -102,6 +129,55 @@ public static class ProjectEndpointExtensions
         .RequireAuthorization(QmsPolicies.ProjectDeletedRead)
         .WithName("GetDeletedProject");
 
+        api.MapPost("/deleted-projects/{projectId:guid}/restore", async (
+            Guid projectId,
+            RestoreDeletedProjectRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await projectStore.RestoreDeletedProjectAsync(
+                projectId,
+                request.Reason,
+                userId.Value,
+                httpContext.TraceIdentifier,
+                CanReadSalesAmount(user),
+                cancellationToken);
+            return ToProjectMutationResult(result, Results.Ok);
+        })
+        .RequireAuthorization(QmsPolicies.AuditReadAll)
+        .WithName("RestoreDeletedProject");
+
+        api.MapDelete("/deleted-projects/{projectId:guid}/purge", async (
+            Guid projectId,
+            [FromBody] PurgeDeletedProjectRequest request,
+            ProjectStore projectStore,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await projectStore.PurgeDeletedProjectAsync(projectId, request.ConfirmText, cancellationToken);
+            return ToProjectMutationResult(result, value => Results.Ok(value));
+        })
+        .RequireAuthorization(QmsPolicies.AuditReadAll)
+        .WithName("PurgeDeletedProject");
+
+        api.MapPost("/deleted-projects/purge-all", async (
+            PurgeDeletedProjectRequest request,
+            ProjectStore projectStore,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await projectStore.PurgeAllDeletedProjectsAsync(request.ConfirmText, cancellationToken);
+            return ToProjectMutationResult(result, value => Results.Ok(value));
+        })
+        .RequireAuthorization(QmsPolicies.AuditReadAll)
+        .WithName("PurgeAllDeletedProjects");
+
         api.MapPost("/projects", async (
             CreateProjectRequest request,
             ProjectStore projectStore,
@@ -132,6 +208,69 @@ public static class ProjectEndpointExtensions
         })
         .RequireAuthorization(QmsPolicies.ProjectCreate)
         .WithName("CreateProject");
+
+        api.MapGet("/projects/import/template", (
+            ProjectStore projectStore) =>
+        {
+            var template = projectStore.CreateProjectExcelTemplate();
+            return Results.File(template.Content, template.ContentType, template.FileName);
+        })
+        .RequireAuthorization(QmsPolicies.ProjectCreate)
+        .WithName("DownloadProjectExcelTemplate");
+
+        api.MapPost("/projects/import/preview", async (
+            HttpRequest request,
+            ProjectStore projectStore,
+            CancellationToken cancellationToken) =>
+        {
+            var upload = await ReadProjectExcelUploadAsync(request, cancellationToken);
+            if (upload.Errors.Count > 0 || upload.File is null)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["File"] = upload.Errors.ToArray() });
+            }
+
+            var result = await projectStore.PreviewProjectExcelAsync(upload.File, cancellationToken);
+            return ToProjectMutationResult(result, Results.Ok);
+        })
+        .WithMetadata(new RequestSizeLimitAttribute(ProjectExcelParser.MaxExcelMultipartRequestBytes))
+        .RequireAuthorization(QmsPolicies.ProjectCreate)
+        .WithName("PreviewProjectExcelImport");
+
+        api.MapPost("/projects/import/apply", async (
+            HttpRequest request,
+            ProjectStore projectStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var upload = await ReadProjectExcelUploadAsync(request, cancellationToken);
+            if (upload.Errors.Count > 0 || upload.File is null)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["File"] = upload.Errors.ToArray() });
+            }
+
+            if (string.IsNullOrWhiteSpace(upload.ExpectedFileSha256))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["ExpectedFileSha256"] = ["미리보기 파일 해시가 필요합니다."] });
+            }
+
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await projectStore.ApplyProjectExcelAsync(
+                upload.File,
+                upload.ExpectedFileSha256,
+                userId.Value,
+                httpContext.TraceIdentifier,
+                cancellationToken);
+            return ToProjectMutationResult(result, Results.Ok);
+        })
+        .WithMetadata(new RequestSizeLimitAttribute(ProjectExcelParser.MaxExcelMultipartRequestBytes))
+        .RequireAuthorization(QmsPolicies.ProjectCreate)
+        .WithName("ApplyProjectExcelImport");
 
         api.MapGet("/projects/{projectId:guid}", async (
             Guid projectId,
@@ -482,6 +621,73 @@ public static class ProjectEndpointExtensions
             int.TryParse(request.Query["pageSize"].ToString(), out var pageSize) ? pageSize : 20);
     }
 
+    private static async Task<ProjectExcelUploadForm> ReadProjectExcelUploadAsync(HttpRequest request, CancellationToken cancellationToken)
+    {
+        if (!request.HasFormContentType)
+        {
+            return new ProjectExcelUploadForm(null, null, ["multipart/form-data 요청이 필요합니다."]);
+        }
+
+        var form = await request.ReadFormAsync(cancellationToken);
+        var file = form.Files.GetFile("file");
+        if (file is null)
+        {
+            return new ProjectExcelUploadForm(null, null, ["file 필드가 필요합니다."]);
+        }
+
+        var validation = ProjectExcelParser.ValidateUploadMetadata(file);
+        if (validation.Count > 0)
+        {
+            return new ProjectExcelUploadForm(null, null, validation.ToArray());
+        }
+
+        var uploadedFile = await ProjectExcelParser.ReadUploadedFileAsync(file, cancellationToken);
+        return new ProjectExcelUploadForm(
+            uploadedFile,
+            form["expectedFileSha256"].ToString(),
+            []);
+    }
+
+    private static ProjectDateRange ParseDateRange(HttpRequest request, string fromKey, string toKey)
+    {
+        var errors = new Dictionary<string, string[]>();
+        var fromRaw = request.Query[fromKey].ToString();
+        var toRaw = request.Query[toKey].ToString();
+        DateOnly? from = null;
+        DateOnly? to = null;
+
+        if (!string.IsNullOrWhiteSpace(fromRaw))
+        {
+            if (DateOnly.TryParse(fromRaw, out var parsedFrom))
+            {
+                from = parsedFrom;
+            }
+            else
+            {
+                errors[fromKey] = ["올바른 날짜 형식이 아닙니다."];
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(toRaw))
+        {
+            if (DateOnly.TryParse(toRaw, out var parsedTo))
+            {
+                to = parsedTo;
+            }
+            else
+            {
+                errors[toKey] = ["올바른 날짜 형식이 아닙니다."];
+            }
+        }
+
+        if (from is not null && to is not null && from > to)
+        {
+            errors[fromKey] = ["시작일은 종료일보다 늦을 수 없습니다."];
+        }
+
+        return new ProjectDateRange(from, to, errors);
+    }
+
     private static IResult ToProjectMutationResult<T>(
         ProjectMutationResult<T> result,
         Func<T, IResult> success)
@@ -542,4 +748,14 @@ public static class ProjectEndpointExtensions
     {
         return DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
     }
+
+    private sealed record ProjectExcelUploadForm(
+        UploadedExcelFile? File,
+        string? ExpectedFileSha256,
+        IReadOnlyList<string> Errors);
+
+    private sealed record ProjectDateRange(
+        DateOnly? From,
+        DateOnly? To,
+        IReadOnlyDictionary<string, string[]> Errors);
 }

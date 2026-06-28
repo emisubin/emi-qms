@@ -11,7 +11,9 @@ public static class SeedIdentityData
         new(new Guid("10000000-0000-0000-0000-000000000005"), "quality", "Quality"),
         new(new Guid("10000000-0000-0000-0000-000000000006"), "logistics", "Logistics"),
         new(new Guid("10000000-0000-0000-0000-000000000007"), "readonly", "Read Only"),
-        new(new Guid("10000000-0000-0000-0000-000000000008"), "design", "Design")
+        new(new Guid("10000000-0000-0000-0000-000000000008"), "design", "Design"),
+        new(new Guid("10000000-0000-0000-0000-000000000009"), "procurement", "Procurement"),
+        new(new Guid("10000000-0000-0000-0000-000000000010"), "materials", "Materials")
     ];
 
     public static readonly IReadOnlyList<Role> Roles =
@@ -23,7 +25,9 @@ public static class SeedIdentityData
         new(new Guid("20000000-0000-0000-0000-000000000005"), QmsRoles.Quality, "Quality User"),
         new(new Guid("20000000-0000-0000-0000-000000000006"), QmsRoles.Logistics, "Logistics User"),
         new(new Guid("20000000-0000-0000-0000-000000000007"), QmsRoles.ReadOnly, "Read Only User"),
-        new(new Guid("20000000-0000-0000-0000-000000000008"), QmsRoles.Design, "Design User")
+        new(new Guid("20000000-0000-0000-0000-000000000008"), QmsRoles.Design, "Design User"),
+        new(new Guid("20000000-0000-0000-0000-000000000009"), QmsRoles.Procurement, "Procurement User"),
+        new(new Guid("20000000-0000-0000-0000-000000000010"), QmsRoles.Materials, "Materials User")
     ];
 
     public static readonly IReadOnlyList<Permission> Permissions =
@@ -47,7 +51,9 @@ public static class SeedIdentityData
         new(new Guid("30000000-0000-0000-0000-000000000017"), QmsPermissions.ProjectDelete, "Soft delete sales projects"),
         new(new Guid("30000000-0000-0000-0000-000000000018"), QmsPermissions.ProjectDeletedRead, "Read soft deleted projects"),
         new(new Guid("30000000-0000-0000-0000-000000000019"), QmsPermissions.PanelInfoUpdate, "Update panel information"),
-        new(new Guid("30000000-0000-0000-0000-000000000020"), QmsPermissions.AuditReadAll, "Read all audit history")
+        new(new Guid("30000000-0000-0000-0000-000000000020"), QmsPermissions.AuditReadAll, "Read all audit history"),
+        new(new Guid("30000000-0000-0000-0000-000000000021"), QmsPermissions.ProcurementPlanUpdate, "Update procurement plan"),
+        new(new Guid("30000000-0000-0000-0000-000000000022"), QmsPermissions.MaterialReceiptUpdate, "Update material receipt completion")
     ];
 
     public static readonly IReadOnlyList<QmsProject> Projects =
@@ -67,7 +73,9 @@ public static class SeedIdentityData
         new(new Guid("50000000-0000-0000-0000-000000000007"), "dev-viewer", "Dev Read Only User", "readonly", true),
         new(new Guid("50000000-0000-0000-0000-000000000008"), "dev-no-role", "Dev User Without Role", "readonly", true),
         new(new Guid("50000000-0000-0000-0000-000000000009"), "dev-disabled", "Dev Disabled User", "readonly", false),
-        new(new Guid("50000000-0000-0000-0000-000000000010"), "dev-design", "Dev Design User", "design", true)
+        new(new Guid("50000000-0000-0000-0000-000000000010"), "dev-design", "Dev Design User", "design", true),
+        new(new Guid("50000000-0000-0000-0000-000000000011"), "dev-procurement", "Dev Procurement User", "procurement", true),
+        new(new Guid("50000000-0000-0000-0000-000000000012"), "dev-materials", "Dev Materials User", "materials", true)
     ];
 
     public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> RolePermissions =
@@ -118,6 +126,19 @@ public static class SeedIdentityData
                 QmsPermissions.ProductionPlan,
                 QmsPermissions.PanelInfoUpdate
             ],
+            [QmsRoles.Procurement] =
+            [
+                QmsPermissions.ProjectRead,
+                QmsPermissions.ProjectReadAll,
+                QmsPermissions.ProcurementPlanUpdate,
+                QmsPermissions.MaterialReceiptUpdate
+            ],
+            [QmsRoles.Materials] =
+            [
+                QmsPermissions.ProjectRead,
+                QmsPermissions.ProjectReadAll,
+                QmsPermissions.MaterialReceiptUpdate
+            ],
             [QmsRoles.Manufacturing] =
             [
                 QmsPermissions.ProjectRead,
@@ -156,7 +177,9 @@ public static class SeedIdentityData
             ["dev-viewer"] = [QmsRoles.ReadOnly],
             ["dev-no-role"] = [],
             ["dev-disabled"] = [QmsRoles.ReadOnly],
-            ["dev-design"] = [QmsRoles.Design]
+            ["dev-design"] = [QmsRoles.Design],
+            ["dev-procurement"] = [QmsRoles.Procurement],
+            ["dev-materials"] = [QmsRoles.Materials]
         };
 
     public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> UserProjectAccess =
@@ -171,6 +194,8 @@ public static class SeedIdentityData
             ["dev-viewer"] = ["demo-project-alpha"],
             ["dev-no-role"] = ["demo-project-alpha"],
             ["dev-disabled"] = [],
-            ["dev-design"] = []
+            ["dev-design"] = [],
+            ["dev-procurement"] = [],
+            ["dev-materials"] = []
         };
 }

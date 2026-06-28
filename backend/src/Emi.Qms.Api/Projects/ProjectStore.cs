@@ -42,7 +42,8 @@ public sealed record ProjectMutationResult<T>(
 
 public sealed class ProjectStore(
     DatabaseConnectionStringProvider connectionStringProvider,
-    IEnumerable<IProjectDeletionGuard> deletionGuards)
+    IEnumerable<IProjectDeletionGuard> deletionGuards,
+    ProjectExcelParser projectExcelParser)
 {
     public async Task<IReadOnlyList<SalesOwnerResponse>> GetSalesOwnersAsync(CancellationToken cancellationToken)
     {
@@ -215,6 +216,94 @@ public sealed class ProjectStore(
         }
 
         return new ProjectListResponse(items, page, pageSize, totalCount);
+    }
+
+    public async Task<ProjectDashboardSummaryResponse> GetProjectDashboardSummaryAsync(
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        var where = new List<string> { "projects.deleted_at_utc is null" };
+        var parameters = new List<NpgsqlParameter>();
+        AddAccessScope(where, parameters, accessScope);
+        var whereSql = $"where {string.Join(" and ", where)}";
+
+        await using var command = dataSource.CreateCommand($"""
+            with visible_projects as (
+                select projects.id, projects.status
+                from projects
+                {whereSql}
+            ),
+            project_panel_summary as (
+                select vp.id,
+                       vp.status,
+                       count(pp.id) filter (where pp.status = 'Active')::int as active_panel_count,
+                       coalesce(sum(case when pp.status = 'Active' and pp.workflow_stage in ('ManufacturingCompleted', 'InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::int as manufacturing_completed_count,
+                       coalesce(sum(case when pp.status = 'Active' and pp.workflow_stage in ('InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::int as inspection_completed_count
+                from visible_projects vp
+                left join panel_placeholders pp on pp.project_id = vp.id
+                group by vp.id, vp.status
+            ),
+            active_panels as (
+                select vp.id as project_id,
+                       vp.status as project_status,
+                       pp.panel_name,
+                       pp.workflow_stage
+                from visible_projects vp
+                join panel_placeholders pp on pp.project_id = vp.id
+                where pp.status = 'Active'
+            )
+            select
+                (select count(*)::int from visible_projects where status <> 'Completed'),
+                (select count(*)::int from visible_projects where status = 'Active'),
+                (select count(*)::int from visible_projects where status = 'OnHold'),
+                (select count(*)::int from visible_projects where status = 'Completed'),
+                (select count(*)::int from visible_projects where status = 'Cancelled'),
+                (select count(*)::int
+                 from active_panels
+                 where project_status = 'Active'
+                   and panel_name is not null
+                   and btrim(panel_name) <> ''),
+                (select count(*)::int
+                 from active_panels
+                 where workflow_stage in ('ManufacturingCompleted', 'InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted')),
+                (select count(*)::int
+                 from active_panels
+                 where workflow_stage in ('InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted')),
+                (select count(*)::int
+                 from project_panel_summary
+                 where status = 'Active'
+                   and active_panel_count > 0
+                   and manufacturing_completed_count = active_panel_count),
+                (select count(*)::int
+                 from project_panel_summary
+                 where status = 'Active'
+                   and active_panel_count > 0
+                   and inspection_completed_count = active_panel_count);
+            """);
+
+        foreach (var parameter in parameters)
+        {
+            command.Parameters.Add(parameter);
+        }
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return new ProjectDashboardSummaryResponse(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        }
+
+        return new ProjectDashboardSummaryResponse(
+            reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.GetInt32(2),
+            reader.GetInt32(3),
+            reader.GetInt32(4),
+            reader.GetInt32(5),
+            reader.GetInt32(6),
+            reader.GetInt32(7),
+            reader.GetInt32(8),
+            reader.GetInt32(9));
     }
 
     public async Task<ProjectDetailResponse?> GetProjectAsync(
@@ -1186,6 +1275,159 @@ public sealed class ProjectStore(
         return detail;
     }
 
+    public async Task<ProjectMutationResult<ProjectDetailResponse>> RestoreDeletedProjectAsync(
+        Guid projectId,
+        string? reason,
+        Guid changedByUserId,
+        string correlationId,
+        bool includeSalesAmount,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+        try
+        {
+            var deleted = await LockDeletedProjectForRestoreAsync(connection, transaction, projectId, cancellationToken);
+            if (deleted is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                if (await ProjectExistsAsync(connection, null, projectId, cancellationToken))
+                {
+                    return ProjectMutationResult<ProjectDetailResponse>.Conflict("삭제 보관함에 있는 프로젝트만 복구할 수 있습니다.");
+                }
+
+                return ProjectMutationResult<ProjectDetailResponse>.NotFound();
+            }
+
+            if (await ProjectTitleExistsAsync(connection, transaction, deleted.ProjectTitleNormalized, projectId, cancellationToken))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ProjectMutationResult<ProjectDetailResponse>.Conflict("동일한 프로젝트명이 이미 사용 중입니다. 프로젝트명을 정리한 후 다시 시도해 주세요.");
+            }
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    update projects
+                    set deleted_at_utc = null,
+                        deleted_by_user_id = null,
+                        delete_reason = null,
+                        deleted_correlation_id = null,
+                        updated_at_utc = now()
+                    where id = @project_id;
+                    """;
+                command.Parameters.AddWithValue("project_id", projectId);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await RecalculatePanelDerivedStateAsync(connection, transaction, projectId, cancellationToken);
+            await InsertAuditEventAsync(
+                connection,
+                transaction,
+                projectId,
+                "Project",
+                projectId,
+                "ProjectRestored",
+                "DeletedAtUtc",
+                ProjectInputNormalizer.FormatAuditValue(deleted.DeletedAtUtc),
+                null,
+                string.IsNullOrWhiteSpace(reason) ? "삭제 보관함 복구" : reason,
+                changedByUserId,
+                correlationId,
+                false,
+                cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await RollbackQuietlyAsync(transaction, cancellationToken);
+            throw;
+        }
+
+        var detail = await GetProjectAsync(projectId, includeSalesAmount, cancellationToken);
+        return detail is null
+            ? ProjectMutationResult<ProjectDetailResponse>.NotFound()
+            : ProjectMutationResult<ProjectDetailResponse>.Success(detail);
+    }
+
+    public async Task<ProjectMutationResult<PurgeDeletedProjectsResponse>> PurgeDeletedProjectAsync(
+        Guid projectId,
+        string? confirmText,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(confirmText, "완전 삭제", StringComparison.Ordinal))
+        {
+            return ProjectMutationResult<PurgeDeletedProjectsResponse>.Validation(
+                new Dictionary<string, string[]> { ["ConfirmText"] = ["확인 문구를 정확히 입력해 주세요."] });
+        }
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+        try
+        {
+            var deleted = await ReadDeletedProjectForPurgeAsync(connection, transaction, projectId, cancellationToken);
+            if (deleted is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                if (await ProjectExistsAsync(connection, null, projectId, cancellationToken))
+                {
+                    return ProjectMutationResult<PurgeDeletedProjectsResponse>.Conflict("삭제 보관함에 있는 프로젝트만 완전 삭제할 수 있습니다.");
+                }
+
+                return ProjectMutationResult<PurgeDeletedProjectsResponse>.NotFound();
+            }
+
+            await PurgeDeletedProjectIdsAsync(connection, transaction, [projectId], cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return ProjectMutationResult<PurgeDeletedProjectsResponse>.Success(new PurgeDeletedProjectsResponse(1));
+        }
+        catch
+        {
+            await RollbackQuietlyAsync(transaction, cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task<ProjectMutationResult<PurgeDeletedProjectsResponse>> PurgeAllDeletedProjectsAsync(
+        string? confirmText,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(confirmText, "삭제 보관함 비우기", StringComparison.Ordinal))
+        {
+            return ProjectMutationResult<PurgeDeletedProjectsResponse>.Validation(
+                new Dictionary<string, string[]> { ["ConfirmText"] = ["확인 문구를 정확히 입력해 주세요."] });
+        }
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+        try
+        {
+            var projectIds = await ReadAllDeletedProjectIdsForPurgeAsync(connection, transaction, cancellationToken);
+            if (projectIds.Count == 0)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return ProjectMutationResult<PurgeDeletedProjectsResponse>.Success(new PurgeDeletedProjectsResponse(0));
+            }
+
+            await PurgeDeletedProjectIdsAsync(connection, transaction, projectIds, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return ProjectMutationResult<PurgeDeletedProjectsResponse>.Success(new PurgeDeletedProjectsResponse(projectIds.Count));
+        }
+        catch
+        {
+            await RollbackQuietlyAsync(transaction, cancellationToken);
+            throw;
+        }
+    }
+
     public async Task<IReadOnlyList<PanelPlaceholderResponse>?> ListPanelsAsync(
         Guid projectId,
         CancellationToken cancellationToken)
@@ -1353,6 +1595,398 @@ public sealed class ProjectStore(
         }
 
         return new ProjectAuditHistoryResponse(events);
+    }
+
+    public ProjectExcelTemplate CreateProjectExcelTemplate()
+    {
+        return new ProjectExcelTemplate(
+            projectExcelParser.CreateTemplate(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Project_Create_Template.xlsx");
+    }
+
+    public async Task<ProjectMutationResult<ProjectExcelPreviewResponse>> PreviewProjectExcelAsync(
+        UploadedExcelFile file,
+        CancellationToken cancellationToken)
+    {
+        var preview = await BuildProjectExcelPreviewAsync(file, cancellationToken);
+        return ProjectMutationResult<ProjectExcelPreviewResponse>.Success(preview.Response);
+    }
+
+    public async Task<ProjectMutationResult<ProjectExcelApplyResponse>> ApplyProjectExcelAsync(
+        UploadedExcelFile file,
+        string expectedFileSha256,
+        Guid changedByUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(file.FileSha256, expectedFileSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            return ProjectMutationResult<ProjectExcelApplyResponse>.Conflict("파일이 변경되었습니다. 다시 미리보기를 실행해 주세요.");
+        }
+
+        var preview = await BuildProjectExcelPreviewAsync(file, cancellationToken);
+        if (preview.Response.ErrorCount > 0 || preview.Response.NeedsReviewCount > 0)
+        {
+            if (preview.Response.Rows.Any(row => row.ErrorMessages.Any(message => message.Contains("동일한 PJT Title", StringComparison.Ordinal))))
+            {
+                return ProjectMutationResult<ProjectExcelApplyResponse>.Conflict("동일한 PJT Title이 이미 존재합니다.");
+            }
+
+            return ProjectMutationResult<ProjectExcelApplyResponse>.Validation(
+                new Dictionary<string, string[]> { ["File"] = ["오류 또는 확인이 필요한 행이 있어 저장할 수 없습니다."] });
+        }
+
+        var inputs = preview.Rows
+            .Where(row => row.Input is not null)
+            .Select(row => row.Input!)
+            .ToList();
+        if (inputs.Count == 0)
+        {
+            return ProjectMutationResult<ProjectExcelApplyResponse>.Validation(
+                new Dictionary<string, string[]> { ["File"] = ["생성할 프로젝트가 없습니다."] });
+        }
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var createdIds = new List<Guid>();
+        try
+        {
+            foreach (var input in inputs)
+            {
+                if (!await IsActiveSalesUserAsync(connection, transaction, input.SalesOwnerUserId, cancellationToken))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ProjectMutationResult<ProjectExcelApplyResponse>.Validation(
+                        new Dictionary<string, string[]> { ["SalesOwner"] = ["활성 Sales 사용자만 영업담당자로 선택할 수 있습니다."] });
+                }
+
+                if (await ProjectTitleExistsAsync(connection, transaction, input.ProjectTitleNormalized, null, cancellationToken))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ProjectMutationResult<ProjectExcelApplyResponse>.Conflict("동일한 PJT Title이 이미 존재합니다.");
+                }
+
+                createdIds.Add(await InsertProjectWithPanelsAsync(
+                    connection,
+                    transaction,
+                    input,
+                    changedByUserId,
+                    correlationId,
+                    cancellationToken));
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ProjectMutationResult<ProjectExcelApplyResponse>.Conflict("동일한 PJT Title이 이미 존재합니다.");
+        }
+
+        return ProjectMutationResult<ProjectExcelApplyResponse>.Success(new ProjectExcelApplyResponse(createdIds.Count, createdIds));
+    }
+
+    private async Task<ProjectExcelPreviewBuildResult> BuildProjectExcelPreviewAsync(
+        UploadedExcelFile file,
+        CancellationToken cancellationToken)
+    {
+        var parsed = await projectExcelParser.ParseAsync(file, cancellationToken);
+        if (parsed.FileErrors.Count > 0)
+        {
+            var errorRow = new ProjectExcelPreviewRowResponse(
+                0,
+                "Error",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                parsed.FileErrors);
+            return new ProjectExcelPreviewBuildResult(
+                new ProjectExcelPreviewResponse(parsed.FileSha256, parsed.TotalRows, 0, 0, 1, [errorRow]),
+                []);
+        }
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var salesOwners = await ReadSalesOwnerMatchersAsync(connection, cancellationToken);
+        var fileTitleCounts = parsed.Rows
+            .Where(row => !string.IsNullOrWhiteSpace(row.ProjectTitle))
+            .GroupBy(row => ProjectInputNormalizer.NormalizeProjectTitle(row.ProjectTitle!), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+        var rows = new List<ProjectExcelResolvedRow>();
+        foreach (var row in parsed.Rows)
+        {
+            var errors = new List<string>(row.ErrorMessages);
+            var packagingMethod = NormalizeProjectExcelPackaging(row.PackagingMethod);
+            var owner = ResolveSalesOwner(row.SalesOwnerText, salesOwners);
+            if (!string.IsNullOrWhiteSpace(row.PackagingMethod) && packagingMethod is null)
+            {
+                errors.Add("포장방식 값을 확인할 수 없습니다.");
+            }
+
+            var request = new CreateProjectRequest(
+                row.CustomerName,
+                row.Item,
+                row.ProjectCode,
+                row.ProjectTitle,
+                row.PanelCount,
+                row.DeliveryDate,
+                owner?.UserId,
+                packagingMethod,
+                row.SalesAmount,
+                row.CurrencyCode,
+                row.DeliveryLocation);
+            var (input, validation) = ProjectRequestValidator.ValidateCreate(request);
+            foreach (var error in validation.Errors)
+            {
+                if (string.Equals(error.Key, nameof(CreateProjectRequest.SalesOwnerUserId), StringComparison.Ordinal)
+                    && owner is null
+                    && !string.IsNullOrWhiteSpace(row.SalesOwnerText))
+                {
+                    continue;
+                }
+
+                errors.AddRange(error.Value);
+            }
+
+            if (row.PanelCount is < 1 or > ProjectDomainRules.MaxPanelsPerProject)
+            {
+                errors.Add($"면수는 1 이상 {ProjectDomainRules.MaxPanelsPerProject} 이하의 정수여야 합니다.");
+            }
+
+            if (row.SalesAmount is not null)
+            {
+                var currency = ProjectInputNormalizer.NormalizeCurrencyCode(row.CurrencyCode);
+                if (currency is not "KRW" and not "USD")
+                {
+                    errors.Add("판매금액 입력 시 통화는 KRW 또는 USD만 사용할 수 있습니다.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(row.ProjectTitle))
+            {
+                var normalizedTitle = ProjectInputNormalizer.NormalizeProjectTitle(row.ProjectTitle);
+                if (fileTitleCounts.TryGetValue(normalizedTitle, out var count) && count > 1)
+                {
+                    errors.Add("같은 Excel 파일 안에 동일한 PJT Title이 있습니다.");
+                }
+
+                if (await ProjectTitleExistsAsync(connection, null, normalizedTitle, null, cancellationToken))
+                {
+                    errors.Add("동일한 PJT Title이 이미 존재합니다.");
+                }
+            }
+
+            var resultType = errors.Count > 0 ? "Error" : owner is null ? "NeedsReview" : "New";
+            var previewRow = new ProjectExcelPreviewRowResponse(
+                row.ExcelRowNumber,
+                resultType,
+                row.CustomerName,
+                row.Item,
+                row.ProjectCode,
+                row.ProjectTitle,
+                row.PanelCount,
+                row.DeliveryDate,
+                packagingMethod,
+                row.SalesAmount,
+                ProjectInputNormalizer.NormalizeCurrencyCode(row.CurrencyCode),
+                row.DeliveryLocation,
+                row.SalesOwnerText,
+                owner?.UserId,
+                owner?.DisplayName,
+                resultType == "NeedsReview" ? [.. errors, "영업담당자를 확인할 수 없습니다."] : errors);
+            rows.Add(new ProjectExcelResolvedRow(previewRow, resultType == "New" ? input : null));
+        }
+
+        return new ProjectExcelPreviewBuildResult(
+            new ProjectExcelPreviewResponse(
+                parsed.FileSha256,
+                parsed.TotalRows,
+                rows.Count(row => row.Preview.ResultType == "New"),
+                rows.Count(row => row.Preview.ResultType == "NeedsReview"),
+                rows.Count(row => row.Preview.ResultType == "Error"),
+                rows.Select(row => row.Preview).ToList()),
+            rows);
+    }
+
+    private static string? NormalizeProjectExcelPackaging(string? value)
+    {
+        var normalized = ProjectInputNormalizer.TrimToNull(value);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized switch
+        {
+            "목포장" => "WoodenCrate",
+            "청랩포장" => "StretchWrap",
+            "고강도박스포장" => "HeavyDutyBox",
+            "WoodenCrate" or "StretchWrap" or "HeavyDutyBox" => normalized,
+            _ => null
+        };
+    }
+
+    private static async Task<IReadOnlyList<ProjectExcelSalesOwnerMatcher>> ReadSalesOwnerMatchersAsync(
+        NpgsqlConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select qms_users.id,
+                   qms_users.display_name,
+                   qms_users.development_user_key
+            from qms_users
+            join user_roles on user_roles.user_id = qms_users.id
+            join roles on roles.id = user_roles.role_id
+            where qms_users.is_active = true
+              and roles.code = 'sales';
+            """;
+
+        var owners = new List<ProjectExcelSalesOwnerMatcher>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            owners.Add(new ProjectExcelSalesOwnerMatcher(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2)));
+        }
+
+        return owners;
+    }
+
+    private static ProjectExcelSalesOwnerMatcher? ResolveSalesOwner(
+        string? value,
+        IReadOnlyList<ProjectExcelSalesOwnerMatcher> salesOwners)
+    {
+        var normalized = ProjectInputNormalizer.TrimToNull(value);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        var key = ProjectInputNormalizer.NormalizeProjectTitle(normalized);
+        var matches = salesOwners
+            .Where(owner =>
+                string.Equals(ProjectInputNormalizer.NormalizeProjectTitle(owner.DisplayName), key, StringComparison.Ordinal)
+                || (owner.DevelopmentUserKey is not null
+                    && string.Equals(ProjectInputNormalizer.NormalizeProjectTitle(owner.DevelopmentUserKey), key, StringComparison.Ordinal)))
+            .ToList();
+
+        return matches.Count == 1 ? matches[0] : null;
+    }
+
+    private static async Task<Guid> InsertProjectWithPanelsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        NormalizedCreateProjectInput input,
+        Guid changedByUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var projectId = Guid.NewGuid();
+        var projectKey = projectId.ToString("N");
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into projects (
+                    id,
+                    project_key,
+                    project_number,
+                    name,
+                    customer_name,
+                    item,
+                    project_code,
+                    project_title,
+                    project_title_normalized,
+                    packaging_method,
+                    delivery_date,
+                    sales_owner_user_id,
+                    sales_amount,
+                    currency_code,
+                    delivery_location,
+                    status,
+                    created_by_user_id,
+                    updated_at_utc
+                )
+                values (
+                    @id,
+                    @project_key,
+                    @project_code,
+                    @project_title,
+                    @customer_name,
+                    @item,
+                    @project_code,
+                    @project_title,
+                    @project_title_normalized,
+                    @packaging_method,
+                    @delivery_date,
+                    @sales_owner_user_id,
+                    @sales_amount,
+                    @currency_code,
+                    @delivery_location,
+                    'Active',
+                    @created_by_user_id,
+                    now()
+                );
+                """;
+            AddProjectParameters(command, projectId, projectKey, input, changedByUserId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await InsertAuditEventAsync(
+            connection,
+            transaction,
+            projectId,
+            "Project",
+            projectId,
+            "ProjectCreated",
+            null,
+            null,
+            input.ProjectTitle,
+            null,
+            changedByUserId,
+            correlationId,
+            false,
+            cancellationToken);
+
+        for (var sequence = 1; sequence <= input.PanelCount; sequence++)
+        {
+            var panelId = Guid.NewGuid();
+            var displayCode = ProjectInputNormalizer.FormatPanelDisplayCode(sequence);
+            await InsertPanelAsync(connection, transaction, panelId, projectId, sequence, displayCode, cancellationToken);
+            await InsertAuditEventAsync(
+                connection,
+                transaction,
+                projectId,
+                "PanelPlaceholder",
+                panelId,
+                "PanelCreated",
+                "DisplayCode",
+                null,
+                displayCode,
+                null,
+                changedByUserId,
+                correlationId,
+                false,
+                cancellationToken);
+        }
+
+        return projectId;
     }
 
     private NpgsqlDataSource CreateDataSource()
@@ -2151,6 +2785,11 @@ public sealed class ProjectStore(
 
     private sealed record ProjectFieldChange(string FieldName, string OldValue, string NewValue, bool IsSensitive);
 
+    private sealed record DeletedProjectRestoreSnapshot(
+        string ProjectTitle,
+        string ProjectTitleNormalized,
+        DateTimeOffset DeletedAtUtc);
+
     private sealed record ProjectPanelInformationSummary(
         int CompletedCount,
         int PendingCount,
@@ -2159,6 +2798,129 @@ public sealed class ProjectStore(
         int InspectionCompletedCount,
         int DuplicatePanelNameGroupCount,
         bool ProjectPanelInformationCompleted);
+
+    private static async Task<bool> ProjectExistsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select exists (select 1 from projects where id = @project_id);";
+        command.Parameters.AddWithValue("project_id", projectId);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
+    }
+
+    private static async Task<Guid?> ReadDeletedProjectForPurgeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select id
+            from projects
+            where id = @project_id
+              and deleted_at_utc is not null
+            for update;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is Guid id ? id : null;
+    }
+
+    private static async Task<DeletedProjectRestoreSnapshot?> LockDeletedProjectForRestoreAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select coalesce(project_title, name),
+                   coalesce(project_title_normalized, upper(regexp_replace(btrim(name), '\s+', ' ', 'g'))),
+                   deleted_at_utc
+            from projects
+            where id = @project_id
+              and deleted_at_utc is not null
+            for update;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new DeletedProjectRestoreSnapshot(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetFieldValue<DateTimeOffset>(2));
+    }
+
+    private static async Task<IReadOnlyList<Guid>> ReadAllDeletedProjectIdsForPurgeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select id
+            from projects
+            where deleted_at_utc is not null
+            order by deleted_at_utc, id
+            for update;
+            """;
+        var projectIds = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            projectIds.Add(reader.GetGuid(0));
+        }
+
+        return projectIds;
+    }
+
+    private static async Task PurgeDeletedProjectIdsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        IReadOnlyList<Guid> projectIds,
+        CancellationToken cancellationToken)
+    {
+        if (projectIds.Count == 0)
+        {
+            return;
+        }
+
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from project_audit_events where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batch_projects where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batches where cardinality(@project_ids) >= 0 and not exists (select 1 from procurement_excel_import_batch_projects bp where bp.import_batch_id = procurement_excel_import_batches.id) and not exists (select 1 from project_audit_events a where a.procurement_import_batch_id = procurement_excel_import_batches.id);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_information_excel_import_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from project_procurement_items where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_placeholders where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from user_project_access where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from projects where id = any(@project_ids) and deleted_at_utc is not null;", projectIds, cancellationToken);
+    }
+
+    private static async Task ExecutePurgeCommandAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string commandText,
+        IReadOnlyList<Guid> projectIds,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = commandText;
+        command.Parameters.Add(new NpgsqlParameter<Guid[]>("project_ids", projectIds.ToArray()));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
 
     private static DateTimeOffset ToDateTimeOffset(object? value)
     {
@@ -2216,3 +2978,15 @@ public sealed record DeletedProjectListQuery(
     DateTimeOffset? DeletedAtTo,
     int Page,
     int PageSize);
+
+public sealed record ProjectExcelTemplate(byte[] Content, string ContentType, string FileName);
+
+internal sealed record ProjectExcelSalesOwnerMatcher(Guid UserId, string DisplayName, string? DevelopmentUserKey);
+
+internal sealed record ProjectExcelResolvedRow(
+    ProjectExcelPreviewRowResponse Preview,
+    NormalizedCreateProjectInput? Input);
+
+internal sealed record ProjectExcelPreviewBuildResult(
+    ProjectExcelPreviewResponse Response,
+    IReadOnlyList<ProjectExcelResolvedRow> Rows);

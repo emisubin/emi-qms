@@ -7,6 +7,52 @@ export interface ProjectListResponse {
   totalCount: number;
 }
 
+export interface ProjectDashboardSummary {
+  totalProjectCount: number;
+  activeProjectCount: number;
+  onHoldProjectCount: number;
+  completedProjectCount: number;
+  cancelledProjectCount: number;
+  qrEligiblePanelCount: number;
+  manufacturingCompletedCount: number;
+  inspectionCompletedCount: number;
+  manufacturingCompletedProjectCount: number;
+  inspectionCompletedProjectCount: number;
+}
+
+export interface ProjectExcelPreviewResponse {
+  fileSha256: string;
+  totalRows: number;
+  newCount: number;
+  needsReviewCount: number;
+  errorCount: number;
+  rows: ProjectExcelPreviewRow[];
+}
+
+export interface ProjectExcelPreviewRow {
+  excelRowNumber: number;
+  resultType: 'New' | 'NeedsReview' | 'Error';
+  customerName: string | null;
+  item: string | null;
+  projectCode: string | null;
+  projectTitle: string | null;
+  panelCount: number | null;
+  deliveryDate: string | null;
+  packagingMethod: PackagingMethod | null;
+  salesAmount: number | null;
+  currencyCode: string | null;
+  deliveryLocation: string | null;
+  salesOwnerText: string | null;
+  salesOwnerUserId: string | null;
+  salesOwnerName: string | null;
+  errorMessages: string[];
+}
+
+export interface ProjectExcelApplyResponse {
+  createdCount: number;
+  projectIds: string[];
+}
+
 export interface ProjectListItem {
   projectId: string;
   customerName: string;
@@ -72,6 +118,10 @@ export interface DeletedProjectDetail extends DeletedProjectListItem {
   statusReason: string | null;
   panels: PanelPlaceholder[];
   auditHistory: AuditEvent[];
+}
+
+export interface PurgeDeletedProjectsResponse {
+  deletedProjectCount: number;
 }
 
 export interface PanelPlaceholder {
@@ -336,4 +386,207 @@ export interface PanelInformationExcelPreviewRow {
   resultType: 'New' | 'Changed' | 'Unchanged' | 'Skipped' | 'Error';
   errorMessages: string[];
   expectedPanelInfoVersion: number | null;
+}
+
+export interface ProcurementResponse {
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  projectDeliveryDate: string | null;
+  items: ProcurementItem[];
+}
+
+export interface ProcurementItem {
+  itemId: string;
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  projectDeliveryDate: string | null;
+  shipmentDisplayDate: string | null;
+  sequenceNumber: number;
+  sourceProjectText: string | null;
+  sourceProjectCodeText: string | null;
+  standardLeadTime: string | null;
+  orderItem: string | null;
+  technicalOwner: string | null;
+  orderDate: string | null;
+  expectedReceiptDate: string | null;
+  issueNote: string | null;
+  receiptCompleted: boolean;
+  receiptCompletedAtUtc: string | null;
+  receiptCompletedByUserId: string | null;
+  receiptCompletedByUserName: string | null;
+  receiptCompletionNote: string | null;
+  rowVersion: number;
+  dDayText: string;
+}
+
+export interface ProcurementBulkUpdateRequest {
+  reason: string | null;
+  items: ProcurementItemUpdateRequest[];
+}
+
+export interface ProcurementItemUpdateRequest {
+  itemId: string | null;
+  expectedRowVersion: number | null;
+  standardLeadTime: string | null;
+  orderItem: string | null;
+  technicalOwner: string | null;
+  orderDate: string | null;
+  expectedReceiptDate: string | null;
+  issueNote: string | null;
+  receiptCompleted: boolean | null;
+  receiptCompletedAtUtc: string | null;
+  receiptCompletionNote: string | null;
+}
+
+export interface ProcurementReceiptBulkUpdateRequest {
+  reason: string | null;
+  items: ProcurementReceiptUpdateRequest[];
+}
+
+export interface ProcurementReceiptUpdateRequest {
+  itemId: string;
+  expectedRowVersion: number;
+  receiptCompleted: boolean;
+  receiptCompletedAtUtc: string | null;
+  receiptCompletionNote: string | null;
+}
+
+export interface ProcurementExcelProjectSelection {
+  sourceGroupSequence: number;
+  projectId: string;
+}
+
+export interface ProcurementExcelExpectedVersion {
+  itemId: string;
+  expectedRowVersion: number;
+}
+
+export interface ProcurementExcelPreviewResponse {
+  fileSha256: string;
+  totalRows: number;
+  newCount: number;
+  changedCount: number;
+  unchangedCount: number;
+  skippedCount: number;
+  missingFromUploadCount: number;
+  needsReviewCount: number;
+  errorCount: number;
+  reasonRequired: boolean;
+  projectMatches: ProcurementExcelProjectMatch[];
+  rows: ProcurementExcelPreviewRow[];
+  expectedVersions: ProcurementExcelExpectedVersion[];
+}
+
+export interface ProcurementExcelProjectMatch {
+  sourceGroupSequence: number;
+  excelProjectTitle: string | null;
+  excelProjectCode: string | null;
+  matchedProjectId: string | null;
+  matchedProjectTitle: string | null;
+  matchedProjectCode: string | null;
+  matchStatus: 'Matched' | 'NeedsReview' | 'Unmatched' | 'Error';
+  candidates: ProcurementProjectCandidate[];
+}
+
+export interface ProcurementProjectCandidate {
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  matchType: string;
+}
+
+export interface ProcurementExcelPreviewRow {
+  excelRowNumber: number;
+  sourceGroupSequence: number;
+  projectId: string | null;
+  itemId: string | null;
+  expectedRowVersion: number | null;
+  resultType: 'New' | 'Changed' | 'Unchanged' | 'Skipped' | 'MissingFromUpload' | 'NeedsReview' | 'Error';
+  sourceProjectText: string | null;
+  sourceProjectCodeText: string | null;
+  standardLeadTime: string | null;
+  orderItem: string | null;
+  technicalOwner: string | null;
+  orderDate: string | null;
+  expectedReceiptDate: string | null;
+  shipmentText: string | null;
+  issueNote: string | null;
+  receiptCompleted: boolean | null;
+  errorMessages: string[];
+}
+
+export interface ProcurementHistoryResponse {
+  groups: ProcurementHistoryGroup[];
+  excelImportBatches: ProcurementExcelImportBatch[];
+}
+
+export interface ProcurementHistoryGroup {
+  groupId: string;
+  inputSource: 'Direct' | 'Excel';
+  changedByUserId: string | null;
+  changedByName: string | null;
+  changedAtUtc: string;
+  reason?: string;
+  importBatchId?: string;
+  importFileName?: string;
+  affectedItemCount: number;
+  changeCount: number;
+  changes: ProcurementHistoryChange[];
+}
+
+export interface ProcurementHistoryChange {
+  entityId: string;
+  sequenceNumber: number | null;
+  fieldName: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+}
+
+export interface ProcurementExcelImportBatch {
+  importBatchId: string;
+  originalFileName: string;
+  fileSizeBytes: number;
+  fileSha256: string;
+  totalRowCount: number;
+  newItemCount: number;
+  changedItemCount: number;
+  unchangedItemCount: number;
+  skippedItemCount: number;
+  missingFromUploadCount: number;
+  uploadedByUserId: string | null;
+  uploadedByUserName: string | null;
+  uploadedAtUtc: string;
+  reason: string | null;
+}
+
+export interface ProcurementListResponse {
+  items: ProcurementItem[];
+}
+
+export interface ProcurementDashboardResponse {
+  summary: ProcurementDashboardSummary;
+  projects: ProcurementProjectSummary[];
+}
+
+export interface ProcurementDashboardSummary {
+  pendingReceiptCount: number;
+  receiptCompletedCount: number;
+  pastExpectedReceiptDateCount: number;
+}
+
+export interface ProcurementProjectSummary {
+  projectId: string;
+  projectTitle: string;
+  customerName: string;
+  projectCode: string;
+  item: string;
+  activePanelCount: number;
+  deliveryDate: string | null;
+  procurementItemCount: number;
+  receiptCompletedCount: number;
+  pastExpectedReceiptDateCount: number;
+  nearestExpectedReceiptDate: string | null;
+  dDayText: string;
 }

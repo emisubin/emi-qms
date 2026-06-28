@@ -32,11 +32,29 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('button', { name: '신규 프로젝트' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '프로젝트 Excel 양식' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '프로젝트 Excel 업로드' }));
+    const dialog = await screen.findByRole('dialog', { name: '프로젝트 Excel 업로드' });
+    const fileInput = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [new File(['xlsx'], 'projects.xlsx')] } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Preview' }));
+    expect(await within(dialog).findByText('신규 1건')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Excel 저장' })).toBeEnabled();
     expect(screen.getAllByText('KRW 1,250,000.5').length).toBeGreaterThan(0);
   });
 
   it('shows all project tabs by default with a sticky desktop header and workflow progress', async () => {
     render(<App />);
+
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    expect(commonNavigation).toHaveTextContent('프로젝트');
+    expect(commonNavigation).toHaveTextContent('구매');
+    expect(screen.getAllByRole('button', { name: '프로젝트' }).some((button) => button.getAttribute('aria-current') === 'page')).toBe(true);
+    const projectSummary = await screen.findByLabelText('프로젝트 요약');
+    expect(projectSummary).toHaveTextContent('전체 프로젝트');
+    expect(projectSummary).not.toHaveTextContent('QR 가능 패널');
+    expect(projectSummary).toHaveTextContent('제조 완료 프로젝트');
+    expect(projectSummary).toHaveTextContent('검사 완료 프로젝트');
 
     const tabs = await screen.findAllByRole('tab');
     expect(tabs.slice(0, 5).map((tab) => tab.textContent)).toEqual(['전체', '진행', '보류', '완료', '취소']);
@@ -334,6 +352,31 @@ describe('App', () => {
     expect(screen.getByRole('tab', { name: '삭제 보관함' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('shows deleted project restore only to administrators', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === `/api/deleted-projects/${projectId}/restore`) {
+        calls.push(`${init?.method ?? 'GET'} ${url.pathname}`);
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: '삭제 보관함' }));
+    expect(await screen.findByText('Deleted Project')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '복구' })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    fireEvent.click(await screen.findByRole('tab', { name: '삭제 보관함' }));
+    expect(await screen.findByRole('button', { name: '복구' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '복구' }));
+
+    await waitFor(() => expect(calls).toContain(`POST /api/deleted-projects/${projectId}/restore`));
+  });
+
   it('keeps the latest search result when an earlier search fails later', async () => {
     const alpha = createDeferred<Response>();
     const beta = createDeferred<Response>();
@@ -491,7 +534,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('수정사유*'), { target: { value: '패널명만 변경' } });
     fireEvent.click(screen.getByRole('button', { name: '직접 입력 저장' }));
 
-    await screen.findByText('패널정보를 저장했습니다.');
+    await screen.findByRole('heading', { name: 'TASK-003A Demo' });
     const savedBody = savedRequests[0];
     expect(savedBody.panels).toHaveLength(1);
     expect(savedBody.panels[0].panelNameUpdate).toEqual({ isChanged: true, value: 'DRIFT-B' });
@@ -514,6 +557,235 @@ describe('App', () => {
     expect(screen.getByText('원본 입력값: 31.5 inch')).toBeInTheDocument();
     expect(screen.getByText('입력단위: inch')).toBeInTheDocument();
     expect(screen.getByText('WidthMm: 700 → 800.1')).toBeInTheDocument();
+  });
+
+  it('keeps procurement read-only on project detail and exposes edit only to Procurement', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    expect(await screen.findByRole('tab', { name: '제품 목록' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByText('구매정보')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
+
+    const procurementSection = (await screen.findByText('구매정보')).closest('section');
+    expect(procurementSection).not.toBeNull();
+    expect(within(procurementSection as HTMLElement).getByText('Relay')).toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).queryByText('출하일')).not.toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).queryByText('예정일까지')).not.toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).queryByText('D-3')).not.toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).queryByDisplayValue('Relay')).not.toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).queryByText('입고지연')).not.toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).queryByText('미입고')).not.toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).getByRole('button', { name: '구매정보 수정' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
+    const materialsProcurementSection = (await screen.findByText('구매정보')).closest('section');
+    expect(within(materialsProcurementSection as HTMLElement).queryByRole('button', { name: '구매정보 수정' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '자재 입고 입력' })).toBeInTheDocument();
+  });
+
+  it('renders procurement read-only cards on mobile without horizontal table assumptions', async () => {
+    mockMobileViewport(true);
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
+    const firstCard = within(await screen.findByTestId('project-list-mobile')).getAllByRole('button', { name: '상세 보기' })[0];
+    fireEvent.click(firstCard);
+    fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
+
+    const procurementMobile = await screen.findByTestId('procurement-mobile');
+    expect(procurementMobile).toHaveTextContent('Relay');
+    expect(procurementMobile).toHaveTextContent('기술 담당자Owner A');
+    expect(procurementMobile).toHaveTextContent('입고예정일2026-06-29');
+    expect(procurementMobile).not.toHaveTextContent('예정일까지');
+    expect(procurementMobile).not.toHaveTextContent('D-3');
+    expect(procurementMobile).not.toHaveTextContent('입고지연');
+    expect(procurementMobile).not.toHaveTextContent('부분입고');
+  });
+
+  it('keeps procurement Excel controls on the edit page and saves partial rows', async () => {
+    const savedRequests: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === `/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
+        savedRequests.push(JSON.parse(String(init.body)));
+        return Promise.resolve(json(procurementResponse()));
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
+    fireEvent.click(await screen.findByRole('button', { name: '구매정보 수정' }));
+
+    const contextSummary = await screen.findByTestId('project-context-summary');
+    expect(contextSummary).toHaveTextContent('TASK-003A Demo');
+    expect(contextSummary).toHaveTextContent('EMI Test Customer');
+    expect(contextSummary).toHaveTextContent('PJT-003A');
+    expect(contextSummary).toHaveTextContent('Control Panel');
+    expect(contextSummary).toHaveTextContent('2026-10-10');
+    expect(contextSummary).toHaveTextContent('목포장');
+    expect(contextSummary).toHaveTextContent('진행');
+    expect(contextSummary).not.toHaveTextContent('Active');
+    expect(await screen.findByRole('table', { name: '구매정보 수정' })).toBeInTheDocument();
+    const editTable = screen.getByRole('table', { name: '구매정보 수정' });
+    expect(editTable).not.toHaveTextContent('PJT Code');
+    expect(editTable).not.toHaveTextContent('예정일까지');
+    expect(screen.getByRole('button', { name: 'Excel 양식 다운로드' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Excel 업로드' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '행 추가' }));
+    const inputs = within(editTable).getAllByRole('textbox');
+    fireEvent.change(inputs[0], { target: { value: '8W' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    await screen.findByRole('heading', { name: 'TASK-003A Demo' });
+    expect(screen.getByRole('tab', { name: '구매' })).toHaveAttribute('aria-selected', 'true');
+    expect(JSON.stringify(savedRequests[0])).toContain('8W');
+  });
+
+  it('shows project context on product detail and simplifies procurement Excel preview sections', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    const productTable = await screen.findByRole('table', { name: '제품·패널 목록' });
+    fireEvent.click(within(productTable).getAllByRole('row')[1]);
+
+    const productContext = await screen.findByTestId('project-context-summary');
+    expect(productContext).toHaveTextContent('TASK-003A Demo');
+    expect(productContext).toHaveTextContent('PJT-003A');
+    expect(productContext).toHaveTextContent('진행');
+    expect(productContext).not.toHaveTextContent('Active');
+    expect(screen.getByLabelText('제품 요약')).toHaveTextContent('No.1');
+    expect(screen.getByLabelText('제품 요약')).toHaveTextContent('제품 상태');
+    expect(screen.queryByText('W/H/D')).not.toBeInTheDocument();
+    expect(screen.queryByText('QR 조건')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('button', { name: '프로젝트' }).at(-1) as HTMLElement);
+    fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
+    fireEvent.click(await screen.findByRole('button', { name: '구매정보 수정' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Excel 업로드' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '구매 Excel 업로드' });
+    const fileInput = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [new File(['xlsx'], 'procurement.xlsx')] } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Preview' }));
+
+    expect(await within(dialog).findByRole('table', { name: '저장 가능한 데이터 목록' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('table', { name: '저장 불가능한 데이터 목록' })).toBeInTheDocument();
+    expect(within(dialog).getByText('저장 가능한 데이터 목록 1건')).toBeInTheDocument();
+    expect(within(dialog).getByText('저장 불가능한 데이터 목록 1건')).toBeInTheDocument();
+    expect(within(dialog).getAllByText('Excel 행').length).toBeGreaterThanOrEqual(2);
+    expect(within(dialog).getAllByText('통상납기')).toHaveLength(2);
+    expect(within(dialog).queryByText('결과')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('해결 방법')).not.toBeInTheDocument();
+    expect(within(dialog).getByText('사유')).toBeInTheDocument();
+    expect(within(dialog).getByText('필드')).toBeInTheDocument();
+    expect(within(dialog).getByText('입력값')).toBeInTheDocument();
+    expect(within(dialog).getByText('문제')).toBeInTheDocument();
+    expect(within(dialog).getByText('확인할 프로젝트가 있습니다. 프로젝트를 선택해 주세요.')).toBeInTheDocument();
+    expect(within(dialog).queryByText(/오류 \d+건/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/확인 필요 \d+건/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/저장할 수 없는 행/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/QMS/i)).not.toBeInTheDocument();
+
+    const previewHeader = dialog.querySelector('.excel-preview-head');
+    expect(previewHeader).not.toBeNull();
+    expect(previewHeader).toHaveClass('excel-preview-head');
+
+    const dialogContent = dialog.querySelector('.dialog') as HTMLElement;
+    fireEvent.mouseDown(dialogContent);
+    expect(screen.getByRole('dialog', { name: '구매 Excel 업로드' })).toBeInTheDocument();
+    fireEvent.mouseDown(dialog);
+    expect(screen.queryByRole('dialog', { name: '구매 Excel 업로드' })).not.toBeInTheDocument();
+  });
+
+  it('shows procurement dashboard KPI, project list, selected project details, and global Excel upload', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '구매' }));
+
+    expect(await screen.findByText('입고대기품목')).toBeInTheDocument();
+    expect(screen.getByText('입고완료품목')).toBeInTheDocument();
+    expect(screen.getByText('입고예정일 경과 품목')).toBeInTheDocument();
+    expect(screen.queryByText('전체 구매 프로젝트')).not.toBeInTheDocument();
+    expect(screen.queryByText('7일 내 입고예정')).not.toBeInTheDocument();
+    expect(screen.queryByText('입고지연')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Excel 업로드' })).toBeInTheDocument();
+    const projectTable = screen.getByRole('table', { name: '구매 프로젝트 목록' });
+    expect(projectTable).toBeInTheDocument();
+    expect(within(projectTable).getByText('TASK-003A Demo')).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: '구매정보' })).not.toBeInTheDocument();
+    const projectRow = within(projectTable).getByRole('row', { name: /TASK-003A Demo.*PJT-003A/ });
+    fireEvent.click(projectRow);
+    const expanded = await screen.findByLabelText('TASK-003A Demo 구매정보');
+    expect(expanded).toHaveTextContent('Relay');
+    expect(expanded).not.toHaveTextContent('출하일');
+    fireEvent.click(projectRow);
+    await waitFor(() => expect(screen.queryByLabelText('TASK-003A Demo 구매정보')).not.toBeInTheDocument());
+  });
+
+  it('allows Materials to use only the receipt completion page', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
+    fireEvent.click(await screen.findByRole('button', { name: '자재 입고 입력' }));
+
+    expect(await screen.findByRole('table', { name: 'TASK-003A Demo 자재 입고 입력' })).toBeInTheDocument();
+    expect(screen.queryByText('통상납기')).not.toBeInTheDocument();
+    const receiptTable = screen.getByRole('table', { name: 'TASK-003A Demo 자재 입고 입력' });
+    const checkbox = within(receiptTable).getByRole('checkbox');
+    fireEvent.click(checkbox);
+    fireEvent.change(screen.getByLabelText('수정사유'), { target: { value: '입고 확인' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(await screen.findByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
+  });
+
+  it('filters completed material receipt rows by default and shows them with the include toggle', async () => {
+    const savedRequests: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/materials/receipts' && init?.method === 'PATCH') {
+        savedRequests.push(JSON.parse(String(init.body)));
+        return Promise.resolve(json({ items: materialReceiptItems(url.searchParams.get('includeCompleted') === 'true') }));
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
+    fireEvent.click(await screen.findByRole('button', { name: '자재 입고 입력' }));
+
+    expect(await screen.findByText('자재 입고 입력 대상만 표시됩니다. 완료된 항목은 저장 후 기본 목록에서 사라집니다.')).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'TASK-003A Demo 자재 입고 입력' })).toHaveTextContent('Relay');
+    expect(screen.queryByText('Completed Relay')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('완료 항목 포함'));
+    expect(await screen.findByText('Completed Relay')).toBeInTheDocument();
+    const receiptTable = screen.getByRole('table', { name: 'TASK-003A Demo 자재 입고 입력' });
+    expect(within(receiptTable).getAllByText('완료').length).toBeGreaterThanOrEqual(1);
+    expect(within(receiptTable).getAllByRole('checkbox')).toHaveLength(2);
+    const completedCheckbox = within(receiptTable).getAllByRole('checkbox')[1];
+    expect(completedCheckbox).toBeEnabled();
+    fireEvent.click(completedCheckbox);
+    const noteInputs = within(receiptTable).getAllByRole('textbox');
+    fireEvent.change(noteInputs[noteInputs.length - 1], { target: { value: '완료 비고 수정' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    await screen.findByRole('heading', { name: '프로젝트 목록' });
+    expect(JSON.stringify(savedRequests[0])).toContain('완료 비고 수정');
+    expect(JSON.stringify(savedRequests[0])).toContain('"receiptCompleted":false');
+    expect(screen.queryByText('One or more validation errors occurred')).not.toBeInTheDocument();
   });
 });
 
@@ -578,6 +850,35 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
+  if (path === '/api/projects/summary') {
+    return json(projectSummaryResponse());
+  }
+
+  if (path === '/api/projects/import/template') {
+    return Promise.resolve(new Response(new Blob(['xlsx']), {
+      status: userKey === 'dev-sales' ? 200 : 403,
+      headers: {
+        'Content-Disposition': 'attachment; filename="Project_Create_Template.xlsx"'
+      }
+    }));
+  }
+
+  if (path === '/api/projects/import/preview') {
+    return json(projectExcelPreviewResponse(), userKey === 'dev-sales' ? 200 : 403);
+  }
+
+  if (path === '/api/projects/import/apply') {
+    return json({ createdCount: 1, projectIds: [projectId] }, userKey === 'dev-sales' ? 200 : 403);
+  }
+
+  if (path === '/api/procurement/import/preview') {
+    return json(procurementExcelPreviewResponse(), userKey === 'dev-procurement' ? 200 : 403);
+  }
+
+  if (path === '/api/procurement/import/apply') {
+    return json({ appliedRowCount: 1 }, userKey === 'dev-procurement' ? 200 : 403);
+  }
+
   if (path === '/api/deleted-projects') {
     return json({
       items: [deletedProjectListItem(userKey)],
@@ -585,6 +886,18 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       pageSize: 20,
       totalCount: 1
     }, canReadDeletedProjects(userKey) ? 200 : 403);
+  }
+
+  if (path === '/api/deleted-projects/purge-all' && init?.method === 'POST') {
+    return json({ deletedProjectCount: 1 }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === `/api/deleted-projects/${projectId}/purge` && init?.method === 'DELETE') {
+    return json({ deletedProjectCount: 1 }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === `/api/deleted-projects/${projectId}/restore` && init?.method === 'POST') {
+    return json(projectDetail(canReadSalesAmount(userKey), 'Cancelled', 'Deleted Project'), userKey === 'dev-admin' ? 200 : 403);
   }
 
   if (path === `/api/deleted-projects/${projectId}`) {
@@ -659,6 +972,40 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(panelInformationHistory(), userKey === 'dev-admin' ? 200 : 403);
   }
 
+  if (path === `/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
+    return json(procurementResponse(), userKey === 'dev-procurement' ? 200 : 403);
+  }
+
+  if (path === `/api/projects/${projectId}/procurement`) {
+    return json(procurementResponse());
+  }
+
+  if (path === `/api/projects/${projectId}/procurement/history`) {
+    return json(procurementHistory(), userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === `/api/projects/${projectId}/procurement/import/template`) {
+    return Promise.resolve(new Response(new Blob(['xlsx']), {
+      status: userKey === 'dev-procurement' ? 200 : 403,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': "attachment; filename*=UTF-8''Procurement_Plan_Template.xlsx"
+      }
+    }));
+  }
+
+  if (path === '/api/materials/receipts' && init?.method === 'PATCH') {
+    return json({ items: materialReceiptItems(false) }, userKey === 'dev-procurement' || userKey === 'dev-materials' ? 200 : 403);
+  }
+
+  if (path === '/api/materials/receipts') {
+    return json({ items: materialReceiptItems(url.searchParams.get('includeCompleted') === 'true') }, userKey === 'dev-procurement' || userKey === 'dev-materials' ? 200 : 403);
+  }
+
+  if (path === '/api/procurement/dashboard') {
+    return json(procurementDashboardResponse());
+  }
+
   if (path.endsWith('/delete')) {
     return json({
       ...deletedProjectListItem(userKey),
@@ -687,6 +1034,14 @@ function currentUser(userKey: string) {
 
   if (userKey === 'dev-admin') {
     permissions.push('Project.Deleted.Read', 'Project.SalesAmount.Read', 'Audit.Read.All', 'users.manage');
+  }
+
+  if (userKey === 'dev-procurement') {
+    permissions.push('ProcurementPlan.Update', 'MaterialReceipt.Update');
+  }
+
+  if (userKey === 'dev-materials') {
+    permissions.push('MaterialReceipt.Update');
   }
 
   return {
@@ -1001,6 +1356,237 @@ function panelInformationHistory() {
 
 function canReadSalesAmount(userKey: string) {
   return userKey === 'dev-sales' || userKey === 'dev-admin';
+}
+
+function procurementResponse() {
+  return {
+    projectId,
+    projectTitle: 'TASK-003A Demo',
+    projectCode: 'PJT-003A',
+    items: [
+      {
+        itemId: '76000000-0000-0000-0000-000000000001',
+        projectId,
+        projectTitle: 'TASK-003A Demo',
+        projectCode: 'PJT-003A',
+        projectDeliveryDate: '2026-10-10',
+        shipmentDisplayDate: '2026-10-10',
+        sequenceNumber: 1,
+        sourceProjectText: 'TASK-003A Demo',
+        sourceProjectCodeText: 'PJT-003A',
+        standardLeadTime: '4W',
+        orderItem: 'Relay',
+        technicalOwner: 'Owner A',
+        orderDate: '2026-06-20',
+        expectedReceiptDate: '2026-06-29',
+        issueNote: '확인 필요',
+        receiptCompleted: false,
+        receiptCompletedAtUtc: null,
+        receiptCompletedByUserId: null,
+        receiptCompletedByUserName: null,
+        receiptCompletionNote: null,
+        rowVersion: 1,
+        dDayText: 'D-3'
+      }
+    ]
+  };
+}
+
+function projectSummaryResponse() {
+  return {
+    totalProjectCount: 3,
+    activeProjectCount: 1,
+    onHoldProjectCount: 1,
+    completedProjectCount: 1,
+    cancelledProjectCount: 1,
+    qrEligiblePanelCount: 2,
+    manufacturingCompletedCount: 1,
+    inspectionCompletedCount: 1,
+    manufacturingCompletedProjectCount: 1,
+    inspectionCompletedProjectCount: 1
+  };
+}
+
+function projectExcelPreviewResponse() {
+  return {
+    fileSha256: 'project-excel-sha',
+    totalRows: 1,
+    newCount: 1,
+    needsReviewCount: 0,
+    errorCount: 0,
+    rows: [
+      {
+        excelRowNumber: 4,
+        resultType: 'New',
+        customerName: 'TEST CUSTOMER',
+        item: 'TEST PANEL',
+        projectCode: 'EXCEL-001',
+        projectTitle: 'Excel Project',
+        panelCount: 3,
+        deliveryDate: '2026-10-10',
+        packagingMethod: 'WoodenCrate',
+        salesAmount: null,
+        currencyCode: null,
+        deliveryLocation: null,
+        salesOwnerText: 'dev-sales',
+        salesOwnerUserId: salesOwnerId,
+        salesOwnerName: 'Dev Sales User',
+        errorMessages: []
+      }
+    ]
+  };
+}
+
+function procurementDashboardResponse() {
+  return {
+    summary: {
+      pendingReceiptCount: 1,
+      receiptCompletedCount: 1,
+      pastExpectedReceiptDateCount: 1
+    },
+    projects: [
+      {
+        projectId,
+        projectTitle: 'TASK-003A Demo',
+        customerName: 'Demo Customer',
+        projectCode: 'PJT-003A',
+        item: 'Demo Item',
+        activePanelCount: 2,
+        deliveryDate: '2026-10-10',
+        procurementItemCount: 2,
+        receiptCompletedCount: 1,
+        nearestExpectedReceiptDate: '2026-06-29',
+        dDayText: 'D-3'
+      }
+    ]
+  };
+}
+
+function procurementExcelPreviewResponse() {
+  return {
+    fileSha256: 'procurement-excel-sha',
+    totalRows: 2,
+    newCount: 1,
+    changedCount: 0,
+    unchangedCount: 0,
+    skippedCount: 0,
+    missingFromUploadCount: 0,
+    needsReviewCount: 1,
+    errorCount: 0,
+    reasonRequired: false,
+    projectMatches: [
+      {
+        sourceGroupSequence: 1,
+        excelProjectTitle: 'TASK-003A Demo',
+        excelProjectCode: 'PJT-003A',
+        matchedProjectId: projectId,
+        matchedProjectTitle: 'TASK-003A Demo',
+        matchedProjectCode: 'PJT-003A',
+        matchStatus: 'Matched',
+        candidates: []
+      },
+      {
+        sourceGroupSequence: 2,
+        excelProjectTitle: 'Unknown Project',
+        excelProjectCode: 'UNKNOWN',
+        matchedProjectId: null,
+        matchedProjectTitle: null,
+        matchedProjectCode: null,
+        matchStatus: 'NeedsReview',
+        candidates: [
+          {
+            projectId,
+            projectTitle: 'TASK-003A Demo',
+            projectCode: 'PJT-003A',
+            matchType: 'Code'
+          }
+        ]
+      }
+    ],
+    expectedVersions: [],
+    rows: [
+      {
+        excelRowNumber: 4,
+        sourceGroupSequence: 1,
+        projectId,
+        itemId: null,
+        expectedRowVersion: null,
+        resultType: 'New',
+        sourceProjectText: 'TASK-003A Demo',
+        sourceProjectCodeText: 'PJT-003A',
+        standardLeadTime: '4W',
+        orderItem: 'Relay',
+        technicalOwner: 'Owner A',
+        orderDate: '2026-06-20',
+        expectedReceiptDate: '2026-06-29',
+        shipmentText: '저장 안 함',
+        issueNote: '확인 필요',
+        receiptCompleted: false,
+        errorMessages: []
+      },
+      {
+        excelRowNumber: 5,
+        sourceGroupSequence: 2,
+        projectId: null,
+        itemId: null,
+        expectedRowVersion: null,
+        resultType: 'NeedsReview',
+        sourceProjectText: 'Unknown Project',
+        sourceProjectCodeText: 'UNKNOWN',
+        standardLeadTime: '5W',
+        orderItem: 'Cable',
+        technicalOwner: 'Owner B',
+        orderDate: '2026-06-21',
+        expectedReceiptDate: null,
+        shipmentText: '저장 안 함',
+        issueNote: null,
+        receiptCompleted: null,
+        errorMessages: ['확인할 프로젝트가 있습니다. 프로젝트를 선택해 주세요.']
+      }
+    ]
+  };
+}
+
+function materialReceiptItems(includeCompleted: boolean) {
+  const pending = procurementResponse().items[0];
+  const completed = {
+    ...pending,
+    itemId: '76000000-0000-0000-0000-000000000002',
+    orderItem: 'Completed Relay',
+    receiptCompleted: true,
+    receiptCompletedAtUtc: '2026-06-26T01:00:00Z',
+    rowVersion: 2
+  };
+  return includeCompleted ? [pending, completed] : [pending];
+}
+
+function procurementHistory() {
+  return {
+    groups: [
+      {
+        groupId: 'proc-direct',
+        inputSource: 'Direct',
+        changedByUserId: '50000000-0000-0000-0000-000000000011',
+        changedByName: 'Dev Procurement User',
+        changedAtUtc: '2026-06-26T01:00:00Z',
+        reason: '구매 직접 입력',
+        importBatchId: null,
+        importFileName: null,
+        affectedItemCount: 1,
+        changeCount: 1,
+        changes: [
+          {
+            entityId: '76000000-0000-0000-0000-000000000001',
+            sequenceNumber: 1,
+            fieldName: 'OrderItem',
+            oldValue: null,
+            newValue: 'Relay'
+          }
+        ]
+      }
+    ],
+    excelImportBatches: []
+  };
 }
 
 function canReadDeletedProjects(userKey: string) {

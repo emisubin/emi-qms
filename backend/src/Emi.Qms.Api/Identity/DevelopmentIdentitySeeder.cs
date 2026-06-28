@@ -66,7 +66,9 @@ public sealed class DevelopmentIdentitySeeder(
             ('10000000-0000-0000-0000-000000000005', 'quality', 'Quality'),
             ('10000000-0000-0000-0000-000000000006', 'logistics', 'Logistics'),
             ('10000000-0000-0000-0000-000000000007', 'readonly', 'Read Only'),
-            ('10000000-0000-0000-0000-000000000008', 'design', 'Design')
+            ('10000000-0000-0000-0000-000000000008', 'design', 'Design'),
+            ('10000000-0000-0000-0000-000000000009', 'procurement', 'Procurement'),
+            ('10000000-0000-0000-0000-000000000010', 'materials', 'Materials')
         on conflict (code) do update set name = excluded.name;
 
         insert into qms_users (id, development_user_key, display_name, department_id, is_active)
@@ -80,7 +82,9 @@ public sealed class DevelopmentIdentitySeeder(
             ('50000000-0000-0000-0000-000000000007', 'dev-viewer', 'Dev Read Only User', '10000000-0000-0000-0000-000000000007', true),
             ('50000000-0000-0000-0000-000000000008', 'dev-no-role', 'Dev User Without Role', '10000000-0000-0000-0000-000000000007', true),
             ('50000000-0000-0000-0000-000000000009', 'dev-disabled', 'Dev Disabled User', '10000000-0000-0000-0000-000000000007', false),
-            ('50000000-0000-0000-0000-000000000010', 'dev-design', 'Dev Design User', '10000000-0000-0000-0000-000000000008', true)
+            ('50000000-0000-0000-0000-000000000010', 'dev-design', 'Dev Design User', '10000000-0000-0000-0000-000000000008', true),
+            ('50000000-0000-0000-0000-000000000011', 'dev-procurement', 'Dev Procurement User', '10000000-0000-0000-0000-000000000009', true),
+            ('50000000-0000-0000-0000-000000000012', 'dev-materials', 'Dev Materials User', '10000000-0000-0000-0000-000000000010', true)
         on conflict (development_user_key) do update
         set display_name = excluded.display_name,
             department_id = excluded.department_id,
@@ -158,6 +162,8 @@ public sealed class DevelopmentIdentitySeeder(
             when 'dev-viewer' then 'read-only'
             when 'dev-disabled' then 'read-only'
             when 'dev-design' then 'design'
+            when 'dev-procurement' then 'procurement'
+            when 'dev-materials' then 'materials'
             else null
         end
         where qms_users.development_user_key <> 'dev-no-role'
@@ -197,5 +203,39 @@ public sealed class DevelopmentIdentitySeeder(
           and role_permissions.permission_id = permissions.id
           and permissions.code = 'Audit.Read.All'
           and roles.code <> 'system-administrator';
+
+        insert into permissions (id, code, name)
+        values
+            ('30000000-0000-0000-0000-000000000021', 'ProcurementPlan.Update', 'Update procurement plan'),
+            ('30000000-0000-0000-0000-000000000022', 'MaterialReceipt.Update', 'Update material receipt completion')
+        on conflict (code) do update set name = excluded.name;
+
+        insert into role_permissions (role_id, permission_id)
+        select roles.id, permissions.id
+        from roles
+        join permissions on permissions.code in ('ProcurementPlan.Update', 'MaterialReceipt.Update')
+        where roles.code = 'procurement'
+        on conflict do nothing;
+
+        insert into role_permissions (role_id, permission_id)
+        select roles.id, permissions.id
+        from roles
+        join permissions on permissions.code = 'MaterialReceipt.Update'
+        where roles.code = 'materials'
+        on conflict do nothing;
+
+        delete from role_permissions
+        using roles, permissions
+        where role_permissions.role_id = roles.id
+          and role_permissions.permission_id = permissions.id
+          and permissions.code = 'ProcurementPlan.Update'
+          and roles.code <> 'procurement';
+
+        delete from role_permissions
+        using roles, permissions
+        where role_permissions.role_id = roles.id
+          and role_permissions.permission_id = permissions.id
+          and permissions.code = 'MaterialReceipt.Update'
+          and roles.code not in ('procurement', 'materials');
         """;
 }

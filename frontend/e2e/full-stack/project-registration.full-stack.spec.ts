@@ -19,11 +19,10 @@ test('TASK-003B-1 A: read/detail split keeps detail fixed and edit page accepts 
   await page.getByLabel('No.2 패널명').fill('PNL-1');
   await page.getByRole('button', { name: '직접 입력 저장' }).click();
 
-  await expect(page.getByText('패널정보를 저장했습니다.')).toBeVisible();
+  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('PNL-1');
   expect(await page.getByText('동일 명칭 2면').count()).toBeGreaterThanOrEqual(2);
   expect(await queryDatabaseValue(`select count(*)::text from panel_placeholders where project_id = '${projectId}' and panel_name = 'PNL-1' and panel_info_completed and qr_eligible;`)).toBe('2');
   await page.reload();
-  await page.getByRole('button', { name: '상세' }).click();
   const productTable = page.getByRole('table', { name: '제품·패널 목록' });
   await expect(productTable).toContainText('PNL-1');
   await expect(productTable).toContainText('동일 명칭 2면');
@@ -73,7 +72,7 @@ test('TASK-003B B: WoodenCrate name-only is QR eligible and unit switch does not
   await page.getByLabel('No.1 패널명').fill('WOOD-1-REV');
   await page.getByLabel('수정사유*').fill('패널명만 수정');
   await page.getByRole('button', { name: '직접 입력 저장' }).click();
-  await expect(page.getByText('패널정보를 저장했습니다.')).toBeVisible();
+  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('WOOD-1-REV');
 
   expect(await queryDatabaseValue(`select width_mm::text || ',' || height_mm::text || ',' || depth_mm::text from panel_placeholders where project_id = '${projectId}' and sequence_number = 1;`)).toBe('800.000,1800.000,400.000');
   expect(await queryDatabaseValue(`select count(*)::text from project_audit_events where project_id = '${projectId}' and field_name in ('WidthMm','HeightMm','DepthMm') and new_value in ('799.998','800.1');`)).toBe('0');
@@ -254,6 +253,15 @@ test('TASK-003B-1 UX: mobile layouts use cards for detail, edit, and Excel previ
   await expect(secondProjectCard).toContainText('미입력');
   await expect(secondProjectCard.locator('.negative-text', { hasText: '생성 불가' })).toBeVisible();
 
+  await firstProjectCard.getByRole('button', { name: '상세 보기' }).click();
+  await expect(page.getByTestId('project-context-summary')).toContainText(projectTitle);
+  await expect(page.getByTestId('project-context-summary')).toContainText(`FS-3B-MOBILE-${unique}`);
+  await expect(page.getByLabel('제품 요약')).toContainText('No.1');
+  await expect(page.getByLabel('제품 요약')).toContainText('MOBILE-1');
+  await expect(page.getByText('W/H/D')).toHaveCount(0);
+  await expect(page.getByText('QR 조건')).toHaveCount(0);
+  await page.locator('.page-surface').filter({ hasText: 'Product Panel' }).getByRole('button', { name: '프로젝트' }).click();
+
   await page.getByRole('button', { name: '패널정보 수정' }).click();
   await expect(page.locator('[data-testid="panel-info-edit-mobile"]')).toBeVisible();
   await expect(page.locator('[data-testid="panel-info-edit-desktop"]')).toBeHidden();
@@ -321,6 +329,13 @@ test('TASK-003B-1 UX: project list has all tab, sticky header, workflow status, 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
+  const desktopNavigation = page.getByRole('navigation', { name: '공통 메뉴' });
+  await expect(desktopNavigation.getByRole('button', { name: '프로젝트' })).toHaveClass(/active/);
+  await expect(desktopNavigation.getByRole('button', { name: '구매' })).toBeVisible();
+  await expect(page.getByLabel('프로젝트 요약')).toContainText('전체 프로젝트');
+  await expect(page.getByLabel('프로젝트 요약')).not.toContainText('QR 가능 패널');
+  await expect(page.getByLabel('프로젝트 요약')).toContainText('제조 완료 프로젝트');
+  await expect(page.getByLabel('프로젝트 요약')).toContainText('검사 완료 프로젝트');
   await page.getByPlaceholder('고객사, Item, PJT Code, PJT Title 검색').fill(`TASK 003B List`);
   await page.getByRole('button', { name: '검색' }).click();
 
@@ -384,6 +399,221 @@ test('TASK-003B-1 UX: project list has all tab, sticky header, workflow status, 
   await expect(mobileCard).toContainText('10%');
 });
 
+test('TASK-004A project Excel import creates projects and panels', async ({ page }, testInfo) => {
+  const unique = Date.now();
+  const projectTitle = `TASK 004A Project Excel ${unique}`;
+  const workbookPath = testInfo.outputPath('project-create.xlsx');
+  writeProjectCreateWorkbook(workbookPath, [
+    ['TEST CUSTOMER', 'TEST PANEL', `FS-4A-PROJ-${unique}`, projectTitle, '3', '2026-10-10', '목포장', '', '', 'TEST LOCATION', 'dev-sales']
+  ]);
+
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-sales');
+  await expect(page.getByRole('button', { name: '프로젝트 Excel 양식' })).toBeVisible();
+  await page.getByRole('button', { name: '프로젝트 Excel 업로드' }).click();
+  const excelDialog = page.getByRole('dialog', { name: '프로젝트 Excel 업로드' });
+  await page.locator('input[type="file"]').setInputFiles(workbookPath);
+  await excelDialog.getByRole('button', { name: 'Preview' }).click();
+  await expect(excelDialog.locator('.excel-preview-action-bar')).toContainText('신규 1건');
+  await expect(excelDialog).toContainText(projectTitle);
+  await expect(excelDialog.getByRole('button', { name: 'Excel 저장' })).toBeEnabled();
+  await excelDialog.getByRole('button', { name: 'Excel 저장' }).click();
+  await expect(page.getByText('프로젝트 Excel을 저장했습니다.')).toBeVisible();
+
+  await openProject(page, projectTitle);
+  await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
+  expect(await queryDatabaseValue(`select count(*)::text from panel_placeholders where project_id = (select id from projects where project_title = '${projectTitle.replaceAll("'", "''")}') and status = 'Active';`)).toBe('3');
+});
+
+test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, and mobile cards', async ({ page, request }) => {
+  const unique = Date.now();
+  const projectTitle = `TASK 004A Direct ${unique}`;
+  const projectId = await createProjectByApi(request, `FS-4A-DIRECT-${unique}`, projectTitle, 'StretchWrap', 1);
+
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-procurement');
+  await openProject(page, projectTitle);
+  await page.getByRole('tab', { name: '구매' }).click();
+  await expect(page.getByRole('button', { name: '구매정보 수정' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Excel 업로드' })).toHaveCount(0);
+  await page.getByRole('button', { name: '구매정보 수정' }).click();
+  await expect(page.getByTestId('project-context-summary')).toContainText(projectTitle);
+  await expect(page.getByTestId('project-context-summary')).toContainText(`FS-4A-DIRECT-${unique}`);
+  await expect(page.getByTestId('project-context-summary')).toContainText('2026-10-10');
+  await expect(page.getByRole('table', { name: '구매정보 수정' })).toBeVisible();
+  await page.getByRole('button', { name: '행 추가' }).click();
+  const editTable = page.getByRole('table', { name: '구매정보 수정' });
+  const editInputs = editTable.locator('input');
+  await editInputs.nth(0).fill('4W');
+  await editInputs.nth(4).fill('2026-07-10');
+  await page.getByRole('button', { name: '저장' }).click();
+  await expect(page.getByRole('tab', { name: '구매' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('table', { name: '구매정보' })).toContainText('4W');
+  expect(await queryDatabaseValue(`select count(*)::text from project_procurement_items where project_id = '${projectId}' and standard_lead_time = '4W';`)).toBe('1');
+
+  const procurementTable = page.getByRole('table', { name: '구매정보' });
+  await expect(procurementTable).toContainText('4W');
+  await expect(procurementTable).not.toContainText('예정일까지');
+  await expect(procurementTable).not.toContainText('D-');
+  await expect(procurementTable.locator('input')).toHaveCount(0);
+  await expect(procurementTable).not.toContainText('입고지연');
+  await expect(procurementTable).not.toContainText('미입고');
+
+  await page.getByLabel('개발 사용자').selectOption('dev-materials');
+  await openProject(page, projectTitle);
+  await page.getByRole('tab', { name: '구매' }).click();
+  await expect(page.getByRole('button', { name: '구매정보 수정' })).toHaveCount(0);
+  await page.getByRole('button', { name: '자재 입고 입력' }).click();
+  await page.getByPlaceholder('프로젝트 또는 발주품목 검색').fill(projectTitle);
+  await page.getByRole('button', { name: '검색' }).click();
+  const receiptGroup = page.locator('.material-receipt-group').filter({ hasText: projectTitle });
+  await expect(receiptGroup).toContainText(projectTitle);
+  const receiptsTable = receiptGroup.getByRole('table', { name: /자재 입고 입력/ });
+  const receiptCheckbox = receiptsTable.locator('input[type="checkbox"]').first();
+  await receiptCheckbox.click();
+  await expect(receiptCheckbox).toBeChecked();
+  await page.getByLabel('수정사유').fill('자재 입고 확인');
+  await page.getByRole('button', { name: '저장' }).click();
+  await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
+  expect(await queryDatabaseValue(`select receipt_completed::text from project_procurement_items where project_id = '${projectId}' limit 1;`)).toBe('true');
+
+  await page.getByLabel('개발 사용자').selectOption('dev-procurement');
+  await page.getByRole('button', { name: '구매' }).click();
+  await expect(page.getByRole('heading', { name: '구매' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '구매' })).toHaveClass(/active/);
+  await expect(page.getByLabel('구매 요약')).toContainText('입고대기품목');
+  await expect(page.getByLabel('구매 요약')).toContainText('입고완료품목');
+  await expect(page.getByLabel('구매 요약')).toContainText('입고예정일 경과 품목');
+  await expect(page.getByRole('button', { name: 'Excel 업로드' })).toBeVisible();
+  const procurementProjects = page.getByRole('table', { name: '구매 프로젝트 목록' });
+  await expect(procurementProjects).toContainText(projectTitle);
+  const procurementProjectRow = procurementProjects.locator('.procurement-project-row').filter({ hasText: projectTitle });
+  await procurementProjectRow.click();
+  const expandedProcurement = page.getByRole('region', { name: `${projectTitle} 구매정보` });
+  await expect(expandedProcurement).toBeVisible();
+  await expect(expandedProcurement).toContainText('4W');
+  const rowBox = await procurementProjectRow.boundingBox();
+  const expandedBox = await expandedProcurement.boundingBox();
+  expect(rowBox).not.toBeNull();
+  expect(expandedBox).not.toBeNull();
+  expect(expandedBox!.y).toBeGreaterThan(rowBox!.y);
+  await procurementProjectRow.click();
+  await expect(expandedProcurement).toHaveCount(0);
+
+  const salesProcurementWrite = await request.patch(`${apiBaseUrl}/api/projects/${projectId}/procurement`, {
+    headers: { 'X-Dev-User': 'dev-sales' },
+    data: { items: [{ orderItem: 'blocked' }] }
+  });
+  expect(salesProcurementWrite.status()).toBe(403);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-procurement');
+  await openProject(page, projectTitle);
+  await page.getByRole('tab', { name: '구매' }).click();
+  await expect(page.locator('[data-testid="procurement-mobile"]')).toBeVisible();
+  await expect(page.locator('[data-testid="procurement-mobile"]')).toContainText('4W');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+  await page.getByRole('button', { name: '구매정보 수정' }).click();
+  await expect(page.locator('[data-testid="procurement-mobile"]')).toBeVisible();
+});
+
+test('TASK-004A B/C/E: procurement Excel matching, apply, reupload changed preview, and admin history', async ({ page, request }, testInfo) => {
+  const unique = Date.now();
+  const projectTitle = `TASK 004A Excel ${unique}`;
+  const projectId = await createProjectByApi(request, `FS-4A-EXCEL-${unique}`, projectTitle, 'StretchWrap', 1);
+  const firstWorkbook = testInfo.outputPath('procurement-first.xlsx');
+  writeProcurementWorkbook(firstWorkbook, [
+    [projectTitle, `FS-4A-EXCEL-${unique}`, '4W', 'MCCB', 'Owner A', '2026-07-01', '2026-07-10', 'B,C 32면 홀딩', 'First', 'Y'],
+    ['', '', '5W', 'Cable', 'Owner B', '2026-07-02', '2026-07-11', 'Text shipment', '', '']
+  ]);
+
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-procurement');
+  await openProject(page, projectTitle);
+  await page.getByRole('tab', { name: '구매' }).click();
+  await page.getByRole('button', { name: '구매정보 수정' }).click();
+  await page.getByRole('button', { name: 'Excel 업로드' }).click();
+  const excelDialog = page.getByRole('dialog', { name: '구매 Excel 업로드' });
+  await page.locator('input[type="file"]').setInputFiles(firstWorkbook);
+  await page.getByRole('button', { name: 'Preview' }).click();
+  await expect(excelDialog).toContainText('저장 가능한 데이터 목록 2건');
+  await expect(excelDialog.getByRole('table', { name: '저장 가능한 데이터 목록' })).toContainText('Excel 행');
+  await expect(excelDialog.getByRole('table', { name: '저장 가능한 데이터 목록' })).toContainText('발주품목');
+  await expect(excelDialog.getByRole('table', { name: '저장 가능한 데이터 목록' }).getByText('결과')).toHaveCount(0);
+  await expect(excelDialog.getByRole('table', { name: '저장 불가능한 데이터 목록' })).toContainText('Excel 행');
+  await expect(excelDialog.getByRole('table', { name: '저장 불가능한 데이터 목록' })).toContainText('통상납기');
+  await expect(excelDialog.getByRole('table', { name: '저장 불가능한 데이터 목록' }).getByText('해결 방법')).toHaveCount(0);
+  await expect(excelDialog).not.toContainText(/오류 \d+건/);
+  await expect(excelDialog).not.toContainText(/확인 필요 \d+건/);
+  await expect(excelDialog).not.toContainText('저장할 수 없는 행');
+  await expect(excelDialog).toContainText('매칭 완료');
+  await expect(excelDialog.locator('.excel-preview-action-bar')).toHaveCSS('position', 'sticky');
+  await expect(excelDialog.locator('.excel-preview-grid.saveable .excel-preview-head')).toHaveCSS('position', 'sticky');
+  await excelDialog.locator('.dialog').evaluate((element) => { element.scrollTop = 300; });
+  const actionBarBox = await excelDialog.locator('.excel-preview-action-bar').boundingBox();
+  const saveableHeaderBox = await excelDialog.locator('.excel-preview-grid.saveable .excel-preview-head').boundingBox();
+  expect(actionBarBox).not.toBeNull();
+  expect(saveableHeaderBox).not.toBeNull();
+  expect(saveableHeaderBox!.y).toBeGreaterThanOrEqual(actionBarBox!.y + actionBarBox!.height - 1);
+  await excelDialog.getByRole('button', { name: '저장 가능한 항목 적용' }).click();
+  await expect(page.getByRole('table', { name: '구매정보' })).toContainText('MCCB');
+  expect(await queryDatabaseValue(`select count(*)::text from project_procurement_items where project_id = '${projectId}';`)).toBe('2');
+  expect(await queryDatabaseValue(`select count(*)::text from project_audit_events where project_id = '${projectId}' and entity_type = 'ProcurementItem' and field_name = 'ShipmentText';`)).toBe('0');
+
+  const secondWorkbook = testInfo.outputPath('procurement-second.xlsx');
+  writeProcurementWorkbook(secondWorkbook, [
+    [projectTitle, `FS-4A-EXCEL-${unique}`, '4W', 'MCCB', 'Owner A', '2026-07-01', '2026-07-10', 'B,C 32면 홀딩', 'First changed', 'Y'],
+    ['', '', '6W', 'New item', 'Owner C', '2026-07-03', '2026-07-12', 'New shipment', 'New', 'N']
+  ]);
+
+  await page.getByRole('button', { name: '구매정보 수정' }).click();
+  await page.getByRole('button', { name: 'Excel 업로드' }).click();
+  const reuploadDialog = page.getByRole('dialog', { name: '구매 Excel 업로드' });
+  await page.locator('input[type="file"]').setInputFiles(secondWorkbook);
+  await page.getByRole('button', { name: 'Preview' }).click();
+  await expect(reuploadDialog).toContainText('저장 가능한 데이터 목록 2건');
+  await expect(reuploadDialog).toContainText('저장 불가능한 데이터 목록 0건');
+  await reuploadDialog.getByLabel('수정사유*').fill('Excel 변경분 적용');
+  await reuploadDialog.getByRole('button', { name: '저장 가능한 항목 적용' }).click();
+  await expect(page.getByRole('table', { name: '구매정보' })).toContainText('First changed');
+  expect(await queryDatabaseValue(`select issue_note from project_procurement_items where project_id = '${projectId}' and order_item = 'MCCB';`)).toBe('First changed');
+  expect(await queryDatabaseValue(`select count(*)::text from project_procurement_items where project_id = '${projectId}' and order_item = 'Cable';`)).toBe('1');
+
+  await page.getByLabel('개발 사용자').selectOption('dev-admin');
+  await openProject(page, projectTitle);
+  await expect(page.getByRole('heading', { name: '전체 이력' })).toBeVisible();
+  await expect(page.getByText('Excel 입력').first()).toBeVisible();
+});
+
+test('TASK-004A deleted archive restore returns a project to the normal list', async ({ page, request }) => {
+  const unique = Date.now();
+  const projectTitle = `TASK 004A Restore ${unique}`;
+  const projectId = await createProjectByApi(request, `FS-4A-RESTORE-${unique}`, projectTitle, 'StretchWrap', 1);
+  const deleteResponse = await request.post(`${apiBaseUrl}/api/projects/${projectId}/delete`, {
+    headers: { 'X-Dev-User': 'dev-sales' },
+    data: { reason: '복구 E2E 준비', confirmProjectTitle: projectTitle }
+  });
+  expect(deleteResponse.ok()).toBeTruthy();
+
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-sales');
+  await page.getByRole('tab', { name: '삭제 보관함' }).click();
+  await openProject(page, projectTitle);
+  await expect(page.getByRole('button', { name: '복구' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '완전 삭제' })).toHaveCount(0);
+
+  await page.getByLabel('개발 사용자').selectOption('dev-admin');
+  await page.getByRole('tab', { name: '삭제 보관함' }).click();
+  await openProject(page, projectTitle);
+  await page.getByRole('button', { name: '복구' }).click();
+  await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
+  await page.getByPlaceholder('고객사, Item, PJT Code, PJT Title 검색').fill(projectTitle);
+  await page.getByRole('button', { name: '검색' }).click();
+  await expect(page.getByRole('table', { name: '프로젝트 목록' })).toContainText(projectTitle);
+  expect(await queryDatabaseValue(`select deleted_at_utc is null from projects where id = '${projectId}';`)).toBe('t');
+});
+
 test('TASK-003B D: unauthorized and held projects block panel information writes', async ({ page, request }) => {
   const unique = Date.now();
   const projectTitle = `TASK 003B Guard ${unique}`;
@@ -444,9 +674,8 @@ test('TASK-003B-1 D: admin grouped history summarizes one direct bulk save', asy
   await page.getByLabel('No.2 H').fill('2200');
   await page.getByLabel('No.2 D').fill('300');
   await page.getByRole('button', { name: '직접 입력 저장' }).click();
-  await expect(page.getByText('패널정보를 저장했습니다.')).toBeVisible();
+  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('GROUP-1');
 
-  await page.getByRole('button', { name: '상세' }).click();
   await page.getByLabel('개발 사용자').selectOption('dev-admin');
   await openProject(page, projectTitle);
   await expect(page.getByRole('heading', { name: '전체 이력' })).toBeVisible();
@@ -496,7 +725,6 @@ test('TASK-003B-1 C: partial Excel preview/apply skips blank rows and admin sees
   expect(await queryDatabaseValue(`select skipped_panel_count::text from panel_information_excel_import_batches where project_id = '${projectId}';`)).toBe('1');
   expect(await queryDatabaseValue(`select count(distinct import_batch_id)::text from project_audit_events where project_id = '${projectId}' and input_source = 'Excel';`)).toBe('1');
 
-  await page.getByRole('button', { name: '상세' }).click();
   const partialTable = page.getByRole('table', { name: '제품·패널 목록' });
   await expect(partialTable).toContainText('PNL-1');
   await expect(partialTable).toContainText('미입력');
@@ -660,7 +888,7 @@ test('full-stack: project registration, permissions, status, and panel count use
   await expect(page.getByRole('tab', { name: '삭제 보관함' })).toBeVisible();
   await page.getByRole('tab', { name: '삭제 보관함' }).click();
   await openProject(page, projectTitle);
-  await expect(page.getByRole('button', { name: '삭제' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '삭제', exact: true })).toHaveCount(0);
 
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
   await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
@@ -832,6 +1060,72 @@ with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>''')
     z.writestr('xl/workbook.xml', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Panel Information" sheetId="1" r:id="rId1"/></sheets></workbook>''')
+    z.writestr('xl/_rels/workbook.xml.rels', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>''')
+    z.writestr('xl/worksheets/sheet1.xml', sheet)
+`;
+  execFileSync('python3', ['-c', script, filePath]);
+}
+
+function writeProcurementWorkbook(filePath: string, rows: string[][]) {
+  const allRows = [
+    ['PS 사업부 PJT 발주 관리', '', '', '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', ''],
+    ['PJT', 'PJT CODE', '통상납기', '발주품목', '기술 담당자', '발주일', '입고일', '출하일', '이슈사항', '입고 완료'],
+    ...rows
+  ];
+  const rowXml = allRows.map((row, rowIndex) => {
+    const cells = row.map((value, columnIndex) => {
+      const reference = `${String.fromCharCode('A'.charCodeAt(0) + columnIndex)}${rowIndex + 1}`;
+      return `<c r="${reference}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+    }).join('');
+    return `<row r="${rowIndex + 1}">${cells}</row>`;
+  }).join('');
+  const script = `
+import sys, zipfile
+path = sys.argv[1]
+sheet = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rowXml}</sheetData></worksheet>'''
+with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+    z.writestr('[Content_Types].xml', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>''')
+    z.writestr('_rels/.rels', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>''')
+    z.writestr('xl/workbook.xml', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Procurement Plan" sheetId="1" r:id="rId1"/></sheets></workbook>''')
+    z.writestr('xl/_rels/workbook.xml.rels', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>''')
+    z.writestr('xl/worksheets/sheet1.xml', sheet)
+`;
+  execFileSync('python3', ['-c', script, filePath]);
+}
+
+function writeProjectCreateWorkbook(filePath: string, rows: string[][]) {
+  const allRows = [
+    ['프로젝트 Excel 등록', '', '', '', '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', '', ''],
+    ['고객사', 'Item', 'PJT Code', 'PJT Title', '면수', '납기일', '포장방식', '판매금액', '통화', '납품장소', '영업담당자'],
+    ...rows
+  ];
+  const rowXml = allRows.map((row, rowIndex) => {
+    const cells = row.map((value, columnIndex) => {
+      const reference = `${String.fromCharCode('A'.charCodeAt(0) + columnIndex)}${rowIndex + 1}`;
+      return `<c r="${reference}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+    }).join('');
+    return `<row r="${rowIndex + 1}">${cells}</row>`;
+  }).join('');
+  const script = `
+import sys, zipfile
+path = sys.argv[1]
+sheet = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rowXml}</sheetData></worksheet>'''
+with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+    z.writestr('[Content_Types].xml', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>''')
+    z.writestr('_rels/.rels', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>''')
+    z.writestr('xl/workbook.xml', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Projects" sheetId="1" r:id="rId1"/></sheets></workbook>''')
     z.writestr('xl/_rels/workbook.xml.rels', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>''')
     z.writestr('xl/worksheets/sheet1.xml', sheet)

@@ -13,6 +13,34 @@ public sealed class AuthorizationEndpointTests(QmsWebApplicationFactory factory)
     : IClassFixture<QmsWebApplicationFactory>
 {
     [Fact]
+    public async Task CorsPolicy_PrefersFrontendOriginEnvironmentOverride()
+    {
+        const string expectedOrigin = "http://127.0.0.1:5174";
+        using var corsFactory = QmsWebApplicationFactory.Create(
+            "Development",
+            new Dictionary<string, string?>
+            {
+                ["Frontend:Origin"] = "http://localhost:5173",
+                ["FRONTEND_ORIGIN"] = expectedOrigin,
+                ["DevAuthentication:Enabled"] = "true",
+                ["DevelopmentData:SeedEnabled"] = "false",
+                ["Database:ApplyMigrationsOnStartup"] = "false"
+            },
+            includeDefaultDevelopmentAuthentication: true);
+        using var client = corsFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Options, "/api/projects");
+        request.Headers.Add("Origin", expectedOrigin);
+        request.Headers.Add("Access-Control-Request-Method", "GET");
+        request.Headers.Add("Access-Control-Request-Headers", "x-dev-user");
+
+        var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues("Access-Control-Allow-Origin", out var origins));
+        Assert.Contains(expectedOrigin, origins);
+    }
+
+    [Fact]
     public async Task ProtectedApi_ReturnsUnauthorized_WhenRequestIsAnonymous()
     {
         using var client = factory.CreateClient();

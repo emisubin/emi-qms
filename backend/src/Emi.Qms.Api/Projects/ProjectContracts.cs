@@ -38,11 +38,59 @@ public sealed record ProjectStatusChangeRequest(string? Reason);
 
 public sealed record DeleteProjectRequest(string? Reason, string? ConfirmProjectTitle);
 
+public sealed record PurgeDeletedProjectRequest(string? ConfirmText);
+
+public sealed record PurgeDeletedProjectsResponse(int DeletedProjectCount);
+
+public sealed record RestoreDeletedProjectRequest(string? Reason);
+
 public sealed record ProjectListResponse(
     IReadOnlyList<ProjectListItemResponse> Items,
     int Page,
     int PageSize,
     long TotalCount);
+
+public sealed record ProjectDashboardSummaryResponse(
+    int TotalProjectCount,
+    int ActiveProjectCount,
+    int OnHoldProjectCount,
+    int CompletedProjectCount,
+    int CancelledProjectCount,
+    int QrEligiblePanelCount,
+    int ManufacturingCompletedCount,
+    int InspectionCompletedCount,
+    int ManufacturingCompletedProjectCount,
+    int InspectionCompletedProjectCount);
+
+public sealed record ProjectExcelPreviewResponse(
+    string FileSha256,
+    int TotalRows,
+    int NewCount,
+    int NeedsReviewCount,
+    int ErrorCount,
+    IReadOnlyList<ProjectExcelPreviewRowResponse> Rows);
+
+public sealed record ProjectExcelPreviewRowResponse(
+    int ExcelRowNumber,
+    string ResultType,
+    string? CustomerName,
+    string? Item,
+    string? ProjectCode,
+    string? ProjectTitle,
+    int? PanelCount,
+    DateOnly? DeliveryDate,
+    string? PackagingMethod,
+    decimal? SalesAmount,
+    string? CurrencyCode,
+    string? DeliveryLocation,
+    string? SalesOwnerText,
+    Guid? SalesOwnerUserId,
+    string? SalesOwnerName,
+    IReadOnlyList<string> ErrorMessages);
+
+public sealed record ProjectExcelApplyResponse(
+    int CreatedCount,
+    IReadOnlyList<Guid> ProjectIds);
 
 public class ProjectListItemResponse
 {

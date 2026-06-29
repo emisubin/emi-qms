@@ -30,7 +30,8 @@
 | `Project.Read.All` | System Administrator, Sales, Production Planning, Manufacturing, Quality, Logistics, Read Only | 활성 사내 사용자의 전체 프로젝트 조회 |
 | `projects.access.all` | 없음 | TASK-002 0001 호환을 위해 남은 legacy/deprecated 권한입니다. 새 Endpoint와 Policy는 전체 프로젝트 조회에 이 권한을 사용하지 않습니다. |
 | `projects.manage` | System Administrator, Sales | 프로젝트 등록·수정·보류·취소·해제 |
-| `production.plan` | System Administrator, Production Planning | 생산계획 입력 |
+| `production.plan` | legacy | 초기 문서 호환용 legacy 권한입니다. 신규 생산계획 수정 API는 사용하지 않습니다. |
+| `ProductionPlan.Update` | Production Planning | 생산계획과 프로젝트 담당자 지정 입력 |
 | `manufacturing.update` | System Administrator, Manufacturing | 제조정보 입력·수정 |
 | `quality.inspect` | System Administrator, Quality | 품질 검사 입력 |
 | `quality.approve` | System Administrator, Quality | 품질 승인 |

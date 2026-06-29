@@ -20,6 +20,15 @@ import type {
   ProcurementListResponse,
   ProcurementReceiptBulkUpdateRequest,
   ProcurementResponse,
+  CreateProductionProductTypeRequest,
+  ProductionPlanningHistoryResponse,
+  ProductionPlanningExcelApplyResponse,
+  ProductionPlanningExcelPreviewResponse,
+  ProductionPlanningProjectListResponse,
+  ProductionPlanningResponse,
+  ProductionPlanningSummary,
+  ProductionTemplateSettings,
+  ProductionProductType,
   ProjectExcelApplyResponse,
   ProjectExcelPreviewResponse,
   ProjectDetail,
@@ -29,6 +38,9 @@ import type {
   ProjectListTab,
   ProjectStatusChangeRequest,
   SalesOwner,
+  SystemHoliday,
+  UpdateProductionPlanningRequest,
+  UpdateProductionTemplateSettingsRequest,
   UpdateProjectRequest
 } from './projects';
 
@@ -405,6 +417,22 @@ export async function downloadProcurementTemplate(
   };
 }
 
+export async function downloadProcurementDashboardTemplate(
+  developmentUserKey: string | undefined
+): Promise<{ blob: Blob; fileName: string }> {
+  const response = await fetchWithAuth('/api/procurement/import/template', developmentUserKey);
+
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? 'Procurement_Plan_Template.xlsx'
+  };
+}
+
 export async function previewProcurementExcel(
   developmentUserKey: string | undefined,
   file: File,
@@ -495,6 +523,161 @@ export async function updateMaterialReceipts(
   return fetchJson<ProcurementListResponse>('/api/materials/receipts', developmentUserKey, {
     method: 'PATCH',
     body: JSON.stringify(request)
+  });
+}
+
+export async function getProductionPlanningSummary(
+  developmentUserKey: string | undefined
+): Promise<ProductionPlanningSummary> {
+  return fetchJson<ProductionPlanningSummary>('/api/production-planning/summary', developmentUserKey);
+}
+
+export async function listProductionPlanningProjects(
+  developmentUserKey: string | undefined,
+  search = ''
+): Promise<ProductionPlanningProjectListResponse> {
+  const query = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
+  return fetchJson<ProductionPlanningProjectListResponse>(`/api/production-planning/projects${query}`, developmentUserKey);
+}
+
+export async function listProductionProductTypes(
+  developmentUserKey: string | undefined
+): Promise<ProductionProductType[]> {
+  return fetchJson<ProductionProductType[]>('/api/production-planning/product-types', developmentUserKey);
+}
+
+export async function createProductionProductType(
+  developmentUserKey: string | undefined,
+  request: CreateProductionProductTypeRequest
+): Promise<ProductionProductType[]> {
+  return fetchJson<ProductionProductType[]>('/api/production-planning/product-types', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function listProductionTemplateSettings(
+  developmentUserKey: string | undefined
+): Promise<ProductionTemplateSettings[]> {
+  return fetchJson<ProductionTemplateSettings[]>('/api/production-planning/settings/templates', developmentUserKey);
+}
+
+export async function updateProductionTemplateSettings(
+  developmentUserKey: string | undefined,
+  productTypeId: string,
+  request: UpdateProductionTemplateSettingsRequest
+): Promise<ProductionTemplateSettings[]> {
+  return fetchJson<ProductionTemplateSettings[]>(`/api/production-planning/settings/templates/${productTypeId}`, developmentUserKey, {
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function listSystemHolidays(
+  developmentUserKey: string | undefined,
+  options: { countryCode?: string; dateFrom?: string; dateTo?: string; signal?: AbortSignal } = {}
+): Promise<SystemHoliday[]> {
+  const params = new URLSearchParams();
+  params.set('countryCode', options.countryCode ?? 'KR');
+  if (options.dateFrom) {
+    params.set('dateFrom', options.dateFrom);
+  }
+  if (options.dateTo) {
+    params.set('dateTo', options.dateTo);
+  }
+
+  return fetchJson<SystemHoliday[]>(`/api/system/holidays?${params.toString()}`, developmentUserKey, {
+    signal: options.signal
+  });
+}
+
+export async function getProjectProductionPlanning(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  signal?: AbortSignal
+): Promise<ProductionPlanningResponse> {
+  return fetchJson<ProductionPlanningResponse>(`/api/projects/${projectId}/production-planning`, developmentUserKey, { signal });
+}
+
+export async function updateProjectProductionPlanning(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  request: UpdateProductionPlanningRequest
+): Promise<ProductionPlanningResponse> {
+  return fetchJson<ProductionPlanningResponse>(`/api/projects/${projectId}/production-planning`, developmentUserKey, {
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getProjectProductionPlanningHistory(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<ProductionPlanningHistoryResponse> {
+  return fetchJson<ProductionPlanningHistoryResponse>(`/api/projects/${projectId}/production-planning/history`, developmentUserKey);
+}
+
+export async function downloadProductionPlanningTemplate(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  productTypeId: string
+): Promise<{ blob: Blob; fileName: string }> {
+  const response = await fetchWithAuth(`/api/projects/${projectId}/production-planning/export-template?productTypeId=${encodeURIComponent(productTypeId)}`, developmentUserKey);
+
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? 'Production_Plan_Template.xlsx'
+  };
+}
+
+export async function downloadProductionPlanningBulkTemplate(
+  developmentUserKey: string | undefined
+): Promise<{ blob: Blob; fileName: string }> {
+  const response = await fetchWithAuth('/api/production-planning/import/template', developmentUserKey);
+
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? 'Production_Planning_Bulk_Template.xlsx'
+  };
+}
+
+export async function previewProductionPlanningExcel(
+  developmentUserKey: string | undefined,
+  file: File
+): Promise<ProductionPlanningExcelPreviewResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  return fetchJson<ProductionPlanningExcelPreviewResponse>('/api/production-planning/import/preview', developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function applyProductionPlanningExcel(
+  developmentUserKey: string | undefined,
+  file: File,
+  expectedFileSha256: string,
+  reason: string | null
+): Promise<ProductionPlanningExcelApplyResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('expectedFileSha256', expectedFileSha256);
+  if (reason) {
+    form.append('reason', reason);
+  }
+  return fetchJson<ProductionPlanningExcelApplyResponse>('/api/production-planning/import/apply', developmentUserKey, {
+    method: 'POST',
+    body: form
   });
 }
 
@@ -593,29 +776,16 @@ function localizeProblemErrors(errors?: Record<string, string[]>) {
   }
 
   return Object.fromEntries(Object.entries(errors).map(([key, values]) => [
-    localizeFieldName(key),
+    normalizeProblemFieldKey(key),
     values.map(localizeErrorMessage)
   ]));
 }
 
-function localizeFieldName(key: string) {
+function normalizeProblemFieldKey(key: string) {
   const normalized = key.replace(/^\$\.?/u, '').replace(/^request\./iu, '');
-  const labels: Record<string, string> = {
-    projectTitle: '프로젝트명',
-    ProjectTitle: '프로젝트명',
-    expectedReceiptDate: '입고예정일',
-    ExpectedReceiptDate: '입고예정일',
-    receiptCompletedAtUtc: '완료일',
-    ReceiptCompletedAtUtc: '완료일',
-    receiptCompletionNote: '완료 비고',
-    ReceiptCompletionNote: '완료 비고',
-    orderItem: '구매품목',
-    OrderItem: '구매품목',
-    Items: '항목',
-    Reason: '사유',
-    File: '파일'
-  };
-  return labels[normalized] ?? normalized;
+  return normalized
+    .replace(/\.([A-Z])/gu, (_, value: string) => `.${value.toLowerCase()}`)
+    .replace(/^([A-Z])/u, (_, value: string) => value.toLowerCase());
 }
 
 function localizeErrorMessage(message: string) {

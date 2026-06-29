@@ -440,7 +440,7 @@ public sealed partial class PanelInformationExcelParser
 
     private static string NormalizeHeader(string value)
     {
-        return WhitespaceRegex().Replace(value.Trim(), " ").ToLowerInvariant();
+        return WhitespaceRegex().Replace(value.Trim().TrimEnd('*').Trim(), " ").ToLowerInvariant();
     }
 
     private static bool IsRecognizedRowEmpty(

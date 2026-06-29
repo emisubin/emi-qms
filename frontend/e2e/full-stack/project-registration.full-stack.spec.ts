@@ -404,7 +404,7 @@ test('TASK-004A project Excel import creates projects and panels', async ({ page
   const projectTitle = `TASK 004A Project Excel ${unique}`;
   const workbookPath = testInfo.outputPath('project-create.xlsx');
   writeProjectCreateWorkbook(workbookPath, [
-    ['TEST CUSTOMER', 'TEST PANEL', `FS-4A-PROJ-${unique}`, projectTitle, '3', '2026-10-10', '목포장', '', '', 'TEST LOCATION', 'dev-sales']
+    ['TEST CUSTOMER', 'UL67', `FS-4A-PROJ-${unique}`, projectTitle, '3', '2026-10-10', '목포장', '', '', 'TEST LOCATION', 'dev-sales']
   ]);
 
   await page.goto('/');
@@ -463,7 +463,7 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await openProject(page, projectTitle);
   await page.getByRole('tab', { name: '구매' }).click();
   await expect(page.getByRole('button', { name: '구매정보 수정' })).toHaveCount(0);
-  await page.getByRole('button', { name: '자재 입고 입력' }).click();
+  await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '자재' }).click();
   await page.getByPlaceholder('프로젝트 또는 발주품목 검색').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
   const receiptGroup = page.locator('.material-receipt-group').filter({ hasText: projectTitle });
@@ -612,6 +612,98 @@ test('TASK-004A deleted archive restore returns a project to the normal list', a
   await page.getByRole('button', { name: '검색' }).click();
   await expect(page.getByRole('table', { name: '프로젝트 목록' })).toContainText(projectTitle);
   expect(await queryDatabaseValue(`select deleted_at_utc is null from projects where id = '${projectId}';`)).toBe('t');
+});
+
+test('TASK-005A production planning page, project section, edit, permissions, and mobile cards', async ({ page, request }) => {
+  const unique = Date.now();
+  const projectTitle = `TASK 005A Plan ${unique}`;
+  const projectId = await createProjectByApi(request, `FS-5A-PLAN-${unique}`, projectTitle, 'WoodenCrate', 2);
+  expect(queryDatabaseValue(`
+    with upserted as (
+      insert into system_holidays (holiday_date, name, country_code, source, source_key, is_active)
+      values (date '2026-07-03', '공식 대체공휴일', 'KR', 'E2E', '20260703:공식 대체공휴일', true)
+      on conflict (country_code, holiday_date, source_key) do update
+      set name = excluded.name,
+          is_active = true,
+          updated_at_utc = now()
+      returning id
+    )
+    select count(*)::text from upserted;
+  `)).toBe('1');
+
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-production');
+  const navigation = page.getByRole('navigation', { name: '공통 메뉴' }).first();
+  await expect(navigation.getByRole('button', { name: '생산관리' })).toBeVisible();
+  await navigation.getByRole('button', { name: '생산관리' }).click();
+  await expect(navigation.getByRole('button', { name: '생산관리' })).toHaveClass(/active/);
+  await expect(page.getByLabel('생산계획 요약')).toContainText('생산계획 미등록');
+  await page.getByPlaceholder('프로젝트명, 고객사, Code, Item 검색').fill(projectTitle);
+  await page.getByRole('button', { name: '검색' }).click();
+  const productionTable = page.getByRole('table', { name: '생산계획 프로젝트 목록' });
+  await expect(productionTable).toContainText(projectTitle);
+  await productionTable.locator('.production-project-row').filter({ hasText: projectTitle }).click();
+  const expandedPlan = page.getByLabel('선택 프로젝트 생산계획');
+  await expect(expandedPlan.getByRole('button', { name: '프로젝트 상세에서 보기' })).toBeVisible();
+  await expect(expandedPlan.getByRole('button', { name: '생산계획 수정' })).toBeVisible();
+  await expect(expandedPlan).toContainText('Item');
+  await expect(expandedPlan).toContainText('계획 상태');
+  await expect(expandedPlan).toContainText('알림 기준');
+  await expect(expandedPlan).toContainText('등록된 생산계획 항목이 없습니다.');
+  await expect(expandedPlan.getByRole('table', { name: '생산계획 캘린더 표' })).toHaveCount(0);
+
+  await expandedPlan.getByRole('button', { name: '생산계획 수정' }).click();
+  await expect(page.getByTestId('project-context-summary')).toContainText(projectTitle);
+  await expect(page.getByRole('heading', { name: '생산계획 수정' })).toBeVisible();
+  await expect(page.getByRole('table', { name: '생산계획 수정' })).toContainText('자재 입고');
+  const planEditTable = page.getByRole('table', { name: '생산계획 수정' });
+  await expect(planEditTable).not.toContainText('No');
+  await planEditTable.locator('input[type="date"]').nth(0).fill('2026-07-01');
+  await planEditTable.locator('input[type="date"]').nth(1).fill('2026-07-02');
+  await planEditTable.locator('input[type="date"]').nth(2).fill('2026-07-03');
+  await planEditTable.locator('input[type="date"]').nth(3).fill('2026-07-04');
+  await page.getByLabel('구매 담당자').selectOption('50000000-0000-0000-0000-000000000011');
+  await page.getByLabel('생산관리 담당자').selectOption('50000000-0000-0000-0000-000000000003');
+  await page.getByRole('button', { name: '저장' }).click();
+  await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '생산관리' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByText('계획 완료').first()).toBeVisible();
+  const planItemsTable = page.getByRole('table', { name: '생산계획 항목' });
+  await expect(planItemsTable).not.toContainText('No');
+  const calendarTable = page.getByRole('table', { name: '생산계획 캘린더 표' });
+  await expect(calendarTable.getByRole('columnheader', { name: /7\/3/ })).toHaveClass(/calendar-red-day/);
+  await expect(page.getByText('공식 대체공휴일')).toBeVisible();
+  await expect(page.getByLabel('담당자 지정 현황')).toContainText('Dev Procurement User');
+  await expect(page.getByLabel('담당자 지정 현황')).toContainText('영업담당자');
+  expect(await queryDatabaseValue(`select count(*)::text from project_production_plan_items where production_plan_id = (select id from project_production_plans where project_id = '${projectId}') and planned_date is not null;`)).toBe('4');
+
+  const salesForbidden = await request.patch(`${apiBaseUrl}/api/projects/${projectId}/production-planning`, {
+    headers: { 'X-Dev-User': 'dev-sales' },
+    data: {
+      productTypeId: null,
+      expectedRowVersion: 0,
+      notes: null,
+      reason: null,
+      items: [],
+      assignees: []
+    }
+  });
+  expect(salesForbidden.status()).toBe(403);
+
+  await page.getByLabel('개발 사용자').selectOption('dev-admin');
+  await openProject(page, projectTitle);
+  await page.getByRole('tab', { name: '생산관리' }).click();
+  await expect(page.getByRole('button', { name: '생산계획 수정' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '전체 이력' })).toBeVisible();
+  await expect(page.getByText('생산계획 · 대상').first()).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByLabel('개발 사용자').selectOption('dev-production');
+  await page.goto('/production-planning');
+  await page.getByPlaceholder('프로젝트명, 고객사, Code, Item 검색').fill(projectTitle);
+  await page.getByRole('button', { name: '검색' }).click();
+  await expect(page.locator('.production-planning-mobile .procurement-project-card').filter({ hasText: projectTitle })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
 });
 
 test('TASK-003B D: unauthorized and held projects block panel information writes', async ({ page, request }) => {
@@ -902,7 +994,7 @@ test('full-stack: project registration, permissions, status, and panel count use
 
 async function fillProjectForm(page: Page, projectCode: string, projectTitle: string, panelCount: string) {
   await page.getByLabel('고객사*').fill('EMI Full Stack Customer');
-  await page.getByLabel('Item*').fill('Control Panel');
+  await page.getByLabel('Item*').selectOption('UL67');
   await page.getByLabel('PJT Code*').fill(projectCode);
   await page.getByLabel('PJT Title*').fill(projectTitle);
   await page.getByLabel('면수*').fill(panelCount);
@@ -923,7 +1015,7 @@ async function createProjectByApi(
     headers: { 'X-Dev-User': 'dev-sales' },
     data: {
       customerName: 'EMI Full Stack Customer',
-      item: 'Control Panel',
+      item: 'UL67',
       projectCode,
       projectTitle,
       panelCount,

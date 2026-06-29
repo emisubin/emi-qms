@@ -191,6 +191,14 @@ public static class ProjectEndpointExtensions
                 return Results.ValidationProblem(validation.Errors);
             }
 
+            if (!await projectStore.IsActiveProductionProductTypeCodeAsync(input.Item, cancellationToken))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    [nameof(CreateProjectRequest.Item)] = ["Item은 등록된 Item 기준값 중 하나여야 합니다."]
+                });
+            }
+
             var userId = GetCurrentUserId(user);
             if (userId is null)
             {
@@ -302,6 +310,14 @@ public static class ProjectEndpointExtensions
             if (validation.HasErrors || input is null)
             {
                 return Results.ValidationProblem(validation.Errors);
+            }
+
+            if (!await projectStore.IsActiveProductionProductTypeCodeAsync(input.Item, cancellationToken))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    [nameof(UpdateProjectRequest.Item)] = ["Item은 등록된 Item 기준값 중 하나여야 합니다."]
+                });
             }
 
             var userId = GetCurrentUserId(user);

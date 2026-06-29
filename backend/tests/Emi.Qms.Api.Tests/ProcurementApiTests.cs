@@ -499,7 +499,14 @@ public sealed class ProcurementApiTests
         {
             var denied = await deniedClient.GetAsync($"/api/projects/{projectId}/procurement/import/template", TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+
+            var globalDenied = await deniedClient.GetAsync("/api/procurement/import/template", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, globalDenied.StatusCode);
         }
+
+        var globalResponse = await procurementClient.GetAsync("/api/procurement/import/template", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, globalResponse.StatusCode);
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", globalResponse.Content.Headers.ContentType?.MediaType);
 
         var response = await procurementClient.GetAsync($"/api/projects/{projectId}/procurement/import/template", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -508,12 +515,22 @@ public sealed class ProcurementApiTests
         using var workbook = new XLWorkbook(new MemoryStream(bytes));
         var worksheet = workbook.Worksheet("Procurement Plan");
         Assert.Equal("PS 사업부 PJT 발주 관리", worksheet.Cell(1, 1).GetString());
+        Assert.Contains("필수 입력값이 없습니다", worksheet.Cell(2, 1).GetString());
         Assert.Equal(new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "기술 담당자", "발주일", "입고일", "출하일", "이슈사항", "입고 완료" },
             Enumerable.Range(1, 10).Select(column => worksheet.Cell(3, column).GetString()).ToArray());
         Assert.Equal("Proc Template", worksheet.Cell(4, 1).GetString());
         Assert.Equal("Relay", worksheet.Cell(4, 4).GetString());
         Assert.Equal("2026-10-10", worksheet.Cell(4, 8).GetFormattedString());
         Assert.Equal("Y", worksheet.Cell(4, 10).GetString());
+        Assert.True(worksheet.SheetView.SplitRow >= 3);
+        Assert.True(worksheet.AutoFilter.IsEnabled);
+        Assert.True(worksheet.Column(4).Width >= 18);
+        Assert.True(worksheet.Column(9).Width >= worksheet.Column(6).Width);
+        for (var column = 1; column <= 10; column++)
+        {
+            Assert.True(worksheet.Column(column).Width >= 12);
+            Assert.True(worksheet.Column(column).Width <= 42);
+        }
 
         var history = await ReadJsonAsync(await adminClient.GetAsync($"/api/projects/{projectId}/procurement/history", TestContext.Current.CancellationToken));
         Assert.Single(history.RootElement.GetProperty("groups").EnumerateArray());
@@ -598,7 +615,7 @@ public sealed class ProcurementApiTests
             new
             {
                 CustomerName = "Procurement Test Customer",
-                Item = "Procurement Test Item",
+                Item = "UL67",
                 ProjectCode = projectCode,
                 ProjectTitle = projectTitle,
                 PanelCount = 1,

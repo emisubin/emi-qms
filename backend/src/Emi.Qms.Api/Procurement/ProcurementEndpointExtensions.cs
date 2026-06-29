@@ -163,6 +163,15 @@ public static class ProcurementEndpointExtensions
         .RequireAuthorization(QmsPolicies.ProcurementPlanUpdate)
         .WithName("ApplyProcurementExcelImport");
 
+        app.MapGet("/api/procurement/import/template", (
+            ProcurementStore procurementStore) =>
+        {
+            var template = procurementStore.CreateTemplate();
+            return Results.File(template.Content, template.ContentType, template.FileName);
+        })
+        .RequireAuthorization(QmsPolicies.ProcurementPlanUpdate)
+        .WithName("DownloadProcurementDashboardExcelTemplate");
+
         app.MapGet("/api/procurement/dashboard", async (
             HttpRequest request,
             string? search,

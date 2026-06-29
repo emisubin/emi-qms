@@ -440,6 +440,343 @@ h3 {
   overflow-y: visible;
 }
 
+.production-planning-section {
+  min-width: 0;
+}
+
+.production-project-table,
+.production-plan-table {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.production-project-head,
+.production-project-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.4fr) minmax(90px, 0.75fr) minmax(90px, 0.7fr) minmax(64px, 0.45fr) minmax(110px, 0.75fr) minmax(120px, 0.8fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.production-project-head,
+.production-plan-head {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky, 10);
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.production-project-row {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.production-project-row.active {
+  background: #eef6ff;
+}
+
+.production-project-head > span,
+.production-project-row > span,
+.production-plan-head > span,
+.production-plan-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.production-plan-head,
+.production-plan-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) 72px minmax(140px, 0.8fr) minmax(180px, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.production-plan-head.editable,
+.production-plan-row.editable {
+  grid-template-columns: minmax(180px, 1.3fr) 72px minmax(140px, 0.8fr) minmax(180px, 1fr) minmax(88px, 0.5fr);
+}
+
+.production-plan-row {
+  min-height: 58px;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+  padding: 10px 0;
+  line-height: 1.45;
+}
+
+.production-plan-row input,
+.production-edit-controls input,
+.production-edit-controls select,
+.assignee-card input,
+.assignee-card select {
+  width: 100%;
+  min-width: 0;
+}
+
+.grid-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.info-text {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid #cfe0d5;
+  border-radius: 8px;
+  background: #f4faf6;
+  color: #344d3d;
+}
+
+.settings-product-type-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.settings-product-type-tabs button.active {
+  border-color: #1d6b4f;
+  background: #1d6b4f;
+  color: #ffffff;
+}
+
+.template-settings-table {
+  display: grid;
+  width: 100%;
+}
+
+.template-settings-head,
+.template-settings-row {
+  display: grid;
+  grid-template-columns: 88px minmax(180px, 1fr) 92px 92px;
+  gap: 10px;
+  align-items: center;
+}
+
+.template-settings-head {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky, 10);
+  padding: 8px 0;
+  background: #f8fafc;
+  font-weight: 800;
+}
+
+.template-settings-row {
+  min-height: 58px;
+  padding: 8px 0;
+  border-top: 1px solid #e5e7eb;
+}
+
+.template-settings-row input[type='text'],
+.template-settings-row input[type='number'] {
+  width: 100%;
+  min-width: 0;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.production-edit-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(220px, 1.2fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.production-plan-calendar {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.production-calendar-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.production-calendar-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid #d8e3dc;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.production-calendar-table th,
+.production-calendar-table td {
+  border-bottom: 1px solid #e5e7eb;
+  border-right: 1px solid #e5e7eb;
+  padding: 6px 8px;
+  text-align: center;
+  vertical-align: middle;
+  min-width: 46px;
+  font-size: 0.82rem;
+}
+
+.production-calendar-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 112px;
+  max-width: 150px;
+  background: #f7faf8;
+  text-align: left;
+  white-space: normal;
+}
+
+.production-calendar-table thead th {
+  background: #ecf5ef;
+  font-weight: 900;
+}
+
+.production-calendar-table thead th span,
+.production-calendar-table thead th small {
+  display: block;
+  line-height: 1.2;
+}
+
+.production-calendar-table thead th small {
+  color: #52665a;
+  font-weight: 700;
+}
+
+.production-calendar-table td span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  min-height: 22px;
+  border-radius: 999px;
+  background: #e7f6ec;
+  color: #146b3a;
+  font-weight: 900;
+}
+
+.production-calendar-table .calendar-saturday {
+  color: #175cd3;
+}
+
+.production-calendar-table .calendar-red-day,
+.production-calendar-table .calendar-red-day small {
+  color: #b42318;
+}
+
+.production-calendar-table th.calendar-red-day,
+.production-calendar-table td.calendar-red-day {
+  background: #fff1f0;
+}
+
+.production-calendar-unscheduled {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #f2b8b5;
+  border-radius: 8px;
+  background: #fff8f7;
+}
+
+.production-calendar-unscheduled ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.production-calendar-unscheduled li {
+  margin: 2px 0;
+}
+
+.production-calendar-unscheduled .missing-required,
+.production-calendar-unscheduled .missing-required span {
+  color: #b42318;
+  font-weight: 800;
+}
+
+.production-calendar-mobile {
+  display: grid;
+  gap: 10px;
+}
+
+.production-calendar-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  border: 1px solid #c9dfcf;
+  border-radius: 8px;
+  background: #f7fbf8;
+  padding: 12px;
+}
+
+.production-calendar-card span:last-child {
+  font-weight: 900;
+  color: #146b3a;
+}
+
+.production-calendar-card.calendar-saturday strong {
+  color: #175cd3;
+}
+
+.production-calendar-card.calendar-red-day {
+  border-color: #f2b8b5;
+  background: #fff8f7;
+}
+
+.production-calendar-card.calendar-red-day strong,
+.production-calendar-card.calendar-red-day small {
+  color: #b42318;
+}
+
+.assignee-grid,
+.assignee-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.assignee-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  min-width: 0;
+}
+
+.assignee-card strong,
+.assignee-card small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.production-plan-status[data-status='Planned'] {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.production-plan-status[data-status='Planning'] {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.production-plan-status[data-status='NotPlanned'] {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .procurement-project-head,
 .procurement-project-row {
   display: grid;
@@ -803,6 +1140,14 @@ h3 {
   color: #24362a;
 }
 
+.readonly-field.has-error {
+  color: #b42318;
+}
+
+.readonly-field.has-error strong {
+  color: #b42318;
+}
+
 .checkbox-field input,
 .procurement-table-row input[type='checkbox'] {
   width: auto;
@@ -906,7 +1251,45 @@ h3 {
   font-weight: 700;
 }
 
+.form-field.has-error input,
+.form-field.has-error select,
+.form-field.has-error textarea,
+.field-invalid {
+  border-color: #b42318;
+  box-shadow: 0 0 0 2px rgba(180, 35, 24, 0.12);
+}
+
+.form-error-summary {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #f2b8b5;
+  border-radius: 8px;
+  background: #fff8f7;
+  color: #9b2f26;
+  padding: 12px;
+}
+
+.form-error-summary ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.form-error-summary button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #9b2f26;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+}
+
 .form-field small,
+.field-error-message,
 .error-text {
   color: #b42318;
   font-weight: 700;
@@ -1331,6 +1714,15 @@ dd {
     minmax(105px, 0.9fr) minmax(130px, 1fr) 78px;
 }
 
+.production-excel-preview-grid .excel-preview-head,
+.production-excel-preview-grid .excel-preview-row {
+  grid-template-columns:
+    68px minmax(130px, 1fr) minmax(90px, 0.7fr) minmax(86px, 0.7fr)
+    minmax(130px, 1fr) minmax(110px, 0.8fr) minmax(120px, 1fr)
+    minmax(92px, 0.8fr) minmax(110px, 0.9fr) minmax(92px, 0.8fr)
+    minmax(92px, 0.8fr) minmax(92px, 0.8fr);
+}
+
 .excel-preview-head {
   position: sticky;
   top: var(--excel-action-bar-offset, 144px);
@@ -1505,6 +1897,8 @@ dd {
 
   .project-list-desktop,
   .procurement-project-table,
+  .production-project-table,
+  .production-plan-table.procurement-desktop,
   .product-panel-desktop,
   .panel-info-edit-desktop,
   .procurement-desktop,
@@ -1514,6 +1908,7 @@ dd {
 
   .project-list-mobile,
   .procurement-project-cards,
+  .production-planning-mobile,
   .product-panel-mobile,
   .panel-info-edit-mobile,
   .procurement-mobile,
@@ -1531,13 +1926,25 @@ dd {
     padding: 12px;
   }
 
-  .excel-preview-row {
-    grid-template-columns: 1fr;
-  }
+	  .excel-preview-row {
+	    grid-template-columns: 1fr;
+	  }
 
-  .excel-preview-head {
-    display: none;
-  }
+	  .template-settings-head {
+	    display: none;
+	  }
+
+	  .template-settings-row {
+	    grid-template-columns: 1fr;
+	    border: 1px solid #e5e7eb;
+	    border-radius: 8px;
+	    padding: 12px;
+	    margin-bottom: 10px;
+	  }
+
+	  .excel-preview-head {
+	    display: none;
+	  }
 
   .toolbar {
     grid-template-columns: 1fr;

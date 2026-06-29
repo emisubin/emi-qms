@@ -207,7 +207,8 @@ public sealed class DevelopmentIdentitySeeder(
         insert into permissions (id, code, name)
         values
             ('30000000-0000-0000-0000-000000000021', 'ProcurementPlan.Update', 'Update procurement plan'),
-            ('30000000-0000-0000-0000-000000000022', 'MaterialReceipt.Update', 'Update material receipt completion')
+            ('30000000-0000-0000-0000-000000000022', 'MaterialReceipt.Update', 'Update material receipt completion'),
+            ('30000000-0000-0000-0000-000000000023', 'ProductionPlan.Update', 'Update production planning')
         on conflict (code) do update set name = excluded.name;
 
         insert into role_permissions (role_id, permission_id)
@@ -237,5 +238,41 @@ public sealed class DevelopmentIdentitySeeder(
           and role_permissions.permission_id = permissions.id
           and permissions.code = 'MaterialReceipt.Update'
           and roles.code not in ('procurement', 'materials');
+
+        insert into role_permissions (role_id, permission_id)
+        select roles.id, permissions.id
+        from roles
+        join permissions on permissions.code = 'ProductionPlan.Update'
+        where roles.code = 'production-planning'
+        on conflict do nothing;
+
+        delete from role_permissions
+        using roles, permissions
+        where role_permissions.role_id = roles.id
+          and role_permissions.permission_id = permissions.id
+          and permissions.code = 'ProductionPlan.Update'
+          and roles.code <> 'production-planning';
+
+        insert into production_product_types (id, code, name)
+        values ('60000000-0000-0000-0000-000000000001', 'TEST-TYPE', 'TEST-TYPE')
+        on conflict (code) do update
+        set name = excluded.name,
+            is_active = true;
+
+        insert into production_plan_templates (id, product_type_id, version, is_active)
+        values ('60000000-0000-0000-0000-000000000101', '60000000-0000-0000-0000-000000000001', 1, true)
+        on conflict (id) do update
+        set is_active = true;
+
+        insert into production_plan_template_steps (id, template_id, sequence_number, step_name, is_required, is_active)
+        values
+            ('60000000-0000-0000-0000-000000000201', '60000000-0000-0000-0000-000000000101', 1, 'INT 입고', true, true),
+            ('60000000-0000-0000-0000-000000000202', '60000000-0000-0000-0000-000000000101', 2, 'INT 조립 시작', true, true),
+            ('60000000-0000-0000-0000-000000000203', '60000000-0000-0000-0000-000000000101', 3, '배선 시작', true, true)
+        on conflict (id) do update
+        set sequence_number = excluded.sequence_number,
+            step_name = excluded.step_name,
+            is_required = excluded.is_required,
+            is_active = true;
         """;
 }

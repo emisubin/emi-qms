@@ -88,7 +88,7 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
 
 async function fillProjectForm(page: Page, projectCode: string, projectTitle: string, panelCount: string) {
   await page.getByLabel('고객사*').fill('EMI Test Customer');
-  await page.getByLabel('Item*').fill('Control Panel');
+  await page.getByLabel('Item*').selectOption('UL67');
   await page.getByLabel('PJT Code*').fill(projectCode);
   await page.getByLabel('PJT Title*').fill(projectTitle);
   await page.getByLabel('면수*').fill(panelCount);
@@ -103,6 +103,18 @@ function createStore() {
     project: undefined as ProjectRecord | undefined,
     panels: [] as PanelRecord[]
   };
+}
+
+function productionProductTypes() {
+  return ['UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RRP'].map((code, index) => ({
+    productTypeId: `77000000-0000-0000-0000-00000000000${index + 1}`,
+    code,
+    name: code,
+    isActive: true,
+    activeTemplateId: `77000000-0000-0000-0000-00000000010${index + 1}`,
+    activeTemplateVersion: 1,
+    steps: []
+  }));
 }
 
 async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
@@ -132,6 +144,10 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
 
     if (path === '/api/sales-owners') {
       return fulfillJson(route, [{ userId: salesOwnerId, displayName: 'Dev Sales User' }]);
+    }
+
+    if (path === '/api/production-planning/product-types') {
+      return fulfillJson(route, productionProductTypes());
     }
 
     if (path === '/api/projects' && method === 'POST') {

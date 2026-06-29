@@ -351,10 +351,25 @@ public sealed class ProcurementStore(
         }
 
         var items = await ReadItemsForProjectsAsync(dataSource, [projectId], cancellationToken);
+        return ProcurementMutationResult<ProcurementTemplateDownload>.Success(CreateTemplateWorkbook(project.ProjectTitle, project.ProjectCode, items));
+    }
+
+    public ProcurementTemplateDownload CreateTemplate()
+    {
+        return CreateTemplateWorkbook(null, null, []);
+    }
+
+    private static ProcurementTemplateDownload CreateTemplateWorkbook(
+        string? projectTitle,
+        string? projectCode,
+        IReadOnlyList<ProcurementItemSnapshot> items)
+    {
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Procurement Plan");
         worksheet.Cell(1, 1).Value = "PS 사업부 PJT 발주 관리";
         worksheet.Range(1, 1, 1, 10).Merge().Style.Font.Bold = true;
+        worksheet.Cell(2, 1).Value = "구매정보는 필수 입력값이 없습니다. 일부 값만 입력해도 저장할 수 있습니다.";
+        worksheet.Range(2, 1, 2, 10).Merge().Style.Font.Italic = true;
         var headers = new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "기술 담당자", "발주일", "입고일", "출하일", "이슈사항", "입고 완료" };
         for (var i = 0; i < headers.Length; i++)
         {
@@ -364,14 +379,11 @@ public sealed class ProcurementStore(
 
         worksheet.SheetView.FreezeRows(3);
         worksheet.Range(3, 1, 3, headers.Length).SetAutoFilter();
-        worksheet.Columns(1, headers.Length).Width = 18;
-        worksheet.Column(4).Width = 32;
-        worksheet.Column(9).Width = 36;
         var rowNumber = 4;
         foreach (var item in items.OrderBy(item => item.SequenceNumber))
         {
-            worksheet.Cell(rowNumber, 1).Value = item.SourceProjectText ?? project.ProjectTitle;
-            worksheet.Cell(rowNumber, 2).Value = item.SourceProjectCodeText ?? project.ProjectCode;
+            worksheet.Cell(rowNumber, 1).Value = item.SourceProjectText ?? projectTitle ?? "";
+            worksheet.Cell(rowNumber, 2).Value = item.SourceProjectCodeText ?? projectCode ?? "";
             worksheet.Cell(rowNumber, 3).Value = item.StandardLeadTime ?? "";
             worksheet.Cell(rowNumber, 4).Value = item.OrderItem ?? "";
             worksheet.Cell(rowNumber, 5).Value = item.TechnicalOwner ?? "";
@@ -398,12 +410,31 @@ public sealed class ProcurementStore(
             rowNumber++;
         }
 
+        worksheet.Columns(1, headers.Length).AdjustToContents();
+        for (var column = 1; column <= headers.Length; column++)
+        {
+            var min = column switch
+            {
+                4 or 9 => 20,
+                6 or 7 or 8 => 13,
+                _ => 14
+            };
+            var max = column switch
+            {
+                4 => 36,
+                9 => 42,
+                _ => 24
+            };
+            worksheet.Column(column).Width = Math.Clamp(worksheet.Column(column).Width + 2, min, max);
+        }
+        worksheet.Columns(1, headers.Length).Style.Alignment.WrapText = true;
+
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
-        return ProcurementMutationResult<ProcurementTemplateDownload>.Success(new ProcurementTemplateDownload(
+        return new ProcurementTemplateDownload(
             stream.ToArray(),
             "Procurement_Plan_Template.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     }
 
     public async Task<ProcurementMutationResult<ProcurementExcelPreviewResponse>> PreviewExcelAsync(

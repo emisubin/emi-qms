@@ -2,6 +2,7 @@ import { Fragment, FormEvent, useCallback, useEffect, useRef, useState } from 'r
 import {
   ApiError,
   applyPanelInformationExcel,
+  applyProductionPlanningExcel,
   applyProjectExcel,
   applyProcurementExcel,
   changePanelCount,
@@ -10,7 +11,10 @@ import {
   defaultDevelopmentUserKey,
   deleteProject,
   downloadPanelInformationTemplate,
+  downloadProductionPlanningBulkTemplate,
+  downloadProductionPlanningTemplate,
   downloadProjectExcelTemplate,
+  downloadProcurementDashboardTemplate,
   downloadProcurementTemplate,
   getCurrentUser,
   getDeletedProject,
@@ -18,22 +22,32 @@ import {
   getPanelInformation,
   getPanelInformationHistory,
   getProject,
+  getProjectProductionPlanning,
+  getProjectProductionPlanningHistory,
   getProjectProcurement,
   getProjectProcurementHistory,
   getProjectSummary,
+  getProductionPlanningSummary,
   getProcurementDashboard,
   getMaterialReceipts,
   getReadyHealth,
   getSalesOwners,
+  listProductionPlanningProjects,
+  listProductionTemplateSettings,
+  listProductionProductTypes,
   listDeletedProjects,
   listPanels,
   listProjects,
+  listSystemHolidays,
   previewPanelInformationExcel,
+  previewProductionPlanningExcel,
   previewProjectExcel,
   previewProcurementExcel,
   purgeAllDeletedProjects,
   purgeDeletedProject,
   restoreDeletedProject,
+  updateProjectProductionPlanning,
+  updateProductionTemplateSettings,
   updateMaterialReceipts,
   updatePanelInformation,
   updateProjectProcurement,
@@ -59,6 +73,15 @@ import type {
   ProcurementItem,
   ProcurementProjectSummary,
   ProcurementResponse,
+  ProductionPlanningHistoryResponse,
+  ProductionPlanningExcelPreviewResponse,
+  ProductionPlanningProjectListResponse,
+  ProductionPlanningResponse,
+  ProductionPlanningSummary,
+  ProductionTemplateSettings,
+  ProductionTemplateSettingsStep,
+  ProductionProductType,
+  ProjectAssignee,
   ProjectDetail,
   ProjectDashboardSummary,
   ProjectExcelPreviewResponse,
@@ -67,16 +90,21 @@ import type {
   ProjectStatus,
   ProjectWorkStatus,
   ProductWorkflowStage,
-  SalesOwner
+  ResponsibilityType,
+  SalesOwner,
+  SystemHoliday
 } from './projects';
 
 type View =
   | { kind: 'list' }
   | { kind: 'create' }
-  | { kind: 'detail'; projectId: string; section?: 'panels' | 'procurement' }
+  | { kind: 'detail'; projectId: string; section?: ProjectDetailSection }
   | { kind: 'deleted-detail'; projectId: string }
   | { kind: 'edit'; projectId: string }
   | { kind: 'panel-info-edit'; projectId: string }
+  | { kind: 'production-planning-edit'; projectId: string }
+  | { kind: 'production-planning-dashboard' }
+  | { kind: 'production-planning-settings' }
   | { kind: 'procurement-edit'; projectId: string }
   | { kind: 'procurement-dashboard' }
   | { kind: 'materials-receipts' }
@@ -89,6 +117,8 @@ type LoadState<T> =
   | { kind: 'forbidden'; message: string }
   | { kind: 'not-found'; message: string }
   | { kind: 'error'; message: string };
+
+type ProjectDetailSection = 'panels' | 'production-planning' | 'procurement';
 
 type ProjectFormValues = {
   customerName: string;
@@ -149,8 +179,21 @@ function initialViewFromLocation(): View {
     return { kind: 'procurement-edit', projectId: procurementEditMatch[1] };
   }
 
+  const productionPlanningEditMatch = window.location.pathname.match(/^\/projects\/([^/]+)\/production-planning\/edit$/);
+  if (productionPlanningEditMatch?.[1]) {
+    return { kind: 'production-planning-edit', projectId: productionPlanningEditMatch[1] };
+  }
+
   if (window.location.pathname === '/materials/receipts') {
     return { kind: 'materials-receipts' };
+  }
+
+  if (window.location.pathname === '/production-planning') {
+    return { kind: 'production-planning-dashboard' };
+  }
+
+  if (window.location.pathname === '/production-planning/settings') {
+    return { kind: 'production-planning-settings' };
   }
 
   if (window.location.pathname === '/procurement') {
@@ -168,7 +211,7 @@ function initialViewFromLocation(): View {
     return {
       kind: 'detail',
       projectId: detailMatch[1],
-      section: section === 'procurement' ? 'procurement' : 'panels'
+      section: parseProjectDetailSection(section)
     };
   }
 
@@ -178,11 +221,17 @@ function initialViewFromLocation(): View {
 function pathForView(view: View) {
   switch (view.kind) {
     case 'detail':
-      return `/projects/${view.projectId}${view.section === 'procurement' ? '?section=procurement' : ''}`;
+      return `/projects/${view.projectId}${view.section && view.section !== 'panels' ? `?section=${view.section}` : ''}`;
     case 'panel-info-edit':
       return `/projects/${view.projectId}/panel-information/edit`;
     case 'procurement-edit':
       return `/projects/${view.projectId}/procurement/edit`;
+    case 'production-planning-edit':
+      return `/projects/${view.projectId}/production-planning/edit`;
+    case 'production-planning-dashboard':
+      return '/production-planning';
+    case 'production-planning-settings':
+      return '/production-planning/settings';
     case 'materials-receipts':
       return '/materials/receipts';
     case 'procurement-dashboard':
@@ -192,6 +241,10 @@ function pathForView(view: View) {
     default:
       return '/';
   }
+}
+
+function parseProjectDetailSection(value: string | null): ProjectDetailSection {
+  return value === 'production-planning' || value === 'procurement' ? value : 'panels';
 }
 
 export function App() {
@@ -249,9 +302,12 @@ export function App() {
   const canPurgeDeletedProjects = canReadAuditAll;
   const canUpdateProcurement = permissions.includes('ProcurementPlan.Update');
   const canUpdateMaterialReceipt = permissions.includes('MaterialReceipt.Update');
+  const canUpdateProductionPlanning = permissions.includes('ProductionPlan.Update');
   const navigationItems: NavigationItem[] = [
     { label: '프로젝트', view: { kind: 'list' }, active: isProjectWorkspace(view) },
-    { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) }
+    { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
+    { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
+    ...(canUpdateMaterialReceipt ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : [])
   ];
 
   return (
@@ -265,7 +321,7 @@ export function App() {
             <h1>프로젝트·제품 패널 관리</h1>
           </div>
           <div className="topbar-actions">
-            {canUpdateMaterialReceipt ? <button type="button" onClick={() => setView({ kind: 'materials-receipts' })}>자재 입고 입력</button> : null}
+            {canUpdateMaterialReceipt ? <button type="button" onClick={() => setView({ kind: 'materials-receipts' })}>자재</button> : null}
             <label className="dev-user-select">
               <span>개발 사용자</span>
               <select
@@ -334,10 +390,12 @@ export function App() {
           canUpdatePanelInfo={canUpdatePanelInfo}
           canReadAuditAll={canReadAuditAll}
           canUpdateProcurement={canUpdateProcurement}
+          canUpdateProductionPlanning={canUpdateProductionPlanning}
           initialSection={view.section ?? 'panels'}
           onBack={() => setView({ kind: 'list' })}
           onEdit={() => setView({ kind: 'edit', projectId: view.projectId })}
           onEditPanelInformation={() => setView({ kind: 'panel-info-edit', projectId: view.projectId })}
+          onEditProductionPlanning={() => setView({ kind: 'production-planning-edit', projectId: view.projectId })}
           onEditProcurement={() => setView({ kind: 'procurement-edit', projectId: view.projectId })}
           onOpenPanel={(panelId) => setView({ kind: 'panel', projectId: view.projectId, panelId })}
         />
@@ -377,6 +435,34 @@ export function App() {
           projectId={view.projectId}
           canUpdateProcurement={canUpdateProcurement}
           onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'procurement' })}
+        />
+      ) : null}
+
+      {view.kind === 'production-planning-edit' ? (
+        <ProductionPlanningEditPage
+          developmentUserKey={developmentUserKey}
+          projectId={view.projectId}
+          canUpdateProductionPlanning={canUpdateProductionPlanning}
+          onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'production-planning' })}
+        />
+      ) : null}
+
+      {view.kind === 'production-planning-dashboard' ? (
+        <ProductionPlanningDashboardPage
+          developmentUserKey={developmentUserKey}
+          canUpdateProductionPlanning={canUpdateProductionPlanning}
+          onBack={() => setView({ kind: 'list' })}
+          onOpenSettings={() => setView({ kind: 'production-planning-settings' })}
+          onOpenProject={(projectId) => setView({ kind: 'detail', projectId, section: 'production-planning' })}
+          onEditProject={(projectId) => setView({ kind: 'production-planning-edit', projectId })}
+        />
+      ) : null}
+
+      {view.kind === 'production-planning-settings' ? (
+        <ProductionPlanningSettingsPage
+          developmentUserKey={developmentUserKey}
+          canUpdateProductionPlanning={canUpdateProductionPlanning}
+          onBack={() => setView({ kind: 'production-planning-dashboard' })}
         />
       ) : null}
 
@@ -467,6 +553,12 @@ function isProjectWorkspace(view: View) {
     || view.kind === 'edit'
     || view.kind === 'panel-info-edit'
     || view.kind === 'panel';
+}
+
+function isProductionPlanningWorkspace(view: View) {
+  return view.kind === 'production-planning-dashboard'
+    || view.kind === 'production-planning-settings'
+    || view.kind === 'production-planning-edit';
 }
 
 function isProcurementWorkspace(view: View) {
@@ -1289,23 +1381,28 @@ function ProjectCreatePage({
   onCreated: (projectId: string) => void;
 }) {
   const [owners, setOwners] = useState<SalesOwner[]>([]);
+  const [productTypes, setProductTypes] = useState<ProductionProductType[]>([]);
   const [form, setForm] = useState<ProjectFormValues>(emptyForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    getSalesOwners(developmentUserKey)
-      .then((data) => {
-        setOwners(data);
-        setForm((current) => ({ ...current, salesOwnerUserId: current.salesOwnerUserId || data[0]?.userId || '' }));
+    Promise.all([
+      getSalesOwners(developmentUserKey),
+      listProductionProductTypes(developmentUserKey)
+    ])
+      .then(([ownerItems, typeItems]) => {
+        setOwners(ownerItems);
+        setProductTypes(typeItems);
+        setForm((current) => ({ ...current, salesOwnerUserId: current.salesOwnerUserId || ownerItems[0]?.userId || '' }));
       })
-      .catch((error: unknown) => setMessage(friendlyErrorMessage(error, '영업담당자를 불러올 수 없습니다.')));
+      .catch((error: unknown) => setMessage(friendlyErrorMessage(error, '프로젝트 입력 기준 정보를 불러올 수 없습니다.')));
   }, [developmentUserKey]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const validation = validateProjectForm(form, false);
+    const validation = validateProjectForm(form, false, productTypes);
     setErrors(validation);
     setMessage('');
     if (Object.keys(validation).length > 0) {
@@ -1335,6 +1432,7 @@ function ProjectCreatePage({
       <ProjectForm
         form={form}
         owners={owners}
+        productTypes={productTypes}
         errors={errors}
         isSaving={isSaving}
         submitLabel="등록"
@@ -1357,10 +1455,12 @@ function ProjectDetailPage({
   canUpdatePanelInfo,
   canReadAuditAll,
   canUpdateProcurement,
+  canUpdateProductionPlanning,
   initialSection,
   onBack,
   onEdit,
   onEditPanelInformation,
+  onEditProductionPlanning,
   onEditProcurement,
   onOpenPanel
 }: {
@@ -1374,19 +1474,23 @@ function ProjectDetailPage({
   canUpdatePanelInfo: boolean;
   canReadAuditAll: boolean;
   canUpdateProcurement: boolean;
-  initialSection: 'panels' | 'procurement';
+  canUpdateProductionPlanning: boolean;
+  initialSection: ProjectDetailSection;
   onBack: () => void;
   onEdit: () => void;
   onEditPanelInformation: () => void;
+  onEditProductionPlanning: () => void;
   onEditProcurement: () => void;
   onOpenPanel: (panelId: string) => void;
 }) {
   const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
   const [panelInfoState, setPanelInfoState] = useState<LoadState<PanelInformationResponse>>({ kind: 'loading' });
+  const [productionPlanningState, setProductionPlanningState] = useState<LoadState<ProductionPlanningResponse>>({ kind: 'loading' });
   const [procurementState, setProcurementState] = useState<LoadState<ProcurementResponse>>({ kind: 'loading' });
   const [historyState, setHistoryState] = useState<LoadState<PanelInformationHistoryResponse>>({ kind: 'empty' });
+  const [productionPlanningHistoryState, setProductionPlanningHistoryState] = useState<LoadState<ProductionPlanningHistoryResponse>>({ kind: 'empty' });
   const [procurementHistoryState, setProcurementHistoryState] = useState<LoadState<ProcurementHistoryResponse>>({ kind: 'empty' });
-  const [activeDetailSection, setActiveDetailSection] = useState<'panels' | 'procurement'>(initialSection);
+  const [activeDetailSection, setActiveDetailSection] = useState<ProjectDetailSection>(initialSection);
   const [dialog, setDialog] = useState<null | 'hold' | 'resume' | 'cancel' | 'reactivate' | 'delete'>(null);
   const [reason, setReason] = useState('');
   const [confirmProjectTitle, setConfirmProjectTitle] = useState('');
@@ -1396,30 +1500,38 @@ function ProjectDetailPage({
   const load = useCallback(() => {
     setProjectState({ kind: 'loading' });
     setPanelInfoState({ kind: 'loading' });
+    setProductionPlanningState({ kind: 'loading' });
     setProcurementState({ kind: 'loading' });
     setHistoryState(canReadAuditAll ? { kind: 'loading' } : { kind: 'empty' });
+    setProductionPlanningHistoryState(canReadAuditAll ? { kind: 'loading' } : { kind: 'empty' });
     setProcurementHistoryState(canReadAuditAll ? { kind: 'loading' } : { kind: 'empty' });
 
     Promise.all([
       getProject(developmentUserKey, projectId),
       getPanelInformation(developmentUserKey, projectId),
+      getProjectProductionPlanning(developmentUserKey, projectId).catch(() => null),
       getProjectProcurement(developmentUserKey, projectId).catch(() => null),
       canReadAuditAll ? getPanelInformationHistory(developmentUserKey, projectId) : Promise.resolve(null),
+      canReadAuditAll ? getProjectProductionPlanningHistory(developmentUserKey, projectId) : Promise.resolve(null),
       canReadAuditAll ? getProjectProcurementHistory(developmentUserKey, projectId) : Promise.resolve(null)
     ])
-      .then(([project, panelInfo, procurement, history, procurementHistory]) => {
+      .then(([project, panelInfo, productionPlanning, procurement, history, productionPlanningHistory, procurementHistory]) => {
         setProjectState({ kind: 'ready', data: project });
         setPanelInfoState({ kind: 'ready', data: panelInfo });
+        setProductionPlanningState(productionPlanning ? { kind: 'ready', data: productionPlanning } : { kind: 'empty' });
         setProcurementState(procurement ? { kind: 'ready', data: procurement } : { kind: 'empty' });
         setHistoryState(history ? { kind: 'ready', data: history } : { kind: 'empty' });
+        setProductionPlanningHistoryState(productionPlanningHistory ? { kind: 'ready', data: productionPlanningHistory } : { kind: 'empty' });
         setProcurementHistoryState(procurementHistory ? { kind: 'ready', data: procurementHistory } : { kind: 'empty' });
       })
       .catch((error: unknown) => {
         const state = toLoadError<ProjectDetail>(error, '프로젝트 상세를 불러올 수 없습니다.');
         setProjectState(state);
         setPanelInfoState(toLoadError(error, '제품·패널 목록을 불러올 수 없습니다.'));
+        setProductionPlanningState(toLoadError(error, '생산계획을 불러올 수 없습니다.'));
         setProcurementState(toLoadError(error, '구매정보를 불러올 수 없습니다.'));
         setHistoryState(toLoadError(error, '전체 이력을 불러올 수 없습니다.'));
+        setProductionPlanningHistoryState(toLoadError(error, '전체 이력을 불러올 수 없습니다.'));
         setProcurementHistoryState(toLoadError(error, '전체 이력을 불러올 수 없습니다.'));
       });
   }, [canReadAuditAll, developmentUserKey, projectId]);
@@ -1432,10 +1544,10 @@ function ProjectDetailPage({
     setActiveDetailSection(initialSection);
   }, [initialSection, projectId]);
 
-  function selectDetailSection(section: 'panels' | 'procurement') {
+  function selectDetailSection(section: ProjectDetailSection) {
     setActiveDetailSection(section);
     if (typeof window !== 'undefined') {
-      const nextPath = `/projects/${projectId}${section === 'procurement' ? '?section=procurement' : ''}`;
+      const nextPath = `/projects/${projectId}${section === 'panels' ? '' : `?section=${section}`}`;
       if (`${window.location.pathname}${window.location.search}` !== nextPath) {
         window.history.replaceState(null, '', nextPath);
       }
@@ -1539,6 +1651,15 @@ function ProjectDetailPage({
         <button
           type="button"
           role="tab"
+          aria-selected={activeDetailSection === 'production-planning'}
+          className={activeDetailSection === 'production-planning' ? 'secondary-button active' : 'secondary-button'}
+          onClick={() => selectDetailSection('production-planning')}
+        >
+          생산관리
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={activeDetailSection === 'procurement'}
           className={activeDetailSection === 'procurement' ? 'secondary-button active' : 'secondary-button'}
           onClick={() => selectDetailSection('procurement')}
@@ -1565,15 +1686,26 @@ function ProjectDetailPage({
         />
       ) : null}
 
+      {activeDetailSection === 'production-planning' ? (
+        <ProductionPlanningSection
+          developmentUserKey={developmentUserKey}
+          state={productionPlanningState}
+          canUpdateProductionPlanning={canUpdateProductionPlanning && project.status === 'Active'}
+          onEdit={onEditProductionPlanning}
+        />
+      ) : null}
+
       {canReadAuditAll ? (
         <section className="subsection">
           <h3>전체 이력</h3>
-          {historyState.kind === 'loading' || procurementHistoryState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+          {historyState.kind === 'loading' || productionPlanningHistoryState.kind === 'loading' || procurementHistoryState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
           {historyState.kind !== 'ready' && historyState.kind !== 'loading' && historyState.kind !== 'empty' ? <StateMessage state={historyState} /> : null}
+          {productionPlanningHistoryState.kind !== 'ready' && productionPlanningHistoryState.kind !== 'loading' && productionPlanningHistoryState.kind !== 'empty' ? <StateMessage state={productionPlanningHistoryState} /> : null}
           {procurementHistoryState.kind !== 'ready' && procurementHistoryState.kind !== 'loading' && procurementHistoryState.kind !== 'empty' ? <StateMessage state={procurementHistoryState} /> : null}
-          {historyState.kind === 'ready' || procurementHistoryState.kind === 'ready' ? (
+          {historyState.kind === 'ready' || productionPlanningHistoryState.kind === 'ready' || procurementHistoryState.kind === 'ready' ? (
             <div className="history-stack">
-              {historyState.kind === 'ready' ? <GroupedHistory groups={historyState.data.groups} emptyText={procurementHistoryState.kind === 'ready' && procurementHistoryState.data.groups.length > 0 ? null : '전체 이력이 없습니다.'} /> : null}
+              {historyState.kind === 'ready' ? <GroupedHistory groups={historyState.data.groups} emptyText={productionPlanningHistoryState.kind === 'ready' && productionPlanningHistoryState.data.groups.length > 0 || procurementHistoryState.kind === 'ready' && procurementHistoryState.data.groups.length > 0 ? null : '전체 이력이 없습니다.'} /> : null}
+              {productionPlanningHistoryState.kind === 'ready' ? <ProductionPlanningGroupedHistory groups={productionPlanningHistoryState.data.groups} /> : null}
               {procurementHistoryState.kind === 'ready' ? <ProcurementGroupedHistory groups={procurementHistoryState.data.groups} /> : null}
             </div>
           ) : null}
@@ -1732,6 +1864,1269 @@ type ProcurementRowForm = {
   dDayText: string;
 };
 
+type ProductionPlanRowForm = {
+  itemId: string | null;
+  templateStepId: string | null;
+  sequenceNumber: number;
+  stepName: string;
+  isRequired: boolean;
+  isCustom: boolean;
+  isDeleted: boolean;
+  plannedDate: string;
+  note: string;
+  rowVersion: number;
+};
+
+type ProjectAssigneeForm = {
+  assigneeId: string | null;
+  responsibilityType: ResponsibilityType;
+  responsibilityLabel: string;
+  assignedUserId: string;
+  note: string;
+  rowVersion: number;
+};
+
+function ProductionPlanningDashboardPage({
+  developmentUserKey,
+  canUpdateProductionPlanning,
+  onBack,
+  onOpenSettings,
+  onOpenProject,
+  onEditProject
+}: {
+  developmentUserKey: string;
+  canUpdateProductionPlanning: boolean;
+  onBack: () => void;
+  onOpenSettings: () => void;
+  onOpenProject: (projectId: string) => void;
+  onEditProject: (projectId: string) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [summaryState, setSummaryState] = useState<LoadState<ProductionPlanningSummary>>({ kind: 'loading' });
+  const [state, setState] = useState<LoadState<ProductionPlanningProjectListResponse>>({ kind: 'loading' });
+  const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
+  const [expandedPlanState, setExpandedPlanState] = useState<LoadState<ProductionPlanningResponse>>({ kind: 'empty' });
+  const [showExcelDialog, setShowExcelDialog] = useState(false);
+  const [excelMessage, setExcelMessage] = useState('');
+  const isMobile = useIsMobileViewport();
+
+  const load = useCallback(() => {
+    setSummaryState({ kind: 'loading' });
+    setState({ kind: 'loading' });
+    Promise.all([
+      getProductionPlanningSummary(developmentUserKey),
+      listProductionPlanningProjects(developmentUserKey, search)
+    ])
+      .then(([summary, projects]) => {
+        setSummaryState({ kind: 'ready', data: summary });
+        setState({ kind: 'ready', data: projects });
+        setExpandedProjectId((current) => current && projects.projects.some((project) => project.projectId === current) ? current : null);
+      })
+      .catch((error: unknown) => {
+        setSummaryState(toLoadError(error, '생산계획 요약을 불러올 수 없습니다.'));
+        setState(toLoadError(error, '생산계획 프로젝트 목록을 불러올 수 없습니다.'));
+      });
+  }, [developmentUserKey, search]);
+
+  useEffect(() => {
+    queueMicrotask(load);
+  }, [load]);
+
+  useEffect(() => {
+    if (!expandedProjectId) {
+      return;
+    }
+
+    const controller = new AbortController();
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) {
+        setExpandedPlanState({ kind: 'loading' });
+      }
+    });
+    getProjectProductionPlanning(developmentUserKey, expandedProjectId, controller.signal)
+      .then((plan) => {
+        if (!controller.signal.aborted) {
+          setExpandedPlanState({ kind: 'ready', data: plan });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setExpandedPlanState(toLoadError(error, '선택 프로젝트 생산계획을 불러올 수 없습니다.'));
+        }
+      });
+
+    return () => controller.abort();
+  }, [developmentUserKey, expandedProjectId]);
+
+  async function downloadBulkTemplate() {
+    setExcelMessage('');
+    try {
+      const template = await downloadProductionPlanningBulkTemplate(developmentUserKey);
+      const url = URL.createObjectURL(template.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = template.fileName;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setExcelMessage('생산계획 Excel 양식을 다운로드했습니다.');
+    } catch (error) {
+      handleFormError(error, () => undefined, setExcelMessage);
+    }
+  }
+
+  return (
+    <section className="page-surface">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Production Planning</p>
+          <h2>생산계획</h2>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onBack}>프로젝트 목록</button>
+          {canUpdateProductionPlanning ? <button type="button" onClick={onOpenSettings}>생산계획 단계 설정</button> : null}
+          {canUpdateProductionPlanning ? <button type="button" onClick={downloadBulkTemplate}>생산계획 Excel 양식 다운로드</button> : null}
+          {canUpdateProductionPlanning ? <button type="button" className="primary-button" onClick={() => setShowExcelDialog(true)}>생산계획 Excel 업로드</button> : null}
+        </div>
+      </div>
+      {excelMessage ? <p role="alert" className={successMessage(excelMessage) ? 'success-text' : 'error-text'}>{excelMessage}</p> : null}
+      {showExcelDialog ? (
+        <ProductionPlanningExcelDialog
+          developmentUserKey={developmentUserKey}
+          onClose={() => setShowExcelDialog(false)}
+          onApplied={() => {
+            setShowExcelDialog(false);
+            load();
+          }}
+        />
+      ) : null}
+
+      {summaryState.kind === 'ready' ? (
+        <div className="dashboard-kpi-grid" aria-label="생산계획 요약">
+          <DashboardKpiCard title="생산계획 미등록" value={summaryState.data.notPlannedCount} helperText="진행 프로젝트 기준" variant="warning" />
+          <DashboardKpiCard title="작성 중" value={summaryState.data.planningCount} helperText="필수 일정 미완료" />
+          <DashboardKpiCard title="계획 완료" value={summaryState.data.plannedCount} helperText="필수 일정 입력 완료" variant="positive" />
+          <DashboardKpiCard title="담당자 미지정 프로젝트" value={summaryState.data.missingAssigneeProjectCount} helperText="5개 역할 기준" variant="warning" />
+        </div>
+      ) : null}
+      {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' && summaryState.kind !== 'empty' ? <StateMessage state={summaryState} /> : null}
+
+      <form className="toolbar" onSubmit={(event) => { event.preventDefault(); load(); }}>
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="프로젝트명, 고객사, Code, Item 검색" />
+        <button type="submit">검색</button>
+      </form>
+
+      {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' && state.data.projects.length === 0 ? <p className="empty-text">표시할 생산계획 프로젝트가 없습니다.</p> : null}
+      {state.kind === 'ready' && state.data.projects.length > 0 ? (
+        isMobile ? (
+          <div className="procurement-project-cards production-planning-mobile">
+            {state.data.projects.map((project) => (
+              <article key={project.projectId} className={project.projectId === expandedProjectId ? 'procurement-project-card active' : 'procurement-project-card'}>
+                <div className="subsection-header">
+                  <h3>{project.projectTitle}</h3>
+                  <button type="button" onClick={() => onOpenProject(project.projectId)}>상세 보기</button>
+                </div>
+                <dl className="mobile-detail-list">
+                  <div><dt>Code</dt><dd>{project.projectCode}</dd></div>
+                  <div><dt>Item</dt><dd>{project.item}</dd></div>
+                  <div><dt>면수</dt><dd>{project.activePanelCount}</dd></div>
+                  <div><dt>납기일</dt><dd>{emptyDash(project.deliveryDate)}</dd></div>
+                  <div><dt>생산계획 상태</dt><dd>{project.planStatusLabel}</dd></div>
+                </dl>
+                <div className="button-row">
+                  <button type="button" className="secondary-button" onClick={() => setExpandedProjectId((current) => current === project.projectId ? null : project.projectId)}>
+                    {project.projectId === expandedProjectId ? '접기' : '생산계획 보기'}
+                  </button>
+                </div>
+                {project.projectId === expandedProjectId ? (
+                  <ProductionPlanningExpanded
+                    developmentUserKey={developmentUserKey}
+                    projectId={project.projectId}
+                    state={expandedPlanState}
+                    canUpdateProductionPlanning={canUpdateProductionPlanning && project.projectStatus === 'Active'}
+                    onOpenProject={onOpenProject}
+                    onEditProject={onEditProject}
+                  />
+                ) : null}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="production-project-table procurement-desktop" role="table" aria-label="생산계획 프로젝트 목록">
+            <div className="production-project-head" role="row">
+              <span>프로젝트명</span><span>Code</span><span>Item</span><span>면수</span><span>납기일</span><span>생산계획 상태</span>
+            </div>
+            {state.data.projects.map((project) => (
+              <Fragment key={project.projectId}>
+                <div
+                  role="row"
+                  tabIndex={0}
+                  className={project.projectId === expandedProjectId ? 'production-project-row active' : 'production-project-row'}
+                  aria-expanded={project.projectId === expandedProjectId}
+                  onClick={() => setExpandedProjectId((current) => current === project.projectId ? null : project.projectId)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setExpandedProjectId((current) => current === project.projectId ? null : project.projectId);
+                    }
+                  }}
+                >
+                  <span>{project.projectTitle}</span>
+                  <span>{project.projectCode}</span>
+                  <span>{project.item}</span>
+                  <span>{project.activePanelCount}</span>
+                  <span>{emptyDash(project.deliveryDate)}</span>
+                  <span><ProductionPlanStatusBadge status={project.planStatus} label={project.planStatusLabel} /></span>
+                </div>
+                {project.projectId === expandedProjectId ? (
+                  <ProductionPlanningExpanded
+                    developmentUserKey={developmentUserKey}
+                    projectId={project.projectId}
+                    state={expandedPlanState}
+                    canUpdateProductionPlanning={canUpdateProductionPlanning && project.projectStatus === 'Active'}
+                    onOpenProject={onOpenProject}
+                    onEditProject={onEditProject}
+                  />
+                ) : null}
+              </Fragment>
+            ))}
+          </div>
+        )
+      ) : null}
+    </section>
+  );
+}
+
+function ProductionPlanningExpanded({
+  developmentUserKey,
+  projectId,
+  state,
+  canUpdateProductionPlanning,
+  onOpenProject,
+  onEditProject
+}: {
+  developmentUserKey: string;
+  projectId: string;
+  state: LoadState<ProductionPlanningResponse>;
+  canUpdateProductionPlanning: boolean;
+  onOpenProject: (projectId: string) => void;
+  onEditProject: (projectId: string) => void;
+}) {
+  return (
+    <section className="procurement-project-expanded" aria-label="선택 프로젝트 생산계획">
+      <div className="button-row">
+        <button type="button" onClick={() => onOpenProject(projectId)}>프로젝트 상세에서 보기</button>
+        {canUpdateProductionPlanning ? <button type="button" className="primary-button" onClick={() => onEditProject(projectId)}>생산계획 수정</button> : null}
+      </div>
+      {state.kind === 'loading' ? <p className="muted-text">생산계획을 불러오는 중입니다.</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? <ProductionPlanningReadOnly developmentUserKey={developmentUserKey} plan={state.data} showCalendar={false} /> : null}
+    </section>
+  );
+}
+
+function ProductionPlanningSettingsPage({
+  developmentUserKey,
+  canUpdateProductionPlanning,
+  onBack
+}: {
+  developmentUserKey: string;
+  canUpdateProductionPlanning: boolean;
+  onBack: () => void;
+}) {
+  const [state, setState] = useState<LoadState<ProductionTemplateSettings[]>>({ kind: 'loading' });
+  const [selectedProductTypeId, setSelectedProductTypeId] = useState('');
+  const [steps, setSteps] = useState<ProductionTemplateSettingsStep[]>([]);
+  const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    setErrors({});
+    setMessage('');
+    listProductionTemplateSettings(developmentUserKey)
+      .then((templates) => {
+        setState({ kind: 'ready', data: templates });
+        const nextSelected = selectedProductTypeId && templates.some((template) => template.productTypeId === selectedProductTypeId)
+          ? selectedProductTypeId
+          : templates[0]?.productTypeId ?? '';
+        setSelectedProductTypeId(nextSelected);
+        const selected = templates.find((template) => template.productTypeId === nextSelected);
+        setSteps((selected?.steps ?? []).map(copyTemplateSettingsStep));
+      })
+      .catch((error: unknown) => setState(toLoadError(error, '생산계획 단계 설정을 불러올 수 없습니다.')));
+  }, [developmentUserKey, selectedProductTypeId]);
+
+  useEffect(() => {
+    queueMicrotask(load);
+  }, [load]);
+
+  if (!canUpdateProductionPlanning) {
+    return <section className="page-surface"><StateMessage state={{ kind: 'forbidden', message: '권한이 없습니다.' }} /></section>;
+  }
+
+  const templates = state.kind === 'ready' ? state.data : [];
+  const selected = templates.find((template) => template.productTypeId === selectedProductTypeId);
+
+  function selectProductType(productTypeId: string) {
+    const template = templates.find((item) => item.productTypeId === productTypeId);
+    setSelectedProductTypeId(productTypeId);
+    setSteps((template?.steps ?? []).map(copyTemplateSettingsStep));
+    setErrors({});
+    setMessage('');
+  }
+
+  function updateStep(index: number, next: Partial<ProductionTemplateSettingsStep>) {
+    setSteps((current) => current.map((step, stepIndex) => stepIndex === index ? { ...step, ...next } : step));
+  }
+
+  function addStep() {
+    setSteps((current) => [
+      ...current,
+      {
+        templateStepId: null,
+        sequenceNumber: current.length === 0 ? 1 : Math.max(...current.map((step) => step.sequenceNumber)) + 1,
+        stepName: '',
+        isRequired: false,
+        isActive: true
+      }
+    ]);
+  }
+
+  async function save() {
+    if (!selected) {
+      return;
+    }
+
+    const validation = validateTemplateSettingsSteps(steps);
+    setErrors(validation);
+    setMessage('');
+    if (Object.keys(validation).length > 0) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updated = await updateProductionTemplateSettings(developmentUserKey, selected.productTypeId, {
+        steps: steps.map((step) => ({
+          templateStepId: step.templateStepId,
+          sequenceNumber: Number(step.sequenceNumber),
+          stepName: step.stepName.trim(),
+          isRequired: step.isRequired,
+          isActive: step.isActive
+        })),
+        reason: reason.trim() || null
+      });
+      setState({ kind: 'ready', data: updated });
+      const nextSelected = updated.find((template) => template.productTypeId === selected.productTypeId);
+      setSteps((nextSelected?.steps ?? []).map(copyTemplateSettingsStep));
+      setReason('');
+      setErrors({});
+      setMessage('생산계획 단계 설정을 저장했습니다.');
+    } catch (error) {
+      handleFormError(error, setErrors, setMessage);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="page-surface">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Production Planning</p>
+          <h2>생산계획 단계 설정</h2>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onBack}>생산관리</button>
+          <button type="button" className="primary-button" disabled={isSaving || !selected} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
+        </div>
+      </div>
+      <p className="info-text">
+        생산계획 단계 설정은 이후 새로 작성되는 생산계획부터 적용됩니다. 이미 작성된 프로젝트 생산계획은 자동으로 변경되지 않습니다.
+      </p>
+      {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <>
+          <div className="settings-product-type-tabs" role="tablist" aria-label="Item">
+            {templates.map((template) => (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={template.productTypeId === selectedProductTypeId}
+                className={template.productTypeId === selectedProductTypeId ? 'active' : undefined}
+                key={template.productTypeId}
+                onClick={() => selectProductType(template.productTypeId)}
+              >
+                {template.code}
+              </button>
+            ))}
+          </div>
+          <FormErrorSummary errors={errors} />
+          {selected ? (
+            <section className="subsection">
+              <div className="subsection-header">
+                <div>
+                  <h3>{selected.code} 단계</h3>
+                  <span>현재 active template v{selected.activeTemplateVersion}</span>
+                </div>
+                <button type="button" onClick={addStep}>행 추가</button>
+              </div>
+              <div className="template-settings-table" role="table" aria-label={`${selected.code} 생산계획 단계 설정`}>
+                <div className="template-settings-head" role="row">
+                  <span>순서</span><span>생산계획 단계</span><span>필수</span><span>사용</span>
+                </div>
+                {steps.map((step, index) => (
+                  <div className="template-settings-row" role="row" key={`${step.templateStepId ?? 'new'}-${index}`}>
+                    <div className="grid-field">
+                      <input
+                        aria-label="순서"
+                        name={`steps[${index}].sequenceNumber`}
+                        type="number"
+                        min={1}
+                        value={step.sequenceNumber}
+                        className={fieldError(errors, `steps[${index}].sequenceNumber`) ? 'field-invalid' : undefined}
+                        onChange={(event) => updateStep(index, { sequenceNumber: Number(event.target.value) })}
+                      />
+                      <FieldErrorMessage message={fieldError(errors, `steps[${index}].sequenceNumber`)} />
+                    </div>
+                    <div className="grid-field">
+                      <input
+                        aria-label="생산계획 단계"
+                        name={`steps[${index}].stepName`}
+                        value={step.stepName}
+                        className={fieldError(errors, `steps[${index}].stepName`) ? 'field-invalid' : undefined}
+                        onChange={(event) => updateStep(index, { stepName: event.target.value })}
+                      />
+                      <FieldErrorMessage message={fieldError(errors, `steps[${index}].stepName`)} />
+                    </div>
+                    <label className="inline-check">
+                      <input type="checkbox" checked={step.isRequired} onChange={(event) => updateStep(index, { isRequired: event.target.checked })} />
+                      <span>필수</span>
+                    </label>
+                    <label className="inline-check">
+                      <input type="checkbox" checked={step.isActive} onChange={(event) => updateStep(index, { isActive: event.target.checked })} />
+                      <span>사용</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+              <label className="form-field">
+                <span>변경 사유</span>
+                <textarea name="reason" value={reason} onChange={(event) => setReason(event.target.value)} />
+              </label>
+            </section>
+          ) : <p className="empty-text">설정할 Item이 없습니다.</p>}
+        </>
+      ) : null}
+      {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+    </section>
+  );
+}
+
+function ProductionPlanningExcelDialog({
+  developmentUserKey,
+  onClose,
+  onApplied
+}: {
+  developmentUserKey: string;
+  onClose: () => void;
+  onApplied: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<ProductionPlanningExcelPreviewResponse | null>(null);
+  const [reason, setReason] = useState('');
+  const [message, setMessage] = useState('');
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+
+  async function runPreview() {
+    if (!file) {
+      setMessage('선택한 파일이 없습니다.');
+      return;
+    }
+    setIsPreviewing(true);
+    setMessage('');
+    try {
+      setPreview(await previewProductionPlanningExcel(developmentUserKey, file));
+    } catch (error) {
+      handleFormError(error, () => undefined, setMessage);
+    } finally {
+      setIsPreviewing(false);
+    }
+  }
+
+  async function apply() {
+    if (!file || !preview) {
+      setMessage('먼저 미리보기를 실행해 주세요.');
+      return;
+    }
+    setIsApplying(true);
+    setMessage('');
+    try {
+      const result = await applyProductionPlanningExcel(developmentUserKey, file, preview.fileSha256, reason.trim() || null);
+      setMessage(`저장 가능한 항목 ${result.appliedRowCount}건을 반영했습니다.`);
+      onApplied();
+    } catch (error) {
+      handleFormError(error, () => undefined, setMessage);
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
+  const canApply = preview !== null && preview.saveableCount > 0 && !isApplying;
+
+  return (
+    <DialogBackdrop ariaLabel="생산계획 Excel 업로드" onClose={onClose} closeDisabled={isPreviewing || isApplying}>
+      <div className="dialog wide-dialog production-excel-dialog">
+        <div className="subsection-header">
+          <h3>생산계획 Excel 업로드</h3>
+          <button type="button" onClick={onClose}>닫기</button>
+        </div>
+        <div className="toolbar">
+          <input type="file" accept=".xlsx" onChange={(event) => {
+            setFile(event.target.files?.[0] ?? null);
+            setPreview(null);
+            setMessage('');
+          }} />
+          <button type="button" disabled={isPreviewing} onClick={runPreview}>{isPreviewing ? '미리보기 중' : 'Preview'}</button>
+        </div>
+        {preview ? (
+          <>
+            <div className="excel-preview-action-bar">
+              <p className="muted-text">저장 가능한 항목만 반영됩니다. 저장 불가능한 항목은 수정 후 다시 업로드해 주세요.</p>
+              <label className="form-field excel-preview-reason">
+                <span>수정사유</span>
+                <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
+              </label>
+              <button type="button" className="primary-button" disabled={!canApply} onClick={apply}>{isApplying ? '저장 중' : '저장 가능한 항목 적용'}</button>
+              {!canApply ? <p className="warning-text">저장 가능한 생산계획 항목이 없습니다.</p> : null}
+            </div>
+            <ProductionPlanningExcelPreview preview={preview} />
+          </>
+        ) : null}
+        {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+      </div>
+    </DialogBackdrop>
+  );
+}
+
+function ProductionPlanningExcelPreview({ preview }: { preview: ProductionPlanningExcelPreviewResponse }) {
+  const isMobile = useIsMobileViewport();
+  const saveableRows = preview.rows.filter((row) => row.resultType === 'New' || row.resultType === 'Changed' || row.resultType === 'CustomStep');
+  const blockedRows = preview.rows.filter((row) => row.resultType === 'NeedsReview' || row.resultType === 'Error');
+  const sections = [
+    { title: '저장 가능한 데이터 목록', rows: saveableRows, kind: 'saveable' },
+    { title: '저장 불가능한 데이터 목록', rows: blockedRows, kind: 'blocked' }
+  ];
+
+  if (isMobile) {
+    return (
+      <div className="excel-preview-cards excel-preview-mobile">
+        {sections.map((section) => (
+          <section className={`excel-preview-section ${section.kind}`} key={section.title}>
+            <h4>{section.title} {section.rows.length}건</h4>
+            {section.rows.map((row) => (
+              <article className="excel-preview-card" key={`${row.excelRowNumber}-${row.stepName}`}>
+                <h3>{row.excelRowNumber}행 · {emptyDash(row.stepName)}</h3>
+                <dl className="mobile-detail-list">
+                  <div><dt>프로젝트</dt><dd>{emptyDash(row.projectTitle)}</dd></div>
+                  <div><dt>Code</dt><dd>{emptyDash(row.projectCode)}</dd></div>
+                  <div><dt>Item</dt><dd>{emptyDash(row.productTypeCode)}</dd></div>
+                  <div><dt>계획 항목</dt><dd>{emptyDash(row.stepName)}{row.isCustomStep ? ' · 사용자 추가' : ''}</dd></div>
+                  <div><dt>예정일</dt><dd>{emptyDash(row.plannedDate)}</dd></div>
+                  <div><dt>비고</dt><dd>{emptyDash(row.note)}</dd></div>
+                  {section.kind === 'blocked' ? <div><dt>사유</dt><dd>{row.errorMessages.join(', ')}</dd></div> : null}
+                </dl>
+              </article>
+            ))}
+            {section.rows.length === 0 ? <p className="empty-text">표시할 항목이 없습니다.</p> : null}
+          </section>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="excel-preview-table excel-preview-desktop">
+      {sections.map((section) => (
+        <section className={`excel-preview-section ${section.kind}`} key={section.title}>
+          <h4>{section.title} {section.rows.length}건</h4>
+          <div className="excel-preview-grid production-excel-preview-grid" role="table" aria-label={section.title}>
+            <div className="excel-preview-head" role="row">
+              <span>Excel 행</span>
+              <span>프로젝트</span>
+              <span>Code</span>
+              <span>Item</span>
+              <span>계획 항목</span>
+              <span>예정일</span>
+              <span>비고</span>
+              <span>구매</span>
+              <span>생산관리</span>
+              <span>제조</span>
+              <span>품질</span>
+              <span>물류</span>
+            </div>
+            {section.rows.map((row) => (
+              <div className="excel-preview-row-group" key={`${row.excelRowNumber}-${row.stepName}`}>
+                <div className="excel-preview-row" data-result={row.resultType} role="row">
+                  <strong>{row.excelRowNumber}</strong>
+                  <span>{emptyDash(row.projectTitle)}</span>
+                  <span>{emptyDash(row.projectCode)}</span>
+                  <span>{emptyDash(row.productTypeCode)}</span>
+                  <span>{emptyDash(row.stepName)}{row.isCustomStep ? ' · 사용자 추가' : ''}</span>
+                  <span>{emptyDash(row.plannedDate)}</span>
+                  <span>{emptyDash(row.note)}</span>
+                  <span>{emptyDash(row.procurementAssigneeText)}</span>
+                  <span>{emptyDash(row.productionPlanningAssigneeText)}</span>
+                  <span>{emptyDash(row.manufacturingAssigneeText)}</span>
+                  <span>{emptyDash(row.qualityAssigneeText)}</span>
+                  <span>{emptyDash(row.logisticsAssigneeText)}</span>
+                </div>
+                {section.kind === 'blocked' ? (
+                  <div className="excel-preview-row-reasons">
+                    <strong>사유</strong>
+                    <ul>
+                      {row.errorMessages.map((message) => <li key={message}>{message}</li>)}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          {section.rows.length === 0 ? <p className="empty-text">표시할 항목이 없습니다.</p> : null}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function ProductionPlanningSection({
+  developmentUserKey,
+  state,
+  canUpdateProductionPlanning,
+  onEdit
+}: {
+  developmentUserKey: string;
+  state: LoadState<ProductionPlanningResponse>;
+  canUpdateProductionPlanning: boolean;
+  onEdit: () => void;
+}) {
+  return (
+    <section className="subsection production-planning-section">
+      <div className="subsection-header">
+        <div>
+          <h3>생산계획</h3>
+          <span>프로젝트 단위 계획과 담당자 지정</span>
+        </div>
+        {canUpdateProductionPlanning ? <button type="button" className="primary-button" onClick={onEdit}>생산계획 수정</button> : null}
+      </div>
+      {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+      {state.kind === 'empty' ? <p className="empty-text">생산계획을 불러올 수 없습니다.</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? <ProductionPlanningReadOnly developmentUserKey={developmentUserKey} plan={state.data} showCalendar /> : null}
+    </section>
+  );
+}
+
+function ProductionPlanningReadOnly({
+  developmentUserKey,
+  plan,
+  showCalendar = false
+}: {
+  developmentUserKey?: string;
+  plan: ProductionPlanningResponse;
+  showCalendar?: boolean;
+}) {
+  const isMobile = useIsMobileViewport();
+  const displayItems = sortProductionPlanItems(plan.items);
+  const [holidayState, setHolidayState] = useState<LoadState<SystemHoliday[]>>({ kind: 'empty' });
+  const calendarRange = showCalendar ? productionCalendarDateRange(plan.items) : null;
+  const calendarDateFrom = calendarRange?.dateFrom;
+  const calendarDateTo = calendarRange?.dateTo;
+
+  useEffect(() => {
+    if (!showCalendar || !developmentUserKey || !calendarDateFrom || !calendarDateTo) {
+      return;
+    }
+
+    const controller = new AbortController();
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) {
+        setHolidayState({ kind: 'loading' });
+      }
+    });
+    listSystemHolidays(developmentUserKey, {
+      countryCode: 'KR',
+      dateFrom: calendarDateFrom,
+      dateTo: calendarDateTo,
+      signal: controller.signal
+    })
+      .then((holidays) => setHolidayState({ kind: 'ready', data: holidays }))
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setHolidayState(toLoadError(error, '공휴일 정보를 불러올 수 없습니다.'));
+        }
+      });
+
+    return () => controller.abort();
+  }, [calendarDateFrom, calendarDateTo, developmentUserKey, showCalendar]);
+
+  const holidays = holidayState.kind === 'ready'
+    ? holidayState.data.map((holiday) => ({
+      date: holiday.holidayDate,
+      name: holiday.name,
+      countryCode: holiday.countryCode,
+      isActive: true
+    }))
+    : [];
+
+  return (
+    <div className="production-plan-readonly">
+      <div className="panel-info-summary project-workflow-summary">
+        <StatusChip label="Item" value={plan.productTypeName ?? plan.productTypeCode ?? '-'} />
+        <StatusChip label="계획 상태" value={plan.planStatusLabel} />
+        <StatusChip label="필수 일정" value={`${plan.items.filter((item) => item.isRequired && item.plannedDate).length}/${plan.items.filter((item) => item.isRequired).length}`} />
+      </div>
+      <div className="assignee-grid" aria-label="담당자 지정 현황">
+        {plan.assignees.map((assignee) => {
+          const fallback = plan.fallbacks.find((item) => item.responsibilityType === assignee.responsibilityType);
+          return (
+            <article className="assignee-card" key={assignee.responsibilityType}>
+              <span>{assignee.responsibilityLabel}</span>
+              <strong>{assignee.assignedUserName ?? '미지정'}</strong>
+              <small>알림 기준: {fallback?.displayName ?? '-'} ({fallback?.sourceLabel ?? '-'})</small>
+            </article>
+          );
+        })}
+      </div>
+      {displayItems.length === 0 ? <p className="empty-text">등록된 생산계획 항목이 없습니다.</p> : isMobile ? (
+        <div className="procurement-cards">
+          {displayItems.map((item) => (
+            <article className="procurement-card" key={`${item.templateStepId ?? item.sequenceNumber}`}>
+              <h3>{item.sequenceNumber}. {item.stepName}</h3>
+              <dl className="mobile-detail-list">
+                <div><dt>필수</dt><dd>{item.isRequired ? '예' : '아니오'}</dd></div>
+                <div><dt>예정일</dt><dd>{emptyDash(item.plannedDate)}</dd></div>
+                <div><dt>비고</dt><dd>{emptyDash(item.note)}</dd></div>
+              </dl>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="production-plan-table procurement-desktop" role="table" aria-label="생산계획 항목">
+          <div className="production-plan-head" role="row">
+            <span>계획 항목</span><span>필수</span><span>예정일</span><span>비고</span>
+          </div>
+          {displayItems.map((item) => (
+            <div className="production-plan-row" role="row" key={`${item.templateStepId ?? item.sequenceNumber}`}>
+              <span>{item.stepName}</span>
+              <span>{item.isRequired ? '예' : '아니오'}</span>
+              <span>{emptyDash(item.plannedDate)}</span>
+              <span>{emptyDash(item.note)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {showCalendar ? (
+        <>
+          {holidayState.kind !== 'ready' && holidayState.kind !== 'loading' && holidayState.kind !== 'empty' ? <StateMessage state={holidayState} /> : null}
+          <ProductionPlanningTimeline items={plan.items} holidays={holidays} />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function ProductionPlanningTimeline({
+  items,
+  holidays = []
+}: {
+  items: ProductionPlanningResponse['items'];
+  holidays?: ProductionCalendarHoliday[];
+}) {
+  const isMobile = useIsMobileViewport();
+  if (items.length === 0) {
+    return null;
+  }
+
+  const calendar = buildProductionCalendar(items, holidays);
+  if (calendar.dateColumns.length === 0) {
+    return (
+      <section className="production-plan-calendar" aria-label="생산계획 캘린더">
+        <h4>생산계획 캘린더</h4>
+        <p className="empty-text">생산계획 예정일이 입력되면 캘린더가 표시됩니다.</p>
+        {calendar.unscheduledItems.length > 0 ? <UnscheduledProductionItems items={calendar.unscheduledItems} /> : null}
+      </section>
+    );
+  }
+
+  return (
+    <section className="production-plan-calendar" aria-label="생산계획 캘린더">
+      <h4>생산계획 캘린더</h4>
+      {isMobile ? (
+        <div className="production-calendar-mobile">
+          {calendar.dateColumns.map((date) => (
+            <article className={dateClassName('production-calendar-card', date)} key={date.date}>
+              <strong>{date.label} {date.weekday}</strong>
+              {date.holidayName ? <small>{date.holidayName}</small> : null}
+              <span>
+                {calendar.rows.filter((row) => row.plannedDate === date.date).map((row) => `✓ ${row.stepName}`).join(', ') || '-'}
+              </span>
+            </article>
+          ))}
+          {calendar.unscheduledItems.length > 0 ? <UnscheduledProductionItems items={calendar.unscheduledItems} /> : null}
+        </div>
+      ) : (
+        <div className="production-calendar-table-wrap">
+          <table className="production-calendar-table" aria-label="생산계획 캘린더 표">
+            <thead>
+              <tr>
+                <th scope="col">생산단계</th>
+                {calendar.dateColumns.map((date) => (
+                  <th scope="col" className={dateClassName('', date)} key={date.date}>
+                    <span>{date.label}</span>
+                    <small>{date.weekday}</small>
+                    {date.holidayName ? <small>{date.holidayName}</small> : null}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {calendar.rows.map((row) => (
+                <tr key={`${row.key}-${row.stepName}`}>
+                  <th scope="row">{row.stepName}</th>
+                  {calendar.dateColumns.map((date) => (
+                    <td className={dateClassName('', date)} key={date.date}>
+                      {row.cells[date.date] ? <span aria-label={`${row.stepName} ${date.label} 예정`}>✓</span> : null}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {calendar.unscheduledItems.length > 0 ? <UnscheduledProductionItems items={calendar.unscheduledItems} /> : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function UnscheduledProductionItems({ items }: { items: ProductionCalendarUnscheduledItem[] }) {
+  return (
+    <div className="production-calendar-unscheduled" aria-label="날짜 미입력 생산단계">
+      <strong>날짜 미입력 생산단계</strong>
+      <ul>
+        {items.map((item) => (
+          <li className={item.isRequired ? 'missing-required' : undefined} key={item.key}>
+            {item.stepName} {item.isRequired ? <span>필수 미입력</span> : <span>미입력</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ProductionPlanningEditPage({
+  developmentUserKey,
+  projectId,
+  canUpdateProductionPlanning,
+  onBack
+}: {
+  developmentUserKey: string;
+  projectId: string;
+  canUpdateProductionPlanning: boolean;
+  onBack: () => void;
+}) {
+  const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
+  const [state, setState] = useState<LoadState<ProductionPlanningResponse>>({ kind: 'loading' });
+  const [typesState, setTypesState] = useState<LoadState<ProductionProductType[]>>({ kind: 'loading' });
+  const [selectedProductTypeId, setSelectedProductTypeId] = useState('');
+  const [rows, setRows] = useState<ProductionPlanRowForm[]>([]);
+  const [assignees, setAssignees] = useState<ProjectAssigneeForm[]>([]);
+  const [notes, setNotes] = useState('');
+  const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const load = useCallback(() => {
+    setProjectState({ kind: 'loading' });
+    setState({ kind: 'loading' });
+    setTypesState({ kind: 'loading' });
+    setErrors({});
+    setMessage('');
+    Promise.all([
+      getProject(developmentUserKey, projectId),
+      getProjectProductionPlanning(developmentUserKey, projectId),
+      listProductionProductTypes(developmentUserKey)
+    ])
+      .then(([project, plan, productTypes]) => {
+        const projectProductType = findProductTypeForProjectItem(productTypes, project.item);
+        setProjectState({ kind: 'ready', data: project });
+        setState({ kind: 'ready', data: plan });
+        setTypesState({ kind: 'ready', data: productTypes });
+        setSelectedProductTypeId(projectProductType?.productTypeId ?? '');
+        setRows(plan.items.map(productionPlanItemToForm));
+        setAssignees(plan.assignees.map(projectAssigneeToForm));
+        setNotes(plan.notes ?? '');
+      })
+      .catch((error: unknown) => {
+        setProjectState(toLoadError(error, '프로젝트 정보를 불러오지 못했습니다.'));
+        setState(toLoadError(error, '생산계획을 불러올 수 없습니다.'));
+        setTypesState(toLoadError(error, 'Item을 불러올 수 없습니다.'));
+      });
+  }, [developmentUserKey, projectId]);
+
+  useEffect(() => {
+    queueMicrotask(load);
+  }, [load]);
+
+  useEffect(() => {
+    if (typesState.kind !== 'ready' || state.kind !== 'ready') {
+      return;
+    }
+    const selected = typesState.data.find((item) => item.productTypeId === selectedProductTypeId);
+    if (!selected) {
+      return;
+    }
+    if (state.data.productTypeId === selectedProductTypeId && state.data.items.length > 0) {
+      return;
+    }
+    setRows(selected.steps.map((step) => ({
+      itemId: null,
+      templateStepId: step.templateStepId,
+      sequenceNumber: step.sequenceNumber,
+      stepName: step.stepName,
+      isRequired: step.isRequired,
+      isCustom: false,
+      isDeleted: false,
+      plannedDate: '',
+      note: '',
+      rowVersion: 0
+    })));
+  }, [selectedProductTypeId, state, typesState]);
+
+  if (!canUpdateProductionPlanning) {
+    return <section className="page-surface"><StateMessage state={{ kind: 'forbidden', message: '권한이 없습니다.' }} /></section>;
+  }
+
+  function updateRow(index: number, next: Partial<ProductionPlanRowForm>) {
+    setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...next } : row));
+  }
+
+  function addCustomRow() {
+    setRows((current) => [
+      ...current,
+      {
+        itemId: null,
+        templateStepId: null,
+        sequenceNumber: current.filter((row) => !row.isDeleted).length + 1,
+        stepName: '',
+        isRequired: false,
+        isCustom: true,
+        isDeleted: false,
+        plannedDate: '',
+        note: '',
+        rowVersion: 0
+      }
+    ]);
+  }
+
+  function deleteCustomRow(index: number) {
+    setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, isDeleted: true } : row));
+  }
+
+  function updateAssignee(index: number, next: Partial<ProjectAssigneeForm>) {
+    setAssignees((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...next } : row));
+  }
+
+  async function save() {
+    if (state.kind !== 'ready') {
+      return;
+    }
+    const validation = validateProductionPlanningForm(selectedProductTypeId, rows);
+    setErrors(validation);
+    setMessage('');
+    if (Object.keys(validation).length > 0) {
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await updateProjectProductionPlanning(developmentUserKey, projectId, {
+        productTypeId: selectedProductTypeId || null,
+        expectedRowVersion: state.data.rowVersion,
+        notes: notes.trim() || null,
+        reason: reason.trim() || null,
+        items: rows.map((row) => ({
+          itemId: row.itemId,
+          templateStepId: row.templateStepId,
+          stepName: row.templateStepId ? null : row.stepName,
+          sequenceNumber: row.sequenceNumber,
+          expectedRowVersion: row.rowVersion,
+          plannedDate: row.plannedDate || null,
+          note: row.note.trim() || null,
+          isDeleted: row.isDeleted
+        })),
+        assignees: assignees.map((assignee) => ({
+          responsibilityType: assignee.responsibilityType,
+          assigneeId: assignee.assigneeId,
+          expectedRowVersion: assignee.rowVersion,
+          assignedUserId: assignee.assignedUserId || null,
+          note: assignee.note.trim() || null
+        }))
+      });
+      onBack();
+    } catch (error) {
+      handleFormError(error, setErrors, setMessage);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function downloadTemplate() {
+    if (!selectedProductTypeId) {
+      setMessage('Item을 먼저 확인해 주세요.');
+      return;
+    }
+    setIsDownloading(true);
+    setMessage('');
+    try {
+      const template = await downloadProductionPlanningTemplate(developmentUserKey, projectId, selectedProductTypeId);
+      const url = URL.createObjectURL(template.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = template.fileName;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setMessage('Excel 양식을 다운로드했습니다.');
+    } catch (error) {
+      handleFormError(error, () => undefined, setMessage);
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  const plan = state.kind === 'ready' ? state.data : null;
+  const productTypes = typesState.kind === 'ready' ? typesState.data : [];
+  const project = projectState.kind === 'ready' ? projectState.data : null;
+  const selectedProductType = productTypes.find((item) => item.productTypeId === selectedProductTypeId);
+  const hasInvalidProjectItem = projectState.kind === 'ready' && typesState.kind === 'ready' && !selectedProductType;
+
+  return (
+    <section className="page-surface production-planning-section">
+      {projectState.kind === 'loading' ? <p className="muted-text">프로젝트 정보를 불러오는 중입니다.</p> : null}
+      {projectState.kind === 'ready' ? <ProjectContextSummary project={projectState.data} /> : null}
+      {projectState.kind !== 'ready' && projectState.kind !== 'loading' ? <StateMessage state={projectState} /> : null}
+      <div className="subsection-header">
+        <div>
+          <p className="eyebrow">Production Planning</p>
+          <h2>생산계획 수정</h2>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onBack}>상세</button>
+          <button type="button" onClick={downloadTemplate} disabled={isDownloading || !selectedProductTypeId}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button>
+          <button type="button" className="primary-button" disabled={isSaving || state.kind !== 'ready' || hasInvalidProjectItem} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
+        </div>
+      </div>
+      {state.kind === 'loading' || typesState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
+      {typesState.kind !== 'ready' && typesState.kind !== 'loading' ? <StateMessage state={typesState} /> : null}
+      {plan && typesState.kind === 'ready' ? (
+        <>
+          <FormErrorSummary errors={errors} />
+          <div className="production-edit-controls">
+            <div className={fieldError(errors, 'productTypeId') || hasInvalidProjectItem ? 'readonly-field has-error' : 'readonly-field'} data-field="productTypeId" tabIndex={-1}>
+              <span>Item</span>
+              <strong>{selectedProductType?.code ?? project?.item ?? '-'}</strong>
+              {hasInvalidProjectItem ? <small role="alert" className="field-error-message">현재 프로젝트의 Item이 등록된 Item 기준값과 일치하지 않습니다. 프로젝트 정보를 수정한 후 생산계획을 입력해 주세요.</small> : null}
+              <FieldErrorMessage message={fieldError(errors, 'productTypeId')} />
+            </div>
+            <label className="form-field">
+              <span>비고</span>
+              <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+            </label>
+            <label className={fieldError(errors, 'reason') ? 'form-field panel-reason-field has-error' : 'form-field panel-reason-field'}>
+              <span>수정사유</span>
+              <textarea name="reason" value={reason} onChange={(event) => setReason(event.target.value)} />
+              <FieldErrorMessage message={fieldError(errors, 'reason')} />
+            </label>
+          </div>
+          <ProductionPlanningEditableList rows={rows} errors={errors} onChange={updateRow} onAddRow={addCustomRow} onDeleteRow={deleteCustomRow} />
+          <ProductionAssigneeEditor plan={plan} assignees={assignees} errors={errors} onChange={updateAssignee} />
+        </>
+      ) : null}
+      {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+    </section>
+  );
+}
+
+function ProductionPlanningEditableList({
+  rows,
+  errors,
+  onChange,
+  onAddRow,
+  onDeleteRow
+}: {
+  rows: ProductionPlanRowForm[];
+  errors: Record<string, string>;
+  onChange: (index: number, next: Partial<ProductionPlanRowForm>) => void;
+  onAddRow: () => void;
+  onDeleteRow: (index: number) => void;
+}) {
+  const isMobile = useIsMobileViewport();
+  const visibleRows = sortProductionPlanItems(rows.filter((row) => !row.isDeleted));
+  if (isMobile) {
+    return (
+      <section className="subsection">
+        <div className="subsection-header">
+          <h3>생산계획표</h3>
+          <button type="button" onClick={onAddRow}>행 추가</button>
+        </div>
+        <div className="procurement-cards">
+          {visibleRows.map((row) => {
+            const index = rows.indexOf(row);
+            return (
+            <article className="procurement-card" key={`${row.templateStepId ?? row.itemId ?? row.sequenceNumber}`}>
+              {row.isCustom ? (
+                <label className={fieldError(errors, `items[${index}].stepName`) ? 'form-field has-error' : 'form-field'}>
+                  <span>계획 항목</span>
+                  <input name={`items[${index}].stepName`} value={row.stepName} onChange={(event) => onChange(index, { stepName: event.target.value })} />
+                  <FieldErrorMessage message={fieldError(errors, `items[${index}].stepName`)} />
+                </label>
+              ) : <h3>{row.sequenceNumber}. {row.stepName}</h3>}
+              <dl className="mobile-detail-list">
+                <div><dt>필수</dt><dd>{row.isRequired ? '예' : '아니오'}</dd></div>
+              </dl>
+              <label className={fieldError(errors, `items[${index}].plannedDate`) ? 'form-field has-error' : 'form-field'}>
+                <span>예정일</span>
+                <input name={`items[${index}].plannedDate`} type="date" value={row.plannedDate} onChange={(event) => onChange(index, { plannedDate: event.target.value })} />
+                <FieldErrorMessage message={fieldError(errors, `items[${index}].plannedDate`)} />
+              </label>
+              <label className={fieldError(errors, `items[${index}].note`) ? 'form-field has-error' : 'form-field'}>
+                <span>비고</span>
+                <textarea name={`items[${index}].note`} value={row.note} onChange={(event) => onChange(index, { note: event.target.value })} />
+                <FieldErrorMessage message={fieldError(errors, `items[${index}].note`)} />
+              </label>
+              {row.isCustom ? <button type="button" className="secondary-button" onClick={() => onDeleteRow(index)}>삭제</button> : null}
+            </article>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="subsection">
+      <div className="subsection-header">
+        <h3>생산계획표</h3>
+        <button type="button" onClick={onAddRow}>행 추가</button>
+      </div>
+      <div className="production-plan-table procurement-desktop" role="table" aria-label="생산계획 수정">
+        <div className="production-plan-head editable" role="row">
+          <span>계획 항목</span><span>필수</span><span>예정일</span><span>비고</span><span>작업</span>
+        </div>
+        {visibleRows.map((row) => {
+          const index = rows.indexOf(row);
+          return (
+            <div className="production-plan-row editable" role="row" key={`${row.templateStepId ?? row.itemId ?? row.sequenceNumber}`}>
+              {row.isCustom ? (
+                <div className="grid-field">
+                  <input
+                    aria-label="계획 항목"
+                    className={fieldError(errors, `items[${index}].stepName`) ? 'field-invalid' : undefined}
+                    name={`items[${index}].stepName`}
+                    value={row.stepName}
+                    onChange={(event) => onChange(index, { stepName: event.target.value })}
+                  />
+                  <FieldErrorMessage message={fieldError(errors, `items[${index}].stepName`)} />
+                </div>
+              ) : <span>{row.stepName}</span>}
+              <span>{row.isRequired ? '예' : '아니오'}</span>
+              <div className="grid-field">
+                <input
+                  className={fieldError(errors, `items[${index}].plannedDate`) ? 'field-invalid' : undefined}
+                  name={`items[${index}].plannedDate`}
+                  type="date"
+                  value={row.plannedDate}
+                  onChange={(event) => onChange(index, { plannedDate: event.target.value })}
+                />
+                <FieldErrorMessage message={fieldError(errors, `items[${index}].plannedDate`)} />
+              </div>
+              <div className="grid-field">
+                <input
+                  className={fieldError(errors, `items[${index}].note`) ? 'field-invalid' : undefined}
+                  name={`items[${index}].note`}
+                  value={row.note}
+                  onChange={(event) => onChange(index, { note: event.target.value })}
+                />
+                <FieldErrorMessage message={fieldError(errors, `items[${index}].note`)} />
+              </div>
+              <span>{row.isCustom ? <button type="button" className="secondary-button" onClick={() => onDeleteRow(index)}>삭제</button> : '-'}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ProductionAssigneeEditor({
+  plan,
+  assignees,
+  errors,
+  onChange
+}: {
+  plan: ProductionPlanningResponse;
+  assignees: ProjectAssigneeForm[];
+  errors: Record<string, string>;
+  onChange: (index: number, next: Partial<ProjectAssigneeForm>) => void;
+}) {
+  return (
+    <section className="subsection">
+      <h3>프로젝트 담당자 지정</h3>
+      <div className="assignee-edit-grid">
+        {assignees.map((assignee, index) => {
+          const candidates = plan.assigneeCandidates.find((item) => item.responsibilityType === assignee.responsibilityType)?.users ?? [];
+          const fallback = plan.fallbacks.find((item) => item.responsibilityType === assignee.responsibilityType);
+          const assigneeError = fieldError(errors, assignee.responsibilityType, assignee.responsibilityType[0].toLowerCase() + assignee.responsibilityType.slice(1), `assignees[${index}].assignedUserId`);
+          return (
+            <article className="assignee-card" key={assignee.responsibilityType}>
+              <label className={assigneeError ? 'form-field has-error' : 'form-field'}>
+                <span>{assignee.responsibilityLabel}</span>
+                <select name={`assignees[${index}].assignedUserId`} value={assignee.assignedUserId} onChange={(event) => onChange(index, { assignedUserId: event.target.value })}>
+                  <option value="">미지정</option>
+                  {candidates.map((user) => <option key={user.userId} value={user.userId}>{user.displayName}</option>)}
+                </select>
+                <FieldErrorMessage message={assigneeError} />
+              </label>
+              <label className="form-field">
+                <span>담당 비고</span>
+                <input name={`assignees[${index}].note`} value={assignee.note} onChange={(event) => onChange(index, { note: event.target.value })} />
+              </label>
+              <small>미지정 fallback: {fallback?.displayName ?? '-'} ({fallback?.sourceLabel ?? '-'})</small>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ProductionPlanStatusBadge({ status, label }: { status: string; label: string }) {
+  return <span className="status-badge production-plan-status" data-status={status}>{label}</span>;
+}
+
 function ProcurementDashboardPage({
   developmentUserKey,
   canUpdateProcurement,
@@ -1752,6 +3147,8 @@ function ProcurementDashboardPage({
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
   const [expandedProcurementState, setExpandedProcurementState] = useState<LoadState<ProcurementResponse>>({ kind: 'empty' });
   const [showExcel, setShowExcel] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const procurementRequestIdRef = useRef(0);
   const isMobile = useIsMobileViewport();
 
@@ -1797,6 +3194,25 @@ function ProcurementDashboardPage({
     setExpandedProjectId((current) => current === projectId ? null : projectId);
   }
 
+  async function downloadTemplate() {
+    setDownloadMessage(null);
+    setIsDownloadingTemplate(true);
+    try {
+      const template = await downloadProcurementDashboardTemplate(developmentUserKey);
+      const url = URL.createObjectURL(template.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = template.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setDownloadMessage('Excel 양식을 다운로드했습니다.');
+    } catch (error) {
+      setDownloadMessage(error instanceof ApiError ? error.message : 'Excel 양식을 다운로드할 수 없습니다.');
+    } finally {
+      setIsDownloadingTemplate(false);
+    }
+  }
+
   return (
     <section className="page-surface procurement-section">
       <div className="page-header">
@@ -1806,9 +3222,17 @@ function ProcurementDashboardPage({
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>프로젝트 목록</button>
-          {canUpdateProcurement ? <button type="button" className="primary-button" onClick={() => setShowExcel(true)}>Excel 업로드</button> : null}
+          {canUpdateProcurement ? (
+            <>
+              <button type="button" onClick={downloadTemplate} disabled={isDownloadingTemplate}>
+                {isDownloadingTemplate ? '다운로드 중' : 'Excel 양식 다운로드'}
+              </button>
+              <button type="button" className="primary-button" onClick={() => setShowExcel(true)}>Excel 업로드</button>
+            </>
+          ) : null}
         </div>
       </div>
+      {downloadMessage ? <p className="form-message">{downloadMessage}</p> : null}
 
       {state.kind === 'ready' ? <DashboardKpiGrid summary={state.data.summary} /> : null}
       {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
@@ -2106,17 +3530,17 @@ function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
             <span>{emptyDash(item.orderDate)}</span>
             <span>{emptyDash(item.expectedReceiptDate)}</span>
             <span>{emptyDash(item.issueNote)}</span>
-            <ReceiptCompletionBadge completed={item.receiptCompleted} />
+            <ReceiptCompletionBadge completed={item.receiptCompleted} completedAtUtc={item.receiptCompletedAtUtc} />
           </div>
         ))}
       </div>
     );
 }
 
-function ReceiptCompletionBadge({ completed }: { completed: boolean }) {
+function ReceiptCompletionBadge({ completed, completedAtUtc }: { completed: boolean; completedAtUtc?: string | null }) {
   return (
     <span className="receipt-completion-badge" data-completed={completed ? 'true' : 'false'}>
-      {completed ? '완료' : '미완료'}
+      {formatReceiptCompleted(completed, completedAtUtc)}
     </span>
   );
 }
@@ -2294,7 +3718,7 @@ function ProcurementEditableList({
                 <input type="checkbox" checked={row.receiptCompleted} onChange={(event) => onChange(index, { receiptCompleted: event.target.checked })} />
                 입고 완료
               </label>
-              <ReceiptCompletionBadge completed={row.receiptCompleted} />
+              <ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} />
             </div>
           </div>
         ))}
@@ -2328,7 +3752,7 @@ function ProcurementCards({
                 <FormField label="이슈사항"><input value={row.issueNote} onChange={(event) => onChange(index, { issueNote: event.target.value })} /></FormField>
                 <div className="receipt-input-cell">
                   <label className="checkbox-field"><input type="checkbox" checked={row.receiptCompleted} onChange={(event) => onChange(index, { receiptCompleted: event.target.checked })} /> 입고 완료</label>
-                  <ReceiptCompletionBadge completed={row.receiptCompleted} />
+                  <ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} />
                 </div>
               </>
             ) : (
@@ -2340,7 +3764,7 @@ function ProcurementCards({
                   <div><dt>발주일</dt><dd>{emptyDash(row.orderDate)}</dd></div>
                   <div><dt>입고예정일</dt><dd>{emptyDash(row.expectedReceiptDate)}</dd></div>
                   <div><dt>이슈사항</dt><dd>{emptyDash(row.issueNote)}</dd></div>
-                  <div><dt>입고 완료</dt><dd><ReceiptCompletionBadge completed={row.receiptCompleted} /></dd></div>
+                  <div><dt>입고 완료</dt><dd><ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} /></dd></div>
                 </dl>
               </>
             )}
@@ -2631,12 +4055,30 @@ function ProcurementPreview({ rows }: { rows: ProcurementExcelPreviewResponse['r
   );
 }
 
-function formatReceiptCompleted(value: boolean | null) {
+function formatReceiptCompleted(value: boolean | null, completedAtUtc?: string | null) {
   if (value === null) {
     return '-';
   }
 
-  return value ? '완료' : '미완료';
+  if (!value) {
+    return '미완료';
+  }
+
+  const completedAt = formatReceiptCompletedAt(completedAtUtc);
+  return completedAt ? `완료(${completedAt})` : '완료';
+}
+
+function formatReceiptCompletedAt(value?: string | null) {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 function procurementResultLabel(resultType: string) {
@@ -2807,7 +4249,7 @@ function MaterialReceiptGroups({
                     <input type="checkbox" checked={item.receiptCompleted} onChange={(event) => onChange(item.itemId, { receiptCompleted: event.target.checked })} />
                     입고 완료
                   </label>
-                  <ReceiptCompletionBadge completed={item.receiptCompleted} />
+                  <ReceiptCompletionBadge completed={item.receiptCompleted} completedAtUtc={item.receiptCompletedAtUtc} />
                 </div>
                 <input type="datetime-local" value={toDateTimeLocal(item.receiptCompletedAtUtc ?? '')} onChange={(event) => onChange(item.itemId, { receiptCompletedAtUtc: fromDateTimeLocal(event.target.value) })} />
                 <textarea value={item.receiptCompletionNote ?? ''} onChange={(event) => onChange(item.itemId, { receiptCompletionNote: event.target.value })} />
@@ -3527,6 +4969,7 @@ function ProjectEditPage({
 }) {
   const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
   const [owners, setOwners] = useState<SalesOwner[]>([]);
+  const [productTypes, setProductTypes] = useState<ProductionProductType[]>([]);
   const [panels, setPanels] = useState<PanelPlaceholder[]>([]);
   const [form, setForm] = useState<ProjectFormValues>(emptyForm);
   const [selectedCancelPanels, setSelectedCancelPanels] = useState<string[]>([]);
@@ -3545,6 +4988,7 @@ function ProjectEditPage({
     isDirtyRef.current = false;
     setProjectState({ kind: 'loading' });
     setOwners([]);
+    setProductTypes([]);
     setPanels([]);
     setSelectedCancelPanels([]);
     setErrors({});
@@ -3554,15 +4998,17 @@ function ProjectEditPage({
     Promise.all([
       getProject(developmentUserKey, projectId),
       getSalesOwners(developmentUserKey),
+      listProductionProductTypes(developmentUserKey),
       listPanels(developmentUserKey, projectId)
     ])
-      .then(([project, ownerItems, panelItems]) => {
+      .then(([project, ownerItems, typeItems, panelItems]) => {
         if (!isCurrent || requestId !== loadRequestIdRef.current) {
           return;
         }
 
         setProjectState({ kind: 'ready', data: project });
         setOwners(ownerItems);
+        setProductTypes(typeItems);
         setPanels(panelItems);
         if (initializedProjectIdRef.current !== projectId && !isDirtyRef.current) {
           initializedProjectIdRef.current = projectId;
@@ -3589,9 +5035,10 @@ function ProjectEditPage({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const validation = validateProjectForm(form, true);
+    const validation = validateProjectForm(form, true, productTypes);
     const targetPanelCount = Number(form.panelCount);
-    const currentPanelCount = projectState.kind === 'ready' ? projectState.data.activePanelCount : targetPanelCount;
+    const activePanelCount = panels.filter((panel) => panel.panelStatus === 'Active').length;
+    const currentPanelCount = projectState.kind === 'ready' ? activePanelCount : targetPanelCount;
     if (targetPanelCount < currentPanelCount && selectedCancelPanels.length !== currentPanelCount - targetPanelCount) {
       validation.cancelPanelIds = '감소 면수만큼 취소할 패널을 선택하세요.';
     }
@@ -3633,7 +5080,7 @@ function ProjectEditPage({
   const project = projectState.data;
   const activePanels = panels.filter((panel) => panel.panelStatus === 'Active');
   const targetPanelCount = Number(form.panelCount || project.activePanelCount);
-  const isDecrease = Number.isFinite(targetPanelCount) && targetPanelCount < project.activePanelCount;
+  const isDecrease = Number.isFinite(targetPanelCount) && targetPanelCount < activePanels.length;
 
   return (
     <section className="page-surface">
@@ -3648,6 +5095,7 @@ function ProjectEditPage({
       <ProjectForm
         form={form}
         owners={owners}
+        productTypes={productTypes}
         errors={errors}
         isSaving={isSaving}
         submitLabel="저장"
@@ -3854,6 +5302,7 @@ function DeletedProjectDetailPage({
 function ProjectForm({
   form,
   owners,
+  productTypes,
   errors,
   isSaving,
   submitLabel,
@@ -3863,6 +5312,7 @@ function ProjectForm({
 }: {
   form: ProjectFormValues;
   owners: SalesOwner[];
+  productTypes: ProductionProductType[];
   errors: Record<string, string>;
   isSaving: boolean;
   submitLabel: string;
@@ -3871,23 +5321,34 @@ function ProjectForm({
   onSubmit: (event: FormEvent) => void;
 }) {
   const setField = (field: keyof ProjectFormValues, value: string) => onChange({ ...form, [field]: value });
+  const activeProductTypes = productTypes.filter((item) => item.isActive);
+  const currentItemIsKnown = !form.item || activeProductTypes.some((item) => item.code === form.item);
 
   return (
-    <form className="project-form" onSubmit={onSubmit}>
+    <form className="project-form" noValidate onSubmit={onSubmit}>
+      <FormErrorSummary errors={errors} />
       <FormField label="고객사*" error={errors.customerName}>
-        <input value={form.customerName} onChange={(event) => setField('customerName', event.target.value)} />
+        <input name="customerName" value={form.customerName} onChange={(event) => setField('customerName', event.target.value)} />
       </FormField>
       <FormField label="Item*" error={errors.item}>
-        <input value={form.item} onChange={(event) => setField('item', event.target.value)} />
+        <select name="item" value={form.item} onChange={(event) => setField('item', event.target.value)}>
+          <option value="">Item 선택</option>
+          {!currentItemIsKnown ? <option value={form.item}>현재값: {form.item}</option> : null}
+          {activeProductTypes.map((item) => (
+            <option key={item.productTypeId} value={item.code}>{item.code}</option>
+          ))}
+        </select>
+        {!currentItemIsKnown ? <small className="warning-text">현재 Item은 등록된 Item 기준값이 아닙니다. 저장하려면 Item을 선택해 주세요.</small> : null}
       </FormField>
       <FormField label="PJT Code*" error={errors.projectCode}>
-        <input value={form.projectCode} onChange={(event) => setField('projectCode', event.target.value)} />
+        <input name="projectCode" value={form.projectCode} onChange={(event) => setField('projectCode', event.target.value)} />
       </FormField>
       <FormField label="PJT Title*" error={errors.projectTitle}>
-        <input value={form.projectTitle} onChange={(event) => setField('projectTitle', event.target.value)} />
+        <input name="projectTitle" value={form.projectTitle} onChange={(event) => setField('projectTitle', event.target.value)} />
       </FormField>
       <FormField label="면수*" error={errors.panelCount}>
         <input
+          name="panelCount"
           min="1"
           max={maxPanelsPerProject}
           type="number"
@@ -3896,10 +5357,10 @@ function ProjectForm({
         />
       </FormField>
       <FormField label="납기일*" error={errors.deliveryDate}>
-        <input type="date" value={form.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} />
+        <input name="deliveryDate" type="date" value={form.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} />
       </FormField>
       <FormField label="영업담당자*" error={errors.salesOwnerUserId}>
-        <select value={form.salesOwnerUserId} onChange={(event) => setField('salesOwnerUserId', event.target.value)}>
+        <select name="salesOwnerUserId" value={form.salesOwnerUserId} onChange={(event) => setField('salesOwnerUserId', event.target.value)}>
           <option value="">선택</option>
           {owners.map((owner) => (
             <option key={owner.userId} value={owner.userId}>{owner.displayName}</option>
@@ -3907,7 +5368,7 @@ function ProjectForm({
         </select>
       </FormField>
       <FormField label="포장방식*" error={errors.packagingMethod}>
-        <select value={form.packagingMethod} onChange={(event) => setField('packagingMethod', event.target.value)}>
+        <select name="packagingMethod" value={form.packagingMethod} onChange={(event) => setField('packagingMethod', event.target.value)}>
           <option value="">선택</option>
           <option value="WoodenCrate">목포장</option>
           <option value="StretchWrap">청랩포장</option>
@@ -3915,17 +5376,17 @@ function ProjectForm({
         </select>
       </FormField>
       <FormField label="판매금액" error={errors.salesAmount}>
-        <input value={form.salesAmount} inputMode="decimal" onChange={(event) => setField('salesAmount', event.target.value)} />
+        <input name="salesAmount" value={form.salesAmount} inputMode="decimal" onChange={(event) => setField('salesAmount', event.target.value)} />
       </FormField>
       <FormField label="통화" error={errors.currencyCode}>
-        <input maxLength={3} value={form.currencyCode} onChange={(event) => setField('currencyCode', event.target.value.toUpperCase())} />
+        <input name="currencyCode" maxLength={3} value={form.currencyCode} onChange={(event) => setField('currencyCode', event.target.value.toUpperCase())} />
       </FormField>
       <FormField label="납품장소" error={errors.deliveryLocation}>
-        <input value={form.deliveryLocation} onChange={(event) => setField('deliveryLocation', event.target.value)} />
+        <input name="deliveryLocation" value={form.deliveryLocation} onChange={(event) => setField('deliveryLocation', event.target.value)} />
       </FormField>
       {includeReason ? (
         <FormField label="수정사유*" error={errors.reason}>
-          <textarea value={form.reason} onChange={(event) => setField('reason', event.target.value)} />
+          <textarea name="reason" value={form.reason} onChange={(event) => setField('reason', event.target.value)} />
         </FormField>
       ) : null}
       <div className="form-actions">
@@ -3939,12 +5400,45 @@ function ProjectForm({
 
 function FormField({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
-    <label className="form-field">
+    <label className={error ? 'form-field has-error' : 'form-field'}>
       <span>{label}</span>
       {children}
       {error ? <small role="alert">{error}</small> : null}
     </label>
   );
+}
+
+function FormErrorSummary({ errors }: { errors: Record<string, string> }) {
+  const entries = Object.entries(errors).filter(([, message]) => Boolean(message));
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="form-error-summary" role="alert">
+      <strong>입력값을 확인해 주세요.</strong>
+      <ul>
+        {entries.map(([field, message]) => (
+          <li key={field}>
+            <button type="button" onClick={() => focusField(field)}>
+              {fieldLabel(field)}: {message}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function FieldErrorMessage({ message }: { message?: string }) {
+  return message ? <small role="alert" className="field-error-message">{message}</small> : null;
+}
+
+function focusField(field: string) {
+  const escaped = typeof CSS !== 'undefined' && 'escape' in CSS ? CSS.escape(field) : field.replace(/"/g, '\\"');
+  const target = document.querySelector<HTMLElement>(`[name="${escaped}"], [data-field="${escaped}"]`);
+  target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target?.focus();
 }
 
 function useIsMobileViewport() {
@@ -4390,6 +5884,36 @@ function ProcurementGroupedHistory({ groups }: { groups: ProcurementHistoryRespo
   );
 }
 
+function ProductionPlanningGroupedHistory({ groups }: { groups: ProductionPlanningHistoryResponse['groups'] }) {
+  if (groups.length === 0) {
+    return null;
+  }
+
+  return (
+    <ol className="audit-list grouped-audit-list production-planning-audit-list">
+      {groups.map((group) => (
+        <li key={group.groupId}>
+          <strong>생산계획 · 대상 {group.affectedItemCount}건</strong>
+          <span>변경항목 {group.changeCount}건</span>
+          {group.reason ? <small>수정사유: {group.reason}</small> : null}
+          <small>{group.changedByName ?? group.changedByUserId ?? '-'} · {formatDateTime(group.changedAtUtc)}</small>
+          <details>
+            <summary>변경 상세</summary>
+            <ol className="audit-change-list">
+              {group.changes.map((change, index) => (
+                <li key={`${group.groupId}-${change.entityId}-${change.fieldName ?? index}-${index}`}>
+                  <strong>{change.entityType === 'ProjectAssignee' ? '담당자' : '생산계획'}</strong>
+                  <span>{change.fieldName ?? '-'}: {change.oldValue ?? '-'} → {change.newValue ?? '-'}</span>
+                </li>
+              ))}
+            </ol>
+          </details>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function formatInputSource(source: AuditEvent['inputSource']) {
   if (source === 'Direct') {
     return '직접 입력';
@@ -4460,7 +5984,7 @@ function StateMessage<T>({ state }: { state: LoadState<T> }) {
   return null;
 }
 
-function validateProjectForm(form: ProjectFormValues, includeReason: boolean): Record<string, string> {
+function validateProjectForm(form: ProjectFormValues, includeReason: boolean, productTypes: ProductionProductType[] = []): Record<string, string> {
   const errors: Record<string, string> = {};
   const required: Array<keyof ProjectFormValues> = [
     'customerName',
@@ -4490,6 +6014,11 @@ function validateProjectForm(form: ProjectFormValues, includeReason: boolean): R
     errors.packagingMethod = '포장방식은 필수 선택값입니다.';
   }
 
+  const activeProductCodes = new Set(productTypes.filter((item) => item.isActive).map((item) => item.code));
+  if (form.item.trim() && activeProductCodes.size > 0 && !activeProductCodes.has(form.item.trim())) {
+    errors.item = 'Item은 등록된 Item 기준값 중 하나여야 합니다.';
+  }
+
   if (form.salesAmount.trim() && Number(form.salesAmount) < 0) {
     errors.salesAmount = '0 이상의 금액이어야 합니다.';
   }
@@ -4503,6 +6032,106 @@ function validateProjectForm(form: ProjectFormValues, includeReason: boolean): R
   }
 
   return errors;
+}
+
+function validateProductionPlanningForm(productTypeId: string, rows: ProductionPlanRowForm[]): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (!productTypeId) {
+    errors.productTypeId = 'Item을 확인해 주세요.';
+  }
+
+  const activeNames = new Map<string, number>();
+  rows.forEach((row, index) => {
+    if (row.isDeleted) {
+      return;
+    }
+
+    const normalizedName = row.stepName.trim().replace(/\s+/g, ' ').toLowerCase();
+    if (!row.templateStepId) {
+      if (!row.stepName.trim()) {
+        errors[`items[${index}].stepName`] = '계획 항목명을 입력해 주세요.';
+      } else if (row.stepName.trim().length > 120) {
+        errors[`items[${index}].stepName`] = '계획 항목명은 120자 이하로 입력해 주세요.';
+      }
+    }
+
+    if (normalizedName) {
+      const existingIndex = activeNames.get(normalizedName);
+      if (existingIndex !== undefined) {
+        errors[`items[${index}].stepName`] = `${existingIndex + 1}번째 항목과 계획 항목명이 중복됩니다.`;
+      } else {
+        activeNames.set(normalizedName, index);
+      }
+    }
+  });
+
+  return errors;
+}
+
+function copyTemplateSettingsStep(step: ProductionTemplateSettingsStep): ProductionTemplateSettingsStep {
+  return {
+    templateStepId: step.templateStepId,
+    sequenceNumber: step.sequenceNumber,
+    stepName: step.stepName,
+    isRequired: step.isRequired,
+    isActive: step.isActive
+  };
+}
+
+function validateTemplateSettingsSteps(steps: ProductionTemplateSettingsStep[]): Record<string, string> {
+  const errors: Record<string, string> = {};
+  const sequenceNumbers = new Map<number, number>();
+  const activeNames = new Map<string, number>();
+  let activeCount = 0;
+
+  steps.forEach((step, index) => {
+    const sequenceNumber = Number(step.sequenceNumber);
+    if (!Number.isInteger(sequenceNumber) || sequenceNumber < 1) {
+      errors[`steps[${index}].sequenceNumber`] = '순서는 1 이상의 정수여야 합니다.';
+    } else if (sequenceNumbers.has(sequenceNumber)) {
+      errors[`steps[${index}].sequenceNumber`] = '같은 순서를 중복 사용할 수 없습니다.';
+      const previousIndex = sequenceNumbers.get(sequenceNumber);
+      if (previousIndex !== undefined) {
+        errors[`steps[${previousIndex}].sequenceNumber`] = '같은 순서를 중복 사용할 수 없습니다.';
+      }
+    } else {
+      sequenceNumbers.set(sequenceNumber, index);
+    }
+
+    const normalizedName = step.stepName.trim().replace(/\s+/gu, ' ').toLowerCase();
+    if (!normalizedName) {
+      errors[`steps[${index}].stepName`] = '생산계획 단계명을 입력해 주세요.';
+    } else if (step.stepName.trim().length > 120) {
+      errors[`steps[${index}].stepName`] = '생산계획 단계명은 120자 이하로 입력해 주세요.';
+    } else if (step.isActive) {
+      const previousIndex = activeNames.get(normalizedName);
+      if (previousIndex !== undefined) {
+        errors[`steps[${index}].stepName`] = '사용 중인 단계명은 중복될 수 없습니다.';
+        errors[`steps[${previousIndex}].stepName`] = '사용 중인 단계명은 중복될 수 없습니다.';
+      } else {
+        activeNames.set(normalizedName, index);
+      }
+    }
+
+    if (step.isActive) {
+      activeCount++;
+    }
+  });
+
+  if (activeCount === 0) {
+    errors.steps = '사용 중인 단계가 최소 1개 필요합니다.';
+  }
+
+  return errors;
+}
+
+function findProductTypeForProjectItem(productTypes: ProductionProductType[], projectItem: string | null | undefined) {
+  const normalized = projectItem?.trim().toUpperCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  return productTypes.find((item) => item.isActive && item.code.toUpperCase() === normalized);
 }
 
 function toCreateRequest(form: ProjectFormValues) {
@@ -4559,7 +6188,7 @@ function handleFormError(
   setMessage: (message: string) => void
 ) {
   if (error instanceof ApiError && error.errors) {
-    setErrors(Object.fromEntries(Object.entries(error.errors).map(([key, value]) => [lowerFirst(key), value[0] ?? '입력값을 확인하세요.'])));
+    setErrors(mapValidationErrorsToFieldErrors(error.errors));
     setMessage(friendlyErrorMessage(error, '입력값을 확인해 주세요.'));
     return;
   }
@@ -4626,12 +6255,228 @@ function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
-function lowerFirst(value: string) {
-  return value.length === 0 ? value : `${value[0].toLowerCase()}${value.slice(1)}`;
+function mapValidationErrorsToFieldErrors(errors: Record<string, string[]>) {
+  return Object.fromEntries(Object.entries(errors).map(([key, value]) => [
+    normalizeFieldPath(key),
+    value[0] ?? '입력값을 확인하세요.'
+  ]));
+}
+
+function normalizeFieldPath(key: string) {
+  const withoutPrefix = key.replace(/^\$\.?/u, '').replace(/^request\./iu, '');
+  return withoutPrefix
+    .replace(/\.([A-Z])/gu, (_, value: string) => `.${value.toLowerCase()}`)
+    .replace(/^([A-Z])/u, (_, value: string) => value.toLowerCase());
+}
+
+function fieldLabel(field: string): string {
+  const normalized = normalizeFieldPath(field);
+  const labels: Record<string, string> = {
+    customerName: '고객사',
+    item: 'Item',
+    projectCode: 'PJT Code',
+    projectTitle: 'PJT Title',
+    panelCount: '면수',
+    deliveryDate: '납기일',
+    salesOwnerUserId: '영업담당자',
+    packagingMethod: '포장방식',
+    salesAmount: '판매금액',
+    currencyCode: '통화',
+    deliveryLocation: '납품장소',
+    reason: '수정사유',
+    productTypeId: 'Item',
+    notes: '비고',
+    file: '파일',
+    expectedFileSha256: '파일 검증값',
+    procurement: '구매 담당자',
+    productionPlanning: '생산관리 담당자',
+    manufacturing: '제조 담당자',
+    quality: '품질 담당자',
+    logistics: '물류 담당자',
+    receiptCompletedAtUtc: '완료일',
+    receiptCompletionNote: '완료 비고',
+    orderItem: '구매품목',
+    sequenceNumber: '순서',
+    stepName: '생산계획 단계',
+    isRequired: '필수',
+    isActive: '사용'
+  };
+
+  const itemMatch = /^items\[(\d+)\]\.(.+)$/u.exec(normalized);
+  if (itemMatch) {
+    return `${Number(itemMatch[1]) + 1}번째 생산계획 ${labels[itemMatch[2]] ?? fieldLabel(itemMatch[2])}`;
+  }
+
+  const assigneeMatch = /^assignees\[(\d+)\]\.(.+)$/u.exec(normalized);
+  if (assigneeMatch) {
+    return `${Number(assigneeMatch[1]) + 1}번째 담당자 ${labels[assigneeMatch[2]] ?? fieldLabel(assigneeMatch[2])}`;
+  }
+
+  const stepMatch = /^steps\[(\d+)\]\.(.+)$/u.exec(normalized);
+  if (stepMatch) {
+    return `${Number(stepMatch[1]) + 1}번째 단계 ${labels[stepMatch[2]] ?? fieldLabel(stepMatch[2])}`;
+  }
+
+  return labels[normalized] ?? normalized;
+}
+
+function fieldError(errors: Record<string, string>, ...keys: string[]) {
+  for (const key of keys) {
+    const normalized = normalizeFieldPath(key);
+    if (errors[normalized]) {
+      return errors[normalized];
+    }
+  }
+  return undefined;
 }
 
 function formatDate(value: string) {
   return value;
+}
+
+function formatShortDate(value: string) {
+  const [, , month, day] = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value) ?? [];
+  return month && day ? `${Number(month)}/${Number(day)}` : value;
+}
+
+type ProductionCalendarHoliday = {
+  date: string;
+  name: string;
+  countryCode: string;
+  isActive: boolean;
+};
+
+type ProductionCalendarDateColumn = {
+  date: string;
+  label: string;
+  weekday: string;
+  isSaturday: boolean;
+  isSunday: boolean;
+  isHoliday: boolean;
+  holidayName: string | null;
+};
+
+type ProductionCalendarRow = {
+  key: string;
+  stepName: string;
+  plannedDate: string | null;
+  isRequired: boolean;
+  cells: Record<string, boolean>;
+};
+
+type ProductionCalendarUnscheduledItem = {
+  key: string;
+  stepName: string;
+  isRequired: boolean;
+};
+
+function sortProductionPlanItems<T extends { plannedDate?: string | null; sequenceNumber: number }>(items: readonly T[]): T[] {
+  return items.slice().sort((left, right) => {
+    if (left.plannedDate && !right.plannedDate) {
+      return -1;
+    }
+
+    if (!left.plannedDate && right.plannedDate) {
+      return 1;
+    }
+
+    if (left.plannedDate && right.plannedDate && left.plannedDate !== right.plannedDate) {
+      return left.plannedDate.localeCompare(right.plannedDate);
+    }
+
+    return left.sequenceNumber - right.sequenceNumber;
+  });
+}
+
+function productionCalendarDateRange(items: ProductionPlanningResponse['items']) {
+  const scheduledDates = items
+    .map((item) => item.plannedDate)
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => left.localeCompare(right));
+
+  return scheduledDates.length === 0
+    ? null
+    : {
+      dateFrom: scheduledDates[0],
+      dateTo: scheduledDates[scheduledDates.length - 1]
+    };
+}
+
+function buildProductionCalendar(items: ProductionPlanningResponse['items'], holidays: ProductionCalendarHoliday[] = []) {
+  const sortedItems = sortProductionPlanItems(items);
+  const scheduledDates = sortedItems
+    .map((item) => item.plannedDate)
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => left.localeCompare(right));
+  const holidayMap = new Map(holidays.filter((holiday) => holiday.isActive).map((holiday) => [holiday.date, holiday.name]));
+  const dateColumns = scheduledDates.length === 0
+    ? []
+    : enumerateDates(scheduledDates[0], scheduledDates[scheduledDates.length - 1]).map((date) => {
+      const weekdayIndex = weekdayIndexForDate(date);
+      return {
+        date,
+        label: formatShortDate(date),
+        weekday: weekdayLabel(weekdayIndex),
+        isSaturday: weekdayIndex === 6,
+        isSunday: weekdayIndex === 0,
+        isHoliday: holidayMap.has(date),
+        holidayName: holidayMap.get(date) ?? null
+      };
+    });
+  const rows: ProductionCalendarRow[] = sortedItems
+    .filter((item) => item.plannedDate)
+    .map((item) => ({
+      key: item.itemId ?? item.templateStepId ?? String(item.sequenceNumber),
+      stepName: item.stepName,
+      plannedDate: item.plannedDate,
+      isRequired: item.isRequired,
+      cells: Object.fromEntries(dateColumns.map((date) => [date.date, item.plannedDate === date.date]))
+    }));
+  const unscheduledItems: ProductionCalendarUnscheduledItem[] = sortedItems
+    .filter((item) => !item.plannedDate)
+    .map((item) => ({
+      key: item.itemId ?? item.templateStepId ?? String(item.sequenceNumber),
+      stepName: item.stepName,
+      isRequired: item.isRequired
+    }));
+
+  return { dateColumns, rows, unscheduledItems };
+}
+
+function enumerateDates(start: string, end: string) {
+  const dates: string[] = [];
+  const cursor = parseDateOnly(start);
+  const last = parseDateOnly(end);
+  while (cursor <= last) {
+    dates.push(formatDateOnly(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function parseDateOnly(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatDateOnly(value: Date) {
+  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}-${String(value.getUTCDate()).padStart(2, '0')}`;
+}
+
+function weekdayIndexForDate(value: string) {
+  return parseDateOnly(value).getUTCDay();
+}
+
+function weekdayLabel(index: number) {
+  return ['일', '월', '화', '수', '목', '금', '토'][index] ?? '';
+}
+
+function dateClassName(base: string, date: ProductionCalendarDateColumn) {
+  return [
+    base,
+    date.isSaturday ? 'calendar-saturday' : '',
+    date.isSunday || date.isHoliday ? 'calendar-red-day' : ''
+  ].filter(Boolean).join(' ');
 }
 
 function formatDateTime(value: string) {
@@ -4983,6 +6828,32 @@ function trimTrailingZeros(value: string) {
 
 function emptyDash(value: string | null | undefined) {
   return value && value.trim() ? value : '-';
+}
+
+function productionPlanItemToForm(item: ProductionPlanningResponse['items'][number]): ProductionPlanRowForm {
+  return {
+    itemId: item.itemId,
+    templateStepId: item.templateStepId,
+    sequenceNumber: item.sequenceNumber,
+    stepName: item.stepName,
+    isRequired: item.isRequired,
+    isCustom: item.isCustom,
+    isDeleted: false,
+    plannedDate: item.plannedDate ?? '',
+    note: item.note ?? '',
+    rowVersion: item.rowVersion
+  };
+}
+
+function projectAssigneeToForm(assignee: ProjectAssignee): ProjectAssigneeForm {
+  return {
+    assigneeId: assignee.assigneeId,
+    responsibilityType: assignee.responsibilityType,
+    responsibilityLabel: assignee.responsibilityLabel,
+    assignedUserId: assignee.assignedUserId ?? '',
+    note: assignee.note ?? '',
+    rowVersion: assignee.rowVersion
+  };
 }
 
 function formatShipmentDisplayDate(item: ProcurementItem) {

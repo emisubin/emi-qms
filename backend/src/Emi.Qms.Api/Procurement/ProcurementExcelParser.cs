@@ -278,7 +278,7 @@ public sealed class ProcurementExcelParser
             var lastCell = worksheet.Row(row).LastCellUsed()?.Address.ColumnNumber ?? 0;
             for (var column = 1; column <= lastCell; column++)
             {
-                var normalized = ProcurementDomain.NormalizeProjectKey(worksheet.Cell(row, column).GetString());
+                var normalized = NormalizeHeader(worksheet.Cell(row, column).GetString());
                 if (HeaderAliases.TryGetValue(normalized, out var canonical))
                 {
                     if (map.ContainsKey(canonical))
@@ -304,6 +304,11 @@ public sealed class ProcurementExcelParser
         }
 
         return new HeaderResult(0, new Dictionary<string, int>(), ["Header 행을 찾을 수 없습니다."]);
+    }
+
+    private static string NormalizeHeader(string value)
+    {
+        return ProcurementDomain.NormalizeProjectKey(value.Trim().TrimEnd('*').Trim());
     }
 
     private static string? ReadText(IXLWorksheet worksheet, int row, IReadOnlyDictionary<string, int> columns, string name, List<string> errors)

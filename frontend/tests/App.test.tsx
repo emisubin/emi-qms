@@ -88,7 +88,7 @@ describe('App', () => {
     expect(firstCard).toHaveTextContent('TASK-003A Demo');
     expect(firstCard).toHaveTextContent('고객사EMI Test Customer');
     expect(firstCard).toHaveTextContent('CodePJT-003A');
-    expect(firstCard).toHaveTextContent('ItemControl Panel');
+    expect(firstCard).toHaveTextContent('ItemUL67');
     expect(firstCard).toHaveTextContent('면수4면');
     expect(firstCard).toHaveTextContent('납기일2026-10-10');
     expect(firstCard).toHaveTextContent('상태제조 전');
@@ -127,6 +127,23 @@ describe('App', () => {
 
     expect((await screen.findAllByText('필수 입력값입니다.')).length).toBeGreaterThanOrEqual(5);
     expect(screen.getByText('포장방식은 필수 선택값입니다.')).toBeInTheDocument();
+  });
+
+  it('shows project edit validation next to the invalid field', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-sales' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('button', { name: '수정' }));
+
+    const customerName = await screen.findByLabelText('고객사*');
+    fireEvent.change(customerName, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    expect(await screen.findByText('입력값을 확인해 주세요.')).toBeInTheDocument();
+    expect(screen.getByText('고객사: 필수 입력값입니다.')).toBeInTheDocument();
+    expect(customerName.closest('.form-field')).toHaveTextContent('필수 입력값입니다.');
+    expect(customerName.closest('.form-field')).toHaveClass('has-error');
   });
 
   it('shows a friendly duplicate title conflict message', async () => {
@@ -571,6 +588,7 @@ describe('App', () => {
     const procurementSection = (await screen.findByText('구매정보')).closest('section');
     expect(procurementSection).not.toBeNull();
     expect(within(procurementSection as HTMLElement).getByText('Relay')).toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).getByText('완료(6/7 12:30)')).toBeInTheDocument();
     expect(within(procurementSection as HTMLElement).queryByText('출하일')).not.toBeInTheDocument();
     expect(within(procurementSection as HTMLElement).queryByText('예정일까지')).not.toBeInTheDocument();
     expect(within(procurementSection as HTMLElement).queryByText('D-3')).not.toBeInTheDocument();
@@ -584,7 +602,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
     const materialsProcurementSection = (await screen.findByText('구매정보')).closest('section');
     expect(within(materialsProcurementSection as HTMLElement).queryByRole('button', { name: '구매정보 수정' })).not.toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: '자재 입고 입력' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '자재' }).length).toBeGreaterThan(0);
   });
 
   it('renders procurement read-only cards on mobile without horizontal table assumptions', async () => {
@@ -629,7 +647,7 @@ describe('App', () => {
     expect(contextSummary).toHaveTextContent('TASK-003A Demo');
     expect(contextSummary).toHaveTextContent('EMI Test Customer');
     expect(contextSummary).toHaveTextContent('PJT-003A');
-    expect(contextSummary).toHaveTextContent('Control Panel');
+    expect(contextSummary).toHaveTextContent('UL67');
     expect(contextSummary).toHaveTextContent('2026-10-10');
     expect(contextSummary).toHaveTextContent('목포장');
     expect(contextSummary).toHaveTextContent('진행');
@@ -720,7 +738,10 @@ describe('App', () => {
     expect(screen.queryByText('전체 구매 프로젝트')).not.toBeInTheDocument();
     expect(screen.queryByText('7일 내 입고예정')).not.toBeInTheDocument();
     expect(screen.queryByText('입고지연')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Excel 양식 다운로드' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Excel 업로드' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Excel 양식 다운로드' }));
+    expect(await screen.findByText('Excel 양식을 다운로드했습니다.')).toBeInTheDocument();
     const projectTable = screen.getByRole('table', { name: '구매 프로젝트 목록' });
     expect(projectTable).toBeInTheDocument();
     expect(within(projectTable).getByText('TASK-003A Demo')).toBeInTheDocument();
@@ -734,11 +755,85 @@ describe('App', () => {
     await waitFor(() => expect(screen.queryByLabelText('TASK-003A Demo 구매정보')).not.toBeInTheDocument());
   });
 
+  it('shows production planning workspace, detail section, and edit-only controls for Production Planning', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-production' } });
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
+
+    const productionSummary = await screen.findByLabelText('생산계획 요약');
+    expect(productionSummary).toHaveTextContent('생산계획 미등록');
+    expect(productionSummary).toHaveTextContent('작성 중');
+    expect(productionSummary).toHaveTextContent('계획 완료');
+    expect(screen.getByRole('button', { name: '생산계획 단계 설정' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '생산계획 단계 설정' }));
+    expect(await screen.findByRole('heading', { name: '생산계획 단계 설정' })).toBeInTheDocument();
+    expect(screen.getByText('생산계획 단계 설정은 이후 새로 작성되는 생산계획부터 적용됩니다. 이미 작성된 프로젝트 생산계획은 자동으로 변경되지 않습니다.')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'UL67' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(screen.getByRole('table', { name: 'UL67 생산계획 단계 설정' })).getByDisplayValue('자재 입고')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '행 추가' })).toBeInTheDocument();
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
+
+    const productionTable = await screen.findByRole('table', { name: '생산계획 프로젝트 목록' });
+    expect(productionTable).toHaveTextContent('프로젝트명CodeItem면수납기일생산계획 상태');
+    expect(productionTable).not.toHaveTextContent('제품 구분');
+    expect(productionTable).not.toHaveTextContent('담당자');
+    expect(productionTable).not.toHaveTextContent('작업');
+    fireEvent.click(within(productionTable).getByRole('row', { name: /TASK-003A Demo/ }));
+    const expanded = await screen.findByLabelText('선택 프로젝트 생산계획');
+    expect(within(expanded).getByRole('button', { name: '프로젝트 상세에서 보기' })).toBeInTheDocument();
+    expect(within(expanded).getByRole('button', { name: '생산계획 수정' })).toBeInTheDocument();
+    expect(await within(expanded).findByText('자재 입고')).toBeInTheDocument();
+    expect(expanded).toHaveTextContent('알림 기준: Dev Sales User (영업담당자)');
+    expect(within(expanded).queryByRole('table', { name: '생산계획 캘린더 표' })).not.toBeInTheDocument();
+    expect(expanded).not.toHaveTextContent('검수 공휴일');
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '프로젝트' }));
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    const detailTabs = await screen.findAllByRole('tab');
+    expect(detailTabs.map((tab) => tab.textContent)).toEqual(expect.arrayContaining(['제품 목록', '생산관리', '구매']));
+    fireEvent.click(screen.getByRole('tab', { name: '생산관리' }));
+    expect(await screen.findByText('프로젝트 단위 계획과 담당자 지정')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '생산계획 수정' })).toBeInTheDocument();
+    const planItemsTable = await screen.findByRole('table', { name: '생산계획 항목' });
+    expect(planItemsTable).toHaveTextContent('계획 항목필수예정일비고');
+    expect(planItemsTable).not.toHaveTextContent('No');
+    const calendarTable = await screen.findByRole('table', { name: '생산계획 캘린더 표' });
+    expect(calendarTable).toHaveTextContent('생산단계');
+    expect(calendarTable).toHaveTextContent('7/1');
+    expect(calendarTable).toHaveTextContent('7/2');
+    expect(within(calendarTable).getByRole('columnheader', { name: /7\/3/ })).toHaveClass('calendar-red-day');
+    expect(within(calendarTable).getByRole('row', { name: /자재 입고/ })).toHaveTextContent('✓');
+    expect(await screen.findByText('공식 대체공휴일')).toBeInTheDocument();
+    expect(screen.getByLabelText('날짜 미입력 생산단계')).toHaveTextContent('조립 시작');
+    expect(screen.getByLabelText('날짜 미입력 생산단계')).toHaveTextContent('필수 미입력');
+    expect(screen.queryByText('검수 공휴일')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '생산계획 수정' }));
+    const projectContext = await screen.findByTestId('project-context-summary');
+    expect(projectContext).toHaveTextContent('TASK-003A Demo');
+    expect(projectContext).toHaveTextContent('PJT-003A');
+    expect(projectContext).not.toHaveTextContent('Active');
+    const planEditTable = await screen.findByRole('table', { name: '생산계획 수정' });
+    expect(planEditTable).toHaveTextContent('계획 항목필수예정일비고작업');
+    expect(planEditTable).not.toHaveTextContent('No');
+    expect(screen.getByText('프로젝트 담당자 지정')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(await screen.findByText('프로젝트 단위 계획과 담당자 지정')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '생산관리' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: '생산계획 수정' })).not.toBeInTheDocument());
+  });
+
   it('allows Materials to use only the receipt completion page', async () => {
     render(<App />);
 
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
-    fireEvent.click(await screen.findByRole('button', { name: '자재 입고 입력' }));
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
 
     expect(await screen.findByRole('table', { name: 'TASK-003A Demo 자재 입고 입력' })).toBeInTheDocument();
     expect(screen.queryByText('통상납기')).not.toBeInTheDocument();
@@ -765,7 +860,8 @@ describe('App', () => {
     render(<App />);
 
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
-    fireEvent.click(await screen.findByRole('button', { name: '자재 입고 입력' }));
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
 
     expect(await screen.findByText('자재 입고 입력 대상만 표시됩니다. 완료된 항목은 저장 후 기본 목록에서 사라집니다.')).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'TASK-003A Demo 자재 입고 입력' })).toHaveTextContent('Relay');
@@ -774,7 +870,7 @@ describe('App', () => {
     fireEvent.click(screen.getByLabelText('완료 항목 포함'));
     expect(await screen.findByText('Completed Relay')).toBeInTheDocument();
     const receiptTable = screen.getByRole('table', { name: 'TASK-003A Demo 자재 입고 입력' });
-    expect(within(receiptTable).getAllByText('완료').length).toBeGreaterThanOrEqual(1);
+    expect(within(receiptTable).getByText('완료(6/7 12:30)')).toBeInTheDocument();
     expect(within(receiptTable).getAllByRole('checkbox')).toHaveLength(2);
     const completedCheckbox = within(receiptTable).getAllByRole('checkbox')[1];
     expect(completedCheckbox).toBeEnabled();
@@ -791,7 +887,7 @@ describe('App', () => {
 
 function fillCreateForm(projectCode: string, projectTitle: string) {
   fireEvent.change(screen.getByLabelText('고객사*'), { target: { value: 'EMI Test Customer' } });
-  fireEvent.change(screen.getByLabelText('Item*'), { target: { value: 'Control Panel' } });
+  fireEvent.change(screen.getByLabelText('Item*'), { target: { value: 'UL67' } });
   fireEvent.change(screen.getByLabelText('PJT Code*'), { target: { value: projectCode } });
   fireEvent.change(screen.getByLabelText('PJT Title*'), { target: { value: projectTitle } });
   fireEvent.change(screen.getByLabelText('면수*'), { target: { value: '4' } });
@@ -972,6 +1068,67 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(panelInformationHistory(), userKey === 'dev-admin' ? 200 : 403);
   }
 
+  if (path === '/api/production-planning/summary') {
+    return json(productionPlanningSummaryResponse());
+  }
+
+  if (path === '/api/production-planning/projects') {
+    return json(productionPlanningProjectListResponse());
+  }
+
+  if (path === '/api/production-planning/product-types') {
+    return json(productionProductTypesResponse());
+  }
+
+  if (path === '/api/production-planning/settings/templates' && init?.method === 'PATCH') {
+    return json(productionTemplateSettingsResponse(), userKey === 'dev-production' ? 200 : 403);
+  }
+
+  if (path === '/api/production-planning/settings/templates') {
+    return json(productionTemplateSettingsResponse(), userKey === 'dev-production' ? 200 : 403);
+  }
+
+  if (path.startsWith('/api/production-planning/settings/templates/') && init?.method === 'PATCH') {
+    return json(productionTemplateSettingsResponse(), userKey === 'dev-production' ? 200 : 403);
+  }
+
+  if (path === '/api/system/holidays') {
+    return json([
+      {
+        holidayDate: '2026-07-03',
+        name: '공식 대체공휴일',
+        countryCode: 'KR',
+        source: 'Test'
+      }
+    ]);
+  }
+
+  if (path === `/api/projects/${projectId}/production-planning` && init?.method === 'PATCH') {
+    return json(productionPlanningResponse('Planned'), userKey === 'dev-production' ? 200 : 403);
+  }
+
+  if (path === `/api/projects/${projectId}/production-planning`) {
+    return json(productionPlanningResponse());
+  }
+
+  if (path === `/api/projects/${onHoldProjectId}/production-planning`) {
+    return json(productionPlanningResponse('NotPlanned', onHoldProjectId));
+  }
+
+  if (path === `/api/projects/${projectId}/production-planning/history`) {
+    return json(productionPlanningHistory(), userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === `/api/projects/${projectId}/production-planning/export-template`) {
+    return Promise.resolve(new Response(new Blob(['xlsx']), {
+      status: userKey === 'dev-production' ? 200 : 403,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': "attachment; filename*=UTF-8''Production_Planning_Template.xlsx"
+      }
+    }));
+  }
+
   if (path === `/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
     return json(procurementResponse(), userKey === 'dev-procurement' ? 200 : 403);
   }
@@ -985,6 +1142,16 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
   if (path === `/api/projects/${projectId}/procurement/import/template`) {
+    return Promise.resolve(new Response(new Blob(['xlsx']), {
+      status: userKey === 'dev-procurement' ? 200 : 403,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': "attachment; filename*=UTF-8''Procurement_Plan_Template.xlsx"
+      }
+    }));
+  }
+
+  if (path === '/api/procurement/import/template') {
     return Promise.resolve(new Response(new Blob(['xlsx']), {
       status: userKey === 'dev-procurement' ? 200 : 403,
       headers: {
@@ -1032,6 +1199,10 @@ function currentUser(userKey: string) {
     permissions.push('PanelInfo.Update');
   }
 
+  if (userKey === 'dev-production') {
+    permissions.push('ProductionPlan.Update');
+  }
+
   if (userKey === 'dev-admin') {
     permissions.push('Project.Deleted.Read', 'Project.SalesAmount.Read', 'Audit.Read.All', 'users.manage');
   }
@@ -1058,7 +1229,7 @@ function projectListItem(userKey: string, status: 'Active' | 'OnHold' | 'Cancell
   const item: Record<string, unknown> = {
     projectId: id,
     customerName: 'EMI Test Customer',
-    item: 'Control Panel',
+    item: 'UL67',
     projectCode: 'PJT-003A',
     projectTitle: title,
     activePanelCount: 4,
@@ -1387,6 +1558,30 @@ function procurementResponse() {
         receiptCompletionNote: null,
         rowVersion: 1,
         dDayText: 'D-3'
+      },
+      {
+        itemId: '76000000-0000-0000-0000-000000000003',
+        projectId,
+        projectTitle: 'TASK-003A Demo',
+        projectCode: 'PJT-003A',
+        projectDeliveryDate: '2026-10-10',
+        shipmentDisplayDate: '2026-10-10',
+        sequenceNumber: 2,
+        sourceProjectText: 'TASK-003A Demo',
+        sourceProjectCodeText: 'PJT-003A',
+        standardLeadTime: '2W',
+        orderItem: 'Completed Relay',
+        technicalOwner: 'Owner A',
+        orderDate: '2026-06-20',
+        expectedReceiptDate: '2026-06-29',
+        issueNote: null,
+        receiptCompleted: true,
+        receiptCompletedAtUtc: '2026-06-07T12:30:00',
+        receiptCompletedByUserId: '50000000-0000-0000-0000-000000000012',
+        receiptCompletedByUserName: 'Dev Materials User',
+        receiptCompletionNote: '완료',
+        rowVersion: 1,
+        dDayText: 'D-3'
       }
     ]
   };
@@ -1432,6 +1627,250 @@ function projectExcelPreviewResponse() {
         salesOwnerUserId: salesOwnerId,
         salesOwnerName: 'Dev Sales User',
         errorMessages: []
+      }
+    ]
+  };
+}
+
+function productionPlanningSummaryResponse() {
+  return {
+    notPlannedCount: 1,
+    planningCount: 1,
+    plannedCount: 1,
+    missingAssigneeProjectCount: 1
+  };
+}
+
+function productionPlanningProjectListResponse() {
+  return {
+    projects: [
+      {
+        projectId,
+        projectTitle: 'TASK-003A Demo',
+        customerName: 'EMI Test Customer',
+        projectCode: 'PJT-003A',
+        item: 'UL67',
+        activePanelCount: 4,
+        deliveryDate: '2026-10-10',
+        projectStatus: 'Active',
+        planStatus: 'Planning',
+        planStatusLabel: '작성 중',
+        productTypeCode: 'UL67',
+        productTypeName: 'UL67',
+        requiredStepCount: 3,
+        plannedRequiredStepCount: 1,
+        assigneeCount: 2
+      }
+    ]
+  };
+}
+
+function productionProductTypesResponse() {
+  const codes = ['UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RRP'];
+  return codes.map((code, index) => ({
+    productTypeId: `77000000-0000-0000-0000-00000000000${index + 1}`,
+    code,
+    name: code,
+    isActive: true,
+    activeTemplateId: `77000000-0000-0000-0000-00000000010${index + 1}`,
+    activeTemplateVersion: 1,
+    steps: [
+      {
+        templateStepId: `77000000-0000-0000-0000-00000000020${index * 4 + 1}`,
+        sequenceNumber: 1,
+        stepName: '자재 입고',
+        isRequired: true
+      },
+      {
+        templateStepId: `77000000-0000-0000-0000-00000000020${index * 4 + 2}`,
+        sequenceNumber: 2,
+        stepName: '조립 시작',
+        isRequired: true
+      },
+      {
+        templateStepId: `77000000-0000-0000-0000-00000000020${index * 4 + 3}`,
+        sequenceNumber: 3,
+        stepName: '배선 시작',
+        isRequired: true
+      }
+    ]
+  }));
+}
+
+function productionTemplateSettingsResponse() {
+  return productionProductTypesResponse().map((productType) => ({
+    productTypeId: productType.productTypeId,
+    code: productType.code,
+    name: productType.name,
+    activeTemplateId: productType.activeTemplateId,
+    activeTemplateVersion: productType.activeTemplateVersion,
+    steps: productType.steps.map((step) => ({
+      templateStepId: step.templateStepId,
+      sequenceNumber: step.sequenceNumber,
+      stepName: step.stepName,
+      isRequired: step.isRequired,
+      isActive: true
+    }))
+  }));
+}
+
+function productionPlanningResponse(status: 'NotPlanned' | 'Planning' | 'Planned' = 'Planning', id = projectId) {
+  const planned = status === 'Planned';
+  const productType = productionProductTypesResponse()[0];
+  return {
+    projectId: id,
+    projectTitle: id === onHoldProjectId ? 'OnHold Project' : 'TASK-003A Demo',
+    projectCode: 'PJT-003A',
+    deliveryDate: '2026-10-10',
+    planId: '77000000-0000-0000-0000-000000000301',
+    rowVersion: 1,
+    planStatus: status,
+    planStatusLabel: status === 'NotPlanned' ? '미등록' : planned ? '계획 완료' : '작성 중',
+    productTypeId: productType.productTypeId,
+    templateId: productType.activeTemplateId,
+    productTypeCode: productType.code,
+    productTypeName: productType.name,
+    notes: '생산계획 검수',
+    items: productType.steps.map((step, index) => ({
+      itemId: `77000000-0000-0000-0000-00000000040${index + 1}`,
+      templateStepId: step.templateStepId,
+      sequenceNumber: step.sequenceNumber,
+      stepName: step.stepName,
+      isRequired: step.isRequired,
+      plannedDate: planned || index === 0 || index === 2 ? `2026-07-0${index + 1}` : null,
+      note: index === 0 ? '입고 확인' : null,
+      rowVersion: 0
+    })),
+    assignees: [
+      {
+        assigneeId: '77000000-0000-0000-0000-000000000501',
+        responsibilityType: 'Procurement',
+        responsibilityLabel: '구매 담당자',
+        assignedUserId: '50000000-0000-0000-0000-000000000011',
+        assignedUserName: 'Dev Procurement User',
+        note: '구매',
+        rowVersion: 0
+      },
+      {
+        assigneeId: '77000000-0000-0000-0000-000000000502',
+        responsibilityType: 'ProductionPlanning',
+        responsibilityLabel: '생산관리 담당자',
+        assignedUserId: '50000000-0000-0000-0000-000000000003',
+        assignedUserName: 'Dev Production Planning User',
+        note: null,
+        rowVersion: 0
+      },
+      {
+        assigneeId: null,
+        responsibilityType: 'Manufacturing',
+        responsibilityLabel: '제조 담당자',
+        assignedUserId: null,
+        assignedUserName: null,
+        note: null,
+        rowVersion: 0
+      },
+      {
+        assigneeId: null,
+        responsibilityType: 'Quality',
+        responsibilityLabel: '품질 담당자',
+        assignedUserId: null,
+        assignedUserName: null,
+        note: null,
+        rowVersion: 0
+      },
+      {
+        assigneeId: null,
+        responsibilityType: 'Logistics',
+        responsibilityLabel: '물류 담당자',
+        assignedUserId: null,
+        assignedUserName: null,
+        note: null,
+        rowVersion: 0
+      }
+    ],
+    assigneeCandidates: [
+      {
+        responsibilityType: 'Procurement',
+        users: [{ userId: '50000000-0000-0000-0000-000000000011', displayName: 'Dev Procurement User' }]
+      },
+      {
+        responsibilityType: 'ProductionPlanning',
+        users: [{ userId: '50000000-0000-0000-0000-000000000003', displayName: 'Dev Production Planning User' }]
+      },
+      {
+        responsibilityType: 'Manufacturing',
+        users: [{ userId: '50000000-0000-0000-0000-000000000006', displayName: 'Dev Manufacturing User' }]
+      },
+      {
+        responsibilityType: 'Quality',
+        users: [{ userId: '50000000-0000-0000-0000-000000000007', displayName: 'Dev Quality User' }]
+      },
+      {
+        responsibilityType: 'Logistics',
+        users: [{ userId: '50000000-0000-0000-0000-000000000008', displayName: 'Dev Logistics User' }]
+      }
+    ],
+    fallbacks: [
+      {
+        responsibilityType: 'Procurement',
+        responsibilityLabel: '구매 담당자',
+        userId: '50000000-0000-0000-0000-000000000011',
+        displayName: 'Dev Procurement User',
+        sourceLabel: '지정 담당자'
+      },
+      {
+        responsibilityType: 'ProductionPlanning',
+        responsibilityLabel: '생산관리 담당자',
+        userId: '50000000-0000-0000-0000-000000000003',
+        displayName: 'Dev Production Planning User',
+        sourceLabel: '지정 담당자'
+      },
+      {
+        responsibilityType: 'Manufacturing',
+        responsibilityLabel: '제조 담당자',
+        userId: salesOwnerId,
+        displayName: 'Dev Sales User',
+        sourceLabel: '영업담당자'
+      },
+      {
+        responsibilityType: 'Quality',
+        responsibilityLabel: '품질 담당자',
+        userId: salesOwnerId,
+        displayName: 'Dev Sales User',
+        sourceLabel: '영업담당자'
+      },
+      {
+        responsibilityType: 'Logistics',
+        responsibilityLabel: '물류 담당자',
+        userId: salesOwnerId,
+        displayName: 'Dev Sales User',
+        sourceLabel: '영업담당자'
+      }
+    ]
+  };
+}
+
+function productionPlanningHistory() {
+  return {
+    groups: [
+      {
+        groupId: 'production-plan-direct',
+        inputSource: 'Direct',
+        changedByUserId: '50000000-0000-0000-0000-000000000003',
+        changedByName: 'Dev Production Planning User',
+        changedAtUtc: '2026-06-26T01:00:00Z',
+        reason: '생산계획 입력',
+        affectedItemCount: 3,
+        changeCount: 3,
+        changes: [
+          {
+            entityId: '77000000-0000-0000-0000-000000000401',
+            entityType: 'ProductionPlanItem',
+            fieldName: 'planned_date',
+            oldValue: null,
+            newValue: '2026-07-01'
+          }
+        ]
       }
     ]
   };
@@ -1554,7 +1993,7 @@ function materialReceiptItems(includeCompleted: boolean) {
     itemId: '76000000-0000-0000-0000-000000000002',
     orderItem: 'Completed Relay',
     receiptCompleted: true,
-    receiptCompletedAtUtc: '2026-06-26T01:00:00Z',
+    receiptCompletedAtUtc: '2026-06-07T12:30:00',
     rowVersion: 2
   };
   return includeCompleted ? [pending, completed] : [pending];

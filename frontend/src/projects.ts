@@ -590,3 +590,239 @@ export interface ProcurementProjectSummary {
   nearestExpectedReceiptDate: string | null;
   dDayText: string;
 }
+
+export interface ProductionPlanningSummary {
+  notPlannedCount: number;
+  planningCount: number;
+  plannedCount: number;
+  missingAssigneeProjectCount: number;
+}
+
+export interface ProductionPlanningProjectListResponse {
+  projects: ProductionPlanningProjectSummary[];
+}
+
+export interface ProductionPlanningProjectSummary {
+  projectId: string;
+  projectTitle: string;
+  customerName: string;
+  projectCode: string;
+  item: string;
+  activePanelCount: number;
+  deliveryDate: string | null;
+  projectStatus: ProjectStatus;
+  planStatus: ProductionPlanStatus;
+  planStatusLabel: string;
+  productTypeCode: string | null;
+  productTypeName: string | null;
+  requiredStepCount: number;
+  plannedRequiredStepCount: number;
+  assigneeCount: number;
+}
+
+export interface ProductionPlanningResponse {
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  deliveryDate: string | null;
+  planId: string | null;
+  rowVersion: number;
+  planStatus: ProductionPlanStatus;
+  planStatusLabel: string;
+  productTypeId: string | null;
+  templateId: string | null;
+  productTypeCode: string | null;
+  productTypeName: string | null;
+  notes: string | null;
+  items: ProductionPlanItem[];
+  assignees: ProjectAssignee[];
+  assigneeCandidates: AssigneeCandidate[];
+  fallbacks: NotificationFallback[];
+}
+
+export type ProductionPlanStatus = 'NotPlanned' | 'Planning' | 'Planned';
+
+export interface ProductionPlanItem {
+  itemId: string | null;
+  templateStepId: string | null;
+  sequenceNumber: number;
+  stepName: string;
+  isRequired: boolean;
+  isCustom: boolean;
+  plannedDate: string | null;
+  note: string | null;
+  rowVersion: number;
+}
+
+export interface ProjectAssignee {
+  assigneeId: string | null;
+  responsibilityType: ResponsibilityType;
+  responsibilityLabel: string;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  note: string | null;
+  rowVersion: number;
+}
+
+export type ResponsibilityType = 'Procurement' | 'ProductionPlanning' | 'Manufacturing' | 'Quality' | 'Logistics';
+
+export interface AssigneeCandidate {
+  responsibilityType: ResponsibilityType;
+  users: UserOption[];
+}
+
+export interface UserOption {
+  userId: string;
+  displayName: string;
+}
+
+export interface NotificationFallback {
+  responsibilityType: ResponsibilityType;
+  responsibilityLabel: string;
+  userId: string | null;
+  displayName: string | null;
+  sourceLabel: string;
+}
+
+export interface ProductionProductType {
+  productTypeId: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+  activeTemplateId: string | null;
+  activeTemplateVersion: number | null;
+  steps: ProductionTemplateStep[];
+}
+
+export interface ProductionTemplateSettings {
+  productTypeId: string;
+  code: string;
+  name: string;
+  activeTemplateId: string;
+  activeTemplateVersion: number;
+  steps: ProductionTemplateSettingsStep[];
+}
+
+export interface ProductionTemplateSettingsStep {
+  templateStepId: string | null;
+  sequenceNumber: number;
+  stepName: string;
+  isRequired: boolean;
+  isActive: boolean;
+}
+
+export interface SystemHoliday {
+  holidayDate: string;
+  name: string;
+  countryCode: string;
+  source: string;
+}
+
+export interface UpdateProductionTemplateSettingsRequest {
+  steps: ProductionTemplateSettingsStep[];
+  reason: string | null;
+}
+
+export interface ProductionTemplateStep {
+  templateStepId: string;
+  sequenceNumber: number;
+  stepName: string;
+  isRequired: boolean;
+}
+
+export interface UpdateProductionPlanningRequest {
+  productTypeId: string | null;
+  expectedRowVersion: number;
+  notes: string | null;
+  reason: string | null;
+  items: ProductionPlanItemUpdateRequest[];
+  assignees: ProjectAssigneeUpdateRequest[];
+}
+
+export interface ProductionPlanItemUpdateRequest {
+  itemId: string | null;
+  templateStepId: string | null;
+  stepName: string | null;
+  sequenceNumber: number;
+  expectedRowVersion: number;
+  plannedDate: string | null;
+  note: string | null;
+  isDeleted: boolean;
+}
+
+export interface ProjectAssigneeUpdateRequest {
+  responsibilityType: ResponsibilityType;
+  assigneeId: string | null;
+  expectedRowVersion: number;
+  assignedUserId: string | null;
+  note: string | null;
+}
+
+export interface CreateProductionProductTypeRequest {
+  code: string;
+  name: string;
+  steps: Array<{
+    sequenceNumber: number;
+    stepName: string;
+    isRequired: boolean;
+  }>;
+}
+
+export interface ProductionPlanningExcelPreviewResponse {
+  fileSha256: string;
+  totalRows: number;
+  saveableCount: number;
+  blockedCount: number;
+  rows: ProductionPlanningExcelPreviewRow[];
+}
+
+export interface ProductionPlanningExcelPreviewRow {
+  excelRowNumber: number;
+  resultType: 'New' | 'Changed' | 'Unchanged' | 'CustomStep' | 'NeedsReview' | 'Error' | 'Skipped';
+  projectId: string | null;
+  projectTitle: string | null;
+  projectCode: string | null;
+  productTypeId: string | null;
+  productTypeCode: string | null;
+  templateStepId: string | null;
+  stepName: string | null;
+  isCustomStep: boolean;
+  plannedDate: string | null;
+  note: string | null;
+  procurementAssigneeText: string | null;
+  productionPlanningAssigneeText: string | null;
+  manufacturingAssigneeText: string | null;
+  qualityAssigneeText: string | null;
+  logisticsAssigneeText: string | null;
+  errorMessages: string[];
+}
+
+export interface ProductionPlanningExcelApplyResponse {
+  appliedRowCount: number;
+  blockedRowCount: number;
+  projectIds: string[];
+}
+
+export interface ProductionPlanningHistoryResponse {
+  groups: ProductionPlanningHistoryGroup[];
+}
+
+export interface ProductionPlanningHistoryGroup {
+  groupId: string;
+  inputSource: string;
+  changedByUserId: string | null;
+  changedByName: string | null;
+  changedAtUtc: string;
+  reason: string | null;
+  affectedItemCount: number;
+  changeCount: number;
+  changes: ProductionPlanningHistoryChange[];
+}
+
+export interface ProductionPlanningHistoryChange {
+  entityId: string;
+  entityType: 'ProductionPlan' | 'ProductionPlanItem' | 'ProjectAssignee';
+  fieldName: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+}

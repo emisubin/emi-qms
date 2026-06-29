@@ -48,6 +48,28 @@ if ! docker exec emi-qms-postgres psql -U "${DATABASE_USER}" -d postgres -tAc "s
   docker exec emi-qms-postgres createdb -U "${DATABASE_USER}" "${DATABASE_NAME}"
 fi
 
+echo "Applying migrations to manual UAT database..."
+docker exec -i emi-qms-postgres psql -v ON_ERROR_STOP=1 -U "${DATABASE_USER}" -d "${DATABASE_NAME}" >/dev/null <<'SQL'
+create table if not exists schema_migrations (
+    version text primary key,
+    applied_at_utc timestamptz not null default now()
+);
+SQL
+
+for migration_file in "${REPO_ROOT}"/database/migrations/*.sql; do
+  migration_version="$(basename "${migration_file}" .sql)"
+  if docker exec emi-qms-postgres psql -U "${DATABASE_USER}" -d "${DATABASE_NAME}" -tAc "select 1 from schema_migrations where version = '${migration_version}'" | grep -q 1; then
+    continue
+  fi
+
+  {
+    printf 'begin;\n'
+    cat "${migration_file}"
+    printf '\ninsert into schema_migrations (version) values (%s);\n' "'${migration_version}'"
+    printf 'commit;\n'
+  } | docker exec -i emi-qms-postgres psql -v ON_ERROR_STOP=1 -U "${DATABASE_USER}" -d "${DATABASE_NAME}" >/dev/null
+done
+
 echo "Ensuring manual UAT production planning schema and master data..."
 docker exec -i emi-qms-postgres psql -U "${DATABASE_USER}" -d "${DATABASE_NAME}" >/dev/null <<'SQL'
 alter table if exists project_production_plan_items

@@ -19,6 +19,7 @@ public static class QmsPermissions
     public const string AuditReadAll = "Audit.Read.All";
     public const string ProcurementPlanUpdate = "ProcurementPlan.Update";
     public const string MaterialReceiptUpdate = "MaterialReceipt.Update";
+    public const string ProductionPlanUpdate = "ProductionPlan.Update";
     public const string ProductionPlan = "production.plan";
     public const string ManufacturingUpdate = "manufacturing.update";
     public const string ManufacturingWorkTimeRead = "Manufacturing.WorkTime.Read";

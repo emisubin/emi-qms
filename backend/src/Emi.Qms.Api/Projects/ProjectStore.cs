@@ -1605,6 +1605,13 @@ public sealed class ProjectStore(
             "Project_Create_Template.xlsx");
     }
 
+    public async Task<bool> IsActiveProductionProductTypeCodeAsync(string code, CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await IsActiveProductionProductTypeCodeAsync(connection, null, code, cancellationToken);
+    }
+
     public async Task<ProjectMutationResult<ProjectExcelPreviewResponse>> PreviewProjectExcelAsync(
         UploadedExcelFile file,
         CancellationToken cancellationToken)
@@ -1720,6 +1727,7 @@ public sealed class ProjectStore(
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var salesOwners = await ReadSalesOwnerMatchersAsync(connection, cancellationToken);
+        var activeProductTypeCodes = await ReadActiveProductionProductTypeCodesAsync(connection, null, cancellationToken);
         var fileTitleCounts = parsed.Rows
             .Where(row => !string.IsNullOrWhiteSpace(row.ProjectTitle))
             .GroupBy(row => ProjectInputNormalizer.NormalizeProjectTitle(row.ProjectTitle!), StringComparer.Ordinal)
@@ -1759,6 +1767,11 @@ public sealed class ProjectStore(
                 }
 
                 errors.AddRange(error.Value);
+            }
+
+            if (input is not null && !activeProductTypeCodes.Contains(input.Item))
+            {
+                errors.Add("Item은 등록된 Item 기준값 중 하나여야 합니다.");
             }
 
             if (row.PanelCount is < 1 or > ProjectDomainRules.MaxPanelsPerProject)
@@ -1866,6 +1879,48 @@ public sealed class ProjectStore(
         }
 
         return owners;
+    }
+
+    private static async Task<bool> IsActiveProductionProductTypeCodeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select exists (
+                select 1
+                from production_product_types
+                where code = @code
+                  and is_active = true
+            );
+            """;
+        command.Parameters.AddWithValue("code", code);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
+    }
+
+    private static async Task<IReadOnlySet<string>> ReadActiveProductionProductTypeCodesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select code
+            from production_product_types
+            where is_active = true;
+            """;
+        var codes = new HashSet<string>(StringComparer.Ordinal);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            codes.Add(reader.GetString(0));
+        }
+
+        return codes;
     }
 
     private static ProjectExcelSalesOwnerMatcher? ResolveSalesOwner(
@@ -2902,6 +2957,8 @@ public sealed class ProjectStore(
         await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batch_projects where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batches where cardinality(@project_ids) >= 0 and not exists (select 1 from procurement_excel_import_batch_projects bp where bp.import_batch_id = procurement_excel_import_batches.id) and not exists (select 1 from project_audit_events a where a.procurement_import_batch_id = procurement_excel_import_batches.id);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_information_excel_import_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from project_assignees where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from project_production_plans where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from project_procurement_items where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_placeholders where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from user_project_access where project_id = any(@project_ids);", projectIds, cancellationToken);

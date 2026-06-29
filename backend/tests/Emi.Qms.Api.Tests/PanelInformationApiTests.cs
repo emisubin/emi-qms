@@ -375,7 +375,7 @@ public sealed class PanelInformationApiTests
         using (var workbook = new XLWorkbook(new MemoryStream(mmBytes)))
         {
             var worksheet = workbook.Worksheet("Panel Information");
-            Assert.Equal(["No", "도번", "panel name", "w", "h", "d"], Enumerable.Range(1, 6).Select(column => worksheet.Cell(1, column).GetString()).ToArray());
+            Assert.Equal(["No *", "도번", "panel name *", "w", "h", "d"], Enumerable.Range(1, 6).Select(column => worksheet.Cell(1, column).GetString()).ToArray());
             Assert.Equal(1, worksheet.Cell(2, 1).GetValue<int>());
             Assert.Equal("", worksheet.Cell(2, 2).GetString());
             Assert.Equal("TPL-1", worksheet.Cell(2, 3).GetString());
@@ -386,6 +386,18 @@ public sealed class PanelInformationApiTests
             Assert.Equal("TPL-2", worksheet.Cell(3, 3).GetString());
             Assert.True(worksheet.Cell(4, 1).IsEmpty());
             Assert.DoesNotContain(worksheet.CellsUsed(), cell => cell.HasFormula);
+            Assert.True(worksheet.SheetView.SplitRow >= 1);
+            Assert.True(worksheet.AutoFilter.IsEnabled);
+            Assert.Equal("No *", worksheet.Cell(1, 1).GetString());
+            Assert.Equal("panel name *", worksheet.Cell(1, 3).GetString());
+            Assert.Contains("필수 입력값", worksheet.Cell(1, 8).GetString());
+            Assert.Equal(XLColor.LightYellow, worksheet.Cell(1, 1).Style.Fill.BackgroundColor);
+            Assert.True(worksheet.Column(3).Width >= 24);
+            for (var column = 1; column <= 6; column++)
+            {
+                Assert.True(worksheet.Column(column).Width >= 8);
+                Assert.True(worksheet.Column(column).Width <= 36);
+            }
         }
 
         using var inchResponse = await designClient.GetAsync(
@@ -961,7 +973,7 @@ public sealed class PanelInformationApiTests
             new
             {
                 CustomerName = "Panel Info Customer",
-                Item = "Control Panel",
+                Item = "UL67",
                 ProjectCode = projectCode,
                 ProjectTitle = projectTitle,
                 PanelCount = panelCount,

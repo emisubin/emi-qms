@@ -27,7 +27,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(10, counts.Roles);
-        Assert.Equal(22, counts.Permissions);
+        Assert.Equal(23, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
@@ -35,6 +35,7 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken));
 
         await AssertCoreConstraintsExistAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertSystemHolidaySchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -1013,6 +1014,33 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(6L, value);
     }
 
+    private static async Task AssertSystemHolidaySchemaAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        Assert.True(await ReadScalarAsync<bool>(
+            connectionStringProvider,
+            """
+            select exists (
+                select 1
+                from information_schema.tables
+                where table_schema = 'public'
+                  and table_name = 'system_holidays'
+            );
+            """,
+            cancellationToken));
+
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_indexes
+            where tablename = 'system_holidays'
+              and indexname in ('ux_system_holidays_country_date_source_key', 'ix_system_holidays_active_lookup');
+            """,
+            cancellationToken));
+    }
+
     private static async Task ApplyMigrationFileAsync(
         DatabaseConnectionStringProvider connectionStringProvider,
         string migrationFile,
@@ -1137,6 +1165,36 @@ public sealed class PostgreSqlMigrationTests
                 }
 
                 Assert.Equal(["system-administrator"], roles);
+            }
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select exists (
+                select 1
+                from permissions
+                where code = 'ProductionPlan.Update'
+            );
+            """))
+        {
+            var productionPlanUpdateExists = Assert.IsType<bool>(await command.ExecuteScalarAsync(cancellationToken));
+            if (productionPlanUpdateExists)
+            {
+                await using var rolesCommand = dataSource.CreateCommand("""
+                    select roles.code
+                    from roles
+                    join role_permissions on role_permissions.role_id = roles.id
+                    join permissions on permissions.id = role_permissions.permission_id
+                    where permissions.code = 'ProductionPlan.Update'
+                    order by roles.code;
+                    """);
+                var roles = new List<string>();
+                await using var reader = await rolesCommand.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    roles.Add(reader.GetString(0));
+                }
+
+                Assert.Equal(["production-planning"], roles);
             }
         }
 

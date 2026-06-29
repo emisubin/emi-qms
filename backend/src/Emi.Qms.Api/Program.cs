@@ -3,6 +3,7 @@ using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.Procurement;
+using Emi.Qms.Api.ProductionPlanning;
 using Emi.Qms.Api.Projects;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -36,6 +37,9 @@ builder.Services.AddSingleton<PanelInformationExcelParser>();
 builder.Services.AddSingleton<PanelInformationStore>();
 builder.Services.AddSingleton<ProcurementExcelParser>();
 builder.Services.AddSingleton<ProcurementStore>();
+builder.Services.AddSingleton<ProductionPlanningStore>();
+builder.Services.AddSingleton<SystemHolidayStore>();
+builder.Services.AddHttpClient<IKoreanHolidayProvider, OfficialKoreanHolidayProvider>();
 builder.Services.AddQmsAuthorizationFoundation();
 
 var app = builder.Build();
@@ -100,6 +104,7 @@ app.MapIdentityEndpoints();
 app.MapProjectEndpoints();
 app.MapPanelInformationEndpoints();
 app.MapProcurementEndpoints();
+app.MapProductionPlanningEndpoints();
 
 app.Run();
 

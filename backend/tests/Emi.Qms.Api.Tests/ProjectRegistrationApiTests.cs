@@ -309,12 +309,14 @@ public sealed class ProjectRegistrationApiTests
         var unique = Guid.NewGuid().ToString("N")[..8];
         var title = $"Excel Project {unique}";
 
-        Assert.Equal(HttpStatusCode.OK, (await salesClient.GetAsync("/api/projects/import/template", TestContext.Current.CancellationToken)).StatusCode);
+        using var templateResponse = await salesClient.GetAsync("/api/projects/import/template", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, templateResponse.StatusCode);
+        await AssertProjectTemplateWidthsAsync(templateResponse);
         Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.GetAsync("/api/projects/import/template", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await manufacturingClient.GetAsync("/api/projects/import/template", TestContext.Current.CancellationToken)).StatusCode);
 
         var file = CreateProjectExcel([
-            ["TEST CUSTOMER", "TEST PANEL", $"EXCEL-{unique}", title, "3", "2026-10-10", "목포장", "1200", "KRW", "TEST LOCATION", "dev-sales"]
+            ["TEST CUSTOMER", "UL67", $"EXCEL-{unique}", title, "3", "2026-10-10", "목포장", "1200", "KRW", "TEST LOCATION", "dev-sales"]
         ]);
         using var preview = await PreviewProjectExcelAsync(salesClient, file, "projects.xlsx");
         var previewRoot = preview.RootElement;
@@ -334,7 +336,7 @@ public sealed class ProjectRegistrationApiTests
         Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
 
         var invalidFile = CreateProjectExcel([
-            ["", "TEST PANEL", $"EXCEL-BAD-{unique}", $"Excel Bad {unique}", "3", "2026-10-10", "목포장", "", "", "", "dev-sales"]
+            ["", "UL67", $"EXCEL-BAD-{unique}", $"Excel Bad {unique}", "3", "2026-10-10", "목포장", "", "", "", "dev-sales"]
         ]);
         using var invalidPreview = await PreviewProjectExcelAsync(salesClient, invalidFile, "projects-invalid.xlsx");
         Assert.Equal(1, invalidPreview.RootElement.GetProperty("errorCount").GetInt32());
@@ -408,7 +410,7 @@ public sealed class ProjectRegistrationApiTests
             new
             {
                 CustomerName = "Audit Customer",
-                Item = "Audit Item",
+                Item = "UL67",
                 ProjectCode = "AUDIT-001",
                 ProjectTitle = "Audit Sensitive",
                 DeliveryDate = "2026-10-10",
@@ -1634,7 +1636,7 @@ public sealed class ProjectRegistrationApiTests
     {
         return new CreateProjectPayload(
             "EMI Demo Customer",
-            "Control Panel",
+            "UL67",
             projectCode,
             projectTitle,
             2,
@@ -1650,7 +1652,7 @@ public sealed class ProjectRegistrationApiTests
     {
         return new UpdateProjectPayload(
             "EMI Demo Customer",
-            "Control Panel",
+            "UL67",
             projectCode,
             projectTitle,
             "2026-10-10",
@@ -1681,6 +1683,25 @@ public sealed class ProjectRegistrationApiTests
     {
         var stream = await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken);
         return await JsonDocument.ParseAsync(stream, cancellationToken: TestContext.Current.CancellationToken);
+    }
+
+    private static async Task AssertProjectTemplateWidthsAsync(HttpResponseMessage response)
+    {
+        var bytes = await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var worksheet = workbook.Worksheet("Projects");
+        Assert.True(worksheet.SheetView.SplitRow >= 3);
+        Assert.True(worksheet.AutoFilter.IsEnabled);
+        Assert.Contains("필수 입력값", worksheet.Cell(2, 1).GetString());
+        Assert.Equal("고객사 *", worksheet.Cell(3, 1).GetString());
+        Assert.Equal("Item *", worksheet.Cell(3, 2).GetString());
+        Assert.Equal(XLColor.LightYellow, worksheet.Cell(3, 1).Style.Fill.BackgroundColor);
+        for (var column = 1; column <= 11; column++)
+        {
+            Assert.True(worksheet.Column(column).Width >= 10);
+            Assert.True(worksheet.Column(column).Width <= 34);
+        }
+        Assert.True(worksheet.Column(4).Width >= worksheet.Column(5).Width);
     }
 
     private static async Task<HttpResponseMessage> SendJsonAsync(HttpClient client, HttpMethod method, string requestUri, object payload)

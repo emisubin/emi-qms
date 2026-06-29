@@ -54,38 +54,66 @@ public sealed class ProjectExcelParser
         var worksheet = workbook.AddWorksheet("Projects");
         worksheet.Cell(1, 1).Value = "프로젝트 일괄 등록";
         worksheet.Range(1, 1, 1, 11).Merge().Style.Font.SetBold();
+        worksheet.Cell(2, 1).Value = "* 표시 항목은 필수 입력값입니다.";
+        worksheet.Range(2, 1, 2, 11).Merge().Style.Font.SetItalic();
 
-        var headers = new[]
+        var headers = new (string Text, bool Required)[]
         {
-            "고객사",
-            "Item",
-            "PJT Code",
-            "PJT Title",
-            "면수",
-            "납기일",
-            "포장방식",
-            "판매금액",
-            "통화",
-            "납품장소",
-            "영업담당자"
+            ("고객사", true),
+            ("Item", true),
+            ("PJT Code", true),
+            ("PJT Title", true),
+            ("면수", true),
+            ("납기일", true),
+            ("포장방식", true),
+            ("판매금액", false),
+            ("통화", false),
+            ("납품장소", false),
+            ("영업담당자", true)
         };
 
         for (var index = 0; index < headers.Length; index++)
         {
-            worksheet.Cell(3, index + 1).Value = headers[index];
+            worksheet.Cell(3, index + 1).Value = headers[index].Required ? $"{headers[index].Text} *" : headers[index].Text;
             worksheet.Cell(3, index + 1).Style.Font.SetBold();
-            worksheet.Column(index + 1).Width = index switch
+            if (headers[index].Required)
             {
-                3 => 24,
-                9 => 24,
-                10 => 18,
-                _ => 16
-            };
+                worksheet.Cell(3, index + 1).Style.Fill.BackgroundColor = XLColor.LightYellow;
+            }
         }
+
+        ApplyTemplateLayout(worksheet, headers.Length);
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    private static void ApplyTemplateLayout(IXLWorksheet worksheet, int columnCount)
+    {
+        worksheet.SheetView.FreezeRows(3);
+        worksheet.Range(3, 1, 3, columnCount).SetAutoFilter();
+        worksheet.Columns(1, columnCount).AdjustToContents();
+        for (var column = 1; column <= columnCount; column++)
+        {
+            var min = column switch
+            {
+                5 => 10,
+                6 => 14,
+                8 => 12,
+                9 => 10,
+                _ => 14
+            };
+            var max = column switch
+            {
+                4 => 34,
+                10 => 32,
+                11 => 24,
+                _ => 24
+            };
+            worksheet.Column(column).Width = Math.Clamp(worksheet.Column(column).Width + 2, min, max);
+        }
+        worksheet.Columns(1, columnCount).Style.Alignment.WrapText = true;
     }
 
     public static IReadOnlyList<string> ValidateUploadMetadata(IFormFile file)
@@ -290,7 +318,7 @@ public sealed class ProjectExcelParser
             var lastCell = worksheet.Row(row).LastCellUsed()?.Address.ColumnNumber ?? 0;
             for (var column = 1; column <= lastCell; column++)
             {
-                var normalized = ProjectInputNormalizer.NormalizeProjectTitle(worksheet.Cell(row, column).GetString());
+                var normalized = NormalizeHeader(worksheet.Cell(row, column).GetString());
                 if (HeaderAliases.TryGetValue(normalized, out var canonical))
                 {
                     if (map.ContainsKey(canonical))
@@ -316,6 +344,12 @@ public sealed class ProjectExcelParser
         }
 
         return new HeaderResult(0, new Dictionary<string, int>(), ["Header 행을 찾을 수 없습니다."]);
+    }
+
+    private static string NormalizeHeader(string value)
+    {
+        var trimmed = value.Trim().TrimEnd('*').Trim();
+        return ProjectInputNormalizer.NormalizeProjectTitle(trimmed);
     }
 
     private static string? ReadText(IXLWorksheet worksheet, int row, IReadOnlyDictionary<string, int> columns, string name, List<string> errors)

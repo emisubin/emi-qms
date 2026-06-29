@@ -15,6 +15,7 @@ public static class QmsPolicies
     public const string AuditReadAll = "AuditReadAll";
     public const string ProcurementPlanUpdate = "ProcurementPlanUpdate";
     public const string MaterialReceiptUpdate = "MaterialReceiptUpdate";
+    public const string ProductionPlanUpdate = "ProductionPlanUpdate";
     public const string ManufacturingUpdate = "ManufacturingUpdate";
     public const string ProjectSalesAmountRead = "ProjectSalesAmountRead";
     public const string ManufacturingWorkTimeRead = "ManufacturingWorkTimeRead";

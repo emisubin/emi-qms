@@ -90,10 +90,18 @@ public sealed class PanelInformationStore(
 
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Panel Information");
-        var headers = new[] { "No", "도번", "panel name", "w", "h", "d" };
+        worksheet.Cell(1, 8).Value = "* 표시 항목은 필수 입력값입니다.";
+        worksheet.Cell(1, 8).Style.Font.Italic = true;
+        worksheet.Cell(1, 8).Style.Alignment.WrapText = true;
+        worksheet.Column(8).Width = 32;
+        var headers = new (string Text, bool Required)[] { ("No", true), ("도번", false), ("panel name", true), ("w", false), ("h", false), ("d", false) };
         for (var column = 0; column < headers.Length; column++)
         {
-            worksheet.Cell(1, column + 1).Value = headers[column];
+            worksheet.Cell(1, column + 1).Value = headers[column].Required ? $"{headers[column].Text} *" : headers[column].Text;
+            if (headers[column].Required)
+            {
+                worksheet.Cell(1, column + 1).Style.Fill.BackgroundColor = XLColor.LightYellow;
+            }
         }
 
         var rowNumber = 2;
@@ -111,10 +119,15 @@ public sealed class PanelInformationStore(
         worksheet.Row(1).Style.Font.Bold = true;
         worksheet.SheetView.FreezeRows(1);
         worksheet.Range(1, 1, Math.Max(rowNumber - 1, 1), headers.Length).SetAutoFilter();
-        worksheet.Column(1).Width = 8;
-        worksheet.Column(2).Width = 18;
-        worksheet.Column(3).Width = 28;
-        worksheet.Columns(4, 6).Width = 14;
+        worksheet.Columns(1, headers.Length).AdjustToContents();
+        worksheet.Column(1).Width = Math.Clamp(worksheet.Column(1).Width + 2, 8, 12);
+        worksheet.Column(2).Width = Math.Clamp(worksheet.Column(2).Width + 2, 18, 28);
+        worksheet.Column(3).Width = Math.Clamp(worksheet.Column(3).Width + 2, 24, 36);
+        for (var column = 4; column <= 6; column++)
+        {
+            worksheet.Column(column).Width = Math.Clamp(worksheet.Column(column).Width + 2, 12, 16);
+        }
+        worksheet.Columns(1, headers.Length).Style.Alignment.WrapText = true;
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

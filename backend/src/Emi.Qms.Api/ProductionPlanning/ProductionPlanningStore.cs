@@ -312,19 +312,6 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             return ProductionPlanningMutationResult<ProductionPlanningResponse>.Conflict("현재 프로젝트 상태에서는 생산계획을 수정할 수 없습니다.");
         }
 
-        var productType = await ReadActiveProductTypeByCodeAsync(connection, transaction, project.Item, cancellationToken);
-        if (productType is null)
-        {
-            return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(
-                new Dictionary<string, string[]> { [nameof(request.ProductTypeId)] = ["현재 프로젝트의 Item이 등록된 Item 기준값과 일치하지 않습니다. 프로젝트 정보를 수정한 후 생산계획을 입력해 주세요."] });
-        }
-
-        if (request.ProductTypeId is not null && request.ProductTypeId.Value != productType.ProductTypeId)
-        {
-            return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(
-                new Dictionary<string, string[]> { [nameof(request.ProductTypeId)] = ["프로젝트 Item과 선택 기준값이 일치하지 않습니다. 프로젝트 정보를 다시 확인해 주세요."] });
-        }
-
         var currentPlan = await ReadPlanHeaderAsync(connection, transaction, projectId, cancellationToken);
         if (currentPlan is not null && request.ExpectedRowVersion is not null && currentPlan.RowVersion != request.ExpectedRowVersion)
         {
@@ -332,11 +319,25 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         }
 
         var planId = currentPlan?.PlanId ?? Guid.NewGuid();
-        var oldProductTypeId = currentPlan?.ProductTypeId;
-        var productTypeChanged = oldProductTypeId != productType.ProductTypeId;
+        ProductTypeSnapshot? productType = null;
+        IReadOnlyList<ProductionPlanItemResponse> existing = [];
+        IReadOnlyList<ProductionTemplateStepResponse> templateSteps;
 
         if (currentPlan is null)
         {
+            productType = await ReadActiveProductTypeByCodeAsync(connection, transaction, project.Item, cancellationToken);
+            if (productType is null)
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(
+                    new Dictionary<string, string[]> { [nameof(request.ProductTypeId)] = ["현재 프로젝트의 Item이 등록된 Item 기준값과 일치하지 않습니다. 프로젝트 정보를 수정한 후 생산계획을 입력해 주세요."] });
+            }
+
+            if (request.ProductTypeId is not null && request.ProductTypeId.Value != productType.ProductTypeId)
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(
+                    new Dictionary<string, string[]> { [nameof(request.ProductTypeId)] = ["프로젝트 Item과 선택 기준값이 일치하지 않습니다. 프로젝트 정보를 다시 확인해 주세요."] });
+            }
+
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
@@ -353,45 +354,53 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             command.Parameters.AddWithValue("user_id", changedByUserId);
             await command.ExecuteNonQueryAsync(cancellationToken);
             await InsertAuditAsync(connection, transaction, projectId, planId, "ProductionPlan", "ProductTypeId", null, productType.ProductTypeCode, request.Reason, changedByUserId, correlationId, cancellationToken);
+            templateSteps = await ReadTemplateStepsAsync(connection, transaction, productType.TemplateId, cancellationToken);
         }
         else
         {
+            if (currentPlan.ProductTypeId is null || currentPlan.TemplateId is null)
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(
+                    new Dictionary<string, string[]> { [nameof(request.ProductTypeId)] = ["기존 생산계획의 Item snapshot을 확인할 수 없습니다. 관리자에게 문의해 주세요."] });
+            }
+
+            if (request.ProductTypeId is not null && request.ProductTypeId.Value != currentPlan.ProductTypeId.Value)
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(
+                    new Dictionary<string, string[]> { [nameof(request.ProductTypeId)] = ["기존 생산계획의 Item snapshot과 일치하지 않습니다. 기존 생산계획은 자동으로 최신 template으로 변경되지 않습니다."] });
+            }
+
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
                 update project_production_plans
-                set product_type_id = @product_type_id,
-                    template_id = @template_id,
-                    notes = @notes,
+                set notes = @notes,
                     row_version = row_version + 1,
                     updated_at_utc = now(),
                     updated_by_user_id = @user_id
                 where id = @id;
                 """;
             command.Parameters.AddWithValue("id", planId);
-            command.Parameters.Add("product_type_id", NpgsqlDbType.Uuid).Value = productType.ProductTypeId;
-            command.Parameters.Add("template_id", NpgsqlDbType.Uuid).Value = productType.TemplateId;
             command.Parameters.Add("notes", NpgsqlDbType.Text).Value = TrimToNull(request.Notes) ?? (object)DBNull.Value;
             command.Parameters.AddWithValue("user_id", changedByUserId);
             await command.ExecuteNonQueryAsync(cancellationToken);
-            if (productTypeChanged)
+            existing = await ReadPlanItemsAsync(connection, transaction, planId, cancellationToken);
+            templateSteps = existing
+                .Where(item => item.TemplateStepId is not null)
+                .OrderBy(item => item.SequenceNumber)
+                .Select(item => new ProductionTemplateStepResponse(
+                    item.TemplateStepId!.Value,
+                    item.SequenceNumber,
+                    item.StepName,
+                    item.IsRequired))
+                .ToList();
+            if (templateSteps.Count == 0)
             {
-                await InsertAuditAsync(connection, transaction, projectId, planId, "ProductionPlan", "ProductTypeId", currentPlan.ProductTypeCode, productType.ProductTypeCode, request.Reason, changedByUserId, correlationId, cancellationToken);
+                templateSteps = await ReadTemplateStepsAsync(connection, transaction, currentPlan.TemplateId.Value, cancellationToken);
             }
         }
 
-        if (productTypeChanged)
         {
-            await using var deleteCommand = connection.CreateCommand();
-            deleteCommand.Transaction = transaction;
-            deleteCommand.CommandText = "delete from project_production_plan_items where production_plan_id = @plan_id;";
-            deleteCommand.Parameters.AddWithValue("plan_id", planId);
-            await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
-        }
-
-        if (productType is not null)
-        {
-            var templateSteps = await ReadTemplateStepsAsync(connection, transaction, productType.TemplateId, cancellationToken);
             var validationErrors = ValidatePlanItemUpdates(request.Items ?? [], templateSteps);
             if (validationErrors.Count > 0)
             {
@@ -404,7 +413,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             var requestedCustomItems = (request.Items ?? [])
                 .Where(item => item.TemplateStepId is null)
                 .ToList();
-            var existing = productTypeChanged ? [] : await ReadPlanItemsAsync(connection, transaction, planId, cancellationToken);
+            existing = currentPlan is null ? [] : existing;
 
             foreach (var step in templateSteps)
             {
@@ -414,6 +423,11 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 var note = TrimToNull(requestedItem?.Note);
                 if (current is null)
                 {
+                    if (currentPlan is not null)
+                    {
+                        continue;
+                    }
+
                     var itemId = Guid.NewGuid();
                     await InsertTemplatePlanItemAsync(connection, transaction, itemId, planId, step, plannedDate, note, cancellationToken);
                     if (plannedDate is not null)
@@ -443,7 +457,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 }
             }
 
-            var customSequence = templateSteps.Count + 1;
+            var customSequence = existing.Count == 0 ? templateSteps.Count + 1 : existing.Max(item => item.SequenceNumber) + 1;
             foreach (var requestedItem in requestedCustomItems)
             {
                 var stepName = TrimToNull(requestedItem.StepName)!;
@@ -600,23 +614,30 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 continue;
             }
 
-            var productType = await ReadActiveProductTypeAsync(connection, transaction, row.ProductTypeId!.Value, cancellationToken);
-            if (productType is null)
+            if (!ItemCodesEqual(project.Item, row.ProductTypeCode))
             {
-                continue;
+                return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Validation(
+                    new Dictionary<string, string[]> { ["rows"] = ["Excel의 Item이 프로젝트 Item과 일치하지 않습니다."] });
             }
 
-            var planId = await EnsurePlanForExcelAsync(connection, transaction, project.ProjectId, productType, changedByUserId, cancellationToken);
+            var productType = await ReadActiveProductTypeByCodeAsync(connection, transaction, project.Item, cancellationToken);
+            if (productType is null)
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Validation(
+                    new Dictionary<string, string[]> { ["rows"] = ["현재 프로젝트의 Item이 등록된 Item 기준값과 일치하지 않습니다. 프로젝트 정보를 수정한 후 생산계획을 입력해 주세요."] });
+            }
+
+            var (planId, createdPlan) = await EnsurePlanForExcelAsync(connection, transaction, project.ProjectId, productType, changedByUserId, cancellationToken);
             var existing = await ReadPlanItemsAsync(connection, transaction, planId, cancellationToken);
-            var current = row.TemplateStepId is not null
+            var current = createdPlan && row.TemplateStepId is not null
                 ? existing.FirstOrDefault(item => item.TemplateStepId == row.TemplateStepId)
-                : existing.FirstOrDefault(item => item.TemplateStepId is null && string.Equals(Normalize(row.StepName), Normalize(item.StepName), StringComparison.Ordinal));
+                : existing.FirstOrDefault(item => string.Equals(Normalize(row.StepName), Normalize(item.StepName), StringComparison.Ordinal));
 
             if (current is null)
             {
                 var nextSequence = existing.Count == 0 ? 1 : existing.Max(item => item.SequenceNumber) + 1;
                 var itemId = Guid.NewGuid();
-                if (row.TemplateStepId is not null)
+                if (createdPlan && row.TemplateStepId is not null)
                 {
                     await InsertTemplatePlanItemAsync(
                         connection,
@@ -1662,6 +1683,11 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         return string.Join(' ', (value ?? "").Trim().ToUpperInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
+    private static bool ItemCodesEqual(string? left, string? right)
+    {
+        return string.Equals(Normalize(left), Normalize(right), StringComparison.Ordinal);
+    }
+
     private static string NormalizeExcelHeader(string value)
     {
         return string.Join(' ', value.Trim().TrimEnd('*').Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
@@ -1757,6 +1783,13 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 errors.Add("Item은 UL67, UL891, UL508A, IEC, LLP, RRP 중 하나여야 합니다.");
             }
 
+            if (project is not null
+                && !string.IsNullOrWhiteSpace(productTypeCode)
+                && !ItemCodesEqual(project.Item, productTypeCode))
+            {
+                errors.Add($"Excel의 Item이 프로젝트 Item과 일치하지 않습니다. 프로젝트 Item: {project.Item}, Excel Item: {productTypeCode}");
+            }
+
             if (string.IsNullOrWhiteSpace(stepName))
             {
                 errors.Add("계획 항목은 필수입니다.");
@@ -1791,7 +1824,28 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 }
             }
 
-            var templateStep = productType?.Steps.FirstOrDefault(step => string.Equals(Normalize(step.StepName), Normalize(stepName), StringComparison.Ordinal));
+            ProductionTemplateStepResponse? templateStep = null;
+            if (errors.Count == 0 && project is not null && productType is not null)
+            {
+                var existingPlan = await ReadPlanHeaderAsync(connection, transaction, project.ProjectId, cancellationToken);
+                if (existingPlan is not null)
+                {
+                    var existingItems = await ReadPlanItemsAsync(connection, transaction, existingPlan.PlanId, cancellationToken);
+                    var existingItem = existingItems.FirstOrDefault(item => string.Equals(Normalize(item.StepName), Normalize(stepName), StringComparison.Ordinal));
+                    if (existingItem?.TemplateStepId is not null)
+                    {
+                        templateStep = new ProductionTemplateStepResponse(
+                            existingItem.TemplateStepId.Value,
+                            existingItem.SequenceNumber,
+                            existingItem.StepName,
+                            existingItem.IsRequired);
+                    }
+                }
+                else
+                {
+                    templateStep = productType.Steps.FirstOrDefault(step => string.Equals(Normalize(step.StepName), Normalize(stepName), StringComparison.Ordinal));
+                }
+            }
             var resultType = errors.Count > 0 ? "Error" : templateStep is null ? "CustomStep" : "New";
             rows.Add(new ProductionPlanningExcelRow(
                 rowNumber,
@@ -1954,32 +2008,12 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         return value is Guid userId ? userId : null;
     }
 
-    private static async Task<Guid> EnsurePlanForExcelAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, ProductTypeSnapshot productType, Guid changedByUserId, CancellationToken cancellationToken)
+    private static async Task<(Guid PlanId, bool Created)> EnsurePlanForExcelAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, ProductTypeSnapshot productType, Guid changedByUserId, CancellationToken cancellationToken)
     {
         var plan = await ReadPlanHeaderAsync(connection, transaction, projectId, cancellationToken);
         if (plan is not null)
         {
-            if (plan.ProductTypeId != productType.ProductTypeId)
-            {
-                await using var update = connection.CreateCommand();
-                update.Transaction = transaction;
-                update.CommandText = """
-                    update project_production_plans
-                    set product_type_id = @product_type_id,
-                        template_id = @template_id,
-                        row_version = row_version + 1,
-                        updated_at_utc = now(),
-                        updated_by_user_id = @user_id
-                    where id = @id;
-                    """;
-                update.Parameters.AddWithValue("id", plan.PlanId);
-                update.Parameters.AddWithValue("product_type_id", productType.ProductTypeId);
-                update.Parameters.AddWithValue("template_id", productType.TemplateId);
-                update.Parameters.AddWithValue("user_id", changedByUserId);
-                await update.ExecuteNonQueryAsync(cancellationToken);
-            }
-
-            return plan.PlanId;
+            return (plan.PlanId, false);
         }
 
         var planId = Guid.NewGuid();
@@ -1997,7 +2031,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         command.Parameters.AddWithValue("template_id", productType.TemplateId);
         command.Parameters.AddWithValue("user_id", changedByUserId);
         await command.ExecuteNonQueryAsync(cancellationToken);
-        return planId;
+        return (planId, true);
     }
 
     private static async Task ApplyAssigneesFromExcelAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, ProductionPlanningExcelRow row, Guid changedByUserId, string? reason, string correlationId, CancellationToken cancellationToken)

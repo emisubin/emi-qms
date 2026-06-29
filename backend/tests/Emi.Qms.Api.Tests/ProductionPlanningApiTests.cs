@@ -353,6 +353,205 @@ public sealed class ProductionPlanningApiTests
     }
 
     [Fact]
+    public async Task ExistingProductionPlan_KeepsTemplateSnapshotAfterTemplateSettingsChange()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
+
+        var projectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-SNAPSHOT", "Plan Snapshot");
+        using var productTypes = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
+        var productType = productTypes.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
+        var productTypeId = productType.GetProperty("productTypeId").GetGuid();
+        var originalTemplateId = productType.GetProperty("activeTemplateId").GetGuid();
+        var originalSteps = ReadSteps(productType).ToList();
+
+        var create = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new
+            {
+                productTypeId,
+                expectedRowVersion = 0,
+                reason = (string?)null,
+                items = originalSteps.Select(step => new
+                {
+                    itemId = (Guid?)null,
+                    templateStepId = step.TemplateStepId,
+                    sequenceNumber = step.SequenceNumber,
+                    expectedRowVersion = 0,
+                    plannedDate = $"2026-07-{step.SequenceNumber:D2}",
+                    note = step.StepName
+                }).ToArray(),
+                assignees = Array.Empty<object>()
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        using var created = await ReadJsonAsync(create);
+        Assert.Equal(originalTemplateId, created.RootElement.GetProperty("templateId").GetGuid());
+
+        var updateTemplate = await productionClient.PatchAsJsonAsync(
+            $"/api/production-planning/settings/templates/{productTypeId}",
+            new
+            {
+                steps = originalSteps.Select(step => (object)new
+                {
+                    templateStepId = (Guid?)step.TemplateStepId,
+                    sequenceNumber = step.SequenceNumber,
+                    stepName = step.StepName,
+                    isRequired = true,
+                    isActive = true
+                }).Concat(new object[]
+                {
+                    new { templateStepId = (Guid?)null, sequenceNumber = 99, stepName = "최신 template 전용", isRequired = false, isActive = true }
+                }).ToArray(),
+                reason = "template 변경"
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, updateTemplate.StatusCode);
+
+        var existingItems = created.RootElement.GetProperty("items").EnumerateArray().ToList();
+        var saveExisting = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new
+            {
+                productTypeId,
+                expectedRowVersion = created.RootElement.GetProperty("rowVersion").GetInt32(),
+                notes = "기존 snapshot 수정",
+                reason = "기존 snapshot 유지",
+                items = existingItems.Select(item => new
+                {
+                    itemId = item.GetProperty("itemId").GetGuid(),
+                    templateStepId = item.GetProperty("templateStepId").GetGuid(),
+                    sequenceNumber = item.GetProperty("sequenceNumber").GetInt32(),
+                    expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
+                    plannedDate = item.GetProperty("sequenceNumber").GetInt32() == 1 ? "2026-08-01" : item.GetProperty("plannedDate").GetString(),
+                    note = item.GetProperty("sequenceNumber").GetInt32() == 1 ? "과거 template step 수정" : item.GetProperty("note").GetString()
+                }).ToArray(),
+                assignees = Array.Empty<object>()
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, saveExisting.StatusCode);
+        using var saved = await ReadJsonAsync(saveExisting);
+
+        Assert.Equal(originalTemplateId, saved.RootElement.GetProperty("templateId").GetGuid());
+        Assert.DoesNotContain(saved.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("stepName").GetString() == "최신 template 전용");
+        var firstItem = saved.RootElement.GetProperty("items").EnumerateArray().First(item => item.GetProperty("sequenceNumber").GetInt32() == 1);
+        Assert.Equal(originalSteps[0].TemplateStepId, firstItem.GetProperty("templateStepId").GetGuid());
+        Assert.Equal("2026-08-01", firstItem.GetProperty("plannedDate").GetString());
+        Assert.Equal("과거 template step 수정", firstItem.GetProperty("note").GetString());
+    }
+
+    [Fact]
+    public async Task ProductionPlanningExcel_BlocksItemMismatchAndKeepsExistingSnapshot()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
+
+        var mismatchProjectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-XLS-MISMATCH", "Plan Excel Mismatch");
+        var mismatchFile = CreateProductionPlanningExcel([
+            ["Plan Excel Mismatch", "PLAN-XLS-MISMATCH", "RRP", "자재 입고", "2026-07-01", "", "", "", "", "", ""]
+        ]);
+        using var mismatchPreview = await PreviewProductionPlanningExcelAsync(productionClient, mismatchFile, "mismatch.xlsx");
+        Assert.Equal(0, mismatchPreview.RootElement.GetProperty("saveableCount").GetInt32());
+        Assert.Equal(1, mismatchPreview.RootElement.GetProperty("blockedCount").GetInt32());
+        Assert.Contains(
+            mismatchPreview.RootElement.GetProperty("rows").EnumerateArray().Single().GetProperty("errorMessages").EnumerateArray(),
+            message => message.GetString()!.Contains("Excel의 Item이 프로젝트 Item과 일치하지 않습니다.", StringComparison.Ordinal));
+
+        using (var form = new MultipartFormDataContent())
+        {
+            form.Add(new ByteArrayContent(mismatchFile), "file", "mismatch.xlsx");
+            form.Add(new StringContent(mismatchPreview.RootElement.GetProperty("fileSha256").GetString()!), "expectedFileSha256");
+            var applyMismatch = await productionClient.PostAsync("/api/production-planning/import/apply", form, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.BadRequest, applyMismatch.StatusCode);
+        }
+        using var mismatchPlan = await ReadJsonAsync(await productionClient.GetAsync($"/api/projects/{mismatchProjectId}/production-planning", TestContext.Current.CancellationToken));
+        Assert.Equal(JsonValueKind.Null, mismatchPlan.RootElement.GetProperty("planId").ValueKind);
+
+        var existingProjectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-XLS-SNAPSHOT", "Plan Excel Snapshot");
+        using var productTypes = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
+        var productType = productTypes.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
+        var productTypeId = productType.GetProperty("productTypeId").GetGuid();
+        var originalTemplateId = productType.GetProperty("activeTemplateId").GetGuid();
+        var originalSteps = ReadSteps(productType).ToList();
+
+        using var createdPlan = await ReadJsonAsync(await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{existingProjectId}/production-planning",
+            new
+            {
+                productTypeId,
+                expectedRowVersion = 0,
+                items = originalSteps.Select(step => new
+                {
+                    itemId = (Guid?)null,
+                    templateStepId = step.TemplateStepId,
+                    sequenceNumber = step.SequenceNumber,
+                    expectedRowVersion = 0,
+                    plannedDate = $"2026-07-{step.SequenceNumber:D2}",
+                    note = (string?)null
+                }).ToArray(),
+                assignees = Array.Empty<object>()
+            },
+            TestContext.Current.CancellationToken));
+        Assert.Equal(originalTemplateId, createdPlan.RootElement.GetProperty("templateId").GetGuid());
+
+        var updateTemplate = await productionClient.PatchAsJsonAsync(
+            $"/api/production-planning/settings/templates/{productTypeId}",
+            new
+            {
+                steps = originalSteps.Select(step => (object)new
+                {
+                    templateStepId = (Guid?)step.TemplateStepId,
+                    sequenceNumber = step.SequenceNumber,
+                    stepName = step.StepName,
+                    isRequired = true,
+                    isActive = true
+                }).Concat(new object[]
+                {
+                    new { templateStepId = (Guid?)null, sequenceNumber = 99, stepName = "Excel 신규 template step", isRequired = false, isActive = true }
+                }).ToArray(),
+                reason = "Excel snapshot 검증"
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, updateTemplate.StatusCode);
+        using var updatedSettings = await ReadJsonAsync(updateTemplate);
+        var updatedUl67 = updatedSettings.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
+        var latestTemplateId = updatedUl67.GetProperty("activeTemplateId").GetGuid();
+        Assert.NotEqual(originalTemplateId, latestTemplateId);
+
+        var existingFile = CreateProductionPlanningExcel([
+            ["Plan Excel Snapshot", "PLAN-XLS-SNAPSHOT", "UL67", originalSteps[0].StepName, "2026-08-10", "Excel 수정", "", "", "", "", ""]
+        ]);
+        using var existingPreview = await PreviewProductionPlanningExcelAsync(productionClient, existingFile, "existing.xlsx");
+        Assert.Equal(1, existingPreview.RootElement.GetProperty("saveableCount").GetInt32());
+        using var existingApply = await ApplyProductionPlanningExcelAsync(productionClient, existingFile, "existing.xlsx", existingPreview.RootElement.GetProperty("fileSha256").GetString()!);
+        Assert.Equal(1, existingApply.RootElement.GetProperty("appliedRowCount").GetInt32());
+
+        using var existingPlan = await ReadJsonAsync(await productionClient.GetAsync($"/api/projects/{existingProjectId}/production-planning", TestContext.Current.CancellationToken));
+        Assert.Equal(originalTemplateId, existingPlan.RootElement.GetProperty("templateId").GetGuid());
+        Assert.DoesNotContain(existingPlan.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("stepName").GetString() == "Excel 신규 template step");
+        var updatedOldItem = existingPlan.RootElement.GetProperty("items").EnumerateArray().First(item => item.GetProperty("stepName").GetString() == originalSteps[0].StepName);
+        Assert.Equal(originalSteps[0].TemplateStepId, updatedOldItem.GetProperty("templateStepId").GetGuid());
+        Assert.Equal("2026-08-10", updatedOldItem.GetProperty("plannedDate").GetString());
+
+        var newProjectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-XLS-NEW", "Plan Excel New");
+        var newFile = CreateProductionPlanningExcel([
+            ["Plan Excel New", "PLAN-XLS-NEW", "UL67", "Excel 신규 template step", "2026-09-01", "", "", "", "", "", ""]
+        ]);
+        using var newPreview = await PreviewProductionPlanningExcelAsync(productionClient, newFile, "new.xlsx");
+        Assert.Equal(1, newPreview.RootElement.GetProperty("saveableCount").GetInt32());
+        using var newApply = await ApplyProductionPlanningExcelAsync(productionClient, newFile, "new.xlsx", newPreview.RootElement.GetProperty("fileSha256").GetString()!);
+        Assert.Equal(1, newApply.RootElement.GetProperty("appliedRowCount").GetInt32());
+
+        using var newPlan = await ReadJsonAsync(await productionClient.GetAsync($"/api/projects/{newProjectId}/production-planning", TestContext.Current.CancellationToken));
+        Assert.Equal(latestTemplateId, newPlan.RootElement.GetProperty("templateId").GetGuid());
+        var newTemplateItem = newPlan.RootElement.GetProperty("items").EnumerateArray().First(item => item.GetProperty("stepName").GetString() == "Excel 신규 template step");
+        Assert.False(newTemplateItem.GetProperty("isCustom").GetBoolean());
+        Assert.NotEqual(JsonValueKind.Null, newTemplateItem.GetProperty("templateStepId").ValueKind);
+    }
+
+    [Fact]
     public async Task SystemHolidays_ReadFromDatabaseAndSyncNoOpsWithoutServiceKey()
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();
@@ -525,6 +724,16 @@ public sealed class ProductionPlanningApiTests
             productType.GetProperty("steps").EnumerateArray().Select(step => step.GetProperty("templateStepId").GetGuid()).ToList());
     }
 
+    private static IReadOnlyList<ProductionStepFixture> ReadSteps(JsonElement productType)
+    {
+        return productType.GetProperty("steps").EnumerateArray()
+            .Select(step => new ProductionStepFixture(
+                step.GetProperty("templateStepId").GetGuid(),
+                step.GetProperty("sequenceNumber").GetInt32(),
+                step.GetProperty("stepName").GetString()!))
+            .ToList();
+    }
+
     private static byte[] CreateProductionPlanningExcel(IReadOnlyList<IReadOnlyList<string>> rows)
     {
         using var workbook = new XLWorkbook();
@@ -590,6 +799,8 @@ public sealed class ProductionPlanningApiTests
             });
         }
     }
+
+    private sealed record ProductionStepFixture(Guid TemplateStepId, int SequenceNumber, string StepName);
 
     private sealed class ProductionPlanningApiTestContext : IAsyncDisposable
     {

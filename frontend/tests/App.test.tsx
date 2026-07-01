@@ -69,14 +69,41 @@ describe('App', () => {
     expect(within(table).getByText('OnHold Project')).toBeInTheDocument();
     expect(within(table).getByText('Completed Project')).toBeInTheDocument();
     expect(within(table).getByText('Cancelled Project')).toBeInTheDocument();
-    expect(within(table).getByText('제조 전')).toBeInTheDocument();
-    expect(within(table).getByText('0%')).toBeInTheDocument();
+    expect(within(table).getByText('생산관리')).toBeInTheDocument();
+    expect(within(table).getByText('6%')).toBeInTheDocument();
     expect(table).not.toHaveTextContent('BeforeManufacturing');
     expect(table).not.toHaveTextContent('0/4');
 
     fireEvent.click(screen.getByRole('tab', { name: '진행' }));
     await waitFor(() => expect(screen.queryByText('OnHold Project')).not.toBeInTheDocument());
     expect(screen.getByText('TASK-003A Demo')).toBeInTheDocument();
+  });
+
+  it('shows my work and notification pages from the common menu', async () => {
+    render(<App />);
+
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    await waitFor(() => expect(within(commonNavigation).getAllByText('1').length).toBeGreaterThan(0));
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '내 업무' }));
+    expect(await screen.findByRole('heading', { name: '내 업무' })).toBeInTheDocument();
+    const myWorkTabs = screen.getByRole('tablist', { name: '내 업무 상태' });
+    expect(within(myWorkTabs).getByRole('button', { name: '전체' })).toBeInTheDocument();
+    expect(within(myWorkTabs).getByRole('button', { name: '시작 전' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(myWorkTabs).getByRole('button', { name: '진행 중' })).toBeInTheDocument();
+    expect(within(myWorkTabs).getByRole('button', { name: '담당 프로젝트' })).toBeInTheDocument();
+    expect(screen.getAllByText('담당 프로젝트').length).toBeGreaterThan(0);
+    expect(screen.queryByText('담당 프로젝트 구분')).not.toBeInTheDocument();
+    expect(screen.getByText('생산계획, 담당자 입력')).toBeInTheDocument();
+    expect(screen.getAllByText('시작 전').length).toBeGreaterThan(0);
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '알림' }));
+    expect(await screen.findByRole('heading', { name: '알림' })).toBeInTheDocument();
+    const notificationTabs = screen.getByRole('tablist', { name: '알림 읽음 상태' });
+    expect(within(notificationTabs).getByRole('button', { name: '전체' })).toBeInTheDocument();
+    expect(within(notificationTabs).getByRole('button', { name: '읽지 않음' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(notificationTabs).getByRole('button', { name: '읽음' })).toBeInTheDocument();
+    expect(screen.getByText('프로젝트가 생성되었습니다.')).toBeInTheDocument();
+    expect(screen.getAllByText('읽지 않음').length).toBeGreaterThan(0);
   });
 
   it('renders project list cards for mobile layout without raw enum values', async () => {
@@ -91,8 +118,8 @@ describe('App', () => {
     expect(firstCard).toHaveTextContent('ItemUL67');
     expect(firstCard).toHaveTextContent('면수4면');
     expect(firstCard).toHaveTextContent('납기일2026-10-10');
-    expect(firstCard).toHaveTextContent('상태제조 전');
-    expect(firstCard).toHaveTextContent('진행률0%');
+    expect(firstCard).toHaveTextContent('상태생산관리');
+    expect(firstCard).toHaveTextContent('진행률6%');
     expect(firstCard).not.toHaveTextContent('BeforeManufacturing');
   });
 
@@ -755,6 +782,23 @@ describe('App', () => {
     await waitFor(() => expect(screen.queryByLabelText('TASK-003A Demo 구매정보')).not.toBeInTheDocument());
   });
 
+  it('shows procurement required item settings to Procurement users', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '구매' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: '구매 필수 항목 설정' }));
+    expect(await screen.findByRole('heading', { name: '구매 필수 항목 설정' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'UL67' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: 'TEST-TYPE' })).not.toBeInTheDocument();
+    expect(screen.getByText('UL67 필수 구매 항목')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(await screen.findByText('구매 필수 항목 설정을 저장했습니다.')).toBeInTheDocument();
+  });
+
   it('shows production planning workspace, detail section, and edit-only controls for Production Planning', async () => {
     render(<App />);
 
@@ -771,6 +815,7 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: '생산계획 단계 설정' })).toBeInTheDocument();
     expect(screen.getByText('생산계획 단계 설정은 이후 새로 작성되는 생산계획부터 적용됩니다. 이미 작성된 프로젝트 생산계획은 자동으로 변경되지 않습니다.')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'UL67' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: 'TEST-TYPE' })).not.toBeInTheDocument();
     expect(within(screen.getByRole('table', { name: 'UL67 생산계획 단계 설정' })).getByDisplayValue('자재 입고')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '행 추가' })).toBeInTheDocument();
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
@@ -785,7 +830,11 @@ describe('App', () => {
     expect(within(expanded).getByRole('button', { name: '프로젝트 상세에서 보기' })).toBeInTheDocument();
     expect(within(expanded).getByRole('button', { name: '생산계획 수정' })).toBeInTheDocument();
     expect(await within(expanded).findByText('자재 입고')).toBeInTheDocument();
-    expect(expanded).toHaveTextContent('알림 기준: Dev Sales User (영업담당자)');
+    expect(within(expanded).getByLabelText('영업 담당자')).toHaveTextContent('정Dev Sales User');
+    expect(within(expanded).getByLabelText('설계 담당자')).toHaveTextContent('정Dev Design User');
+    expect(within(expanded).getByLabelText('구매 담당자')).toHaveTextContent('정Dev Procurement User');
+    expect(expanded).not.toHaveTextContent('알림 기준');
+    expect(expanded).not.toHaveTextContent('fallback');
     expect(within(expanded).queryByRole('table', { name: '생산계획 캘린더 표' })).not.toBeInTheDocument();
     expect(expanded).not.toHaveTextContent('검수 공휴일');
 
@@ -796,11 +845,29 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('tab', { name: '생산관리' }));
     expect(await screen.findByText('프로젝트 단위 계획과 담당자 지정')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '생산계획 수정' })).toBeInTheDocument();
+    const assigneeSummary = screen.getByLabelText('담당자 지정 현황');
+    expect(within(assigneeSummary).getByLabelText('영업 담당자')).toHaveAttribute('data-tone', 'sales');
+    expect(within(assigneeSummary).getByLabelText('설계 담당자')).toHaveAttribute('data-tone', 'design');
+    expect(within(assigneeSummary).getByLabelText('생산관리 담당자')).toHaveAttribute('data-tone', 'production');
+    expect(within(assigneeSummary).getByLabelText('구매 담당자')).toHaveAttribute('data-tone', 'procurement');
+    expect(within(assigneeSummary).getByLabelText('자재 담당자')).toHaveAttribute('data-tone', 'materials');
+    expect(within(assigneeSummary).getByLabelText('제조 담당자')).toHaveAttribute('data-tone', 'manufacturing');
+    expect(within(assigneeSummary).getByLabelText('물류 담당자')).toHaveAttribute('data-tone', 'logistics');
+    expect(within(assigneeSummary).getByLabelText('품질 담당자')).toHaveAttribute('data-tone', 'quality');
+    expect(within(assigneeSummary).getByLabelText('품질 담당자')).toHaveTextContent('IQC 수입검사');
+    expect(within(assigneeSummary).getByLabelText('품질 담당자')).toHaveTextContent('전진검수/FAT');
+    expect(assigneeSummary).not.toHaveTextContent('알림 기준');
+    expect(assigneeSummary).not.toHaveTextContent('fallback');
+    expect(within(assigneeSummary).queryByRole('combobox')).not.toBeInTheDocument();
     const planItemsTable = await screen.findByRole('table', { name: '생산계획 항목' });
     expect(planItemsTable).toHaveTextContent('계획 항목필수예정일비고');
     expect(planItemsTable).not.toHaveTextContent('No');
     const calendarTable = await screen.findByRole('table', { name: '생산계획 캘린더 표' });
     expect(calendarTable).toHaveTextContent('생산단계');
+    expect(calendarTable).toHaveAttribute('style', expect.stringContaining('--production-calendar-stage-column-width'));
+    expect(within(calendarTable).getByRole('columnheader', { name: '생산단계' })).toHaveClass('production-calendar-stage-cell');
+    expect(within(calendarTable).getByRole('rowheader', { name: /자재 입고/ })).toHaveClass('production-calendar-stage-cell');
+    expect(within(calendarTable).getByRole('columnheader', { name: /7\/1/ })).toHaveClass('production-calendar-date-cell');
     expect(calendarTable).toHaveTextContent('7/1');
     expect(calendarTable).toHaveTextContent('7/2');
     expect(within(calendarTable).getByRole('columnheader', { name: /7\/3/ })).toHaveClass('calendar-red-day');
@@ -819,6 +886,31 @@ describe('App', () => {
     expect(planEditTable).toHaveTextContent('계획 항목필수예정일비고작업');
     expect(planEditTable).not.toHaveTextContent('No');
     expect(screen.getByText('프로젝트 담당자 지정')).toBeInTheDocument();
+    expect(screen.getByText('부서별 담당자')).toBeInTheDocument();
+    expect(screen.getByText('품질 검사 담당자')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '영업' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '설계' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '생산관리' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '구매' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '자재' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '제조' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '물류' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'IQC 수입검사' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'LQC' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'OQC 자체검수' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '전진검수/FAT' })).toBeInTheDocument();
+    expect(screen.getByLabelText('영업 정')).toBeInTheDocument();
+    expect(screen.getByLabelText('영업 부')).toBeInTheDocument();
+    expect(screen.getByLabelText('IQC 정')).toBeInTheDocument();
+    expect(screen.getByLabelText('IQC 부')).toBeInTheDocument();
+    expect(screen.getByLabelText('영업 담당자 지정')).toHaveAttribute('data-tone', 'sales');
+    expect(screen.getByLabelText('설계 담당자 지정')).toHaveAttribute('data-tone', 'design');
+    expect(screen.getByLabelText('품질 검사 담당자').querySelectorAll('[data-tone="quality"]').length).toBeGreaterThanOrEqual(4);
+    const assigneeEditSection = screen.getByRole('heading', { name: '프로젝트 담당자 지정' }).closest('section');
+    expect(assigneeEditSection).not.toBeNull();
+    expect(assigneeEditSection!).not.toHaveTextContent('비고');
+    expect(assigneeEditSection!).not.toHaveTextContent('fallback');
+    expect(assigneeEditSection!).not.toHaveTextContent('알림 기준');
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
     expect(await screen.findByText('프로젝트 단위 계획과 담당자 지정')).toBeInTheDocument();
 
@@ -919,6 +1011,95 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json([{ userId: salesOwnerId, displayName: 'Dev Sales User' }]);
   }
 
+  if (path === '/api/my-work/summary') {
+    return json({
+      requestedCount: 1,
+      inProgressCount: 0,
+      completedCount: 0,
+      blockingCount: 0,
+      assignedProjectCount: 1,
+      assignedProjectBreakdown: [
+        { responsibilityType: 'ProductionPlanningPrimary', responsibilityLabel: '생산관리 정담당자', projectCount: 1 }
+      ]
+    });
+  }
+
+  if (path === '/api/my-work') {
+    return json({
+      items: [
+        {
+          workItemId: '76000000-0000-0000-0000-000000000001',
+          projectId,
+          projectTitle: 'TASK-003A Demo',
+          projectCode: 'PJT-003A',
+          projectItem: 'UL67',
+          projectDeliveryDate: '2026-07-01',
+          workflowStageCode: 'ProductionPlanning',
+          workflowStageName: '생산계획·담당자',
+          responsibilityType: 'ProductionPlanningPrimary',
+          responsibilityLabel: '생산관리 정담당자',
+          title: '생산계획, 담당자 입력',
+          description: '생산계획 단계 처리가 필요합니다.',
+          status: 'Requested',
+          statusLabel: '시작 전',
+          priority: 'Normal',
+          priorityLabel: '일반',
+          dueDate: null,
+          createdAtUtc: '2026-06-25T00:00:00Z',
+          startedAtUtc: null,
+          completedAtUtc: null,
+          linkUrl: `/projects/${projectId}`
+        }
+      ]
+    });
+  }
+
+  if (path === '/api/my-work/assigned-projects') {
+    return json({
+      items: [
+        {
+          projectId,
+          projectTitle: 'TASK-003A Demo',
+          projectCode: 'PJT-003A',
+          item: 'UL67',
+          deliveryDate: '2026-07-01',
+          projectStatus: 'Active',
+          projectStatusLabel: '진행',
+          responsibilities: [
+            { responsibilityType: 'ProductionPlanningPrimary', responsibilityLabel: '생산관리 정담당자' }
+          ]
+        }
+      ]
+    });
+  }
+
+  if (path === '/api/notifications/summary') {
+    return json({ unreadCount: 1, blockingCount: 0 });
+  }
+
+  if (path === '/api/notifications') {
+    return json({
+      items: [
+        {
+          notificationId: '77000000-0000-0000-0000-000000000001',
+          projectId,
+          projectTitle: 'TASK-003A Demo',
+          projectCode: 'PJT-003A',
+          projectItem: 'UL67',
+          notificationType: 'Reference',
+          notificationTypeLabel: '참조',
+          severity: 'Info',
+          severityLabel: '정보',
+          title: '프로젝트가 생성되었습니다.',
+          message: 'TASK-003A Demo 프로젝트가 생성되었습니다.',
+          linkUrl: `/projects/${projectId}`,
+          createdAtUtc: '2026-06-25T00:00:00Z',
+          readAtUtc: null
+        }
+      ]
+    });
+  }
+
   if (path === '/api/projects' && init?.method === 'POST') {
     const body = JSON.parse(String(init.body)) as { projectTitle: string };
     if (body.projectTitle.toLowerCase().includes('duplicate')) {
@@ -1009,8 +1190,16 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(projectDetail(canReadSalesAmount(userKey), 'Active', 'TASK-003A Demo'));
   }
 
+  if (path === `/api/projects/${projectId}/workflow`) {
+    return json(projectWorkflowResponse(projectId));
+  }
+
   if (path === `/api/projects/${projectId}`) {
     return json(projectDetail(canReadSalesAmount(userKey), 'Active', 'TASK-003A Demo'));
+  }
+
+  if (path === `/api/projects/${onHoldProjectId}/workflow`) {
+    return json(projectWorkflowResponse(onHoldProjectId));
   }
 
   if (path === `/api/projects/${onHoldProjectId}`) {
@@ -1161,6 +1350,18 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }));
   }
 
+  if (path === '/api/procurement/settings/required-items' && init?.method === 'PATCH') {
+    return json(procurementRequiredItemSettings(), userKey === 'dev-procurement' ? 200 : 403);
+  }
+
+  if (path === '/api/procurement/settings/required-items') {
+    return json(procurementRequiredItemSettings());
+  }
+
+  if (path.startsWith('/api/procurement/settings/required-items/') && init?.method === 'PATCH') {
+    return json(procurementRequiredItemSettings(), userKey === 'dev-procurement' ? 200 : 403);
+  }
+
   if (path === '/api/materials/receipts' && init?.method === 'PATCH') {
     return json({ items: materialReceiptItems(false) }, userKey === 'dev-procurement' || userKey === 'dev-materials' ? 200 : 403);
   }
@@ -1239,8 +1440,8 @@ function projectListItem(userKey: string, status: 'Active' | 'OnHold' | 'Cancell
     packagingMethod: 'WoodenCrate',
     deliveryLocation: 'Dock A',
     status,
-    projectWorkStatus: status === 'Active' ? 'BeforeManufacturing' : status,
-    projectProgressPercent: status === 'Active' ? 0 : null,
+    projectWorkStatus: status === 'Active' ? 'ProductionPlanning' : status,
+    projectProgressPercent: status === 'Active' ? 6 : null,
     createdAt: '2026-06-25T00:00:00Z',
     updatedAt: '2026-06-25T00:00:00Z'
   };
@@ -1529,6 +1730,38 @@ function canReadSalesAmount(userKey: string) {
   return userKey === 'dev-sales' || userKey === 'dev-admin';
 }
 
+function procurementRequiredItemSettings() {
+  return [
+    {
+      itemCode: 'UL67',
+      activeTemplateId: '93000000-0000-0000-0000-000000000001',
+      activeTemplateVersion: 1,
+      rows: [
+        {
+          templateRowId: '93000000-0000-0000-0000-000000000101',
+          sequenceNumber: 1,
+          itemName: '차단기',
+          isRequired: true,
+          isActive: true
+        },
+        {
+          templateRowId: '93000000-0000-0000-0000-000000000102',
+          sequenceNumber: 2,
+          itemName: '외함',
+          isRequired: true,
+          isActive: true
+        }
+      ]
+    },
+    {
+      itemCode: 'RPP',
+      activeTemplateId: null,
+      activeTemplateVersion: null,
+      rows: []
+    }
+  ];
+}
+
 function procurementResponse() {
   return {
     projectId,
@@ -1602,6 +1835,46 @@ function projectSummaryResponse() {
   };
 }
 
+function projectWorkflowResponse(id = projectId) {
+  return {
+    projectId: id,
+    generatedWorkItemCount: 1,
+    requiredStageCount: 17,
+    completedRequiredStageCount: 1,
+    progressPercent: 6,
+    currentStageCode: 'ProductionPlanning',
+    currentStageName: '생산계획·담당자',
+    currentDepartmentCode: 'production-planning',
+    currentDepartmentLabel: '생산관리',
+    stages: [
+      {
+        stageCode: 'SalesProjectCreated',
+        sequenceNumber: 1,
+        departmentCode: 'sales',
+        departmentLabel: '영업',
+        stageName: '프로젝트 생성',
+        isOptional: false,
+        status: 'Completed',
+        statusLabel: '완료',
+        workItemCount: 0,
+        completedAtUtc: '2026-06-25T00:00:00Z'
+      },
+      {
+        stageCode: 'ProductionPlanning',
+        sequenceNumber: 2,
+        departmentCode: 'production-planning',
+        departmentLabel: '생산관리',
+        stageName: '생산계획·담당자',
+        isOptional: false,
+        status: 'Requested',
+        statusLabel: '내 업무 생성됨',
+        workItemCount: 1,
+        completedAtUtc: null
+      }
+    ]
+  };
+}
+
 function projectExcelPreviewResponse() {
   return {
     fileSha256: 'project-excel-sha',
@@ -1666,7 +1939,7 @@ function productionPlanningProjectListResponse() {
 }
 
 function productionProductTypesResponse() {
-  const codes = ['UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RRP'];
+  const codes = ['UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RPP'];
   return codes.map((code, index) => ({
     productTypeId: `77000000-0000-0000-0000-00000000000${index + 1}`,
     code,
@@ -1741,112 +2014,69 @@ function productionPlanningResponse(status: 'NotPlanned' | 'Planning' | 'Planned
       note: index === 0 ? '입고 확인' : null,
       rowVersion: 0
     })),
-    assignees: [
-      {
-        assigneeId: '77000000-0000-0000-0000-000000000501',
-        responsibilityType: 'Procurement',
-        responsibilityLabel: '구매 담당자',
-        assignedUserId: '50000000-0000-0000-0000-000000000011',
-        assignedUserName: 'Dev Procurement User',
-        note: '구매',
-        rowVersion: 0
-      },
-      {
-        assigneeId: '77000000-0000-0000-0000-000000000502',
-        responsibilityType: 'ProductionPlanning',
-        responsibilityLabel: '생산관리 담당자',
-        assignedUserId: '50000000-0000-0000-0000-000000000003',
-        assignedUserName: 'Dev Production Planning User',
-        note: null,
-        rowVersion: 0
-      },
-      {
-        assigneeId: null,
-        responsibilityType: 'Manufacturing',
-        responsibilityLabel: '제조 담당자',
-        assignedUserId: null,
-        assignedUserName: null,
-        note: null,
-        rowVersion: 0
-      },
-      {
-        assigneeId: null,
-        responsibilityType: 'Quality',
-        responsibilityLabel: '품질 담당자',
-        assignedUserId: null,
-        assignedUserName: null,
-        note: null,
-        rowVersion: 0
-      },
-      {
-        assigneeId: null,
-        responsibilityType: 'Logistics',
-        responsibilityLabel: '물류 담당자',
-        assignedUserId: null,
-        assignedUserName: null,
-        note: null,
-        rowVersion: 0
-      }
-    ],
-    assigneeCandidates: [
-      {
-        responsibilityType: 'Procurement',
-        users: [{ userId: '50000000-0000-0000-0000-000000000011', displayName: 'Dev Procurement User' }]
-      },
-      {
-        responsibilityType: 'ProductionPlanning',
-        users: [{ userId: '50000000-0000-0000-0000-000000000003', displayName: 'Dev Production Planning User' }]
-      },
-      {
-        responsibilityType: 'Manufacturing',
-        users: [{ userId: '50000000-0000-0000-0000-000000000006', displayName: 'Dev Manufacturing User' }]
-      },
-      {
-        responsibilityType: 'Quality',
-        users: [{ userId: '50000000-0000-0000-0000-000000000007', displayName: 'Dev Quality User' }]
-      },
-      {
-        responsibilityType: 'Logistics',
-        users: [{ userId: '50000000-0000-0000-0000-000000000008', displayName: 'Dev Logistics User' }]
-      }
-    ],
-    fallbacks: [
-      {
-        responsibilityType: 'Procurement',
-        responsibilityLabel: '구매 담당자',
-        userId: '50000000-0000-0000-0000-000000000011',
-        displayName: 'Dev Procurement User',
-        sourceLabel: '지정 담당자'
-      },
-      {
-        responsibilityType: 'ProductionPlanning',
-        responsibilityLabel: '생산관리 담당자',
-        userId: '50000000-0000-0000-0000-000000000003',
-        displayName: 'Dev Production Planning User',
-        sourceLabel: '지정 담당자'
-      },
-      {
-        responsibilityType: 'Manufacturing',
-        responsibilityLabel: '제조 담당자',
-        userId: salesOwnerId,
-        displayName: 'Dev Sales User',
-        sourceLabel: '영업담당자'
-      },
-      {
-        responsibilityType: 'Quality',
-        responsibilityLabel: '품질 담당자',
-        userId: salesOwnerId,
-        displayName: 'Dev Sales User',
-        sourceLabel: '영업담당자'
-      },
-      {
-        responsibilityType: 'Logistics',
-        responsibilityLabel: '물류 담당자',
-        userId: salesOwnerId,
-        displayName: 'Dev Sales User',
-        sourceLabel: '영업담당자'
-      }
-    ]
+    assignees: responsibilityFixtures().map((item, index) => ({
+      assigneeId: item.assignedUserId ? `77000000-0000-0000-0000-0000000005${String(index + 1).padStart(2, '0')}` : null,
+      responsibilityType: item.responsibilityType,
+      responsibilityLabel: item.responsibilityLabel,
+      assignedUserId: item.assignedUserId,
+      assignedUserName: item.assignedUserName,
+      note: item.assignedUserId ? item.responsibilityLabel : null,
+      rowVersion: 0
+    })),
+    assigneeCandidates: responsibilityFixtures().map((item) => ({
+      responsibilityType: item.responsibilityType,
+      users: item.candidateUserId ? [{ userId: item.candidateUserId, displayName: item.candidateUserName }] : []
+    })),
+    fallbacks: responsibilityFixtures().map((item) => ({
+      responsibilityType: item.responsibilityType,
+      responsibilityLabel: item.responsibilityLabel,
+      userId: item.assignedUserId ?? salesOwnerId,
+      displayName: item.assignedUserName ?? 'Dev Sales User',
+      sourceLabel: item.assignedUserId ? '지정 담당자' : '영업담당자'
+    }))
+  };
+}
+
+function responsibilityFixtures() {
+  return [
+    responsibilityFixture('SalesPrimary', '영업 정', salesOwnerId, 'Dev Sales User'),
+    responsibilityFixture('SalesSecondary', '영업 부', salesOwnerId, 'Dev Sales User'),
+    responsibilityFixture('DesignPrimary', '설계 정', '50000000-0000-0000-0000-000000000010', 'Dev Design User'),
+    responsibilityFixture('DesignSecondary', '설계 부', '50000000-0000-0000-0000-000000000010', 'Dev Design User'),
+    responsibilityFixture('ProductionPlanningPrimary', '생산관리 정', '50000000-0000-0000-0000-000000000003', 'Dev Production Planning User'),
+    responsibilityFixture('ProductionPlanningSecondary', '생산관리 부', '50000000-0000-0000-0000-000000000003', 'Dev Production Planning User'),
+    responsibilityFixture('ProcurementPrimary', '구매 정', '50000000-0000-0000-0000-000000000011', 'Dev Procurement User'),
+    responsibilityFixture('ProcurementSecondary', '구매 부', '50000000-0000-0000-0000-000000000011', 'Dev Procurement User'),
+    responsibilityFixture('MaterialsPrimary', '자재 정', '50000000-0000-0000-0000-000000000012', 'Dev Materials User'),
+    responsibilityFixture('MaterialsSecondary', '자재 부', '50000000-0000-0000-0000-000000000012', 'Dev Materials User'),
+    responsibilityFixture('ManufacturingPrimary', '제조 정', '50000000-0000-0000-0000-000000000004', 'Dev Manufacturing User'),
+    responsibilityFixture('ManufacturingSecondary', '제조 부', '50000000-0000-0000-0000-000000000004', 'Dev Manufacturing User'),
+    responsibilityFixture('LogisticsPrimary', '물류 정', '50000000-0000-0000-0000-000000000006', 'Dev Logistics User'),
+    responsibilityFixture('LogisticsSecondary', '물류 부', '50000000-0000-0000-0000-000000000006', 'Dev Logistics User'),
+    responsibilityFixture('QualityIQC', 'IQC 정', '50000000-0000-0000-0000-000000000005', 'Dev Quality User'),
+    responsibilityFixture('QualityIQCSecondary', 'IQC 부', '50000000-0000-0000-0000-000000000005', 'Dev Quality User'),
+    responsibilityFixture('QualityLQC', 'LQC 정', '50000000-0000-0000-0000-000000000005', 'Dev Quality User'),
+    responsibilityFixture('QualityLQCSecondary', 'LQC 부', '50000000-0000-0000-0000-000000000005', 'Dev Quality User'),
+    responsibilityFixture('QualityOQC', 'OQC 정', '50000000-0000-0000-0000-000000000005', 'Dev Quality User'),
+    responsibilityFixture('QualityOQCSecondary', 'OQC 부', '50000000-0000-0000-0000-000000000005', 'Dev Quality User'),
+    responsibilityFixture('QualityCustomerInspection', '전진검수/FAT 정', '50000000-0000-0000-0000-000000000005', 'Dev Quality User'),
+    responsibilityFixture('QualityCustomerInspectionSecondary', '전진검수/FAT 부', '50000000-0000-0000-0000-000000000005', 'Dev Quality User')
+  ];
+}
+
+function responsibilityFixture(
+  responsibilityType: string,
+  responsibilityLabel: string,
+  userId: string | null,
+  userName: string | null
+) {
+  return {
+    responsibilityType,
+    responsibilityLabel,
+    assignedUserId: userId,
+    assignedUserName: userName,
+    candidateUserId: userId,
+    candidateUserName: userName ?? ''
   };
 }
 

@@ -70,6 +70,59 @@ for migration_file in "${REPO_ROOT}"/database/migrations/*.sql; do
   } | docker exec -i emi-qms-postgres psql -v ON_ERROR_STOP=1 -U "${DATABASE_USER}" -d "${DATABASE_NAME}" >/dev/null
 done
 
+echo "Ensuring manual UAT workflow stage master data..."
+docker exec -i emi-qms-postgres psql -v ON_ERROR_STOP=1 -U "${DATABASE_USER}" -d "${DATABASE_NAME}" >/dev/null <<'SQL'
+update workflow_stages
+set sequence_number = sequence_number + 1000
+where stage_code in (
+    'SalesProjectCreated',
+    'ProductionPlanning',
+    'DesignPanelInfo',
+    'ProcurementInfo',
+    'MaterialArrived',
+    'IQC',
+    'ReceiptConfirmed',
+    'KittingCompleted',
+    'ManufacturingWork',
+    'LQC',
+    'ManufacturingCompleted',
+    'OQC',
+    'CustomerInspection',
+    'FAT',
+    'PackingCompleted',
+    'DepartureProcessed',
+    'DeliveryCompleted',
+    'SalesSettlementCompleted'
+);
+
+insert into workflow_stages (stage_code, sequence_number, department_code, stage_name, is_optional, is_active)
+values
+    ('SalesProjectCreated', 1, 'sales', '프로젝트 생성', false, true),
+    ('ProductionPlanning', 2, 'production-planning', '생산계획·담당자', false, true),
+    ('DesignPanelInfo', 3, 'design', '제품명·사이즈', false, true),
+    ('ProcurementInfo', 4, 'procurement', '구매정보', false, true),
+    ('MaterialArrived', 5, 'materials', '자재 도착', false, true),
+    ('IQC', 6, 'quality', '수입검사', false, true),
+    ('ReceiptConfirmed', 7, 'materials', '입고 확정', false, true),
+    ('KittingCompleted', 8, 'materials', '키팅 완료', false, true),
+    ('ManufacturingWork', 9, 'manufacturing', '제조 작업', false, true),
+    ('LQC', 10, 'quality', 'LQC', false, true),
+    ('ManufacturingCompleted', 11, 'manufacturing', '제조 완료', false, true),
+    ('OQC', 12, 'quality', '자체검수', false, true),
+    ('CustomerInspection', 13, 'quality', '전진검수', false, true),
+    ('FAT', 14, 'quality', 'FAT 선택', true, true),
+    ('PackingCompleted', 15, 'logistics', '포장 완료', false, true),
+    ('DepartureProcessed', 16, 'logistics', '출발 처리', false, true),
+    ('DeliveryCompleted', 17, 'logistics', '납품 완료', false, true),
+    ('SalesSettlementCompleted', 18, 'sales', '세금계산서·완료', false, true)
+on conflict (stage_code) do update
+set sequence_number = excluded.sequence_number,
+    department_code = excluded.department_code,
+    stage_name = excluded.stage_name,
+    is_optional = excluded.is_optional,
+    is_active = excluded.is_active;
+SQL
+
 echo "Ensuring manual UAT production planning schema and master data..."
 docker exec -i emi-qms-postgres psql -U "${DATABASE_USER}" -d "${DATABASE_NAME}" >/dev/null <<'SQL'
 alter table if exists project_production_plan_items
@@ -188,7 +241,7 @@ with product_types(id, code, name) as (
         ('31000000-0000-0000-0000-00000000508a'::uuid, 'UL508A', 'UL508A'),
         ('31000000-0000-0000-0000-0000000001ec'::uuid, 'IEC', 'IEC'),
         ('31000000-0000-0000-0000-000000000112'::uuid, 'LLP', 'LLP'),
-        ('31000000-0000-0000-0000-000000000772'::uuid, 'RRP', 'RRP')
+        ('31000000-0000-0000-0000-000000000772'::uuid, 'RPP', 'RPP')
 )
 insert into production_product_types (id, code, name, is_active)
 select id, code, name, true
@@ -200,7 +253,7 @@ set name = excluded.name,
 with product_types as (
     select id, code
     from production_product_types
-    where code in ('UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RRP')
+    where code in ('UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RPP')
 ),
 template_ids(product_type_code, template_id) as (
     values
@@ -209,7 +262,7 @@ template_ids(product_type_code, template_id) as (
         ('UL508A', '32000000-0000-0000-0000-00000000508a'::uuid),
         ('IEC', '32000000-0000-0000-0000-0000000001ec'::uuid),
         ('LLP', '32000000-0000-0000-0000-000000000112'::uuid),
-        ('RRP', '32000000-0000-0000-0000-000000000772'::uuid)
+        ('RPP', '32000000-0000-0000-0000-000000000772'::uuid)
 )
 insert into production_plan_templates (id, product_type_id, version, is_active)
 select template_ids.template_id, product_types.id, 1, true

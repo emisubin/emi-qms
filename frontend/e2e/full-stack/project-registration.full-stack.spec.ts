@@ -2,7 +2,32 @@ import { execFileSync } from 'node:child_process';
 import { expect, type APIRequestContext, type Page, test } from '@playwright/test';
 
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
-const apiBaseUrl = 'http://127.0.0.1:5081';
+const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
+
+type ProductionPlanItemResponse = {
+  itemId: string;
+  templateStepId: string | null;
+  stepName: string;
+  sequenceNumber: number;
+  isRequired: boolean;
+  rowVersion: number;
+  plannedDate: string | null;
+  note: string | null;
+};
+
+type ProjectAssigneeResponse = {
+  responsibilityType: string;
+  assigneeId: string | null;
+  rowVersion: number;
+};
+
+type ProductionPlanningResponse = {
+  productTypeId: string | null;
+  rowVersion: number;
+  notes: string | null;
+  items: ProductionPlanItemResponse[];
+  assignees: ProjectAssigneeResponse[];
+};
 
 test('TASK-003B-1 A: read/detail split keeps detail fixed and edit page accepts duplicate names', async ({ page, request }) => {
   const unique = Date.now();
@@ -349,8 +374,8 @@ test('TASK-003B-1 UX: project list has all tab, sticky header, workflow status, 
   await expect(projectTable).toContainText(completedTitle);
   await expect(projectTable).toContainText(cancelledTitle);
   await expect(projectTable).not.toContainText(deletedTitle);
-  await expect(projectTable).toContainText('제조 중');
-  await expect(projectTable).toContainText('10%');
+  await expect(projectTable).toContainText('생산관리');
+  await expect(projectTable).toContainText('6%');
   await expect(projectTable).not.toContainText('ManufacturingInProgress');
   await expect(projectTable).not.toContainText('13/26');
 
@@ -395,8 +420,8 @@ test('TASK-003B-1 UX: project list has all tab, sticky header, workflow status, 
   await expect(mobileCard).toContainText('납기일');
   await expect(mobileCard).toContainText('상태');
   await expect(mobileCard).toContainText('진행률');
-  await expect(mobileCard).toContainText('제조 중');
-  await expect(mobileCard).toContainText('10%');
+  await expect(mobileCard).toContainText('생산관리');
+  await expect(mobileCard).toContainText('6%');
 });
 
 test('TASK-004A project Excel import creates projects and panels', async ({ page }, testInfo) => {
@@ -441,9 +466,19 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await expect(page.getByTestId('project-context-summary')).toContainText(`FS-4A-DIRECT-${unique}`);
   await expect(page.getByTestId('project-context-summary')).toContainText('2026-10-10');
   await expect(page.getByRole('table', { name: '구매정보 수정' })).toBeVisible();
-  await page.getByRole('button', { name: '행 추가' }).click();
   const editTable = page.getByRole('table', { name: '구매정보 수정' });
-  const editInputs = editTable.locator('input');
+  const editRows = editTable.locator('.procurement-table-row.editable');
+  const initialEditRowCount = await editRows.count();
+  await page.getByRole('button', { name: '행 추가' }).click();
+  try {
+    await expect.poll(async () => editRows.count(), { timeout: 5_000 }).toBeGreaterThan(initialEditRowCount);
+  } catch {
+    await page.getByRole('button', { name: '행 추가' }).click();
+    await expect.poll(async () => editRows.count(), { timeout: 10_000 }).toBeGreaterThan(initialEditRowCount);
+  }
+  const editRow = editRows.nth(initialEditRowCount);
+  await expect(editRow.locator('input').first()).toBeVisible({ timeout: 15_000 });
+  const editInputs = editRow.locator('input');
   await editInputs.nth(0).fill('4W');
   await editInputs.nth(4).fill('2026-07-10');
   await page.getByRole('button', { name: '저장' }).click();
@@ -648,22 +683,44 @@ test('TASK-005A production planning page, project section, edit, permissions, an
   await expect(expandedPlan.getByRole('button', { name: '생산계획 수정' })).toBeVisible();
   await expect(expandedPlan).toContainText('Item');
   await expect(expandedPlan).toContainText('계획 상태');
-  await expect(expandedPlan).toContainText('알림 기준');
-  await expect(expandedPlan).toContainText('등록된 생산계획 항목이 없습니다.');
+  await expect(expandedPlan).not.toContainText('알림 기준');
+  await expect(expandedPlan).not.toContainText('fallback');
+  await expect(expandedPlan.getByLabel('품질 담당자')).toContainText('IQC 수입검사');
+  await expect(expandedPlan.getByLabel('품질 담당자')).toContainText('전진검수/FAT');
+  await expect(expandedPlan).toContainText('자재 입고');
   await expect(expandedPlan.getByRole('table', { name: '생산계획 캘린더 표' })).toHaveCount(0);
 
   await expandedPlan.getByRole('button', { name: '생산계획 수정' }).click();
   await expect(page.getByTestId('project-context-summary')).toContainText(projectTitle);
   await expect(page.getByRole('heading', { name: '생산계획 수정' })).toBeVisible();
-  await expect(page.getByRole('table', { name: '생산계획 수정' })).toContainText('자재 입고');
+  await expect(page.getByText('부서별 담당자')).toBeVisible();
+  await expect(page.getByText('품질 검사 담당자')).toBeVisible();
+  const assigneeEditSection = page.locator('section.subsection').filter({ has: page.getByRole('heading', { name: '프로젝트 담당자 지정' }) });
+  await expect(assigneeEditSection).not.toContainText('비고');
+  await expect(assigneeEditSection).not.toContainText('fallback');
+  await expect(assigneeEditSection).not.toContainText('알림 기준');
+  await expect(page.getByRole('heading', { name: '영업' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '설계' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '생산관리' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '구매' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '자재' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '제조' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '물류' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'IQC 수입검사' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'LQC' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'OQC 자체검수' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '전진검수/FAT' })).toBeVisible();
+  await expect(page.getByLabel('영업 담당자 지정')).toHaveAttribute('data-tone', 'sales');
+  await expect(page.getByLabel('품질 검사 담당자').locator('[data-tone="quality"]')).toHaveCount(4);
   const planEditTable = page.getByRole('table', { name: '생산계획 수정' });
+  await expect(planEditTable.locator('input[name="items[0].stepName"]')).toHaveValue('자재 입고');
   await expect(planEditTable).not.toContainText('No');
   await planEditTable.locator('input[type="date"]').nth(0).fill('2026-07-01');
-  await planEditTable.locator('input[type="date"]').nth(1).fill('2026-07-02');
-  await planEditTable.locator('input[type="date"]').nth(2).fill('2026-07-03');
-  await planEditTable.locator('input[type="date"]').nth(3).fill('2026-07-04');
-  await page.getByLabel('구매 담당자').selectOption('50000000-0000-0000-0000-000000000011');
-  await page.getByLabel('생산관리 담당자').selectOption('50000000-0000-0000-0000-000000000003');
+  await planEditTable.locator('input[type="date"]').nth(1).fill('2026-07-15');
+  await planEditTable.locator('input[type="date"]').nth(2).fill('2026-07-31');
+  await planEditTable.locator('input[type="date"]').nth(3).fill('2026-08-15');
+  await page.getByLabel('구매 정').selectOption('50000000-0000-0000-0000-000000000011');
+  await page.getByLabel('생산관리 정').selectOption('50000000-0000-0000-0000-000000000003');
   await page.getByRole('button', { name: '저장' }).click();
   await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
   await expect(page.getByRole('tab', { name: '생산관리' })).toHaveAttribute('aria-selected', 'true');
@@ -671,10 +728,50 @@ test('TASK-005A production planning page, project section, edit, permissions, an
   const planItemsTable = page.getByRole('table', { name: '생산계획 항목' });
   await expect(planItemsTable).not.toContainText('No');
   const calendarTable = page.getByRole('table', { name: '생산계획 캘린더 표' });
-  await expect(calendarTable.getByRole('columnheader', { name: /7\/3/ })).toHaveClass(/calendar-red-day/);
+  await expect(calendarTable.getByRole('columnheader', { name: /^7\/3\b/ })).toHaveClass(/calendar-red-day/);
   await expect(page.getByText('공식 대체공휴일')).toBeVisible();
+  const calendarWrap = page.locator('.production-calendar-table-wrap').first();
+  const stageHeader = calendarTable.locator('thead th.production-calendar-stage-cell');
+  const stageCell = calendarTable.locator('tbody th.production-calendar-stage-cell').first();
+  const dateCell = calendarTable.locator('thead th.production-calendar-date-cell').nth(10);
+  const beforeSticky = {
+    header: await stageHeader.boundingBox(),
+    cell: await stageCell.boundingBox(),
+    date: await dateCell.boundingBox()
+  };
+  await calendarWrap.evaluate((element) => {
+    element.scrollLeft = 520;
+  });
+  await page.waitForTimeout(100);
+  const afterSticky = {
+    header: await stageHeader.boundingBox(),
+    cell: await stageCell.boundingBox(),
+    date: await dateCell.boundingBox()
+  };
+  expect(beforeSticky.header).not.toBeNull();
+  expect(beforeSticky.cell).not.toBeNull();
+  expect(beforeSticky.date).not.toBeNull();
+  expect(afterSticky.header).not.toBeNull();
+  expect(afterSticky.cell).not.toBeNull();
+  expect(afterSticky.date).not.toBeNull();
+  expect(Math.abs(afterSticky.header!.x - beforeSticky.header!.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs(afterSticky.cell!.x - beforeSticky.cell!.x)).toBeLessThanOrEqual(2);
+  expect(afterSticky.date!.x).toBeLessThan(beforeSticky.date!.x - 100);
+  const calendarWidths = await calendarTable.evaluate((table) => {
+    const dateHeaders = Array.from(table.querySelectorAll('thead th.production-calendar-date-cell')).slice(0, 8);
+    return {
+      stageHeaderWidth: table.querySelector('thead th.production-calendar-stage-cell')?.getBoundingClientRect().width ?? 0,
+      stageCellWidth: table.querySelector('tbody th.production-calendar-stage-cell')?.getBoundingClientRect().width ?? 0,
+      dateWidths: dateHeaders.map((cell) => Math.round(cell.getBoundingClientRect().width)),
+      pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+    };
+  });
+  expect(Math.abs(calendarWidths.stageHeaderWidth - calendarWidths.stageCellWidth)).toBeLessThanOrEqual(1);
+  expect(new Set(calendarWidths.dateWidths).size).toBe(1);
+  expect(calendarWidths.pageOverflow).toBeFalsy();
   await expect(page.getByLabel('담당자 지정 현황')).toContainText('Dev Procurement User');
-  await expect(page.getByLabel('담당자 지정 현황')).toContainText('영업담당자');
+  await expect(page.getByLabel('영업 담당자')).toContainText('정');
+  await expect(page.getByLabel('영업 담당자')).toContainText('부');
   expect(await queryDatabaseValue(`select count(*)::text from project_production_plan_items where production_plan_id = (select id from project_production_plans where project_id = '${projectId}') and planned_date is not null;`)).toBe('4');
 
   const salesForbidden = await request.patch(`${apiBaseUrl}/api/projects/${projectId}/production-planning`, {
@@ -704,6 +801,137 @@ test('TASK-005A production planning page, project section, edit, permissions, an
   await page.getByRole('button', { name: '검색' }).click();
   await expect(page.locator('.production-planning-mobile .procurement-project-card').filter({ hasText: projectTitle })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+});
+
+test('TASK-006A UAT regression: my-work data, procurement settings route, and workflow order are wired', async ({ page, request }) => {
+  const unique = Date.now();
+  const projectTitle = `TASK 006A UAT Regression ${unique}`;
+  const projectCode = `FS-6A-UAT-${unique}`;
+  const projectId = await createProjectByApi(request, projectCode, projectTitle, 'WoodenCrate', 1);
+  await queryDatabaseValue(`
+    insert into project_assignees (project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc)
+    values ('${projectId}', 'SalesPrimary', '${salesOwnerId}', '${salesOwnerId}', now())
+    on conflict (project_id, responsibility_type) do update
+    set assigned_user_id = excluded.assigned_user_id,
+        assigned_by_user_id = excluded.assigned_by_user_id,
+        assigned_at_utc = excluded.assigned_at_utc;
+    select 'ok';
+  `);
+
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-sales');
+  await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '내 업무' }).click();
+  await expect(page.getByRole('heading', { name: '내 업무' })).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        page
+          .locator('.workflow-kpi-grid .dashboard-kpi-card strong')
+          .evaluateAll((elements) => elements.map((element) => element.textContent?.trim() ?? '')),
+      { timeout: 15_000 },
+    )
+    .not.toContain('-');
+  const kpiValues = await page.locator('.workflow-kpi-grid .dashboard-kpi-card strong').evaluateAll((elements) => elements.map((element) => element.textContent?.trim() ?? ''));
+  expect(kpiValues).not.toContain('-');
+  expect(kpiValues.every((value) => /^\d+$/.test(value))).toBeTruthy();
+  await expect(page.locator('.workflow-kpi-grid')).toContainText('담당 프로젝트');
+
+  await page.getByRole('button', { name: '담당 프로젝트' }).click();
+  await expect(page.getByText('대상을 찾을 수 없습니다.')).toHaveCount(0);
+  await expect(page.locator('.workflow-project-group').filter({ hasText: projectTitle })).toBeVisible();
+  await expect(page.locator('.workflow-project-group').filter({ hasText: projectTitle })).toContainText('영업 정');
+
+  await page.goto(`/projects/${projectId}`);
+  const workflowStages = page.locator('.workflow-stage-item');
+  await expect(workflowStages.nth(0)).toContainText('영업 / 프로젝트 생성');
+  await expect(workflowStages.nth(1)).toContainText('생산관리 / 생산계획·담당자');
+  await expect(workflowStages.nth(2)).toContainText('설계 / 제품명·사이즈');
+
+  const planResponse = await request.get(`${apiBaseUrl}/api/projects/${projectId}/production-planning`, {
+    headers: { 'X-Dev-User': 'dev-production' }
+  });
+  expect(planResponse.ok()).toBeTruthy();
+  const plan = await planResponse.json() as ProductionPlanningResponse;
+  const saveAssignees = async () => {
+    const currentResponse = await request.get(`${apiBaseUrl}/api/projects/${projectId}/production-planning`, {
+      headers: { 'X-Dev-User': 'dev-production' }
+    });
+    const current = await currentResponse.json() as ProductionPlanningResponse;
+    const designAssignee = current.assignees.find((item) => item.responsibilityType === 'DesignPrimary');
+    const procurementAssignee = current.assignees.find((item) => item.responsibilityType === 'ProcurementPrimary');
+    const patch = await request.patch(`${apiBaseUrl}/api/projects/${projectId}/production-planning`, {
+      headers: { 'X-Dev-User': 'dev-production' },
+      data: {
+        productTypeId: current.productTypeId,
+        expectedRowVersion: current.rowVersion,
+        notes: current.notes,
+        reason: 'E2E 확장 담당자 지정',
+        items: current.items.map((item) => ({
+          itemId: item.itemId,
+          templateStepId: item.templateStepId,
+          stepName: item.stepName,
+          sequenceNumber: item.sequenceNumber,
+          isRequired: item.isRequired,
+          expectedRowVersion: item.rowVersion,
+          plannedDate: item.plannedDate,
+          note: item.note,
+          isDeleted: false
+        })),
+        assignees: [
+          {
+            responsibilityType: 'DesignPrimary',
+            assigneeId: designAssignee?.assigneeId ?? null,
+            expectedRowVersion: designAssignee?.rowVersion ?? 0,
+            assignedUserId: '50000000-0000-0000-0000-000000000010',
+            note: 'E2E 설계'
+          },
+          {
+            responsibilityType: 'ProcurementPrimary',
+            assigneeId: procurementAssignee?.assigneeId ?? null,
+            expectedRowVersion: procurementAssignee?.rowVersion ?? 0,
+            assignedUserId: '50000000-0000-0000-0000-000000000011',
+            note: 'E2E 구매'
+          }
+        ]
+      }
+    });
+    expect(patch.ok()).toBeTruthy();
+  };
+  expect(plan.assignees.map((item) => item.responsibilityType)).toContain('DesignPrimary');
+  await saveAssignees();
+  const workCountAfterFirstSave = await queryDatabaseValue(`select count(*)::text from work_items where project_id = '${projectId}' and workflow_stage_code in ('DesignPanelInfo','ProcurementInfo');`);
+  await saveAssignees();
+  expect(await queryDatabaseValue(`select count(*)::text from work_items where project_id = '${projectId}' and workflow_stage_code in ('DesignPanelInfo','ProcurementInfo');`)).toBe(workCountAfterFirstSave);
+
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-design');
+  await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '내 업무' }).click();
+  await expect(page.locator('.workflow-project-group').filter({ hasText: projectTitle })).toContainText('제품명, 사이즈 입력');
+
+  await page.getByLabel('개발 사용자').selectOption('dev-procurement');
+  await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '내 업무' }).click();
+  await expect(page.locator('.workflow-project-group').filter({ hasText: projectTitle })).toContainText('구매정보 입력');
+
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-procurement');
+  await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '구매' }).click();
+  await expect(page.getByRole('heading', { name: '구매' })).toBeVisible();
+  await page.getByRole('button', { name: '구매 필수 항목 설정' }).click();
+  await expect(page.getByText('대상을 찾을 수 없습니다.')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '구매 필수 항목 설정' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'UL67' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'TEST-TYPE' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '행 추가' })).toBeVisible();
+
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-sales');
+  await page.getByRole('button', { name: '신규 프로젝트' }).click();
+  await expect(page.getByLabel('Item*').locator('option')).toHaveText(['Item 선택', 'UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RPP']);
+
+  await page.getByLabel('개발 사용자').selectOption('dev-production');
+  await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '생산관리' }).click();
+  await page.getByRole('button', { name: '생산계획 단계 설정' }).click();
+  await expect(page.getByRole('tab', { name: 'TEST-TYPE' })).toHaveCount(0);
 });
 
 test('TASK-003B D: unauthorized and held projects block panel information writes', async ({ page, request }) => {

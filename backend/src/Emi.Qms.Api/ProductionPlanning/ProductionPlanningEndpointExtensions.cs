@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.Workflow;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Emi.Qms.Api.ProductionPlanning;
@@ -224,6 +225,7 @@ public static class ProductionPlanningEndpointExtensions
             UpdateProductionPlanningRequest request,
             ProjectStore projectStore,
             ProductionPlanningStore store,
+            WorkflowStore workflowStore,
             ClaimsPrincipal user,
             HttpContext httpContext,
             CancellationToken cancellationToken) =>
@@ -246,6 +248,25 @@ public static class ProductionPlanningEndpointExtensions
                 userId.Value,
                 httpContext.TraceIdentifier,
                 cancellationToken);
+
+            if (result.Status == ProductionPlanningMutationStatus.Success && result.Value is not null)
+            {
+                await workflowStore.CompleteStageAsync(
+                    projectId,
+                    WorkflowStageCodes.ProductionPlanning,
+                    "ProductionPlan",
+                    result.Value.PlanId,
+                    userId.Value,
+                    httpContext.TraceIdentifier,
+                    "생산계획 저장 완료",
+                    cancellationToken);
+                await workflowStore.GenerateProductionPlanningAssigneeFollowUpsAsync(
+                    projectId,
+                    userId.Value,
+                    httpContext.TraceIdentifier,
+                    cancellationToken);
+            }
+
             return ToResult(result, Results.Ok);
         })
         .RequireAuthorization(QmsPolicies.ProductionPlanUpdate)

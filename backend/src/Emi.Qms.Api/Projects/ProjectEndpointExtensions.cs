@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.PanelInformation;
+using Emi.Qms.Api.Workflow;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Emi.Qms.Api.Projects;
@@ -181,6 +182,7 @@ public static class ProjectEndpointExtensions
         api.MapPost("/projects", async (
             CreateProjectRequest request,
             ProjectStore projectStore,
+            WorkflowStore workflowStore,
             ClaimsPrincipal user,
             HttpContext httpContext,
             CancellationToken cancellationToken) =>
@@ -211,6 +213,19 @@ public static class ProjectEndpointExtensions
                 httpContext.TraceIdentifier,
                 CanReadSalesAmount(user),
                 cancellationToken);
+
+            if (result.Status == ProjectMutationStatus.Success && result.Value is not null)
+            {
+                await workflowStore.CompleteStageAsync(
+                    result.Value.ProjectId,
+                    WorkflowStageCodes.SalesProjectCreated,
+                    "Project",
+                    result.Value.ProjectId,
+                    userId.Value,
+                    httpContext.TraceIdentifier,
+                    "프로젝트 생성 완료",
+                    cancellationToken);
+            }
 
             return ToProjectMutationResult(result, value => Results.Created($"/api/projects/{value.ProjectId}", value));
         })

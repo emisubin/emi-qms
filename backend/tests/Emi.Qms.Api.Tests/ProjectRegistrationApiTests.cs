@@ -54,6 +54,22 @@ public sealed class ProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task ProjectRegistration_RejectsNonCanonicalItemEvenWhenSeededForTests()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/projects",
+            NewProjectRequest("TASK-ITEM-CANON", "Canonical Item Guard") with { Item = "TEST-TYPE" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var json = await ReadJsonAsync(response);
+        Assert.Contains("Item", json.RootElement.GetProperty("errors").EnumerateObject().Select(item => item.Name));
+    }
+
+    [Fact]
     public async Task ProjectDetail_SummarizesWorkflowStagesAndQrEligibleOverActivePanels()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
@@ -199,13 +215,49 @@ public sealed class ProjectRegistrationApiTests
         using var client = context.CreateClient("dev-sales");
         var unique = Guid.NewGuid().ToString("N")[..8];
 
-        await AssertProjectWorkStatusAsync(context, client, unique, "Before", ["BeforeManufacturing", "BeforeManufacturing"], "BeforeManufacturing", 0);
-        await AssertProjectWorkStatusAsync(context, client, unique, "ManufacturingProgress", ["ManufacturingInProgress", "BeforeManufacturing"], "ManufacturingInProgress", 10);
-        await AssertProjectWorkStatusAsync(context, client, unique, "ManufacturingDone", ["ManufacturingCompleted", "ManufacturingCompleted"], "ManufacturingCompleted", 40);
-        await AssertProjectWorkStatusAsync(context, client, unique, "InspectionProgress", ["InspectionInProgress", "ManufacturingCompleted"], "InspectionInProgress", 50);
-        await AssertProjectWorkStatusAsync(context, client, unique, "InspectionDone", ["InspectionCompleted", "InspectionCompleted"], "InspectionCompleted", 75);
-        await AssertProjectWorkStatusAsync(context, client, unique, "ShipmentReady", ["PackingCompleted", "InspectionCompleted"], "ReadyForShipment", 83);
-        await AssertProjectWorkStatusAsync(context, client, unique, "ShipmentDone", ["ShipmentCompleted", "ShipmentCompleted"], "ShipmentCompleted", 100);
+        var workflowTitle = $"Work Workflow {unique}";
+        var workflowProjectId = await CreateProjectAndReadIdAsync(client, $"WORK-WF-{unique}", workflowTitle);
+        var createdWorkflowProject = await ReadSingleProjectListItemAsync(client, workflowTitle);
+        Assert.Equal("ProductionPlanning", createdWorkflowProject.GetProperty("projectWorkStatus").GetString());
+        Assert.Equal(6, createdWorkflowProject.GetProperty("projectProgressPercent").GetInt32());
+
+        await CompleteProductionPlanningStageAsync(context, workflowProjectId);
+        var productionPlanningCompleted = await ReadSingleProjectListItemAsync(client, workflowTitle);
+        Assert.Equal("DesignPanelInfo", productionPlanningCompleted.GetProperty("projectWorkStatus").GetString());
+        Assert.Equal(12, productionPlanningCompleted.GetProperty("projectProgressPercent").GetInt32());
+
+        await context.ExecuteSqlAsync($"""
+            update panel_placeholders
+            set panel_name = 'Panel-' || sequence_number,
+                width_mm = 100,
+                height_mm = 100,
+                depth_mm = 100,
+                panel_info_completed = true
+            where project_id = '{workflowProjectId}';
+            """);
+        var designCompleted = await ReadSingleProjectListItemAsync(client, workflowTitle);
+        Assert.Equal("ProcurementInfo", designCompleted.GetProperty("projectWorkStatus").GetString());
+        Assert.Equal(18, designCompleted.GetProperty("projectProgressPercent").GetInt32());
+
+        await context.ExecuteSqlAsync($"""
+            insert into project_procurement_items (
+                project_id,
+                sequence_number,
+                source_project_text,
+                source_project_code_text,
+                order_item
+            )
+            values (
+                '{workflowProjectId}',
+                1,
+                '{workflowTitle}',
+                'WORK-WF-{unique}',
+                '차단기'
+            );
+            """);
+        var procurementCompleted = await ReadSingleProjectListItemAsync(client, workflowTitle);
+        Assert.Equal("MaterialArrived", procurementCompleted.GetProperty("projectWorkStatus").GetString());
+        Assert.Equal(24, procurementCompleted.GetProperty("projectProgressPercent").GetInt32());
 
         var heldId = await CreateProjectAndReadIdAsync(client, $"WORK-HOLD-{unique}", $"Work Hold {unique}");
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(
@@ -228,21 +280,21 @@ public sealed class ProjectRegistrationApiTests
         var completed = await ReadSingleProjectListItemAsync(client, $"Work Complete {unique}");
         Assert.Equal("Completed", completed.GetProperty("projectWorkStatus").GetString());
 
-        var excludedCancelledId = await CreateProjectAndReadIdAsync(client, $"WORK-ACTIVE-ONLY-{unique}", $"Work Active Only {unique}");
+        var activePanelCountId = await CreateProjectAndReadIdAsync(client, $"WORK-ACTIVE-ONLY-{unique}", $"Work Active Only {unique}");
         await context.ExecuteSqlAsync($"""
             update panel_placeholders
-            set workflow_stage = case sequence_number when 1 then 'InspectionCompleted' else 'ShipmentCompleted' end,
-                status = case sequence_number when 1 then 'Active' else 'Cancelled' end
-            where project_id = '{excludedCancelledId}';
+            set status = case sequence_number when 1 then 'Active' else 'Cancelled' end
+            where project_id = '{activePanelCountId}';
             """);
         var activeOnly = await ReadSingleProjectListItemAsync(client, $"Work Active Only {unique}");
         Assert.Equal(1, activeOnly.GetProperty("activePanelCount").GetInt32());
-        Assert.Equal(75, activeOnly.GetProperty("projectProgressPercent").GetInt32());
+        Assert.Equal("ProductionPlanning", activeOnly.GetProperty("projectWorkStatus").GetString());
 
-        await context.ExecuteSqlAsync($"update panel_placeholders set status = 'Cancelled' where project_id = '{excludedCancelledId}';");
+        await context.ExecuteSqlAsync($"update panel_placeholders set status = 'Cancelled' where project_id = '{activePanelCountId}';");
         var noActivePanels = await ReadSingleProjectListItemAsync(client, $"Work Active Only {unique}");
         Assert.Equal(0, noActivePanels.GetProperty("activePanelCount").GetInt32());
-        Assert.Equal(JsonValueKind.Null, noActivePanels.GetProperty("projectProgressPercent").ValueKind);
+        Assert.Equal("ProductionPlanning", noActivePanels.GetProperty("projectWorkStatus").GetString());
+        Assert.Equal(6, noActivePanels.GetProperty("projectProgressPercent").GetInt32());
     }
 
     [Fact]
@@ -1594,6 +1646,90 @@ public sealed class ProjectRegistrationApiTests
         var titles = json.RootElement.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("projectTitle").GetString()).ToList();
         Assert.Single(titles);
         Assert.Equal(expectedTitle, titles[0]);
+    }
+
+    private static async Task CompleteProductionPlanningStageAsync(ProjectApiTestContext context, Guid projectId)
+    {
+        await context.ExecuteSqlAsync($"""
+            with active_template as (
+                select product_types.id as product_type_id,
+                       templates.id as template_id
+                from production_product_types product_types
+                join production_plan_templates templates on templates.product_type_id = product_types.id
+                where product_types.code = 'UL67'
+                  and product_types.is_active = true
+                  and templates.is_active = true
+                limit 1
+            ),
+            created_plan as (
+                insert into project_production_plans (
+                    project_id,
+                    product_type_id,
+                    template_id,
+                    created_by_user_id,
+                    updated_by_user_id
+                )
+                select '{projectId}',
+                       active_template.product_type_id,
+                       active_template.template_id,
+                       '{SalesOwnerUserId}',
+                       '{SalesOwnerUserId}'
+                from active_template
+                on conflict (project_id) do update
+                set product_type_id = excluded.product_type_id,
+                    template_id = excluded.template_id,
+                    updated_by_user_id = excluded.updated_by_user_id,
+                    updated_at_utc = now()
+                returning id, template_id
+            )
+            insert into project_production_plan_items (
+                production_plan_id,
+                template_step_id,
+                sequence_number,
+                step_name_snapshot,
+                is_required,
+                is_active,
+                planned_date
+            )
+            select created_plan.id,
+                   steps.id,
+                   steps.sequence_number,
+                   steps.step_name,
+                   steps.is_required,
+                   true,
+                   date '2026-07-01' + (steps.sequence_number - 1)
+            from created_plan
+            join production_plan_template_steps steps on steps.template_id = created_plan.template_id
+            where steps.is_active = true
+            on conflict (production_plan_id, sequence_number) do update
+            set planned_date = excluded.planned_date,
+                is_active = true,
+                updated_at_utc = now();
+
+            insert into project_assignees (
+                project_id,
+                responsibility_type,
+                assigned_user_id,
+                assigned_by_user_id,
+                assigned_at_utc
+            )
+            select '{projectId}',
+                   responsibility_type,
+                   '{SalesOwnerUserId}',
+                   '{SalesOwnerUserId}',
+                   now()
+            from (values
+                ('Procurement'),
+                ('ProductionPlanning'),
+                ('Manufacturing'),
+                ('Quality'),
+                ('Logistics')
+            ) as responsibilities(responsibility_type)
+            on conflict (project_id, responsibility_type) do update
+            set assigned_user_id = excluded.assigned_user_id,
+                assigned_by_user_id = excluded.assigned_by_user_id,
+                assigned_at_utc = excluded.assigned_at_utc;
+            """);
     }
 
     private static async Task AssertProjectWorkStatusAsync(

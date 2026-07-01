@@ -3,6 +3,7 @@ using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.Workflow;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Emi.Qms.Api.Procurement;
@@ -37,6 +38,7 @@ public static class ProcurementEndpointExtensions
             ProcurementBulkUpdateRequest request,
             ProjectStore projectStore,
             ProcurementStore procurementStore,
+            WorkflowStore workflowStore,
             ClaimsPrincipal user,
             HttpContext httpContext,
             CancellationToken cancellationToken) =>
@@ -59,6 +61,19 @@ public static class ProcurementEndpointExtensions
                 userId.Value,
                 httpContext.TraceIdentifier,
                 cancellationToken);
+
+            if (result.Status == ProcurementMutationStatus.Success && result.Value is not null)
+            {
+                await workflowStore.CompleteStageAsync(
+                    projectId,
+                    WorkflowStageCodes.ProcurementInfo,
+                    "Project",
+                    projectId,
+                    userId.Value,
+                    httpContext.TraceIdentifier,
+                    "구매정보 저장 완료",
+                    cancellationToken);
+            }
 
             return ToResult(result, Results.Ok);
         })
@@ -171,6 +186,37 @@ public static class ProcurementEndpointExtensions
         })
         .RequireAuthorization(QmsPolicies.ProcurementPlanUpdate)
         .WithName("DownloadProcurementDashboardExcelTemplate");
+
+        app.MapGet("/api/procurement/settings/required-items", async (
+            ProcurementStore procurementStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            return HasPermission(user, QmsPermissions.ProjectRead)
+                ? Results.Ok(await procurementStore.ListRequiredItemSettingsAsync(cancellationToken))
+                : Results.Forbid();
+        })
+        .RequireAuthorization()
+        .WithName("ListProcurementRequiredItemSettings");
+
+        app.MapPatch("/api/procurement/settings/required-items/{itemCode}", async (
+            string itemCode,
+            UpdateProcurementRequiredItemSettingsRequest request,
+            ProcurementStore procurementStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await procurementStore.UpdateRequiredItemSettingsAsync(itemCode, request, userId.Value, cancellationToken);
+            return ToResult(result, Results.Ok);
+        })
+        .RequireAuthorization(QmsPolicies.ProcurementPlanUpdate)
+        .WithName("UpdateProcurementRequiredItemSettings");
 
         app.MapGet("/api/procurement/dashboard", async (
             HttpRequest request,

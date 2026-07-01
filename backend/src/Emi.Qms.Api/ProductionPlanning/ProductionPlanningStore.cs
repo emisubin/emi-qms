@@ -250,23 +250,20 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             return ProductionPlanningMutationResult<IReadOnlyList<ProductionTemplateSettingsResponse>>.NotFound();
         }
 
-        var nextVersion = productType.ActiveTemplateVersion + 1;
-        var newTemplateId = Guid.NewGuid();
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
             command.CommandText = """
                 update production_plan_templates
-                set is_active = false
-                where product_type_id = @product_type_id
-                  and is_active = true;
+                set is_active = true
+                where id = @template_id;
 
-                insert into production_plan_templates (id, product_type_id, version, is_active)
-                values (@template_id, @product_type_id, @version, true);
+                update production_plan_template_steps
+                set is_active = false
+                where template_id = @template_id;
                 """;
             command.Parameters.AddWithValue("product_type_id", productTypeId);
-            command.Parameters.AddWithValue("template_id", newTemplateId);
-            command.Parameters.AddWithValue("version", nextVersion);
+            command.Parameters.AddWithValue("template_id", productType.ActiveTemplateId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -276,9 +273,13 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             command.Transaction = transaction;
             command.CommandText = """
                 insert into production_plan_template_steps (template_id, sequence_number, step_name, is_required, is_active)
-                values (@template_id, @sequence_number, @step_name, @is_required, @is_active);
+                values (@template_id, @sequence_number, @step_name, @is_required, @is_active)
+                on conflict (template_id, sequence_number) do update
+                set step_name = excluded.step_name,
+                    is_required = excluded.is_required,
+                    is_active = excluded.is_active;
                 """;
-            command.Parameters.AddWithValue("template_id", newTemplateId);
+            command.Parameters.AddWithValue("template_id", productType.ActiveTemplateId);
             command.Parameters.AddWithValue("sequence_number", step.SequenceNumber!.Value);
             command.Parameters.AddWithValue("step_name", step.StepName!.Trim());
             command.Parameters.AddWithValue("is_required", step.IsRequired ?? true);
@@ -419,6 +420,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             {
                 requestedTemplateItems.TryGetValue(step.TemplateStepId, out var requestedItem);
                 var current = existing.FirstOrDefault(item => item.TemplateStepId == step.TemplateStepId);
+                var stepName = TrimToNull(requestedItem?.StepName) ?? current?.StepName ?? step.StepName;
+                var isRequired = requestedItem?.IsRequired ?? current?.IsRequired ?? step.IsRequired;
                 var plannedDate = requestedItem?.PlannedDate;
                 var note = TrimToNull(requestedItem?.Note);
                 if (current is null)
@@ -429,10 +432,10 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                     }
 
                     var itemId = Guid.NewGuid();
-                    await InsertTemplatePlanItemAsync(connection, transaction, itemId, planId, step, plannedDate, note, cancellationToken);
+                    await InsertTemplatePlanItemAsync(connection, transaction, itemId, planId, step, stepName, isRequired, plannedDate, note, cancellationToken);
                     if (plannedDate is not null)
                     {
-                        await InsertAuditAsync(connection, transaction, projectId, itemId, "ProductionPlanItem", step.StepName, null, plannedDate.Value.ToString("yyyy-MM-dd"), request.Reason, changedByUserId, correlationId, cancellationToken);
+                        await InsertAuditAsync(connection, transaction, projectId, itemId, "ProductionPlanItem", stepName, null, plannedDate.Value.ToString("yyyy-MM-dd"), request.Reason, changedByUserId, correlationId, cancellationToken);
                     }
                 }
                 else
@@ -442,16 +445,24 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                         return ProductionPlanningMutationResult<ProductionPlanningResponse>.Conflict("다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도해 주세요.");
                     }
 
-                    if (current.PlannedDate != plannedDate || current.Note != note)
+                    if (current.StepName != stepName || current.IsRequired != isRequired || current.PlannedDate != plannedDate || current.Note != note)
                     {
-                        await UpdatePlanItemAsync(connection, transaction, current.ItemId!.Value, plannedDate, note, cancellationToken);
+                        await UpdatePlanItemAsync(connection, transaction, current.ItemId!.Value, stepName, isRequired, plannedDate, note, cancellationToken);
+                        if (current.StepName != stepName)
+                        {
+                            await InsertAuditAsync(connection, transaction, projectId, current.ItemId.Value, "ProductionPlanItem", "계획 항목명", current.StepName, stepName, request.Reason, changedByUserId, correlationId, cancellationToken);
+                        }
+                        if (current.IsRequired != isRequired)
+                        {
+                            await InsertAuditAsync(connection, transaction, projectId, current.ItemId.Value, "ProductionPlanItem", $"{stepName} 필수 여부", current.IsRequired ? "예" : "아니오", isRequired ? "예" : "아니오", request.Reason, changedByUserId, correlationId, cancellationToken);
+                        }
                         if (current.PlannedDate != plannedDate)
                         {
-                            await InsertAuditAsync(connection, transaction, projectId, current.ItemId.Value, "ProductionPlanItem", step.StepName, FormatDate(current.PlannedDate), FormatDate(plannedDate), request.Reason, changedByUserId, correlationId, cancellationToken);
+                            await InsertAuditAsync(connection, transaction, projectId, current.ItemId.Value, "ProductionPlanItem", stepName, FormatDate(current.PlannedDate), FormatDate(plannedDate), request.Reason, changedByUserId, correlationId, cancellationToken);
                         }
                         if (current.Note != note)
                         {
-                            await InsertAuditAsync(connection, transaction, projectId, current.ItemId.Value, "ProductionPlanItem", $"{step.StepName} 비고", current.Note, note, request.Reason, changedByUserId, correlationId, cancellationToken);
+                            await InsertAuditAsync(connection, transaction, projectId, current.ItemId.Value, "ProductionPlanItem", $"{stepName} 비고", current.Note, note, request.Reason, changedByUserId, correlationId, cancellationToken);
                         }
                     }
                 }
@@ -483,22 +494,27 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
                 var plannedDate = requestedItem.PlannedDate;
                 var note = TrimToNull(requestedItem.Note);
+                var isRequired = requestedItem.IsRequired ?? current?.IsRequired ?? false;
                 if (current is null)
                 {
                     var itemId = Guid.NewGuid();
-                    await InsertCustomPlanItemAsync(connection, transaction, itemId, planId, customSequence++, stepName, plannedDate, note, cancellationToken);
+                    await InsertCustomPlanItemAsync(connection, transaction, itemId, planId, customSequence++, stepName, isRequired, plannedDate, note, cancellationToken);
                     await InsertAuditAsync(connection, transaction, projectId, itemId, "ProductionPlanItem", "사용자 추가 항목", null, stepName, request.Reason, changedByUserId, correlationId, cancellationToken);
                     if (plannedDate is not null)
                     {
                         await InsertAuditAsync(connection, transaction, projectId, itemId, "ProductionPlanItem", stepName, null, plannedDate.Value.ToString("yyyy-MM-dd"), request.Reason, changedByUserId, correlationId, cancellationToken);
                     }
                 }
-                else if (current.StepName != stepName || current.PlannedDate != plannedDate || current.Note != note || current.SequenceNumber != requestedItem.SequenceNumber)
+                else if (current.StepName != stepName || current.IsRequired != isRequired || current.PlannedDate != plannedDate || current.Note != note || current.SequenceNumber != requestedItem.SequenceNumber)
                 {
-                    await UpdateCustomPlanItemAsync(connection, transaction, current.ItemId!.Value, requestedItem.SequenceNumber ?? customSequence++, stepName, plannedDate, note, cancellationToken);
+                    await UpdateCustomPlanItemAsync(connection, transaction, current.ItemId!.Value, requestedItem.SequenceNumber ?? customSequence++, stepName, isRequired, plannedDate, note, cancellationToken);
                     if (current.StepName != stepName)
                     {
                         await InsertAuditAsync(connection, transaction, projectId, current.ItemId.Value, "ProductionPlanItem", "계획 항목명", current.StepName, stepName, request.Reason, changedByUserId, correlationId, cancellationToken);
+                    }
+                    if (current.IsRequired != isRequired)
+                    {
+                        await InsertAuditAsync(connection, transaction, projectId, current.ItemId.Value, "ProductionPlanItem", $"{stepName} 필수 여부", current.IsRequired ? "예" : "아니오", isRequired ? "예" : "아니오", request.Reason, changedByUserId, correlationId, cancellationToken);
                     }
                     if (current.PlannedDate != plannedDate)
                     {
@@ -645,19 +661,21 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                         itemId,
                         planId,
                         new ProductionTemplateStepResponse(row.TemplateStepId.Value, nextSequence, row.StepName!, true),
+                        row.StepName!,
+                        true,
                         row.PlannedDate,
                         row.Note,
                         cancellationToken);
                 }
                 else
                 {
-                    await InsertCustomPlanItemAsync(connection, transaction, itemId, planId, nextSequence, row.StepName!, row.PlannedDate, row.Note, cancellationToken);
+                    await InsertCustomPlanItemAsync(connection, transaction, itemId, planId, nextSequence, row.StepName!, false, row.PlannedDate, row.Note, cancellationToken);
                 }
                 await InsertAuditAsync(connection, transaction, project.ProjectId, itemId, "ProductionPlanItem", row.StepName!, null, FormatDate(row.PlannedDate), reason, changedByUserId, correlationId, cancellationToken, "Excel");
             }
             else if (current.PlannedDate != row.PlannedDate || current.Note != row.Note)
             {
-                await UpdatePlanItemAsync(connection, transaction, current.ItemId!.Value, row.PlannedDate, row.Note, cancellationToken);
+                await UpdatePlanItemAsync(connection, transaction, current.ItemId!.Value, current.StepName, current.IsRequired, row.PlannedDate, row.Note, cancellationToken);
                 await InsertAuditAsync(connection, transaction, project.ProjectId, current.ItemId.Value, "ProductionPlanItem", row.StepName!, FormatDate(current.PlannedDate), FormatDate(row.PlannedDate), reason, changedByUserId, correlationId, cancellationToken, "Excel");
             }
 
@@ -890,7 +908,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         return null;
     }
 
-    private static async Task InsertTemplatePlanItemAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid itemId, Guid planId, ProductionTemplateStepResponse step, DateOnly? plannedDate, string? note, CancellationToken cancellationToken)
+    private static async Task InsertTemplatePlanItemAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid itemId, Guid planId, ProductionTemplateStepResponse step, string stepName, bool isRequired, DateOnly? plannedDate, string? note, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -904,14 +922,14 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         command.Parameters.AddWithValue("plan_id", planId);
         command.Parameters.AddWithValue("template_step_id", step.TemplateStepId);
         command.Parameters.AddWithValue("sequence_number", step.SequenceNumber);
-        command.Parameters.AddWithValue("step_name", step.StepName);
-        command.Parameters.AddWithValue("is_required", step.IsRequired);
+        command.Parameters.AddWithValue("step_name", stepName);
+        command.Parameters.AddWithValue("is_required", isRequired);
         command.Parameters.Add("planned_date", NpgsqlDbType.Date).Value = plannedDate ?? (object)DBNull.Value;
         command.Parameters.Add("note", NpgsqlDbType.Text).Value = note ?? (object)DBNull.Value;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task InsertCustomPlanItemAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid itemId, Guid planId, int sequenceNumber, string stepName, DateOnly? plannedDate, string? note, CancellationToken cancellationToken)
+    private static async Task InsertCustomPlanItemAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid itemId, Guid planId, int sequenceNumber, string stepName, bool isRequired, DateOnly? plannedDate, string? note, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -919,36 +937,41 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             insert into project_production_plan_items (
                 id, production_plan_id, template_step_id, sequence_number, step_name_snapshot, is_required, planned_date, note
             )
-            values (@id, @plan_id, null, @sequence_number, @step_name, false, @planned_date, @note);
+            values (@id, @plan_id, null, @sequence_number, @step_name, @is_required, @planned_date, @note);
             """;
         command.Parameters.AddWithValue("id", itemId);
         command.Parameters.AddWithValue("plan_id", planId);
         command.Parameters.AddWithValue("sequence_number", sequenceNumber);
         command.Parameters.AddWithValue("step_name", stepName);
+        command.Parameters.AddWithValue("is_required", isRequired);
         command.Parameters.Add("planned_date", NpgsqlDbType.Date).Value = plannedDate ?? (object)DBNull.Value;
         command.Parameters.Add("note", NpgsqlDbType.Text).Value = note ?? (object)DBNull.Value;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task UpdatePlanItemAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid itemId, DateOnly? plannedDate, string? note, CancellationToken cancellationToken)
+    private static async Task UpdatePlanItemAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid itemId, string stepName, bool isRequired, DateOnly? plannedDate, string? note, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
             update project_production_plan_items
-            set planned_date = @planned_date,
+            set step_name_snapshot = @step_name,
+                is_required = @is_required,
+                planned_date = @planned_date,
                 note = @note,
                 row_version = row_version + 1,
                 updated_at_utc = now()
             where id = @id;
             """;
         command.Parameters.AddWithValue("id", itemId);
+        command.Parameters.AddWithValue("step_name", stepName);
+        command.Parameters.AddWithValue("is_required", isRequired);
         command.Parameters.Add("planned_date", NpgsqlDbType.Date).Value = plannedDate ?? (object)DBNull.Value;
         command.Parameters.Add("note", NpgsqlDbType.Text).Value = note ?? (object)DBNull.Value;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task UpdateCustomPlanItemAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid itemId, int sequenceNumber, string stepName, DateOnly? plannedDate, string? note, CancellationToken cancellationToken)
+    private static async Task UpdateCustomPlanItemAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid itemId, int sequenceNumber, string stepName, bool isRequired, DateOnly? plannedDate, string? note, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -956,6 +979,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             update project_production_plan_items
             set sequence_number = @sequence_number,
                 step_name_snapshot = @step_name,
+                is_required = @is_required,
                 planned_date = @planned_date,
                 note = @note,
                 row_version = row_version + 1,
@@ -966,6 +990,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         command.Parameters.AddWithValue("id", itemId);
         command.Parameters.AddWithValue("sequence_number", sequenceNumber);
         command.Parameters.AddWithValue("step_name", stepName);
+        command.Parameters.AddWithValue("is_required", isRequired);
         command.Parameters.Add("planned_date", NpgsqlDbType.Date).Value = plannedDate ?? (object)DBNull.Value;
         command.Parameters.Add("note", NpgsqlDbType.Text).Value = note ?? (object)DBNull.Value;
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -1071,24 +1096,14 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         IReadOnlyList<ProductionTemplateStepResponse> templateSteps)
     {
         var errors = new Dictionary<string, string[]>();
-        var templateStepIds = templateSteps.Select(step => step.TemplateStepId).ToHashSet();
+        var templateStepById = templateSteps.ToDictionary(step => step.TemplateStepId);
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var step in templateSteps)
-        {
-            names.Add(Normalize(step.StepName));
-        }
-
         for (var index = 0; index < items.Count; index++)
         {
             var item = items[index];
-            if (item.TemplateStepId is not null && !templateStepIds.Contains(item.TemplateStepId.Value))
+            if (item.TemplateStepId is not null && !templateStepById.ContainsKey(item.TemplateStepId.Value))
             {
                 errors[$"items[{index}].templateStepId"] = ["현재 Item의 계획 항목이 아닙니다."];
-                continue;
-            }
-
-            if (item.TemplateStepId is not null)
-            {
                 continue;
             }
 
@@ -1097,16 +1112,17 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 continue;
             }
 
-            var stepName = TrimToNull(item.StepName);
+            var stepName = TrimToNull(item.StepName)
+                ?? (item.TemplateStepId is not null ? templateStepById[item.TemplateStepId.Value].StepName : null);
             if (stepName is null)
             {
-                errors[$"items[{index}].stepName"] = ["추가 계획 항목명을 입력해 주세요."];
+                errors[$"items[{index}].stepName"] = ["계획 항목명을 입력해 주세요."];
                 continue;
             }
 
             if (stepName.Length > 120)
             {
-                errors[$"items[{index}].stepName"] = ["추가 계획 항목명은 120자 이하로 입력해 주세요."];
+                errors[$"items[{index}].stepName"] = ["계획 항목명은 120자 이하로 입력해 주세요."];
                 continue;
             }
 
@@ -1129,7 +1145,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         IReadOnlyList<NotificationFallbackResponse> fallbacks)
     {
         var allAssignees = ProductionPlanningDomain.Responsibilities
-            .Select(responsibility => assignees.FirstOrDefault(item => item.ResponsibilityType == responsibility) ?? new ProjectAssigneeResponse
+            .Select(responsibility => FindAssigneeForResponsibility(assignees, responsibility) ?? new ProjectAssigneeResponse
             {
                 ResponsibilityType = responsibility,
                 ResponsibilityLabel = ProductionPlanningDomain.ResponsibilityLabel(responsibility)
@@ -1329,7 +1345,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             where pt.code = @code
               and pt.is_active = true;
             """;
-        command.Parameters.AddWithValue("code", productTypeCode);
+        command.Parameters.AddWithValue("code", NormalizeItemCode(productTypeCode));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
             ? new ProductTypeSnapshot(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetGuid(3))
@@ -1365,16 +1381,18 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             select pt.id, pt.code, pt.name, pt.is_active, t.id, t.version
             from production_product_types pt
             left join production_plan_templates t on t.product_type_id = pt.id and t.is_active = true
+            where pt.code = any(@canonical_codes)
             order by case pt.code
                 when 'UL67' then 1
                 when 'UL891' then 2
                 when 'UL508A' then 3
                 when 'IEC' then 4
                 when 'LLP' then 5
-                when 'RRP' then 6
+                when 'RPP' then 6
                 else 100
             end, pt.code;
             """;
+        command.Parameters.AddWithValue("canonical_codes", ProductionPlanningDomain.CanonicalProductTypeCodes.ToArray());
         var rows = new List<(Guid Id, string Code, string Name, bool Active, Guid? TemplateId, int? Version)>();
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
@@ -1408,16 +1426,18 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             from production_product_types pt
             join production_plan_templates t on t.product_type_id = pt.id and t.is_active = true
             where pt.is_active = true
+              and pt.code = any(@canonical_codes)
             order by case pt.code
                 when 'UL67' then 1
                 when 'UL891' then 2
                 when 'UL508A' then 3
                 when 'IEC' then 4
                 when 'LLP' then 5
-                when 'RRP' then 6
+                when 'RPP' then 6
                 else 100
             end, pt.code;
             """;
+        command.Parameters.AddWithValue("canonical_codes", ProductionPlanningDomain.CanonicalProductTypeCodes.ToArray());
         var rows = new List<(Guid ProductTypeId, string Code, string Name, Guid TemplateId, int Version)>();
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
@@ -1533,7 +1553,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         var admin = await ReadFirstActiveRoleUserAsync(connection, transaction, "system-administrator", cancellationToken);
         return ProductionPlanningDomain.Responsibilities.Select(responsibility =>
         {
-            var assigned = assignees.FirstOrDefault(item => item.ResponsibilityType == responsibility && item.AssignedUserId is not null);
+            var assigned = FindAssigneeForResponsibility(assignees, responsibility);
             if (assigned is not null)
             {
                 return new NotificationFallbackResponse(responsibility, ProductionPlanningDomain.ResponsibilityLabel(responsibility), assigned.AssignedUserId, assigned.AssignedUserName, "담당자");
@@ -1544,6 +1564,35 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             }
             return new NotificationFallbackResponse(responsibility, ProductionPlanningDomain.ResponsibilityLabel(responsibility), admin?.UserId, admin?.DisplayName, "관리자");
         }).ToList();
+    }
+
+    private static ProjectAssigneeResponse? FindAssigneeForResponsibility(
+        IReadOnlyList<ProjectAssigneeResponse> assignees,
+        string responsibility)
+    {
+        var direct = assignees.FirstOrDefault(item => item.ResponsibilityType == responsibility);
+        if (direct is not null)
+        {
+            return direct;
+        }
+
+        var legacy = ProductionPlanningDomain.LegacyResponsibilityAlias(responsibility);
+        if (legacy is null)
+        {
+            return null;
+        }
+
+        var legacyAssignee = assignees.FirstOrDefault(item => item.ResponsibilityType == legacy && item.AssignedUserId is not null);
+        return legacyAssignee is null
+            ? null
+            : new ProjectAssigneeResponse
+            {
+                ResponsibilityType = responsibility,
+                ResponsibilityLabel = ProductionPlanningDomain.ResponsibilityLabel(responsibility),
+                AssignedUserId = legacyAssignee.AssignedUserId,
+                AssignedUserName = legacyAssignee.AssignedUserName,
+                Note = legacyAssignee.Note
+            };
     }
 
     private static async Task<bool> IsActiveRoleUserAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid userId, string roleCode, CancellationToken cancellationToken)
@@ -1685,7 +1734,13 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
     private static bool ItemCodesEqual(string? left, string? right)
     {
-        return string.Equals(Normalize(left), Normalize(right), StringComparison.Ordinal);
+        return string.Equals(NormalizeItemCode(left), NormalizeItemCode(right), StringComparison.Ordinal);
+    }
+
+    private static string NormalizeItemCode(string? value)
+    {
+        var normalized = Normalize(value);
+        return normalized == "RRP" ? "RPP" : normalized;
     }
 
     private static string NormalizeExcelHeader(string value)
@@ -1754,7 +1809,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         {
             var projectTitle = CellText(worksheet.Cell(rowNumber, headerMap["프로젝트명"]));
             var projectCode = CellText(worksheet.Cell(rowNumber, headerMap["PJT Code"]));
-            var productTypeCode = CellText(worksheet.Cell(rowNumber, headerMap["Item"]));
+            var productTypeCode = NormalizeItemCode(CellText(worksheet.Cell(rowNumber, headerMap["Item"])));
             var stepName = CellText(worksheet.Cell(rowNumber, headerMap["계획 항목"]));
             var plannedDateText = CellText(worksheet.Cell(rowNumber, headerMap["예정일"]));
             var note = CellText(worksheet.Cell(rowNumber, headerMap["비고"]));
@@ -1780,7 +1835,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             var productType = productTypes.FirstOrDefault(item => string.Equals(item.Code, productTypeCode, StringComparison.OrdinalIgnoreCase));
             if (productType is null)
             {
-                errors.Add("Item은 UL67, UL891, UL508A, IEC, LLP, RRP 중 하나여야 합니다.");
+                errors.Add("Item은 UL67, UL891, UL508A, IEC, LLP, RPP 중 하나여야 합니다.");
             }
 
             if (project is not null

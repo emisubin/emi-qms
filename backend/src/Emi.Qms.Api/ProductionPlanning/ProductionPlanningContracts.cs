@@ -175,6 +175,7 @@ public sealed record ProductionPlanItemUpdateRequest(
     Guid? TemplateStepId,
     string? StepName,
     int? SequenceNumber,
+    bool? IsRequired,
     int? ExpectedRowVersion,
     DateOnly? PlannedDate,
     string? Note,

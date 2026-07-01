@@ -10,11 +10,13 @@ export DATABASE_HOST="${DATABASE_HOST:-localhost}"
 export DATABASE_PORT="${DATABASE_PORT:-5432}"
 export DATABASE_USER="${DATABASE_USER:-emi_qms}"
 export DATABASE_PASSWORD="${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}"
-export Frontend__Origin=http://127.0.0.1:5174
-export FRONTEND_ORIGIN=http://127.0.0.1:5174
+export E2E_BACKEND_PORT="${E2E_BACKEND_PORT:-5082}"
+export E2E_FRONTEND_PORT="${E2E_FRONTEND_PORT:-5175}"
+export Frontend__Origin="http://127.0.0.1:${E2E_FRONTEND_PORT}"
+export FRONTEND_ORIGIN="http://127.0.0.1:${E2E_FRONTEND_PORT}"
 
 dotnet run \
   --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj \
   --configuration Release \
   --no-build \
-  --urls http://127.0.0.1:5081
+  --urls "http://127.0.0.1:${E2E_BACKEND_PORT}"

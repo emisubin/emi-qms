@@ -4,6 +4,7 @@ using System.Text.Json;
 using ClosedXML.Excel;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.ProductionPlanning;
+using Emi.Qms.Api.Workflow;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -13,6 +14,242 @@ namespace Emi.Qms.Api.Tests;
 
 public sealed class ProductionPlanningApiTests
 {
+    private static readonly Guid TestDesignPrimaryUserId = new("60000000-0000-0000-0000-000000000101");
+    private static readonly Guid TestDesignSecondaryUserId = new("60000000-0000-0000-0000-000000000102");
+    private static readonly Guid TestSalesPrimaryUserId = new("60000000-0000-0000-0000-000000000201");
+    private static readonly Guid TestSalesSecondaryUserId = new("60000000-0000-0000-0000-000000000202");
+    private static readonly Guid DevAdminUserId = new("50000000-0000-0000-0000-000000000001");
+    private static readonly Guid DevSalesUserId = new("50000000-0000-0000-0000-000000000002");
+
+    [Fact]
+    public async Task Workflow_ProjectCreation_GeneratesMyWorkAndReferenceNotification()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
+        using var designClient = context.CreateClient("dev-design");
+
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-CREATE", "Workflow Create");
+
+        using var myWork = await ReadJsonAsync(await adminClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
+        var generated = myWork.RootElement.GetProperty("items").EnumerateArray()
+            .FirstOrDefault(item =>
+                item.GetProperty("projectId").GetGuid() == projectId
+                && item.GetProperty("workflowStageCode").GetString() == "ProductionPlanning");
+        Assert.NotEqual(JsonValueKind.Undefined, generated.ValueKind);
+        Assert.Equal("시작 전", generated.GetProperty("statusLabel").GetString());
+        Assert.Equal("system-administrator", await context.ReadScalarAsync<string>($"""
+            select assigned_role_code
+            from work_items
+            where id = '{generated.GetProperty("workItemId").GetGuid()}';
+            """));
+        using var requestedWork = await ReadJsonAsync(await adminClient.GetAsync("/api/my-work?status=Requested", TestContext.Current.CancellationToken));
+        Assert.Contains(requestedWork.RootElement.GetProperty("items").EnumerateArray(), item =>
+            item.GetProperty("projectId").GetGuid() == projectId
+            && item.GetProperty("workflowStageCode").GetString() == "ProductionPlanning");
+
+        var workItemId = generated.GetProperty("workItemId").GetGuid();
+        Assert.Equal(HttpStatusCode.Forbidden, (await designClient.PostAsync($"/api/my-work/{workItemId}/start", null, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await salesClient.PostAsync($"/api/my-work/{workItemId}/start", null, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await adminClient.PostAsync($"/api/my-work/{workItemId}/start", null, TestContext.Current.CancellationToken)).StatusCode);
+        using var completed = await ReadJsonAsync(await adminClient.PostAsync($"/api/my-work/{workItemId}/complete", null, TestContext.Current.CancellationToken));
+        Assert.Equal("완료", completed.RootElement.GetProperty("statusLabel").GetString());
+        using var completedWork = await ReadJsonAsync(await adminClient.GetAsync("/api/my-work?status=Completed", TestContext.Current.CancellationToken));
+        Assert.Contains(completedWork.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("workItemId").GetGuid() == workItemId);
+
+        using var notifications = await ReadJsonAsync(await designClient.GetAsync("/api/notifications?readStatus=unread", TestContext.Current.CancellationToken));
+        var notification = notifications.RootElement.GetProperty("items").EnumerateArray()
+            .First(item =>
+                item.GetProperty("projectId").GetGuid() == projectId
+                && item.GetProperty("message").GetString()!.Contains("Workflow Create", StringComparison.Ordinal));
+        Assert.Contains(notifications.RootElement.GetProperty("items").EnumerateArray(), item =>
+            item.GetProperty("projectId").GetGuid() == projectId
+            && item.GetProperty("message").GetString()!.Contains("Workflow Create", StringComparison.Ordinal));
+        var notificationId = notification.GetProperty("notificationId").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await designClient.PostAsync($"/api/notifications/{notificationId}/read", null, TestContext.Current.CancellationToken)).StatusCode);
+        using var readNotifications = await ReadJsonAsync(await designClient.GetAsync("/api/notifications?readStatus=read", TestContext.Current.CancellationToken));
+        Assert.Contains(readNotifications.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("notificationId").GetGuid() == notificationId);
+    }
+
+    [Fact]
+    public async Task Workflow_ProductionPlanningSave_GeneratesProcurementWorkOnce()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var productionClient = context.CreateClient("dev-production");
+        using var procurementClient = context.CreateClient("dev-procurement");
+
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-PLAN", "Workflow Plan");
+        using var productTypes = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(productTypes.RootElement.EnumerateArray(), item => item.GetProperty("code").GetString() == "TEST-TYPE");
+        Assert.Contains(productTypes.RootElement.EnumerateArray(), item => item.GetProperty("code").GetString() == "RPP");
+        Assert.DoesNotContain(productTypes.RootElement.EnumerateArray(), item => item.GetProperty("code").GetString() == "RRP");
+        var productType = productTypes.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
+        var productTypeId = productType.GetProperty("productTypeId").GetGuid();
+        var steps = productType.GetProperty("steps").EnumerateArray().ToList();
+
+        var create = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new
+            {
+                productTypeId,
+                expectedRowVersion = 0,
+                notes = "workflow 생성",
+                reason = (string?)null,
+                items = steps.Select(step => new
+                {
+                    itemId = (Guid?)null,
+                    templateStepId = step.GetProperty("templateStepId").GetGuid(),
+                    sequenceNumber = step.GetProperty("sequenceNumber").GetInt32(),
+                    expectedRowVersion = 0,
+                    plannedDate = "2026-07-01",
+                    note = (string?)null,
+                    isDeleted = false
+                }).ToArray(),
+                assignees = new object[]
+                {
+                    new { responsibilityType = "DesignPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000010"), note = "설계" },
+                    new { responsibilityType = "ProcurementPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000011"), note = "구매" }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        using var created = await ReadJsonAsync(create);
+
+        var saveAgain = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new
+            {
+                productTypeId,
+                expectedRowVersion = created.RootElement.GetProperty("rowVersion").GetInt32(),
+                notes = "workflow 재저장",
+                reason = (string?)null,
+                items = created.RootElement.GetProperty("items").EnumerateArray().Select(item => new
+                {
+                    itemId = item.GetProperty("itemId").GetGuid(),
+                    templateStepId = item.GetProperty("templateStepId").GetGuid(),
+                    sequenceNumber = item.GetProperty("sequenceNumber").GetInt32(),
+                    expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
+                    plannedDate = item.GetProperty("plannedDate").GetString(),
+                    note = (string?)null,
+                    isDeleted = false
+                }).ToArray(),
+                assignees = Array.Empty<object>()
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, saveAgain.StatusCode);
+
+        using var myWork = await ReadJsonAsync(await procurementClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
+        var procurementWork = myWork.RootElement.GetProperty("items").EnumerateArray()
+            .Where(item =>
+                item.GetProperty("projectId").GetGuid() == projectId
+                && item.GetProperty("workflowStageCode").GetString() == "ProcurementInfo")
+            .ToList();
+        Assert.Single(procurementWork);
+        Assert.Equal("구매정보 입력", procurementWork[0].GetProperty("title").GetString());
+        Assert.Equal("ProcurementPrimary", procurementWork[0].GetProperty("responsibilityType").GetString());
+        using var designWork = await ReadJsonAsync(await designClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
+        var generatedDesignWork = designWork.RootElement.GetProperty("items").EnumerateArray()
+            .Where(item =>
+                item.GetProperty("projectId").GetGuid() == projectId
+                && item.GetProperty("workflowStageCode").GetString() == "DesignPanelInfo")
+            .ToList();
+        Assert.Single(generatedDesignWork);
+        Assert.Equal("제품명, 사이즈 입력", generatedDesignWork[0].GetProperty("title").GetString());
+        Assert.Equal("DesignPrimary", generatedDesignWork[0].GetProperty("responsibilityType").GetString());
+        using var salesWork = await ReadJsonAsync(await salesClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(salesWork.RootElement.GetProperty("items").EnumerateArray(), item =>
+            item.GetProperty("projectId").GetGuid() == projectId
+            && item.GetProperty("workflowStageCode").GetString() == "DesignPanelInfo");
+        using var assigneeNotifications = await ReadJsonAsync(await procurementClient.GetAsync("/api/notifications?readStatus=unread", TestContext.Current.CancellationToken));
+        Assert.Contains(assigneeNotifications.RootElement.GetProperty("items").EnumerateArray(), item =>
+            item.GetProperty("projectId").GetGuid() == projectId
+            && item.GetProperty("title").GetString() == "프로젝트 담당자로 지정되었습니다.");
+
+        using var workflow = await ReadJsonAsync(await productionClient.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
+        Assert.Equal(18, workflow.RootElement.GetProperty("stages").GetArrayLength());
+        var workflowStages = workflow.RootElement.GetProperty("stages").EnumerateArray().ToList();
+        Assert.Equal("ProductionPlanning", workflowStages.First(item => item.GetProperty("sequenceNumber").GetInt32() == 2).GetProperty("stageCode").GetString());
+        Assert.Equal("DesignPanelInfo", workflowStages.First(item => item.GetProperty("sequenceNumber").GetInt32() == 3).GetProperty("stageCode").GetString());
+        Assert.True(workflow.RootElement.GetProperty("generatedWorkItemCount").GetInt32() >= 1);
+    }
+
+    [Fact]
+    public async Task Workflow_QualityStage_UsesQualitySecondaryWhenPrimaryIsMissing()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var qualityClient = context.CreateClient("dev-quality");
+
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-IQC-SEC", "Workflow IQC Secondary");
+        await context.ExecuteSqlAsync($"""
+            insert into project_assignees (project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc)
+            values ('{projectId}', 'QualityIQCSecondary', '50000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000002', now());
+            """);
+
+        await context.WorkflowStore.CompleteStageAsync(
+            projectId,
+            WorkflowStageCodes.MaterialArrived,
+            "Test",
+            null,
+            Guid.Parse("50000000-0000-0000-0000-000000000002"),
+            "test-quality-secondary",
+            "품질 부 담당자 fallback 검증",
+            TestContext.Current.CancellationToken);
+
+        using var qualityWork = await ReadJsonAsync(await qualityClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
+        var iqcWork = qualityWork.RootElement.GetProperty("items").EnumerateArray()
+            .Where(item =>
+                item.GetProperty("projectId").GetGuid() == projectId
+                && item.GetProperty("workflowStageCode").GetString() == "IQC")
+            .ToList();
+        Assert.Single(iqcWork);
+        Assert.Equal("수입검사 입력", iqcWork[0].GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public async Task Workflow_Fallback_UsesPrimarySecondarySalesAndSystemAdministratorOrder()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+
+        await InsertRoleUserAsync(context, TestDesignPrimaryUserId, "test-design-primary", "Test Design Primary", "design", "design");
+        await InsertRoleUserAsync(context, TestDesignSecondaryUserId, "test-design-secondary", "Test Design Secondary", "design", "design");
+        await InsertRoleUserAsync(context, TestSalesPrimaryUserId, "test-sales-primary", "Test Sales Primary", "sales", "sales");
+        await InsertRoleUserAsync(context, TestSalesSecondaryUserId, "test-sales-secondary", "Test Sales Secondary", "sales", "sales");
+
+        var primaryProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-PRI", "Workflow Fallback Primary");
+        await InsertAssigneeAsync(context, primaryProjectId, "DesignPrimary", TestDesignPrimaryUserId);
+        await InsertAssigneeAsync(context, primaryProjectId, "DesignSecondary", TestDesignSecondaryUserId);
+        await InsertAssigneeAsync(context, primaryProjectId, "SalesPrimary", TestSalesPrimaryUserId);
+        await InsertAssigneeAsync(context, primaryProjectId, "SalesSecondary", TestSalesSecondaryUserId);
+        await CompleteProductionPlanningForFallbackAsync(context, primaryProjectId, "fallback-primary");
+        await AssertGeneratedDesignWorkAsync(context, primaryProjectId, TestDesignPrimaryUserId, "design");
+
+        var secondaryProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-SEC", "Workflow Fallback Secondary");
+        await InsertAssigneeAsync(context, secondaryProjectId, "DesignSecondary", TestDesignSecondaryUserId);
+        await InsertAssigneeAsync(context, secondaryProjectId, "SalesPrimary", TestSalesPrimaryUserId);
+        await CompleteProductionPlanningForFallbackAsync(context, secondaryProjectId, "fallback-secondary");
+        await AssertGeneratedDesignWorkAsync(context, secondaryProjectId, TestDesignSecondaryUserId, "design");
+
+        var salesPrimaryProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-SALES1", "Workflow Fallback Sales Primary");
+        await InsertAssigneeAsync(context, salesPrimaryProjectId, "SalesPrimary", TestSalesPrimaryUserId);
+        await InsertAssigneeAsync(context, salesPrimaryProjectId, "SalesSecondary", TestSalesSecondaryUserId);
+        await CompleteProductionPlanningForFallbackAsync(context, salesPrimaryProjectId, "fallback-sales-primary");
+        await AssertGeneratedDesignWorkAsync(context, salesPrimaryProjectId, TestSalesPrimaryUserId, "sales");
+
+        var salesSecondaryProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-SALES2", "Workflow Fallback Sales Secondary");
+        await InsertAssigneeAsync(context, salesSecondaryProjectId, "SalesSecondary", TestSalesSecondaryUserId);
+        await CompleteProductionPlanningForFallbackAsync(context, salesSecondaryProjectId, "fallback-sales-secondary");
+        await AssertGeneratedDesignWorkAsync(context, salesSecondaryProjectId, TestSalesSecondaryUserId, "sales");
+        Assert.NotEqual(DevSalesUserId, await ReadGeneratedWorkAssigneeIdAsync(context, salesSecondaryProjectId, WorkflowStageCodes.DesignPanelInfo));
+
+        var adminProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-ADMIN", "Workflow Fallback Admin");
+        await CompleteProductionPlanningForFallbackAsync(context, adminProjectId, "fallback-admin");
+        await AssertGeneratedDesignWorkAsync(context, adminProjectId, DevAdminUserId, "system-administrator");
+    }
+
     [Fact]
     public async Task ProductionPlanning_UpdateAssigneesStatusAndHistory_AreRoleScoped()
     {
@@ -23,7 +260,7 @@ public sealed class ProductionPlanningApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         using var viewerClient = context.CreateClient("dev-viewer");
 
-        var projectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-TEST", "Plan Test");
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-TEST", "Plan Test");
 
         Assert.Equal(HttpStatusCode.OK, (await salesClient.GetAsync($"/api/projects/{projectId}/production-planning", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await procurementClient.PatchAsJsonAsync($"/api/projects/{projectId}/production-planning", new { }, TestContext.Current.CancellationToken)).StatusCode);
@@ -50,19 +287,91 @@ public sealed class ProductionPlanningApiTests
                 },
                 assignees = new object[]
                 {
-                    new { responsibilityType = "Procurement", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000011"), note = "구매" },
-                    new { responsibilityType = "ProductionPlanning", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000003"), note = "생산관리" },
-                    new { responsibilityType = "Manufacturing", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = (Guid?)null, note = (string?)null }
+                    new { responsibilityType = "SalesPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000002"), note = "영업 정" },
+                    new { responsibilityType = "SalesSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000002"), note = "영업 부" },
+                    new { responsibilityType = "DesignPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000010"), note = "설계 정" },
+                    new { responsibilityType = "DesignSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000010"), note = "설계 부" },
+                    new { responsibilityType = "ProductionPlanningPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000003"), note = "생산관리 정" },
+                    new { responsibilityType = "ProductionPlanningSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000003"), note = "생산관리 부" },
+                    new { responsibilityType = "ProcurementPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000011"), note = "구매 정" },
+                    new { responsibilityType = "ProcurementSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000011"), note = "구매 부" },
+                    new { responsibilityType = "MaterialsPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000012"), note = "자재 정" },
+                    new { responsibilityType = "MaterialsSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000012"), note = "자재 부" },
+                    new { responsibilityType = "ManufacturingPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000004"), note = "제조 정" },
+                    new { responsibilityType = "ManufacturingSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000004"), note = "제조 부" },
+                    new { responsibilityType = "LogisticsPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000006"), note = "물류 정" },
+                    new { responsibilityType = "LogisticsSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000006"), note = "물류 부" },
+                    new { responsibilityType = "QualityIQC", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "IQC" },
+                    new { responsibilityType = "QualityIQCSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "IQC 부" },
+                    new { responsibilityType = "QualityLQC", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "LQC" },
+                    new { responsibilityType = "QualityLQCSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "LQC 부" },
+                    new { responsibilityType = "QualityOQC", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "OQC" },
+                    new { responsibilityType = "QualityOQCSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "OQC 부" },
+                    new { responsibilityType = "QualityCustomerInspection", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "전진검수/FAT" },
+                    new { responsibilityType = "QualityCustomerInspectionSecondary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "전진검수/FAT 부" }
                 }
             },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, partial.StatusCode);
         using var partialJson = await ReadJsonAsync(partial);
         Assert.Equal("Planning", partialJson.RootElement.GetProperty("planStatus").GetString());
-        Assert.Equal("영업담당자", partialJson.RootElement.GetProperty("fallbacks").EnumerateArray().First(item => item.GetProperty("responsibilityType").GetString() == "Manufacturing").GetProperty("sourceLabel").GetString());
+        Assert.Contains(partialJson.RootElement.GetProperty("assignees").EnumerateArray(), item =>
+            item.GetProperty("responsibilityType").GetString() == "QualityCustomerInspection"
+            && item.GetProperty("assignedUserId").GetGuid() == Guid.Parse("50000000-0000-0000-0000-000000000005"));
 
         var currentItems = partialJson.RootElement.GetProperty("items").EnumerateArray().ToList();
         var currentAssignees = partialJson.RootElement.GetProperty("assignees").EnumerateArray().ToList();
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "SalesPrimary");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "DesignPrimary");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "ProductionPlanningPrimary");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "ProcurementPrimary");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "MaterialsPrimary");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "ManufacturingPrimary");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "LogisticsPrimary");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "QualityIQC");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "QualityIQCSecondary");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "QualityLQC");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "QualityLQCSecondary");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "QualityOQC");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "QualityOQCSecondary");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "QualityCustomerInspection");
+        Assert.Contains(currentAssignees, item => item.GetProperty("responsibilityType").GetString() == "QualityCustomerInspectionSecondary");
+
+        var roleMismatch = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new
+            {
+                productTypeId,
+                expectedRowVersion = partialJson.RootElement.GetProperty("rowVersion").GetInt32(),
+                notes = "역할 불일치",
+                reason = "역할 불일치 확인",
+                items = currentItems.Select(item => new
+                {
+                    itemId = item.GetProperty("itemId").GetGuid(),
+                    templateStepId = item.GetProperty("templateStepId").GetGuid(),
+                    stepName = item.GetProperty("stepName").GetString(),
+                    sequenceNumber = item.GetProperty("sequenceNumber").GetInt32(),
+                    isRequired = item.GetProperty("isRequired").GetBoolean(),
+                    expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
+                    plannedDate = item.GetProperty("plannedDate").ValueKind == JsonValueKind.Null ? null : item.GetProperty("plannedDate").GetString(),
+                    note = item.GetProperty("note").ValueKind == JsonValueKind.Null ? null : item.GetProperty("note").GetString(),
+                    isDeleted = false
+                }).ToArray(),
+                assignees = new[]
+                {
+                    new
+                    {
+                        responsibilityType = "DesignPrimary",
+                        assigneeId = currentAssignees.First(item => item.GetProperty("responsibilityType").GetString() == "DesignPrimary").GetProperty("assigneeId").GetGuid(),
+                        expectedRowVersion = currentAssignees.First(item => item.GetProperty("responsibilityType").GetString() == "DesignPrimary").GetProperty("rowVersion").GetInt32(),
+                        assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000011"),
+                        note = "구매 사용자를 설계에 지정"
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, roleMismatch.StatusCode);
+
         var missingReason = await productionClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/production-planning",
             new
@@ -84,9 +393,9 @@ public sealed class ProductionPlanningApiTests
                 {
                     new
                     {
-                        responsibilityType = "Procurement",
-                        assigneeId = currentAssignees.First(item => item.GetProperty("responsibilityType").GetString() == "Procurement").GetProperty("assigneeId").GetGuid(),
-                        expectedRowVersion = currentAssignees.First(item => item.GetProperty("responsibilityType").GetString() == "Procurement").GetProperty("rowVersion").GetInt32(),
+                        responsibilityType = "ProcurementPrimary",
+                        assigneeId = currentAssignees.First(item => item.GetProperty("responsibilityType").GetString() == "ProcurementPrimary").GetProperty("assigneeId").GetGuid(),
+                        expectedRowVersion = currentAssignees.First(item => item.GetProperty("responsibilityType").GetString() == "ProcurementPrimary").GetProperty("rowVersion").GetInt32(),
                         assignedUserId = (Guid?)null,
                         note = (string?)null
                     }
@@ -137,8 +446,8 @@ public sealed class ProductionPlanningApiTests
         using var salesClient = context.CreateClient("dev-sales");
         using var productionClient = context.CreateClient("dev-production");
 
-        var activeId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-ACTIVE", "Plan Active");
-        var completedId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-COMPLETE", "Plan Complete");
+        var activeId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-ACTIVE", "Plan Active");
+        var completedId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-COMPLETE", "Plan Complete");
         await context.ExecuteSqlAsync($"update projects set status = 'Completed' where id = '{completedId}';");
 
         using var productTypes = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
@@ -181,7 +490,7 @@ public sealed class ProductionPlanningApiTests
         using var salesClient = context.CreateClient("dev-sales");
         using var productionClient = context.CreateClient("dev-production");
 
-        var projectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-CUSTOM", "Plan Custom");
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-CUSTOM", "Plan Custom");
         var (productTypeId, steps) = await ReadProductTypeAsync(productionClient, "UL67");
 
         var create = await productionClient.PatchAsJsonAsync(
@@ -233,6 +542,63 @@ public sealed class ProductionPlanningApiTests
     }
 
     [Fact]
+    public async Task ProductionPlanning_TemplateItems_CanOverrideStepNameAndRequiredPerProject()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
+
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-OVERRIDE", "Plan Override");
+        using var productTypes = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
+        var productType = productTypes.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
+        var productTypeId = productType.GetProperty("productTypeId").GetGuid();
+        var firstStep = productType.GetProperty("steps").EnumerateArray().First();
+        var originalStepName = firstStep.GetProperty("stepName").GetString();
+        var firstStepId = firstStep.GetProperty("templateStepId").GetGuid();
+
+        var update = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new
+            {
+                productTypeId,
+                expectedRowVersion = 0,
+                notes = (string?)null,
+                reason = (string?)null,
+                items = new object[]
+                {
+                    new
+                    {
+                        itemId = (Guid?)null,
+                        templateStepId = firstStepId,
+                        stepName = "프로젝트 전용 자재 입고",
+                        isRequired = false,
+                        sequenceNumber = firstStep.GetProperty("sequenceNumber").GetInt32(),
+                        expectedRowVersion = 0,
+                        plannedDate = (string?)null,
+                        note = (string?)null,
+                        isDeleted = false
+                    }
+                },
+                assignees = Array.Empty<object>()
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        using var updatedJson = await ReadJsonAsync(update);
+        var overridden = updatedJson.RootElement.GetProperty("items").EnumerateArray()
+            .First(item => item.GetProperty("templateStepId").GetGuid() == firstStepId);
+        Assert.Equal("프로젝트 전용 자재 입고", overridden.GetProperty("stepName").GetString());
+        Assert.False(overridden.GetProperty("isRequired").GetBoolean());
+
+        using var productTypesAfter = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
+        var masterStep = productTypesAfter.RootElement.EnumerateArray()
+            .First(item => item.GetProperty("code").GetString() == "UL67")
+            .GetProperty("steps").EnumerateArray()
+            .First(step => step.GetProperty("templateStepId").GetGuid() == firstStepId);
+        Assert.Equal(originalStepName, masterStep.GetProperty("stepName").GetString());
+        Assert.True(masterStep.GetProperty("isRequired").GetBoolean());
+    }
+
+    [Fact]
     public async Task ProductionPlanningExcel_PreviewsAndAppliesMultipleProjectsWithCustomSteps()
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();
@@ -240,8 +606,8 @@ public sealed class ProductionPlanningApiTests
         using var productionClient = context.CreateClient("dev-production");
         using var adminClient = context.CreateClient("dev-admin");
 
-        var firstProjectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-XLS-1", "Plan Excel One");
-        var secondProjectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-XLS-2", "Plan Excel Two");
+        var firstProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-XLS-1", "Plan Excel One");
+        var secondProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-XLS-2", "Plan Excel Two");
 
         Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.GetAsync("/api/production-planning/import/template", TestContext.Current.CancellationToken)).StatusCode);
         var templateResponse = await productionClient.GetAsync("/api/production-planning/import/template", TestContext.Current.CancellationToken);
@@ -278,7 +644,7 @@ public sealed class ProductionPlanningApiTests
         using var productionClient = context.CreateClient("dev-production");
         using var adminClient = context.CreateClient("dev-admin");
 
-        var existingProjectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-SET-OLD", "Plan Settings Old");
+        var existingProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-SET-OLD", "Plan Settings Old");
         using var productTypes = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
         var productType = productTypes.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
         var productTypeId = productType.GetProperty("productTypeId").GetGuid();
@@ -350,6 +716,36 @@ public sealed class ProductionPlanningApiTests
         using var refreshedProductTypes = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
         var refreshedUl67 = refreshedProductTypes.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
         Assert.Contains(refreshedUl67.GetProperty("steps").EnumerateArray(), step => step.GetProperty("stepName").GetString() == "최종 확인");
+
+        var updateAgain = await productionClient.PatchAsJsonAsync(
+            $"/api/production-planning/settings/templates/{productTypeId}",
+            new
+            {
+                steps = originalSteps.Select(step => (object)new
+                {
+                    templateStepId = (Guid?)step.GetProperty("templateStepId").GetGuid(),
+                    sequenceNumber = step.GetProperty("sequenceNumber").GetInt32(),
+                    stepName = step.GetProperty("stepName").GetString(),
+                    isRequired = step.GetProperty("isRequired").GetBoolean(),
+                    isActive = true
+                }).Concat(new object[]
+                {
+                    new { templateStepId = (Guid?)null, sequenceNumber = 99, stepName = "최신 설정 단계", isRequired = false, isActive = true }
+                }).ToArray(),
+                reason = "최신 설정 유지"
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, updateAgain.StatusCode);
+        using var updateAgainJson = await ReadJsonAsync(updateAgain);
+        var latestUl67 = updateAgainJson.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
+        var latestSteps = latestUl67.GetProperty("steps").EnumerateArray().ToList();
+        Assert.Contains(latestSteps, step => step.GetProperty("stepName").GetString() == "최신 설정 단계");
+        Assert.DoesNotContain(latestSteps, step => step.GetProperty("stepName").GetString() == "최종 확인");
+
+        var newProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-SET-NEW", "Plan Settings New");
+        using var newPlan = await ReadJsonAsync(await productionClient.GetAsync($"/api/projects/{newProjectId}/production-planning", TestContext.Current.CancellationToken));
+        var generatedStep = newPlan.RootElement.GetProperty("items").EnumerateArray().Single(item => item.GetProperty("stepName").GetString() == "최신 설정 단계");
+        Assert.Equal(JsonValueKind.Null, generatedStep.GetProperty("plannedDate").ValueKind);
     }
 
     [Fact]
@@ -359,7 +755,7 @@ public sealed class ProductionPlanningApiTests
         using var salesClient = context.CreateClient("dev-sales");
         using var productionClient = context.CreateClient("dev-production");
 
-        var projectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-SNAPSHOT", "Plan Snapshot");
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-SNAPSHOT", "Plan Snapshot");
         using var productTypes = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
         var productType = productTypes.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
         var productTypeId = productType.GetProperty("productTypeId").GetGuid();
@@ -448,7 +844,7 @@ public sealed class ProductionPlanningApiTests
         using var salesClient = context.CreateClient("dev-sales");
         using var productionClient = context.CreateClient("dev-production");
 
-        var mismatchProjectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-XLS-MISMATCH", "Plan Excel Mismatch");
+        var mismatchProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-XLS-MISMATCH", "Plan Excel Mismatch");
         var mismatchFile = CreateProductionPlanningExcel([
             ["Plan Excel Mismatch", "PLAN-XLS-MISMATCH", "RRP", "자재 입고", "2026-07-01", "", "", "", "", "", ""]
         ]);
@@ -467,9 +863,12 @@ public sealed class ProductionPlanningApiTests
             Assert.Equal(HttpStatusCode.BadRequest, applyMismatch.StatusCode);
         }
         using var mismatchPlan = await ReadJsonAsync(await productionClient.GetAsync($"/api/projects/{mismatchProjectId}/production-planning", TestContext.Current.CancellationToken));
-        Assert.Equal(JsonValueKind.Null, mismatchPlan.RootElement.GetProperty("planId").ValueKind);
+        Assert.Equal(JsonValueKind.String, mismatchPlan.RootElement.GetProperty("planId").ValueKind);
+        Assert.DoesNotContain(
+            mismatchPlan.RootElement.GetProperty("items").EnumerateArray(),
+            item => item.GetProperty("plannedDate").GetString() == "2026-07-01");
 
-        var existingProjectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-XLS-SNAPSHOT", "Plan Excel Snapshot");
+        var existingProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-XLS-SNAPSHOT", "Plan Excel Snapshot");
         using var productTypes = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
         var productType = productTypes.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
         var productTypeId = productType.GetProperty("productTypeId").GetGuid();
@@ -518,7 +917,10 @@ public sealed class ProductionPlanningApiTests
         using var updatedSettings = await ReadJsonAsync(updateTemplate);
         var updatedUl67 = updatedSettings.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
         var latestTemplateId = updatedUl67.GetProperty("activeTemplateId").GetGuid();
-        Assert.NotEqual(originalTemplateId, latestTemplateId);
+        Assert.Equal(originalTemplateId, latestTemplateId);
+        Assert.Contains(
+            updatedUl67.GetProperty("steps").EnumerateArray(),
+            step => step.GetProperty("stepName").GetString() == "Excel 신규 template step");
 
         var existingFile = CreateProductionPlanningExcel([
             ["Plan Excel Snapshot", "PLAN-XLS-SNAPSHOT", "UL67", originalSteps[0].StepName, "2026-08-10", "Excel 수정", "", "", "", "", ""]
@@ -535,7 +937,7 @@ public sealed class ProductionPlanningApiTests
         Assert.Equal(originalSteps[0].TemplateStepId, updatedOldItem.GetProperty("templateStepId").GetGuid());
         Assert.Equal("2026-08-10", updatedOldItem.GetProperty("plannedDate").GetString());
 
-        var newProjectId = await CreateProjectAndReadIdAsync(salesClient, "PLAN-XLS-NEW", "Plan Excel New");
+        var newProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-XLS-NEW", "Plan Excel New");
         var newFile = CreateProductionPlanningExcel([
             ["Plan Excel New", "PLAN-XLS-NEW", "UL67", "Excel 신규 template step", "2026-09-01", "", "", "", "", "", ""]
         ]);
@@ -667,7 +1069,7 @@ public sealed class ProductionPlanningApiTests
         Assert.DoesNotContain(result.Holidays, holiday => holiday.Name == "국군의 날");
     }
 
-    private static async Task<Guid> CreateProjectAndReadIdAsync(HttpClient client, string code, string title)
+    private static async Task<Guid> CreateProjectAndReadIdAsync(ProductionPlanningApiTestContext context, HttpClient client, string code, string title)
     {
         var response = await client.PostAsJsonAsync(
             "/api/projects",
@@ -686,9 +1088,103 @@ public sealed class ProductionPlanningApiTests
                 DeliveryLocation = (string?)null
             },
             TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        using var json = await ReadJsonAsync(response);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(response.StatusCode == HttpStatusCode.Created, $"Expected Created but got {response.StatusCode}. Body: {body}. Logs: {context.ErrorLogs()}");
+        using var json = JsonDocument.Parse(body);
         return json.RootElement.GetProperty("projectId").GetGuid();
+    }
+
+    private static Task InsertRoleUserAsync(
+        ProductionPlanningApiTestContext context,
+        Guid userId,
+        string developmentUserKey,
+        string displayName,
+        string departmentCode,
+        string roleCode)
+    {
+        return context.ExecuteSqlAsync($"""
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            select '{userId}', '{developmentUserKey}', '{displayName}', departments.id, true
+            from departments
+            where departments.code = '{departmentCode}'
+            on conflict (id) do update
+            set development_user_key = excluded.development_user_key,
+                display_name = excluded.display_name,
+                department_id = excluded.department_id,
+                is_active = true;
+
+            insert into user_roles (user_id, role_id)
+            select '{userId}', roles.id
+            from roles
+            where roles.code = '{roleCode}'
+            on conflict (user_id, role_id) do nothing;
+            """);
+    }
+
+    private static Task InsertAssigneeAsync(ProductionPlanningApiTestContext context, Guid projectId, string responsibilityType, Guid assignedUserId)
+    {
+        return context.ExecuteSqlAsync($"""
+            insert into project_assignees (project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc)
+            values ('{projectId}', '{responsibilityType}', '{assignedUserId}', '{DevSalesUserId}', now())
+            on conflict (project_id, responsibility_type) do update
+            set assigned_user_id = excluded.assigned_user_id,
+                assigned_by_user_id = excluded.assigned_by_user_id,
+                assigned_at_utc = excluded.assigned_at_utc;
+            """);
+    }
+
+    private static Task CompleteProductionPlanningForFallbackAsync(ProductionPlanningApiTestContext context, Guid projectId, string correlationId)
+    {
+        return context.WorkflowStore.CompleteStageAsync(
+            projectId,
+            WorkflowStageCodes.ProductionPlanning,
+            "Test",
+            null,
+            DevSalesUserId,
+            correlationId,
+            "fallback 순서 검증",
+            TestContext.Current.CancellationToken);
+    }
+
+    private static async Task AssertGeneratedDesignWorkAsync(
+        ProductionPlanningApiTestContext context,
+        Guid projectId,
+        Guid expectedAssignedUserId,
+        string expectedAssignedRoleCode)
+    {
+        var assignedUserId = await ReadGeneratedWorkAssigneeIdAsync(context, projectId, WorkflowStageCodes.DesignPanelInfo);
+        Assert.Equal(expectedAssignedUserId, assignedUserId);
+
+        Assert.Equal(expectedAssignedRoleCode, await context.ReadScalarAsync<string>($"""
+            select assigned_role_code
+            from work_items
+            where project_id = '{projectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}'
+            order by created_at_utc desc
+            limit 1;
+            """));
+
+        Assert.Equal(1, await context.ReadScalarAsync<int>($"""
+            select count(*)::int
+            from work_items
+            where project_id = '{projectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}';
+            """));
+    }
+
+    private static Task<Guid> ReadGeneratedWorkAssigneeIdAsync(
+        ProductionPlanningApiTestContext context,
+        Guid projectId,
+        string stageCode)
+    {
+        return context.ReadScalarAsync<Guid>($"""
+            select assigned_user_id
+            from work_items
+            where project_id = '{projectId}'
+              and workflow_stage_code = '{stageCode}'
+            order by created_at_utc desc
+            limit 1;
+            """);
     }
 
     private static async Task<JsonDocument> ReadJsonAsync(HttpResponseMessage response)
@@ -846,6 +1342,22 @@ public sealed class ProductionPlanningApiTests
             await Database.ExecuteSqlAsync(sql, TestContext.Current.CancellationToken);
         }
 
+        public Task<T> ReadScalarAsync<T>(string sql)
+        {
+            return Database.ReadScalarAsync<T>(sql, TestContext.Current.CancellationToken);
+        }
+
+        public WorkflowStore WorkflowStore => Factory.Services.GetRequiredService<WorkflowStore>();
+
+        public string ErrorLogs()
+        {
+            var entries = Factory.Logs.Entries
+                .Where(entry => entry.LogLevel >= Microsoft.Extensions.Logging.LogLevel.Error)
+                .TakeLast(5)
+                .Select(entry => $"{entry.Category}: {entry.Message} {entry.Exception}");
+            return string.Join(" | ", entries);
+        }
+
         public async ValueTask DisposeAsync()
         {
             Factory.Dispose();
@@ -899,6 +1411,15 @@ public sealed class ProductionPlanningApiTests
             await using var dataSource = NpgsqlDataSource.Create(BuildConnectionString(BaseConfiguration, DatabaseName));
             await using var command = dataSource.CreateCommand(sql);
             await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        public async Task<T> ReadScalarAsync<T>(string sql, CancellationToken cancellationToken)
+        {
+            await using var dataSource = NpgsqlDataSource.Create(BuildConnectionString(BaseConfiguration, DatabaseName));
+            await using var command = dataSource.CreateCommand(sql);
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            Assert.NotNull(value);
+            return (T)value;
         }
 
         public async ValueTask DisposeAsync()

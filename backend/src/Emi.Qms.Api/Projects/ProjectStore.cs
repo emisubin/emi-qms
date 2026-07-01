@@ -1,5 +1,6 @@
 using System.Data;
 using Emi.Qms.Api.PanelInformation;
+using Emi.Qms.Api.ProductionPlanning;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -148,40 +149,111 @@ public sealed class ProjectStore(
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
                 select count(*)::integer as active_panel_count,
-                       coalesce(sum(case when workflow_stage in ('ManufacturingInProgress', 'ManufacturingCompleted', 'InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as manufacturing_started_count,
-                       coalesce(sum(case when workflow_stage in ('ManufacturingCompleted', 'InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as manufacturing_completed_count,
-                       coalesce(sum(case when workflow_stage in ('InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as inspection_started_count,
-                       coalesce(sum(case when workflow_stage in ('InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as inspection_completed_count,
-                       coalesce(sum(case when workflow_stage = 'PackingCompleted' then 1 else 0 end), 0)::integer as packing_count,
-                       coalesce(sum(case when workflow_stage = 'ShipmentCompleted' then 1 else 0 end), 0)::integer as shipment_count,
-                       coalesce(sum(case workflow_stage
-                           when 'BeforeManufacturing' then 0
-                           when 'ManufacturingInProgress' then 20
-                           when 'ManufacturingCompleted' then 40
-                           when 'InspectionInProgress' then 60
-                           when 'InspectionCompleted' then 75
-                           when 'PackingCompleted' then 90
-                           when 'ShipmentCompleted' then 100
-                           else 0
-                       end), 0)::integer as progress_score_sum
+                       count(*) filter (where panel_info_completed = true)::integer as panel_info_completed_count,
+                       count(*) filter (
+                           where panel_info_completed = true
+                              or panel_name is not null
+                              or width_mm is not null
+                              or height_mm is not null
+                              or depth_mm is not null
+                       )::integer as panel_info_touched_count
                 from panel_placeholders
                 where panel_placeholders.project_id = projects.id
                   and panel_placeholders.status = 'Active'
             ) active_panels on true
             left join lateral (
+                select count(items.id)::integer as item_count,
+                       count(items.id) filter (where items.is_required = true)::integer as required_item_count,
+                       count(items.id) filter (where items.is_required = true and items.planned_date is not null)::integer as planned_required_item_count
+                from project_production_plans plans
+                left join project_production_plan_items items on items.production_plan_id = plans.id and items.is_active = true
+                where plans.project_id = projects.id
+            ) production_plan_summary on true
+            left join lateral (
+                select count(*) filter (
+                    where assigned_user_id is not null
+                      and responsibility_type in ('Procurement', 'ProductionPlanning', 'Manufacturing', 'Quality', 'Logistics')
+                )::integer as assigned_count
+                from project_assignees
+                where project_assignees.project_id = projects.id
+            ) assignee_summary on true
+            left join lateral (
+                select count(*)::integer as item_count,
+                       count(*) filter (where order_item is not null and btrim(order_item) <> '')::integer as named_item_count
+                from project_procurement_items
+                where project_procurement_items.project_id = projects.id
+                  and project_procurement_items.status = 'Active'
+            ) procurement_summary on true
+            left join lateral (
+                select count(rows.id) filter (where rows.is_required and rows.is_active)::integer as required_item_count,
+                       count(rows.id) filter (
+                           where rows.is_required
+                             and rows.is_active
+                             and exists (
+                                 select 1
+                                 from project_procurement_items procurement_items
+                                 where procurement_items.project_id = projects.id
+                                   and procurement_items.status = 'Active'
+                                   and procurement_items.is_confirmed = true
+                                   and upper(regexp_replace(coalesce(procurement_items.order_item, ''), '\s+', '', 'g')) = rows.normalized_item_name
+                             )
+                       )::integer as matched_required_item_count
+                from procurement_required_item_templates templates
+                join procurement_required_item_template_rows rows on rows.template_id = templates.id
+                where upper(btrim(templates.item_code)) = upper(btrim(projects.item))
+                  and templates.is_active = true
+            ) procurement_required_summary on true
+            left join lateral (
                 select case
                            when projects.status in ('OnHold', 'Cancelled', 'Completed') then projects.status
-                           when active_panels.active_panel_count > 0 and active_panels.shipment_count = active_panels.active_panel_count then 'ShipmentCompleted'
-                           when active_panels.packing_count > 0 then 'ReadyForShipment'
-                           when active_panels.active_panel_count > 0 and active_panels.inspection_completed_count = active_panels.active_panel_count and active_panels.packing_count = 0 and active_panels.shipment_count = 0 then 'InspectionCompleted'
-                           when active_panels.inspection_started_count > 0 and active_panels.inspection_completed_count < active_panels.active_panel_count then 'InspectionInProgress'
-                           when active_panels.active_panel_count > 0 and active_panels.manufacturing_completed_count = active_panels.active_panel_count and active_panels.inspection_started_count = 0 then 'ManufacturingCompleted'
-                           when active_panels.manufacturing_started_count > 0 and active_panels.manufacturing_completed_count < active_panels.active_panel_count then 'ManufacturingInProgress'
-                           else 'BeforeManufacturing'
+                           when not (
+                               production_plan_summary.item_count > 0
+                               and (
+                                   production_plan_summary.required_item_count = 0
+                                   or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
+                               )
+                               and assignee_summary.assigned_count >= 5
+                           ) then 'ProductionPlanning'
+                           when not (
+                               active_panels.active_panel_count > 0
+                               and active_panels.panel_info_completed_count = active_panels.active_panel_count
+                           ) then 'DesignPanelInfo'
+                           when not (
+                               case
+                                   when coalesce(procurement_required_summary.required_item_count, 0) > 0
+                                       then procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count
+                                   else procurement_summary.item_count > 0 and procurement_summary.named_item_count = procurement_summary.item_count
+                               end
+                           ) then 'ProcurementInfo'
+                           else 'MaterialArrived'
                        end as project_work_status,
                        case
-                           when active_panels.active_panel_count = 0 then null
-                           else round(active_panels.progress_score_sum::numeric / active_panels.active_panel_count)::integer
+                           when projects.status = 'Completed' then 100
+                           else round((
+                               1
+                               + case
+                                   when production_plan_summary.item_count > 0
+                                    and (
+                                        production_plan_summary.required_item_count = 0
+                                        or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
+                                    )
+                                    and assignee_summary.assigned_count >= 5 then 1
+                                   else 0
+                                 end
+                               + case
+                                   when active_panels.active_panel_count > 0
+                                    and active_panels.panel_info_completed_count = active_panels.active_panel_count then 1
+                                   else 0
+                                 end
+                               + case
+                                   when coalesce(procurement_required_summary.required_item_count, 0) > 0
+                                    and procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count then 1
+                                   when coalesce(procurement_required_summary.required_item_count, 0) = 0
+                                    and procurement_summary.item_count > 0
+                                    and procurement_summary.named_item_count = procurement_summary.item_count then 1
+                                   else 0
+                                 end
+                           )::numeric * 100 / 17)::integer
                        end as project_progress_percent
             ) project_workflow on true
             {whereSql}
@@ -337,40 +409,111 @@ public sealed class ProjectStore(
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
                 select count(*)::integer as active_panel_count,
-                       coalesce(sum(case when workflow_stage in ('ManufacturingInProgress', 'ManufacturingCompleted', 'InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as manufacturing_started_count,
-                       coalesce(sum(case when workflow_stage in ('ManufacturingCompleted', 'InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as manufacturing_completed_count,
-                       coalesce(sum(case when workflow_stage in ('InspectionInProgress', 'InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as inspection_started_count,
-                       coalesce(sum(case when workflow_stage in ('InspectionCompleted', 'PackingCompleted', 'ShipmentCompleted') then 1 else 0 end), 0)::integer as inspection_completed_count,
-                       coalesce(sum(case when workflow_stage = 'PackingCompleted' then 1 else 0 end), 0)::integer as packing_count,
-                       coalesce(sum(case when workflow_stage = 'ShipmentCompleted' then 1 else 0 end), 0)::integer as shipment_count,
-                       coalesce(sum(case workflow_stage
-                           when 'BeforeManufacturing' then 0
-                           when 'ManufacturingInProgress' then 20
-                           when 'ManufacturingCompleted' then 40
-                           when 'InspectionInProgress' then 60
-                           when 'InspectionCompleted' then 75
-                           when 'PackingCompleted' then 90
-                           when 'ShipmentCompleted' then 100
-                           else 0
-                       end), 0)::integer as progress_score_sum
+                       count(*) filter (where panel_info_completed = true)::integer as panel_info_completed_count,
+                       count(*) filter (
+                           where panel_info_completed = true
+                              or panel_name is not null
+                              or width_mm is not null
+                              or height_mm is not null
+                              or depth_mm is not null
+                       )::integer as panel_info_touched_count
                 from panel_placeholders
                 where panel_placeholders.project_id = projects.id
                   and panel_placeholders.status = 'Active'
             ) active_panels on true
             left join lateral (
+                select count(items.id)::integer as item_count,
+                       count(items.id) filter (where items.is_required = true)::integer as required_item_count,
+                       count(items.id) filter (where items.is_required = true and items.planned_date is not null)::integer as planned_required_item_count
+                from project_production_plans plans
+                left join project_production_plan_items items on items.production_plan_id = plans.id and items.is_active = true
+                where plans.project_id = projects.id
+            ) production_plan_summary on true
+            left join lateral (
+                select count(*) filter (
+                    where assigned_user_id is not null
+                      and responsibility_type in ('Procurement', 'ProductionPlanning', 'Manufacturing', 'Quality', 'Logistics')
+                )::integer as assigned_count
+                from project_assignees
+                where project_assignees.project_id = projects.id
+            ) assignee_summary on true
+            left join lateral (
+                select count(*)::integer as item_count,
+                       count(*) filter (where order_item is not null and btrim(order_item) <> '')::integer as named_item_count
+                from project_procurement_items
+                where project_procurement_items.project_id = projects.id
+                  and project_procurement_items.status = 'Active'
+            ) procurement_summary on true
+            left join lateral (
+                select count(rows.id) filter (where rows.is_required and rows.is_active)::integer as required_item_count,
+                       count(rows.id) filter (
+                           where rows.is_required
+                             and rows.is_active
+                             and exists (
+                                 select 1
+                                 from project_procurement_items procurement_items
+                                 where procurement_items.project_id = projects.id
+                                   and procurement_items.status = 'Active'
+                                   and procurement_items.is_confirmed = true
+                                   and upper(regexp_replace(coalesce(procurement_items.order_item, ''), '\s+', '', 'g')) = rows.normalized_item_name
+                             )
+                       )::integer as matched_required_item_count
+                from procurement_required_item_templates templates
+                join procurement_required_item_template_rows rows on rows.template_id = templates.id
+                where upper(btrim(templates.item_code)) = upper(btrim(projects.item))
+                  and templates.is_active = true
+            ) procurement_required_summary on true
+            left join lateral (
                 select case
                            when projects.status in ('OnHold', 'Cancelled', 'Completed') then projects.status
-                           when active_panels.active_panel_count > 0 and active_panels.shipment_count = active_panels.active_panel_count then 'ShipmentCompleted'
-                           when active_panels.packing_count > 0 then 'ReadyForShipment'
-                           when active_panels.active_panel_count > 0 and active_panels.inspection_completed_count = active_panels.active_panel_count and active_panels.packing_count = 0 and active_panels.shipment_count = 0 then 'InspectionCompleted'
-                           when active_panels.inspection_started_count > 0 and active_panels.inspection_completed_count < active_panels.active_panel_count then 'InspectionInProgress'
-                           when active_panels.active_panel_count > 0 and active_panels.manufacturing_completed_count = active_panels.active_panel_count and active_panels.inspection_started_count = 0 then 'ManufacturingCompleted'
-                           when active_panels.manufacturing_started_count > 0 and active_panels.manufacturing_completed_count < active_panels.active_panel_count then 'ManufacturingInProgress'
-                           else 'BeforeManufacturing'
+                           when not (
+                               production_plan_summary.item_count > 0
+                               and (
+                                   production_plan_summary.required_item_count = 0
+                                   or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
+                               )
+                               and assignee_summary.assigned_count >= 5
+                           ) then 'ProductionPlanning'
+                           when not (
+                               active_panels.active_panel_count > 0
+                               and active_panels.panel_info_completed_count = active_panels.active_panel_count
+                           ) then 'DesignPanelInfo'
+                           when not (
+                               case
+                                   when coalesce(procurement_required_summary.required_item_count, 0) > 0
+                                       then procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count
+                                   else procurement_summary.item_count > 0 and procurement_summary.named_item_count = procurement_summary.item_count
+                               end
+                           ) then 'ProcurementInfo'
+                           else 'MaterialArrived'
                        end as project_work_status,
                        case
-                           when active_panels.active_panel_count = 0 then null
-                           else round(active_panels.progress_score_sum::numeric / active_panels.active_panel_count)::integer
+                           when projects.status = 'Completed' then 100
+                           else round((
+                               1
+                               + case
+                                   when production_plan_summary.item_count > 0
+                                    and (
+                                        production_plan_summary.required_item_count = 0
+                                        or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
+                                    )
+                                    and assignee_summary.assigned_count >= 5 then 1
+                                   else 0
+                                 end
+                               + case
+                                   when active_panels.active_panel_count > 0
+                                    and active_panels.panel_info_completed_count = active_panels.active_panel_count then 1
+                                   else 0
+                                 end
+                               + case
+                                   when coalesce(procurement_required_summary.required_item_count, 0) > 0
+                                    and procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count then 1
+                                   when coalesce(procurement_required_summary.required_item_count, 0) = 0
+                                    and procurement_summary.item_count > 0
+                                    and procurement_summary.named_item_count = procurement_summary.item_count then 1
+                                   else 0
+                                 end
+                           )::numeric * 100 / 17)::integer
                        end as project_progress_percent
             ) project_workflow on true
             where projects.id = @project_id
@@ -549,6 +692,9 @@ public sealed class ProjectStore(
                     false,
                     cancellationToken);
             }
+
+            await CreateInitialProductionPlanFromTemplateAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
+            await CreateInitialProcurementItemsFromTemplateAsync(connection, transaction, projectId, input, changedByUserId, cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
         }
@@ -1895,9 +2041,11 @@ public sealed class ProjectStore(
                 from production_product_types
                 where code = @code
                   and is_active = true
+                  and code = any(@canonical_codes)
             );
             """;
         command.Parameters.AddWithValue("code", code);
+        command.Parameters.AddWithValue("canonical_codes", ProductionPlanningDomain.CanonicalProductTypeCodes.ToArray());
         return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
@@ -1911,8 +2059,10 @@ public sealed class ProjectStore(
         command.CommandText = """
             select code
             from production_product_types
-            where is_active = true;
+            where is_active = true
+              and code = any(@canonical_codes);
             """;
+        command.Parameters.AddWithValue("canonical_codes", ProductionPlanningDomain.CanonicalProductTypeCodes.ToArray());
         var codes = new HashSet<string>(StringComparer.Ordinal);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -2041,7 +2191,140 @@ public sealed class ProjectStore(
                 cancellationToken);
         }
 
+        await CreateInitialProductionPlanFromTemplateAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
+        await CreateInitialProcurementItemsFromTemplateAsync(connection, transaction, projectId, input, changedByUserId, cancellationToken);
+
         return projectId;
+    }
+
+    private static async Task CreateInitialProductionPlanFromTemplateAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string itemCode,
+        Guid changedByUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            with selected_template as (
+                select pt.id as product_type_id,
+                       t.id as template_id
+                from production_product_types pt
+                join production_plan_templates t on t.product_type_id = pt.id and t.is_active = true
+                where upper(btrim(pt.code)) = upper(btrim(@item_code))
+                  and pt.is_active = true
+                limit 1
+            ),
+            inserted_plan as (
+                insert into project_production_plans (
+                    project_id,
+                    product_type_id,
+                    template_id,
+                    created_by_user_id,
+                    updated_by_user_id
+                )
+                select @project_id,
+                       selected_template.product_type_id,
+                       selected_template.template_id,
+                       @user_id,
+                       @user_id
+                from selected_template
+                where not exists (
+                    select 1 from project_production_plans where project_id = @project_id
+                )
+                returning id, template_id
+            )
+            insert into project_production_plan_items (
+                production_plan_id,
+                template_step_id,
+                sequence_number,
+                step_name_snapshot,
+                is_required,
+                is_active
+            )
+            select inserted_plan.id,
+                   steps.id,
+                   steps.sequence_number,
+                   steps.step_name,
+                   steps.is_required,
+                   true
+            from inserted_plan
+            join production_plan_template_steps steps on steps.template_id = inserted_plan.template_id
+            where steps.is_active = true
+            order by steps.sequence_number;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("item_code", itemCode);
+        command.Parameters.AddWithValue("user_id", changedByUserId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task CreateInitialProcurementItemsFromTemplateAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        NormalizedCreateProjectInput input,
+        Guid changedByUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            with selected_template as (
+                select templates.id
+                from procurement_required_item_templates templates
+                where upper(btrim(templates.item_code)) = upper(btrim(@item_code))
+                  and templates.is_active = true
+                limit 1
+            ),
+            template_rows as (
+                select rows.sequence_number,
+                       rows.item_name,
+                       rows.normalized_item_name
+                from selected_template
+                join procurement_required_item_template_rows rows on rows.template_id = selected_template.id
+                where rows.is_active = true
+            )
+            insert into project_procurement_items (
+                project_id,
+                sequence_number,
+                source_project_text,
+                source_project_code_text,
+                order_item,
+                row_match_key,
+                source_type,
+                is_confirmed,
+                created_by_user_id,
+                updated_by_user_id
+            )
+            select @project_id,
+                   template_rows.sequence_number,
+                   @project_title,
+                   @project_code,
+                   template_rows.item_name,
+                   template_rows.normalized_item_name,
+                   'RequiredItemTemplate',
+                   false,
+                   @user_id,
+                   @user_id
+            from template_rows
+            where not exists (
+                select 1
+                from project_procurement_items existing
+                where existing.project_id = @project_id
+                  and existing.status = 'Active'
+                  and existing.row_match_key = template_rows.normalized_item_name
+            )
+            order by template_rows.sequence_number;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("item_code", input.Item);
+        command.Parameters.AddWithValue("project_title", input.ProjectTitle);
+        command.Parameters.AddWithValue("project_code", input.ProjectCode);
+        command.Parameters.AddWithValue("user_id", changedByUserId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private NpgsqlDataSource CreateDataSource()

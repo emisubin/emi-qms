@@ -20,6 +20,7 @@ import type {
   ProcurementListResponse,
   ProcurementReceiptBulkUpdateRequest,
   ProcurementResponse,
+  ProcurementRequiredItemSettings,
   CreateProductionProductTypeRequest,
   ProductionPlanningHistoryResponse,
   ProductionPlanningExcelApplyResponse,
@@ -27,8 +28,16 @@ import type {
   ProductionPlanningProjectListResponse,
   ProductionPlanningResponse,
   ProductionPlanningSummary,
+  MyWorkItem,
+  MyAssignedProjectsResponse,
+  MyWorkListResponse,
+  MyWorkSummary,
+  NotificationItem,
+  NotificationListResponse,
+  NotificationSummary,
   ProductionTemplateSettings,
   ProductionProductType,
+  ProjectWorkflowResponse,
   ProjectExcelApplyResponse,
   ProjectExcelPreviewResponse,
   ProjectDetail,
@@ -41,6 +50,7 @@ import type {
   SystemHoliday,
   UpdateProductionPlanningRequest,
   UpdateProductionTemplateSettingsRequest,
+  UpdateProcurementRequiredItemSettingsRequest,
   UpdateProjectRequest
 } from './projects';
 
@@ -115,6 +125,74 @@ export async function getProject(
   projectId: string
 ): Promise<ProjectDetail> {
   return fetchJson<ProjectDetail>(`/api/projects/${projectId}`, developmentUserKey);
+}
+
+export async function getProjectWorkflow(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<ProjectWorkflowResponse> {
+  return fetchJson<ProjectWorkflowResponse>(`/api/projects/${projectId}/workflow`, developmentUserKey);
+}
+
+export async function getMyWorkSummary(
+  developmentUserKey: string | undefined
+): Promise<MyWorkSummary> {
+  return fetchJson<MyWorkSummary>('/api/my-work/summary', developmentUserKey);
+}
+
+export async function listMyWorkItems(
+  developmentUserKey: string | undefined,
+  status?: 'Requested' | 'InProgress' | 'Completed'
+): Promise<MyWorkListResponse> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return fetchJson<MyWorkListResponse>(`/api/my-work${query}`, developmentUserKey);
+}
+
+export async function listMyAssignedProjects(
+  developmentUserKey: string | undefined
+): Promise<MyAssignedProjectsResponse> {
+  return fetchJson<MyAssignedProjectsResponse>('/api/my-work/assigned-projects', developmentUserKey);
+}
+
+export async function startMyWorkItem(
+  developmentUserKey: string | undefined,
+  workItemId: string
+): Promise<MyWorkItem> {
+  return fetchJson<MyWorkItem>(`/api/my-work/${workItemId}/start`, developmentUserKey, { method: 'POST' });
+}
+
+export async function completeMyWorkItem(
+  developmentUserKey: string | undefined,
+  workItemId: string
+): Promise<MyWorkItem> {
+  return fetchJson<MyWorkItem>(`/api/my-work/${workItemId}/complete`, developmentUserKey, { method: 'POST' });
+}
+
+export async function getNotificationSummary(
+  developmentUserKey: string | undefined
+): Promise<NotificationSummary> {
+  return fetchJson<NotificationSummary>('/api/notifications/summary', developmentUserKey);
+}
+
+export async function listNotifications(
+  developmentUserKey: string | undefined,
+  readStatus?: 'read' | 'unread'
+): Promise<NotificationListResponse> {
+  const query = readStatus ? `?readStatus=${encodeURIComponent(readStatus)}` : '';
+  return fetchJson<NotificationListResponse>(`/api/notifications${query}`, developmentUserKey);
+}
+
+export async function markNotificationRead(
+  developmentUserKey: string | undefined,
+  notificationId: string
+): Promise<NotificationItem> {
+  return fetchJson<NotificationItem>(`/api/notifications/${notificationId}/read`, developmentUserKey, { method: 'POST' });
+}
+
+export async function markAllNotificationsRead(
+  developmentUserKey: string | undefined
+): Promise<NotificationSummary> {
+  return fetchJson<NotificationSummary>('/api/notifications/read-all', developmentUserKey, { method: 'POST' });
 }
 
 export async function getDeletedProject(
@@ -488,6 +566,23 @@ export async function getProcurementDashboard(
   }
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<ProcurementDashboardResponse>(`/api/procurement/dashboard${query}`, developmentUserKey);
+}
+
+export async function listProcurementRequiredItemSettings(
+  developmentUserKey: string | undefined
+): Promise<ProcurementRequiredItemSettings[]> {
+  return fetchJson<ProcurementRequiredItemSettings[]>('/api/procurement/settings/required-items', developmentUserKey);
+}
+
+export async function updateProcurementRequiredItemSettings(
+  developmentUserKey: string | undefined,
+  itemCode: string,
+  request: UpdateProcurementRequiredItemSettingsRequest
+): Promise<ProcurementRequiredItemSettings[]> {
+  return fetchJson<ProcurementRequiredItemSettings[]>(`/api/procurement/settings/required-items/${encodeURIComponent(itemCode)}`, developmentUserKey, {
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
 }
 
 export async function getMaterialReceipts(

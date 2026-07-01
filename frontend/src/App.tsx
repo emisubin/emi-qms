@@ -1,4 +1,4 @@
-import { Fragment, FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   ApiError,
   applyPanelInformationExcel,
@@ -22,6 +22,7 @@ import {
   getPanelInformation,
   getPanelInformationHistory,
   getProject,
+  getProjectWorkflow,
   getProjectProductionPlanning,
   getProjectProductionPlanningHistory,
   getProjectProcurement,
@@ -29,12 +30,18 @@ import {
   getProjectSummary,
   getProductionPlanningSummary,
   getProcurementDashboard,
+  getMyWorkSummary,
+  getNotificationSummary,
   getMaterialReceipts,
   getReadyHealth,
   getSalesOwners,
+  listMyAssignedProjects,
   listProductionPlanningProjects,
   listProductionTemplateSettings,
   listProductionProductTypes,
+  listProcurementRequiredItemSettings,
+  listMyWorkItems,
+  listNotifications,
   listDeletedProjects,
   listPanels,
   listProjects,
@@ -45,9 +52,14 @@ import {
   previewProcurementExcel,
   purgeAllDeletedProjects,
   purgeDeletedProject,
+  completeMyWorkItem,
+  markAllNotificationsRead,
+  markNotificationRead,
   restoreDeletedProject,
+  startMyWorkItem,
   updateProjectProductionPlanning,
   updateProductionTemplateSettings,
+  updateProcurementRequiredItemSettings,
   updateMaterialReceipts,
   updatePanelInformation,
   updateProjectProcurement,
@@ -72,6 +84,8 @@ import type {
   ProcurementHistoryResponse,
   ProcurementItem,
   ProcurementProjectSummary,
+  ProcurementRequiredItemSettings,
+  ProcurementRequiredItemSettingsRow,
   ProcurementResponse,
   ProductionPlanningHistoryResponse,
   ProductionPlanningExcelPreviewResponse,
@@ -81,6 +95,13 @@ import type {
   ProductionTemplateSettings,
   ProductionTemplateSettingsStep,
   ProductionProductType,
+  MyAssignedProjectsResponse,
+  MyWorkItem,
+  MyWorkListResponse,
+  MyWorkSummary,
+  NotificationItem,
+  NotificationListResponse,
+  NotificationSummary,
   ProjectAssignee,
   ProjectDetail,
   ProjectDashboardSummary,
@@ -88,7 +109,9 @@ import type {
   ProjectListItem,
   ProjectListTab,
   ProjectStatus,
+  ProjectWorkflowResponse,
   ProjectWorkStatus,
+  UpdateProcurementRequiredItemSettingsRequest,
   ProductWorkflowStage,
   ResponsibilityType,
   SalesOwner,
@@ -96,6 +119,7 @@ import type {
 } from './projects';
 
 type View =
+  | { kind: 'my-work' }
   | { kind: 'list' }
   | { kind: 'create' }
   | { kind: 'detail'; projectId: string; section?: ProjectDetailSection }
@@ -107,7 +131,9 @@ type View =
   | { kind: 'production-planning-settings' }
   | { kind: 'procurement-edit'; projectId: string }
   | { kind: 'procurement-dashboard' }
+  | { kind: 'procurement-settings' }
   | { kind: 'materials-receipts' }
+  | { kind: 'notifications' }
   | { kind: 'panel'; projectId: string; panelId: string };
 
 type LoadState<T> =
@@ -119,6 +145,11 @@ type LoadState<T> =
   | { kind: 'error'; message: string };
 
 type ProjectDetailSection = 'panels' | 'production-planning' | 'procurement';
+
+type ShellBadgeState = {
+  requestedWorkCount: number;
+  unreadNotificationCount: number;
+};
 
 type ProjectFormValues = {
   customerName: string;
@@ -169,6 +200,14 @@ function initialViewFromLocation(): View {
     return { kind: 'list' };
   }
 
+  if (window.location.pathname === '/my-work') {
+    return { kind: 'my-work' };
+  }
+
+  if (window.location.pathname === '/notifications') {
+    return { kind: 'notifications' };
+  }
+
   const panelInformationEditMatch = window.location.pathname.match(/^\/projects\/([^/]+)\/panel-information\/edit$/);
   if (panelInformationEditMatch?.[1]) {
     return { kind: 'panel-info-edit', projectId: panelInformationEditMatch[1] };
@@ -200,6 +239,10 @@ function initialViewFromLocation(): View {
     return { kind: 'procurement-dashboard' };
   }
 
+  if (window.location.pathname === '/procurement/settings') {
+    return { kind: 'procurement-settings' };
+  }
+
   const panelMatch = window.location.pathname.match(/^\/projects\/([^/]+)\/panels\/([^/]+)$/);
   if (panelMatch?.[1] && panelMatch?.[2]) {
     return { kind: 'panel', projectId: panelMatch[1], panelId: panelMatch[2] };
@@ -220,6 +263,8 @@ function initialViewFromLocation(): View {
 
 function pathForView(view: View) {
   switch (view.kind) {
+    case 'my-work':
+      return '/my-work';
     case 'detail':
       return `/projects/${view.projectId}${view.section && view.section !== 'panels' ? `?section=${view.section}` : ''}`;
     case 'panel-info-edit':
@@ -236,6 +281,10 @@ function pathForView(view: View) {
       return '/materials/receipts';
     case 'procurement-dashboard':
       return '/procurement';
+    case 'procurement-settings':
+      return '/procurement/settings';
+    case 'notifications':
+      return '/notifications';
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}`;
     default:
@@ -252,6 +301,7 @@ export function App() {
   const [view, setViewState] = useState<View>(() => initialViewFromLocation());
   const [health, setHealth] = useState<LoadState<ReadyHealth>>({ kind: 'loading' });
   const [currentUser, setCurrentUser] = useState<LoadState<CurrentUser>>({ kind: 'loading' });
+  const [shellBadges, setShellBadges] = useState<ShellBadgeState>({ requestedWorkCount: 0, unreadNotificationCount: 0 });
 
   const setView = useCallback((nextView: View) => {
     setViewState(nextView);
@@ -275,9 +325,29 @@ export function App() {
       .catch((error: unknown) => setCurrentUser(toLoadError(error, '개발 사용자를 확인할 수 없습니다.')));
   }, [developmentUserKey]);
 
+  const refreshShellBadges = useCallback(() => {
+    Promise.all([
+      getMyWorkSummary(developmentUserKey),
+      getNotificationSummary(developmentUserKey)
+    ])
+      .then(([workSummary, notificationSummary]) => {
+        setShellBadges({
+          requestedWorkCount: workSummary.requestedCount,
+          unreadNotificationCount: notificationSummary.unreadCount
+        });
+      })
+      .catch(() => {
+        setShellBadges({ requestedWorkCount: 0, unreadNotificationCount: 0 });
+      });
+  }, [developmentUserKey]);
+
   useEffect(() => {
     loadShell();
   }, [loadShell]);
+
+  useEffect(() => {
+    refreshShellBadges();
+  }, [refreshShellBadges]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -304,10 +374,12 @@ export function App() {
   const canUpdateMaterialReceipt = permissions.includes('MaterialReceipt.Update');
   const canUpdateProductionPlanning = permissions.includes('ProductionPlan.Update');
   const navigationItems: NavigationItem[] = [
+    { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: shellBadges.requestedWorkCount },
     { label: '프로젝트', view: { kind: 'list' }, active: isProjectWorkspace(view) },
     { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
-    ...(canUpdateMaterialReceipt ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : [])
+    ...(canUpdateMaterialReceipt ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : []),
+    { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: shellBadges.unreadNotificationCount }
   ];
 
   return (
@@ -355,6 +427,14 @@ export function App() {
 
       {currentUser.kind === 'forbidden' || currentUser.kind === 'not-found' || currentUser.kind === 'error' ? (
         <StateMessage state={currentUser} />
+      ) : null}
+
+      {view.kind === 'my-work' ? (
+        <MyWorkPage
+          developmentUserKey={developmentUserKey}
+          onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
+          onBadgeRefresh={refreshShellBadges}
+        />
       ) : null}
 
       {view.kind === 'list' ? (
@@ -471,8 +551,17 @@ export function App() {
           developmentUserKey={developmentUserKey}
           canUpdateProcurement={canUpdateProcurement}
           onBack={() => setView({ kind: 'list' })}
+          onOpenSettings={() => setView({ kind: 'procurement-settings' })}
           onOpenProject={(projectId) => setView({ kind: 'detail', projectId, section: 'procurement' })}
           onEditProject={(projectId) => setView({ kind: 'procurement-edit', projectId })}
+        />
+      ) : null}
+
+      {view.kind === 'procurement-settings' ? (
+        <ProcurementRequiredItemSettingsPage
+          developmentUserKey={developmentUserKey}
+          canUpdateProcurement={canUpdateProcurement}
+          onBack={() => setView({ kind: 'procurement-dashboard' })}
         />
       ) : null}
 
@@ -481,6 +570,14 @@ export function App() {
           developmentUserKey={developmentUserKey}
           canUpdateMaterialReceipt={canUpdateMaterialReceipt}
           onBack={() => setView({ kind: 'list' })}
+        />
+      ) : null}
+
+      {view.kind === 'notifications' ? (
+        <NotificationsPage
+          developmentUserKey={developmentUserKey}
+          onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
+          onBadgeRefresh={refreshShellBadges}
         />
       ) : null}
 
@@ -501,6 +598,7 @@ type NavigationItem = {
   label: string;
   view: View;
   active: boolean;
+  badge?: number;
 };
 
 function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavigate: (view: View) => void }) {
@@ -519,7 +617,8 @@ function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavig
             aria-current={item.active ? 'page' : undefined}
             onClick={() => onNavigate(item.view)}
           >
-            {item.label}
+            <span>{item.label}</span>
+            {item.badge && item.badge > 0 ? <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span> : null}
           </button>
         ))}
       </div>
@@ -538,7 +637,8 @@ function AppMobileNavigation({ items, onNavigate }: { items: NavigationItem[]; o
           aria-current={item.active ? 'page' : undefined}
           onClick={() => onNavigate(item.view)}
         >
-          {item.label}
+          <span>{item.label}</span>
+          {item.badge && item.badge > 0 ? <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span> : null}
         </button>
       ))}
     </nav>
@@ -563,7 +663,604 @@ function isProductionPlanningWorkspace(view: View) {
 
 function isProcurementWorkspace(view: View) {
   return view.kind === 'procurement-dashboard'
-    || view.kind === 'procurement-edit';
+    || view.kind === 'procurement-edit'
+    || view.kind === 'procurement-settings';
+}
+
+type MyWorkTab = 'All' | 'Requested' | 'InProgress' | 'Completed' | 'AssignedProjects';
+
+const myWorkTabs: Array<{ key: MyWorkTab; label: string }> = [
+  { key: 'All', label: '전체' },
+  { key: 'Requested', label: '시작 전' },
+  { key: 'InProgress', label: '진행 중' },
+  { key: 'Completed', label: '완료' },
+  { key: 'AssignedProjects', label: '담당 프로젝트' }
+];
+
+function MyWorkPage({
+  developmentUserKey,
+  onOpenProject,
+  onBadgeRefresh
+}: {
+  developmentUserKey: string;
+  onOpenProject: (projectId: string) => void;
+  onBadgeRefresh: () => void;
+}) {
+  const [summaryState, setSummaryState] = useState<LoadState<MyWorkSummary>>({ kind: 'loading' });
+  const [itemsState, setItemsState] = useState<LoadState<MyWorkListResponse>>({ kind: 'loading' });
+  const [assignedProjectsState, setAssignedProjectsState] = useState<LoadState<MyAssignedProjectsResponse>>({ kind: 'loading' });
+  const [activeTab, setActiveTab] = useState<MyWorkTab>('Requested');
+  const [message, setMessage] = useState('');
+  const isMobile = useIsMobileViewport();
+
+  const load = useCallback(() => {
+    setSummaryState({ kind: 'loading' });
+    setItemsState({ kind: 'loading' });
+    const workPromise = activeTab === 'AssignedProjects'
+      ? Promise.resolve<MyWorkListResponse>({ items: [] })
+      : listMyWorkItems(developmentUserKey, activeTab === 'All' ? undefined : activeTab);
+    const assignedProjectsPromise = activeTab === 'AssignedProjects'
+      ? listMyAssignedProjects(developmentUserKey)
+      : Promise.resolve<MyAssignedProjectsResponse>({ items: [] });
+
+    Promise.all([
+      getMyWorkSummary(developmentUserKey),
+      workPromise,
+      assignedProjectsPromise
+    ])
+      .then(([summary, items, assignedProjects]) => {
+        setSummaryState({ kind: 'ready', data: summary });
+        setItemsState(items.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: items });
+        setAssignedProjectsState(assignedProjects.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: assignedProjects });
+        onBadgeRefresh();
+      })
+      .catch((error: unknown) => {
+        setSummaryState(toLoadError(error, '내 업무 요약을 불러올 수 없습니다.'));
+        setItemsState(toLoadError(error, '내 업무 목록을 불러올 수 없습니다.'));
+        setAssignedProjectsState(toLoadError(error, '담당 프로젝트 목록을 불러올 수 없습니다.'));
+      });
+  }, [activeTab, developmentUserKey, onBadgeRefresh]);
+
+  useEffect(() => {
+    queueMicrotask(load);
+  }, [load]);
+
+  async function runAction(workItemId: string, action: 'start' | 'complete') {
+    setMessage('');
+    try {
+      if (action === 'start') {
+        await startMyWorkItem(developmentUserKey, workItemId);
+        setMessage('업무를 진행 중으로 변경했습니다.');
+      } else {
+        await completeMyWorkItem(developmentUserKey, workItemId);
+        setMessage('업무를 완료했습니다.');
+      }
+      load();
+      onBadgeRefresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '업무 상태 변경에 실패했습니다.');
+    }
+  }
+
+  const summary = summaryState.kind === 'ready' ? summaryState.data : null;
+
+  return (
+    <section className="page-surface workflow-page">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">My Work</p>
+          <h2>내 업무</h2>
+        </div>
+        <button type="button" onClick={load}>새로고침</button>
+      </div>
+
+      <div className="dashboard-kpi-grid workflow-kpi-grid">
+        <KpiCard label="시작 전" value={summary ? String(summary.requestedCount) : '-'} />
+        <KpiCard label="진행 중" value={summary ? String(summary.inProgressCount) : '-'} />
+        <KpiCard label="완료" value={summary ? String(summary.completedCount) : '-'} />
+        <KpiCard label="차단/긴급" value={summary ? String(summary.blockingCount) : '-'} tone="danger" />
+        <KpiCard label="담당 프로젝트" value={summary ? String(summary.assignedProjectCount) : '-'} />
+      </div>
+
+      <div className="workflow-tabs" role="tablist" aria-label="내 업무 상태">
+        {myWorkTabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            className={activeTab === tab.key ? 'active-filter' : undefined}
+            aria-selected={activeTab === tab.key}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' ? <StateMessage state={summaryState} /> : null}
+      {message ? <p className={message.includes('실패') || message.includes('권한') ? 'error-text' : 'success-text'}>{message}</p> : null}
+
+      {activeTab === 'AssignedProjects' ? (
+        <>
+          {assignedProjectsState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+          {assignedProjectsState.kind === 'empty' ? <p className="empty-text">담당 프로젝트가 없습니다.</p> : null}
+          {assignedProjectsState.kind !== 'ready' && assignedProjectsState.kind !== 'loading' && assignedProjectsState.kind !== 'empty' ? <StateMessage state={assignedProjectsState} /> : null}
+          {assignedProjectsState.kind === 'ready' ? (
+            <div className="workflow-project-groups">
+              {assignedProjectsState.data.items.map((project) => (
+                <article className="workflow-project-group" key={project.projectId}>
+                  <button type="button" className="project-group-header clickable" onClick={() => onOpenProject(project.projectId)}>
+                    <span>
+                      <strong>{project.projectTitle}</strong>
+                      <small>{project.projectCode} · Item {project.item} · 납기일 {project.deliveryDate ? formatDate(project.deliveryDate) : '-'}</small>
+                    </span>
+                    <StatusBadge label={project.projectStatusLabel} tone={project.projectStatus === 'OnHold' ? 'warning' : 'info'} />
+                  </button>
+                  <div className="responsibility-badge-list" aria-label="담당 유형">
+                    {project.responsibilities.map((responsibility) => (
+                      <StatusBadge key={responsibility.responsibilityType} label={responsibility.responsibilityLabel} tone="neutral" />
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {itemsState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+          {itemsState.kind === 'empty' ? <p className="empty-text">표시할 내 업무가 없습니다.</p> : null}
+          {itemsState.kind !== 'ready' && itemsState.kind !== 'loading' && itemsState.kind !== 'empty' ? <StateMessage state={itemsState} /> : null}
+          {itemsState.kind === 'ready' ? (
+            <div className="workflow-project-groups">
+              {groupWorkItemsByProject(itemsState.data.items).map((group) => (
+                <section className="workflow-project-group" key={group.projectId} aria-label={`${group.projectTitle} 내 업무`}>
+                  <div className="project-group-header">
+                    <span>
+                      <strong>{group.projectTitle}</strong>
+                      <small>{group.projectCode} · Item {group.projectItem} · 납기일 {group.projectDeliveryDate ? formatDate(group.projectDeliveryDate) : '-'} · 업무 {group.items.length}건</small>
+                    </span>
+                    <button type="button" onClick={() => onOpenProject(group.projectId)}>프로젝트로 이동</button>
+                  </div>
+                  {isMobile ? (
+                    <div className="workflow-card-list">
+                      {group.items.map((item) => (
+                        <article className="workflow-card" key={item.workItemId}>
+                          <div className="subsection-header">
+                            <div>
+                              <strong>{item.title}</strong>
+                              <small>{item.workflowStageName}</small>
+                            </div>
+                            <StatusBadge label={item.priority === 'Blocking' ? '긴급' : item.statusLabel} tone={workItemStatusTone(item)} />
+                          </div>
+                          <p>{item.description ?? '처리할 업무가 있습니다.'}</p>
+                          <div className="button-row">
+                            {item.status === 'Requested' ? <button type="button" onClick={() => runAction(item.workItemId, 'start')}>시작</button> : null}
+                            {item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>완료</button> : null}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>단계</th>
+                            <th>업무 제목</th>
+                            <th>상태</th>
+                            <th>생성일</th>
+                            <th>작업</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.items.map((item) => (
+                            <tr key={item.workItemId}>
+                              <td><span className="workflow-stage-badge" data-department={departmentForStageCode(item.workflowStageCode)}>{item.workflowStageName}</span></td>
+                              <td>{item.title}</td>
+                              <td><StatusBadge label={item.priority === 'Blocking' ? '긴급' : item.statusLabel} tone={workItemStatusTone(item)} /></td>
+                              <td>{formatDateTime(item.createdAtUtc)}</td>
+                              <td>
+                                <div className="button-row">
+                                  {item.status === 'Requested' ? <button type="button" onClick={() => runAction(item.workItemId, 'start')}>시작</button> : null}
+                                  {item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>완료</button> : null}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              ))}
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+type NotificationTab = 'All' | 'unread' | 'read';
+
+const notificationTabs: Array<{ key: NotificationTab; label: string }> = [
+  { key: 'All', label: '전체' },
+  { key: 'unread', label: '읽지 않음' },
+  { key: 'read', label: '읽음' }
+];
+
+function NotificationsPage({
+  developmentUserKey,
+  onOpenProject,
+  onBadgeRefresh
+}: {
+  developmentUserKey: string;
+  onOpenProject: (projectId: string) => void;
+  onBadgeRefresh: () => void;
+}) {
+  const [summaryState, setSummaryState] = useState<LoadState<NotificationSummary>>({ kind: 'loading' });
+  const [itemsState, setItemsState] = useState<LoadState<NotificationListResponse>>({ kind: 'loading' });
+  const [activeTab, setActiveTab] = useState<NotificationTab>('unread');
+  const [message, setMessage] = useState('');
+  const isMobile = useIsMobileViewport();
+
+  const load = useCallback(() => {
+    setSummaryState({ kind: 'loading' });
+    setItemsState({ kind: 'loading' });
+    Promise.all([
+      getNotificationSummary(developmentUserKey),
+      listNotifications(developmentUserKey, activeTab === 'All' ? undefined : activeTab)
+    ])
+      .then(([summary, items]) => {
+        setSummaryState({ kind: 'ready', data: summary });
+        setItemsState(items.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: items });
+        onBadgeRefresh();
+      })
+      .catch((error: unknown) => {
+        setSummaryState(toLoadError(error, '알림 요약을 불러올 수 없습니다.'));
+        setItemsState(toLoadError(error, '알림 목록을 불러올 수 없습니다.'));
+      });
+  }, [activeTab, developmentUserKey, onBadgeRefresh]);
+
+  useEffect(() => {
+    queueMicrotask(load);
+  }, [load]);
+
+  async function read(notificationId: string) {
+    setMessage('');
+    try {
+      await markNotificationRead(developmentUserKey, notificationId);
+      setMessage('알림을 읽음 처리했습니다.');
+      load();
+      onBadgeRefresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '알림 읽음 처리에 실패했습니다.');
+    }
+  }
+
+  async function readAll() {
+    setMessage('');
+    try {
+      await markAllNotificationsRead(developmentUserKey);
+      setMessage('모든 알림을 읽음 처리했습니다.');
+      load();
+      onBadgeRefresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '알림 읽음 처리에 실패했습니다.');
+    }
+  }
+
+  const summary = summaryState.kind === 'ready' ? summaryState.data : null;
+
+  return (
+    <section className="page-surface workflow-page">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Notifications</p>
+          <h2>알림</h2>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={readAll}>전체 읽음</button>
+          <button type="button" onClick={load}>새로고침</button>
+        </div>
+      </div>
+
+      <div className="dashboard-kpi-grid workflow-kpi-grid">
+        <KpiCard label="읽지 않음" value={summary ? String(summary.unreadCount) : '-'} />
+        <KpiCard label="긴급/차단" value={summary ? String(summary.blockingCount) : '-'} tone="danger" />
+      </div>
+
+      <div className="workflow-tabs" role="tablist" aria-label="알림 읽음 상태">
+        {notificationTabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            className={activeTab === tab.key ? 'active-filter' : undefined}
+            aria-selected={activeTab === tab.key}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' ? <StateMessage state={summaryState} /> : null}
+      {message ? <p className={message.includes('실패') || message.includes('권한') ? 'error-text' : 'success-text'}>{message}</p> : null}
+
+      {itemsState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+      {itemsState.kind === 'empty' ? <p className="empty-text">표시할 알림이 없습니다.</p> : null}
+      {itemsState.kind !== 'ready' && itemsState.kind !== 'loading' && itemsState.kind !== 'empty' ? <StateMessage state={itemsState} /> : null}
+      {itemsState.kind === 'ready' ? (
+        <div className="workflow-project-groups">
+          {groupNotificationsByProject(itemsState.data.items).map((group) => (
+            <section className="workflow-project-group" key={group.groupKey} aria-label={`${group.projectTitle} 알림`}>
+              <div className="project-group-header">
+                <span>
+                  <strong>{group.projectTitle}</strong>
+                  <small>
+                    {group.projectCode ? `${group.projectCode} · ` : ''}
+                    {group.projectItem ? `Item ${group.projectItem} · ` : ''}
+                    알림 {group.items.length}건 · 읽지 않음 {group.unreadCount}건
+                  </small>
+                </span>
+                {group.projectId ? <button type="button" onClick={() => onOpenProject(group.projectId!)}>프로젝트로 이동</button> : null}
+              </div>
+              {isMobile ? (
+                <div className="workflow-card-list">
+                  {group.items.map((item) => (
+                    <article className={item.readAtUtc ? 'workflow-card read' : 'workflow-card unread'} key={item.notificationId}>
+                      <div className="subsection-header">
+                        <div>
+                          <strong>{item.title}</strong>
+                          <small>{item.notificationTypeLabel} · {item.severityLabel}</small>
+                        </div>
+                        <NotificationStatusBadges item={item} />
+                      </div>
+                      <p>{item.message}</p>
+                      <div className="button-row">
+                        {!item.readAtUtc ? <button type="button" onClick={() => read(item.notificationId)}>읽음</button> : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>알림</th>
+                        <th>유형</th>
+                        <th>상태</th>
+                        <th>생성일</th>
+                        <th>작업</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.items.map((item) => (
+                        <tr key={item.notificationId}>
+                          <td><strong>{item.title}</strong><br /><small>{item.message}</small></td>
+                          <td>{item.notificationTypeLabel} · {item.severityLabel}</td>
+                          <td><NotificationStatusBadges item={item} /></td>
+                          <td>{formatDateTime(item.createdAtUtc)}</td>
+                          <td>
+                            <div className="button-row">
+                              {!item.readAtUtc ? <button type="button" onClick={() => read(item.notificationId)}>읽음</button> : null}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function NotificationStatusBadges({ item }: { item: NotificationItem }) {
+  return (
+    <div className="status-badge-row">
+      <StatusBadge label={item.readAtUtc ? '읽음' : '읽지 않음'} tone={notificationReadTone(item.readAtUtc)} />
+      {item.severity === 'Critical' || item.severity === 'Warning' ? <StatusBadge label="긴급" tone="danger" /> : null}
+    </div>
+  );
+}
+
+function KpiCard({ label, value, tone }: { label: string; value: string; tone?: 'danger' }) {
+  return (
+    <article className="dashboard-kpi-card" data-variant={tone === 'danger' ? 'warning' : undefined}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </article>
+  );
+}
+
+type StatusTone = 'danger' | 'warning' | 'info' | 'success' | 'neutral';
+
+function StatusBadge({ label, tone }: { label: string; tone?: StatusTone }) {
+  return <span className="status-badge" data-tone={tone}>{label}</span>;
+}
+
+function formatBadgeCount(value: number) {
+  return value > 99 ? '99+' : String(value);
+}
+
+function workItemStatusTone(item: { status: string; priority: string }): StatusTone {
+  if (item.priority === 'Blocking') {
+    return 'danger';
+  }
+
+  switch (item.status) {
+    case 'Requested':
+      return 'warning';
+    case 'InProgress':
+      return 'info';
+    case 'Completed':
+      return 'success';
+    case 'Cancelled':
+      return 'neutral';
+    default:
+      return 'neutral';
+  }
+}
+
+function notificationReadTone(readAtUtc: string | null): StatusTone {
+  return readAtUtc ? 'neutral' : 'info';
+}
+
+interface WorkItemProjectGroup {
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  projectItem: string;
+  projectDeliveryDate: string | null;
+  items: MyWorkItem[];
+}
+
+function groupWorkItemsByProject(items: MyWorkItem[]): WorkItemProjectGroup[] {
+  const groups = new Map<string, WorkItemProjectGroup>();
+  for (const item of items) {
+    const existing = groups.get(item.projectId);
+    if (existing) {
+      existing.items.push(item);
+      continue;
+    }
+
+    groups.set(item.projectId, {
+      projectId: item.projectId,
+      projectTitle: item.projectTitle,
+      projectCode: item.projectCode,
+      projectItem: item.projectItem,
+      projectDeliveryDate: item.projectDeliveryDate,
+      items: [item]
+    });
+  }
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      items: [...group.items].sort((left, right) => {
+        const leftSequence = workflowSequenceForStage(left.workflowStageCode);
+        const rightSequence = workflowSequenceForStage(right.workflowStageCode);
+        if (leftSequence !== rightSequence) {
+          return leftSequence - rightSequence;
+        }
+
+        return Date.parse(right.createdAtUtc) - Date.parse(left.createdAtUtc);
+      })
+    }))
+    .sort((left, right) => {
+      const leftLatest = Math.max(...left.items.map((item) => Date.parse(item.createdAtUtc)));
+      const rightLatest = Math.max(...right.items.map((item) => Date.parse(item.createdAtUtc)));
+      return rightLatest - leftLatest;
+    });
+}
+
+interface NotificationProjectGroup {
+  groupKey: string;
+  projectId: string | null;
+  projectTitle: string;
+  projectCode: string | null;
+  projectItem: string | null;
+  unreadCount: number;
+  items: NotificationItem[];
+}
+
+function groupNotificationsByProject(items: NotificationItem[]): NotificationProjectGroup[] {
+  const groups = new Map<string, NotificationProjectGroup>();
+  for (const item of items) {
+    const groupKey = item.projectId ?? 'system';
+    const existing = groups.get(groupKey);
+    if (existing) {
+      existing.items.push(item);
+      if (!item.readAtUtc) {
+        existing.unreadCount += 1;
+      }
+      continue;
+    }
+
+    groups.set(groupKey, {
+      groupKey,
+      projectId: item.projectId,
+      projectTitle: item.projectTitle ?? '기타 알림',
+      projectCode: item.projectCode,
+      projectItem: item.projectItem,
+      unreadCount: item.readAtUtc ? 0 : 1,
+      items: [item]
+    });
+  }
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      items: [...group.items].sort((left, right) => Date.parse(right.createdAtUtc) - Date.parse(left.createdAtUtc))
+    }))
+    .sort((left, right) => {
+      const leftLatest = Math.max(...left.items.map((item) => Date.parse(item.createdAtUtc)));
+      const rightLatest = Math.max(...right.items.map((item) => Date.parse(item.createdAtUtc)));
+      return rightLatest - leftLatest;
+    });
+}
+
+function workflowSequenceForStage(stageCode: string) {
+  const sequence: Record<string, number> = {
+    SalesProjectCreated: 1,
+    ProductionPlanning: 2,
+    DesignPanelInfo: 3,
+    ProcurementInfo: 4,
+    MaterialArrived: 5,
+    IQC: 6,
+    ReceiptConfirmed: 7,
+    KittingCompleted: 8,
+    ManufacturingWork: 9,
+    LQC: 10,
+    ManufacturingCompleted: 11,
+    OQC: 12,
+    CustomerInspection: 13,
+    FAT: 14,
+    PackingCompleted: 15,
+    DepartureProcessed: 16,
+    DeliveryCompleted: 17,
+    SalesSettlementCompleted: 18
+  };
+  return sequence[stageCode] ?? 999;
+}
+
+function departmentForStageCode(stageCode: string) {
+  switch (stageCode) {
+    case 'SalesProjectCreated':
+    case 'SalesSettlementCompleted':
+      return 'sales';
+    case 'DesignPanelInfo':
+      return 'design';
+    case 'ProductionPlanning':
+      return 'production-planning';
+    case 'ProcurementInfo':
+      return 'procurement';
+    case 'MaterialArrived':
+    case 'ReceiptConfirmed':
+    case 'KittingCompleted':
+      return 'materials';
+    case 'ManufacturingWork':
+    case 'ManufacturingCompleted':
+      return 'manufacturing';
+    case 'IQC':
+    case 'LQC':
+    case 'OQC':
+    case 'CustomerInspection':
+    case 'FAT':
+      return 'quality';
+    case 'PackingCompleted':
+    case 'DepartureProcessed':
+    case 'DeliveryCompleted':
+      return 'logistics';
+    default:
+      return 'manufacturing';
+  }
 }
 
 function ProjectListPage({
@@ -1487,6 +2184,7 @@ function ProjectDetailPage({
   const [panelInfoState, setPanelInfoState] = useState<LoadState<PanelInformationResponse>>({ kind: 'loading' });
   const [productionPlanningState, setProductionPlanningState] = useState<LoadState<ProductionPlanningResponse>>({ kind: 'loading' });
   const [procurementState, setProcurementState] = useState<LoadState<ProcurementResponse>>({ kind: 'loading' });
+  const [workflowState, setWorkflowState] = useState<LoadState<ProjectWorkflowResponse>>({ kind: 'loading' });
   const [historyState, setHistoryState] = useState<LoadState<PanelInformationHistoryResponse>>({ kind: 'empty' });
   const [productionPlanningHistoryState, setProductionPlanningHistoryState] = useState<LoadState<ProductionPlanningHistoryResponse>>({ kind: 'empty' });
   const [procurementHistoryState, setProcurementHistoryState] = useState<LoadState<ProcurementHistoryResponse>>({ kind: 'empty' });
@@ -1502,6 +2200,7 @@ function ProjectDetailPage({
     setPanelInfoState({ kind: 'loading' });
     setProductionPlanningState({ kind: 'loading' });
     setProcurementState({ kind: 'loading' });
+    setWorkflowState({ kind: 'loading' });
     setHistoryState(canReadAuditAll ? { kind: 'loading' } : { kind: 'empty' });
     setProductionPlanningHistoryState(canReadAuditAll ? { kind: 'loading' } : { kind: 'empty' });
     setProcurementHistoryState(canReadAuditAll ? { kind: 'loading' } : { kind: 'empty' });
@@ -1511,15 +2210,17 @@ function ProjectDetailPage({
       getPanelInformation(developmentUserKey, projectId),
       getProjectProductionPlanning(developmentUserKey, projectId).catch(() => null),
       getProjectProcurement(developmentUserKey, projectId).catch(() => null),
+      getProjectWorkflow(developmentUserKey, projectId).catch(() => null),
       canReadAuditAll ? getPanelInformationHistory(developmentUserKey, projectId) : Promise.resolve(null),
       canReadAuditAll ? getProjectProductionPlanningHistory(developmentUserKey, projectId) : Promise.resolve(null),
       canReadAuditAll ? getProjectProcurementHistory(developmentUserKey, projectId) : Promise.resolve(null)
     ])
-      .then(([project, panelInfo, productionPlanning, procurement, history, productionPlanningHistory, procurementHistory]) => {
+      .then(([project, panelInfo, productionPlanning, procurement, workflow, history, productionPlanningHistory, procurementHistory]) => {
         setProjectState({ kind: 'ready', data: project });
         setPanelInfoState({ kind: 'ready', data: panelInfo });
         setProductionPlanningState(productionPlanning ? { kind: 'ready', data: productionPlanning } : { kind: 'empty' });
         setProcurementState(procurement ? { kind: 'ready', data: procurement } : { kind: 'empty' });
+        setWorkflowState(workflow ? { kind: 'ready', data: workflow } : { kind: 'empty' });
         setHistoryState(history ? { kind: 'ready', data: history } : { kind: 'empty' });
         setProductionPlanningHistoryState(productionPlanningHistory ? { kind: 'ready', data: productionPlanningHistory } : { kind: 'empty' });
         setProcurementHistoryState(procurementHistory ? { kind: 'ready', data: procurementHistory } : { kind: 'empty' });
@@ -1530,6 +2231,7 @@ function ProjectDetailPage({
         setPanelInfoState(toLoadError(error, '제품·패널 목록을 불러올 수 없습니다.'));
         setProductionPlanningState(toLoadError(error, '생산계획을 불러올 수 없습니다.'));
         setProcurementState(toLoadError(error, '구매정보를 불러올 수 없습니다.'));
+        setWorkflowState(toLoadError(error, 'workflow 요약을 불러올 수 없습니다.'));
         setHistoryState(toLoadError(error, '전체 이력을 불러올 수 없습니다.'));
         setProductionPlanningHistoryState(toLoadError(error, '전체 이력을 불러올 수 없습니다.'));
         setProcurementHistoryState(toLoadError(error, '전체 이력을 불러올 수 없습니다.'));
@@ -1637,6 +2339,8 @@ function ProjectDetailPage({
       </div>
 
       <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
+
+      <ProjectWorkflowSummary state={workflowState} />
 
       <div className="section-switcher" role="tablist" aria-label="프로젝트 상세 섹션">
         <button
@@ -1885,6 +2589,30 @@ type ProjectAssigneeForm = {
   note: string;
   rowVersion: number;
 };
+
+type AssigneeGroupDefinition = {
+  title: string;
+  primary: ResponsibilityType;
+  secondary: ResponsibilityType;
+  tone: 'sales' | 'design' | 'production' | 'procurement' | 'materials' | 'manufacturing' | 'logistics' | 'quality';
+};
+
+const departmentAssigneeGroups: AssigneeGroupDefinition[] = [
+  { title: '영업', primary: 'SalesPrimary', secondary: 'SalesSecondary', tone: 'sales' },
+  { title: '설계', primary: 'DesignPrimary', secondary: 'DesignSecondary', tone: 'design' },
+  { title: '생산관리', primary: 'ProductionPlanningPrimary', secondary: 'ProductionPlanningSecondary', tone: 'production' },
+  { title: '구매', primary: 'ProcurementPrimary', secondary: 'ProcurementSecondary', tone: 'procurement' },
+  { title: '자재', primary: 'MaterialsPrimary', secondary: 'MaterialsSecondary', tone: 'materials' },
+  { title: '제조', primary: 'ManufacturingPrimary', secondary: 'ManufacturingSecondary', tone: 'manufacturing' },
+  { title: '물류', primary: 'LogisticsPrimary', secondary: 'LogisticsSecondary', tone: 'logistics' }
+];
+
+const qualityAssigneeGroups: AssigneeGroupDefinition[] = [
+  { title: 'IQC 수입검사', primary: 'QualityIQC', secondary: 'QualityIQCSecondary', tone: 'quality' },
+  { title: 'LQC', primary: 'QualityLQC', secondary: 'QualityLQCSecondary', tone: 'quality' },
+  { title: 'OQC 자체검수', primary: 'QualityOQC', secondary: 'QualityOQCSecondary', tone: 'quality' },
+  { title: '전진검수/FAT', primary: 'QualityCustomerInspection', secondary: 'QualityCustomerInspectionSecondary', tone: 'quality' }
+];
 
 function ProductionPlanningDashboardPage({
   developmentUserKey,
@@ -2274,7 +3002,7 @@ function ProductionPlanningSettingsPage({
               <div className="subsection-header">
                 <div>
                   <h3>{selected.code} 단계</h3>
-                  <span>현재 active template v{selected.activeTemplateVersion}</span>
+                  <span>현재 Item의 최신 설정입니다.</span>
                 </div>
                 <button type="button" onClick={addStep}>행 추가</button>
               </div>
@@ -2328,6 +3056,209 @@ function ProductionPlanningSettingsPage({
       {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
     </section>
   );
+}
+
+function ProcurementRequiredItemSettingsPage({
+  developmentUserKey,
+  canUpdateProcurement,
+  onBack
+}: {
+  developmentUserKey: string;
+  canUpdateProcurement: boolean;
+  onBack: () => void;
+}) {
+  const [state, setState] = useState<LoadState<ProcurementRequiredItemSettings[]>>({ kind: 'loading' });
+  const [selectedItemCode, setSelectedItemCode] = useState<string | null>(null);
+  const [rows, setRows] = useState<ProcurementRequiredItemSettingsRow[]>([]);
+  const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState('');
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    listProcurementRequiredItemSettings(developmentUserKey)
+      .then((items) => {
+        setState(items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: items });
+        const nextSelected = selectedItemCode && items.some((item) => item.itemCode === selectedItemCode)
+          ? selectedItemCode
+          : items[0]?.itemCode ?? null;
+        setSelectedItemCode(nextSelected);
+        const selected = items.find((item) => item.itemCode === nextSelected);
+        setRows(selected?.rows.length ? selected.rows.map(cloneProcurementRequiredRow) : defaultProcurementRequiredRows());
+      })
+      .catch((error: unknown) => setState(toLoadError(error, '구매 필수 항목 설정을 불러올 수 없습니다.')));
+  }, [developmentUserKey, selectedItemCode]);
+
+  useEffect(() => {
+    queueMicrotask(load);
+  }, [load]);
+
+  const settings = state.kind === 'ready' ? state.data : [];
+  const selected = settings.find((item) => item.itemCode === selectedItemCode) ?? null;
+
+  function selectItem(itemCode: string) {
+    const target = settings.find((item) => item.itemCode === itemCode);
+    setSelectedItemCode(itemCode);
+    setRows(target?.rows.length ? target.rows.map(cloneProcurementRequiredRow) : defaultProcurementRequiredRows());
+    setErrors({});
+    setMessage('');
+  }
+
+  function updateRow(index: number, patch: Partial<ProcurementRequiredItemSettingsRow>) {
+    setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
+  }
+
+  function addRow() {
+    setRows((current) => [
+      ...current,
+      {
+        templateRowId: null,
+        sequenceNumber: current.length + 1,
+        itemName: '',
+        isRequired: true,
+        isActive: true
+      }
+    ]);
+  }
+
+  async function save() {
+    if (!selectedItemCode || !canUpdateProcurement) {
+      return;
+    }
+
+    setErrors({});
+    setMessage('');
+    const request: UpdateProcurementRequiredItemSettingsRequest = {
+      rows: rows.map((row) => ({
+        ...row,
+        itemName: row.itemName.trim()
+      })),
+      reason: reason.trim() || null
+    };
+
+    try {
+      const updated = await updateProcurementRequiredItemSettings(developmentUserKey, selectedItemCode, request);
+      setState({ kind: 'ready', data: updated });
+      const selectedUpdated = updated.find((item) => item.itemCode === selectedItemCode);
+      setRows(selectedUpdated?.rows.length ? selectedUpdated.rows.map(cloneProcurementRequiredRow) : defaultProcurementRequiredRows());
+      setReason('');
+      setMessage('구매 필수 항목 설정을 저장했습니다.');
+    } catch (error) {
+      handleFormError(error, setErrors, setMessage);
+    }
+  }
+
+  return (
+    <section className="page-surface production-settings-page">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Procurement Settings</p>
+          <h2>구매 필수 항목 설정</h2>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onBack}>구매 페이지</button>
+          {canUpdateProcurement ? <button type="button" className="primary-button" onClick={save}>저장</button> : null}
+        </div>
+      </div>
+
+      <p className="info-text">
+        Item별 필수 구매 항목 설정은 이후 새 프로젝트의 구매정보 기본 row와 구매정보 완료 여부 판단에 사용됩니다. 기존 프로젝트 구매 row는 자동으로 변경되지 않습니다.
+      </p>
+
+      {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+      {state.kind === 'empty' ? <p className="empty-text">설정할 Item이 없습니다.</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
+
+      {state.kind === 'ready' ? (
+        <>
+          <div className="settings-product-type-tabs" role="tablist" aria-label="Item">
+            {settings.map((item) => (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={item.itemCode === selectedItemCode}
+                className={item.itemCode === selectedItemCode ? 'active' : undefined}
+                key={item.itemCode}
+                onClick={() => selectItem(item.itemCode)}
+              >
+                {item.itemCode}
+              </button>
+            ))}
+          </div>
+          <FormErrorSummary errors={errors} />
+          {selected ? (
+            <section className="subsection">
+              <div className="subsection-header">
+                <div>
+                  <h3>{selected.itemCode} 필수 구매 항목</h3>
+                  <span>{selected.rows.length > 0 ? '현재 Item의 최신 설정입니다.' : '아직 저장된 설정이 없습니다.'}</span>
+                </div>
+                {canUpdateProcurement ? <button type="button" onClick={addRow}>행 추가</button> : null}
+              </div>
+              <div className="template-settings-table" role="table" aria-label={`${selected.itemCode} 구매 필수 항목 설정`}>
+                <div className="template-settings-head" role="row">
+                  <span>순서</span><span>필수 구매 항목</span><span>필수</span><span>사용</span>
+                </div>
+                {rows.map((row, index) => (
+                  <div className="template-settings-row" role="row" key={`${row.templateRowId ?? 'new'}-${index}`}>
+                    <div className="grid-field">
+                      <input
+                        aria-label="순서"
+                        name={`rows[${index}].sequenceNumber`}
+                        type="number"
+                        min={1}
+                        value={row.sequenceNumber}
+                        className={fieldError(errors, `rows[${index}].sequenceNumber`) ? 'field-invalid' : undefined}
+                        onChange={(event) => updateRow(index, { sequenceNumber: Number(event.target.value) })}
+                        disabled={!canUpdateProcurement}
+                      />
+                      <FieldErrorMessage message={fieldError(errors, `rows[${index}].sequenceNumber`)} />
+                    </div>
+                    <div className="grid-field">
+                      <input
+                        aria-label="필수 구매 항목"
+                        name={`rows[${index}].itemName`}
+                        value={row.itemName}
+                        className={fieldError(errors, `rows[${index}].itemName`) ? 'field-invalid' : undefined}
+                        onChange={(event) => updateRow(index, { itemName: event.target.value })}
+                        disabled={!canUpdateProcurement}
+                      />
+                      <FieldErrorMessage message={fieldError(errors, `rows[${index}].itemName`)} />
+                    </div>
+                    <label className="inline-check">
+                      <input type="checkbox" checked={row.isRequired} onChange={(event) => updateRow(index, { isRequired: event.target.checked })} disabled={!canUpdateProcurement} />
+                      <span>필수</span>
+                    </label>
+                    <label className="inline-check">
+                      <input type="checkbox" checked={row.isActive} onChange={(event) => updateRow(index, { isActive: event.target.checked })} disabled={!canUpdateProcurement} />
+                      <span>사용</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+              <label className="form-field">
+                <span>변경 사유</span>
+                <textarea name="reason" value={reason} onChange={(event) => setReason(event.target.value)} disabled={!canUpdateProcurement} />
+              </label>
+            </section>
+          ) : <p className="empty-text">설정할 Item이 없습니다.</p>}
+        </>
+      ) : null}
+      {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+    </section>
+  );
+}
+
+function cloneProcurementRequiredRow(row: ProcurementRequiredItemSettingsRow): ProcurementRequiredItemSettingsRow {
+  return { ...row };
+}
+
+function defaultProcurementRequiredRows(): ProcurementRequiredItemSettingsRow[] {
+  return [
+    { templateRowId: null, sequenceNumber: 1, itemName: '차단기', isRequired: true, isActive: true },
+    { templateRowId: null, sequenceNumber: 2, itemName: '외함', isRequired: true, isActive: true },
+    { templateRowId: null, sequenceNumber: 3, itemName: '부자재', isRequired: false, isActive: true }
+  ];
 }
 
 function ProductionPlanningExcelDialog({
@@ -2586,6 +3517,17 @@ function ProductionPlanningReadOnly({
       isActive: true
     }))
     : [];
+  const assigneesByType = new Map(plan.assignees.map((assignee) => [assignee.responsibilityType, assignee]));
+  const assigneeName = (responsibilityType: ResponsibilityType) => assigneesByType.get(responsibilityType)?.assignedUserName ?? '-';
+  const renderReadonlyDepartmentCard = (group: AssigneeGroupDefinition) => (
+    <article className="assignee-card readonly-assignee-card" data-tone={group.tone} aria-label={`${group.title} 담당자`} key={group.title}>
+      <h4>{group.title}</h4>
+      <dl className="assignee-summary-list">
+        <div><dt>정</dt><dd>{assigneeName(group.primary)}</dd></div>
+        <div><dt>부</dt><dd>{assigneeName(group.secondary)}</dd></div>
+      </dl>
+    </article>
+  );
 
   return (
     <div className="production-plan-readonly">
@@ -2594,17 +3536,22 @@ function ProductionPlanningReadOnly({
         <StatusChip label="계획 상태" value={plan.planStatusLabel} />
         <StatusChip label="필수 일정" value={`${plan.items.filter((item) => item.isRequired && item.plannedDate).length}/${plan.items.filter((item) => item.isRequired).length}`} />
       </div>
-      <div className="assignee-grid" aria-label="담당자 지정 현황">
-        {plan.assignees.map((assignee) => {
-          const fallback = plan.fallbacks.find((item) => item.responsibilityType === assignee.responsibilityType);
-          return (
-            <article className="assignee-card" key={assignee.responsibilityType}>
-              <span>{assignee.responsibilityLabel}</span>
-              <strong>{assignee.assignedUserName ?? '미지정'}</strong>
-              <small>알림 기준: {fallback?.displayName ?? '-'} ({fallback?.sourceLabel ?? '-'})</small>
-            </article>
-          );
-        })}
+      <div className="assignee-grid readonly-assignee-grid" aria-label="담당자 지정 현황">
+        {departmentAssigneeGroups.map(renderReadonlyDepartmentCard)}
+        <article className="assignee-card readonly-assignee-card quality-readonly-assignee-card" data-tone="quality" aria-label="품질 담당자">
+          <h4>품질</h4>
+          <div className="quality-assignee-summary">
+            {qualityAssigneeGroups.map((group) => (
+              <section className="quality-assignee-summary-stage" key={group.title}>
+                <h5>{group.title}</h5>
+                <dl className="assignee-summary-list">
+                  <div><dt>정</dt><dd>{assigneeName(group.primary)}</dd></div>
+                  <div><dt>부</dt><dd>{assigneeName(group.secondary)}</dd></div>
+                </dl>
+              </section>
+            ))}
+          </div>
+        </article>
       </div>
       {displayItems.length === 0 ? <p className="empty-text">등록된 생산계획 항목이 없습니다.</p> : isMobile ? (
         <div className="procurement-cards">
@@ -2657,6 +3604,10 @@ function ProductionPlanningTimeline({
   }
 
   const calendar = buildProductionCalendar(items, holidays);
+  const stageColumnWidth = getProductionCalendarStageColumnWidth(items);
+  const calendarStyle = {
+    '--production-calendar-stage-column-width': `${stageColumnWidth}px`
+  } as CSSProperties;
   if (calendar.dateColumns.length === 0) {
     return (
       <section className="production-plan-calendar" aria-label="생산계획 캘린더">
@@ -2685,12 +3636,18 @@ function ProductionPlanningTimeline({
         </div>
       ) : (
         <div className="production-calendar-table-wrap">
-          <table className="production-calendar-table" aria-label="생산계획 캘린더 표">
+          <table className="production-calendar-table" aria-label="생산계획 캘린더 표" style={calendarStyle}>
+            <colgroup>
+              <col className="production-calendar-stage-col" />
+              {calendar.dateColumns.map((date) => (
+                <col className="production-calendar-date-col" key={date.date} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
-                <th scope="col">생산단계</th>
+                <th className="production-calendar-stage-cell" data-testid="production-calendar-stage-header" scope="col">생산단계</th>
                 {calendar.dateColumns.map((date) => (
-                  <th scope="col" className={dateClassName('', date)} key={date.date}>
+                  <th scope="col" className={dateClassName('production-calendar-date-cell', date)} key={date.date}>
                     <span>{date.label}</span>
                     <small>{date.weekday}</small>
                     {date.holidayName ? <small>{date.holidayName}</small> : null}
@@ -2701,9 +3658,9 @@ function ProductionPlanningTimeline({
             <tbody>
               {calendar.rows.map((row) => (
                 <tr key={`${row.key}-${row.stepName}`}>
-                  <th scope="row">{row.stepName}</th>
+                  <th className="production-calendar-stage-cell" data-testid="production-calendar-stage-cell" scope="row">{row.stepName}</th>
                   {calendar.dateColumns.map((date) => (
-                    <td className={dateClassName('', date)} key={date.date}>
+                    <td className={dateClassName('production-calendar-date-cell', date)} key={date.date}>
                       {row.cells[date.date] ? <span aria-label={`${row.stepName} ${date.label} 예정`}>✓</span> : null}
                     </td>
                   ))}
@@ -2868,8 +3825,9 @@ function ProductionPlanningEditPage({
         items: rows.map((row) => ({
           itemId: row.itemId,
           templateStepId: row.templateStepId,
-          stepName: row.templateStepId ? null : row.stepName,
+          stepName: row.stepName,
           sequenceNumber: row.sequenceNumber,
+          isRequired: row.isRequired,
           expectedRowVersion: row.rowVersion,
           plannedDate: row.plannedDate || null,
           note: row.note.trim() || null,
@@ -2989,7 +3947,10 @@ function ProductionPlanningEditableList({
     return (
       <section className="subsection">
         <div className="subsection-header">
-          <h3>생산계획표</h3>
+          <div>
+            <h3>생산계획표</h3>
+            <p>이 화면에서 수정한 단계명과 필수 여부는 현재 프로젝트에만 적용됩니다.</p>
+          </div>
           <button type="button" onClick={onAddRow}>행 추가</button>
         </div>
         <div className="procurement-cards">
@@ -2997,16 +3958,15 @@ function ProductionPlanningEditableList({
             const index = rows.indexOf(row);
             return (
             <article className="procurement-card" key={`${row.templateStepId ?? row.itemId ?? row.sequenceNumber}`}>
-              {row.isCustom ? (
-                <label className={fieldError(errors, `items[${index}].stepName`) ? 'form-field has-error' : 'form-field'}>
-                  <span>계획 항목</span>
-                  <input name={`items[${index}].stepName`} value={row.stepName} onChange={(event) => onChange(index, { stepName: event.target.value })} />
-                  <FieldErrorMessage message={fieldError(errors, `items[${index}].stepName`)} />
-                </label>
-              ) : <h3>{row.sequenceNumber}. {row.stepName}</h3>}
-              <dl className="mobile-detail-list">
-                <div><dt>필수</dt><dd>{row.isRequired ? '예' : '아니오'}</dd></div>
-              </dl>
+              <label className={fieldError(errors, `items[${index}].stepName`) ? 'form-field has-error' : 'form-field'}>
+                <span>계획 항목</span>
+                <input name={`items[${index}].stepName`} value={row.stepName} onChange={(event) => onChange(index, { stepName: event.target.value })} />
+                <FieldErrorMessage message={fieldError(errors, `items[${index}].stepName`)} />
+              </label>
+              <label className="checkbox-row">
+                <input type="checkbox" checked={row.isRequired} onChange={(event) => onChange(index, { isRequired: event.target.checked })} />
+                <span>필수 항목</span>
+              </label>
               <label className={fieldError(errors, `items[${index}].plannedDate`) ? 'form-field has-error' : 'form-field'}>
                 <span>예정일</span>
                 <input name={`items[${index}].plannedDate`} type="date" value={row.plannedDate} onChange={(event) => onChange(index, { plannedDate: event.target.value })} />
@@ -3029,7 +3989,10 @@ function ProductionPlanningEditableList({
   return (
     <section className="subsection">
       <div className="subsection-header">
-        <h3>생산계획표</h3>
+        <div>
+          <h3>생산계획표</h3>
+          <p>이 화면에서 수정한 단계명과 필수 여부는 현재 프로젝트에만 적용됩니다.</p>
+        </div>
         <button type="button" onClick={onAddRow}>행 추가</button>
       </div>
       <div className="production-plan-table procurement-desktop" role="table" aria-label="생산계획 수정">
@@ -3040,19 +4003,20 @@ function ProductionPlanningEditableList({
           const index = rows.indexOf(row);
           return (
             <div className="production-plan-row editable" role="row" key={`${row.templateStepId ?? row.itemId ?? row.sequenceNumber}`}>
-              {row.isCustom ? (
-                <div className="grid-field">
-                  <input
-                    aria-label="계획 항목"
-                    className={fieldError(errors, `items[${index}].stepName`) ? 'field-invalid' : undefined}
-                    name={`items[${index}].stepName`}
-                    value={row.stepName}
-                    onChange={(event) => onChange(index, { stepName: event.target.value })}
-                  />
-                  <FieldErrorMessage message={fieldError(errors, `items[${index}].stepName`)} />
-                </div>
-              ) : <span>{row.stepName}</span>}
-              <span>{row.isRequired ? '예' : '아니오'}</span>
+              <div className="grid-field">
+                <input
+                  aria-label="계획 항목"
+                  className={fieldError(errors, `items[${index}].stepName`) ? 'field-invalid' : undefined}
+                  name={`items[${index}].stepName`}
+                  value={row.stepName}
+                  onChange={(event) => onChange(index, { stepName: event.target.value })}
+                />
+                <FieldErrorMessage message={fieldError(errors, `items[${index}].stepName`)} />
+              </div>
+              <label className="checkbox-row">
+                <input type="checkbox" checked={row.isRequired} onChange={(event) => onChange(index, { isRequired: event.target.checked })} />
+                <span>필수</span>
+              </label>
               <div className="grid-field">
                 <input
                   className={fieldError(errors, `items[${index}].plannedDate`) ? 'field-invalid' : undefined}
@@ -3092,32 +4056,58 @@ function ProductionAssigneeEditor({
   errors: Record<string, string>;
   onChange: (index: number, next: Partial<ProjectAssigneeForm>) => void;
 }) {
+  function renderAssigneeSlot(responsibilityType: ResponsibilityType, roleLabel: string) {
+    const index = assignees.findIndex((item) => item.responsibilityType === responsibilityType);
+    if (index < 0) {
+      return null;
+    }
+
+    const assignee = assignees[index];
+    const candidates = plan.assigneeCandidates.find((item) => item.responsibilityType === responsibilityType)?.users ?? [];
+    const assigneeError = fieldError(errors, responsibilityType, responsibilityType[0].toLowerCase() + responsibilityType.slice(1), `assignees[${index}].assignedUserId`);
+    return (
+      <div className="assignee-role-row" key={responsibilityType}>
+        <label className={assigneeError ? 'form-field has-error' : 'form-field'}>
+          <span>{roleLabel}</span>
+          <select
+            aria-label={assignee.responsibilityLabel}
+            name={`assignees[${index}].assignedUserId`}
+            value={assignee.assignedUserId}
+            onChange={(event) => onChange(index, { assignedUserId: event.target.value })}
+          >
+            <option value="">미지정</option>
+            {candidates.map((user) => <option key={user.userId} value={user.userId}>{user.displayName}</option>)}
+          </select>
+          <FieldErrorMessage message={assigneeError} />
+        </label>
+      </div>
+    );
+  }
+
+  function renderAssigneeGroup(group: AssigneeGroupDefinition) {
+    return (
+      <article className="assignee-card assignee-group-card" data-tone={group.tone} aria-label={`${group.title} 담당자 지정`} key={group.title}>
+        <h4>{group.title}</h4>
+        {renderAssigneeSlot(group.primary, '정 담당자')}
+        {renderAssigneeSlot(group.secondary, '부 담당자')}
+      </article>
+    );
+  }
+
   return (
     <section className="subsection">
       <h3>프로젝트 담당자 지정</h3>
-      <div className="assignee-edit-grid">
-        {assignees.map((assignee, index) => {
-          const candidates = plan.assigneeCandidates.find((item) => item.responsibilityType === assignee.responsibilityType)?.users ?? [];
-          const fallback = plan.fallbacks.find((item) => item.responsibilityType === assignee.responsibilityType);
-          const assigneeError = fieldError(errors, assignee.responsibilityType, assignee.responsibilityType[0].toLowerCase() + assignee.responsibilityType.slice(1), `assignees[${index}].assignedUserId`);
-          return (
-            <article className="assignee-card" key={assignee.responsibilityType}>
-              <label className={assigneeError ? 'form-field has-error' : 'form-field'}>
-                <span>{assignee.responsibilityLabel}</span>
-                <select name={`assignees[${index}].assignedUserId`} value={assignee.assignedUserId} onChange={(event) => onChange(index, { assignedUserId: event.target.value })}>
-                  <option value="">미지정</option>
-                  {candidates.map((user) => <option key={user.userId} value={user.userId}>{user.displayName}</option>)}
-                </select>
-                <FieldErrorMessage message={assigneeError} />
-              </label>
-              <label className="form-field">
-                <span>담당 비고</span>
-                <input name={`assignees[${index}].note`} value={assignee.note} onChange={(event) => onChange(index, { note: event.target.value })} />
-              </label>
-              <small>미지정 fallback: {fallback?.displayName ?? '-'} ({fallback?.sourceLabel ?? '-'})</small>
-            </article>
-          );
-        })}
+      <div className="assignee-section" aria-label="부서별 담당자">
+        <h4>부서별 담당자</h4>
+        <div className="assignee-edit-grid">
+          {departmentAssigneeGroups.map(renderAssigneeGroup)}
+        </div>
+      </div>
+      <div className="assignee-section" aria-label="품질 검사 담당자">
+        <h4>품질 검사 담당자</h4>
+        <div className="assignee-edit-grid quality-assignee-edit-grid">
+          {qualityAssigneeGroups.map(renderAssigneeGroup)}
+        </div>
       </div>
     </section>
   );
@@ -3131,12 +4121,14 @@ function ProcurementDashboardPage({
   developmentUserKey,
   canUpdateProcurement,
   onBack,
+  onOpenSettings,
   onOpenProject,
   onEditProject
 }: {
   developmentUserKey: string;
   canUpdateProcurement: boolean;
   onBack: () => void;
+  onOpenSettings: () => void;
   onOpenProject: (projectId: string) => void;
   onEditProject: (projectId: string) => void;
 }) {
@@ -3224,6 +4216,7 @@ function ProcurementDashboardPage({
           <button type="button" onClick={onBack}>프로젝트 목록</button>
           {canUpdateProcurement ? (
             <>
+              <button type="button" onClick={onOpenSettings}>구매 필수 항목 설정</button>
               <button type="button" onClick={downloadTemplate} disabled={isDownloadingTemplate}>
                 {isDownloadingTemplate ? '다운로드 중' : 'Excel 양식 다운로드'}
               </button>
@@ -5474,8 +6467,72 @@ function ProjectSummary({ project, canReadSalesAmount }: { project: ProjectListI
       {canReadSalesAmount && project.salesAmount !== undefined ? (
         <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
       ) : null}
-      <div><dt>진행률</dt><dd>체크리스트 적용 후 계산</dd></div>
+      <div><dt>진행률</dt><dd>{formatProjectProgress(project.projectProgressPercent)}</dd></div>
     </dl>
+  );
+}
+
+function ProjectWorkflowSummary({ state }: { state: LoadState<ProjectWorkflowResponse> }) {
+  if (state.kind === 'loading') {
+    return (
+      <section className="subsection project-process-summary">
+        <div className="subsection-header">
+          <div>
+            <h3>Workflow</h3>
+            <p>18단계 workflow 요약을 불러오는 중입니다.</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (state.kind === 'empty') {
+    return null;
+  }
+
+  if (state.kind !== 'ready') {
+    return (
+      <section className="subsection project-process-summary">
+        <StateMessage state={state} />
+      </section>
+    );
+  }
+
+  const activeStage = state.data.stages.find((stage) => stage.stageCode === state.data.currentStageCode)
+    ?? state.data.stages.find((stage) => stage.status === 'InProgress' || stage.status === 'Requested');
+  const nextStage = state.data.stages.find((stage) => stage.status === 'NotStarted');
+
+  return (
+    <section className="subsection project-process-summary" aria-label="프로젝트 workflow 요약">
+      <div className="subsection-header">
+        <div>
+          <h3>Workflow</h3>
+          <p>18단계 진행 상태와 생성된 내 업무를 표시합니다.</p>
+        </div>
+        <div className="button-row workflow-summary-meta">
+          <StatusChip label="진행률" value={`${state.data.progressPercent}%`} />
+          <StatusChip label="완료" value={`${state.data.completedRequiredStageCount}/${state.data.requiredStageCount}`} />
+          <StatusChip label="내 업무" value={`${state.data.generatedWorkItemCount}`} />
+        </div>
+      </div>
+
+      <dl className="detail-grid workflow-current-grid">
+        <div><dt>현재 단계</dt><dd>{activeStage ? `${activeStage.departmentLabel} / ${activeStage.stageName}` : `${state.data.currentDepartmentLabel} / ${state.data.currentStageName}`}</dd></div>
+        <div><dt>다음 예정</dt><dd>{nextStage ? `${nextStage.departmentLabel} / ${nextStage.stageName}` : '-'}</dd></div>
+      </dl>
+
+      <ol className="workflow-stage-list">
+        {state.data.stages.map((stage) => (
+          <li className="workflow-stage-item" data-status={stage.status} data-department={stage.departmentCode} key={stage.stageCode}>
+            <span className="workflow-stage-number">{stage.sequenceNumber}</span>
+            <div>
+              <strong>{stage.departmentLabel} / {stage.stageName}{stage.isOptional ? ' (선택)' : ''}</strong>
+              <small>{stage.statusLabel}{stage.workItemCount > 0 ? ` · 내 업무 ${stage.workItemCount}건` : ''}</small>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
@@ -6370,6 +7427,17 @@ type ProductionCalendarUnscheduledItem = {
   isRequired: boolean;
 };
 
+function getProductionCalendarStageColumnWidth(items: ProductionPlanningResponse['items']) {
+  const longestWeightedLength = items.reduce((maxLength, item) => Math.max(maxLength, weightedCalendarLabelLength(item.stepName)), 0);
+  return Math.min(260, Math.max(140, Math.ceil(longestWeightedLength * 10 + 36)));
+}
+
+function weightedCalendarLabelLength(value: string) {
+  return Array.from(value.trim()).reduce((length, character) => {
+    return length + (/[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/u.test(character) ? 1.2 : 1);
+  }, 0);
+}
+
 function sortProductionPlanItems<T extends { plannedDate?: string | null; sequenceNumber: number }>(items: readonly T[]): T[] {
   return items.slice().sort((left, right) => {
     if (left.plannedDate && !right.plannedDate) {
@@ -6510,9 +7578,26 @@ function formatProjectStatus(status: ProjectStatus) {
 
 function formatProjectWorkStatus(status: ProjectWorkStatus) {
   return {
+    SalesProjectCreated: '프로젝트 생성',
+    ProductionPlanning: '생산관리',
+    DesignPanelInfo: '설계',
+    ProcurementInfo: '구매정보',
+    MaterialArrived: '자재 도착',
+    IQC: '수입검사',
+    ReceiptConfirmed: '입고 확정',
+    KittingCompleted: '키팅 완료',
+    ManufacturingWork: '제조 작업',
+    LQC: 'LQC',
+    ManufacturingCompleted: '제조 완료',
+    OQC: '자체검수',
+    CustomerInspection: '전진검수',
+    FAT: 'FAT',
+    PackingCompleted: '포장 완료',
+    DepartureProcessed: '출발 처리',
+    DeliveryCompleted: '납품 완료',
+    SalesSettlementCompleted: '영업 정산',
     BeforeManufacturing: '제조 전',
     ManufacturingInProgress: '제조 중',
-    ManufacturingCompleted: '제조 완료',
     InspectionInProgress: '검사 중',
     InspectionCompleted: '검사 완료',
     ReadyForShipment: '출하 준비',

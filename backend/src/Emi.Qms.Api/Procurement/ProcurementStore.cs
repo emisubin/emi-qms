@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using ClosedXML.Excel;
 using Emi.Qms.Api.PanelInformation;
+using Emi.Qms.Api.ProductionPlanning;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -359,6 +360,128 @@ public sealed class ProcurementStore(
         return CreateTemplateWorkbook(null, null, []);
     }
 
+    public async Task<IReadOnlyList<ProcurementRequiredItemSettingsResponse>> ListRequiredItemSettingsAsync(CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await ReadRequiredItemSettingsAsync(connection, null, cancellationToken);
+    }
+
+    public async Task<ProcurementMutationResult<IReadOnlyList<ProcurementRequiredItemSettingsResponse>>> UpdateRequiredItemSettingsAsync(
+        string itemCode,
+        UpdateProcurementRequiredItemSettingsRequest request,
+        Guid changedByUserId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedItemCode = NormalizeItemCode(itemCode);
+        var errors = ValidateRequiredItemSettings(request);
+        if (errors.Count > 0)
+        {
+            return ProcurementMutationResult<IReadOnlyList<ProcurementRequiredItemSettingsResponse>>.Validation(errors);
+        }
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+        if (!await ActiveProductTypeExistsAsync(connection, transaction, normalizedItemCode, cancellationToken))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ProcurementMutationResult<IReadOnlyList<ProcurementRequiredItemSettingsResponse>>.NotFound();
+        }
+
+        Guid templateId;
+        await using (var readTemplate = connection.CreateCommand())
+        {
+            readTemplate.Transaction = transaction;
+            readTemplate.CommandText = """
+                select id
+                from procurement_required_item_templates
+                where upper(btrim(item_code)) = @item_code
+                  and is_active = true;
+                """;
+            readTemplate.Parameters.AddWithValue("item_code", normalizedItemCode);
+            templateId = (Guid?)await readTemplate.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty;
+        }
+
+        if (templateId == Guid.Empty)
+        {
+            await using var insertTemplate = connection.CreateCommand();
+            insertTemplate.Transaction = transaction;
+            insertTemplate.CommandText = """
+                insert into procurement_required_item_templates (
+                    item_code,
+                    version,
+                    is_active,
+                    created_by_user_id
+                )
+                values (
+                    @item_code,
+                    1,
+                    true,
+                    @created_by_user_id
+                )
+                returning id;
+                """;
+            insertTemplate.Parameters.AddWithValue("item_code", normalizedItemCode);
+            insertTemplate.Parameters.AddWithValue("created_by_user_id", changedByUserId);
+            templateId = (Guid)(await insertTemplate.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
+        }
+        else
+        {
+            await using var updateTemplate = connection.CreateCommand();
+            updateTemplate.Transaction = transaction;
+            updateTemplate.CommandText = """
+                update procurement_required_item_templates
+                set item_code = @item_code,
+                    is_active = true
+                where id = @template_id;
+
+                delete from procurement_required_item_template_rows
+                where template_id = @template_id;
+                """;
+            updateTemplate.Parameters.AddWithValue("item_code", normalizedItemCode);
+            updateTemplate.Parameters.AddWithValue("template_id", templateId);
+            await updateTemplate.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var row in request.Rows!.OrderBy(row => row.SequenceNumber!.Value))
+        {
+            await using var insertRow = connection.CreateCommand();
+            insertRow.Transaction = transaction;
+            insertRow.CommandText = """
+                insert into procurement_required_item_template_rows (
+                    template_id,
+                    sequence_number,
+                    item_name,
+                    normalized_item_name,
+                    is_required,
+                    is_active
+                )
+                values (
+                    @template_id,
+                    @sequence_number,
+                    @item_name,
+                    @normalized_item_name,
+                    @is_required,
+                    @is_active
+                );
+                """;
+            var itemName = row.ItemName!.Trim();
+            insertRow.Parameters.AddWithValue("template_id", templateId);
+            insertRow.Parameters.AddWithValue("sequence_number", row.SequenceNumber!.Value);
+            insertRow.Parameters.AddWithValue("item_name", itemName);
+            insertRow.Parameters.AddWithValue("normalized_item_name", NormalizeRequiredItemName(itemName));
+            insertRow.Parameters.AddWithValue("is_required", row.IsRequired ?? true);
+            insertRow.Parameters.AddWithValue("is_active", row.IsActive ?? true);
+            await insertRow.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return ProcurementMutationResult<IReadOnlyList<ProcurementRequiredItemSettingsResponse>>.Success(
+            await ReadRequiredItemSettingsAsync(connection, null, cancellationToken));
+    }
+
     private static ProcurementTemplateDownload CreateTemplateWorkbook(
         string? projectTitle,
         string? projectCode,
@@ -511,18 +634,18 @@ public sealed class ProcurementStore(
             if (matchedProjectIds.Length > 0)
             {
                 await LockProjectsAsync(connection, transaction, matchedProjectIds, cancellationToken);
-                if (await HasDuplicateSuccessfulBatchAsync(connection, transaction, matchedProjectIds, file.FileSha256, cancellationToken))
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return ProcurementMutationResult<ProcurementListResponse>.Conflict(ProcurementDomain.DuplicateFileMessage);
-                }
             }
 
             if (affectedProjectIds.Length == 0)
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return ProcurementMutationResult<ProcurementListResponse>.Validation(
-                    new Dictionary<string, string[]> { ["Rows"] = ["저장 가능한 항목이 없습니다."] });
+                if (preview.ErrorCount > 0 || preview.NeedsReviewCount > 0)
+                {
+                    return ProcurementMutationResult<ProcurementListResponse>.Validation(
+                        new Dictionary<string, string[]> { ["Rows"] = ["저장 가능한 항목이 없습니다. 오류 행 또는 확인 필요 항목을 처리해 주세요."] });
+                }
+
+                return ProcurementMutationResult<ProcurementListResponse>.Success(await GetMaterialReceiptsAsync(null, includeCompleted: false, null, null, cancellationToken));
             }
 
             await LockProjectItemsAsync(connection, transaction, affectedProjectIds, cancellationToken);
@@ -1336,16 +1459,17 @@ public sealed class ProcurementStore(
                 issue_note, receipt_completed, receipt_completed_at_utc,
                 receipt_completed_by_user_id, receipt_completion_note, row_version,
                 source_excel_row_number, source_group_sequence, row_match_key,
-                created_by_user_id, updated_by_user_id)
+                source_type, is_confirmed, created_by_user_id, updated_by_user_id)
             values (
                 @id, @project_id, @sequence_number, @source_project_text, @source_project_code_text,
                 @standard_lead_time, @order_item, @technical_owner, @order_date, @expected_receipt_date,
                 @issue_note, @receipt_completed, @receipt_completed_at_utc,
                 @receipt_completed_by_user_id, @receipt_completion_note, 1,
                 @source_excel_row_number, @source_group_sequence, @row_match_key,
-                @user_id, @user_id);
+                @source_type, true, @user_id, @user_id);
             """;
         AddItemParameters(command, snapshot, changedByUserId);
+        command.Parameters.AddWithValue("source_type", row.ExcelRowNumber > 0 ? "Excel" : "Direct");
         await command.ExecuteNonQueryAsync(cancellationToken);
         return snapshot;
     }
@@ -1415,6 +1539,8 @@ public sealed class ProcurementStore(
                 source_excel_row_number = coalesce(@source_excel_row_number, source_excel_row_number),
                 source_group_sequence = coalesce(@source_group_sequence, source_group_sequence),
                 row_match_key = @row_match_key,
+                source_type = case when @source_excel_row_number is null then 'Direct' else 'Excel' end,
+                is_confirmed = true,
                 row_version = row_version + 1,
                 updated_at_utc = now(),
                 updated_by_user_id = @user_id
@@ -1777,6 +1903,185 @@ public sealed class ProcurementStore(
         }
 
         return batches;
+    }
+
+    private static async Task<IReadOnlyList<ProcurementRequiredItemSettingsResponse>> ReadRequiredItemSettingsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var productTypesCommand = connection.CreateCommand();
+        productTypesCommand.Transaction = transaction;
+        productTypesCommand.CommandText = """
+            select product_types.code,
+                   templates.id,
+                   templates.version
+            from production_product_types product_types
+            left join procurement_required_item_templates templates
+              on upper(btrim(templates.item_code)) = upper(btrim(product_types.code))
+             and templates.is_active = true
+            where product_types.is_active = true
+              and product_types.code = any(@canonical_codes)
+            order by array_position(array['UL67','UL891','UL508A','IEC','LLP','RPP'], product_types.code), product_types.code;
+            """;
+        productTypesCommand.Parameters.AddWithValue("canonical_codes", ProductionPlanningDomain.CanonicalProductTypeCodes.ToArray());
+
+        var templates = new List<(string ItemCode, Guid? TemplateId, int? Version)>();
+        await using (var reader = await productTypesCommand.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                templates.Add((
+                    reader.GetString(0),
+                    reader.IsDBNull(1) ? null : reader.GetGuid(1),
+                    reader.IsDBNull(2) ? null : reader.GetInt32(2)));
+            }
+        }
+
+        var result = new List<ProcurementRequiredItemSettingsResponse>();
+        foreach (var template in templates)
+        {
+            result.Add(new ProcurementRequiredItemSettingsResponse(
+                template.ItemCode,
+                template.TemplateId,
+                template.Version,
+                template.TemplateId is null
+                    ? []
+                    : await ReadRequiredItemSettingRowsAsync(connection, transaction, template.TemplateId.Value, cancellationToken)));
+        }
+
+        return result;
+    }
+
+    private static async Task<IReadOnlyList<ProcurementRequiredItemSettingsRowResponse>> ReadRequiredItemSettingRowsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid templateId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select id, sequence_number, item_name, is_required, is_active
+            from procurement_required_item_template_rows
+            where template_id = @template_id
+            order by sequence_number, item_name;
+            """;
+        command.Parameters.AddWithValue("template_id", templateId);
+
+        var rows = new List<ProcurementRequiredItemSettingsRowResponse>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new ProcurementRequiredItemSettingsRowResponse(
+                reader.GetGuid(0),
+                reader.GetInt32(1),
+                reader.GetString(2),
+                reader.GetBoolean(3),
+                reader.GetBoolean(4)));
+        }
+
+        return rows;
+    }
+
+    private static async Task<bool> ActiveProductTypeExistsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string itemCode,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select exists (
+                select 1
+                from production_product_types
+                where upper(btrim(code)) = @item_code
+                  and is_active = true
+                  and code = any(@canonical_codes)
+            );
+            """;
+        command.Parameters.AddWithValue("item_code", itemCode);
+        command.Parameters.AddWithValue("canonical_codes", ProductionPlanningDomain.CanonicalProductTypeCodes.ToArray());
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
+    }
+
+    private static IReadOnlyDictionary<string, string[]> ValidateRequiredItemSettings(UpdateProcurementRequiredItemSettingsRequest request)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (request.Rows is null || request.Rows.Count == 0)
+        {
+            errors["rows"] = ["최소 1개 이상의 구매 항목이 필요합니다."];
+            return errors;
+        }
+
+        var activeRows = request.Rows
+            .Select((row, index) => (Row: row, Index: index))
+            .Where(item => item.Row.IsActive != false)
+            .ToList();
+        if (activeRows.Count == 0)
+        {
+            errors["rows"] = ["최소 1개 이상의 사용 항목이 필요합니다."];
+        }
+
+        var activeNames = new Dictionary<string, int>(StringComparer.Ordinal);
+        var activeSequences = new Dictionary<int, int>();
+        for (var index = 0; index < request.Rows.Count; index++)
+        {
+            var row = request.Rows[index];
+            if (row.SequenceNumber is null || row.SequenceNumber < 1)
+            {
+                errors[$"rows[{index}].sequenceNumber"] = ["순서는 1 이상의 정수여야 합니다."];
+            }
+
+            if (string.IsNullOrWhiteSpace(row.ItemName))
+            {
+                errors[$"rows[{index}].itemName"] = ["구매 항목명은 필수입니다."];
+            }
+
+            if (row.IsActive == false)
+            {
+                continue;
+            }
+
+            if (row.SequenceNumber is { } sequence)
+            {
+                if (activeSequences.TryGetValue(sequence, out var firstIndex))
+                {
+                    errors[$"rows[{index}].sequenceNumber"] = [$"{firstIndex + 1}행과 순서가 중복됩니다."];
+                }
+                else
+                {
+                    activeSequences[sequence] = index;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(row.ItemName))
+            {
+                var normalized = NormalizeRequiredItemName(row.ItemName);
+                if (activeNames.TryGetValue(normalized, out var firstIndex))
+                {
+                    errors[$"rows[{index}].itemName"] = [$"{firstIndex + 1}행과 구매 항목명이 중복됩니다."];
+                }
+                else
+                {
+                    activeNames[normalized] = index;
+                }
+            }
+        }
+
+        return errors;
+    }
+
+    private static string NormalizeItemCode(string value)
+    {
+        var normalized = value.Trim().ToUpperInvariant();
+        return normalized == "RRP" ? "RPP" : normalized;
+    }
+
+    public static string NormalizeRequiredItemName(string value)
+    {
+        return string.Concat(value.Where(ch => !char.IsWhiteSpace(ch))).ToUpperInvariant();
     }
 
     public static IReadOnlyDictionary<Guid, int> ParseExpectedVersions(string? json)

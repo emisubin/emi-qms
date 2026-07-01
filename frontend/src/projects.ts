@@ -87,9 +87,26 @@ export interface ProjectDetail extends ProjectListItem {
 
 export type ProjectStatus = 'Active' | 'OnHold' | 'Cancelled' | 'Completed';
 export type ProjectWorkStatus =
+  | 'SalesProjectCreated'
+  | 'ProductionPlanning'
+  | 'DesignPanelInfo'
+  | 'ProcurementInfo'
+  | 'MaterialArrived'
+  | 'IQC'
+  | 'ReceiptConfirmed'
+  | 'KittingCompleted'
+  | 'ManufacturingWork'
+  | 'LQC'
+  | 'ManufacturingCompleted'
+  | 'OQC'
+  | 'CustomerInspection'
+  | 'FAT'
+  | 'PackingCompleted'
+  | 'DepartureProcessed'
+  | 'DeliveryCompleted'
+  | 'SalesSettlementCompleted'
   | 'BeforeManufacturing'
   | 'ManufacturingInProgress'
-  | 'ManufacturingCompleted'
   | 'InspectionInProgress'
   | 'InspectionCompleted'
   | 'ReadyForShipment'
@@ -664,7 +681,29 @@ export interface ProjectAssignee {
   rowVersion: number;
 }
 
-export type ResponsibilityType = 'Procurement' | 'ProductionPlanning' | 'Manufacturing' | 'Quality' | 'Logistics';
+export type ResponsibilityType =
+  | 'SalesPrimary'
+  | 'SalesSecondary'
+  | 'DesignPrimary'
+  | 'DesignSecondary'
+  | 'ProductionPlanningPrimary'
+  | 'ProductionPlanningSecondary'
+  | 'ProcurementPrimary'
+  | 'ProcurementSecondary'
+  | 'MaterialsPrimary'
+  | 'MaterialsSecondary'
+  | 'ManufacturingPrimary'
+  | 'ManufacturingSecondary'
+  | 'LogisticsPrimary'
+  | 'LogisticsSecondary'
+  | 'QualityIQC'
+  | 'QualityIQCSecondary'
+  | 'QualityLQC'
+  | 'QualityLQCSecondary'
+  | 'QualityOQC'
+  | 'QualityOQCSecondary'
+  | 'QualityCustomerInspection'
+  | 'QualityCustomerInspectionSecondary';
 
 export interface AssigneeCandidate {
   responsibilityType: ResponsibilityType;
@@ -744,6 +783,7 @@ export interface ProductionPlanItemUpdateRequest {
   templateStepId: string | null;
   stepName: string | null;
   sequenceNumber: number;
+  isRequired: boolean;
   expectedRowVersion: number;
   plannedDate: string | null;
   note: string | null;
@@ -825,4 +865,149 @@ export interface ProductionPlanningHistoryChange {
   fieldName: string | null;
   oldValue: string | null;
   newValue: string | null;
+}
+
+export interface WorkflowStage {
+  stageCode: string;
+  sequenceNumber: number;
+  departmentCode: string;
+  departmentLabel: string;
+  stageName: string;
+  isOptional: boolean;
+  isActive: boolean;
+}
+
+export interface ProjectWorkflowResponse {
+  projectId: string;
+  stages: ProjectWorkflowStage[];
+  generatedWorkItemCount: number;
+  requiredStageCount: number;
+  completedRequiredStageCount: number;
+  progressPercent: number;
+  currentStageCode: string;
+  currentStageName: string;
+  currentDepartmentCode: string;
+  currentDepartmentLabel: string;
+}
+
+export interface ProjectWorkflowStage {
+  stageCode: string;
+  sequenceNumber: number;
+  departmentCode: string;
+  departmentLabel: string;
+  stageName: string;
+  isOptional: boolean;
+  status: string;
+  statusLabel: string;
+  workItemCount: number;
+  completedAtUtc: string | null;
+}
+
+export interface MyWorkSummary {
+  requestedCount: number;
+  inProgressCount: number;
+  completedCount: number;
+  blockingCount: number;
+  assignedProjectCount: number;
+  assignedProjectBreakdown: MyAssignedProjectBreakdown[];
+}
+
+export interface MyAssignedProjectBreakdown {
+  responsibilityType: string;
+  responsibilityLabel: string;
+  projectCount: number;
+}
+
+export interface MyWorkListResponse {
+  items: MyWorkItem[];
+}
+
+export interface MyAssignedProjectsResponse {
+  items: MyAssignedProject[];
+}
+
+export interface MyAssignedProject {
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  item: string;
+  deliveryDate: string | null;
+  projectStatus: ProjectStatus;
+  projectStatusLabel: string;
+  responsibilities: MyAssignedProjectResponsibility[];
+}
+
+export interface MyAssignedProjectResponsibility {
+  responsibilityType: string;
+  responsibilityLabel: string;
+}
+
+export interface MyWorkItem {
+  workItemId: string;
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  projectItem: string;
+  projectDeliveryDate: string | null;
+  workflowStageCode: string;
+  workflowStageName: string;
+  responsibilityType: string;
+  responsibilityLabel: string;
+  title: string;
+  description: string | null;
+  status: string;
+  statusLabel: string;
+  priority: string;
+  priorityLabel: string;
+  dueDate: string | null;
+  createdAtUtc: string;
+  startedAtUtc: string | null;
+  completedAtUtc: string | null;
+  linkUrl: string;
+}
+
+export interface NotificationSummary {
+  unreadCount: number;
+  blockingCount: number;
+}
+
+export interface NotificationListResponse {
+  items: NotificationItem[];
+}
+
+export interface NotificationItem {
+  notificationId: string;
+  projectId: string | null;
+  projectTitle: string | null;
+  projectCode: string | null;
+  projectItem: string | null;
+  notificationType: string;
+  notificationTypeLabel: string;
+  severity: string;
+  severityLabel: string;
+  title: string;
+  message: string;
+  linkUrl: string | null;
+  createdAtUtc: string;
+  readAtUtc: string | null;
+}
+
+export interface ProcurementRequiredItemSettings {
+  itemCode: string;
+  activeTemplateId: string | null;
+  activeTemplateVersion: number | null;
+  rows: ProcurementRequiredItemSettingsRow[];
+}
+
+export interface ProcurementRequiredItemSettingsRow {
+  templateRowId: string | null;
+  sequenceNumber: number;
+  itemName: string;
+  isRequired: boolean;
+  isActive: boolean;
+}
+
+export interface UpdateProcurementRequiredItemSettingsRequest {
+  rows: ProcurementRequiredItemSettingsRow[];
+  reason: string | null;
 }

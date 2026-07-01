@@ -12,6 +12,8 @@ if [[ -f .env ]]; then
 fi
 
 export E2E_DATABASE_NAME="${E2E_DATABASE_NAME:-emi_qms_e2e}"
+export E2E_BACKEND_PORT="${E2E_BACKEND_PORT:-5082}"
+export E2E_FRONTEND_PORT="${E2E_FRONTEND_PORT:-5175}"
 export DATABASE_HOST="${DATABASE_HOST:-localhost}"
 export DATABASE_PORT="${DATABASE_PORT:-5432}"
 export DATABASE_USER="${DATABASE_USER:-emi_qms}"
@@ -30,8 +32,8 @@ cleanup() {
   trap - EXIT INT TERM
   set +e
 
-  wait_for_port_to_close 5081 || cleanup_exit_code=1
-  wait_for_port_to_close 5174 || cleanup_exit_code=1
+  wait_for_port_to_close "$E2E_BACKEND_PORT" || cleanup_exit_code=1
+  wait_for_port_to_close "$E2E_FRONTEND_PORT" || cleanup_exit_code=1
 
   if ! bash "$repo_root/scripts/e2e-db.sh" drop >&2; then
     echo "Full-stack E2E cleanup failed while dropping database '$E2E_DATABASE_NAME'." >&2

@@ -329,7 +329,7 @@ public sealed class ProcurementApiTests
     }
 
     [Fact]
-    public async Task ProcurementExcel_PreviewsAppliesReuploadsAndBlocksDuplicateSuccessfulHash()
+    public async Task ProcurementExcel_PreviewsAppliesReuploadsAndAllowsDuplicateFileWhenComparedWithCurrentData()
     {
         await using var context = await ProcurementApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
@@ -355,7 +355,8 @@ public sealed class ProcurementApiTests
 
         var duplicatePreview = await PreviewExcelAsync(procurementClient, firstFile, "procurement.xlsx");
         var duplicate = await ApplyExcelAsync(procurementClient, firstFile, "procurement.xlsx", duplicatePreview, reason: null);
-        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, duplicate.StatusCode);
+        Assert.Equal(0, duplicatePreview.RootElement.GetProperty("newCount").GetInt32() + duplicatePreview.RootElement.GetProperty("changedCount").GetInt32());
 
         var secondFile = CreateProcurementExcel("Proc Excel", "PROC-EXCEL",
             ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Owner A", "2026-07-01", "2026-07-10", "B,C 32면 홀딩", "First changed", "Y"],
@@ -552,7 +553,7 @@ public sealed class ProcurementApiTests
                 reason = "dashboard setup",
                 items = new[]
                 {
-                    new { orderItem = "Pending Item", expectedReceiptDate = "2026-06-29" },
+                    new { orderItem = "Pending Item", expectedReceiptDate = "2026-07-10" },
                     new { orderItem = "Past Pending Item", expectedReceiptDate = "2026-06-20" },
                     new { orderItem = "Completed Item", expectedReceiptDate = "2026-06-20" }
                 }
@@ -606,6 +607,115 @@ public sealed class ProcurementApiTests
         Assert.Equal(1, project.GetProperty("receiptCompletedCount").GetInt32());
         Assert.Equal(1, project.GetProperty("pastExpectedReceiptDateCount").GetInt32());
         Assert.Equal("2026-06-20", project.GetProperty("nearestExpectedReceiptDate").GetString());
+    }
+
+    [Fact]
+    public async Task ProcurementRequiredItemSettings_AreProcurementScopedAndDriveWorkflowCompletion()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var adminClient = context.CreateClient("dev-admin");
+        using var viewerClient = context.CreateClient("dev-viewer");
+        var projectId = await CreateProjectAsync(salesClient, "PROC-REQ", "Proc Required");
+
+        using var settings = await ReadJsonAsync(await procurementClient.GetAsync("/api/procurement/settings/required-items", TestContext.Current.CancellationToken));
+        Assert.Contains(settings.RootElement.EnumerateArray(), item => item.GetProperty("itemCode").GetString() == "UL67");
+        Assert.Contains(settings.RootElement.EnumerateArray(), item => item.GetProperty("itemCode").GetString() == "RPP");
+        Assert.DoesNotContain(settings.RootElement.EnumerateArray(), item => item.GetProperty("itemCode").GetString() == "RRP");
+        Assert.DoesNotContain(settings.RootElement.EnumerateArray(), item => item.GetProperty("itemCode").GetString() == "TEST-TYPE");
+
+        var deniedAdmin = await adminClient.PatchAsJsonAsync(
+            "/api/procurement/settings/required-items/UL67",
+            new { reason = "admin denied", rows = new[] { new { sequenceNumber = 1, itemName = "차단기", isRequired = true, isActive = true } } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedAdmin.StatusCode);
+
+        var deniedViewer = await viewerClient.PatchAsJsonAsync(
+            "/api/procurement/settings/required-items/UL67",
+            new { reason = "viewer denied", rows = new[] { new { sequenceNumber = 1, itemName = "차단기", isRequired = true, isActive = true } } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedViewer.StatusCode);
+
+        var invalid = await procurementClient.PatchAsJsonAsync(
+            "/api/procurement/settings/required-items/UL67",
+            new { reason = "invalid", rows = new[] { new { sequenceNumber = 1, itemName = "   ", isRequired = true, isActive = true } } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+
+        var savedSettings = await procurementClient.PatchAsJsonAsync(
+            "/api/procurement/settings/required-items/UL67",
+            new
+            {
+                reason = "required procurement items",
+                rows = new[]
+                {
+                    new { sequenceNumber = 1, itemName = "차단기", isRequired = true, isActive = true },
+                    new { sequenceNumber = 2, itemName = "외함", isRequired = true, isActive = true },
+                    new { sequenceNumber = 3, itemName = "부자재", isRequired = false, isActive = true }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, savedSettings.StatusCode);
+        using var savedJson = await ReadJsonAsync(savedSettings);
+        var ul67 = savedJson.RootElement.EnumerateArray().Single(item => item.GetProperty("itemCode").GetString() == "UL67");
+        Assert.Equal(3, ul67.GetProperty("rows").GetArrayLength());
+
+        var savedAgain = await procurementClient.PatchAsJsonAsync(
+            "/api/procurement/settings/required-items/UL67",
+            new
+            {
+                reason = "required procurement items latest",
+                rows = new[]
+                {
+                    new { sequenceNumber = 1, itemName = "차단기", isRequired = true, isActive = true },
+                    new { sequenceNumber = 2, itemName = "외함", isRequired = true, isActive = true }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, savedAgain.StatusCode);
+        using var savedAgainJson = await ReadJsonAsync(savedAgain);
+        var latestUl67 = savedAgainJson.RootElement.EnumerateArray().Single(item => item.GetProperty("itemCode").GetString() == "UL67");
+        var latestRows = latestUl67.GetProperty("rows").EnumerateArray().ToList();
+        Assert.Equal(2, latestRows.Count);
+        Assert.DoesNotContain(latestRows, row => row.GetProperty("itemName").GetString() == "부자재");
+
+        var newProjectId = await CreateProjectAsync(salesClient, "PROC-REQ-NEW", "Proc Required New");
+        using var newProjectProcurement = await ReadProcurementAsync(procurementClient, newProjectId);
+        var generatedItems = newProjectProcurement.RootElement.GetProperty("items").EnumerateArray().ToList();
+        Assert.Contains(generatedItems, item => item.GetProperty("orderItem").GetString() == "차단기");
+        Assert.Contains(generatedItems, item => item.GetProperty("orderItem").GetString() == "외함");
+        using var newProjectWorkflow = await ReadJsonAsync(await procurementClient.GetAsync($"/api/projects/{newProjectId}/workflow", TestContext.Current.CancellationToken));
+        var generatedProcurementStage = newProjectWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "ProcurementInfo");
+        Assert.NotEqual("Completed", generatedProcurementStage.GetProperty("status").GetString());
+
+        var oneRequired = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { reason = "partial required procurement", items = new[] { new { orderItem = " 차단기 " } } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, oneRequired.StatusCode);
+        using var partialWorkflow = await ReadJsonAsync(await procurementClient.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
+        var partialProcurementStage = partialWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "ProcurementInfo");
+        Assert.Equal("InProgress", partialProcurementStage.GetProperty("status").GetString());
+
+        var current = await ReadProcurementAsync(procurementClient, projectId);
+        var existing = current.RootElement.GetProperty("items")[0];
+        var completedRequired = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                reason = "all required procurement",
+                items = new object[]
+                {
+                    new { itemId = existing.GetProperty("itemId").GetGuid(), expectedRowVersion = existing.GetProperty("rowVersion").GetInt32(), orderItem = "차단기" },
+                    new { orderItem = "외함" }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, completedRequired.StatusCode);
+        using var completedWorkflow = await ReadJsonAsync(await procurementClient.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
+        var completedProcurementStage = completedWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "ProcurementInfo");
+        Assert.Equal("Completed", completedProcurementStage.GetProperty("status").GetString());
     }
 
     private static async Task<Guid> CreateProjectAsync(HttpClient client, string projectCode, string projectTitle)

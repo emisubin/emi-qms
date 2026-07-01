@@ -36,6 +36,8 @@ public sealed class PostgreSqlMigrationTests
 
         await AssertCoreConstraintsExistAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertSystemHolidaySchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertWorkflowSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertProcurementRequiredItemSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -1037,6 +1039,85 @@ public sealed class PostgreSqlMigrationTests
             from pg_indexes
             where tablename = 'system_holidays'
               and indexname in ('ux_system_holidays_country_date_source_key', 'ix_system_holidays_active_lookup');
+            """,
+            cancellationToken));
+    }
+
+    private static async Task AssertWorkflowSchemaAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        Assert.Equal(18L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from workflow_stages where is_active = true;",
+            cancellationToken));
+
+        Assert.Equal("ProductionPlanning", await ReadScalarAsync<string>(
+            connectionStringProvider,
+            "select stage_code from workflow_stages where sequence_number = 2;",
+            cancellationToken));
+
+        Assert.Equal("DesignPanelInfo", await ReadScalarAsync<string>(
+            connectionStringProvider,
+            "select stage_code from workflow_stages where sequence_number = 3;",
+            cancellationToken));
+
+        Assert.Equal(5L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'workflow_stages',
+                  'project_workflow_events',
+                  'work_items',
+                  'notifications',
+                  'notification_recipients'
+              );
+            """,
+            cancellationToken));
+
+        var assigneeConstraint = await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_project_assignees_responsibility_type';
+            """,
+            cancellationToken);
+        Assert.Contains("DesignPrimary", assigneeConstraint, StringComparison.Ordinal);
+        Assert.Contains("QualityCustomerInspection", assigneeConstraint, StringComparison.Ordinal);
+    }
+
+    private static async Task AssertProcurementRequiredItemSchemaAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'procurement_required_item_templates',
+                  'procurement_required_item_template_rows'
+              );
+            """,
+            cancellationToken));
+
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_indexes
+            where tablename in ('procurement_required_item_templates', 'procurement_required_item_template_rows')
+              and indexname in (
+                  'ux_procurement_required_item_templates_active_item',
+                  'ux_procurement_required_item_template_rows_sequence',
+                  'ux_procurement_required_item_template_rows_active_name'
+              );
             """,
             cancellationToken));
     }

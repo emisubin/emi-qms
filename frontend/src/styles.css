@@ -96,8 +96,27 @@ textarea {
 }
 
 .app-nav-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   width: 100%;
   text-align: left;
+}
+
+.nav-badge {
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 0 6px;
 }
 
 .app-nav-button.active,
@@ -237,6 +256,16 @@ h3 {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: #52665a;
+  font-size: 0.9rem;
+  font-weight: 800;
 }
 
 .unit-toggle {
@@ -418,6 +447,244 @@ h3 {
 
 .dashboard-kpi-card[data-variant='warning'] strong {
   color: #9a5b00;
+}
+
+.workflow-page {
+  display: grid;
+  gap: 16px;
+}
+
+.workflow-kpi-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.workflow-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.responsibility-breakdown {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d8ded9;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 12px;
+}
+
+.responsibility-breakdown > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.responsibility-breakdown span,
+.workflow-stage-badge {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.workflow-card-list,
+.workflow-stage-list {
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-card {
+  border: 1px solid #d8ded9;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 14px;
+}
+
+.workflow-card.unread {
+  border-color: #f4b2aa;
+  background: #fff8f7;
+}
+
+.workflow-card.read {
+  background: #f9fafb;
+}
+
+.workflow-project-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.workflow-project-group {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d8ded9;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.project-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: 8px;
+  background: #f6faf7;
+  color: inherit;
+  padding: 12px;
+  text-align: left;
+}
+
+.project-group-header.clickable {
+  cursor: pointer;
+}
+
+.project-group-header span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.project-group-header strong {
+  color: #213c2d;
+  overflow-wrap: anywhere;
+}
+
+.project-group-header small {
+  color: #52665a;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.responsibility-badge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.project-process-summary {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.project-process-summary .workflow-summary-meta {
+  justify-content: flex-end;
+}
+
+.project-process-summary .workflow-current-grid {
+  margin: 0;
+}
+
+.workflow-stage-list {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workflow-stage-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #d8ded9;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.workflow-stage-item[data-status='Completed'] {
+  border-color: #b8ddca;
+  background: #f1faf5;
+}
+
+.workflow-stage-item[data-status='Requested'],
+.workflow-stage-item[data-status='InProgress'] {
+  border-color: #c4d2f4;
+  background: #f5f8ff;
+}
+
+.workflow-stage-item[data-status='Blocked'] {
+  border-color: #f4b2aa;
+  background: #fff8f7;
+}
+
+.workflow-stage-item[data-department='sales'] .workflow-stage-number,
+.workflow-stage-badge[data-department='sales'] {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.workflow-stage-item[data-department='design'] .workflow-stage-number,
+.workflow-stage-badge[data-department='design'] {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.workflow-stage-item[data-department='production-planning'] .workflow-stage-number,
+.workflow-stage-badge[data-department='production-planning'] {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.workflow-stage-item[data-department='procurement'] .workflow-stage-number,
+.workflow-stage-badge[data-department='procurement'] {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.workflow-stage-item[data-department='materials'] .workflow-stage-number,
+.workflow-stage-badge[data-department='materials'] {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.workflow-stage-item[data-department='quality'] .workflow-stage-number,
+.workflow-stage-badge[data-department='quality'] {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.workflow-stage-item[data-department='manufacturing'] .workflow-stage-number,
+.workflow-stage-badge[data-department='manufacturing'] {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.workflow-stage-item[data-department='logistics'] .workflow-stage-number,
+.workflow-stage-badge[data-department='logistics'] {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.workflow-stage-number {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #e8f4ee;
+  color: #164f3d;
+  font-weight: 900;
+}
+
+.workflow-stage-item small {
+  display: block;
+  color: #52665a;
+  font-weight: 700;
 }
 
 .procurement-dashboard-layout,
@@ -605,6 +872,10 @@ h3 {
 .production-calendar-table-wrap {
   max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid #d8e3dc;
+  border-radius: 8px;
+  background: #fff;
 }
 
 .production-calendar-table {
@@ -612,10 +883,21 @@ h3 {
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  border: 1px solid #d8e3dc;
-  border-radius: 8px;
-  overflow: hidden;
   background: #fff;
+  --production-calendar-date-column-width: 64px;
+  --production-calendar-stage-column-width: 160px;
+}
+
+.production-calendar-stage-col {
+  width: var(--production-calendar-stage-column-width);
+  min-width: var(--production-calendar-stage-column-width);
+  max-width: var(--production-calendar-stage-column-width);
+}
+
+.production-calendar-date-col {
+  width: var(--production-calendar-date-column-width);
+  min-width: var(--production-calendar-date-column-width);
+  max-width: var(--production-calendar-date-column-width);
 }
 
 .production-calendar-table th,
@@ -625,19 +907,29 @@ h3 {
   padding: 6px 8px;
   text-align: center;
   vertical-align: middle;
-  min-width: 46px;
+  width: var(--production-calendar-date-column-width);
+  min-width: var(--production-calendar-date-column-width);
+  max-width: var(--production-calendar-date-column-width);
   font-size: 0.82rem;
 }
 
-.production-calendar-table th:first-child {
+.production-calendar-table .production-calendar-stage-cell {
   position: sticky;
   left: 0;
-  z-index: 1;
-  min-width: 112px;
-  max-width: 150px;
+  z-index: 2;
+  width: var(--production-calendar-stage-column-width);
+  min-width: var(--production-calendar-stage-column-width);
+  max-width: var(--production-calendar-stage-column-width);
   background: #f7faf8;
   text-align: left;
   white-space: normal;
+  overflow-wrap: anywhere;
+  box-shadow: 1px 0 0 #d8e3dc;
+}
+
+.production-calendar-table thead .production-calendar-stage-cell {
+  z-index: 3;
+  background: #ecf5ef;
 }
 
 .production-calendar-table thead th {
@@ -748,18 +1040,164 @@ h3 {
   gap: 12px;
 }
 
+.assignee-edit-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.quality-assignee-edit-grid {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.assignee-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.assignee-section h4,
+.assignee-group-card h4 {
+  margin: 0;
+}
+
 .assignee-card {
+  --assignee-bg: #ffffff;
+  --assignee-accent: #e5e7eb;
+  --assignee-text: #374151;
   border: 1px solid #e5e7eb;
+  border-left: 4px solid var(--assignee-accent);
   border-radius: 8px;
   padding: 12px;
-  background: #fff;
+  background: linear-gradient(90deg, var(--assignee-bg), #fff 42%);
   min-width: 0;
+}
+
+.assignee-card[data-tone='sales'] {
+  --assignee-bg: #fee2e2;
+  --assignee-accent: #dc2626;
+  --assignee-text: #dc2626;
+}
+
+.assignee-card[data-tone='design'] {
+  --assignee-bg: #dbeafe;
+  --assignee-accent: #1d4ed8;
+  --assignee-text: #1d4ed8;
+}
+
+.assignee-card[data-tone='production'] {
+  --assignee-bg: #ede9fe;
+  --assignee-accent: #6d28d9;
+  --assignee-text: #6d28d9;
+}
+
+.assignee-card[data-tone='procurement'] {
+  --assignee-bg: #ffedd5;
+  --assignee-accent: #c2410c;
+  --assignee-text: #c2410c;
+}
+
+.assignee-card[data-tone='materials'] {
+  --assignee-bg: #ccfbf1;
+  --assignee-accent: #0f766e;
+  --assignee-text: #0f766e;
+}
+
+.assignee-card[data-tone='manufacturing'] {
+  --assignee-bg: #e5e7eb;
+  --assignee-accent: #374151;
+  --assignee-text: #374151;
+}
+
+.assignee-card[data-tone='quality'] {
+  --assignee-bg: #dcfce7;
+  --assignee-accent: #15803d;
+  --assignee-text: #15803d;
+}
+
+.assignee-card[data-tone='logistics'] {
+  --assignee-bg: #fef3c7;
+  --assignee-accent: #b45309;
+  --assignee-text: #b45309;
 }
 
 .assignee-card strong,
 .assignee-card small {
   display: block;
   overflow-wrap: anywhere;
+}
+
+.assignee-group-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.assignee-group-card h4,
+.readonly-assignee-card h4 {
+  color: var(--assignee-text);
+}
+
+.assignee-role-row {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #eef2f7;
+}
+
+.readonly-assignee-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.readonly-assignee-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.assignee-summary-list,
+.quality-assignee-summary-stage dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.assignee-summary-list div {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.assignee-summary-list dt {
+  color: #6b7280;
+  font-weight: 700;
+}
+
+.assignee-summary-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.quality-readonly-assignee-card {
+  grid-column: span 2;
+}
+
+.quality-assignee-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.quality-assignee-summary-stage {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid #bbf7d0;
+}
+
+.quality-assignee-summary-stage h5 {
+  margin: 0;
+  color: var(--assignee-text);
+  font-size: 0.9rem;
 }
 
 .production-plan-status[data-status='Planned'] {
@@ -1234,6 +1672,38 @@ h3 {
 .status-badge[data-status='Completed'] {
   background: #e7eefc;
   color: #244f9e;
+}
+
+.status-badge[data-tone='danger'] {
+  background: #fde7e5;
+  color: #b42318;
+}
+
+.status-badge[data-tone='warning'] {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.status-badge[data-tone='info'] {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.status-badge[data-tone='success'] {
+  background: #dcfce7;
+  color: #047857;
+}
+
+.status-badge[data-tone='neutral'] {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.status-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .project-form {
@@ -1870,6 +2340,11 @@ dd {
 
   .app-mobile-nav {
     display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  }
+
+  .project-process-summary .workflow-summary-meta {
+    justify-content: flex-start;
   }
 
   .topbar,
@@ -1884,10 +2359,18 @@ dd {
   .project-form,
   .dashboard-kpi-grid,
   .panel-info-summary,
+  .readonly-assignee-grid,
+  .assignee-edit-grid,
+  .quality-assignee-edit-grid,
+  .quality-assignee-summary,
   .panel-toolbar,
   .dimension-grid,
   .mini-status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .quality-readonly-assignee-card {
+    grid-column: auto;
   }
 
   .project-row,

@@ -48,6 +48,18 @@ public static partial class ProjectInputNormalizer
         return trimmed?.ToUpper(CultureInfo.InvariantCulture);
     }
 
+    public static string? NormalizeItemCode(string? value)
+    {
+        var trimmed = TrimToNull(value);
+        if (trimmed is null)
+        {
+            return null;
+        }
+
+        var normalized = trimmed.ToUpper(CultureInfo.InvariantCulture);
+        return normalized == "RRP" ? "RPP" : normalized;
+    }
+
     public static string FormatPanelDisplayCode(int sequenceNumber)
     {
         return sequenceNumber <= 99
@@ -127,7 +139,7 @@ public static partial class ProjectRequestValidator
     {
         var validation = new ProjectValidationResult();
         var customerName = RequiredText(request.CustomerName, nameof(request.CustomerName), ProjectInputNormalizer.CustomerNameMaxLength, validation);
-        var item = RequiredText(request.Item, nameof(request.Item), ProjectInputNormalizer.ItemMaxLength, validation);
+        var item = ProjectInputNormalizer.NormalizeItemCode(RequiredText(request.Item, nameof(request.Item), ProjectInputNormalizer.ItemMaxLength, validation));
         var projectCode = RequiredText(request.ProjectCode, nameof(request.ProjectCode), ProjectInputNormalizer.ProjectCodeMaxLength, validation);
         var projectTitle = RequiredText(request.ProjectTitle, nameof(request.ProjectTitle), ProjectInputNormalizer.ProjectTitleMaxLength, validation);
         var panelCount = RequiredPanelCount(request.PanelCount, nameof(request.PanelCount), validation);
@@ -173,7 +185,7 @@ public static partial class ProjectRequestValidator
     {
         var validation = new ProjectValidationResult();
         var customerName = RequiredText(request.CustomerName, nameof(request.CustomerName), ProjectInputNormalizer.CustomerNameMaxLength, validation);
-        var item = RequiredText(request.Item, nameof(request.Item), ProjectInputNormalizer.ItemMaxLength, validation);
+        var item = ProjectInputNormalizer.NormalizeItemCode(RequiredText(request.Item, nameof(request.Item), ProjectInputNormalizer.ItemMaxLength, validation));
         var projectCode = RequiredText(request.ProjectCode, nameof(request.ProjectCode), ProjectInputNormalizer.ProjectCodeMaxLength, validation);
         var projectTitle = RequiredText(request.ProjectTitle, nameof(request.ProjectTitle), ProjectInputNormalizer.ProjectTitleMaxLength, validation);
         var deliveryDate = RequiredDate(request.DeliveryDate, nameof(request.DeliveryDate), validation);

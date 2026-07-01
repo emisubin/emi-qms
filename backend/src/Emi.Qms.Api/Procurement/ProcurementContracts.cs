@@ -104,6 +104,30 @@ public sealed record ProcurementTemplateDownload(
     string FileName,
     string ContentType);
 
+public sealed record ProcurementRequiredItemSettingsResponse(
+    string ItemCode,
+    Guid? ActiveTemplateId,
+    int? ActiveTemplateVersion,
+    IReadOnlyList<ProcurementRequiredItemSettingsRowResponse> Rows);
+
+public sealed record ProcurementRequiredItemSettingsRowResponse(
+    Guid? TemplateRowId,
+    int SequenceNumber,
+    string ItemName,
+    bool IsRequired,
+    bool IsActive);
+
+public sealed record UpdateProcurementRequiredItemSettingsRequest(
+    IReadOnlyList<UpdateProcurementRequiredItemSettingsRowRequest>? Rows,
+    string? Reason);
+
+public sealed record UpdateProcurementRequiredItemSettingsRowRequest(
+    Guid? TemplateRowId,
+    int? SequenceNumber,
+    string? ItemName,
+    bool? IsRequired,
+    bool? IsActive);
+
 public sealed class ProcurementExcelPreviewResponse
 {
     public string FileSha256 { get; init; } = "";

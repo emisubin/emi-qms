@@ -35,7 +35,7 @@
 
 ## Item별 계획 템플릿
 
-기준 Item은 `UL67`, `UL891`, `UL508A`, `IEC`, `LLP`, `RRP`로 확정한다. 프로젝트 생성/수정의 Item은 자유입력이 아니라 이 기준 Item 중 하나를 선택한다. 생산계획 수정 페이지는 프로젝트 Item을 자동 사용하며, 별도 Item select를 제공하지 않는다.
+기준 Item은 `UL67`, `UL891`, `UL508A`, `IEC`, `LLP`, `RPP`로 확정한다. 프로젝트 생성/수정의 Item은 자유입력이 아니라 이 기준 Item 중 하나를 선택한다. 생산계획 수정 페이지는 프로젝트 Item을 자동 사용하며, 별도 Item select를 제공하지 않는다.
 
 각 Item은 초기 임시 템플릿으로 `자재 입고`, `조립 시작`, `배선`, `검사 준비` step을 가진다. 계획 항목명은 Item별 템플릿 step으로 관리하며, 프로젝트별 custom item을 추가할 수 있다.
 
@@ -128,7 +128,7 @@ Project, Panel Information, Procurement, Production Planning Excel 양식은 다
 - [ ] 프로젝트 상세 section 순서가 제품 목록 / 생산관리 / 구매
 - [ ] 생산계획 페이지에 KPI 카드가 있음
 - [ ] 생산계획은 프로젝트 단위로 보임
-- [ ] 프로젝트 생성/수정 Item이 UL67, UL891, UL508A, IEC, LLP, RRP select로 표시됨
+- [ ] 프로젝트 생성/수정 Item이 UL67, UL891, UL508A, IEC, LLP, RPP select로 표시됨
 - [ ] 생산계획 단계 설정 페이지에서 Item별 단계/필수/사용 여부 수정 가능
 - [ ] 설정 이후 새 생산계획에 최신 단계가 반영되고 기존 snapshot은 유지됨
 - [ ] 생산계획 수정 페이지에서 프로젝트 Item이 자동 표시됨

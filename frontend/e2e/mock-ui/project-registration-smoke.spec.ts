@@ -106,7 +106,7 @@ function createStore() {
 }
 
 function productionProductTypes() {
-  return ['UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RRP'].map((code, index) => ({
+  return ['UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RPP'].map((code, index) => ({
     productTypeId: `77000000-0000-0000-0000-00000000000${index + 1}`,
     code,
     name: code,

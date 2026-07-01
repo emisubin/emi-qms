@@ -468,7 +468,9 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await expect(page.getByRole('table', { name: '구매정보 수정' })).toBeVisible();
   await page.getByRole('button', { name: '행 추가' }).click();
   const editTable = page.getByRole('table', { name: '구매정보 수정' });
-  const editInputs = editTable.locator('input');
+  const editRow = editTable.locator('.procurement-table-row.editable').last();
+  await expect(editRow.locator('input').first()).toBeVisible({ timeout: 15_000 });
+  const editInputs = editRow.locator('input');
   await editInputs.nth(0).fill('4W');
   await editInputs.nth(4).fill('2026-07-10');
   await page.getByRole('button', { name: '저장' }).click();
@@ -798,7 +800,7 @@ test('TASK-006A UAT regression: my-work data, procurement settings route, and wo
   const projectTitle = `TASK 006A UAT Regression ${unique}`;
   const projectCode = `FS-6A-UAT-${unique}`;
   const projectId = await createProjectByApi(request, projectCode, projectTitle, 'WoodenCrate', 1);
-  queryDatabaseValue(`
+  await queryDatabaseValue(`
     insert into project_assignees (project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc)
     values ('${projectId}', 'SalesPrimary', '${salesOwnerId}', '${salesOwnerId}', now())
     on conflict (project_id, responsibility_type) do update
@@ -812,8 +814,18 @@ test('TASK-006A UAT regression: my-work data, procurement settings route, and wo
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '내 업무' }).click();
   await expect(page.getByRole('heading', { name: '내 업무' })).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        page
+          .locator('.workflow-kpi-grid .dashboard-kpi-card strong')
+          .evaluateAll((elements) => elements.map((element) => element.textContent?.trim() ?? '')),
+      { timeout: 15_000 },
+    )
+    .not.toContain('-');
   const kpiValues = await page.locator('.workflow-kpi-grid .dashboard-kpi-card strong').evaluateAll((elements) => elements.map((element) => element.textContent?.trim() ?? ''));
   expect(kpiValues).not.toContain('-');
+  expect(kpiValues.every((value) => /^\d+$/.test(value))).toBeTruthy();
   await expect(page.locator('.workflow-kpi-grid')).toContainText('담당 프로젝트');
 
   await page.getByRole('button', { name: '담당 프로젝트' }).click();

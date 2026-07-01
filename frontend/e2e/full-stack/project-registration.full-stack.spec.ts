@@ -466,9 +466,17 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await expect(page.getByTestId('project-context-summary')).toContainText(`FS-4A-DIRECT-${unique}`);
   await expect(page.getByTestId('project-context-summary')).toContainText('2026-10-10');
   await expect(page.getByRole('table', { name: '구매정보 수정' })).toBeVisible();
-  await page.getByRole('button', { name: '행 추가' }).click();
   const editTable = page.getByRole('table', { name: '구매정보 수정' });
-  const editRow = editTable.locator('.procurement-table-row.editable').last();
+  const editRows = editTable.locator('.procurement-table-row.editable');
+  const initialEditRowCount = await editRows.count();
+  await page.getByRole('button', { name: '행 추가' }).click();
+  try {
+    await expect.poll(async () => editRows.count(), { timeout: 5_000 }).toBeGreaterThan(initialEditRowCount);
+  } catch {
+    await page.getByRole('button', { name: '행 추가' }).click();
+    await expect.poll(async () => editRows.count(), { timeout: 10_000 }).toBeGreaterThan(initialEditRowCount);
+  }
+  const editRow = editRows.nth(initialEditRowCount);
   await expect(editRow.locator('input').first()).toBeVisible({ timeout: 15_000 });
   const editInputs = editRow.locator('input');
   await editInputs.nth(0).fill('4W');

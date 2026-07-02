@@ -543,7 +543,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Production Planning");
         var headers = BulkExcelHeaders;
-        var requiredColumns = new HashSet<int> { 1, 2, 3, 4 };
+        var requiredColumns = new HashSet<int> { 3, 4 };
         for (var index = 0; index < headers.Length; index++)
         {
             var column = index + 1;
@@ -554,17 +554,17 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 worksheet.Cell(1, column).Style.Fill.BackgroundColor = XLColor.LightYellow;
             }
         }
-        worksheet.Cell(1, headers.Length + 1).Value = "* 표시 항목은 필수 입력값입니다. 프로젝트명 또는 PJT Code 중 하나는 필수입니다.";
+        worksheet.Cell(1, headers.Length + 1).Value = "* 표시 항목은 필수 입력값입니다. 프로젝트명 또는 PJT Code 중 하나는 필요합니다. 필수 여부는 예/아니오로 입력합니다.";
         worksheet.Cell(1, headers.Length + 1).Style.Font.Italic = true;
         worksheet.Cell(1, headers.Length + 1).Style.Alignment.WrapText = true;
-        worksheet.Column(headers.Length + 1).Width = 42;
+        worksheet.Column(headers.Length + 1).Width = 54;
 
-        var example = new[] { "UAT-PLAN", "PLAN-CODE", "UL67", "자재 입고", "2026-07-01", "예시", "dev-procurement", "dev-production", "dev-manufacturing", "dev-quality", "dev-logistics" };
+        var example = new[] { "UAT-PLAN", "PLAN-CODE", "UL67", "자재 도착", "예", "2026-07-01", "예시" };
         for (var index = 0; index < example.Length; index++)
         {
             worksheet.Cell(2, index + 1).Value = example[index];
         }
-        ApplyExcelTemplateLayout(worksheet, headers.Length, headerRow: 1, wideColumns: [4, 6]);
+        ApplyExcelTemplateLayout(worksheet, headers.Length, headerRow: 1, wideColumns: [4, 7]);
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -585,7 +585,33 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         {
             await using var dataSource = CreateDataSource();
             await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-            var rows = await ParseBulkExcelRowsAsync(connection, null, bytes, cancellationToken);
+            var rows = await ParseBulkExcelRowsAsync(connection, null, bytes, null, cancellationToken);
+            return ProductionPlanningMutationResult<ProductionPlanningExcelPreviewResponse>.Success(BuildExcelPreview(fileSha256, rows));
+        }
+        catch (InvalidDataException ex)
+        {
+            return ProductionPlanningMutationResult<ProductionPlanningExcelPreviewResponse>.Validation(new Dictionary<string, string[]> { ["file"] = [ex.Message] });
+        }
+    }
+
+    public async Task<ProductionPlanningMutationResult<ProductionPlanningExcelPreviewResponse>> PreviewProjectExcelAsync(
+        Guid projectId,
+        string fileName,
+        byte[] bytes,
+        string fileSha256,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var dataSource = CreateDataSource();
+            await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+            var project = await ReadProjectAsync(connection, null, projectId, cancellationToken);
+            if (project is null)
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningExcelPreviewResponse>.NotFound();
+            }
+
+            var rows = await ParseBulkExcelRowsAsync(connection, null, bytes, project, cancellationToken);
             return ProductionPlanningMutationResult<ProductionPlanningExcelPreviewResponse>.Success(BuildExcelPreview(fileSha256, rows));
         }
         catch (InvalidDataException ex)
@@ -612,7 +638,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        var parsedRows = await ParseBulkExcelRowsAsync(connection, null, bytes, cancellationToken);
+        var parsedRows = await ParseBulkExcelRowsAsync(connection, null, bytes, null, cancellationToken);
         var saveable = parsedRows.Where(row => row.IsSaveable).ToList();
         if (saveable.Count == 0)
         {
@@ -653,6 +679,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             {
                 var nextSequence = existing.Count == 0 ? 1 : existing.Max(item => item.SequenceNumber) + 1;
                 var itemId = Guid.NewGuid();
+                var required = row.IsRequired ?? current?.IsRequired ?? false;
                 if (createdPlan && row.TemplateStepId is not null)
                 {
                     await InsertTemplatePlanItemAsync(
@@ -660,23 +687,31 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                         transaction,
                         itemId,
                         planId,
-                        new ProductionTemplateStepResponse(row.TemplateStepId.Value, nextSequence, row.StepName!, true),
+                        new ProductionTemplateStepResponse(row.TemplateStepId.Value, nextSequence, row.StepName!, required),
                         row.StepName!,
-                        true,
+                        required,
                         row.PlannedDate,
                         row.Note,
                         cancellationToken);
                 }
                 else
                 {
-                    await InsertCustomPlanItemAsync(connection, transaction, itemId, planId, nextSequence, row.StepName!, false, row.PlannedDate, row.Note, cancellationToken);
+                    await InsertCustomPlanItemAsync(connection, transaction, itemId, planId, nextSequence, row.StepName!, required, row.PlannedDate, row.Note, cancellationToken);
                 }
                 await InsertAuditAsync(connection, transaction, project.ProjectId, itemId, "ProductionPlanItem", row.StepName!, null, FormatDate(row.PlannedDate), reason, changedByUserId, correlationId, cancellationToken, "Excel");
             }
-            else if (current.PlannedDate != row.PlannedDate || current.Note != row.Note)
+            else
             {
-                await UpdatePlanItemAsync(connection, transaction, current.ItemId!.Value, current.StepName, current.IsRequired, row.PlannedDate, row.Note, cancellationToken);
-                await InsertAuditAsync(connection, transaction, project.ProjectId, current.ItemId.Value, "ProductionPlanItem", row.StepName!, FormatDate(current.PlannedDate), FormatDate(row.PlannedDate), reason, changedByUserId, correlationId, cancellationToken, "Excel");
+                var required = row.IsRequired ?? current.IsRequired;
+                if (current.PlannedDate != row.PlannedDate || current.Note != row.Note || current.IsRequired != required)
+                {
+                    await UpdatePlanItemAsync(connection, transaction, current.ItemId!.Value, current.StepName, required, row.PlannedDate, row.Note, cancellationToken);
+                    await InsertAuditAsync(connection, transaction, project.ProjectId, current.ItemId.Value, "ProductionPlanItem", row.StepName!, FormatDate(current.PlannedDate), FormatDate(row.PlannedDate), reason, changedByUserId, correlationId, cancellationToken, "Excel");
+                    if (current.IsRequired != required)
+                    {
+                        await InsertAuditAsync(connection, transaction, project.ProjectId, current.ItemId.Value, "ProductionPlanItem", $"{row.StepName} 필수 여부", current.IsRequired ? "예" : "아니오", required ? "예" : "아니오", reason, changedByUserId, correlationId, cancellationToken, "Excel");
+                    }
+                }
             }
 
             await ApplyAssigneesFromExcelAsync(connection, transaction, project.ProjectId, row, changedByUserId, reason, correlationId, cancellationToken);
@@ -687,6 +722,127 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         await transaction.CommitAsync(cancellationToken);
         return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Success(
             new ProductionPlanningExcelApplyResponse(saveable.Count, parsedRows.Count - saveable.Count, appliedProjectIds.ToList()));
+    }
+
+    public async Task<ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>> ApplyProjectExcelAsync(
+        Guid projectId,
+        string fileName,
+        byte[] bytes,
+        string fileSha256,
+        string expectedFileSha256,
+        string? reason,
+        Guid changedByUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(fileSha256, expectedFileSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Validation(
+                new Dictionary<string, string[]> { ["file"] = ["파일이 변경되었습니다. 다시 미리보기를 실행해 주세요."] });
+        }
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var projectContext = await ReadProjectAsync(connection, null, projectId, cancellationToken);
+        if (projectContext is null)
+        {
+            return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.NotFound();
+        }
+
+        var parsedRows = await ParseBulkExcelRowsAsync(connection, null, bytes, projectContext, cancellationToken);
+        var saveable = parsedRows.Where(row => row.IsSaveable).ToList();
+        if (saveable.Count == 0)
+        {
+            return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Validation(
+                new Dictionary<string, string[]> { ["rows"] = ["저장 가능한 생산계획 항목이 없습니다."] });
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var project = await LockProjectAsync(connection, transaction, projectId, cancellationToken);
+        if (project is null)
+        {
+            return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.NotFound();
+        }
+
+        if (!string.Equals(project.Status, "Active", StringComparison.Ordinal))
+        {
+            return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Validation(
+                new Dictionary<string, string[]> { ["project"] = ["진행 중 프로젝트만 생산계획 Excel을 적용할 수 있습니다."] });
+        }
+
+        foreach (var row in saveable)
+        {
+            if (row.ProjectId != projectId)
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Validation(
+                    new Dictionary<string, string[]> { ["rows"] = ["현재 프로젝트의 생산계획 Excel만 적용할 수 있습니다."] });
+            }
+
+            if (!ItemCodesEqual(project.Item, row.ProductTypeCode))
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Validation(
+                    new Dictionary<string, string[]> { ["rows"] = ["Excel의 Item이 프로젝트 Item과 일치하지 않습니다."] });
+            }
+
+            var productType = await ReadActiveProductTypeByCodeAsync(connection, transaction, project.Item, cancellationToken);
+            if (productType is null)
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Validation(
+                    new Dictionary<string, string[]> { ["rows"] = ["현재 프로젝트의 Item이 등록된 Item 기준값과 일치하지 않습니다. 프로젝트 정보를 수정한 후 생산계획을 입력해 주세요."] });
+            }
+
+            var (planId, createdPlan) = await EnsurePlanForExcelAsync(connection, transaction, project.ProjectId, productType, changedByUserId, cancellationToken);
+            var existing = await ReadPlanItemsAsync(connection, transaction, planId, cancellationToken);
+            var current = createdPlan && row.TemplateStepId is not null
+                ? existing.FirstOrDefault(item => item.TemplateStepId == row.TemplateStepId)
+                : existing.FirstOrDefault(item => string.Equals(Normalize(row.StepName), Normalize(item.StepName), StringComparison.Ordinal));
+
+            if (current is null)
+            {
+                var nextSequence = existing.Count == 0 ? 1 : existing.Max(item => item.SequenceNumber) + 1;
+                var itemId = Guid.NewGuid();
+                var required = row.IsRequired ?? false;
+                if (createdPlan && row.TemplateStepId is not null)
+                {
+                    await InsertTemplatePlanItemAsync(
+                        connection,
+                        transaction,
+                        itemId,
+                        planId,
+                        new ProductionTemplateStepResponse(row.TemplateStepId.Value, nextSequence, row.StepName!, required),
+                        row.StepName!,
+                        required,
+                        row.PlannedDate,
+                        row.Note,
+                        cancellationToken);
+                }
+                else
+                {
+                    await InsertCustomPlanItemAsync(connection, transaction, itemId, planId, nextSequence, row.StepName!, required, row.PlannedDate, row.Note, cancellationToken);
+                }
+                await InsertAuditAsync(connection, transaction, project.ProjectId, itemId, "ProductionPlanItem", row.StepName!, null, FormatDate(row.PlannedDate), reason, changedByUserId, correlationId, cancellationToken, "Excel");
+            }
+            else
+            {
+                var required = row.IsRequired ?? current.IsRequired;
+                if (current.PlannedDate != row.PlannedDate || current.Note != row.Note || current.IsRequired != required)
+                {
+                    await UpdatePlanItemAsync(connection, transaction, current.ItemId!.Value, current.StepName, required, row.PlannedDate, row.Note, cancellationToken);
+                    await InsertAuditAsync(connection, transaction, project.ProjectId, current.ItemId.Value, "ProductionPlanItem", row.StepName!, FormatDate(current.PlannedDate), FormatDate(row.PlannedDate), reason, changedByUserId, correlationId, cancellationToken, "Excel");
+                    if (current.IsRequired != required)
+                    {
+                        await InsertAuditAsync(connection, transaction, project.ProjectId, current.ItemId.Value, "ProductionPlanItem", $"{row.StepName} 필수 여부", current.IsRequired ? "예" : "아니오", required ? "예" : "아니오", reason, changedByUserId, correlationId, cancellationToken, "Excel");
+                    }
+                }
+            }
+
+            await ApplyAssigneesFromExcelAsync(connection, transaction, project.ProjectId, row, changedByUserId, reason, correlationId, cancellationToken);
+        }
+
+        await InsertProductionPlanningImportBatchAsync(connection, transaction, fileName, bytes.Length, fileSha256, parsedRows.Count, saveable.Count, parsedRows.Count - saveable.Count, changedByUserId, reason, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Success(
+            new ProductionPlanningExcelApplyResponse(saveable.Count, parsedRows.Count - saveable.Count, [projectId]));
     }
 
     public async Task<ProductionPlanningTemplateDownload?> CreateTemplateAsync(Guid projectId, Guid productTypeId, CancellationToken cancellationToken)
@@ -707,22 +863,24 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         var worksheet = workbook.AddWorksheet("Production Plan");
         worksheet.Cell(1, 1).Value = "생산계획 입력 양식";
         worksheet.Cell(2, 1).Value = plan.ProjectTitle;
-        worksheet.Cell(2, 2).Value = "* 표시 항목은 필수 입력값입니다.";
+        worksheet.Cell(2, 2).Value = "* 표시 항목은 입력 필수값입니다. 필수 여부는 예/아니오로 입력합니다.";
         worksheet.Cell(2, 2).Style.Font.Italic = true;
-        worksheet.Cell(3, 1).Value = "계획 항목 *";
-        worksheet.Cell(3, 2).Value = "예정일";
-        worksheet.Cell(3, 3).Value = "비고";
+        worksheet.Cell(3, 1).Value = "생산단계 *";
+        worksheet.Cell(3, 2).Value = "필수 여부";
+        worksheet.Cell(3, 3).Value = "예정일";
+        worksheet.Cell(3, 4).Value = "비고";
         worksheet.Cell(3, 1).Style.Fill.BackgroundColor = XLColor.LightYellow;
         var row = 4;
         foreach (var step in type.Steps.OrderBy(step => step.SequenceNumber))
         {
             worksheet.Cell(row, 1).Value = step.StepName;
-            worksheet.Cell(row, 2).Style.DateFormat.Format = "yyyy-mm-dd";
-            worksheet.Cell(row, 3).Value = "";
+            worksheet.Cell(row, 2).Value = step.IsRequired ? "예" : "아니오";
+            worksheet.Cell(row, 3).Style.DateFormat.Format = "yyyy-mm-dd";
+            worksheet.Cell(row, 4).Value = "";
             row++;
         }
 
-        ApplyExcelTemplateLayout(worksheet, 3, headerRow: 3, wideColumns: [1, 3]);
+        ApplyExcelTemplateLayout(worksheet, 4, headerRow: 3, wideColumns: [1, 4]);
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return new ProductionPlanningTemplateDownload(
@@ -1755,8 +1913,13 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             return true;
         }
 
-        return string.Equals(expected, "Item", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(actual, "제품 구분", StringComparison.OrdinalIgnoreCase);
+        return (string.Equals(expected, "Item", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(actual, "제품 구분", StringComparison.OrdinalIgnoreCase))
+            || (string.Equals(expected, "생산단계", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(actual, "계획 항목", StringComparison.OrdinalIgnoreCase))
+            || (string.Equals(expected, "필수 여부", StringComparison.OrdinalIgnoreCase)
+                && (string.Equals(actual, "필수", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(actual, "필수여부", StringComparison.OrdinalIgnoreCase)));
     }
 
     private static readonly string[] BulkExcelHeaders =
@@ -1764,9 +1927,22 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         "프로젝트명",
         "PJT Code",
         "Item",
-        "계획 항목",
+        "생산단계",
+        "필수 여부",
         "예정일",
-        "비고",
+        "비고"
+    ];
+
+    private static readonly string[] ProjectExcelHeaders =
+    [
+        "생산단계",
+        "필수 여부",
+        "예정일",
+        "비고"
+    ];
+
+    private static readonly string[] LegacyBulkAssigneeHeaders =
+    [
         "구매 담당자",
         "생산관리 담당자",
         "제조 담당자",
@@ -1774,7 +1950,122 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         "물류 담당자"
     ];
 
-    private async Task<IReadOnlyList<ProductionPlanningExcelRow>> ParseBulkExcelRowsAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, byte[] bytes, CancellationToken cancellationToken)
+    private static Dictionary<string, int> BuildBulkExcelHeaderMap(IXLWorksheet worksheet, int headerRow)
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var lastColumn = worksheet.LastColumnUsed()?.ColumnNumber() ?? BulkExcelHeaders.Length;
+        var expectedHeaders = BulkExcelHeaders.Concat(LegacyBulkAssigneeHeaders).ToArray();
+        for (var column = 1; column <= lastColumn; column++)
+        {
+            var actual = NormalizeExcelHeader(worksheet.Cell(headerRow, column).GetString());
+            if (string.IsNullOrWhiteSpace(actual))
+            {
+                continue;
+            }
+
+            var canonical = expectedHeaders.FirstOrDefault(expected => HeaderMatches(actual, expected));
+            if (canonical is null)
+            {
+                continue;
+            }
+
+            if (result.ContainsKey(canonical))
+            {
+                throw new InvalidDataException($"생산계획 Excel 양식에 중복 Header가 있습니다: {canonical}");
+            }
+
+            result[canonical] = column;
+        }
+
+        var missing = BulkExcelHeaders.Where(header => !result.ContainsKey(header)).ToList();
+        if (missing.Count > 0)
+        {
+            var legacyOrderCompatible = BulkExcelHeaders
+                .Where(header => header != "필수 여부")
+                .Select((header, index) => HeaderMatches(NormalizeExcelHeader(worksheet.Cell(headerRow, index + 1).GetString()), header))
+                .All(matches => matches);
+            if (legacyOrderCompatible)
+            {
+                result["필수 여부"] = 0;
+                return result;
+            }
+
+            throw new InvalidDataException($"생산계획 Excel 양식의 Header를 확인해 주세요. 누락: {string.Join(", ", missing)}");
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, int> BuildProjectExcelHeaderMap(IXLWorksheet worksheet, int headerRow)
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var lastColumn = worksheet.LastColumnUsed()?.ColumnNumber() ?? ProjectExcelHeaders.Length;
+        for (var column = 1; column <= lastColumn; column++)
+        {
+            var actual = NormalizeExcelHeader(worksheet.Cell(headerRow, column).GetString());
+            if (string.IsNullOrWhiteSpace(actual))
+            {
+                continue;
+            }
+
+            var canonical = ProjectExcelHeaders.FirstOrDefault(expected => HeaderMatches(actual, expected));
+            if (canonical is null)
+            {
+                continue;
+            }
+
+            if (result.ContainsKey(canonical))
+            {
+                throw new InvalidDataException($"생산계획 Excel 양식에 중복 Header가 있습니다: {canonical}");
+            }
+
+            result[canonical] = column;
+        }
+
+        var missing = ProjectExcelHeaders.Where(header => !result.ContainsKey(header)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidDataException($"생산계획 Excel 양식의 Header를 확인해 주세요. 누락: {string.Join(", ", missing)}");
+        }
+
+        return result;
+    }
+
+    private static string? ReadOptionalExcelText(IXLWorksheet worksheet, int rowNumber, IReadOnlyDictionary<string, int> headerMap, string header)
+    {
+        return headerMap.TryGetValue(header, out var column) && column > 0
+            ? CellText(worksheet.Cell(rowNumber, column))
+            : null;
+    }
+
+    private static bool? ParseRequiredFlag(string? value, ICollection<string> errors)
+    {
+        var normalized = Normalize(value);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return null;
+        }
+
+        return normalized switch
+        {
+            "예" or "Y" or "YES" or "TRUE" or "1" or "필수" => true,
+            "아니오" or "N" or "NO" or "FALSE" or "0" or "선택" => false,
+            _ => AddRequiredFlagError(errors)
+        };
+    }
+
+    private static bool? AddRequiredFlagError(ICollection<string> errors)
+    {
+        errors.Add("필수 여부는 예 또는 아니오로 입력해 주세요.");
+        return null;
+    }
+
+    private async Task<IReadOnlyList<ProductionPlanningExcelRow>> ParseBulkExcelRowsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        byte[] bytes,
+        ProjectSnapshot? projectContext,
+        CancellationToken cancellationToken)
     {
         using var stream = new MemoryStream(bytes);
         using var workbook = new XLWorkbook(stream);
@@ -1784,18 +2075,13 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         }
 
         var worksheet = workbook.Worksheet(1);
-        var headerRow = 1;
-        var headerMap = BulkExcelHeaders
-            .Select((header, index) => (header, index: index + 1))
-            .ToDictionary(item => item.header, item => item.index, StringComparer.OrdinalIgnoreCase);
-        for (var index = 0; index < BulkExcelHeaders.Length; index++)
-        {
-            var actual = NormalizeExcelHeader(worksheet.Cell(headerRow, index + 1).GetString());
-            if (!HeaderMatches(actual, BulkExcelHeaders[index]))
-            {
-                throw new InvalidDataException("생산계획 Excel 양식의 Header를 확인해 주세요.");
-            }
-        }
+        var projectTemplateHeaderRow = 3;
+        var isProjectTemplate = projectContext is not null
+            && HeaderMatches(NormalizeExcelHeader(worksheet.Cell(projectTemplateHeaderRow, 1).GetString()), "생산단계");
+        var headerRow = isProjectTemplate ? projectTemplateHeaderRow : 1;
+        var headerMap = isProjectTemplate
+            ? BuildProjectExcelHeaderMap(worksheet, headerRow)
+            : BuildBulkExcelHeaderMap(worksheet, headerRow);
 
         var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? headerRow;
         if (lastRow - headerRow > 500)
@@ -1807,29 +2093,37 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         var rows = new List<ProductionPlanningExcelRow>();
         for (var rowNumber = headerRow + 1; rowNumber <= lastRow; rowNumber++)
         {
-            var projectTitle = CellText(worksheet.Cell(rowNumber, headerMap["프로젝트명"]));
-            var projectCode = CellText(worksheet.Cell(rowNumber, headerMap["PJT Code"]));
-            var productTypeCode = NormalizeItemCode(CellText(worksheet.Cell(rowNumber, headerMap["Item"])));
-            var stepName = CellText(worksheet.Cell(rowNumber, headerMap["계획 항목"]));
+            var projectTitle = isProjectTemplate ? projectContext!.ProjectTitle : CellText(worksheet.Cell(rowNumber, headerMap["프로젝트명"]));
+            var projectCode = isProjectTemplate ? projectContext!.ProjectCode : CellText(worksheet.Cell(rowNumber, headerMap["PJT Code"]));
+            var productTypeCode = isProjectTemplate ? NormalizeItemCode(projectContext!.Item) : NormalizeItemCode(CellText(worksheet.Cell(rowNumber, headerMap["Item"])));
+            var stepName = CellText(worksheet.Cell(rowNumber, headerMap["생산단계"]));
+            var isRequiredText = ReadOptionalExcelText(worksheet, rowNumber, headerMap, "필수 여부");
             var plannedDateText = CellText(worksheet.Cell(rowNumber, headerMap["예정일"]));
             var note = CellText(worksheet.Cell(rowNumber, headerMap["비고"]));
-            var procurement = CellText(worksheet.Cell(rowNumber, headerMap["구매 담당자"]));
-            var production = CellText(worksheet.Cell(rowNumber, headerMap["생산관리 담당자"]));
-            var manufacturing = CellText(worksheet.Cell(rowNumber, headerMap["제조 담당자"]));
-            var quality = CellText(worksheet.Cell(rowNumber, headerMap["품질 담당자"]));
-            var logistics = CellText(worksheet.Cell(rowNumber, headerMap["물류 담당자"]));
+            var procurement = isProjectTemplate ? null : ReadOptionalExcelText(worksheet, rowNumber, headerMap, "구매 담당자");
+            var production = isProjectTemplate ? null : ReadOptionalExcelText(worksheet, rowNumber, headerMap, "생산관리 담당자");
+            var manufacturing = isProjectTemplate ? null : ReadOptionalExcelText(worksheet, rowNumber, headerMap, "제조 담당자");
+            var quality = isProjectTemplate ? null : ReadOptionalExcelText(worksheet, rowNumber, headerMap, "품질 담당자");
+            var logistics = isProjectTemplate ? null : ReadOptionalExcelText(worksheet, rowNumber, headerMap, "물류 담당자");
 
-            if (new[] { projectTitle, projectCode, productTypeCode, stepName, plannedDateText, note, procurement, production, manufacturing, quality, logistics }.All(string.IsNullOrWhiteSpace))
+            if (new[] { projectTitle, projectCode, productTypeCode, stepName, isRequiredText, plannedDateText, note, procurement, production, manufacturing, quality, logistics }.All(string.IsNullOrWhiteSpace))
             {
-                rows.Add(new ProductionPlanningExcelRow(rowNumber, "Skipped", null, projectTitle, projectCode, null, productTypeCode, null, stepName, false, null, note, procurement, production, manufacturing, quality, logistics, ["빈 행입니다."]));
+                rows.Add(new ProductionPlanningExcelRow(rowNumber, "Skipped", null, projectTitle, projectCode, null, productTypeCode, null, stepName, false, null, null, note, procurement, production, manufacturing, quality, logistics, ["빈 행입니다."]));
                 continue;
             }
 
             var errors = new List<string>();
-            var project = await MatchProjectForExcelAsync(connection, transaction, projectCode, projectTitle, cancellationToken);
+            var isRequired = ParseRequiredFlag(isRequiredText, errors);
+            var project = isProjectTemplate
+                ? projectContext
+                : await MatchProjectForExcelAsync(connection, transaction, projectCode, projectTitle, cancellationToken);
             if (project is null)
             {
                 errors.Add("등록되지 않은 프로젝트입니다.");
+            }
+            else if (projectContext is not null && project.ProjectId != projectContext.ProjectId)
+            {
+                errors.Add("현재 프로젝트의 생산계획 Excel만 업로드할 수 있습니다.");
             }
 
             var productType = productTypes.FirstOrDefault(item => string.Equals(item.Code, productTypeCode, StringComparison.OrdinalIgnoreCase));
@@ -1847,7 +2141,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
             if (string.IsNullOrWhiteSpace(stepName))
             {
-                errors.Add("계획 항목은 필수입니다.");
+                errors.Add("생산단계는 필수입니다.");
             }
 
             DateOnly? plannedDate = null;
@@ -1865,11 +2159,11 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
             foreach (var assignee in new[]
             {
-                ("구매 담당자", procurement, "Procurement"),
-                ("생산관리 담당자", production, "ProductionPlanning"),
-                ("제조 담당자", manufacturing, "Manufacturing"),
-                ("품질 담당자", quality, "Quality"),
-                ("물류 담당자", logistics, "Logistics")
+                ("구매 담당자", procurement, "ProcurementPrimary"),
+                ("생산관리 담당자", production, "ProductionPlanningPrimary"),
+                ("제조 담당자", manufacturing, "ManufacturingPrimary"),
+                ("품질 담당자", quality, "QualityIQC"),
+                ("물류 담당자", logistics, "LogisticsPrimary")
             })
             {
                 if (!string.IsNullOrWhiteSpace(assignee.Item2)
@@ -1901,6 +2195,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                     templateStep = productType.Steps.FirstOrDefault(step => string.Equals(Normalize(step.StepName), Normalize(stepName), StringComparison.Ordinal));
                 }
             }
+            var effectiveIsRequired = isRequired ?? templateStep?.IsRequired ?? false;
             var resultType = errors.Count > 0 ? "Error" : templateStep is null ? "CustomStep" : "New";
             rows.Add(new ProductionPlanningExcelRow(
                 rowNumber,
@@ -1913,6 +2208,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 templateStep?.TemplateStepId,
                 stepName,
                 errors.Count == 0 && templateStep is null,
+                effectiveIsRequired,
                 plannedDate,
                 TrimToNull(note),
                 procurement,
@@ -1940,6 +2236,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             TemplateStepId = row.TemplateStepId,
             StepName = row.StepName,
             IsCustomStep = row.IsCustomStep,
+            IsRequired = row.IsRequired,
             PlannedDate = row.PlannedDate,
             Note = row.Note,
             ProcurementAssigneeText = row.ProcurementAssigneeText,
@@ -2093,11 +2390,11 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
     {
         foreach (var item in new[]
         {
-            ("Procurement", row.ProcurementAssigneeText),
-            ("ProductionPlanning", row.ProductionPlanningAssigneeText),
-            ("Manufacturing", row.ManufacturingAssigneeText),
-            ("Quality", row.QualityAssigneeText),
-            ("Logistics", row.LogisticsAssigneeText)
+            ("ProcurementPrimary", row.ProcurementAssigneeText),
+            ("ProductionPlanningPrimary", row.ProductionPlanningAssigneeText),
+            ("ManufacturingPrimary", row.ManufacturingAssigneeText),
+            ("QualityIQC", row.QualityAssigneeText),
+            ("LogisticsPrimary", row.LogisticsAssigneeText)
         })
         {
             if (string.IsNullOrWhiteSpace(item.Item2))
@@ -2185,6 +2482,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         Guid? TemplateStepId,
         string? StepName,
         bool IsCustomStep,
+        bool? IsRequired,
         DateOnly? PlannedDate,
         string? Note,
         string? ProcurementAssigneeText,

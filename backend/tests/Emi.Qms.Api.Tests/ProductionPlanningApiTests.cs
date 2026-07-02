@@ -43,6 +43,7 @@ public sealed class ProductionPlanningApiTests
             from work_items
             where id = '{generated.GetProperty("workItemId").GetGuid()}';
             """));
+        Assert.Equal($"/projects/{projectId}/production-planning/edit", generated.GetProperty("linkUrl").GetString());
         using var requestedWork = await ReadJsonAsync(await adminClient.GetAsync("/api/my-work?status=Requested", TestContext.Current.CancellationToken));
         Assert.Contains(requestedWork.RootElement.GetProperty("items").EnumerateArray(), item =>
             item.GetProperty("projectId").GetGuid() == projectId
@@ -149,6 +150,8 @@ public sealed class ProductionPlanningApiTests
         Assert.Single(procurementWork);
         Assert.Equal("구매정보 입력", procurementWork[0].GetProperty("title").GetString());
         Assert.Equal("ProcurementPrimary", procurementWork[0].GetProperty("responsibilityType").GetString());
+        Assert.Equal($"/projects/{projectId}/procurement/edit", procurementWork[0].GetProperty("linkUrl").GetString());
+        var procurementWorkItemId = procurementWork[0].GetProperty("workItemId").GetGuid();
         using var designWork = await ReadJsonAsync(await designClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
         var generatedDesignWork = designWork.RootElement.GetProperty("items").EnumerateArray()
             .Where(item =>
@@ -156,8 +159,77 @@ public sealed class ProductionPlanningApiTests
                 && item.GetProperty("workflowStageCode").GetString() == "DesignPanelInfo")
             .ToList();
         Assert.Single(generatedDesignWork);
-        Assert.Equal("제품명, 사이즈 입력", generatedDesignWork[0].GetProperty("title").GetString());
+        Assert.Equal("패널명, 사이즈 입력", generatedDesignWork[0].GetProperty("title").GetString());
         Assert.Equal("DesignPrimary", generatedDesignWork[0].GetProperty("responsibilityType").GetString());
+        Assert.Equal($"/projects/{projectId}/panel-information/edit", generatedDesignWork[0].GetProperty("linkUrl").GetString());
+        var designWorkItemId = generatedDesignWork[0].GetProperty("workItemId").GetGuid();
+
+        using var panelInfo = await ReadJsonAsync(await designClient.GetAsync($"/api/projects/{projectId}/panel-information", TestContext.Current.CancellationToken));
+        var panelRows = panelInfo.RootElement.GetProperty("panels").EnumerateArray().ToList();
+        var partialPanel = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                panels = new[]
+                {
+                    new
+                    {
+                        panelId = panelRows[0].GetProperty("panelId").GetGuid(),
+                        expectedPanelInfoVersion = panelRows[0].GetProperty("panelInfoVersion").GetInt32(),
+                        panelNameUpdate = new { isChanged = true, value = "PNL-1" }
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, partialPanel.StatusCode);
+        Assert.Equal("InProgress", await context.ReadScalarAsync<string>($"""
+            select status from work_items where id = '{designWorkItemId}';
+            """));
+        Assert.True(await context.ReadScalarAsync<bool>($"""
+            select started_at_utc is not null and completed_at_utc is null
+            from work_items
+            where id = '{designWorkItemId}';
+            """));
+
+        using var partialPanelJson = await ReadJsonAsync(partialPanel);
+        var partialPanelRows = partialPanelJson.RootElement.GetProperty("panels").EnumerateArray().ToList();
+        var completePanel = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                panels = partialPanelRows.Select((row, index) => new
+                {
+                    panelId = row.GetProperty("panelId").GetGuid(),
+                    expectedPanelInfoVersion = row.GetProperty("panelInfoVersion").GetInt32(),
+                    panelNameUpdate = new { isChanged = true, value = $"PNL-{index + 1}" },
+                    sizeUpdate = new { isChanged = true, clear = false, inputUnit = "mm", width = 100m + index, height = 200m + index, depth = 300m + index }
+                }).ToArray()
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, completePanel.StatusCode);
+        Assert.Equal("Completed", await context.ReadScalarAsync<string>($"""
+            select status from work_items where id = '{designWorkItemId}';
+            """));
+        Assert.True(await context.ReadScalarAsync<bool>($"""
+            select started_at_utc is not null and completed_at_utc is not null
+            from work_items
+            where id = '{designWorkItemId}';
+            """));
+
+        var completeProcurement = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { reason = "workflow procurement complete", items = new[] { new { orderItem = "차단기", supplierName = "테스트 업체" } } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, completeProcurement.StatusCode);
+        Assert.Equal("Completed", await context.ReadScalarAsync<string>($"""
+            select status from work_items where id = '{procurementWorkItemId}';
+            """));
+        Assert.True(await context.ReadScalarAsync<bool>($"""
+            select started_at_utc is not null and completed_at_utc is not null
+            from work_items
+            where id = '{procurementWorkItemId}';
+            """));
+
         using var salesWork = await ReadJsonAsync(await salesClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
         Assert.DoesNotContain(salesWork.RootElement.GetProperty("items").EnumerateArray(), item =>
             item.GetProperty("projectId").GetGuid() == projectId
@@ -206,6 +278,7 @@ public sealed class ProductionPlanningApiTests
             .ToList();
         Assert.Single(iqcWork);
         Assert.Equal("수입검사 입력", iqcWork[0].GetProperty("title").GetString());
+        Assert.Equal($"/projects/{projectId}?section=workflow", iqcWork[0].GetProperty("linkUrl").GetString());
     }
 
     [Fact]
@@ -248,6 +321,54 @@ public sealed class ProductionPlanningApiTests
         var adminProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-ADMIN", "Workflow Fallback Admin");
         await CompleteProductionPlanningForFallbackAsync(context, adminProjectId, "fallback-admin");
         await AssertGeneratedDesignWorkAsync(context, adminProjectId, DevAdminUserId, "system-administrator");
+    }
+
+    [Fact]
+    public async Task Workflow_CompleteStageEvent_CompletesCurrentStageWorkItemAcrossWorkflow()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-STAGE-COMPLETE", "Workflow Stage Complete");
+        await context.ExecuteSqlAsync($"update projects set fat_required = true where id = '{projectId}';");
+
+        var stages = new[]
+        {
+            WorkflowStageCodes.ProductionPlanning,
+            WorkflowStageCodes.DesignPanelInfo,
+            WorkflowStageCodes.ProcurementInfo,
+            WorkflowStageCodes.MaterialArrived,
+            WorkflowStageCodes.IQC,
+            WorkflowStageCodes.ReceiptConfirmed,
+            WorkflowStageCodes.KittingCompleted,
+            WorkflowStageCodes.ManufacturingWork,
+            WorkflowStageCodes.LQC,
+            WorkflowStageCodes.ManufacturingCompleted,
+            WorkflowStageCodes.OQC,
+            WorkflowStageCodes.CustomerInspection,
+            WorkflowStageCodes.FAT,
+            WorkflowStageCodes.PackingCompleted,
+            WorkflowStageCodes.DepartureProcessed,
+            WorkflowStageCodes.DeliveryCompleted,
+            WorkflowStageCodes.SalesSettlementCompleted
+        };
+
+        foreach (var stageCode in stages)
+        {
+            Assert.True(await WorkItemExistsAsync(context, projectId, stageCode), $"Expected work item before completing {stageCode}.");
+
+            await context.WorkflowStore.CompleteStageAsync(
+                projectId,
+                stageCode,
+                "Test",
+                null,
+                DevSalesUserId,
+                $"complete-{stageCode}",
+                "stage complete event work item sync",
+                TestContext.Current.CancellationToken);
+
+            Assert.True(await HasCompletedWorkItemAsync(context, projectId, stageCode), $"Expected completed work item for {stageCode}.");
+        }
     }
 
     [Fact]
@@ -315,6 +436,22 @@ public sealed class ProductionPlanningApiTests
         Assert.Equal(HttpStatusCode.OK, partial.StatusCode);
         using var partialJson = await ReadJsonAsync(partial);
         Assert.Equal("Planning", partialJson.RootElement.GetProperty("planStatus").GetString());
+        Assert.Equal("InProgress", await context.ReadScalarAsync<string>($"""
+            select status
+            from work_items
+            where project_id = '{projectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.ProductionPlanning}'
+            order by created_at_utc desc
+            limit 1;
+            """));
+        Assert.True(await context.ReadScalarAsync<bool>($"""
+            select started_at_utc is not null and completed_at_utc is null
+            from work_items
+            where project_id = '{projectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.ProductionPlanning}'
+            order by created_at_utc desc
+            limit 1;
+            """));
         Assert.Contains(partialJson.RootElement.GetProperty("assignees").EnumerateArray(), item =>
             item.GetProperty("responsibilityType").GetString() == "QualityCustomerInspection"
             && item.GetProperty("assignedUserId").GetGuid() == Guid.Parse("50000000-0000-0000-0000-000000000005"));
@@ -427,6 +564,22 @@ public sealed class ProductionPlanningApiTests
         Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
         using var completedJson = await ReadJsonAsync(completed);
         Assert.Equal("Planned", completedJson.RootElement.GetProperty("planStatus").GetString());
+        Assert.Equal("Completed", await context.ReadScalarAsync<string>($"""
+            select status
+            from work_items
+            where project_id = '{projectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.ProductionPlanning}'
+            order by created_at_utc desc
+            limit 1;
+            """));
+        Assert.True(await context.ReadScalarAsync<bool>($"""
+            select started_at_utc is not null and completed_at_utc is not null
+            from work_items
+            where project_id = '{projectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.ProductionPlanning}'
+            order by created_at_utc desc
+            limit 1;
+            """));
 
         Assert.Equal(HttpStatusCode.OK, (await adminClient.GetAsync($"/api/projects/{projectId}/production-planning/history", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await viewerClient.GetAsync($"/api/projects/{projectId}/production-planning/history", TestContext.Current.CancellationToken)).StatusCode);
@@ -615,9 +768,9 @@ public sealed class ProductionPlanningApiTests
         await AssertTemplateWidthsAsync(templateResponse, wideColumn: 4);
 
         var file = CreateProductionPlanningExcel([
-            ["Plan Excel One", "PLAN-XLS-1", "UL67", "자재 입고", "2026-07-01", "template", "dev-procurement", "dev-production", "dev-manufacturing", "dev-quality", "dev-logistics"],
-            ["Plan Excel Two", "PLAN-XLS-2", "UL67", "사용자 추가 항목", "2026-07-09", "custom", "", "", "", "", ""],
-            ["Unknown", "NO-SUCH", "UL67", "자재 입고", "2026-07-01", "", "", "", "", "", ""]
+            ["Plan Excel One", "PLAN-XLS-1", "UL67", "자재 도착", "예", "2026-07-01", "template"],
+            ["Plan Excel Two", "PLAN-XLS-2", "UL67", "사용자 추가 항목", "아니오", "2026-07-09", "custom"],
+            ["Unknown", "NO-SUCH", "UL67", "자재 도착", "예", "2026-07-01", ""]
         ]);
 
         using var preview = await PreviewProductionPlanningExcelAsync(productionClient, file, "planning.xlsx");
@@ -634,6 +787,43 @@ public sealed class ProductionPlanningApiTests
 
         using var secondPlan = await ReadJsonAsync(await productionClient.GetAsync($"/api/projects/{secondProjectId}/production-planning", TestContext.Current.CancellationToken));
         Assert.Contains(secondPlan.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("stepName").GetString() == "사용자 추가 항목" && item.GetProperty("isCustom").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ProductionPlanningProjectExcel_PreviewsAndAppliesCurrentProjectTemplate()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
+        using var adminClient = context.CreateClient("dev-admin");
+
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-XLS-PROJECT", "Plan Excel Project");
+        var file = CreateProjectProductionPlanningExcel([
+            ["자재 도착", "예", "2026-07-01", "project template"]
+        ]);
+
+        using var forbiddenForm = new MultipartFormDataContent();
+        forbiddenForm.Add(new ByteArrayContent(file), "file", "project-planning.xlsx");
+        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.PostAsync($"/api/projects/{projectId}/production-planning/import/preview", forbiddenForm, TestContext.Current.CancellationToken)).StatusCode);
+
+        using var preview = await PreviewProjectProductionPlanningExcelAsync(productionClient, projectId, file, "project-planning.xlsx");
+        var root = preview.RootElement;
+        Assert.Equal(1, root.GetProperty("saveableCount").GetInt32());
+        var row = root.GetProperty("rows").EnumerateArray().Single();
+        Assert.Equal(projectId, row.GetProperty("projectId").GetGuid());
+        Assert.Equal("PLAN-XLS-PROJECT", row.GetProperty("projectCode").GetString());
+        Assert.Equal("UL67", row.GetProperty("productTypeCode").GetString());
+        Assert.Equal("자재 도착", row.GetProperty("stepName").GetString());
+
+        using var apply = await ApplyProjectProductionPlanningExcelAsync(productionClient, projectId, file, "project-planning.xlsx", root.GetProperty("fileSha256").GetString()!);
+        Assert.Equal(1, apply.RootElement.GetProperty("appliedRowCount").GetInt32());
+        Assert.Contains(apply.RootElement.GetProperty("projectIds").EnumerateArray(), item => item.GetGuid() == projectId);
+
+        using var projectPlan = await ReadJsonAsync(await productionClient.GetAsync($"/api/projects/{projectId}/production-planning", TestContext.Current.CancellationToken));
+        Assert.Contains(projectPlan.RootElement.GetProperty("items").EnumerateArray(), item =>
+            item.GetProperty("stepName").GetString() == "자재 도착"
+            && item.GetProperty("plannedDate").GetString() == "2026-07-01"
+            && item.GetProperty("note").GetString() == "project template");
     }
 
     [Fact]
@@ -846,7 +1036,7 @@ public sealed class ProductionPlanningApiTests
 
         var mismatchProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-XLS-MISMATCH", "Plan Excel Mismatch");
         var mismatchFile = CreateProductionPlanningExcel([
-            ["Plan Excel Mismatch", "PLAN-XLS-MISMATCH", "RRP", "자재 입고", "2026-07-01", "", "", "", "", "", ""]
+            ["Plan Excel Mismatch", "PLAN-XLS-MISMATCH", "RRP", "자재 도착", "예", "2026-07-01", ""]
         ]);
         using var mismatchPreview = await PreviewProductionPlanningExcelAsync(productionClient, mismatchFile, "mismatch.xlsx");
         Assert.Equal(0, mismatchPreview.RootElement.GetProperty("saveableCount").GetInt32());
@@ -923,7 +1113,7 @@ public sealed class ProductionPlanningApiTests
             step => step.GetProperty("stepName").GetString() == "Excel 신규 template step");
 
         var existingFile = CreateProductionPlanningExcel([
-            ["Plan Excel Snapshot", "PLAN-XLS-SNAPSHOT", "UL67", originalSteps[0].StepName, "2026-08-10", "Excel 수정", "", "", "", "", ""]
+            ["Plan Excel Snapshot", "PLAN-XLS-SNAPSHOT", "UL67", originalSteps[0].StepName, "예", "2026-08-10", "Excel 수정"]
         ]);
         using var existingPreview = await PreviewProductionPlanningExcelAsync(productionClient, existingFile, "existing.xlsx");
         Assert.Equal(1, existingPreview.RootElement.GetProperty("saveableCount").GetInt32());
@@ -939,7 +1129,7 @@ public sealed class ProductionPlanningApiTests
 
         var newProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-XLS-NEW", "Plan Excel New");
         var newFile = CreateProductionPlanningExcel([
-            ["Plan Excel New", "PLAN-XLS-NEW", "UL67", "Excel 신규 template step", "2026-09-01", "", "", "", "", "", ""]
+            ["Plan Excel New", "PLAN-XLS-NEW", "UL67", "Excel 신규 template step", "아니오", "2026-09-01", ""]
         ]);
         using var newPreview = await PreviewProductionPlanningExcelAsync(productionClient, newFile, "new.xlsx");
         Assert.Equal(1, newPreview.RootElement.GetProperty("saveableCount").GetInt32());
@@ -1187,6 +1377,33 @@ public sealed class ProductionPlanningApiTests
             """);
     }
 
+    private static Task<bool> WorkItemExistsAsync(ProductionPlanningApiTestContext context, Guid projectId, string stageCode)
+    {
+        return context.ReadScalarAsync<bool>($"""
+            select exists (
+                select 1
+                from work_items
+                where project_id = '{projectId}'
+                  and workflow_stage_code = '{stageCode}'
+            );
+            """);
+    }
+
+    private static Task<bool> HasCompletedWorkItemAsync(ProductionPlanningApiTestContext context, Guid projectId, string stageCode)
+    {
+        return context.ReadScalarAsync<bool>($"""
+            select exists (
+                select 1
+                from work_items
+                where project_id = '{projectId}'
+                  and workflow_stage_code = '{stageCode}'
+                  and status = 'Completed'
+                  and started_at_utc is not null
+                  and completed_at_utc is not null
+            );
+            """);
+    }
+
     private static async Task<JsonDocument> ReadJsonAsync(HttpResponseMessage response)
     {
         var stream = await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken);
@@ -1200,10 +1417,12 @@ public sealed class ProductionPlanningApiTests
         var worksheet = workbook.Worksheets.First();
         Assert.True(worksheet.SheetView.SplitRow > 0);
         Assert.True(worksheet.AutoFilter.IsEnabled);
-        Assert.Contains("필수 입력값", worksheet.Cell(1, 12).GetString());
+        Assert.Contains("필수 입력값", worksheet.Cell(1, 8).GetString());
         Assert.Equal("Item *", worksheet.Cell(1, 3).GetString());
+        Assert.Equal("생산단계 *", worksheet.Cell(1, 4).GetString());
+        Assert.Equal("필수 여부", worksheet.Cell(1, 5).GetString());
         Assert.Equal(XLColor.LightYellow, worksheet.Cell(1, 3).Style.Fill.BackgroundColor);
-        for (var column = 1; column <= worksheet.LastColumnUsed()!.ColumnNumber(); column++)
+        for (var column = 1; column <= 7; column++)
         {
             Assert.True(worksheet.Column(column).Width >= 10);
             Assert.True(worksheet.Column(column).Width <= 42);
@@ -1234,7 +1453,7 @@ public sealed class ProductionPlanningApiTests
     {
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Production Planning");
-        var headers = new[] { "프로젝트명", "PJT Code", "Item", "계획 항목", "예정일", "비고", "구매 담당자", "생산관리 담당자", "제조 담당자", "품질 담당자", "물류 담당자" };
+        var headers = new[] { "프로젝트명", "PJT Code", "Item", "생산단계", "필수 여부", "예정일", "비고" };
         for (var index = 0; index < headers.Length; index++)
         {
             worksheet.Cell(1, index + 1).Value = headers[index];
@@ -1245,6 +1464,30 @@ public sealed class ProductionPlanningApiTests
             for (var columnIndex = 0; columnIndex < rows[rowIndex].Count; columnIndex++)
             {
                 worksheet.Cell(rowIndex + 2, columnIndex + 1).Value = rows[rowIndex][columnIndex];
+            }
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateProjectProductionPlanningExcel(IReadOnlyList<IReadOnlyList<string>> rows)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("Production Plan");
+        worksheet.Cell(1, 1).Value = "생산계획 입력 양식";
+        worksheet.Cell(2, 1).Value = "Plan Excel Project";
+        worksheet.Cell(3, 1).Value = "생산단계 *";
+        worksheet.Cell(3, 2).Value = "필수 여부";
+        worksheet.Cell(3, 3).Value = "예정일";
+        worksheet.Cell(3, 4).Value = "비고";
+
+        for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+        {
+            for (var columnIndex = 0; columnIndex < rows[rowIndex].Count; columnIndex++)
+            {
+                worksheet.Cell(rowIndex + 4, columnIndex + 1).Value = rows[rowIndex][columnIndex];
             }
         }
 
@@ -1268,6 +1511,25 @@ public sealed class ProductionPlanningApiTests
         form.Add(new ByteArrayContent(file), "file", fileName);
         form.Add(new StringContent(fileSha256), "expectedFileSha256");
         var response = await client.PostAsync("/api/production-planning/import/apply", form, TestContext.Current.CancellationToken);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        return await ReadJsonAsync(response);
+    }
+
+    private static async Task<JsonDocument> PreviewProjectProductionPlanningExcelAsync(HttpClient client, Guid projectId, byte[] file, string fileName)
+    {
+        using var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent(file), "file", fileName);
+        var response = await client.PostAsync($"/api/projects/{projectId}/production-planning/import/preview", form, TestContext.Current.CancellationToken);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        return await ReadJsonAsync(response);
+    }
+
+    private static async Task<JsonDocument> ApplyProjectProductionPlanningExcelAsync(HttpClient client, Guid projectId, byte[] file, string fileName, string fileSha256)
+    {
+        using var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent(file), "file", fileName);
+        form.Add(new StringContent(fileSha256), "expectedFileSha256");
+        var response = await client.PostAsync($"/api/projects/{projectId}/production-planning/import/apply", form, TestContext.Current.CancellationToken);
         Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         return await ReadJsonAsync(response);
     }

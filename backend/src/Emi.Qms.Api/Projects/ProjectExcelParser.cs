@@ -18,12 +18,17 @@ public sealed class ProjectExcelParser
         ["ITEM"] = "item",
         ["PJT CODE"] = "code",
         ["PJT TITLE"] = "title",
+        ["프로젝트명"] = "title",
+        ["패널 수"] = "panel_count",
         ["면수"] = "panel_count",
         ["납기일"] = "delivery_date",
         ["포장방식"] = "packaging",
         ["판매금액"] = "sales_amount",
         ["통화"] = "currency",
         ["납품장소"] = "delivery_location",
+        ["FAT 필요 여부"] = "fat_required",
+        ["FAT 필요"] = "fat_required",
+        ["FAT"] = "fat_required",
         ["영업담당자"] = "sales_owner"
     };
 
@@ -53,23 +58,24 @@ public sealed class ProjectExcelParser
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Projects");
         worksheet.Cell(1, 1).Value = "프로젝트 일괄 등록";
-        worksheet.Range(1, 1, 1, 11).Merge().Style.Font.SetBold();
+        worksheet.Range(1, 1, 1, 12).Merge().Style.Font.SetBold();
         worksheet.Cell(2, 1).Value = "* 표시 항목은 필수 입력값입니다.";
-        worksheet.Range(2, 1, 2, 11).Merge().Style.Font.SetItalic();
+        worksheet.Range(2, 1, 2, 12).Merge().Style.Font.SetItalic();
 
         var headers = new (string Text, bool Required)[]
         {
             ("고객사", true),
             ("Item", true),
             ("PJT Code", true),
-            ("PJT Title", true),
-            ("면수", true),
+            ("프로젝트명", true),
+            ("패널 수", true),
             ("납기일", true),
             ("포장방식", true),
+            ("FAT 필요 여부", false),
+            ("영업담당자", true),
             ("판매금액", false),
             ("통화", false),
-            ("납품장소", false),
-            ("영업담당자", true)
+            ("납품장소", false)
         };
 
         for (var index = 0; index < headers.Length; index++)
@@ -100,15 +106,15 @@ public sealed class ProjectExcelParser
             {
                 5 => 10,
                 6 => 14,
-                8 => 12,
-                9 => 10,
+                8 => 16,
+                9 => 14,
+                11 => 10,
                 _ => 14
             };
             var max = column switch
             {
                 4 => 34,
-                10 => 32,
-                11 => 24,
+                12 => 32,
                 _ => 24
             };
             worksheet.Column(column).Width = Math.Clamp(worksheet.Column(column).Width + 2, min, max);
@@ -222,12 +228,14 @@ public sealed class ProjectExcelParser
                 var salesAmount = ReadOptionalDecimal(selectedWorksheet, rowNumber, selectedHeader.Columns, "sales_amount", rowErrors);
                 var currency = ReadText(selectedWorksheet, rowNumber, selectedHeader.Columns, "currency", rowErrors);
                 var deliveryLocation = ReadText(selectedWorksheet, rowNumber, selectedHeader.Columns, "delivery_location", rowErrors);
+                var fatRequired = ReadOptionalBoolean(selectedWorksheet, rowNumber, selectedHeader.Columns, "fat_required", rowErrors);
                 var salesOwner = ReadText(selectedWorksheet, rowNumber, selectedHeader.Columns, "sales_owner", rowErrors);
 
                 var hasData = new[] { customer, item, code, title, packaging, currency, deliveryLocation, salesOwner }.Any(value => !string.IsNullOrWhiteSpace(value))
                     || panelCount is not null
                     || deliveryDate is not null
-                    || salesAmount is not null;
+                    || salesAmount is not null
+                    || fatRequired is not null;
                 if (!hasData)
                 {
                     continue;
@@ -245,6 +253,7 @@ public sealed class ProjectExcelParser
                     salesAmount,
                     currency,
                     deliveryLocation,
+                    fatRequired,
                     salesOwner,
                     rowErrors));
             }
@@ -443,6 +452,29 @@ public sealed class ProjectExcelParser
         return null;
     }
 
+    private static bool? ReadOptionalBoolean(IXLWorksheet worksheet, int row, IReadOnlyDictionary<string, int> columns, string name, List<string> errors)
+    {
+        var text = ReadText(worksheet, row, columns, name, errors);
+        if (text is null)
+        {
+            return null;
+        }
+
+        var normalized = ProjectInputNormalizer.NormalizeProjectTitle(text);
+        if (normalized is "Y" or "YES" or "TRUE" or "1" or "예" or "필요")
+        {
+            return true;
+        }
+
+        if (normalized is "N" or "NO" or "FALSE" or "0" or "아니오" or "불필요")
+        {
+            return false;
+        }
+
+        errors.Add($"{name} 값은 예/아니오, Y/N, TRUE/FALSE만 사용할 수 있습니다.");
+        return null;
+    }
+
     private sealed record HeaderResult(
         int RowNumber,
         IReadOnlyDictionary<string, int> Columns,
@@ -467,5 +499,6 @@ public sealed record ParsedProjectExcelRow(
     decimal? SalesAmount,
     string? CurrencyCode,
     string? DeliveryLocation,
+    bool? FatRequired,
     string? SalesOwnerText,
     IReadOnlyList<string> ErrorMessages);

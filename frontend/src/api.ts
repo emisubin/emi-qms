@@ -776,6 +776,38 @@ export async function applyProductionPlanningExcel(
   });
 }
 
+export async function previewProjectProductionPlanningExcel(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  file: File
+): Promise<ProductionPlanningExcelPreviewResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  return fetchJson<ProductionPlanningExcelPreviewResponse>(`/api/projects/${projectId}/production-planning/import/preview`, developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function applyProjectProductionPlanningExcel(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  file: File,
+  expectedFileSha256: string,
+  reason: string | null
+): Promise<ProductionPlanningExcelApplyResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('expectedFileSha256', expectedFileSha256);
+  if (reason) {
+    form.append('reason', reason);
+  }
+  return fetchJson<ProductionPlanningExcelApplyResponse>(`/api/projects/${projectId}/production-planning/import/apply`, developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
 async function fetchWithAuth(path: string, developmentUserKey?: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
 

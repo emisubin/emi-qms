@@ -85,6 +85,66 @@ public sealed class PanelInformationApiTests
         Assert.Equal(8, await context.CountPanelAuditEventsAsync(projectId));
     }
 
+    [Fact]
+    public async Task DesignCompletion_RequiresPanelNameForGeneralPackagingAndAllowsPartialSave()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var created = await CreateProjectAsync(salesClient, "PANEL-GENERAL-COMP", "Panel General Completion", "StretchWrap", 2);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        var panels = await ReadPanelInformationAsync(designClient, projectId);
+        var rows = panels.RootElement.GetProperty("panels").EnumerateArray().ToList();
+
+        var partial = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                Panels = new[]
+                {
+                    new
+                    {
+                        PanelId = rows[0].GetProperty("panelId").GetGuid(),
+                        ExpectedPanelInfoVersion = rows[0].GetProperty("panelInfoVersion").GetInt32(),
+                        PanelNameUpdate = new { IsChanged = true, Value = "GENERAL-1" }
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, partial.StatusCode);
+        using var partialJson = await ReadJsonAsync(partial);
+        Assert.Equal(1, partialJson.RootElement.GetProperty("panelInfoCompletedCount").GetInt32());
+        using var partialWorkflow = await ReadJsonAsync(await designClient.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
+        var partialDesignStage = partialWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "DesignPanelInfo");
+        Assert.Equal("InProgress", partialDesignStage.GetProperty("status").GetString());
+
+        var updatedRows = partialJson.RootElement.GetProperty("panels").EnumerateArray().ToList();
+        var complete = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                Panels = new[]
+                {
+                    new
+                    {
+                        PanelId = updatedRows[1].GetProperty("panelId").GetGuid(),
+                        ExpectedPanelInfoVersion = updatedRows[1].GetProperty("panelInfoVersion").GetInt32(),
+                        PanelNameUpdate = new { IsChanged = true, Value = "GENERAL-2" }
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, complete.StatusCode);
+        using var completeJson = await ReadJsonAsync(complete);
+        Assert.Equal(2, completeJson.RootElement.GetProperty("panelInfoCompletedCount").GetInt32());
+        using var completeWorkflow = await ReadJsonAsync(await designClient.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
+        var completedDesignStage = completeWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "DesignPanelInfo");
+        Assert.Equal("Completed", completedDesignStage.GetProperty("status").GetString());
+    }
+
     [Theory]
     [InlineData("dev-sales", HttpStatusCode.OK)]
     [InlineData("dev-production", HttpStatusCode.OK)]
@@ -375,7 +435,7 @@ public sealed class PanelInformationApiTests
         using (var workbook = new XLWorkbook(new MemoryStream(mmBytes)))
         {
             var worksheet = workbook.Worksheet("Panel Information");
-            Assert.Equal(["No *", "도번", "panel name *", "w", "h", "d"], Enumerable.Range(1, 6).Select(column => worksheet.Cell(1, column).GetString()).ToArray());
+            Assert.Equal(["No *", "도번", "패널명 *", "W", "H", "D"], Enumerable.Range(1, 6).Select(column => worksheet.Cell(1, column).GetString()).ToArray());
             Assert.Equal(1, worksheet.Cell(2, 1).GetValue<int>());
             Assert.Equal("", worksheet.Cell(2, 2).GetString());
             Assert.Equal("TPL-1", worksheet.Cell(2, 3).GetString());
@@ -389,8 +449,9 @@ public sealed class PanelInformationApiTests
             Assert.True(worksheet.SheetView.SplitRow >= 1);
             Assert.True(worksheet.AutoFilter.IsEnabled);
             Assert.Equal("No *", worksheet.Cell(1, 1).GetString());
-            Assert.Equal("panel name *", worksheet.Cell(1, 3).GetString());
-            Assert.Contains("필수 입력값", worksheet.Cell(1, 8).GetString());
+            Assert.Equal("패널명 *", worksheet.Cell(1, 3).GetString());
+            Assert.Contains("완료 필수값", worksheet.Cell(1, 8).GetString());
+            Assert.Contains("일부 입력 상태", worksheet.Cell(1, 8).GetString());
             Assert.Equal(XLColor.LightYellow, worksheet.Cell(1, 1).Style.Fill.BackgroundColor);
             Assert.True(worksheet.Column(3).Width >= 24);
             for (var column = 1; column <= 6; column++)
@@ -410,6 +471,20 @@ public sealed class PanelInformationApiTests
             Assert.Equal(10.00m, worksheet.Cell(2, 4).GetValue<decimal>());
             Assert.Equal(20.00m, worksheet.Cell(2, 5).GetValue<decimal>());
             Assert.Equal(30.00m, worksheet.Cell(2, 6).GetValue<decimal>());
+        }
+
+        using var woodenCreated = await CreateProjectAsync(salesClient, "PANEL-TPL-WOOD", "Panel Template Wood", "WoodenCrate", 1);
+        using var woodenCreatedJson = await ReadJsonAsync(woodenCreated);
+        var woodenProjectId = woodenCreatedJson.RootElement.GetProperty("projectId").GetGuid();
+        using var woodenResponse = await designClient.GetAsync(
+            $"/api/projects/{woodenProjectId}/panel-information/import/template",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, woodenResponse.StatusCode);
+        using (var workbook = new XLWorkbook(new MemoryStream(await woodenResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken))))
+        {
+            var worksheet = workbook.Worksheet("Panel Information");
+            Assert.Equal(["No *", "도번", "패널명 *", "W *", "H *", "D *"], Enumerable.Range(1, 6).Select(column => worksheet.Cell(1, column).GetString()).ToArray());
+            Assert.Contains("목포장", worksheet.Cell(1, 8).GetString());
         }
 
         Assert.Equal(auditBefore, await context.CountPanelAuditEventsAsync(projectId));

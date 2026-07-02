@@ -13,7 +13,8 @@ public sealed record CreateProjectRequest(
     string? PackagingMethod,
     decimal? SalesAmount,
     string? CurrencyCode,
-    string? DeliveryLocation);
+    string? DeliveryLocation,
+    bool? FatRequired);
 
 public sealed record UpdateProjectRequest(
     string? CustomerName,
@@ -26,6 +27,7 @@ public sealed record UpdateProjectRequest(
     decimal? SalesAmount,
     string? CurrencyCode,
     string? DeliveryLocation,
+    bool? FatRequired,
     string? Reason);
 
 public sealed record ChangePanelCountRequest(
@@ -83,6 +85,7 @@ public sealed record ProjectExcelPreviewRowResponse(
     decimal? SalesAmount,
     string? CurrencyCode,
     string? DeliveryLocation,
+    bool? FatRequired,
     string? SalesOwnerText,
     Guid? SalesOwnerUserId,
     string? SalesOwnerName,
@@ -105,6 +108,7 @@ public class ProjectListItemResponse
     public string SalesOwnerName { get; init; } = "";
     public string? PackagingMethod { get; init; }
     public string? DeliveryLocation { get; init; }
+    public bool FatRequired { get; init; }
     public string Status { get; init; } = "";
     public string ProjectWorkStatus { get; init; } = "";
     public int? ProjectProgressPercent { get; init; }

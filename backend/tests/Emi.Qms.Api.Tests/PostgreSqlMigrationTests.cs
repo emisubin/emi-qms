@@ -38,6 +38,7 @@ public sealed class PostgreSqlMigrationTests
         await AssertSystemHolidaySchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertWorkflowSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertProcurementRequiredItemSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertWorkflowAlignmentSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -1118,6 +1119,53 @@ public sealed class PostgreSqlMigrationTests
                   'ux_procurement_required_item_template_rows_sequence',
                   'ux_procurement_required_item_template_rows_active_name'
               );
+            """,
+            cancellationToken));
+    }
+
+    private static async Task AssertWorkflowAlignmentSchemaAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        Assert.Equal("boolean", await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select data_type
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'projects'
+              and column_name = 'fat_required';
+            """,
+            cancellationToken));
+
+        Assert.Equal("NO", await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select is_nullable
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'projects'
+              and column_name = 'fat_required';
+            """,
+            cancellationToken));
+
+        Assert.Equal("text", await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select data_type
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'project_procurement_items'
+              and column_name = 'supplier_name';
+            """,
+            cancellationToken));
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_constraint
+            where conname = 'ck_project_procurement_items_supplier_name_not_blank';
             """,
             cancellationToken));
     }

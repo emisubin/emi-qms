@@ -14,11 +14,13 @@ public sealed class ProcurementExcelParser
         ["PJT CODE"] = "pjt code",
         ["통상납기"] = "통상납기",
         ["발주품목"] = "발주품목",
+        ["업체"] = "업체",
         ["기술 담당자"] = "기술 담당자",
         ["발주일"] = "발주일",
         ["입고일"] = "입고일",
         ["입고예정일"] = "입고일",
-        ["출하일"] = "출하일",
+        ["출하일"] = "납품예정일",
+        ["납품예정일"] = "납품예정일",
         ["이슈사항"] = "이슈사항",
         ["입고 완료"] = "입고 완료"
     };
@@ -142,8 +144,9 @@ public sealed class ProcurementExcelParser
                 var pjtCode = ReadText(worksheet, rowNumber, header.Columns, "pjt code", rowErrors);
                 var standardLeadTime = ReadText(worksheet, rowNumber, header.Columns, "통상납기", rowErrors);
                 var orderItem = ReadText(worksheet, rowNumber, header.Columns, "발주품목", rowErrors);
+                var supplierName = ReadText(worksheet, rowNumber, header.Columns, "업체", rowErrors);
                 var owner = ReadText(worksheet, rowNumber, header.Columns, "기술 담당자", rowErrors);
-                var shipmentText = ReadText(worksheet, rowNumber, header.Columns, "출하일", rowErrors);
+                var shipmentText = ReadText(worksheet, rowNumber, header.Columns, "납품예정일", rowErrors);
                 var issue = ReadText(worksheet, rowNumber, header.Columns, "이슈사항", rowErrors);
                 var receiptRaw = ReadText(worksheet, rowNumber, header.Columns, "입고 완료", rowErrors);
                 var orderDate = ReadOptionalDate(worksheet, rowNumber, header.Columns, "발주일", rowErrors);
@@ -158,7 +161,7 @@ public sealed class ProcurementExcelParser
 
                 var hasData = new[]
                 {
-                    pjt, pjtCode, standardLeadTime, orderItem, owner, shipmentText, issue, receiptRaw
+                    pjt, pjtCode, standardLeadTime, orderItem, supplierName, owner, shipmentText, issue, receiptRaw
                 }.Any(value => !string.IsNullOrWhiteSpace(value)) || orderDate is not null || expectedReceiptDate is not null;
 
                 if (!hasData)
@@ -168,6 +171,7 @@ public sealed class ProcurementExcelParser
                         Math.Max(sourceGroupSequence, 0),
                         currentProject,
                         currentCode,
+                        null,
                         null,
                         null,
                         null,
@@ -199,6 +203,7 @@ public sealed class ProcurementExcelParser
                     currentCode,
                     ProcurementDomain.TrimToNull(standardLeadTime),
                     ProcurementDomain.TrimToNull(orderItem),
+                    ProcurementDomain.TrimToNull(supplierName),
                     ProcurementDomain.TrimToNull(owner),
                     orderDate,
                     expectedReceiptDate,
@@ -292,7 +297,7 @@ public sealed class ProcurementExcelParser
 
             if (map.Count > 0)
             {
-                var required = new[] { "pjt", "pjt code", "통상납기", "발주품목", "기술 담당자", "발주일", "입고일", "출하일", "이슈사항" };
+                var required = new[] { "pjt", "pjt code", "통상납기", "발주품목", "기술 담당자", "발주일", "입고일", "이슈사항", "입고 완료" };
                 var missing = required.Where(item => !map.ContainsKey(item)).ToList();
                 if (missing.Count > 0)
                 {

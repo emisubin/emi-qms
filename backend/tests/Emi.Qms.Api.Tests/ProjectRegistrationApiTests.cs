@@ -259,6 +259,43 @@ public sealed class ProjectRegistrationApiTests
         Assert.Equal("MaterialArrived", procurementCompleted.GetProperty("projectWorkStatus").GetString());
         Assert.Equal(24, procurementCompleted.GetProperty("projectProgressPercent").GetInt32());
 
+        var fatTitle = $"Work FAT {unique}";
+        var fatCreate = await client.PostAsJsonAsync(
+            "/api/projects",
+            NewProjectRequest($"WORK-FAT-{unique}", fatTitle) with { FatRequired = true },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Created, fatCreate.StatusCode);
+        using var fatCreateJson = await ReadJsonAsync(fatCreate);
+        var fatProjectId = fatCreateJson.RootElement.GetProperty("projectId").GetGuid();
+        await CompleteProductionPlanningStageAsync(context, fatProjectId);
+        await context.ExecuteSqlAsync($"""
+            update panel_placeholders
+            set panel_name = 'FAT-' || sequence_number,
+                width_mm = 100,
+                height_mm = 100,
+                depth_mm = 100,
+                panel_info_completed = true
+            where project_id = '{fatProjectId}';
+
+            insert into project_procurement_items (
+                project_id,
+                sequence_number,
+                source_project_text,
+                source_project_code_text,
+                order_item
+            )
+            values (
+                '{fatProjectId}',
+                1,
+                '{fatTitle}',
+                'WORK-FAT-{unique}',
+                '차단기'
+            );
+            """);
+        var fatProgress = await ReadSingleProjectListItemAsync(client, fatTitle);
+        Assert.Equal("MaterialArrived", fatProgress.GetProperty("projectWorkStatus").GetString());
+        Assert.Equal(22, fatProgress.GetProperty("projectProgressPercent").GetInt32());
+
         var heldId = await CreateProjectAndReadIdAsync(client, $"WORK-HOLD-{unique}", $"Work Hold {unique}");
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(
             $"/api/projects/{heldId}/hold",
@@ -335,6 +372,42 @@ public sealed class ProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task ProjectFatRequired_CanBeCreatedReadAndUpdated()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+
+        var createResponse = await client.PostAsJsonAsync(
+            "/api/projects",
+            NewProjectRequest("FAT-001", "FAT Required Project") with { FatRequired = true },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using var createdJson = await ReadJsonAsync(createResponse);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+
+        using var detail = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}", TestContext.Current.CancellationToken));
+        Assert.True(detail.RootElement.GetProperty("fatRequired").GetBoolean());
+        using var requiredWorkflow = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
+        var requiredFatStage = requiredWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "FAT");
+        Assert.NotEqual("Skipped", requiredFatStage.GetProperty("status").GetString());
+        Assert.Equal(18, requiredWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
+
+        var update = await client.PatchAsJsonAsync(
+            $"/api/projects/{projectId}",
+            NewUpdateProjectRequest("FAT-001", "FAT Required Project") with { FatRequired = false, Reason = "FAT 필요 여부 변경" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+
+        using var updated = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}", TestContext.Current.CancellationToken));
+        Assert.False(updated.RootElement.GetProperty("fatRequired").GetBoolean());
+        using var optionalWorkflow = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
+        var optionalFatStage = optionalWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "FAT");
+        Assert.Equal("Skipped", optionalFatStage.GetProperty("status").GetString());
+        Assert.Equal(17, optionalWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
+        Assert.False((await ReadSingleProjectListItemAsync(client, "FAT Required Project")).GetProperty("fatRequired").GetBoolean());
+    }
+
+    [Fact]
     public async Task CreateProject_AllowsDuplicateProjectCodeButRejectsNormalizedProjectTitleDuplicates()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
@@ -368,7 +441,7 @@ public sealed class ProjectRegistrationApiTests
         Assert.Equal(HttpStatusCode.Forbidden, (await manufacturingClient.GetAsync("/api/projects/import/template", TestContext.Current.CancellationToken)).StatusCode);
 
         var file = CreateProjectExcel([
-            ["TEST CUSTOMER", "UL67", $"EXCEL-{unique}", title, "3", "2026-10-10", "목포장", "1200", "KRW", "TEST LOCATION", "dev-sales"]
+            ["TEST CUSTOMER", "UL67", $"EXCEL-{unique}", title, "3", "2026-10-10", "목포장", "예", "dev-sales", "1200", "KRW", "TEST LOCATION"]
         ]);
         using var preview = await PreviewProjectExcelAsync(salesClient, file, "projects.xlsx");
         var previewRoot = preview.RootElement;
@@ -383,12 +456,13 @@ public sealed class ProjectRegistrationApiTests
         var project = Assert.Single(list.RootElement.GetProperty("items").EnumerateArray());
         Assert.Equal(title, project.GetProperty("projectTitle").GetString());
         Assert.Equal(3, project.GetProperty("activePanelCount").GetInt32());
+        Assert.True(project.GetProperty("fatRequired").GetBoolean());
 
         var duplicate = await ApplyProjectExcelRawAsync(salesClient, file, "projects.xlsx", previewRoot.GetProperty("fileSha256").GetString()!);
         Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
 
         var invalidFile = CreateProjectExcel([
-            ["", "UL67", $"EXCEL-BAD-{unique}", $"Excel Bad {unique}", "3", "2026-10-10", "목포장", "", "", "", "dev-sales"]
+            ["", "UL67", $"EXCEL-BAD-{unique}", $"Excel Bad {unique}", "3", "2026-10-10", "목포장", "아니오", "dev-sales", "", "", ""]
         ]);
         using var invalidPreview = await PreviewProjectExcelAsync(salesClient, invalidFile, "projects-invalid.xlsx");
         Assert.Equal(1, invalidPreview.RootElement.GetProperty("errorCount").GetInt32());
@@ -1615,7 +1689,7 @@ public sealed class ProjectRegistrationApiTests
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Projects");
         worksheet.Cell(1, 1).Value = "프로젝트 일괄 등록";
-        var headers = new[] { "고객사", "Item", "PJT Code", "PJT Title", "면수", "납기일", "포장방식", "판매금액", "통화", "납품장소", "영업담당자" };
+        var headers = new[] { "고객사", "Item", "PJT Code", "프로젝트명", "면수", "납기일", "포장방식", "FAT 필요 여부", "영업담당자", "판매금액", "통화", "납품장소" };
         for (var column = 0; column < headers.Length; column++)
         {
             worksheet.Cell(3, column + 1).Value = headers[column];
@@ -1623,15 +1697,30 @@ public sealed class ProjectRegistrationApiTests
 
         for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
         {
-            for (var column = 0; column < rows[rowIndex].Count; column++)
+            var row = NormalizeProjectExcelRow(rows[rowIndex]);
+            for (var column = 0; column < row.Count; column++)
             {
-                worksheet.Cell(rowIndex + 4, column + 1).Value = rows[rowIndex][column];
+                worksheet.Cell(rowIndex + 4, column + 1).Value = row[column];
             }
         }
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    private static IReadOnlyList<string> NormalizeProjectExcelRow(IReadOnlyList<string> row)
+    {
+        if (row.Count != 11)
+        {
+            return row;
+        }
+
+        return row.Take(7)
+            .Concat([""])
+            .Concat(row.Skip(10).Take(1))
+            .Concat(row.Skip(7).Take(3))
+            .ToArray();
     }
 
     private static async Task AssertProjectListStatusAsync(
@@ -1719,11 +1808,17 @@ public sealed class ProjectRegistrationApiTests
                    '{SalesOwnerUserId}',
                    now()
             from (values
-                ('Procurement'),
-                ('ProductionPlanning'),
-                ('Manufacturing'),
-                ('Quality'),
-                ('Logistics')
+                ('SalesPrimary'),
+                ('DesignPrimary'),
+                ('ProductionPlanningPrimary'),
+                ('ProcurementPrimary'),
+                ('MaterialsPrimary'),
+                ('ManufacturingPrimary'),
+                ('LogisticsPrimary'),
+                ('QualityIQC'),
+                ('QualityLQC'),
+                ('QualityOQC'),
+                ('QualityCustomerInspection')
             ) as responsibilities(responsibility_type)
             on conflict (project_id, responsibility_type) do update
             set assigned_user_id = excluded.assigned_user_id,
@@ -1781,7 +1876,8 @@ public sealed class ProjectRegistrationApiTests
             "WoodenCrate",
             1250000.50m,
             "KRW",
-            "Dock A");
+            "Dock A",
+            false);
     }
 
     private static UpdateProjectPayload NewUpdateProjectRequest(string projectCode, string projectTitle)
@@ -1797,6 +1893,7 @@ public sealed class ProjectRegistrationApiTests
             1250000.50m,
             "KRW",
             "Dock A",
+            false,
             "기본정보 수정");
     }
 
@@ -1831,8 +1928,10 @@ public sealed class ProjectRegistrationApiTests
         Assert.Contains("필수 입력값", worksheet.Cell(2, 1).GetString());
         Assert.Equal("고객사 *", worksheet.Cell(3, 1).GetString());
         Assert.Equal("Item *", worksheet.Cell(3, 2).GetString());
+        Assert.Equal("프로젝트명 *", worksheet.Cell(3, 4).GetString());
+        Assert.Equal("FAT 필요 여부", worksheet.Cell(3, 8).GetString());
         Assert.Equal(XLColor.LightYellow, worksheet.Cell(3, 1).Style.Fill.BackgroundColor);
-        for (var column = 1; column <= 11; column++)
+        for (var column = 1; column <= 12; column++)
         {
             Assert.True(worksheet.Column(column).Width >= 10);
             Assert.True(worksheet.Column(column).Width <= 34);
@@ -1904,7 +2003,8 @@ public sealed class ProjectRegistrationApiTests
         string? PackagingMethod,
         decimal? SalesAmount,
         string? CurrencyCode,
-        string? DeliveryLocation);
+        string? DeliveryLocation,
+        bool? FatRequired);
 
     private sealed record UpdateProjectPayload(
         string CustomerName,
@@ -1917,6 +2017,7 @@ public sealed class ProjectRegistrationApiTests
         decimal? SalesAmount,
         string? CurrencyCode,
         string? DeliveryLocation,
+        bool? FatRequired,
         string Reason);
 
     private sealed record PanelSnapshot(Guid PanelId, string DisplayCode, string PanelStatus);

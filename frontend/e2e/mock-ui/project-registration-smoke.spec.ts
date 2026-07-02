@@ -57,8 +57,8 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
   await page.getByRole('button', { name: '등록' }).click();
 
   await expect(page.getByRole('heading', { name: 'TASK-003A E2E' })).toBeVisible();
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('제조 전');
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('생성 불가');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('제조 전');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('생성 불가');
 
   await page.getByRole('button', { name: '목록' }).click();
   await page.getByRole('button', { name: '신규 프로젝트' }).click();
@@ -68,7 +68,7 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
 
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
   await page.locator('.project-list-row').filter({ hasText: 'TASK-003A E2E' }).click();
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('미입력');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('미입력');
   await expect(page.getByText('KRW 1,250,000.5')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '수정', exact: true })).toHaveCount(0);
 
@@ -78,7 +78,7 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
   await page.getByLabel('면수*').fill('5');
   await page.getByLabel('수정사유*').fill('추가 발주 면수 반영');
   await page.getByRole('button', { name: '저장' }).click();
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('5');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('5');
 
   await page.getByRole('button', { name: '보류' }).click();
   await page.getByLabel('사유').fill('고객 일정 확인');

@@ -108,7 +108,8 @@ public sealed record NormalizedCreateProjectInput(
     string PackagingMethod,
     decimal? SalesAmount,
     string? CurrencyCode,
-    string? DeliveryLocation);
+    string? DeliveryLocation,
+    bool FatRequired);
 
 public sealed record NormalizedUpdateProjectInput(
     string CustomerName,
@@ -122,6 +123,7 @@ public sealed record NormalizedUpdateProjectInput(
     decimal? SalesAmount,
     string? CurrencyCode,
     string? DeliveryLocation,
+    bool FatRequired,
     string Reason);
 
 public sealed record NormalizedPanelCountChangeInput(
@@ -149,6 +151,7 @@ public static partial class ProjectRequestValidator
         var salesAmount = ValidateSalesAmount(request.SalesAmount, validation);
         var currencyCode = ValidateCurrencyCode(request.CurrencyCode, salesAmount, validation);
         var deliveryLocation = OptionalText(request.DeliveryLocation, nameof(request.DeliveryLocation), ProjectInputNormalizer.DeliveryLocationMaxLength, validation);
+        var fatRequired = request.FatRequired ?? false;
 
         if (validation.HasErrors
             || customerName is null
@@ -176,7 +179,8 @@ public static partial class ProjectRequestValidator
                 packagingMethod,
                 salesAmount,
                 currencyCode,
-                deliveryLocation),
+                deliveryLocation,
+                fatRequired),
             validation);
     }
 
@@ -194,6 +198,7 @@ public static partial class ProjectRequestValidator
         var salesAmount = ValidateSalesAmount(request.SalesAmount, validation);
         var currencyCode = ValidateCurrencyCode(request.CurrencyCode, salesAmount, validation);
         var deliveryLocation = OptionalText(request.DeliveryLocation, nameof(request.DeliveryLocation), ProjectInputNormalizer.DeliveryLocationMaxLength, validation);
+        var fatRequired = request.FatRequired ?? false;
         var reason = RequiredText(request.Reason, nameof(request.Reason), ProjectInputNormalizer.ReasonMaxLength, validation);
 
         if (validation.HasErrors
@@ -222,6 +227,7 @@ public static partial class ProjectRequestValidator
                 salesAmount,
                 currencyCode,
                 deliveryLocation,
+                fatRequired,
                 reason),
             validation);
     }

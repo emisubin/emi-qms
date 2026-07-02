@@ -19,7 +19,7 @@ public static partial class PanelInformationDomain
     public const int MaxExcelColumns = 64;
     public const int MaxExcelCells = 35000;
     public const int MaxExcelHeaderSearchRows = 20;
-    public const string StaleVersionMessage = "다른 사용자가 패널정보를 수정했습니다. 화면을 새로고침한 후 다시 시도해 주세요.";
+    public const string StaleVersionMessage = "다른 사용자가 설계 정보를 수정했습니다. 화면을 새로고침한 후 다시 시도해 주세요.";
     public const string DefaultWorkflowStage = "BeforeManufacturing";
 
     public static readonly IReadOnlySet<string> InputUnits = new HashSet<string>(StringComparer.Ordinal)
@@ -190,7 +190,7 @@ public static class PanelInformationRequestValidator
 
             if (panel.ExpectedPanelInfoVersion is null || panel.ExpectedPanelInfoVersion < 0)
             {
-                validation.Add($"{fieldPrefix}.ExpectedPanelInfoVersion", "패널정보 버전이 필요합니다.");
+                validation.Add($"{fieldPrefix}.ExpectedPanelInfoVersion", "설계 정보 버전이 필요합니다.");
                 continue;
             }
 

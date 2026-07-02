@@ -67,6 +67,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             return;
         }
 
+        await MarkStageWorkItemsCompletedAsync(connection, transaction, projectId, stageCode, cancellationToken);
+
         var eventId = await InsertWorkflowEventAsync(
             connection,
             transaction,
@@ -241,7 +243,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 reader.GetInt32(1),
                 department,
                 DepartmentLabel(department),
-                reader.GetString(3),
+                StageDisplayName(reader.GetString(0), reader.GetString(3)),
                 reader.GetBoolean(4),
                 reader.GetBoolean(5)));
         }
@@ -255,10 +257,10 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
 
         await using var projectCommand = connection.CreateCommand();
-        projectCommand.CommandText = "select exists (select 1 from projects where id = @project_id and deleted_at_utc is null);";
+        projectCommand.CommandText = "select fat_required from projects where id = @project_id and deleted_at_utc is null;";
         projectCommand.Parameters.AddWithValue("project_id", projectId);
-        var exists = await projectCommand.ExecuteScalarAsync(cancellationToken);
-        if (exists is not bool projectExists || !projectExists)
+        var fatRequiredValue = await projectCommand.ExecuteScalarAsync(cancellationToken);
+        if (fatRequiredValue is not bool projectFatRequired)
         {
             return null;
         }
@@ -295,26 +297,34 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             var hasInProgress = !reader.IsDBNull(7) && reader.GetBoolean(7);
             var hasRequested = !reader.IsDBNull(8) && reader.GetBoolean(8);
             var hasBlocking = !reader.IsDBNull(9) && reader.GetBoolean(9);
+            var stageCode = reader.GetString(0);
+            var isOptional = reader.GetBoolean(4);
             var status = ApplyImplementedStageStatus(
-                reader.GetString(0),
+                stageCode,
                 DetermineWorkflowStatus(completedAt, hasInProgress, hasRequested, hasBlocking),
                 facts);
+            if (string.Equals(stageCode, WorkflowStageCodes.FAT, StringComparison.Ordinal) && isOptional && !projectFatRequired)
+            {
+                status = "Skipped";
+            }
             var department = reader.GetString(2);
 
             stages.Add(new ProjectWorkflowStageResponse(
-                reader.GetString(0),
+                stageCode,
                 reader.GetInt32(1),
                 department,
                 DepartmentLabel(department),
-                reader.GetString(3),
-                reader.GetBoolean(4),
+                StageDisplayName(stageCode, reader.GetString(3)),
+                isOptional,
                 status,
                 WorkflowStatusLabel(status),
                 checked((int)workItemCount),
                 completedAt));
         }
 
-        var requiredStages = stages.Where(stage => !stage.IsOptional).ToList();
+        var requiredStages = stages
+            .Where(stage => !stage.IsOptional || (string.Equals(stage.StageCode, WorkflowStageCodes.FAT, StringComparison.Ordinal) && projectFatRequired))
+            .ToList();
         var completedRequiredCount = requiredStages.Count(stage => string.Equals(stage.Status, "Completed", StringComparison.Ordinal));
         var progressPercent = requiredStages.Count == 0
             ? 0
@@ -334,6 +344,48 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             currentStage?.StageName ?? "프로젝트 생성",
             currentStage?.DepartmentCode ?? "sales",
             currentStage?.DepartmentLabel ?? "영업");
+    }
+
+    public async Task SyncStageWorkItemsAfterSaveAsync(
+        Guid projectId,
+        string stageCode,
+        string sourceType,
+        Guid? sourceId,
+        Guid changedByUserId,
+        string? correlationId,
+        string? completedNote,
+        CancellationToken cancellationToken)
+    {
+        var workflow = await GetProjectWorkflowAsync(projectId, cancellationToken);
+        var stage = workflow?.Stages.FirstOrDefault(item => string.Equals(item.StageCode, stageCode, StringComparison.Ordinal));
+        if (stage is null)
+        {
+            return;
+        }
+
+        if (string.Equals(stage.Status, "Completed", StringComparison.Ordinal))
+        {
+            await MarkStageWorkItemsCompletedAsync(projectId, stageCode, cancellationToken);
+            if (!await HasCompletedStageEventAsync(projectId, stageCode, cancellationToken))
+            {
+                await CompleteStageAsync(
+                    projectId,
+                    stageCode,
+                    sourceType,
+                    sourceId,
+                    changedByUserId,
+                    correlationId,
+                    completedNote,
+                    cancellationToken);
+            }
+
+            return;
+        }
+
+        if (string.Equals(stage.Status, "InProgress", StringComparison.Ordinal))
+        {
+            await MarkStageWorkItemsStartedAsync(projectId, stageCode, cancellationToken);
+        }
     }
 
     public async Task<MyWorkSummaryResponse> GetMyWorkSummaryAsync(Guid userId, CancellationToken cancellationToken)
@@ -548,6 +600,74 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
     public Task<WorkflowMutationResult<MyWorkItemResponse>> CancelWorkItemAsync(Guid workItemId, Guid userId, CancellationToken cancellationToken)
     {
         return TransitionWorkItemAsync(workItemId, userId, "cancel", cancellationToken);
+    }
+
+    private async Task MarkStageWorkItemsStartedAsync(Guid projectId, string stageCode, CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await MarkStageWorkItemsStartedAsync(connection, null, projectId, stageCode, cancellationToken);
+    }
+
+    private static async Task MarkStageWorkItemsStartedAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid projectId, string stageCode, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            update work_items
+            set status = case when status = 'Requested' then 'InProgress' else status end,
+                started_at_utc = coalesce(started_at_utc, now())
+            where project_id = @project_id
+              and workflow_stage_code = @stage_code
+              and status in ('Requested', 'InProgress');
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("stage_code", stageCode);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task MarkStageWorkItemsCompletedAsync(Guid projectId, string stageCode, CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await MarkStageWorkItemsCompletedAsync(connection, null, projectId, stageCode, cancellationToken);
+    }
+
+    private static async Task MarkStageWorkItemsCompletedAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid projectId, string stageCode, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            update work_items
+            set status = 'Completed',
+                started_at_utc = coalesce(started_at_utc, now()),
+                completed_at_utc = coalesce(completed_at_utc, now())
+            where project_id = @project_id
+              and workflow_stage_code = @stage_code
+              and status in ('Requested', 'InProgress');
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("stage_code", stageCode);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task<bool> HasCompletedStageEventAsync(Guid projectId, string stageCode, CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            select exists (
+                select 1
+                from project_workflow_events
+                where project_id = @project_id
+                  and stage_code = @stage_code
+                  and event_type = 'StageCompleted'
+                  and event_status = 'Succeeded'
+            );
+            """);
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("stage_code", stageCode);
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is bool exists && exists;
     }
 
     public async Task<NotificationSummaryResponse> GetNotificationSummaryAsync(Guid userId, CancellationToken cancellationToken)
@@ -802,20 +922,17 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             assignee_summary as (
                 select count(*) filter (
                     where responsibility_type in (
-                        'ProcurementPrimary',
+                        'SalesPrimary',
+                        'DesignPrimary',
                         'ProductionPlanningPrimary',
+                        'ProcurementPrimary',
+                        'MaterialsPrimary',
                         'ManufacturingPrimary',
-                        'QualityIQC',
-                        'QualityIQCSecondary',
-                        'QualityLQCSecondary',
-                        'QualityOQCSecondary',
-                        'QualityCustomerInspectionSecondary',
                         'LogisticsPrimary',
-                        'Procurement',
-                        'ProductionPlanning',
-                        'Manufacturing',
-                        'Quality',
-                        'Logistics'
+                        'QualityIQC',
+                        'QualityLQC',
+                        'QualityOQC',
+                        'QualityCustomerInspection'
                     )
                       and assigned_user_id is not null
                 )::int as assigned_count
@@ -945,7 +1062,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
-            ? new StageSnapshot(reader.GetString(0), reader.GetInt32(1), reader.GetString(2), reader.GetString(3))
+            ? new StageSnapshot(reader.GetString(0), reader.GetInt32(1), reader.GetString(2), StageDisplayName(reader.GetString(0), reader.GetString(3)))
             : null;
     }
 
@@ -1167,7 +1284,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             "Info",
             $"{stage.StageName} 업무가 생성되었습니다.",
             $"{project.ProjectTitle}의 {stage.StageName} 업무가 정담당자에게 생성되었습니다.",
-            $"/projects/{project.ProjectId}/workflow",
+            LinkUrlForStage(project.ProjectId, stage.StageCode),
             eventId,
             $"project:{project.ProjectId}:stage:{stage.StageCode}:reference:{target.Secondary}",
             [secondary.UserId.Value],
@@ -1195,7 +1312,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             "Info",
             "프로젝트가 생성되었습니다.",
             $"{project.ProjectTitle} 프로젝트가 생성되었습니다.",
-            $"/projects/{project.ProjectId}",
+            LinkUrlForStage(project.ProjectId, WorkflowStageCodes.SalesProjectCreated),
             eventId,
             $"project:{project.ProjectId}:stage:{WorkflowStageCodes.SalesProjectCreated}:reference:all-departments",
             recipients,
@@ -1237,7 +1354,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             "Info",
             title,
             message,
-            $"/projects/{project.ProjectId}?section=procurement",
+            LinkUrlForStage(project.ProjectId, WorkflowStageCodes.ProcurementInfo),
             eventId,
             idempotencyKey,
             recipients.ToList(),
@@ -1407,7 +1524,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetString(4),
             reader.IsDBNull(5) ? null : reader.GetFieldValue<DateOnly>(5),
             reader.GetString(6),
-            reader.GetString(7),
+            StageDisplayName(reader.GetString(6), reader.GetString(7)),
             reader.GetString(8),
             ResponsibilityLabel(reader.GetString(8)),
             reader.GetString(9),
@@ -1420,7 +1537,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetFieldValue<DateTimeOffset>(14),
             reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
             reader.IsDBNull(16) ? null : reader.GetFieldValue<DateTimeOffset>(16),
-            $"/projects/{projectId}");
+            LinkUrlForStage(projectId, reader.GetString(6)));
     }
 
     private static NotificationResponse ReadNotification(NpgsqlDataReader reader)
@@ -1456,7 +1573,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         return stageCode switch
         {
             WorkflowStageCodes.ProductionPlanning => "생산계획, 담당자 입력",
-            WorkflowStageCodes.DesignPanelInfo => "제품명, 사이즈 입력",
+            WorkflowStageCodes.DesignPanelInfo => "패널명, 사이즈 입력",
             WorkflowStageCodes.ProcurementInfo => "구매정보 입력",
             WorkflowStageCodes.MaterialArrived => "자재 도착 등록",
             WorkflowStageCodes.IQC => "수입검사 입력",
@@ -1474,6 +1591,13 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.SalesSettlementCompleted => "세금계산서, 완료 처리",
             _ => "업무 입력"
         };
+    }
+
+    private static string StageDisplayName(string stageCode, string stageName)
+    {
+        return string.Equals(stageCode, WorkflowStageCodes.DesignPanelInfo, StringComparison.Ordinal)
+            ? "패널명·사이즈"
+            : stageName;
     }
 
     private static string DetermineWorkflowStatus(DateTimeOffset? completedAt, bool hasInProgress, bool hasRequested, bool hasBlocking)
@@ -1523,13 +1647,13 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         var requiredPlanComplete = facts.RequiredPlanItemCount == 0
             ? facts.ProductionPlanItemCount > 0
             : facts.PlannedRequiredPlanItemCount >= facts.RequiredPlanItemCount;
-        var requiredAssigneesComplete = facts.LegacyAssigneeCount >= 5;
+        var requiredAssigneesComplete = facts.RequiredPrimaryAssigneeCount >= 11;
         if (requiredPlanComplete && requiredAssigneesComplete)
         {
             return "Completed";
         }
 
-        if (facts.ProductionPlanItemCount > 0 || facts.LegacyAssigneeCount > 0)
+        if (facts.ProductionPlanItemCount > 0 || facts.RequiredPrimaryAssigneeCount > 0)
         {
             return "InProgress";
         }
@@ -1590,7 +1714,19 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             "InProgress" => "진행 중",
             "Requested" => "내 업무 생성됨",
             "Blocked" => "차단",
+            "Skipped" => "제외",
             _ => "미시작"
+        };
+    }
+
+    private static string LinkUrlForStage(Guid projectId, string stageCode)
+    {
+        return stageCode switch
+        {
+            WorkflowStageCodes.ProductionPlanning => $"/projects/{projectId}/production-planning/edit",
+            WorkflowStageCodes.DesignPanelInfo => $"/projects/{projectId}/panel-information/edit",
+            WorkflowStageCodes.ProcurementInfo => $"/projects/{projectId}/procurement/edit",
+            _ => $"/projects/{projectId}?section=workflow"
         };
     }
 
@@ -1740,7 +1876,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         int ProductionPlanItemCount,
         int RequiredPlanItemCount,
         int PlannedRequiredPlanItemCount,
-        int LegacyAssigneeCount,
+        int RequiredPrimaryAssigneeCount,
         int ProcurementItemCount,
         int NamedProcurementItemCount,
         int RequiredProcurementItemCount,

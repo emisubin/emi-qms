@@ -251,7 +251,7 @@ public static class ProductionPlanningEndpointExtensions
 
             if (result.Status == ProductionPlanningMutationStatus.Success && result.Value is not null)
             {
-                await workflowStore.CompleteStageAsync(
+                await workflowStore.SyncStageWorkItemsAfterSaveAsync(
                     projectId,
                     WorkflowStageCodes.ProductionPlanning,
                     "ProductionPlan",
@@ -312,6 +312,78 @@ public static class ProductionPlanningEndpointExtensions
         })
         .RequireAuthorization(QmsPolicies.ProductionPlanUpdate)
         .WithName("DownloadProductionPlanningTemplate");
+
+        projectApi.MapPost("/import/preview", async (
+            Guid projectId,
+            [FromForm] IFormFile file,
+            ProjectStore projectStore,
+            ProductionPlanningStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null)
+            {
+                return access;
+            }
+
+            var uploaded = await ReadUploadedExcelAsync(file, cancellationToken);
+            if (uploaded.Error is not null)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["file"] = [uploaded.Error] });
+            }
+
+            var result = await store.PreviewProjectExcelAsync(projectId, uploaded.FileName!, uploaded.Bytes!, uploaded.Sha256!, cancellationToken);
+            return ToResult(result, Results.Ok);
+        })
+        .RequireAuthorization(QmsPolicies.ProductionPlanUpdate)
+        .DisableAntiforgery()
+        .WithName("PreviewProjectProductionPlanningExcel");
+
+        projectApi.MapPost("/import/apply", async (
+            Guid projectId,
+            [FromForm] IFormFile file,
+            [FromForm] string expectedFileSha256,
+            [FromForm] string? reason,
+            ProjectStore projectStore,
+            ProductionPlanningStore store,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null)
+            {
+                return access;
+            }
+
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var uploaded = await ReadUploadedExcelAsync(file, cancellationToken);
+            if (uploaded.Error is not null)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["file"] = [uploaded.Error] });
+            }
+
+            var result = await store.ApplyProjectExcelAsync(
+                projectId,
+                uploaded.FileName!,
+                uploaded.Bytes!,
+                uploaded.Sha256!,
+                expectedFileSha256,
+                reason,
+                userId.Value,
+                httpContext.TraceIdentifier,
+                cancellationToken);
+            return ToResult(result, Results.Ok);
+        })
+        .RequireAuthorization(QmsPolicies.ProductionPlanUpdate)
+        .DisableAntiforgery()
+        .WithName("ApplyProjectProductionPlanningExcel");
 
         return app;
     }

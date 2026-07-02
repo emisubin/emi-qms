@@ -305,19 +305,196 @@ BACKEND_LOG="${UAT_BACKEND_LOG:-/tmp/emi-qms-dev-uat-backend.log}"
 FRONTEND_LOG="${UAT_FRONTEND_LOG:-/tmp/emi-qms-dev-uat-frontend.log}"
 BACKEND_PID_FILE="${UAT_BACKEND_PID_FILE:-/tmp/emi-qms-dev-uat-backend.pid}"
 FRONTEND_PID_FILE="${UAT_FRONTEND_PID_FILE:-/tmp/emi-qms-dev-uat-frontend.pid}"
+BACKEND_PORT=5081
+FRONTEND_PORT=5174
+
+find_port_pids() {
+  local port="$1"
+  lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
+}
+
+pid_cwd() {
+  local pid="$1"
+  lsof -a -p "${pid}" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1
+}
+
+pid_comm() {
+  local pid="$1"
+  ps -p "${pid}" -o comm= 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+pid_args() {
+  local pid="$1"
+  ps -p "${pid}" -o args= 2>/dev/null || true
+}
+
+describe_pid() {
+  local pid="$1"
+  local cwd
+  local comm
+  cwd="$(pid_cwd "${pid}")"
+  comm="$(pid_comm "${pid}")"
+  echo "PID ${pid} command=${comm:-unknown} cwd=${cwd:-unknown}"
+}
+
+is_expected_uat_backend_pid() {
+  local pid="$1"
+  local cwd
+  local comm
+  local args
+  cwd="$(pid_cwd "${pid}")"
+  comm="$(pid_comm "${pid}")"
+  args="$(pid_args "${pid}")"
+
+  [[ -n "${cwd}" && "${cwd}" == "${REPO_ROOT}"* ]] || return 1
+  [[ "${cwd}" == "${REPO_ROOT}/backend/src/Emi.Qms.Api"* \
+    || "${args}" == *"backend/src/Emi.Qms.Api"* \
+    || "${args}" == *"Emi.Qms.Api"* \
+    || "${comm}" == "Emi.Qms.Api"* \
+    || "${comm}" == "dotnet"* ]] || return 1
+  [[ "${args}" == *"Emi.Qms.Api"* \
+    || "${args}" == *"backend/src/Emi.Qms.Api"* \
+    || "${comm}" == "Emi.Qms.Api"* \
+    || "${comm}" == "dotnet"* ]]
+}
+
+wait_pid_exit() {
+  local pid="$1"
+  local attempts="${2:-20}"
+  for _ in $(seq 1 "${attempts}"); do
+    if ! kill -0 "${pid}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
+stop_expected_backend_pid() {
+  local pid="$1"
+  echo "Stopping existing UAT backend listener PID ${pid}..."
+  kill "${pid}" >/dev/null 2>&1 || true
+  if wait_pid_exit "${pid}" 20; then
+    return 0
+  fi
+
+  if is_expected_uat_backend_pid "${pid}"; then
+    echo "Existing UAT backend PID ${pid} did not exit after SIGTERM; sending SIGKILL."
+    kill -9 "${pid}" >/dev/null 2>&1 || true
+    wait_pid_exit "${pid}" 10
+    return
+  fi
+
+  echo "Refusing to force-stop unexpected process on backend port ${BACKEND_PORT}."
+  describe_pid "${pid}"
+  exit 1
+}
+
+wait_port_closed() {
+  local port="$1"
+  for _ in $(seq 1 20); do
+    if [[ -z "$(find_port_pids "${port}")" ]]; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "Port ${port} is still occupied after stopping expected UAT backend process."
+  lsof -nP -iTCP:"${port}" -sTCP:LISTEN || true
+  exit 1
+}
+
+stop_existing_uat_backend() {
+  if command -v screen >/dev/null 2>&1; then
+    screen -S emi-qms-uat-backend -X quit >/dev/null 2>&1 || true
+    sleep 1
+  fi
+
+  local pids
+  pids="$(find_port_pids "${BACKEND_PORT}")"
+  if [[ -z "${pids}" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    if is_expected_uat_backend_pid "${pid}"; then
+      stop_expected_backend_pid "${pid}"
+    else
+      echo "Port ${BACKEND_PORT} is occupied by an unexpected process; not stopping it."
+      describe_pid "${pid}"
+      exit 1
+    fi
+  done <<< "${pids}"
+
+  wait_port_closed "${BACKEND_PORT}"
+}
+
+wait_http_ok() {
+  local url="$1"
+  local label="$2"
+  for _ in $(seq 1 90); do
+    if curl -fsS "${url}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "${label} did not become healthy in time."
+  if [[ -f "${BACKEND_LOG}" ]]; then
+    tail -80 "${BACKEND_LOG}" || true
+  fi
+  exit 1
+}
+
+assert_backend_started() {
+  wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/health/live" "UAT backend /health/live"
+  wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/health/ready" "UAT backend /health/ready"
+
+  local backend_pid=""
+  local pid
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    if is_expected_uat_backend_pid "${pid}"; then
+      backend_pid="${pid}"
+      break
+    fi
+  done <<< "$(find_port_pids "${BACKEND_PORT}")"
+
+  if [[ -z "${backend_pid}" ]]; then
+    echo "UAT backend port ${BACKEND_PORT} is listening, but the process is not the expected backend."
+    lsof -nP -iTCP:"${BACKEND_PORT}" -sTCP:LISTEN || true
+    exit 1
+  fi
+
+  if [[ -f "${BACKEND_LOG}" ]] && grep -qi "address already in use" "${BACKEND_LOG}"; then
+    echo "UAT backend log contains an address-in-use startup failure."
+    tail -80 "${BACKEND_LOG}" || true
+    exit 1
+  fi
+
+  echo "UAT backend ready on port ${BACKEND_PORT}. PID: ${backend_pid}"
+}
 
 if command -v screen >/dev/null 2>&1; then
-  screen -S emi-qms-uat-backend -X quit >/dev/null 2>&1 || true
+  stop_existing_uat_backend
   screen -S emi-qms-uat-frontend -X quit >/dev/null 2>&1 || true
 
+  mkdir -p "$(dirname "${BACKEND_LOG}")" "$(dirname "${FRONTEND_LOG}")"
+  : > "${BACKEND_LOG}"
   screen -dmS emi-qms-uat-backend bash -lc "cd '${REPO_ROOT}' && dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release > '${BACKEND_LOG}' 2>&1"
+  assert_backend_started
+
   screen -dmS emi-qms-uat-frontend bash -lc "cd '${REPO_ROOT}/frontend' && corepack pnpm exec vite --host 127.0.0.1 --port 5174 > '${FRONTEND_LOG}' 2>&1"
 
   echo "Started manual UAT backend screen session: emi-qms-uat-backend Log: ${BACKEND_LOG}"
   echo "Started manual UAT frontend screen session: emi-qms-uat-frontend Log: ${FRONTEND_LOG}"
 else
+  stop_existing_uat_backend
+  mkdir -p "$(dirname "${BACKEND_LOG}")" "$(dirname "${FRONTEND_LOG}")"
+  : > "${BACKEND_LOG}"
   nohup dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release > "${BACKEND_LOG}" 2>&1 &
   echo "$!" > "${BACKEND_PID_FILE}"
+  assert_backend_started
 
   (
     cd frontend

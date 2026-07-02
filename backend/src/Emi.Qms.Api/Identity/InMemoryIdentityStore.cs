@@ -44,8 +44,16 @@ public sealed class InMemoryIdentityStore : IIdentityStore
                 return new UserSummary(
                     user.DevelopmentUserKey,
                     user.DisplayName,
-                    user.DepartmentCode,
-                    roles ?? []);
+                    user.DepartmentCode ?? "",
+                    roles ?? [],
+                    user.Id,
+                    user.Email,
+                    user.AuthProvider,
+                    user.IsActive,
+                    ApprovalPending: false,
+                    DepartmentId: null,
+                    DepartmentName: user.DepartmentCode,
+                    IsReadOnly: true);
             })
             .ToList();
 

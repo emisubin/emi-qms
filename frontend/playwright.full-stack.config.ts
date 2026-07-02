@@ -31,7 +31,7 @@ export default defineConfig({
       timeout: 180_000
     },
     {
-      command: `VITE_API_BASE_URL=${backendUrl} VITE_DEV_USER_KEY=dev-sales corepack pnpm exec vite --host 127.0.0.1 --port ${frontendPort}`,
+      command: `VITE_AUTH_MODE=Dev VITE_API_BASE_URL=${backendUrl} VITE_DEV_USER_KEY=dev-sales corepack pnpm exec vite --host 127.0.0.1 --port ${frontendPort}`,
       url: frontendUrl,
       reuseExistingServer: false,
       timeout: 120_000

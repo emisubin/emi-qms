@@ -148,6 +148,7 @@ textarea {
 .topbar-actions {
   display: flex;
   align-items: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -177,7 +178,8 @@ h3 {
   font-size: 1.08rem;
 }
 
-.dev-user-select {
+.dev-user-select,
+.test-user-select {
   display: grid;
   min-width: 230px;
   gap: 6px;
@@ -186,11 +188,73 @@ h3 {
   font-weight: 700;
 }
 
+.test-user-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px;
+  border: 1px solid #c9dfd1;
+  border-radius: 8px;
+  background: #eef8f1;
+  color: #214b31;
+  padding: 10px 12px;
+  font-weight: 700;
+}
+
+.remember-session-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #24352b;
+  font-weight: 700;
+}
+
+.auth-gate {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-gate-panel {
+  display: grid;
+  width: min(520px, 100%);
+  gap: 16px;
+  border: 1px solid #d8ded9;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 28px;
+  box-shadow: 0 10px 30px rgb(23 32 27 / 7%);
+}
+
+.role-checkboxes {
+  display: grid;
+  gap: 6px;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #17201b;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.inline-check input {
+  width: auto;
+}
+
 .system-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
+}
+
+.table-scroll {
+  overflow-x: auto;
 }
 
 .status-chip {

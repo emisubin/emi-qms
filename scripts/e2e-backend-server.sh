@@ -2,6 +2,8 @@
 set -euo pipefail
 
 export ASPNETCORE_ENVIRONMENT=Testing
+export AUTH_MODE=Dev
+export Authentication__Mode=Dev
 export DEV_AUTHENTICATION_ENABLED=true
 export DEV_DATA_SEED_ENABLED=true
 export DATABASE_APPLY_MIGRATIONS_ON_STARTUP=true

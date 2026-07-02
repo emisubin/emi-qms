@@ -1,5 +1,6 @@
 import type { ReadyHealth } from './health';
-import type { CurrentUser } from './identity';
+import type { AdminUsersResponse, CurrentUser, UpdateAdminUserRequest } from './identity';
+import { isInteractionRequiredAuthError } from './auth';
 import type {
   AuditHistoryResponse,
   ChangePanelCountRequest,
@@ -59,6 +60,17 @@ export const defaultDevelopmentUserKey = import.meta.env.DEV
   ? (import.meta.env.VITE_DEV_USER_KEY ?? 'dev-sales')
   : undefined;
 
+let accessTokenProvider: (() => Promise<string | null>) | null = null;
+let adminTestUserKey: string | null = null;
+
+export function setAccessTokenProvider(provider: (() => Promise<string | null>) | null) {
+  accessTokenProvider = provider;
+}
+
+export function setAdminTestUserKey(testUserKey: string | null) {
+  adminTestUserKey = testUserKey?.trim() || null;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -75,6 +87,21 @@ export async function getReadyHealth(): Promise<ReadyHealth> {
 
 export async function getCurrentUser(developmentUserKey?: string): Promise<CurrentUser> {
   return fetchJson<CurrentUser>('/api/me', developmentUserKey);
+}
+
+export async function getAdminUsers(developmentUserKey?: string): Promise<AdminUsersResponse> {
+  return fetchJson<AdminUsersResponse>('/api/admin/users', developmentUserKey);
+}
+
+export async function updateAdminUser(
+  developmentUserKey: string | undefined,
+  userId: string,
+  request: UpdateAdminUserRequest
+): Promise<AdminUsersResponse> {
+  return fetchJson<AdminUsersResponse>(`/api/admin/users/${userId}`, developmentUserKey, {
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
 }
 
 export async function getSalesOwners(developmentUserKey?: string): Promise<SalesOwner[]> {
@@ -813,6 +840,15 @@ async function fetchWithAuth(path: string, developmentUserKey?: string, init?: R
 
   if (developmentUserKey) {
     headers.set('X-Dev-User', developmentUserKey);
+  } else if (accessTokenProvider && !headers.has('Authorization')) {
+    const accessToken = await accessTokenProvider();
+    if (accessToken) {
+      headers.set('Authorization', `Bearer ${accessToken}`);
+    }
+
+    if (adminTestUserKey) {
+      headers.set('X-Qms-Test-User', adminTestUserKey);
+    }
   }
 
   return fetch(`${apiBaseUrl}${path}`, { ...init, headers });
@@ -821,18 +857,22 @@ async function fetchWithAuth(path: string, developmentUserKey?: string, init?: R
 async function fetchJson<T>(path: string, developmentUserKey?: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
 
-  if (developmentUserKey) {
-    headers.set('X-Dev-User', developmentUserKey);
-  }
-
   if (init?.body && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
 
   let response: Response;
   try {
-    response = await fetchWithAuth(path, undefined, { ...init, headers });
-  } catch {
+    response = await fetchWithAuth(path, developmentUserKey, { ...init, headers });
+  } catch (error: unknown) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    if (isInteractionRequiredAuthError(error)) {
+      throw new ApiError(401, '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.');
+    }
+
     throw new ApiError(0, '서버에 연결할 수 없습니다. 서버 실행 상태를 확인해 주세요.');
   }
 

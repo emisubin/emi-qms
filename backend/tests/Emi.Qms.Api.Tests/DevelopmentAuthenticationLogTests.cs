@@ -16,7 +16,6 @@ public sealed class DevelopmentAuthenticationLogTests
             new Dictionary<string, string?> { ["DevAuthentication:Enabled"] = "true" });
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-missing-user");
-        client.DefaultRequestHeaders.Add("Authorization", "Bearer raw-token-value");
         client.DefaultRequestHeaders.Add("Cookie", "session=raw-cookie-value");
 
         var response = await client.GetAsync("/api/me", TestContext.Current.CancellationToken);
@@ -28,7 +27,6 @@ public sealed class DevelopmentAuthenticationLogTests
         Assert.Contains("GET", log.Message, StringComparison.Ordinal);
         Assert.Contains(Hash("dev-missing-user"), log.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("dev-missing-user", log.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("raw-token-value", log.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("raw-cookie-value", log.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("Authorization", log.Message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Cookie", log.Message, StringComparison.OrdinalIgnoreCase);
@@ -71,20 +69,26 @@ public sealed class DevelopmentAuthenticationLogTests
     }
 
     [Fact]
-    public async Task DisallowedEnvironment_WritesSanitizedAuthenticationFailureLogWhenFeatureIsDisabled()
+    public async Task DevelopmentUserHeaderIsIgnoredInStagingWhenFeatureIsDisabled()
     {
         using var factory = QmsWebApplicationFactory.Create(
             "Staging",
-            new Dictionary<string, string?> { ["DevAuthentication:Enabled"] = "false" });
+            new Dictionary<string, string?>
+            {
+                ["DevAuthentication:Enabled"] = "false",
+                ["AzureAd:TenantId"] = "11111111-1111-1111-1111-111111111111",
+                ["AzureAd:ClientId"] = "22222222-2222-2222-2222-222222222222",
+                ["AzureAd:Instance"] = "https://login.microsoftonline.com/",
+                ["AzureAd:Audience"] = "api://22222222-2222-2222-2222-222222222222"
+            });
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-admin");
 
         var response = await client.GetAsync("/api/me", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        var log = Assert.Single(factory.Logs.Entries, entry => entry.EventId.Id == 2001);
-        Assert.Contains("development_authentication_environment_not_allowed", log.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("dev-admin", log.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(factory.Logs.Entries, entry => entry.EventId.Id == 2001);
+        Assert.DoesNotContain(factory.Logs.Entries, entry => entry.Message.Contains("dev-admin", StringComparison.Ordinal));
     }
 
     private static string Hash(string value)

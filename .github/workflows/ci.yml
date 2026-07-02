@@ -116,7 +116,10 @@ jobs:
         run: |
           cat > .env <<EOF
           ASPNETCORE_ENVIRONMENT=Development
+          AUTH_MODE=Dev
+          Authentication__Mode=Dev
           FRONTEND_ORIGIN=http://127.0.0.1:5174
+          VITE_AUTH_MODE=Dev
           VITE_API_BASE_URL=http://127.0.0.1:5081
           VITE_DEV_USER_KEY=dev-sales
           DEV_AUTHENTICATION_ENABLED=true

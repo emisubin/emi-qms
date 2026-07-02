@@ -37,10 +37,29 @@ public static class DevelopmentFeaturePolicy
             "DEV_DATA_SEED_ENABLED");
     }
 
+    public static DevelopmentFeatureDecision EvaluateAdminUserSwitch(
+        IHostEnvironment environment,
+        IConfiguration configuration)
+    {
+        return Evaluate(
+            environment,
+            configuration,
+            "admin user switch",
+            "AdminUserSwitch:Enabled",
+            "ADMIN_USER_SWITCH_ENABLED",
+            IsAdminUserSwitchAllowedEnvironment);
+    }
+
     public static bool IsAllowedEnvironment(IHostEnvironment environment)
     {
         return environment.IsDevelopment()
             || environment.IsEnvironment(TestingEnvironmentName);
+    }
+
+    public static bool IsAdminUserSwitchAllowedEnvironment(IHostEnvironment environment)
+    {
+        return IsAllowedEnvironment(environment)
+            || environment.IsEnvironment("UAT");
     }
 
     public static void ThrowIfInvalidActivation(DevelopmentFeatureDecision decision, IHostEnvironment environment)
@@ -60,16 +79,17 @@ public static class DevelopmentFeaturePolicy
         IConfiguration configuration,
         string featureName,
         string configurationKey,
-        string environmentVariableKey)
+        string environmentVariableKey,
+        Func<IHostEnvironment, bool>? isAllowedEnvironment = null)
     {
         var configured = FirstConfiguredValue(configuration[environmentVariableKey], configuration[configurationKey]);
         var isExplicitlyEnabled = bool.TryParse(configured, out var configuredValue) && configuredValue;
-        var isAllowedEnvironment = IsAllowedEnvironment(environment);
+        var environmentAllowed = (isAllowedEnvironment ?? IsAllowedEnvironment)(environment);
 
         return new DevelopmentFeatureDecision(
             isExplicitlyEnabled,
-            isAllowedEnvironment,
-            isExplicitlyEnabled && isAllowedEnvironment,
+            environmentAllowed,
+            isExplicitlyEnabled && environmentAllowed,
             featureName);
     }
 

@@ -15,7 +15,7 @@ export default defineConfig({
     }
   ],
   webServer: {
-    command: 'corepack pnpm run dev',
+    command: 'VITE_AUTH_MODE=Dev corepack pnpm run dev',
     url: 'http://127.0.0.1:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000

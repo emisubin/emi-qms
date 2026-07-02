@@ -1,4 +1,5 @@
-import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useMsal } from '@azure/msal-react';
 import {
   ApiError,
   applyPanelInformationExcel,
@@ -18,6 +19,7 @@ import {
   downloadProcurementDashboardTemplate,
   downloadProcurementTemplate,
   getCurrentUser,
+  getAdminUsers,
   getDeletedProject,
   getPanel,
   getPanelInformation,
@@ -59,6 +61,9 @@ import {
   markNotificationRead,
   restoreDeletedProject,
   startMyWorkItem,
+  setAdminTestUserKey,
+  setAccessTokenProvider,
+  updateAdminUser,
   updateProjectProductionPlanning,
   updateProductionTemplateSettings,
   updateProcurementRequiredItemSettings,
@@ -67,8 +72,17 @@ import {
   updateProjectProcurement,
   updateProject
 } from './api';
+import {
+  accountSwitchLoginRequest,
+  acquireAccessToken,
+  hasMsalConfiguration,
+  isEntraAuthMode,
+  isInteractionRequiredAuthError,
+  loginRequest,
+  restoreActiveAccount
+} from './auth';
 import type { ReadyHealth } from './health';
-import type { CurrentUser } from './identity';
+import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
 import type {
   AuditEvent,
@@ -136,6 +150,7 @@ type View =
   | { kind: 'procurement-settings' }
   | { kind: 'materials-receipts' }
   | { kind: 'notifications' }
+  | { kind: 'admin-users' }
   | { kind: 'panel'; projectId: string; panelId: string };
 
 type LoadState<T> =
@@ -183,6 +198,18 @@ const developmentUsers = [
   'dev-disabled'
 ];
 const developmentUserStorageKey = 'emi-qms-development-user-key';
+const adminTestUserStorageKey = 'emi-admin-test-user-key';
+const adminTestUsers = [
+  'dev-admin',
+  'dev-sales',
+  'dev-production',
+  'dev-procurement',
+  'dev-materials',
+  'dev-manufacturing',
+  'dev-quality',
+  'dev-logistics',
+  'dev-viewer'
+];
 
 const emptyForm: ProjectFormValues = {
   customerName: '',
@@ -211,6 +238,10 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/notifications') {
     return { kind: 'notifications' };
+  }
+
+  if (window.location.pathname === '/admin/users') {
+    return { kind: 'admin-users' };
   }
 
   const panelInformationEditMatch = window.location.pathname.match(/^\/projects\/([^/]+)\/panel-information\/edit$/);
@@ -331,6 +362,8 @@ function pathForView(view: View) {
       return '/procurement/settings';
     case 'notifications':
       return '/notifications';
+    case 'admin-users':
+      return '/admin/users';
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}`;
     default:
@@ -342,8 +375,242 @@ function parseProjectDetailSection(value: string | null): ProjectDetailSection {
   return value === 'workflow' || value === 'production-planning' || value === 'procurement' ? value : 'panels';
 }
 
-export function App() {
+export function App({
+  rememberSession = true,
+  onRememberSessionChange
+}: {
+  rememberSession?: boolean;
+  onRememberSessionChange?: (rememberSession: boolean) => void;
+}) {
+  return isEntraAuthMode
+    ? (
+      <EntraAuthenticatedApp
+        rememberSession={rememberSession}
+        onRememberSessionChange={onRememberSessionChange}
+      />
+    )
+    : <QmsAppShell authMode="Dev" />;
+}
+
+function EntraAuthenticatedApp({
+  rememberSession,
+  onRememberSessionChange
+}: {
+  rememberSession: boolean;
+  onRememberSessionChange?: (rememberSession: boolean) => void;
+}) {
+  const { instance, accounts, inProgress } = useMsal();
+  const [authGate, setAuthGate] = useState<EntraAuthGateState>({ kind: 'loading' });
+  const accountCacheKey = accounts.map((account) => account.homeAccountId).join('|');
+  const accountSnapshotRef = useRef(accounts);
+
+  useEffect(() => {
+    accountSnapshotRef.current = accounts;
+  }, [accountCacheKey, accounts]);
+
+  const clearTestUserSwitch = () => {
+    setAdminTestUserKey(null);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(adminTestUserStorageKey);
+    }
+  };
+
+  const login = () => {
+    clearTestUserSwitch();
+    void instance.loginRedirect(loginRequest);
+  };
+
+  const loginWithDifferentAccount = () => {
+    clearTestUserSwitch();
+    void instance.loginRedirect(accountSwitchLoginRequest);
+  };
+
+  const logout = () => {
+    clearTestUserSwitch();
+    instance.setActiveAccount(null);
+    setAccessTokenProvider(null);
+    void instance.logoutRedirect();
+  };
+
+  useEffect(() => {
+    if (!hasMsalConfiguration()) {
+      setAccessTokenProvider(null);
+      return;
+    }
+
+    if (inProgress !== 'none') {
+      setAccessTokenProvider(null);
+      return;
+    }
+
+    let cancelled = false;
+    setAccessTokenProvider(null);
+
+    void (async () => {
+      setAuthGate({ kind: 'loading' });
+
+      const restoredAccount = restoreActiveAccount(instance, accountSnapshotRef.current);
+      if (restoredAccount.kind === 'none') {
+        setAuthGate({ kind: 'login' });
+        return;
+      }
+
+      if (restoredAccount.kind === 'multiple') {
+        setAuthGate({
+          kind: 'reauth-required',
+          message: '로그인 계정을 선택해야 합니다. Microsoft 365로 다시 로그인해 주세요.'
+        });
+        return;
+      }
+
+      const account = restoredAccount.account;
+
+      try {
+        const accessToken = await acquireAccessToken(instance, account);
+        if (cancelled) {
+          return;
+        }
+
+        if (!accessToken) {
+          setAccessTokenProvider(null);
+          setAuthGate({
+            kind: 'reauth-required',
+            message: '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.'
+          });
+          return;
+        }
+
+        setAccessTokenProvider(() => acquireAccessToken(instance, account));
+        setAuthGate({ kind: 'ready' });
+      } catch (error: unknown) {
+        if (cancelled) {
+          return;
+        }
+
+        setAccessTokenProvider(null);
+        if (isInteractionRequiredAuthError(error)) {
+          setAuthGate({
+            kind: 'reauth-required',
+            message: '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.'
+          });
+          return;
+        }
+
+        setAuthGate({
+          kind: 'error',
+          message: 'Microsoft 365 인증 정보를 확인할 수 없습니다. 다시 로그인해 주세요.'
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      setAccessTokenProvider(null);
+    };
+  }, [accountCacheKey, inProgress, instance]);
+
+  if (!hasMsalConfiguration()) {
+    return (
+      <AuthGateMessage
+        title="Microsoft 로그인 설정이 필요합니다."
+        message="운영 인증 모드에는 Tenant ID, Client ID, API Scope 설정이 필요합니다. 환경변수를 확인해 주세요."
+      />
+    );
+  }
+
+  if (inProgress !== 'none') {
+    return (
+      <AuthGateMessage
+        title="로그인 확인 중입니다."
+        message="Microsoft 365 인증 정보를 확인하고 있습니다."
+      />
+    );
+  }
+
+  if (authGate.kind === 'loading') {
+    return (
+      <AuthGateMessage
+        title="로그인 확인 중입니다."
+        message="Microsoft 365 인증 정보를 확인하고 있습니다."
+      />
+    );
+  }
+
+  if (authGate.kind === 'reauth-required' || authGate.kind === 'error') {
+    return (
+      <AuthGateMessage
+        title={authGate.kind === 'reauth-required' ? '다시 로그인이 필요합니다.' : '인증 정보를 확인할 수 없습니다.'}
+        message={authGate.message}
+        actionLabel={inProgress === 'none' ? 'Microsoft 365로 다시 로그인' : '로그인 진행 중'}
+        actionDisabled={inProgress !== 'none'}
+        onAction={login}
+        secondaryActionLabel="다른 계정으로 로그인"
+        onSecondaryAction={loginWithDifferentAccount}
+      />
+    );
+  }
+
+  if (authGate.kind === 'login') {
+    return (
+      <AuthGateMessage
+        title="EMI 프로젝트 통합관리시스템"
+        message="회사 Microsoft 365 계정으로 로그인해 주세요."
+        helperText="회사 계정이 아닌 경우 로그인할 수 없습니다."
+        actionLabel={inProgress === 'none' ? 'Microsoft 365 로그인' : '로그인 진행 중'}
+        actionDisabled={inProgress !== 'none'}
+        onAction={login}
+        secondaryActionLabel="다른 계정으로 로그인"
+        onSecondaryAction={loginWithDifferentAccount}
+      >
+        <label className="remember-session-option">
+          <input
+            type="checkbox"
+            checked={rememberSession}
+            onChange={(event) => onRememberSessionChange?.(event.target.checked)}
+          />
+          <span>로그인 상태 유지</span>
+        </label>
+        <p className="muted-text">
+          이 브라우저에서 로그인 상태를 유지합니다. 회사 보안 정책에 따라 추가 인증이 필요할 수 있습니다.
+        </p>
+      </AuthGateMessage>
+    );
+  }
+
+  return (
+    <QmsAppShell
+      authMode="EntraId"
+      onLogout={logout}
+      onReauthenticate={login}
+      onAccountSwitch={loginWithDifferentAccount}
+    />
+  );
+}
+
+type EntraAuthGateState =
+  | { kind: 'loading' }
+  | { kind: 'login' }
+  | { kind: 'ready' }
+  | { kind: 'reauth-required'; message: string }
+  | { kind: 'error'; message: string };
+
+function QmsAppShell({
+  authMode,
+  onLogout,
+  onReauthenticate,
+  onAccountSwitch
+}: {
+  authMode: 'Dev' | 'EntraId';
+  onLogout?: () => void;
+  onReauthenticate?: () => void;
+  onAccountSwitch?: () => void;
+}) {
+  const isDevMode = authMode === 'Dev';
   const [developmentUserKey, setDevelopmentUserKey] = useState(() => {
+    if (!isDevMode) {
+      return '';
+    }
+
     if (typeof window === 'undefined') {
       return defaultDevelopmentUserKey ?? 'dev-sales';
     }
@@ -357,6 +624,19 @@ export function App() {
   const [health, setHealth] = useState<LoadState<ReadyHealth>>({ kind: 'loading' });
   const [currentUser, setCurrentUser] = useState<LoadState<CurrentUser>>({ kind: 'loading' });
   const [shellBadges, setShellBadges] = useState<ShellBadgeState>({ requestedWorkCount: 0, unreadNotificationCount: 0 });
+  const [adminTestUserKey, setAdminTestUserKeyState] = useState('');
+  const restoredAdminTestUser = useRef(false);
+  const user = currentUser.kind === 'ready' ? currentUser.data : null;
+  const isAccessBlocked = isOperationalAccessBlocked(user);
+  const canLoadBusinessData = isDevMode || (currentUser.kind === 'ready' && !isAccessBlocked);
+  const displayedShellBadges = canLoadBusinessData
+    ? shellBadges
+    : { requestedWorkCount: 0, unreadNotificationCount: 0 };
+  const canUseAdminTestUserSwitch = !isDevMode && user?.canUseAdminTestUserSwitch === true;
+
+  useEffect(() => {
+    setAdminTestUserKey(isDevMode ? null : adminTestUserKey);
+  }, [adminTestUserKey, isDevMode]);
 
   const setView = useCallback((nextView: View) => {
     setViewState(nextView);
@@ -376,9 +656,18 @@ export function App() {
       .catch((error: unknown) => setHealth(toLoadError(error, 'API 상태를 확인할 수 없습니다.')));
 
     getCurrentUser(developmentUserKey)
-      .then((data) => setCurrentUser({ kind: 'ready', data }))
-      .catch((error: unknown) => setCurrentUser(toLoadError(error, '개발 사용자를 확인할 수 없습니다.')));
-  }, [developmentUserKey]);
+      .then((data) => {
+        setCurrentUser({ kind: 'ready', data });
+        if (!isDevMode && !adminTestUserKey && !restoredAdminTestUser.current && data.canUseAdminTestUserSwitch) {
+          restoredAdminTestUser.current = true;
+          const stored = window.localStorage.getItem(adminTestUserStorageKey);
+          if (stored && adminTestUsers.includes(stored)) {
+            setAdminTestUserKeyState(stored);
+          }
+        }
+      })
+      .catch((error: unknown) => setCurrentUser(toAuthenticationLoadError(error, isDevMode)));
+  }, [adminTestUserKey, developmentUserKey, isDevMode]);
 
   const refreshShellBadges = useCallback(() => {
     Promise.all([
@@ -401,8 +690,12 @@ export function App() {
   }, [loadShell]);
 
   useEffect(() => {
+    if (!canLoadBusinessData) {
+      return;
+    }
+
     refreshShellBadges();
-  }, [refreshShellBadges]);
+  }, [adminTestUserKey, canLoadBusinessData, refreshShellBadges]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -413,7 +706,48 @@ export function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const user = currentUser.kind === 'ready' ? currentUser.data : null;
+  if (!isDevMode && currentUser.kind === 'loading') {
+    return (
+      <AuthGateMessage
+        title="로그인 확인 중입니다."
+        message="Microsoft 365 인증 정보를 확인하고 있습니다."
+        actionLabel="로그아웃"
+        onAction={onLogout}
+      />
+    );
+  }
+
+  if (!isDevMode && currentUser.kind !== 'ready') {
+    if (isAuthenticationExpiredState(currentUser)) {
+      return (
+        <AuthGateMessage
+          title="다시 로그인이 필요합니다."
+          message={loadStateMessage(currentUser) ?? '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.'}
+          actionLabel="Microsoft 365로 다시 로그인"
+          onAction={onReauthenticate}
+          secondaryActionLabel="다른 계정으로 로그인"
+          onSecondaryAction={onAccountSwitch}
+        />
+      );
+    }
+
+    return (
+      <AuthenticationRequiredPage
+        message={loadStateMessage(currentUser)}
+        onLogout={onLogout}
+      />
+    );
+  }
+
+  if (!isDevMode && isAccessBlocked) {
+    return (
+      <AuthenticationRequiredPage
+        user={user}
+        onLogout={onLogout}
+      />
+    );
+  }
+
   const permissions = user?.permissions ?? [];
   const canCreate = permissions.includes('Project.Create');
   const canUpdate = permissions.includes('Project.Update');
@@ -428,13 +762,15 @@ export function App() {
   const canUpdateProcurement = permissions.includes('ProcurementPlan.Update');
   const canUpdateMaterialReceipt = permissions.includes('MaterialReceipt.Update');
   const canUpdateProductionPlanning = permissions.includes('ProductionPlan.Update');
+  const canManageUsers = permissions.includes('users.manage');
   const navigationItems: NavigationItem[] = [
-    { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: shellBadges.requestedWorkCount },
+    { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount },
     { label: '프로젝트', view: { kind: 'list' }, active: isProjectWorkspace(view) },
     { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     ...(canUpdateMaterialReceipt ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : []),
-    { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: shellBadges.unreadNotificationCount }
+    { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: displayedShellBadges.unreadNotificationCount },
+    ...(canManageUsers ? [{ label: '사용자', view: { kind: 'admin-users' } as View, active: view.kind === 'admin-users' }] : [])
   ];
 
   return (
@@ -449,24 +785,67 @@ export function App() {
           </div>
           <div className="topbar-actions">
             {canUpdateMaterialReceipt ? <button type="button" onClick={() => setView({ kind: 'materials-receipts' })}>자재</button> : null}
-            <label className="dev-user-select">
-              <span>개발 사용자</span>
-              <select
-                value={developmentUserKey}
-                onChange={(event) => {
-                  const nextUserKey = event.target.value;
-                  window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
-                  setDevelopmentUserKey(nextUserKey);
-                  setView({ kind: 'list' });
-                }}
-              >
-                {developmentUsers.map((userKey) => (
-                  <option key={userKey} value={userKey}>{userKey}</option>
-                ))}
-              </select>
-            </label>
+            {canUseAdminTestUserSwitch ? (
+              <label className="test-user-select">
+                <span>검수 사용자 전환</span>
+                <select
+                  value={adminTestUserKey}
+                  onChange={(event) => {
+                    const nextUserKey = event.target.value;
+                    if (nextUserKey) {
+                      window.localStorage.setItem(adminTestUserStorageKey, nextUserKey);
+                    } else {
+                      window.localStorage.removeItem(adminTestUserStorageKey);
+                    }
+                    setAdminTestUserKeyState(nextUserKey);
+                    setView({ kind: 'list' });
+                  }}
+                >
+                  <option value="">실제 계정으로 보기</option>
+                  {adminTestUsers.map((userKey) => (
+                    <option key={userKey} value={userKey}>{labelForDevelopmentUser(userKey)}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {isDevMode ? (
+              <label className="dev-user-select">
+                <span>개발 사용자</span>
+                <select
+                  value={developmentUserKey}
+                  onChange={(event) => {
+                    const nextUserKey = event.target.value;
+                    window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
+                    setDevelopmentUserKey(nextUserKey);
+                    setView({ kind: 'list' });
+                  }}
+                >
+                  {developmentUsers.map((userKey) => (
+                    <option key={userKey} value={userKey}>{userKey}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <button type="button" onClick={onLogout}>로그아웃</button>
+            )}
           </div>
         </header>
+
+        {!isDevMode && user?.isTestUserSwitch ? (
+          <div className="test-user-banner" role="status">
+            검수 모드: {labelForDevelopmentUser(user.testUserKey ?? adminTestUserKey)} 권한으로 보는 중
+            <button
+              type="button"
+              onClick={() => {
+                window.localStorage.removeItem(adminTestUserStorageKey);
+                setAdminTestUserKeyState('');
+                setView({ kind: 'list' });
+              }}
+            >
+              실제 계정으로 보기
+            </button>
+          </div>
+        ) : null}
 
         <AppMobileNavigation items={navigationItems} onNavigate={setView} />
 
@@ -486,7 +865,11 @@ export function App() {
         <StateMessage state={currentUser} />
       ) : null}
 
-      {view.kind === 'my-work' ? (
+      {currentUser.kind === 'ready' && currentUser.data.approvalPending ? (
+        <ApprovalPendingPage user={currentUser.data} onLogout={onLogout} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'my-work' ? (
         <MyWorkPage
           developmentUserKey={developmentUserKey}
           onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
@@ -494,7 +877,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'list' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'list' ? (
         <ProjectListPage
           developmentUserKey={developmentUserKey}
           canCreate={canCreate}
@@ -507,7 +890,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'create' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'create' ? (
         <ProjectCreatePage
           developmentUserKey={developmentUserKey}
           onCancel={() => setView({ kind: 'list' })}
@@ -515,7 +898,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'detail' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'detail' ? (
         <ProjectDetailPage
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
@@ -538,7 +921,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'deleted-detail' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'deleted-detail' ? (
         <DeletedProjectDetailPage
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
@@ -548,7 +931,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'edit' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'edit' ? (
         <ProjectEditPage
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
@@ -557,7 +940,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'panel-info-edit' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'panel-info-edit' ? (
         <PanelInformationEditPage
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
@@ -566,7 +949,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'procurement-edit' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'procurement-edit' ? (
         <ProcurementEditPage
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
@@ -575,7 +958,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'production-planning-edit' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'production-planning-edit' ? (
         <ProductionPlanningEditPage
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
@@ -584,7 +967,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'production-planning-dashboard' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'production-planning-dashboard' ? (
         <ProductionPlanningDashboardPage
           developmentUserKey={developmentUserKey}
           canUpdateProductionPlanning={canUpdateProductionPlanning}
@@ -595,7 +978,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'production-planning-settings' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'production-planning-settings' ? (
         <ProductionPlanningSettingsPage
           developmentUserKey={developmentUserKey}
           canUpdateProductionPlanning={canUpdateProductionPlanning}
@@ -603,7 +986,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'procurement-dashboard' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'procurement-dashboard' ? (
         <ProcurementDashboardPage
           developmentUserKey={developmentUserKey}
           canUpdateProcurement={canUpdateProcurement}
@@ -614,7 +997,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'procurement-settings' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'procurement-settings' ? (
         <ProcurementRequiredItemSettingsPage
           developmentUserKey={developmentUserKey}
           canUpdateProcurement={canUpdateProcurement}
@@ -622,7 +1005,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'materials-receipts' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'materials-receipts' ? (
         <MaterialReceiptsPage
           developmentUserKey={developmentUserKey}
           canUpdateMaterialReceipt={canUpdateMaterialReceipt}
@@ -630,7 +1013,7 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'notifications' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notifications' ? (
         <NotificationsPage
           developmentUserKey={developmentUserKey}
           onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
@@ -638,7 +1021,11 @@ export function App() {
         />
       ) : null}
 
-      {view.kind === 'panel' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-users' ? (
+        <AdminUsersPage developmentUserKey={developmentUserKey} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'panel' ? (
         <PanelPlaceholderDetailPage
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
@@ -699,6 +1086,250 @@ function AppMobileNavigation({ items, onNavigate }: { items: NavigationItem[]; o
         </button>
       ))}
     </nav>
+  );
+}
+
+function AuthGateMessage({
+  title,
+  message,
+  helperText,
+  actionLabel,
+  actionDisabled = false,
+  onAction,
+  secondaryActionLabel,
+  onSecondaryAction,
+  children
+}: {
+  title: string;
+  message: string;
+  helperText?: string;
+  actionLabel?: string;
+  actionDisabled?: boolean;
+  onAction?: () => void;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <main className="auth-gate">
+      <section className="auth-gate-panel">
+        <p className="eyebrow">EMI 프로젝트 통합관리시스템</p>
+        <h1>{title}</h1>
+        <p>{message}</p>
+        {helperText ? <p className="muted-text">{helperText}</p> : null}
+        {children}
+        {actionLabel ? (
+          <button type="button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>
+        ) : null}
+        {secondaryActionLabel ? (
+          <button type="button" className="secondary-button" onClick={onSecondaryAction}>{secondaryActionLabel}</button>
+        ) : null}
+      </section>
+    </main>
+  );
+}
+
+function AuthenticationRequiredPage({ user, message, onLogout }: { user?: CurrentUser | null; message?: string; onLogout?: () => void }) {
+  return (
+    <main className="auth-gate">
+      <section className="auth-gate-panel">
+        <p className="eyebrow">EMI 프로젝트 통합관리시스템</p>
+        <h1>인증이 필요합니다.</h1>
+        <p>{message ?? '시스템 관리자에게 문의하세요.'}</p>
+        <p className="muted-text">
+          관리자가 부서와 역할을 지정하면 시스템을 사용할 수 있습니다.
+          {user ? ` 현재 계정: ${user.displayName}${user.email ? ` (${user.email})` : ''}` : ''}
+        </p>
+        {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
+      </section>
+    </main>
+  );
+}
+
+function ApprovalPendingPage({ user, onLogout }: { user: CurrentUser; onLogout?: () => void }) {
+  return (
+    <section className="panel-section">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">승인 대기</p>
+          <h2>사용자 승인이 필요합니다.</h2>
+        </div>
+        {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
+      </div>
+      <p className="muted-text">
+        {user.displayName}{user.email ? ` (${user.email})` : ''} 계정은 아직 역할이 부여되지 않았습니다.
+        System Administrator가 역할을 1개 이상 부여하면 업무 화면을 사용할 수 있습니다.
+      </p>
+    </section>
+  );
+}
+
+function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) {
+  const [state, setState] = useState<LoadState<AdminUsersResponse>>({ kind: 'loading' });
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [draftDepartmentId, setDraftDepartmentId] = useState<string>('');
+  const [draftRoleCodes, setDraftRoleCodes] = useState<string[]>([]);
+  const [draftIsActive, setDraftIsActive] = useState(true);
+  const [message, setMessage] = useState('');
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getAdminUsers(developmentUserKey)
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '사용자 목록을 불러올 수 없습니다.')));
+  }, [developmentUserKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminUsers(developmentUserKey)
+      .then((data) => {
+        if (!cancelled) {
+          setState({ kind: 'ready', data });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState(toLoadError(error, '사용자 목록을 불러올 수 없습니다.'));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [developmentUserKey]);
+
+  const startEdit = (user: AdminUser) => {
+    setEditingUserId(user.userId);
+    setDraftDepartmentId(user.departmentId ?? '');
+    setDraftRoleCodes([...user.roles]);
+    setDraftIsActive(user.isActive);
+    setMessage('');
+  };
+
+  const toggleRole = (roleCode: string) => {
+    setDraftRoleCodes((current) => (
+      current.includes(roleCode)
+        ? current.filter((code) => code !== roleCode)
+        : [...current, roleCode].sort()
+    ));
+  };
+
+  const save = async (user: AdminUser) => {
+    setMessage('');
+    try {
+      const updated = await updateAdminUser(developmentUserKey, user.userId, {
+        departmentId: draftDepartmentId || null,
+        roleCodes: draftRoleCodes,
+        isActive: draftIsActive
+      });
+      setState({ kind: 'ready', data: updated });
+      setEditingUserId(null);
+      setMessage('사용자 정보를 저장했습니다.');
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : '사용자 정보를 저장할 수 없습니다.');
+    }
+  };
+
+  return (
+    <section className="panel-section">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">System Administrator</p>
+          <h2>사용자 관리</h2>
+        </div>
+        <button type="button" onClick={load}>새로고침</button>
+      </div>
+      <p className="muted-text">EntraId 사용자의 부서, 역할, 활성 상태만 수정할 수 있습니다. Dev 사용자는 읽기 전용입니다.</p>
+      {message ? <p className="form-message">{message}</p> : null}
+      {state.kind === 'loading' ? <p>사용자 목록을 불러오는 중입니다.</p> : null}
+      {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>사용자</th>
+                <th>구분</th>
+                <th>상태</th>
+                <th>부서</th>
+                <th>역할</th>
+                <th>작업</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.data.users.map((user) => {
+                const editing = editingUserId === user.userId;
+                return (
+                  <tr key={user.userId}>
+                    <td>
+                      <strong>{user.displayName}</strong>
+                      <div className="muted-text">{user.email ?? user.developmentUserKey}</div>
+                    </td>
+                    <td>{user.authProvider}{user.isReadOnly ? ' · 읽기 전용' : ''}</td>
+                    <td>
+                      {editing ? (
+                        <label className="inline-check">
+                          <input
+                            type="checkbox"
+                            checked={draftIsActive}
+                            onChange={(event) => setDraftIsActive(event.target.checked)}
+                          />
+                          활성
+                        </label>
+                      ) : (
+                        user.isActive ? (user.approvalPending ? '승인 대기' : '활성') : '비활성'
+                      )}
+                    </td>
+                    <td>
+                      {editing ? (
+                        <select value={draftDepartmentId} onChange={(event) => setDraftDepartmentId(event.target.value)}>
+                          <option value="">부서 미지정</option>
+                          {state.data.departments.map((department) => (
+                            <option key={department.departmentId} value={department.departmentId}>{department.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        user.departmentName ?? '부서 미지정'
+                      )}
+                    </td>
+                    <td>
+                      {editing ? (
+                        <div className="role-checkboxes">
+                          {state.data.roles.map((role) => (
+                            <label key={role.code} className="inline-check">
+                              <input
+                                type="checkbox"
+                                checked={draftRoleCodes.includes(role.code)}
+                                onChange={() => toggleRole(role.code)}
+                              />
+                              {role.code}
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        user.roles.length > 0 ? user.roles.join(', ') : '역할 없음'
+                      )}
+                    </td>
+                    <td>
+                      {user.isReadOnly ? (
+                        <span className="muted-text">수정 불가</span>
+                      ) : editing ? (
+                        <div className="button-row">
+                          <button type="button" onClick={() => void save(user)}>저장</button>
+                          <button type="button" onClick={() => setEditingUserId(null)}>취소</button>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => startEdit(user)}>수정</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -7479,6 +8110,71 @@ function toLoadError<T>(error: unknown, fallback: string): LoadState<T> {
   }
 
   return { kind: 'error', message: friendlyErrorMessage(error, fallback) };
+}
+
+function toAuthenticationLoadError<T>(error: unknown, isDevMode: boolean): LoadState<T> {
+  if (error instanceof ApiError) {
+    if (!isDevMode && error.status === 401) {
+      return {
+        kind: 'error',
+        message: '로그인이 만료되었거나 인증 정보를 확인할 수 없습니다. 다시 로그인해 주세요.'
+      };
+    }
+
+    if (!isDevMode && error.status === 403) {
+      return {
+        kind: 'forbidden',
+        message: '시스템 관리자에게 문의하세요.'
+      };
+    }
+  }
+
+  return toLoadError(error, isDevMode ? '개발 사용자를 확인할 수 없습니다.' : '로그인 사용자를 확인할 수 없습니다.');
+}
+
+function loadStateMessage<T>(state: LoadState<T>) {
+  return 'message' in state ? state.message : undefined;
+}
+
+function isAuthenticationExpiredState<T>(state: LoadState<T>) {
+  return state.kind === 'error'
+    && 'message' in state
+    && state.message.includes('다시 로그인');
+}
+
+function isOperationalAccessBlocked(user: CurrentUser | null) {
+  if (!user) {
+    return false;
+  }
+
+  return !user.isActive
+    || user.approvalPending
+    || (user.authProvider === 'EntraId' && user.permissions.length === 0);
+}
+
+function labelForDevelopmentUser(userKey: string) {
+  switch (userKey) {
+    case 'dev-admin':
+      return 'System Administrator';
+    case 'dev-sales':
+      return '영업';
+    case 'dev-production':
+      return '생산관리';
+    case 'dev-procurement':
+      return '구매';
+    case 'dev-materials':
+      return '자재';
+    case 'dev-manufacturing':
+      return '제조';
+    case 'dev-quality':
+      return '품질';
+    case 'dev-logistics':
+      return '물류';
+    case 'dev-viewer':
+      return '조회 전용';
+    default:
+      return userKey;
+  }
 }
 
 function friendlyErrorMessage(error: unknown, fallback: string) {

@@ -39,6 +39,7 @@ public sealed class PostgreSqlMigrationTests
         await AssertWorkflowSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertProcurementRequiredItemSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertWorkflowAlignmentSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertMicrosoft365IdentitySchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -1166,6 +1167,66 @@ public sealed class PostgreSqlMigrationTests
             select count(*)
             from pg_constraint
             where conname = 'ck_project_procurement_items_supplier_name_not_blank';
+            """,
+            cancellationToken));
+    }
+
+    private static async Task AssertMicrosoft365IdentitySchemaAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'qms_users'
+              and column_name in ('entra_object_id', 'email', 'auth_provider');
+            """,
+            cancellationToken));
+
+        Assert.Equal("YES", await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select is_nullable
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'qms_users'
+              and column_name = 'department_id';
+            """,
+            cancellationToken));
+
+        var authProviderConstraint = await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_qms_users_auth_provider';
+            """,
+            cancellationToken);
+        Assert.Contains("Dev", authProviderConstraint, StringComparison.Ordinal);
+        Assert.Contains("EntraId", authProviderConstraint, StringComparison.Ordinal);
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_indexes
+            where tablename = 'qms_users'
+              and indexname = 'ux_qms_users_entra_object_id'
+              and indexdef ilike '%unique%';
+            """,
+            cancellationToken));
+
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_indexes
+            where tablename = 'qms_users'
+              and indexname = 'ix_qms_users_email'
+              and indexdef ilike '%unique%';
             """,
             cancellationToken));
     }

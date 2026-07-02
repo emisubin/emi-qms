@@ -842,12 +842,23 @@ Excel 출력 대상 후보:
 
 로그인 방향:
 
-- Microsoft 365 로그인
-- Microsoft Entra ID 기반
-- 회사 계정 사용
-- 사용자 이름/이메일 동기화
-- 부서/역할 매핑
-- 운영에서는 dev user 비활성
+- 운영 인증은 Frontend MSAL React + Backend JWT Bearer(Microsoft.Identity.Web) 구조를 사용한다.
+- Microsoft Entra ID는 신원 확인만 담당한다.
+- 부서와 역할은 앱 내부 DB에서 관리한다.
+- 신규 Entra 사용자는 최초 로그인 시 자동 생성되지만 역할이 0개이면 승인 대기 상태다.
+- 승인 대기 사용자는 `/api/me`, 본인 프로필, 승인 대기 안내, 로그아웃 외 업무 데이터를 조회할 수 없다.
+- 승인 대기 해소 기준은 active role 1개 이상이다. department_id는 승인 대기 해소 조건이 아니라 표시/분류 정보다.
+- dev user와 실계정은 이메일이 같아도 자동 병합하지 않는다.
+- 운영에서는 dev user 인증을 비활성화한다.
+- Dev 인증은 Development/Testing 환경에서만 허용한다.
+- Entra 앱 등록 표시명은 EMI 프로젝트 통합관리시스템 기준을 따른다.
+- 검수 사용자 전환은 Development/Testing/UAT 용도이며 Production/Staging에서는 비활성화한다.
+- 검수 사용자 전환은 실제 Microsoft 로그인 사용자 중 System Administrator만 사용할 수 있다.
+- 검수 사용자 전환은 기존 dev user persona를 대상으로 하며 실제 Entra 사용자를 impersonation하지 않는다.
+- 로그인 상태 유지는 MSAL cache와 Microsoft Entra SSO 정책 범위 안에서만 제공한다.
+- Microsoft Entra 조건부 액세스, MFA, sign-in frequency 정책을 우회하지 않는다.
+- token을 앱 코드에서 직접 localStorage/sessionStorage에 저장하지 않는다.
+- 로그인 상태 유지 preference와 auth token은 구분한다.
 
 권한 방향:
 
@@ -855,6 +866,9 @@ Excel 출력 대상 후보:
 - UI는 권한 없는 버튼을 숨길 수 있지만, 숨김만으로 보안을 대체하지 않는다.
 - 관리자는 업무 입력을 임의로 우회하지 않는다.
 - 관리자 전용 이력 조회와 기준정보 관리를 분리한다.
+- 마지막 active System Administrator는 비활성화하거나 system-administrator role을 제거할 수 없다.
+- TASK-INFRA-001 최소 사용자 관리 화면에서는 EntraId 사용자 역할/부서/활성 상태만 수정한다.
+- Dev 사용자는 최소 사용자 관리 화면에 읽기 전용으로 표시한다.
 
 관리자 페이지 후보:
 
@@ -887,6 +901,7 @@ Excel 출력 대상 후보:
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
 | 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 | Teams/메일 채널 확장 |
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
+| 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존 | 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
 | 공휴일 | 공식 공휴일/국경일 DB 기준 표시 구조 | 관리자 공휴일 sync UI |
 | UAT | 고정 UAT DB, UAT backend/frontend 포트 | 게시 전 persistence 자동 검증 강화 |
 | E2E | 전용 backend/frontend 포트, 전용 DB, cleanup | 신규 업무 단계마다 시나리오 추가 |
@@ -905,7 +920,8 @@ Excel 출력 대상 후보:
 - 물류 포장 구성, 출발, 납품 완료를 추가한다.
 - 영업 정산과 세금계산서 발행 완료를 추가한다.
 - 모든 페이지 Excel 출력 공통 기능을 추가한다.
-- Microsoft 365 로그인으로 운영 인증을 전환한다.
+- Microsoft 365 로그인 기반은 구현 완료되었으며, 운영 배포 전 실제 Entra 앱 등록값, 운영 redirect URI, secret/env 관리, Production/Staging dev auth 비활성, AdminUserSwitch 비활성 설정을 검수한다.
+- Graph 기반 Teams/메일 발송은 TASK-NOTIFY-001 범위로 구현한다.
 - 관리자 기준정보 페이지를 추가한다.
 - 업무 시작/완료 이력 관리자 화면을 추가한다.
 
@@ -940,11 +956,12 @@ Excel 출력 대상 후보:
 
 ### TASK-INFRA-001: Microsoft 365 로그인 / 사용자·역할 운영 전환
 
-- 목적: 개발 사용자 기반에서 운영 로그인 기반으로 전환
-- 포함 범위: Microsoft Entra ID, 사용자 동기화, 역할 매핑, dev user 비활성 정책
-- 제외 범위: 업무 기능 확장
+- 상태: 완료
+- 목적: Microsoft 365 로그인 / 사용자·역할 운영 전환
+- 포함 범위: MSAL React + JWT Bearer Microsoft.Identity.Web, EntraId JIT 사용자 생성, 승인 대기, Bootstrap admin, 최소 사용자 관리, Dev mode 보존, System Administrator 검수 사용자 전환, 로그인 상태 유지
+- 제외 범위: Teams/메일 알림, Graph Mail.Send/Teams 권한, Entra 그룹/App Role 기반 권한, 권한 matrix 재설계, 정식 ADMIN-001 사용자 관리 고도화, 실제 Entra 사용자 impersonation, Azure 구독/결제
 - 선행조건: 권한 matrix 정리
-- 주요 테스트: 로그인, 권한, 비활성 사용자, 운영/개발 환경 분리
+- 주요 테스트: backend 전체 test, frontend unit/build, Full-Stack E2E, seed A/B/C/D, 실제 Microsoft 로그인 수동 검수
 
 ### TASK-NOTIFY-001: Teams / 메일 알림 채널 확장
 
@@ -1068,16 +1085,17 @@ Excel 출력 대상 후보:
 | 20 | 포장 구성 입력 필드 | 미확정 | 물류 회신 | TASK-013A | 포장번호, 규격, 중량 등 |
 | 21 | 영업 정산 항목 | 부분 확정 | 사용자 논의 | TASK-014A | 세금계산서 완료는 확정 |
 | 22 | 모든 페이지 Excel 출력 범위 | 초안 | 사용자 요청 | TASK-EXPORT-001 | 공통 export 권장 |
-| 23 | Microsoft 365 로그인 적용 시점 | 미확정 | 인프라/운영 결정 | TASK-INFRA-001 | dev user 운영 비활성 |
+| 23 | Microsoft 365 로그인 적용 시점 | 완료 | 인프라/운영 결정 | TASK-INFRA-001 | 인증 기반 구현 완료. 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 필요 |
 | 24 | 관리자 페이지 범위 | 초안 | 사용자 요청 | TASK-ADMIN-001 | 기준정보와 이력 관리 |
 | 25 | 프로젝트 대표 상태 방식 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 병목 기준 + 진행률 |
 | 26 | 알림 채널 구성 | 확정 | 실무 협의 | TASK-NOTIFY-001/002 | 인앱/Teams/메일, 본 문서 6장 기준 |
 | 27 | 진행률(%) 계산식 정의 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수. FAT는 대상 프로젝트만 분모 포함. 프로젝트 상태 집계는 9장 기준. |
 | 28 | Teams 통합 채널 생성 및 Webhook URL | 미확정 | 사용자 | TASK-NOTIFY-001 | 회사 Teams 관리자 권한 필요 여부 확인 |
 | 29 | 알림 전용 메일 계정 생성 | 미확정 | 사용자 | TASK-NOTIFY-001 | Graph sendMail 권한 부여 필요 |
-| 30 | Graph API 앱 등록 및 권한 승인 | 미확정 | 사용자 | TASK-INFRA-001 | 테넌트 관리자 동의 필요 항목 확인 |
+| 30 | Graph API 앱 등록 및 권한 승인 | 미확정 | 사용자 | TASK-INFRA-001 / TASK-NOTIFY-001 | 로그인 앱 등록은 INFRA-001에서 사용. Mail.Send, Teams 관련 권한은 TASK-NOTIFY-001 범위 |
 | 31 | 퇴사/부서이동 시 미완료 내 업무 이관 규칙 | 미확정 | 실무 협의 | TASK-INFRA-001 이후 | 담당자 부재 시 업무 귀속 처리 |
 | 32 | 에스컬레이션 기한의 관리자 설정 가능 여부 | 미확정 | 실무 협의 | TASK-NOTIFY-002 이후 | 초기에는 코드 고정 |
+| 33 | dev user 담당 프로젝트/내 업무의 실계정 이관 수동 절차 | 미확정 | 실무 협의 | INFRA-001 이후 | 자동 병합 금지에 따른 후속 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1101,6 +1119,17 @@ Excel 출력 대상 후보:
 | 2026-07-02 | 담당자 fallback 순서 확정(Primary → Secondary → 영업 정 → 영업 부 → System Administrator) | 기존 구현 규칙을 문서화하여 담당자 부재 시 업무 누락을 방지 | 5장 |
 | 2026-07-02 | 추적 단위 용어를 “패널” 단독 표기로 통일하고 “제품/패널” 병기 폐기 | 사용자 결정에 따라 실무 용어를 단순화 | 전체 |
 | 2026-07-02 | 품질 담당자 구조를 검사 단계별 정/부 담당자 구조로 확정 | 실제 구현과 운영 기준을 일치시키고 정담당자 부재 시 fallback을 보장하기 위함 | 5장 |
+| 2026-07-02 | 운영 인증은 MSAL(React) + JWT Bearer(Microsoft.Identity.Web)로 확정 | React SPA + ASP.NET Core 표준 패턴이며 NOTIFY-001 Graph 기반 확장과 공유 가능 | 20장 |
+| 2026-07-02 | 부서/역할은 앱 내 관리, Entra는 인증만 담당 | 테넌트 관리자 의존을 줄이고 ADMIN-001 사용자 관리와 연결 | 20장 |
+| 2026-07-02 | 신규 Entra 사용자는 승인 대기(역할 0개로 판정), 역할 지정 전 업무 데이터 조회 불가 | 권한 서버 강제 원칙과 정합하며 정보 노출을 방지 | 20장 |
+| 2026-07-02 | dev user와 실계정 자동 병합 금지, 담당자 이관은 수동 절차 | 오연결 시 이력/담당자 데이터 훼손 위험 | 20장 |
+| 2026-07-02 | Entra 앱 등록 표시명은 공식 명칭 기준 | 로그인/동의 화면 노출 시 명칭 기준 준수 | 20장 |
+| 2026-07-02 | 승인 대기 해소 기준은 active role 1개 이상으로 확정 | 별도 상태 컬럼 없이 역할 부여만으로 승인 상태를 일관되게 관리 | 20장 |
+| 2026-07-02 | Dev 사용자는 INFRA-001 최소 사용자 관리 화면에서 읽기 전용으로 표시 | Dev 인증은 InMemoryIdentityStore를 유지하므로 DB 수정 UI와 분리 필요 | 20장 |
+| 2026-07-02 | 마지막 active System Administrator 보호 정책을 적용 | 관리자 권한 상실로 시스템 관리가 불가능해지는 상황 방지 | 20장 |
+| 2026-07-02 | TASK-INFRA-001에서 Microsoft 365 로그인 기반 구현 완료 | EntraId 기반 운영 인증, 승인 대기, bootstrap admin, Dev mode 보존을 구현 | 20장, 23장 |
+| 2026-07-02 | System Administrator에 한해 비운영 환경에서 검수 사용자 전환을 허용 | 실제 Microsoft 로그인 기반을 유지하면서도 기능 검수 효율을 확보하기 위함 | 20장, 27장 |
+| 2026-07-02 | 로그인 상태 유지는 MSAL cache와 silent token acquisition 기준으로 제공 | Microsoft 보안 정책을 우회하지 않으면서 반복 인증 부담을 줄이기 위함 | 20장, 27장 |
 
 ## 26. 용어 사전
 
@@ -1111,7 +1140,7 @@ Excel 출력 대상 후보:
 | Item | Item 기준값 | UL67, UL891, UL508A, IEC, LLP, RPP |
 | QR | 패널 추적용 식별 수단 | 시스템 생성 기준과 현장 부착 기준 구분 |
 | Product Tag | 외함 첫 입고 시 부착하는 현장 태그 | IQC 적합 후 QR 부착 |
-| 내 업무 | 내가 처리해야 하는 업무 | 시작 전/진행 중/완료 |
+| 내 업무 | 내가 처리해야 하는 업무 | 시작 전/진행 중/완료/취소 |
 | 알림 | 처리할 필요는 없지만 알아야 하는 정보 | 읽음/읽지 않음 |
 | 긴급/차단 알림 | 업무 진행이 막히는 상황 알림 | Pending List 연결 |
 | Pending List | 부적합, PUNCH, 제조 중단, 기타 이슈 공통 관리 | 조치 담당 부서 사용 |
@@ -1140,8 +1169,17 @@ Codex는 새 TASK 시작 시 다음 원칙을 따른다.
 - QR 기준을 임의로 변경하지 않는다.
 - 공식 명칭은 EMI 프로젝트 통합관리시스템으로 쓴다.
 - 시스템명을 특정 품질관리 약어로 부르지 않는다.
+- TASK 종료 시 최종 리뷰에서 P0/P1/P2가 없고 필수 테스트가 통과하면, commit/PR 전에 docs/00-product-roadmap.md를 현재 구현 결과에 맞게 갱신한다.
+- roadmap 갱신 대상은 현재까지 개발된 기능, 향후 로드맵 상태, 추적 대상 리스트, Decision Log다.
+- TASK 완료 내용을 roadmap에 반영하지 않은 채 PR을 게시하지 않는다.
+- 단, 작은 hotfix나 문서 범위가 명확히 별도인 경우에는 완료 보고에 제외 사유를 명시한다.
 - 백엔드 스택 전환을 제안하거나 수행하지 않는다.
 - 코드 네임스페이스/솔루션명 리네이밍을 제안하거나 수행하지 않는다.
+- 검수 사용자 전환은 Development/Testing/UAT에서만 사용하고 Production/Staging에서는 활성화하지 않는다.
+- 검수 사용자 전환은 실제 Microsoft 로그인 사용자 중 System Administrator에게만 허용한다.
+- 검수 사용자 전환은 dev user persona 대상 검수 편의 기능이며 실제 Entra 사용자 impersonation으로 확장하지 않는다.
+- 로그인 상태 유지는 MSAL cache와 Microsoft Entra SSO 정책 범위에서만 제공하고 MFA, 조건부 액세스, sign-in frequency를 우회하지 않는다.
+- token을 앱 코드에서 직접 localStorage/sessionStorage에 저장하지 않는다.
 - 사용자-facing 추적 단위는 “패널” 단독 표기를 사용한다.
 - “제품/패널” 병기 표현을 새로 추가하지 않는다.
 - 진행률 계산식은 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수 기준을 따른다.

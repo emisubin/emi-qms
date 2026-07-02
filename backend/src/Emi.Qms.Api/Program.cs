@@ -42,7 +42,7 @@ builder.Services.AddSingleton<ProductionPlanningStore>();
 builder.Services.AddSingleton<SystemHolidayStore>();
 builder.Services.AddSingleton<WorkflowStore>();
 builder.Services.AddHttpClient<IKoreanHolidayProvider, OfficialKoreanHolidayProvider>();
-builder.Services.AddQmsAuthorizationFoundation();
+builder.Services.AddQmsAuthorizationFoundation(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
 
@@ -52,6 +52,10 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
 DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
     DevelopmentFeaturePolicy.EvaluateDevelopmentDataSeeding(app.Environment, app.Configuration),
     app.Environment);
+DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
+    DevelopmentFeaturePolicy.EvaluateAdminUserSwitch(app.Environment, app.Configuration),
+    app.Environment);
+QmsAuthenticationModePolicy.ThrowIfInvalidConfiguration(app.Environment, app.Configuration);
 
 app.UseExceptionHandler(exceptionApp =>
 {
@@ -69,6 +73,7 @@ app.UseExceptionHandler(exceptionApp =>
 
 app.UseCors("FrontendDevelopment");
 app.UseAuthentication();
+app.UseMiddleware<AdminUserSwitchGuardMiddleware>();
 app.UseAuthorization();
 
 if (builder.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup")

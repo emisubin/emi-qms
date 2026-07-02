@@ -71,24 +71,27 @@ public sealed class DevelopmentIdentitySeeder(
             ('10000000-0000-0000-0000-000000000010', 'materials', 'Materials')
         on conflict (code) do update set name = excluded.name;
 
-        insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+        insert into qms_users (id, development_user_key, display_name, department_id, is_active, auth_provider, entra_object_id, email)
         values
-            ('50000000-0000-0000-0000-000000000001', 'dev-admin', 'Dev System Administrator', '10000000-0000-0000-0000-000000000001', true),
-            ('50000000-0000-0000-0000-000000000002', 'dev-sales', 'Dev Sales User', '10000000-0000-0000-0000-000000000002', true),
-            ('50000000-0000-0000-0000-000000000003', 'dev-production', 'Dev Production Planning User', '10000000-0000-0000-0000-000000000003', true),
-            ('50000000-0000-0000-0000-000000000004', 'dev-manufacturing', 'Dev Manufacturing User', '10000000-0000-0000-0000-000000000004', true),
-            ('50000000-0000-0000-0000-000000000005', 'dev-quality', 'Dev Quality User', '10000000-0000-0000-0000-000000000005', true),
-            ('50000000-0000-0000-0000-000000000006', 'dev-logistics', 'Dev Logistics User', '10000000-0000-0000-0000-000000000006', true),
-            ('50000000-0000-0000-0000-000000000007', 'dev-viewer', 'Dev Read Only User', '10000000-0000-0000-0000-000000000007', true),
-            ('50000000-0000-0000-0000-000000000008', 'dev-no-role', 'Dev User Without Role', '10000000-0000-0000-0000-000000000007', true),
-            ('50000000-0000-0000-0000-000000000009', 'dev-disabled', 'Dev Disabled User', '10000000-0000-0000-0000-000000000007', false),
-            ('50000000-0000-0000-0000-000000000010', 'dev-design', 'Dev Design User', '10000000-0000-0000-0000-000000000008', true),
-            ('50000000-0000-0000-0000-000000000011', 'dev-procurement', 'Dev Procurement User', '10000000-0000-0000-0000-000000000009', true),
-            ('50000000-0000-0000-0000-000000000012', 'dev-materials', 'Dev Materials User', '10000000-0000-0000-0000-000000000010', true)
+            ('50000000-0000-0000-0000-000000000001', 'dev-admin', 'Dev System Administrator', '10000000-0000-0000-0000-000000000001', true, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000002', 'dev-sales', 'Dev Sales User', '10000000-0000-0000-0000-000000000002', true, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000003', 'dev-production', 'Dev Production Planning User', '10000000-0000-0000-0000-000000000003', true, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000004', 'dev-manufacturing', 'Dev Manufacturing User', '10000000-0000-0000-0000-000000000004', true, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000005', 'dev-quality', 'Dev Quality User', '10000000-0000-0000-0000-000000000005', true, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000006', 'dev-logistics', 'Dev Logistics User', '10000000-0000-0000-0000-000000000006', true, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000007', 'dev-viewer', 'Dev Read Only User', '10000000-0000-0000-0000-000000000007', true, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000008', 'dev-no-role', 'Dev User Without Role', '10000000-0000-0000-0000-000000000007', true, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000009', 'dev-disabled', 'Dev Disabled User', '10000000-0000-0000-0000-000000000007', false, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000010', 'dev-design', 'Dev Design User', '10000000-0000-0000-0000-000000000008', true, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000011', 'dev-procurement', 'Dev Procurement User', '10000000-0000-0000-0000-000000000009', true, 'Dev', null, null),
+            ('50000000-0000-0000-0000-000000000012', 'dev-materials', 'Dev Materials User', '10000000-0000-0000-0000-000000000010', true, 'Dev', null, null)
         on conflict (development_user_key) do update
         set display_name = excluded.display_name,
             department_id = excluded.department_id,
-            is_active = excluded.is_active;
+            is_active = excluded.is_active,
+            auth_provider = 'Dev',
+            entra_object_id = null,
+            email = null;
 
         insert into projects (
             id,

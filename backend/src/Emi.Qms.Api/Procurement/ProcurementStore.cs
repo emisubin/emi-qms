@@ -118,7 +118,7 @@ public sealed class ProcurementStore(
         var where = "where p.deleted_at_utc is null and p.status <> 'Completed'";
         if (!string.IsNullOrWhiteSpace(search))
         {
-            where += " and (p.project_title ilike @search or p.customer_name ilike @search or p.project_code ilike @search or p.item ilike @search or exists (select 1 from project_procurement_items si where si.project_id = p.id and si.status = 'Active' and (si.order_item ilike @search or si.technical_owner ilike @search)))";
+            where += " and (p.project_title ilike @search or p.customer_name ilike @search or p.project_code ilike @search or p.item ilike @search or exists (select 1 from project_procurement_items si where si.project_id = p.id and si.status = 'Active' and (si.order_item ilike @search or si.supplier_name ilike @search or si.technical_owner ilike @search)))";
             command.Parameters.AddWithValue("search", $"%{search.Trim()}%");
         }
 
@@ -234,7 +234,7 @@ public sealed class ProcurementStore(
         command.CommandText = $"""
             select i.id, i.project_id, p.project_title, p.project_code, p.delivery_date, i.sequence_number,
                    i.source_project_text, i.source_project_code_text, i.standard_lead_time, i.order_item,
-                   i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
+                   i.supplier_name, i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
                    u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
                    i.source_group_sequence, i.row_match_key, i.status
@@ -493,7 +493,7 @@ public sealed class ProcurementStore(
         worksheet.Range(1, 1, 1, 10).Merge().Style.Font.Bold = true;
         worksheet.Cell(2, 1).Value = "구매정보는 필수 입력값이 없습니다. 일부 값만 입력해도 저장할 수 있습니다.";
         worksheet.Range(2, 1, 2, 10).Merge().Style.Font.Italic = true;
-        var headers = new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "기술 담당자", "발주일", "입고일", "출하일", "이슈사항", "입고 완료" };
+        var headers = new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "업체", "기술 담당자", "발주일", "입고예정일", "이슈사항", "입고 완료" };
         for (var i = 0; i < headers.Length; i++)
         {
             worksheet.Cell(3, i + 1).Value = headers[i];
@@ -509,22 +509,17 @@ public sealed class ProcurementStore(
             worksheet.Cell(rowNumber, 2).Value = item.SourceProjectCodeText ?? projectCode ?? "";
             worksheet.Cell(rowNumber, 3).Value = item.StandardLeadTime ?? "";
             worksheet.Cell(rowNumber, 4).Value = item.OrderItem ?? "";
-            worksheet.Cell(rowNumber, 5).Value = item.TechnicalOwner ?? "";
+            worksheet.Cell(rowNumber, 5).Value = item.SupplierName ?? "";
+            worksheet.Cell(rowNumber, 6).Value = item.TechnicalOwner ?? "";
             if (item.OrderDate is not null)
             {
-                worksheet.Cell(rowNumber, 6).Value = item.OrderDate.Value.ToDateTime(TimeOnly.MinValue);
-                worksheet.Cell(rowNumber, 6).Style.DateFormat.Format = "yyyy-mm-dd";
+                worksheet.Cell(rowNumber, 7).Value = item.OrderDate.Value.ToDateTime(TimeOnly.MinValue);
+                worksheet.Cell(rowNumber, 7).Style.DateFormat.Format = "yyyy-mm-dd";
             }
 
             if (item.ExpectedReceiptDate is not null)
             {
-                worksheet.Cell(rowNumber, 7).Value = item.ExpectedReceiptDate.Value.ToDateTime(TimeOnly.MinValue);
-                worksheet.Cell(rowNumber, 7).Style.DateFormat.Format = "yyyy-mm-dd";
-            }
-
-            if (item.ProjectDeliveryDate is not null)
-            {
-                worksheet.Cell(rowNumber, 8).Value = item.ProjectDeliveryDate.Value.ToDateTime(TimeOnly.MinValue);
+                worksheet.Cell(rowNumber, 8).Value = item.ExpectedReceiptDate.Value.ToDateTime(TimeOnly.MinValue);
                 worksheet.Cell(rowNumber, 8).Style.DateFormat.Format = "yyyy-mm-dd";
             }
 
@@ -539,7 +534,7 @@ public sealed class ProcurementStore(
             var min = column switch
             {
                 4 or 9 => 20,
-                6 or 7 or 8 => 13,
+                7 or 8 => 13,
                 _ => 14
             };
             var max = column switch
@@ -824,7 +819,7 @@ public sealed class ProcurementStore(
                     continue;
                 }
 
-                var row = new ParsedProcurementExcelRow(0, 0, project.ProjectTitle, project.ProjectCode, update.StandardLeadTime, update.OrderItem, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, false, []);
+                var row = new ParsedProcurementExcelRow(0, 0, project.ProjectTitle, project.ProjectCode, update.StandardLeadTime, update.OrderItem, update.SupplierName, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, false, []);
                 var inserted = await InsertItemAsync(connection, transaction, project.ProjectId, row, changedByUserId, cancellationToken, nextSequence++);
                 foreach (var change in CollectNewItemChanges(inserted))
                 {
@@ -868,6 +863,7 @@ public sealed class ProcurementStore(
     {
         return string.IsNullOrWhiteSpace(update.StandardLeadTime)
             && string.IsNullOrWhiteSpace(update.OrderItem)
+            && string.IsNullOrWhiteSpace(update.SupplierName)
             && string.IsNullOrWhiteSpace(update.TechnicalOwner)
             && update.OrderDate is null
             && update.ExpectedReceiptDate is null
@@ -983,6 +979,7 @@ public sealed class ProcurementStore(
                 SourceProjectCodeText = missing.SourceProjectCodeText,
                 StandardLeadTime = missing.StandardLeadTime,
                 OrderItem = missing.OrderItem,
+                SupplierName = missing.SupplierName,
                 TechnicalOwner = missing.TechnicalOwner,
                 OrderDate = missing.OrderDate,
                 ExpectedReceiptDate = missing.ExpectedReceiptDate,
@@ -1141,6 +1138,7 @@ public sealed class ProcurementStore(
             SourceProjectCodeText = row.SourceProjectCodeText,
             StandardLeadTime = row.StandardLeadTime,
             OrderItem = row.OrderItem,
+            SupplierName = row.SupplierName,
             TechnicalOwner = row.TechnicalOwner,
             OrderDate = row.OrderDate,
             ExpectedReceiptDate = row.ExpectedReceiptDate,
@@ -1186,6 +1184,7 @@ public sealed class ProcurementStore(
             row.SourceProjectCodeText,
             row.StandardLeadTime,
             row.OrderItem,
+            row.SupplierName,
             row.TechnicalOwner,
             row.OrderDate,
             row.ExpectedReceiptDate,
@@ -1217,6 +1216,7 @@ public sealed class ProcurementStore(
             SourceProjectCodeText = item.SourceProjectCodeText,
             StandardLeadTime = item.StandardLeadTime,
             OrderItem = item.OrderItem,
+            SupplierName = item.SupplierName,
             TechnicalOwner = item.TechnicalOwner,
             OrderDate = item.OrderDate,
             ExpectedReceiptDate = item.ExpectedReceiptDate,
@@ -1339,7 +1339,7 @@ public sealed class ProcurementStore(
         command.CommandText = """
             select i.id, i.project_id, p.project_title, p.project_code, p.delivery_date, i.sequence_number,
                    i.source_project_text, i.source_project_code_text, i.standard_lead_time, i.order_item,
-                   i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
+                   i.supplier_name, i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
                    u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
                    i.source_group_sequence, i.row_match_key, i.status
@@ -1377,7 +1377,7 @@ public sealed class ProcurementStore(
         command.CommandText = """
             select i.id, i.project_id, p.project_title, p.project_code, p.delivery_date, i.sequence_number,
                    i.source_project_text, i.source_project_code_text, i.standard_lead_time, i.order_item,
-                   i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
+                   i.supplier_name, i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
                    u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
                    i.source_group_sequence, i.row_match_key, i.status
@@ -1411,7 +1411,7 @@ public sealed class ProcurementStore(
         command.CommandText = """
             select i.id, i.project_id, p.project_title, p.project_code, p.delivery_date, i.sequence_number,
                    i.source_project_text, i.source_project_code_text, i.standard_lead_time, i.order_item,
-                   i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
+                   i.supplier_name, i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
                    u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
                    i.source_group_sequence, i.row_match_key, i.status
@@ -1455,14 +1455,14 @@ public sealed class ProcurementStore(
         command.CommandText = """
             insert into project_procurement_items (
                 id, project_id, sequence_number, source_project_text, source_project_code_text,
-                standard_lead_time, order_item, technical_owner, order_date, expected_receipt_date,
+                standard_lead_time, order_item, supplier_name, technical_owner, order_date, expected_receipt_date,
                 issue_note, receipt_completed, receipt_completed_at_utc,
                 receipt_completed_by_user_id, receipt_completion_note, row_version,
                 source_excel_row_number, source_group_sequence, row_match_key,
                 source_type, is_confirmed, created_by_user_id, updated_by_user_id)
             values (
                 @id, @project_id, @sequence_number, @source_project_text, @source_project_code_text,
-                @standard_lead_time, @order_item, @technical_owner, @order_date, @expected_receipt_date,
+                @standard_lead_time, @order_item, @supplier_name, @technical_owner, @order_date, @expected_receipt_date,
                 @issue_note, @receipt_completed, @receipt_completed_at_utc,
                 @receipt_completed_by_user_id, @receipt_completion_note, 1,
                 @source_excel_row_number, @source_group_sequence, @row_match_key,
@@ -1492,6 +1492,7 @@ public sealed class ProcurementStore(
             current.SourceProjectCodeText,
             ProcurementDomain.TrimToNull(update.StandardLeadTime),
             ProcurementDomain.TrimToNull(update.OrderItem),
+            ProcurementDomain.TrimToNull(update.SupplierName),
             ProcurementDomain.TrimToNull(update.TechnicalOwner),
             update.OrderDate,
             update.ExpectedReceiptDate,
@@ -1517,6 +1518,7 @@ public sealed class ProcurementStore(
         Guid? completedBy = completed ? changedByUserId : null;
         var standardLeadTime = keepExistingWhenNull && row.StandardLeadTime is null ? current.StandardLeadTime : row.StandardLeadTime;
         var orderItem = keepExistingWhenNull && row.OrderItem is null ? current.OrderItem : row.OrderItem;
+        var supplierName = keepExistingWhenNull && row.SupplierName is null ? current.SupplierName : row.SupplierName;
         var technicalOwner = keepExistingWhenNull && row.TechnicalOwner is null ? current.TechnicalOwner : row.TechnicalOwner;
         var orderDate = keepExistingWhenNull && row.OrderDate is null ? current.OrderDate : row.OrderDate;
         var expectedReceiptDate = keepExistingWhenNull && row.ExpectedReceiptDate is null ? current.ExpectedReceiptDate : row.ExpectedReceiptDate;
@@ -1528,6 +1530,7 @@ public sealed class ProcurementStore(
             update project_procurement_items
             set standard_lead_time = @standard_lead_time,
                 order_item = @order_item,
+                supplier_name = @supplier_name,
                 technical_owner = @technical_owner,
                 order_date = @order_date,
                 expected_receipt_date = @expected_receipt_date,
@@ -1549,6 +1552,7 @@ public sealed class ProcurementStore(
         command.Parameters.AddWithValue("id", current.ItemId);
         command.Parameters.AddWithValue("standard_lead_time", (object?)standardLeadTime ?? DBNull.Value);
         command.Parameters.AddWithValue("order_item", (object?)orderItem ?? DBNull.Value);
+        command.Parameters.AddWithValue("supplier_name", (object?)supplierName ?? DBNull.Value);
         command.Parameters.AddWithValue("technical_owner", (object?)technicalOwner ?? DBNull.Value);
         AddDateParameter(command, "order_date", orderDate);
         AddDateParameter(command, "expected_receipt_date", expectedReceiptDate);
@@ -1688,7 +1692,7 @@ public sealed class ProcurementStore(
 
     private static List<Change> CollectDirectChanges(ProcurementItemSnapshot current, ProcurementItemUpdateRequest update)
     {
-        var next = new ParsedProcurementExcelRow(0, current.SourceGroupSequence ?? 0, current.SourceProjectText, current.SourceProjectCodeText, update.StandardLeadTime, update.OrderItem, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, false, []);
+        var next = new ParsedProcurementExcelRow(0, current.SourceGroupSequence ?? 0, current.SourceProjectText, current.SourceProjectCodeText, update.StandardLeadTime, update.OrderItem, update.SupplierName, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, false, []);
         return CollectChanges(current, next, NormalizeUtc(update.ReceiptCompletedAtUtc), update.ReceiptCompletionNote, keepExistingWhenNull: false);
     }
 
@@ -1727,6 +1731,7 @@ public sealed class ProcurementStore(
         var changes = new List<Change>();
         AddText(changes, "StandardLeadTime", current.StandardLeadTime, row.StandardLeadTime, row.StandardLeadTime, keepExistingWhenNull);
         AddText(changes, "OrderItem", current.OrderItem, row.OrderItem, row.OrderItem, keepExistingWhenNull);
+        AddText(changes, "SupplierName", current.SupplierName, row.SupplierName, row.SupplierName, keepExistingWhenNull);
         AddText(changes, "TechnicalOwner", current.TechnicalOwner, row.TechnicalOwner, row.TechnicalOwner, keepExistingWhenNull);
         AddDate(changes, "OrderDate", current.OrderDate, row.OrderDate, keepExistingWhenNull);
         AddDate(changes, "ExpectedReceiptDate", current.ExpectedReceiptDate, row.ExpectedReceiptDate, keepExistingWhenNull);
@@ -1756,6 +1761,7 @@ public sealed class ProcurementStore(
         var changes = new List<Change>();
         AddNew(changes, "StandardLeadTime", item.StandardLeadTime);
         AddNew(changes, "OrderItem", item.OrderItem);
+        AddNew(changes, "SupplierName", item.SupplierName);
         AddNew(changes, "TechnicalOwner", item.TechnicalOwner);
         AddNew(changes, "OrderDate", item.OrderDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         AddNew(changes, "ExpectedReceiptDate", item.ExpectedReceiptDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
@@ -1817,19 +1823,20 @@ public sealed class ProcurementStore(
             reader.IsDBNull(8) ? null : reader.GetString(8),
             reader.IsDBNull(9) ? null : reader.GetString(9),
             reader.IsDBNull(10) ? null : reader.GetString(10),
-            reader.IsDBNull(11) ? null : reader.GetFieldValue<DateOnly>(11),
+            reader.IsDBNull(11) ? null : reader.GetString(11),
             reader.IsDBNull(12) ? null : reader.GetFieldValue<DateOnly>(12),
-            reader.IsDBNull(13) ? null : reader.GetString(13),
-            reader.GetBoolean(14),
-            reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
-            reader.IsDBNull(16) ? null : reader.GetGuid(16),
-            reader.IsDBNull(17) ? null : reader.GetString(17),
+            reader.IsDBNull(13) ? null : reader.GetFieldValue<DateOnly>(13),
+            reader.IsDBNull(14) ? null : reader.GetString(14),
+            reader.GetBoolean(15),
+            reader.IsDBNull(16) ? null : reader.GetFieldValue<DateTimeOffset>(16),
+            reader.IsDBNull(17) ? null : reader.GetGuid(17),
             reader.IsDBNull(18) ? null : reader.GetString(18),
-            reader.GetInt32(19),
-            reader.IsDBNull(20) ? null : reader.GetInt32(20),
+            reader.IsDBNull(19) ? null : reader.GetString(19),
+            reader.GetInt32(20),
             reader.IsDBNull(21) ? null : reader.GetInt32(21),
-            reader.IsDBNull(22) ? null : reader.GetString(22),
-            reader.GetString(23));
+            reader.IsDBNull(22) ? null : reader.GetInt32(22),
+            reader.IsDBNull(23) ? null : reader.GetString(23),
+            reader.GetString(24));
     }
 
     private static void AddItemParameters(NpgsqlCommand command, ProcurementItemSnapshot item, Guid userId)
@@ -1841,6 +1848,7 @@ public sealed class ProcurementStore(
         command.Parameters.AddWithValue("source_project_code_text", (object?)item.SourceProjectCodeText ?? DBNull.Value);
         command.Parameters.AddWithValue("standard_lead_time", (object?)item.StandardLeadTime ?? DBNull.Value);
         command.Parameters.AddWithValue("order_item", (object?)item.OrderItem ?? DBNull.Value);
+        command.Parameters.AddWithValue("supplier_name", (object?)item.SupplierName ?? DBNull.Value);
         command.Parameters.AddWithValue("technical_owner", (object?)item.TechnicalOwner ?? DBNull.Value);
         AddDateParameter(command, "order_date", item.OrderDate);
         AddDateParameter(command, "expected_receipt_date", item.ExpectedReceiptDate);

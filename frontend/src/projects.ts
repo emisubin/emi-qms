@@ -42,6 +42,7 @@ export interface ProjectExcelPreviewRow {
   salesAmount: number | null;
   currencyCode: string | null;
   deliveryLocation: string | null;
+  fatRequired: boolean | null;
   salesOwnerText: string | null;
   salesOwnerUserId: string | null;
   salesOwnerName: string | null;
@@ -65,6 +66,7 @@ export interface ProjectListItem {
   salesOwnerName: string;
   packagingMethod: PackagingMethod | null;
   deliveryLocation: string | null;
+  fatRequired: boolean;
   status: ProjectStatus;
   projectWorkStatus: ProjectWorkStatus;
   projectProgressPercent: number | null;
@@ -204,6 +206,7 @@ export interface CreateProjectRequest {
   salesAmount: number | null;
   currencyCode: string | null;
   deliveryLocation: string | null;
+  fatRequired: boolean;
 }
 
 export interface UpdateProjectRequest {
@@ -217,6 +220,7 @@ export interface UpdateProjectRequest {
   salesAmount: number | null;
   currencyCode: string | null;
   deliveryLocation: string | null;
+  fatRequired: boolean;
   reason: string;
 }
 
@@ -425,6 +429,7 @@ export interface ProcurementItem {
   sourceProjectCodeText: string | null;
   standardLeadTime: string | null;
   orderItem: string | null;
+  supplierName: string | null;
   technicalOwner: string | null;
   orderDate: string | null;
   expectedReceiptDate: string | null;
@@ -448,6 +453,7 @@ export interface ProcurementItemUpdateRequest {
   expectedRowVersion: number | null;
   standardLeadTime: string | null;
   orderItem: string | null;
+  supplierName: string | null;
   technicalOwner: string | null;
   orderDate: string | null;
   expectedReceiptDate: string | null;
@@ -525,6 +531,7 @@ export interface ProcurementExcelPreviewRow {
   sourceProjectCodeText: string | null;
   standardLeadTime: string | null;
   orderItem: string | null;
+  supplierName: string | null;
   technicalOwner: string | null;
   orderDate: string | null;
   expectedReceiptDate: string | null;
@@ -827,6 +834,7 @@ export interface ProductionPlanningExcelPreviewRow {
   templateStepId: string | null;
   stepName: string | null;
   isCustomStep: boolean;
+  isRequired: boolean | null;
   plannedDate: string | null;
   note: string | null;
   procurementAssigneeText: string | null;

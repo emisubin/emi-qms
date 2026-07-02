@@ -127,6 +127,7 @@ public sealed class ProcurementApiTests
                 {
                     new { standardLeadTime = "4W" },
                     new { orderItem = "Cable" },
+                    new { supplierName = "Vendor A" },
                     new { technicalOwner = "Engineer A" },
                     new { orderDate = "2026-07-01" },
                     new { expectedReceiptDate = "2026-07-05" },
@@ -140,16 +141,17 @@ public sealed class ProcurementApiTests
 
         var procurement = await ReadProcurementAsync(procurementClient, projectId);
         var items = procurement.RootElement.GetProperty("items").EnumerateArray().ToList();
-        Assert.Equal(7, items.Count);
+        Assert.Equal(8, items.Count);
         Assert.Equal("2026-10-10", procurement.RootElement.GetProperty("projectDeliveryDate").GetString());
         Assert.Equal("4W", items[0].GetProperty("standardLeadTime").GetString());
         Assert.Equal("Cable", items[1].GetProperty("orderItem").GetString());
-        Assert.Equal("Engineer A", items[2].GetProperty("technicalOwner").GetString());
-        Assert.Equal("2026-07-01", items[3].GetProperty("orderDate").GetString());
-        Assert.Equal("2026-07-05", items[4].GetProperty("expectedReceiptDate").GetString());
-        Assert.Equal("2026-10-10", items[4].GetProperty("shipmentDisplayDate").GetString());
-        Assert.Equal("확인 필요", items[5].GetProperty("issueNote").GetString());
-        Assert.True(items[6].GetProperty("receiptCompleted").GetBoolean());
+        Assert.Equal("Vendor A", items[2].GetProperty("supplierName").GetString());
+        Assert.Equal("Engineer A", items[3].GetProperty("technicalOwner").GetString());
+        Assert.Equal("2026-07-01", items[4].GetProperty("orderDate").GetString());
+        Assert.Equal("2026-07-05", items[5].GetProperty("expectedReceiptDate").GetString());
+        Assert.Equal("2026-10-10", items[5].GetProperty("shipmentDisplayDate").GetString());
+        Assert.Equal("확인 필요", items[6].GetProperty("issueNote").GetString());
+        Assert.True(items[7].GetProperty("receiptCompleted").GetBoolean());
 
         var first = items[0];
         var edit = await procurementClient.PatchAsJsonAsync(
@@ -336,8 +338,8 @@ public sealed class ProcurementApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         var projectId = await CreateProjectAsync(salesClient, "PROC-EXCEL", "Proc Excel");
         var firstFile = CreateProcurementExcel("Proc Excel", "PROC-EXCEL",
-            ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Owner A", "2026-07-01", "2026-07-10", "B,C 32면 홀딩", "First", "Y"],
-            ["", "", "5W", "Cable", "Owner B", "2026.07.02", "2026.07.11", "Text shipment", "", ""],
+            ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Vendor X", "Owner A", "2026-07-01", "2026-07-10", "First", "Y"],
+            ["", "", "5W", "Cable", "", "Owner B", "2026.07.02", "2026.07.11", "", ""],
             [" ", "", "", "", "", "", "", "", "", ""]);
 
         var preview = await PreviewExcelAsync(procurementClient, firstFile, "procurement.xlsx");
@@ -349,6 +351,7 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.OK, apply.StatusCode);
         var saved = await ReadProcurementAsync(procurementClient, projectId);
         Assert.Equal(2, saved.RootElement.GetProperty("items").GetArrayLength());
+        Assert.Equal("Vendor X", saved.RootElement.GetProperty("items")[0].GetProperty("supplierName").GetString());
         Assert.Equal("2026-07-10", saved.RootElement.GetProperty("items")[0].GetProperty("expectedReceiptDate").GetString());
         Assert.Equal("2026-10-10", saved.RootElement.GetProperty("items")[0].GetProperty("shipmentDisplayDate").GetString());
         Assert.DoesNotContain(saved.RootElement.GetProperty("items")[0].EnumerateObject(), property => property.NameEquals("shipmentText"));
@@ -359,8 +362,8 @@ public sealed class ProcurementApiTests
         Assert.Equal(0, duplicatePreview.RootElement.GetProperty("newCount").GetInt32() + duplicatePreview.RootElement.GetProperty("changedCount").GetInt32());
 
         var secondFile = CreateProcurementExcel("Proc Excel", "PROC-EXCEL",
-            ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Owner A", "2026-07-01", "2026-07-10", "B,C 32면 홀딩", "First changed", "Y"],
-            ["", "", "6W", "New item", "Owner C", "2026/07/03", "2026/07/12", "New shipment", "New", "N"]);
+            ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Vendor X", "Owner A", "2026-07-01", "2026-07-10", "First changed", "Y"],
+            ["", "", "6W", "New item", "", "Owner C", "2026/07/03", "2026/07/12", "New", "N"]);
         var reuploadPreview = await PreviewExcelAsync(procurementClient, secondFile, "procurement-updated.xlsx");
         Assert.Equal(1, reuploadPreview.RootElement.GetProperty("changedCount").GetInt32());
         Assert.Equal(1, reuploadPreview.RootElement.GetProperty("newCount").GetInt32());
@@ -409,7 +412,7 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.BadRequest, blocked.StatusCode);
 
         var badDate = CreateProcurementExcel("Exact Procurement Match", "PROC-MATCH",
-            ["Exact Procurement Match", "PROC-MATCH", "", "Bad date", "", "06/07/2026", "", "", "", ""]);
+            ["Exact Procurement Match", "PROC-MATCH", "", "Bad date", "", "", "06/07/2026", "", "", ""]);
         var badDatePreview = await PreviewExcelAsync(procurementClient, badDate, "bad-date.xlsx");
         Assert.Equal(1, badDatePreview.RootElement.GetProperty("errorCount").GetInt32());
 
@@ -445,8 +448,8 @@ public sealed class ProcurementApiTests
         var projectId = await CreateProjectAsync(salesClient, "PROC-PARTIAL", "Proc Partial");
 
         var mixedFile = CreateProcurementExcel("Proc Partial", "PROC-PARTIAL",
-            ["Proc Partial", "PROC-PARTIAL", "4W", "Saveable Item", "Owner A", "", "2026-07-10", "", "", ""],
-            ["Missing Project", "NO-SUCH-PARTIAL", "5W", "Blocked Item", "Owner B", "", "2026-07-11", "", "", ""]);
+            ["Proc Partial", "PROC-PARTIAL", "4W", "Saveable Item", "", "Owner A", "", "2026-07-10", "", ""],
+            ["Missing Project", "NO-SUCH-PARTIAL", "5W", "Blocked Item", "", "Owner B", "", "2026-07-11", "", ""]);
 
         var preview = await PreviewExcelAsync(procurementClient, mixedFile, "partial.xlsx");
         Assert.Equal(1, preview.RootElement.GetProperty("newCount").GetInt32());
@@ -517,16 +520,16 @@ public sealed class ProcurementApiTests
         var worksheet = workbook.Worksheet("Procurement Plan");
         Assert.Equal("PS 사업부 PJT 발주 관리", worksheet.Cell(1, 1).GetString());
         Assert.Contains("필수 입력값이 없습니다", worksheet.Cell(2, 1).GetString());
-        Assert.Equal(new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "기술 담당자", "발주일", "입고일", "출하일", "이슈사항", "입고 완료" },
+        Assert.Equal(new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "업체", "기술 담당자", "발주일", "입고예정일", "이슈사항", "입고 완료" },
             Enumerable.Range(1, 10).Select(column => worksheet.Cell(3, column).GetString()).ToArray());
         Assert.Equal("Proc Template", worksheet.Cell(4, 1).GetString());
         Assert.Equal("Relay", worksheet.Cell(4, 4).GetString());
-        Assert.Equal("2026-10-10", worksheet.Cell(4, 8).GetFormattedString());
+        Assert.Equal("none", worksheet.Cell(4, 9).GetString());
         Assert.Equal("Y", worksheet.Cell(4, 10).GetString());
         Assert.True(worksheet.SheetView.SplitRow >= 3);
         Assert.True(worksheet.AutoFilter.IsEnabled);
         Assert.True(worksheet.Column(4).Width >= 18);
-        Assert.True(worksheet.Column(9).Width >= worksheet.Column(6).Width);
+        Assert.True(worksheet.Column(10).Width >= worksheet.Column(6).Width);
         for (var column = 1; column <= 10; column++)
         {
             Assert.True(worksheet.Column(column).Width >= 12);
@@ -803,7 +806,7 @@ public sealed class ProcurementApiTests
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Procurement Plan");
         worksheet.Cell(1, 1).Value = "PS 사업부 PJT 발주 관리";
-        var headers = new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "기술 담당자", "발주일", "입고일", "출하일", "이슈사항", "입고 완료" };
+        var headers = new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "업체", "기술 담당자", "발주일", "입고예정일", "이슈사항", "입고 완료" };
         for (var column = 0; column < headers.Length; column++)
         {
             worksheet.Cell(3, column + 1).Value = headers[column];
@@ -811,7 +814,7 @@ public sealed class ProcurementApiTests
 
         for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
         {
-            var row = rows[rowIndex];
+            var row = NormalizeProcurementExcelRow(rows[rowIndex]);
             if (rowIndex == 0 && string.IsNullOrWhiteSpace(row[0]))
             {
                 row[0] = projectTitle;
@@ -828,6 +831,11 @@ public sealed class ProcurementApiTests
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    private static string[] NormalizeProcurementExcelRow(string[] row)
+    {
+        return row;
     }
 
     private static byte[] CreateZipWithEntry(string entryName)

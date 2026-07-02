@@ -64,7 +64,7 @@ public static class ProcurementEndpointExtensions
 
             if (result.Status == ProcurementMutationStatus.Success && result.Value is not null)
             {
-                await workflowStore.CompleteStageAsync(
+                await workflowStore.SyncStageWorkItemsAfterSaveAsync(
                     projectId,
                     WorkflowStageCodes.ProcurementInfo,
                     "Project",

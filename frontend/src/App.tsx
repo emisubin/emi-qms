@@ -4,6 +4,7 @@ import {
   applyPanelInformationExcel,
   applyProductionPlanningExcel,
   applyProjectExcel,
+  applyProjectProductionPlanningExcel,
   applyProcurementExcel,
   changePanelCount,
   changeProjectStatus,
@@ -49,6 +50,7 @@ import {
   previewPanelInformationExcel,
   previewProductionPlanningExcel,
   previewProjectExcel,
+  previewProjectProductionPlanningExcel,
   previewProcurementExcel,
   purgeAllDeletedProjects,
   purgeDeletedProject,
@@ -144,7 +146,7 @@ type LoadState<T> =
   | { kind: 'not-found'; message: string }
   | { kind: 'error'; message: string };
 
-type ProjectDetailSection = 'panels' | 'production-planning' | 'procurement';
+type ProjectDetailSection = 'workflow' | 'panels' | 'production-planning' | 'procurement';
 
 type ShellBadgeState = {
   requestedWorkCount: number;
@@ -163,6 +165,7 @@ type ProjectFormValues = {
   salesAmount: string;
   currencyCode: string;
   deliveryLocation: string;
+  fatRequired: string;
   reason: string;
 };
 
@@ -179,6 +182,7 @@ const developmentUsers = [
   'dev-materials',
   'dev-disabled'
 ];
+const developmentUserStorageKey = 'emi-qms-development-user-key';
 
 const emptyForm: ProjectFormValues = {
   customerName: '',
@@ -192,6 +196,7 @@ const emptyForm: ProjectFormValues = {
   salesAmount: '',
   currencyCode: 'KRW',
   deliveryLocation: '',
+  fatRequired: 'false',
   reason: ''
 };
 
@@ -261,6 +266,47 @@ function initialViewFromLocation(): View {
   return { kind: 'list' };
 }
 
+function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
+  if (!linkUrl) {
+    return { kind: 'detail', projectId };
+  }
+
+  try {
+    const url = new URL(linkUrl, window.location.origin);
+    if (url.pathname === '/materials/receipts') {
+      return { kind: 'detail', projectId, section: 'workflow' };
+    }
+
+    const productionPlanningEditMatch = url.pathname.match(/^\/projects\/([^/]+)\/production-planning\/edit$/);
+    if (productionPlanningEditMatch?.[1]) {
+      return { kind: 'production-planning-edit', projectId: productionPlanningEditMatch[1] };
+    }
+
+    const panelInformationEditMatch = url.pathname.match(/^\/projects\/([^/]+)\/panel-information\/edit$/);
+    if (panelInformationEditMatch?.[1]) {
+      return { kind: 'panel-info-edit', projectId: panelInformationEditMatch[1] };
+    }
+
+    const procurementEditMatch = url.pathname.match(/^\/projects\/([^/]+)\/procurement\/edit$/);
+    if (procurementEditMatch?.[1]) {
+      return { kind: 'procurement-edit', projectId: procurementEditMatch[1] };
+    }
+
+    const section = sectionFromQuery(url.searchParams.get('section'));
+    return { kind: 'detail', projectId, section };
+  } catch {
+    return { kind: 'detail', projectId };
+  }
+}
+
+function sectionFromQuery(value: string | null): ProjectDetailSection | undefined {
+  if (value === 'workflow' || value === 'production-planning' || value === 'procurement' || value === 'panels') {
+    return value;
+  }
+
+  return undefined;
+}
+
 function pathForView(view: View) {
   switch (view.kind) {
     case 'my-work':
@@ -293,11 +339,20 @@ function pathForView(view: View) {
 }
 
 function parseProjectDetailSection(value: string | null): ProjectDetailSection {
-  return value === 'production-planning' || value === 'procurement' ? value : 'panels';
+  return value === 'workflow' || value === 'production-planning' || value === 'procurement' ? value : 'panels';
 }
 
 export function App() {
-  const [developmentUserKey, setDevelopmentUserKey] = useState(defaultDevelopmentUserKey ?? 'dev-sales');
+  const [developmentUserKey, setDevelopmentUserKey] = useState(() => {
+    if (typeof window === 'undefined') {
+      return defaultDevelopmentUserKey ?? 'dev-sales';
+    }
+
+    const stored = window.localStorage.getItem(developmentUserStorageKey);
+    return stored && developmentUsers.includes(stored)
+      ? stored
+      : defaultDevelopmentUserKey ?? 'dev-sales';
+  });
   const [view, setViewState] = useState<View>(() => initialViewFromLocation());
   const [health, setHealth] = useState<LoadState<ReadyHealth>>({ kind: 'loading' });
   const [currentUser, setCurrentUser] = useState<LoadState<CurrentUser>>({ kind: 'loading' });
@@ -390,7 +445,7 @@ export function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">EMI</p>
-            <h1>프로젝트·제품 패널 관리</h1>
+            <h1>프로젝트·패널 관리</h1>
           </div>
           <div className="topbar-actions">
             {canUpdateMaterialReceipt ? <button type="button" onClick={() => setView({ kind: 'materials-receipts' })}>자재</button> : null}
@@ -399,7 +454,9 @@ export function App() {
               <select
                 value={developmentUserKey}
                 onChange={(event) => {
-                  setDevelopmentUserKey(event.target.value);
+                  const nextUserKey = event.target.value;
+                  window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
+                  setDevelopmentUserKey(nextUserKey);
                   setView({ kind: 'list' });
                 }}
               >
@@ -432,7 +489,7 @@ export function App() {
       {view.kind === 'my-work' ? (
         <MyWorkPage
           developmentUserKey={developmentUserKey}
-          onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
+          onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
           onBadgeRefresh={refreshShellBadges}
         />
       ) : null}
@@ -576,7 +633,7 @@ export function App() {
       {view.kind === 'notifications' ? (
         <NotificationsPage
           developmentUserKey={developmentUserKey}
-          onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
+          onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
           onBadgeRefresh={refreshShellBadges}
         />
       ) : null}
@@ -683,7 +740,7 @@ function MyWorkPage({
   onBadgeRefresh
 }: {
   developmentUserKey: string;
-  onOpenProject: (projectId: string) => void;
+  onOpenProject: (projectId: string, linkUrl?: string | null) => void;
   onBadgeRefresh: () => void;
 }) {
   const [summaryState, setSummaryState] = useState<LoadState<MyWorkSummary>>({ kind: 'loading' });
@@ -691,6 +748,7 @@ function MyWorkPage({
   const [assignedProjectsState, setAssignedProjectsState] = useState<LoadState<MyAssignedProjectsResponse>>({ kind: 'loading' });
   const [activeTab, setActiveTab] = useState<MyWorkTab>('Requested');
   const [message, setMessage] = useState('');
+  const [movingWorkItemId, setMovingWorkItemId] = useState<string | null>(null);
   const isMobile = useIsMobileViewport();
 
   const load = useCallback(() => {
@@ -740,6 +798,25 @@ function MyWorkPage({
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '업무 상태 변경에 실패했습니다.');
     }
+  }
+
+  async function openWorkItem(item: MyWorkItem) {
+    setMessage('');
+    if (item.status === 'Requested') {
+      setMovingWorkItemId(item.workItemId);
+      try {
+        await startMyWorkItem(developmentUserKey, item.workItemId);
+        onBadgeRefresh();
+        onOpenProject(item.projectId, item.linkUrl);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : '업무 시작 기록에 실패했습니다.');
+      } finally {
+        setMovingWorkItemId(null);
+      }
+      return;
+    }
+
+    onOpenProject(item.projectId, item.linkUrl);
   }
 
   const summary = summaryState.kind === 'ready' ? summaryState.data : null;
@@ -819,7 +896,7 @@ function MyWorkPage({
                       <strong>{group.projectTitle}</strong>
                       <small>{group.projectCode} · Item {group.projectItem} · 납기일 {group.projectDeliveryDate ? formatDate(group.projectDeliveryDate) : '-'} · 업무 {group.items.length}건</small>
                     </span>
-                    <button type="button" onClick={() => onOpenProject(group.projectId)}>프로젝트로 이동</button>
+                    <button type="button" onClick={() => onOpenProject(group.projectId, group.items[0]?.linkUrl)}>프로젝트로 이동</button>
                   </div>
                   {isMobile ? (
                     <div className="workflow-card-list">
@@ -828,14 +905,16 @@ function MyWorkPage({
                           <div className="subsection-header">
                             <div>
                               <strong>{item.title}</strong>
-                              <small>{item.workflowStageName}</small>
+                              <small>{displayWorkflowStageName(item.workflowStageCode, item.workflowStageName)}</small>
                             </div>
                             <StatusBadge label={item.priority === 'Blocking' ? '긴급' : item.statusLabel} tone={workItemStatusTone(item)} />
                           </div>
                           <p>{item.description ?? '처리할 업무가 있습니다.'}</p>
                           <div className="button-row">
-                            {item.status === 'Requested' ? <button type="button" onClick={() => runAction(item.workItemId, 'start')}>시작</button> : null}
-                            {item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>완료</button> : null}
+                            <button type="button" disabled={movingWorkItemId === item.workItemId} onClick={() => void openWorkItem(item)}>
+                              {movingWorkItemId === item.workItemId ? '이동 중' : '이동'}
+                            </button>
+                            {item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
                           </div>
                         </article>
                       ))}
@@ -855,14 +934,16 @@ function MyWorkPage({
                         <tbody>
                           {group.items.map((item) => (
                             <tr key={item.workItemId}>
-                              <td><span className="workflow-stage-badge" data-department={departmentForStageCode(item.workflowStageCode)}>{item.workflowStageName}</span></td>
+                              <td><span className="workflow-stage-badge" data-department={departmentForStageCode(item.workflowStageCode)}>{displayWorkflowStageName(item.workflowStageCode, item.workflowStageName)}</span></td>
                               <td>{item.title}</td>
                               <td><StatusBadge label={item.priority === 'Blocking' ? '긴급' : item.statusLabel} tone={workItemStatusTone(item)} /></td>
                               <td>{formatDateTime(item.createdAtUtc)}</td>
                               <td>
                                 <div className="button-row">
-                                  {item.status === 'Requested' ? <button type="button" onClick={() => runAction(item.workItemId, 'start')}>시작</button> : null}
-                                  {item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>완료</button> : null}
+                                  <button type="button" disabled={movingWorkItemId === item.workItemId} onClick={() => void openWorkItem(item)}>
+                                    {movingWorkItemId === item.workItemId ? '이동 중' : '이동'}
+                                  </button>
+                                  {item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
                                 </div>
                               </td>
                             </tr>
@@ -895,7 +976,7 @@ function NotificationsPage({
   onBadgeRefresh
 }: {
   developmentUserKey: string;
-  onOpenProject: (projectId: string) => void;
+  onOpenProject: (projectId: string, linkUrl?: string | null) => void;
   onBadgeRefresh: () => void;
 }) {
   const [summaryState, setSummaryState] = useState<LoadState<NotificationSummary>>({ kind: 'loading' });
@@ -1003,7 +1084,7 @@ function NotificationsPage({
                     알림 {group.items.length}건 · 읽지 않음 {group.unreadCount}건
                   </small>
                 </span>
-                {group.projectId ? <button type="button" onClick={() => onOpenProject(group.projectId!)}>프로젝트로 이동</button> : null}
+                {group.projectId ? <button type="button" onClick={() => onOpenProject(group.projectId!, group.items[0]?.linkUrl)}>프로젝트로 이동</button> : null}
               </div>
               {isMobile ? (
                 <div className="workflow-card-list">
@@ -1018,6 +1099,7 @@ function NotificationsPage({
                       </div>
                       <p>{item.message}</p>
                       <div className="button-row">
+                        {item.projectId ? <button type="button" onClick={() => onOpenProject(item.projectId!, item.linkUrl)}>이동</button> : null}
                         {!item.readAtUtc ? <button type="button" onClick={() => read(item.notificationId)}>읽음</button> : null}
                       </div>
                     </article>
@@ -1044,6 +1126,7 @@ function NotificationsPage({
                           <td>{formatDateTime(item.createdAtUtc)}</td>
                           <td>
                             <div className="button-row">
+                              {item.projectId ? <button type="button" onClick={() => onOpenProject(item.projectId!, item.linkUrl)}>이동</button> : null}
                               {!item.readAtUtc ? <button type="button" onClick={() => read(item.notificationId)}>읽음</button> : null}
                             </div>
                           </td>
@@ -1667,6 +1750,7 @@ function ProjectExcelPreviewDesktop({ rows }: { rows: ProjectExcelPreviewRespons
           <span>{row.panelCount ?? '-'}</span>
           <span>{emptyDash(row.deliveryDate)}</span>
           <span>{formatPackagingMethod(row.packagingMethod)}</span>
+          <span>{row.fatRequired === null || row.fatRequired === undefined ? '-' : row.fatRequired ? '예' : '아니오'}</span>
           <span className={row.resultType === 'Error' || row.resultType === 'NeedsReview' ? 'negative-text' : undefined}>{projectExcelResultLabel(row.resultType)}</span>
           <small>{row.errorMessages.join(' ')}</small>
         </div>
@@ -1768,7 +1852,7 @@ function issueFieldText(row: ExcelIssueRow) {
   }
 
   if (problem.includes('입고일') || problem.includes('입고예정일')) {
-    return '입고일';
+    return '입고예정일';
   }
 
   if (problem.includes('발주일')) {
@@ -1796,7 +1880,7 @@ function issueInputText(row: ExcelIssueRow) {
     return row.sourceProjectText ?? row.projectTitle ?? '-';
   }
 
-  if (field === '입고일') {
+  if (field === '입고예정일') {
     return row.expectedReceiptDate ?? '-';
   }
 
@@ -1848,6 +1932,7 @@ function ProjectExcelPreviewMobile({ rows }: { rows: ProjectExcelPreviewResponse
             <div><dt>면수</dt><dd>{row.panelCount ?? '-'}</dd></div>
             <div><dt>납기일</dt><dd>{emptyDash(row.deliveryDate)}</dd></div>
             <div><dt>포장방식</dt><dd>{formatPackagingMethod(row.packagingMethod)}</dd></div>
+            <div><dt>FAT 필요 여부</dt><dd>{row.fatRequired === null || row.fatRequired === undefined ? '-' : row.fatRequired ? '예' : '아니오'}</dd></div>
             <div><dt>영업담당자</dt><dd>{emptyDash(row.salesOwnerName ?? row.salesOwnerText)}</dd></div>
             <div><dt>오류</dt><dd>{row.errorMessages.join(' ') || '-'}</dd></div>
           </dl>
@@ -1864,8 +1949,8 @@ function ProjectKpiGrid({ summary }: { summary: ProjectDashboardSummary }) {
       <DashboardKpiCard title="진행" value={summary.activeProjectCount} helperText="진행 프로젝트" variant="positive" />
       <DashboardKpiCard title="보류" value={summary.onHoldProjectCount} helperText="보류 프로젝트" variant="warning" />
       <DashboardKpiCard title="취소 프로젝트" value={summary.cancelledProjectCount} helperText="취소 프로젝트" />
-      <DashboardKpiCard title="제조 완료 프로젝트" value={summary.manufacturingCompletedProjectCount} helperText="모든 제품 제조 완료" />
-      <DashboardKpiCard title="검사 완료 프로젝트" value={summary.inspectionCompletedProjectCount} helperText="모든 제품 검사 완료" />
+      <DashboardKpiCard title="제조 완료 프로젝트" value={summary.manufacturingCompletedProjectCount} helperText="모든 패널 제조 완료" />
+      <DashboardKpiCard title="검사 완료 프로젝트" value={summary.inspectionCompletedProjectCount} helperText="모든 패널 검사 완료" />
     </div>
   );
 }
@@ -2228,7 +2313,7 @@ function ProjectDetailPage({
       .catch((error: unknown) => {
         const state = toLoadError<ProjectDetail>(error, '프로젝트 상세를 불러올 수 없습니다.');
         setProjectState(state);
-        setPanelInfoState(toLoadError(error, '제품·패널 목록을 불러올 수 없습니다.'));
+        setPanelInfoState(toLoadError(error, '설계 정보를 불러올 수 없습니다.'));
         setProductionPlanningState(toLoadError(error, '생산계획을 불러올 수 없습니다.'));
         setProcurementState(toLoadError(error, '구매정보를 불러올 수 없습니다.'));
         setWorkflowState(toLoadError(error, 'workflow 요약을 불러올 수 없습니다.'));
@@ -2346,11 +2431,20 @@ function ProjectDetailPage({
         <button
           type="button"
           role="tab"
+          aria-selected={activeDetailSection === 'workflow'}
+          className={activeDetailSection === 'workflow' ? 'secondary-button active' : 'secondary-button'}
+          onClick={() => selectDetailSection('workflow')}
+        >
+          Workflow
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={activeDetailSection === 'panels'}
           className={activeDetailSection === 'panels' ? 'secondary-button active' : 'secondary-button'}
           onClick={() => selectDetailSection('panels')}
         >
-          제품 목록
+          설계
         </button>
         <button
           type="button"
@@ -2371,6 +2465,12 @@ function ProjectDetailPage({
           구매
         </button>
       </div>
+
+      {activeDetailSection === 'workflow' ? (
+        <section className="subsection">
+          <p className="muted-text">현재 상세 화면에서는 설계, 생산관리, 구매 입력 화면을 제공합니다. 나머지 workflow 단계는 전용 입력 화면이 제공되기 전까지 이 요약에서 상태를 확인합니다.</p>
+        </section>
+      ) : null}
 
       {activeDetailSection === 'panels' ? (
         <PanelInformationSection
@@ -2475,6 +2575,11 @@ type PanelInformationRowForm = {
   sizeInputUnit: PanelInputUnit;
 };
 
+type PanelNameDuplicateGroup = {
+  name: string;
+  panelNumbers: string[];
+};
+
 function PanelInformationSection({
   project,
   state,
@@ -2500,7 +2605,7 @@ function PanelInformationSection({
     <section className="page-surface panel-info-section">
       <div className="subsection-header">
         <div>
-          <h3>제품·패널 목록</h3>
+          <h3>설계</h3>
           <span>{formatPackagingMethod(project.packagingMethod)}</span>
         </div>
         <div className="button-row">
@@ -2522,7 +2627,7 @@ function PanelInformationSection({
               inch
             </button>
           </div>
-          {canShowEdit ? <button type="button" className="primary-button" onClick={onEdit}>패널정보 수정</button> : null}
+          {canShowEdit ? <button type="button" className="primary-button" onClick={onEdit}>패널명·사이즈 수정</button> : null}
         </div>
       </div>
 
@@ -2557,6 +2662,7 @@ type ProcurementRowForm = {
   sourceProjectCodeText: string;
   standardLeadTime: string;
   orderItem: string;
+  supplierName: string;
   technicalOwner: string;
   orderDate: string;
   expectedReceiptDate: string;
@@ -2714,8 +2820,8 @@ function ProductionPlanningDashboardPage({
         <div className="button-row">
           <button type="button" onClick={onBack}>프로젝트 목록</button>
           {canUpdateProductionPlanning ? <button type="button" onClick={onOpenSettings}>생산계획 단계 설정</button> : null}
-          {canUpdateProductionPlanning ? <button type="button" onClick={downloadBulkTemplate}>생산계획 Excel 양식 다운로드</button> : null}
-          {canUpdateProductionPlanning ? <button type="button" className="primary-button" onClick={() => setShowExcelDialog(true)}>생산계획 Excel 업로드</button> : null}
+          {canUpdateProductionPlanning ? <button type="button" onClick={downloadBulkTemplate}>Excel 양식 다운로드</button> : null}
+          {canUpdateProductionPlanning ? <button type="button" className="primary-button" onClick={() => setShowExcelDialog(true)}>Excel 업로드</button> : null}
         </div>
       </div>
       {excelMessage ? <p role="alert" className={successMessage(excelMessage) ? 'success-text' : 'error-text'}>{excelMessage}</p> : null}
@@ -3263,10 +3369,12 @@ function defaultProcurementRequiredRows(): ProcurementRequiredItemSettingsRow[] 
 
 function ProductionPlanningExcelDialog({
   developmentUserKey,
+  projectContext,
   onClose,
   onApplied
 }: {
   developmentUserKey: string;
+  projectContext?: { projectId: string; projectTitle: string };
   onClose: () => void;
   onApplied: () => void;
 }) {
@@ -3285,7 +3393,9 @@ function ProductionPlanningExcelDialog({
     setIsPreviewing(true);
     setMessage('');
     try {
-      setPreview(await previewProductionPlanningExcel(developmentUserKey, file));
+      setPreview(projectContext
+        ? await previewProjectProductionPlanningExcel(developmentUserKey, projectContext.projectId, file)
+        : await previewProductionPlanningExcel(developmentUserKey, file));
     } catch (error) {
       handleFormError(error, () => undefined, setMessage);
     } finally {
@@ -3301,7 +3411,9 @@ function ProductionPlanningExcelDialog({
     setIsApplying(true);
     setMessage('');
     try {
-      const result = await applyProductionPlanningExcel(developmentUserKey, file, preview.fileSha256, reason.trim() || null);
+      const result = projectContext
+        ? await applyProjectProductionPlanningExcel(developmentUserKey, projectContext.projectId, file, preview.fileSha256, reason.trim() || null)
+        : await applyProductionPlanningExcel(developmentUserKey, file, preview.fileSha256, reason.trim() || null);
       setMessage(`저장 가능한 항목 ${result.appliedRowCount}건을 반영했습니다.`);
       onApplied();
     } catch (error) {
@@ -3317,7 +3429,10 @@ function ProductionPlanningExcelDialog({
     <DialogBackdrop ariaLabel="생산계획 Excel 업로드" onClose={onClose} closeDisabled={isPreviewing || isApplying}>
       <div className="dialog wide-dialog production-excel-dialog">
         <div className="subsection-header">
-          <h3>생산계획 Excel 업로드</h3>
+          <div>
+            <h3>생산계획 Excel 업로드</h3>
+            {projectContext ? <p className="muted-text">현재 프로젝트: {projectContext.projectTitle}</p> : null}
+          </div>
           <button type="button" onClick={onClose}>닫기</button>
         </div>
         <div className="toolbar">
@@ -3370,7 +3485,8 @@ function ProductionPlanningExcelPreview({ preview }: { preview: ProductionPlanni
                   <div><dt>프로젝트</dt><dd>{emptyDash(row.projectTitle)}</dd></div>
                   <div><dt>Code</dt><dd>{emptyDash(row.projectCode)}</dd></div>
                   <div><dt>Item</dt><dd>{emptyDash(row.productTypeCode)}</dd></div>
-                  <div><dt>계획 항목</dt><dd>{emptyDash(row.stepName)}{row.isCustomStep ? ' · 사용자 추가' : ''}</dd></div>
+                  <div><dt>생산단계</dt><dd>{emptyDash(row.stepName)}{row.isCustomStep ? ' · 사용자 추가' : ''}</dd></div>
+                  <div><dt>필수 여부</dt><dd>{row.isRequired === null || row.isRequired === undefined ? '-' : row.isRequired ? '예' : '아니오'}</dd></div>
                   <div><dt>예정일</dt><dd>{emptyDash(row.plannedDate)}</dd></div>
                   <div><dt>비고</dt><dd>{emptyDash(row.note)}</dd></div>
                   {section.kind === 'blocked' ? <div><dt>사유</dt><dd>{row.errorMessages.join(', ')}</dd></div> : null}
@@ -3395,14 +3511,10 @@ function ProductionPlanningExcelPreview({ preview }: { preview: ProductionPlanni
               <span>프로젝트</span>
               <span>Code</span>
               <span>Item</span>
-              <span>계획 항목</span>
+              <span>생산단계</span>
+              <span>필수 여부</span>
               <span>예정일</span>
               <span>비고</span>
-              <span>구매</span>
-              <span>생산관리</span>
-              <span>제조</span>
-              <span>품질</span>
-              <span>물류</span>
             </div>
             {section.rows.map((row) => (
               <div className="excel-preview-row-group" key={`${row.excelRowNumber}-${row.stepName}`}>
@@ -3412,13 +3524,9 @@ function ProductionPlanningExcelPreview({ preview }: { preview: ProductionPlanni
                   <span>{emptyDash(row.projectCode)}</span>
                   <span>{emptyDash(row.productTypeCode)}</span>
                   <span>{emptyDash(row.stepName)}{row.isCustomStep ? ' · 사용자 추가' : ''}</span>
+                  <span>{row.isRequired === null || row.isRequired === undefined ? '-' : row.isRequired ? '예' : '아니오'}</span>
                   <span>{emptyDash(row.plannedDate)}</span>
                   <span>{emptyDash(row.note)}</span>
-                  <span>{emptyDash(row.procurementAssigneeText)}</span>
-                  <span>{emptyDash(row.productionPlanningAssigneeText)}</span>
-                  <span>{emptyDash(row.manufacturingAssigneeText)}</span>
-                  <span>{emptyDash(row.qualityAssigneeText)}</span>
-                  <span>{emptyDash(row.logisticsAssigneeText)}</span>
                 </div>
                 {section.kind === 'blocked' ? (
                   <div className="excel-preview-row-reasons">
@@ -3711,6 +3819,7 @@ function ProductionPlanningEditPage({
   const [reason, setReason] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
+  const [showExcelDialog, setShowExcelDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -3893,9 +4002,21 @@ function ProductionPlanningEditPage({
         <div className="button-row">
           <button type="button" onClick={onBack}>상세</button>
           <button type="button" onClick={downloadTemplate} disabled={isDownloading || !selectedProductTypeId}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button>
+          <button type="button" onClick={() => setShowExcelDialog(true)} disabled={state.kind !== 'ready'}>Excel 업로드</button>
           <button type="button" className="primary-button" disabled={isSaving || state.kind !== 'ready' || hasInvalidProjectItem} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
         </div>
       </div>
+      {showExcelDialog && project ? (
+        <ProductionPlanningExcelDialog
+          developmentUserKey={developmentUserKey}
+          projectContext={{ projectId, projectTitle: project.projectTitle }}
+          onClose={() => setShowExcelDialog(false)}
+          onApplied={() => {
+            setShowExcelDialog(false);
+            void load();
+          }}
+        />
+      ) : null}
       {state.kind === 'loading' || typesState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
       {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
       {typesState.kind !== 'ready' && typesState.kind !== 'loading' ? <StateMessage state={typesState} /> : null}
@@ -4509,6 +4630,7 @@ function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
         <div className="procurement-table-head" role="row">
           <span>통상납기</span>
           <span>발주품목</span>
+          <span>업체</span>
           <span>기술 담당자</span>
           <span>발주일</span>
           <span>입고예정일</span>
@@ -4519,6 +4641,7 @@ function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
           <div className="procurement-table-row" role="row" key={item.itemId}>
             <span>{emptyDash(item.standardLeadTime)}</span>
             <span className="order-item-badge">{emptyDash(item.orderItem)}</span>
+            <span>{emptyDash(item.supplierName)}</span>
             <span>{emptyDash(item.technicalOwner)}</span>
             <span>{emptyDash(item.orderDate)}</span>
             <span>{emptyDash(item.expectedReceiptDate)}</span>
@@ -4692,6 +4815,7 @@ function ProcurementEditableList({
         <div className="procurement-table-head editable" role="row">
           <span>통상납기</span>
           <span>발주품목</span>
+          <span>업체</span>
           <span>기술 담당자</span>
           <span>발주일</span>
           <span>입고예정일</span>
@@ -4702,6 +4826,7 @@ function ProcurementEditableList({
           <div className="procurement-table-row editable" role="row" key={row.itemId ?? `new-${index}`}>
             <input value={row.standardLeadTime} onChange={(event) => onChange(index, { standardLeadTime: event.target.value })} />
             <input className="order-item-input" value={row.orderItem} onChange={(event) => onChange(index, { orderItem: event.target.value })} />
+            <input value={row.supplierName} onChange={(event) => onChange(index, { supplierName: event.target.value })} />
             <input value={row.technicalOwner} onChange={(event) => onChange(index, { technicalOwner: event.target.value })} />
             <input type="date" value={row.orderDate} onChange={(event) => onChange(index, { orderDate: event.target.value })} />
             <input type="date" value={row.expectedReceiptDate} onChange={(event) => onChange(index, { expectedReceiptDate: event.target.value })} />
@@ -4737,11 +4862,12 @@ function ProcurementCards({
             {editable ? (
               <>
                 <FormField label="발주품목"><input className="order-item-input" value={row.orderItem} onChange={(event) => onChange(index, { orderItem: event.target.value })} /></FormField>
+                <FormField label="업체"><input value={row.supplierName} onChange={(event) => onChange(index, { supplierName: event.target.value })} /></FormField>
                 <FormField label="기술 담당자"><input value={row.technicalOwner} onChange={(event) => onChange(index, { technicalOwner: event.target.value })} /></FormField>
                 <FormField label="통상납기"><input value={row.standardLeadTime} onChange={(event) => onChange(index, { standardLeadTime: event.target.value })} /></FormField>
                 <FormField label="발주일"><input type="date" value={row.orderDate} onChange={(event) => onChange(index, { orderDate: event.target.value })} /></FormField>
                 <FormField label="입고예정일"><input type="date" value={row.expectedReceiptDate} onChange={(event) => onChange(index, { expectedReceiptDate: event.target.value })} /></FormField>
-                <div className="readonly-field"><span>프로젝트 출하일</span><strong>{emptyDash(row.shipmentDisplayDate)}</strong></div>
+                <div className="readonly-field"><span>프로젝트 납품예정일</span><strong>{emptyDash(row.shipmentDisplayDate)}</strong></div>
                 <FormField label="이슈사항"><input value={row.issueNote} onChange={(event) => onChange(index, { issueNote: event.target.value })} /></FormField>
                 <div className="receipt-input-cell">
                   <label className="checkbox-field"><input type="checkbox" checked={row.receiptCompleted} onChange={(event) => onChange(index, { receiptCompleted: event.target.checked })} /> 입고 완료</label>
@@ -4753,6 +4879,7 @@ function ProcurementCards({
                 <h3 className="order-item-badge">{emptyDash(row.orderItem)}</h3>
                 <dl className="mobile-detail-list">
                   <div><dt>기술 담당자</dt><dd>{emptyDash(row.technicalOwner)}</dd></div>
+                  <div><dt>업체</dt><dd>{emptyDash(row.supplierName)}</dd></div>
                   <div><dt>통상납기</dt><dd>{emptyDash(row.standardLeadTime)}</dd></div>
                   <div><dt>발주일</dt><dd>{emptyDash(row.orderDate)}</dd></div>
                   <div><dt>입고예정일</dt><dd>{emptyDash(row.expectedReceiptDate)}</dd></div>
@@ -4876,7 +5003,6 @@ function ProcurementExcelDialog({
         {preview ? (
           <>
             <div className="excel-preview-action-bar" ref={actionBarRef}>
-              <p className="muted-text">출하일은 구매품목 저장 대상이 아니며 프로젝트 납기일로 자동 표시됩니다.</p>
               {(preview.errorCount > 0 || preview.needsReviewCount > 0) && preview.newCount + preview.changedCount > 0 ? (
                 <p className="warning-text">저장 가능한 항목만 반영됩니다. 저장 불가능한 항목은 수정 후 다시 업로드해 주세요.</p>
               ) : null}
@@ -4943,6 +5069,7 @@ function ProcurementPreview({ rows }: { rows: ProcurementExcelPreviewResponse['r
                   <div><dt>Code</dt><dd>{emptyDash(row.sourceProjectCodeText)}</dd></div>
                   <div><dt>통상납기</dt><dd>{emptyDash(row.standardLeadTime)}</dd></div>
                   <div><dt>발주품목</dt><dd className="order-item-badge">{emptyDash(row.orderItem)}</dd></div>
+                  <div><dt>업체</dt><dd>{emptyDash(row.supplierName)}</dd></div>
                   <div><dt>기술 담당자</dt><dd>{emptyDash(row.technicalOwner)}</dd></div>
                   <div><dt>발주일</dt><dd>{emptyDash(row.orderDate)}</dd></div>
                   <div><dt>입고예정일</dt><dd>{emptyDash(row.expectedReceiptDate)}</dd></div>
@@ -4979,6 +5106,7 @@ function ProcurementPreview({ rows }: { rows: ProcurementExcelPreviewResponse['r
             <span>Code</span>
             <span>통상납기</span>
             <span>발주품목</span>
+            <span>업체</span>
             <span>기술 담당자</span>
             <span>발주일</span>
             <span>입고예정일</span>
@@ -4992,6 +5120,7 @@ function ProcurementPreview({ rows }: { rows: ProcurementExcelPreviewResponse['r
               <span>{emptyDash(row.sourceProjectCodeText)}</span>
               <span>{emptyDash(row.standardLeadTime)}</span>
               <span className="order-item-badge">{emptyDash(row.orderItem)}</span>
+              <span>{emptyDash(row.supplierName)}</span>
               <span>{emptyDash(row.technicalOwner)}</span>
               <span>{emptyDash(row.orderDate)}</span>
               <span>{emptyDash(row.expectedReceiptDate)}</span>
@@ -5011,6 +5140,7 @@ function ProcurementPreview({ rows }: { rows: ProcurementExcelPreviewResponse['r
             <span>Code</span>
             <span>통상납기</span>
             <span>발주품목</span>
+            <span>업체</span>
             <span>기술 담당자</span>
             <span>발주일</span>
             <span>입고예정일</span>
@@ -5025,6 +5155,7 @@ function ProcurementPreview({ rows }: { rows: ProcurementExcelPreviewResponse['r
                 <span>{emptyDash(row.sourceProjectCodeText)}</span>
                 <span>{emptyDash(row.standardLeadTime)}</span>
                 <span className="order-item-badge">{emptyDash(row.orderItem)}</span>
+                <span>{emptyDash(row.supplierName)}</span>
                 <span>{emptyDash(row.technicalOwner)}</span>
                 <span>{emptyDash(row.orderDate)}</span>
                 <span>{emptyDash(row.expectedReceiptDate)}</span>
@@ -5123,7 +5254,7 @@ function MaterialReceiptsPage({
         setItems(response.items);
         setState(response.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: response.items });
       })
-      .catch((error: unknown) => setState(toLoadError(error, '자재 입고 입력 항목을 불러올 수 없습니다.')));
+      .catch((error: unknown) => setState(toLoadError(error, '자재 입고 처리 항목을 불러올 수 없습니다.')));
   }, [dateFrom, dateTo, developmentUserKey, includeCompleted, search]);
 
   useEffect(() => {
@@ -5163,7 +5294,7 @@ function MaterialReceiptsPage({
       <div className="subsection-header">
         <div>
           <p className="eyebrow">Materials</p>
-          <h2>자재 입고 입력</h2>
+          <h2>자재 입고 처리</h2>
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>프로젝트 목록</button>
@@ -5184,7 +5315,7 @@ function MaterialReceiptsPage({
         <button type="submit">검색</button>
       </form>
       <div className="inline-help-row">
-        <p className="muted-text">자재 입고 입력 대상만 표시됩니다. 완료된 항목은 저장 후 기본 목록에서 사라집니다.</p>
+        <p className="muted-text">현재 구매품목 입고 처리 대상만 표시됩니다. 완료된 항목은 저장 후 기본 목록에서 사라집니다.</p>
         <label className="checkbox-field">
           <input
             type="checkbox"
@@ -5226,15 +5357,16 @@ function MaterialReceiptGroups({
           <div className="material-receipt-group-header">
             <strong>{group.projectTitle}</strong>
             <span>PJT Code: {group.projectCode}</span>
-            <span>출하일: {emptyDash(group.shipmentDisplayDate)}</span>
+            <span>납품예정일: {emptyDash(group.shipmentDisplayDate)}</span>
           </div>
-          <div className="material-receipt-items" role="table" aria-label={`${group.projectTitle} 자재 입고 입력`}>
+          <div className="material-receipt-items" role="table" aria-label={`${group.projectTitle} 자재 입고 처리`}>
             <div className="material-receipt-head" role="row">
-              <span>발주품목</span><span>기술 담당자</span><span>입고예정일</span><span>입고 완료</span><span>완료일</span><span>완료 비고</span>
+              <span>발주품목</span><span>업체</span><span>기술 담당자</span><span>입고예정일</span><span>입고 완료</span><span>완료일</span><span>완료 비고</span>
             </div>
             {group.items.map((item) => (
               <div className="material-receipt-row" role="row" key={item.itemId}>
                 <span className="order-item-badge">{emptyDash(item.orderItem)}</span>
+                <span>{emptyDash(item.supplierName)}</span>
                 <span>{emptyDash(item.technicalOwner)}</span>
                 <span>{emptyDash(item.expectedReceiptDate)}</span>
                 <div className="receipt-input-cell">
@@ -5306,6 +5438,7 @@ function PanelInformationEditPage({
   const [isSaving, setIsSaving] = useState(false);
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const [showExcel, setShowExcel] = useState(false);
+  const [duplicateConfirm, setDuplicateConfirm] = useState<PanelNameDuplicateGroup[] | null>(null);
   const requestIdRef = useRef(0);
   const dirtyRef = useRef(false);
   const editInputUnitRef = useRef<PanelInputUnit>('Mm');
@@ -5321,6 +5454,7 @@ function PanelInformationEditPage({
     setState({ kind: 'loading' });
     setProjectState({ kind: 'loading' });
     setMessage('');
+    setDuplicateConfirm(null);
 
     Promise.all([
       getProject(developmentUserKey, projectId),
@@ -5340,7 +5474,7 @@ function PanelInformationEditPage({
           return;
         }
 
-        setState(toLoadError(error, '패널정보를 불러올 수 없습니다.'));
+        setState(toLoadError(error, '설계 정보를 불러올 수 없습니다.'));
         setProjectState(toLoadError(error, '프로젝트를 불러올 수 없습니다.'));
       });
   }, [developmentUserKey, projectId]);
@@ -5402,18 +5536,25 @@ function PanelInformationEditPage({
     setRows((current) => current.map((row) => rowWithSizeInputs(row, nextUnit)));
   }
 
-  async function save() {
+  async function save(allowDuplicatePanelNames = false) {
     if (!canEdit || !data) {
       return;
     }
 
     if (reasonRequired && !reason.trim()) {
-      setMessage('기존 패널정보를 변경하려면 수정사유가 필요합니다.');
+      setMessage('기존 설계 정보를 변경하려면 수정사유가 필요합니다.');
+      return;
+    }
+
+    const duplicateGroups = findPanelNameDuplicateGroups(rows);
+    if (!allowDuplicatePanelNames && duplicateGroups.length > 0) {
+      setDuplicateConfirm(duplicateGroups);
       return;
     }
 
     setIsSaving(true);
     setMessage('');
+    setDuplicateConfirm(null);
     try {
       const saved = await updatePanelInformation(developmentUserKey, projectId, {
         reason: reason.trim() || null,
@@ -5476,7 +5617,7 @@ function PanelInformationEditPage({
     <section className="page-surface panel-info-section">
       <div className="subsection-header">
         <div>
-          <h3>패널정보 수정</h3>
+          <h3>설계 정보 입력</h3>
           <span>{formatPackagingMethod(projectState.data.packagingMethod)}</span>
         </div>
         <div className="button-row">
@@ -5488,7 +5629,7 @@ function PanelInformationEditPage({
             </button>
           ) : null}
           <button type="button" onClick={() => setShowExcel(true)} disabled={!canEdit}>Excel 업로드</button>
-          <button type="button" className="primary-button" disabled={!canEdit || isSaving || !hasChanges} onClick={save}>
+          <button type="button" className="primary-button" disabled={!canEdit || isSaving || !hasChanges} onClick={() => void save()}>
             {isSaving ? '저장 중' : '직접 입력 저장'}
           </button>
         </div>
@@ -5511,7 +5652,7 @@ function PanelInformationEditPage({
           ) : null}
           {!canUpdatePanelInfo ? <p className="muted-text">읽기 전용</p> : null}
           {canUpdatePanelInfo && projectState.data.status !== 'Active' ? (
-            <p role="alert" className="warning-text">현재 프로젝트 상태에서는 패널정보를 수정할 수 없습니다.</p>
+            <p role="alert" className="warning-text">현재 프로젝트 상태에서는 설계 정보를 수정할 수 없습니다.</p>
           ) : null}
 
           <div className="toolbar panel-toolbar">
@@ -5549,9 +5690,10 @@ function PanelInformationEditPage({
               <strong>입력 단위: {editInputUnit === 'Inch' ? 'inch' : 'mm'}</strong>
               <span>No는 수정하지 마세요.</span>
               <span>도번은 업로드 시 저장되지 않습니다.</span>
-              <span>목포장은 panel name, w, h, d가 모두 필요합니다.</span>
-              <span>청랩·고강도박스 포장은 panel name만 필수입니다.</span>
-              <span>사이즈를 입력하는 경우 w, h, d를 모두 입력해야 합니다.</span>
+              <span>일부 입력 상태에서도 저장할 수 있습니다.</span>
+              <span>일반 포장은 패널명 입력 시 설계 단계가 완료됩니다.</span>
+              <span>목포장은 패널명과 W/H/D 입력 시 설계 단계가 완료됩니다.</span>
+              <span>사이즈를 입력하는 경우 W/H/D를 모두 입력해야 합니다.</span>
             </div>
           ) : null}
 
@@ -5599,6 +5741,14 @@ function PanelInformationEditPage({
           }}
         />
       ) : null}
+      {duplicateConfirm ? (
+        <PanelDuplicateNameConfirmDialog
+          groups={duplicateConfirm}
+          isSaving={isSaving}
+          onCancel={() => setDuplicateConfirm(null)}
+          onConfirm={() => void save(true)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -5617,14 +5767,14 @@ function PanelInfoEditDesktop({
   onSizeChange: (panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) => void;
 }) {
   return (
-    <div className="panel-info-table panel-info-edit-desktop" role="table" aria-label="패널정보 직접 입력" data-testid="panel-info-edit-desktop">
+    <div className="panel-info-table panel-info-edit-desktop" role="table" aria-label="설계 정보 직접 입력" data-testid="panel-info-edit-desktop">
       <div className="panel-info-table-head" role="row">
         <span>No</span>
         <span>패널명</span>
         <span>W</span>
         <span>H</span>
         <span>D</span>
-        <span>제품정보</span>
+        <span>패널정보</span>
         <span>QR</span>
       </div>
       {rows.map((row) => (
@@ -5731,12 +5881,52 @@ function PanelInformationCard({
         </FormField>
       </div>
       <dl className="mini-status-grid">
-        <div><dt>제품정보</dt><dd className={row.original.panelInfoCompleted ? undefined : 'negative-text'}>{row.original.panelInfoCompleted ? '입력 완료' : '미입력'}</dd></div>
+        <div><dt>패널정보</dt><dd className={row.original.panelInfoCompleted ? undefined : 'negative-text'}>{row.original.panelInfoCompleted ? '입력 완료' : '미입력'}</dd></div>
         <div><dt>QR</dt><dd className={row.original.qrEligible ? undefined : 'negative-text'}>{row.original.qrEligible ? '생성 가능' : '생성 불가'}</dd></div>
         <div><dt>표시</dt><dd>{formatPanelSizeInUnit(row.original, displayUnit)}</dd></div>
       </dl>
       {row.original.hasDuplicateName ? <p className="muted-text">동일 명칭 {row.original.duplicateNameCount}면</p> : null}
     </article>
+  );
+}
+
+function PanelDuplicateNameConfirmDialog({
+  groups,
+  isSaving,
+  onCancel,
+  onConfirm
+}: {
+  groups: PanelNameDuplicateGroup[];
+  isSaving: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <DialogBackdrop ariaLabel="중복 패널명 확인" onClose={onCancel} closeDisabled={isSaving}>
+      <div className="dialog" data-testid="duplicate-panel-name-dialog">
+        <div className="subsection-header">
+          <h3>중복된 패널명이 있습니다.</h3>
+          <button type="button" onClick={onCancel} disabled={isSaving}>닫기</button>
+        </div>
+        <p className="warning-text">패널명이 중복되어도 저장하시겠습니까?</p>
+        <div className="duplicate-panel-name-list">
+          <strong>중복 패널명</strong>
+          <ul>
+            {groups.map((group) => (
+              <li key={group.name}>
+                {group.name}: {group.panelNumbers.join(', ')}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="dialog-actions">
+          <button type="button" onClick={onCancel} disabled={isSaving}>취소</button>
+          <button type="button" className="primary-button" onClick={onConfirm} disabled={isSaving}>
+            {isSaving ? '저장 중' : '중복이어도 저장'}
+          </button>
+        </div>
+      </div>
+    </DialogBackdrop>
   );
 }
 
@@ -5789,7 +5979,7 @@ function PanelInformationExcelDialog({
     }
 
     if (preview.reasonRequired && !reason.trim()) {
-      setMessage('기존 패널정보를 변경하려면 수정사유가 필요합니다.');
+      setMessage('기존 설계 정보를 변경하려면 수정사유가 필요합니다.');
       return;
     }
 
@@ -5923,7 +6113,7 @@ function ExcelPreviewMobile({ rows }: { rows: PanelInformationExcelPreviewRespon
           </div>
           <dl className="mobile-detail-list">
             <div>
-              <dt>Panel Name</dt>
+              <dt>패널명</dt>
               <dd>
                 <span>기존: {row.currentValue?.panelName ?? '-'}</span>
                 <span>변경: {row.panelName ?? '-'}</span>
@@ -6141,8 +6331,8 @@ function PanelPlaceholderDetailPage({
     <section className="page-surface">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Product Panel</p>
-          <h2>{state.kind === 'ready' ? `${state.data.panel.displayCode} 제품 상세` : '제품 상세'}</h2>
+          <p className="eyebrow">설계</p>
+          <h2>{state.kind === 'ready' ? `${state.data.panel.displayCode} 패널 상세` : '패널 상세'}</h2>
         </div>
         <button type="button" onClick={onBack}>프로젝트</button>
       </div>
@@ -6151,11 +6341,11 @@ function PanelPlaceholderDetailPage({
       {state.kind === 'ready' ? (
         <>
           <ProjectContextSummary project={state.data.project} />
-          <section className="project-context-summary product-context-summary" aria-label="제품 요약">
-            <div><span>제품</span><strong>No.{state.data.panel.sequenceNumber} · {state.data.panel.panelName ?? '패널명 미입력'}</strong></div>
+          <section className="project-context-summary product-context-summary" aria-label="패널 요약">
+            <div><span>패널</span><strong>No.{state.data.panel.sequenceNumber} · {state.data.panel.panelName ?? '패널명 미입력'}</strong></div>
             <div><span>사이즈</span><strong>{formatSize(state.data.panel)}</strong></div>
-            <div><span>제품 상태</span><strong>{formatWorkflowStage(state.data.panel.workflowStage)}</strong></div>
-            <div><span>패널정보</span><strong>{state.data.panel.panelInfoCompleted ? '입력 완료' : '미입력'}</strong></div>
+            <div><span>패널 상태</span><strong>{formatWorkflowStage(state.data.panel.workflowStage)}</strong></div>
+            <div><span>설계 정보</span><strong>{state.data.panel.panelInfoCompleted ? '입력 완료' : '미입력'}</strong></div>
             <div><span>QR</span><strong>{state.data.panel.qrEligible ? '생성 가능' : '생성 불가'}</strong></div>
           </section>
         </>
@@ -6265,7 +6455,7 @@ function DeletedProjectDetailPage({
           <section className="danger-zone" aria-label="삭제 프로젝트 완전 삭제">
             <div>
               <strong>완전 삭제</strong>
-              <p className="muted-text">이 프로젝트와 연결된 구매정보, 제품·패널, 감사이력을 완전히 삭제합니다. 되돌릴 수 없습니다.</p>
+              <p className="muted-text">이 프로젝트와 연결된 구매정보, 패널, 감사이력을 완전히 삭제합니다. 되돌릴 수 없습니다.</p>
             </div>
             <label className="form-field compact-field">
               <span>확인 문구: 완전 삭제</span>
@@ -6280,7 +6470,7 @@ function DeletedProjectDetailPage({
       ) : null}
 
       <section className="subsection">
-        <h3>보존된 제품·패널 목록</h3>
+        <h3>보존된 설계 정보</h3>
         <PanelPlaceholderList panels={project.panels} onOpenPanel={() => undefined} />
       </section>
 
@@ -6377,6 +6567,12 @@ function ProjectForm({
       <FormField label="납품장소" error={errors.deliveryLocation}>
         <input name="deliveryLocation" value={form.deliveryLocation} onChange={(event) => setField('deliveryLocation', event.target.value)} />
       </FormField>
+      <FormField label="FAT 필요 여부" error={errors.fatRequired}>
+        <select name="fatRequired" value={form.fatRequired} onChange={(event) => setField('fatRequired', event.target.value)}>
+          <option value="false">아니오</option>
+          <option value="true">예</option>
+        </select>
+      </FormField>
       {includeReason ? (
         <FormField label="수정사유*" error={errors.reason}>
           <textarea name="reason" value={form.reason} onChange={(event) => setField('reason', event.target.value)} />
@@ -6464,6 +6660,7 @@ function ProjectSummary({ project, canReadSalesAmount }: { project: ProjectListI
       <div><dt>영업담당자</dt><dd>{project.salesOwnerName}</dd></div>
       <div><dt>포장방식</dt><dd>{formatPackagingMethod(project.packagingMethod)}</dd></div>
       <div><dt>납품장소</dt><dd>{project.deliveryLocation ?? '-'}</dd></div>
+      <div><dt>FAT 필요 여부</dt><dd>{project.fatRequired ? '예' : '아니오'}</dd></div>
       {canReadSalesAmount && project.salesAmount !== undefined ? (
         <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
       ) : null}
@@ -6479,7 +6676,7 @@ function ProjectWorkflowSummary({ state }: { state: LoadState<ProjectWorkflowRes
         <div className="subsection-header">
           <div>
             <h3>Workflow</h3>
-            <p>18단계 workflow 요약을 불러오는 중입니다.</p>
+          <p>18단계 workflow 요약을 불러오는 중입니다.</p>
           </div>
         </div>
       </section>
@@ -6501,13 +6698,16 @@ function ProjectWorkflowSummary({ state }: { state: LoadState<ProjectWorkflowRes
   const activeStage = state.data.stages.find((stage) => stage.stageCode === state.data.currentStageCode)
     ?? state.data.stages.find((stage) => stage.status === 'InProgress' || stage.status === 'Requested');
   const nextStage = state.data.stages.find((stage) => stage.status === 'NotStarted');
+  const activeStageLabel = activeStage
+    ? displayWorkflowStageLabel(activeStage.departmentLabel, activeStage.stageCode, activeStage.stageName)
+    : displayWorkflowStageLabel(state.data.currentDepartmentLabel, state.data.currentStageCode, state.data.currentStageName);
 
   return (
     <section className="subsection project-process-summary" aria-label="프로젝트 workflow 요약">
       <div className="subsection-header">
         <div>
           <h3>Workflow</h3>
-          <p>18단계 진행 상태와 생성된 내 업무를 표시합니다.</p>
+          <p>18단계 진행 상태와 생성된 내 업무를 표시합니다. 전용 입력 화면이 없는 단계는 이 요약으로 이동합니다.</p>
         </div>
         <div className="button-row workflow-summary-meta">
           <StatusChip label="진행률" value={`${state.data.progressPercent}%`} />
@@ -6517,16 +6717,23 @@ function ProjectWorkflowSummary({ state }: { state: LoadState<ProjectWorkflowRes
       </div>
 
       <dl className="detail-grid workflow-current-grid">
-        <div><dt>현재 단계</dt><dd>{activeStage ? `${activeStage.departmentLabel} / ${activeStage.stageName}` : `${state.data.currentDepartmentLabel} / ${state.data.currentStageName}`}</dd></div>
-        <div><dt>다음 예정</dt><dd>{nextStage ? `${nextStage.departmentLabel} / ${nextStage.stageName}` : '-'}</dd></div>
+        <div><dt>현재 단계</dt><dd>{activeStageLabel}</dd></div>
+        <div><dt>다음 예정</dt><dd>{nextStage ? displayWorkflowStageLabel(nextStage.departmentLabel, nextStage.stageCode, nextStage.stageName) : '-'}</dd></div>
       </dl>
 
       <ol className="workflow-stage-list">
         {state.data.stages.map((stage) => (
-          <li className="workflow-stage-item" data-status={stage.status} data-department={stage.departmentCode} key={stage.stageCode}>
+          <li
+            className="workflow-stage-item"
+            data-status={stage.status}
+            data-department={stage.departmentCode}
+            data-implemented-input={hasImplementedStageInput(stage.stageCode) ? 'true' : 'false'}
+            title={hasImplementedStageInput(stage.stageCode) ? undefined : '전용 입력 화면은 후속 단계에서 제공됩니다.'}
+            key={stage.stageCode}
+          >
             <span className="workflow-stage-number">{stage.sequenceNumber}</span>
             <div>
-              <strong>{stage.departmentLabel} / {stage.stageName}{stage.isOptional ? ' (선택)' : ''}</strong>
+              <strong>{displayWorkflowStageLabel(stage.departmentLabel, stage.stageCode, stage.stageName)}{stage.isOptional ? ' (선택)' : ''}</strong>
               <small>{stage.statusLabel}{stage.workItemCount > 0 ? ` · 내 업무 ${stage.workItemCount}건` : ''}</small>
             </div>
           </li>
@@ -6548,6 +6755,7 @@ function ProjectContextSummary({ project }: { project: ProjectListItem }) {
       <div><span>Item</span><strong>{project.item}</strong></div>
       <div><span>납기일</span><strong>{formatDate(project.deliveryDate)}</strong></div>
       <div><span>포장방식</span><strong>{formatPackagingMethod(project.packagingMethod)}</strong></div>
+      <div><span>FAT 필요 여부</span><strong>{project.fatRequired ? '예' : '아니오'}</strong></div>
       <div><span>상태</span><strong>{formatProjectStatus(project.status)}</strong></div>
     </section>
   );
@@ -6569,7 +6777,7 @@ function PanelPlaceholderList({
   onOpenPanel: (panelId: string) => void;
 }) {
   if (panels.length === 0) {
-    return <p className="empty-text">제품·패널이 없습니다.</p>;
+    return <p className="empty-text">패널이 없습니다.</p>;
   }
 
   return (
@@ -6578,7 +6786,7 @@ function PanelPlaceholderList({
         <button key={panel.panelId} type="button" className="panel-row" onClick={() => onOpenPanel(panel.panelId)}>
           <strong>{panel.displayCode}</strong>
           <span>{panel.panelName ?? '패널명 미입력'}</span>
-          <span>{panel.panelInfoCompleted ? '패널정보 완료' : '패널정보 대기'}</span>
+          <span>{panel.panelInfoCompleted ? '설계 정보 완료' : '설계 정보 대기'}</span>
           <span>{panel.qrEligible ? 'QR 생성 조건 충족' : 'QR 생성 조건 미충족'}</span>
           <span>{formatPanelStatus(panel.panelStatus)}</span>
         </button>
@@ -6599,7 +6807,7 @@ function ProjectPanelList({
   onOpenPanel: (panelId: string) => void;
 }) {
   if (panels.length === 0) {
-    return <p className="empty-text">제품·패널이 없습니다.</p>;
+    return <p className="empty-text">패널이 없습니다.</p>;
   }
 
   return (
@@ -6632,12 +6840,12 @@ function PanelListDesktop({
   onOpenPanel: (panelId: string) => void;
 }) {
   return (
-    <div className="product-panel-table product-panel-desktop" role="table" aria-label="제품·패널 목록" data-testid="project-panel-list-desktop">
+    <div className="product-panel-table product-panel-desktop" role="table" aria-label="설계" data-testid="project-panel-list-desktop">
       <div className="product-panel-table-head" role="row">
         <span>No</span>
         <span>패널명</span>
         <span>사이즈</span>
-        <span>제품정보</span>
+        <span>패널정보</span>
         <span>QR</span>
         <span>상태</span>
       </div>
@@ -6696,7 +6904,7 @@ function PanelListMobile({
               <dd className={panelSizeClass(panel, packagingMethod)}>{formatPanelSizeForPackaging(panel, displayUnit, packagingMethod)}</dd>
             </div>
             <div>
-              <dt>제품정보</dt>
+              <dt>패널정보</dt>
               <dd className={panel.panelInfoCompleted ? undefined : 'negative-text'}>{panel.panelInfoCompleted ? '입력 완료' : '미입력'}</dd>
             </div>
             <div>
@@ -6993,6 +7201,8 @@ function formatProcurementFieldName(fieldName: string | null) {
       return '통상납기';
     case 'OrderItem':
       return '발주품목';
+    case 'SupplierName':
+      return '업체';
     case 'TechnicalOwner':
       return '기술 담당자';
     case 'OrderDate':
@@ -7000,7 +7210,7 @@ function formatProcurementFieldName(fieldName: string | null) {
     case 'ExpectedReceiptDate':
       return '입고예정일';
     case 'ShipmentText':
-      return '출하일';
+      return '납품예정일';
     case 'IssueNote':
       return '이슈사항';
     case 'ReceiptCompleted':
@@ -7203,7 +7413,8 @@ function toCreateRequest(form: ProjectFormValues) {
     packagingMethod: toPackagingMethod(form.packagingMethod),
     salesAmount: form.salesAmount.trim() ? Number(form.salesAmount) : null,
     currencyCode: form.salesAmount.trim() ? form.currencyCode.trim().toUpperCase() : null,
-    deliveryLocation: form.deliveryLocation.trim() || null
+    deliveryLocation: form.deliveryLocation.trim() || null,
+    fatRequired: form.fatRequired === 'true'
   };
 }
 
@@ -7228,6 +7439,7 @@ function projectToForm(project: ProjectDetail): ProjectFormValues {
     salesAmount: project.salesAmount === undefined ? '' : String(project.salesAmount),
     currencyCode: project.currencyCode ?? 'KRW',
     deliveryLocation: project.deliveryLocation ?? '',
+    fatRequired: project.fatRequired ? 'true' : 'false',
     reason: ''
   };
 }
@@ -7600,8 +7812,8 @@ function formatProjectWorkStatus(status: ProjectWorkStatus) {
     ManufacturingInProgress: '제조 중',
     InspectionInProgress: '검사 중',
     InspectionCompleted: '검사 완료',
-    ReadyForShipment: '출하 준비',
-    ShipmentCompleted: '출하 완료',
+    ReadyForShipment: '납품 준비',
+    ShipmentCompleted: '납품 완료',
     OnHold: '보류',
     Completed: '완료',
     Cancelled: '취소'
@@ -7742,8 +7954,26 @@ function formatWorkflowStage(stage: ProductWorkflowStage) {
     InspectionInProgress: '검사 중',
     InspectionCompleted: '검사 완료',
     PackingCompleted: '포장 완료',
-    ShipmentCompleted: '출하 완료'
+    ShipmentCompleted: '납품 완료'
   }[stage];
+}
+
+function displayWorkflowStageName(stageCode: string, stageName: string) {
+  return stageCode === 'DesignPanelInfo' ? '패널명·사이즈' : stageName;
+}
+
+function hasImplementedStageInput(stageCode: string) {
+  return stageCode === 'ProductionPlanning'
+    || stageCode === 'DesignPanelInfo'
+    || stageCode === 'ProcurementInfo';
+}
+
+function displayWorkflowStageLabel(departmentLabel: string, stageCode: string, stageName: string) {
+  if (stageCode === 'DesignPanelInfo') {
+    return departmentLabel;
+  }
+
+  return `${departmentLabel} / ${displayWorkflowStageName(stageCode, stageName)}`;
 }
 
 function previewResultLabel(resultType: PanelInformationExcelPreviewResponse['rows'][number]['resultType']) {
@@ -7827,6 +8057,34 @@ function decimalOrNull(value: string) {
 
 function panelRowChanged(row: PanelInformationRowForm) {
   return panelNameActuallyChanged(row) || sizeActuallyChanged(row);
+}
+
+function findPanelNameDuplicateGroups(rows: PanelInformationRowForm[]): PanelNameDuplicateGroup[] {
+  const groups = new Map<string, PanelNameDuplicateGroup>();
+  for (const row of rows) {
+    if (row.original.panelStatus !== 'Active') {
+      continue;
+    }
+
+    const normalized = normalizePanelDuplicateName(row.currentPanelName);
+    if (!normalized) {
+      continue;
+    }
+
+    const group = groups.get(normalized) ?? {
+      name: row.currentPanelName.trim().replace(/\s+/g, ' '),
+      panelNumbers: []
+    };
+    group.panelNumbers.push(row.panelNumber);
+    groups.set(normalized, group);
+  }
+
+  return [...groups.values()].filter((group) => group.panelNumbers.length > 1);
+}
+
+function normalizePanelDuplicateName(value: string) {
+  const normalized = value.trim().replace(/\s+/g, ' ').toUpperCase();
+  return normalized || null;
 }
 
 function panelRowNeedsReason(row: PanelInformationRowForm) {
@@ -7953,6 +8211,7 @@ function procurementItemToForm(item: ProcurementItem): ProcurementRowForm {
     sourceProjectCodeText: item.sourceProjectCodeText ?? item.projectCode,
     standardLeadTime: item.standardLeadTime ?? '',
     orderItem: item.orderItem ?? '',
+    supplierName: item.supplierName ?? '',
     technicalOwner: item.technicalOwner ?? '',
     orderDate: item.orderDate ?? '',
     expectedReceiptDate: item.expectedReceiptDate ?? '',
@@ -7973,6 +8232,7 @@ function emptyProcurementRow(projectDeliveryDate: string | null = null): Procure
     sourceProjectCodeText: '',
     standardLeadTime: '',
     orderItem: '',
+    supplierName: '',
     technicalOwner: '',
     orderDate: '',
     expectedReceiptDate: '',
@@ -7991,6 +8251,7 @@ function procurementFormToRequest(row: ProcurementRowForm) {
     expectedRowVersion: row.rowVersion,
     standardLeadTime: row.standardLeadTime.trim() || null,
     orderItem: row.orderItem.trim() || null,
+    supplierName: row.supplierName.trim() || null,
     technicalOwner: row.technicalOwner.trim() || null,
     orderDate: row.orderDate || null,
     expectedReceiptDate: row.expectedReceiptDate || null,

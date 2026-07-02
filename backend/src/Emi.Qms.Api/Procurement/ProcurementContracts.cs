@@ -11,6 +11,7 @@ public sealed record ProcurementItemUpdateRequest(
     int? ExpectedRowVersion,
     string? StandardLeadTime,
     string? OrderItem,
+    string? SupplierName,
     string? TechnicalOwner,
     DateOnly? OrderDate,
     DateOnly? ExpectedReceiptDate,
@@ -58,6 +59,7 @@ public sealed class ProcurementItemResponse
     public string? SourceProjectCodeText { get; init; }
     public string? StandardLeadTime { get; init; }
     public string? OrderItem { get; init; }
+    public string? SupplierName { get; init; }
     public string? TechnicalOwner { get; init; }
     public DateOnly? OrderDate { get; init; }
     public DateOnly? ExpectedReceiptDate { get; init; }
@@ -175,6 +177,7 @@ public sealed class ProcurementExcelPreviewRowResponse
     public string? SourceProjectCodeText { get; init; }
     public string? StandardLeadTime { get; init; }
     public string? OrderItem { get; init; }
+    public string? SupplierName { get; init; }
     public string? TechnicalOwner { get; init; }
     public DateOnly? OrderDate { get; init; }
     public DateOnly? ExpectedReceiptDate { get; init; }

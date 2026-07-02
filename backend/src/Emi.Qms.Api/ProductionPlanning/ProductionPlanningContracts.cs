@@ -212,6 +212,7 @@ public sealed class ProductionPlanningExcelPreviewRowResponse
     public Guid? TemplateStepId { get; init; }
     public string? StepName { get; init; }
     public bool IsCustomStep { get; init; }
+    public bool? IsRequired { get; init; }
     public DateOnly? PlannedDate { get; init; }
     public string? Note { get; init; }
     public string? ProcurementAssigneeText { get; init; }

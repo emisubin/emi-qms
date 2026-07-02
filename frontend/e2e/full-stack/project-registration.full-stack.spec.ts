@@ -37,21 +37,25 @@ test('TASK-003B-1 A: read/detail split keeps detail fixed and edit page accepts 
   await page.goto('/');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await openProject(page, projectTitle);
-  await expect(page.getByText('제품·패널 목록')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '설계' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Excel 업로드' })).toHaveCount(0);
-  await page.getByRole('button', { name: '패널정보 수정' }).click();
+  await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
   await page.getByLabel('No.1 패널명').fill('PNL-1');
   await page.getByLabel('No.2 패널명').fill('PNL-1');
   await page.getByRole('button', { name: '직접 입력 저장' }).click();
+  const duplicateDialog = page.getByTestId('duplicate-panel-name-dialog');
+  await expect(duplicateDialog).toContainText('중복된 패널명이 있습니다.');
+  await expect(duplicateDialog).toContainText('PNL-1: No.1, No.2');
+  await duplicateDialog.getByRole('button', { name: '중복이어도 저장' }).click();
 
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('PNL-1');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('PNL-1');
   expect(await page.getByText('동일 명칭 2면').count()).toBeGreaterThanOrEqual(2);
   expect(await queryDatabaseValue(`select count(*)::text from panel_placeholders where project_id = '${projectId}' and panel_name = 'PNL-1' and panel_info_completed and qr_eligible;`)).toBe('2');
   await page.reload();
-  const productTable = page.getByRole('table', { name: '제품·패널 목록' });
+  const productTable = page.getByRole('table', { name: '설계' });
   await expect(productTable).toContainText('PNL-1');
   await expect(productTable).toContainText('동일 명칭 2면');
-  await page.getByRole('button', { name: '패널정보 수정' }).click();
+  await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
   await expect(page.getByLabel('No.1 패널명')).toHaveValue('PNL-1');
   await expect(page.getByLabel('No.2 패널명')).toHaveValue('PNL-1');
 });
@@ -92,12 +96,12 @@ test('TASK-003B B: WoodenCrate name-only is QR eligible and unit switch does not
   await page.goto('/');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await openProject(page, projectTitle);
-  await page.getByRole('button', { name: '패널정보 수정' }).click();
+  await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
   await page.getByLabel('입력 단위').selectOption('Inch');
   await page.getByLabel('No.1 패널명').fill('WOOD-1-REV');
   await page.getByLabel('수정사유*').fill('패널명만 수정');
   await page.getByRole('button', { name: '직접 입력 저장' }).click();
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('WOOD-1-REV');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('WOOD-1-REV');
 
   expect(await queryDatabaseValue(`select width_mm::text || ',' || height_mm::text || ',' || depth_mm::text from panel_placeholders where project_id = '${projectId}' and sequence_number = 1;`)).toBe('800.000,1800.000,400.000');
   expect(await queryDatabaseValue(`select count(*)::text from project_audit_events where project_id = '${projectId}' and field_name in ('WidthMm','HeightMm','DepthMm') and new_value in ('799.998','800.1');`)).toBe('0');
@@ -139,7 +143,7 @@ test('TASK-003B-1 B: project detail summarizes QR, manufacturing, and inspection
   await expect(summary.locator('.status-chip').nth(2)).toContainText('3/10');
   await expect(summary).not.toContainText('입력 완료');
   await expect(page.locator('.product-panel-table-head')).toHaveCSS('position', 'sticky');
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('출하 완료');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('납품 완료');
 });
 
 test('TASK-003B-1 UX: product panel and edit grid headers stay sticky on long lists', async ({ page, request }) => {
@@ -155,7 +159,7 @@ test('TASK-003B-1 UX: product panel and edit grid headers stay sticky on long li
   await expect(header).toContainText('No');
   await expect(header).toContainText('패널명');
   await expect(header).toContainText('사이즈');
-  await expect(header).toContainText('제품정보');
+  await expect(header).toContainText('패널정보');
   await expect(header).toContainText('QR');
   await expect(header).toContainText('상태');
   await expect(page.getByText('Placeholder')).toHaveCount(0);
@@ -190,14 +194,14 @@ test('TASK-003B-1 UX: product panel and edit grid headers stay sticky on long li
   expect(stickyBox.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
   expect(stickyBox.zIndex).toBeGreaterThanOrEqual(1);
 
-  await page.getByRole('button', { name: '패널정보 수정' }).click();
+  await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
   const editHeader = page.locator('.panel-info-table-head');
   await expect(editHeader).toContainText('No');
   await expect(editHeader).toContainText('패널명');
   await expect(editHeader).toContainText('W');
   await expect(editHeader).toContainText('H');
   await expect(editHeader).toContainText('D');
-  await expect(editHeader).toContainText('제품정보');
+  await expect(editHeader).toContainText('패널정보');
   await expect(editHeader).toContainText('QR');
 
   await page.evaluate(() => {
@@ -281,13 +285,13 @@ test('TASK-003B-1 UX: mobile layouts use cards for detail, edit, and Excel previ
   await firstProjectCard.getByRole('button', { name: '상세 보기' }).click();
   await expect(page.getByTestId('project-context-summary')).toContainText(projectTitle);
   await expect(page.getByTestId('project-context-summary')).toContainText(`FS-3B-MOBILE-${unique}`);
-  await expect(page.getByLabel('제품 요약')).toContainText('No.1');
-  await expect(page.getByLabel('제품 요약')).toContainText('MOBILE-1');
+  await expect(page.getByLabel('패널 요약')).toContainText('No.1');
+  await expect(page.getByLabel('패널 요약')).toContainText('MOBILE-1');
   await expect(page.getByText('W/H/D')).toHaveCount(0);
   await expect(page.getByText('QR 조건')).toHaveCount(0);
-  await page.locator('.page-surface').filter({ hasText: 'Product Panel' }).getByRole('button', { name: '프로젝트' }).click();
+  await page.locator('.page-surface').filter({ hasText: '설계' }).getByRole('button', { name: '프로젝트' }).click();
 
-  await page.getByRole('button', { name: '패널정보 수정' }).click();
+  await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
   await expect(page.locator('[data-testid="panel-info-edit-mobile"]')).toBeVisible();
   await expect(page.locator('[data-testid="panel-info-edit-desktop"]')).toBeHidden();
   const firstEditCard = page.locator('[data-testid="panel-info-edit-card"]').first();
@@ -429,7 +433,7 @@ test('TASK-004A project Excel import creates projects and panels', async ({ page
   const projectTitle = `TASK 004A Project Excel ${unique}`;
   const workbookPath = testInfo.outputPath('project-create.xlsx');
   writeProjectCreateWorkbook(workbookPath, [
-    ['TEST CUSTOMER', 'UL67', `FS-4A-PROJ-${unique}`, projectTitle, '3', '2026-10-10', '목포장', '', '', 'TEST LOCATION', 'dev-sales']
+    ['TEST CUSTOMER', 'UL67', `FS-4A-PROJ-${unique}`, projectTitle, '3', '2026-10-10', '목포장', '아니오', 'dev-sales', '', '', 'TEST LOCATION']
   ]);
 
   await page.goto('/');
@@ -503,7 +507,7 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await page.getByRole('button', { name: '검색' }).click();
   const receiptGroup = page.locator('.material-receipt-group').filter({ hasText: projectTitle });
   await expect(receiptGroup).toContainText(projectTitle);
-  const receiptsTable = receiptGroup.getByRole('table', { name: /자재 입고 입력/ });
+  const receiptsTable = receiptGroup.getByRole('table', { name: /자재 입고 처리/ });
   const receiptCheckbox = receiptsTable.locator('input[type="checkbox"]').first();
   await receiptCheckbox.click();
   await expect(receiptCheckbox).toBeChecked();
@@ -559,8 +563,8 @@ test('TASK-004A B/C/E: procurement Excel matching, apply, reupload changed previ
   const projectId = await createProjectByApi(request, `FS-4A-EXCEL-${unique}`, projectTitle, 'StretchWrap', 1);
   const firstWorkbook = testInfo.outputPath('procurement-first.xlsx');
   writeProcurementWorkbook(firstWorkbook, [
-    [projectTitle, `FS-4A-EXCEL-${unique}`, '4W', 'MCCB', 'Owner A', '2026-07-01', '2026-07-10', 'B,C 32면 홀딩', 'First', 'Y'],
-    ['', '', '5W', 'Cable', 'Owner B', '2026-07-02', '2026-07-11', 'Text shipment', '', '']
+    [projectTitle, `FS-4A-EXCEL-${unique}`, '4W', 'MCCB', '', 'Owner A', '2026-07-01', '2026-07-10', 'First', 'Y'],
+    ['', '', '5W', 'Cable', '', 'Owner B', '2026-07-02', '2026-07-11', '', '']
   ]);
 
   await page.goto('/');
@@ -598,8 +602,8 @@ test('TASK-004A B/C/E: procurement Excel matching, apply, reupload changed previ
 
   const secondWorkbook = testInfo.outputPath('procurement-second.xlsx');
   writeProcurementWorkbook(secondWorkbook, [
-    [projectTitle, `FS-4A-EXCEL-${unique}`, '4W', 'MCCB', 'Owner A', '2026-07-01', '2026-07-10', 'B,C 32면 홀딩', 'First changed', 'Y'],
-    ['', '', '6W', 'New item', 'Owner C', '2026-07-03', '2026-07-12', 'New shipment', 'New', 'N']
+    [projectTitle, `FS-4A-EXCEL-${unique}`, '4W', 'MCCB', '', 'Owner A', '2026-07-01', '2026-07-10', 'First changed', 'Y'],
+    ['', '', '6W', 'New item', '', 'Owner C', '2026-07-03', '2026-07-12', 'New', 'N']
   ]);
 
   await page.getByRole('button', { name: '구매정보 수정' }).click();
@@ -673,6 +677,14 @@ test('TASK-005A production planning page, project section, edit, permissions, an
   await navigation.getByRole('button', { name: '생산관리' }).click();
   await expect(navigation.getByRole('button', { name: '생산관리' })).toHaveClass(/active/);
   await expect(page.getByLabel('생산계획 요약')).toContainText('생산계획 미등록');
+  await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Excel 업로드' })).toBeVisible();
+  await page.getByRole('button', { name: 'Excel 업로드' }).click();
+  const productionExcelDialog = page.getByRole('dialog', { name: '생산계획 Excel 업로드' });
+  await expect(productionExcelDialog.locator('input[type="file"]')).toBeVisible();
+  await expect(productionExcelDialog.getByRole('button', { name: 'Preview' })).toBeVisible();
+  await productionExcelDialog.getByRole('button', { name: '닫기' }).click();
+  await expect(productionExcelDialog).toHaveCount(0);
   await page.getByPlaceholder('프로젝트명, 고객사, Code, Item 검색').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
   const productionTable = page.getByRole('table', { name: '생산계획 프로젝트 목록' });
@@ -715,6 +727,15 @@ test('TASK-005A production planning page, project section, edit, permissions, an
   const planEditTable = page.getByRole('table', { name: '생산계획 수정' });
   await expect(planEditTable.locator('input[name="items[0].stepName"]')).toHaveValue('자재 입고');
   await expect(planEditTable).not.toContainText('No');
+  await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Excel 업로드' })).toBeVisible();
+  await page.getByRole('button', { name: 'Excel 업로드' }).click();
+  const projectProductionExcelDialog = page.getByRole('dialog', { name: '생산계획 Excel 업로드' });
+  await expect(projectProductionExcelDialog).toContainText(`현재 프로젝트: ${projectTitle}`);
+  await expect(projectProductionExcelDialog.locator('input[type="file"]')).toBeVisible();
+  await expect(projectProductionExcelDialog.getByRole('button', { name: 'Preview' })).toBeVisible();
+  await projectProductionExcelDialog.getByRole('button', { name: '닫기' }).click();
+  await expect(projectProductionExcelDialog).toHaveCount(0);
   await planEditTable.locator('input[type="date"]').nth(0).fill('2026-07-01');
   await planEditTable.locator('input[type="date"]').nth(1).fill('2026-07-15');
   await planEditTable.locator('input[type="date"]').nth(2).fill('2026-07-31');
@@ -788,6 +809,12 @@ test('TASK-005A production planning page, project section, edit, permissions, an
   expect(salesForbidden.status()).toBe(403);
 
   await page.getByLabel('개발 사용자').selectOption('dev-admin');
+  await page.goto('/production-planning');
+  await expect(page.getByLabel('생산계획 요약')).toContainText('생산계획 미등록');
+  await expect(page.getByRole('button', { name: 'Excel 업로드' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toHaveCount(0);
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-admin');
   await openProject(page, projectTitle);
   await page.getByRole('tab', { name: '생산관리' }).click();
   await expect(page.getByRole('button', { name: '생산계획 수정' })).toHaveCount(0);
@@ -845,7 +872,8 @@ test('TASK-006A UAT regression: my-work data, procurement settings route, and wo
   const workflowStages = page.locator('.workflow-stage-item');
   await expect(workflowStages.nth(0)).toContainText('영업 / 프로젝트 생성');
   await expect(workflowStages.nth(1)).toContainText('생산관리 / 생산계획·담당자');
-  await expect(workflowStages.nth(2)).toContainText('설계 / 제품명·사이즈');
+  await expect(workflowStages.nth(2)).toContainText('설계');
+  await expect(workflowStages.nth(2)).not.toContainText('설계 / 패널명·사이즈');
 
   const planResponse = await request.get(`${apiBaseUrl}/api/projects/${projectId}/production-planning`, {
     headers: { 'X-Dev-User': 'dev-production' }
@@ -906,7 +934,7 @@ test('TASK-006A UAT regression: my-work data, procurement settings route, and wo
   await page.goto('/');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '내 업무' }).click();
-  await expect(page.locator('.workflow-project-group').filter({ hasText: projectTitle })).toContainText('제품명, 사이즈 입력');
+  await expect(page.locator('.workflow-project-group').filter({ hasText: projectTitle })).toContainText('패널명, 사이즈 입력');
 
   await page.getByLabel('개발 사용자').selectOption('dev-procurement');
   await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '내 업무' }).click();
@@ -943,8 +971,8 @@ test('TASK-003B D: unauthorized and held projects block panel information writes
   await page.goto('/');
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
   await openProject(page, projectTitle);
-  await expect(page.getByText('제품·패널 목록')).toBeVisible();
-  await expect(page.getByRole('button', { name: '패널정보 수정' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '설계' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '패널명·사이즈 수정' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Excel 업로드' })).toHaveCount(0);
   const forbidden = await request.patch(`${apiBaseUrl}/api/projects/${projectId}/panel-information`, {
     headers: { 'X-Dev-User': 'dev-manufacturing' },
@@ -984,7 +1012,7 @@ test('TASK-003B-1 D: admin grouped history summarizes one direct bulk save', asy
   await page.goto('/');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await openProject(page, projectTitle);
-  await page.getByRole('button', { name: '패널정보 수정' }).click();
+  await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
   await page.getByLabel('No.1 패널명').fill('GROUP-1');
   await page.getByLabel('No.1 W').fill('800');
   await page.getByLabel('No.1 H').fill('1800');
@@ -994,7 +1022,7 @@ test('TASK-003B-1 D: admin grouped history summarizes one direct bulk save', asy
   await page.getByLabel('No.2 H').fill('2200');
   await page.getByLabel('No.2 D').fill('300');
   await page.getByRole('button', { name: '직접 입력 저장' }).click();
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('GROUP-1');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('GROUP-1');
 
   await page.getByLabel('개발 사용자').selectOption('dev-admin');
   await openProject(page, projectTitle);
@@ -1022,7 +1050,7 @@ test('TASK-003B-1 C: partial Excel preview/apply skips blank rows and admin sees
   await page.goto('/');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await openProject(page, projectTitle);
-  await page.getByRole('button', { name: '패널정보 수정' }).click();
+  await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
   await expect(page.locator('.panel-info-table-head')).toHaveCSS('position', 'sticky');
   await page.getByRole('button', { name: 'Excel 업로드' }).click();
   const excelDialog = page.getByRole('dialog', { name: 'Excel 업로드' });
@@ -1045,7 +1073,7 @@ test('TASK-003B-1 C: partial Excel preview/apply skips blank rows and admin sees
   expect(await queryDatabaseValue(`select skipped_panel_count::text from panel_information_excel_import_batches where project_id = '${projectId}';`)).toBe('1');
   expect(await queryDatabaseValue(`select count(distinct import_batch_id)::text from project_audit_events where project_id = '${projectId}' and input_source = 'Excel';`)).toBe('1');
 
-  const partialTable = page.getByRole('table', { name: '제품·패널 목록' });
+  const partialTable = page.getByRole('table', { name: '설계' });
   await expect(partialTable).toContainText('PNL-1');
   await expect(partialTable).toContainText('미입력');
   await expect(partialTable).toContainText('PNL-3');
@@ -1070,8 +1098,8 @@ test('full-stack: project registration, permissions, status, and panel count use
 
   await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
   await expect(page.locator('dd').filter({ hasText: /^목포장$/ })).toBeVisible();
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('제조 전');
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('미입력');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('제조 전');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('미입력');
   await expect(page.getByText('KRW 1,250,000.5')).toBeVisible();
 
   const projectId = await findProjectId(projectTitle);
@@ -1080,7 +1108,7 @@ test('full-stack: project registration, permissions, status, and panel count use
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await openProject(page, projectTitle);
   await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toHaveCount(0);
-  await page.getByRole('button', { name: '패널정보 수정' }).click();
+  await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
   const [mmTemplateDownload] = await Promise.all([
     page.waitForEvent('download'),
     page.getByRole('button', { name: 'Excel 양식 다운로드' }).click()
@@ -1095,9 +1123,10 @@ test('full-stack: project registration, permissions, status, and panel count use
 
   await page.reload();
   await page.getByRole('button', { name: '상세' }).click();
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('4');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('4');
 
   await page.getByRole('button', { name: '목록' }).click();
+  await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await page.getByRole('button', { name: '신규 프로젝트' }).click();
   await fillProjectForm(page, `FS-DUP-${unique}`, ` task   003a full stack ${unique} `, '2');
   await page.getByRole('button', { name: '등록' }).click();
@@ -1105,11 +1134,11 @@ test('full-stack: project registration, permissions, status, and panel count use
 
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
   await openProject(page, projectTitle);
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('미입력');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('미입력');
   await expect(page.getByText('KRW 1,250,000.5')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '수정', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '보류' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '패널정보 수정' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '패널명·사이즈 수정' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toHaveCount(0);
   const manufacturingTemplateDownload = await request.get(`${apiBaseUrl}/api/projects/${projectId}/panel-information/import/template?unit=mm`, {
     headers: { 'X-Dev-User': 'dev-manufacturing' }
@@ -1127,7 +1156,7 @@ test('full-stack: project registration, permissions, status, and panel count use
   await openProject(page, projectTitle);
   await expect(page.getByText('KRW 1,250,000.5')).toBeVisible();
   await expect(page.getByRole('button', { name: '수정', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '패널정보 수정' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '패널명·사이즈 수정' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '전체 이력' })).toBeVisible();
   await expect(page.getByRole('button', { name: '보류' })).toHaveCount(0);
   const adminWrite = await request.post(`${apiBaseUrl}/api/projects/${projectId}/hold`, {
@@ -1156,8 +1185,8 @@ test('full-stack: project registration, permissions, status, and panel count use
   await expect(panelCountInput).toHaveValue('6');
   await page.getByLabel('수정사유*').fill('Full-stack 면수 증가');
   await page.getByRole('button', { name: '저장' }).click();
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('5');
-  await expect(page.getByRole('table', { name: '제품·패널 목록' })).toContainText('6');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('5');
+  await expect(page.getByRole('table', { name: '설계' })).toContainText('6');
   expect(Number(await queryDatabaseValue(`select count(*) from panel_placeholders where project_id = '${projectId}' and status = 'Active';`))).toBe(6);
 
   const stalePanelChange = await request.post(`${apiBaseUrl}/api/projects/${projectId}/change-panel-count`, {
@@ -1391,7 +1420,7 @@ function writeProcurementWorkbook(filePath: string, rows: string[][]) {
   const allRows = [
     ['PS 사업부 PJT 발주 관리', '', '', '', '', '', '', '', '', ''],
     ['', '', '', '', '', '', '', '', '', ''],
-    ['PJT', 'PJT CODE', '통상납기', '발주품목', '기술 담당자', '발주일', '입고일', '출하일', '이슈사항', '입고 완료'],
+    ['PJT', 'PJT CODE', '통상납기', '발주품목', '업체', '기술 담당자', '발주일', '입고예정일', '이슈사항', '입고 완료'],
     ...rows
   ];
   const rowXml = allRows.map((row, rowIndex) => {
@@ -1422,9 +1451,9 @@ with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
 
 function writeProjectCreateWorkbook(filePath: string, rows: string[][]) {
   const allRows = [
-    ['프로젝트 Excel 등록', '', '', '', '', '', '', '', '', '', ''],
-    ['', '', '', '', '', '', '', '', '', '', ''],
-    ['고객사', 'Item', 'PJT Code', 'PJT Title', '면수', '납기일', '포장방식', '판매금액', '통화', '납품장소', '영업담당자'],
+    ['프로젝트 Excel 등록', '', '', '', '', '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', '', '', ''],
+    ['고객사', 'Item', 'PJT Code', '프로젝트명', '면수', '납기일', '포장방식', 'FAT 필요 여부', '영업담당자', '판매금액', '통화', '납품장소'],
     ...rows
   ];
   const rowXml = allRows.map((row, rowIndex) => {

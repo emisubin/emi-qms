@@ -144,6 +144,7 @@ public sealed class ProjectStore(
                 projects.currency_code,
                 project_workflow.project_work_status,
                 project_workflow.project_progress_percent,
+                projects.fat_required,
                 count(*) over() as total_count
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
@@ -172,7 +173,19 @@ public sealed class ProjectStore(
             left join lateral (
                 select count(*) filter (
                     where assigned_user_id is not null
-                      and responsibility_type in ('Procurement', 'ProductionPlanning', 'Manufacturing', 'Quality', 'Logistics')
+                      and responsibility_type in (
+                          'SalesPrimary',
+                          'DesignPrimary',
+                          'ProductionPlanningPrimary',
+                          'ProcurementPrimary',
+                          'MaterialsPrimary',
+                          'ManufacturingPrimary',
+                          'LogisticsPrimary',
+                          'QualityIQC',
+                          'QualityLQC',
+                          'QualityOQC',
+                          'QualityCustomerInspection'
+                      )
                 )::integer as assigned_count
                 from project_assignees
                 where project_assignees.project_id = projects.id
@@ -212,7 +225,7 @@ public sealed class ProjectStore(
                                    production_plan_summary.required_item_count = 0
                                    or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
                                )
-                               and assignee_summary.assigned_count >= 5
+                               and assignee_summary.assigned_count >= 11
                            ) then 'ProductionPlanning'
                            when not (
                                active_panels.active_panel_count > 0
@@ -237,7 +250,7 @@ public sealed class ProjectStore(
                                         production_plan_summary.required_item_count = 0
                                         or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
                                     )
-                                    and assignee_summary.assigned_count >= 5 then 1
+                                    and assignee_summary.assigned_count >= 11 then 1
                                    else 0
                                  end
                                + case
@@ -253,7 +266,7 @@ public sealed class ProjectStore(
                                     and procurement_summary.named_item_count = procurement_summary.item_count then 1
                                    else 0
                                  end
-                           )::numeric * 100 / 17)::integer
+                           )::numeric * 100 / case when projects.fat_required then 18 else 17 end)::integer
                        end as project_progress_percent
             ) project_workflow on true
             {whereSql}
@@ -283,7 +296,7 @@ public sealed class ProjectStore(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            totalCount = reader.GetInt64(18);
+            totalCount = reader.GetInt64(19);
             items.Add(ReadProjectListItem(reader, includeSalesAmount));
         }
 
@@ -404,6 +417,7 @@ public sealed class ProjectStore(
                 projects.currency_code,
                 project_workflow.project_work_status,
                 project_workflow.project_progress_percent,
+                projects.fat_required,
                 projects.status_reason
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
@@ -432,7 +446,19 @@ public sealed class ProjectStore(
             left join lateral (
                 select count(*) filter (
                     where assigned_user_id is not null
-                      and responsibility_type in ('Procurement', 'ProductionPlanning', 'Manufacturing', 'Quality', 'Logistics')
+                      and responsibility_type in (
+                          'SalesPrimary',
+                          'DesignPrimary',
+                          'ProductionPlanningPrimary',
+                          'ProcurementPrimary',
+                          'MaterialsPrimary',
+                          'ManufacturingPrimary',
+                          'LogisticsPrimary',
+                          'QualityIQC',
+                          'QualityLQC',
+                          'QualityOQC',
+                          'QualityCustomerInspection'
+                      )
                 )::integer as assigned_count
                 from project_assignees
                 where project_assignees.project_id = projects.id
@@ -472,7 +498,7 @@ public sealed class ProjectStore(
                                    production_plan_summary.required_item_count = 0
                                    or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
                                )
-                               and assignee_summary.assigned_count >= 5
+                               and assignee_summary.assigned_count >= 11
                            ) then 'ProductionPlanning'
                            when not (
                                active_panels.active_panel_count > 0
@@ -497,7 +523,7 @@ public sealed class ProjectStore(
                                         production_plan_summary.required_item_count = 0
                                         or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
                                     )
-                                    and assignee_summary.assigned_count >= 5 then 1
+                                    and assignee_summary.assigned_count >= 11 then 1
                                    else 0
                                  end
                                + case
@@ -513,7 +539,7 @@ public sealed class ProjectStore(
                                     and procurement_summary.named_item_count = procurement_summary.item_count then 1
                                    else 0
                                  end
-                           )::numeric * 100 / 17)::integer
+                           )::numeric * 100 / case when projects.fat_required then 18 else 17 end)::integer
                        end as project_progress_percent
             ) project_workflow on true
             where projects.id = @project_id
@@ -528,7 +554,7 @@ public sealed class ProjectStore(
         }
 
         var baseItem = ReadProjectListItem(reader, includeSalesAmount);
-        var statusReason = reader.IsDBNull(18) ? null : reader.GetString(18);
+        var statusReason = reader.IsDBNull(19) ? null : reader.GetString(19);
         await reader.DisposeAsync();
         var panelInfoSummary = await ReadPanelInformationSummaryAsync(dataSource, projectId, cancellationToken);
         return new ProjectDetailResponse
@@ -544,6 +570,7 @@ public sealed class ProjectStore(
             SalesOwnerName = baseItem.SalesOwnerName,
             PackagingMethod = baseItem.PackagingMethod,
             DeliveryLocation = baseItem.DeliveryLocation,
+            FatRequired = baseItem.FatRequired,
             Status = baseItem.Status,
             ProjectWorkStatus = baseItem.ProjectWorkStatus,
             ProjectProgressPercent = baseItem.ProjectProgressPercent,
@@ -626,6 +653,7 @@ public sealed class ProjectStore(
                         sales_amount,
                         currency_code,
                         delivery_location,
+                        fat_required,
                         status,
                         created_by_user_id,
                         updated_at_utc
@@ -646,6 +674,7 @@ public sealed class ProjectStore(
                         @sales_amount,
                         @currency_code,
                         @delivery_location,
+                        @fat_required,
                         'Active',
                         @created_by_user_id,
                         now()
@@ -767,6 +796,7 @@ public sealed class ProjectStore(
                         sales_amount = @sales_amount,
                         currency_code = @currency_code,
                         delivery_location = @delivery_location,
+                        fat_required = @fat_required,
                         updated_at_utc = now()
                     where id = @project_id;
                     """;
@@ -1295,6 +1325,7 @@ public sealed class ProjectStore(
                 projects.currency_code,
                 projects.status as project_work_status,
                 null::integer as project_progress_percent,
+                projects.fat_required,
                 projects.deleted_at_utc,
                 projects.deleted_by_user_id,
                 deleter.display_name,
@@ -1327,7 +1358,7 @@ public sealed class ProjectStore(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            totalCount = reader.GetInt64(22);
+            totalCount = reader.GetInt64(23);
             items.Add(ReadDeletedProjectListItem(reader, includeSalesAmount));
         }
 
@@ -1361,6 +1392,7 @@ public sealed class ProjectStore(
                 projects.currency_code,
                 projects.status as project_work_status,
                 null::integer as project_progress_percent,
+                projects.fat_required,
                 projects.deleted_at_utc,
                 projects.deleted_by_user_id,
                 deleter.display_name,
@@ -1387,7 +1419,7 @@ public sealed class ProjectStore(
         }
 
         var item = ReadDeletedProjectListItem(reader, includeSalesAmount);
-        var statusReason = reader.IsDBNull(22) ? null : reader.GetString(22);
+        var statusReason = reader.IsDBNull(23) ? null : reader.GetString(23);
         await reader.DisposeAsync();
         var detail = new DeletedProjectDetailResponse
         {
@@ -1402,6 +1434,7 @@ public sealed class ProjectStore(
             SalesOwnerName = item.SalesOwnerName,
             PackagingMethod = item.PackagingMethod,
             DeliveryLocation = item.DeliveryLocation,
+            FatRequired = item.FatRequired,
             Status = item.Status,
             ProjectWorkStatus = item.ProjectWorkStatus,
             ProjectProgressPercent = item.ProjectProgressPercent,
@@ -1864,6 +1897,7 @@ public sealed class ProjectStore(
                 null,
                 null,
                 null,
+                null,
                 parsed.FileErrors);
             return new ProjectExcelPreviewBuildResult(
                 new ProjectExcelPreviewResponse(parsed.FileSha256, parsed.TotalRows, 0, 0, 1, [errorRow]),
@@ -1901,7 +1935,8 @@ public sealed class ProjectStore(
                 packagingMethod,
                 row.SalesAmount,
                 row.CurrencyCode,
-                row.DeliveryLocation);
+                row.DeliveryLocation,
+                row.FatRequired);
             var (input, validation) = ProjectRequestValidator.ValidateCreate(request);
             foreach (var error in validation.Errors)
             {
@@ -1962,6 +1997,7 @@ public sealed class ProjectStore(
                 row.SalesAmount,
                 ProjectInputNormalizer.NormalizeCurrencyCode(row.CurrencyCode),
                 row.DeliveryLocation,
+                row.FatRequired,
                 row.SalesOwnerText,
                 owner?.UserId,
                 owner?.DisplayName,
@@ -2124,6 +2160,7 @@ public sealed class ProjectStore(
                     sales_amount,
                     currency_code,
                     delivery_location,
+                    fat_required,
                     status,
                     created_by_user_id,
                     updated_at_utc
@@ -2144,6 +2181,7 @@ public sealed class ProjectStore(
                     @sales_amount,
                     @currency_code,
                     @delivery_location,
+                    @fat_required,
                     'Active',
                     @created_by_user_id,
                     now()
@@ -2376,6 +2414,7 @@ public sealed class ProjectStore(
             Status = reader.GetString(11),
             ProjectWorkStatus = reader.GetString(16),
             ProjectProgressPercent = reader.IsDBNull(17) ? null : reader.GetInt32(17),
+            FatRequired = !reader.IsDBNull(18) && reader.GetBoolean(18),
             CreatedAt = reader.GetFieldValue<DateTimeOffset>(12),
             UpdatedAt = reader.GetFieldValue<DateTimeOffset>(13),
             SalesAmount = includeSalesAmount && !reader.IsDBNull(14) ? reader.GetDecimal(14) : null,
@@ -2399,6 +2438,7 @@ public sealed class ProjectStore(
             SalesOwnerName = baseItem.SalesOwnerName,
             PackagingMethod = baseItem.PackagingMethod,
             DeliveryLocation = baseItem.DeliveryLocation,
+            FatRequired = baseItem.FatRequired,
             Status = baseItem.Status,
             ProjectWorkStatus = baseItem.ProjectWorkStatus,
             ProjectProgressPercent = baseItem.ProjectProgressPercent,
@@ -2406,10 +2446,10 @@ public sealed class ProjectStore(
             UpdatedAt = baseItem.UpdatedAt,
             SalesAmount = baseItem.SalesAmount,
             CurrencyCode = baseItem.CurrencyCode,
-            DeletedAtUtc = reader.GetFieldValue<DateTimeOffset>(18),
-            DeletedByUserId = reader.IsDBNull(19) ? null : reader.GetGuid(19),
-            DeletedByUserName = reader.IsDBNull(20) ? null : reader.GetString(20),
-            DeleteReason = reader.GetString(21)
+            DeletedAtUtc = reader.GetFieldValue<DateTimeOffset>(19),
+            DeletedByUserId = reader.IsDBNull(20) ? null : reader.GetGuid(20),
+            DeletedByUserName = reader.IsDBNull(21) ? null : reader.GetString(21),
+            DeleteReason = reader.GetString(22)
         };
     }
 
@@ -2606,6 +2646,7 @@ public sealed class ProjectStore(
             input.SalesAmount,
             input.CurrencyCode,
             input.DeliveryLocation,
+            input.FatRequired,
             changedByUserId);
     }
 
@@ -2631,6 +2672,7 @@ public sealed class ProjectStore(
             input.SalesAmount,
             input.CurrencyCode,
             input.DeliveryLocation,
+            input.FatRequired,
             changedByUserId);
     }
 
@@ -2647,6 +2689,7 @@ public sealed class ProjectStore(
         decimal? salesAmount,
         string? currencyCode,
         string? deliveryLocation,
+        bool fatRequired,
         Guid changedByUserId)
     {
         command.Parameters.AddWithValue("customer_name", customerName);
@@ -2660,6 +2703,7 @@ public sealed class ProjectStore(
         command.Parameters.Add("sales_amount", NpgsqlDbType.Numeric).Value = salesAmount ?? (object)DBNull.Value;
         command.Parameters.Add("currency_code", NpgsqlDbType.Text).Value = currencyCode ?? (object)DBNull.Value;
         command.Parameters.Add("delivery_location", NpgsqlDbType.Text).Value = deliveryLocation ?? (object)DBNull.Value;
+        command.Parameters.AddWithValue("fat_required", fatRequired);
         command.Parameters.AddWithValue("created_by_user_id", changedByUserId);
     }
 
@@ -2924,7 +2968,8 @@ public sealed class ProjectStore(
                    sales_owner_user_id,
                    sales_amount,
                    currency_code,
-                   delivery_location
+                   delivery_location,
+                   fat_required
             from projects
             where id = @project_id
               and deleted_at_utc is null
@@ -2956,7 +3001,8 @@ public sealed class ProjectStore(
             reader.IsDBNull(9) ? Guid.Empty : reader.GetGuid(9),
             reader.IsDBNull(10) ? null : reader.GetDecimal(10),
             reader.IsDBNull(11) ? null : reader.GetString(11),
-            reader.IsDBNull(12) ? null : reader.GetString(12));
+            reader.IsDBNull(12) ? null : reader.GetString(12),
+            !reader.IsDBNull(13) && reader.GetBoolean(13));
     }
 
     private static async Task<ProjectLockSnapshot?> LockProjectForUpdateAsync(
@@ -3083,7 +3129,8 @@ public sealed class ProjectStore(
         Guid SalesOwnerUserId,
         decimal? SalesAmount,
         string? CurrencyCode,
-        string? DeliveryLocation)
+        string? DeliveryLocation,
+        bool FatRequired)
     {
         public IReadOnlyList<ProjectFieldChange> CollectChanges(NormalizedUpdateProjectInput input)
         {
@@ -3098,6 +3145,7 @@ public sealed class ProjectStore(
             Add(changes, "SalesAmount", SalesAmount, input.SalesAmount, true);
             Add(changes, "CurrencyCode", CurrencyCode, input.CurrencyCode, true);
             Add(changes, "DeliveryLocation", DeliveryLocation, input.DeliveryLocation, false);
+            Add(changes, "FatRequired", FatRequired, input.FatRequired, false);
             return changes;
         }
 

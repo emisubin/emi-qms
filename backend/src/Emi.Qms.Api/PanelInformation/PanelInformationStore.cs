@@ -90,11 +90,22 @@ public sealed class PanelInformationStore(
 
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Panel Information");
-        worksheet.Cell(1, 8).Value = "* 표시 항목은 필수 입력값입니다.";
+        var sizeCompletionRequired = project.PackagingMethod == "WoodenCrate";
+        worksheet.Cell(1, 8).Value = sizeCompletionRequired
+            ? "No는 업로드 식별값입니다. * 표시는 완료 필수값입니다. 목포장은 패널명과 W/H/D 입력 시 설계 단계가 완료됩니다. 저장은 일부 입력 상태에서도 가능합니다."
+            : "No는 업로드 식별값입니다. * 표시는 완료 필수값입니다. 일반 포장은 패널명 입력 시 설계 단계가 완료됩니다. 저장은 일부 입력 상태에서도 가능합니다.";
         worksheet.Cell(1, 8).Style.Font.Italic = true;
         worksheet.Cell(1, 8).Style.Alignment.WrapText = true;
-        worksheet.Column(8).Width = 32;
-        var headers = new (string Text, bool Required)[] { ("No", true), ("도번", false), ("panel name", true), ("w", false), ("h", false), ("d", false) };
+        worksheet.Column(8).Width = 72;
+        var headers = new (string Text, bool Required)[]
+        {
+            ("No", true),
+            ("도번", false),
+            ("패널명", true),
+            ("W", sizeCompletionRequired),
+            ("H", sizeCompletionRequired),
+            ("D", sizeCompletionRequired)
+        };
         for (var column = 0; column < headers.Length; column++)
         {
             worksheet.Cell(1, column + 1).Value = headers[column].Required ? $"{headers[column].Text} *" : headers[column].Text;
@@ -234,7 +245,7 @@ public sealed class PanelInformationStore(
             if (project.Status != "Active")
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return PanelInformationMutationResult<PanelInformationResponse>.Conflict("현재 프로젝트 상태에서는 패널정보를 수정할 수 없습니다.");
+                return PanelInformationMutationResult<PanelInformationResponse>.Conflict("현재 프로젝트 상태에서는 설계 정보를 수정할 수 없습니다.");
             }
 
             var persistResult = await PersistLockedUpdatesAsync(
@@ -297,7 +308,7 @@ public sealed class PanelInformationStore(
             if (project.Status != "Active")
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return PanelInformationMutationResult<PanelInformationResponse>.Conflict("현재 프로젝트 상태에서는 패널정보를 수정할 수 없습니다.");
+                return PanelInformationMutationResult<PanelInformationResponse>.Conflict("현재 프로젝트 상태에서는 설계 정보를 수정할 수 없습니다.");
             }
 
             var normalizedExpectedPackaging = ProjectInputNormalizer.TrimToNull(expectedPackagingMethod);
@@ -331,7 +342,7 @@ public sealed class PanelInformationStore(
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return PanelInformationMutationResult<PanelInformationResponse>.Validation(
-                    new Dictionary<string, string[]> { ["Reason"] = ["기존 패널정보를 변경하려면 수정사유가 필요합니다."] });
+                    new Dictionary<string, string[]> { ["Reason"] = ["기존 설계 정보를 변경하려면 수정사유가 필요합니다."] });
             }
 
             var updateItems = new List<NormalizedPanelInformationUpdateItem>();
@@ -464,7 +475,7 @@ public sealed class PanelInformationStore(
         if (reasonRequired && string.IsNullOrWhiteSpace(input.Reason))
         {
             return PanelInformationMutationResult<PanelInformationResponse>.Validation(
-                new Dictionary<string, string[]> { ["Reason"] = ["기존 패널정보를 변경하려면 수정사유가 필요합니다."] });
+                new Dictionary<string, string[]> { ["Reason"] = ["기존 설계 정보를 변경하려면 수정사유가 필요합니다."] });
         }
 
         Guid? importBatchId = null;

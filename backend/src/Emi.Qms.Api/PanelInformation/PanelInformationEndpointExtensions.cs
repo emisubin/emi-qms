@@ -69,14 +69,14 @@ public static class PanelInformationEndpointExtensions
 
             if (result.Status == PanelInformationMutationStatus.Success && result.Value is not null)
             {
-                await workflowStore.CompleteStageAsync(
+                await workflowStore.SyncStageWorkItemsAfterSaveAsync(
                     projectId,
                     WorkflowStageCodes.DesignPanelInfo,
                     "Panel",
                     projectId,
                     userId.Value,
                     httpContext.TraceIdentifier,
-                    "제품명·사이즈 입력 완료",
+                    "패널명·사이즈 입력 완료",
                     cancellationToken);
             }
 

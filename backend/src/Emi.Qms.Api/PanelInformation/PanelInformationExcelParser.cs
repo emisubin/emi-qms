@@ -351,11 +351,11 @@ public sealed partial class PanelInformationExcelParser
 
         return candidates.Count switch
         {
-            0 => new WorksheetSelectionResult(null, null, ["20행 안에서 No와 panel name 헤더가 있는 워크시트를 찾을 수 없습니다."]),
+            0 => new WorksheetSelectionResult(null, null, ["20행 안에서 No와 패널명 헤더가 있는 워크시트를 찾을 수 없습니다."]),
             1 => ValidateHeaders(candidates[0].Headers) is var errors && errors.Count > 0
                 ? new WorksheetSelectionResult(candidates[0].Worksheet, candidates[0].Headers, errors)
                 : new WorksheetSelectionResult(candidates[0].Worksheet, candidates[0].Headers, []),
-            _ => new WorksheetSelectionResult(null, null, ["패널정보로 인식 가능한 워크시트가 여러 개입니다."])
+            _ => new WorksheetSelectionResult(null, null, ["설계 정보로 인식 가능한 워크시트가 여러 개입니다."])
         };
     }
 
@@ -374,8 +374,8 @@ public sealed partial class PanelInformationExcelParser
         for (var column = 1; column <= lastColumn; column++)
         {
             var cell = worksheet.Cell(firstRow.Value, column);
-            var normalized = NormalizeHeader(cell.GetString());
-            if (normalized is "no" or "도번" or "panel name" or "w" or "h" or "d")
+            var normalized = CanonicalHeader(NormalizeHeader(cell.GetString()));
+            if (normalized is not null)
             {
                 if (cell.IsMerged())
                 {
@@ -407,7 +407,7 @@ public sealed partial class PanelInformationExcelParser
 
         if (!headers.Headers.ContainsKey("panel name"))
         {
-            errors.Add("panel name 헤더가 필요합니다.");
+            errors.Add("패널명 헤더가 필요합니다.");
         }
 
         return errors;
@@ -422,7 +422,7 @@ public sealed partial class PanelInformationExcelParser
             var hasRecognizedHeader = false;
             for (var column = 1; column <= lastColumn; column++)
             {
-                if (NormalizeHeader(worksheet.Cell(row, column).GetString()) is "no" or "도번" or "panel name" or "w" or "h" or "d")
+                if (CanonicalHeader(NormalizeHeader(worksheet.Cell(row, column).GetString())) is not null)
                 {
                     hasRecognizedHeader = true;
                     break;
@@ -441,6 +441,16 @@ public sealed partial class PanelInformationExcelParser
     private static string NormalizeHeader(string value)
     {
         return WhitespaceRegex().Replace(value.Trim().TrimEnd('*').Trim(), " ").ToLowerInvariant();
+    }
+
+    private static string? CanonicalHeader(string normalized)
+    {
+        return normalized switch
+        {
+            "no" or "도번" or "panel name" or "w" or "h" or "d" => normalized,
+            "패널명" => "panel name",
+            _ => null
+        };
     }
 
     private static bool IsRecognizedRowEmpty(

@@ -1195,7 +1195,94 @@ Codex는 새 TASK 시작 시 다음 원칙을 따른다.
 - 테스트하지 않은 것은 테스트하지 않았다고 보고한다.
 - Commit, Push, PR, Merge는 명시 요청이 있을 때만 수행한다.
 
-### 27.1 문서 작성 및 유지 스타일
+### 27.1 TASK 종료 표준 절차
+
+모든 TASK는 종료 시 다음 순서를 따른다.
+
+1. 구현 완료 보고
+2. P0/P1/P2/P3 기준 최종 리뷰
+3. 필수 테스트 실행
+4. UAT DB persistence 확인, 해당되는 경우
+5. Secret/PII scan
+6. P0/P1/P2가 없을 때만 문서 정리 단계 진행
+7. `docs/00-product-roadmap.md` 갱신
+8. TASK별 코드/구현 보고서 작성
+9. allowlist 기반 staging
+10. commit / push / PR
+11. CI 확인
+12. merge
+
+P0/P1/P2가 있으면 roadmap 갱신과 게시를 진행하지 않고, 수정이 필요한 항목을 먼저 보고한다.
+
+### 27.2 Roadmap 갱신 기준
+
+TASK 종료 시 `docs/00-product-roadmap.md`에서 필요한 항목을 갱신한다.
+
+갱신 후보:
+
+- 현재까지 개발된 기능
+- 현재 기능에서 수정해야 할 방향
+- 향후 개발 로드맵
+- 추적 대상 리스트
+- Decision Log
+- Codex 작업 시 유의사항
+- 관련 용어 사전
+
+Roadmap 갱신은 실제 구현 결과를 기준으로 한다.
+구현되지 않은 기능을 완료된 것처럼 적지 않는다.
+방향이 바뀐 결정은 Decision Log에 누적한다.
+기존 Decision Log 행은 삭제하지 않는다.
+
+### 27.3 TASK 코드/구현 보고서 작성 기준
+
+모든 TASK는 종료 시 `tasks/` 아래에 코드/구현 보고서를 작성한다.
+
+파일명 규칙:
+
+`tasks/<task-id>-implementation-report.md`
+
+예:
+
+- `tasks/infra-001-implementation-report.md`
+- `tasks/notify-001-implementation-report.md`
+- `tasks/007a-pending-list-implementation-report.md`
+
+보고서는 단순 요약이 아니라, 후속 개발자가 해당 TASK를 이해할 수 있을 정도로 상세히 작성한다.
+
+반드시 포함할 섹션:
+
+1. TASK 목적
+2. 구현 범위
+3. 제외 범위
+4. 전체 아키텍처
+5. Backend 변경사항
+6. Frontend 변경사항
+7. DB/Migration 변경사항
+8. 주요 API
+9. 주요 화면/UX
+10. 권한/Policy
+11. Workflow/내 업무/알림 연동
+12. Excel/PDF/첨부파일 영향, 해당되는 경우
+13. 테스트 결과
+14. UAT 검수 결과
+15. Secret/PII 검토 결과
+16. 기존 기능 회귀 영향
+17. 후속 TASK 연결
+18. 알려진 제한사항
+19. 운영 적용 전 체크리스트
+20. 주요 파일 목록
+
+보고서 작성 원칙:
+
+- 실제 구현 기준으로 작성한다.
+- 실행하지 않은 테스트를 실행했다고 쓰지 않는다.
+- 실제 secret, token, tenant id, client id, email 원문을 쓰지 않는다.
+- `.env` 값 또는 Authorization header를 쓰지 않는다.
+- 코드 전체 diff를 붙여넣지 않는다.
+- 전체 코드는 Git diff와 repository를 source of truth로 둔다.
+- 보고서는 구조, 역할, 파일 위치, 검증 결과를 중심으로 작성한다.
+
+### 27.4 문서 작성 및 유지 스타일
 
 - 한국어로 작성한다.
 - Markdown을 사용한다.
@@ -1207,7 +1294,7 @@ Codex는 새 TASK 시작 시 다음 원칙을 따른다.
 - 업무 담당자가 읽어도 이해할 수 있게 작성한다.
 - 내부 코드명과 사용자 표시명을 구분한다.
 
-### 27.2 현재 문서 기준 검증 체크리스트
+### 27.5 현재 문서 기준 검증 체크리스트
 
 문서를 수정한 후에는 다음을 확인한다.
 

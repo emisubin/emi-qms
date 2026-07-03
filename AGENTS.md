@@ -9,6 +9,12 @@
 
 - main 브랜치에 직접 작업하지 않는다.
 - Commit, Push, PR, Merge는 명시 요청이 있을 때만 수행한다.
+- 모든 TASK는 최종 리뷰 후 P0/P1/P2 Finding이 없을 때만 게시한다.
+- 모든 TASK 종료 시 docs/00-product-roadmap.md를 구현 결과에 맞게 갱신한다.
+- 모든 TASK 종료 시 `tasks/<task-id>-implementation-report.md`를 작성한다.
+- 코드 전체 diff를 대형 MD로 저장하지 않는다.
+- 실제 secret/token/env 값은 문서에 포함하지 않는다.
+- allowlist 기반 staging을 사용하고 `git add .`를 사용하지 않는다.
 - 기존 UAT DB를 drop/truncate하지 않는다.
 - Docker volume을 삭제하지 않는다.
 - 기존 migration 0001~현재 main 반영 migration은 수정하지 않는다.

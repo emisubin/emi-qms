@@ -2,6 +2,7 @@ import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSS
 import { useMsal } from '@azure/msal-react';
 import {
   ApiError,
+  applyAdminCalendarHolidayExcel,
   applyPanelInformationExcel,
   applyProductionPlanningExcel,
   applyProjectExcel,
@@ -9,15 +10,19 @@ import {
   applyProcurementExcel,
   changePanelCount,
   changeProjectStatus,
+  createAdminCalendarHoliday,
   createProject,
   defaultDevelopmentUserKey,
   deleteProject,
+  deactivateAdminCalendarHoliday,
+  downloadAdminCalendarHolidayTemplate,
   downloadPanelInformationTemplate,
   downloadProductionPlanningBulkTemplate,
   downloadProductionPlanningTemplate,
   downloadProjectExcelTemplate,
   downloadProcurementDashboardTemplate,
   downloadProcurementTemplate,
+  getAdminCalendarHolidays,
   getCurrentUser,
   getAdminUsers,
   getDeletedProject,
@@ -33,6 +38,7 @@ import {
   getProjectSummary,
   getProductionPlanningSummary,
   getProcurementDashboard,
+  getBusinessCalendar,
   getMyWorkSummary,
   getNotificationSummary,
   getMaterialReceipts,
@@ -48,7 +54,7 @@ import {
   listDeletedProjects,
   listPanels,
   listProjects,
-  listSystemHolidays,
+  previewAdminCalendarHolidayExcel,
   previewPanelInformationExcel,
   previewProductionPlanningExcel,
   previewProjectExcel,
@@ -63,6 +69,7 @@ import {
   startMyWorkItem,
   setAdminTestUserKey,
   setAccessTokenProvider,
+  updateAdminCalendarHoliday,
   updateAdminUser,
   updateProjectProductionPlanning,
   updateProductionTemplateSettings,
@@ -85,7 +92,10 @@ import type { ReadyHealth } from './health';
 import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
 import type {
+  AdminCalendarHoliday,
+  AdminCalendarHolidayListResponse,
   AuditEvent,
+  CalendarHolidayExcelPreviewResponse,
   DeletedProjectDetail,
   DeletedProjectListItem,
   PanelInformationExcelPreviewResponse,
@@ -131,7 +141,8 @@ import type {
   ProductWorkflowStage,
   ResponsibilityType,
   SalesOwner,
-  SystemHoliday
+  BusinessCalendarDay,
+  HolidayType
 } from './projects';
 
 type View =
@@ -151,6 +162,7 @@ type View =
   | { kind: 'materials-receipts' }
   | { kind: 'notifications' }
   | { kind: 'admin-users' }
+  | { kind: 'admin-calendar-holidays' }
   | { kind: 'panel'; projectId: string; panelId: string };
 
 type LoadState<T> =
@@ -242,6 +254,10 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/admin/users') {
     return { kind: 'admin-users' };
+  }
+
+  if (window.location.pathname === '/admin/calendar/holidays') {
+    return { kind: 'admin-calendar-holidays' };
   }
 
   const panelInformationEditMatch = window.location.pathname.match(/^\/projects\/([^/]+)\/panel-information\/edit$/);
@@ -364,6 +380,8 @@ function pathForView(view: View) {
       return '/notifications';
     case 'admin-users':
       return '/admin/users';
+    case 'admin-calendar-holidays':
+      return '/admin/calendar/holidays';
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}`;
     default:
@@ -770,7 +788,10 @@ function QmsAppShell({
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     ...(canUpdateMaterialReceipt ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : []),
     { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: displayedShellBadges.unreadNotificationCount },
-    ...(canManageUsers ? [{ label: '사용자', view: { kind: 'admin-users' } as View, active: view.kind === 'admin-users' }] : [])
+    ...(canManageUsers ? [
+      { label: '사용자', view: { kind: 'admin-users' } as View, active: view.kind === 'admin-users' },
+      { label: '휴일', view: { kind: 'admin-calendar-holidays' } as View, active: view.kind === 'admin-calendar-holidays' }
+    ] : [])
   ];
 
   return (
@@ -1023,6 +1044,10 @@ function QmsAppShell({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-users' ? (
         <AdminUsersPage developmentUserKey={developmentUserKey} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-calendar-holidays' ? (
+        <AdminCalendarHolidaysPage developmentUserKey={developmentUserKey} />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'panel' ? (
@@ -1331,6 +1356,372 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
       ) : null}
     </section>
   );
+}
+
+type CalendarHolidayDraft = {
+  date: string;
+  name: string;
+  holidayType: HolidayType;
+  isActive: boolean;
+  note: string;
+};
+
+const holidayTypeOptions: Array<{ value: HolidayType; label: string }> = [
+  { value: 'National', label: '국가공휴일' },
+  { value: 'Substitute', label: '대체공휴일' },
+  { value: 'Temporary', label: '임시공휴일' },
+  { value: 'Company', label: '회사휴일' }
+];
+
+function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey: string }) {
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = useState(currentYear);
+  const [state, setState] = useState<LoadState<AdminCalendarHolidayListResponse>>({ kind: 'loading' });
+  const [editingHolidayId, setEditingHolidayId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<CalendarHolidayDraft>(() => createHolidayDraft(currentYear));
+  const [message, setMessage] = useState('');
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelPreview, setExcelPreview] = useState<CalendarHolidayExcelPreviewResponse | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getAdminCalendarHolidays(developmentUserKey, year)
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '휴일 목록을 불러올 수 없습니다.')));
+  }, [developmentUserKey, year]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: 'loading' });
+    getAdminCalendarHolidays(developmentUserKey, year)
+      .then((data) => {
+        if (!cancelled) {
+          setState({ kind: 'ready', data });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState(toLoadError(error, '휴일 목록을 불러올 수 없습니다.'));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [developmentUserKey, year]);
+
+  const startCreate = () => {
+    setEditingHolidayId(null);
+    setDraft(createHolidayDraft(year));
+    setMessage('');
+  };
+
+  const startEdit = (holiday: AdminCalendarHoliday) => {
+    setEditingHolidayId(holiday.holidayId);
+    setDraft({
+      date: holiday.date,
+      name: holiday.name,
+      holidayType: holiday.holidayType,
+      isActive: holiday.isActive,
+      note: holiday.note ?? ''
+    });
+    setMessage('');
+  };
+
+  const saveHoliday = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setMessage('');
+    if (!draft.date || !draft.name.trim()) {
+      setMessage('날짜와 휴일명을 입력해 주세요.');
+      return;
+    }
+
+    try {
+      const request = {
+        date: draft.date,
+        name: draft.name.trim(),
+        holidayType: draft.holidayType,
+        isActive: draft.isActive,
+        note: draft.note.trim() || null
+      };
+      if (editingHolidayId) {
+        await updateAdminCalendarHoliday(developmentUserKey, editingHolidayId, request);
+        setMessage('휴일 정보를 저장했습니다.');
+      } else {
+        await createAdminCalendarHoliday(developmentUserKey, request);
+        setMessage('휴일을 등록했습니다.');
+      }
+      setEditingHolidayId(null);
+      setDraft(createHolidayDraft(year));
+      load();
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : '휴일 정보를 저장할 수 없습니다.');
+    }
+  };
+
+  const deactivateHoliday = async (holiday: AdminCalendarHoliday) => {
+    setMessage('');
+    try {
+      await deactivateAdminCalendarHoliday(developmentUserKey, holiday.holidayId);
+      setMessage('휴일을 비활성화했습니다.');
+      load();
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : '휴일을 비활성화할 수 없습니다.');
+    }
+  };
+
+  const downloadTemplate = async () => {
+    setIsDownloading(true);
+    setMessage('');
+    try {
+      const template = await downloadAdminCalendarHolidayTemplate(developmentUserKey);
+      const url = URL.createObjectURL(template.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = template.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : 'Excel 양식을 다운로드할 수 없습니다.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const previewExcel = async () => {
+    if (!excelFile) {
+      setMessage('업로드할 Excel 파일을 선택해 주세요.');
+      return;
+    }
+
+    setIsPreviewing(true);
+    setMessage('');
+    try {
+      setExcelPreview(await previewAdminCalendarHolidayExcel(developmentUserKey, excelFile));
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : 'Excel 파일을 미리 검토할 수 없습니다.');
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
+  const applyExcel = async () => {
+    if (!excelFile || !excelPreview || excelPreview.saveableCount === 0) {
+      setMessage('저장 가능한 Excel 미리보기 결과가 필요합니다.');
+      return;
+    }
+
+    setIsApplying(true);
+    setMessage('');
+    try {
+      const result = await applyAdminCalendarHolidayExcel(developmentUserKey, excelFile);
+      setMessage(`Excel 반영 완료: 신규 ${result.insertedCount}건, 갱신 ${result.updatedCount}건, 제외 ${result.skippedCount}건`);
+      setExcelPreview(null);
+      setExcelFile(null);
+      load();
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : 'Excel 휴일 정보를 반영할 수 없습니다.');
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  return (
+    <section className="panel-section">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">System Administrator</p>
+          <h2>휴일 관리</h2>
+        </div>
+        <div className="button-row">
+          <label className="compact-field">
+            <span>연도</span>
+            <input
+              type="number"
+              min="1900"
+              max="2200"
+              value={year}
+              onChange={(event) => setYear(Number(event.target.value) || currentYear)}
+            />
+          </label>
+          <button type="button" onClick={load}>새로고침</button>
+        </div>
+      </div>
+      <p className="muted-text">토요일, 일요일과 활성 상태의 국가공휴일, 대체공휴일, 임시공휴일, 회사휴일은 비영업일로 계산됩니다.</p>
+      {message ? <p className="form-message">{message}</p> : null}
+
+      <form className="calendar-holiday-form" onSubmit={saveHoliday}>
+        <label>
+          날짜
+          <input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} required />
+        </label>
+        <label>
+          휴일명
+          <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required />
+        </label>
+        <label>
+          휴일유형
+          <select value={draft.holidayType} onChange={(event) => setDraft({ ...draft, holidayType: event.target.value as HolidayType })}>
+            {holidayTypeOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          비고
+          <input value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} />
+        </label>
+        <label className="inline-check">
+          <input type="checkbox" checked={draft.isActive} onChange={(event) => setDraft({ ...draft, isActive: event.target.checked })} />
+          활성
+        </label>
+        <div className="button-row">
+          <button type="submit">{editingHolidayId ? '저장' : '등록'}</button>
+          <button type="button" onClick={startCreate}>신규 입력</button>
+        </div>
+      </form>
+
+      <section className="excel-preview-card">
+        <div className="page-header">
+          <div>
+            <h3>연간 휴일 Excel 등록</h3>
+            <p className="muted-text">동일 날짜와 휴일유형은 갱신하고, 새 날짜/유형은 신규 등록합니다.</p>
+          </div>
+          <button type="button" onClick={downloadTemplate} disabled={isDownloading}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button>
+        </div>
+        <div className="button-row">
+          <input
+            type="file"
+            accept=".xlsx"
+            onChange={(event) => {
+              setExcelFile(event.target.files?.[0] ?? null);
+              setExcelPreview(null);
+            }}
+          />
+          <button type="button" onClick={previewExcel} disabled={!excelFile || isPreviewing}>{isPreviewing ? '검토 중' : '미리보기'}</button>
+          <button
+            type="button"
+            onClick={() => void applyExcel()}
+            disabled={!excelFile || !excelPreview || excelPreview.saveableCount === 0 || isApplying}
+          >
+            {isApplying ? '반영 중' : '저장 가능한 행 반영'}
+          </button>
+        </div>
+        {excelPreview ? <AdminCalendarHolidayExcelPreview preview={excelPreview} /> : null}
+      </section>
+
+      {state.kind === 'loading' ? <p>휴일 목록을 불러오는 중입니다.</p> : null}
+      {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>날짜</th>
+                <th>휴일명</th>
+                <th>유형</th>
+                <th>상태</th>
+                <th>비고</th>
+                <th>작업</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.data.holidays.map((holiday) => (
+                <tr key={holiday.holidayId}>
+                  <td>{holiday.date}</td>
+                  <td><strong>{holiday.name}</strong></td>
+                  <td><HolidayTypeBadge holidayType={holiday.holidayType} /></td>
+                  <td>{holiday.isActive ? '활성' : '비활성'}</td>
+                  <td>{holiday.note || '-'}</td>
+                  <td>
+                    <div className="button-row">
+                      <button type="button" onClick={() => startEdit(holiday)}>수정</button>
+                      {holiday.isActive ? <button type="button" onClick={() => void deactivateHoliday(holiday)}>비활성화</button> : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {state.data.holidays.length === 0 ? <p className="muted-text">등록된 휴일이 없습니다.</p> : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function AdminCalendarHolidayExcelPreview({ preview }: { preview: CalendarHolidayExcelPreviewResponse }) {
+  return (
+    <div className="excel-preview-section">
+      <div className="excel-preview-counts">
+        <span>전체 {preview.totalRows}행</span>
+        <span>저장 가능 {preview.saveableCount}행</span>
+        <span>신규 {preview.insertCount}행</span>
+        <span>갱신 {preview.updateCount}행</span>
+        <span>오류 {preview.errorCount}행</span>
+      </div>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>행</th>
+              <th>날짜</th>
+              <th>휴일명</th>
+              <th>유형</th>
+              <th>결과</th>
+              <th>오류</th>
+            </tr>
+          </thead>
+          <tbody>
+            {preview.rows.map((row) => (
+              <tr key={`${row.excelRowNumber}-${row.date ?? 'empty'}-${row.holidayType ?? 'empty'}`}>
+                <td>{row.excelRowNumber}</td>
+                <td>{row.date ?? '-'}</td>
+                <td>{row.name ?? '-'}</td>
+                <td>{row.holidayType ? <HolidayTypeBadge holidayType={row.holidayType} /> : '-'}</td>
+                <td>{calendarHolidayPreviewResultLabel(row.resultType)}</td>
+                <td>{row.errorMessages.length > 0 ? row.errorMessages.join(', ') : '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function HolidayTypeBadge({ holidayType }: { holidayType: HolidayType }) {
+  return <span className="holiday-type-badge" data-type={holidayType}>{adminHolidayTypeLabel(holidayType)}</span>;
+}
+
+function createHolidayDraft(year: number): CalendarHolidayDraft {
+  return {
+    date: `${year}-01-01`,
+    name: '',
+    holidayType: 'National',
+    isActive: true,
+    note: ''
+  };
+}
+
+function adminHolidayTypeLabel(holidayType: HolidayType) {
+  return holidayTypeOptions.find((option) => option.value === holidayType)?.label ?? holidayType;
+}
+
+function calendarHolidayPreviewResultLabel(resultType: CalendarHolidayExcelPreviewResponse['rows'][number]['resultType']) {
+  switch (resultType) {
+    case 'Insert':
+      return '신규';
+    case 'Update':
+      return '갱신';
+    case 'Error':
+      return '오류';
+    default:
+      return resultType;
+  }
 }
 
 function isProjectWorkspace(view: View) {
@@ -4216,46 +4607,39 @@ function ProductionPlanningReadOnly({
 }) {
   const isMobile = useIsMobileViewport();
   const displayItems = sortProductionPlanItems(plan.items);
-  const [holidayState, setHolidayState] = useState<LoadState<SystemHoliday[]>>({ kind: 'empty' });
+  const [businessCalendarState, setBusinessCalendarState] = useState<LoadState<BusinessCalendarDay[]>>({ kind: 'empty' });
   const calendarRange = showCalendar ? productionCalendarDateRange(plan.items) : null;
   const calendarDateFrom = calendarRange?.dateFrom;
   const calendarDateTo = calendarRange?.dateTo;
 
   useEffect(() => {
-    if (!showCalendar || !developmentUserKey || !calendarDateFrom || !calendarDateTo) {
+    if (!showCalendar || !calendarDateFrom || !calendarDateTo) {
       return;
     }
 
     const controller = new AbortController();
     queueMicrotask(() => {
       if (!controller.signal.aborted) {
-        setHolidayState({ kind: 'loading' });
+        setBusinessCalendarState({ kind: 'loading' });
       }
     });
-    listSystemHolidays(developmentUserKey, {
+    getBusinessCalendar(developmentUserKey, {
       countryCode: 'KR',
-      dateFrom: calendarDateFrom,
-      dateTo: calendarDateTo,
+      from: calendarDateFrom,
+      to: calendarDateTo,
       signal: controller.signal
     })
-      .then((holidays) => setHolidayState({ kind: 'ready', data: holidays }))
+      .then((calendar) => setBusinessCalendarState({ kind: 'ready', data: calendar.days }))
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
-          setHolidayState(toLoadError(error, '공휴일 정보를 불러올 수 없습니다.'));
+          setBusinessCalendarState(toLoadError(error, '영업일 정보를 불러올 수 없습니다.'));
         }
       });
 
     return () => controller.abort();
   }, [calendarDateFrom, calendarDateTo, developmentUserKey, showCalendar]);
 
-  const holidays = holidayState.kind === 'ready'
-    ? holidayState.data.map((holiday) => ({
-      date: holiday.holidayDate,
-      name: holiday.name,
-      countryCode: holiday.countryCode,
-      isActive: true
-    }))
-    : [];
+  const businessCalendarDays = businessCalendarState.kind === 'ready' ? businessCalendarState.data : [];
   const assigneesByType = new Map(plan.assignees.map((assignee) => [assignee.responsibilityType, assignee]));
   const assigneeName = (responsibilityType: ResponsibilityType) => assigneesByType.get(responsibilityType)?.assignedUserName ?? '-';
   const renderReadonlyDepartmentCard = (group: AssigneeGroupDefinition) => (
@@ -4322,8 +4706,8 @@ function ProductionPlanningReadOnly({
       )}
       {showCalendar ? (
         <>
-          {holidayState.kind !== 'ready' && holidayState.kind !== 'loading' && holidayState.kind !== 'empty' ? <StateMessage state={holidayState} /> : null}
-          <ProductionPlanningTimeline items={plan.items} holidays={holidays} />
+          {businessCalendarState.kind !== 'ready' && businessCalendarState.kind !== 'loading' && businessCalendarState.kind !== 'empty' ? <StateMessage state={businessCalendarState} /> : null}
+          <ProductionPlanningTimeline items={plan.items} businessCalendarDays={businessCalendarDays} />
         </>
       ) : null}
     </div>
@@ -4332,17 +4716,17 @@ function ProductionPlanningReadOnly({
 
 function ProductionPlanningTimeline({
   items,
-  holidays = []
+  businessCalendarDays = []
 }: {
   items: ProductionPlanningResponse['items'];
-  holidays?: ProductionCalendarHoliday[];
+  businessCalendarDays?: ProductionCalendarBusinessDay[];
 }) {
   const isMobile = useIsMobileViewport();
   if (items.length === 0) {
     return null;
   }
 
-  const calendar = buildProductionCalendar(items, holidays);
+  const calendar = buildProductionCalendar(items, businessCalendarDays);
   const stageColumnWidth = getProductionCalendarStageColumnWidth(items);
   const calendarStyle = {
     '--production-calendar-stage-column-width': `${stageColumnWidth}px`
@@ -4363,9 +4747,9 @@ function ProductionPlanningTimeline({
       {isMobile ? (
         <div className="production-calendar-mobile">
           {calendar.dateColumns.map((date) => (
-            <article className={dateClassName('production-calendar-card', date)} key={date.date}>
+            <article className={dateClassName('production-calendar-card', date)} key={date.date} title={calendarDateTitle(date)}>
               <strong>{date.label} {date.weekday}</strong>
-              {date.holidayName ? <small>{date.holidayName}</small> : null}
+              {date.holidayName ? <small>{formatCalendarHolidayLabel(date)}</small> : null}
               <span>
                 {calendar.rows.filter((row) => row.plannedDate === date.date).map((row) => `✓ ${row.stepName}`).join(', ') || '-'}
               </span>
@@ -4386,10 +4770,10 @@ function ProductionPlanningTimeline({
               <tr>
                 <th className="production-calendar-stage-cell" data-testid="production-calendar-stage-header" scope="col">생산단계</th>
                 {calendar.dateColumns.map((date) => (
-                  <th scope="col" className={dateClassName('production-calendar-date-cell', date)} key={date.date}>
+                  <th scope="col" className={dateClassName('production-calendar-date-cell', date)} key={date.date} title={calendarDateTitle(date)}>
                     <span>{date.label}</span>
                     <small>{date.weekday}</small>
-                    {date.holidayName ? <small>{date.holidayName}</small> : null}
+                    {date.holidayName ? <small>{formatCalendarHolidayLabel(date)}</small> : null}
                   </th>
                 ))}
               </tr>
@@ -4399,7 +4783,7 @@ function ProductionPlanningTimeline({
                 <tr key={`${row.key}-${row.stepName}`}>
                   <th className="production-calendar-stage-cell" data-testid="production-calendar-stage-cell" scope="row">{row.stepName}</th>
                   {calendar.dateColumns.map((date) => (
-                    <td className={dateClassName('production-calendar-date-cell', date)} key={date.date}>
+                    <td className={dateClassName('production-calendar-date-cell', date)} key={date.date} title={calendarDateTitle(date)}>
                       {row.cells[date.date] ? <span aria-label={`${row.stepName} ${date.label} 예정`}>✓</span> : null}
                     </td>
                   ))}
@@ -8304,12 +8688,7 @@ function formatShortDate(value: string) {
   return month && day ? `${Number(month)}/${Number(day)}` : value;
 }
 
-type ProductionCalendarHoliday = {
-  date: string;
-  name: string;
-  countryCode: string;
-  isActive: boolean;
-};
+type ProductionCalendarBusinessDay = BusinessCalendarDay;
 
 type ProductionCalendarDateColumn = {
   date: string;
@@ -8318,7 +8697,10 @@ type ProductionCalendarDateColumn = {
   isSaturday: boolean;
   isSunday: boolean;
   isHoliday: boolean;
+  isCompanyHoliday: boolean;
+  isBusinessDay: boolean;
   holidayName: string | null;
+  holidayType: string | null;
 };
 
 type ProductionCalendarRow = {
@@ -8378,25 +8760,32 @@ function productionCalendarDateRange(items: ProductionPlanningResponse['items'])
     };
 }
 
-function buildProductionCalendar(items: ProductionPlanningResponse['items'], holidays: ProductionCalendarHoliday[] = []) {
+function buildProductionCalendar(items: ProductionPlanningResponse['items'], businessCalendarDays: ProductionCalendarBusinessDay[] = []) {
   const sortedItems = sortProductionPlanItems(items);
   const scheduledDates = sortedItems
     .map((item) => item.plannedDate)
     .filter((value): value is string => Boolean(value))
     .sort((left, right) => left.localeCompare(right));
-  const holidayMap = new Map(holidays.filter((holiday) => holiday.isActive).map((holiday) => [holiday.date, holiday.name]));
+  const businessCalendarMap = new Map(businessCalendarDays.map((day) => [day.date, day]));
   const dateColumns = scheduledDates.length === 0
     ? []
     : enumerateDates(scheduledDates[0], scheduledDates[scheduledDates.length - 1]).map((date) => {
       const weekdayIndex = weekdayIndexForDate(date);
+      const day = businessCalendarMap.get(date);
+      const isSaturday = weekdayIndex === 6;
+      const isSunday = weekdayIndex === 0;
+      const isHoliday = day?.isHoliday ?? false;
       return {
         date,
         label: formatShortDate(date),
         weekday: weekdayLabel(weekdayIndex),
-        isSaturday: weekdayIndex === 6,
-        isSunday: weekdayIndex === 0,
-        isHoliday: holidayMap.has(date),
-        holidayName: holidayMap.get(date) ?? null
+        isSaturday,
+        isSunday,
+        isHoliday,
+        isCompanyHoliday: day?.isCompanyHoliday ?? false,
+        isBusinessDay: day?.isBusinessDay ?? !(isSaturday || isSunday || isHoliday),
+        holidayName: day?.holidayName ?? null,
+        holidayType: day?.holidayType ?? null
       };
     });
   const rows: ProductionCalendarRow[] = sortedItems
@@ -8451,8 +8840,47 @@ function dateClassName(base: string, date: ProductionCalendarDateColumn) {
   return [
     base,
     date.isSaturday ? 'calendar-saturday' : '',
-    date.isSunday || date.isHoliday ? 'calendar-red-day' : ''
+    date.isSunday || date.isHoliday ? 'calendar-red-day' : '',
+    date.isCompanyHoliday ? 'calendar-company-holiday' : ''
   ].filter(Boolean).join(' ');
+}
+
+function formatCalendarHolidayLabel(date: ProductionCalendarDateColumn) {
+  if (!date.holidayName) {
+    return null;
+  }
+
+  const holidayType = holidayTypeLabel(date.holidayType);
+  return holidayType ? `${date.holidayName} · ${holidayType}` : date.holidayName;
+}
+
+function calendarDateTitle(date: ProductionCalendarDateColumn) {
+  const holidayLabel = formatCalendarHolidayLabel(date);
+  if (holidayLabel) {
+    return `${date.date} ${holidayLabel}`;
+  }
+
+  return date.isBusinessDay ? `${date.date} 영업일` : `${date.date} 비영업일`;
+}
+
+function holidayTypeLabel(value: string | null) {
+  if (value === 'Company') {
+    return '회사휴일';
+  }
+
+  if (value === 'Temporary') {
+    return '임시공휴일';
+  }
+
+  if (value === 'Substitute') {
+    return '대체공휴일';
+  }
+
+  if (value === 'National') {
+    return '국가공휴일';
+  }
+
+  return null;
 }
 
 function formatDateTime(value: string) {

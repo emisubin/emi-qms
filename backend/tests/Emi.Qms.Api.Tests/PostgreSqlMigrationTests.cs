@@ -1034,13 +1034,46 @@ public sealed class PostgreSqlMigrationTests
             """,
             cancellationToken));
 
-        Assert.Equal(2L, await ReadScalarAsync<long>(
+        Assert.True(await ReadScalarAsync<bool>(
+            connectionStringProvider,
+            """
+            select exists (
+                select 1
+                from information_schema.columns
+                where table_schema = 'public'
+                  and table_name = 'system_holidays'
+                  and column_name = 'holiday_type'
+                  and is_nullable = 'NO'
+            );
+            """,
+            cancellationToken));
+
+        Assert.True(await ReadScalarAsync<bool>(
+            connectionStringProvider,
+            """
+            select exists (
+                select 1
+                from information_schema.columns
+                where table_schema = 'public'
+                  and table_name = 'system_holidays'
+                  and column_name = 'note'
+                  and is_nullable = 'YES'
+            );
+            """,
+            cancellationToken));
+
+        Assert.Equal(4L, await ReadScalarAsync<long>(
             connectionStringProvider,
             """
             select count(*)
             from pg_indexes
             where tablename = 'system_holidays'
-              and indexname in ('ux_system_holidays_country_date_source_key', 'ix_system_holidays_active_lookup');
+              and indexname in (
+                  'ux_system_holidays_country_date_source_key',
+                  'ix_system_holidays_active_lookup',
+                  'ix_system_holidays_active_type_lookup',
+                  'ix_system_holidays_year_type_lookup'
+              );
             """,
             cancellationToken));
     }

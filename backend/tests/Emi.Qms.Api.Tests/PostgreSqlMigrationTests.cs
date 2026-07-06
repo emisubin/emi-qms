@@ -1097,7 +1097,7 @@ public sealed class PostgreSqlMigrationTests
             "select stage_code from workflow_stages where sequence_number = 3;",
             cancellationToken));
 
-        Assert.Equal(6L, await ReadScalarAsync<long>(
+        Assert.Equal(7L, await ReadScalarAsync<long>(
             connectionStringProvider,
             """
             select count(*)
@@ -1109,7 +1109,8 @@ public sealed class PostgreSqlMigrationTests
                   'work_items',
                   'notifications',
                   'notification_recipients',
-                  'notification_deliveries'
+                  'notification_deliveries',
+                  'work_item_escalations'
               );
             """,
             cancellationToken));
@@ -1124,6 +1125,39 @@ public sealed class PostgreSqlMigrationTests
             cancellationToken);
         Assert.Contains("TeamsChannel", deliveryConstraint, StringComparison.Ordinal);
         Assert.Contains("Mail", deliveryConstraint, StringComparison.Ordinal);
+
+        var deliveryTypeConstraint = await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_notification_deliveries_delivery_type';
+            """,
+            cancellationToken);
+        Assert.Contains("DueSoonL0", deliveryTypeConstraint, StringComparison.Ordinal);
+        Assert.Contains("OverdueL3", deliveryTypeConstraint, StringComparison.Ordinal);
+
+        var escalationStatusConstraint = await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_work_item_escalations_status';
+            """,
+            cancellationToken);
+        Assert.Contains("Active", escalationStatusConstraint, StringComparison.Ordinal);
+        Assert.Contains("Resolved", escalationStatusConstraint, StringComparison.Ordinal);
+
+        var escalationLevelConstraint = await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_work_item_escalations_current_level';
+            """,
+            cancellationToken);
+        Assert.Contains("L0", escalationLevelConstraint, StringComparison.Ordinal);
+        Assert.Contains("L3", escalationLevelConstraint, StringComparison.Ordinal);
 
         var assigneeConstraint = await ReadScalarAsync<string>(
             connectionStringProvider,

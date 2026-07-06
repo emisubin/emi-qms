@@ -53,6 +53,8 @@ builder.Services.AddSingleton<WorkflowStore>();
 builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Notifications"));
 builder.Services.AddSingleton<NotificationDeliveryStore>();
 builder.Services.AddSingleton<NotificationDispatcher>();
+builder.Services.AddSingleton<WorkItemEscalationStore>();
+builder.Services.AddSingleton<NotificationEscalationService>();
 builder.Services.AddSingleton<INotificationChannelHandler, TeamsChannelHandler>();
 builder.Services.AddSingleton<INotificationChannelHandler, TeamsDirectMessageHandler>();
 builder.Services.AddSingleton<INotificationChannelHandler, MailChannelHandler>();
@@ -63,6 +65,7 @@ builder.Services.AddSingleton<ISmtpMailTransport, MailKitSmtpMailTransport>();
 builder.Services.AddHttpClient<IGraphMailClient, GraphMailClient>();
 builder.Services.AddHttpClient<ITeamsWebhookClient, TeamsWebhookClient>();
 builder.Services.AddHostedService<NotificationDeliveryWorker>();
+builder.Services.AddHostedService<NotificationEscalationWorker>();
 builder.Services.AddHttpClient<IKoreanHolidayProvider, OfficialKoreanHolidayProvider>();
 builder.Services.AddQmsAuthorizationFoundation(builder.Configuration, builder.Environment);
 
@@ -138,6 +141,7 @@ app.MapBusinessCalendarEndpoints();
 app.MapAdminCalendarHolidayEndpoints();
 app.MapWorkflowEndpoints();
 app.MapNotificationDeliveryEndpoints();
+app.MapNotificationEscalationEndpoints();
 
 app.Run();
 

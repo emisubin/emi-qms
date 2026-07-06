@@ -15,6 +15,10 @@ public static class NotificationDeliveryTypes
     public const string DailyDigest = "DailyDigest";
     public const string ProjectCompletion = "ProjectCompletion";
     public const string ManualTest = "ManualTest";
+    public const string DueSoonL0 = "DueSoonL0";
+    public const string OverdueL1 = "OverdueL1";
+    public const string OverdueL2 = "OverdueL2";
+    public const string OverdueL3 = "OverdueL3";
 }
 
 public static class NotificationDeliveryStatuses

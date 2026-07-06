@@ -1,4 +1,5 @@
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.ProductionPlanning;
 using Npgsql;
 
 namespace Emi.Qms.Api.Notifications;
@@ -76,6 +77,14 @@ public sealed class NotificationDeliveryStore(
                         where nr.user_id = u.id
                           and nr.read_at_utc is null
                           and n.notification_type in ('Reference', 'Info')
+                    )
+                    or exists (
+                        select 1
+                        from project_assignees pa
+                        join projects p on p.id = pa.project_id
+                        where pa.assigned_user_id = u.id
+                          and p.deleted_at_utc is null
+                          and p.status = 'Active'
                     )
                   )
             )
@@ -377,6 +386,12 @@ public sealed class NotificationDeliveryStore(
             ""
         };
 
+        await AppendAssignedProjectDigestSectionAsync(
+            connection,
+            lines,
+            recipientUserId,
+            cancellationToken);
+
         await AppendDigestSectionAsync(
             connection,
             lines,
@@ -620,6 +635,62 @@ public sealed class NotificationDeliveryStore(
         lines.Add("");
     }
 
+    private static async Task AppendAssignedProjectDigestSectionAsync(
+        NpgsqlConnection connection,
+        List<string> lines,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select
+                p.id,
+                p.project_title,
+                p.delivery_date,
+                array_agg(distinct pa.responsibility_type order by pa.responsibility_type) as responsibilities
+            from project_assignees pa
+            join projects p on p.id = pa.project_id
+            where pa.assigned_user_id = @user_id
+              and p.deleted_at_utc is null
+              and p.status = 'Active'
+            group by p.id, p.project_title, p.delivery_date
+            order by p.delivery_date nulls last, p.project_title
+            limit 10;
+            """;
+        command.Parameters.AddWithValue("user_id", userId);
+
+        var rows = new List<AssignedProjectDigestRow>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new AssignedProjectDigestRow(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetFieldValue<DateOnly>(2),
+                reader.GetFieldValue<string[]>(3)));
+        }
+
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        lines.Add("내 담당 프로젝트 요약");
+        foreach (var row in rows)
+        {
+            var deliveryDate = row.DeliveryDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "미등록";
+            var labels = row.ResponsibilityTypes
+                .Select(DigestResponsibilityLabel)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(label => label, StringComparer.Ordinal)
+                .ToArray();
+            var responsibilityText = labels.Length == 0 ? "미등록" : string.Join(", ", labels);
+            lines.Add($"- {row.ProjectTitle} / 납기일 {deliveryDate} / 담당역할 {responsibilityText} / /projects/{row.ProjectId}");
+        }
+
+        lines.Add("");
+    }
+
     private bool TryGetDailyDigestWindow(
         NotificationDailyDigestOptions options,
         DateTimeOffset nowUtc,
@@ -680,6 +751,36 @@ public sealed class NotificationDeliveryStore(
             : $"{origin.TrimEnd('/')}/{linkUrl.TrimStart('/')}";
     }
 
+    private static string DigestResponsibilityLabel(string responsibilityType)
+    {
+        return responsibilityType switch
+        {
+            "SalesPrimary" => "영업 정담당자",
+            "SalesSecondary" => "영업 부담당자",
+            "DesignPrimary" => "설계 정담당자",
+            "DesignSecondary" => "설계 부담당자",
+            "ProductionPlanningPrimary" => "생산관리 정담당자",
+            "ProductionPlanningSecondary" => "생산관리 부담당자",
+            "ProcurementPrimary" => "구매 정담당자",
+            "ProcurementSecondary" => "구매 부담당자",
+            "MaterialsPrimary" => "자재 정담당자",
+            "MaterialsSecondary" => "자재 부담당자",
+            "ManufacturingPrimary" => "제조 정담당자",
+            "ManufacturingSecondary" => "제조 부담당자",
+            "LogisticsPrimary" => "물류 정담당자",
+            "LogisticsSecondary" => "물류 부담당자",
+            "QualityIQC" => "IQC 정담당자",
+            "QualityIQCSecondary" => "IQC 부담당자",
+            "QualityLQC" => "LQC 정담당자",
+            "QualityLQCSecondary" => "LQC 부담당자",
+            "QualityOQC" => "OQC 정담당자",
+            "QualityOQCSecondary" => "OQC 부담당자",
+            "QualityCustomerInspection" => "전진검수/FAT 정담당자",
+            "QualityCustomerInspectionSecondary" => "전진검수/FAT 부담당자",
+            _ => ProductionPlanningDomain.ResponsibilityLabel(responsibilityType)
+        };
+    }
+
     private static string? SanitizeError(string? message)
     {
         if (string.IsNullOrWhiteSpace(message))
@@ -735,4 +836,10 @@ public sealed class NotificationDeliveryStore(
 
         return NpgsqlDataSource.Create(connectionString);
     }
+
+    private sealed record AssignedProjectDigestRow(
+        Guid ProjectId,
+        string ProjectTitle,
+        DateOnly? DeliveryDate,
+        IReadOnlyList<string> ResponsibilityTypes);
 }

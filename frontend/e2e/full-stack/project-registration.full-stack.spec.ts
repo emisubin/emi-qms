@@ -29,6 +29,28 @@ type ProductionPlanningResponse = {
   assignees: ProjectAssigneeResponse[];
 };
 
+async function fillProcurementEditInput(page: Page, rowIndex: number, inputIndex: number, value: string) {
+  const editRows = page.getByRole('table', { name: '구매정보 수정' }).locator('.procurement-table-row.editable');
+  await expect.poll(async () => editRows.nth(rowIndex).locator('input').count(), { timeout: 15_000 }).toBeGreaterThan(inputIndex);
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const input = editRows.nth(rowIndex).locator('input').nth(inputIndex);
+    try {
+      await expect(input).toBeVisible({ timeout: 5_000 });
+      await expect(input).toBeEnabled({ timeout: 5_000 });
+      await input.fill(value, { timeout: 5_000 });
+      await expect(input).toHaveValue(value, { timeout: 5_000 });
+      return;
+    } catch (error) {
+      if (attempt === 2) {
+        throw error;
+      }
+
+      await page.waitForTimeout(250);
+    }
+  }
+}
+
 test('TASK-003B-1 A: read/detail split keeps detail fixed and edit page accepts duplicate names', async ({ page, request }) => {
   const unique = Date.now();
   const projectTitle = `TASK 003B Direct ${unique}`;
@@ -480,11 +502,8 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
     await page.getByRole('button', { name: '행 추가' }).click();
     await expect.poll(async () => editRows.count(), { timeout: 10_000 }).toBeGreaterThan(initialEditRowCount);
   }
-  const editRow = editRows.nth(initialEditRowCount);
-  await expect(editRow.locator('input').first()).toBeVisible({ timeout: 15_000 });
-  const editInputs = editRow.locator('input');
-  await editInputs.nth(0).fill('4W');
-  await editInputs.nth(4).fill('2026-07-10');
+  await fillProcurementEditInput(page, initialEditRowCount, 0, '4W');
+  await fillProcurementEditInput(page, initialEditRowCount, 4, '2026-07-10');
   await page.getByRole('button', { name: '저장' }).click();
   await expect(page.getByRole('tab', { name: '구매' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('table', { name: '구매정보' })).toContainText('4W');

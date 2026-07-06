@@ -3,6 +3,11 @@ import type { AdminUsersResponse, CurrentUser, UpdateAdminUserRequest } from './
 import { isInteractionRequiredAuthError } from './auth';
 import type {
   AuditHistoryResponse,
+  AdminCalendarHoliday,
+  AdminCalendarHolidayListResponse,
+  BusinessCalendarResponse,
+  CalendarHolidayExcelApplyResponse,
+  CalendarHolidayExcelPreviewResponse,
   ChangePanelCountRequest,
   CreateProjectRequest,
   DeletedProjectDetail,
@@ -49,6 +54,7 @@ import type {
   ProjectStatusChangeRequest,
   SalesOwner,
   SystemHoliday,
+  UpsertAdminCalendarHolidayRequest,
   UpdateProductionPlanningRequest,
   UpdateProductionTemplateSettingsRequest,
   UpdateProcurementRequiredItemSettingsRequest,
@@ -709,6 +715,104 @@ export async function listSystemHolidays(
   }
 
   return fetchJson<SystemHoliday[]>(`/api/system/holidays?${params.toString()}`, developmentUserKey, {
+    signal: options.signal
+  });
+}
+
+export async function getAdminCalendarHolidays(
+  developmentUserKey: string | undefined,
+  year: number,
+  signal?: AbortSignal
+): Promise<AdminCalendarHolidayListResponse> {
+  const params = new URLSearchParams();
+  params.set('year', String(year));
+  return fetchJson<AdminCalendarHolidayListResponse>(`/api/admin/calendar/holidays?${params.toString()}`, developmentUserKey, {
+    signal
+  });
+}
+
+export async function createAdminCalendarHoliday(
+  developmentUserKey: string | undefined,
+  request: UpsertAdminCalendarHolidayRequest
+): Promise<AdminCalendarHoliday> {
+  return fetchJson<AdminCalendarHoliday>('/api/admin/calendar/holidays', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function updateAdminCalendarHoliday(
+  developmentUserKey: string | undefined,
+  holidayId: string,
+  request: UpsertAdminCalendarHolidayRequest
+): Promise<AdminCalendarHoliday> {
+  return fetchJson<AdminCalendarHoliday>(`/api/admin/calendar/holidays/${holidayId}`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function deactivateAdminCalendarHoliday(
+  developmentUserKey: string | undefined,
+  holidayId: string
+): Promise<AdminCalendarHoliday> {
+  return fetchJson<AdminCalendarHoliday>(`/api/admin/calendar/holidays/${holidayId}`, developmentUserKey, {
+    method: 'DELETE'
+  });
+}
+
+export async function downloadAdminCalendarHolidayTemplate(
+  developmentUserKey: string | undefined
+): Promise<{ blob: Blob; fileName: string }> {
+  const response = await fetchWithAuth('/api/admin/calendar/holidays/template', developmentUserKey);
+
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? 'Calendar_Holidays_Template.xlsx'
+  };
+}
+
+export async function previewAdminCalendarHolidayExcel(
+  developmentUserKey: string | undefined,
+  file: File
+): Promise<CalendarHolidayExcelPreviewResponse> {
+  const form = new FormData();
+  form.append('file', file);
+
+  return fetchJson<CalendarHolidayExcelPreviewResponse>('/api/admin/calendar/holidays/preview', developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function applyAdminCalendarHolidayExcel(
+  developmentUserKey: string | undefined,
+  file: File
+): Promise<CalendarHolidayExcelApplyResponse> {
+  const form = new FormData();
+  form.append('file', file);
+
+  return fetchJson<CalendarHolidayExcelApplyResponse>('/api/admin/calendar/holidays/apply', developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function getBusinessCalendar(
+  developmentUserKey: string | undefined,
+  options: { countryCode?: string; from: string; to: string; signal?: AbortSignal }
+): Promise<BusinessCalendarResponse> {
+  const params = new URLSearchParams();
+  params.set('countryCode', options.countryCode ?? 'KR');
+  params.set('from', options.from);
+  params.set('to', options.to);
+
+  return fetchJson<BusinessCalendarResponse>(`/api/calendar/business-days?${params.toString()}`, developmentUserKey, {
     signal: options.signal
   });
 }

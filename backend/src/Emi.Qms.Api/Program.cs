@@ -1,5 +1,6 @@
 using Emi.Qms.Api;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.Calendar;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.PanelInformation;
@@ -20,9 +21,11 @@ builder.Services.AddCors(options =>
             builder.Configuration["FRONTEND_ORIGIN"]
             ?? builder.Configuration["Frontend:Origin"]
             ?? "http://localhost:5173";
+        var frontendOrigins = frontendOrigin
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         policy
-            .WithOrigins(frontendOrigin)
+            .WithOrigins(frontendOrigins.Length == 0 ? ["http://localhost:5173"] : frontendOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod()
             .WithExposedHeaders("Content-Disposition");
@@ -43,6 +46,9 @@ builder.Services.AddSingleton<ProcurementExcelParser>();
 builder.Services.AddSingleton<ProcurementStore>();
 builder.Services.AddSingleton<ProductionPlanningStore>();
 builder.Services.AddSingleton<SystemHolidayStore>();
+builder.Services.AddSingleton<BusinessCalendarStore>();
+builder.Services.AddSingleton<AdminCalendarHolidayStore>();
+builder.Services.AddSingleton<CalendarHolidayExcelParser>();
 builder.Services.AddSingleton<WorkflowStore>();
 builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Notifications"));
 builder.Services.AddSingleton<NotificationDeliveryStore>();
@@ -128,6 +134,8 @@ app.MapProjectEndpoints();
 app.MapPanelInformationEndpoints();
 app.MapProcurementEndpoints();
 app.MapProductionPlanningEndpoints();
+app.MapBusinessCalendarEndpoints();
+app.MapAdminCalendarHolidayEndpoints();
 app.MapWorkflowEndpoints();
 app.MapNotificationDeliveryEndpoints();
 

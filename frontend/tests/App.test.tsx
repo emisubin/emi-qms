@@ -237,6 +237,25 @@ describe('App', () => {
     expect(screen.getAllByText('KRW 1,250,000.5').length).toBeGreaterThan(0);
   });
 
+  it('shows calendar holiday admin page for System Administrator', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '휴일' }));
+
+    expect(await screen.findByRole('heading', { name: '휴일 관리' })).toBeInTheDocument();
+    expect(screen.getByText('회사 창립기념 휴일')).toBeInTheDocument();
+    expect(screen.getAllByText('대체공휴일').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Excel 양식 다운로드' }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [new File(['xlsx'], 'holidays.xlsx')] } });
+    fireEvent.click(screen.getByRole('button', { name: '미리보기' }));
+    expect(await screen.findByText('오류 1행')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '저장 가능한 행 반영' })).toBeEnabled();
+  });
+
   it('hides sales amount and project write buttons from Manufacturing users', async () => {
     render(<App />);
 
@@ -1022,9 +1041,11 @@ describe('App', () => {
     expect(within(calendarTable).getByRole('columnheader', { name: /7\/1/ })).toHaveClass('production-calendar-date-cell');
     expect(calendarTable).toHaveTextContent('7/1');
     expect(calendarTable).toHaveTextContent('7/2');
+    expect(within(calendarTable).getByRole('columnheader', { name: /7\/2/ })).toHaveClass('calendar-company-holiday');
     expect(within(calendarTable).getByRole('columnheader', { name: /7\/3/ })).toHaveClass('calendar-red-day');
     expect(within(calendarTable).getByRole('row', { name: /자재 입고/ })).toHaveTextContent('✓');
-    expect(await screen.findByText('공식 대체공휴일')).toBeInTheDocument();
+    expect(await screen.findByText(/회사 창립기념 휴일/)).toBeInTheDocument();
+    expect(await screen.findByText(/공식 대체공휴일/)).toBeInTheDocument();
     expect(screen.getByLabelText('날짜 미입력 생산단계')).toHaveTextContent('조립 시작');
     expect(screen.getByLabelText('날짜 미입력 생산단계')).toHaveTextContent('필수 미입력');
     expect(screen.queryByText('검수 공휴일')).not.toBeInTheDocument();
@@ -1178,6 +1199,122 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (path === '/api/me') {
     return json(currentUser(userKey));
+  }
+
+  if (path === '/api/admin/calendar/holidays/template') {
+    return Promise.resolve(new Response(new Blob(['xlsx']), {
+      status: userKey === 'dev-admin' ? 200 : 403,
+      headers: {
+        'Content-Disposition': 'attachment; filename="Calendar_Holidays_Template.xlsx"'
+      }
+    }));
+  }
+
+  if (path === '/api/admin/calendar/holidays/preview') {
+    return json({
+      fileSha256: 'calendar-holiday-test',
+      totalRows: 2,
+      saveableCount: 2,
+      insertCount: 1,
+      updateCount: 1,
+      errorCount: 1,
+      rows: [
+        {
+          excelRowNumber: 2,
+          date: '2026-07-02',
+          name: '회사 창립기념 휴일',
+          holidayType: 'Company',
+          note: '연간 등록',
+          resultType: 'Update',
+          existingHolidayId: '78000000-0000-0000-0000-000000000001',
+          errorMessages: []
+        },
+        {
+          excelRowNumber: 3,
+          date: '2026-07-04',
+          name: '오류 휴일',
+          holidayType: null,
+          note: null,
+          resultType: 'Error',
+          existingHolidayId: null,
+          errorMessages: ['휴일유형은 National, Substitute, Temporary, Company 중 하나여야 합니다.']
+        }
+      ]
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === '/api/admin/calendar/holidays/apply') {
+    return json({
+      insertedCount: 1,
+      updatedCount: 1,
+      skippedCount: 0,
+      holidayIds: ['78000000-0000-0000-0000-000000000001']
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === '/api/admin/calendar/holidays') {
+    if (init?.method === 'POST') {
+      const body = JSON.parse(String(init.body));
+      return json({
+        holidayId: '78000000-0000-0000-0000-000000000099',
+        date: body.date,
+        name: body.name,
+        countryCode: 'KR',
+        holidayType: body.holidayType,
+        isActive: body.isActive,
+        note: body.note,
+        source: 'AdminManual',
+        createdAtUtc: '2026-07-06T00:00:00Z',
+        updatedAtUtc: '2026-07-06T00:00:00Z'
+      }, userKey === 'dev-admin' ? 201 : 403);
+    }
+
+    return json({
+      year: Number(url.searchParams.get('year') ?? '2026'),
+      countryCode: 'KR',
+      holidays: [
+        {
+          holidayId: '78000000-0000-0000-0000-000000000001',
+          date: '2026-07-02',
+          name: '회사 창립기념 휴일',
+          countryCode: 'KR',
+          holidayType: 'Company',
+          isActive: true,
+          note: '연간 등록',
+          source: 'AdminManual',
+          createdAtUtc: '2026-07-01T00:00:00Z',
+          updatedAtUtc: '2026-07-01T00:00:00Z'
+        },
+        {
+          holidayId: '78000000-0000-0000-0000-000000000002',
+          date: '2026-07-03',
+          name: '공식 대체공휴일',
+          countryCode: 'KR',
+          holidayType: 'Substitute',
+          isActive: true,
+          note: null,
+          source: 'OfficialApi',
+          createdAtUtc: '2026-07-01T00:00:00Z',
+          updatedAtUtc: '2026-07-01T00:00:00Z'
+        }
+      ]
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path.startsWith('/api/admin/calendar/holidays/')) {
+    const pathParts = path.split('/');
+    return json({
+      holidayId: pathParts[pathParts.length - 1],
+      date: '2026-07-02',
+      name: '회사 창립기념 휴일',
+      countryCode: 'KR',
+      holidayType: 'Company',
+      isActive: init?.method === 'DELETE' ? false : true,
+      note: '연간 등록',
+      source: 'AdminManual',
+      createdAtUtc: '2026-07-01T00:00:00Z',
+      updatedAtUtc: '2026-07-06T00:00:00Z'
+    }, userKey === 'dev-admin' ? 200 : 403);
   }
 
   if (path === '/api/sales-owners') {
@@ -1480,15 +1617,41 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(productionTemplateSettingsResponse(), userKey === 'dev-production' ? 200 : 403);
   }
 
-  if (path === '/api/system/holidays') {
-    return json([
-      {
-        holidayDate: '2026-07-03',
-        name: '공식 대체공휴일',
-        countryCode: 'KR',
-        source: 'Test'
-      }
-    ]);
+  if (path === '/api/calendar/business-days') {
+    return json({
+      from: '2026-07-01',
+      to: '2026-07-03',
+      countryCode: 'KR',
+      days: [
+        {
+          date: '2026-07-01',
+          isWeekend: false,
+          isHoliday: false,
+          isCompanyHoliday: false,
+          isBusinessDay: true,
+          holidayName: null,
+          holidayType: null
+        },
+        {
+          date: '2026-07-02',
+          isWeekend: false,
+          isHoliday: true,
+          isCompanyHoliday: true,
+          isBusinessDay: false,
+          holidayName: '회사 창립기념 휴일',
+          holidayType: 'Company'
+        },
+        {
+          date: '2026-07-03',
+          isWeekend: false,
+          isHoliday: true,
+          isCompanyHoliday: false,
+          isBusinessDay: false,
+          holidayName: '공식 대체공휴일',
+          holidayType: 'Substitute'
+        }
+      ]
+    });
   }
 
   if (path === `/api/projects/${projectId}/production-planning` && init?.method === 'PATCH') {

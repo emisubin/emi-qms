@@ -1159,7 +1159,10 @@ public sealed class ProductionPlanningApiTests
 
         using var holidays = await ReadJsonAsync(await salesClient.GetAsync("/api/system/holidays?countryCode=KR&dateFrom=2026-07-01&dateTo=2026-07-31", TestContext.Current.CancellationToken));
         var holidayItems = holidays.RootElement.EnumerateArray().ToList();
-        Assert.Contains(holidayItems, item => item.GetProperty("holidayDate").GetString() == "2026-07-06" && item.GetProperty("name").GetString() == "공식 대체공휴일");
+        Assert.Contains(holidayItems, item =>
+            item.GetProperty("holidayDate").GetString() == "2026-07-06"
+            && item.GetProperty("name").GetString() == "공식 대체공휴일"
+            && item.GetProperty("holidayType").GetString() == "National");
         Assert.DoesNotContain(holidayItems, item => item.GetProperty("name").GetString() == "비활성 공휴일");
         Assert.DoesNotContain(holidayItems, item => item.GetProperty("name").GetString() == "검수공휴일");
 
@@ -1197,11 +1200,13 @@ public sealed class ProductionPlanningApiTests
         Assert.Contains(holidayItems, item =>
             item.GetProperty("holidayDate").GetString() == "2026-07-17"
             && item.GetProperty("name").GetString() == "제헌절"
-            && item.GetProperty("source").GetString() == "OfficialApi:NationalHoliday");
+            && item.GetProperty("source").GetString() == "OfficialApi:NationalHoliday"
+            && item.GetProperty("holidayType").GetString() == "National");
         Assert.Contains(holidayItems, item =>
             item.GetProperty("holidayDate").GetString() == "2026-12-25"
             && item.GetProperty("name").GetString() == "기독탄신일"
-            && item.GetProperty("source").GetString() == "OfficialApi:PublicHoliday");
+            && item.GetProperty("source").GetString() == "OfficialApi:PublicHoliday"
+            && item.GetProperty("holidayType").GetString() == "National");
 
         using var duplicateSync = await ReadJsonAsync(await adminClient.PostAsync("/api/production-planning/holidays/sync?year=2026", null, TestContext.Current.CancellationToken));
         Assert.True(duplicateSync.RootElement.GetProperty("isConfigured").GetBoolean());
@@ -1209,6 +1214,168 @@ public sealed class ProductionPlanningApiTests
         using var duplicatedHolidays = await ReadJsonAsync(await adminClient.GetAsync("/api/system/holidays?countryCode=KR&dateFrom=2026-07-01&dateTo=2026-12-31", TestContext.Current.CancellationToken));
         Assert.Single(duplicatedHolidays.RootElement.EnumerateArray(), item => item.GetProperty("holidayDate").GetString() == "2026-07-17");
         Assert.Single(duplicatedHolidays.RootElement.EnumerateArray(), item => item.GetProperty("holidayDate").GetString() == "2026-12-25");
+    }
+
+    [Fact]
+    public async Task BusinessCalendar_ReturnsWeekendHolidayAndCompanyHolidayInfo()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+
+        await context.ExecuteSqlAsync("""
+            insert into system_holidays (holiday_date, name, country_code, source, source_key, holiday_type, is_active)
+            values
+                ('2026-07-03', '임시공휴일', 'KR', 'Test', 'test-20260703', 'Temporary', true),
+                ('2026-07-06', '공식 대체공휴일', 'KR', 'Test', 'test-20260706', 'Substitute', true),
+                ('2026-07-07', '회사 창립기념 휴일', 'KR', 'TestCompany', 'test-20260707', 'Company', true),
+                ('2026-07-08', '비활성 공휴일', 'KR', 'Test', 'test-20260708', 'National', false);
+            """);
+
+        using var calendarResponse = await salesClient.GetAsync("/api/calendar/business-days?countryCode=KR&from=2026-07-02&to=2026-07-08", TestContext.Current.CancellationToken);
+        var calendarBody = await calendarResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(calendarResponse.StatusCode == HttpStatusCode.OK, $"Expected OK but got {calendarResponse.StatusCode}. Body: {calendarBody}. Logs: {context.ErrorLogs()}");
+        using var calendar = JsonDocument.Parse(calendarBody);
+
+        Assert.Equal("2026-07-02", calendar.RootElement.GetProperty("from").GetString());
+        Assert.Equal("2026-07-08", calendar.RootElement.GetProperty("to").GetString());
+        Assert.Equal("KR", calendar.RootElement.GetProperty("countryCode").GetString());
+        var days = calendar.RootElement.GetProperty("days").EnumerateArray().ToList();
+        Assert.Equal(7, days.Count);
+
+        Assert.Contains(days, day =>
+            day.GetProperty("date").GetString() == "2026-07-02"
+            && day.GetProperty("isBusinessDay").GetBoolean()
+            && !day.GetProperty("isHoliday").GetBoolean());
+        Assert.Contains(days, day =>
+            day.GetProperty("date").GetString() == "2026-07-03"
+            && !day.GetProperty("isBusinessDay").GetBoolean()
+            && day.GetProperty("holidayType").GetString() == "Temporary");
+        Assert.Contains(days, day =>
+            day.GetProperty("date").GetString() == "2026-07-04"
+            && day.GetProperty("isWeekend").GetBoolean()
+            && !day.GetProperty("isBusinessDay").GetBoolean());
+        Assert.Contains(days, day =>
+            day.GetProperty("date").GetString() == "2026-07-06"
+            && day.GetProperty("holidayType").GetString() == "Substitute");
+        Assert.Contains(days, day =>
+            day.GetProperty("date").GetString() == "2026-07-07"
+            && day.GetProperty("isCompanyHoliday").GetBoolean()
+            && day.GetProperty("holidayType").GetString() == "Company");
+        Assert.Contains(days, day =>
+            day.GetProperty("date").GetString() == "2026-07-08"
+            && day.GetProperty("isBusinessDay").GetBoolean()
+            && day.GetProperty("holidayName").ValueKind == JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task AdminCalendarHolidays_ManagesManualHolidaysAndBusinessCalendarReflectsChanges()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        using var salesClient = context.CreateClient("dev-sales");
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await salesClient.GetAsync("/api/admin/calendar/holidays?year=2026", TestContext.Current.CancellationToken)).StatusCode);
+
+        var invalid = await adminClient.PostAsJsonAsync(
+            "/api/admin/calendar/holidays",
+            new { date = "2026-07-09", name = "잘못된 휴일", holidayType = "Weekend", isActive = true, note = (string?)null },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+
+        using var companyHoliday = await CreateAdminHolidayAsync(adminClient, "2026-07-09", "회사 창립기념 휴일", "Company", "회사 지정");
+        var companyHolidayId = companyHoliday.RootElement.GetProperty("holidayId").GetGuid();
+        using var nationalHoliday = await CreateAdminHolidayAsync(adminClient, "2026-07-10", "국가 지정 테스트 휴일", "National", null);
+        using var substituteHoliday = await CreateAdminHolidayAsync(adminClient, "2026-07-13", "대체공휴일 테스트", "Substitute", null);
+        using var temporaryHoliday = await CreateAdminHolidayAsync(adminClient, "2026-07-14", "임시공휴일 테스트", "Temporary", null);
+
+        var duplicate = await adminClient.PostAsJsonAsync(
+            "/api/admin/calendar/holidays",
+            new { date = "2026-07-09", name = "중복 회사휴일", holidayType = "Company", isActive = true, note = (string?)null },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, duplicate.StatusCode);
+
+        using var updated = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
+            $"/api/admin/calendar/holidays/{companyHolidayId}",
+            new { date = "2026-07-09", name = "회사 창립기념일", holidayType = "Company", isActive = true, note = "연간 등록" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("회사 창립기념일", updated.RootElement.GetProperty("name").GetString());
+        Assert.Equal("연간 등록", updated.RootElement.GetProperty("note").GetString());
+
+        using var calendar = await ReadJsonAsync(await adminClient.GetAsync("/api/calendar/business-days?countryCode=KR&from=2026-07-09&to=2026-07-14", TestContext.Current.CancellationToken));
+        var days = calendar.RootElement.GetProperty("days").EnumerateArray().ToList();
+        Assert.Contains(days, day =>
+            day.GetProperty("date").GetString() == "2026-07-09"
+            && day.GetProperty("holidayType").GetString() == "Company"
+            && day.GetProperty("isCompanyHoliday").GetBoolean()
+            && !day.GetProperty("isBusinessDay").GetBoolean());
+        Assert.Contains(days, day => day.GetProperty("date").GetString() == "2026-07-10" && day.GetProperty("holidayType").GetString() == "National");
+        Assert.Contains(days, day => day.GetProperty("date").GetString() == "2026-07-13" && day.GetProperty("holidayType").GetString() == "Substitute");
+        Assert.Contains(days, day => day.GetProperty("date").GetString() == "2026-07-14" && day.GetProperty("holidayType").GetString() == "Temporary");
+
+        using var deactivated = await ReadJsonAsync(await adminClient.DeleteAsync($"/api/admin/calendar/holidays/{companyHolidayId}", TestContext.Current.CancellationToken));
+        Assert.False(deactivated.RootElement.GetProperty("isActive").GetBoolean());
+
+        using var afterDeactivate = await ReadJsonAsync(await adminClient.GetAsync("/api/calendar/business-days?countryCode=KR&from=2026-07-09&to=2026-07-09", TestContext.Current.CancellationToken));
+        var dayAfterDeactivate = afterDeactivate.RootElement.GetProperty("days").EnumerateArray().Single();
+        Assert.True(dayAfterDeactivate.GetProperty("isBusinessDay").GetBoolean());
+        Assert.False(dayAfterDeactivate.GetProperty("isHoliday").GetBoolean());
+
+        using var list = await ReadJsonAsync(await adminClient.GetAsync("/api/admin/calendar/holidays?year=2026", TestContext.Current.CancellationToken));
+        Assert.Contains(list.RootElement.GetProperty("holidays").EnumerateArray(), item =>
+            item.GetProperty("holidayId").GetGuid() == companyHolidayId
+            && !item.GetProperty("isActive").GetBoolean());
+    }
+
+    [Fact]
+    public async Task AdminCalendarHolidays_ExcelTemplatePreviewAndApplyUpsertsRows()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+
+        using var template = await adminClient.GetAsync("/api/admin/calendar/holidays/template", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, template.StatusCode);
+        await AssertCalendarHolidayTemplateAsync(template);
+
+        using var existingHoliday = await CreateAdminHolidayAsync(adminClient, "2026-10-03", "기존 개천절", "National", null);
+        var excelBytes = CreateCalendarHolidayExcel([
+            new CalendarHolidayExcelTestRow("2026-10-03", "개천절", "National", "기존 갱신"),
+            new CalendarHolidayExcelTestRow("2026-10-05", "대체공휴일", "Substitute", "신규"),
+            new CalendarHolidayExcelTestRow("2026-10-06", "오류 휴일", "Invalid", "오류")
+        ]);
+
+        using var previewResponse = await adminClient.PostAsync("/api/admin/calendar/holidays/preview", CreateExcelMultipartContent(excelBytes), TestContext.Current.CancellationToken);
+        var previewBody = await previewResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(previewResponse.StatusCode == HttpStatusCode.OK, $"Expected OK but got {previewResponse.StatusCode}. Body: {previewBody}. Logs: {context.ErrorLogs()}");
+        using var preview = JsonDocument.Parse(previewBody);
+        Assert.Equal(3, preview.RootElement.GetProperty("totalRows").GetInt32());
+        Assert.Equal(2, preview.RootElement.GetProperty("saveableCount").GetInt32());
+        Assert.Equal(1, preview.RootElement.GetProperty("insertCount").GetInt32());
+        Assert.Equal(1, preview.RootElement.GetProperty("updateCount").GetInt32());
+        Assert.Equal(1, preview.RootElement.GetProperty("errorCount").GetInt32());
+        Assert.Contains(preview.RootElement.GetProperty("rows").EnumerateArray(), row =>
+            row.GetProperty("resultType").GetString() == "Update"
+            && row.GetProperty("date").GetString() == "2026-10-03");
+        Assert.Contains(preview.RootElement.GetProperty("rows").EnumerateArray(), row =>
+            row.GetProperty("resultType").GetString() == "Error"
+            && row.GetProperty("errorMessages").EnumerateArray().Any(message => message.GetString()!.Contains("휴일유형", StringComparison.Ordinal)));
+
+        using var applyResponse = await adminClient.PostAsync("/api/admin/calendar/holidays/apply", CreateExcelMultipartContent(excelBytes), TestContext.Current.CancellationToken);
+        var applyBody = await applyResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(applyResponse.StatusCode == HttpStatusCode.OK, $"Expected OK but got {applyResponse.StatusCode}. Body: {applyBody}. Logs: {context.ErrorLogs()}");
+        using var apply = JsonDocument.Parse(applyBody);
+        Assert.Equal(1, apply.RootElement.GetProperty("insertedCount").GetInt32());
+        Assert.Equal(1, apply.RootElement.GetProperty("updatedCount").GetInt32());
+        Assert.Equal(1, apply.RootElement.GetProperty("skippedCount").GetInt32());
+
+        using var holidays = await ReadJsonAsync(await adminClient.GetAsync("/api/admin/calendar/holidays?year=2026", TestContext.Current.CancellationToken));
+        var holidayItems = holidays.RootElement.GetProperty("holidays").EnumerateArray().ToList();
+        Assert.Contains(holidayItems, item =>
+            item.GetProperty("date").GetString() == "2026-10-03"
+            && item.GetProperty("name").GetString() == "개천절"
+            && item.GetProperty("note").GetString() == "기존 갱신");
+        Assert.Contains(holidayItems, item =>
+            item.GetProperty("date").GetString() == "2026-10-05"
+            && item.GetProperty("holidayType").GetString() == "Substitute");
     }
 
     [Fact]
@@ -1251,7 +1418,8 @@ public sealed class ProductionPlanningApiTests
         Assert.Contains(result.Holidays, holiday =>
             holiday.HolidayDate == new DateOnly(2026, 7, 6)
             && holiday.Name == "공식 대체공휴일"
-            && holiday.Source == "OfficialApi:PublicHoliday");
+            && holiday.Source == "OfficialApi:PublicHoliday"
+            && holiday.HolidayType == "Substitute");
         Assert.Contains(result.Holidays, holiday =>
             holiday.HolidayDate == new DateOnly(2026, 7, 17)
             && holiday.Name == "제헌절"
@@ -1409,6 +1577,74 @@ public sealed class ProductionPlanningApiTests
         var stream = await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken);
         return await JsonDocument.ParseAsync(stream, cancellationToken: TestContext.Current.CancellationToken);
     }
+
+    private static async Task<JsonDocument> CreateAdminHolidayAsync(
+        HttpClient client,
+        string date,
+        string name,
+        string holidayType,
+        string? note)
+    {
+        var response = await client.PostAsJsonAsync(
+            "/api/admin/calendar/holidays",
+            new { date, name, holidayType, isActive = true, note },
+            TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(response.StatusCode == HttpStatusCode.Created, $"Expected Created but got {response.StatusCode}. Body: {body}.");
+        return JsonDocument.Parse(body);
+    }
+
+    private static async Task AssertCalendarHolidayTemplateAsync(HttpResponseMessage response)
+    {
+        var bytes = await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var worksheet = workbook.Worksheets.First();
+        Assert.Contains("EMI 프로젝트 통합관리시스템", worksheet.Cell(1, 1).GetString());
+        Assert.Equal("날짜 *", worksheet.Cell(3, 1).GetString());
+        Assert.Equal("휴일명 *", worksheet.Cell(3, 2).GetString());
+        Assert.Equal("휴일유형 *", worksheet.Cell(3, 3).GetString());
+        Assert.Equal("비고", worksheet.Cell(3, 4).GetString());
+        Assert.Equal("National", worksheet.Cell(4, 3).GetString());
+        Assert.Contains("Substitute", worksheet.Cell(2, 1).GetString());
+    }
+
+    private static MultipartFormDataContent CreateExcelMultipartContent(byte[] bytes)
+    {
+        var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(fileContent, "file", "holidays.xlsx");
+        return content;
+    }
+
+    private static byte[] CreateCalendarHolidayExcel(IReadOnlyList<CalendarHolidayExcelTestRow> rows)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Holidays");
+        worksheet.Cell(1, 1).Value = "날짜";
+        worksheet.Cell(1, 2).Value = "휴일명";
+        worksheet.Cell(1, 3).Value = "휴일유형";
+        worksheet.Cell(1, 4).Value = "비고";
+        for (var index = 0; index < rows.Count; index += 1)
+        {
+            var row = rows[index];
+            var rowNumber = index + 2;
+            worksheet.Cell(rowNumber, 1).Value = row.Date;
+            worksheet.Cell(rowNumber, 2).Value = row.Name;
+            worksheet.Cell(rowNumber, 3).Value = row.HolidayType;
+            worksheet.Cell(rowNumber, 4).Value = row.Note;
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private sealed record CalendarHolidayExcelTestRow(
+        string Date,
+        string Name,
+        string HolidayType,
+        string? Note);
 
     private static async Task AssertTemplateWidthsAsync(HttpResponseMessage response, int wideColumn)
     {

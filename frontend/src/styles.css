@@ -1038,6 +1038,11 @@ h3 {
   background: #fff1f0;
 }
 
+.production-calendar-table th.calendar-company-holiday,
+.production-calendar-table td.calendar-company-holiday {
+  background: #fff7ed;
+}
+
 .production-calendar-unscheduled {
   display: grid;
   gap: 6px;
@@ -1090,6 +1095,11 @@ h3 {
 .production-calendar-card.calendar-red-day {
   border-color: #f2b8b5;
   background: #fff8f7;
+}
+
+.production-calendar-card.calendar-company-holiday {
+  border-color: #fed7aa;
+  background: #fff7ed;
 }
 
 .production-calendar-card.calendar-red-day strong,
@@ -1770,6 +1780,42 @@ h3 {
   align-items: center;
 }
 
+.calendar-holiday-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: end;
+  margin: 18px 0;
+}
+
+.holiday-type-badge {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 26px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: #e7eefc;
+  color: #244f9e;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.holiday-type-badge[data-type='Substitute'] {
+  background: #fff5d6;
+  color: #806000;
+}
+
+.holiday-type-badge[data-type='Temporary'] {
+  background: #fde7e5;
+  color: #b42318;
+}
+
+.holiday-type-badge[data-type='Company'] {
+  background: #e8f4ee;
+  color: #146b3a;
+}
+
 .project-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2440,6 +2486,7 @@ dd {
   .detail-grid,
   .project-form,
   .dashboard-kpi-grid,
+  .calendar-holiday-form,
   .panel-info-summary,
   .readonly-assignee-grid,
   .assignee-edit-grid,

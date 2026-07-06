@@ -1064,7 +1064,7 @@ public sealed class PostgreSqlMigrationTests
             "select stage_code from workflow_stages where sequence_number = 3;",
             cancellationToken));
 
-        Assert.Equal(5L, await ReadScalarAsync<long>(
+        Assert.Equal(6L, await ReadScalarAsync<long>(
             connectionStringProvider,
             """
             select count(*)
@@ -1075,10 +1075,22 @@ public sealed class PostgreSqlMigrationTests
                   'project_workflow_events',
                   'work_items',
                   'notifications',
-                  'notification_recipients'
+                  'notification_recipients',
+                  'notification_deliveries'
               );
             """,
             cancellationToken));
+
+        var deliveryConstraint = await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_notification_deliveries_channel';
+            """,
+            cancellationToken);
+        Assert.Contains("TeamsChannel", deliveryConstraint, StringComparison.Ordinal);
+        Assert.Contains("Mail", deliveryConstraint, StringComparison.Ordinal);
 
         var assigneeConstraint = await ReadScalarAsync<string>(
             connectionStringProvider,

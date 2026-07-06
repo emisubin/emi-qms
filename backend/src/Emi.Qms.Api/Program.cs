@@ -1,6 +1,7 @@
 using Emi.Qms.Api;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.Procurement;
 using Emi.Qms.Api.ProductionPlanning;
@@ -8,6 +9,8 @@ using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 
 builder.Services.AddCors(options =>
 {
@@ -41,6 +44,19 @@ builder.Services.AddSingleton<ProcurementStore>();
 builder.Services.AddSingleton<ProductionPlanningStore>();
 builder.Services.AddSingleton<SystemHolidayStore>();
 builder.Services.AddSingleton<WorkflowStore>();
+builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Notifications"));
+builder.Services.AddSingleton<NotificationDeliveryStore>();
+builder.Services.AddSingleton<NotificationDispatcher>();
+builder.Services.AddSingleton<INotificationChannelHandler, TeamsChannelHandler>();
+builder.Services.AddSingleton<INotificationChannelHandler, TeamsDirectMessageHandler>();
+builder.Services.AddSingleton<INotificationChannelHandler, MailChannelHandler>();
+builder.Services.AddHttpClient<IGraphTokenProvider, GraphClientCredentialsTokenProvider>();
+builder.Services.AddSingleton<IMailClient, ConfiguredMailClient>();
+builder.Services.AddSingleton<ISmtpMailClient, SmtpMailClient>();
+builder.Services.AddSingleton<ISmtpMailTransport, MailKitSmtpMailTransport>();
+builder.Services.AddHttpClient<IGraphMailClient, GraphMailClient>();
+builder.Services.AddHttpClient<ITeamsWebhookClient, TeamsWebhookClient>();
+builder.Services.AddHostedService<NotificationDeliveryWorker>();
 builder.Services.AddHttpClient<IKoreanHolidayProvider, OfficialKoreanHolidayProvider>();
 builder.Services.AddQmsAuthorizationFoundation(builder.Configuration, builder.Environment);
 
@@ -113,6 +129,7 @@ app.MapPanelInformationEndpoints();
 app.MapProcurementEndpoints();
 app.MapProductionPlanningEndpoints();
 app.MapWorkflowEndpoints();
+app.MapNotificationDeliveryEndpoints();
 
 app.Run();
 

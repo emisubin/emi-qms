@@ -324,14 +324,14 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 
 | 알림 유형 | 인앱 | Teams | 메일 |
 | --- | --- | --- | --- |
-| 내 업무 생성 (일반 단계 핸드오프) | 즉시 | 즉시 DM | 일일 요약에 포함 |
+| 내 업무 생성 (일반 단계 핸드오프) | 즉시 | 개인별 Activity Feed 후속 | 일일 요약에 포함 |
 | 참조 알림 | 즉시 | 발송 안 함 | 일일 요약에 포함 |
-| 긴급/차단 (부적합, PUNCH, 제조 중단) | 즉시 | 즉시 DM + 통합 채널 게시 | 즉시 (조치 담당자 + 생산관리) |
-| 재검사 요청 | 즉시 | 즉시 DM | 발송 안 함 |
-| 예정일 임박 (D-1) | 즉시 | DM | 발송 안 함 |
-| 예정일 초과 | 즉시 | DM (에스컬레이션 적용) | 에스컬레이션 단계에서만 |
+| 긴급/차단 (부적합, PUNCH, 제조 중단) | 즉시 | 통합 채널 게시, 개인별 Activity Feed 후속 | 즉시 (조치 담당자 + 생산관리) |
+| 재검사 요청 | 즉시 | 개인별 Activity Feed 후속 | 발송 안 함 |
+| 예정일 임박 (D-1) | 즉시 | Activity Feed 후속 | 발송 안 함 |
+| 예정일 초과 | 즉시 | Activity Feed 후속 (에스컬레이션 적용) | 에스컬레이션 단계에서만 |
 | 일일 요약 | — | 발송 안 함 | 매일 1통 |
-| 프로젝트 완료 / 세금계산서 단계 | 즉시 | 영업 담당 DM | 발송 (증빙 성격) |
+| 프로젝트 완료 / 세금계산서 단계 | 즉시 | 영업 담당 Activity Feed 후속 | 발송 (증빙 성격) |
 
 - 메일이 실시간으로 발송되는 경우는 긴급/차단과 에스컬레이션 두 가지뿐이다.
 - 긴급/차단 알림의 Teams 채널 게시는 부서별 채널이 아니라 통합 채널 1개로 운영한다.
@@ -354,9 +354,9 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 
 | 단계 | 조건 | 발송 대상과 채널 |
 | --- | --- | --- |
-| L0 | 예정일 D-1 | 정담당자 Teams DM |
-| L1 | 예정일 초과 즉시 | 정담당자 Teams DM + 메일 |
-| L2 | 초과 +2영업일 미조치 | 부담당자 + 생산관리 담당자 Teams DM |
+| L0 | 예정일 D-1 | 정담당자 Teams Activity Feed 후속 |
+| L1 | 예정일 초과 즉시 | 정담당자 Teams Activity Feed 후속 + 메일 |
+| L2 | 초과 +2영업일 미조치 | 부담당자 + 생산관리 담당자 Teams Activity Feed 후속 |
 | L3 | 초과 +3영업일 미조치 | 생산관리 담당자 + 영업 담당자 메일 |
 
 - 긴급/차단 알림은 L1에서 시작한다. 발생 즉시가 이미 긴급 상황이기 때문이다.
@@ -368,22 +368,24 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 
 - 중복 억제: 동일 대상(같은 업무/Pending)에 대한 동일 유형 알림은 24시간 내 재발송하지 않는다. 에스컬레이션 단계 상승은 예외다.
 - 일괄 처리 묶음: 일괄 처리(예: 패널 10건 일괄 키팅 완료)로 발생한 알림은 개별 발송하지 않고 1건으로 묶어 발송한다. 이벤트 발행 후 1~2분 버퍼로 그룹핑한다.
-- 야간 억제는 적용하지 않는다. 모든 Teams DM은 발생 시각과 무관하게 즉시 발송한다.
+- 야간 억제는 적용하지 않는다. Teams 개인별 알림은 발생 시각과 무관하게 즉시 발송하는 방향을 기준으로 한다.
 
 #### 6.5.6 구현 방향
 
-- Teams DM과 메일 발송은 Microsoft Graph API로 통일한다. Entra ID 연동(TASK-INFRA-001)과 같은 인증 기반을 공유한다.
-- Teams: 초기에는 통합 채널 Incoming Webhook, 이후 Graph `/chats` 기반 DM으로 확장한다.
-- 메일: Graph `/sendMail`, 알림 전용 계정을 사용한다. 별도 SMTP 서버는 두지 않는다.
+- Teams 통합 채널 게시는 Webhook 기반으로 구현한다. Webhook payload는 Power Automate Teams 카드 액션과 호환되는 Adaptive Card root JSON을 기본으로 한다.
+- Teams 개인별 알림은 DM보다 Activity Feed를 우선 검토한다. Activity Feed는 Teams 앱 manifest, Graph 권한, 조직 앱 배포가 필요하므로 TASK-NOTIFY-003 후속으로 분리한다.
+- 메일: 초기/UAT/시범운영 actual 발송은 Gmail 전용 계정 SMTP를 사용한다. Gmail 계정은 2단계 인증과 앱 비밀번호를 사용하며 실제 값은 env/secret으로만 관리한다.
+- Hiworks SMTP와 Microsoft Graph Mail.Send는 사내 정책상 기본 발송 경로로 사용하지 않는다. Graph Mail provider는 Exchange Online 조직 또는 후속 선택지로 optional 유지한다.
 - 아키텍처: 도메인 이벤트 발행 → NotificationDispatcher → 채널별 핸들러(InApp / Teams / Mail). 인앱은 이미 구현되어 있으므로 Dispatcher 뒤에 Teams/Mail 핸들러를 추가하는 형태로 확장한다. 18단계 각 단계에 알림 로직을 하드코딩하지 않는다.
 - 발송 이력 테이블(`notification_deliveries` 또는 동등 명칭)을 둔다. 항목은 알림 ID, 채널, 수신자, 발송 시각, 성공/실패, 재시도 횟수다. 에스컬레이션의 미조치 판정과 중복 억제는 이 테이블에 의존한다.
 - 실패 처리: Teams/메일 발송이 실패해도 업무 흐름은 진행한다. 인앱이 원본이기 때문이다. 실패 건은 재시도 3회, 최종 실패는 관리자 페이지에서 확인 가능해야 한다.
+- `Sent`는 외부 provider 또는 Webhook endpoint가 요청을 수락했다는 의미다. 실제 Teams 화면 표시나 메일함 도착 여부는 provider 특성에 따라 사용자 수동 검수 또는 관리자 추적으로 확인한다.
 
 #### 6.5.7 단계적 적용
 
-- Phase 1: 긴급/차단 알림 → Teams 통합 채널 Webhook + 실시간 메일
-- Phase 2: 내 업무 생성 → Teams DM, 일일 요약 메일 (07:30)
-- Phase 3: 에스컬레이션 자동화 (L0 ~ L3)
+- Phase 1: 외부 delivery 계층, Teams 통합 채널 Webhook, Gmail SMTP 메일, 일일 요약 구조, retry/dedupe/batch 기반
+- Phase 2: Teams Activity Feed 개인별 알림 (TASK-NOTIFY-003)
+- Phase 3: 에스컬레이션 자동화 (L0 ~ L3, TASK-NOTIFY-002)
 
 ## 7. 프로젝트와 패널 관리 기준
 
@@ -899,7 +901,7 @@ Excel 출력 대상 후보:
 | 생산계획 | Item 기반 단계, 프로젝트별 snapshot, 단계명/필수 여부 override, Excel, 캘린더 | 캘린더 UX 지속 보정, 관리자 기준정보화 |
 | 구매 필수 항목 | Item별 필수 구매 항목 설정, 새 프로젝트 skeleton 자동 생성 | 업체/발주정보 입력 기준과 완료 판정 보강 |
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
-| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 | Teams/메일 채널 확장 |
+| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Daily Digest 구조, dry-run/actual provider, retry/dedupe, 관리자 delivery 조회 API | Teams Activity Feed 개인별 알림, 에스컬레이션, 알림 설정 UI, 실패 재처리 UI |
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존 | 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
 | 공휴일 | 공식 공휴일/국경일 DB 기준 표시 구조 | 관리자 공휴일 sync UI |
@@ -911,7 +913,7 @@ Excel 출력 대상 후보:
 현재 개발된 기능에서 앞으로 수정해야 할 주요 방향은 다음과 같다.
 
 - 프로젝트 상태 집계를 패널 단위 병목 기준, Pending 차단 flag, 완료 조건과 연결한다.
-- Teams/메일 알림 채널을 인앱 알림 위에 확장한다.
+- Teams/메일 외부 delivery 계층은 구현되었으며 운영 전 Teams 운영 Webhook 재발급, Gmail SMTP 장기 운영 적합성, 회사 공식 발송 수단 전환 여부를 검토한다.
 - 구매 업체를 장기적으로 master 또는 기준정보로 관리할지 결정한다.
 - 자재 페이지를 자재 도착, 입고 확정, 키팅 완료 흐름으로 분리한다.
 - Pending List 공통 모듈을 추가한다.
@@ -921,7 +923,8 @@ Excel 출력 대상 후보:
 - 영업 정산과 세금계산서 발행 완료를 추가한다.
 - 모든 페이지 Excel 출력 공통 기능을 추가한다.
 - Microsoft 365 로그인 기반은 구현 완료되었으며, 운영 배포 전 실제 Entra 앱 등록값, 운영 redirect URI, secret/env 관리, Production/Staging dev auth 비활성, AdminUserSwitch 비활성 설정을 검수한다.
-- Graph 기반 Teams/메일 발송은 TASK-NOTIFY-001 범위로 구현한다.
+- Teams Activity Feed 개인별 알림은 TASK-NOTIFY-003 후속으로 검토한다.
+- 예정일 기반 에스컬레이션은 TASK-NOTIFY-002 범위로 구현한다.
 - 관리자 기준정보 페이지를 추가한다.
 - 업무 시작/완료 이력 관리자 화면을 추가한다.
 
@@ -965,11 +968,12 @@ Excel 출력 대상 후보:
 
 ### TASK-NOTIFY-001: Teams / 메일 알림 채널 확장
 
-- 목적: 기존 인앱 알림 위에 Teams DM, Teams 통합 채널 게시, 메일(실시간 + 일일 요약) 채널을 추가한다.
-- 포함 범위: NotificationDispatcher 구조 도입, Teams Webhook 게시, Graph 기반 Teams DM, Graph sendMail, 일일 요약 메일(07:30), 발송 이력 테이블, 중복 억제, 일괄 처리 묶음, 재시도 처리
-- 제외 범위: 에스컬레이션 자동화(별도 후속), 카카오톡 등 기타 채널
+- 상태: 완료
+- 목적: 기존 인앱 알림 위에 Teams/Mail 외부 delivery 계층을 추가한다.
+- 포함 범위: `notification_deliveries`, NotificationDispatcher/Worker, Teams Webhook Channel, Adaptive Card payload, Gmail SMTP actual provider, Graph Mail optional provider, DryRun provider, 일일 요약 메일(07:30) 구조, retry/dedupe/batch, 관리자 delivery 조회 API, Teams Activity Feed 후속 기획 문서
+- 제외 범위: Teams Activity Feed 실제 구현, Teams DM 실제 구현, 예정일 에스컬레이션, Pending List, 개인별 알림 설정 UI, 발송 실패 수동 재처리 UI, 카카오톡 등 기타 채널
 - 선행조건: TASK-INFRA-001
-- 주요 테스트: 채널별 발송 성공/실패 기록, 중복 억제 동작, 빈 요약 메일 미발송, 일괄 묶음 발송
+- 주요 테스트: backend 전체 test, Notification targeted tests, Migration tests, Authorization tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, seed A/B/C/D, UAT DB persistence, Teams Webhook actual 사용자 검수, Gmail SMTP actual 사용자 검수
 
 ### TASK-NOTIFY-002: 예정일 기반 에스컬레이션
 
@@ -1088,14 +1092,17 @@ Excel 출력 대상 후보:
 | 23 | Microsoft 365 로그인 적용 시점 | 완료 | 인프라/운영 결정 | TASK-INFRA-001 | 인증 기반 구현 완료. 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 필요 |
 | 24 | 관리자 페이지 범위 | 초안 | 사용자 요청 | TASK-ADMIN-001 | 기준정보와 이력 관리 |
 | 25 | 프로젝트 대표 상태 방식 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 병목 기준 + 진행률 |
-| 26 | 알림 채널 구성 | 확정 | 실무 협의 | TASK-NOTIFY-001/002 | 인앱/Teams/메일, 본 문서 6장 기준 |
+| 26 | 알림 채널 구성 | 부분 완료 | 실무 협의 | TASK-NOTIFY-001/002/003 | 인앱 원본, Teams 통합 채널 게시, Gmail SMTP 메일, delivery 이력은 구현 완료. Activity Feed와 에스컬레이션은 후속 |
 | 27 | 진행률(%) 계산식 정의 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수. FAT는 대상 프로젝트만 분모 포함. 프로젝트 상태 집계는 9장 기준. |
-| 28 | Teams 통합 채널 생성 및 Webhook URL | 미확정 | 사용자 | TASK-NOTIFY-001 | 회사 Teams 관리자 권한 필요 여부 확인 |
-| 29 | 알림 전용 메일 계정 생성 | 미확정 | 사용자 | TASK-NOTIFY-001 | Graph sendMail 권한 부여 필요 |
-| 30 | Graph API 앱 등록 및 권한 승인 | 미확정 | 사용자 | TASK-INFRA-001 / TASK-NOTIFY-001 | 로그인 앱 등록은 INFRA-001에서 사용. Mail.Send, Teams 관련 권한은 TASK-NOTIFY-001 범위 |
+| 28 | Teams 통합 채널 생성 및 Webhook URL | 검수 완료 | 사용자 | TASK-NOTIFY-001 | 테스트 채널/Webhook actual 검수 완료. 운영 전 Webhook 재발급과 secret 주입 필요 |
+| 29 | 알림 전용 메일 계정 생성 | 검수 완료 | 사용자 | TASK-NOTIFY-001 | Hiworks/M365 Graph Mail.Send 대신 Gmail SMTP 초기 경로 사용. 장기 운영 발송 수단 검토 필요 |
+| 30 | Graph API 앱 등록 및 권한 승인 | 부분 완료 | 사용자 | TASK-INFRA-001 / TASK-NOTIFY-003 | 로그인 앱 등록은 INFRA-001에서 사용. Mail.Send는 기본 경로에서 제외. Teams Activity Feed 권한은 후속 TASK에서 검토 |
 | 31 | 퇴사/부서이동 시 미완료 내 업무 이관 규칙 | 미확정 | 실무 협의 | TASK-INFRA-001 이후 | 담당자 부재 시 업무 귀속 처리 |
 | 32 | 에스컬레이션 기한의 관리자 설정 가능 여부 | 미확정 | 실무 협의 | TASK-NOTIFY-002 이후 | 초기에는 코드 고정 |
 | 33 | dev user 담당 프로젝트/내 업무의 실계정 이관 수동 절차 | 미확정 | 실무 협의 | INFRA-001 이후 | 자동 병합 금지에 따른 후속 |
+| 34 | Teams Activity Feed 개인별 알림 준비 | 미확정 | 사용자/관리자 | TASK-NOTIFY-003 | Teams 앱 manifest, 조직 앱 업로드, Graph 권한, 테스트 사용자 준비 필요 |
+| 35 | Gmail SMTP 운영 적합성 및 공식 발송 수단 전환 | 미확정 | 사용자/총무/보안 | 운영 전 검토 | Gmail SMTP는 초기/UAT/시범운영용. 발송량, 보안, 스팸 정책과 회사 공식 발송 수단 전환 검토 |
+| 36 | 운영용 Teams Webhook 재발급 | 미확정 | 사용자/운영 | 운영 배포 전 | UAT/test Webhook과 운영 Webhook을 분리하고 secret/env로만 주입 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1130,6 +1137,9 @@ Excel 출력 대상 후보:
 | 2026-07-02 | TASK-INFRA-001에서 Microsoft 365 로그인 기반 구현 완료 | EntraId 기반 운영 인증, 승인 대기, bootstrap admin, Dev mode 보존을 구현 | 20장, 23장 |
 | 2026-07-02 | System Administrator에 한해 비운영 환경에서 검수 사용자 전환을 허용 | 실제 Microsoft 로그인 기반을 유지하면서도 기능 검수 효율을 확보하기 위함 | 20장, 27장 |
 | 2026-07-02 | 로그인 상태 유지는 MSAL cache와 silent token acquisition 기준으로 제공 | Microsoft 보안 정책을 우회하지 않으면서 반복 인증 부담을 줄이기 위함 | 20장, 27장 |
+| 2026-07-03 | TASK-NOTIFY-001에서 외부 알림 delivery 계층을 구현 | 인앱 알림을 원본으로 유지하면서 Teams/Mail 발송 이력을 분리 관리하기 위함 | 6장, 23장 |
+| 2026-07-03 | 초기 메일 발송은 Gmail SMTP 전용 계정으로 처리 | 사내 정책상 Hiworks SMTP와 Microsoft Graph Mail.Send를 기본 발송 경로로 사용하지 않기로 결정 | 6장 |
+| 2026-07-03 | Teams 개인별 알림은 Activity Feed 후속 TASK로 분리 | Teams 앱/manifest/Graph 권한/조직 배포가 필요한 별도 범위이기 때문 | 6장, 23장 |
 
 ## 26. 용어 사전
 
@@ -1180,6 +1190,8 @@ Codex는 새 TASK 시작 시 다음 원칙을 따른다.
 - 검수 사용자 전환은 dev user persona 대상 검수 편의 기능이며 실제 Entra 사용자 impersonation으로 확장하지 않는다.
 - 로그인 상태 유지는 MSAL cache와 Microsoft Entra SSO 정책 범위에서만 제공하고 MFA, 조건부 액세스, sign-in frequency를 우회하지 않는다.
 - token을 앱 코드에서 직접 localStorage/sessionStorage에 저장하지 않는다.
+- 외부 채널 secret은 `.env` 또는 배포 secret으로만 관리한다.
+- Webhook URL, SMTP password, Gmail app password, token, Authorization header는 문서/보고서/로그에 원문 작성하지 않는다.
 - 사용자-facing 추적 단위는 “패널” 단독 표기를 사용한다.
 - “제품/패널” 병기 표현을 새로 추가하지 않는다.
 - 진행률 계산식은 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수 기준을 따른다.

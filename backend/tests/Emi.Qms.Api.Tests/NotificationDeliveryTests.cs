@@ -15,6 +15,8 @@ public sealed class NotificationDeliveryTests
 {
     private static readonly Guid DevAdminUserId = new("50000000-0000-0000-0000-000000000001");
     private static readonly Guid DevSalesUserId = new("50000000-0000-0000-0000-000000000002");
+    private static readonly Guid DevProductionUserId = new("50000000-0000-0000-0000-000000000003");
+    private static readonly Guid DevProcurementUserId = new("50000000-0000-0000-0000-000000000011");
     private static readonly Guid DemoProjectId = new("40000000-0000-0000-0000-000000000001");
 
     [Fact]
@@ -157,11 +159,141 @@ public sealed class NotificationDeliveryTests
             ["Notifications:Mail:Enabled"] = "true",
             ["Notifications:Mail:DryRun"] = "true"
         });
+        await context.ExecuteSqlAsync("""
+            delete from notification_deliveries;
+            delete from notification_recipients;
+            delete from notifications;
+            delete from work_items;
+            delete from project_assignees;
+            """);
 
         var summary = await context.Dispatcher.DispatchAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(0, summary.CreatedDigestDeliveryCount);
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where delivery_type = 'DailyDigest';"));
+    }
+
+    [Fact]
+    public async Task DailyDigest_IncludesAssignedProjectSummary_AndGroupsRoles()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:DailyDigest:Enabled"] = "true",
+            ["Notifications:DailyDigest:Time"] = "07:30",
+            ["Notifications:DailyDigest:TimeZone"] = "Asia/Seoul",
+            ["Notifications:Mail:Enabled"] = "true",
+            ["Notifications:Mail:DryRun"] = "true"
+        });
+        await context.ExecuteSqlAsync("""
+            delete from notification_deliveries;
+            delete from notification_recipients;
+            delete from notifications;
+            delete from work_items;
+            delete from project_assignees;
+
+            update qms_users
+            set email = 'admin@example.test'
+            where id = '50000000-0000-0000-0000-000000000001';
+
+            update projects
+            set project_title = 'UL67 SAMPLE PROJECT',
+                project_title_normalized = 'UL67 SAMPLE PROJECT',
+                delivery_date = '2026-07-31',
+                status = 'Active',
+                deleted_at_utc = null
+            where id = '40000000-0000-0000-0000-000000000001';
+
+            update projects
+            set project_title = 'DELETED DIGEST PROJECT',
+                project_title_normalized = 'DELETED DIGEST PROJECT',
+                delivery_date = '2026-08-10',
+                status = 'Active',
+                deleted_at_utc = '2026-07-03T00:00:00Z'
+            where id = '40000000-0000-0000-0000-000000000002';
+
+            insert into project_assignees (
+                project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc
+            )
+            values
+                ('40000000-0000-0000-0000-000000000001', 'SalesPrimary', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '2026-07-03T00:00:00Z'),
+                ('40000000-0000-0000-0000-000000000001', 'QualityIQC', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '2026-07-03T00:00:00Z'),
+                ('40000000-0000-0000-0000-000000000002', 'ProductionPlanningPrimary', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '2026-07-03T00:00:00Z');
+            """);
+
+        var created = await context.DeliveryStore.CreateDailyDigestDeliveriesIfDueAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken);
+        var deliveries = await context.DeliveryStore.GetDueDeliveriesAsync(10, 3, TestContext.Current.CancellationToken);
+        var delivery = Assert.Single(deliveries, item => item.DeliveryType == NotificationDeliveryTypes.DailyDigest);
+
+        var message = await context.DeliveryStore.RenderMessageAsync(delivery, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, created);
+        Assert.Contains("내 담당 프로젝트 요약", message.Body, StringComparison.Ordinal);
+        Assert.Contains("UL67 SAMPLE PROJECT", message.Body, StringComparison.Ordinal);
+        Assert.Contains("납기일 2026-07-31", message.Body, StringComparison.Ordinal);
+        Assert.Contains("영업 정담당자", message.Body, StringComparison.Ordinal);
+        Assert.Contains("IQC 정담당자", message.Body, StringComparison.Ordinal);
+        Assert.Contains($"/projects/{DemoProjectId}", message.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("SalesPrimary", message.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("DELETED DIGEST PROJECT", message.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DailyDigest_OmitsAssignedProjectSummary_WhenUserHasNoAssignedProjects()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:DailyDigest:Enabled"] = "true",
+            ["Notifications:DailyDigest:Time"] = "07:30",
+            ["Notifications:DailyDigest:TimeZone"] = "Asia/Seoul",
+            ["Notifications:Mail:Enabled"] = "true",
+            ["Notifications:Mail:DryRun"] = "true"
+        });
+        await context.ExecuteSqlAsync("""
+            delete from notification_deliveries;
+            delete from notification_recipients;
+            delete from notifications;
+            delete from work_items;
+            delete from project_assignees;
+
+            update qms_users
+            set email = 'admin@example.test'
+            where id = '50000000-0000-0000-0000-000000000001';
+
+            insert into work_items (
+                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                assigned_user_id, assigned_role_code, title, description, status, priority,
+                idempotency_key, created_by_user_id
+            )
+            values (
+                '40000000-0000-0000-0000-000000000001',
+                'Project',
+                '40000000-0000-0000-0000-000000000001',
+                'ProductionPlanning',
+                'ProductionPlanningPrimary',
+                '50000000-0000-0000-0000-000000000001',
+                'system-administrator',
+                '담당 프로젝트 없는 요약 테스트 업무',
+                '담당 프로젝트 없는 요약 테스트입니다.',
+                'Requested',
+                'Normal',
+                'daily-digest-no-assigned-project',
+                '50000000-0000-0000-0000-000000000001'
+            );
+            """);
+
+        var created = await context.DeliveryStore.CreateDailyDigestDeliveriesIfDueAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken);
+        var deliveries = await context.DeliveryStore.GetDueDeliveriesAsync(10, 3, TestContext.Current.CancellationToken);
+        var delivery = Assert.Single(deliveries, item => item.DeliveryType == NotificationDeliveryTypes.DailyDigest);
+
+        var message = await context.DeliveryStore.RenderMessageAsync(delivery, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, created);
+        Assert.Contains("내 미완료 업무", message.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("내 담당 프로젝트 요약", message.Body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -672,6 +804,174 @@ public sealed class NotificationDeliveryTests
         Assert.Equal("GraphMailSenderNotFound", await context.ReadScalarAsync<string>("select error_code from notification_deliveries where delivery_type = 'ManualTest';"));
     }
 
+    [Fact]
+    public async Task Escalation_CreatesL0InAppAndTeamsPersonalDryRun_OnPreviousBusinessDay()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:Escalation:Enabled"] = "true",
+            ["Notifications:Escalation:TeamsPersonalDryRun"] = "true",
+            ["Notifications:Escalation:MailEnabled"] = "true"
+        });
+        await context.InsertWorkItemAsync("ProductionPlanning", "ProductionPlanningPrimary", DevAdminUserId, "2026-07-06", "l0-previous-business-day");
+
+        var summary = await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, summary.EvaluatedWorkItemCount);
+        Assert.Equal(1, summary.CreatedNotificationCount);
+        Assert.Equal(1, summary.CreatedDeliveryCount);
+        Assert.Equal("L0", await context.ReadScalarAsync<string>("select current_level from work_item_escalations;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000001';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries
+            where delivery_type = 'DueSoonL0'
+              and channel = 'TeamsDirectMessage'
+              and status = 'DryRunSent';
+            """));
+    }
+
+    [Fact]
+    public async Task Escalation_CreatesL1MailAndTeamsPersonalDryRun_WhenOverdue()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:Escalation:Enabled"] = "true",
+            ["Notifications:Escalation:TeamsPersonalDryRun"] = "true",
+            ["Notifications:Escalation:MailEnabled"] = "true"
+        });
+        await context.InsertWorkItemAsync("ProductionPlanning", "ProductionPlanningPrimary", DevAdminUserId, "2026-07-02", "l1-overdue");
+
+        var summary = await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, summary.CreatedNotificationCount);
+        Assert.Equal(2, summary.CreatedDeliveryCount);
+        Assert.Equal("L1", await context.ReadScalarAsync<string>("select current_level from work_item_escalations;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries
+            where delivery_type = 'OverdueL1'
+              and channel = 'Mail'
+              and status = 'Pending';
+            """));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries
+            where delivery_type = 'OverdueL1'
+              and channel = 'TeamsDirectMessage'
+              and status = 'DryRunSent';
+            """));
+    }
+
+    [Fact]
+    public async Task Escalation_CreatesL2ForSecondaryAndProductionPlanningWithoutTeamsChannelFallback()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:Escalation:Enabled"] = "true",
+            ["Notifications:Escalation:TeamsPersonalDryRun"] = "true",
+            ["Notifications:Escalation:UseTeamsChannelFallback"] = "false"
+        });
+        await context.UpsertProjectAssigneeAsync("ProcurementSecondary", DevProcurementUserId);
+        await context.UpsertProjectAssigneeAsync("ProductionPlanningPrimary", DevProductionUserId);
+        await context.InsertWorkItemAsync("ProcurementInfo", "ProcurementPrimary", DevAdminUserId, "2026-07-01", "l2-recipients");
+
+        var summary = await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, summary.CreatedNotificationCount);
+        Assert.Equal(2, summary.CreatedDeliveryCount);
+        Assert.Equal("L2", await context.ReadScalarAsync<string>("select current_level from work_item_escalations;"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000011';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000003';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsChannel';"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries
+            where delivery_type = 'OverdueL2'
+              and channel = 'TeamsDirectMessage'
+              and status = 'DryRunSent';
+            """));
+    }
+
+    [Fact]
+    public async Task Escalation_CreatesL3MailForProductionPlanningAndSalesOnly()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:Escalation:Enabled"] = "true",
+            ["Notifications:Escalation:TeamsPersonalDryRun"] = "true",
+            ["Notifications:Escalation:MailEnabled"] = "true"
+        });
+        await context.UpsertProjectAssigneeAsync("ProductionPlanningPrimary", DevProductionUserId);
+        await context.UpsertProjectAssigneeAsync("SalesPrimary", DevSalesUserId);
+        await context.UpsertProjectAssigneeAsync("ProcurementSecondary", DevProcurementUserId);
+        await context.InsertWorkItemAsync("ProcurementInfo", "ProcurementPrimary", DevAdminUserId, "2026-06-30", "l3-recipients");
+
+        var summary = await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, summary.CreatedNotificationCount);
+        Assert.Equal(2, summary.CreatedDeliveryCount);
+        Assert.Equal("L3", await context.ReadScalarAsync<string>("select current_level from work_item_escalations;"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000003';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000002';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000011';"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries
+            where delivery_type = 'OverdueL3'
+              and channel = 'Mail'
+              and status = 'Pending';
+            """));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where delivery_type = 'UrgentBlocking';"));
+    }
+
+    [Fact]
+    public async Task Escalation_ResolvesCompletedWorkItemsAndDoesNotDuplicateSameLevel()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:Escalation:Enabled"] = "true",
+            ["Notifications:Escalation:TeamsPersonalDryRun"] = "true"
+        });
+        var workItemId = await context.InsertWorkItemAsync("ProductionPlanning", "ProductionPlanningPrimary", DevAdminUserId, "2026-07-06", "resolve-completed");
+
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where delivery_type = 'DueSoonL0';"));
+
+        await context.ExecuteSqlAsync($"""
+            update work_items
+            set status = 'Completed',
+                completed_at_utc = '2026-07-03T00:30:00Z'
+            where id = '{workItemId}';
+            """);
+
+        var summary = await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, summary.ResolvedEscalationCount);
+        Assert.Equal("Resolved", await context.ReadScalarAsync<string>("select status from work_item_escalations;"));
+        Assert.False(await context.ReadScalarAsync<bool>("select resolved_at_utc is null from work_item_escalations;"));
+    }
+
+    [Fact]
+    public async Task AdminEscalationEndpoint_IsSystemAdministratorOnly()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        using var salesClient = context.CreateClient("dev-sales");
+
+        var forbidden = await salesClient.GetAsync("/api/admin/work-item-escalations", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+
+        var ok = await adminClient.GetAsync("/api/admin/work-item-escalations", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        using var body = await JsonDocument.ParseAsync(await ok.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(body.RootElement.TryGetProperty("items", out _));
+    }
+
     private static MailDeliveryPayload CreateMailPayload()
     {
         return new MailDeliveryPayload(
@@ -711,6 +1011,12 @@ public sealed class NotificationDeliveryTests
 
         public NotificationDispatcher Dispatcher => Factory.Services.GetRequiredService<NotificationDispatcher>();
 
+        public NotificationDeliveryStore DeliveryStore => Factory.Services.GetRequiredService<NotificationDeliveryStore>();
+
+        public IOptionsMonitor<NotificationOptions> NotificationOptions => Factory.Services.GetRequiredService<IOptionsMonitor<NotificationOptions>>();
+
+        public NotificationEscalationService Escalations => Factory.Services.GetRequiredService<NotificationEscalationService>();
+
         public static async Task<NotificationDeliveryTestContext> CreateAsync(
             IReadOnlyDictionary<string, string?>? overrides = null,
             Action<IServiceCollection>? configureTestServices = null)
@@ -723,6 +1029,7 @@ public sealed class NotificationDeliveryTests
                 ["DevelopmentData:SeedEnabled"] = "true",
                 ["Notifications:Dispatch:Enabled"] = "false",
                 ["Notifications:DailyDigest:Enabled"] = "false",
+                ["Notifications:Escalation:Enabled"] = "false",
                 ["Notifications:Teams:Enabled"] = "false",
                 ["Notifications:Teams:DryRun"] = "true",
                 ["Notifications:Mail:Enabled"] = "false",
@@ -808,6 +1115,65 @@ public sealed class NotificationDeliveryTests
                 update notification_deliveries
                 set next_attempt_at_utc = '2026-07-03T00:00:00Z'
                 where channel = '{channel}';
+                """);
+        }
+
+        public async Task<Guid> InsertWorkItemAsync(
+            string workflowStageCode,
+            string responsibilityType,
+            Guid assignedUserId,
+            string dueDate,
+            string keySuffix)
+        {
+            var workItemId = Guid.NewGuid();
+            await ExecuteSqlAsync($"""
+                insert into work_items (
+                    id, project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                    assigned_user_id, assigned_role_code, title, description, status, priority,
+                    due_date, idempotency_key, created_by_user_id
+                )
+                values (
+                    '{workItemId}',
+                    '{DemoProjectId}',
+                    'Project',
+                    '{DemoProjectId}',
+                    '{workflowStageCode}',
+                    '{responsibilityType}',
+                    '{assignedUserId}',
+                    'system-administrator',
+                    '에스컬레이션 테스트 업무 {keySuffix}',
+                    '에스컬레이션 테스트입니다.',
+                    'Requested',
+                    'Normal',
+                    '{dueDate}',
+                    'notify-002-{keySuffix}-{workItemId}',
+                    '{DevAdminUserId}'
+                );
+                """);
+
+            return workItemId;
+        }
+
+        public Task UpsertProjectAssigneeAsync(string responsibilityType, Guid assignedUserId)
+        {
+            return ExecuteSqlAsync($"""
+                insert into project_assignees (
+                    project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc, note
+                )
+                values (
+                    '{DemoProjectId}',
+                    '{responsibilityType}',
+                    '{assignedUserId}',
+                    '{DevAdminUserId}',
+                    '2026-07-03T00:00:00Z',
+                    '에스컬레이션 테스트 담당자'
+                )
+                on conflict (project_id, responsibility_type) do update
+                set assigned_user_id = excluded.assigned_user_id,
+                    assigned_by_user_id = excluded.assigned_by_user_id,
+                    assigned_at_utc = excluded.assigned_at_utc,
+                    note = excluded.note,
+                    row_version = project_assignees.row_version + 1;
                 """);
         }
 

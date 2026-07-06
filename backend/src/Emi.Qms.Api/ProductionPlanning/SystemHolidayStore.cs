@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Xml.Linq;
+using Emi.Qms.Api.Calendar;
 using Npgsql;
 
 namespace Emi.Qms.Api.ProductionPlanning;
@@ -17,7 +18,7 @@ public sealed class SystemHolidayStore(
     {
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
-            select holiday_date, name, country_code, source
+            select holiday_date, name, country_code, source, holiday_type
             from system_holidays
             where is_active = true
               and country_code = @country_code
@@ -37,7 +38,8 @@ public sealed class SystemHolidayStore(
                 reader.GetFieldValue<DateOnly>(0),
                 reader.GetString(1),
                 reader.GetString(2),
-                reader.GetString(3)));
+                reader.GetString(3),
+                SystemHolidayTypes.Normalize(reader.GetString(4))));
         }
 
         return holidays;
@@ -77,6 +79,7 @@ public sealed class SystemHolidayStore(
                     country_code,
                     source,
                     source_key,
+                    holiday_type,
                     is_active,
                     synced_at_utc,
                     updated_at_utc
@@ -87,6 +90,7 @@ public sealed class SystemHolidayStore(
                     @country_code,
                     @source,
                     @source_key,
+                    @holiday_type,
                     true,
                     @synced_at_utc,
                     @updated_at_utc
@@ -94,6 +98,7 @@ public sealed class SystemHolidayStore(
                 on conflict (country_code, holiday_date, source_key) do update
                 set name = excluded.name,
                     source = excluded.source,
+                    holiday_type = excluded.holiday_type,
                     is_active = true,
                     synced_at_utc = excluded.synced_at_utc,
                     updated_at_utc = excluded.updated_at_utc;
@@ -103,6 +108,7 @@ public sealed class SystemHolidayStore(
             command.Parameters.AddWithValue("country_code", NormalizeCountryCode(holiday.CountryCode));
             command.Parameters.AddWithValue("source", holiday.Source);
             command.Parameters.AddWithValue("source_key", holiday.SourceKey);
+            command.Parameters.AddWithValue("holiday_type", SystemHolidayTypes.Normalize(holiday.HolidayType));
             command.Parameters.AddWithValue("synced_at_utc", syncedAt);
             command.Parameters.AddWithValue("updated_at_utc", syncedAt);
             upserted += await command.ExecuteNonQueryAsync(cancellationToken);
@@ -230,11 +236,32 @@ public sealed class OfficialKoreanHolidayProvider(HttpClient httpClient, IConfig
                     name,
                     "KR",
                     source,
-                    $"{source}:{locdate}:{name}");
+                    $"{source}:{locdate}:{name}",
+                    ClassifyHolidayType(name, source));
             })
             .Where(item => item is not null)
             .Select(item => item!)
             .ToArray();
+    }
+
+    private static string ClassifyHolidayType(string name, string source)
+    {
+        if (source.Contains("Company", StringComparison.OrdinalIgnoreCase))
+        {
+            return SystemHolidayTypes.Company;
+        }
+
+        if (name.Contains("대체", StringComparison.Ordinal))
+        {
+            return SystemHolidayTypes.Substitute;
+        }
+
+        if (name.Contains("임시", StringComparison.Ordinal))
+        {
+            return SystemHolidayTypes.Temporary;
+        }
+
+        return SystemHolidayTypes.National;
     }
 
     private sealed record HolidayEndpoint(string Url, string Source, bool RequireHolidayFlag);

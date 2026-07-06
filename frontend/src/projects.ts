@@ -762,6 +762,81 @@ export interface SystemHoliday {
   name: string;
   countryCode: string;
   source: string;
+  holidayType: string;
+}
+
+export interface BusinessCalendarResponse {
+  from: string;
+  to: string;
+  countryCode: string;
+  days: BusinessCalendarDay[];
+}
+
+export interface BusinessCalendarDay {
+  date: string;
+  isWeekend: boolean;
+  isHoliday: boolean;
+  isCompanyHoliday: boolean;
+  isBusinessDay: boolean;
+  holidayName: string | null;
+  holidayType: string | null;
+}
+
+export type HolidayType = 'National' | 'Substitute' | 'Temporary' | 'Company';
+
+export interface AdminCalendarHoliday {
+  holidayId: string;
+  date: string;
+  name: string;
+  countryCode: string;
+  holidayType: HolidayType;
+  isActive: boolean;
+  note: string | null;
+  source: string;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface AdminCalendarHolidayListResponse {
+  year: number;
+  countryCode: string;
+  holidays: AdminCalendarHoliday[];
+}
+
+export interface UpsertAdminCalendarHolidayRequest {
+  date: string;
+  name: string;
+  holidayType: HolidayType;
+  isActive: boolean;
+  note: string | null;
+}
+
+export interface CalendarHolidayExcelPreviewResponse {
+  fileSha256: string;
+  totalRows: number;
+  saveableCount: number;
+  insertCount: number;
+  updateCount: number;
+  errorCount: number;
+  rows: CalendarHolidayExcelPreviewRow[];
+}
+
+export interface CalendarHolidayExcelPreviewRow {
+  excelRowNumber: number;
+  date: string | null;
+  name: string | null;
+  holidayType: HolidayType | null;
+  note: string | null;
+  resultType: 'Insert' | 'Update' | 'Error';
+  existingHolidayId: string | null;
+  errorMessages: string[];
+}
+
+export interface CalendarHolidayExcelApplyResponse {
+  insertedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  holidayIds: string[];
 }
 
 export interface UpdateProductionTemplateSettingsRequest {

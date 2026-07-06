@@ -118,7 +118,8 @@ public sealed record SystemHolidayResponse(
     DateOnly HolidayDate,
     string Name,
     string CountryCode,
-    string Source);
+    string Source,
+    string HolidayType);
 
 public sealed record SyncKoreanHolidaysRequest(int? Year);
 
@@ -134,7 +135,8 @@ public sealed record SystemHolidayUpsert(
     string Name,
     string CountryCode,
     string Source,
-    string SourceKey);
+    string SourceKey,
+    string HolidayType = "National");
 
 public sealed record KoreanHolidayProviderResult(
     bool IsConfigured,

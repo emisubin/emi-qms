@@ -898,13 +898,13 @@ Excel 출력 대상 후보:
 | 구매정보 | 직접 입력, Excel preview/apply, 업체, 입고 완료, 완료일시 표시, grouped history | 구매처 master 또는 업체 기준정보화 |
 | 자재 | 자재 입고 입력 기반 | 자재 도착/IQC 요청/입고 확정/키팅 분리 |
 | 생산관리 | 메뉴, 목록, 프로젝트 펼침, 생산계획 조회/수정, 담당자 지정, 확장 담당자 구조, Excel 업로드 | 관리자 기준정보화 |
-| 생산계획 | Item 기반 단계, 프로젝트별 snapshot, 단계명/필수 여부 override, Excel, 캘린더 | 캘린더 UX 지속 보정, 관리자 기준정보화 |
+| 생산계획 | Item 기반 단계, 프로젝트별 snapshot, 단계명/필수 여부 override, Excel, Business Calendar 기준 캘린더 휴일 표시 | 캘린더 UX 지속 보정, 관리자 기준정보화 |
 | 구매 필수 항목 | Item별 필수 구매 항목 설정, 새 프로젝트 skeleton 자동 생성 | 업체/발주정보 입력 기준과 완료 판정 보강 |
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
 | 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Daily Digest 구조, dry-run/actual provider, retry/dedupe, 관리자 delivery 조회 API | Teams Activity Feed 개인별 알림, 에스컬레이션, 알림 설정 UI, 실패 재처리 UI |
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존 | 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
-| 공휴일 | 공식 공휴일/국경일 DB 기준 표시 구조 | 관리자 공휴일 sync UI |
+| 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
 | UAT | 고정 UAT DB, UAT backend/frontend 포트 | 게시 전 persistence 자동 검증 강화 |
 | E2E | 전용 backend/frontend 포트, 전용 DB, cleanup | 신규 업무 단계마다 시나리오 추가 |
 
@@ -925,6 +925,9 @@ Excel 출력 대상 후보:
 - Microsoft 365 로그인 기반은 구현 완료되었으며, 운영 배포 전 실제 Entra 앱 등록값, 운영 redirect URI, secret/env 관리, Production/Staging dev auth 비활성, AdminUserSwitch 비활성 설정을 검수한다.
 - Teams Activity Feed 개인별 알림은 TASK-NOTIFY-003 후속으로 검토한다.
 - 예정일 기반 에스컬레이션은 TASK-NOTIFY-002 범위로 구현한다.
+- 공휴일/영업일 기반은 구현 완료되었으며, 운영 전 연간 대한민국 공휴일/대체공휴일/임시공휴일/회사휴일 데이터를 관리자 휴일 관리 또는 공식 API sync로 검수한다.
+- 공식 대한민국 공휴일 API service key 연동과 자동 sync scheduler는 후속으로 검토한다.
+- NOTIFY-002는 BusinessDayCalculator를 재사용하고, 생산계획/구매 예정일을 `work_items.due_date`로 동기화할지 구현 전 확정한다.
 - 관리자 기준정보 페이지를 추가한다.
 - 업무 시작/완료 이력 관리자 화면을 추가한다.
 
@@ -975,12 +978,21 @@ Excel 출력 대상 후보:
 - 선행조건: TASK-INFRA-001
 - 주요 테스트: backend 전체 test, Notification targeted tests, Migration tests, Authorization tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, seed A/B/C/D, UAT DB persistence, Teams Webhook actual 사용자 검수, Gmail SMTP actual 사용자 검수
 
+### TASK-CALENDAR-001: 공휴일 / 영업일 계산 / 휴일 관리
+
+- 상태: 완료
+- 목적: 생산계획 캘린더와 예정일 에스컬레이션에 공통으로 사용할 영업일 기준을 구축한다.
+- 포함 범위: National/Substitute/Temporary/Company 휴일 유형, BusinessDayCalculator, business-days API, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 일괄 등록, 회사휴일 비활성화 정책
+- 제외 범위: 공식 공휴일 API service key 운영 sync, 회사 자체 근무일 지정, NOTIFY-002 에스컬레이션 worker, Teams Activity Feed 실제 구현, Pending List
+- 선행조건: TASK-NOTIFY-002 전제
+- 주요 테스트: BusinessDayCalculator, Calendar API, Admin Holiday API/UI, Migration tests, frontend unit/build, mock UI smoke, Full-Stack E2E, UAT persistence
+
 ### TASK-NOTIFY-002: 예정일 기반 에스컬레이션
 
 - 목적: 예정일 임박/초과와 긴급 알림 미조치에 대해 L0~L3 에스컬레이션을 자동화한다.
-- 포함 범위: L0(D-1), L1(초과 즉시), L2(+2영업일), L3(+3영업일, 생산관리·영업 한정), 영업일 계산(공휴일 데이터 재사용), 미조치 판정 로직
+- 포함 범위: L0(D-1), L1(초과 즉시), L2(+2영업일), L3(+3영업일, 생산관리·영업 한정), 영업일 계산(BusinessDayCalculator 재사용), 미조치 판정 로직
 - 제외 범위: 부서장/경영진 수신, 에스컬레이션 기한의 관리자 설정 UI(후속 검토)
-- 선행조건: TASK-NOTIFY-001
+- 선행조건: TASK-NOTIFY-001, TASK-CALENDAR-001
 - 주요 테스트: 영업일 경계 계산, 상태 변경 시 에스컬레이션 중단, 단계 상승 시 중복 억제 예외 동작
 
 ### TASK-ADMIN-001: 관리자 기준정보 페이지
@@ -1103,6 +1115,10 @@ Excel 출력 대상 후보:
 | 34 | Teams Activity Feed 개인별 알림 준비 | 미확정 | 사용자/관리자 | TASK-NOTIFY-003 | Teams 앱 manifest, 조직 앱 업로드, Graph 권한, 테스트 사용자 준비 필요 |
 | 35 | Gmail SMTP 운영 적합성 및 공식 발송 수단 전환 | 미확정 | 사용자/총무/보안 | 운영 전 검토 | Gmail SMTP는 초기/UAT/시범운영용. 발송량, 보안, 스팸 정책과 회사 공식 발송 수단 전환 검토 |
 | 36 | 운영용 Teams Webhook 재발급 | 미확정 | 사용자/운영 | 운영 배포 전 | UAT/test Webhook과 운영 Webhook을 분리하고 secret/env로만 주입 |
+| 37 | 대한민국 공휴일 데이터 동기화 service key | 미확정 | 사용자/운영 | CALENDAR sync 후속 | 공식 API sync 구조는 있으나 service key 준비 전까지 관리자 Excel/manual 등록 사용 |
+| 38 | 회사 휴일 연간 등록/검수 | 부분 완료 | System Administrator | 운영 전 검수 | 관리자 휴일 관리 API/UI와 Excel 일괄 등록은 구현 완료. 운영 전 연간 Company holiday 입력 필요 |
+| 39 | 회사 자체 근무일 지정 필요성 | 미확정 | 사용자/운영 | CALENDAR 후속 | 이번 TASK에서는 구현하지 않음. 필요 시 휴일 override 모델 별도 검토 |
+| 40 | 생산계획/구매 예정일의 work_items.due_date 동기화 | 미확정 | 사용자/운영 | TASK-NOTIFY-002 | 에스컬레이션 대상 산정 전 동기화 범위 결정 필요 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1140,6 +1156,9 @@ Excel 출력 대상 후보:
 | 2026-07-03 | TASK-NOTIFY-001에서 외부 알림 delivery 계층을 구현 | 인앱 알림을 원본으로 유지하면서 Teams/Mail 발송 이력을 분리 관리하기 위함 | 6장, 23장 |
 | 2026-07-03 | 초기 메일 발송은 Gmail SMTP 전용 계정으로 처리 | 사내 정책상 Hiworks SMTP와 Microsoft Graph Mail.Send를 기본 발송 경로로 사용하지 않기로 결정 | 6장 |
 | 2026-07-03 | Teams 개인별 알림은 Activity Feed 후속 TASK로 분리 | Teams 앱/manifest/Graph 권한/조직 배포가 필요한 별도 범위이기 때문 | 6장, 23장 |
+| 2026-07-03 | 영업일 기준은 토/일, 대한민국 공휴일, 대체공휴일, 임시공휴일, 회사휴일을 비영업일로 계산 | 생산계획 캘린더와 예정일 에스컬레이션 기준을 통일하기 위함 | 9장, 10장 |
+| 2026-07-03 | 회사휴일은 System Administrator가 수동 등록하고 Excel 일괄 등록을 지원 | 공식 공휴일 API service key 없이도 운영 휴일 데이터를 관리하기 위함 | 20장, 23장 |
+| 2026-07-03 | NOTIFY-002 에스컬레이션은 BusinessDayCalculator를 재사용 | 알림 날짜와 생산계획 캘린더의 영업일 기준 불일치를 방지하기 위함 | 6장, 23장 |
 
 ## 26. 용어 사전
 
@@ -1192,6 +1211,9 @@ Codex는 새 TASK 시작 시 다음 원칙을 따른다.
 - token을 앱 코드에서 직접 localStorage/sessionStorage에 저장하지 않는다.
 - 외부 채널 secret은 `.env` 또는 배포 secret으로만 관리한다.
 - Webhook URL, SMTP password, Gmail app password, token, Authorization header는 문서/보고서/로그에 원문 작성하지 않는다.
+- 공휴일/영업일 계산은 BusinessDayCalculator를 재사용한다.
+- 새 기능에서 주말/공휴일 계산을 별도 하드코딩하지 않는다.
+- 공식 공휴일 데이터가 부족한 환경에서는 관리자 휴일 관리 기능으로 운영 데이터를 보강한다.
 - 사용자-facing 추적 단위는 “패널” 단독 표기를 사용한다.
 - “제품/패널” 병기 표현을 새로 추가하지 않는다.
 - 진행률 계산식은 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수 기준을 따른다.

@@ -3,12 +3,22 @@ import type { AdminUsersResponse, CurrentUser, UpdateAdminUserRequest } from './
 import { isInteractionRequiredAuthError } from './auth';
 import type {
   AuditHistoryResponse,
+  AdminDashboardResponse,
   AdminCalendarHoliday,
   AdminCalendarHolidayListResponse,
+  AdminBulkActionRequest,
+  AdminBulkActionResponse,
+  AdminDepartmentListResponse,
+  AdminMasterChangeLogListResponse,
+  AdminNotificationDeliveryListResponse,
+  AdminReorderRequest,
+  AdminWorkItemEscalationListResponse,
+  AdminWorkItemHistoryListResponse,
   BusinessCalendarResponse,
   CalendarHolidayExcelApplyResponse,
   CalendarHolidayExcelPreviewResponse,
   ChangePanelCountRequest,
+  CreateAdminDepartmentRequest,
   CreateProjectRequest,
   DeletedProjectDetail,
   DeletedProjectListResponse,
@@ -28,6 +38,7 @@ import type {
   ProcurementResponse,
   ProcurementRequiredItemSettings,
   CreateProductionProductTypeRequest,
+  PermissionMatrixResponse,
   ProductionPlanningHistoryResponse,
   ProductionPlanningExcelApplyResponse,
   ProductionPlanningExcelPreviewResponse,
@@ -55,6 +66,7 @@ import type {
   SalesOwner,
   SystemHoliday,
   UpsertAdminCalendarHolidayRequest,
+  UpdateAdminDepartmentRequest,
   UpdateProductionPlanningRequest,
   UpdateProductionTemplateSettingsRequest,
   UpdateProcurementRequiredItemSettingsRequest,
@@ -108,6 +120,188 @@ export async function updateAdminUser(
     method: 'PATCH',
     body: JSON.stringify(request)
   });
+}
+
+export async function scheduleAdminUserDeletion(
+  developmentUserKey: string | undefined,
+  userId: string
+): Promise<AdminUsersResponse> {
+  return fetchJson<AdminUsersResponse>(`/api/admin/users/${userId}/schedule-deletion`, developmentUserKey, {
+    method: 'PATCH'
+  });
+}
+
+export async function restoreAdminUser(
+  developmentUserKey: string | undefined,
+  userId: string
+): Promise<AdminUsersResponse> {
+  return fetchJson<AdminUsersResponse>(`/api/admin/users/${userId}/restore`, developmentUserKey, {
+    method: 'POST'
+  });
+}
+
+export async function purgeAdminUser(
+  developmentUserKey: string | undefined,
+  userId: string
+): Promise<AdminBulkActionResponse> {
+  return fetchJson<AdminBulkActionResponse>(`/api/admin/users/${userId}/purge`, developmentUserKey, {
+    method: 'DELETE'
+  });
+}
+
+export async function bulkDeleteAdminUsers(
+  developmentUserKey: string | undefined,
+  request: AdminBulkActionRequest
+): Promise<AdminBulkActionResponse> {
+  return fetchJson<AdminBulkActionResponse>('/api/admin/users/bulk-delete', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function bulkRestoreAdminUsers(
+  developmentUserKey: string | undefined,
+  request: AdminBulkActionRequest
+): Promise<AdminBulkActionResponse> {
+  return fetchJson<AdminBulkActionResponse>('/api/admin/users/bulk-restore', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getAdminDashboard(developmentUserKey?: string): Promise<AdminDashboardResponse> {
+  return fetchJson<AdminDashboardResponse>('/api/admin/dashboard', developmentUserKey);
+}
+
+export async function getAdminDepartments(developmentUserKey?: string): Promise<AdminDepartmentListResponse> {
+  return fetchJson<AdminDepartmentListResponse>('/api/admin/departments', developmentUserKey);
+}
+
+export async function createAdminDepartment(
+  developmentUserKey: string | undefined,
+  request: CreateAdminDepartmentRequest
+) {
+  return fetchJson('/api/admin/departments', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function updateAdminDepartment(
+  developmentUserKey: string | undefined,
+  departmentId: string,
+  request: UpdateAdminDepartmentRequest
+) {
+  return fetchJson(`/api/admin/departments/${departmentId}`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function deactivateAdminDepartment(
+  developmentUserKey: string | undefined,
+  departmentId: string,
+  request: UpdateAdminDepartmentRequest
+) {
+  return fetchJson(`/api/admin/departments/${departmentId}/deactivate`, developmentUserKey, {
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function restoreAdminDepartment(
+  developmentUserKey: string | undefined,
+  departmentId: string,
+  request: UpdateAdminDepartmentRequest
+) {
+  return fetchJson(`/api/admin/departments/${departmentId}/restore`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function purgeAdminDepartment(
+  developmentUserKey: string | undefined,
+  departmentId: string
+): Promise<AdminBulkActionResponse> {
+  return fetchJson<AdminBulkActionResponse>(`/api/admin/departments/${departmentId}/purge`, developmentUserKey, {
+    method: 'DELETE'
+  });
+}
+
+export async function bulkDeleteAdminDepartments(
+  developmentUserKey: string | undefined,
+  request: AdminBulkActionRequest
+): Promise<AdminBulkActionResponse> {
+  return fetchJson<AdminBulkActionResponse>('/api/admin/departments/bulk-delete', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function bulkRestoreAdminDepartments(
+  developmentUserKey: string | undefined,
+  request: AdminBulkActionRequest
+): Promise<AdminBulkActionResponse> {
+  return fetchJson<AdminBulkActionResponse>('/api/admin/departments/bulk-restore', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function reorderAdminDepartments(
+  developmentUserKey: string | undefined,
+  request: AdminReorderRequest
+): Promise<AdminDepartmentListResponse> {
+  return fetchJson<AdminDepartmentListResponse>('/api/admin/departments/reorder', developmentUserKey, {
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getPermissionMatrix(developmentUserKey?: string): Promise<PermissionMatrixResponse> {
+  return fetchJson<PermissionMatrixResponse>('/api/admin/permissions/matrix', developmentUserKey);
+}
+
+export async function getAdminMasterChangeLogs(developmentUserKey?: string): Promise<AdminMasterChangeLogListResponse> {
+  return fetchJson<AdminMasterChangeLogListResponse>('/api/admin/master-data/change-logs', developmentUserKey);
+}
+
+export async function getAdminWorkItemHistory(developmentUserKey?: string): Promise<AdminWorkItemHistoryListResponse> {
+  return fetchJson<AdminWorkItemHistoryListResponse>('/api/admin/work-items/history', developmentUserKey);
+}
+
+export async function getAdminNotificationDeliveries(
+  developmentUserKey?: string,
+  filters: { status?: string | null; channel?: string | null; deliveryType?: string | null } = {}
+): Promise<AdminNotificationDeliveryListResponse> {
+  const params = new URLSearchParams();
+  if (filters.status) {
+    params.set('status', filters.status);
+  }
+  if (filters.channel) {
+    params.set('channel', filters.channel);
+  }
+  if (filters.deliveryType) {
+    params.set('deliveryType', filters.deliveryType);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<AdminNotificationDeliveryListResponse>(`/api/admin/notification-deliveries${query}`, developmentUserKey);
+}
+
+export async function getAdminWorkItemEscalations(
+  developmentUserKey?: string,
+  filters: { status?: string | null; level?: string | null } = {}
+): Promise<AdminWorkItemEscalationListResponse> {
+  const params = new URLSearchParams();
+  if (filters.status) {
+    params.set('status', filters.status);
+  }
+  if (filters.level) {
+    params.set('level', filters.level);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<AdminWorkItemEscalationListResponse>(`/api/admin/work-item-escalations${query}`, developmentUserKey);
 }
 
 export async function getSalesOwners(developmentUserKey?: string): Promise<SalesOwner[]> {
@@ -761,6 +955,44 @@ export async function deactivateAdminCalendarHoliday(
   });
 }
 
+export async function restoreAdminCalendarHoliday(
+  developmentUserKey: string | undefined,
+  holidayId: string
+): Promise<AdminCalendarHoliday> {
+  return fetchJson<AdminCalendarHoliday>(`/api/admin/calendar/holidays/${holidayId}/restore`, developmentUserKey, {
+    method: 'POST'
+  });
+}
+
+export async function purgeAdminCalendarHoliday(
+  developmentUserKey: string | undefined,
+  holidayId: string
+): Promise<AdminBulkActionResponse> {
+  return fetchJson<AdminBulkActionResponse>(`/api/admin/calendar/holidays/${holidayId}/purge`, developmentUserKey, {
+    method: 'DELETE'
+  });
+}
+
+export async function bulkDeleteAdminCalendarHolidays(
+  developmentUserKey: string | undefined,
+  request: AdminBulkActionRequest
+): Promise<AdminBulkActionResponse> {
+  return fetchJson<AdminBulkActionResponse>('/api/admin/calendar/holidays/bulk-delete', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function bulkRestoreAdminCalendarHolidays(
+  developmentUserKey: string | undefined,
+  request: AdminBulkActionRequest
+): Promise<AdminBulkActionResponse> {
+  return fetchJson<AdminBulkActionResponse>('/api/admin/calendar/holidays/bulk-restore', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
 export async function downloadAdminCalendarHolidayTemplate(
   developmentUserKey: string | undefined
 ): Promise<{ blob: Blob; fileName: string }> {
@@ -1013,10 +1245,12 @@ async function readProblem(response: Response): Promise<{ message: string; error
       title?: string;
       detail?: string;
       errors?: Record<string, string[]>;
+      fieldErrors?: Record<string, string[]>;
+      message?: string;
     };
-    const errors = localizeProblemErrors(payload.errors);
+    const errors = localizeProblemErrors(payload.fieldErrors ?? payload.errors);
     return {
-      message: chooseProblemMessage(response.status, payload.detail, payload.title, errors),
+      message: chooseProblemMessage(response.status, payload.detail ?? payload.message, payload.title, errors),
       errors
     };
   } catch {

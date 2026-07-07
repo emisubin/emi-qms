@@ -1,6 +1,7 @@
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.ProductionPlanning;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Notifications;
 
@@ -226,7 +227,11 @@ public sealed class NotificationDeliveryStore(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task<NotificationDeliveryListResponse> ListDeliveriesAsync(CancellationToken cancellationToken)
+    public async Task<NotificationDeliveryListResponse> ListDeliveriesAsync(
+        string? status,
+        string? channel,
+        string? deliveryType,
+        CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
@@ -265,9 +270,15 @@ public sealed class NotificationDeliveryStore(
             left join qms_users u on u.id = nd.recipient_user_id
             left join notifications n on n.id = nd.notification_id
             left join projects p on p.id = coalesce(nd.project_id, n.project_id)
+            where (@status is null or nd.status = @status)
+              and (@channel is null or nd.channel = @channel)
+              and (@delivery_type is null or nd.delivery_type = @delivery_type)
             order by nd.created_at_utc desc
             limit 200;
             """);
+        command.Parameters.Add(new NpgsqlParameter("status", NpgsqlDbType.Text) { Value = NormalizeFilter(status) ?? (object)DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("channel", NpgsqlDbType.Text) { Value = NormalizeFilter(channel) ?? (object)DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("delivery_type", NpgsqlDbType.Text) { Value = NormalizeFilter(deliveryType) ?? (object)DBNull.Value });
 
         var items = new List<NotificationDeliveryResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -789,6 +800,11 @@ public sealed class NotificationDeliveryStore(
         }
 
         return message.Length <= 500 ? message : message[..500];
+    }
+
+    private static string? NormalizeFilter(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private static NotificationDeliveryRecord ReadDeliveryRecord(NpgsqlDataReader reader)

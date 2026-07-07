@@ -54,7 +54,8 @@ public static class SeedIdentityData
         new(new Guid("30000000-0000-0000-0000-000000000020"), QmsPermissions.AuditReadAll, "Read all audit history"),
         new(new Guid("30000000-0000-0000-0000-000000000021"), QmsPermissions.ProcurementPlanUpdate, "Update procurement plan"),
         new(new Guid("30000000-0000-0000-0000-000000000022"), QmsPermissions.MaterialReceiptUpdate, "Update material receipt completion"),
-        new(new Guid("30000000-0000-0000-0000-000000000023"), QmsPermissions.ProductionPlanUpdate, "Update production planning")
+        new(new Guid("30000000-0000-0000-0000-000000000023"), QmsPermissions.ProductionPlanUpdate, "Update production planning"),
+        new(new Guid("30000000-0000-0000-0000-000000000025"), QmsPermissions.AdminHistoryRead, "Read administrator history")
     ];
 
     public static readonly IReadOnlyList<QmsProject> Projects =
@@ -97,7 +98,8 @@ public static class SeedIdentityData
                 QmsPermissions.LogisticsShip,
                 QmsPermissions.UsersManage,
                 QmsPermissions.ProjectDeletedRead,
-                QmsPermissions.AuditReadAll
+                QmsPermissions.AuditReadAll,
+                QmsPermissions.AdminHistoryRead
             ],
             [QmsRoles.Sales] =
             [

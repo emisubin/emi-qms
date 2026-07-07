@@ -119,6 +119,195 @@ export type ProjectWorkStatus =
 export type ProjectListTab = 'All' | 'Active' | 'OnHold' | 'Completed' | 'Cancelled' | 'Deleted';
 export type PackagingMethod = 'WoodenCrate' | 'StretchWrap' | 'HeavyDutyBox';
 
+export interface AdminDashboardResponse {
+  pendingUserCount: number;
+  failedDeliveryCount: number;
+  pendingDeliveryCount: number;
+  lastDailyDigestSentAtUtc: string | null;
+  activeEscalationCount: number;
+  recentMasterChangeCount: number;
+  activeEscalationLevels: AdminDashboardEscalationLevel[];
+}
+
+export interface AdminDashboardEscalationLevel {
+  level: string;
+  label: string;
+  count: number;
+}
+
+export interface AdminDepartmentListResponse {
+  departments: AdminDepartmentMaster[];
+}
+
+export interface AdminDepartmentMaster {
+  departmentId: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+  sortOrder: number;
+  userCount: number;
+  updatedAtUtc: string | null;
+  deletionRequestedAtUtc: string | null;
+  scheduledHardDeleteAtUtc: string | null;
+  purgeBlockedAtUtc: string | null;
+  purgeBlockedReason: string | null;
+  preDeleteIsActive: boolean | null;
+  lifecycleStatus: string;
+  lifecycleStatusLabel: string;
+  scheduledHardDeleteLabel: string | null;
+}
+
+export interface CreateAdminDepartmentRequest {
+  code: string;
+  name: string;
+  isActive: boolean;
+  sortOrder: number;
+  reason: string | null;
+}
+
+export interface UpdateAdminDepartmentRequest {
+  name: string;
+  isActive: boolean;
+  sortOrder: number;
+  reason: string | null;
+}
+
+export interface AdminReorderRequest {
+  items: Array<{ id: string; sortOrder: number }>;
+  reason: string | null;
+}
+
+export interface AdminBulkActionRequest {
+  ids: string[];
+  reason: string | null;
+}
+
+export interface AdminBulkActionResponse {
+  requestedCount: number;
+  succeededCount: number;
+  failedCount: number;
+  skippedCount: number;
+  items: AdminBulkActionItem[];
+}
+
+export interface AdminBulkActionItem {
+  id: string;
+  status: string;
+  message: string;
+}
+
+export interface PermissionMatrixResponse {
+  roles: PermissionMatrixRole[];
+  permissions: PermissionMatrixPermission[];
+  assignments: PermissionMatrixAssignment[];
+}
+
+export interface PermissionMatrixRole {
+  roleId: string;
+  code: string;
+  name: string;
+}
+
+export interface PermissionMatrixPermission {
+  permissionId: string;
+  code: string;
+  name: string;
+}
+
+export interface PermissionMatrixAssignment {
+  roleId: string;
+  permissionId: string;
+}
+
+export interface AdminMasterChangeLogListResponse {
+  items: AdminMasterChangeLog[];
+}
+
+export interface AdminMasterChangeLog {
+  changeLogId: string;
+  entityType: string;
+  entityId: string | null;
+  action: string;
+  beforeJson: string | null;
+  afterJson: string | null;
+  reason: string | null;
+  changedByUserId: string | null;
+  changedByDisplayName: string | null;
+  changedAtUtc: string;
+}
+
+export interface AdminWorkItemHistoryListResponse {
+  items: AdminWorkItemHistory[];
+}
+
+export interface AdminWorkItemHistory {
+  workItemId: string;
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  workflowStageCode: string;
+  workflowStageName: string;
+  title: string;
+  status: string;
+  assignedUserId: string | null;
+  assignedDisplayName: string | null;
+  startedAtUtc: string | null;
+  completedAtUtc: string | null;
+  cancelledAtUtc: string | null;
+  dueDate: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface AdminNotificationDeliveryListResponse {
+  items: AdminNotificationDelivery[];
+}
+
+export interface AdminNotificationDelivery {
+  deliveryId: string;
+  channel: string;
+  deliveryType: string;
+  status: string;
+  attemptCount: number;
+  nextAttemptAtUtc: string | null;
+  lastAttemptAtUtc: string | null;
+  sentAtUtc: string | null;
+  suppressedAtUtc: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  recipientDisplayName: string | null;
+  recipientEmail: string | null;
+  projectTitle: string | null;
+  projectCode: string | null;
+  notificationTitle: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface AdminWorkItemEscalationListResponse {
+  items: AdminWorkItemEscalation[];
+}
+
+export interface AdminWorkItemEscalation {
+  escalationId: string;
+  workItemId: string;
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  workflowStageCode: string;
+  workflowStageName: string;
+  workItemTitle: string;
+  dueDate: string;
+  status: string;
+  currentLevel: string;
+  lastEscalatedAtUtc: string | null;
+  nextCheckAtUtc: string | null;
+  assignedDisplayName: string | null;
+  deliveryStatusSummary: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
 export interface DeletedProjectListResponse {
   items: DeletedProjectListItem[];
   page: number;
@@ -795,6 +984,14 @@ export interface AdminCalendarHoliday {
   source: string;
   createdAtUtc: string;
   updatedAtUtc: string;
+  deletionRequestedAtUtc: string | null;
+  scheduledHardDeleteAtUtc: string | null;
+  purgeBlockedAtUtc: string | null;
+  purgeBlockedReason: string | null;
+  preDeleteIsActive: boolean | null;
+  lifecycleStatus: string;
+  lifecycleStatusLabel: string;
+  scheduledHardDeleteLabel: string | null;
 }
 
 export interface AdminCalendarHolidayListResponse {

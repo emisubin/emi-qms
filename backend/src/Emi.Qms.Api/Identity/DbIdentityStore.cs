@@ -310,7 +310,13 @@ public sealed class DbIdentityStore(
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = "select id, code, name from departments order by code;";
+        command.CommandText = """
+            select id, code, name
+            from departments
+            where is_active = true
+              and deletion_requested_at_utc is null
+            order by code;
+            """;
         var departments = new List<Department>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -353,6 +359,11 @@ public sealed class DbIdentityStore(
                    d.id,
                    d.code,
                    d.name,
+                   u.deletion_requested_at_utc,
+                   u.scheduled_hard_delete_at_utc,
+                   u.purge_blocked_at_utc,
+                   u.purge_blocked_reason,
+                   u.pre_delete_is_active,
                    coalesce(array_remove(array_agg(r.code order by r.code), null), array[]::text[]) as role_codes
             from qms_users u
             left join departments d on d.id = u.department_id
@@ -368,7 +379,7 @@ public sealed class DbIdentityStore(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            var roles = reader.GetFieldValue<string[]>(9);
+            var roles = reader.GetFieldValue<string[]>(14);
             var authProvider = reader.GetString(4);
             var isActive = reader.GetBoolean(5);
             users.Add(new UserAdministrationUser(
@@ -383,7 +394,12 @@ public sealed class DbIdentityStore(
                 reader.IsDBNull(7) ? null : reader.GetString(7),
                 reader.IsDBNull(8) ? null : reader.GetString(8),
                 roles,
-                authProvider != QmsAuthProviders.EntraId));
+                authProvider != QmsAuthProviders.EntraId,
+                reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9),
+                reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10),
+                reader.IsDBNull(11) ? null : reader.GetFieldValue<DateTimeOffset>(11),
+                reader.IsDBNull(12) ? null : reader.GetString(12),
+                reader.IsDBNull(13) ? null : reader.GetBoolean(13)));
         }
 
         return users;

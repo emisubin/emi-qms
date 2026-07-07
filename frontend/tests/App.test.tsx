@@ -13,9 +13,15 @@ const panelIds = [
   '72000000-0000-0000-0000-000000000003',
   '72000000-0000-0000-0000-000000000004'
 ];
+let adminUserDeletionScheduled = false;
+let adminDepartmentDeletionScheduled = false;
+let adminHolidayDeletionScheduled = false;
 
 describe('App', () => {
   beforeEach(() => {
+    adminUserDeletionScheduled = false;
+    adminDepartmentDeletionScheduled = false;
+    adminHolidayDeletionScheduled = false;
     window.localStorage.clear();
     vi.stubGlobal('fetch', vi.fn(mockFetch));
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:panel-template');
@@ -242,7 +248,8 @@ describe('App', () => {
 
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
-    fireEvent.click(within(commonNavigation).getByRole('button', { name: '휴일' }));
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(await screen.findByRole('button', { name: '공휴일' }));
 
     expect(await screen.findByRole('heading', { name: '휴일 관리' })).toBeInTheDocument();
     expect(screen.getByText('회사 창립기념 휴일')).toBeInTheDocument();
@@ -254,6 +261,103 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '미리보기' }));
     expect(await screen.findByText('오류 1행')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '저장 가능한 행 반영' })).toBeEnabled();
+  });
+
+  it('shows admin dashboard and system management pages for System Administrator', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+
+    expect(await screen.findByRole('heading', { name: '관리자' })).toBeInTheDocument();
+    expect(screen.getByText('발송 실패')).toBeInTheDocument();
+    expect(screen.getByText('L0 예정일 임박')).toBeInTheDocument();
+    expect(screen.getByText('L1 초과')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '실패 알림 보기' }));
+    expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
+    expect(screen.getByText('현재 필터:')).toBeInTheDocument();
+    expect(screen.getAllByText('발송 실패').length).toBeGreaterThan(0);
+    expect(screen.getByText('사용자 이메일 등록/확인이 필요합니다.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '수동 재처리' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(await screen.findByRole('button', { name: '대기 알림 보기' }));
+    expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
+    expect(screen.getByText('발송 worker 처리 대기')).toBeInTheDocument();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(await screen.findByRole('button', { name: '진행 중 에스컬레이션 보기' }));
+    expect(await screen.findByRole('heading', { name: '에스컬레이션 상태' })).toBeInTheDocument();
+    expect(screen.getByText('진행 중 에스컬레이션은 예정일 임박 또는 초과 후 아직 완료/취소되지 않은 업무입니다. L0는 예정일 임박, L1~L3는 초과 단계입니다.')).toBeInTheDocument();
+    expect(screen.getByText('정담당자 조치 상태를 확인하세요.')).toBeInTheDocument();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    expect(screen.queryByRole('button', { name: 'Item' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '포장방식' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '생산계획 단계 설정' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '구매 필수 항목 설정' })).not.toBeInTheDocument();
+    expect(screen.queryByText('대상을 찾을 수 없습니다.')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '사용자 관리' }));
+    expect(await screen.findByRole('heading', { name: '사용자 관리' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '삭제' }).length).toBeGreaterThan(0);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getAllByRole('button', { name: '삭제' })[0]);
+    expect(await screen.findByText('사용자를 삭제 예정으로 처리했습니다.')).toBeInTheDocument();
+    expect(screen.getAllByText(/삭제 예정/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/완전 삭제 예정일/).length).toBeGreaterThan(0);
+    confirmSpy.mockRestore();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(screen.getByRole('button', { name: '부서' }));
+    expect(await screen.findByRole('heading', { name: '부서 관리' })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Sales')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '추가' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '삭제' })).toBeInTheDocument();
+    const departmentConfirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }));
+    expect(await screen.findByText('부서를 삭제 예정으로 처리했습니다.')).toBeInTheDocument();
+    expect(screen.getAllByText('삭제 예정').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/완전 삭제 예정일 2026-07-14/).length).toBeGreaterThan(0);
+    departmentConfirmSpy.mockRestore();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(screen.getByRole('button', { name: '공휴일' }));
+    expect(await screen.findByRole('heading', { name: '휴일 관리' })).toBeInTheDocument();
+    const holidayConfirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getAllByRole('button', { name: '삭제' })[0]);
+    expect(await screen.findByText('휴일을 삭제 예정으로 처리했습니다.')).toBeInTheDocument();
+    expect(screen.getAllByText('삭제 예정').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/완전 삭제 예정일 2026-07-14/).length).toBeGreaterThan(0);
+    holidayConfirmSpy.mockRestore();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(await screen.findByRole('button', { name: '권한 매트릭스' }));
+    expect(await screen.findByRole('heading', { name: '권한 매트릭스' })).toBeInTheDocument();
+    expect(screen.getByText('Read administrator history')).toBeInTheDocument();
+    expect(document.querySelectorAll('.permission-matrix-value-cell').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: '삭제' })).not.toBeInTheDocument();
+  });
+
+  it('shows field-level department validation errors', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(await screen.findByRole('button', { name: '부서' }));
+
+    const addDepartmentSection = (await screen.findByText('부서 추가')).closest('.subsection') as HTMLElement;
+    const textInputs = within(addDepartmentSection).getAllByRole('textbox');
+    fireEvent.change(textInputs[0], { target: { value: 'bad code' } });
+    fireEvent.change(textInputs[1], { target: { value: '' } });
+    fireEvent.change(within(addDepartmentSection).getByRole('spinbutton'), { target: { value: '10000' } });
+    fireEvent.click(screen.getByRole('button', { name: '추가' }));
+
+    expect(await screen.findByText('부서 코드는 영문 대문자, 숫자, 하이픈(-), 언더스코어(_)만 사용할 수 있습니다.')).toBeInTheDocument();
+    expect(screen.getByText('부서명은 필수입니다.')).toBeInTheDocument();
+    expect(screen.getByText('정렬 순서는 0 이상 9999 이하로 입력해주세요.')).toBeInTheDocument();
   });
 
   it('hides sales amount and project write buttons from Manufacturing users', async () => {
@@ -1201,6 +1305,237 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(currentUser(userKey));
   }
 
+  if (path.startsWith('/api/admin/users')) {
+    const updated = init?.method === 'PATCH';
+    if (path.endsWith('/schedule-deletion')) {
+      adminUserDeletionScheduled = true;
+    }
+    const scheduledDeletion = adminUserDeletionScheduled;
+    return json({
+      users: [
+        {
+          userId: '50000000-0000-0000-0000-000000000002',
+          developmentUserKey: '',
+          displayName: 'Entra Sales User',
+          email: 'sales@example.invalid',
+          authProvider: 'EntraId',
+          isActive: scheduledDeletion || updated ? false : true,
+          approvalPending: false,
+          departmentId: '10000000-0000-0000-0000-000000000002',
+          departmentCode: 'sales',
+          departmentName: 'Sales',
+          roles: ['sales'],
+          isReadOnly: false,
+          deletionRequestedAtUtc: scheduledDeletion ? '2026-07-07T00:00:00Z' : null,
+          scheduledHardDeleteAtUtc: scheduledDeletion ? '2026-07-14T00:00:00Z' : null,
+          purgeBlockedAtUtc: null,
+          purgeBlockedReason: null,
+          lifecycleStatus: scheduledDeletion ? 'DeletionScheduled' : 'Active',
+          lifecycleStatusLabel: scheduledDeletion ? '삭제 예정' : '활성',
+          scheduledHardDeleteLabel: scheduledDeletion ? '2026-07-14 09:00' : null
+        },
+        {
+          userId: '50000000-0000-0000-0000-000000000001',
+          developmentUserKey: 'dev-admin',
+          displayName: 'Dev System Administrator',
+          email: null,
+          authProvider: 'Dev',
+          isActive: !adminHolidayDeletionScheduled,
+          approvalPending: false,
+          departmentId: '10000000-0000-0000-0000-000000000001',
+          departmentCode: 'administration',
+          departmentName: 'Administration',
+          roles: ['system-administrator'],
+          isReadOnly: true,
+          deletionRequestedAtUtc: null,
+          scheduledHardDeleteAtUtc: null,
+          purgeBlockedAtUtc: null,
+          purgeBlockedReason: null,
+          lifecycleStatus: 'Active',
+          lifecycleStatusLabel: '활성',
+          scheduledHardDeleteLabel: null
+        }
+      ],
+      departments: [
+        { departmentId: '10000000-0000-0000-0000-000000000001', code: 'administration', name: 'Administration' },
+        { departmentId: '10000000-0000-0000-0000-000000000002', code: 'sales', name: 'Sales' }
+      ],
+      roles: [
+        { roleId: '20000000-0000-0000-0000-000000000001', code: 'system-administrator', name: 'System Administrator' },
+        { roleId: '20000000-0000-0000-0000-000000000002', code: 'sales', name: 'Sales' }
+      ]
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === '/api/admin/dashboard') {
+    return json({
+      pendingUserCount: 1,
+      failedDeliveryCount: 2,
+	      pendingDeliveryCount: 3,
+	      lastDailyDigestSentAtUtc: '2026-07-07T07:30:00Z',
+	      activeEscalationCount: 4,
+	      recentMasterChangeCount: 5,
+	      activeEscalationLevels: [
+	        { level: 'L0', label: '예정일 임박', count: 1 },
+	        { level: 'L1', label: '예정일 초과', count: 2 },
+	        { level: 'L2', label: '초과 +2영업일', count: 1 },
+	        { level: 'L3', label: '초과 +3영업일', count: 0 }
+	      ]
+	    }, userKey === 'dev-admin' ? 200 : 403);
+	  }
+
+  if (path === '/api/admin/departments' || path.startsWith('/api/admin/departments/')) {
+    if (path === '/api/admin/departments' && init?.method === 'POST') {
+      const body = JSON.parse(init.body?.toString() ?? '{}') as { code?: string; name?: string; sortOrder?: number };
+      if (body.code?.includes(' ') || !body.name || (body.sortOrder ?? 0) > 9999) {
+        return json({
+          message: '입력값을 확인해주세요.',
+          fieldErrors: {
+            code: ['부서 코드는 영문 대문자, 숫자, 하이픈(-), 언더스코어(_)만 사용할 수 있습니다.'],
+            name: ['부서명은 필수입니다.'],
+            sortOrder: ['정렬 순서는 0 이상 9999 이하로 입력해주세요.']
+          }
+        }, 400);
+      }
+    }
+
+    if (init?.method === 'PATCH') {
+      adminDepartmentDeletionScheduled = true;
+    }
+    const scheduledDeletion = adminDepartmentDeletionScheduled;
+    const department = {
+      departmentId: '10000000-0000-0000-0000-000000000002',
+      code: 'sales',
+      name: 'Sales',
+      isActive: scheduledDeletion ? false : true,
+      sortOrder: 20,
+      userCount: 1,
+      updatedAtUtc: '2026-07-07T00:00:00Z',
+      deletionRequestedAtUtc: scheduledDeletion ? '2026-07-07T00:00:00Z' : null,
+      scheduledHardDeleteAtUtc: scheduledDeletion ? '2026-07-14T00:00:00Z' : null,
+      purgeBlockedAtUtc: null,
+      purgeBlockedReason: null,
+      lifecycleStatus: scheduledDeletion ? 'DeletionScheduled' : 'Active',
+      lifecycleStatusLabel: scheduledDeletion ? '삭제 예정' : '활성',
+      scheduledHardDeleteLabel: scheduledDeletion ? '2026-07-14 09:00' : null
+    };
+    return json(init?.method === 'POST' || init?.method === 'PUT' || init?.method === 'PATCH' ? department : { departments: [department] }, userKey === 'dev-admin' ? (init?.method === 'POST' ? 201 : 200) : 403);
+  }
+
+  if (path === '/api/admin/permissions/matrix') {
+    return json({
+      roles: [
+        { roleId: '20000000-0000-0000-0000-000000000001', code: 'system-administrator', name: 'System Administrator' },
+        { roleId: '20000000-0000-0000-0000-000000000002', code: 'sales', name: 'Sales' }
+      ],
+      permissions: [
+        { permissionId: '30000000-0000-0000-0000-000000000025', code: 'admin-history.read', name: 'Read administrator history' }
+      ],
+      assignments: [
+        { roleId: '20000000-0000-0000-0000-000000000001', permissionId: '30000000-0000-0000-0000-000000000025' }
+      ]
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === '/api/admin/master-data/change-logs') {
+    return json({
+      items: [
+        {
+          changeLogId: '79000000-0000-0000-0000-000000000001',
+          entityType: 'Department',
+          entityId: '10000000-0000-0000-0000-000000000002',
+          action: 'Delete',
+          beforeJson: '{}',
+          afterJson: '{}',
+          reason: '테스트 변경',
+          changedByUserId: '50000000-0000-0000-0000-000000000001',
+          changedByDisplayName: 'Dev System Administrator',
+          changedAtUtc: '2026-07-07T00:00:00Z'
+        }
+      ]
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === '/api/admin/work-items/history') {
+    return json({
+      items: [
+        {
+          workItemId: '76000000-0000-0000-0000-000000000001',
+          projectId,
+          projectTitle: 'TASK-003A Demo',
+          projectCode: 'PJT-003A',
+          workflowStageCode: 'ProductionPlanning',
+          workflowStageName: '생산계획·담당자',
+          title: '생산계획, 담당자 입력',
+          status: 'Requested',
+          assignedUserId: salesOwnerId,
+          assignedDisplayName: 'Dev Sales User',
+          startedAtUtc: null,
+          completedAtUtc: null,
+          cancelledAtUtc: null,
+          dueDate: null,
+          createdAtUtc: '2026-07-07T00:00:00Z',
+          updatedAtUtc: '2026-07-07T00:00:00Z'
+        }
+      ]
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+	  if (path === '/api/admin/notification-deliveries') {
+	    const status = url.searchParams.get('status') ?? 'Sent';
+	    return json({
+	      items: [
+	        {
+	          deliveryId: '79000000-0000-0000-0000-000000000101',
+	          channel: 'Mail',
+	          deliveryType: status === 'Pending' ? 'OverdueL1' : 'DailyDigest',
+	          status,
+	          attemptCount: status === 'Pending' ? 0 : 1,
+	          nextAttemptAtUtc: status === 'Pending' ? '2026-07-07T01:00:00Z' : null,
+	          lastAttemptAtUtc: status === 'Sent' ? '2026-07-07T00:00:00Z' : null,
+	          sentAtUtc: status === 'Sent' ? '2026-07-07T00:00:00Z' : null,
+	          suppressedAtUtc: null,
+	          errorCode: status === 'Failed' ? 'RecipientEmailMissing' : null,
+	          errorMessage: status === 'Failed' ? '수신자 이메일이 없습니다.' : null,
+	          recipientDisplayName: 'Dev Sales User',
+	          recipientEmail: null,
+	          projectTitle: 'TASK-003A Demo',
+	          projectCode: 'PJT-003A',
+	          notificationTitle: status === 'Pending' ? '예정일 초과 알림' : 'Daily Digest',
+	          createdAtUtc: '2026-07-07T00:00:00Z',
+	          updatedAtUtc: '2026-07-07T00:00:00Z'
+	        }
+      ]
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+	  if (path === '/api/admin/work-item-escalations') {
+	    const level = url.searchParams.get('level') ?? 'L1';
+	    return json({
+	      items: [
+	        {
+          escalationId: '79000000-0000-0000-0000-000000000201',
+          workItemId: '76000000-0000-0000-0000-000000000001',
+          projectId,
+          projectTitle: 'TASK-003A Demo',
+          projectCode: 'PJT-003A',
+          workflowStageCode: 'ProductionPlanning',
+          workflowStageName: '생산계획·담당자',
+          workItemTitle: '생산계획, 담당자 입력',
+	          dueDate: '2026-07-07',
+	          status: 'Active',
+	          currentLevel: level,
+	          lastEscalatedAtUtc: '2026-07-07T00:00:00Z',
+	          nextCheckAtUtc: '2026-07-08T00:00:00Z',
+          assignedDisplayName: 'Dev Sales User',
+          deliveryStatusSummary: 'Mail:Sent',
+          createdAtUtc: '2026-07-07T00:00:00Z',
+          updatedAtUtc: '2026-07-07T00:00:00Z'
+        }
+      ]
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
   if (path === '/api/admin/calendar/holidays/template') {
     return Promise.resolve(new Response(new Blob(['xlsx']), {
       status: userKey === 'dev-admin' ? 200 : 403,
@@ -1265,7 +1600,13 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
         note: body.note,
         source: 'AdminManual',
         createdAtUtc: '2026-07-06T00:00:00Z',
-        updatedAtUtc: '2026-07-06T00:00:00Z'
+        updatedAtUtc: '2026-07-06T00:00:00Z',
+        deletionRequestedAtUtc: null,
+        scheduledHardDeleteAtUtc: null,
+        purgeBlockedAtUtc: null,
+        purgeBlockedReason: null,
+        lifecycleStatus: body.isActive ? 'Active' : 'Inactive',
+        lifecycleStatusLabel: body.isActive ? '활성' : '비활성'
       }, userKey === 'dev-admin' ? 201 : 403);
     }
 
@@ -1283,7 +1624,14 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
           note: '연간 등록',
           source: 'AdminManual',
           createdAtUtc: '2026-07-01T00:00:00Z',
-          updatedAtUtc: '2026-07-01T00:00:00Z'
+          updatedAtUtc: '2026-07-01T00:00:00Z',
+          deletionRequestedAtUtc: adminHolidayDeletionScheduled ? '2026-07-07T00:00:00Z' : null,
+          scheduledHardDeleteAtUtc: adminHolidayDeletionScheduled ? '2026-07-14T00:00:00Z' : null,
+          purgeBlockedAtUtc: null,
+          purgeBlockedReason: null,
+          lifecycleStatus: adminHolidayDeletionScheduled ? 'DeletionScheduled' : 'Active',
+          lifecycleStatusLabel: adminHolidayDeletionScheduled ? '삭제 예정' : '활성',
+          scheduledHardDeleteLabel: adminHolidayDeletionScheduled ? '2026-07-14 09:00' : null
         },
         {
           holidayId: '78000000-0000-0000-0000-000000000002',
@@ -1295,7 +1643,14 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
           note: null,
           source: 'OfficialApi',
           createdAtUtc: '2026-07-01T00:00:00Z',
-          updatedAtUtc: '2026-07-01T00:00:00Z'
+          updatedAtUtc: '2026-07-01T00:00:00Z',
+          deletionRequestedAtUtc: null,
+          scheduledHardDeleteAtUtc: null,
+          purgeBlockedAtUtc: null,
+          purgeBlockedReason: null,
+          lifecycleStatus: 'Active',
+          lifecycleStatusLabel: '활성',
+          scheduledHardDeleteLabel: null
         }
       ]
     }, userKey === 'dev-admin' ? 200 : 403);
@@ -1303,17 +1658,28 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (path.startsWith('/api/admin/calendar/holidays/')) {
     const pathParts = path.split('/');
+    if (init?.method === 'DELETE') {
+      adminHolidayDeletionScheduled = true;
+    }
+    const scheduledDeletion = adminHolidayDeletionScheduled;
     return json({
       holidayId: pathParts[pathParts.length - 1],
       date: '2026-07-02',
       name: '회사 창립기념 휴일',
       countryCode: 'KR',
       holidayType: 'Company',
-      isActive: init?.method === 'DELETE' ? false : true,
+      isActive: scheduledDeletion ? false : true,
       note: '연간 등록',
       source: 'AdminManual',
       createdAtUtc: '2026-07-01T00:00:00Z',
-      updatedAtUtc: '2026-07-06T00:00:00Z'
+      updatedAtUtc: '2026-07-06T00:00:00Z',
+      deletionRequestedAtUtc: scheduledDeletion ? '2026-07-07T00:00:00Z' : null,
+      scheduledHardDeleteAtUtc: scheduledDeletion ? '2026-07-14T00:00:00Z' : null,
+      purgeBlockedAtUtc: null,
+      purgeBlockedReason: null,
+      lifecycleStatus: scheduledDeletion ? 'DeletionScheduled' : 'Active',
+      lifecycleStatusLabel: scheduledDeletion ? '삭제 예정' : '활성',
+      scheduledHardDeleteLabel: scheduledDeletion ? '2026-07-14 09:00' : null
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
@@ -1775,7 +2141,13 @@ function currentUser(userKey: string) {
   }
 
   if (userKey === 'dev-admin') {
-    permissions.push('Project.Deleted.Read', 'Project.SalesAmount.Read', 'Audit.Read.All', 'users.manage');
+    permissions.push(
+      'Project.Deleted.Read',
+      'Project.SalesAmount.Read',
+      'Audit.Read.All',
+      'users.manage',
+      'admin-history.read'
+    );
   }
 
   if (userKey === 'dev-procurement') {

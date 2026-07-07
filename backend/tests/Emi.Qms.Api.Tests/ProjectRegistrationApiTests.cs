@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Data;
 using ClosedXML.Excel;
+using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Projects;
 using Microsoft.AspNetCore.Hosting;
@@ -67,6 +68,252 @@ public sealed class ProjectRegistrationApiTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using var json = await ReadJsonAsync(response);
         Assert.Contains("Item", json.RootElement.GetProperty("errors").EnumerateObject().Select(item => item.Name));
+    }
+
+    [Fact]
+    public async Task AdminDepartments_ManageSoftDeleteAndRecordsChangeLogs()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        using var salesClient = context.CreateClient("dev-sales");
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await salesClient.GetAsync("/api/admin/departments", TestContext.Current.CancellationToken)).StatusCode);
+
+        using var list = await ReadJsonAsync(await adminClient.GetAsync("/api/admin/departments", TestContext.Current.CancellationToken));
+        var departmentRows = list.RootElement.GetProperty("departments").EnumerateArray().ToList();
+        Assert.Contains(departmentRows, department => department.GetProperty("code").GetString() == "sales");
+
+        using var createdDepartment = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/departments",
+            new { code = "admin-test", name = "관리자 테스트 부서", isActive = true, sortOrder = 110, reason = "테스트 추가" },
+            TestContext.Current.CancellationToken));
+        var departmentId = createdDepartment.RootElement.GetProperty("departmentId").GetGuid();
+
+        using var updatedDepartment = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
+            $"/api/admin/departments/{departmentId}",
+            new { name = "관리자 테스트 부서 변경", isActive = true, sortOrder = 111, reason = "테스트 변경" },
+            TestContext.Current.CancellationToken));
+        Assert.True(updatedDepartment.RootElement.GetProperty("isActive").GetBoolean());
+        Assert.Equal("관리자 테스트 부서 변경", updatedDepartment.RootElement.GetProperty("name").GetString());
+
+        using var inactiveOnlyDepartment = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
+            $"/api/admin/departments/{departmentId}",
+            new { name = "관리자 테스트 부서 변경", isActive = false, sortOrder = 111, reason = "테스트 비활성화" },
+            TestContext.Current.CancellationToken));
+        Assert.False(inactiveOnlyDepartment.RootElement.GetProperty("isActive").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, inactiveOnlyDepartment.RootElement.GetProperty("deletionRequestedAtUtc").ValueKind);
+        Assert.Equal("Inactive", inactiveOnlyDepartment.RootElement.GetProperty("lifecycleStatus").GetString());
+        Assert.Equal("비활성", inactiveOnlyDepartment.RootElement.GetProperty("lifecycleStatusLabel").GetString());
+
+        using var reactivatedDepartment = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
+            $"/api/admin/departments/{departmentId}",
+            new { name = "관리자 테스트 부서 변경", isActive = true, sortOrder = 111, reason = "테스트 재활성" },
+            TestContext.Current.CancellationToken));
+        Assert.True(reactivatedDepartment.RootElement.GetProperty("isActive").GetBoolean());
+
+        using var scheduledDepartment = await ReadJsonAsync(await adminClient.PatchAsJsonAsync(
+            $"/api/admin/departments/{departmentId}/deactivate",
+            new { name = "관리자 테스트 부서", isActive = false, sortOrder = 111, reason = "테스트 삭제" },
+            TestContext.Current.CancellationToken));
+        Assert.False(scheduledDepartment.RootElement.GetProperty("isActive").GetBoolean());
+        Assert.NotEqual(JsonValueKind.Null, scheduledDepartment.RootElement.GetProperty("deletionRequestedAtUtc").ValueKind);
+        Assert.NotEqual(JsonValueKind.Null, scheduledDepartment.RootElement.GetProperty("scheduledHardDeleteAtUtc").ValueKind);
+        Assert.Equal("DeletionScheduled", scheduledDepartment.RootElement.GetProperty("lifecycleStatus").GetString());
+        Assert.Equal("삭제 예정", scheduledDepartment.RootElement.GetProperty("lifecycleStatusLabel").GetString());
+        Assert.Matches(@"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", scheduledDepartment.RootElement.GetProperty("scheduledHardDeleteLabel").GetString());
+        Assert.True(scheduledDepartment.RootElement.GetProperty("preDeleteIsActive").GetBoolean());
+
+        using var restoredDepartment = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            $"/api/admin/departments/{departmentId}/restore",
+            new { name = "관리자 테스트 부서", isActive = true, sortOrder = 111, reason = "테스트 복구" },
+            TestContext.Current.CancellationToken));
+        Assert.True(restoredDepartment.RootElement.GetProperty("isActive").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, restoredDepartment.RootElement.GetProperty("deletionRequestedAtUtc").ValueKind);
+        Assert.Equal("Active", restoredDepartment.RootElement.GetProperty("lifecycleStatus").GetString());
+
+        using var bulkDelete = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/departments/bulk-delete",
+            new { ids = new[] { departmentId }, reason = "bulk delete" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1, bulkDelete.RootElement.GetProperty("succeededCount").GetInt32());
+        Assert.Equal("DeleteScheduled", bulkDelete.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+
+        using var bulkRestore = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/departments/bulk-restore",
+            new { ids = new[] { departmentId }, reason = "bulk restore" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1, bulkRestore.RootElement.GetProperty("succeededCount").GetInt32());
+        Assert.Equal("Restored", bulkRestore.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+
+        using var bulkDeleteAgain = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/departments/bulk-delete",
+            new { ids = new[] { departmentId }, reason = "bulk delete" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("DeleteScheduled", bulkDeleteAgain.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+
+        using var immediatePurge = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/departments/bulk-delete",
+            new { ids = new[] { departmentId }, reason = "bulk purge" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("Purged", immediatePurge.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from departments where id = '{departmentId}';"));
+
+        using var changeLogs = await ReadJsonAsync(await adminClient.GetAsync("/api/admin/master-data/change-logs", TestContext.Current.CancellationToken));
+        var logs = changeLogs.RootElement.GetProperty("items").EnumerateArray().ToList();
+        Assert.Contains(logs, log => log.GetProperty("entityType").GetString() == "Department" && log.GetProperty("action").GetString() == "Create");
+        Assert.Contains(logs, log => log.GetProperty("entityType").GetString() == "Department" && log.GetProperty("action").GetString() == "Update");
+        Assert.Contains(logs, log => log.GetProperty("entityType").GetString() == "Department" && log.GetProperty("action").GetString() == "DeleteScheduled");
+        Assert.Contains(logs, log => log.GetProperty("entityType").GetString() == "Department" && log.GetProperty("action").GetString() == "Restored");
+    }
+
+    [Fact]
+    public async Task AdminDepartments_ReturnFieldErrorsForInvalidInput()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+
+        using var response = await adminClient.PostAsJsonAsync(
+            "/api/admin/departments",
+            new { code = "한글 코드", name = "", isActive = true, sortOrder = 10000, reason = "검증" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var json = await ReadJsonAsync(response);
+        Assert.Equal("입력값을 확인해주세요.", json.RootElement.GetProperty("message").GetString());
+        var fieldErrors = json.RootElement.GetProperty("fieldErrors");
+        Assert.Contains("부서 코드는 영문 대문자, 숫자, 하이픈(-), 언더스코어(_)만 사용할 수 있습니다.", fieldErrors.GetProperty("code").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("부서명은 필수입니다.", fieldErrors.GetProperty("name").EnumerateArray().Select(item => item.GetString()));
+        Assert.Contains("정렬 순서는 0 이상 9999 이하로 입력해주세요.", fieldErrors.GetProperty("sortOrder").EnumerateArray().Select(item => item.GetString()));
+    }
+
+    [Fact]
+    public async Task AdminUserDeletion_ResponseIncludesDeletionLifecycleStatus()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        var userId = Guid.NewGuid();
+
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider, entra_object_id, email
+            )
+            values (
+                '{userId}', '', 'Entra Deletion Target', '10000000-0000-0000-0000-000000000002',
+                true, 'EntraId', 'entra-delete-target', 'entra-delete-target@example.invalid'
+            );
+            """);
+
+        using var scheduled = await ReadJsonAsync(await adminClient.PatchAsync(
+            $"/api/admin/users/{userId}/schedule-deletion",
+            null,
+            TestContext.Current.CancellationToken));
+        var user = scheduled.RootElement.GetProperty("users")
+            .EnumerateArray()
+            .Single(item => item.GetProperty("userId").GetGuid() == userId);
+
+        Assert.False(user.GetProperty("isActive").GetBoolean());
+        Assert.NotEqual(JsonValueKind.Null, user.GetProperty("deletionRequestedAtUtc").ValueKind);
+        Assert.NotEqual(JsonValueKind.Null, user.GetProperty("scheduledHardDeleteAtUtc").ValueKind);
+        Assert.Equal("DeletionScheduled", user.GetProperty("lifecycleStatus").GetString());
+        Assert.Equal("삭제 예정", user.GetProperty("lifecycleStatusLabel").GetString());
+        Assert.Matches(@"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", user.GetProperty("scheduledHardDeleteLabel").GetString());
+        Assert.True(user.GetProperty("preDeleteIsActive").GetBoolean());
+
+        using var restored = await ReadJsonAsync(await adminClient.PostAsync(
+            $"/api/admin/users/{userId}/restore",
+            null,
+            TestContext.Current.CancellationToken));
+        var restoredUser = restored.RootElement.GetProperty("users")
+            .EnumerateArray()
+            .Single(item => item.GetProperty("userId").GetGuid() == userId);
+        Assert.True(restoredUser.GetProperty("isActive").GetBoolean());
+        Assert.Equal("Active", restoredUser.GetProperty("lifecycleStatus").GetString());
+
+        using var bulkDelete = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/users/bulk-delete",
+            new { ids = new[] { userId }, reason = "bulk delete" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("DeleteScheduled", bulkDelete.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+
+        using var bulkRestore = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/users/bulk-restore",
+            new { ids = new[] { userId }, reason = "bulk restore" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("Restored", bulkRestore.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task AdminScheduledDeletion_PurgesEligibleHolidayAndBlocksReferencedDepartment()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-admin");
+        await AssertStatusAsync(await client.GetAsync("/health/live", TestContext.Current.CancellationToken), HttpStatusCode.OK, context, "health live");
+
+        var departmentId = Guid.NewGuid();
+        var holidayId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        await context.ExecuteSqlAsync($"""
+            insert into departments (
+                id, code, name, is_active, sort_order, deletion_requested_at_utc, scheduled_hard_delete_at_utc
+            )
+            values (
+                '{departmentId}', 'purge-test', 'Purge Test', false, 999,
+                now() - interval '8 days', now() - interval '1 day'
+            );
+
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active, auth_provider)
+            values ('{userId}', 'purge-test-user', 'Purge Test User', '{departmentId}', true, 'Dev');
+
+            insert into system_holidays (
+                id, holiday_date, name, country_code, source, source_key, holiday_type, is_active,
+                deletion_requested_at_utc, scheduled_hard_delete_at_utc
+            )
+            values (
+                '{holidayId}', '2026-07-31', '삭제 예정 휴일', 'KR', 'Test', 'test-purge-holiday',
+                'Company', false, now() - interval '8 days', now() - interval '1 day'
+            );
+            """);
+
+        var purge = await context.Services.GetRequiredService<AdminScheduledDeletionService>()
+            .PurgeDueAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, purge.PurgedHolidayCount);
+        Assert.Equal(0, purge.PurgedDepartmentCount);
+        Assert.True(purge.BlockedCount >= 1);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from system_holidays where id = '{holidayId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from departments where id = '{departmentId}' and purge_blocked_at_utc is not null;"));
+
+        using var departments = await ReadJsonAsync(await client.GetAsync("/api/admin/departments", TestContext.Current.CancellationToken));
+        var blockedDepartment = departments.RootElement.GetProperty("departments")
+            .EnumerateArray()
+            .Single(item => item.GetProperty("departmentId").GetGuid() == departmentId);
+        Assert.Equal("PurgeBlocked", blockedDepartment.GetProperty("lifecycleStatus").GetString());
+        Assert.Equal("삭제 보류", blockedDepartment.GetProperty("lifecycleStatusLabel").GetString());
+    }
+
+    [Fact]
+    public async Task AdminReadOnlyViews_AreSystemAdministratorOnly()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        using var salesClient = context.CreateClient("dev-sales");
+
+        var adminEndpoints = new[]
+        {
+            "/api/admin/dashboard",
+            "/api/admin/permissions/matrix",
+            "/api/admin/master-data/change-logs",
+            "/api/admin/work-items/history",
+            "/api/admin/notification-deliveries",
+            "/api/admin/work-item-escalations"
+        };
+
+        foreach (var endpoint in adminEndpoints)
+        {
+            await AssertStatusAsync(await adminClient.GetAsync(endpoint, TestContext.Current.CancellationToken), HttpStatusCode.OK, context, endpoint);
+            await AssertStatusAsync(await salesClient.GetAsync(endpoint, TestContext.Current.CancellationToken), HttpStatusCode.Forbidden, context, endpoint);
+        }
     }
 
     [Fact]
@@ -1918,6 +2165,18 @@ public sealed class ProjectRegistrationApiTests
         return await JsonDocument.ParseAsync(stream, cancellationToken: TestContext.Current.CancellationToken);
     }
 
+    private static async Task AssertStatusAsync(
+        HttpResponseMessage response,
+        HttpStatusCode expected,
+        ProjectApiTestContext context,
+        string? contextLabel = null)
+    {
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(
+            response.StatusCode == expected,
+            $"Expected {expected} but got {response.StatusCode}. Context: {contextLabel ?? "-"}. Body: {body}. Logs: {context.ErrorLogs()}");
+    }
+
     private static async Task AssertProjectTemplateWidthsAsync(HttpResponseMessage response)
     {
         var bytes = await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
@@ -2081,6 +2340,7 @@ public sealed class ProjectRegistrationApiTests
 
         private PostgreSqlTestDatabase Database { get; }
         private QmsWebApplicationFactory Factory { get; }
+        public IServiceProvider Services => Factory.Services;
 
         public static async Task<ProjectApiTestContext> CreateAsync(Action<IServiceCollection>? configureTestServices = null)
         {
@@ -2115,6 +2375,15 @@ public sealed class ProjectRegistrationApiTests
             await using var dataSource = NpgsqlDataSource.Create(Database.ConnectionString);
             await using var command = dataSource.CreateCommand(commandText);
             await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        public async Task<T> ReadScalarAsync<T>(string commandText)
+        {
+            await using var dataSource = NpgsqlDataSource.Create(Database.ConnectionString);
+            await using var command = dataSource.CreateCommand(commandText);
+            var value = await command.ExecuteScalarAsync(TestContext.Current.CancellationToken);
+            Assert.NotNull(value);
+            return (T)value;
         }
 
         public async Task<ProjectDeletionSnapshot> ReadDeletionSnapshotAsync(Guid projectId)
@@ -2194,6 +2463,15 @@ public sealed class ProjectRegistrationApiTests
                 """);
             command.Parameters.AddWithValue("project_id", projectId);
             return (int)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken) ?? 0);
+        }
+
+        public string ErrorLogs()
+        {
+            var entries = Factory.Logs.Entries
+                .Where(entry => entry.LogLevel >= Microsoft.Extensions.Logging.LogLevel.Error)
+                .TakeLast(5)
+                .Select(entry => $"{entry.Category}: {entry.Message} {entry.Exception}");
+            return string.Join(" | ", entries);
         }
 
         public async Task<DateTimeOffset?> ReadDeletedAtAuditValueAsync(Guid projectId)

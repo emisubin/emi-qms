@@ -54,6 +54,14 @@ export interface AdminUser {
   departmentName: string | null;
   roles: string[];
   isReadOnly: boolean;
+  deletionRequestedAtUtc: string | null;
+  scheduledHardDeleteAtUtc: string | null;
+  purgeBlockedAtUtc: string | null;
+  purgeBlockedReason: string | null;
+  preDeleteIsActive: boolean | null;
+  lifecycleStatus: string;
+  lifecycleStatusLabel: string;
+  scheduledHardDeleteLabel: string | null;
 }
 
 export interface AdminDepartment {

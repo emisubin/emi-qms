@@ -1,3 +1,5 @@
+using Emi.Qms.Api.Admin;
+
 namespace Emi.Qms.Api.Identity;
 
 public interface IUserAdministrationStore
@@ -7,6 +9,27 @@ public interface IUserAdministrationStore
     Task<UserAdministrationMutationResult> UpdateEntraUserAsync(
         Guid userId,
         UpdateUserAdministrationRequest request,
+        Guid currentUserId,
+        CancellationToken cancellationToken);
+
+    Task<UserAdministrationMutationResult> ScheduleEntraUserDeletionAsync(
+        Guid userId,
+        Guid currentUserId,
+        CancellationToken cancellationToken);
+
+    Task<UserAdministrationMutationResult> RestoreEntraUserAsync(
+        Guid userId,
+        Guid currentUserId,
+        CancellationToken cancellationToken);
+
+    Task<AdminBulkActionResponse> BulkDeleteUsersAsync(
+        IReadOnlyList<Guid> userIds,
+        Guid currentUserId,
+        AdminScheduledDeletionService deletionService,
+        CancellationToken cancellationToken);
+
+    Task<AdminBulkActionResponse> BulkRestoreUsersAsync(
+        IReadOnlyList<Guid> userIds,
         Guid currentUserId,
         CancellationToken cancellationToken);
 }
@@ -28,7 +51,12 @@ public sealed record UserAdministrationUser(
     string? DepartmentCode,
     string? DepartmentName,
     IReadOnlyList<string> Roles,
-    bool IsReadOnly);
+    bool IsReadOnly,
+    DateTimeOffset? DeletionRequestedAtUtc = null,
+    DateTimeOffset? ScheduledHardDeleteAtUtc = null,
+    DateTimeOffset? PurgeBlockedAtUtc = null,
+    string? PurgeBlockedReason = null,
+    bool? PreDeleteIsActive = null);
 
 public sealed record UpdateUserAdministrationRequest(
     Guid? DepartmentId,

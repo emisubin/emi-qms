@@ -46,6 +46,11 @@ public sealed record EscalationRecipient(Guid UserId, string DisplayName, string
 
 public sealed record EscalationCreateResult(int NotificationCount, int DeliveryCount);
 
+public sealed record TeamsPersonalDeliveryPlan(
+    string Channel,
+    string Status,
+    string? ProviderMessageId);
+
 public sealed record WorkItemEscalationListResponse(IReadOnlyList<WorkItemEscalationResponse> Items);
 
 public sealed record WorkItemEscalationResponse(

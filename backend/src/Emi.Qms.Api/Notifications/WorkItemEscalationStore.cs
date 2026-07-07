@@ -502,6 +502,7 @@ public sealed class WorkItemEscalationStore(
         var count = 0;
         if (level is WorkItemEscalationLevels.L0 or WorkItemEscalationLevels.L1 or WorkItemEscalationLevels.L2)
         {
+            var personalDelivery = ResolveTeamsPersonalDelivery(options);
             count += await InsertDeliveryAsync(
                 connection,
                 transaction,
@@ -510,10 +511,10 @@ public sealed class WorkItemEscalationStore(
                 notificationId,
                 notificationRecipientId,
                 recipientUserId,
-                NotificationDeliveryChannels.TeamsDirectMessage,
+                personalDelivery.Channel,
                 DeliveryTypeForLevel(level),
-                options.TeamsPersonalDryRun ? NotificationDeliveryStatuses.DryRunSent : NotificationDeliveryStatuses.Pending,
-                options.TeamsPersonalDryRun ? "teams-personal-dry-run" : null,
+                personalDelivery.Status,
+                personalDelivery.ProviderMessageId,
                 now,
                 cancellationToken);
         }
@@ -537,6 +538,22 @@ public sealed class WorkItemEscalationStore(
         }
 
         return count;
+    }
+
+    private static TeamsPersonalDeliveryPlan ResolveTeamsPersonalDelivery(NotificationEscalationOptions options)
+    {
+        if (string.Equals(options.TeamsPersonalChannelStrategy, "TeamsActivity", StringComparison.OrdinalIgnoreCase))
+        {
+            return new TeamsPersonalDeliveryPlan(
+                NotificationDeliveryChannels.TeamsActivity,
+                NotificationDeliveryStatuses.Pending,
+                null);
+        }
+
+        return new TeamsPersonalDeliveryPlan(
+            NotificationDeliveryChannels.TeamsDirectMessage,
+            options.TeamsPersonalDryRun ? NotificationDeliveryStatuses.DryRunSent : NotificationDeliveryStatuses.Pending,
+            options.TeamsPersonalDryRun ? "teams-personal-dry-run" : null);
     }
 
     private async Task<int> InsertDeliveryAsync(

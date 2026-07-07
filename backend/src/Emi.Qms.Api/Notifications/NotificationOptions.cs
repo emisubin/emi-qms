@@ -6,6 +6,7 @@ public sealed class NotificationOptions
     public NotificationDailyDigestOptions DailyDigest { get; init; } = new();
     public NotificationEscalationOptions Escalation { get; init; } = new();
     public NotificationTeamsOptions Teams { get; init; } = new();
+    public NotificationTeamsActivityOptions TeamsActivity { get; init; } = new();
     public NotificationMailOptions Mail { get; init; } = new();
     public NotificationGraphOptions Graph { get; init; } = new();
 }
@@ -33,6 +34,7 @@ public sealed class NotificationEscalationOptions
     public int WorkerIntervalSeconds { get; init; } = 300;
     public string TimeZone { get; init; } = "Asia/Seoul";
     public bool TeamsPersonalDryRun { get; init; } = true;
+    public string TeamsPersonalChannelStrategy { get; init; } = "TeamsDirectMessageDryRun";
     public bool UseTeamsChannelFallback { get; init; }
     public bool MailEnabled { get; init; } = true;
     public int MaxBatchSize { get; init; } = 100;
@@ -44,6 +46,34 @@ public sealed class NotificationTeamsOptions
     public bool DryRun { get; init; } = true;
     public string? WebhookUrl { get; init; }
     public string PayloadMode { get; init; } = "AdaptiveCardRoot";
+}
+
+public sealed class NotificationTeamsActivityOptions
+{
+    public bool Enabled { get; init; }
+    public bool DryRun { get; init; } = true;
+    public string AuthorityHost { get; init; } = "https://login.microsoftonline.com";
+    public string BaseUrl { get; init; } = "https://graph.microsoft.com/v1.0";
+    public string Scope { get; init; } = "https://graph.microsoft.com/.default";
+    public string? TenantId { get; init; }
+    public string? ClientId { get; init; }
+    public string? ClientSecret { get; init; }
+    public string? TeamsAppId { get; init; }
+    public string? TopicWebUrl { get; init; }
+    public bool UseUserPrincipalNameFallback { get; init; }
+    public bool RequireEntraUser { get; init; } = true;
+    public string PersonalChannelStrategy { get; init; } = "TeamsDirectMessageDryRun";
+    public NotificationTeamsActivityTypeOptions ActivityTypes { get; init; } = new();
+}
+
+public sealed class NotificationTeamsActivityTypeOptions
+{
+    public string WorkItemAssigned { get; init; } = "workItemAssigned";
+    public string DeadlineApproaching { get; init; } = "deadlineApproaching";
+    public string DeadlineOverdue { get; init; } = "deadlineOverdue";
+    public string UrgentPending { get; init; } = "urgentPending";
+    public string DailyDigest { get; init; } = "dailyDigest";
+    public string ProjectCompleted { get; init; } = "projectCompleted";
 }
 
 public sealed class NotificationMailOptions

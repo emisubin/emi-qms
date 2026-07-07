@@ -4,6 +4,7 @@ public static class NotificationDeliveryChannels
 {
     public const string TeamsChannel = "TeamsChannel";
     public const string TeamsDirectMessage = "TeamsDirectMessage";
+    public const string TeamsActivity = "TeamsActivity";
     public const string Mail = "Mail";
 }
 
@@ -66,7 +67,10 @@ public sealed record NotificationDeliveryRecord(
     string? ProjectTitle,
     string? ProjectCode,
     string? NotificationType,
-    string? Severity);
+    string? Severity,
+    string? RecipientEntraObjectId,
+    string? RecipientAuthProvider,
+    bool? RecipientUserIsActive);
 
 public sealed record NotificationDeliveryMessage(
     Guid DeliveryId,
@@ -80,7 +84,12 @@ public sealed record NotificationDeliveryMessage(
     bool SaveToSentItems = false,
     string? CorrelationId = null,
     string? SenderUserId = null,
-    string? SenderAddress = null);
+    string? SenderAddress = null,
+    Guid? RecipientUserId = null,
+    string? RecipientEntraObjectId = null,
+    string? RecipientAuthProvider = null,
+    bool? RecipientUserIsActive = null,
+    string? TeamsActivityType = null);
 
 public sealed record NotificationChannelResult(
     string Status,
@@ -157,3 +166,32 @@ public sealed record NotificationTestMailResponse(
     int RecipientCount,
     bool SenderEqualsRecipient,
     bool SaveToSentItems);
+
+public sealed record NotificationTestTeamsActivityRequest(
+    Guid? RecipientUserId,
+    string? ActivityType,
+    string? Title,
+    string? Message,
+    string? LinkUrl);
+
+public sealed record NotificationTestTeamsActivityResponse(
+    Guid DeliveryId,
+    string Status,
+    string? ErrorCode,
+    string? ErrorMessage,
+    string Provider,
+    string CorrelationId,
+    string ActivityType,
+    string RecipientSource,
+    string RecipientMasked,
+    bool IsDryRun,
+    bool IsActualEligible,
+    string? ProviderMessageId);
+
+public sealed record TeamsActivityRecipientProfile(
+    Guid UserId,
+    string DisplayName,
+    string? Email,
+    string? EntraObjectId,
+    string AuthProvider,
+    bool IsActive);

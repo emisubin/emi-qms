@@ -1125,6 +1125,7 @@ public sealed class PostgreSqlMigrationTests
             """,
             cancellationToken);
         Assert.Contains("TeamsChannel", deliveryConstraint, StringComparison.Ordinal);
+        Assert.Contains("TeamsActivity", deliveryConstraint, StringComparison.Ordinal);
         Assert.Contains("Mail", deliveryConstraint, StringComparison.Ordinal);
 
         var deliveryTypeConstraint = await ReadScalarAsync<string>(

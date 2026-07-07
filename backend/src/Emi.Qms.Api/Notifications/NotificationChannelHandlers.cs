@@ -195,6 +195,77 @@ public sealed class TeamsDirectMessageHandler(IOptionsMonitor<NotificationOption
     }
 }
 
+public sealed class TeamsActivityChannelHandler(
+    IOptionsMonitor<NotificationOptions> options,
+    ITeamsActivityClient teamsActivityClient)
+    : INotificationChannelHandler
+{
+    public string Channel => NotificationDeliveryChannels.TeamsActivity;
+
+    public Task<NotificationChannelResult> SendAsync(NotificationDeliveryMessage message, CancellationToken cancellationToken)
+    {
+        var teamsActivity = options.CurrentValue.TeamsActivity;
+        if (!teamsActivity.Enabled)
+        {
+            return Task.FromResult(NotificationChannelResult.Disabled(
+                "TeamsActivityDisabled",
+                "Teams Activity Feed 발송이 비활성화되어 있습니다."));
+        }
+
+        if (message.RecipientUserIsActive == false)
+        {
+            return Task.FromResult(NotificationChannelResult.Suppressed(
+                "TeamsActivityUserInactive",
+                "비활성 사용자는 Teams Activity Feed 알림 대상에서 제외됩니다."));
+        }
+
+        var renderResult = TeamsActivityNotificationRenderer.Render(message, teamsActivity);
+        if (!TeamsActivityNotificationRenderer.IsDeclaredActivityType(renderResult.ActivityType, teamsActivity.ActivityTypes))
+        {
+            return Task.FromResult(NotificationChannelResult.Failed(
+                "TeamsActivityInvalidActivityType",
+                "Teams 앱 manifest에 선언되지 않은 activityType입니다."));
+        }
+
+        if (teamsActivity.DryRun)
+        {
+            return Task.FromResult(NotificationChannelResult.DryRunSent());
+        }
+
+        if (teamsActivity.RequireEntraUser
+            && !string.Equals(message.RecipientAuthProvider, "EntraId", StringComparison.Ordinal))
+        {
+            return Task.FromResult(NotificationChannelResult.Suppressed(
+                "TeamsActivityUserNotEntra",
+                "EntraId 사용자가 아니어서 Teams Activity Feed actual 발송을 생략했습니다."));
+        }
+
+        var graphUserId = !string.IsNullOrWhiteSpace(message.RecipientEntraObjectId)
+            ? message.RecipientEntraObjectId.Trim()
+            : teamsActivity.UseUserPrincipalNameFallback && !string.IsNullOrWhiteSpace(message.RecipientEmail)
+                ? message.RecipientEmail.Trim()
+                : null;
+        if (string.IsNullOrWhiteSpace(graphUserId))
+        {
+            return Task.FromResult(NotificationChannelResult.Suppressed(
+                "TeamsActivityMissingUserId",
+                "Teams Activity Feed 대상 사용자의 Entra object id가 없습니다."));
+        }
+
+        return teamsActivityClient.SendAsync(
+            new TeamsActivitySendRequest(
+                graphUserId,
+                renderResult.ActivityType,
+                renderResult.TopicValue,
+                renderResult.TopicWebUrl,
+                renderResult.PreviewText,
+                renderResult.TemplateParameters,
+                teamsActivity.TeamsAppId,
+                message.CorrelationId),
+            cancellationToken);
+    }
+}
+
 public sealed class MailChannelHandler(
     IOptionsMonitor<NotificationOptions> options,
     IMailClient mailClient)

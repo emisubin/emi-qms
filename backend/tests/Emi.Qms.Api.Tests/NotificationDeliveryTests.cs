@@ -390,6 +390,205 @@ public sealed class NotificationDeliveryTests
     }
 
     [Fact]
+    public void TeamsActivityRenderer_MapsDeadlineOverduePayload()
+    {
+        var result = TeamsActivityNotificationRenderer.Render(
+            new NotificationDeliveryMessage(
+                Guid.NewGuid(),
+                NotificationDeliveryChannels.TeamsActivity,
+                NotificationDeliveryTypes.OverdueL2,
+                "지연 업무",
+                "예정일이 지난 업무입니다.",
+                "/projects/40000000-0000-0000-0000-000000000001",
+                "담당자",
+                null),
+            new NotificationTeamsActivityOptions
+            {
+                TopicWebUrl = "https://qms.example.test"
+            });
+
+        Assert.Equal("deadlineOverdue", result.ActivityType);
+        Assert.Equal("text", GraphTeamsActivityNotificationRequest.FromRequest(new TeamsActivitySendRequest(
+            "user-id",
+            result.ActivityType,
+            result.TopicValue,
+            result.TopicWebUrl,
+            result.PreviewText,
+            result.TemplateParameters,
+            "teams-app-id",
+            "ABC123")).Topic.Source);
+        Assert.Equal("https://qms.example.test/projects/40000000-0000-0000-0000-000000000001", result.TopicWebUrl);
+        Assert.Equal("L2", result.TemplateParameters["escalationLevel"]);
+        Assert.Equal("지연 업무", result.TemplateParameters["taskName"]);
+    }
+
+    [Fact]
+    public async Task TeamsActivityChannelHandler_DryRun_DoesNotCallGraphClient()
+    {
+        var client = new CapturingTeamsActivityClient();
+        var handler = new TeamsActivityChannelHandler(
+            new StaticOptionsMonitor<NotificationOptions>(new NotificationOptions
+            {
+                TeamsActivity = new NotificationTeamsActivityOptions
+                {
+                    Enabled = true,
+                    DryRun = true,
+                    TopicWebUrl = "https://qms.example.test"
+                }
+            }),
+            client);
+
+        var result = await handler.SendAsync(CreateTeamsActivityDeliveryMessage(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(NotificationDeliveryStatuses.DryRunSent, result.Status);
+        Assert.False(client.WasCalled);
+    }
+
+    [Fact]
+    public async Task TeamsActivityChannelHandler_ActualEntraUser_CallsGraphClient()
+    {
+        var client = new CapturingTeamsActivityClient();
+        var handler = new TeamsActivityChannelHandler(
+            new StaticOptionsMonitor<NotificationOptions>(new NotificationOptions
+            {
+                TeamsActivity = new NotificationTeamsActivityOptions
+                {
+                    Enabled = true,
+                    DryRun = false,
+                    TopicWebUrl = "https://qms.example.test",
+                    TeamsAppId = "teams-app-id"
+                }
+            }),
+            client);
+
+        var result = await handler.SendAsync(CreateTeamsActivityDeliveryMessage(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(NotificationDeliveryStatuses.Sent, result.Status);
+        Assert.True(client.WasCalled);
+        Assert.NotNull(client.Request);
+        Assert.Equal("entra-user-object-id", client.Request.UserId);
+        Assert.Equal("workItemAssigned", client.Request.ActivityType);
+        Assert.Equal("teams-app-id", client.Request.TeamsAppId);
+    }
+
+    [Fact]
+    public async Task TeamsActivityChannelHandler_ActualDevUser_IsSuppressed()
+    {
+        var client = new CapturingTeamsActivityClient();
+        var handler = new TeamsActivityChannelHandler(
+            new StaticOptionsMonitor<NotificationOptions>(new NotificationOptions
+            {
+                TeamsActivity = new NotificationTeamsActivityOptions
+                {
+                    Enabled = true,
+                    DryRun = false,
+                    TopicWebUrl = "https://qms.example.test"
+                }
+            }),
+            client);
+
+        var result = await handler.SendAsync(
+            CreateTeamsActivityDeliveryMessage(
+                authProvider: "Dev",
+                entraObjectId: null),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(NotificationDeliveryStatuses.Suppressed, result.Status);
+        Assert.Equal("TeamsActivityUserNotEntra", result.ErrorCode);
+        Assert.False(client.WasCalled);
+    }
+
+    [Fact]
+    public async Task GraphTeamsActivityClient_NoContent_ReturnsSentAndBuildsGraphRequest()
+    {
+        var handler = new TeamsActivityHttpMessageHandler(HttpStatusCode.NoContent);
+        var client = new GraphTeamsActivityClient(
+            new HttpClient(handler),
+            new StaticOptionsMonitor<NotificationOptions>(new NotificationOptions
+            {
+                TeamsActivity = new NotificationTeamsActivityOptions
+                {
+                    TenantId = "tenant-id",
+                    ClientId = "teams-activity-client-id",
+                    ClientSecret = "placeholder-secret",
+                    TopicWebUrl = "https://qms.example.test"
+                }
+            }),
+            new FixedTimeProvider(new DateTimeOffset(2026, 7, 3, 0, 0, 0, TimeSpan.Zero)));
+
+        var result = await client.SendAsync(
+            new TeamsActivitySendRequest(
+                "entra-user-object-id",
+                "workItemAssigned",
+                "테스트 업무",
+                "https://qms.example.test/projects/1",
+                "테스트 업무가 배정되었습니다.",
+                new Dictionary<string, string>
+                {
+                    ["taskName"] = "테스트 업무"
+                },
+                "teams-app-id",
+                "ABC123"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(NotificationDeliveryStatuses.Sent, result.Status);
+        Assert.Contains("teams-activity-sent", result.ProviderMessageId, StringComparison.Ordinal);
+        Assert.Equal("https://login.microsoftonline.com/tenant-id/oauth2/v2.0/token", handler.TokenRequestUri?.ToString());
+        Assert.Contains("grant_type=client_credentials", handler.TokenRequestBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Authorization", handler.TokenRequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith("/users/entra-user-object-id/teamwork/sendActivityNotification", handler.ActivityRequestUri?.ToString(), StringComparison.Ordinal);
+        Assert.Equal("Bearer", handler.AuthorizationScheme);
+        Assert.Equal("ABC123", handler.ClientRequestId);
+        using var document = JsonDocument.Parse(Assert.IsType<string>(handler.ActivityRequestBody));
+        var root = document.RootElement;
+        Assert.Equal("workItemAssigned", root.GetProperty("activityType").GetString());
+        Assert.Equal("teams-app-id", root.GetProperty("teamsAppId").GetString());
+        Assert.Equal("text", root.GetProperty("topic").GetProperty("source").GetString());
+        Assert.Equal("https://qms.example.test/projects/1", root.GetProperty("topic").GetProperty("webUrl").GetString());
+        Assert.Equal("테스트 업무가 배정되었습니다.", root.GetProperty("previewText").GetProperty("content").GetString());
+        Assert.Equal("taskName", root.GetProperty("templateParameters")[0].GetProperty("name").GetString());
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden, "TeamsActivityPermissionDenied")]
+    [InlineData(HttpStatusCode.NotFound, "TeamsActivityUserOrAppNotFound")]
+    [InlineData(HttpStatusCode.TooManyRequests, "TeamsActivityThrottled")]
+    public async Task GraphTeamsActivityClient_MapsGraphErrors(HttpStatusCode statusCode, string expectedErrorCode)
+    {
+        var client = new GraphTeamsActivityClient(
+            new HttpClient(new TeamsActivityHttpMessageHandler(statusCode)),
+            new StaticOptionsMonitor<NotificationOptions>(new NotificationOptions
+            {
+                TeamsActivity = new NotificationTeamsActivityOptions
+                {
+                    TenantId = "tenant-id",
+                    ClientId = "teams-activity-client-id",
+                    ClientSecret = "placeholder-secret",
+                    TopicWebUrl = "https://qms.example.test"
+                }
+            }),
+            new FixedTimeProvider(new DateTimeOffset(2026, 7, 3, 0, 0, 0, TimeSpan.Zero)));
+
+        var result = await client.SendAsync(
+            new TeamsActivitySendRequest(
+                "entra-user-object-id",
+                "workItemAssigned",
+                "테스트 업무",
+                "https://qms.example.test/projects/1",
+                "테스트 업무가 배정되었습니다.",
+                new Dictionary<string, string>
+                {
+                    ["taskName"] = "테스트 업무"
+                },
+                null,
+                null),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(NotificationDeliveryStatuses.Failed, result.Status);
+        Assert.Equal(expectedErrorCode, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task GraphClientCredentialsTokenProvider_RequestsClientCredentialsToken()
     {
         var handler = new GraphTokenHttpMessageHandler();
@@ -727,6 +926,57 @@ public sealed class NotificationDeliveryTests
     }
 
     [Fact]
+    public async Task AdminTestTeamsActivityEndpoint_IsSystemAdministratorOnly()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:TeamsActivity:Enabled"] = "true",
+            ["Notifications:TeamsActivity:DryRun"] = "true",
+            ["Notifications:TeamsActivity:TopicWebUrl"] = "https://qms.example.test"
+        });
+        using var adminClient = context.CreateClient("dev-admin");
+        using var salesClient = context.CreateClient("dev-sales");
+        var request = new NotificationTestTeamsActivityRequest(
+            DevAdminUserId,
+            "workItemAssigned",
+            "TASK-NOTIFY-003 Teams Activity 테스트",
+            "테스트 알림입니다.",
+            "/projects/40000000-0000-0000-0000-000000000001");
+
+        var forbidden = await salesClient.PostAsJsonAsync("/api/admin/notification-deliveries/test-teams-activity", request, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+
+        var ok = await adminClient.PostAsJsonAsync("/api/admin/notification-deliveries/test-teams-activity", request, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        var response = await ok.Content.ReadFromJsonAsync<NotificationTestTeamsActivityResponse>(TestContext.Current.CancellationToken);
+        Assert.NotNull(response);
+        Assert.Equal(NotificationDeliveryStatuses.DryRunSent, response.Status);
+        Assert.Equal("DryRun", response.Provider);
+        Assert.Equal("workItemAssigned", response.ActivityType);
+        Assert.False(response.IsActualEligible);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsActivity' and delivery_type = 'ManualTest' and status = 'DryRunSent';"));
+    }
+
+    [Fact]
+    public async Task AdminTestTeamsActivityEndpoint_ReturnsBadRequest_WhenActivityTypeIsNotDeclared()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:TeamsActivity:Enabled"] = "true",
+            ["Notifications:TeamsActivity:DryRun"] = "true"
+        });
+        using var adminClient = context.CreateClient("dev-admin");
+
+        var badRequest = await adminClient.PostAsJsonAsync(
+            "/api/admin/notification-deliveries/test-teams-activity",
+            new NotificationTestTeamsActivityRequest(DevAdminUserId, "notInManifest", "제목", "본문", null),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, badRequest.StatusCode);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsActivity';"));
+    }
+
+    [Fact]
     public async Task AdminTestMailEndpoint_ReturnsBadRequest_WhenRecipientIsMissing()
     {
         await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
@@ -829,6 +1079,33 @@ public sealed class NotificationDeliveryTests
               and channel = 'TeamsDirectMessage'
               and status = 'DryRunSent';
             """));
+    }
+
+    [Fact]
+    public async Task Escalation_CanCreateTeamsActivityPersonalDelivery_WhenStrategyIsTeamsActivity()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:Escalation:Enabled"] = "true",
+            ["Notifications:Escalation:TeamsPersonalDryRun"] = "true",
+            ["Notifications:Escalation:TeamsPersonalChannelStrategy"] = "TeamsActivity",
+            ["Notifications:TeamsActivity:Enabled"] = "true",
+            ["Notifications:TeamsActivity:DryRun"] = "true",
+            ["Notifications:TeamsActivity:TopicWebUrl"] = "https://qms.example.test"
+        });
+        await context.InsertWorkItemAsync("ProductionPlanning", "ProductionPlanningPrimary", DevAdminUserId, "2026-07-06", "l0-teams-activity-strategy");
+
+        var summary = await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, summary.CreatedDeliveryCount);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries
+            where delivery_type = 'DueSoonL0'
+              and channel = 'TeamsActivity'
+              and status = 'Pending';
+            """));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsDirectMessage';"));
     }
 
     [Fact]
@@ -997,6 +1274,26 @@ public sealed class NotificationDeliveryTests
             CorrelationId: "ABC123");
     }
 
+    private static NotificationDeliveryMessage CreateTeamsActivityDeliveryMessage(
+        string authProvider = "EntraId",
+        string? entraObjectId = "entra-user-object-id")
+    {
+        return new NotificationDeliveryMessage(
+            Guid.NewGuid(),
+            NotificationDeliveryChannels.TeamsActivity,
+            NotificationDeliveryTypes.WorkItemCreated,
+            "테스트 업무",
+            "테스트 업무가 배정되었습니다.",
+            "/projects/40000000-0000-0000-0000-000000000001",
+            "테스트 수신자",
+            "recipient@example.test",
+            CorrelationId: "ABC123",
+            RecipientUserId: DevAdminUserId,
+            RecipientEntraObjectId: entraObjectId,
+            RecipientAuthProvider: authProvider,
+            RecipientUserIsActive: true);
+    }
+
     private sealed class NotificationDeliveryTestContext : IAsyncDisposable
     {
         private NotificationDeliveryTestContext(PostgreSqlTestDatabase database, QmsWebApplicationFactory factory)
@@ -1032,6 +1329,8 @@ public sealed class NotificationDeliveryTests
                 ["Notifications:Escalation:Enabled"] = "false",
                 ["Notifications:Teams:Enabled"] = "false",
                 ["Notifications:Teams:DryRun"] = "true",
+                ["Notifications:TeamsActivity:Enabled"] = "false",
+                ["Notifications:TeamsActivity:DryRun"] = "true",
                 ["Notifications:Mail:Enabled"] = "false",
                 ["Notifications:Mail:DryRun"] = "true"
             });
@@ -1227,6 +1526,62 @@ public sealed class NotificationDeliveryTests
             var response = new HttpResponseMessage(statusCode);
             response.Headers.Add("request-id", "test-request-id");
             return response;
+        }
+    }
+
+    private sealed class TeamsActivityHttpMessageHandler(HttpStatusCode activityStatusCode) : HttpMessageHandler
+    {
+        public Uri? TokenRequestUri { get; private set; }
+        public string TokenRequestBody { get; private set; } = "";
+        public Uri? ActivityRequestUri { get; private set; }
+        public string? ActivityRequestBody { get; private set; }
+        public string? AuthorizationScheme { get; private set; }
+        public string? ClientRequestId { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsolutePath.Contains("/oauth2/v2.0/token", StringComparison.Ordinal) == true)
+            {
+                TokenRequestUri = request.RequestUri;
+                TokenRequestBody = request.Content is null
+                    ? ""
+                    : await request.Content.ReadAsStringAsync(cancellationToken);
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new
+                    {
+                        access_token = "placeholder-access-token",
+                        expires_in = 3600
+                    })
+                };
+            }
+
+            ActivityRequestUri = request.RequestUri;
+            AuthorizationScheme = request.Headers.Authorization?.Scheme;
+            ClientRequestId = request.Headers.TryGetValues("client-request-id", out var clientRequestIds)
+                ? clientRequestIds.FirstOrDefault()
+                : null;
+            ActivityRequestBody = request.Content is null
+                ? null
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+
+            var response = new HttpResponseMessage(activityStatusCode);
+            response.Headers.Add("request-id", "teams-activity-request-id");
+            return response;
+        }
+    }
+
+    private sealed class CapturingTeamsActivityClient : ITeamsActivityClient
+    {
+        public bool WasCalled { get; private set; }
+        public TeamsActivitySendRequest? Request { get; private set; }
+
+        public Task<NotificationChannelResult> SendAsync(TeamsActivitySendRequest request, CancellationToken cancellationToken)
+        {
+            WasCalled = true;
+            Request = request;
+            return Task.FromResult(NotificationChannelResult.Sent("teams-activity-test"));
         }
     }
 

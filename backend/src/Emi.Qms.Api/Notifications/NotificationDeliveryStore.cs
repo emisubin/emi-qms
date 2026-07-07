@@ -151,6 +151,9 @@ public sealed class NotificationDeliveryStore(
                 nd.updated_at_utc,
                 u.display_name,
                 u.email,
+                u.entra_object_id,
+                u.auth_provider,
+                u.is_active,
                 n.title,
                 n.message,
                 n.link_url,
@@ -254,6 +257,9 @@ public sealed class NotificationDeliveryStore(
                 nd.updated_at_utc,
                 u.display_name,
                 u.email,
+                u.entra_object_id,
+                u.auth_provider,
+                u.is_active,
                 n.title,
                 n.message,
                 n.link_url,
@@ -327,6 +333,66 @@ public sealed class NotificationDeliveryStore(
             : throw new InvalidOperationException("Manual test delivery id was not returned.");
     }
 
+    public async Task<Guid> CreateManualTestTeamsActivityDeliveryAsync(Guid recipientUserId, CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            insert into notification_deliveries (
+                recipient_user_id,
+                channel,
+                delivery_type,
+                status,
+                dedupe_key,
+                group_key,
+                next_attempt_at_utc
+            )
+            values (
+                @recipient_user_id,
+                'TeamsActivity',
+                'ManualTest',
+                'Pending',
+                @dedupe_key,
+                @group_key,
+                @now
+            )
+            returning id;
+            """);
+        var now = timeProvider.GetUtcNow();
+        command.Parameters.AddWithValue("recipient_user_id", recipientUserId);
+        command.Parameters.AddWithValue("dedupe_key", $"manual-test-teams-activity:{now:yyyyMMddHHmmss}:{Guid.NewGuid():N}");
+        command.Parameters.AddWithValue("group_key", "manual-test-teams-activity");
+        command.Parameters.AddWithValue("now", now);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is Guid deliveryId
+            ? deliveryId
+            : throw new InvalidOperationException("Manual Teams Activity test delivery id was not returned.");
+    }
+
+    public async Task<TeamsActivityRecipientProfile?> GetTeamsActivityRecipientAsync(Guid recipientUserId, CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            select id, display_name, email, entra_object_id, auth_provider, is_active
+            from qms_users
+            where id = @recipient_user_id;
+            """);
+        command.Parameters.AddWithValue("recipient_user_id", recipientUserId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new TeamsActivityRecipientProfile(
+            reader.GetGuid(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            reader.GetString(4),
+            reader.GetBoolean(5));
+    }
+
     public async Task<NotificationDeliveryMessage> RenderMessageAsync(NotificationDeliveryRecord delivery, CancellationToken cancellationToken)
     {
         if (delivery.DeliveryType == NotificationDeliveryTypes.DailyDigest && delivery.RecipientUserId is not null)
@@ -358,7 +424,11 @@ public sealed class NotificationDeliveryStore(
             body,
             delivery.LinkUrl,
             delivery.RecipientDisplayName,
-            delivery.RecipientEmail);
+            delivery.RecipientEmail,
+            RecipientUserId: delivery.RecipientUserId,
+            RecipientEntraObjectId: delivery.RecipientEntraObjectId,
+            RecipientAuthProvider: delivery.RecipientAuthProvider,
+            RecipientUserIsActive: delivery.RecipientUserIsActive);
     }
 
     private async Task<NotificationDeliveryMessage> RenderDailyDigestAsync(NotificationDeliveryRecord delivery, CancellationToken cancellationToken)
@@ -373,7 +443,11 @@ public sealed class NotificationDeliveryStore(
                 "수신자 정보가 없어 일일 요약을 생성할 수 없습니다.",
                 null,
                 delivery.RecipientDisplayName,
-                delivery.RecipientEmail);
+                delivery.RecipientEmail,
+                RecipientUserId: delivery.RecipientUserId,
+                RecipientEntraObjectId: delivery.RecipientEntraObjectId,
+                RecipientAuthProvider: delivery.RecipientAuthProvider,
+                RecipientUserIsActive: delivery.RecipientUserIsActive);
         }
 
         await using var dataSource = CreateDataSource();
@@ -441,7 +515,11 @@ public sealed class NotificationDeliveryStore(
             string.Join(Environment.NewLine, lines),
             null,
             delivery.RecipientDisplayName,
-            delivery.RecipientEmail);
+            delivery.RecipientEmail,
+            RecipientUserId: delivery.RecipientUserId,
+            RecipientEntraObjectId: delivery.RecipientEntraObjectId,
+            RecipientAuthProvider: delivery.RecipientAuthProvider,
+            RecipientUserIsActive: delivery.RecipientUserIsActive);
     }
 
     private async Task<int> InsertUrgentTeamsChannelDeliveriesAsync(
@@ -817,13 +895,16 @@ public sealed class NotificationDeliveryStore(
             reader.GetFieldValue<DateTimeOffset>(20),
             reader.IsDBNull(21) ? null : reader.GetString(21),
             reader.IsDBNull(22) ? null : reader.GetString(22),
-            reader.IsDBNull(23) ? null : reader.GetString(23),
-            reader.IsDBNull(24) ? null : reader.GetString(24),
-            reader.IsDBNull(25) ? null : reader.GetString(25),
             reader.IsDBNull(26) ? null : reader.GetString(26),
             reader.IsDBNull(27) ? null : reader.GetString(27),
             reader.IsDBNull(28) ? null : reader.GetString(28),
-            reader.IsDBNull(29) ? null : reader.GetString(29));
+            reader.IsDBNull(29) ? null : reader.GetString(29),
+            reader.IsDBNull(30) ? null : reader.GetString(30),
+            reader.IsDBNull(31) ? null : reader.GetString(31),
+            reader.IsDBNull(32) ? null : reader.GetString(32),
+            reader.IsDBNull(23) ? null : reader.GetString(23),
+            reader.IsDBNull(24) ? null : reader.GetString(24),
+            reader.IsDBNull(25) ? null : reader.GetBoolean(25));
     }
 
     private NpgsqlDataSource CreateDataSource()

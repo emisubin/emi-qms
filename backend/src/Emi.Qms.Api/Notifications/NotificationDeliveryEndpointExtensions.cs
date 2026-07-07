@@ -90,6 +90,82 @@ public static class NotificationDeliveryEndpointExtensions
         .RequireAuthorization(QmsPolicies.AdminUsersRead)
         .WithName("SendNotificationTestMail");
 
+        app.MapPost("/api/admin/notification-deliveries/test-teams-activity", async (
+            NotificationTestTeamsActivityRequest request,
+            NotificationDeliveryStore deliveryStore,
+            IEnumerable<INotificationChannelHandler> channelHandlers,
+            IOptionsMonitor<NotificationOptions> options,
+            CancellationToken cancellationToken) =>
+        {
+            if (request.RecipientUserId is not { } recipientUserId)
+            {
+                return Results.BadRequest(new { message = "Teams Activity 테스트 수신자 user id를 입력해 주세요." });
+            }
+
+            var recipient = await deliveryStore.GetTeamsActivityRecipientAsync(recipientUserId, cancellationToken);
+            if (recipient is null)
+            {
+                return Results.BadRequest(new { message = "Teams Activity 테스트 수신자를 찾을 수 없습니다." });
+            }
+
+            var teamsActivityOptions = options.CurrentValue.TeamsActivity;
+            var activityType = string.IsNullOrWhiteSpace(request.ActivityType)
+                ? teamsActivityOptions.ActivityTypes.WorkItemAssigned
+                : request.ActivityType.Trim();
+            if (!TeamsActivityNotificationRenderer.IsDeclaredActivityType(activityType, teamsActivityOptions.ActivityTypes))
+            {
+                return Results.BadRequest(new { message = "Teams 앱 manifest 설정에 없는 activityType입니다." });
+            }
+
+            var correlationId = CreateCorrelationId();
+            var title = string.IsNullOrWhiteSpace(request.Title)
+                ? "TASK-NOTIFY-003 Teams Activity 테스트"
+                : request.Title.Trim();
+            var message = string.IsNullOrWhiteSpace(request.Message)
+                ? "EMI 프로젝트 통합관리시스템 Teams Activity Feed dry-run 테스트입니다. 실제 업무 알림이 아닙니다."
+                : request.Message.Trim();
+            var teamsActivityHandler = channelHandlers.Single(handler => handler.Channel == NotificationDeliveryChannels.TeamsActivity);
+            var deliveryId = await deliveryStore.CreateManualTestTeamsActivityDeliveryAsync(recipient.UserId, cancellationToken);
+            var result = await teamsActivityHandler.SendAsync(
+                new NotificationDeliveryMessage(
+                    deliveryId,
+                    NotificationDeliveryChannels.TeamsActivity,
+                    NotificationDeliveryTypes.ManualTest,
+                    title,
+                    BuildTestTeamsActivityBody(message, activityType, correlationId),
+                    request.LinkUrl,
+                    recipient.DisplayName,
+                    recipient.Email,
+                    CorrelationId: correlationId,
+                    RecipientUserId: recipient.UserId,
+                    RecipientEntraObjectId: recipient.EntraObjectId,
+                    RecipientAuthProvider: recipient.AuthProvider,
+                    RecipientUserIsActive: recipient.IsActive,
+                    TeamsActivityType: activityType),
+                cancellationToken);
+            await deliveryStore.MarkDeliveryResultAsync(deliveryId, result, retryCount: 1, cancellationToken);
+
+            var isActualEligible = recipient.IsActive
+                && string.Equals(recipient.AuthProvider, "EntraId", StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(recipient.EntraObjectId);
+
+            return Results.Ok(new NotificationTestTeamsActivityResponse(
+                deliveryId,
+                result.Status,
+                result.ErrorCode,
+                result.ErrorMessage,
+                teamsActivityOptions.DryRun ? "DryRun" : "Graph",
+                correlationId,
+                activityType,
+                "Request",
+                MaskRecipient(recipient),
+                teamsActivityOptions.DryRun,
+                isActualEligible,
+                result.ProviderMessageId));
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("SendNotificationTestTeamsActivity");
+
         return app;
     }
 
@@ -122,6 +198,21 @@ public static class NotificationDeliveryEndpointExtensions
             """;
     }
 
+    private static string BuildTestTeamsActivityBody(string message, string activityType, string correlationId)
+    {
+        return $"""
+            EMI 프로젝트 통합관리시스템
+
+            {message}
+
+            환경: UAT
+            채널: TeamsActivity
+            ActivityType: {activityType}
+            Correlation ID: {correlationId}
+            발송 시각: {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm:ss} UTC
+            """;
+    }
+
     private static string CreateCorrelationId()
     {
         return Convert.ToHexString(RandomNumberGenerator.GetBytes(4));
@@ -141,6 +232,26 @@ public static class NotificationDeliveryEndpointExtensions
         }
 
         return value[..1] + "***" + value[at..];
+    }
+
+    private static string MaskRecipient(TeamsActivityRecipientProfile recipient)
+    {
+        if (!string.IsNullOrWhiteSpace(recipient.Email))
+        {
+            return MaskAddress(recipient.Email);
+        }
+
+        if (!string.IsNullOrWhiteSpace(recipient.EntraObjectId))
+        {
+            return MaskIdentifier(recipient.EntraObjectId);
+        }
+
+        return MaskIdentifier(recipient.UserId.ToString("D"));
+    }
+
+    private static string MaskIdentifier(string value)
+    {
+        return value.Length <= 8 ? "***" : $"{value[..4]}***{value[^4..]}";
     }
 
     private static bool IsValidEmail(string value)

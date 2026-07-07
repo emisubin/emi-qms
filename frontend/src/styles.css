@@ -257,6 +257,23 @@ h3 {
   overflow-x: auto;
 }
 
+.permission-matrix-table {
+  table-layout: fixed;
+  min-width: 760px;
+}
+
+.permission-matrix-label-cell {
+  width: 240px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.permission-matrix-value-cell {
+  width: 150px;
+  text-align: center;
+  vertical-align: middle;
+}
+
 .status-chip {
   display: flex;
   min-height: 54px;
@@ -1543,6 +1560,20 @@ h3 {
   opacity: 0.55;
 }
 
+.bulk-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.bulk-action-bar span {
+  color: #52665a;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
 .compact-field {
   margin: 0;
 }
@@ -1773,11 +1804,39 @@ h3 {
   color: #6b7280;
 }
 
+.lifecycle-badge.lifecycle-active {
+  background: #dcfce7;
+  color: #047857;
+}
+
+.lifecycle-badge.lifecycle-inactive {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.lifecycle-badge.lifecycle-deletion-scheduled {
+  background: #fde7e5;
+  color: #b42318;
+}
+
+.lifecycle-badge.lifecycle-purge-blocked {
+  background: #fef3c7;
+  color: #b45309;
+}
+
 .status-badge-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+.lifecycle-status {
+  display: inline-flex;
+  max-width: 220px;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
 }
 
 .calendar-holiday-form {
@@ -1873,6 +1932,11 @@ h3 {
 .error-text {
   color: #b42318;
   font-weight: 700;
+}
+
+.form-field small.muted-text {
+  color: #6b7280;
+  font-weight: 600;
 }
 
 .success-text {

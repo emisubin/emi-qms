@@ -203,6 +203,12 @@ public static class AuthorizationServiceCollectionExtensions
                 policy.RequireAuthenticatedUser();
                 policy.AddRequirements(new PermissionRequirement(QmsPermissions.UsersManage));
             });
+
+            options.AddPolicy(QmsPolicies.AdminHistoryRead, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.AdminHistoryRead));
+            });
         });
 
         services.AddSingleton<InMemoryIdentityStore>();

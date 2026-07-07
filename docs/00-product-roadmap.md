@@ -905,6 +905,7 @@ Excel 출력 대상 후보:
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존 | 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
+| 관리자 | 시스템 관리 중심 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림/에스컬레이션 조회, 삭제 예정 + 7일 후 완전 삭제 시도, 복구, 일괄 삭제/복구, 삭제 보류, 부서 field-level validation | Item/포장방식/생산계획 단계/구매 필수 항목 관리자 통합 여부, role/permission 편집 UI, 삭제 예정 데이터 purge 운영 정책, 전체 field-level audit 확장 |
 | UAT | 고정 UAT DB, UAT backend/frontend 포트 | 게시 전 persistence 자동 검증 강화 |
 | E2E | 전용 backend/frontend 포트, 전용 DB, cleanup | 신규 업무 단계마다 시나리오 추가 |
 
@@ -928,8 +929,9 @@ Excel 출력 대상 후보:
 - 공휴일/영업일 기반은 구현 완료되었으며, 운영 전 연간 대한민국 공휴일/대체공휴일/임시공휴일/회사휴일 데이터를 관리자 휴일 관리 또는 공식 API sync로 검수한다.
 - 공식 대한민국 공휴일 API service key 연동과 자동 sync scheduler는 후속으로 검토한다.
 - NOTIFY-002는 BusinessDayCalculator를 재사용한다. 생산계획/구매 예정일을 `work_items.due_date`로 동기화할지 여부와 due_date 입력 UX는 후속으로 확정한다.
-- 관리자 기준정보 페이지를 추가한다.
-- 업무 시작/완료 이력 관리자 화면을 추가한다.
+- ADMIN-001은 시스템 관리 중심으로 구현 완료되었으며, Item/포장방식/생산계획 단계/구매 필수 항목의 관리자 통합 여부는 후속 사용자 결정으로 남긴다.
+- 관리자 삭제 예정 데이터의 7일 후 purge 운영 정책, 삭제 보류 처리 모니터링, 전체 field-level audit 확장은 운영 검수 후 고도화한다.
+- role/permission 편집 UI, Pending 유형 관리, 검사/제조 체크리스트 템플릿, 발송 실패 수동 재처리 UI는 ADMIN-001 범위에서 제외되어 후속으로 검토한다.
 
 ## 23. 향후 개발 로드맵
 
@@ -998,11 +1000,12 @@ Excel 출력 대상 후보:
 
 ### TASK-ADMIN-001: 관리자 기준정보 페이지
 
-- 목적: 기준정보를 코드/seed가 아닌 관리자 화면에서 관리
-- 포함 범위: Item, 생산계획 단계, 구매 필수 항목, 공휴일, 포장방식, 사용자/역할 일부
-- 제외 범위: 검사/제조 template 전체 고도화
+- 상태: 완료
+- 목적: 시스템 관리 중심의 관리자 홈과 사용자/부서/휴일/이력/모니터 화면을 제공한다.
+- 포함 범위: 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 삭제 예정/복구/일괄 action, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림 발송 상태 조회, 에스컬레이션 상태 조회, 부서 field-level validation
+- 제외 범위: Item 관리, 포장방식 관리, 생산계획 단계 관리, 구매 필수 항목 관리, 권한 편집, role master 편집, Pending/검사/제조 템플릿, due_date 정책 관리, Teams Activity actual
 - 선행조건: 권한/관리자 정책 확정
-- 주요 테스트: 관리자 접근, 업무 입력 권한 분리, 이력
+- 주요 테스트: backend 전체 test, Admin targeted tests, Migration tests, Authorization tests, Calendar/Holiday tests, User/Identity tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, UAT admin browser/deletion smoke, secret scan
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1103,7 +1106,7 @@ Excel 출력 대상 후보:
 | 21 | 영업 정산 항목 | 부분 확정 | 사용자 논의 | TASK-014A | 세금계산서 완료는 확정 |
 | 22 | 모든 페이지 Excel 출력 범위 | 초안 | 사용자 요청 | TASK-EXPORT-001 | 공통 export 권장 |
 | 23 | Microsoft 365 로그인 적용 시점 | 완료 | 인프라/운영 결정 | TASK-INFRA-001 | 인증 기반 구현 완료. 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 필요 |
-| 24 | 관리자 페이지 범위 | 초안 | 사용자 요청 | TASK-ADMIN-001 | 기준정보와 이력 관리 |
+| 24 | 관리자 페이지 범위 | 완료 | 사용자 요청 | TASK-ADMIN-001 | 시스템 관리 중심으로 구현 완료. 업무 부서 입력 기준정보는 후속 결정 |
 | 25 | 프로젝트 대표 상태 방식 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 병목 기준 + 진행률 |
 | 26 | 알림 채널 구성 | 부분 완료 | 실무 협의 | TASK-NOTIFY-001/002/003 | 인앱 원본, Teams 통합 채널 게시, Gmail SMTP 메일, delivery 이력, due_date 기반 에스컬레이션 엔진은 구현 완료. Teams Activity Feed 개인 알림은 후속 |
 | 27 | 진행률(%) 계산식 정의 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수. FAT는 대상 프로젝트만 분모 포함. 프로젝트 상태 집계는 9장 기준. |
@@ -1122,6 +1125,13 @@ Excel 출력 대상 후보:
 | 40 | 생산계획/구매 예정일의 work_items.due_date 동기화 | 미확정 | 사용자/운영 | TASK-NOTIFY-002 이후 | NOTIFY-002는 엔진만 구현. 생산계획 planned_date, 구매 expected_receipt_date, 업무 입력 UX와 due_date 연결 정책 결정 필요 |
 | 41 | due_date 없는 기존 업무 처리 정책 | 미확정 | 사용자/운영 | TASK-NOTIFY-002 이후 | due_date null 업무는 에스컬레이션 제외. 운영 적용 전 due_date 입력/보강 기준 필요 |
 | 42 | Daily Digest HTML table 개선 여부 | 미확정 | 사용자/운영 | 알림 UX 후속 | 담당 프로젝트 요약은 plain text renderer 기준으로 구현. 필요 시 HTML table 개선 |
+| 43 | Item 관리자 관리 여부 | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001에서는 제외. Item 신규 추가/정렬/비활성화 정책은 별도 결정 필요 |
+| 44 | 포장방식 기준정보화 및 size_required | 미확정 | 사용자/운영 | ADMIN/패널 후속 | ADMIN-001에서는 제외. 패널 완료 판정, 프로젝트 입력, Excel 회귀 범위 검토 필요 |
+| 45 | 생산계획 단계/구매 필수 항목 관리자 통합 | 미확정 | 사용자/운영 | ADMIN 후속 | 현재는 각 업무 영역 설정으로 유지 |
+| 46 | role/permission 편집 UI | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001은 read-only 권한 매트릭스만 제공 |
+| 47 | 삭제 예정 데이터 purge 운영 정책 | 미확정 | 사용자/운영 | 운영 고도화 | 7일 후 purge worker는 구현. 보류 데이터 처리/운영 알림은 후속 검토 |
+| 48 | 전체 field-level audit 확장 | 미확정 | 사용자/운영 | Audit 후속 | ADMIN-001은 관리자 변경 이력 중심 |
+| 49 | 관리자 모바일 UX 고도화 | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001은 page-level overflow 방지 기준으로 검수 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1165,6 +1175,10 @@ Excel 출력 대상 후보:
 | 2026-07-03 | 예정일 에스컬레이션은 `work_items.due_date` 기반 엔진만 구현하고, 세부 due_date 입력/동기화 정책은 후속 확정 | 생산계획/구매 예정일이 업무 기한인지 대상 일정인지 아직 확정되지 않았기 때문 | 6장, 23장 |
 | 2026-07-03 | L0는 예정일의 직전 영업일 기준으로 확정 | 달력일 기준보다 회사 영업일 기준 알림이 실무에 적합 | 6장 |
 | 2026-07-03 | Daily Digest에 담당 프로젝트 요약을 포함 | 담당자가 매일 자신의 담당 프로젝트와 납기/역할을 함께 확인할 수 있게 하기 위함 | 6장 |
+| 2026-07-03 | ADMIN-001은 시스템 관리 중심으로 범위를 제한하고, Item/포장방식/생산계획 단계/구매 필수 항목 관리는 제외 | 각 부서가 업무 중 입력·관리하는 기준정보를 관리자 페이지에서 과도하게 통합하지 않기 위함 | 20장, 23장 |
+| 2026-07-03 | 관리자 삭제는 삭제 예정 상태로 전환하고 7일 내 복구 가능하게 설계 | 실수 삭제를 방지하고 복구 기간을 제공하기 위함 | 20장 |
+| 2026-07-03 | 삭제 예정 데이터는 재삭제 시 즉시 완전 삭제를 시도하되, 참조 데이터가 있으면 삭제 보류 처리 | 관리자 통제권과 데이터 무결성을 동시에 보장하기 위함 | 20장 |
+| 2026-07-03 | 모든 TASK 완료 전 사용자 검수 체크리스트를 포함 | 자동 테스트 외 실제 화면 검수를 누락하지 않기 위함 | 27장 |
 
 ## 26. 용어 사전
 
@@ -1224,6 +1238,9 @@ Codex는 새 TASK 시작 시 다음 원칙을 따른다.
 - 에스컬레이션 채널은 TeamsActivity 전환 가능성을 고려해 특정 actual Teams 채널로 하드코딩하지 않는다.
 - due_date 없는 업무는 에스컬레이션하지 않는다.
 - 생산계획/구매 예정일과 `work_items.due_date` 자동 동기화는 사용자 결정 전 구현하지 않는다.
+- 모든 TASK 지시문/완료보고에는 사용자 검수 체크리스트를 포함한다.
+- 관리자 삭제 기능은 hard delete 전 유예/복구 정책을 명확히 해야 한다.
+- 관리자는 시스템 관리 중심이며, 업무 부서의 입력 기준정보는 사용자 결정 없이 관리자 페이지에 통합하지 않는다.
 - 사용자-facing 추적 단위는 “패널” 단독 표기를 사용한다.
 - “제품/패널” 병기 표현을 새로 추가하지 않는다.
 - 진행률 계산식은 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수 기준을 따른다.

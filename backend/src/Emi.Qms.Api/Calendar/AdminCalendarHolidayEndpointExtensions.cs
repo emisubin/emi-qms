@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.PanelInformation;
 using Microsoft.AspNetCore.Mvc;
@@ -78,16 +80,98 @@ public static class AdminCalendarHolidayEndpointExtensions
 
         app.MapDelete("/api/admin/calendar/holidays/{holidayId:guid}", async (
             Guid holidayId,
+            ClaimsPrincipal user,
             AdminCalendarHolidayStore store,
             CancellationToken cancellationToken) =>
         {
-            var result = await store.DeactivateAsync(holidayId, cancellationToken);
+            var currentUserId = GetCurrentUserId(user);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await store.DeactivateAsync(holidayId, currentUserId.Value, cancellationToken);
             return result.Succeeded && result.Holiday is not null
                 ? Results.Ok(result.Holiday)
                 : Results.BadRequest(new { message = result.ErrorMessage ?? "휴일을 비활성화할 수 없습니다." });
         })
         .RequireAuthorization(QmsPolicies.AdminUsersRead)
         .WithName("DeactivateAdminCalendarHoliday");
+
+        app.MapPost("/api/admin/calendar/holidays/{holidayId:guid}/restore", async (
+            Guid holidayId,
+            ClaimsPrincipal user,
+            AdminCalendarHolidayStore store,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(user);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await store.RestoreAsync(holidayId, currentUserId.Value, cancellationToken);
+            return result.Succeeded && result.Holiday is not null
+                ? Results.Ok(result.Holiday)
+                : Results.BadRequest(new { message = result.ErrorMessage ?? "휴일을 복구할 수 없습니다." });
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("RestoreAdminCalendarHoliday");
+
+        app.MapDelete("/api/admin/calendar/holidays/{holidayId:guid}/purge", async (
+            Guid holidayId,
+            ClaimsPrincipal user,
+            AdminScheduledDeletionService deletionService,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(user);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await deletionService.PurgeHolidayNowAsync(holidayId, currentUserId.Value, cancellationToken);
+            return result.Status == "Failed"
+                ? Results.BadRequest(new { message = result.Message })
+                : Results.Ok(ToSingleBulkActionResponse(holidayId, result));
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("PurgeAdminCalendarHoliday");
+
+        app.MapPost("/api/admin/calendar/holidays/bulk-delete", async (
+            AdminBulkActionRequest request,
+            ClaimsPrincipal user,
+            AdminCalendarHolidayStore store,
+            AdminScheduledDeletionService deletionService,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(user);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            return Results.Ok(await store.BulkDeleteAsync(request.Ids, currentUserId.Value, deletionService, cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("BulkDeleteAdminCalendarHolidays");
+
+        app.MapPost("/api/admin/calendar/holidays/bulk-restore", async (
+            AdminBulkActionRequest request,
+            ClaimsPrincipal user,
+            AdminCalendarHolidayStore store,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(user);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            return Results.Ok(await store.BulkRestoreAsync(request.Ids, currentUserId.Value, cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("BulkRestoreAdminCalendarHolidays");
 
         app.MapGet("/api/admin/calendar/holidays/template", (
             CalendarHolidayExcelParser parser) =>
@@ -212,6 +296,21 @@ public static class AdminCalendarHolidayEndpointExtensions
         }
 
         return errors;
+    }
+
+    private static Guid? GetCurrentUserId(ClaimsPrincipal user)
+    {
+        return Guid.TryParse(user.FindFirstValue(QmsClaimTypes.UserId), out var userId) ? userId : null;
+    }
+
+    private static AdminBulkActionResponse ToSingleBulkActionResponse(Guid id, AdminPurgeActionResult result)
+    {
+        return new AdminBulkActionResponse(
+            1,
+            result.Status == "Failed" ? 0 : 1,
+            result.Status == "Failed" ? 1 : 0,
+            0,
+            [new AdminBulkActionItemResponse(id, result.Status, result.Message)]);
     }
 
     private static async Task<HolidayExcelUploadForm> ReadHolidayExcelUploadAsync(HttpRequest request, CancellationToken cancellationToken)

@@ -117,9 +117,15 @@ public sealed class IdentityInfrastructureTests
             TestContext.Current.CancellationToken);
 
         Assert.False(lastAdminRoleRemoval.Succeeded);
-        Assert.Contains("마지막 active System Administrator", lastAdminRoleRemoval.ErrorMessage, StringComparison.Ordinal);
+        Assert.Contains("마지막 System Administrator는 삭제할 수 없습니다.", lastAdminRoleRemoval.ErrorMessage, StringComparison.Ordinal);
         Assert.False(lastAdminDeactivation.Succeeded);
-        Assert.Contains("마지막 active System Administrator", lastAdminDeactivation.ErrorMessage, StringComparison.Ordinal);
+        Assert.Contains("마지막 System Administrator는 삭제할 수 없습니다.", lastAdminDeactivation.ErrorMessage, StringComparison.Ordinal);
+        var lastAdminDeletion = await administration.ScheduleEntraUserDeletionAsync(
+            admin.User.Id,
+            admin.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.False(lastAdminDeletion.Succeeded);
+        Assert.Contains("마지막 System Administrator는 삭제할 수 없습니다.", lastAdminDeletion.ErrorMessage, StringComparison.Ordinal);
 
         var promotedExistingBootstrap = await store.GetOrCreateEntraProfileAsync(
             "existing-bootstrap-oid",
@@ -131,6 +137,16 @@ public sealed class IdentityInfrastructureTests
         Assert.Equal(existingPendingBootstrap.User.Id, promotedExistingBootstrap.User.Id);
         Assert.Contains(promotedExistingBootstrap.Roles, role => role.Code == QmsRoles.SystemAdministrator);
         Assert.Contains(promotedExistingBootstrap.Permissions, permission => permission.Code == QmsPermissions.UsersManage);
+
+        var scheduledDeletion = await administration.ScheduleEntraUserDeletionAsync(
+            admin.User.Id,
+            promotedExistingBootstrap.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.True(scheduledDeletion.Succeeded, scheduledDeletion.ErrorMessage);
+        var scheduledUser = Assert.Single(scheduledDeletion.Snapshot!.Users, user => user.UserId == admin.User.Id);
+        Assert.False(scheduledUser.IsActive);
+        Assert.NotNull(scheduledUser.DeletionRequestedAtUtc);
+        Assert.NotNull(scheduledUser.ScheduledHardDeleteAtUtc);
     }
 
     [Fact]

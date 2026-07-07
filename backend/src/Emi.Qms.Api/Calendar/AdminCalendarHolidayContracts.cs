@@ -1,3 +1,5 @@
+using Emi.Qms.Api.Admin;
+
 namespace Emi.Qms.Api.Calendar;
 
 public sealed record AdminCalendarHolidayListResponse(
@@ -15,7 +17,23 @@ public sealed record AdminCalendarHolidayResponse(
     string? Note,
     string Source,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    DateTimeOffset? DeletionRequestedAtUtc,
+    DateTimeOffset? ScheduledHardDeleteAtUtc,
+    DateTimeOffset? PurgeBlockedAtUtc,
+    string? PurgeBlockedReason,
+    bool? PreDeleteIsActive)
+{
+    public string LifecycleStatus => AdminDeletionLifecycle.Calculate(
+        IsActive,
+        DeletionRequestedAtUtc,
+        ScheduledHardDeleteAtUtc,
+        PurgeBlockedAtUtc);
+
+    public string LifecycleStatusLabel => AdminDeletionLifecycle.Label(LifecycleStatus);
+
+    public string? ScheduledHardDeleteLabel => AdminDeletionLifecycle.FormatScheduledHardDeleteLabel(ScheduledHardDeleteAtUtc);
+}
 
 public sealed record UpsertAdminCalendarHolidayRequest(
     DateOnly? Date,

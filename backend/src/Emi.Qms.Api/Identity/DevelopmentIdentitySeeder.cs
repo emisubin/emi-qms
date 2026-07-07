@@ -57,19 +57,23 @@ public sealed class DevelopmentIdentitySeeder(
     }
 
     private const string SeedSql = """
-        insert into departments (id, code, name)
+        insert into departments (id, code, name, is_active, sort_order)
         values
-            ('10000000-0000-0000-0000-000000000001', 'administration', 'Administration'),
-            ('10000000-0000-0000-0000-000000000002', 'sales', 'Sales'),
-            ('10000000-0000-0000-0000-000000000003', 'production-planning', 'Production Planning'),
-            ('10000000-0000-0000-0000-000000000004', 'manufacturing', 'Manufacturing'),
-            ('10000000-0000-0000-0000-000000000005', 'quality', 'Quality'),
-            ('10000000-0000-0000-0000-000000000006', 'logistics', 'Logistics'),
-            ('10000000-0000-0000-0000-000000000007', 'readonly', 'Read Only'),
-            ('10000000-0000-0000-0000-000000000008', 'design', 'Design'),
-            ('10000000-0000-0000-0000-000000000009', 'procurement', 'Procurement'),
-            ('10000000-0000-0000-0000-000000000010', 'materials', 'Materials')
-        on conflict (code) do update set name = excluded.name;
+            ('10000000-0000-0000-0000-000000000001', 'administration', 'Administration', true, 10),
+            ('10000000-0000-0000-0000-000000000002', 'sales', 'Sales', true, 20),
+            ('10000000-0000-0000-0000-000000000003', 'production-planning', 'Production Planning', true, 40),
+            ('10000000-0000-0000-0000-000000000004', 'manufacturing', 'Manufacturing', true, 70),
+            ('10000000-0000-0000-0000-000000000005', 'quality', 'Quality', true, 80),
+            ('10000000-0000-0000-0000-000000000006', 'logistics', 'Logistics', true, 90),
+            ('10000000-0000-0000-0000-000000000007', 'readonly', 'Read Only', true, 100),
+            ('10000000-0000-0000-0000-000000000008', 'design', 'Design', true, 30),
+            ('10000000-0000-0000-0000-000000000009', 'procurement', 'Procurement', true, 50),
+            ('10000000-0000-0000-0000-000000000010', 'materials', 'Materials', true, 60)
+        on conflict (code) do update
+        set name = excluded.name,
+            is_active = true,
+            sort_order = excluded.sort_order,
+            updated_at_utc = now();
 
         insert into qms_users (id, development_user_key, display_name, department_id, is_active, auth_provider, entra_object_id, email)
         values
@@ -255,6 +259,25 @@ public sealed class DevelopmentIdentitySeeder(
           and role_permissions.permission_id = permissions.id
           and permissions.code = 'ProductionPlan.Update'
           and roles.code <> 'production-planning';
+
+        insert into permissions (id, code, name)
+        values
+            ('30000000-0000-0000-0000-000000000025', 'admin-history.read', 'Read administrator history')
+        on conflict (code) do update set name = excluded.name;
+
+        insert into role_permissions (role_id, permission_id)
+        select roles.id, permissions.id
+        from roles
+        join permissions on permissions.code = 'admin-history.read'
+        where roles.code = 'system-administrator'
+        on conflict do nothing;
+
+        delete from role_permissions
+        using roles, permissions
+        where role_permissions.role_id = roles.id
+          and role_permissions.permission_id = permissions.id
+          and permissions.code = 'admin-history.read'
+          and roles.code <> 'system-administrator';
 
         insert into production_product_types (id, code, name)
         values ('60000000-0000-0000-0000-000000000001', 'TEST-TYPE', 'TEST-TYPE')

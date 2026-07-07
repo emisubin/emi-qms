@@ -1314,6 +1314,11 @@ public sealed class ProductionPlanningApiTests
 
         using var deactivated = await ReadJsonAsync(await adminClient.DeleteAsync($"/api/admin/calendar/holidays/{companyHolidayId}", TestContext.Current.CancellationToken));
         Assert.False(deactivated.RootElement.GetProperty("isActive").GetBoolean());
+        Assert.NotEqual(JsonValueKind.Null, deactivated.RootElement.GetProperty("deletionRequestedAtUtc").ValueKind);
+        Assert.NotEqual(JsonValueKind.Null, deactivated.RootElement.GetProperty("scheduledHardDeleteAtUtc").ValueKind);
+        Assert.Equal("DeletionScheduled", deactivated.RootElement.GetProperty("lifecycleStatus").GetString());
+        Assert.Equal("삭제 예정", deactivated.RootElement.GetProperty("lifecycleStatusLabel").GetString());
+        Assert.Matches(@"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", deactivated.RootElement.GetProperty("scheduledHardDeleteLabel").GetString());
 
         using var afterDeactivate = await ReadJsonAsync(await adminClient.GetAsync("/api/calendar/business-days?countryCode=KR&from=2026-07-09&to=2026-07-09", TestContext.Current.CancellationToken));
         var dayAfterDeactivate = afterDeactivate.RootElement.GetProperty("days").EnumerateArray().Single();
@@ -1323,7 +1328,53 @@ public sealed class ProductionPlanningApiTests
         using var list = await ReadJsonAsync(await adminClient.GetAsync("/api/admin/calendar/holidays?year=2026", TestContext.Current.CancellationToken));
         Assert.Contains(list.RootElement.GetProperty("holidays").EnumerateArray(), item =>
             item.GetProperty("holidayId").GetGuid() == companyHolidayId
-            && !item.GetProperty("isActive").GetBoolean());
+            && !item.GetProperty("isActive").GetBoolean()
+            && item.GetProperty("deletionRequestedAtUtc").ValueKind != JsonValueKind.Null);
+
+        using var restoredHoliday = await ReadJsonAsync(await adminClient.PostAsync(
+            $"/api/admin/calendar/holidays/{companyHolidayId}/restore",
+            null,
+            TestContext.Current.CancellationToken));
+        Assert.True(restoredHoliday.RootElement.GetProperty("isActive").GetBoolean());
+        Assert.Equal("Active", restoredHoliday.RootElement.GetProperty("lifecycleStatus").GetString());
+
+        using var afterRestore = await ReadJsonAsync(await adminClient.GetAsync("/api/calendar/business-days?countryCode=KR&from=2026-07-09&to=2026-07-09", TestContext.Current.CancellationToken));
+        var dayAfterRestore = afterRestore.RootElement.GetProperty("days").EnumerateArray().Single();
+        Assert.False(dayAfterRestore.GetProperty("isBusinessDay").GetBoolean());
+        Assert.True(dayAfterRestore.GetProperty("isHoliday").GetBoolean());
+
+        using var bulkDelete = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/calendar/holidays/bulk-delete",
+            new { ids = new[] { companyHolidayId }, reason = "bulk delete" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("DeleteScheduled", bulkDelete.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+
+        using var bulkRestore = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/calendar/holidays/bulk-restore",
+            new { ids = new[] { companyHolidayId }, reason = "bulk restore" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("Restored", bulkRestore.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+
+        using var bulkDeleteAgain = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/calendar/holidays/bulk-delete",
+            new { ids = new[] { companyHolidayId }, reason = "bulk delete" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("DeleteScheduled", bulkDeleteAgain.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+
+        using var immediatePurge = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
+            "/api/admin/calendar/holidays/bulk-delete",
+            new { ids = new[] { companyHolidayId }, reason = "bulk purge" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("Purged", immediatePurge.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+        using var afterPurgeList = await ReadJsonAsync(await adminClient.GetAsync("/api/admin/calendar/holidays?year=2026", TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(afterPurgeList.RootElement.GetProperty("holidays").EnumerateArray(), item => item.GetProperty("holidayId").GetGuid() == companyHolidayId);
+        Assert.True(await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from admin_master_change_logs
+            where entity_type = 'Holiday'
+              and entity_id = '{companyHolidayId}'
+              and action in ('DeleteScheduled', 'Restored', 'Purged');
+            """) >= 3);
     }
 
     [Fact]

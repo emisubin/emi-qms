@@ -257,6 +257,153 @@ h3 {
   overflow-x: auto;
 }
 
+.panel-section .table-scroll table,
+.admin-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.panel-section .table-scroll th,
+.panel-section .table-scroll td,
+.admin-table th,
+.admin-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e1e8e3;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.panel-section .table-scroll th,
+.admin-table th {
+  color: #52665a;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.admin-table__cell--checkbox,
+.admin-table__cell--status,
+.admin-table__cell--date {
+  text-align: center !important;
+}
+
+.admin-table__cell--number {
+  text-align: right !important;
+}
+
+.admin-table__cell--actions {
+  text-align: right !important;
+}
+
+.panel-section .table-scroll th:first-child:has(input[type='checkbox']),
+.panel-section .table-scroll td:first-child:has(input[type='checkbox']) {
+  width: 52px;
+  text-align: center;
+}
+
+.admin-table__cell--text {
+  text-align: left;
+}
+
+.admin-guidance {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  border: 1px solid #d8ded9;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 12px;
+}
+
+.admin-guidance p {
+  margin: 0;
+  color: #33443a;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.admin-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.admin-dashboard-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #d8ded9;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 14px;
+}
+
+.admin-dashboard-card-wide {
+  grid-column: span 2;
+}
+
+.admin-dashboard-card span,
+.admin-dashboard-card p {
+  color: #52665a;
+  font-weight: 800;
+}
+
+.admin-dashboard-card p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.admin-dashboard-card strong {
+  font-size: 1.4rem;
+}
+
+.admin-dashboard-card[data-tone='danger'] strong {
+  color: #b42318;
+}
+
+.admin-dashboard-card[data-tone='warning'] strong {
+  color: #9a5b00;
+}
+
+.escalation-level-breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.escalation-level-breakdown button {
+  display: grid;
+  gap: 4px;
+  min-height: 64px;
+  align-content: center;
+  text-align: left;
+}
+
+.escalation-level-breakdown button strong {
+  font-size: 1.05rem;
+}
+
+.permission-matrix-table {
+  table-layout: fixed;
+  min-width: 760px;
+}
+
+.permission-matrix-label-cell {
+  width: 240px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.permission-matrix-value-cell {
+  width: 150px;
+  text-align: center;
+  vertical-align: middle;
+}
+
 .status-chip {
   display: flex;
   min-height: 54px;
@@ -1543,6 +1690,20 @@ h3 {
   opacity: 0.55;
 }
 
+.bulk-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.bulk-action-bar span {
+  color: #52665a;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
 .compact-field {
   margin: 0;
 }
@@ -1773,11 +1934,39 @@ h3 {
   color: #6b7280;
 }
 
+.lifecycle-badge.lifecycle-active {
+  background: #dcfce7;
+  color: #047857;
+}
+
+.lifecycle-badge.lifecycle-inactive {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.lifecycle-badge.lifecycle-deletion-scheduled {
+  background: #fde7e5;
+  color: #b42318;
+}
+
+.lifecycle-badge.lifecycle-purge-blocked {
+  background: #fef3c7;
+  color: #b45309;
+}
+
 .status-badge-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+.lifecycle-status {
+  display: inline-flex;
+  max-width: 220px;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
 }
 
 .calendar-holiday-form {
@@ -1873,6 +2062,11 @@ h3 {
 .error-text {
   color: #b42318;
   font-weight: 700;
+}
+
+.form-field small.muted-text {
+  color: #6b7280;
+  font-weight: 600;
 }
 
 .success-text {

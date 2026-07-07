@@ -663,6 +663,55 @@ public sealed class NotificationDeliveryTests
     }
 
     [Fact]
+    public async Task AdminDeliveryEndpoint_FiltersByStatus()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        await context.ExecuteSqlAsync("""
+            insert into notification_deliveries (
+                recipient_user_id, project_id, channel, delivery_type, status, attempt_count,
+                next_attempt_at_utc, error_code, error_message, dedupe_key, group_key
+            )
+            values
+                (
+                    '50000000-0000-0000-0000-000000000002',
+                    '40000000-0000-0000-0000-000000000001',
+                    'Mail',
+                    'DailyDigest',
+                    'Failed',
+                    1,
+                    null,
+                    'RecipientEmailMissing',
+                    '수신자 이메일이 없습니다.',
+                    'admin-filter-failed',
+                    'admin-filter'
+                ),
+                (
+                    '50000000-0000-0000-0000-000000000002',
+                    '40000000-0000-0000-0000-000000000001',
+                    'Mail',
+                    'DailyDigest',
+                    'Pending',
+                    0,
+                    '2026-07-03T01:00:00Z',
+                    null,
+                    null,
+                    'admin-filter-pending',
+                    'admin-filter'
+                );
+            """);
+
+        var failed = await adminClient.GetAsync("/api/admin/notification-deliveries?status=Failed", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, failed.StatusCode);
+        using var body = await JsonDocument.ParseAsync(await failed.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
+        var items = body.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Single(items);
+        Assert.Equal("Failed", items[0].GetProperty("status").GetString());
+        Assert.Equal("RecipientEmailMissing", items[0].GetProperty("errorCode").GetString());
+    }
+
+    [Fact]
     public async Task AdminTestMailEndpoint_IsSystemAdministratorOnly()
     {
         await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
@@ -970,6 +1019,47 @@ public sealed class NotificationDeliveryTests
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         using var body = await JsonDocument.ParseAsync(await ok.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(body.RootElement.TryGetProperty("items", out _));
+    }
+
+    [Fact]
+    public async Task AdminEscalationEndpoint_FiltersByStatusAndDashboardBreaksDownActiveLevels()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:Escalation:Enabled"] = "true",
+            ["Notifications:Escalation:TeamsPersonalDryRun"] = "true"
+        });
+        using var adminClient = context.CreateClient("dev-admin");
+        await context.InsertWorkItemAsync("ProductionPlanning", "ProductionPlanningPrimary", DevAdminUserId, "2026-07-02", "admin-filter-l1");
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        var l1 = await adminClient.GetAsync("/api/admin/work-item-escalations?status=Active&level=L1", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, l1.StatusCode);
+        using (var body = await JsonDocument.ParseAsync(await l1.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken))
+        {
+            var items = body.RootElement.GetProperty("items").EnumerateArray().ToArray();
+            Assert.Single(items);
+            Assert.Equal("Active", items[0].GetProperty("status").GetString());
+            Assert.Equal("L1", items[0].GetProperty("currentLevel").GetString());
+        }
+
+        var l2 = await adminClient.GetAsync("/api/admin/work-item-escalations?status=Active&level=L2", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, l2.StatusCode);
+        using (var body = await JsonDocument.ParseAsync(await l2.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken))
+        {
+            Assert.Empty(body.RootElement.GetProperty("items").EnumerateArray());
+        }
+
+        var dashboard = await adminClient.GetAsync("/api/admin/dashboard", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, dashboard.StatusCode);
+        using (var body = await JsonDocument.ParseAsync(await dashboard.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(1, body.RootElement.GetProperty("activeEscalationCount").GetInt32());
+            var levels = body.RootElement.GetProperty("activeEscalationLevels").EnumerateArray().ToArray();
+            Assert.Equal(4, levels.Length);
+            Assert.Contains(levels, item => item.GetProperty("level").GetString() == "L1" && item.GetProperty("count").GetInt32() == 1);
+            Assert.Contains(levels, item => item.GetProperty("level").GetString() == "L0" && item.GetProperty("count").GetInt32() == 0);
+        }
     }
 
     private static MailDeliveryPayload CreateMailPayload()

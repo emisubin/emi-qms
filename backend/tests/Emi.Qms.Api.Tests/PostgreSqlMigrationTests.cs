@@ -27,7 +27,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(10, counts.Roles);
-        Assert.Equal(23, counts.Permissions);
+        Assert.Equal(24, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
@@ -40,6 +40,7 @@ public sealed class PostgreSqlMigrationTests
         await AssertProcurementRequiredItemSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertWorkflowAlignmentSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertMicrosoft365IdentitySchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        await AssertAdminMasterDataSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -1310,6 +1311,93 @@ public sealed class PostgreSqlMigrationTests
             cancellationToken));
     }
 
+    private static async Task AssertAdminMasterDataSchemaAsync(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        CancellationToken cancellationToken)
+    {
+        Assert.Equal(8L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'departments'
+              and column_name in (
+                  'is_active',
+                  'sort_order',
+                  'updated_at_utc',
+                  'deletion_requested_at_utc',
+                  'scheduled_hard_delete_at_utc',
+                  'purge_blocked_at_utc',
+                  'purge_blocked_reason',
+                  'pre_delete_is_active'
+              );
+            """,
+            cancellationToken));
+
+        Assert.Equal(5L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'qms_users'
+              and column_name in (
+                  'deletion_requested_at_utc',
+                  'scheduled_hard_delete_at_utc',
+                  'purge_blocked_at_utc',
+                  'purge_blocked_reason',
+                  'pre_delete_is_active'
+              );
+            """,
+            cancellationToken));
+
+        Assert.Equal(5L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'system_holidays'
+              and column_name in (
+                  'deletion_requested_at_utc',
+                  'scheduled_hard_delete_at_utc',
+                  'purge_blocked_at_utc',
+                  'purge_blocked_reason',
+                  'pre_delete_is_active'
+              );
+            """,
+            cancellationToken));
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name = 'admin_master_change_logs';
+            """,
+            cancellationToken));
+
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from production_product_types
+            where code = 'RRP';
+            """,
+            cancellationToken));
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from schema_migrations
+            where version = '0022_admin_deletion_restore_bulk_actions';
+            """,
+            cancellationToken));
+    }
+
     private static async Task ApplyMigrationFileAsync(
         DatabaseConnectionStringProvider connectionStringProvider,
         string migrationFile,
@@ -1471,6 +1559,44 @@ public sealed class PostgreSqlMigrationTests
             select count(*)
             from qms_users
             where development_user_key like 'dev-%';
+            """))
+        {
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            Assert.Equal(0L, value);
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select count(*)
+            from permissions
+            where permissions.code = 'admin-history.read';
+            """))
+        {
+            var permissionCount = Assert.IsType<long>(await command.ExecuteScalarAsync(cancellationToken));
+            if (permissionCount == 1)
+            {
+                await using var rolesCommand = dataSource.CreateCommand("""
+                    select roles.code
+                    from roles
+                    join role_permissions on role_permissions.role_id = roles.id
+                    join permissions on permissions.id = role_permissions.permission_id
+                    where permissions.code = 'admin-history.read'
+                    order by roles.code;
+                    """);
+                var roles = new List<string>();
+                await using var reader = await rolesCommand.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    roles.Add(reader.GetString(0));
+                }
+
+                Assert.Equal(["system-administrator"], roles);
+            }
+        }
+
+        await using (var command = dataSource.CreateCommand("""
+            select count(*)
+            from permissions
+            where permissions.code = 'master-data.manage';
             """))
         {
             var value = await command.ExecuteScalarAsync(cancellationToken);

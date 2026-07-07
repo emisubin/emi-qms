@@ -27,4 +27,5 @@ public static class QmsPermissions
     public const string QualityApprove = "quality.approve";
     public const string LogisticsShip = "logistics.ship";
     public const string UsersManage = "users.manage";
+    public const string AdminHistoryRead = "admin-history.read";
 }

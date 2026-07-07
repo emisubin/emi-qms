@@ -8,13 +8,21 @@ import {
   applyProjectExcel,
   applyProjectProductionPlanningExcel,
   applyProcurementExcel,
+  bulkDeleteAdminCalendarHolidays,
+  bulkDeleteAdminDepartments,
+  bulkDeleteAdminUsers,
+  bulkRestoreAdminCalendarHolidays,
+  bulkRestoreAdminDepartments,
+  bulkRestoreAdminUsers,
   changePanelCount,
   changeProjectStatus,
+  createAdminDepartment,
   createAdminCalendarHoliday,
   createProject,
   defaultDevelopmentUserKey,
   deleteProject,
   deactivateAdminCalendarHoliday,
+  deactivateAdminDepartment,
   downloadAdminCalendarHolidayTemplate,
   downloadPanelInformationTemplate,
   downloadProductionPlanningBulkTemplate,
@@ -22,7 +30,13 @@ import {
   downloadProjectExcelTemplate,
   downloadProcurementDashboardTemplate,
   downloadProcurementTemplate,
+  getAdminDashboard,
   getAdminCalendarHolidays,
+  getAdminDepartments,
+  getAdminMasterChangeLogs,
+  getAdminNotificationDeliveries,
+  getAdminWorkItemEscalations,
+  getAdminWorkItemHistory,
   getCurrentUser,
   getAdminUsers,
   getDeletedProject,
@@ -44,6 +58,7 @@ import {
   getMaterialReceipts,
   getReadyHealth,
   getSalesOwners,
+  getPermissionMatrix,
   listMyAssignedProjects,
   listProductionPlanningProjects,
   listProductionTemplateSettings,
@@ -61,15 +76,23 @@ import {
   previewProjectProductionPlanningExcel,
   previewProcurementExcel,
   purgeAllDeletedProjects,
+  purgeAdminCalendarHoliday,
+  purgeAdminDepartment,
+  purgeAdminUser,
   purgeDeletedProject,
   completeMyWorkItem,
   markAllNotificationsRead,
   markNotificationRead,
   restoreDeletedProject,
+  restoreAdminCalendarHoliday,
+  restoreAdminDepartment,
+  restoreAdminUser,
+  scheduleAdminUserDeletion,
   startMyWorkItem,
   setAdminTestUserKey,
   setAccessTokenProvider,
   updateAdminCalendarHoliday,
+  updateAdminDepartment,
   updateAdminUser,
   updateProjectProductionPlanning,
   updateProductionTemplateSettings,
@@ -92,8 +115,17 @@ import type { ReadyHealth } from './health';
 import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
 import type {
+  AdminBulkActionResponse,
   AdminCalendarHoliday,
   AdminCalendarHolidayListResponse,
+  AdminDashboardEscalationLevel,
+  AdminDashboardResponse,
+  AdminDepartmentMaster,
+  AdminDepartmentListResponse,
+  AdminMasterChangeLogListResponse,
+  AdminNotificationDeliveryListResponse,
+  AdminWorkItemEscalationListResponse,
+  AdminWorkItemHistoryListResponse,
   AuditEvent,
   CalendarHolidayExcelPreviewResponse,
   DeletedProjectDetail,
@@ -105,6 +137,7 @@ import type {
   PanelInputUnit,
   PanelPlaceholder,
   PackagingMethod,
+  PermissionMatrixResponse,
   ProcurementExcelPreviewResponse,
   ProcurementDashboardResponse,
   ProcurementHistoryResponse,
@@ -142,7 +175,9 @@ import type {
   ResponsibilityType,
   SalesOwner,
   BusinessCalendarDay,
-  HolidayType
+  CreateAdminDepartmentRequest,
+  HolidayType,
+  UpdateAdminDepartmentRequest
 } from './projects';
 
 type View =
@@ -161,8 +196,15 @@ type View =
   | { kind: 'procurement-settings' }
   | { kind: 'materials-receipts' }
   | { kind: 'notifications' }
+  | { kind: 'admin-dashboard' }
   | { kind: 'admin-users' }
+  | { kind: 'admin-departments' }
   | { kind: 'admin-calendar-holidays' }
+  | { kind: 'admin-permission-matrix' }
+  | { kind: 'admin-master-change-logs' }
+  | { kind: 'admin-work-history' }
+  | { kind: 'admin-notification-deliveries'; status?: string | null }
+  | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
   | { kind: 'panel'; projectId: string; panelId: string };
 
 type LoadState<T> =
@@ -239,6 +281,12 @@ const emptyForm: ProjectFormValues = {
   reason: ''
 };
 
+const packagingMethodOptions: Array<{ value: PackagingMethod; label: string }> = [
+  { value: 'WoodenCrate', label: '목포장' },
+  { value: 'StretchWrap', label: '청랩포장' },
+  { value: 'HeavyDutyBox', label: '고강도박스포장' }
+];
+
 function initialViewFromLocation(): View {
   if (typeof window === 'undefined') {
     return { kind: 'list' };
@@ -252,12 +300,42 @@ function initialViewFromLocation(): View {
     return { kind: 'notifications' };
   }
 
+  if (window.location.pathname === '/admin') {
+    return { kind: 'admin-dashboard' };
+  }
+
   if (window.location.pathname === '/admin/users') {
     return { kind: 'admin-users' };
   }
 
+  if (window.location.pathname === '/admin/departments' || window.location.pathname === '/admin/master-data/departments') {
+    return { kind: 'admin-departments' };
+  }
+
   if (window.location.pathname === '/admin/calendar/holidays') {
     return { kind: 'admin-calendar-holidays' };
+  }
+
+  if (window.location.pathname === '/admin/permissions') {
+    return { kind: 'admin-permission-matrix' };
+  }
+
+  if (window.location.pathname === '/admin/history/master-data') {
+    return { kind: 'admin-master-change-logs' };
+  }
+
+  if (window.location.pathname === '/admin/history/work-items') {
+    return { kind: 'admin-work-history' };
+  }
+
+  if (window.location.pathname === '/admin/system/notification-deliveries') {
+    const params = new URLSearchParams(window.location.search);
+    return { kind: 'admin-notification-deliveries', status: params.get('status') };
+  }
+
+  if (window.location.pathname === '/admin/system/work-item-escalations') {
+    const params = new URLSearchParams(window.location.search);
+    return { kind: 'admin-work-item-escalations', status: params.get('status'), level: params.get('level') };
   }
 
   const panelInformationEditMatch = window.location.pathname.match(/^\/projects\/([^/]+)\/panel-information\/edit$/);
@@ -378,15 +456,45 @@ function pathForView(view: View) {
       return '/procurement/settings';
     case 'notifications':
       return '/notifications';
+    case 'admin-dashboard':
+      return '/admin';
     case 'admin-users':
       return '/admin/users';
+    case 'admin-departments':
+      return '/admin/departments';
     case 'admin-calendar-holidays':
       return '/admin/calendar/holidays';
+    case 'admin-permission-matrix':
+      return '/admin/permissions';
+    case 'admin-master-change-logs':
+      return '/admin/history/master-data';
+    case 'admin-work-history':
+      return '/admin/history/work-items';
+    case 'admin-notification-deliveries':
+      return `/admin/system/notification-deliveries${queryString({
+        status: view.status ?? undefined
+      })}`;
+    case 'admin-work-item-escalations':
+      return `/admin/system/work-item-escalations${queryString({
+        status: view.status ?? undefined,
+        level: view.level ?? undefined
+      })}`;
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}`;
     default:
       return '/';
   }
+}
+
+function queryString(values: Record<string, string | undefined>) {
+  const params = new URLSearchParams();
+  Object.entries(values).forEach(([key, value]) => {
+    if (value) {
+      params.set(key, value);
+    }
+  });
+  const text = params.toString();
+  return text ? `?${text}` : '';
 }
 
 function parseProjectDetailSection(value: string | null): ProjectDetailSection {
@@ -781,16 +889,19 @@ function QmsAppShell({
   const canUpdateMaterialReceipt = permissions.includes('MaterialReceipt.Update');
   const canUpdateProductionPlanning = permissions.includes('ProductionPlan.Update');
   const canManageUsers = permissions.includes('users.manage');
+  const canReadAdminHistory = permissions.includes('admin-history.read');
+  const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
+  const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
+  const canAccessMaterialReceipts = canUpdateMaterialReceipt || isSystemAdministrator;
   const navigationItems: NavigationItem[] = [
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount },
     { label: '프로젝트', view: { kind: 'list' }, active: isProjectWorkspace(view) },
     { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
-    ...(canUpdateMaterialReceipt ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : []),
+    ...(canAccessMaterialReceipts ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : []),
     { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: displayedShellBadges.unreadNotificationCount },
-    ...(canManageUsers ? [
-      { label: '사용자', view: { kind: 'admin-users' } as View, active: view.kind === 'admin-users' },
-      { label: '휴일', view: { kind: 'admin-calendar-holidays' } as View, active: view.kind === 'admin-calendar-holidays' }
+    ...(canUseAdminPages ? [
+      { label: '관리자', view: { kind: 'admin-dashboard' } as View, active: isAdminWorkspace(view) }
     ] : [])
   ];
 
@@ -805,7 +916,7 @@ function QmsAppShell({
             <h1>프로젝트·패널 관리</h1>
           </div>
           <div className="topbar-actions">
-            {canUpdateMaterialReceipt ? <button type="button" onClick={() => setView({ kind: 'materials-receipts' })}>자재</button> : null}
+            {canAccessMaterialReceipts ? <button type="button" onClick={() => setView({ kind: 'materials-receipts' })}>자재</button> : null}
             {canUseAdminTestUserSwitch ? (
               <label className="test-user-select">
                 <span>검수 사용자 전환</span>
@@ -1029,6 +1140,7 @@ function QmsAppShell({
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'materials-receipts' ? (
         <MaterialReceiptsPage
           developmentUserKey={developmentUserKey}
+          canAccessMaterialReceipt={canAccessMaterialReceipts}
           canUpdateMaterialReceipt={canUpdateMaterialReceipt}
           onBack={() => setView({ kind: 'list' })}
         />
@@ -1042,12 +1154,49 @@ function QmsAppShell({
         />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-dashboard' ? (
+        <AdminDashboardPage
+          developmentUserKey={developmentUserKey}
+          canManageUsers={canManageUsers}
+          canReadAdminHistory={canReadAdminHistory}
+          onNavigate={setView}
+        />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-users' ? (
         <AdminUsersPage developmentUserKey={developmentUserKey} />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-departments' ? (
+        <AdminDepartmentsPage developmentUserKey={developmentUserKey} />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-calendar-holidays' ? (
         <AdminCalendarHolidaysPage developmentUserKey={developmentUserKey} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-permission-matrix' ? (
+        <AdminPermissionMatrixPage developmentUserKey={developmentUserKey} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-master-change-logs' ? (
+        <AdminMasterChangeLogsPage developmentUserKey={developmentUserKey} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-work-history' ? (
+        <AdminWorkHistoryPage developmentUserKey={developmentUserKey} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-deliveries' ? (
+        <AdminNotificationDeliveriesPage developmentUserKey={developmentUserKey} statusFilter={view.status ?? null} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-work-item-escalations' ? (
+        <AdminWorkItemEscalationsPage
+          developmentUserKey={developmentUserKey}
+          statusFilter={view.status ?? null}
+          levelFilter={view.level ?? null}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'panel' ? (
@@ -1189,6 +1338,118 @@ function ApprovalPendingPage({ user, onLogout }: { user: CurrentUser; onLogout?:
   );
 }
 
+function DeletionStatusDisplay({
+  isActive,
+  approvalPending,
+  lifecycleStatus,
+  lifecycleStatusLabel,
+  deletionRequestedAtUtc,
+  scheduledHardDeleteAtUtc,
+  scheduledHardDeleteLabel,
+  purgeBlockedAtUtc,
+  purgeBlockedReason
+}: {
+  isActive: boolean;
+  approvalPending?: boolean;
+  lifecycleStatus?: string | null;
+  lifecycleStatusLabel?: string | null;
+  deletionRequestedAtUtc?: string | null;
+  scheduledHardDeleteAtUtc?: string | null;
+  scheduledHardDeleteLabel?: string | null;
+  purgeBlockedAtUtc?: string | null;
+  purgeBlockedReason?: string | null;
+}) {
+  const resolvedStatus = lifecycleStatus ?? resolveDeletionLifecycleStatus(
+    isActive,
+    deletionRequestedAtUtc,
+    scheduledHardDeleteAtUtc,
+    purgeBlockedAtUtc);
+  const label = lifecycleStatusLabel ?? deletionLifecycleStatusLabel(resolvedStatus);
+  const scheduledText = scheduledHardDeleteLabel
+    ?? (scheduledHardDeleteAtUtc ? formatKoreanDateTime(scheduledHardDeleteAtUtc) : null);
+  const badgeClassName = `status-badge lifecycle-badge lifecycle-${resolvedStatus.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()}`;
+
+  if (resolvedStatus === 'PurgeBlocked') {
+    return (
+      <span className="lifecycle-status">
+        <span className={badgeClassName} data-tone="warning">{label}</span>
+        {scheduledText ? <small className="muted-text">완전 삭제 예정일 {scheduledText}</small> : null}
+        <small className="warning-text">{purgeBlockedReason ?? '참조 데이터가 남아 있습니다.'}</small>
+      </span>
+    );
+  }
+
+  if (resolvedStatus === 'DeletionScheduled') {
+    return (
+      <span className="lifecycle-status">
+        <span className={badgeClassName} data-tone="danger">{label}</span>
+        {scheduledText ? <small className="muted-text">완전 삭제 예정일 {scheduledText}</small> : null}
+      </span>
+    );
+  }
+
+  if (approvalPending) {
+    return <span className="status-badge warning">승인 대기</span>;
+  }
+
+  return <span className={badgeClassName} data-tone={resolvedStatus === 'Inactive' ? 'neutral' : 'success'}>{label}</span>;
+}
+
+function resolveDeletionLifecycleStatus(
+  isActive: boolean,
+  deletionRequestedAtUtc?: string | null,
+  scheduledHardDeleteAtUtc?: string | null,
+  purgeBlockedAtUtc?: string | null
+) {
+  if (purgeBlockedAtUtc) {
+    return 'PurgeBlocked';
+  }
+
+  if (deletionRequestedAtUtc && scheduledHardDeleteAtUtc) {
+    return 'DeletionScheduled';
+  }
+
+  return isActive ? 'Active' : 'Inactive';
+}
+
+function deletionLifecycleStatusLabel(status: string) {
+  switch (status) {
+    case 'PurgeBlocked':
+      return '삭제 보류';
+    case 'DeletionScheduled':
+      return '삭제 예정';
+    case 'Inactive':
+      return '비활성';
+    case 'Active':
+      return '활성';
+    default:
+      return status;
+  }
+}
+
+function isDeletionPending(item: {
+  deletionRequestedAtUtc?: string | null;
+  purgeBlockedAtUtc?: string | null;
+  lifecycleStatus?: string | null;
+}) {
+  return Boolean(item.purgeBlockedAtUtc)
+    || Boolean(item.deletionRequestedAtUtc)
+    || item.lifecycleStatus === 'DeletionScheduled'
+    || item.lifecycleStatus === 'PurgeBlocked';
+}
+
+function summarizeBulkAction(result: AdminBulkActionResponse, fallback: string) {
+  const failures = result.items.filter((item) => item.status === 'Failed');
+  const blocked = result.items.filter((item) => item.status === 'PurgeBlocked');
+  const skipped = result.items.filter((item) => item.status === 'Skipped');
+  const details = [...failures, ...blocked].slice(0, 3).map((item) => item.message).filter(Boolean);
+  const prefix = `${fallback}: 성공 ${result.succeededCount}건, 실패 ${result.failedCount}건, 건너뜀 ${result.skippedCount}건`;
+  const suffix = details.length > 0
+    ? ` · ${details.join(' · ')}`
+    : skipped.length > 0 ? ` · ${skipped[0].message}` : '';
+  return `${prefix}${suffix}`;
+}
+
 function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) {
   const [state, setState] = useState<LoadState<AdminUsersResponse>>({ kind: 'loading' });
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -1196,11 +1457,15 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
   const [draftRoleCodes, setDraftRoleCodes] = useState<string[]>([]);
   const [draftIsActive, setDraftIsActive] = useState(true);
   const [message, setMessage] = useState('');
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
   const load = useCallback(() => {
     setState({ kind: 'loading' });
     getAdminUsers(developmentUserKey)
-      .then((data) => setState({ kind: 'ready', data }))
+      .then((data) => {
+        setState({ kind: 'ready', data });
+        setSelectedUserIds([]);
+      })
       .catch((error: unknown) => setState(toLoadError(error, '사용자 목록을 불러올 수 없습니다.')));
   }, [developmentUserKey]);
 
@@ -1210,6 +1475,7 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
       .then((data) => {
         if (!cancelled) {
           setState({ kind: 'ready', data });
+          setSelectedUserIds([]);
         }
       })
       .catch((error: unknown) => {
@@ -1255,6 +1521,97 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
     }
   };
 
+  const deleteUser = async (user: AdminUser) => {
+    const scheduled = isDeletionPending(user);
+    const confirmed = window.confirm(scheduled
+      ? '삭제 예정 데이터를 즉시 완전 삭제합니다. 참조 중인 데이터는 삭제 보류될 수 있습니다. 계속하시겠습니까?'
+      : '삭제하면 즉시 비활성화되고 7일 후 완전 삭제 대상으로 예약됩니다. 계속하시겠습니까?');
+    if (!confirmed) {
+      return;
+    }
+
+    setMessage('');
+    try {
+      if (scheduled) {
+        const result = await purgeAdminUser(developmentUserKey, user.userId);
+        setMessage(summarizeBulkAction(result, '사용자 즉시 삭제 처리 완료'));
+        load();
+        return;
+      }
+
+      const updated = await scheduleAdminUserDeletion(developmentUserKey, user.userId);
+      setState({ kind: 'ready', data: updated });
+      setEditingUserId(null);
+      setSelectedUserIds([]);
+      setMessage('사용자를 삭제 예정으로 처리했습니다.');
+    } catch (error) {
+      const errorMessage = friendlyErrorMessage(error, '사용자를 삭제 예약할 수 없습니다.');
+      setMessage(errorMessage === '대상을 찾을 수 없습니다.'
+        ? '사용자를 삭제 예약할 수 없습니다. 목록을 새로고침한 뒤 다시 시도해 주세요.'
+        : errorMessage);
+    }
+  };
+
+  const restoreUser = async (user: AdminUser) => {
+    if (!window.confirm('선택한 삭제 예정 데이터를 복구합니다.')) {
+      return;
+    }
+
+    setMessage('');
+    try {
+      const updated = await restoreAdminUser(developmentUserKey, user.userId);
+      setState({ kind: 'ready', data: updated });
+      setSelectedUserIds([]);
+      setMessage('사용자를 복구했습니다.');
+    } catch (error) {
+      setMessage(friendlyErrorMessage(error, '사용자를 복구할 수 없습니다.'));
+    }
+  };
+
+  const bulkDeleteUsers = async () => {
+    if (selectedUserIds.length === 0) {
+      setMessage('삭제할 사용자를 선택해 주세요.');
+      return;
+    }
+
+    if (!window.confirm('선택한 데이터의 상태에 맞게 삭제 예정 전환 또는 즉시 삭제를 수행합니다. 삭제 예정 데이터는 즉시 완전 삭제를 시도하며, 참조 중인 데이터는 삭제 보류될 수 있습니다. 계속하시겠습니까?')) {
+      return;
+    }
+
+    setMessage('');
+    try {
+      const result = await bulkDeleteAdminUsers(developmentUserKey, { ids: selectedUserIds, reason: '선택 삭제' });
+      setMessage(summarizeBulkAction(result, '선택 삭제 처리 완료'));
+      load();
+    } catch (error) {
+      setMessage(friendlyErrorMessage(error, '선택 삭제를 처리할 수 없습니다.'));
+    }
+  };
+
+  const bulkRestoreUsers = async () => {
+    if (selectedUserIds.length === 0) {
+      setMessage('복구할 사용자를 선택해 주세요.');
+      return;
+    }
+
+    if (!window.confirm('선택한 삭제 예정 데이터를 복구합니다.')) {
+      return;
+    }
+
+    setMessage('');
+    try {
+      const result = await bulkRestoreAdminUsers(developmentUserKey, { ids: selectedUserIds, reason: '선택 복구' });
+      setMessage(summarizeBulkAction(result, '선택 복구 처리 완료'));
+      load();
+    } catch (error) {
+      setMessage(friendlyErrorMessage(error, '선택 복구를 처리할 수 없습니다.'));
+    }
+  };
+
+  const visibleUsers = state.kind === 'ready' ? state.data.users : [];
+  const selectableUserIds = visibleUsers.filter((user) => !user.isReadOnly).map((user) => user.userId);
+  const allUsersSelected = selectableUserIds.length > 0 && selectableUserIds.every((id) => selectedUserIds.includes(id));
+
   return (
     <section className="panel-section">
       <div className="page-header">
@@ -1266,6 +1623,13 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
       </div>
       <p className="muted-text">EntraId 사용자의 부서, 역할, 활성 상태만 수정할 수 있습니다. Dev 사용자는 읽기 전용입니다.</p>
       {message ? <p className="form-message">{message}</p> : null}
+      {state.kind === 'ready' ? (
+        <div className="bulk-action-bar">
+          <span>선택 {selectedUserIds.length}건</span>
+          <button type="button" onClick={() => void bulkDeleteUsers()} disabled={selectedUserIds.length === 0}>선택 삭제</button>
+          <button type="button" onClick={() => void bulkRestoreUsers()} disabled={selectedUserIds.length === 0}>선택 복구</button>
+        </div>
+      ) : null}
       {state.kind === 'loading' ? <p>사용자 목록을 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
@@ -1273,6 +1637,15 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
           <table>
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    aria-label="사용자 전체 선택"
+                    checked={allUsersSelected}
+                    disabled={selectableUserIds.length === 0}
+                    onChange={(event) => setSelectedUserIds(event.target.checked ? selectableUserIds : [])}
+                  />
+                </th>
                 <th>사용자</th>
                 <th>구분</th>
                 <th>상태</th>
@@ -1286,6 +1659,19 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
                 const editing = editingUserId === user.userId;
                 return (
                   <tr key={user.userId}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`${user.displayName} 선택`}
+                        checked={selectedUserIds.includes(user.userId)}
+                        disabled={user.isReadOnly}
+                        onChange={(event) => setSelectedUserIds((current) => (
+                          event.target.checked
+                            ? [...current, user.userId]
+                            : current.filter((id) => id !== user.userId)
+                        ))}
+                      />
+                    </td>
                     <td>
                       <strong>{user.displayName}</strong>
                       <div className="muted-text">{user.email ?? user.developmentUserKey}</div>
@@ -1302,7 +1688,17 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
                           활성
                         </label>
                       ) : (
-                        user.isActive ? (user.approvalPending ? '승인 대기' : '활성') : '비활성'
+                        <DeletionStatusDisplay
+                          isActive={user.isActive}
+                          approvalPending={user.approvalPending}
+                          lifecycleStatus={user.lifecycleStatus}
+                          lifecycleStatusLabel={user.lifecycleStatusLabel}
+                          deletionRequestedAtUtc={user.deletionRequestedAtUtc}
+                          scheduledHardDeleteAtUtc={user.scheduledHardDeleteAtUtc}
+                          scheduledHardDeleteLabel={user.scheduledHardDeleteLabel}
+                          purgeBlockedAtUtc={user.purgeBlockedAtUtc}
+                          purgeBlockedReason={user.purgeBlockedReason}
+                        />
                       )}
                     </td>
                     <td>
@@ -1337,14 +1733,18 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
                     </td>
                     <td>
                       {user.isReadOnly ? (
-                        <span className="muted-text">수정 불가</span>
+                        <span className="muted-text">개발 사용자는 삭제할 수 없습니다.</span>
                       ) : editing ? (
                         <div className="button-row">
                           <button type="button" onClick={() => void save(user)}>저장</button>
                           <button type="button" onClick={() => setEditingUserId(null)}>취소</button>
                         </div>
                       ) : (
-                        <button type="button" onClick={() => startEdit(user)}>수정</button>
+                        <div className="button-row">
+                          <button type="button" onClick={() => startEdit(user)}>수정</button>
+                          {isDeletionPending(user) ? <button type="button" onClick={() => void restoreUser(user)}>복구</button> : null}
+                          <button type="button" className="danger-button" onClick={() => void deleteUser(user)}>{isDeletionPending(user) ? '즉시 삭제' : '삭제'}</button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -1385,11 +1785,15 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
   const [isDownloading, setIsDownloading] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  const [selectedHolidayIds, setSelectedHolidayIds] = useState<string[]>([]);
 
   const load = useCallback(() => {
     setState({ kind: 'loading' });
     getAdminCalendarHolidays(developmentUserKey, year)
-      .then((data) => setState({ kind: 'ready', data }))
+      .then((data) => {
+        setState({ kind: 'ready', data });
+        setSelectedHolidayIds([]);
+      })
       .catch((error: unknown) => setState(toLoadError(error, '휴일 목록을 불러올 수 없습니다.')));
   }, [developmentUserKey, year]);
 
@@ -1400,6 +1804,7 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
       .then((data) => {
         if (!cancelled) {
           setState({ kind: 'ready', data });
+          setSelectedHolidayIds([]);
         }
       })
       .catch((error: unknown) => {
@@ -1463,13 +1868,83 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
   };
 
   const deactivateHoliday = async (holiday: AdminCalendarHoliday) => {
+    const scheduled = isDeletionPending(holiday);
+    const confirmed = window.confirm(scheduled
+      ? '삭제 예정 데이터를 즉시 완전 삭제합니다. 참조 중인 데이터는 삭제 보류될 수 있습니다. 계속하시겠습니까?'
+      : '삭제하면 즉시 비영업일 계산에서 제외되고 7일 후 완전 삭제 대상으로 예약됩니다. 계속하시겠습니까?');
+    if (!confirmed) {
+      return;
+    }
+
     setMessage('');
     try {
+      if (scheduled) {
+        const result = await purgeAdminCalendarHoliday(developmentUserKey, holiday.holidayId);
+        setMessage(summarizeBulkAction(result, '휴일 즉시 삭제 처리 완료'));
+        load();
+        return;
+      }
+
       await deactivateAdminCalendarHoliday(developmentUserKey, holiday.holidayId);
-      setMessage('휴일을 비활성화했습니다.');
+      setMessage('휴일을 삭제 예정으로 처리했습니다.');
       load();
     } catch (error) {
-      setMessage(error instanceof ApiError ? error.message : '휴일을 비활성화할 수 없습니다.');
+      setMessage(error instanceof ApiError ? error.message : '휴일을 삭제 예약할 수 없습니다.');
+    }
+  };
+
+  const restoreHoliday = async (holiday: AdminCalendarHoliday) => {
+    if (!window.confirm('선택한 삭제 예정 데이터를 복구합니다.')) {
+      return;
+    }
+
+    setMessage('');
+    try {
+      await restoreAdminCalendarHoliday(developmentUserKey, holiday.holidayId);
+      setMessage('휴일을 복구했습니다.');
+      load();
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : '휴일을 복구할 수 없습니다.');
+    }
+  };
+
+  const bulkDeleteHolidays = async () => {
+    if (selectedHolidayIds.length === 0) {
+      setMessage('삭제할 휴일을 선택해 주세요.');
+      return;
+    }
+
+    if (!window.confirm('선택한 데이터의 상태에 맞게 삭제 예정 전환 또는 즉시 삭제를 수행합니다. 삭제 예정 데이터는 즉시 완전 삭제를 시도하며, 참조 중인 데이터는 삭제 보류될 수 있습니다. 계속하시겠습니까?')) {
+      return;
+    }
+
+    setMessage('');
+    try {
+      const result = await bulkDeleteAdminCalendarHolidays(developmentUserKey, { ids: selectedHolidayIds, reason: '선택 삭제' });
+      setMessage(summarizeBulkAction(result, '선택 삭제 처리 완료'));
+      load();
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : '선택 삭제를 처리할 수 없습니다.');
+    }
+  };
+
+  const bulkRestoreHolidays = async () => {
+    if (selectedHolidayIds.length === 0) {
+      setMessage('복구할 휴일을 선택해 주세요.');
+      return;
+    }
+
+    if (!window.confirm('선택한 삭제 예정 데이터를 복구합니다.')) {
+      return;
+    }
+
+    setMessage('');
+    try {
+      const result = await bulkRestoreAdminCalendarHolidays(developmentUserKey, { ids: selectedHolidayIds, reason: '선택 복구' });
+      setMessage(summarizeBulkAction(result, '선택 복구 처리 완료'));
+      load();
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : '선택 복구를 처리할 수 없습니다.');
     }
   };
 
@@ -1528,6 +2003,11 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
       setIsApplying(false);
     }
   };
+
+  const visibleHolidayIds = state.kind === 'ready'
+    ? state.data.holidays.map((holiday) => holiday.holidayId)
+    : [];
+  const allHolidaysSelected = visibleHolidayIds.length > 0 && visibleHolidayIds.every((id) => selectedHolidayIds.includes(id));
 
   return (
     <section className="panel-section">
@@ -1617,9 +2097,22 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <div className="table-scroll">
+          <div className="bulk-action-bar">
+            <span>선택 {selectedHolidayIds.length}건</span>
+            <button type="button" onClick={() => void bulkDeleteHolidays()} disabled={selectedHolidayIds.length === 0}>선택 삭제</button>
+            <button type="button" onClick={() => void bulkRestoreHolidays()} disabled={selectedHolidayIds.length === 0}>선택 복구</button>
+          </div>
           <table>
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    aria-label="휴일 전체 선택"
+                    checked={allHolidaysSelected}
+                    onChange={(event) => setSelectedHolidayIds(event.target.checked ? visibleHolidayIds : [])}
+                  />
+                </th>
                 <th>날짜</th>
                 <th>휴일명</th>
                 <th>유형</th>
@@ -1631,15 +2124,39 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
             <tbody>
               {state.data.holidays.map((holiday) => (
                 <tr key={holiday.holidayId}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`${holiday.name} 선택`}
+                      checked={selectedHolidayIds.includes(holiday.holidayId)}
+                      onChange={(event) => setSelectedHolidayIds((current) => (
+                        event.target.checked
+                          ? [...current, holiday.holidayId]
+                          : current.filter((id) => id !== holiday.holidayId)
+                      ))}
+                    />
+                  </td>
                   <td>{holiday.date}</td>
                   <td><strong>{holiday.name}</strong></td>
                   <td><HolidayTypeBadge holidayType={holiday.holidayType} /></td>
-                  <td>{holiday.isActive ? '활성' : '비활성'}</td>
+                  <td>
+                    <DeletionStatusDisplay
+                      isActive={holiday.isActive}
+                      lifecycleStatus={holiday.lifecycleStatus}
+                      lifecycleStatusLabel={holiday.lifecycleStatusLabel}
+                      deletionRequestedAtUtc={holiday.deletionRequestedAtUtc}
+                      scheduledHardDeleteAtUtc={holiday.scheduledHardDeleteAtUtc}
+                      scheduledHardDeleteLabel={holiday.scheduledHardDeleteLabel}
+                      purgeBlockedAtUtc={holiday.purgeBlockedAtUtc}
+                      purgeBlockedReason={holiday.purgeBlockedReason}
+                    />
+                  </td>
                   <td>{holiday.note || '-'}</td>
                   <td>
                     <div className="button-row">
-                      <button type="button" onClick={() => startEdit(holiday)}>수정</button>
-                      {holiday.isActive ? <button type="button" onClick={() => void deactivateHoliday(holiday)}>비활성화</button> : null}
+                      {!holiday.deletionRequestedAtUtc ? <button type="button" onClick={() => startEdit(holiday)}>수정</button> : null}
+                      {isDeletionPending(holiday) ? <button type="button" onClick={() => void restoreHoliday(holiday)}>복구</button> : null}
+                      <button type="button" className="danger-button" onClick={() => void deactivateHoliday(holiday)}>{isDeletionPending(holiday) ? '즉시 삭제' : '삭제'}</button>
                     </div>
                   </td>
                 </tr>
@@ -1693,6 +2210,914 @@ function AdminCalendarHolidayExcelPreview({ preview }: { preview: CalendarHolida
   );
 }
 
+function AdminSectionNav({ onNavigate }: { onNavigate: (view: View) => void }) {
+  const groups: Array<{ title: string; items: Array<{ label: string; view: View }> }> = [
+    {
+      title: '운영',
+      items: [
+        { label: '사용자 관리', view: { kind: 'admin-users' } },
+        { label: '알림 발송 상태', view: { kind: 'admin-notification-deliveries' } },
+        { label: '에스컬레이션 상태', view: { kind: 'admin-work-item-escalations' } }
+      ]
+    },
+    {
+      title: '시스템 관리',
+      items: [
+        { label: '부서', view: { kind: 'admin-departments' } },
+        { label: '공휴일', view: { kind: 'admin-calendar-holidays' } }
+      ]
+    },
+    {
+      title: '조회',
+      items: [
+        { label: '권한 매트릭스', view: { kind: 'admin-permission-matrix' } },
+        { label: '기준정보 변경 이력', view: { kind: 'admin-master-change-logs' } },
+        { label: '업무 시작/완료 이력', view: { kind: 'admin-work-history' } }
+      ]
+    }
+  ];
+
+  return (
+    <section className="subsection" aria-label="관리자 메뉴">
+      {groups.map((group) => (
+        <div key={group.title} className="subsection">
+          <div className="subsection-header">
+            <h3>{group.title}</h3>
+          </div>
+          <div className="button-row">
+            {group.items.map((item) => (
+              <button key={item.label} type="button" onClick={() => onNavigate(item.view)}>{item.label}</button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function AdminDashboardPage({
+  developmentUserKey,
+  canManageUsers,
+  canReadAdminHistory,
+  onNavigate
+}: {
+  developmentUserKey: string;
+  canManageUsers: boolean;
+  canReadAdminHistory: boolean;
+  onNavigate: (view: View) => void;
+}) {
+  const [state, setState] = useState<LoadState<AdminDashboardResponse>>({ kind: 'loading' });
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getAdminDashboard(developmentUserKey)
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '관리자 대시보드를 불러올 수 없습니다.')));
+  }, [developmentUserKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminDashboard(developmentUserKey)
+      .then((data) => {
+        if (!cancelled) {
+          setState({ kind: 'ready', data });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState(toLoadError(error, '관리자 대시보드를 불러올 수 없습니다.'));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [developmentUserKey]);
+
+  return (
+    <section className="panel-section">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">System Administrator</p>
+          <h2>관리자</h2>
+        </div>
+        <button type="button" onClick={load}>새로고침</button>
+      </div>
+      <p className="muted-text">관리자 기능은 서버 권한으로 강제됩니다. 기존 업무 입력 권한을 관리자 권한으로 우회하지 않습니다.</p>
+      {state.kind === 'loading' ? <p>대시보드를 불러오는 중입니다.</p> : null}
+      {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="admin-dashboard-grid">
+          <article className="admin-dashboard-card">
+            <span>승인 대기 사용자</span>
+            <strong>{state.data.pendingUserCount}건</strong>
+            <p>역할이 부여되지 않은 Entra 사용자입니다.</p>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-users' })}>사용자 관리</button>
+          </article>
+          <article className="admin-dashboard-card" data-tone="danger">
+            <span>발송 실패</span>
+            <strong>{state.data.failedDeliveryCount}건</strong>
+            <p>외부 알림 발송이 실패한 건입니다. 상세에서 실패 채널, 수신자, 오류 사유를 확인하세요.</p>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Failed' })}>실패 알림 보기</button>
+          </article>
+          <article className="admin-dashboard-card" data-tone="warning">
+            <span>발송 대기</span>
+            <strong>{state.data.pendingDeliveryCount}건</strong>
+            <p>아직 worker가 처리하지 않았거나 다음 재시도 시각을 기다리는 외부 알림입니다.</p>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Pending' })}>대기 알림 보기</button>
+          </article>
+          <article className="admin-dashboard-card">
+            <span>마지막 일일 요약</span>
+            <strong>{formatNullableDateTime(state.data.lastDailyDigestSentAtUtc)}</strong>
+            <p>Daily Digest가 마지막으로 발송 또는 dry-run 처리된 시각입니다.</p>
+          </article>
+          <article className="admin-dashboard-card admin-dashboard-card-wide" data-tone="warning">
+            <span>진행 중 에스컬레이션</span>
+            <strong>{state.data.activeEscalationCount}건</strong>
+            <p>예정일 임박 또는 초과 상태로 아직 해소되지 않은 업무입니다. 완료/취소 시 해소됩니다.</p>
+            <div className="escalation-level-breakdown" aria-label="에스컬레이션 단계별 건수">
+              {dashboardEscalationLevels(state.data.activeEscalationLevels).map((item) => (
+                <button
+                  key={item.level}
+                  type="button"
+                  onClick={() => onNavigate({ kind: 'admin-work-item-escalations', status: 'Active', level: item.level })}
+                >
+                  <span>{item.label}</span>
+                  <strong>{item.count}건</strong>
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-work-item-escalations', status: 'Active' })}>진행 중 에스컬레이션 보기</button>
+          </article>
+          <article className="admin-dashboard-card">
+            <span>최근 기준정보 변경</span>
+            <strong>{state.data.recentMasterChangeCount}건</strong>
+            <p>최근 7일 기준정보 변경 이력입니다.</p>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-master-change-logs' })}>변경 이력 보기</button>
+          </article>
+        </div>
+      ) : null}
+      <AdminSectionNav onNavigate={onNavigate} />
+      <section className="subsection">
+        <h3>권한 상태</h3>
+        <p className="muted-text">
+          사용자/부서 관리 {canManageUsers ? '가능' : '불가'} · 관리자 이력 조회 {canReadAdminHistory ? '가능' : '불가'}
+        </p>
+      </section>
+    </section>
+  );
+}
+
+function AdminDepartmentsPage({ developmentUserKey }: { developmentUserKey: string }) {
+  const [state, setState] = useState<LoadState<AdminDepartmentListResponse>>({ kind: 'loading' });
+  const [drafts, setDrafts] = useState<Record<string, UpdateAdminDepartmentRequest>>({});
+  const [createDraft, setCreateDraft] = useState<CreateAdminDepartmentRequest>({ code: '', name: '', isActive: true, sortOrder: 1000, reason: null });
+  const [createFieldErrors, setCreateFieldErrors] = useState<Record<string, string>>({});
+  const [departmentFieldErrors, setDepartmentFieldErrors] = useState<Record<string, Record<string, string>>>({});
+  const [message, setMessage] = useState('');
+  const [selectedDepartmentIds, setSelectedDepartmentIds] = useState<string[]>([]);
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getAdminDepartments(developmentUserKey)
+      .then((data) => {
+        setState({ kind: 'ready', data });
+        setDrafts(Object.fromEntries(data.departments.map((department) => [department.departmentId, departmentToDraft(department)])));
+        setSelectedDepartmentIds([]);
+      })
+      .catch((error: unknown) => setState(toLoadError(error, '부서 기준정보를 불러올 수 없습니다.')));
+  }, [developmentUserKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminDepartments(developmentUserKey)
+      .then((data) => {
+        if (!cancelled) {
+          setState({ kind: 'ready', data });
+          setDrafts(Object.fromEntries(data.departments.map((department) => [department.departmentId, departmentToDraft(department)])));
+          setSelectedDepartmentIds([]);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState(toLoadError(error, '부서 기준정보를 불러올 수 없습니다.'));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [developmentUserKey]);
+
+  async function create() {
+    setMessage('');
+    setCreateFieldErrors({});
+    try {
+      await createAdminDepartment(developmentUserKey, createDraft);
+      setCreateDraft({ code: '', name: '', isActive: true, sortOrder: 1000, reason: null });
+      setCreateFieldErrors({});
+      setMessage('부서를 추가했습니다.');
+      load();
+    } catch (error) {
+      setCreateFieldErrors(fieldErrorsFromApiError(error));
+      setMessage(friendlyErrorMessage(error, '부서를 추가할 수 없습니다.'));
+    }
+  }
+
+  async function save(department: AdminDepartmentMaster) {
+    setMessage('');
+    setDepartmentFieldErrors((current) => ({ ...current, [department.departmentId]: {} }));
+    try {
+      await updateAdminDepartment(developmentUserKey, department.departmentId, drafts[department.departmentId] ?? departmentToDraft(department));
+      setDepartmentFieldErrors((current) => ({ ...current, [department.departmentId]: {} }));
+      setMessage('부서 기준정보를 저장했습니다.');
+      load();
+    } catch (error) {
+      setDepartmentFieldErrors((current) => ({ ...current, [department.departmentId]: fieldErrorsFromApiError(error) }));
+      setMessage(friendlyErrorMessage(error, '부서 기준정보를 저장할 수 없습니다.'));
+    }
+  }
+
+  async function deleteDepartment(department: AdminDepartmentMaster) {
+    const scheduled = isDeletionPending(department);
+    const message = scheduled
+      ? '삭제 예정 데이터를 즉시 완전 삭제합니다. 참조 중인 데이터는 삭제 보류될 수 있습니다. 계속하시겠습니까?'
+      : department.userCount > 0
+      ? '현재 사용자가 연결된 부서입니다. 삭제 후에도 기존 이력은 유지됩니다. 삭제하면 즉시 비활성화되고 7일 후 완전 삭제 대상으로 예약됩니다. 계속하시겠습니까?'
+      : '삭제하면 즉시 비활성화되고 7일 후 완전 삭제 대상으로 예약됩니다. 계속하시겠습니까?';
+    if (!window.confirm(message)) {
+      return;
+    }
+
+    setMessage('');
+    const draft = drafts[department.departmentId] ?? departmentToDraft(department);
+    try {
+      if (scheduled) {
+        const result = await purgeAdminDepartment(developmentUserKey, department.departmentId);
+        setMessage(summarizeBulkAction(result, '부서 즉시 삭제 처리 완료'));
+        load();
+        return;
+      }
+
+      await deactivateAdminDepartment(developmentUserKey, department.departmentId, {
+        ...draft,
+        isActive: false,
+        reason: draft.reason || '삭제'
+      });
+      setMessage('부서를 삭제 예정으로 처리했습니다.');
+      load();
+    } catch (error) {
+      setMessage(friendlyErrorMessage(error, '부서를 삭제 예약할 수 없습니다.'));
+    }
+  }
+
+  async function restoreDepartment(department: AdminDepartmentMaster) {
+    if (!window.confirm('선택한 삭제 예정 데이터를 복구합니다.')) {
+      return;
+    }
+
+    setMessage('');
+    const draft = drafts[department.departmentId] ?? departmentToDraft(department);
+    try {
+      await restoreAdminDepartment(developmentUserKey, department.departmentId, { ...draft, reason: draft.reason || '복구' });
+      setMessage('부서를 복구했습니다.');
+      load();
+    } catch (error) {
+      setMessage(friendlyErrorMessage(error, '부서를 복구할 수 없습니다.'));
+    }
+  }
+
+  async function bulkDeleteDepartments() {
+    if (selectedDepartmentIds.length === 0) {
+      setMessage('삭제할 부서를 선택해 주세요.');
+      return;
+    }
+
+    if (!window.confirm('선택한 데이터의 상태에 맞게 삭제 예정 전환 또는 즉시 삭제를 수행합니다. 삭제 예정 데이터는 즉시 완전 삭제를 시도하며, 참조 중인 데이터는 삭제 보류될 수 있습니다. 계속하시겠습니까?')) {
+      return;
+    }
+
+    setMessage('');
+    try {
+      const result = await bulkDeleteAdminDepartments(developmentUserKey, { ids: selectedDepartmentIds, reason: '선택 삭제' });
+      setMessage(summarizeBulkAction(result, '선택 삭제 처리 완료'));
+      load();
+    } catch (error) {
+      setMessage(friendlyErrorMessage(error, '선택 삭제를 처리할 수 없습니다.'));
+    }
+  }
+
+  async function bulkRestoreDepartments() {
+    if (selectedDepartmentIds.length === 0) {
+      setMessage('복구할 부서를 선택해 주세요.');
+      return;
+    }
+
+    if (!window.confirm('선택한 삭제 예정 데이터를 복구합니다.')) {
+      return;
+    }
+
+    setMessage('');
+    try {
+      const result = await bulkRestoreAdminDepartments(developmentUserKey, { ids: selectedDepartmentIds, reason: '선택 복구' });
+      setMessage(summarizeBulkAction(result, '선택 복구 처리 완료'));
+      load();
+    } catch (error) {
+      setMessage(friendlyErrorMessage(error, '선택 복구를 처리할 수 없습니다.'));
+    }
+  }
+
+  const visibleDepartments = state.kind === 'ready' ? state.data.departments : [];
+  const visibleDepartmentIds = visibleDepartments.map((department) => department.departmentId);
+  const allDepartmentsSelected = visibleDepartmentIds.length > 0 && visibleDepartmentIds.every((id) => selectedDepartmentIds.includes(id));
+
+  return (
+    <AdminPageShell eyebrow="System Management" title="부서 관리" onRefresh={load} message={message}>
+      <div className="subsection">
+        <h3>부서 추가</h3>
+        <div className="detail-grid">
+          <label className={createFieldErrors.code ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+            <span>코드</span>
+            <input value={createDraft.code} onChange={(event) => setCreateDraft((current) => ({ ...current, code: event.target.value.toUpperCase() }))} />
+            <small className="muted-text">영문 대문자, 숫자, 하이픈(-), 언더스코어(_) 2~50자</small>
+            {createFieldErrors.code ? <small role="alert" className="field-error-message">{createFieldErrors.code}</small> : null}
+          </label>
+          <label className={createFieldErrors.name ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+            <span>부서명</span>
+            <input value={createDraft.name} onChange={(event) => setCreateDraft((current) => ({ ...current, name: event.target.value }))} />
+            <small className="muted-text">한글, 영문, 숫자, 공백, 괄호, 하이픈만 사용</small>
+            {createFieldErrors.name ? <small role="alert" className="field-error-message">{createFieldErrors.name}</small> : null}
+          </label>
+          <label className={createFieldErrors.sortOrder ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+            <span>정렬</span>
+            <input type="number" min="0" max="9999" value={createDraft.sortOrder} onChange={(event) => setCreateDraft((current) => ({ ...current, sortOrder: Number(event.target.value) }))} />
+            <small className="muted-text">0 이상 9999 이하 숫자</small>
+            {createFieldErrors.sortOrder ? <small role="alert" className="field-error-message">{createFieldErrors.sortOrder}</small> : null}
+          </label>
+          <label className="form-field compact-field"><span>변경 사유</span><input value={createDraft.reason ?? ''} onChange={(event) => setCreateDraft((current) => ({ ...current, reason: event.target.value || null }))} placeholder="선택 입력" /></label>
+        </div>
+        <button type="button" onClick={() => void create()}>추가</button>
+      </div>
+      {state.kind === 'ready' ? (
+        <div className="bulk-action-bar">
+          <span>선택 {selectedDepartmentIds.length}건</span>
+          <button type="button" onClick={() => void bulkDeleteDepartments()} disabled={selectedDepartmentIds.length === 0}>선택 삭제</button>
+          <button type="button" onClick={() => void bulkRestoreDepartments()} disabled={selectedDepartmentIds.length === 0}>선택 복구</button>
+        </div>
+      ) : null}
+      {state.kind === 'loading' ? <p>부서 목록을 불러오는 중입니다.</p> : null}
+      {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th><input type="checkbox" aria-label="부서 전체 선택" checked={allDepartmentsSelected} onChange={(event) => setSelectedDepartmentIds(event.target.checked ? visibleDepartmentIds : [])} /></th><th>코드</th><th>부서명</th><th>정렬</th><th>상태</th><th>사용자</th><th>변경 사유</th><th>작업</th></tr></thead>
+            <tbody>
+              {state.data.departments.map((department) => {
+                const draft = drafts[department.departmentId] ?? departmentToDraft(department);
+                const fieldErrors = departmentFieldErrors[department.departmentId] ?? {};
+                return (
+                  <tr key={department.departmentId}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`${department.name} 선택`}
+                        checked={selectedDepartmentIds.includes(department.departmentId)}
+                        onChange={(event) => setSelectedDepartmentIds((current) => (
+                          event.target.checked
+                            ? [...current, department.departmentId]
+                            : current.filter((id) => id !== department.departmentId)
+                        ))}
+                      />
+                    </td>
+                    <td><strong>{department.code}</strong></td>
+                    <td>
+                      <label className={fieldErrors.name ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+                        <input value={draft.name} onChange={(event) => setDrafts((current) => ({ ...current, [department.departmentId]: { ...draft, name: event.target.value } }))} />
+                        {fieldErrors.name ? <small role="alert" className="field-error-message">{fieldErrors.name}</small> : null}
+                      </label>
+                    </td>
+                    <td>
+                      <label className={fieldErrors.sortOrder ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+                        <input type="number" min="0" max="9999" value={draft.sortOrder} onChange={(event) => setDrafts((current) => ({ ...current, [department.departmentId]: { ...draft, sortOrder: Number(event.target.value) } }))} />
+                        {fieldErrors.sortOrder ? <small role="alert" className="field-error-message">{fieldErrors.sortOrder}</small> : null}
+                      </label>
+                    </td>
+                    <td>
+                      <DeletionStatusDisplay
+                        isActive={department.isActive}
+                        lifecycleStatus={department.lifecycleStatus}
+                        lifecycleStatusLabel={department.lifecycleStatusLabel}
+                        deletionRequestedAtUtc={department.deletionRequestedAtUtc}
+                        scheduledHardDeleteAtUtc={department.scheduledHardDeleteAtUtc}
+                        scheduledHardDeleteLabel={department.scheduledHardDeleteLabel}
+                        purgeBlockedAtUtc={department.purgeBlockedAtUtc}
+                        purgeBlockedReason={department.purgeBlockedReason}
+                      />
+                      <label className="inline-check">
+                        <input
+                          type="checkbox"
+                          checked={draft.isActive}
+                          disabled={Boolean(department.deletionRequestedAtUtc)}
+                          onChange={(event) => setDrafts((current) => ({ ...current, [department.departmentId]: { ...draft, isActive: event.target.checked } }))}
+                        />
+                        활성
+                      </label>
+                    </td>
+                    <td>{department.userCount}명{!draft.isActive && department.userCount > 0 ? <small className="warning-text"> · 기존 소속 유지</small> : null}</td>
+                    <td><input value={draft.reason ?? ''} onChange={(event) => setDrafts((current) => ({ ...current, [department.departmentId]: { ...draft, reason: event.target.value || null } }))} placeholder="선택 입력" /></td>
+                    <td>
+                      <div className="button-row">
+                        <button type="button" onClick={() => void save(department)}>저장</button>
+                        {isDeletionPending(department) ? <button type="button" onClick={() => void restoreDepartment(department)}>복구</button> : null}
+                        <button type="button" className="danger-button" onClick={() => void deleteDepartment(department)}>{isDeletionPending(department) ? '즉시 삭제' : '삭제'}</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </AdminPageShell>
+  );
+}
+
+function AdminPermissionMatrixPage({ developmentUserKey }: { developmentUserKey: string }) {
+  const [state, setState] = useState<LoadState<PermissionMatrixResponse>>({ kind: 'loading' });
+
+  useEffect(() => {
+    getPermissionMatrix(developmentUserKey)
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '권한 매트릭스를 불러올 수 없습니다.')));
+  }, [developmentUserKey]);
+
+  return (
+    <AdminPageShell eyebrow="Authorization" title="권한 매트릭스" message="">
+      <p className="muted-text">권한 편집은 이번 TASK 범위가 아닙니다.</p>
+      {state.kind === 'loading' ? <p>권한 정보를 불러오는 중입니다.</p> : null}
+      {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="table-scroll">
+          <table className="permission-matrix-table">
+            <thead>
+              <tr>
+                <th className="permission-matrix-label-cell">권한</th>
+                {state.data.roles.map((role) => <th key={role.roleId} className="permission-matrix-value-cell">{role.name}<br /><small>{role.code}</small></th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {state.data.permissions.map((permission) => (
+                <tr key={permission.permissionId}>
+                  <td className="permission-matrix-label-cell"><strong>{permission.name}</strong><br /><small>{permission.code}</small></td>
+                  {state.data.roles.map((role) => (
+                    <td key={role.roleId} className="permission-matrix-value-cell">{hasPermissionAssignment(state.data, role.roleId, permission.permissionId) ? '예' : '-'}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </AdminPageShell>
+  );
+}
+
+function AdminMasterChangeLogsPage({ developmentUserKey }: { developmentUserKey: string }) {
+  const [state, setState] = useState<LoadState<AdminMasterChangeLogListResponse>>({ kind: 'loading' });
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getAdminMasterChangeLogs(developmentUserKey)
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '기준정보 변경 이력을 불러올 수 없습니다.')));
+  }, [developmentUserKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminMasterChangeLogs(developmentUserKey)
+      .then((data) => {
+        if (!cancelled) {
+          setState({ kind: 'ready', data });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState(toLoadError(error, '기준정보 변경 이력을 불러올 수 없습니다.'));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [developmentUserKey]);
+
+  return (
+    <AdminPageShell eyebrow="History" title="기준정보 변경 이력" onRefresh={load} message="">
+      {state.kind === 'loading' ? <p>변경 이력을 불러오는 중입니다.</p> : null}
+      {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>일시</th><th>대상</th><th>작업</th><th>변경자</th><th>사유</th><th>변경 요약</th></tr></thead>
+            <tbody>
+              {state.data.items.map((item) => (
+                <tr key={item.changeLogId}>
+                  <td>{formatDateTime(item.changedAtUtc)}</td>
+                  <td>{item.entityType}<br /><small>{item.entityId ?? '-'}</small></td>
+                  <td>{item.action}</td>
+                  <td>{item.changedByDisplayName ?? '-'}</td>
+                  <td>{item.reason ?? '-'}</td>
+                  <td>{summarizeJsonChange(item.beforeJson, item.afterJson)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {state.data.items.length === 0 ? <p className="muted-text">기록된 변경 이력이 없습니다.</p> : null}
+        </div>
+      ) : null}
+    </AdminPageShell>
+  );
+}
+
+function AdminWorkHistoryPage({ developmentUserKey }: { developmentUserKey: string }) {
+  const [state, setState] = useState<LoadState<AdminWorkItemHistoryListResponse>>({ kind: 'loading' });
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getAdminWorkItemHistory(developmentUserKey)
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '업무 이력을 불러올 수 없습니다.')));
+  }, [developmentUserKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminWorkItemHistory(developmentUserKey)
+      .then((data) => {
+        if (!cancelled) {
+          setState({ kind: 'ready', data });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState(toLoadError(error, '업무 이력을 불러올 수 없습니다.'));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [developmentUserKey]);
+
+  return (
+    <AdminPageShell eyebrow="History" title="업무 시작/완료 이력" onRefresh={load} message="">
+      <p className="muted-text">별도 이벤트 테이블이 아니라 work_items의 started/completed/cancelled timestamp를 조회합니다.</p>
+      {state.kind === 'loading' ? <p>업무 이력을 불러오는 중입니다.</p> : null}
+      {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>프로젝트</th><th>업무</th><th>담당자</th><th>상태</th><th>시작</th><th>완료</th><th>취소</th></tr></thead>
+            <tbody>
+              {state.data.items.map((item) => (
+                <tr key={item.workItemId}>
+                  <td><strong>{item.projectTitle}</strong><br /><small>{item.projectCode}</small></td>
+                  <td>{item.title}<br /><small>{item.workflowStageName}</small></td>
+                  <td>{item.assignedDisplayName ?? '-'}</td>
+                  <td>{item.status}</td>
+                  <td>{formatNullableDateTime(item.startedAtUtc)}</td>
+                  <td>{formatNullableDateTime(item.completedAtUtc)}</td>
+                  <td>{formatNullableDateTime(item.cancelledAtUtc)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {state.data.items.length === 0 ? <p className="muted-text">조회 가능한 업무 이력이 없습니다.</p> : null}
+        </div>
+      ) : null}
+    </AdminPageShell>
+  );
+}
+
+function AdminNotificationDeliveriesPage({
+  developmentUserKey,
+  statusFilter
+}: {
+  developmentUserKey: string;
+  statusFilter: string | null;
+}) {
+  const [state, setState] = useState<LoadState<AdminNotificationDeliveryListResponse>>({ kind: 'loading' });
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getAdminNotificationDeliveries(developmentUserKey, { status: statusFilter })
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '알림 발송 상태를 불러올 수 없습니다.')));
+  }, [developmentUserKey, statusFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminNotificationDeliveries(developmentUserKey, { status: statusFilter })
+      .then((data) => {
+        if (!cancelled) {
+          setState({ kind: 'ready', data });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState(toLoadError(error, '알림 발송 상태를 불러올 수 없습니다.'));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [developmentUserKey, statusFilter]);
+
+  const filterLabel = statusFilter ? deliveryStatusLabel(statusFilter) : '전체';
+
+  return (
+    <AdminPageShell eyebrow="System" title="알림 발송 상태" onRefresh={load} message="">
+      <div className="admin-guidance">
+        <p>발송 실패는 외부 채널로 알림을 보내지 못한 건입니다. 오류 코드를 확인해 수신자 이메일, 채널 설정, SMTP/Teams 설정을 점검하세요. 수동 재처리는 후속 기능입니다.</p>
+        <p>발송 대기는 아직 worker가 처리하지 않았거나 다음 재시도 시각을 기다리는 건입니다. 오래된 대기 건은 worker/dispatch 설정을 확인하세요.</p>
+        <p><strong>현재 필터:</strong> {filterLabel}</p>
+      </div>
+      {state.kind === 'loading' ? <p>발송 상태를 불러오는 중입니다.</p> : null}
+      {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="table-scroll">
+          <table className="admin-table">
+            <thead><tr><th className="admin-table__cell--text">알림</th><th className="admin-table__cell--text">대상</th><th className="admin-table__cell--text">채널/유형</th><th className="admin-table__cell--status">상태</th><th className="admin-table__cell--number">시도</th><th className="admin-table__cell--date">다음 시도</th><th className="admin-table__cell--text">오류/조치</th></tr></thead>
+            <tbody>
+              {state.data.items.map((item) => (
+                <tr key={item.deliveryId}>
+                  <td className="admin-table__cell--text">
+                    <strong>{item.notificationTitle ?? '-'}</strong>
+                    <br />
+                    <small>{item.projectTitle ?? '-'}{item.projectCode ? ` · ${item.projectCode}` : ''}</small>
+                    <br />
+                    <small>생성 {formatNullableDateTime(item.createdAtUtc)}</small>
+                  </td>
+                  <td className="admin-table__cell--text">{item.recipientDisplayName ?? '-'}</td>
+                  <td className="admin-table__cell--text">{item.channel}<br /><small>{item.deliveryType}</small></td>
+                  <td className="admin-table__cell--status"><StatusBadge label={deliveryStatusLabel(item.status)} tone={item.status === 'Failed' ? 'danger' : item.status === 'Pending' ? 'warning' : 'neutral'} /></td>
+                  <td className="admin-table__cell--number">{item.attemptCount}회</td>
+                  <td className="admin-table__cell--date">{formatNullableDateTime(item.nextAttemptAtUtc)}</td>
+                  <td className="admin-table__cell--text">
+                    <strong>{item.errorCode ?? (item.status === 'Pending' ? '대기 사유' : '-')}</strong>
+                    {item.errorMessage ? <><br /><small>{item.errorMessage}</small></> : null}
+                    <br />
+                    <small>{deliveryActionGuide(item)}</small>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {state.data.items.length === 0 ? <p className="muted-text">발송 이력이 없습니다.</p> : null}
+        </div>
+      ) : null}
+    </AdminPageShell>
+  );
+}
+
+function AdminWorkItemEscalationsPage({
+  developmentUserKey,
+  statusFilter,
+  levelFilter
+}: {
+  developmentUserKey: string;
+  statusFilter: string | null;
+  levelFilter: string | null;
+}) {
+  const [state, setState] = useState<LoadState<AdminWorkItemEscalationListResponse>>({ kind: 'loading' });
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getAdminWorkItemEscalations(developmentUserKey, { status: statusFilter, level: levelFilter })
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '에스컬레이션 상태를 불러올 수 없습니다.')));
+  }, [developmentUserKey, levelFilter, statusFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminWorkItemEscalations(developmentUserKey, { status: statusFilter, level: levelFilter })
+      .then((data) => {
+        if (!cancelled) {
+          setState({ kind: 'ready', data });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState(toLoadError(error, '에스컬레이션 상태를 불러올 수 없습니다.'));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [developmentUserKey, levelFilter, statusFilter]);
+
+  const filterText = [
+    statusFilter ? `상태 ${statusFilter}` : null,
+    levelFilter ? `단계 ${escalationLevelLabel(levelFilter)}` : null
+  ].filter(Boolean).join(' · ') || '전체';
+
+  return (
+    <AdminPageShell eyebrow="System" title="에스컬레이션 상태" onRefresh={load} message="">
+      <div className="admin-guidance">
+        <p>진행 중 에스컬레이션은 예정일 임박 또는 초과 후 아직 완료/취소되지 않은 업무입니다. L0는 예정일 임박, L1~L3는 초과 단계입니다.</p>
+        <p>L0는 담당자 예정일 확인, L1은 정담당자 조치 확인, L2는 부담당자/생산관리 확인, L3는 생산관리/영업 확인이 필요합니다.</p>
+        <p><strong>현재 필터:</strong> {filterText}</p>
+      </div>
+      {state.kind === 'loading' ? <p>에스컬레이션 상태를 불러오는 중입니다.</p> : null}
+      {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="table-scroll">
+          <table className="admin-table">
+            <thead><tr><th className="admin-table__cell--text">프로젝트</th><th className="admin-table__cell--text">업무</th><th className="admin-table__cell--date">예정일</th><th className="admin-table__cell--status">상태</th><th className="admin-table__cell--status">현재 단계</th><th className="admin-table__cell--date">다음 확인</th><th className="admin-table__cell--text">Delivery/조치</th></tr></thead>
+            <tbody>
+              {state.data.items.map((item) => (
+                <tr key={item.escalationId}>
+                  <td className="admin-table__cell--text"><strong>{item.projectTitle}</strong><br /><small>{item.projectCode}</small></td>
+                  <td className="admin-table__cell--text">{item.workItemTitle}<br /><small>{item.workflowStageName} · {item.assignedDisplayName ?? '-'}</small></td>
+                  <td className="admin-table__cell--date">{formatDate(item.dueDate)}</td>
+                  <td className="admin-table__cell--status"><StatusBadge label={item.status === 'Active' ? '진행 중' : item.status} tone={item.status === 'Active' ? 'warning' : 'neutral'} /></td>
+                  <td className="admin-table__cell--status"><StatusBadge label={escalationLevelLabel(item.currentLevel)} tone={item.currentLevel === 'L0' ? 'info' : item.currentLevel === 'L1' ? 'warning' : 'danger'} /></td>
+                  <td className="admin-table__cell--date">{formatNullableDateTime(item.nextCheckAtUtc)}</td>
+                  <td className="admin-table__cell--text">
+                    {item.deliveryStatusSummary ?? '-'}
+                    <br />
+                    <small>{escalationActionGuide(item.currentLevel)}</small>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {state.data.items.length === 0 ? <p className="muted-text">에스컬레이션 상태가 없습니다.</p> : null}
+        </div>
+      ) : null}
+    </AdminPageShell>
+  );
+}
+
+function AdminPageShell({
+  eyebrow,
+  title,
+  onRefresh,
+  message,
+  children
+}: {
+  eyebrow: string;
+  title: string;
+  onRefresh?: () => void;
+  message: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="panel-section">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">{eyebrow}</p>
+          <h2>{title}</h2>
+        </div>
+        {onRefresh ? <button type="button" onClick={onRefresh}>새로고침</button> : null}
+      </div>
+      {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+      {children}
+    </section>
+  );
+}
+
+function dashboardEscalationLevels(levels: AdminDashboardEscalationLevel[] | undefined) {
+  const counts = new Map((levels ?? []).map((item) => [item.level, item.count]));
+  return [
+    { level: 'L0', label: 'L0 예정일 임박', count: counts.get('L0') ?? 0 },
+    { level: 'L1', label: 'L1 초과', count: counts.get('L1') ?? 0 },
+    { level: 'L2', label: 'L2 +2영업일 초과', count: counts.get('L2') ?? 0 },
+    { level: 'L3', label: 'L3 +3영업일 초과', count: counts.get('L3') ?? 0 }
+  ];
+}
+
+function deliveryStatusLabel(status: string) {
+  switch (status) {
+    case 'Pending':
+      return '발송 대기';
+    case 'Sent':
+      return '발송 완료';
+    case 'Failed':
+      return '발송 실패';
+    case 'Suppressed':
+      return '발송 제외';
+    case 'Disabled':
+      return '채널 비활성';
+    case 'DryRunSent':
+      return 'Dry-run 처리';
+    default:
+      return status;
+  }
+}
+
+function escalationLevelLabel(level: string) {
+  switch (level) {
+    case 'None':
+      return '없음';
+    case 'L0':
+      return '예정일 임박';
+    case 'L1':
+      return '예정일 초과';
+    case 'L2':
+      return '초과 +2영업일';
+    case 'L3':
+      return '초과 +3영업일';
+    default:
+      return level;
+  }
+}
+
+function escalationActionGuide(level: string) {
+  switch (level) {
+    case 'L0':
+      return '담당자에게 예정일 임박 상태를 확인하세요.';
+    case 'L1':
+      return '정담당자 조치 상태를 확인하세요.';
+    case 'L2':
+      return '부담당자와 생산관리 담당자 조치 상태를 확인하세요.';
+    case 'L3':
+      return '생산관리 담당자와 영업 담당자 확인이 필요합니다.';
+    default:
+      return '업무 상태와 예정일을 확인하세요.';
+  }
+}
+
+function deliveryActionGuide(item: AdminNotificationDeliveryListResponse['items'][number]) {
+  const code = item.errorCode ?? '';
+  if (item.status === 'Pending') {
+    if (item.attemptCount === 0) {
+      return '발송 worker 처리 대기';
+    }
+
+    if (item.nextAttemptAtUtc && Date.parse(item.nextAttemptAtUtc) > Date.now()) {
+      return '재시도 대기';
+    }
+
+    return '오래된 대기 건이면 worker/dispatch 설정을 확인하세요.';
+  }
+
+  if (item.status === 'Disabled') {
+    return '채널 비활성 상태입니다. 알림 채널 설정을 확인하세요.';
+  }
+
+  if (code === 'RecipientEmailMissing') {
+    return '사용자 이메일 등록/확인이 필요합니다.';
+  }
+
+  if (code === 'SmtpAuthenticationFailed') {
+    return 'SMTP 계정 또는 앱 비밀번호를 확인하세요.';
+  }
+
+  if (code === 'SmtpConnectionFailed') {
+    return 'SMTP 서버, 포트, 보안 설정을 확인하세요.';
+  }
+
+  if (code.includes('TeamsWebhook') || code.includes('Teams')) {
+    return 'Teams Webhook 또는 Power Automate 상태를 확인하세요.';
+  }
+
+  if (code.includes('GraphPermissionDenied') || code.includes('PermissionDenied')) {
+    return 'Graph 권한과 관리자 동의 상태를 확인하세요.';
+  }
+
+  if (code.includes('429') || code.includes('Throttled') || code.includes('5xx')) {
+    return '일시 오류 가능성이 있습니다. 다음 재시도 시각을 확인하세요.';
+  }
+
+  if (item.status === 'Failed') {
+    return '오류 코드와 backend 로그를 확인하세요.';
+  }
+
+  return '-';
+}
+
+function departmentToDraft(department: AdminDepartmentMaster): UpdateAdminDepartmentRequest {
+  return {
+    name: department.name,
+    isActive: department.isActive,
+    sortOrder: department.sortOrder,
+    reason: null
+  };
+}
+
+function hasPermissionAssignment(matrix: PermissionMatrixResponse, roleId: string, permissionId: string) {
+  return matrix.assignments.some((assignment) => assignment.roleId === roleId && assignment.permissionId === permissionId);
+}
+
+function summarizeJsonChange(beforeJson: string | null, afterJson: string | null) {
+  if (!beforeJson && afterJson) {
+    return '생성';
+  }
+
+  if (beforeJson && !afterJson) {
+    return '삭제';
+  }
+
+  if (!beforeJson && !afterJson) {
+    return '-';
+  }
+
+  return '변경 전/후 기록 있음';
+}
+
 function HolidayTypeBadge({ holidayType }: { holidayType: HolidayType }) {
   return <span className="holiday-type-badge" data-type={holidayType}>{adminHolidayTypeLabel(holidayType)}</span>;
 }
@@ -1744,6 +3169,18 @@ function isProcurementWorkspace(view: View) {
   return view.kind === 'procurement-dashboard'
     || view.kind === 'procurement-edit'
     || view.kind === 'procurement-settings';
+}
+
+function isAdminWorkspace(view: View) {
+  return view.kind === 'admin-dashboard'
+    || view.kind === 'admin-users'
+    || view.kind === 'admin-departments'
+    || view.kind === 'admin-calendar-holidays'
+    || view.kind === 'admin-permission-matrix'
+    || view.kind === 'admin-master-change-logs'
+    || view.kind === 'admin-work-history'
+    || view.kind === 'admin-notification-deliveries'
+    || view.kind === 'admin-work-item-escalations';
 }
 
 type MyWorkTab = 'All' | 'Requested' | 'InProgress' | 'Completed' | 'AssignedProjects';
@@ -6245,10 +7682,12 @@ function procurementMatchStatusLabel(status: string) {
 
 function MaterialReceiptsPage({
   developmentUserKey,
+  canAccessMaterialReceipt,
   canUpdateMaterialReceipt,
   onBack
 }: {
   developmentUserKey: string;
+  canAccessMaterialReceipt: boolean;
   canUpdateMaterialReceipt: boolean;
   onBack: () => void;
 }) {
@@ -6263,6 +7702,11 @@ function MaterialReceiptsPage({
   const isMobile = useIsMobileViewport();
 
   const load = useCallback(() => {
+    if (!canAccessMaterialReceipt) {
+      setState({ kind: 'forbidden', message: '권한이 없습니다.' });
+      return;
+    }
+
     setState({ kind: 'loading' });
     getMaterialReceipts(developmentUserKey, search, includeCompleted, dateFrom, dateTo)
       .then((response) => {
@@ -6270,13 +7714,13 @@ function MaterialReceiptsPage({
         setState(response.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: response.items });
       })
       .catch((error: unknown) => setState(toLoadError(error, '자재 입고 처리 항목을 불러올 수 없습니다.')));
-  }, [dateFrom, dateTo, developmentUserKey, includeCompleted, search]);
+  }, [canAccessMaterialReceipt, dateFrom, dateTo, developmentUserKey, includeCompleted, search]);
 
   useEffect(() => {
     queueMicrotask(load);
   }, [load]);
 
-  if (!canUpdateMaterialReceipt) {
+  if (!canAccessMaterialReceipt) {
     return <section className="page-surface"><StateMessage state={{ kind: 'forbidden', message: '권한이 없습니다.' }} /></section>;
   }
 
@@ -6313,7 +7757,7 @@ function MaterialReceiptsPage({
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>프로젝트 목록</button>
-          <button type="button" className="primary-button" onClick={save}>저장</button>
+          {canUpdateMaterialReceipt ? <button type="button" className="primary-button" onClick={save}>저장</button> : null}
         </div>
       </div>
       <form className="toolbar" onSubmit={(event) => { event.preventDefault(); load(); }}>
@@ -6330,7 +7774,10 @@ function MaterialReceiptsPage({
         <button type="submit">검색</button>
       </form>
       <div className="inline-help-row">
-        <p className="muted-text">현재 구매품목 입고 처리 대상만 표시됩니다. 완료된 항목은 저장 후 기본 목록에서 사라집니다.</p>
+        <p className="muted-text">
+          현재 구매품목 입고 처리 대상만 표시됩니다. 완료된 항목은 저장 후 기본 목록에서 사라집니다.
+          {!canUpdateMaterialReceipt ? ' System Administrator 조회 접근이며 입고 처리는 기존 담당 권한이 필요합니다.' : ''}
+        </p>
         <label className="checkbox-field">
           <input
             type="checkbox"
@@ -6348,7 +7795,7 @@ function MaterialReceiptsPage({
       {state.kind === 'empty' ? <p className="empty-text">표시할 항목이 없습니다.</p> : null}
       {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
-        <MaterialReceiptGroups items={items} onChange={setReceipt} isMobile={isMobile} />
+        <MaterialReceiptGroups items={items} onChange={setReceipt} isMobile={isMobile} canEdit={canUpdateMaterialReceipt} />
       ) : null}
       {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
     </section>
@@ -6358,11 +7805,13 @@ function MaterialReceiptsPage({
 function MaterialReceiptGroups({
   items,
   onChange,
-  isMobile
+  isMobile,
+  canEdit
 }: {
   items: ProcurementItem[];
   onChange: (itemId: string, next: Partial<ProcurementItem>) => void;
   isMobile: boolean;
+  canEdit: boolean;
 }) {
   const groups = groupMaterialReceiptItems(items);
   return (
@@ -6386,13 +7835,13 @@ function MaterialReceiptGroups({
                 <span>{emptyDash(item.expectedReceiptDate)}</span>
                 <div className="receipt-input-cell">
                   <label className="checkbox-field">
-                    <input type="checkbox" checked={item.receiptCompleted} onChange={(event) => onChange(item.itemId, { receiptCompleted: event.target.checked })} />
+                    <input type="checkbox" checked={item.receiptCompleted} disabled={!canEdit} onChange={(event) => onChange(item.itemId, { receiptCompleted: event.target.checked })} />
                     입고 완료
                   </label>
                   <ReceiptCompletionBadge completed={item.receiptCompleted} completedAtUtc={item.receiptCompletedAtUtc} />
                 </div>
-                <input type="datetime-local" value={toDateTimeLocal(item.receiptCompletedAtUtc ?? '')} onChange={(event) => onChange(item.itemId, { receiptCompletedAtUtc: fromDateTimeLocal(event.target.value) })} />
-                <textarea value={item.receiptCompletionNote ?? ''} onChange={(event) => onChange(item.itemId, { receiptCompletionNote: event.target.value })} />
+                <input type="datetime-local" value={toDateTimeLocal(item.receiptCompletedAtUtc ?? '')} disabled={!canEdit} onChange={(event) => onChange(item.itemId, { receiptCompletedAtUtc: fromDateTimeLocal(event.target.value) })} />
+                <textarea value={item.receiptCompletionNote ?? ''} disabled={!canEdit} onChange={(event) => onChange(item.itemId, { receiptCompletionNote: event.target.value })} />
               </div>
             ))}
           </div>
@@ -7521,6 +8970,8 @@ function ProjectForm({
   const setField = (field: keyof ProjectFormValues, value: string) => onChange({ ...form, [field]: value });
   const activeProductTypes = productTypes.filter((item) => item.isActive);
   const currentItemIsKnown = !form.item || activeProductTypes.some((item) => item.code === form.item);
+  const currentPackagingMethodIsKnown = !form.packagingMethod
+    || packagingMethodOptions.some((item) => item.value === form.packagingMethod);
 
   return (
     <form className="project-form" noValidate onSubmit={onSubmit}>
@@ -7568,10 +9019,12 @@ function ProjectForm({
       <FormField label="포장방식*" error={errors.packagingMethod}>
         <select name="packagingMethod" value={form.packagingMethod} onChange={(event) => setField('packagingMethod', event.target.value)}>
           <option value="">선택</option>
-          <option value="WoodenCrate">목포장</option>
-          <option value="StretchWrap">청랩포장</option>
-          <option value="HeavyDutyBox">고강도박스포장</option>
+          {!currentPackagingMethodIsKnown ? <option value={form.packagingMethod}>현재값: {formatPackagingMethod(form.packagingMethod)}</option> : null}
+          {packagingMethodOptions.map((method) => (
+            <option key={method.value} value={method.value}>{method.label}</option>
+          ))}
         </select>
+        {!currentPackagingMethodIsKnown ? <small className="warning-text">현재 포장방식은 허용된 기준값이 아닙니다. 저장하려면 포장방식을 선택해 주세요.</small> : null}
       </FormField>
       <FormField label="판매금액" error={errors.salesAmount}>
         <input name="salesAmount" value={form.salesAmount} inputMode="decimal" onChange={(event) => setField('salesAmount', event.target.value)} />
@@ -8434,11 +9887,10 @@ function toCreateRequest(form: ProjectFormValues) {
 }
 
 function toPackagingMethod(value: string): PackagingMethod | null {
-  if (value === 'WoodenCrate' || value === 'StretchWrap' || value === 'HeavyDutyBox') {
-    return value;
-  }
-
-  return null;
+  const trimmed = value.trim();
+  return packagingMethodOptions.some((option) => option.value === trimmed)
+    ? trimmed as PackagingMethod
+    : null;
 }
 
 function projectToForm(project: ProjectDetail): ProjectFormValues {
@@ -8579,6 +10031,14 @@ function friendlyErrorMessage(error: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function fieldErrorsFromApiError(error: unknown) {
+  if (error instanceof ApiError && error.errors) {
+    return mapValidationErrorsToFieldErrors(error.errors);
+  }
+
+  return {};
 }
 
 function sanitizeUserMessage(message: string, fallback: string) {
@@ -8887,6 +10347,29 @@ function formatDateTime(value: string) {
   return new Date(value).toLocaleString();
 }
 
+function formatKoreanDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(date);
+  const valueByType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${valueByType.year}-${valueByType.month}-${valueByType.day} ${valueByType.hour}:${valueByType.minute}`;
+}
+
+function formatNullableDateTime(value: string | null | undefined) {
+  return value ? formatDateTime(value) : '-';
+}
+
 function formatPackagingMethod(value: string | null) {
   if (value === 'WoodenCrate') {
     return '목포장';
@@ -8900,7 +10383,7 @@ function formatPackagingMethod(value: string | null) {
     return '고강도박스포장';
   }
 
-  return '미지정';
+  return value ?? '미지정';
 }
 
 function formatProjectStatus(status: ProjectStatus) {

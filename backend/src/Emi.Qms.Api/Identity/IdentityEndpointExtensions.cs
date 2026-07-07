@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 
 namespace Emi.Qms.Api.Identity;
@@ -84,6 +85,116 @@ public static class IdentityEndpointExtensions
         .RequireAuthorization(QmsPolicies.AdminUsersRead)
         .WithName("UpdateAdminUser");
 
+        api.MapPatch("/admin/users/{userId:guid}/schedule-deletion", async (
+            Guid userId,
+            ClaimsPrincipal principal,
+            IUserAdministrationStore userAdministrationStore,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(principal);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await userAdministrationStore.ScheduleEntraUserDeletionAsync(
+                userId,
+                currentUserId.Value,
+                cancellationToken);
+
+            return result.Succeeded && result.Snapshot is not null
+                ? Results.Ok(AdminUsersResponse.From(result.Snapshot))
+                : Results.BadRequest(new { message = result.ErrorMessage ?? "사용자를 삭제 예약할 수 없습니다." });
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("ScheduleAdminUserDeletion");
+
+        api.MapPost("/admin/users/{userId:guid}/restore", async (
+            Guid userId,
+            ClaimsPrincipal principal,
+            IUserAdministrationStore userAdministrationStore,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(principal);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await userAdministrationStore.RestoreEntraUserAsync(
+                userId,
+                currentUserId.Value,
+                cancellationToken);
+
+            return result.Succeeded && result.Snapshot is not null
+                ? Results.Ok(AdminUsersResponse.From(result.Snapshot))
+                : Results.BadRequest(new { message = result.ErrorMessage ?? "사용자를 복구할 수 없습니다." });
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("RestoreAdminUser");
+
+        api.MapDelete("/admin/users/{userId:guid}/purge", async (
+            Guid userId,
+            ClaimsPrincipal principal,
+            AdminScheduledDeletionService deletionService,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(principal);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await deletionService.PurgeUserNowAsync(userId, currentUserId.Value, cancellationToken);
+            return result.Status == "Failed"
+                ? Results.BadRequest(new { message = result.Message })
+                : Results.Ok(ToSingleBulkActionResponse(userId, result));
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("PurgeAdminUser");
+
+        api.MapPost("/admin/users/bulk-delete", async (
+            AdminBulkActionRequest request,
+            ClaimsPrincipal principal,
+            IUserAdministrationStore userAdministrationStore,
+            AdminScheduledDeletionService deletionService,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(principal);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            return Results.Ok(await userAdministrationStore.BulkDeleteUsersAsync(
+                request.Ids,
+                currentUserId.Value,
+                deletionService,
+                cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("BulkDeleteAdminUsers");
+
+        api.MapPost("/admin/users/bulk-restore", async (
+            AdminBulkActionRequest request,
+            ClaimsPrincipal principal,
+            IUserAdministrationStore userAdministrationStore,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(principal);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            return Results.Ok(await userAdministrationStore.BulkRestoreUsersAsync(
+                request.Ids,
+                currentUserId.Value,
+                cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("BulkRestoreAdminUsers");
+
         return app;
     }
 
@@ -104,6 +215,16 @@ public static class IdentityEndpointExtensions
     {
         var value = principal.FindFirst(QmsClaimTypes.UserId)?.Value;
         return Guid.TryParse(value, out var userId) ? userId : null;
+    }
+
+    private static AdminBulkActionResponse ToSingleBulkActionResponse(Guid id, AdminPurgeActionResult result)
+    {
+        return new AdminBulkActionResponse(
+            1,
+            result.Status == "Failed" ? 0 : 1,
+            result.Status == "Failed" ? 1 : 0,
+            0,
+            [new AdminBulkActionItemResponse(id, result.Status, result.Message)]);
     }
 }
 
@@ -235,8 +356,23 @@ public sealed record AdminUserResponse(
     string? DepartmentCode,
     string? DepartmentName,
     IReadOnlyList<string> Roles,
-    bool IsReadOnly)
+    bool IsReadOnly,
+    DateTimeOffset? DeletionRequestedAtUtc,
+    DateTimeOffset? ScheduledHardDeleteAtUtc,
+    DateTimeOffset? PurgeBlockedAtUtc,
+    string? PurgeBlockedReason,
+    bool? PreDeleteIsActive)
 {
+    public string LifecycleStatus => AdminDeletionLifecycle.Calculate(
+        IsActive,
+        DeletionRequestedAtUtc,
+        ScheduledHardDeleteAtUtc,
+        PurgeBlockedAtUtc);
+
+    public string LifecycleStatusLabel => AdminDeletionLifecycle.Label(LifecycleStatus);
+
+    public string? ScheduledHardDeleteLabel => AdminDeletionLifecycle.FormatScheduledHardDeleteLabel(ScheduledHardDeleteAtUtc);
+
     public static AdminUserResponse From(UserAdministrationUser user)
     {
         return new AdminUserResponse(
@@ -251,7 +387,12 @@ public sealed record AdminUserResponse(
             user.DepartmentCode,
             user.DepartmentName,
             user.Roles,
-            user.IsReadOnly);
+            user.IsReadOnly,
+            user.DeletionRequestedAtUtc,
+            user.ScheduledHardDeleteAtUtc,
+            user.PurgeBlockedAtUtc,
+            user.PurgeBlockedReason,
+            user.PreDeleteIsActive);
     }
 }
 

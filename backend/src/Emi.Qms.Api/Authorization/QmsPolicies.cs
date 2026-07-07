@@ -20,4 +20,5 @@ public static class QmsPolicies
     public const string ProjectSalesAmountRead = "ProjectSalesAmountRead";
     public const string ManufacturingWorkTimeRead = "ManufacturingWorkTimeRead";
     public const string AdminUsersRead = "AdminUsersRead";
+    public const string AdminHistoryRead = "AdminHistoryRead";
 }

@@ -271,12 +271,37 @@ export async function getAdminWorkItemHistory(developmentUserKey?: string): Prom
   return fetchJson<AdminWorkItemHistoryListResponse>('/api/admin/work-items/history', developmentUserKey);
 }
 
-export async function getAdminNotificationDeliveries(developmentUserKey?: string): Promise<AdminNotificationDeliveryListResponse> {
-  return fetchJson<AdminNotificationDeliveryListResponse>('/api/admin/notification-deliveries', developmentUserKey);
+export async function getAdminNotificationDeliveries(
+  developmentUserKey?: string,
+  filters: { status?: string | null; channel?: string | null; deliveryType?: string | null } = {}
+): Promise<AdminNotificationDeliveryListResponse> {
+  const params = new URLSearchParams();
+  if (filters.status) {
+    params.set('status', filters.status);
+  }
+  if (filters.channel) {
+    params.set('channel', filters.channel);
+  }
+  if (filters.deliveryType) {
+    params.set('deliveryType', filters.deliveryType);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<AdminNotificationDeliveryListResponse>(`/api/admin/notification-deliveries${query}`, developmentUserKey);
 }
 
-export async function getAdminWorkItemEscalations(developmentUserKey?: string): Promise<AdminWorkItemEscalationListResponse> {
-  return fetchJson<AdminWorkItemEscalationListResponse>('/api/admin/work-item-escalations', developmentUserKey);
+export async function getAdminWorkItemEscalations(
+  developmentUserKey?: string,
+  filters: { status?: string | null; level?: string | null } = {}
+): Promise<AdminWorkItemEscalationListResponse> {
+  const params = new URLSearchParams();
+  if (filters.status) {
+    params.set('status', filters.status);
+  }
+  if (filters.level) {
+    params.set('level', filters.level);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<AdminWorkItemEscalationListResponse>(`/api/admin/work-item-escalations${query}`, developmentUserKey);
 }
 
 export async function getSalesOwners(developmentUserKey?: string): Promise<SalesOwner[]> {

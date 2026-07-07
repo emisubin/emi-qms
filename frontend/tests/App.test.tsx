@@ -272,6 +272,27 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: '관리자' })).toBeInTheDocument();
     expect(screen.getByText('발송 실패')).toBeInTheDocument();
+    expect(screen.getByText('L0 예정일 임박')).toBeInTheDocument();
+    expect(screen.getByText('L1 초과')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '실패 알림 보기' }));
+    expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
+    expect(screen.getByText('현재 필터:')).toBeInTheDocument();
+    expect(screen.getAllByText('발송 실패').length).toBeGreaterThan(0);
+    expect(screen.getByText('사용자 이메일 등록/확인이 필요합니다.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '수동 재처리' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(await screen.findByRole('button', { name: '대기 알림 보기' }));
+    expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
+    expect(screen.getByText('발송 worker 처리 대기')).toBeInTheDocument();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(await screen.findByRole('button', { name: '진행 중 에스컬레이션 보기' }));
+    expect(await screen.findByRole('heading', { name: '에스컬레이션 상태' })).toBeInTheDocument();
+    expect(screen.getByText('진행 중 에스컬레이션은 예정일 임박 또는 초과 후 아직 완료/취소되지 않은 업무입니다. L0는 예정일 임박, L1~L3는 초과 단계입니다.')).toBeInTheDocument();
+    expect(screen.getByText('정담당자 조치 상태를 확인하세요.')).toBeInTheDocument();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
     expect(screen.queryByRole('button', { name: 'Item' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '포장방식' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '생산계획 단계 설정' })).not.toBeInTheDocument();
@@ -1350,12 +1371,18 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json({
       pendingUserCount: 1,
       failedDeliveryCount: 2,
-      pendingDeliveryCount: 3,
-      lastDailyDigestSentAtUtc: '2026-07-07T07:30:00Z',
-      activeEscalationCount: 4,
-      recentMasterChangeCount: 5
-    }, userKey === 'dev-admin' ? 200 : 403);
-  }
+	      pendingDeliveryCount: 3,
+	      lastDailyDigestSentAtUtc: '2026-07-07T07:30:00Z',
+	      activeEscalationCount: 4,
+	      recentMasterChangeCount: 5,
+	      activeEscalationLevels: [
+	        { level: 'L0', label: '예정일 임박', count: 1 },
+	        { level: 'L1', label: '예정일 초과', count: 2 },
+	        { level: 'L2', label: '초과 +2영업일', count: 1 },
+	        { level: 'L3', label: '초과 +3영업일', count: 0 }
+	      ]
+	    }, userKey === 'dev-admin' ? 200 : 403);
+	  }
 
   if (path === '/api/admin/departments' || path.startsWith('/api/admin/departments/')) {
     if (path === '/api/admin/departments' && init?.method === 'POST') {
@@ -1454,37 +1481,39 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/admin/notification-deliveries') {
-    return json({
-      items: [
-        {
-          deliveryId: '79000000-0000-0000-0000-000000000101',
-          channel: 'Mail',
-          deliveryType: 'DailyDigest',
-          status: 'Sent',
-          attemptCount: 1,
-          nextAttemptAtUtc: null,
-          lastAttemptAtUtc: '2026-07-07T00:00:00Z',
-          sentAtUtc: '2026-07-07T00:00:00Z',
-          suppressedAtUtc: null,
-          errorCode: null,
-          errorMessage: null,
-          recipientDisplayName: 'Dev Sales User',
-          recipientEmail: null,
-          projectTitle: 'TASK-003A Demo',
-          projectCode: 'PJT-003A',
-          notificationTitle: 'Daily Digest',
-          createdAtUtc: '2026-07-07T00:00:00Z',
-          updatedAtUtc: '2026-07-07T00:00:00Z'
-        }
+	  if (path === '/api/admin/notification-deliveries') {
+	    const status = url.searchParams.get('status') ?? 'Sent';
+	    return json({
+	      items: [
+	        {
+	          deliveryId: '79000000-0000-0000-0000-000000000101',
+	          channel: 'Mail',
+	          deliveryType: status === 'Pending' ? 'OverdueL1' : 'DailyDigest',
+	          status,
+	          attemptCount: status === 'Pending' ? 0 : 1,
+	          nextAttemptAtUtc: status === 'Pending' ? '2026-07-07T01:00:00Z' : null,
+	          lastAttemptAtUtc: status === 'Sent' ? '2026-07-07T00:00:00Z' : null,
+	          sentAtUtc: status === 'Sent' ? '2026-07-07T00:00:00Z' : null,
+	          suppressedAtUtc: null,
+	          errorCode: status === 'Failed' ? 'RecipientEmailMissing' : null,
+	          errorMessage: status === 'Failed' ? '수신자 이메일이 없습니다.' : null,
+	          recipientDisplayName: 'Dev Sales User',
+	          recipientEmail: null,
+	          projectTitle: 'TASK-003A Demo',
+	          projectCode: 'PJT-003A',
+	          notificationTitle: status === 'Pending' ? '예정일 초과 알림' : 'Daily Digest',
+	          createdAtUtc: '2026-07-07T00:00:00Z',
+	          updatedAtUtc: '2026-07-07T00:00:00Z'
+	        }
       ]
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/admin/work-item-escalations') {
-    return json({
-      items: [
-        {
+	  if (path === '/api/admin/work-item-escalations') {
+	    const level = url.searchParams.get('level') ?? 'L1';
+	    return json({
+	      items: [
+	        {
           escalationId: '79000000-0000-0000-0000-000000000201',
           workItemId: '76000000-0000-0000-0000-000000000001',
           projectId,
@@ -1493,11 +1522,11 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
           workflowStageCode: 'ProductionPlanning',
           workflowStageName: '생산계획·담당자',
           workItemTitle: '생산계획, 담당자 입력',
-          dueDate: '2026-07-07',
-          status: 'Active',
-          currentLevel: 'L1',
-          lastEscalatedAtUtc: '2026-07-07T00:00:00Z',
-          nextCheckAtUtc: '2026-07-08T00:00:00Z',
+	          dueDate: '2026-07-07',
+	          status: 'Active',
+	          currentLevel: level,
+	          lastEscalatedAtUtc: '2026-07-07T00:00:00Z',
+	          nextCheckAtUtc: '2026-07-08T00:00:00Z',
           assignedDisplayName: 'Dev Sales User',
           deliveryStatusSummary: 'Mail:Sent',
           createdAtUtc: '2026-07-07T00:00:00Z',

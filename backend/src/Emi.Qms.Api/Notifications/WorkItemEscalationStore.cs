@@ -1,5 +1,6 @@
 using Emi.Qms.Api.Calendar;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Notifications;
 
@@ -260,7 +261,10 @@ public sealed class WorkItemEscalationStore(
         return new EscalationCreateResult(1, deliveryCount);
     }
 
-    public async Task<WorkItemEscalationListResponse> ListEscalationsAsync(CancellationToken cancellationToken)
+    public async Task<WorkItemEscalationListResponse> ListEscalationsAsync(
+        string? status,
+        string? level,
+        CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
@@ -300,9 +304,13 @@ public sealed class WorkItemEscalationStore(
             join projects p on p.id = wie.project_id
             join workflow_stages ws on ws.stage_code = wie.workflow_stage_code
             left join qms_users u on u.id = wie.assigned_user_id
+            where (@status is null or wie.status = @status)
+              and (@level is null or wie.current_level = @level)
             order by wie.updated_at_utc desc
             limit 200;
             """);
+        command.Parameters.Add(new NpgsqlParameter("status", NpgsqlDbType.Text) { Value = NormalizeFilter(status) ?? (object)DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("level", NpgsqlDbType.Text) { Value = NormalizeFilter(level) ?? (object)DBNull.Value });
 
         var items = new List<WorkItemEscalationResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -719,6 +727,11 @@ public sealed class WorkItemEscalationStore(
     {
         var recipient = recipientUserId?.ToString() ?? "channel";
         return $"work-item:{workItemId}:due:{dueDate:yyyyMMdd}:escalation:{level}:{channel}:{recipient}";
+    }
+
+    private static string? NormalizeFilter(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private NpgsqlDataSource CreateDataSource()

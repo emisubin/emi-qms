@@ -905,7 +905,7 @@ Excel 출력 대상 후보:
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존 | 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
-| 관리자 | 시스템 관리 중심 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림/에스컬레이션 조회, 삭제 예정 + 7일 후 완전 삭제 시도, 복구, 일괄 삭제/복구, 삭제 보류, 부서 field-level validation | Item/포장방식/생산계획 단계/구매 필수 항목 관리자 통합 여부, role/permission 편집 UI, 삭제 예정 데이터 purge 운영 정책, 전체 field-level audit 확장 |
+| 관리자 | 시스템 관리 중심 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림/에스컬레이션 조회, 발송 실패/대기 상세 추적, active escalation L0~L3 breakdown, 삭제 예정 + 7일 후 완전 삭제 시도, 복구, 일괄 삭제/복구, 삭제 보류, 부서 field-level validation | Item/포장방식/생산계획 단계/구매 필수 항목 관리자 통합 여부, role/permission 편집 UI, 삭제 예정 데이터 purge 운영 정책, 전체 field-level audit 확장 |
 | UAT | 고정 UAT DB, UAT backend/frontend 포트 | 게시 전 persistence 자동 검증 강화 |
 | E2E | 전용 backend/frontend 포트, 전용 DB, cleanup | 신규 업무 단계마다 시나리오 추가 |
 
@@ -1002,7 +1002,7 @@ Excel 출력 대상 후보:
 
 - 상태: 완료
 - 목적: 시스템 관리 중심의 관리자 홈과 사용자/부서/휴일/이력/모니터 화면을 제공한다.
-- 포함 범위: 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 삭제 예정/복구/일괄 action, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림 발송 상태 조회, 에스컬레이션 상태 조회, 부서 field-level validation
+- 포함 범위: 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 삭제 예정/복구/일괄 action, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림 발송 상태 조회와 실패/대기 상세 추적, 에스컬레이션 상태 조회와 L0~L3 breakdown, 부서 field-level validation
 - 제외 범위: Item 관리, 포장방식 관리, 생산계획 단계 관리, 구매 필수 항목 관리, 권한 편집, role master 편집, Pending/검사/제조 템플릿, due_date 정책 관리, Teams Activity actual
 - 선행조건: 권한/관리자 정책 확정
 - 주요 테스트: backend 전체 test, Admin targeted tests, Migration tests, Authorization tests, Calendar/Holiday tests, User/Identity tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, UAT admin browser/deletion smoke, secret scan

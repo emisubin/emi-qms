@@ -118,6 +118,7 @@ import type {
   AdminBulkActionResponse,
   AdminCalendarHoliday,
   AdminCalendarHolidayListResponse,
+  AdminDashboardEscalationLevel,
   AdminDashboardResponse,
   AdminDepartmentMaster,
   AdminDepartmentListResponse,
@@ -202,8 +203,8 @@ type View =
   | { kind: 'admin-permission-matrix' }
   | { kind: 'admin-master-change-logs' }
   | { kind: 'admin-work-history' }
-  | { kind: 'admin-notification-deliveries' }
-  | { kind: 'admin-work-item-escalations' }
+  | { kind: 'admin-notification-deliveries'; status?: string | null }
+  | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
   | { kind: 'panel'; projectId: string; panelId: string };
 
 type LoadState<T> =
@@ -328,11 +329,13 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/admin/system/notification-deliveries') {
-    return { kind: 'admin-notification-deliveries' };
+    const params = new URLSearchParams(window.location.search);
+    return { kind: 'admin-notification-deliveries', status: params.get('status') };
   }
 
   if (window.location.pathname === '/admin/system/work-item-escalations') {
-    return { kind: 'admin-work-item-escalations' };
+    const params = new URLSearchParams(window.location.search);
+    return { kind: 'admin-work-item-escalations', status: params.get('status'), level: params.get('level') };
   }
 
   const panelInformationEditMatch = window.location.pathname.match(/^\/projects\/([^/]+)\/panel-information\/edit$/);
@@ -468,14 +471,30 @@ function pathForView(view: View) {
     case 'admin-work-history':
       return '/admin/history/work-items';
     case 'admin-notification-deliveries':
-      return '/admin/system/notification-deliveries';
+      return `/admin/system/notification-deliveries${queryString({
+        status: view.status ?? undefined
+      })}`;
     case 'admin-work-item-escalations':
-      return '/admin/system/work-item-escalations';
+      return `/admin/system/work-item-escalations${queryString({
+        status: view.status ?? undefined,
+        level: view.level ?? undefined
+      })}`;
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}`;
     default:
       return '/';
   }
+}
+
+function queryString(values: Record<string, string | undefined>) {
+  const params = new URLSearchParams();
+  Object.entries(values).forEach(([key, value]) => {
+    if (value) {
+      params.set(key, value);
+    }
+  });
+  const text = params.toString();
+  return text ? `?${text}` : '';
 }
 
 function parseProjectDetailSection(value: string | null): ProjectDetailSection {
@@ -1169,11 +1188,15 @@ function QmsAppShell({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-deliveries' ? (
-        <AdminNotificationDeliveriesPage developmentUserKey={developmentUserKey} />
+        <AdminNotificationDeliveriesPage developmentUserKey={developmentUserKey} statusFilter={view.status ?? null} />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-work-item-escalations' ? (
-        <AdminWorkItemEscalationsPage developmentUserKey={developmentUserKey} />
+        <AdminWorkItemEscalationsPage
+          developmentUserKey={developmentUserKey}
+          statusFilter={view.status ?? null}
+          levelFilter={view.level ?? null}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'panel' ? (
@@ -2283,14 +2306,55 @@ function AdminDashboardPage({
       {state.kind === 'loading' ? <p>대시보드를 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
-        <dl className="detail-grid">
-          <div><dt>승인 대기 사용자</dt><dd>{state.data.pendingUserCount}건</dd></div>
-          <div><dt>발송 실패</dt><dd>{state.data.failedDeliveryCount}건</dd></div>
-          <div><dt>발송 대기</dt><dd>{state.data.pendingDeliveryCount}건</dd></div>
-          <div><dt>마지막 일일 요약</dt><dd>{formatNullableDateTime(state.data.lastDailyDigestSentAtUtc)}</dd></div>
-          <div><dt>Active 에스컬레이션</dt><dd>{state.data.activeEscalationCount}건</dd></div>
-          <div><dt>최근 기준정보 변경</dt><dd>{state.data.recentMasterChangeCount}건</dd></div>
-        </dl>
+        <div className="admin-dashboard-grid">
+          <article className="admin-dashboard-card">
+            <span>승인 대기 사용자</span>
+            <strong>{state.data.pendingUserCount}건</strong>
+            <p>역할이 부여되지 않은 Entra 사용자입니다.</p>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-users' })}>사용자 관리</button>
+          </article>
+          <article className="admin-dashboard-card" data-tone="danger">
+            <span>발송 실패</span>
+            <strong>{state.data.failedDeliveryCount}건</strong>
+            <p>외부 알림 발송이 실패한 건입니다. 상세에서 실패 채널, 수신자, 오류 사유를 확인하세요.</p>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Failed' })}>실패 알림 보기</button>
+          </article>
+          <article className="admin-dashboard-card" data-tone="warning">
+            <span>발송 대기</span>
+            <strong>{state.data.pendingDeliveryCount}건</strong>
+            <p>아직 worker가 처리하지 않았거나 다음 재시도 시각을 기다리는 외부 알림입니다.</p>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Pending' })}>대기 알림 보기</button>
+          </article>
+          <article className="admin-dashboard-card">
+            <span>마지막 일일 요약</span>
+            <strong>{formatNullableDateTime(state.data.lastDailyDigestSentAtUtc)}</strong>
+            <p>Daily Digest가 마지막으로 발송 또는 dry-run 처리된 시각입니다.</p>
+          </article>
+          <article className="admin-dashboard-card admin-dashboard-card-wide" data-tone="warning">
+            <span>진행 중 에스컬레이션</span>
+            <strong>{state.data.activeEscalationCount}건</strong>
+            <p>예정일 임박 또는 초과 상태로 아직 해소되지 않은 업무입니다. 완료/취소 시 해소됩니다.</p>
+            <div className="escalation-level-breakdown" aria-label="에스컬레이션 단계별 건수">
+              {dashboardEscalationLevels(state.data.activeEscalationLevels).map((item) => (
+                <button
+                  key={item.level}
+                  type="button"
+                  onClick={() => onNavigate({ kind: 'admin-work-item-escalations', status: 'Active', level: item.level })}
+                >
+                  <span>{item.label}</span>
+                  <strong>{item.count}건</strong>
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-work-item-escalations', status: 'Active' })}>진행 중 에스컬레이션 보기</button>
+          </article>
+          <article className="admin-dashboard-card">
+            <span>최근 기준정보 변경</span>
+            <strong>{state.data.recentMasterChangeCount}건</strong>
+            <p>최근 7일 기준정보 변경 이력입니다.</p>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-master-change-logs' })}>변경 이력 보기</button>
+          </article>
+        </div>
       ) : null}
       <AdminSectionNav onNavigate={onNavigate} />
       <section className="subsection">
@@ -2729,18 +2793,24 @@ function AdminWorkHistoryPage({ developmentUserKey }: { developmentUserKey: stri
   );
 }
 
-function AdminNotificationDeliveriesPage({ developmentUserKey }: { developmentUserKey: string }) {
+function AdminNotificationDeliveriesPage({
+  developmentUserKey,
+  statusFilter
+}: {
+  developmentUserKey: string;
+  statusFilter: string | null;
+}) {
   const [state, setState] = useState<LoadState<AdminNotificationDeliveryListResponse>>({ kind: 'loading' });
   const load = useCallback(() => {
     setState({ kind: 'loading' });
-    getAdminNotificationDeliveries(developmentUserKey)
+    getAdminNotificationDeliveries(developmentUserKey, { status: statusFilter })
       .then((data) => setState({ kind: 'ready', data }))
       .catch((error: unknown) => setState(toLoadError(error, '알림 발송 상태를 불러올 수 없습니다.')));
-  }, [developmentUserKey]);
+  }, [developmentUserKey, statusFilter]);
 
   useEffect(() => {
     let cancelled = false;
-    getAdminNotificationDeliveries(developmentUserKey)
+    getAdminNotificationDeliveries(developmentUserKey, { status: statusFilter })
       .then((data) => {
         if (!cancelled) {
           setState({ kind: 'ready', data });
@@ -2754,27 +2824,44 @@ function AdminNotificationDeliveriesPage({ developmentUserKey }: { developmentUs
     return () => {
       cancelled = true;
     };
-  }, [developmentUserKey]);
+  }, [developmentUserKey, statusFilter]);
+
+  const filterLabel = statusFilter ? deliveryStatusLabel(statusFilter) : '전체';
 
   return (
     <AdminPageShell eyebrow="System" title="알림 발송 상태" onRefresh={load} message="">
-      <p className="muted-text">수동 재처리는 이번 TASK 범위가 아닙니다.</p>
+      <div className="admin-guidance">
+        <p>발송 실패는 외부 채널로 알림을 보내지 못한 건입니다. 오류 코드를 확인해 수신자 이메일, 채널 설정, SMTP/Teams 설정을 점검하세요. 수동 재처리는 후속 기능입니다.</p>
+        <p>발송 대기는 아직 worker가 처리하지 않았거나 다음 재시도 시각을 기다리는 건입니다. 오래된 대기 건은 worker/dispatch 설정을 확인하세요.</p>
+        <p><strong>현재 필터:</strong> {filterLabel}</p>
+      </div>
       {state.kind === 'loading' ? <p>발송 상태를 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <div className="table-scroll">
-          <table>
-            <thead><tr><th>채널</th><th>유형</th><th>상태</th><th>대상</th><th>프로젝트</th><th>시각</th><th>오류</th></tr></thead>
+          <table className="admin-table">
+            <thead><tr><th className="admin-table__cell--text">알림</th><th className="admin-table__cell--text">대상</th><th className="admin-table__cell--text">채널/유형</th><th className="admin-table__cell--status">상태</th><th className="admin-table__cell--number">시도</th><th className="admin-table__cell--date">다음 시도</th><th className="admin-table__cell--text">오류/조치</th></tr></thead>
             <tbody>
               {state.data.items.map((item) => (
                 <tr key={item.deliveryId}>
-                  <td>{item.channel}</td>
-                  <td>{item.deliveryType}</td>
-                  <td>{item.status} · {item.attemptCount}회</td>
-                  <td>{item.recipientDisplayName ?? '-'}</td>
-                  <td>{item.projectTitle ?? '-'}</td>
-                  <td>{formatNullableDateTime(item.sentAtUtc ?? item.lastAttemptAtUtc ?? item.createdAtUtc)}</td>
-                  <td>{item.errorCode ?? '-'}</td>
+                  <td className="admin-table__cell--text">
+                    <strong>{item.notificationTitle ?? '-'}</strong>
+                    <br />
+                    <small>{item.projectTitle ?? '-'}{item.projectCode ? ` · ${item.projectCode}` : ''}</small>
+                    <br />
+                    <small>생성 {formatNullableDateTime(item.createdAtUtc)}</small>
+                  </td>
+                  <td className="admin-table__cell--text">{item.recipientDisplayName ?? '-'}</td>
+                  <td className="admin-table__cell--text">{item.channel}<br /><small>{item.deliveryType}</small></td>
+                  <td className="admin-table__cell--status"><StatusBadge label={deliveryStatusLabel(item.status)} tone={item.status === 'Failed' ? 'danger' : item.status === 'Pending' ? 'warning' : 'neutral'} /></td>
+                  <td className="admin-table__cell--number">{item.attemptCount}회</td>
+                  <td className="admin-table__cell--date">{formatNullableDateTime(item.nextAttemptAtUtc)}</td>
+                  <td className="admin-table__cell--text">
+                    <strong>{item.errorCode ?? (item.status === 'Pending' ? '대기 사유' : '-')}</strong>
+                    {item.errorMessage ? <><br /><small>{item.errorMessage}</small></> : null}
+                    <br />
+                    <small>{deliveryActionGuide(item)}</small>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2786,18 +2873,26 @@ function AdminNotificationDeliveriesPage({ developmentUserKey }: { developmentUs
   );
 }
 
-function AdminWorkItemEscalationsPage({ developmentUserKey }: { developmentUserKey: string }) {
+function AdminWorkItemEscalationsPage({
+  developmentUserKey,
+  statusFilter,
+  levelFilter
+}: {
+  developmentUserKey: string;
+  statusFilter: string | null;
+  levelFilter: string | null;
+}) {
   const [state, setState] = useState<LoadState<AdminWorkItemEscalationListResponse>>({ kind: 'loading' });
   const load = useCallback(() => {
     setState({ kind: 'loading' });
-    getAdminWorkItemEscalations(developmentUserKey)
+    getAdminWorkItemEscalations(developmentUserKey, { status: statusFilter, level: levelFilter })
       .then((data) => setState({ kind: 'ready', data }))
       .catch((error: unknown) => setState(toLoadError(error, '에스컬레이션 상태를 불러올 수 없습니다.')));
-  }, [developmentUserKey]);
+  }, [developmentUserKey, levelFilter, statusFilter]);
 
   useEffect(() => {
     let cancelled = false;
-    getAdminWorkItemEscalations(developmentUserKey)
+    getAdminWorkItemEscalations(developmentUserKey, { status: statusFilter, level: levelFilter })
       .then((data) => {
         if (!cancelled) {
           setState({ kind: 'ready', data });
@@ -2811,26 +2906,40 @@ function AdminWorkItemEscalationsPage({ developmentUserKey }: { developmentUserK
     return () => {
       cancelled = true;
     };
-  }, [developmentUserKey]);
+  }, [developmentUserKey, levelFilter, statusFilter]);
+
+  const filterText = [
+    statusFilter ? `상태 ${statusFilter}` : null,
+    levelFilter ? `단계 ${escalationLevelLabel(levelFilter)}` : null
+  ].filter(Boolean).join(' · ') || '전체';
 
   return (
     <AdminPageShell eyebrow="System" title="에스컬레이션 상태" onRefresh={load} message="">
+      <div className="admin-guidance">
+        <p>진행 중 에스컬레이션은 예정일 임박 또는 초과 후 아직 완료/취소되지 않은 업무입니다. L0는 예정일 임박, L1~L3는 초과 단계입니다.</p>
+        <p>L0는 담당자 예정일 확인, L1은 정담당자 조치 확인, L2는 부담당자/생산관리 확인, L3는 생산관리/영업 확인이 필요합니다.</p>
+        <p><strong>현재 필터:</strong> {filterText}</p>
+      </div>
       {state.kind === 'loading' ? <p>에스컬레이션 상태를 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <div className="table-scroll">
-          <table>
-            <thead><tr><th>프로젝트</th><th>업무</th><th>예정일</th><th>상태</th><th>현재 단계</th><th>다음 확인</th><th>Delivery</th></tr></thead>
+          <table className="admin-table">
+            <thead><tr><th className="admin-table__cell--text">프로젝트</th><th className="admin-table__cell--text">업무</th><th className="admin-table__cell--date">예정일</th><th className="admin-table__cell--status">상태</th><th className="admin-table__cell--status">현재 단계</th><th className="admin-table__cell--date">다음 확인</th><th className="admin-table__cell--text">Delivery/조치</th></tr></thead>
             <tbody>
               {state.data.items.map((item) => (
                 <tr key={item.escalationId}>
-                  <td><strong>{item.projectTitle}</strong><br /><small>{item.projectCode}</small></td>
-                  <td>{item.workItemTitle}<br /><small>{item.assignedDisplayName ?? '-'}</small></td>
-                  <td>{formatDate(item.dueDate)}</td>
-                  <td>{item.status}</td>
-                  <td>{item.currentLevel}</td>
-                  <td>{formatNullableDateTime(item.nextCheckAtUtc)}</td>
-                  <td>{item.deliveryStatusSummary ?? '-'}</td>
+                  <td className="admin-table__cell--text"><strong>{item.projectTitle}</strong><br /><small>{item.projectCode}</small></td>
+                  <td className="admin-table__cell--text">{item.workItemTitle}<br /><small>{item.workflowStageName} · {item.assignedDisplayName ?? '-'}</small></td>
+                  <td className="admin-table__cell--date">{formatDate(item.dueDate)}</td>
+                  <td className="admin-table__cell--status"><StatusBadge label={item.status === 'Active' ? '진행 중' : item.status} tone={item.status === 'Active' ? 'warning' : 'neutral'} /></td>
+                  <td className="admin-table__cell--status"><StatusBadge label={escalationLevelLabel(item.currentLevel)} tone={item.currentLevel === 'L0' ? 'info' : item.currentLevel === 'L1' ? 'warning' : 'danger'} /></td>
+                  <td className="admin-table__cell--date">{formatNullableDateTime(item.nextCheckAtUtc)}</td>
+                  <td className="admin-table__cell--text">
+                    {item.deliveryStatusSummary ?? '-'}
+                    <br />
+                    <small>{escalationActionGuide(item.currentLevel)}</small>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2868,6 +2977,116 @@ function AdminPageShell({
       {children}
     </section>
   );
+}
+
+function dashboardEscalationLevels(levels: AdminDashboardEscalationLevel[] | undefined) {
+  const counts = new Map((levels ?? []).map((item) => [item.level, item.count]));
+  return [
+    { level: 'L0', label: 'L0 예정일 임박', count: counts.get('L0') ?? 0 },
+    { level: 'L1', label: 'L1 초과', count: counts.get('L1') ?? 0 },
+    { level: 'L2', label: 'L2 +2영업일 초과', count: counts.get('L2') ?? 0 },
+    { level: 'L3', label: 'L3 +3영업일 초과', count: counts.get('L3') ?? 0 }
+  ];
+}
+
+function deliveryStatusLabel(status: string) {
+  switch (status) {
+    case 'Pending':
+      return '발송 대기';
+    case 'Sent':
+      return '발송 완료';
+    case 'Failed':
+      return '발송 실패';
+    case 'Suppressed':
+      return '발송 제외';
+    case 'Disabled':
+      return '채널 비활성';
+    case 'DryRunSent':
+      return 'Dry-run 처리';
+    default:
+      return status;
+  }
+}
+
+function escalationLevelLabel(level: string) {
+  switch (level) {
+    case 'None':
+      return '없음';
+    case 'L0':
+      return '예정일 임박';
+    case 'L1':
+      return '예정일 초과';
+    case 'L2':
+      return '초과 +2영업일';
+    case 'L3':
+      return '초과 +3영업일';
+    default:
+      return level;
+  }
+}
+
+function escalationActionGuide(level: string) {
+  switch (level) {
+    case 'L0':
+      return '담당자에게 예정일 임박 상태를 확인하세요.';
+    case 'L1':
+      return '정담당자 조치 상태를 확인하세요.';
+    case 'L2':
+      return '부담당자와 생산관리 담당자 조치 상태를 확인하세요.';
+    case 'L3':
+      return '생산관리 담당자와 영업 담당자 확인이 필요합니다.';
+    default:
+      return '업무 상태와 예정일을 확인하세요.';
+  }
+}
+
+function deliveryActionGuide(item: AdminNotificationDeliveryListResponse['items'][number]) {
+  const code = item.errorCode ?? '';
+  if (item.status === 'Pending') {
+    if (item.attemptCount === 0) {
+      return '발송 worker 처리 대기';
+    }
+
+    if (item.nextAttemptAtUtc && Date.parse(item.nextAttemptAtUtc) > Date.now()) {
+      return '재시도 대기';
+    }
+
+    return '오래된 대기 건이면 worker/dispatch 설정을 확인하세요.';
+  }
+
+  if (item.status === 'Disabled') {
+    return '채널 비활성 상태입니다. 알림 채널 설정을 확인하세요.';
+  }
+
+  if (code === 'RecipientEmailMissing') {
+    return '사용자 이메일 등록/확인이 필요합니다.';
+  }
+
+  if (code === 'SmtpAuthenticationFailed') {
+    return 'SMTP 계정 또는 앱 비밀번호를 확인하세요.';
+  }
+
+  if (code === 'SmtpConnectionFailed') {
+    return 'SMTP 서버, 포트, 보안 설정을 확인하세요.';
+  }
+
+  if (code.includes('TeamsWebhook') || code.includes('Teams')) {
+    return 'Teams Webhook 또는 Power Automate 상태를 확인하세요.';
+  }
+
+  if (code.includes('GraphPermissionDenied') || code.includes('PermissionDenied')) {
+    return 'Graph 권한과 관리자 동의 상태를 확인하세요.';
+  }
+
+  if (code.includes('429') || code.includes('Throttled') || code.includes('5xx')) {
+    return '일시 오류 가능성이 있습니다. 다음 재시도 시각을 확인하세요.';
+  }
+
+  if (item.status === 'Failed') {
+    return '오류 코드와 backend 로그를 확인하세요.';
+  }
+
+  return '-';
 }
 
 function departmentToDraft(department: AdminDepartmentMaster): UpdateAdminDepartmentRequest {

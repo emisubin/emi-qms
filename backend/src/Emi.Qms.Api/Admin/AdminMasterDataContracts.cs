@@ -6,7 +6,13 @@ public sealed record AdminDashboardResponse(
     int PendingDeliveryCount,
     DateTimeOffset? LastDailyDigestSentAtUtc,
     int ActiveEscalationCount,
-    int RecentMasterChangeCount);
+    int RecentMasterChangeCount,
+    IReadOnlyList<AdminDashboardEscalationLevelResponse> ActiveEscalationLevels);
+
+public sealed record AdminDashboardEscalationLevelResponse(
+    string Level,
+    string Label,
+    int Count);
 
 public sealed record AdminDepartmentListResponse(IReadOnlyList<AdminDepartmentMasterResponse> Departments);
 

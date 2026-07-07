@@ -10,10 +10,13 @@ public static class NotificationDeliveryEndpointExtensions
     public static IEndpointRouteBuilder MapNotificationDeliveryEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/admin/notification-deliveries", async (
+            string? status,
+            string? channel,
+            string? deliveryType,
             NotificationDeliveryStore deliveryStore,
             CancellationToken cancellationToken) =>
         {
-            return Results.Ok(await deliveryStore.ListDeliveriesAsync(cancellationToken));
+            return Results.Ok(await deliveryStore.ListDeliveriesAsync(status, channel, deliveryType, cancellationToken));
         })
         .RequireAuthorization(QmsPolicies.AdminUsersRead)
         .WithName("ListNotificationDeliveries");

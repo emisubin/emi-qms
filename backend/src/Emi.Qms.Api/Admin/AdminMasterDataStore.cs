@@ -49,13 +49,52 @@ public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connec
             """);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         await reader.ReadAsync(cancellationToken);
+        var pendingUserCount = reader.GetInt32(0);
+        var failedDeliveryCount = reader.GetInt32(1);
+        var pendingDeliveryCount = reader.GetInt32(2);
+        DateTimeOffset? lastDailyDigestSentAtUtc = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3);
+        var activeEscalationCount = reader.GetInt32(4);
+        var recentMasterChangeCount = reader.GetInt32(5);
+        await reader.CloseAsync();
+
+        var activeEscalationLevels = await ReadActiveEscalationLevelsAsync(dataSource, cancellationToken);
+
         return new AdminDashboardResponse(
-            reader.GetInt32(0),
-            reader.GetInt32(1),
-            reader.GetInt32(2),
-            reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
-            reader.GetInt32(4),
-            reader.GetInt32(5));
+            pendingUserCount,
+            failedDeliveryCount,
+            pendingDeliveryCount,
+            lastDailyDigestSentAtUtc,
+            activeEscalationCount,
+            recentMasterChangeCount,
+            activeEscalationLevels);
+    }
+
+    private static async Task<IReadOnlyList<AdminDashboardEscalationLevelResponse>> ReadActiveEscalationLevelsAsync(
+        NpgsqlDataSource dataSource,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand("""
+            select current_level, count(*)::integer
+            from work_item_escalations
+            where status = 'Active'
+              and current_level in ('L0', 'L1', 'L2', 'L3')
+            group by current_level;
+            """);
+
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            counts[reader.GetString(0)] = reader.GetInt32(1);
+        }
+
+        return new[]
+        {
+            new AdminDashboardEscalationLevelResponse("L0", "예정일 임박", counts.GetValueOrDefault("L0")),
+            new AdminDashboardEscalationLevelResponse("L1", "예정일 초과", counts.GetValueOrDefault("L1")),
+            new AdminDashboardEscalationLevelResponse("L2", "초과 +2영업일", counts.GetValueOrDefault("L2")),
+            new AdminDashboardEscalationLevelResponse("L3", "초과 +3영업일", counts.GetValueOrDefault("L3"))
+        };
     }
 
     public async Task<AdminDepartmentListResponse> ListDepartmentsAsync(CancellationToken cancellationToken)

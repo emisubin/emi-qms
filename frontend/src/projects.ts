@@ -126,6 +126,13 @@ export interface AdminDashboardResponse {
   lastDailyDigestSentAtUtc: string | null;
   activeEscalationCount: number;
   recentMasterChangeCount: number;
+  activeEscalationLevels: AdminDashboardEscalationLevel[];
+}
+
+export interface AdminDashboardEscalationLevel {
+  level: string;
+  label: string;
+  count: number;
 }
 
 export interface AdminDepartmentListResponse {

@@ -10,6 +10,11 @@ import type {
   AdminBulkActionResponse,
   AdminDepartmentListResponse,
   AdminMasterChangeLogListResponse,
+  AdminManualNotificationSendRequest,
+  AdminManualNotificationSendResponse,
+  AdminNotificationDeliveryActionRequest,
+  AdminNotificationDeliveryActionResponse,
+  AdminNotificationDeliveryDetail,
   AdminNotificationDeliveryListResponse,
   AdminReorderRequest,
   AdminWorkItemEscalationListResponse,
@@ -273,7 +278,7 @@ export async function getAdminWorkItemHistory(developmentUserKey?: string): Prom
 
 export async function getAdminNotificationDeliveries(
   developmentUserKey?: string,
-  filters: { status?: string | null; channel?: string | null; deliveryType?: string | null } = {}
+  filters: { status?: string | null; channel?: string | null; deliveryType?: string | null; handlingStatus?: string | null } = {}
 ): Promise<AdminNotificationDeliveryListResponse> {
   const params = new URLSearchParams();
   if (filters.status) {
@@ -285,8 +290,58 @@ export async function getAdminNotificationDeliveries(
   if (filters.deliveryType) {
     params.set('deliveryType', filters.deliveryType);
   }
+  if (filters.handlingStatus) {
+    params.set('handlingStatus', filters.handlingStatus);
+  }
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<AdminNotificationDeliveryListResponse>(`/api/admin/notification-deliveries${query}`, developmentUserKey);
+}
+
+export async function acknowledgeAdminNotificationDeliveries(
+  developmentUserKey: string | undefined,
+  request: AdminNotificationDeliveryActionRequest
+): Promise<AdminNotificationDeliveryActionResponse> {
+  return fetchJson<AdminNotificationDeliveryActionResponse>('/api/admin/notification-deliveries/acknowledge', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function dismissAdminNotificationDeliveries(
+  developmentUserKey: string | undefined,
+  request: AdminNotificationDeliveryActionRequest
+): Promise<AdminNotificationDeliveryActionResponse> {
+  return fetchJson<AdminNotificationDeliveryActionResponse>('/api/admin/notification-deliveries/dismiss', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function retryAdminNotificationDeliveries(
+  developmentUserKey: string | undefined,
+  request: AdminNotificationDeliveryActionRequest
+): Promise<AdminNotificationDeliveryActionResponse> {
+  return fetchJson<AdminNotificationDeliveryActionResponse>('/api/admin/notification-deliveries/retry', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function sendAdminManualNotification(
+  developmentUserKey: string | undefined,
+  request: AdminManualNotificationSendRequest
+): Promise<AdminManualNotificationSendResponse> {
+  return fetchJson<AdminManualNotificationSendResponse>('/api/admin/notification-deliveries/send-manual', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getAdminNotificationDelivery(
+  developmentUserKey: string | undefined,
+  deliveryId: string
+): Promise<AdminNotificationDeliveryDetail> {
+  return fetchJson<AdminNotificationDeliveryDetail>(`/api/admin/notification-deliveries/${deliveryId}`, developmentUserKey);
 }
 
 export async function getAdminWorkItemEscalations(

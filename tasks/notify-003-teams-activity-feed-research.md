@@ -570,7 +570,7 @@ EMI 프로젝트 통합관리시스템에서 Teams 개인별 업무 알림을 Ac
 
 예상 migration:
 
-- `0020_notification_teams_activity_channel.sql`
+- `0023_teams_activity_delivery_channel.sql`
 
 변경 후보:
 
@@ -642,7 +642,8 @@ UAT/manual:
 - admin test endpoint로 Activity Feed 1건 발송
 - Teams Activity Feed 실제 표시 확인
 - toast 표시 여부 확인
-- 딥링크 클릭 확인
+- Teams personal tab 클릭 확인
+- `/teams/activity`에서 최근 알림, 내 미완료 업무, 상세 안내 표시 확인
 - `notification_deliveries` status 확인
 - Graph request-id/client-request-id 저장 확인
 
@@ -704,6 +705,30 @@ CI:
 
 후속 구현 프롬프트에는 다음 금지사항을 유지해야 한다.
 
+## 23. 2026-07-07 actual 성공 후 표시 UX 보강 메모
+
+Teams Activity Feed actual 발송은 entityUrl topic 방식으로 성공했다. 이후 사용자가 확인한 표시 UX 이슈는 다음과 같다.
+
+- Teams Activity Feed 목록에서 긴 본문이 잘린다.
+- 알림 클릭 시 EMI Teams 앱은 열리지만 personal tab content 영역이 빈 화면으로 보인다.
+
+보강 방향:
+
+- Activity Feed 목록에는 `previewText` 150자 이내의 짧은 요약만 보낸다.
+- `workItemAssigned`는 manifest의 `{taskName}`과 맞춰 `templateParameters.taskName`을 사용한다.
+- 긴 상세 본문은 Teams Activity payload가 아니라 앱 화면에서 보여준다.
+- Teams personal tab content route는 `/teams/activity`를 사용한다.
+- `/teams/activity`는 Graph Activity Feed를 읽지 않고, EMI 시스템의 기존 알림/내 업무 API를 재사용한다.
+
+테스트 manifest의 personal tab 권장 URL:
+
+```json
+"contentUrl": "https://localhost:5174/teams/activity",
+"websiteUrl": "https://localhost:5174/teams/activity"
+```
+
+운영 배포 전에는 운영 도메인의 `/teams/activity` URL로 교체해야 한다.
+
 - Teams DM/Bot proactive message 구현 금지
 - TeamsChannel을 개인 알림 대체로 하드코딩 금지
 - secret/token/client secret 출력 금지
@@ -716,7 +741,7 @@ CI:
 TASK-NOTIFY-003 foundation 단계에서 다음 코드 기반을 추가했다.
 
 - `TeamsActivity` delivery channel 추가
-- `0020_teams_activity_delivery_channel.sql` migration 후보 추가
+- `0023_teams_activity_delivery_channel.sql` migration 후보 추가
 - `TeamsActivityChannelHandler`
 - `ITeamsActivityClient`
 - `GraphTeamsActivityClient`
@@ -747,3 +772,413 @@ actual 검수 전제:
 - manifest의 activityTypes와 설정값이 일치해야 한다.
 - Graph TeamsActivity 권한과 관리자 동의가 완료되어야 한다.
 - 실제 Teams Activity Feed 표시 여부는 Graph 204와 별도로 사용자 수동 확인이 필요하다.
+
+## 22. 2026-07-07 actual smoke 사전 검수 결과
+
+총무팀 승인과 Graph TeamsActivity 권한 승인 이후 foundation branch에서 actual smoke를 수행했다.
+
+- ADMIN-001 merge 이후 main migration 최신 번호가 `0022`가 되었으므로 TeamsActivity migration 후보를 `0023_teams_activity_delivery_channel.sql`로 조정했다.
+- `.env.notify-local`의 TeamsActivity actual 필수 key는 모두 configured 상태였다.
+- TenantId는 기존 Entra/Microsoft 로그인 tenant와 같은 회사 tenant를 사용한다. 원문 값은 출력하거나 문서화하지 않는다.
+- 박수빈 EntraId active 사용자 row를 수신자로 확인했다. email과 Entra object id는 masked 기준으로만 검수했다.
+- Graph token 획득과 `sendActivityNotification` actual 호출은 수행됐다.
+- localhost 계열 `TopicWebUrl`은 Graph에서 `Invalid 'webUrl'`로 거부된다. `topic.webUrl`은 `https://teams.microsoft.com/l/...` 형식의 Teams deep link가 필요하다.
+- Teams deep link로 보정 후 actual smoke는 `TeamsActivityAppNotInstalled`로 실패했다.
+- 최종 correlation id: `ED0A0BEB`
+- Graph request id: `db0464fd-584f-4265-9fc1-633ff40f2b3b`
+- `notification_deliveries`에는 `TeamsActivityAppNotInstalled`가 기록됐다.
+
+원인 분류:
+
+- 코드/Graph 권한/client credential 문제보다는 수신자 Teams 앱 설치 상태 문제로 분류한다.
+- Teams 앱 승인과 권한 동의만으로는 충분하지 않고, 수신자에게 Teams 앱이 설치되어 있어야 Activity Feed actual 알림이 성공한다.
+
+후속 actual 성공 검수:
+
+- 박수빈 계정에 EMI 프로젝트 통합관리시스템 Teams 앱을 설치한다.
+- 동일 endpoint `POST /api/admin/notification-deliveries/test-teams-activity`를 재시도한다.
+- 성공 기준은 Graph 204, `notification_deliveries.status=Sent`, Teams Activity Feed 알림 수신 확인이다.
+
+## 23. 2026-07-07 AppNotInstalled 재진단
+
+박수빈 Teams 계정에 앱이 설치되어 있다는 사용자 확인이 있었고 현재 권한은 `TeamsActivity.Send`이므로, `TeamsActivityAppNotInstalled`를 RSC authorization 누락보다 Graph payload / 사용자 id / Teams app id / topic 방식 정합성 문제 후보로 재분류했다.
+
+확인 결과:
+
+- Graph actual 호출은 token 획득과 `sendActivityNotification` endpoint까지 도달했다.
+- Graph 오류 본문은 수신자의 installed applications 안에서 지정한 Teams application을 찾지 못했다는 의미였고, 내부 error code는 `TeamsActivityAppNotInstalled`로 기록됐다.
+- 설치 앱 목록 확인을 위해 `GET /users/{userId}/teamwork/installedApps?$expand=teamsAppDefinition`를 client credentials로 조회했으나, 현재 Notifications 앱에는 Teams app installation read 권한이 없어 403으로 차단됐다.
+- 따라서 현재 앱 권한만으로는 설치된 앱의 installation id, manifest id, `webApplicationInfo.id`, activity type, version을 확정할 수 없다.
+
+원인 후보:
+
+- manifest `id`와 `Notifications__TeamsActivity__TeamsAppId`가 다르다.
+- manifest `webApplicationInfo.id`와 `Notifications__TeamsActivity__ClientId`가 다르다.
+- 사용자가 설치한 앱이 이전 manifest version이다.
+- 현재 actual 권한은 `TeamsActivity.Send`이므로 `TeamsActivity.Send.User` RSC authorization 누락은 1차 원인으로 보지 않는다.
+- `topic.source=text` 방식에서 `teamsAppId` 식별만으로는 설치 앱을 안정적으로 찾지 못해 installed app entity URL topic이 필요하다.
+- text topic 방식에서 `topic.webUrl`이 `https://teams.microsoft.com/l/...` Teams deep link가 아니면 Graph가 topic을 거부한다.
+- 박수빈 qms user의 Entra object id가 실제 Teams 사용자와 다르다.
+
+구현 보강:
+
+- admin test endpoint에 선택 필드 `installedAppId`를 추가했다.
+- `installedAppId`가 있으면 공식 예시에 가까운 `topic.source=entityUrl`과 `users/{userId}/teamwork/installedApps/{installationId}` topic을 사용한다.
+- entityUrl topic에서는 설치 앱 URL이 앱을 특정하므로 `teamsAppId`를 생략해 env `TeamsAppId` 불일치 여부와 installed app entity 식별을 분리한다.
+- `installedAppId`가 없으면 기존 `topic.source=text` fallback을 유지한다.
+- text topic actual 요청에서는 Teams deep link가 아닌 `topic.webUrl`을 Graph 호출 전에 `TeamsActivityInvalidTopic`으로 차단한다.
+- Graph 오류 메시지와 provider metadata에는 token, app id, object id 원문을 남기지 않는다.
+
+사용자/관리자 확인 필요:
+
+- Graph Explorer 또는 관리자 권한 도구에서 박수빈 사용자 기준 installedApps 목록을 조회한다.
+- EMI 프로젝트 통합관리시스템 앱의 installation id를 확인한다.
+- 설치된 manifest id가 TeamsActivity `TeamsAppId` 설정과 같은지 확인한다.
+- 설치된 manifest `webApplicationInfo.id`가 TeamsActivity `ClientId` 설정과 같은지 확인한다.
+- `workItemAssigned` activity type과 `TeamsActivity.Send.User` RSC authorization 선언이 포함된 최신 manifest로 앱을 재업로드/재설치한다.
+- 정합성이 확인되면 admin test endpoint에 `installedAppId`를 넣어 entityUrl topic 방식으로 actual smoke를 재시도한다.
+
+## 24. 2026-07-07 3채널 통합 smoke 결과
+
+TeamsActivity installed app entity URL 방식 actual 성공 이후, 최종 리뷰 전 UAT에서 프로젝트 생성 알림 예시로 TeamsChannel, TeamsActivity, Mail 3채널 actual smoke를 수행했다.
+
+공통 테스트 알림:
+
+- 제목: `[테스트] 프로젝트 생성 알림`
+- 프로젝트명: `TASK-NOTIFY-003 통합 알림 테스트`
+- 공통 content correlation id: `N003-A96A8613`
+- 실제 프로젝트 row 생성 없음
+- 모든 채널 메시지에 실제 업무 알림이 아니라는 문구 포함
+
+결과:
+
+| Channel | 대상 | status | delivery id | error_code |
+| --- | --- | --- | --- | --- |
+| TeamsChannel | 설정된 Teams 테스트 채널 게시, 개인 DM 아님 | Sent | `3c9c3cc2-e280-4491-8122-4facdb9ba9d8` | 없음 |
+| TeamsActivity | 박수빈 EntraId 사용자 Activity Feed | Sent | `07da3020-276a-41ba-8a90-9178d1133e0c` | 없음 |
+| Mail | `.env.notify-local` TestRecipientEmail 수신자 | Sent | `f9cded9d-e78f-4d67-a4fd-18b8f6735e4d` | 없음 |
+
+확인 사항:
+
+- TeamsActivity는 `topic.source=entityUrl`과 installed app entity URL topic으로 전송했다.
+- TeamsActivity previewText는 `프로젝트 생성 알림 테스트`처럼 짧게 유지한다.
+- TeamsChannel은 채널 게시 용도이며 개인 DM이 아니다.
+- Gmail SMTP Mail provider actual send를 유지한다.
+- UAT `/teams/activity`는 HTTP 200이고 최근 알림/내 미완료 업무/안내 문구가 표시된다.
+- Teams manifest personal tab `contentUrl`과 `websiteUrl`은 `/teams/activity`를 가리키도록 수동 배포본에서 확인해야 한다.
+
+남은 수동 확인:
+
+- 사용자가 Teams 채널 게시, Activity Feed 표시/클릭, Gmail 수신함을 UI에서 확인한다.
+- 운영 배포 전 `contentUrl`과 `websiteUrl`은 운영 도메인의 `/teams/activity`로 교체한다.
+
+## 25. 2026-07-08 알림 표시 UX / 알림발송상태 관리 보강 결정
+
+최종 리뷰 전 사용자 검수에서 Teams Activity 클릭 후 Teams 앱 오른쪽 영역이 빈 화면처럼 보이는 문제와, 실패/대기 delivery를 관리자가 확인 처리할 수 없는 문제가 확인됐다.
+
+결정 사항:
+
+- Teams Activity personal tab route는 `/teams/activity`를 기준으로 한다.
+- manifest 수동 배포본의 `contentUrl`과 `websiteUrl`은 테스트에서 `https://localhost:5174/teams/activity`, 운영에서는 운영 도메인의 `/teams/activity`로 설정한다.
+- `/teams/activity`는 인증 확인 전, API 실패, 데이터 없음 상태에서도 한글 안내/empty state를 표시한다.
+- Teams Activity Feed 목록에는 짧은 previewText만 표시하고, 최근 알림/내 업무 맥락은 `/teams/activity`에서 제공한다.
+- 알림발송상태는 발송 상태와 관리자 처리 상태를 분리한다.
+- 신규 migration `0024_notification_delivery_admin_handling.sql`로 `notification_deliveries`에 관리자 처리상태 컬럼을 추가한다.
+- 관리자 처리상태는 `Open`, `Acknowledged`, `Dismissed`로 제한한다.
+- `Failed`와 `Pending` 중 처리상태가 `Open` 또는 null인 건만 대시보드 count에 포함한다.
+- 확인/제외 처리된 delivery는 대시보드 실패/대기 count에서 제외하지만, 원래 발송 상태와 delivery row는 보존한다.
+- 대기 건 재발송은 `next_attempt_at_utc`를 현재 시각으로 당겨 worker 재처리를 유도하는 범위로 제한한다.
+- 실패 건 강제 성공 처리, delivery hard delete, 발송 실패 수동 재처리 UI는 이번 범위에서 제외한다.
+- 알림발송상태 페이지는 URL query filter뿐 아니라 내부 탭/선택칸으로 상태를 전환할 수 있어야 한다.
+- 에스컬레이션 상태 페이지도 내부 탭으로 Active/L0/L1/L2/L3/Resolved/Cancelled를 전환할 수 있어야 한다.
+- 관리자 표는 header/body alignment를 공통 class 기준으로 맞춘다.
+
+관리자 API 보강 후보:
+
+- `GET /api/admin/notification-deliveries?status=&handlingStatus=&channel=&deliveryType=`
+- `POST /api/admin/notification-deliveries/acknowledge`
+- `POST /api/admin/notification-deliveries/dismiss`
+- `POST /api/admin/notification-deliveries/retry`
+
+표시 필드 기준:
+
+- 알림 제목, 메시지 요약, 수신자, 마스킹 이메일, 프로젝트, 업무, 단계, 채널/유형 label, 상태 label, 오류 코드, 오류 메시지, 대기 사유, 관리자 조치 안내, 처리상태, 처리자, 처리시각, 처리 메모를 표시한다.
+- ManualTest처럼 notification 원본이 없는 delivery도 fallback title/recipient/project로 추적 가능하게 표시한다.
+- secret, token, webhook URL, provider raw response 전체는 표시하지 않는다.
+
+UAT smoke 기준:
+
+- `/teams/activity` HTTP 200, 빈 화면 아님, 최근 알림/내 업무 영역 표시, 모바일 overflow 없음, console error 없음.
+- 알림발송상태 페이지는 미처리 실패/미처리 대기 탭, 선택 확인/제외/재발송 버튼, 조치 안내를 표시한다.
+- 에스컬레이션 상태 페이지는 L0/L1/L2/L3 내부 탭과 안내 문구를 표시한다.
+
+사용자 검수 체크리스트:
+
+- [ ] Teams 채널에 `[테스트] 프로젝트 생성 알림` 게시 확인
+- [ ] Teams Activity Feed에 짧은 preview 알림 표시
+- [ ] Teams Activity Feed 알림 클릭 시 EMI 앱 오른쪽 화면이 빈 화면이 아님
+- [ ] `/teams/activity`에서 최근 알림 표시
+- [ ] `/teams/activity`에서 내 미완료 업무 표시
+- [ ] 메일함에 `[테스트] 프로젝트 생성 알림` 수신 확인
+- [ ] 알림발송상태 페이지에서 알림 제목 확인 가능
+- [ ] 알림발송상태 페이지에서 대상 수신자 확인 가능
+- [ ] 알림발송상태 페이지에서 프로젝트/업무 정보 확인 가능
+- [ ] 실패 알림에서 오류 코드와 조치 안내 확인 가능
+- [ ] 실패 알림 선택 후 확인 처리 가능
+- [ ] 확인 처리된 실패 알림은 대시보드 실패 count에서 제외됨
+- [ ] 대기 알림에서 다음 시도 시각/대기 사유 확인 가능
+- [ ] 대기 알림 선택 후 재발송 가능
+- [ ] 대기 알림 선택 후 확인/제외 처리 가능
+- [ ] 확인/제외 처리된 대기 알림은 대시보드 대기 count에서 제외됨
+- [ ] 알림발송상태 페이지 내부 탭/상태 선택으로 화면 전환 가능
+- [ ] 에스컬레이션 페이지 내부 탭/level 선택으로 화면 전환 가능
+- [ ] 권한 매트릭스/관리자 표 header와 데이터 정렬이 맞음
+- [ ] 조회성 페이지에는 범위 밖 삭제/상태 강제변경 버튼 없음
+- [ ] 모바일 overflow 없음
+- [ ] Console 오류 없음
+
+## 26. 2026-07-08 알림발송상태 추적 정보 / 관리자 수동 발송 설계 보강
+
+최종 리뷰 전 검수에서 Mail actual row가 실제 수신자에게 도착했는데도 알림발송상태에서 `수신자 미등록`으로 보이는 문제가 확인됐다. TeamsActivity와 Mail ManualTest row도 실제 테스트 의도와 관계없이 `수동 발송`으로만 표시됐다.
+
+원인 판단:
+
+- ManualTest delivery는 notification 원본을 만들지 않는 안전한 테스트 경로라 `notification_id`, `notification_recipient_id`가 null일 수 있다.
+- Mail TestRecipientEmail fallback은 provider 발송에는 사용됐지만 delivery row에 표시용 snapshot으로 저장되지 않았다.
+- TeamsActivity test recipient도 qms user id는 저장됐지만 ManualTest 제목/프로젝트/correlation 추적 snapshot이 부족했다.
+- TeamsChannel은 채널 게시 대상이고 개인 수신자가 아니므로 recipient join이 없는 것을 `수신자 미등록`으로 표시하면 안 된다.
+
+결정:
+
+- 신규 migration `0025_notification_delivery_display_snapshot.sql`을 추가한다.
+- `notification_deliveries`에 표시/추적 snapshot을 직접 저장한다.
+- snapshot 컬럼은 표시용 title/message/project/work item/recipient/channel target/manual kind/correlation id로 제한한다.
+- secret, token, webhook URL, installedAppId, provider raw payload 전체는 저장하지 않는다.
+- 신규 수동/테스트 발송부터 snapshot을 정확히 저장하고, 기존 row는 join/fallback으로 가능한 범위에서 표시한다.
+
+snapshot 컬럼:
+
+- `display_title`
+- `display_message`
+- `display_project_name`
+- `display_work_item_title`
+- `display_recipient_name`
+- `display_recipient_email`
+- `display_recipient_kind`
+- `display_channel_target`
+- `manual_notification_kind`
+- `correlation_id`
+
+수신자 표시 우선순위:
+
+- TeamsActivity: qms user 표시명 > snapshot 표시명 > snapshot email 마스킹 > `Activity Feed 수신자`
+- Mail: snapshot email 마스킹 > qms user email 마스킹 > TestRecipientEmail snapshot > `메일 수신자 미등록`
+- TeamsChannel: snapshot channel target > `Teams 채널`
+
+ManualTest 표시 우선순위:
+
+- `display_title` 우선
+- `manual_notification_kind=ProjectCreated`이면 `프로젝트 생성 알림`
+- 둘 다 없으면 `수동 발송`
+
+관리자 수동 발송 기능:
+
+- 신규 화면: `/admin/system/send-notification`
+- 신규 API: `POST /api/admin/notification-deliveries/send-manual`
+- 선택 채널: TeamsChannel, TeamsActivity, Mail
+- 수동 발송은 실제 프로젝트 row, workflow event를 생성하지 않는다.
+- 각 채널별 delivery row를 만들고, display snapshot과 `correlation_id`를 저장한다.
+- 채널별 결과는 개별 성공/실패로 반환한다.
+- TeamsActivity는 installedAppId 기반 `entityUrl` topic 방식을 사용한다.
+- ProjectCreated 수동 알림은 현재 manifest에 `projectCreated` activityType이 없으면 `workItemAssigned`를 사용한다. 추후 manifest activityType 확장은 별도 검토한다.
+
+후속 검수 기준:
+
+- 관리자 페이지에서 `알림 수동 발송` 메뉴가 보여야 한다.
+- 프로젝트 생성 알림을 3채널로 발송할 수 있어야 한다.
+- 알림발송상태에서 TeamsChannel/TeamsActivity/Mail row 모두 같은 `correlation_id`로 추적 가능해야 한다.
+- Mail row는 실제 수신자 snapshot을 표시해야 하며 `수신자 미등록`으로 보이면 안 된다.
+- TeamsChannel row는 `Teams 채널` 또는 채널 target으로 표시해야 한다.
+
+사용자 검수 체크리스트:
+
+- [ ] 관리자 페이지에 `알림 수동 발송` 메뉴가 보임
+- [ ] 알림 유형에서 `프로젝트 생성 알림` 선택 가능
+- [ ] 제목/프로젝트명/본문 입력 가능
+- [ ] Teams 채널 / Teams Activity / Mail 채널 선택 가능
+- [ ] Teams Activity 수신자로 박수빈 선택 가능
+- [ ] Mail 수신자로 박수빈 또는 테스트 이메일 선택 가능
+- [ ] 발송 후 채널별 결과가 표시됨
+- [ ] Teams 채널에 프로젝트 생성 알림 게시 확인
+- [ ] Teams Activity Feed에 짧은 preview 알림 표시
+- [ ] Mail 수신함에 프로젝트 생성 알림 수신 확인
+- [ ] 알림발송상태에서 TeamsChannel row가 `프로젝트 생성 알림`으로 보임
+- [ ] 알림발송상태에서 TeamsActivity row가 `프로젝트 생성 알림`으로 보임
+- [ ] 알림발송상태에서 Mail row가 `프로젝트 생성 알림`으로 보임
+- [ ] Mail row에서 수신자가 박수빈 또는 실제 수신 이메일로 표시됨
+- [ ] TeamsActivity row에서 수신자가 박수빈으로 표시됨
+- [ ] TeamsChannel row에서 대상이 Teams 채널로 표시됨
+- [ ] 세 채널 row를 correlation id로 함께 추적 가능
+- [ ] 수신자 미등록으로 잘못 표시되지 않음
+- [ ] ManualTest가 무조건 수동발송으로만 보이지 않음
+- [ ] Console 오류 없음
+- [ ] 모바일 overflow 없음
+
+## 28. 2026-07-08 수동 발송 action feedback / 상태 표시 결정
+
+최종 리뷰 전 추가 검수에서 다음 UX 정책을 확정했다.
+
+- 수동 알림 발송은 queue 저장 방식으로 고정한다.
+- 따라서 UI에서 동기/비동기 선택 또는 `발송 방식` 칸을 제공하지 않는다.
+- 수동 발송 버튼 label은 `발송`으로 한다.
+- 버튼 클릭 후 서버에 Pending delivery 저장이 완료될 때까지만 기다리고, 실제 provider 발송 완료는 기다리지 않는다.
+- 발송 요청 저장 중/성공/실패 메시지는 발송 버튼 바로 아래 또는 위에 표시한다.
+- 성공 시 짧은 안내 후 알림발송상태 화면으로 이동한다.
+- 실패 시 이동하지 않고 버튼 근처에 오류를 표시한다.
+- 이번 PR에서 추가·수정한 관리자 action 영역은 `ActionFeedback` 패턴으로 버튼 근처에 처리 상태를 표시한다.
+- 입력 필드 validation 오류는 기존처럼 해당 입력칸 아래에 표시한다.
+
+알림발송상태 표시 정책:
+
+- `Sent`는 `발송 완료`로만 표시한다.
+- `DryRunSent`는 `Dry-run 처리`로만 표시한다.
+- `Suppressed`는 `발송 제외`, `Disabled`는 `채널 비활성`으로 표시한다.
+- `미처리` handling badge는 `Failed`와 `Pending`에만 표시한다.
+- 발송 완료 row가 bulk 확인/제외 action에서 skipped 되더라도 row 상태 label은 `발송 완료`로 유지한다.
+
+후속:
+
+- 이번 PR 범위 밖의 기존 업무 화면 전체 저장/삭제 UX까지 강제 변경하지 않는다.
+- 기존 업무 화면의 action feedback 전면 정리는 별도 UX 정리 TASK에서 처리한다.
+
+사용자 검수 체크리스트:
+
+- [ ] 수동 알림 발송 화면에 `발송 방식` 칸이 없음
+- [ ] 수동 알림 발송 버튼명이 `발송`으로 표시됨
+- [ ] 발송 클릭 시 버튼 근처에 진행 상태가 표시됨
+- [ ] 발송 성공 시 버튼 근처에 접수 메시지가 표시됨
+- [ ] 발송 성공 후 이전 페이지 또는 알림발송상태 페이지로 이동함
+- [ ] 발송 실패 시 버튼 근처에 오류가 표시되고 이동하지 않음
+- [ ] correlation id가 발송 화면에 표시되지 않음
+- [ ] 메일 제목에 correlation id가 없음
+- [ ] 발송 완료 알림 상태가 `발송 완료`로만 표시됨
+- [ ] 발송 완료 row에 `미처리`가 붙지 않음
+- [ ] 발송 완료 row 확인/제외 시 건너뜀 결과는 나오더라도 상태는 발송 완료로 유지됨
+- [ ] 알림발송상태 bulk action 결과가 버튼 근처에 표시됨
+- [ ] 사용자/부서/휴일 주요 저장/삭제/복구 action도 버튼 근처에 처리 상태가 표시됨
+- [ ] field validation error는 입력칸 아래에 표시됨
+- [ ] Console 오류 없음
+- [ ] 모바일 overflow 없음
+
+## 29. 2026-07-08 자동 알림 양식 점검 결과
+
+자동 알림 생성/발송 경로를 최종 리뷰 전 다시 점검했다.
+
+점검 대상:
+
+- 긴급/차단 알림
+- 업무 생성/업무 배정 알림
+- 에스컬레이션 L0/L1/L2/L3
+- 일일 업무 요약
+- 관리자 수동 발송/ManualTest
+- Mail / TeamsChannel / TeamsActivity 렌더러
+- `notification_deliveries` display snapshot
+
+확인 및 반영:
+
+- 자동 Mail 제목을 `[알림 유형] 제목` 형식으로 맞춘다.
+- 자동 Mail 본문과 TeamsChannel 본문을 수동 발송과 같은 필드 순서로 맞춘다.
+- TeamsActivity는 `알림 유형, 제목`과 짧은 내용 요약을 사용한다.
+- TeamsActivity previewText는 150자 이하로 제한한다.
+- Daily Digest는 공통 헤더/제목 구조를 사용하고, 기존 digest section은 `내용` 영역에 유지한다.
+- correlation id는 외부 수신 메시지에 표시하지 않고 내부 추적값으로만 저장한다.
+- 자동 delivery도 display snapshot을 저장하여 알림발송상태 목록/상세에서 제목, 유형, 프로젝트, 수신자, 본문을 추적할 수 있게 한다.
+- TeamsChannel Adaptive Card에는 raw delivery enum, webhook URL, token, correlation id를 노출하지 않는다.
+
+후속 검토:
+
+- manifest에 `projectCreated` activityType을 추가할지는 운영 알림 유형 확장 시 별도 결정한다.
+- 사용자별 채널 preference와 더 큰 알림 설정 UI는 NOTIFY 후속 TASK로 분리한다.
+- 실제 실패 강제 재처리 UI는 이번 범위가 아니며, 대기 재시도/확인/제외 처리까지만 포함한다.
+
+사용자 검수 체크리스트:
+
+- [ ] Teams 채널에 알림이 지정 양식으로 표시됨
+- [ ] Teams Activity Feed에 짧은 preview가 표시됨
+- [ ] Teams Activity 클릭 시 `/teams/activity`가 빈 화면이 아님
+- [ ] 메일 제목이 `[알림 유형] 제목` 형식임
+- [ ] 메일 본문이 지정 양식과 일치함
+- [ ] 자동 알림과 수동 알림 양식이 일치함
+- [ ] 알림발송상태 목록에는 제목만 표시됨
+- [ ] 알림 상세에서 알림 유형/프로젝트/제목/내용/발송시각 확인 가능
+- [ ] 수신자가 정확히 표시됨
+- [ ] 수신자 미등록으로 잘못 표시되지 않음
+- [ ] 발송 실패 확인 처리 가능
+- [ ] 발송 대기 재발송 가능
+- [ ] 수동 알림 발송에서 기존 프로젝트/기타 선택 가능
+- [ ] Teams Activity 다중 수신 가능
+- [ ] Mail 다중 수신 가능
+- [ ] 발송 버튼 근처에 처리 상태 표시
+- [ ] 발송 완료 row에 미처리 표시 없음
+- [ ] Console 오류 없음
+- [ ] 모바일 overflow 없음
+
+## 27. 2026-07-08 수동 발송 UX / 상세 추적 구조 결정
+
+최종 리뷰 전 추가 검수에서 다음 결정사항을 확정했다.
+
+- 수동 알림 발송은 기존 프로젝트 선택 또는 `기타` 선택을 지원한다.
+- `기타`는 프로젝트 업무가 아닌 운영 공지/테스트 알림을 위한 선택지이며, 실제 프로젝트 row를 생성하지 않는다.
+- correlation id는 내부 자동 추적값이므로 발송 화면과 사용자 수신 메시지에는 노출하지 않는다.
+- correlation id는 DB에 저장하고 상세 페이지의 내부 추적값 영역에서만 확인한다.
+- TeamsActivity와 Mail은 다중 수신자를 지원하되, 추적을 위해 수신자별 delivery row를 생성한다.
+- 수동 발송 API는 provider 동기 호출을 하지 않고 `Pending` delivery를 생성한다.
+- `NotificationDispatcher` worker가 Pending manual delivery를 처리한다.
+- `notification_deliveries`에 `manual_payload_json`, `manual_requested_by_user_id`, `manual_requested_at_utc`를 추가하는 `0026_notification_delivery_manual_payload.sql`을 둔다.
+
+메시지 양식:
+
+- Mail 제목은 `[알림 유형] 제목`이다.
+- Mail 본문과 TeamsChannel 본문은 같은 필드 순서를 사용한다.
+  - `EMI 프로젝트 통합관리시스템 알림`
+  - `알림 유형`
+  - `프로젝트명`
+  - `제목`
+  - `내용`
+  - `발송시각`
+  - `끝.`
+- TeamsActivity는 `알림 유형, 제목`과 짧은 `내용`으로 구성한다.
+- ProjectCreated 수동 알림은 manifest에 없는 `projectCreated`를 사용하지 않고 `workItemAssigned` activityType을 사용한다.
+
+알림발송상태 UX:
+
+- 목록의 `알림` 칸은 제목만 표시한다.
+- 긴 문장, 전체 내용, correlation id는 목록에 표시하지 않는다.
+- 제목 클릭 시 `/admin/system/notification-deliveries/{id}` 상세 페이지로 이동한다.
+- 상세 페이지는 구분, 알림 유형, 프로젝트명, 제목, 내용, 발송시각, 채널, 수신자, 상태, 오류/대기 사유, 내부 추적값을 표시한다.
+
+사용자 검수 체크리스트:
+
+- [ ] 수동 알림 발송 화면에서 기존 프로젝트 선택 가능
+- [ ] 수동 알림 발송 화면에서 기타 선택 가능
+- [ ] correlation id가 발송 화면에 표시되지 않음
+- [ ] Teams Activity 수신자 다중 선택 가능
+- [ ] Mail 수신자 다중 선택 가능
+- [ ] 메일 제목이 `[알림 유형] 제목` 형식임
+- [ ] 메일 제목에 correlation id가 없음
+- [ ] 메일 본문이 지정 양식과 일치함
+- [ ] Teams 채널 게시 본문이 메일 양식과 일치함
+- [ ] Teams Activity 알림이 `알림 유형, 제목 / 내용` 형식으로 보임
+- [ ] 발송 버튼 클릭 후 오래 기다리지 않고 발송 요청 접수로 전환됨
+- [ ] 이전 페이지로 돌아가기 기능이 있음
+- [ ] 알림발송상태 목록의 알림 칸에는 제목만 표시됨
+- [ ] 알림 row/제목 클릭 시 상세 페이지로 이동
+- [ ] 상세 페이지에서 알림 유형/프로젝트명/제목/내용/발송시각 확인 가능
+- [ ] 상세 페이지에서 구분이 `관리자 수동 발송`으로 짧게 표시됨
+- [ ] 알림발송상태에서 Mail 수신자가 정확히 표시됨
+- [ ] 알림발송상태에서 TeamsActivity 수신자가 정확히 표시됨
+- [ ] 알림발송상태에서 TeamsChannel 대상이 정확히 표시됨
+- [ ] 수신자 미등록으로 잘못 표시되지 않음
+- [ ] ManualTest가 무조건 수동발송으로만 보이지 않음
+- [ ] Console 오류 없음
+- [ ] 모바일 overflow 없음

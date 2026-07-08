@@ -59,6 +59,7 @@ public sealed class NotificationTeamsActivityOptions
     public string? ClientId { get; init; }
     public string? ClientSecret { get; init; }
     public string? TeamsAppId { get; init; }
+    public string? InstalledAppId { get; init; }
     public string? TopicWebUrl { get; init; }
     public bool UseUserPrincipalNameFallback { get; init; }
     public bool RequireEntraUser { get; init; } = true;

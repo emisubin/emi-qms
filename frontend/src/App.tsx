@@ -16,6 +16,7 @@ import {
   bulkRestoreAdminUsers,
   changePanelCount,
   changeProjectStatus,
+  acknowledgeAdminNotificationDeliveries,
   createAdminDepartment,
   createAdminCalendarHoliday,
   createProject,
@@ -23,6 +24,7 @@ import {
   deleteProject,
   deactivateAdminCalendarHoliday,
   deactivateAdminDepartment,
+  dismissAdminNotificationDeliveries,
   downloadAdminCalendarHolidayTemplate,
   downloadPanelInformationTemplate,
   downloadProductionPlanningBulkTemplate,
@@ -34,6 +36,7 @@ import {
   getAdminCalendarHolidays,
   getAdminDepartments,
   getAdminMasterChangeLogs,
+  getAdminNotificationDelivery,
   getAdminNotificationDeliveries,
   getAdminWorkItemEscalations,
   getAdminWorkItemHistory,
@@ -80,6 +83,7 @@ import {
   purgeAdminDepartment,
   purgeAdminUser,
   purgeDeletedProject,
+  retryAdminNotificationDeliveries,
   completeMyWorkItem,
   markAllNotificationsRead,
   markNotificationRead,
@@ -88,6 +92,7 @@ import {
   restoreAdminDepartment,
   restoreAdminUser,
   scheduleAdminUserDeletion,
+  sendAdminManualNotification,
   startMyWorkItem,
   setAdminTestUserKey,
   setAccessTokenProvider,
@@ -123,6 +128,10 @@ import type {
   AdminDepartmentMaster,
   AdminDepartmentListResponse,
   AdminMasterChangeLogListResponse,
+  AdminManualNotificationSendResponse,
+  AdminNotificationDelivery,
+  AdminNotificationDeliveryActionResponse,
+  AdminNotificationDeliveryDetail,
   AdminNotificationDeliveryListResponse,
   AdminWorkItemEscalationListResponse,
   AdminWorkItemHistoryListResponse,
@@ -166,6 +175,7 @@ import type {
   ProjectDashboardSummary,
   ProjectExcelPreviewResponse,
   ProjectListItem,
+  ProjectListResponse,
   ProjectListTab,
   ProjectStatus,
   ProjectWorkflowResponse,
@@ -182,6 +192,7 @@ import type {
 
 type View =
   | { kind: 'my-work' }
+  | { kind: 'teams-activity' }
   | { kind: 'list' }
   | { kind: 'create' }
   | { kind: 'detail'; projectId: string; section?: ProjectDetailSection }
@@ -203,7 +214,9 @@ type View =
   | { kind: 'admin-permission-matrix' }
   | { kind: 'admin-master-change-logs' }
   | { kind: 'admin-work-history' }
-  | { kind: 'admin-notification-deliveries'; status?: string | null }
+  | { kind: 'admin-send-notification' }
+  | { kind: 'admin-notification-deliveries'; status?: string | null; handlingStatus?: string | null; channel?: string | null; deliveryType?: string | null }
+  | { kind: 'admin-notification-delivery-detail'; deliveryId: string }
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
   | { kind: 'panel'; projectId: string; panelId: string };
 
@@ -292,8 +305,16 @@ function initialViewFromLocation(): View {
     return { kind: 'list' };
   }
 
+  if (window.location.pathname === '/' && isLikelyTeamsContext()) {
+    return { kind: 'teams-activity' };
+  }
+
   if (window.location.pathname === '/my-work') {
     return { kind: 'my-work' };
+  }
+
+  if (window.location.pathname === '/teams/activity' || window.location.pathname === '/teams/notifications') {
+    return { kind: 'teams-activity' };
   }
 
   if (window.location.pathname === '/notifications') {
@@ -328,9 +349,26 @@ function initialViewFromLocation(): View {
     return { kind: 'admin-work-history' };
   }
 
+  if (window.location.pathname === '/admin/system/send-notification') {
+    return { kind: 'admin-send-notification' };
+  }
+
+  if (window.location.pathname.startsWith('/admin/system/notification-deliveries/')) {
+    const deliveryId = window.location.pathname.split('/').filter(Boolean).at(-1);
+    return deliveryId
+      ? { kind: 'admin-notification-delivery-detail', deliveryId }
+      : { kind: 'admin-notification-deliveries' };
+  }
+
   if (window.location.pathname === '/admin/system/notification-deliveries') {
     const params = new URLSearchParams(window.location.search);
-    return { kind: 'admin-notification-deliveries', status: params.get('status') };
+    return {
+      kind: 'admin-notification-deliveries',
+      status: params.get('status'),
+      handlingStatus: params.get('handlingStatus'),
+      channel: params.get('channel'),
+      deliveryType: params.get('deliveryType')
+    };
   }
 
   if (window.location.pathname === '/admin/system/work-item-escalations') {
@@ -391,6 +429,22 @@ function initialViewFromLocation(): View {
   return { kind: 'list' };
 }
 
+function isLikelyTeamsContext() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    if (window.self !== window.top) {
+      return true;
+    }
+  } catch {
+    return true;
+  }
+
+  return /teams\\.microsoft\\.com|teams\\.live\\.com/iu.test(document.referrer);
+}
+
 function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
   if (!linkUrl) {
     return { kind: 'detail', projectId };
@@ -436,6 +490,8 @@ function pathForView(view: View) {
   switch (view.kind) {
     case 'my-work':
       return '/my-work';
+    case 'teams-activity':
+      return '/teams/activity';
     case 'detail':
       return `/projects/${view.projectId}${view.section && view.section !== 'panels' ? `?section=${view.section}` : ''}`;
     case 'panel-info-edit':
@@ -470,10 +526,17 @@ function pathForView(view: View) {
       return '/admin/history/master-data';
     case 'admin-work-history':
       return '/admin/history/work-items';
+    case 'admin-send-notification':
+      return '/admin/system/send-notification';
     case 'admin-notification-deliveries':
       return `/admin/system/notification-deliveries${queryString({
-        status: view.status ?? undefined
+        status: view.status ?? undefined,
+        handlingStatus: view.handlingStatus ?? undefined,
+        channel: view.channel ?? undefined,
+        deliveryType: view.deliveryType ?? undefined
       })}`;
+    case 'admin-notification-delivery-detail':
+      return `/admin/system/notification-deliveries/${view.deliveryId}`;
     case 'admin-work-item-escalations':
       return `/admin/system/work-item-escalations${queryString({
         status: view.status ?? undefined,
@@ -832,6 +895,17 @@ function QmsAppShell({
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  if (!isDevMode && view.kind === 'teams-activity' && currentUser.kind !== 'ready') {
+    return (
+      <TeamsActivityAuthFallback
+        state={currentUser}
+        onRetry={loadShell}
+        onLogin={onReauthenticate}
+        onLogout={onLogout}
+      />
+    );
+  }
+
   if (!isDevMode && currentUser.kind === 'loading') {
     return (
       <AuthGateMessage
@@ -1154,6 +1228,15 @@ function QmsAppShell({
         />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'teams-activity' ? (
+        <TeamsActivityPage
+          developmentUserKey={developmentUserKey}
+          onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
+          onOpenMyWork={() => setView({ kind: 'my-work' })}
+          onOpenHome={() => setView({ kind: 'list' })}
+        />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-dashboard' ? (
         <AdminDashboardPage
           developmentUserKey={developmentUserKey}
@@ -1187,8 +1270,37 @@ function QmsAppShell({
         <AdminWorkHistoryPage developmentUserKey={developmentUserKey} />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-send-notification' ? (
+        <AdminManualNotificationPage
+          developmentUserKey={developmentUserKey}
+          onOpenDeliveries={() => setView({ kind: 'admin-notification-deliveries', deliveryType: 'ManualTest' })}
+          onBack={() => {
+            if (typeof window !== 'undefined' && window.history.length > 1) {
+              window.history.back();
+              return;
+            }
+            setView({ kind: 'admin-dashboard' });
+          }}
+        />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-deliveries' ? (
-        <AdminNotificationDeliveriesPage developmentUserKey={developmentUserKey} statusFilter={view.status ?? null} />
+        <AdminNotificationDeliveriesPage
+          developmentUserKey={developmentUserKey}
+          statusFilter={view.status ?? null}
+          handlingStatusFilter={view.handlingStatus ?? null}
+          channelFilter={view.channel ?? null}
+          deliveryTypeFilter={view.deliveryType ?? null}
+          onOpenDetail={(deliveryId) => setView({ kind: 'admin-notification-delivery-detail', deliveryId })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-delivery-detail' ? (
+        <AdminNotificationDeliveryDetailPage
+          developmentUserKey={developmentUserKey}
+          deliveryId={view.deliveryId}
+          onBack={() => setView({ kind: 'admin-notification-deliveries' })}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-work-item-escalations' ? (
@@ -1622,7 +1734,7 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
         <button type="button" onClick={load}>새로고침</button>
       </div>
       <p className="muted-text">EntraId 사용자의 부서, 역할, 활성 상태만 수정할 수 있습니다. Dev 사용자는 읽기 전용입니다.</p>
-      {message ? <p className="form-message">{message}</p> : null}
+      <ActionFeedback message={message} tone={message.includes('없습니다') || message.includes('수 없습니다') ? 'error' : message ? 'success' : 'neutral'} />
       {state.kind === 'ready' ? (
         <div className="bulk-action-bar">
           <span>선택 {selectedUserIds.length}건</span>
@@ -2031,7 +2143,7 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
         </div>
       </div>
       <p className="muted-text">토요일, 일요일과 활성 상태의 국가공휴일, 대체공휴일, 임시공휴일, 회사휴일은 비영업일로 계산됩니다.</p>
-      {message ? <p className="form-message">{message}</p> : null}
+      <ActionFeedback message={message} tone={message.includes('없습니다') || message.includes('수 없습니다') ? 'error' : message ? 'success' : 'neutral'} />
 
       <form className="calendar-holiday-form" onSubmit={saveHoliday}>
         <label>
@@ -2216,6 +2328,7 @@ function AdminSectionNav({ onNavigate }: { onNavigate: (view: View) => void }) {
       title: '운영',
       items: [
         { label: '사용자 관리', view: { kind: 'admin-users' } },
+        { label: '알림 수동 발송', view: { kind: 'admin-send-notification' } },
         { label: '알림 발송 상태', view: { kind: 'admin-notification-deliveries' } },
         { label: '에스컬레이션 상태', view: { kind: 'admin-work-item-escalations' } }
       ]
@@ -2530,7 +2643,7 @@ function AdminDepartmentsPage({ developmentUserKey }: { developmentUserKey: stri
   const allDepartmentsSelected = visibleDepartmentIds.length > 0 && visibleDepartmentIds.every((id) => selectedDepartmentIds.includes(id));
 
   return (
-    <AdminPageShell eyebrow="System Management" title="부서 관리" onRefresh={load} message={message}>
+    <AdminPageShell eyebrow="System Management" title="부서 관리" onRefresh={load} message="">
       <div className="subsection">
         <h3>부서 추가</h3>
         <div className="detail-grid">
@@ -2556,6 +2669,7 @@ function AdminDepartmentsPage({ developmentUserKey }: { developmentUserKey: stri
         </div>
         <button type="button" onClick={() => void create()}>추가</button>
       </div>
+      <ActionFeedback message={message} tone={message.includes('수 없습니다') || message.includes('선택해 주세요') ? 'error' : message ? 'success' : 'neutral'} />
       {state.kind === 'ready' ? (
         <div className="bulk-action-bar">
           <span>선택 {selectedDepartmentIds.length}건</span>
@@ -2793,24 +2907,680 @@ function AdminWorkHistoryPage({ developmentUserKey }: { developmentUserKey: stri
   );
 }
 
-function AdminNotificationDeliveriesPage({
+type ManualNotificationDraft = {
+  notificationKind: string;
+  title: string;
+  projectSelectionType: 'Project' | 'Other';
+  projectId: string;
+  projectName: string;
+  message: string;
+  channels: string[];
+  teamsActivityRecipientUserIds: string[];
+  mailRecipientUserIds: string[];
+  mailRecipientEmailsText: string;
+};
+
+const manualNotificationKinds = [
+  { value: 'ProjectCreated', label: '프로젝트 생성 알림' },
+  { value: 'WorkItemAssigned', label: '업무 배정 알림' },
+  { value: 'Urgent', label: '긴급 알림' },
+  { value: 'Custom', label: '일반 알림' }
+];
+
+const manualNotificationChannels = [
+  { value: 'TeamsChannel', label: 'Teams 채널' },
+  { value: 'TeamsActivity', label: 'Teams Activity' },
+  { value: 'Mail', label: 'Mail' }
+];
+
+function createManualNotificationDraft(): ManualNotificationDraft {
+  return {
+    notificationKind: 'ProjectCreated',
+    title: '[테스트] 프로젝트 생성 알림',
+    projectSelectionType: 'Other',
+    projectId: '',
+    projectName: 'TASK-NOTIFY-003 통합 알림 테스트',
+    message: 'EMI 프로젝트 통합관리시스템 프로젝트 생성 알림 3채널 최종 검수입니다. 실제 업무 알림이 아닙니다.',
+    channels: ['TeamsChannel', 'TeamsActivity', 'Mail'],
+    teamsActivityRecipientUserIds: [],
+    mailRecipientUserIds: [],
+    mailRecipientEmailsText: ''
+  };
+}
+
+function AdminManualNotificationPage({
   developmentUserKey,
-  statusFilter
+  onOpenDeliveries,
+  onBack
 }: {
   developmentUserKey: string;
-  statusFilter: string | null;
+  onOpenDeliveries: () => void;
+  onBack: () => void;
 }) {
-  const [state, setState] = useState<LoadState<AdminNotificationDeliveryListResponse>>({ kind: 'loading' });
-  const load = useCallback(() => {
-    setState({ kind: 'loading' });
-    getAdminNotificationDeliveries(developmentUserKey, { status: statusFilter })
-      .then((data) => setState({ kind: 'ready', data }))
-      .catch((error: unknown) => setState(toLoadError(error, '알림 발송 상태를 불러올 수 없습니다.')));
-  }, [developmentUserKey, statusFilter]);
+  const [usersState, setUsersState] = useState<LoadState<AdminUsersResponse>>({ kind: 'loading' });
+  const [projectsState, setProjectsState] = useState<LoadState<ProjectListResponse>>({ kind: 'loading' });
+  const [draft, setDraft] = useState<ManualNotificationDraft>(() => createManualNotificationDraft());
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState('');
+  const [result, setResult] = useState<AdminManualNotificationSendResponse | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const redirectTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getAdminNotificationDeliveries(developmentUserKey, { status: statusFilter })
+    getAdminUsers(developmentUserKey)
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+        setUsersState({ kind: 'ready', data });
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setUsersState(toLoadError(error, '사용자 목록을 불러올 수 없습니다.'));
+        }
+      });
+    listProjects(developmentUserKey, '', 'All')
+      .then((data) => {
+        if (!cancelled) {
+          setProjectsState({ kind: 'ready', data });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setProjectsState(toLoadError(error, '프로젝트 목록을 불러올 수 없습니다.'));
+        }
+      });
+    return () => {
+      cancelled = true;
+      if (redirectTimerRef.current !== null) {
+        window.clearTimeout(redirectTimerRef.current);
+      }
+    };
+  }, [developmentUserKey]);
+
+  const activeUsers = usersState.kind === 'ready' ? usersState.data.users.filter((user) => user.isActive) : [];
+  const entraUsers = activeUsers.filter((user) => user.authProvider === 'EntraId');
+  const mailUsers = activeUsers.filter((user) => Boolean(user.email));
+  const projects = projectsState.kind === 'ready' ? projectsState.data.items : [];
+  const selectedProject = projects.find((project) => project.projectId === draft.projectId);
+  const selectedProjectName = draft.projectSelectionType === 'Project'
+    ? selectedProject?.projectTitle ?? ''
+    : draft.projectName.trim() || '기타';
+  const notificationKindLabel = manualNotificationKindLabel(draft.notificationKind);
+  const manualBodyPreview = buildManualNotificationBodyPreview(notificationKindLabel, selectedProjectName, draft.title, draft.message);
+  const teamsActivityPreview = `${notificationKindLabel}, ${draft.title}\n${summarizeInline(draft.message, 150)}`;
+
+  const setChannel = (channel: string, checked: boolean) => {
+    setDraft((current) => ({
+      ...current,
+      channels: checked
+        ? [...current.channels.filter((item) => item !== channel), channel]
+        : current.channels.filter((item) => item !== channel)
+    }));
+  };
+
+  const validate = () => {
+    const errors: Record<string, string> = {};
+    if (!draft.title.trim()) {
+      errors.title = '제목은 필수입니다.';
+    }
+    if (!draft.message.trim()) {
+      errors.message = '본문은 필수입니다.';
+    }
+    if (draft.projectSelectionType === 'Project' && !draft.projectId) {
+      errors.projectId = '프로젝트를 선택하거나 기타를 선택해 주세요.';
+    }
+    if (draft.channels.length === 0) {
+      errors.channels = '발송 채널을 하나 이상 선택해 주세요.';
+    }
+    if (draft.channels.includes('TeamsActivity') && draft.teamsActivityRecipientUserIds.length === 0) {
+      errors.teamsActivityRecipientUserIds = 'Teams Activity 수신자를 한 명 이상 선택해 주세요.';
+    }
+    const mailEmails = splitEmailList(draft.mailRecipientEmailsText);
+    if (draft.channels.includes('Mail') && draft.mailRecipientUserIds.length === 0 && mailEmails.length === 0) {
+      errors.mailRecipients = '메일 수신자를 한 명 이상 선택하거나 이메일을 입력해 주세요.';
+    }
+    if (mailEmails.some((email) => !isEmailLike(email))) {
+      errors.mailRecipientEmailsText = '메일 수신자 이메일 형식이 올바르지 않습니다.';
+    }
+    return errors;
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setMessage('');
+    setResult(null);
+    if (redirectTimerRef.current !== null) {
+      window.clearTimeout(redirectTimerRef.current);
+      redirectTimerRef.current = null;
+    }
+    const errors = validate();
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setMessage('입력값을 확인해 주세요.');
+      return;
+    }
+
+    setIsSending(true);
+    setMessage('발송 요청을 저장하고 있습니다.');
+    try {
+      const response = await sendAdminManualNotification(developmentUserKey, {
+        notificationKind: draft.notificationKind,
+        projectId: draft.projectSelectionType === 'Project' ? draft.projectId : null,
+        projectSelectionType: draft.projectSelectionType,
+        title: draft.title.trim(),
+        projectName: selectedProjectName,
+        message: draft.message.trim(),
+        channels: draft.channels,
+        teamsActivityRecipientUserIds: draft.teamsActivityRecipientUserIds,
+        mailRecipientUserIds: draft.mailRecipientUserIds,
+        mailRecipientEmails: splitEmailList(draft.mailRecipientEmailsText)
+      });
+      setResult(response);
+      setMessage('발송 요청이 접수되었습니다. 알림발송상태에서 결과를 확인할 수 있습니다. 잠시 후 이동합니다.');
+      redirectTimerRef.current = window.setTimeout(() => {
+        redirectTimerRef.current = null;
+        onOpenDeliveries();
+      }, 700);
+    } catch (error: unknown) {
+      setMessage(friendlyErrorMessage(error, '발송 요청에 실패했습니다. 입력값과 채널 설정을 확인해주세요.'));
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const reset = () => {
+    setDraft(createManualNotificationDraft());
+    setFieldErrors({});
+    setMessage('');
+    setResult(null);
+    if (redirectTimerRef.current !== null) {
+      window.clearTimeout(redirectTimerRef.current);
+      redirectTimerRef.current = null;
+    }
+  };
+
+  return (
+    <AdminPageShell eyebrow="System" title="알림 수동 발송" message="">
+      <div className="admin-guidance">
+        <p>관리자가 테스트/수동 알림을 작성해 Teams 채널, Teams Activity, Mail로 직접 발송합니다. 실제 프로젝트 row나 workflow event는 생성하지 않습니다.</p>
+        <p>발송 버튼을 누르면 delivery가 대기열에 저장되고 worker가 처리합니다. 실제 발송 결과는 알림발송상태에서 확인합니다.</p>
+      </div>
+      {usersState.kind === 'loading' ? <p>사용자 목록을 불러오는 중입니다.</p> : null}
+      {usersState.kind !== 'loading' && usersState.kind !== 'ready' ? <StateMessage state={usersState} /> : null}
+      {projectsState.kind === 'loading' ? <p>프로젝트 목록을 불러오는 중입니다.</p> : null}
+      {projectsState.kind !== 'loading' && projectsState.kind !== 'ready' ? <StateMessage state={projectsState} /> : null}
+      {usersState.kind === 'ready' && projectsState.kind === 'ready' ? (
+        <form className="subsection manual-notification-form" onSubmit={(event) => void submit(event)}>
+          <div className="detail-grid">
+            <label className="form-field compact-field">
+              <span>알림 유형</span>
+              <select value={draft.notificationKind} onChange={(event) => setDraft((current) => ({ ...current, notificationKind: event.target.value }))}>
+                {manualNotificationKinds.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+            <label className={fieldErrors.title ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+              <span>제목</span>
+              <input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
+              {fieldErrors.title ? <small role="alert" className="field-error-message">{fieldErrors.title}</small> : null}
+            </label>
+            <label className={fieldErrors.projectId ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+              <span>프로젝트</span>
+              <select
+                value={draft.projectSelectionType === 'Project' ? draft.projectId : '__other__'}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setDraft((current) => value === '__other__'
+                    ? { ...current, projectSelectionType: 'Other', projectId: '' }
+                    : { ...current, projectSelectionType: 'Project', projectId: value });
+                }}
+              >
+                <option value="__other__">기타</option>
+                {projects.map((project) => (
+                  <option key={project.projectId} value={project.projectId}>{project.projectTitle} ({project.projectCode})</option>
+                ))}
+              </select>
+              {fieldErrors.projectId ? <small role="alert" className="field-error-message">{fieldErrors.projectId}</small> : null}
+            </label>
+            {draft.projectSelectionType === 'Other' ? (
+              <label className="form-field compact-field">
+                <span>프로젝트명/구분</span>
+                <input value={draft.projectName} onChange={(event) => setDraft((current) => ({ ...current, projectName: event.target.value }))} placeholder="기타" />
+              </label>
+            ) : null}
+          </div>
+          <label className={fieldErrors.message ? 'form-field has-error' : 'form-field'}>
+            <span>본문</span>
+            <textarea rows={5} value={draft.message} onChange={(event) => setDraft((current) => ({ ...current, message: event.target.value }))} />
+            {fieldErrors.message ? <small role="alert" className="field-error-message">{fieldErrors.message}</small> : null}
+          </label>
+          <section className="manual-preview-panel" aria-label="발송 미리보기">
+            <h3>미리보기</h3>
+            <div className="detail-grid">
+              <div>
+                <strong>Mail 제목</strong>
+                <p>[{notificationKindLabel}] {draft.title || '제목'}</p>
+              </div>
+              <div>
+                <strong>Teams Activity</strong>
+                <p>{teamsActivityPreview}</p>
+              </div>
+            </div>
+            <pre>{manualBodyPreview}</pre>
+          </section>
+          <fieldset className={fieldErrors.channels ? 'manual-channel-fieldset has-error' : 'manual-channel-fieldset'}>
+            <legend>수신/게시 채널</legend>
+            <div className="checkbox-row">
+              {manualNotificationChannels.map((channel) => (
+                <label className="inline-check" key={channel.value}>
+                  <input
+                    type="checkbox"
+                    checked={draft.channels.includes(channel.value)}
+                    onChange={(event) => setChannel(channel.value, event.target.checked)}
+                  />
+                  {channel.label}
+              </label>
+            ))}
+            </div>
+            {fieldErrors.channels ? <small role="alert" className="field-error-message">{fieldErrors.channels}</small> : null}
+          </fieldset>
+          <div className="detail-grid">
+            <label className={fieldErrors.teamsActivityRecipientUserIds ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+              <span>Teams Activity 수신자</span>
+              <select
+                multiple
+                value={draft.teamsActivityRecipientUserIds}
+                onChange={(event) => {
+                  const values = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
+                  setDraft((current) => ({
+                    ...current,
+                    teamsActivityRecipientUserIds: values
+                  }));
+                }}
+              >
+                {entraUsers.map((user) => (
+                  <option key={user.userId} value={user.userId}>{user.displayName}{user.email ? ` · ${user.email}` : ''}</option>
+                ))}
+              </select>
+              <small className="muted-text">actual 발송은 EntraId active 사용자만 가능합니다.</small>
+              {fieldErrors.teamsActivityRecipientUserIds ? <small role="alert" className="field-error-message">{fieldErrors.teamsActivityRecipientUserIds}</small> : null}
+            </label>
+            <label className={fieldErrors.mailRecipients ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+              <span>Mail 사용자</span>
+              <select
+                multiple
+                value={draft.mailRecipientUserIds}
+                onChange={(event) => {
+                  const values = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
+                  setDraft((current) => ({
+                    ...current,
+                    mailRecipientUserIds: values
+                  }));
+                }}
+              >
+                {mailUsers.map((user) => (
+                  <option key={user.userId} value={user.userId}>{user.displayName}{user.email ? ` · ${user.email}` : ''}</option>
+                ))}
+              </select>
+              {fieldErrors.mailRecipients ? <small role="alert" className="field-error-message">{fieldErrors.mailRecipients}</small> : null}
+            </label>
+            <label className={fieldErrors.mailRecipientEmailsText ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+              <span>Mail 직접 입력</span>
+              <textarea rows={4} value={draft.mailRecipientEmailsText} onChange={(event) => setDraft((current) => ({ ...current, mailRecipientEmailsText: event.target.value }))} placeholder="쉼표, 세미콜론, 줄바꿈으로 여러 이메일 입력" />
+              {fieldErrors.mailRecipientEmailsText ? <small role="alert" className="field-error-message">{fieldErrors.mailRecipientEmailsText}</small> : null}
+            </label>
+            <label className="form-field compact-field">
+              <span>Teams 채널 게시 대상</span>
+              <input value="설정된 Teams 채널" readOnly />
+            </label>
+          </div>
+          <div className="button-row">
+            <button type="submit" disabled={isSending}>{isSending ? '요청 저장 중...' : '발송'}</button>
+            <button type="button" onClick={reset} disabled={isSending}>초기화</button>
+            <button type="button" className="secondary-button" onClick={onBack}>이전 페이지로 돌아가기</button>
+          </div>
+          <ActionFeedback
+            message={message}
+            tone={fieldErrors && Object.keys(fieldErrors).length > 0 ? 'error' : result ? 'success' : isSending ? 'loading' : message ? 'error' : 'neutral'}
+          />
+        </form>
+      ) : null}
+      {result ? (
+        <section className="subsection">
+          <h3>발송 요청 결과</h3>
+          <p className="muted-text">요청 {result.requestedCount}건 중 {result.queuedCount}건이 대기열에 저장되었습니다. 실제 발송 결과는 알림발송상태에서 확인하세요.</p>
+          <div className="table-scroll">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th className="admin-table__cell--text">채널</th>
+	                  <th className="admin-table__cell--text">대상</th>
+	                  <th className="admin-table__cell--status">상태</th>
+	                  <th className="admin-table__cell--text">delivery id</th>
+                  <th className="admin-table__cell--text">오류/메시지</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.items.map((item) => (
+	                  <tr key={`${item.channel}-${item.deliveryId ?? item.errorCode ?? 'failed'}`}>
+	                    <td className="admin-table__cell--text">{item.channelLabel}</td>
+	                    <td className="admin-table__cell--text">{item.target}</td>
+	                    <td className="admin-table__cell--status"><StatusBadge label={item.status === 'Queued' ? '요청 접수' : item.status} tone={item.status === 'Queued' ? 'info' : item.status === 'Failed' ? 'danger' : 'neutral'} /></td>
+	                    <td className="admin-table__cell--text"><small>{item.deliveryId ?? '-'}</small></td>
+                    <td className="admin-table__cell--text">{item.errorCode ?? item.message}{item.errorMessage ? <><br /><small>{item.errorMessage}</small></> : null}</td>
+                  </tr>
+                ))}
+              </tbody>
+	            </table>
+	          </div>
+          <div className="button-row">
+            <button type="button" onClick={onOpenDeliveries}>알림발송상태로 이동</button>
+            <button type="button" className="secondary-button" onClick={onBack}>이전 페이지로 돌아가기</button>
+          </div>
+        </section>
+      ) : null}
+    </AdminPageShell>
+  );
+}
+
+function isEmailLike(value: string) {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
+}
+
+function splitEmailList(value: string) {
+  return value
+    .split(/[,;\n\r]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
+}
+
+function manualNotificationKindLabel(kind: string) {
+  return manualNotificationKinds.find((item) => item.value === kind)?.label ?? '일반 알림';
+}
+
+function buildManualNotificationBodyPreview(kindLabel: string, projectName: string, title: string, message: string) {
+  return `EMI 프로젝트 통합관리시스템 알림
+
+알림 유형: ${kindLabel}
+프로젝트명: ${projectName || '기타'}
+
+제목: ${title || '제목'}
+내용:
+${message || '내용'}
+
+발송시각: ${formatManualPreviewDate(new Date())}
+
+끝.`;
+}
+
+function formatManualPreviewDate(value: Date) {
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(value);
+  return parts;
+}
+
+function summarizeInline(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}...`;
+}
+
+type DeliveryTabKey = 'all' | 'open-failed' | 'open-pending' | 'sent' | 'acknowledged' | 'dismissed' | 'other';
+
+const deliveryTabs: Array<{ key: DeliveryTabKey; label: string }> = [
+  { key: 'all', label: '전체' },
+  { key: 'open-failed', label: '미처리 실패' },
+  { key: 'open-pending', label: '미처리 대기' },
+  { key: 'sent', label: '발송 완료' },
+  { key: 'acknowledged', label: '확인됨' },
+  { key: 'dismissed', label: '제외됨' },
+  { key: 'other', label: 'Dry-run/비활성/제외' }
+];
+
+const deliveryTypeOptions = [
+  'ManualTest',
+  'WorkItemCreated',
+  'UrgentBlocking',
+  'DailyDigest',
+  'DueSoonL0',
+  'OverdueL1',
+  'OverdueL2',
+  'OverdueL3',
+  'ProjectCompletion',
+  'ReferenceDigest'
+];
+
+function deliveryTabFromFilters(status: string | null, handlingStatus: string | null): DeliveryTabKey {
+  if (handlingStatus === 'Acknowledged') {
+    return 'acknowledged';
+  }
+  if (handlingStatus === 'Dismissed') {
+    return 'dismissed';
+  }
+  if (status === 'Failed') {
+    return 'open-failed';
+  }
+  if (status === 'Pending') {
+    return 'open-pending';
+  }
+  if (status === 'Sent') {
+    return 'sent';
+  }
+  if (status === 'DryRunSent' || status === 'Disabled' || status === 'Suppressed') {
+    return 'other';
+  }
+  return 'all';
+}
+
+function deliveryTabFilters(tab: DeliveryTabKey): { status?: string | null; handlingStatus?: string | null } {
+  switch (tab) {
+    case 'open-failed':
+      return { status: 'Failed', handlingStatus: 'Open' };
+    case 'open-pending':
+      return { status: 'Pending', handlingStatus: 'Open' };
+    case 'sent':
+      return { status: 'Sent' };
+    case 'acknowledged':
+      return { handlingStatus: 'Acknowledged' };
+    case 'dismissed':
+      return { handlingStatus: 'Dismissed' };
+    case 'other':
+      return {};
+    default:
+      return {};
+  }
+}
+
+function deliveryTabLocalFilter(tab: DeliveryTabKey, item: AdminNotificationDelivery) {
+  if (tab === 'other') {
+    return item.status === 'DryRunSent' || item.status === 'Disabled' || item.status === 'Suppressed';
+  }
+
+  return true;
+}
+
+function deliveryTabLabel(tab: DeliveryTabKey) {
+  return deliveryTabs.find((item) => item.key === tab)?.label ?? '전체';
+}
+
+function deliveryChannelLabel(channel: string) {
+  switch (channel) {
+    case 'TeamsChannel':
+      return 'Teams 채널';
+    case 'TeamsActivity':
+      return 'Teams Activity';
+    case 'Mail':
+      return '메일';
+    case 'TeamsDirectMessage':
+      return 'Teams 개인 dry-run';
+    default:
+      return channel;
+  }
+}
+
+function deliveryTypeLabel(deliveryType: string) {
+  switch (deliveryType) {
+    case 'ManualTest':
+      return '수동 알림';
+    case 'WorkItemCreated':
+      return '업무 배정 알림';
+    case 'UrgentBlocking':
+      return '긴급 알림';
+    case 'DailyDigest':
+      return '일일 업무 요약';
+    case 'DueSoonL0':
+      return '예정일 임박 알림';
+    case 'OverdueL1':
+    case 'OverdueL2':
+    case 'OverdueL3':
+      return '예정일 초과 알림';
+    case 'ProjectCompletion':
+      return '프로젝트 완료 알림';
+    case 'ReferenceDigest':
+      return '참조 알림';
+    default:
+      return deliveryType;
+  }
+}
+
+function deliveryActionResultMessage(result: AdminNotificationDeliveryActionResponse) {
+  const failedDetails = result.items
+    .filter((item) => item.status !== 'Succeeded')
+    .map((item) => item.message)
+    .slice(0, 2);
+  const suffix = failedDetails.length > 0 ? ` (${failedDetails.join(', ')})` : '';
+  return `처리 완료 ${result.succeededCount}건, 실패 ${result.failedCount}건, 건너뜀 ${result.skippedCount}건${suffix}`;
+}
+
+function shouldShowDeliveryHandlingStatus(status: string) {
+  return status === 'Failed' || status === 'Pending';
+}
+
+type EscalationTabKey = 'all' | 'active' | 'l0' | 'l1' | 'l2' | 'l3' | 'resolved' | 'cancelled';
+
+const escalationTabs: Array<{ key: EscalationTabKey; label: string }> = [
+  { key: 'all', label: '전체' },
+  { key: 'active', label: '진행 중' },
+  { key: 'l0', label: 'L0 예정일 임박' },
+  { key: 'l1', label: 'L1 예정일 초과' },
+  { key: 'l2', label: 'L2 +2영업일' },
+  { key: 'l3', label: 'L3 +3영업일' },
+  { key: 'resolved', label: '해소됨' },
+  { key: 'cancelled', label: '취소됨' }
+];
+
+function escalationTabFromFilters(status: string | null, level: string | null): EscalationTabKey {
+  if (status === 'Resolved') {
+    return 'resolved';
+  }
+  if (status === 'Cancelled') {
+    return 'cancelled';
+  }
+  if (level === 'L0') {
+    return 'l0';
+  }
+  if (level === 'L1') {
+    return 'l1';
+  }
+  if (level === 'L2') {
+    return 'l2';
+  }
+  if (level === 'L3') {
+    return 'l3';
+  }
+  if (status === 'Active') {
+    return 'active';
+  }
+  return 'all';
+}
+
+function escalationTabFilters(tab: EscalationTabKey): { status?: string | null; level?: string | null } {
+  switch (tab) {
+    case 'active':
+      return { status: 'Active' };
+    case 'l0':
+      return { status: 'Active', level: 'L0' };
+    case 'l1':
+      return { status: 'Active', level: 'L1' };
+    case 'l2':
+      return { status: 'Active', level: 'L2' };
+    case 'l3':
+      return { status: 'Active', level: 'L3' };
+    case 'resolved':
+      return { status: 'Resolved' };
+    case 'cancelled':
+      return { status: 'Cancelled' };
+    default:
+      return {};
+  }
+}
+
+function escalationTabLabel(tab: EscalationTabKey) {
+  return escalationTabs.find((item) => item.key === tab)?.label ?? '전체';
+}
+
+function AdminNotificationDeliveriesPage({
+  developmentUserKey,
+  statusFilter,
+  handlingStatusFilter,
+  channelFilter,
+  deliveryTypeFilter,
+  onOpenDetail
+}: {
+  developmentUserKey: string;
+  statusFilter: string | null;
+  handlingStatusFilter: string | null;
+  channelFilter: string | null;
+  deliveryTypeFilter: string | null;
+  onOpenDetail: (deliveryId: string) => void;
+}) {
+  const initialTab = deliveryTabFromFilters(statusFilter, handlingStatusFilter);
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [channel, setChannel] = useState(channelFilter ?? '');
+  const [deliveryType, setDeliveryType] = useState(deliveryTypeFilter ?? '');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [message, setMessage] = useState('');
+  const [state, setState] = useState<LoadState<AdminNotificationDeliveryListResponse>>({ kind: 'loading' });
+
+  useEffect(() => {
+    setActiveTab(deliveryTabFromFilters(statusFilter, handlingStatusFilter));
+  }, [handlingStatusFilter, statusFilter]);
+
+  useEffect(() => {
+    setChannel(channelFilter ?? '');
+    setDeliveryType(deliveryTypeFilter ?? '');
+  }, [channelFilter, deliveryTypeFilter]);
+
+  const currentFilters = deliveryTabFilters(activeTab);
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getAdminNotificationDeliveries(developmentUserKey, {
+      status: currentFilters.status,
+      handlingStatus: currentFilters.handlingStatus,
+      channel: channel || null,
+      deliveryType: deliveryType || null
+    })
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '알림 발송 상태를 불러올 수 없습니다.')));
+  }, [channel, currentFilters.handlingStatus, currentFilters.status, deliveryType, developmentUserKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminNotificationDeliveries(developmentUserKey, {
+      status: currentFilters.status,
+      handlingStatus: currentFilters.handlingStatus,
+      channel: channel || null,
+      deliveryType: deliveryType || null
+    })
       .then((data) => {
         if (!cancelled) {
           setState({ kind: 'ready', data });
@@ -2824,52 +3594,280 @@ function AdminNotificationDeliveriesPage({
     return () => {
       cancelled = true;
     };
-  }, [developmentUserKey, statusFilter]);
+  }, [channel, currentFilters.handlingStatus, currentFilters.status, deliveryType, developmentUserKey]);
 
-  const filterLabel = statusFilter ? deliveryStatusLabel(statusFilter) : '전체';
+  const displayedItems = state.kind === 'ready'
+    ? state.data.items.filter((item) => deliveryTabLocalFilter(activeTab, item))
+    : [];
+  const visibleIds = displayedItems.map((item) => item.deliveryId);
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+  const selectedItems = displayedItems.filter((item) => selectedIds.includes(item.deliveryId));
+
+  const runDeliveryAction = async (action: 'acknowledge' | 'dismiss' | 'retry') => {
+    if (selectedIds.length === 0) {
+      setMessage('선택된 알림이 없습니다.');
+      return;
+    }
+
+    const confirmText = action === 'retry'
+      ? '선택한 대기 알림을 재발송 대기열에 등록합니다. worker가 다음 주기에서 처리합니다.'
+      : action === 'dismiss'
+        ? '선택한 알림을 목록 제외 처리합니다. 발송 상태는 변경되지 않습니다.'
+        : '선택한 알림을 확인 처리합니다. 발송 상태는 변경되지 않습니다.';
+    if (!window.confirm(confirmText)) {
+      return;
+    }
+
+    const request = {
+      ids: selectedIds,
+      note: action === 'retry'
+        ? '관리자 재발송 요청'
+        : action === 'dismiss'
+          ? '관리자 목록 제외 처리'
+          : '관리자 확인 처리'
+    };
+
+    try {
+      setMessage(action === 'retry' ? '재발송 요청을 저장하고 있습니다.' : '선택한 알림 처리 상태를 저장하고 있습니다.');
+      const result = action === 'retry'
+        ? await retryAdminNotificationDeliveries(developmentUserKey, request)
+        : action === 'dismiss'
+          ? await dismissAdminNotificationDeliveries(developmentUserKey, request)
+          : await acknowledgeAdminNotificationDeliveries(developmentUserKey, request);
+      setMessage(deliveryActionResultMessage(result));
+      setSelectedIds([]);
+      load();
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : '알림 처리 중 오류가 발생했습니다.');
+    }
+  };
 
   return (
     <AdminPageShell eyebrow="System" title="알림 발송 상태" onRefresh={load} message="">
       <div className="admin-guidance">
-        <p>발송 실패는 외부 채널로 알림을 보내지 못한 건입니다. 오류 코드를 확인해 수신자 이메일, 채널 설정, SMTP/Teams 설정을 점검하세요. 수동 재처리는 후속 기능입니다.</p>
-        <p>발송 대기는 아직 worker가 처리하지 않았거나 다음 재시도 시각을 기다리는 건입니다. 오래된 대기 건은 worker/dispatch 설정을 확인하세요.</p>
-        <p><strong>현재 필터:</strong> {filterLabel}</p>
+        <p>발송 실패는 외부 채널로 알림을 보내지 못한 건입니다. 확인/제외 처리된 실패 건은 대시보드 실패 건수에서 제외되지만 실제 발송 상태는 변경되지 않습니다.</p>
+        <p>발송 대기는 worker 처리 또는 다음 재시도 시각을 기다리는 건입니다. 재발송은 다음 시도 시각만 앞당기며, attempt count는 worker 처리 시 증가합니다.</p>
+        <p><strong>현재 필터:</strong> {deliveryTabLabel(activeTab)} · 채널 {channel ? deliveryChannelLabel(channel) : '전체'} · 유형 {deliveryType ? deliveryTypeLabel(deliveryType) : '전체'}</p>
       </div>
+      <div className="admin-filter-panel">
+        <div className="segmented-control" role="tablist" aria-label="알림 발송 상태 필터">
+          {deliveryTabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.key}
+              onClick={() => {
+                setActiveTab(tab.key);
+                setSelectedIds([]);
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <label>
+          채널
+          <select value={channel} onChange={(event) => setChannel(event.target.value)}>
+            <option value="">전체</option>
+            <option value="TeamsChannel">Teams 채널</option>
+            <option value="TeamsActivity">Teams Activity</option>
+            <option value="Mail">메일</option>
+            <option value="TeamsDirectMessage">Teams 개인 dry-run</option>
+          </select>
+        </label>
+        <label>
+          유형
+          <select value={deliveryType} onChange={(event) => setDeliveryType(event.target.value)}>
+            <option value="">전체</option>
+            {deliveryTypeOptions.map((option) => <option key={option} value={option}>{deliveryTypeLabel(option)}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="bulk-action-bar">
+        <span>선택 {selectedIds.length}건</span>
+        <button type="button" onClick={() => void runDeliveryAction('acknowledge')} disabled={selectedIds.length === 0}>선택 확인 처리</button>
+        <button type="button" onClick={() => void runDeliveryAction('dismiss')} disabled={selectedIds.length === 0}>선택 제외 처리</button>
+        <button type="button" onClick={() => void runDeliveryAction('retry')} disabled={selectedItems.length === 0 || selectedItems.some((item) => item.status !== 'Pending')}>선택 재발송</button>
+      </div>
+      <ActionFeedback message={message} tone={message.includes('오류') ? 'error' : message.includes('저장하고') ? 'loading' : message ? 'success' : 'neutral'} />
       {state.kind === 'loading' ? <p>발송 상태를 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <div className="table-scroll">
           <table className="admin-table">
-            <thead><tr><th className="admin-table__cell--text">알림</th><th className="admin-table__cell--text">대상</th><th className="admin-table__cell--text">채널/유형</th><th className="admin-table__cell--status">상태</th><th className="admin-table__cell--number">시도</th><th className="admin-table__cell--date">다음 시도</th><th className="admin-table__cell--text">오류/조치</th></tr></thead>
+            <thead>
+              <tr>
+                <th className="admin-table__cell--checkbox">
+                  <input
+                    type="checkbox"
+                    aria-label="알림 발송 이력 전체 선택"
+                    checked={allSelected}
+                    onChange={(event) => setSelectedIds(event.target.checked ? visibleIds : [])}
+                  />
+                </th>
+                <th className="admin-table__cell--text">알림</th>
+                <th className="admin-table__cell--text">대상</th>
+                <th className="admin-table__cell--text">채널/유형</th>
+                <th className="admin-table__cell--status">상태</th>
+                <th className="admin-table__cell--number">시도</th>
+                <th className="admin-table__cell--date">시각</th>
+                <th className="admin-table__cell--text">오류/조치</th>
+              </tr>
+            </thead>
             <tbody>
-              {state.data.items.map((item) => (
+              {displayedItems.map((item) => (
                 <tr key={item.deliveryId}>
+                  <td className="admin-table__cell--checkbox">
+                    <input
+                      type="checkbox"
+                      aria-label={`${item.displayTitle} 선택`}
+                      checked={selectedIds.includes(item.deliveryId)}
+                      onChange={(event) => setSelectedIds((current) => (
+                        event.target.checked
+                          ? [...current, item.deliveryId]
+                          : current.filter((id) => id !== item.deliveryId)
+                      ))}
+                    />
+	                  </td>
+	                  <td className="admin-table__cell--text">
+	                    <button type="button" className="link-button" onClick={() => onOpenDetail(item.deliveryId)}>{item.displayTitle}</button>
+	                    <br />
+	                    <small>{item.manualNotificationKindLabel ?? item.deliveryTypeLabel}</small>
+	                    <br />
+	                    <small>{item.displayProject}</small>
+	                  </td>
                   <td className="admin-table__cell--text">
-                    <strong>{item.notificationTitle ?? '-'}</strong>
+                    {item.displayRecipient}
                     <br />
-                    <small>{item.projectTitle ?? '-'}{item.projectCode ? ` · ${item.projectCode}` : ''}</small>
-                    <br />
-                    <small>생성 {formatNullableDateTime(item.createdAtUtc)}</small>
+                    <small>{item.displayChannelTarget ?? item.recipientEmailMasked ?? item.recipientEmail ?? '계정 정보 없음'}</small>
                   </td>
-                  <td className="admin-table__cell--text">{item.recipientDisplayName ?? '-'}</td>
-                  <td className="admin-table__cell--text">{item.channel}<br /><small>{item.deliveryType}</small></td>
-                  <td className="admin-table__cell--status"><StatusBadge label={deliveryStatusLabel(item.status)} tone={item.status === 'Failed' ? 'danger' : item.status === 'Pending' ? 'warning' : 'neutral'} /></td>
+                  <td className="admin-table__cell--text">{item.channelLabel}<br /><small>{item.manualNotificationKindLabel ?? item.deliveryTypeLabel}</small></td>
+                  <td className="admin-table__cell--status">
+                    <StatusBadge label={item.statusLabel} tone={item.status === 'Failed' ? 'danger' : item.status === 'Pending' ? 'warning' : 'neutral'} />
+                    {shouldShowDeliveryHandlingStatus(item.status) ? (
+                      <>
+                        <br />
+                        <StatusBadge label={item.adminHandlingStatusLabel} tone={item.adminHandlingStatus === 'Open' ? 'info' : 'neutral'} />
+                      </>
+                    ) : null}
+                  </td>
                   <td className="admin-table__cell--number">{item.attemptCount}회</td>
-                  <td className="admin-table__cell--date">{formatNullableDateTime(item.nextAttemptAtUtc)}</td>
+                  <td className="admin-table__cell--date">
+                    <small>생성 {formatNullableDateTime(item.createdAtUtc)}</small>
+                    <br />
+                    <small>다음 {formatNullableDateTime(item.nextAttemptAtUtc)}</small>
+                    <br />
+                    <small>발송 {formatNullableDateTime(item.sentAtUtc)}</small>
+                  </td>
                   <td className="admin-table__cell--text">
                     <strong>{item.errorCode ?? (item.status === 'Pending' ? '대기 사유' : '-')}</strong>
                     {item.errorMessage ? <><br /><small>{item.errorMessage}</small></> : null}
+                    {item.pendingReason ? <><br /><small>{item.pendingReason}</small></> : null}
                     <br />
-                    <small>{deliveryActionGuide(item)}</small>
+                    <small>{item.actionGuide}</small>
+                    {item.adminHandledAtUtc ? <><br /><small>처리 {formatNullableDateTime(item.adminHandledAtUtc)} · {item.adminHandledByDisplayName ?? '관리자'}</small></> : null}
+                    {item.adminHandlingNote ? <><br /><small>메모: {item.adminHandlingNote}</small></> : null}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {state.data.items.length === 0 ? <p className="muted-text">발송 이력이 없습니다.</p> : null}
+          {displayedItems.length === 0 ? <p className="muted-text">발송 이력이 없습니다.</p> : null}
         </div>
       ) : null}
     </AdminPageShell>
+  );
+}
+
+function AdminNotificationDeliveryDetailPage({
+  developmentUserKey,
+  deliveryId,
+  onBack
+}: {
+  developmentUserKey: string;
+  deliveryId: string;
+  onBack: () => void;
+}) {
+  const [state, setState] = useState<LoadState<AdminNotificationDeliveryDetail>>({ kind: 'loading' });
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getAdminNotificationDelivery(developmentUserKey, deliveryId)
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '알림 발송 상세를 불러올 수 없습니다.')));
+  }, [deliveryId, developmentUserKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminNotificationDelivery(developmentUserKey, deliveryId)
+      .then((data) => {
+        if (!cancelled) {
+          setState({ kind: 'ready', data });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState(toLoadError(error, '알림 발송 상세를 불러올 수 없습니다.'));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deliveryId, developmentUserKey]);
+
+  return (
+    <AdminPageShell eyebrow="System" title="알림 발송 상세" onRefresh={load} message="">
+      <div className="button-row">
+        <button type="button" className="secondary-button" onClick={onBack}>목록으로 돌아가기</button>
+      </div>
+      {state.kind === 'loading' ? <p>상세 정보를 불러오는 중입니다.</p> : null}
+      {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <section className="subsection notification-detail-panel">
+          <div className="detail-grid">
+            <DetailItem label="구분" value={state.data.categoryLabel} />
+            <DetailItem label="알림 유형" value={state.data.notificationKindLabel ?? '-'} />
+            <DetailItem label="프로젝트명" value={state.data.projectName ?? '-'} />
+            <DetailItem label="제목" value={state.data.title} />
+            <DetailItem label="발송시각" value={formatNullableDateTime(state.data.manualRequestedAtUtc ?? state.data.createdAtUtc)} />
+            <DetailItem label="채널" value={state.data.channelLabel} />
+            <DetailItem label="수신/게시 대상" value={state.data.recipient} />
+            <DetailItem label="상태" value={state.data.statusLabel} />
+            <DetailItem label="시도 횟수" value={`${state.data.attemptCount}회`} />
+            <DetailItem label="다음 시도" value={formatNullableDateTime(state.data.nextAttemptAtUtc)} />
+            <DetailItem label="최근 시도" value={formatNullableDateTime(state.data.lastAttemptAtUtc)} />
+            <DetailItem label="발송 완료" value={formatNullableDateTime(state.data.sentAtUtc)} />
+            <DetailItem label="처리상태" value={shouldShowDeliveryHandlingStatus(state.data.status) ? state.data.adminHandlingStatusLabel : '-'} />
+          </div>
+          <div className="notification-detail-message">
+            <strong>내용</strong>
+            <p>{state.data.message ?? '-'}</p>
+          </div>
+          <div className="admin-guidance">
+            <p><strong>오류/대기 사유:</strong> {state.data.errorCode ?? '-'} {state.data.errorMessage ? `· ${state.data.errorMessage}` : ''}</p>
+            <p><strong>관리자 조치 안내:</strong> {state.data.actionGuide}</p>
+            {state.data.adminHandlingNote ? <p><strong>처리 메모:</strong> {state.data.adminHandlingNote}</p> : null}
+          </div>
+          <details className="advanced-detail">
+            <summary>내부 추적값</summary>
+            <dl>
+              <div><dt>Delivery ID</dt><dd>{state.data.deliveryId}</dd></div>
+              <div><dt>Correlation ID</dt><dd>{state.data.correlationId ?? '-'}</dd></div>
+              <div><dt>Provider Message ID</dt><dd>{state.data.providerMessageId ?? '-'}</dd></div>
+            </dl>
+          </details>
+        </section>
+      ) : null}
+    </AdminPageShell>
+  );
+}
+
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="detail-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -2882,17 +3880,23 @@ function AdminWorkItemEscalationsPage({
   statusFilter: string | null;
   levelFilter: string | null;
 }) {
+  const initialTab = escalationTabFromFilters(statusFilter, levelFilter);
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [state, setState] = useState<LoadState<AdminWorkItemEscalationListResponse>>({ kind: 'loading' });
+  useEffect(() => {
+    setActiveTab(escalationTabFromFilters(statusFilter, levelFilter));
+  }, [levelFilter, statusFilter]);
+  const currentFilters = escalationTabFilters(activeTab);
   const load = useCallback(() => {
     setState({ kind: 'loading' });
-    getAdminWorkItemEscalations(developmentUserKey, { status: statusFilter, level: levelFilter })
+    getAdminWorkItemEscalations(developmentUserKey, { status: currentFilters.status, level: currentFilters.level })
       .then((data) => setState({ kind: 'ready', data }))
       .catch((error: unknown) => setState(toLoadError(error, '에스컬레이션 상태를 불러올 수 없습니다.')));
-  }, [developmentUserKey, levelFilter, statusFilter]);
+  }, [currentFilters.level, currentFilters.status, developmentUserKey]);
 
   useEffect(() => {
     let cancelled = false;
-    getAdminWorkItemEscalations(developmentUserKey, { status: statusFilter, level: levelFilter })
+    getAdminWorkItemEscalations(developmentUserKey, { status: currentFilters.status, level: currentFilters.level })
       .then((data) => {
         if (!cancelled) {
           setState({ kind: 'ready', data });
@@ -2906,12 +3910,9 @@ function AdminWorkItemEscalationsPage({
     return () => {
       cancelled = true;
     };
-  }, [developmentUserKey, levelFilter, statusFilter]);
+  }, [currentFilters.level, currentFilters.status, developmentUserKey]);
 
-  const filterText = [
-    statusFilter ? `상태 ${statusFilter}` : null,
-    levelFilter ? `단계 ${escalationLevelLabel(levelFilter)}` : null
-  ].filter(Boolean).join(' · ') || '전체';
+  const filterText = escalationTabLabel(activeTab);
 
   return (
     <AdminPageShell eyebrow="System" title="에스컬레이션 상태" onRefresh={load} message="">
@@ -2919,6 +3920,19 @@ function AdminWorkItemEscalationsPage({
         <p>진행 중 에스컬레이션은 예정일 임박 또는 초과 후 아직 완료/취소되지 않은 업무입니다. L0는 예정일 임박, L1~L3는 초과 단계입니다.</p>
         <p>L0는 담당자 예정일 확인, L1은 정담당자 조치 확인, L2는 부담당자/생산관리 확인, L3는 생산관리/영업 확인이 필요합니다.</p>
         <p><strong>현재 필터:</strong> {filterText}</p>
+      </div>
+      <div className="segmented-control" role="tablist" aria-label="에스컬레이션 상태 필터">
+        {escalationTabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
       {state.kind === 'loading' ? <p>에스컬레이션 상태를 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
@@ -2989,25 +4003,6 @@ function dashboardEscalationLevels(levels: AdminDashboardEscalationLevel[] | und
   ];
 }
 
-function deliveryStatusLabel(status: string) {
-  switch (status) {
-    case 'Pending':
-      return '발송 대기';
-    case 'Sent':
-      return '발송 완료';
-    case 'Failed':
-      return '발송 실패';
-    case 'Suppressed':
-      return '발송 제외';
-    case 'Disabled':
-      return '채널 비활성';
-    case 'DryRunSent':
-      return 'Dry-run 처리';
-    default:
-      return status;
-  }
-}
-
 function escalationLevelLabel(level: string) {
   switch (level) {
     case 'None':
@@ -3038,55 +4033,6 @@ function escalationActionGuide(level: string) {
     default:
       return '업무 상태와 예정일을 확인하세요.';
   }
-}
-
-function deliveryActionGuide(item: AdminNotificationDeliveryListResponse['items'][number]) {
-  const code = item.errorCode ?? '';
-  if (item.status === 'Pending') {
-    if (item.attemptCount === 0) {
-      return '발송 worker 처리 대기';
-    }
-
-    if (item.nextAttemptAtUtc && Date.parse(item.nextAttemptAtUtc) > Date.now()) {
-      return '재시도 대기';
-    }
-
-    return '오래된 대기 건이면 worker/dispatch 설정을 확인하세요.';
-  }
-
-  if (item.status === 'Disabled') {
-    return '채널 비활성 상태입니다. 알림 채널 설정을 확인하세요.';
-  }
-
-  if (code === 'RecipientEmailMissing') {
-    return '사용자 이메일 등록/확인이 필요합니다.';
-  }
-
-  if (code === 'SmtpAuthenticationFailed') {
-    return 'SMTP 계정 또는 앱 비밀번호를 확인하세요.';
-  }
-
-  if (code === 'SmtpConnectionFailed') {
-    return 'SMTP 서버, 포트, 보안 설정을 확인하세요.';
-  }
-
-  if (code.includes('TeamsWebhook') || code.includes('Teams')) {
-    return 'Teams Webhook 또는 Power Automate 상태를 확인하세요.';
-  }
-
-  if (code.includes('GraphPermissionDenied') || code.includes('PermissionDenied')) {
-    return 'Graph 권한과 관리자 동의 상태를 확인하세요.';
-  }
-
-  if (code.includes('429') || code.includes('Throttled') || code.includes('5xx')) {
-    return '일시 오류 가능성이 있습니다. 다음 재시도 시각을 확인하세요.';
-  }
-
-  if (item.status === 'Failed') {
-    return '오류 코드와 backend 로그를 확인하세요.';
-  }
-
-  return '-';
 }
 
 function departmentToDraft(department: AdminDepartmentMaster): UpdateAdminDepartmentRequest {
@@ -3179,7 +4125,9 @@ function isAdminWorkspace(view: View) {
     || view.kind === 'admin-permission-matrix'
     || view.kind === 'admin-master-change-logs'
     || view.kind === 'admin-work-history'
+    || view.kind === 'admin-send-notification'
     || view.kind === 'admin-notification-deliveries'
+    || view.kind === 'admin-notification-delivery-detail'
     || view.kind === 'admin-work-item-escalations';
 }
 
@@ -3421,6 +4369,222 @@ function MyWorkPage({
   );
 }
 
+type TeamsActivitySummary = {
+  notifications: NotificationItem[];
+  workItems: MyWorkItem[];
+  workSummary: MyWorkSummary;
+  generatedAtUtc: string;
+};
+
+function TeamsActivityAuthFallback({
+  state,
+  onRetry,
+  onLogin,
+  onLogout
+}: {
+  state: LoadState<CurrentUser>;
+  onRetry: () => void;
+  onLogin?: () => void;
+  onLogout?: () => void;
+}) {
+  const message = state.kind === 'loading'
+    ? 'Microsoft 365 인증 정보를 확인하는 중입니다.'
+    : loadStateMessage(state) ?? 'Teams 앱에서 EMI 프로젝트 통합관리시스템 화면을 불러오려면 로그인이 필요합니다.';
+
+  return (
+    <section className="page-surface workflow-page teams-activity-page">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Teams</p>
+          <h2>EMI 프로젝트 통합관리시스템 알림</h2>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onRetry}>다시 시도</button>
+          {onLogin ? <button type="button" onClick={onLogin}>Microsoft 365 로그인</button> : null}
+          {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
+        </div>
+      </div>
+      <div className="teams-activity-guide" role="note">
+        <strong>Teams 알림 화면</strong>
+        <p>{message}</p>
+        <p>인증 확인 전에도 이 화면은 빈 화면으로 남지 않습니다. 로그인 후 최근 알림과 내 미완료 업무가 표시됩니다.</p>
+      </div>
+      <div className="teams-activity-grid">
+        <section className="teams-activity-panel" aria-label="최근 내 알림">
+          <h3>최근 알림</h3>
+          <p className="empty-text">로그인 후 최근 알림이 표시됩니다.</p>
+        </section>
+        <section className="teams-activity-panel" aria-label="내 미완료 업무 요약">
+          <h3>내 미완료 업무</h3>
+          <p className="empty-text">로그인 후 내 업무 요약이 표시됩니다.</p>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function TeamsActivityPage({
+  developmentUserKey,
+  onOpenProject,
+  onOpenMyWork,
+  onOpenHome
+}: {
+  developmentUserKey: string;
+  onOpenProject: (projectId: string, linkUrl?: string | null) => void;
+  onOpenMyWork: () => void;
+  onOpenHome: () => void;
+}) {
+  const [state, setState] = useState<LoadState<TeamsActivitySummary>>({ kind: 'loading' });
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    Promise.all([
+      listNotifications(developmentUserKey),
+      listMyWorkItems(developmentUserKey),
+      getMyWorkSummary(developmentUserKey)
+    ])
+      .then(([notifications, workItems, workSummary]) => {
+        setState({
+          kind: 'ready',
+          data: {
+            notifications: notifications.items.slice(0, 5),
+            workItems: workItems.items
+              .filter((item) => item.status !== 'Completed' && item.status !== 'Cancelled')
+              .slice(0, 5),
+            workSummary,
+            generatedAtUtc: new Date().toISOString()
+          }
+        });
+      })
+      .catch((error: unknown) => {
+        setState(toLoadError(error, 'Teams 알림 화면을 불러올 수 없습니다.'));
+      });
+  }, [developmentUserKey]);
+
+  useEffect(() => {
+    queueMicrotask(load);
+  }, [load]);
+
+  const data = state.kind === 'ready' ? state.data : null;
+
+  return (
+    <section className="page-surface workflow-page teams-activity-page">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Teams</p>
+          <h2>EMI 프로젝트 통합관리시스템 알림</h2>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onOpenHome}>시스템 홈</button>
+          <button type="button" onClick={load}>새로고침</button>
+        </div>
+      </div>
+
+      <div className="teams-activity-guide" role="note">
+        <strong>상세 안내</strong>
+        <p>Teams 알림을 선택하면 관련 업무를 확인할 수 있습니다. 상세 업무 화면은 시스템 링크에서 확인하세요.</p>
+      </div>
+
+      {state.kind === 'loading' ? <p className="muted-text">Teams 알림 화면을 불러오는 중입니다.</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
+
+      {state.kind !== 'ready' ? (
+        <div className="teams-activity-grid">
+          <section className="teams-activity-panel" aria-label="최근 내 알림">
+            <h3>최근 알림</h3>
+            <p className="empty-text">표시할 알림이 없습니다. API 응답 후 최근 내 알림이 여기에 표시됩니다.</p>
+          </section>
+          <section className="teams-activity-panel" aria-label="내 미완료 업무 요약">
+            <h3>내 미완료 업무</h3>
+            <p className="empty-text">표시할 미완료 업무가 없습니다. API 응답 후 내 업무 요약이 여기에 표시됩니다.</p>
+          </section>
+        </div>
+      ) : null}
+
+      {data ? (
+        <>
+          <div className="dashboard-kpi-grid workflow-kpi-grid">
+            <KpiCard label="시작 전" value={String(data.workSummary.requestedCount)} />
+            <KpiCard label="진행 중" value={String(data.workSummary.inProgressCount)} />
+            <KpiCard label="긴급/차단" value={String(data.workSummary.blockingCount)} tone="danger" />
+            <KpiCard label="읽지 않은 알림" value={String(data.notifications.filter((item) => !item.readAtUtc).length)} />
+          </div>
+
+          <div className="teams-activity-grid">
+            <section className="teams-activity-panel" aria-label="최근 내 알림">
+              <div className="subsection-header">
+                <div>
+                  <h3>최근 알림</h3>
+                  <small>Teams Activity Feed에서 선택한 알림의 업무 맥락을 확인합니다.</small>
+                </div>
+              </div>
+              {data.notifications.length === 0 ? <p className="empty-text">최근 알림이 없습니다.</p> : null}
+              <div className="teams-activity-list">
+                {data.notifications.map((item) => (
+                  <article className={item.readAtUtc ? 'teams-activity-card read' : 'teams-activity-card unread'} key={item.notificationId}>
+                    <div className="teams-activity-card-header">
+                      <div>
+                        <strong>{item.title}</strong>
+                        <small>{item.notificationTypeLabel} · {item.severityLabel} · {formatDateTime(item.createdAtUtc)}</small>
+                      </div>
+                      <NotificationStatusBadges item={item} />
+                    </div>
+                    <p>{summarizeText(item.message, 110)}</p>
+                    <div className="teams-activity-meta">
+                      {item.projectTitle ? <span>{item.projectTitle}</span> : <span>프로젝트 미연결</span>}
+                      {item.projectCode ? <span>{item.projectCode}</span> : null}
+                    </div>
+                    {item.projectId ? (
+                      <button type="button" onClick={() => onOpenProject(item.projectId!, item.linkUrl)}>
+                        관련 업무로 이동
+                      </button>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="teams-activity-panel" aria-label="내 미완료 업무 요약">
+              <div className="subsection-header">
+                <div>
+                  <h3>내 미완료 업무</h3>
+                  <small>시작 전과 진행 중인 업무를 우선 표시합니다.</small>
+                </div>
+                <button type="button" onClick={onOpenMyWork}>내 업무 전체 보기</button>
+              </div>
+              {data.workItems.length === 0 ? <p className="empty-text">미완료 업무가 없습니다.</p> : null}
+              <div className="teams-activity-list">
+                {data.workItems.map((item) => (
+                  <article className="teams-activity-card" key={item.workItemId}>
+                    <div className="teams-activity-card-header">
+                      <div>
+                        <strong>{item.title}</strong>
+                        <small>{displayWorkflowStageName(item.workflowStageCode, item.workflowStageName)} · {item.responsibilityLabel}</small>
+                      </div>
+                      <StatusBadge label={item.priority === 'Blocking' ? '긴급' : item.statusLabel} tone={workItemStatusTone(item)} />
+                    </div>
+                    <p>{summarizeText(item.description ?? '처리할 업무가 있습니다.', 110)}</p>
+                    <div className="teams-activity-meta">
+                      <span>{item.projectTitle}</span>
+                      <span>{item.projectCode}</span>
+                      <span>생성 {formatDateTime(item.createdAtUtc)}</span>
+                    </div>
+                    <button type="button" onClick={() => onOpenProject(item.projectId, item.linkUrl)}>
+                      업무로 이동
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <p className="muted-text">기준 시각: {formatDateTime(data.generatedAtUtc)}</p>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 type NotificationTab = 'All' | 'unread' | 'read';
 
 const notificationTabs: Array<{ key: NotificationTab; label: string }> = [
@@ -3627,8 +4791,33 @@ function StatusBadge({ label, tone }: { label: string; tone?: StatusTone }) {
   return <span className="status-badge" data-tone={tone}>{label}</span>;
 }
 
+type ActionFeedbackTone = 'neutral' | 'loading' | 'success' | 'error' | 'partial';
+
+function ActionFeedback({ message, tone = 'neutral' }: { message: string; tone?: ActionFeedbackTone }) {
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <p className="action-feedback" data-tone={tone} role={tone === 'error' ? 'alert' : 'status'}>
+      {message}
+    </p>
+  );
+}
+
 function formatBadgeCount(value: number) {
   return value > 99 ? '99+' : String(value);
+}
+
+function summarizeText(value: string | null | undefined, maxLength: number) {
+  const normalized = (value ?? '').replace(/\s+/gu, ' ').trim();
+  if (!normalized) {
+    return '-';
+  }
+
+  return normalized.length <= maxLength
+    ? normalized
+    : `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function workItemStatusTone(item: { status: string; priority: string }): StatusTone {

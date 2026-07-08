@@ -32,6 +32,30 @@ public static class NotificationDeliveryStatuses
     public const string DryRunSent = "DryRunSent";
 }
 
+public static class NotificationDeliveryAdminHandlingStatuses
+{
+    public const string Open = "Open";
+    public const string Acknowledged = "Acknowledged";
+    public const string Dismissed = "Dismissed";
+}
+
+public static class NotificationManualKinds
+{
+    public const string ProjectCreated = "ProjectCreated";
+    public const string WorkItemAssigned = "WorkItemAssigned";
+    public const string Urgent = "Urgent";
+    public const string DailyDigest = "DailyDigest";
+    public const string Custom = "Custom";
+}
+
+public static class NotificationDisplayRecipientKinds
+{
+    public const string User = "User";
+    public const string Email = "Email";
+    public const string TeamsChannel = "TeamsChannel";
+    public const string Unknown = "Unknown";
+}
+
 public sealed record NotificationDispatchSummary(
     int CreatedDeliveryCount,
     int CreatedDigestDeliveryCount,
@@ -70,7 +94,52 @@ public sealed record NotificationDeliveryRecord(
     string? Severity,
     string? RecipientEntraObjectId,
     string? RecipientAuthProvider,
-    bool? RecipientUserIsActive);
+    bool? RecipientUserIsActive,
+    string? WorkItemTitle,
+    string? WorkflowStageName,
+    string? AdminHandlingStatus,
+    DateTimeOffset? AdminHandledAtUtc,
+    Guid? AdminHandledByUserId,
+    string? AdminHandledByDisplayName,
+    string? AdminHandlingNote,
+    string? DisplayTitle,
+    string? DisplayMessage,
+    string? DisplayProjectName,
+    string? DisplayWorkItemTitle,
+    string? DisplayRecipientName,
+    string? DisplayRecipientEmail,
+    string? DisplayRecipientKind,
+    string? DisplayChannelTarget,
+    string? ManualNotificationKind,
+    string? CorrelationId,
+    string? ManualPayloadJson,
+    Guid? ManualRequestedByUserId,
+    DateTimeOffset? ManualRequestedAtUtc);
+
+public sealed record NotificationDeliveryDisplaySnapshot(
+    string? DisplayTitle,
+    string? DisplayMessage,
+    string? DisplayProjectName,
+    string? DisplayWorkItemTitle,
+    string? DisplayRecipientName,
+    string? DisplayRecipientEmail,
+    string? DisplayRecipientKind,
+    string? DisplayChannelTarget,
+    string? ManualNotificationKind,
+    string? CorrelationId);
+
+public sealed record NotificationManualPayload(
+    string NotificationKind,
+    string NotificationKindLabel,
+    string Title,
+    string? ProjectName,
+    string Message,
+    DateTimeOffset RequestedAtUtc);
+
+public sealed record ManualNotificationProjectSnapshot(
+    Guid ProjectId,
+    string ProjectTitle,
+    string ProjectCode);
 
 public sealed record NotificationDeliveryMessage(
     Guid DeliveryId,
@@ -89,7 +158,9 @@ public sealed record NotificationDeliveryMessage(
     string? RecipientEntraObjectId = null,
     string? RecipientAuthProvider = null,
     bool? RecipientUserIsActive = null,
-    string? TeamsActivityType = null);
+    string? TeamsActivityType = null,
+    string? TeamsActivityTopicSource = null,
+    string? TeamsActivityTopicValue = null);
 
 public sealed record NotificationChannelResult(
     string Status,
@@ -127,9 +198,16 @@ public sealed record NotificationDeliveryListResponse(IReadOnlyList<Notification
 
 public sealed record NotificationDeliveryResponse(
     Guid DeliveryId,
+    Guid? NotificationId,
+    Guid? RecipientUserId,
+    Guid? ProjectId,
+    Guid? WorkItemId,
     string Channel,
+    string ChannelLabel,
     string DeliveryType,
+    string DeliveryTypeLabel,
     string Status,
+    string StatusLabel,
     int AttemptCount,
     DateTimeOffset? NextAttemptAtUtc,
     DateTimeOffset? LastAttemptAtUtc,
@@ -137,13 +215,110 @@ public sealed record NotificationDeliveryResponse(
     DateTimeOffset? SuppressedAtUtc,
     string? ErrorCode,
     string? ErrorMessage,
+    string ActionGuide,
+    string? PendingReason,
     string? RecipientDisplayName,
     string? RecipientEmail,
+    string? RecipientEmailMasked,
     string? ProjectTitle,
     string? ProjectCode,
+    string? WorkItemTitle,
+    string? WorkflowStageName,
     string? NotificationTitle,
+    string? NotificationMessageSummary,
+    string? DisplayMessageSummary,
+    string DisplayTitle,
+    string DisplayRecipient,
+    string DisplayProject,
+    string? DisplayRecipientKind,
+    string? DisplayChannelTarget,
+    string? ManualNotificationKind,
+    string? ManualNotificationKindLabel,
+    string? CorrelationId,
+    string? LinkUrl,
+    string AdminHandlingStatus,
+    string AdminHandlingStatusLabel,
+    DateTimeOffset? AdminHandledAtUtc,
+    Guid? AdminHandledByUserId,
+    string? AdminHandledByDisplayName,
+    string? AdminHandlingNote,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
+
+public sealed record NotificationDeliveryAdminActionRequest(
+    IReadOnlyList<Guid> Ids,
+    string? Note);
+
+public sealed record NotificationDeliveryAdminActionResponse(
+    int RequestedCount,
+    int SucceededCount,
+    int FailedCount,
+    int SkippedCount,
+    IReadOnlyList<NotificationDeliveryAdminActionItemResponse> Items);
+
+public sealed record NotificationDeliveryAdminActionItemResponse(
+    Guid DeliveryId,
+    string Status,
+    string Message);
+
+public sealed record NotificationManualSendRequest(
+    string? NotificationKind,
+    Guid? ProjectId,
+    string? ProjectSelectionType,
+    string? Title,
+    string? ProjectName,
+    string? Message,
+    IReadOnlyList<string>? Channels,
+    IReadOnlyList<Guid>? TeamsActivityRecipientUserIds,
+    IReadOnlyList<Guid>? MailRecipientUserIds,
+    IReadOnlyList<string>? MailRecipientEmails,
+    Guid? TeamsActivityRecipientUserId,
+    Guid? MailRecipientUserId,
+    string? MailRecipientEmail,
+    string? CorrelationId);
+
+public sealed record NotificationManualSendResponse(
+    string CorrelationId,
+    int RequestedCount,
+    int QueuedCount,
+    IReadOnlyList<NotificationManualSendChannelResponse> Items);
+
+public sealed record NotificationManualSendChannelResponse(
+    string Channel,
+    string ChannelLabel,
+    Guid? DeliveryId,
+    string Status,
+    string? ErrorCode,
+    string? ErrorMessage,
+    string Target,
+    string Message);
+
+public sealed record NotificationDeliveryDetailResponse(
+    Guid DeliveryId,
+    string CategoryLabel,
+    string? NotificationKindLabel,
+    string? ProjectName,
+    string Title,
+    string? Message,
+    DateTimeOffset? ManualRequestedAtUtc,
+    DateTimeOffset CreatedAtUtc,
+    string Channel,
+    string ChannelLabel,
+    string Recipient,
+    string Status,
+    string StatusLabel,
+    int AttemptCount,
+    DateTimeOffset? NextAttemptAtUtc,
+    DateTimeOffset? LastAttemptAtUtc,
+    DateTimeOffset? SentAtUtc,
+    string? ErrorCode,
+    string? ErrorMessage,
+    string ActionGuide,
+    string AdminHandlingStatus,
+    string AdminHandlingStatusLabel,
+    string? AdminHandlingNote,
+    string? CorrelationId,
+    string? ProviderMessageId);
 
 public sealed record NotificationTestMailRequest(
     string? RecipientEmail,
@@ -172,7 +347,8 @@ public sealed record NotificationTestTeamsActivityRequest(
     string? ActivityType,
     string? Title,
     string? Message,
-    string? LinkUrl);
+    string? LinkUrl,
+    string? InstalledAppId = null);
 
 public sealed record NotificationTestTeamsActivityResponse(
     Guid DeliveryId,

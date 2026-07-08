@@ -1394,7 +1394,82 @@ public sealed class PostgreSqlMigrationTests
             """
             select count(*)
             from schema_migrations
-            where version = '0022_admin_deletion_restore_bulk_actions';
+            where version = '0026_notification_delivery_manual_payload';
+            """,
+            cancellationToken));
+
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'notification_deliveries'
+              and column_name in (
+                  'admin_handling_status',
+                  'admin_handled_at_utc',
+                  'admin_handled_by_user_id',
+                  'admin_handling_note'
+              );
+            """,
+            cancellationToken));
+
+        var handlingConstraint = await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_notification_deliveries_admin_handling_status';
+            """,
+            cancellationToken);
+        Assert.Contains("Acknowledged", handlingConstraint, StringComparison.Ordinal);
+        Assert.Contains("Dismissed", handlingConstraint, StringComparison.Ordinal);
+
+        Assert.Equal(10L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'notification_deliveries'
+              and column_name in (
+                  'display_title',
+                  'display_message',
+                  'display_project_name',
+                  'display_work_item_title',
+                  'display_recipient_name',
+                  'display_recipient_email',
+                  'display_recipient_kind',
+                  'display_channel_target',
+                  'manual_notification_kind',
+                  'correlation_id'
+              );
+            """,
+            cancellationToken));
+
+        var manualKindConstraint = await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_notification_deliveries_manual_notification_kind';
+            """,
+            cancellationToken);
+        Assert.Contains("ProjectCreated", manualKindConstraint, StringComparison.Ordinal);
+        Assert.Contains("Custom", manualKindConstraint, StringComparison.Ordinal);
+
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'notification_deliveries'
+              and column_name in (
+                  'manual_payload_json',
+                  'manual_requested_by_user_id',
+                  'manual_requested_at_utc'
+              );
             """,
             cancellationToken));
     }

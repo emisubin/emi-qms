@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 
@@ -14,8 +15,9 @@ public interface ITeamsActivityClient
 public sealed record TeamsActivitySendRequest(
     string UserId,
     string ActivityType,
+    string TopicSource,
     string TopicValue,
-    string TopicWebUrl,
+    string? TopicWebUrl,
     string PreviewText,
     IReadOnlyDictionary<string, string> TemplateParameters,
     string? TeamsAppId,
@@ -31,13 +33,17 @@ public static class TeamsActivityNotificationRenderer
     {
         var activityType = ResolveActivityType(message, options.ActivityTypes);
         var title = Trim(ResolveTitle(message), 120);
-        var topicValue = Trim(ResolveTopicValue(message), 120);
-        var topicWebUrl = ResolveTopicWebUrl(message.LinkUrl, options.TopicWebUrl);
-        var previewText = Trim(ResolvePreviewText(message), PreviewTextMaxLength);
+        var topicSource = ResolveTopicSource(message);
+        var topicValue = ResolveTopicValue(message, topicSource);
+        var topicWebUrl = string.Equals(topicSource, "entityUrl", StringComparison.Ordinal)
+            ? null
+            : ResolveTopicWebUrl(message.LinkUrl, options.TopicWebUrl);
+        var previewText = Trim(ResolvePreviewText(message, activityType, title, options.ActivityTypes), PreviewTextMaxLength);
         var templateParameters = BuildTemplateParameters(activityType, message, title, options.ActivityTypes);
 
         return new TeamsActivityRenderResult(
             activityType,
+            topicSource,
             topicValue,
             topicWebUrl,
             previewText,
@@ -154,28 +160,74 @@ public static class TeamsActivityNotificationRenderer
             : message.Subject.Trim();
     }
 
-    private static string ResolveTopicValue(NotificationDeliveryMessage message)
+    private static string ResolveTopicSource(NotificationDeliveryMessage message)
     {
+        return string.Equals(message.TeamsActivityTopicSource, "entityUrl", StringComparison.Ordinal)
+            && !string.IsNullOrWhiteSpace(message.TeamsActivityTopicValue)
+            ? "entityUrl"
+            : "text";
+    }
+
+    private static string ResolveTopicValue(NotificationDeliveryMessage message, string topicSource)
+    {
+        if (string.Equals(topicSource, "entityUrl", StringComparison.Ordinal)
+            && !string.IsNullOrWhiteSpace(message.TeamsActivityTopicValue))
+        {
+            return message.TeamsActivityTopicValue.Trim();
+        }
+
         if (!string.IsNullOrWhiteSpace(message.Subject))
         {
-            return message.Subject.Trim();
+            return Trim(message.Subject.Trim(), 120);
         }
 
         return message.DeliveryType;
     }
 
-    private static string ResolvePreviewText(NotificationDeliveryMessage message)
+    private static string ResolvePreviewText(
+        NotificationDeliveryMessage message,
+        string activityType,
+        string title,
+        NotificationTeamsActivityTypeOptions options)
     {
-        return string.IsNullOrWhiteSpace(message.Body)
-            ? ResolveTitle(message)
-            : message.Body.Trim().ReplaceLineEndings(" ");
+        if (!string.IsNullOrWhiteSpace(message.Body))
+        {
+            return message.Body.Trim();
+        }
+
+        if (string.Equals(activityType, options.DeadlineOverdue, StringComparison.Ordinal))
+        {
+            return $"{title} / 예정일 초과 / 담당자 확인 필요";
+        }
+
+        if (string.Equals(activityType, options.DeadlineApproaching, StringComparison.Ordinal))
+        {
+            return $"{title} / 예정일 임박 / 담당자 확인 필요";
+        }
+
+        if (string.Equals(activityType, options.UrgentPending, StringComparison.Ordinal))
+        {
+            return $"{title} / 조치 담당자 확인 필요";
+        }
+
+        if (string.Equals(activityType, options.DailyDigest, StringComparison.Ordinal))
+        {
+            return "오늘의 업무와 담당 프로젝트 요약";
+        }
+
+        if (string.Equals(activityType, options.ProjectCompleted, StringComparison.Ordinal))
+        {
+            return $"{title} / 프로젝트 완료";
+        }
+
+        return $"{title} / 내 업무 확인 필요";
     }
 
     private static string ResolveTopicWebUrl(string? linkUrl, string? configuredTopicWebUrl)
     {
         if (!string.IsNullOrWhiteSpace(linkUrl)
             && Uri.TryCreate(linkUrl, UriKind.Absolute, out var absoluteLink)
-            && (absoluteLink.Scheme == Uri.UriSchemeHttps || absoluteLink.Scheme == Uri.UriSchemeHttp))
+            && IsTeamsDeepLink(absoluteLink))
         {
             return absoluteLink.ToString();
         }
@@ -183,25 +235,27 @@ public static class TeamsActivityNotificationRenderer
         var baseUrl = string.IsNullOrWhiteSpace(configuredTopicWebUrl)
             ? "http://localhost:5174"
             : configuredTopicWebUrl.Trim();
-
-        if (string.IsNullOrWhiteSpace(linkUrl))
-        {
-            return baseUrl;
-        }
-
-        return $"{baseUrl.TrimEnd('/')}/{linkUrl.TrimStart('/')}";
+        return baseUrl;
     }
 
     private static string Trim(string value, int maxLength)
     {
         return value.Length <= maxLength ? value : value[..maxLength];
     }
+
+    internal static bool IsTeamsDeepLink(Uri uri)
+    {
+        return uri.Scheme == Uri.UriSchemeHttps
+            && string.Equals(uri.Host, "teams.microsoft.com", StringComparison.OrdinalIgnoreCase)
+            && uri.AbsolutePath.StartsWith("/l/", StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 public sealed record TeamsActivityRenderResult(
     string ActivityType,
+    string TopicSource,
     string TopicValue,
-    string TopicWebUrl,
+    string? TopicWebUrl,
     string PreviewText,
     IReadOnlyDictionary<string, string> TemplateParameters);
 
@@ -217,7 +271,7 @@ public sealed class GraphTeamsActivityClient(
     public async Task<NotificationChannelResult> SendAsync(TeamsActivitySendRequest request, CancellationToken cancellationToken)
     {
         var teamsActivity = options.CurrentValue.TeamsActivity;
-        var validationError = Validate(teamsActivity);
+        var validationError = Validate(teamsActivity, request);
         if (validationError is not null)
         {
             return validationError;
@@ -249,9 +303,14 @@ public sealed class GraphTeamsActivityClient(
             return NotificationChannelResult.Sent(BuildProviderMessageId(response, clientRequestId));
         }
 
-        return NotificationChannelResult.Failed(
-            ClassifyGraphError(response.StatusCode),
-            $"Teams Activity Graph 요청이 실패했습니다. HTTP {(int)response.StatusCode}");
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        var graphError = ParseGraphError(responseBody);
+        var errorCode = ClassifyGraphError(response.StatusCode, graphError);
+        return new NotificationChannelResult(
+            NotificationDeliveryStatuses.Failed,
+            BuildProviderMessageId(response, clientRequestId),
+            errorCode,
+            BuildGraphErrorMessage(response.StatusCode, errorCode));
     }
 
     private async Task<GraphAccessTokenResult> GetTokenAsync(
@@ -292,7 +351,7 @@ public sealed class GraphTeamsActivityClient(
         return new GraphAccessTokenResult(true, cachedAccessToken, null, null);
     }
 
-    private static NotificationChannelResult? Validate(NotificationTeamsActivityOptions options)
+    private static NotificationChannelResult? Validate(NotificationTeamsActivityOptions options, TeamsActivitySendRequest request)
     {
         if (string.IsNullOrWhiteSpace(options.TenantId)
             || string.IsNullOrWhiteSpace(options.ClientId)
@@ -303,18 +362,34 @@ public sealed class GraphTeamsActivityClient(
                 "Teams Activity Graph client credentials 설정이 누락되었습니다.");
         }
 
-        if (string.IsNullOrWhiteSpace(options.TopicWebUrl))
+        if (string.Equals(request.TopicSource, "text", StringComparison.Ordinal)
+            && (string.IsNullOrWhiteSpace(request.TopicWebUrl)
+                || !Uri.TryCreate(request.TopicWebUrl, UriKind.Absolute, out var topicUri)
+                || !TeamsActivityNotificationRenderer.IsTeamsDeepLink(topicUri)))
         {
             return NotificationChannelResult.Failed(
-                "TeamsActivityTopicWebUrlMissing",
-                "Teams Activity topic webUrl 설정이 누락되었습니다.");
+                "TeamsActivityInvalidTopic",
+                "Teams Activity topic webUrl은 https://teams.microsoft.com/l/... 형식의 Teams deep link여야 합니다.");
         }
 
         return null;
     }
 
-    private static string ClassifyGraphError(HttpStatusCode statusCode)
+    private static string ClassifyGraphError(HttpStatusCode statusCode, GraphError? graphError)
     {
+        var message = graphError?.Message ?? "";
+        if (message.Contains("Failed to find Teams application", StringComparison.OrdinalIgnoreCase)
+            && message.Contains("installed applications", StringComparison.OrdinalIgnoreCase))
+        {
+            return "TeamsActivityAppNotInstalled";
+        }
+
+        if (message.Contains("Invalid 'webUrl'", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("Invalid webUrl", StringComparison.OrdinalIgnoreCase))
+        {
+            return "TeamsActivityInvalidTopic";
+        }
+
         return statusCode switch
         {
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "TeamsActivityPermissionDenied",
@@ -324,6 +399,35 @@ public sealed class GraphTeamsActivityClient(
             _ when (int)statusCode >= 500 => "TeamsActivityGraphServerError",
             _ => "TeamsActivityGraphError"
         };
+    }
+
+    private static string BuildGraphErrorMessage(HttpStatusCode statusCode, string errorCode)
+    {
+        return errorCode switch
+        {
+            "TeamsActivityAppNotInstalled" => "Graph가 수신자에게 설치된 Teams 앱에서 요청한 앱을 찾지 못했습니다. 앱 미설치, TeamsAppId 불일치, 또는 설치된 manifest 버전을 확인해야 합니다.",
+            "TeamsActivityInvalidTopic" => "Teams Activity topic webUrl이 유효한 Teams deep link가 아닙니다.",
+            "TeamsActivityPermissionDenied" => "Teams Activity Graph 권한 또는 관리자 동의가 부족합니다.",
+            "TeamsActivityThrottled" => "Teams Activity Graph 요청이 제한되었습니다. 잠시 후 재시도해야 합니다.",
+            _ => $"Teams Activity Graph 요청이 실패했습니다. HTTP {(int)statusCode}"
+        };
+    }
+
+    private static GraphError? ParseGraphError(string responseBody)
+    {
+        if (string.IsNullOrWhiteSpace(responseBody))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<GraphErrorEnvelope>(responseBody)?.Error;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static string BuildProviderMessageId(HttpResponseMessage response, string clientRequestId)
@@ -348,21 +452,27 @@ public sealed record GraphTeamsActivityNotificationRequest(
 {
     public static GraphTeamsActivityNotificationRequest FromRequest(TeamsActivitySendRequest request)
     {
+        var teamsAppId = string.Equals(request.TopicSource, "entityUrl", StringComparison.Ordinal)
+            ? null
+            : request.TeamsAppId;
+
         return new GraphTeamsActivityNotificationRequest(
-            new GraphTeamsActivityTopic("text", request.TopicValue, request.TopicWebUrl),
+            new GraphTeamsActivityTopic(request.TopicSource, request.TopicValue, request.TopicWebUrl),
             request.ActivityType,
             new GraphTeamsActivityPreviewText(request.PreviewText),
             request.TemplateParameters
                 .Select(parameter => new GraphTeamsActivityTemplateParameter(parameter.Key, parameter.Value))
                 .ToArray(),
-            string.IsNullOrWhiteSpace(request.TeamsAppId) ? null : request.TeamsAppId);
+            string.IsNullOrWhiteSpace(teamsAppId) ? null : teamsAppId);
     }
 }
 
 public sealed record GraphTeamsActivityTopic(
     [property: JsonPropertyName("source")] string Source,
     [property: JsonPropertyName("value")] string Value,
-    [property: JsonPropertyName("webUrl")] string WebUrl);
+    [property: JsonPropertyName("webUrl")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? WebUrl);
 
 public sealed record GraphTeamsActivityPreviewText(
     [property: JsonPropertyName("content")] string Content);
@@ -370,3 +480,10 @@ public sealed record GraphTeamsActivityPreviewText(
 public sealed record GraphTeamsActivityTemplateParameter(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("value")] string Value);
+
+public sealed record GraphErrorEnvelope(
+    [property: JsonPropertyName("error")] GraphError? Error);
+
+public sealed record GraphError(
+    [property: JsonPropertyName("code")] string? Code,
+    [property: JsonPropertyName("message")] string? Message);

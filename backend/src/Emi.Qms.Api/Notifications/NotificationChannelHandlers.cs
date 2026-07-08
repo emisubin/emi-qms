@@ -39,11 +39,6 @@ public sealed record TeamsWebhookPayload(
                 ["type"] = "TextBlock",
                 ["text"] = TrimMessage(message.Body, 24_000),
                 ["wrap"] = true
-            },
-            new Dictionary<string, object>
-            {
-                ["type"] = "FactSet",
-                ["facts"] = BuildFacts(message)
             }
         };
 
@@ -52,38 +47,6 @@ public sealed record TeamsWebhookPayload(
             "AdaptiveCard",
             "1.4",
             body);
-    }
-
-    private static IReadOnlyList<IReadOnlyDictionary<string, object>> BuildFacts(NotificationDeliveryMessage message)
-    {
-        var facts = new List<IReadOnlyDictionary<string, object>>
-        {
-            Fact("시스템", "EMI 프로젝트 통합관리시스템"),
-            Fact("채널", message.Channel),
-            Fact("유형", message.DeliveryType),
-            Fact("발송 시각", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss 'UTC'"))
-        };
-
-        if (!string.IsNullOrWhiteSpace(message.RecipientDisplayName))
-        {
-            facts.Add(Fact("수신자", message.RecipientDisplayName));
-        }
-
-        if (!string.IsNullOrWhiteSpace(message.LinkUrl))
-        {
-            facts.Add(Fact("링크", message.LinkUrl));
-        }
-
-        return facts;
-    }
-
-    private static IReadOnlyDictionary<string, object> Fact(string title, string value)
-    {
-        return new Dictionary<string, object>
-        {
-            ["title"] = title,
-            ["value"] = TrimMessage(value, 1_000)
-        };
     }
 
     private static string TrimMessage(string value, int maxLength)
@@ -256,6 +219,7 @@ public sealed class TeamsActivityChannelHandler(
             new TeamsActivitySendRequest(
                 graphUserId,
                 renderResult.ActivityType,
+                renderResult.TopicSource,
                 renderResult.TopicValue,
                 renderResult.TopicWebUrl,
                 renderResult.PreviewText,

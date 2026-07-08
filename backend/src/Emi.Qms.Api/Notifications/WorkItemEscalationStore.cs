@@ -231,7 +231,7 @@ public sealed class WorkItemEscalationStore(
                 level,
                 notificationId,
                 notificationRecipientId,
-                recipient.UserId,
+                recipient,
                 options,
                 now,
                 cancellationToken);
@@ -246,7 +246,7 @@ public sealed class WorkItemEscalationStore(
                 level,
                 notificationId,
                 notificationRecipientId: null,
-                recipientUserId: null,
+                recipient: null,
                 NotificationDeliveryChannels.TeamsChannel,
                 DeliveryTypeForLevel(level),
                 status: NotificationDeliveryStatuses.Pending,
@@ -494,7 +494,7 @@ public sealed class WorkItemEscalationStore(
         string level,
         Guid notificationId,
         Guid? notificationRecipientId,
-        Guid recipientUserId,
+        EscalationRecipient recipient,
         NotificationEscalationOptions options,
         DateTimeOffset now,
         CancellationToken cancellationToken)
@@ -510,7 +510,7 @@ public sealed class WorkItemEscalationStore(
                 level,
                 notificationId,
                 notificationRecipientId,
-                recipientUserId,
+                recipient,
                 personalDelivery.Channel,
                 DeliveryTypeForLevel(level),
                 personalDelivery.Status,
@@ -528,7 +528,7 @@ public sealed class WorkItemEscalationStore(
                 level,
                 notificationId,
                 notificationRecipientId,
-                recipientUserId,
+                recipient,
                 NotificationDeliveryChannels.Mail,
                 DeliveryTypeForLevel(level),
                 NotificationDeliveryStatuses.Pending,
@@ -563,7 +563,7 @@ public sealed class WorkItemEscalationStore(
         string level,
         Guid notificationId,
         Guid? notificationRecipientId,
-        Guid? recipientUserId,
+        EscalationRecipient? recipient,
         string channel,
         string deliveryType,
         string status,
@@ -589,6 +589,14 @@ public sealed class WorkItemEscalationStore(
                 dedupe_key,
                 group_key,
                 provider_message_id,
+                display_title,
+                display_message,
+                display_project_name,
+                display_work_item_title,
+                display_recipient_name,
+                display_recipient_email,
+                display_recipient_kind,
+                display_channel_target,
                 updated_at_utc
             )
             values (
@@ -606,22 +614,38 @@ public sealed class WorkItemEscalationStore(
                 @dedupe_key,
                 @group_key,
                 @provider_message_id,
+                @display_title,
+                @display_message,
+                @display_project_name,
+                @display_work_item_title,
+                @display_recipient_name,
+                @display_recipient_email,
+                @display_recipient_kind,
+                @display_channel_target,
                 @now
             )
             on conflict do nothing;
             """;
         command.Parameters.AddWithValue("notification_id", notificationId);
         command.Parameters.AddWithValue("notification_recipient_id", (object?)notificationRecipientId ?? DBNull.Value);
-        command.Parameters.AddWithValue("recipient_user_id", (object?)recipientUserId ?? DBNull.Value);
+        command.Parameters.AddWithValue("recipient_user_id", (object?)recipient?.UserId ?? DBNull.Value);
         command.Parameters.AddWithValue("project_id", candidate.ProjectId);
         command.Parameters.AddWithValue("work_item_id", candidate.WorkItemId);
         command.Parameters.AddWithValue("channel", channel);
         command.Parameters.AddWithValue("delivery_type", deliveryType);
         command.Parameters.AddWithValue("status", status);
         command.Parameters.AddWithValue("now", now);
-        command.Parameters.AddWithValue("dedupe_key", DeliveryDedupeKey(candidate.WorkItemId, candidate.DueDate, level, channel, recipientUserId));
+        command.Parameters.AddWithValue("dedupe_key", DeliveryDedupeKey(candidate.WorkItemId, candidate.DueDate, level, channel, recipient?.UserId));
         command.Parameters.AddWithValue("group_key", $"work-item-escalation:{candidate.WorkItemId}:{level}");
         command.Parameters.AddWithValue("provider_message_id", (object?)providerMessageId ?? DBNull.Value);
+        command.Parameters.AddWithValue("display_title", TitleForLevel(candidate, level));
+        command.Parameters.AddWithValue("display_message", MessageForLevel(candidate, level));
+        command.Parameters.AddWithValue("display_project_name", candidate.ProjectTitle);
+        command.Parameters.AddWithValue("display_work_item_title", candidate.WorkItemTitle);
+        command.Parameters.AddWithValue("display_recipient_name", (object?)recipient?.DisplayName ?? DBNull.Value);
+        command.Parameters.AddWithValue("display_recipient_email", (object?)recipient?.Email ?? DBNull.Value);
+        command.Parameters.AddWithValue("display_recipient_kind", recipient is null ? "TeamsChannel" : "User");
+        command.Parameters.AddWithValue("display_channel_target", channel == NotificationDeliveryChannels.TeamsChannel ? "Teams 채널" : DBNull.Value);
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

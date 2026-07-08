@@ -179,6 +179,29 @@ public static class WorkflowEndpointExtensions
         .RequireAuthorization()
         .WithName("ListNotifications");
 
+        app.MapGet("/api/notifications/{notificationId:guid}", async (
+            Guid notificationId,
+            WorkflowStore workflowStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var canReadAll = HasPermission(user, QmsPermissions.UsersManage);
+            var result = await workflowStore.GetNotificationDetailAsync(
+                notificationId,
+                userId.Value,
+                canReadAll,
+                cancellationToken);
+            return ToResult(result, Results.Ok);
+        })
+        .RequireAuthorization()
+        .WithName("GetNotificationDetail");
+
         app.MapPost("/api/notifications/{notificationId:guid}/read", async (
             Guid notificationId,
             WorkflowStore workflowStore,

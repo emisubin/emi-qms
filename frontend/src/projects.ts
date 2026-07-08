@@ -265,9 +265,16 @@ export interface AdminNotificationDeliveryListResponse {
 
 export interface AdminNotificationDelivery {
   deliveryId: string;
+  notificationId: string | null;
+  recipientUserId: string | null;
+  projectId: string | null;
+  workItemId: string | null;
   channel: string;
+  channelLabel: string;
   deliveryType: string;
+  deliveryTypeLabel: string;
   status: string;
+  statusLabel: string;
   attemptCount: number;
   nextAttemptAtUtc: string | null;
   lastAttemptAtUtc: string | null;
@@ -275,13 +282,117 @@ export interface AdminNotificationDelivery {
   suppressedAtUtc: string | null;
   errorCode: string | null;
   errorMessage: string | null;
+  actionGuide: string;
+  pendingReason: string | null;
   recipientDisplayName: string | null;
   recipientEmail: string | null;
+  recipientEmailMasked: string | null;
   projectTitle: string | null;
   projectCode: string | null;
+  workItemTitle: string | null;
+  workflowStageName: string | null;
   notificationTitle: string | null;
+  notificationMessageSummary: string | null;
+  displayMessageSummary: string | null;
+  displayTitle: string;
+  displayRecipient: string;
+  displayProject: string;
+  displayRecipientKind: string | null;
+  displayChannelTarget: string | null;
+  manualNotificationKind: string | null;
+  manualNotificationKindLabel: string | null;
+  correlationId: string | null;
+  linkUrl: string | null;
+  adminHandlingStatus: string;
+  adminHandlingStatusLabel: string;
+  adminHandledAtUtc: string | null;
+  adminHandledByUserId: string | null;
+  adminHandledByDisplayName: string | null;
+  adminHandlingNote: string | null;
   createdAtUtc: string;
   updatedAtUtc: string;
+}
+
+export interface AdminNotificationDeliveryActionRequest {
+  ids: string[];
+  note: string | null;
+}
+
+export interface AdminNotificationDeliveryActionResponse {
+  requestedCount: number;
+  succeededCount: number;
+  failedCount: number;
+  skippedCount: number;
+  items: AdminNotificationDeliveryActionItem[];
+}
+
+export interface AdminNotificationDeliveryActionItem {
+  deliveryId: string;
+  status: string;
+  message: string;
+}
+
+export interface AdminManualNotificationSendRequest {
+  sendMode: string;
+  notificationKind: string;
+  projectId: string | null;
+  projectSelectionType: string | null;
+  title: string;
+  projectName: string | null;
+  message: string;
+  channels: string[];
+  teamsActivityRecipientUserIds: string[];
+  mailRecipientUserIds: string[];
+  mailRecipientEmails: string[];
+  workAssigneeUserIds: string[];
+  workflowStageCode: string | null;
+  dueDate: string | null;
+}
+
+export interface AdminManualNotificationSendResponse {
+  correlationId: string;
+  requestedCount: number;
+  queuedCount: number;
+  items: AdminManualNotificationSendChannelResult[];
+}
+
+export interface AdminManualNotificationSendChannelResult {
+  channel: string;
+  channelLabel: string;
+  deliveryId: string | null;
+  status: string;
+  errorCode: string | null;
+  errorMessage: string | null;
+  target: string;
+  message: string;
+}
+
+export interface AdminNotificationDeliveryDetail {
+  deliveryId: string;
+  categoryLabel: string;
+  notificationKindLabel: string | null;
+  projectName: string | null;
+  title: string;
+  message: string | null;
+  manualRequestedAtUtc: string | null;
+  createdAtUtc: string;
+  channel: string;
+  channelLabel: string;
+  recipient: string;
+  status: string;
+  statusLabel: string;
+  attemptCount: number;
+  nextAttemptAtUtc: string | null;
+  lastAttemptAtUtc: string | null;
+  sentAtUtc: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  actionGuide: string;
+  adminHandlingStatus: string;
+  adminHandlingStatusLabel: string;
+  adminHandlingNote: string | null;
+  correlationId: string | null;
+  providerMessageId: string | null;
 }
 
 export interface AdminWorkItemEscalationListResponse {
@@ -1261,10 +1372,18 @@ export interface NotificationItem {
   projectTitle: string | null;
   projectCode: string | null;
   projectItem: string | null;
+  workItemId: string | null;
+  workItemTitle: string | null;
+  workflowStageCode: string | null;
+  workflowStageName: string | null;
   notificationType: string;
   notificationTypeLabel: string;
   severity: string;
   severityLabel: string;
+  visibilityScope: string;
+  visibilityScopeLabel: string;
+  sourceKind: string;
+  sourceKindLabel: string;
   title: string;
   message: string;
   linkUrl: string | null;

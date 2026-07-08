@@ -39,11 +39,6 @@ public sealed record TeamsWebhookPayload(
                 ["type"] = "TextBlock",
                 ["text"] = TrimMessage(message.Body, 24_000),
                 ["wrap"] = true
-            },
-            new Dictionary<string, object>
-            {
-                ["type"] = "FactSet",
-                ["facts"] = BuildFacts(message)
             }
         };
 
@@ -52,38 +47,6 @@ public sealed record TeamsWebhookPayload(
             "AdaptiveCard",
             "1.4",
             body);
-    }
-
-    private static IReadOnlyList<IReadOnlyDictionary<string, object>> BuildFacts(NotificationDeliveryMessage message)
-    {
-        var facts = new List<IReadOnlyDictionary<string, object>>
-        {
-            Fact("시스템", "EMI 프로젝트 통합관리시스템"),
-            Fact("채널", message.Channel),
-            Fact("유형", message.DeliveryType),
-            Fact("발송 시각", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss 'UTC'"))
-        };
-
-        if (!string.IsNullOrWhiteSpace(message.RecipientDisplayName))
-        {
-            facts.Add(Fact("수신자", message.RecipientDisplayName));
-        }
-
-        if (!string.IsNullOrWhiteSpace(message.LinkUrl))
-        {
-            facts.Add(Fact("링크", message.LinkUrl));
-        }
-
-        return facts;
-    }
-
-    private static IReadOnlyDictionary<string, object> Fact(string title, string value)
-    {
-        return new Dictionary<string, object>
-        {
-            ["title"] = title,
-            ["value"] = TrimMessage(value, 1_000)
-        };
     }
 
     private static string TrimMessage(string value, int maxLength)
@@ -192,6 +155,81 @@ public sealed class TeamsDirectMessageHandler(IOptionsMonitor<NotificationOption
         return Task.FromResult(teams.DryRun
             ? NotificationChannelResult.DryRunSent()
             : NotificationChannelResult.Disabled("TeamsDirectMessageGraphNotConfigured", "Teams DM Graph 연동은 후속 TASK에서 활성화합니다."));
+    }
+}
+
+public sealed class TeamsActivityChannelHandler(
+    IOptionsMonitor<NotificationOptions> options,
+    ITeamsActivityClient teamsActivityClient)
+    : INotificationChannelHandler
+{
+    public string Channel => NotificationDeliveryChannels.TeamsActivity;
+
+    public Task<NotificationChannelResult> SendAsync(NotificationDeliveryMessage message, CancellationToken cancellationToken)
+    {
+        var teamsActivity = options.CurrentValue.TeamsActivity;
+        if (!teamsActivity.Enabled)
+        {
+            return Task.FromResult(NotificationChannelResult.Disabled(
+                "TeamsActivityDisabled",
+                "Teams Activity Feed 발송이 비활성화되어 있습니다."));
+        }
+
+        if (message.RecipientUserIsActive == false)
+        {
+            return Task.FromResult(NotificationChannelResult.Suppressed(
+                "TeamsActivityUserInactive",
+                "비활성 사용자는 Teams Activity Feed 알림 대상에서 제외됩니다."));
+        }
+
+        var renderResult = TeamsActivityNotificationRenderer.Render(message, teamsActivity);
+        if (!TeamsActivityNotificationRenderer.IsDeclaredActivityType(renderResult.ActivityType, teamsActivity.ActivityTypes))
+        {
+            return Task.FromResult(NotificationChannelResult.Failed(
+                "TeamsActivityInvalidActivityType",
+                "Teams 앱 manifest에 선언되지 않은 activityType입니다."));
+        }
+
+        if (teamsActivity.DryRun)
+        {
+            return Task.FromResult(NotificationChannelResult.DryRunSent());
+        }
+
+        if (teamsActivity.RequireEntraUser
+            && !string.Equals(message.RecipientAuthProvider, "EntraId", StringComparison.Ordinal))
+        {
+            return Task.FromResult(NotificationChannelResult.Suppressed(
+                "TeamsActivityUserNotEntra",
+                "EntraId 사용자가 아니어서 Teams Activity Feed actual 발송을 생략했습니다."));
+        }
+
+        var graphUserId = !string.IsNullOrWhiteSpace(message.RecipientEntraObjectId)
+            ? message.RecipientEntraObjectId.Trim()
+            : teamsActivity.UseUserPrincipalNameFallback && !string.IsNullOrWhiteSpace(message.RecipientEmail)
+                ? message.RecipientEmail.Trim()
+                : null;
+        if (string.IsNullOrWhiteSpace(graphUserId))
+        {
+            return Task.FromResult(NotificationChannelResult.Suppressed(
+                "TeamsActivityMissingUserId",
+                "Teams Activity Feed 대상 사용자의 Entra object id가 없습니다."));
+        }
+
+        var teamsAppId = teamsActivity.UseTeamsAppIdForTextTopic
+            ? teamsActivity.TeamsAppId
+            : null;
+        return teamsActivityClient.SendAsync(
+            new TeamsActivitySendRequest(
+                graphUserId,
+                renderResult.ActivityType,
+                renderResult.TopicSource,
+                renderResult.TopicValue,
+                renderResult.TopicWebUrl,
+                renderResult.PreviewText,
+                renderResult.TemplateParameters,
+                teamsAppId,
+                message.CorrelationId),
+            cancellationToken);
     }
 }
 

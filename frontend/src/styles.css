@@ -315,13 +315,20 @@ h3 {
   border-radius: 8px;
   background: #fbfdfb;
   padding: 12px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .admin-guidance p {
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
   color: #33443a;
   font-size: 0.92rem;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .admin-filter-panel {
@@ -1963,10 +1970,21 @@ h3 {
 .notification-detail-message {
   display: grid;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 12px;
   border: 1px solid #d8ded9;
   border-radius: 8px;
   background: #ffffff;
+}
+
+.advanced-detail {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .notification-detail-message p {
@@ -2377,9 +2395,15 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin: 18px 0;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  justify-self: stretch;
 }
 
 .detail-grid div {
+  min-width: 0;
   min-height: 76px;
   border: 1px solid #e1e8e3;
   border-radius: 8px;

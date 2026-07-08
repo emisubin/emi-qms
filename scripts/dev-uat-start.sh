@@ -5,11 +5,43 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
+load_dotenv_file() {
+  local env_file="$1"
+  local line
+  local key
+  local value
+
+  [[ -f "${env_file}" ]] || return 0
+
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "${line}" || "${line}" == \#* || "${line}" != *=* ]] && continue
+
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+
+    if [[ "${value}" == \"*\" && "${value}" == *\" && "${#value}" -ge 2 ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "${value}" == \'*\' && "${#value}" -ge 2 ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+
+    [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    export "${key}=${value}"
+  done < "${env_file}"
+}
+
 if [[ -f .env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
+  load_dotenv_file .env
+fi
+
+if [[ "${UAT_LOAD_NOTIFY_LOCAL_ENV:-false}" == "true" && -f .env.notify-local ]]; then
+  load_dotenv_file .env.notify-local
 fi
 
 export DATABASE_HOST="${DATABASE_HOST:-localhost}"
@@ -20,13 +52,32 @@ export ASPNETCORE_ENVIRONMENT="Development"
 export AUTH_MODE="Dev"
 export Authentication__Mode="Dev"
 export ASPNETCORE_URLS="http://127.0.0.1:5081"
-export FRONTEND_ORIGIN="http://127.0.0.1:5174,http://localhost:5174"
 export DEV_AUTHENTICATION_ENABLED="${DEV_AUTHENTICATION_ENABLED:-true}"
 export DEV_DATA_SEED_ENABLED="${DEV_DATA_SEED_ENABLED:-true}"
 export VITE_AUTH_MODE="Dev"
-export VITE_API_BASE_URL="http://127.0.0.1:5081"
 export VITE_DEV_USER_KEY="${VITE_DEV_USER_KEY:-dev-production}"
-export VITE_HMR_HOST="127.0.0.1"
+export UAT_FRONTEND_HTTPS="${UAT_FRONTEND_HTTPS:-false}"
+UAT_FRONTEND_HTTPS_NORMALIZED="$(printf '%s' "${UAT_FRONTEND_HTTPS}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${UAT_FRONTEND_HTTPS_NORMALIZED}" == "true" || "${UAT_FRONTEND_HTTPS}" == "1" ]]; then
+  if [[ ",${FRONTEND_ORIGIN:-}," == *",https://localhost:5174,"* ]]; then
+    export FRONTEND_ORIGIN="${FRONTEND_ORIGIN}"
+  elif [[ -n "${FRONTEND_ORIGIN:-}" ]]; then
+    export FRONTEND_ORIGIN="https://localhost:5174,${FRONTEND_ORIGIN}"
+  else
+    export FRONTEND_ORIGIN="https://localhost:5174,http://127.0.0.1:5174,http://localhost:5174"
+  fi
+  export VITE_API_BASE_URL="${UAT_FRONTEND_HTTPS_API_BASE_URL:-}"
+  export VITE_DEV_PROXY_TARGET="${VITE_DEV_PROXY_TARGET:-http://127.0.0.1:5081}"
+  export VITE_DEV_HTTPS="${VITE_DEV_HTTPS:-true}"
+  export VITE_DEV_HTTPS_CERT="${VITE_DEV_HTTPS_CERT:-${REPO_ROOT}/.certs/localhost.pem}"
+  export VITE_DEV_HTTPS_KEY="${VITE_DEV_HTTPS_KEY:-${REPO_ROOT}/.certs/localhost-key.pem}"
+  export VITE_HMR_HOST="${VITE_HMR_HOST:-localhost}"
+else
+  export FRONTEND_ORIGIN="${FRONTEND_ORIGIN:-http://127.0.0.1:5174,http://localhost:5174}"
+  export VITE_API_BASE_URL="${VITE_API_BASE_URL:-http://127.0.0.1:5081}"
+  export VITE_DEV_PROXY_TARGET="${VITE_DEV_PROXY_TARGET:-http://127.0.0.1:5081}"
+  export VITE_HMR_HOST="${VITE_HMR_HOST:-127.0.0.1}"
+fi
 export VITE_HMR_CLIENT_PORT="5174"
 
 if [[ -z "${DATABASE_PASSWORD:-}" ]]; then
@@ -300,7 +351,12 @@ SQL
 
 echo "Manual UAT fixed environment"
 echo "  Backend:  http://127.0.0.1:5081"
-echo "  Frontend: http://127.0.0.1:5174"
+if [[ "${UAT_FRONTEND_HTTPS_NORMALIZED}" == "true" || "${UAT_FRONTEND_HTTPS}" == "1" ]]; then
+  echo "  Frontend: https://localhost:5174"
+  echo "  API proxy: /api and /health -> ${VITE_DEV_PROXY_TARGET}"
+else
+  echo "  Frontend: http://127.0.0.1:5174"
+fi
 echo "  DB:       ${DATABASE_NAME}"
 echo "  Note: E2E tests use their own temporary database and must not reuse this DB."
 

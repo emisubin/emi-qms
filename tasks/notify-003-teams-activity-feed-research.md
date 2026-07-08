@@ -1024,6 +1024,50 @@ ManualTest 표시 우선순위:
 - [ ] Console 오류 없음
 - [ ] 모바일 overflow 없음
 
+## 30. 2026-07-08 Teams local HTTPS 실행 검토
+
+Teams manifest v1.0.1의 personal tab은 `https://localhost:5174/teams/activity`를 열도록 준비됐다. 기존 UAT frontend는 HTTP만 제공하므로 Teams 앱 오른쪽 화면에서는 `ERR_SSL_PROTOCOL_ERROR`가 발생할 수 있다.
+
+결정:
+
+- 운영 설정이 아니라 로컬/UAT Teams 검수 전용 HTTPS 실행 모드를 둔다.
+- Vite dev server는 `VITE_DEV_HTTPS=true`일 때만 HTTPS를 사용한다.
+- 기본 인증서 위치는 `.certs/localhost.pem`, `.certs/localhost-key.pem`이다.
+- `mkcert`가 없으면 자동 설치하지 않고 사용자가 직접 설치/생성한다.
+- HTTPS frontend는 same-origin `/api`, `/health`를 호출하고, Vite proxy가 HTTP backend로 전달한다.
+- 이 방식으로 Teams iframe에서 mixed content를 피한다.
+- 기존 HTTP UAT, mock UI, Full-Stack E2E는 기본값상 영향을 받지 않는다.
+
+인증서 생성 명령:
+
+```bash
+brew install mkcert
+mkcert -install
+mkdir -p .certs
+mkcert -key-file .certs/localhost-key.pem -cert-file .certs/localhost.pem localhost 127.0.0.1 ::1
+```
+
+실행:
+
+```bash
+scripts/dev-uat-start-teams-https.sh
+```
+
+검수:
+
+- `https://localhost:5174/teams/activity`
+- API 호출이 `/api` same-origin으로 나가는지 확인
+- Console에 mixed content 오류가 없는지 확인
+- 운영 배포 전 manifest URL은 실제 운영 도메인으로 교체
+
+사용자 검수 체크리스트:
+
+- [ ] `https://localhost:5174/teams/activity`가 SSL 오류 없이 열림
+- [ ] Teams 앱 오른쪽 화면이 빈 화면이 아님
+- [ ] `/api` 호출이 mixed content로 차단되지 않음
+- [ ] 기존 HTTP UAT 실행이 깨지지 않음
+- [ ] 인증서/키가 commit 대상에 포함되지 않음
+
 ## 28. 2026-07-08 수동 발송 action feedback / 상태 표시 결정
 
 최종 리뷰 전 추가 검수에서 다음 UX 정책을 확정했다.
@@ -1182,3 +1226,304 @@ ManualTest 표시 우선순위:
 - [ ] ManualTest가 무조건 수동발송으로만 보이지 않음
 - [ ] Console 오류 없음
 - [ ] 모바일 overflow 없음
+
+## 32. 2026-07-08 HTTPS UAT worker / Teams Activity 상세 deep link 진단
+
+HTTPS UAT에서 TeamsActivity 수동 발송 delivery가 `worker 처리 대기중`으로 3분 이상 남는 문제가 보고됐다. 진단 결과 HTTPS frontend는 발송을 막지 않았고, backend worker/env 구성과 Graph topic 설정을 분리해서 확인해야 했다.
+
+확인 결과:
+
+- HTTPS frontend `https://localhost:5174/teams/activity`는 200으로 응답했다.
+- backend `/health/live`, `/health/ready`는 정상이다.
+- HTTPS wrapper가 `.env.notify-local`을 backend 프로세스에 로드하지 않으면 TeamsActivity actual 및 dispatch 설정이 누락될 수 있다.
+- `.env.notify-local`은 shell `source`로 읽으면 공백/문장형 값이 명령으로 실행될 수 있으므로 안전한 dotenv parser가 필요하다.
+- HTTPS UAT wrapper는 `UAT_LOAD_NOTIFY_LOCAL_ENV=true`를 설정하고, base UAT script가 ignored `.env.notify-local`을 안전하게 export하도록 한다.
+- worker가 다시 시작된 뒤 TeamsActivity Pending delivery는 Pending에 머물지 않고 Graph 호출 결과에 따라 Sent/Failed로 전환됐다.
+- 최신 실패 원인은 worker 비활성이 아니라 Graph 400 `app installation id ... not a valid app installation id`였다.
+- 이 오류는 `.env.notify-local`의 `Notifications__TeamsActivity__InstalledAppId`가 수신자 기준 Graph installedApps 최상위 id와 맞지 않을 때 발생한다.
+- `TeamsActivity.Send` 권한만으로는 app-only `/users/{id}/teamwork/installedApps` 조회가 403이 될 수 있어 backend가 항상 자동 보정할 수 없다.
+- Graph 오류 상세에 installedAppId 원문이 포함될 수 있으므로 사용자/API 표시용 error_message에서는 긴 식별자를 마스킹해야 한다.
+
+상세 deep link 검토:
+
+- `/teams/activity/deliveries/{deliveryId}` route를 추가해 Teams tab 안에서 특정 delivery 상세를 직접 표시할 수 있게 한다.
+- 상세 화면은 빈 화면 없이 알림 유형, 프로젝트명, 제목, 내용, 발송시각, 채널, 수신자, 상태, 오류/대기 사유, 내부 추적값을 보여준다.
+- 조회 실패 시 기존 `/teams/activity` 목록으로 돌아갈 수 있는 한글 fallback을 둔다.
+- 현재 실제 발송 성공 경로는 `topic.source=entityUrl` + installedApps entity URL이다.
+- entityUrl topic payload에서는 `teamsAppId`와 `topic.webUrl`을 생략한다.
+- entityUrl에 `topic.webUrl`을 섞어 상세 route로 바로 보내는 방식은 Graph 400을 유발할 수 있으므로 기본 actual 경로에서는 사용하지 않는다.
+- Activity Feed 클릭이 특정 delivery 상세로 바로 들어가는지 여부는 운영 URL/Teams deep link/static tab entityId 조합으로 후속 actual smoke가 필요하다.
+
+localhost manifest 제한:
+
+- localhost manifest는 박수빈 PC에서만 의미가 있다.
+- 다른 사용자는 같은 Teams 앱을 열어도 자기 PC의 `localhost`를 보게 된다.
+- 다중 사용자 actual 검수에는 Dev Tunnel, ngrok, 또는 운영 HTTPS 도메인이 필요하다.
+- 로컬 manifest v1.0.1 권장값:
+  - `contentUrl`: `https://localhost:5174/teams/activity`
+  - `websiteUrl`: `https://localhost:5174/teams/activity`
+- 운영 전에는 실제 운영 도메인의 `/teams/activity`로 교체해야 한다.
+
+사용자 검수 체크리스트:
+
+- [ ] HTTPS UAT 실행 후 `https://localhost:5174/teams/activity`가 열림
+- [ ] 수동 발송 후 TeamsActivity delivery가 Pending에서 Sent로 변경됨
+- [ ] worker 처리 대기 상태가 계속 쌓이지 않음
+- [ ] Teams Activity Feed 알림이 도착함
+- [ ] Teams Activity 클릭 시 오른쪽 앱 화면이 빈 화면이 아님
+- [ ] 알림 클릭 시 해당 알림 상세가 바로 표시되거나, 최근 알림이 강조 표시됨
+- [ ] `/teams/activity/deliveries/{deliveryId}` 직접 접근 시 상세 표시
+- [ ] 상세 화면에서 알림 유형/프로젝트/제목/내용/발송시각 확인 가능
+- [ ] 전체 알림으로 돌아가기 버튼 동작
+- [ ] 다른 사람이 localhost로 접속할 수 없다는 제한이 문서화됨
+- [ ] Console 오류 없음
+- [ ] 모바일/Teams narrow pane overflow 없음
+
+## 33. 2026-07-08 인앱 알림 원본 / Teams catalog topic 전환 검토
+
+다중 사용자 TeamsActivity actual 검수에서 사용자별 `InstalledAppId`를 수동 관리하는 방식은 운영에 맞지 않다는 결론을 냈다. 박수빈 계정의 installed app id로 성공하더라도 한소정 등 다른 사용자는 각자 다른 installed app id를 가지므로, per-user installed app id를 env에 넣는 방식은 확장할 수 없다.
+
+정리된 구조:
+
+- 인앱 `notifications`와 `notification_recipients`가 알림 원본이다.
+- `notification_deliveries`는 원본 notification의 외부 채널 발송 이력이다.
+- 관리자 수동 발송도 notification 원본을 생성한다.
+- TeamsActivity/Mail 사용자 대상은 `notification_recipients`를 만들고 delivery에 연결한다.
+- TeamsChannel 또는 직접 이메일은 user recipient가 없을 수 있으나 delivery는 `notification_id`를 가진다.
+- 자동 업무/에스컬레이션 알림은 기존 notification 원본과 delivery 연결을 유지한다.
+
+TeamsActivity topic 판단:
+
+- Microsoft Graph 공식 예시는 app catalog topic entityUrl을 지원한다.
+- 운영 기본값은 `topic.source=entityUrl`, `topic.value=https://graph.microsoft.com/v1.0/appCatalogs/teamsApps/{TeamsCatalogAppId}`로 둔다.
+- `TeamsCatalogAppId`는 Graph installedApps 응답의 `teamsApp.id`이고 manifest external id와 다르다.
+- 기존 `InstalledAppId`는 진단/fallback 전용이다.
+- `.env.notify-local`에 `Notifications__TeamsActivity__TeamsCatalogAppId`가 configured 상태여야 박수빈/한소정 catalog topic actual 재검증을 수행할 수 있다.
+- 현재 로컬 설정에는 `InstalledAppId`만 configured이고 `TeamsCatalogAppId`는 missing이라 actual catalog smoke는 보류한다.
+
+알림 상세/권한:
+
+- 사용자-facing Teams tab 상세 route는 `/teams/activity/notifications/{notificationId}`로 둔다.
+- backend는 `GET /api/notifications/{notificationId}`에서 현재 사용자 recipient 여부 또는 관리자 권한을 확인한다.
+- 권한 없는 사용자는 403, 없는 알림은 404로 처리한다.
+- 미로그인 Teams tab 접근은 로그인 안내를 먼저 보여주고, 로그인 후 같은 route로 돌아오게 한다.
+- 알림 상세에서 관련 프로젝트/업무 링크를 표시하되, 업무 접근 권한은 기존 프로젝트/업무 상세 API에서 다시 강제한다.
+
+외부 링크 정책:
+
+- Mail/TeamsChannel/TeamsActivity의 link URL은 notification 상세 route를 우선 사용한다.
+- notification 없는 레거시/test delivery는 기존 link URL 또는 delivery 상세 route로 fallback한다.
+- Mail/TeamsChannel 본문은 `알림 상세 보기` 링크를 포함할 수 있다.
+- TeamsActivity preview/template에는 notification id, installedAppId, correlation id를 노출하지 않는다.
+- localhost manifest는 박수빈 PC 로컬 테스트용이며, 다른 사용자 검수에는 Dev Tunnel/ngrok/운영 HTTPS 도메인이 필요하다.
+
+사용자 검수 체크리스트:
+
+- [ ] 관리자 수동 발송 시 인앱 알림도 생성됨
+- [ ] 자동 업무 알림은 인앱 알림과 업무가 연결됨
+- [ ] TeamsActivity/Mail/TeamsChannel delivery가 notification_id로 추적됨
+- [ ] Teams Activity 알림 클릭 후 알림 상세를 볼 수 있음
+- [ ] 미로그인 상태에서는 로그인 화면이 먼저 표시됨
+- [ ] 로그인 후 원래 알림 상세로 돌아옴
+- [ ] 권한 없는 사용자는 알림/업무 상세 접근이 차단됨
+- [ ] 알림 상세에서 관련 업무 보기 버튼이 동작함
+- [ ] 알림 상세에서 관련 프로젝트 보기 버튼이 동작함
+- [ ] 박수빈 TeamsActivity 수신 성공
+- [ ] 한소정 TeamsActivity 수신 성공
+- [ ] 한소정에게 별도 installedAppId를 수동 입력하지 않음
+- [ ] 수동 발송 알림이 관리자 수동 발송으로 구분됨
+- [ ] 외부 알림 제목/본문에 correlation id가 노출되지 않음
+- [ ] Console 오류 없음
+- [ ] 모바일/Teams narrow pane overflow 없음
+
+## 35. 2026-07-08 최종 리뷰 전 UAT smoke / 운영 문서 반영
+
+최종 PR 준비 전 연구 결론을 구현/운영 기준으로 확정했다.
+
+확정된 구조:
+
+- 인앱 `notifications`가 원본이다.
+- 개인 알림은 `notification_recipients`로 수신자를 표현한다.
+- 외부 채널 TeamsActivity / TeamsChannel / Mail은 `notification_deliveries`로 추적한다.
+- TeamsActivity 운영 기본 topic은 `text`이고, `topic.webUrl`은 Teams deep link다.
+- 사용자별 `InstalledAppId`는 운영 필수 설정이 아니다.
+- TeamsChannel 채널 공지는 `visibility_scope=Authenticated`로 처리한다.
+- 개인 TeamsActivity/Mail 알림은 수신자만 상세 접근 가능하다.
+- 관리자 수동 업무 배정은 실제 `work_items`를 생성한다.
+
+최종 UAT smoke:
+
+- HTTPS UAT backend/frontend health 확인
+- latest migration `0027_notification_access_scope_and_manual_work_items`
+- 채널 공지: notification + TeamsChannel delivery 생성, `Authenticated`, worker 처리 후 `Sent`
+- 개인 알림: notification + recipient + TeamsActivity delivery 연결, worker 처리 후 `Sent`
+- 업무 배정: 기존 테스트 프로젝트 기준 work_item 생성, notification project/work item 연결, 담당자 내 업무 DB 반영
+- 비수신자 개인 알림 상세 접근 403
+- 비로그인 알림 상세 API 접근 401
+
+문서 산출물:
+
+- `tasks/notify-003-implementation-report.md`
+- `tasks/notify-003-sop.md`
+- `tasks/notify-003-user-manual.md`
+
+사용자 검수 체크리스트:
+
+- [ ] 채널 공지 알림 상세는 로그인된 사용자면 접근 가능
+- [ ] 개인 TeamsActivity 알림 상세는 수신자만 접근 가능
+- [ ] 개인 Mail 알림 상세는 수신자만 접근 가능
+- [ ] 비수신자는 개인 알림 상세 접근 차단
+- [ ] 관리자 수동 발송 시 인앱 알림 생성
+- [ ] 알림 상세에서 읽음 처리 가능
+- [ ] 업무 배정 수동 발송 시 실제 내 업무 생성
+- [ ] 생성된 업무가 수신자의 내 업무에 표시
+- [ ] 알림 상세에서 관련 업무 보기 가능
+- [ ] 알림 상세에서 관련 프로젝트 보기 가능
+- [ ] 수동 발송 화면에서 개인 알림/채널 공지/업무 배정 모드 구분
+- [ ] 개인 알림 모드에서 Teams 채널 선택을 강제하지 않음
+- [ ] 채널 공지 모드에서 개인 수신자 선택을 강제하지 않음
+- [ ] 업무 배정 모드에서 담당자/업무 정보 입력 가능
+- [ ] TeamsActivity와 Mail이 notification_id/recipient_id로 추적됨
+- [ ] TeamsChannel이 notification_id로 추적됨
+- [ ] 로그인 안 된 상태에서 상세 접근 시 로그인 화면 표시
+- [ ] 로그인 후 원래 상세로 복귀
+- [ ] 권한 없는 사용자는 접근 권한 없음 표시
+- [ ] SOP 문서가 작성됨
+- [ ] 유저매뉴얼 문서가 작성됨
+- [ ] Console 오류 없음
+- [ ] 모바일/Teams narrow pane overflow 없음
+
+## 35. 2026-07-08 알림 접근권한 / 수동 업무 배정 정책 결정
+
+최종 리뷰 전 구조 검토에서 알림 상세 접근권한을 외부 채널 성격에 맞춰 분리했다. TeamsChannel 게시는 채널에 들어있는 사람이 볼 수 있는 성격이지만 현재 QMS는 Teams 채널 멤버십을 직접 알지 못한다. 따라서 1차 구현은 `visibility_scope=Authenticated`로 두고 로그인된 active 사용자에게 상세 접근을 허용한다. 개인 TeamsActivity/Mail 알림은 `notification_recipients`에 기록된 실제 수신자만 조회할 수 있게 한다.
+
+결정 사항:
+
+- 인앱 `notifications`가 모든 알림의 원본이다.
+- `notification_deliveries`는 외부 채널 발송 이력이며 가능한 경우 `notification_id`와 `notification_recipient_id`를 가진다.
+- 직접 이메일처럼 QMS user와 매칭되지 않는 수신자는 delivery snapshot으로 추적하되 사용자-facing 상세 접근권한은 부여하지 않는다.
+- 직접 이메일이 active QMS user email과 매칭되면 해당 사용자 recipient row를 생성해 개인 알림 접근권한을 부여한다.
+- 사용자-facing notification 상세는 개인 알림에서 System Administrator의 무제한 조회를 허용하지 않는다. 관리자 조회는 admin delivery 상세로 분리한다.
+- 채널 공지 읽음 처리는 `notification_recipients` lazy row를 생성해 `read_at_utc`를 기록한다.
+
+수동 발송 UX/정책:
+
+- 개인 알림
+  - Teams Activity / Mail만 표시
+  - Teams 채널 게시 선택은 숨김
+  - 수신자별 notification recipient와 delivery를 생성
+- 채널 공지
+  - TeamsChannel 게시 전용
+  - 로그인된 active 사용자가 알림 상세 접근 가능
+  - 채널 멤버십 정밀 권한은 후속 Teams membership 연동 범위
+- 업무 배정
+  - 기존 프로젝트 선택 필수
+  - 담당자 다중 선택
+  - 업무 단계, 업무 제목, 업무 내용 입력
+  - 담당자별 실제 `work_items`를 생성해 내 업무에 표시
+  - 담당자별 `notifications`와 `notification_recipients`를 생성
+  - TeamsActivity/Mail 외부 채널은 선택 사항이며, 선택 시 생성된 work item과 notification 원본을 delivery에 연결
+
+migration 결정:
+
+- `0027_notification_access_scope_and_manual_work_items.sql`
+- `notifications.visibility_scope`: `RecipientOnly`, `Authenticated`, `AdminOnly`
+- `notifications.source_kind`: `Automatic`, `Manual`, `ChannelNotice`, `WorkAssignment`, `DailyDigest`, `Escalation`, `System`
+- `notifications.work_item_id`: 관련 업무 상세 연결
+- `notifications.manual_requested_by_user_id`: 관리자 수동 발송 요청자 추적
+
+검증 포인트:
+
+- 채널 공지는 비수신 active 사용자도 상세 조회 가능해야 한다.
+- 개인 알림은 비수신자가 403이어야 한다.
+- 채널 공지 읽음 처리는 lazy recipient row를 생성해야 한다.
+- 업무 배정 수동 발송은 실제 `work_items`를 만들고 수신자의 `/api/my-work`에 나타나야 한다.
+- 알림 상세는 source kind, 접근 범위, 관련 업무, 관련 프로젝트, 읽음 상태를 표시해야 한다.
+
+사용자 검수 체크리스트:
+
+- [ ] 채널 공지 알림 상세는 로그인된 사용자면 접근 가능
+- [ ] 개인 TeamsActivity 알림 상세는 수신자만 접근 가능
+- [ ] 개인 Mail 알림 상세는 수신자만 접근 가능
+- [ ] 비수신자는 개인 알림 상세 접근이 차단됨
+- [ ] 관리자 수동 발송 시 인앱 알림이 생성됨
+- [ ] 외부 알림 상세에서 원본 인앱 알림 내용 확인 가능
+- [ ] 알림 상세에서 읽음 처리 가능
+- [ ] 읽음 처리 후 상태가 갱신됨
+- [ ] 알림 상세에서 관련 업무 보기 가능
+- [ ] 알림 상세에서 관련 프로젝트 보기 가능
+- [ ] 업무 배정 수동 알림 발송 시 실제 내 업무가 생성됨
+- [ ] 생성된 업무가 수신자의 내 업무에 표시됨
+- [ ] 수동 발송 화면에서 개인 알림/채널 공지/업무 배정 모드가 구분됨
+- [ ] 개인 알림 모드에서 Teams 채널 선택을 강제하지 않음
+- [ ] 채널 공지 모드에서 개인 수신자 선택을 강제하지 않음
+- [ ] 업무 배정 모드에서 담당자/업무 정보 입력 가능
+- [ ] TeamsActivity와 Mail이 notification_id/recipient_id로 추적됨
+- [ ] TeamsChannel이 notification_id로 추적됨
+- [ ] 로그인 안 된 상태에서 상세 접근 시 로그인 화면 표시
+- [ ] 로그인 후 원래 상세로 복귀
+- [ ] 권한 없는 사용자는 접근 권한 없음 표시
+- [ ] Console 오류 없음
+- [ ] 모바일/Teams narrow pane overflow 없음
+
+## 34. 2026-07-08 text topic + Teams deep link webUrl 최종 검증
+
+33장의 catalog topic 검토 후, 사용자가 요청한 방향에 따라 TeamsActivity 기본 topic을 `text`로 전환해 actual smoke를 다시 수행했다. Microsoft Graph 문서상 `teamworkActivityTopic.source=text`는 custom topic에 사용할 수 있고 `webUrl`이 필수다. 실제 UAT에서는 일반 앱 URL을 `topic.webUrl`로 직접 넣으면 Graph가 `Invalid 'webUrl' specified, Weburl must start with a valid Microsoft Teams domain followed by '/l/'.`로 거부했다. 따라서 최종 구현은 `text` topic을 유지하되 `topic.webUrl`을 Teams deep link로 감싸는 방식이다.
+
+최종 판단:
+
+- 운영 기본 topic source는 `text`이다.
+- per-user `InstalledAppId`는 운영 필수 설정에서 제거한다.
+- installedApps entityUrl 방식은 diagnostic/fallback으로만 유지한다.
+- `teamsAppId`는 Graph payload에서 기본 생략한다.
+- Graph payload `topic.webUrl`은 `https://teams.microsoft.com/l/entity/{TeamsCatalogAppId}/home?webUrl={encoded notificationDetailUrl}&label={encoded 알림상세}&context={encoded {"subEntityId":"notification:{notificationId}"}}` 형식이다.
+- deep link 안의 `webUrl` query는 `/teams/activity/notifications/{notificationId}`를 가리킨다.
+- organization distribution 앱은 Teams deep link app id로 manifest external id가 아니라 Graph installedApps 응답의 Teams org catalog app id를 우선 사용한다.
+- `Notifications:TeamsActivity:TeamsCatalogAppId`가 있으면 deep link URL의 app id로 우선 사용한다.
+- `TeamsCatalogAppId`가 없으면 `TeamsManifestExternalId`, 기존 `ManifestId`, 기존 `TeamsAppId` 순서로 fallback한다.
+- 기존 `TeamsAppId`는 deep link URL 생성 fallback으로만 사용하며, Graph payload `teamsAppId`와 혼동하지 않는다.
+- `entityId` 기본값은 manifest static tab 기준 `home`이다.
+- Teams가 기본 contentUrl `/teams/activity`를 열면 frontend가 TeamsJS context `subEntityId=notification:{notificationId}`를 읽어 상세 route로 이동한다.
+- localhost manifest는 박수빈 PC 로컬 전용이고, 다른 사용자/운영 검수는 Dev Tunnel/ngrok/운영 HTTPS 도메인이 필요하다.
+
+인앱 notification 원본화 결과:
+
+- 관리자 수동 발송은 `notifications` row를 생성한다.
+- TeamsActivity/Mail 사용자 수신자는 `notification_recipients` row를 생성한다.
+- `notification_deliveries`는 `notification_id`와 가능한 경우 `notification_recipient_id`를 가진다.
+- TeamsChannel 및 직접 이메일 수신도 notification 원본을 참조한다.
+- 사용자-facing 상세는 `/teams/activity/notifications/{notificationId}`이고 backend `GET /api/notifications/{notificationId}`가 recipient/관리자 권한을 검사한다.
+
+UAT actual smoke:
+
+- 박수빈 EntraId 사용자: installedAppId 없이 text topic + Teams deep link webUrl로 `Sent`
+- 한소정 EntraId 사용자: installedAppId 없이 text topic + Teams deep link webUrl로 `Sent`
+- 두 건 모두 수동 발송 queue → worker 처리 → Graph actual 호출 → `notification_deliveries.status=Sent` 흐름을 확인했다.
+- 생성된 delivery는 notification 상세 API와 연결됐다.
+- Teams Activity Feed 도착 여부는 사용자가 Teams 클라이언트에서 확인해야 한다.
+
+실패 분류:
+
+- 일반 앱 URL을 `topic.webUrl`로 직접 넣은 경우 `TeamsActivityInvalidTopic`으로 분류한다.
+- `TeamsActivityInvalidTopic`은 Teams manifest validDomains와 webUrl/deep link 도메인 점검 안내를 표시한다.
+- 앱 설치/정책 문제는 `TeamsActivityAppNotInstalled`로 분류한다.
+- 설치/권한/manifest/topic 오류는 재시도해도 즉시 해결되지 않으므로 next retry를 예약하지 않는다.
+
+사용자 검수 체크리스트:
+
+- [ ] 관리자 수동 발송 시 인앱 알림도 생성됨
+- [ ] 자동 업무 알림은 인앱 알림과 업무가 연결됨
+- [ ] TeamsActivity/Mail/TeamsChannel delivery가 notification_id로 추적됨
+- [ ] Teams Activity 알림 클릭 후 알림 상세를 볼 수 있음
+- [ ] 미로그인 상태에서는 로그인 화면이 먼저 표시됨
+- [ ] 로그인 후 원래 알림 상세로 돌아옴
+- [ ] 권한 없는 사용자는 알림/업무 상세 접근이 차단됨
+- [ ] 알림 상세에서 관련 업무 보기 버튼이 동작함
+- [ ] 알림 상세에서 관련 프로젝트 보기 버튼이 동작함
+- [ ] 박수빈 TeamsActivity 수신 성공
+- [ ] 한소정 TeamsActivity 수신 성공
+- [ ] 한소정에게 별도 installedAppId를 수동 입력하지 않음
+- [ ] 수동 발송 알림이 관리자 수동 발송으로 구분됨
+- [ ] 외부 알림 제목/본문에 correlation id가 노출되지 않음
+- [ ] Console 오류 없음
+- [ ] 모바일/Teams narrow pane overflow 없음

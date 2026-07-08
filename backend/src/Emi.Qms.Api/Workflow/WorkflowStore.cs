@@ -677,9 +677,16 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             select
                 count(*) filter (where nr.read_at_utc is null),
                 count(*) filter (where nr.read_at_utc is null and n.severity in ('Warning', 'Critical'))
-            from notification_recipients nr
-            join notifications n on n.id = nr.notification_id
-            where nr.user_id = @user_id;
+            from notifications n
+            left join notification_recipients nr on nr.notification_id = n.id
+                and nr.user_id = @user_id
+            where exists (
+                    select 1
+                    from qms_users u
+                    where u.id = @user_id
+                      and u.is_active = true
+                )
+              and (nr.id is not null or n.visibility_scope = 'Authenticated');
             """);
         command.Parameters.AddWithValue("user_id", userId);
 
@@ -703,17 +710,32 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 p.project_title,
                 p.project_code,
                 p.item,
+                n.work_item_id,
+                wi.title,
+                wi.workflow_stage_code,
+                ws.stage_name,
                 n.notification_type,
                 n.severity,
+                n.visibility_scope,
+                n.source_kind,
                 n.title,
                 n.message,
                 n.link_url,
                 n.created_at_utc,
                 nr.read_at_utc
-            from notification_recipients nr
-            join notifications n on n.id = nr.notification_id
+            from notifications n
+            left join notification_recipients nr on nr.notification_id = n.id
+                and nr.user_id = @user_id
             left join projects p on p.id = n.project_id
-            where nr.user_id = @user_id
+            left join work_items wi on wi.id = n.work_item_id
+            left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
+            where exists (
+                    select 1
+                    from qms_users u
+                    where u.id = @user_id
+                      and u.is_active = true
+                )
+              and (nr.id is not null or n.visibility_scope = 'Authenticated')
               {(readFilter == "unread" ? "and nr.read_at_utc is null" : "")}
               {(readFilter == "read" ? "and nr.read_at_utc is not null" : "")}
             order by nr.read_at_utc nulls first, n.created_at_utc desc;
@@ -730,6 +752,74 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         return new NotificationListResponse(items);
     }
 
+    public async Task<WorkflowMutationResult<NotificationResponse>> GetNotificationDetailAsync(
+        Guid notificationId,
+        Guid userId,
+        bool canReadAll,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            select
+                n.id,
+                n.project_id,
+                p.project_title,
+                p.project_code,
+                p.item,
+                n.work_item_id,
+                wi.title,
+                wi.workflow_stage_code,
+                ws.stage_name,
+                n.notification_type,
+                n.severity,
+                n.visibility_scope,
+                n.source_kind,
+                n.title,
+                n.message,
+                n.link_url,
+                n.created_at_utc,
+                nr.read_at_utc,
+                nr.id,
+                exists (
+                    select 1
+                    from qms_users u
+                    where u.id = @user_id
+                      and u.is_active = true
+                ) as is_active_user
+            from notifications n
+            left join notification_recipients nr on nr.notification_id = n.id
+                and nr.user_id = @user_id
+            left join projects p on p.id = n.project_id
+            left join work_items wi on wi.id = n.work_item_id
+            left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
+            where n.id = @notification_id;
+            """);
+        command.Parameters.AddWithValue("notification_id", notificationId);
+        command.Parameters.AddWithValue("user_id", userId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return WorkflowMutationResult<NotificationResponse>.NotFound();
+        }
+
+        var visibilityScope = reader.GetString(11);
+        var hasRecipient = !reader.IsDBNull(18);
+        var isActiveUser = reader.GetBoolean(19);
+        var canRead = visibilityScope switch
+        {
+            "Authenticated" => isActiveUser,
+            "AdminOnly" => canReadAll,
+            _ => hasRecipient
+        };
+        if (!canRead)
+        {
+            return WorkflowMutationResult<NotificationResponse>.Forbidden();
+        }
+
+        return WorkflowMutationResult<NotificationResponse>.Success(ReadNotification(reader));
+    }
+
     public async Task<WorkflowMutationResult<NotificationResponse>> MarkNotificationReadAsync(
         Guid notificationId,
         Guid userId,
@@ -737,6 +827,61 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
     {
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+
+        string visibilityScope;
+        bool hasRecipient;
+        bool isActiveUser;
+        await using (var access = connection.CreateCommand())
+        {
+            access.CommandText = """
+                select
+                    n.visibility_scope,
+                    nr.id is not null as has_recipient,
+                    exists (
+                        select 1
+                        from qms_users u
+                        where u.id = @user_id
+                          and u.is_active = true
+                    ) as is_active_user
+                from notifications n
+                left join notification_recipients nr on nr.notification_id = n.id
+                    and nr.user_id = @user_id
+                where n.id = @notification_id;
+                """;
+            access.Parameters.AddWithValue("notification_id", notificationId);
+            access.Parameters.AddWithValue("user_id", userId);
+            await using var reader = await access.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return WorkflowMutationResult<NotificationResponse>.NotFound();
+            }
+
+            visibilityScope = reader.GetString(0);
+            hasRecipient = reader.GetBoolean(1);
+            isActiveUser = reader.GetBoolean(2);
+        }
+
+        if (string.Equals(visibilityScope, "Authenticated", StringComparison.Ordinal))
+        {
+            if (!isActiveUser)
+            {
+                return WorkflowMutationResult<NotificationResponse>.Forbidden();
+            }
+
+            await using var insert = connection.CreateCommand();
+            insert.CommandText = """
+                insert into notification_recipients (notification_id, user_id)
+                values (@notification_id, @user_id)
+                on conflict (notification_id, user_id) do nothing;
+                """;
+            insert.Parameters.AddWithValue("notification_id", notificationId);
+            insert.Parameters.AddWithValue("user_id", userId);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+        else if (!hasRecipient)
+        {
+            return WorkflowMutationResult<NotificationResponse>.Forbidden();
+        }
 
         await using (var update = connection.CreateCommand())
         {
@@ -764,6 +909,24 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
     public async Task<NotificationSummaryResponse> MarkAllNotificationsReadAsync(Guid userId, CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
+        await using (var insert = dataSource.CreateCommand("""
+            insert into notification_recipients (notification_id, user_id)
+            select n.id, @user_id
+            from notifications n
+            where n.visibility_scope = 'Authenticated'
+              and exists (
+                    select 1
+                    from qms_users u
+                    where u.id = @user_id
+                      and u.is_active = true
+                )
+            on conflict (notification_id, user_id) do nothing;
+            """))
+        {
+            insert.Parameters.AddWithValue("user_id", userId);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         await using var command = dataSource.CreateCommand("""
             update notification_recipients
             set read_at_utc = coalesce(read_at_utc, now())
@@ -1490,18 +1653,27 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 p.project_title,
                 p.project_code,
                 p.item,
+                n.work_item_id,
+                wi.title,
+                wi.workflow_stage_code,
+                ws.stage_name,
                 n.notification_type,
                 n.severity,
+                n.visibility_scope,
+                n.source_kind,
                 n.title,
                 n.message,
                 n.link_url,
                 n.created_at_utc,
                 nr.read_at_utc
-            from notification_recipients nr
-            join notifications n on n.id = nr.notification_id
+            from notifications n
+            left join notification_recipients nr on nr.notification_id = n.id
+                and nr.user_id = @user_id
             left join projects p on p.id = n.project_id
+            left join work_items wi on wi.id = n.work_item_id
+            left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
             where n.id = @notification_id
-              and nr.user_id = @user_id;
+              and (nr.id is not null or n.visibility_scope = 'Authenticated');
             """;
         command.Parameters.AddWithValue("notification_id", notificationId);
         command.Parameters.AddWithValue("user_id", userId);
@@ -1542,23 +1714,33 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     private static NotificationResponse ReadNotification(NpgsqlDataReader reader)
     {
-        var type = reader.GetString(5);
-        var severity = reader.GetString(6);
+        var type = reader.GetString(9);
+        var severity = reader.GetString(10);
+        var visibilityScope = reader.GetString(11);
+        var sourceKind = reader.GetString(12);
         return new NotificationResponse(
             reader.GetGuid(0),
             reader.IsDBNull(1) ? null : reader.GetGuid(1),
             reader.IsDBNull(2) ? null : reader.GetString(2),
             reader.IsDBNull(3) ? null : reader.GetString(3),
             reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.IsDBNull(5) ? null : reader.GetGuid(5),
+            reader.IsDBNull(6) ? null : reader.GetString(6),
+            reader.IsDBNull(7) ? null : reader.GetString(7),
+            reader.IsDBNull(8) ? null : StageDisplayName(reader.GetString(7), reader.GetString(8)),
             type,
             NotificationTypeLabel(type),
             severity,
             SeverityLabel(severity),
-            reader.GetString(7),
-            reader.GetString(8),
-            reader.IsDBNull(9) ? null : reader.GetString(9),
-            reader.GetFieldValue<DateTimeOffset>(10),
-            reader.IsDBNull(11) ? null : reader.GetFieldValue<DateTimeOffset>(11));
+            visibilityScope,
+            VisibilityScopeLabel(visibilityScope),
+            sourceKind,
+            SourceKindLabel(sourceKind),
+            reader.GetString(13),
+            reader.GetString(14),
+            reader.IsDBNull(15) ? null : reader.GetString(15),
+            reader.GetFieldValue<DateTimeOffset>(16),
+            reader.IsDBNull(17) ? null : reader.GetFieldValue<DateTimeOffset>(17));
     }
 
     private static string BuildWorkDescription(StageSnapshot stage, ResolvedAssignee assignee)
@@ -1780,6 +1962,30 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             "Warning" => "주의",
             "Critical" => "긴급",
             _ => "정보"
+        };
+    }
+
+    private static string VisibilityScopeLabel(string scope)
+    {
+        return scope switch
+        {
+            "Authenticated" => "로그인 사용자",
+            "AdminOnly" => "관리자 전용",
+            _ => "수신자 전용"
+        };
+    }
+
+    private static string SourceKindLabel(string sourceKind)
+    {
+        return sourceKind switch
+        {
+            "Manual" => "관리자 수동 발송",
+            "ChannelNotice" => "채널 공지",
+            "WorkAssignment" => "업무 배정",
+            "DailyDigest" => "일일 요약",
+            "Escalation" => "에스컬레이션",
+            "System" => "시스템 알림",
+            _ => "자동 알림"
         };
     }
 

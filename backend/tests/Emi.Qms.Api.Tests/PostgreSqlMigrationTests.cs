@@ -1394,7 +1394,7 @@ public sealed class PostgreSqlMigrationTests
             """
             select count(*)
             from schema_migrations
-            where version = '0026_notification_delivery_manual_payload';
+            where version = '0027_notification_access_scope_and_manual_work_items';
             """,
             cancellationToken));
 
@@ -1472,6 +1472,42 @@ public sealed class PostgreSqlMigrationTests
               );
             """,
             cancellationToken));
+
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'notifications'
+              and column_name in (
+                  'visibility_scope',
+                  'source_kind',
+                  'work_item_id',
+                  'manual_requested_by_user_id'
+              );
+            """,
+            cancellationToken));
+
+        var visibilityConstraint = await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_notifications_visibility_scope';
+            """,
+            cancellationToken);
+        Assert.Contains("Authenticated", visibilityConstraint, StringComparison.Ordinal);
+
+        var sourceKindConstraint = await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_notifications_source_kind';
+            """,
+            cancellationToken);
+        Assert.Contains("WorkAssignment", sourceKindConstraint, StringComparison.Ordinal);
     }
 
     private static async Task ApplyMigrationFileAsync(

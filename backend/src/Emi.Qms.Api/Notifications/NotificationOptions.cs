@@ -3,12 +3,18 @@ namespace Emi.Qms.Api.Notifications;
 public sealed class NotificationOptions
 {
     public NotificationDispatchOptions Dispatch { get; init; } = new();
+    public NotificationLinkOptions Links { get; init; } = new();
     public NotificationDailyDigestOptions DailyDigest { get; init; } = new();
     public NotificationEscalationOptions Escalation { get; init; } = new();
     public NotificationTeamsOptions Teams { get; init; } = new();
     public NotificationTeamsActivityOptions TeamsActivity { get; init; } = new();
     public NotificationMailOptions Mail { get; init; } = new();
     public NotificationGraphOptions Graph { get; init; } = new();
+}
+
+public sealed class NotificationLinkOptions
+{
+    public string? BaseUrl { get; init; }
 }
 
 public sealed class NotificationDispatchOptions
@@ -58,9 +64,15 @@ public sealed class NotificationTeamsActivityOptions
     public string? TenantId { get; init; }
     public string? ClientId { get; init; }
     public string? ClientSecret { get; init; }
+    public string? ManifestId { get; init; }
+    public string? TeamsManifestExternalId { get; init; }
     public string? TeamsAppId { get; init; }
+    public string? TeamsCatalogAppId { get; init; }
     public string? InstalledAppId { get; init; }
     public string? TopicWebUrl { get; init; }
+    public string DeepLinkEntityId { get; init; } = "home";
+    public string TeamsStaticTabEntityId { get; init; } = "home";
+    public bool UseTeamsAppIdForTextTopic { get; init; }
     public bool UseUserPrincipalNameFallback { get; init; }
     public bool RequireEntraUser { get; init; } = true;
     public string PersonalChannelStrategy { get; init; } = "TeamsDirectMessageDryRun";

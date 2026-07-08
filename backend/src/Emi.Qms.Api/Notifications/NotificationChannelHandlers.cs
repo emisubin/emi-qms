@@ -215,6 +215,9 @@ public sealed class TeamsActivityChannelHandler(
                 "Teams Activity Feed 대상 사용자의 Entra object id가 없습니다."));
         }
 
+        var teamsAppId = teamsActivity.UseTeamsAppIdForTextTopic
+            ? teamsActivity.TeamsAppId
+            : null;
         return teamsActivityClient.SendAsync(
             new TeamsActivitySendRequest(
                 graphUserId,
@@ -224,7 +227,7 @@ public sealed class TeamsActivityChannelHandler(
                 renderResult.TopicWebUrl,
                 renderResult.PreviewText,
                 renderResult.TemplateParameters,
-                teamsActivity.TeamsAppId,
+                teamsAppId,
                 message.CorrelationId),
             cancellationToken);
     }

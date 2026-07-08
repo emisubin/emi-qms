@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 
 namespace Emi.Qms.Api.Notifications;
@@ -190,11 +191,6 @@ public static class TeamsActivityNotificationRenderer
         string title,
         NotificationTeamsActivityTypeOptions options)
     {
-        if (!string.IsNullOrWhiteSpace(message.Body))
-        {
-            return message.Body.Trim();
-        }
-
         if (string.Equals(activityType, options.DeadlineOverdue, StringComparison.Ordinal))
         {
             return $"{title} / 예정일 초과 / 담당자 확인 필요";
@@ -220,27 +216,72 @@ public static class TeamsActivityNotificationRenderer
             return $"{title} / 프로젝트 완료";
         }
 
+        if (!string.IsNullOrWhiteSpace(message.Body))
+        {
+            return SingleLine(message.Body);
+        }
+
         return $"{title} / 내 업무 확인 필요";
     }
 
     private static string ResolveTopicWebUrl(string? linkUrl, string? configuredTopicWebUrl)
     {
-        if (!string.IsNullOrWhiteSpace(linkUrl)
-            && Uri.TryCreate(linkUrl, UriKind.Absolute, out var absoluteLink)
-            && IsTeamsDeepLink(absoluteLink))
+        var configuredBaseUrl = ResolveConfiguredTopicBaseUrl(configuredTopicWebUrl);
+        if (!string.IsNullOrWhiteSpace(linkUrl))
         {
-            return absoluteLink.ToString();
+            var trimmedLink = linkUrl.Trim();
+            if (Uri.TryCreate(trimmedLink, UriKind.Absolute, out var absoluteLink)
+                && absoluteLink.Scheme == Uri.UriSchemeHttps)
+            {
+                return trimmedLink;
+            }
+
+            if (Uri.TryCreate(configuredBaseUrl, UriKind.Absolute, out var baseUri)
+                && TryCombineWithOrigin(baseUri, trimmedLink, out var combinedLink)
+                && combinedLink.Scheme == Uri.UriSchemeHttps)
+            {
+                return combinedLink.ToString();
+            }
         }
 
-        var baseUrl = string.IsNullOrWhiteSpace(configuredTopicWebUrl)
-            ? "http://localhost:5174"
+        return configuredBaseUrl;
+    }
+
+    private static string ResolveConfiguredTopicBaseUrl(string? configuredTopicWebUrl)
+    {
+        return string.IsNullOrWhiteSpace(configuredTopicWebUrl)
+            ? "https://localhost:5174/teams/activity"
             : configuredTopicWebUrl.Trim();
-        return baseUrl;
+    }
+
+    private static bool TryCombineWithOrigin(Uri baseUri, string relativeLink, out Uri combinedLink)
+    {
+        combinedLink = null!;
+        if (string.IsNullOrWhiteSpace(relativeLink))
+        {
+            return false;
+        }
+
+        var origin = new Uri(baseUri.GetLeftPart(UriPartial.Authority), UriKind.Absolute);
+        try
+        {
+            combinedLink = new Uri(origin, relativeLink.TrimStart('/'));
+            return true;
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
     }
 
     private static string Trim(string value, int maxLength)
     {
         return value.Length <= maxLength ? value : value[..maxLength];
+    }
+
+    private static string SingleLine(string value)
+    {
+        return string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 
     internal static bool IsTeamsDeepLink(Uri uri)
@@ -285,19 +326,11 @@ public sealed class GraphTeamsActivityClient(
                 token.ErrorMessage ?? "Teams Activity Graph token 요청이 실패했습니다.");
         }
 
-        var endpoint = $"{teamsActivity.BaseUrl.TrimEnd('/')}/users/{Uri.EscapeDataString(request.UserId)}/teamwork/sendActivityNotification";
         var clientRequestId = string.IsNullOrWhiteSpace(request.CorrelationId)
             ? Guid.NewGuid().ToString("N")
             : request.CorrelationId;
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, endpoint)
-        {
-            Content = JsonContent.Create(GraphTeamsActivityNotificationRequest.FromRequest(request))
-        };
-        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
-        httpRequest.Headers.Add("client-request-id", clientRequestId);
-        httpRequest.Headers.Add("return-client-request-id", "true");
 
-        using var response = await httpClient.SendAsync(httpRequest, cancellationToken);
+        using var response = await SendActivityNotificationAsync(teamsActivity, request, token.AccessToken, clientRequestId, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NoContent)
         {
             return NotificationChannelResult.Sent(BuildProviderMessageId(response, clientRequestId));
@@ -305,12 +338,61 @@ public sealed class GraphTeamsActivityClient(
 
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
         var graphError = ParseGraphError(responseBody);
+        if (IsInvalidInstalledAppId(graphError)
+            && !string.IsNullOrWhiteSpace(teamsActivity.TeamsAppId)
+            && string.Equals(request.TopicSource, "entityUrl", StringComparison.Ordinal))
+        {
+            var resolvedTopicValue = await ResolveInstalledAppEntityUrlAsync(teamsActivity, request.UserId, token.AccessToken, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(resolvedTopicValue)
+                && !string.Equals(resolvedTopicValue, request.TopicValue, StringComparison.Ordinal))
+            {
+                var retryRequest = request with
+                {
+                    TopicSource = "entityUrl",
+                    TopicValue = resolvedTopicValue,
+                    TopicWebUrl = null
+                };
+                using var retryResponse = await SendActivityNotificationAsync(teamsActivity, retryRequest, token.AccessToken, clientRequestId, cancellationToken);
+                if (retryResponse.StatusCode == HttpStatusCode.NoContent)
+                {
+                    return NotificationChannelResult.Sent(BuildProviderMessageId(retryResponse, clientRequestId));
+                }
+
+                responseBody = await retryResponse.Content.ReadAsStringAsync(cancellationToken);
+                graphError = ParseGraphError(responseBody);
+                var retryErrorCode = ClassifyGraphError(retryResponse.StatusCode, graphError);
+                return new NotificationChannelResult(
+                    NotificationDeliveryStatuses.Failed,
+                    BuildProviderMessageId(retryResponse, clientRequestId),
+                    retryErrorCode,
+                    BuildGraphErrorMessage(retryResponse.StatusCode, retryErrorCode, graphError));
+            }
+        }
+
         var errorCode = ClassifyGraphError(response.StatusCode, graphError);
         return new NotificationChannelResult(
             NotificationDeliveryStatuses.Failed,
             BuildProviderMessageId(response, clientRequestId),
             errorCode,
-            BuildGraphErrorMessage(response.StatusCode, errorCode));
+            BuildGraphErrorMessage(response.StatusCode, errorCode, graphError));
+    }
+
+    private async Task<HttpResponseMessage> SendActivityNotificationAsync(
+        NotificationTeamsActivityOptions teamsActivity,
+        TeamsActivitySendRequest request,
+        string accessToken,
+        string clientRequestId,
+        CancellationToken cancellationToken)
+    {
+        var endpoint = $"{teamsActivity.BaseUrl.TrimEnd('/')}/users/{Uri.EscapeDataString(request.UserId)}/teamwork/sendActivityNotification";
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = JsonContent.Create(GraphTeamsActivityNotificationRequest.FromRequest(request))
+        };
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        httpRequest.Headers.Add("client-request-id", clientRequestId);
+        httpRequest.Headers.Add("return-client-request-id", "true");
+        return await httpClient.SendAsync(httpRequest, cancellationToken);
     }
 
     private async Task<GraphAccessTokenResult> GetTokenAsync(
@@ -351,6 +433,45 @@ public sealed class GraphTeamsActivityClient(
         return new GraphAccessTokenResult(true, cachedAccessToken, null, null);
     }
 
+    private async Task<string?> ResolveInstalledAppEntityUrlAsync(
+        NotificationTeamsActivityOptions teamsActivity,
+        string userId,
+        string accessToken,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(teamsActivity.TeamsAppId))
+        {
+            return null;
+        }
+
+        var endpoint = $"{teamsActivity.BaseUrl.TrimEnd('/')}/users/{Uri.EscapeDataString(userId)}/teamwork/installedApps?$expand=teamsApp,teamsAppDefinition";
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var installedApps = await response.Content.ReadFromJsonAsync<GraphInstalledAppsResponse>(cancellationToken);
+        var matchingApp = installedApps?.Value.FirstOrDefault(app =>
+            string.Equals(app.TeamsApp?.ExternalId, teamsActivity.TeamsAppId, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(app.TeamsApp?.Id, teamsActivity.TeamsAppId, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(app.TeamsAppDefinition?.TeamsAppId, teamsActivity.TeamsAppId, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(app.TeamsAppDefinition?.Id, teamsActivity.TeamsAppId, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(matchingApp?.Id))
+        {
+            return null;
+        }
+
+        return teamsActivity.BaseUrl.TrimEnd('/')
+            + "/users/"
+            + Uri.EscapeDataString(userId)
+            + "/teamwork/installedApps/"
+            + Uri.EscapeDataString(matchingApp.Id);
+    }
+
     private static NotificationChannelResult? Validate(NotificationTeamsActivityOptions options, TeamsActivitySendRequest request)
     {
         if (string.IsNullOrWhiteSpace(options.TenantId)
@@ -365,11 +486,11 @@ public sealed class GraphTeamsActivityClient(
         if (string.Equals(request.TopicSource, "text", StringComparison.Ordinal)
             && (string.IsNullOrWhiteSpace(request.TopicWebUrl)
                 || !Uri.TryCreate(request.TopicWebUrl, UriKind.Absolute, out var topicUri)
-                || !TeamsActivityNotificationRenderer.IsTeamsDeepLink(topicUri)))
+                || topicUri.Scheme != Uri.UriSchemeHttps))
         {
             return NotificationChannelResult.Failed(
                 "TeamsActivityInvalidTopic",
-                "Teams Activity topic webUrl은 https://teams.microsoft.com/l/... 형식의 Teams deep link여야 합니다.");
+                "Teams Activity topic webUrl은 https URL이어야 합니다.");
         }
 
         return null;
@@ -378,16 +499,22 @@ public sealed class GraphTeamsActivityClient(
     private static string ClassifyGraphError(HttpStatusCode statusCode, GraphError? graphError)
     {
         var message = graphError?.Message ?? "";
-        if (message.Contains("Failed to find Teams application", StringComparison.OrdinalIgnoreCase)
-            && message.Contains("installed applications", StringComparison.OrdinalIgnoreCase))
+        if (IsAppNotInstalled(statusCode, graphError))
         {
             return "TeamsActivityAppNotInstalled";
         }
 
         if (message.Contains("Invalid 'webUrl'", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("Invalid webUrl", StringComparison.OrdinalIgnoreCase))
+            || message.Contains("Invalid webUrl", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("validDomains", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("valid domains", StringComparison.OrdinalIgnoreCase))
         {
             return "TeamsActivityInvalidTopic";
+        }
+
+        if (IsInvalidInstalledAppId(graphError))
+        {
+            return "TeamsActivityInvalidInstalledAppId";
         }
 
         return statusCode switch
@@ -401,16 +528,49 @@ public sealed class GraphTeamsActivityClient(
         };
     }
 
-    private static string BuildGraphErrorMessage(HttpStatusCode statusCode, string errorCode)
+    private static bool IsInvalidInstalledAppId(GraphError? graphError)
     {
-        return errorCode switch
+        var message = graphError?.Message ?? "";
+        return message.Contains("app installation id", StringComparison.OrdinalIgnoreCase)
+            && message.Contains("not a valid app installation id", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsAppNotInstalled(HttpStatusCode statusCode, GraphError? graphError)
+    {
+        var message = graphError?.Message ?? "";
+        return (message.Contains("Failed to find Teams application", StringComparison.OrdinalIgnoreCase)
+                && message.Contains("installed applications", StringComparison.OrdinalIgnoreCase))
+            || (statusCode == HttpStatusCode.NotFound
+                && message.Contains("install", StringComparison.OrdinalIgnoreCase)
+                && message.Contains("app", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string BuildGraphErrorMessage(HttpStatusCode statusCode, string errorCode, GraphError? graphError)
+    {
+        var baseMessage = errorCode switch
         {
-            "TeamsActivityAppNotInstalled" => "Graph가 수신자에게 설치된 Teams 앱에서 요청한 앱을 찾지 못했습니다. 앱 미설치, TeamsAppId 불일치, 또는 설치된 manifest 버전을 확인해야 합니다.",
-            "TeamsActivityInvalidTopic" => "Teams Activity topic webUrl이 유효한 Teams deep link가 아닙니다.",
+            "TeamsActivityAppNotInstalled" => "수신자의 Teams 앱 설치 상태 또는 Teams 앱 정책을 확인하세요.",
+            "TeamsActivityInvalidTopic" => "Teams manifest validDomains와 webUrl 도메인을 확인하세요.",
+            "TeamsActivityInvalidInstalledAppId" => "Teams Activity InstalledAppId가 Graph 설치 앱 ID와 일치하지 않습니다. 수신자 기준 installedApps 최상위 id를 확인해야 합니다.",
             "TeamsActivityPermissionDenied" => "Teams Activity Graph 권한 또는 관리자 동의가 부족합니다.",
             "TeamsActivityThrottled" => "Teams Activity Graph 요청이 제한되었습니다. 잠시 후 재시도해야 합니다.",
             _ => $"Teams Activity Graph 요청이 실패했습니다. HTTP {(int)statusCode}"
         };
+        var graphDetail = CompactGraphDetail($"{graphError?.Code} {graphError?.Message}".Trim());
+        return string.IsNullOrWhiteSpace(graphDetail)
+            ? baseMessage
+            : $"{baseMessage} Graph: {TruncateGraphDetail(graphDetail, 300)}";
+    }
+
+    private static string CompactGraphDetail(string value)
+    {
+        var singleLine = string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return Regex.Replace(singleLine, @"[A-Za-z0-9_-]{16,}", "[MASKED_ID]");
+    }
+
+    private static string TruncateGraphDetail(string value, int maxLength)
+    {
+        return value.Length <= maxLength ? value : value[..maxLength];
     }
 
     private static GraphError? ParseGraphError(string responseBody)
@@ -480,6 +640,24 @@ public sealed record GraphTeamsActivityPreviewText(
 public sealed record GraphTeamsActivityTemplateParameter(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("value")] string Value);
+
+public sealed record GraphInstalledAppsResponse(
+    [property: JsonPropertyName("value")] IReadOnlyList<GraphInstalledApp> Value);
+
+public sealed record GraphInstalledApp(
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("teamsApp")] GraphTeamsApp? TeamsApp,
+    [property: JsonPropertyName("teamsAppDefinition")] GraphTeamsAppDefinition? TeamsAppDefinition);
+
+public sealed record GraphTeamsApp(
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("externalId")] string? ExternalId,
+    [property: JsonPropertyName("displayName")] string? DisplayName);
+
+public sealed record GraphTeamsAppDefinition(
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("teamsAppId")] string? TeamsAppId,
+    [property: JsonPropertyName("displayName")] string? DisplayName);
 
 public sealed record GraphErrorEnvelope(
     [property: JsonPropertyName("error")] GraphError? Error);

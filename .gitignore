@@ -2,10 +2,12 @@
 .env
 .env.*
 !.env.example
+.certs/
 *.pfx
 *.p12
 *.pem
 *.key
+*.crt
 secrets/
 
 # .NET

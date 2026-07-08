@@ -1,4 +1,5 @@
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.Workflow;
 using Microsoft.Extensions.Options;
 using System.Net.Mail;
 using System.Security.Cryptography;
@@ -101,13 +102,11 @@ public static class NotificationDeliveryEndpointExtensions
                 return Results.Unauthorized();
             }
 
+            var sendMode = NormalizeManualSendMode(request.SendMode);
             var channels = NormalizeManualChannels(request.Channels);
-            if (channels.Count == 0)
-            {
-                return Results.BadRequest(new { message = "발송할 채널을 하나 이상 선택해 주세요." });
-            }
-
-            var notificationKind = NormalizeManualKind(request.NotificationKind);
+            var notificationKind = sendMode == NotificationManualSendModes.WorkAssignment
+                ? NotificationManualKinds.WorkItemAssigned
+                : NormalizeManualKind(request.NotificationKind);
             var kindLabel = ManualKindLabel(notificationKind);
             var correlationId = CreateCorrelationId();
             var title = request.Title?.Trim();
@@ -120,6 +119,29 @@ public static class NotificationDeliveryEndpointExtensions
             if (string.IsNullOrWhiteSpace(message))
             {
                 return Results.BadRequest(new { message = "내용을 입력해 주세요." });
+            }
+
+            if (sendMode == NotificationManualSendModes.Personal)
+            {
+                if (channels.Count == 0)
+                {
+                    return Results.BadRequest(new { message = "개인 알림은 Teams Activity 또는 Mail 채널을 하나 이상 선택해 주세요." });
+                }
+
+                if (channels.Contains(NotificationDeliveryChannels.TeamsChannel))
+                {
+                    return Results.BadRequest(new { message = "개인 알림에서는 Teams 채널 게시를 선택할 수 없습니다." });
+                }
+            }
+            else if (sendMode == NotificationManualSendModes.ChannelNotice)
+            {
+                channels = [NotificationDeliveryChannels.TeamsChannel];
+                notificationKind = NormalizeManualKind(request.NotificationKind);
+                kindLabel = ManualKindLabel(notificationKind);
+            }
+            else if (channels.Contains(NotificationDeliveryChannels.TeamsChannel))
+            {
+                return Results.BadRequest(new { message = "업무 배정 알림에서는 Teams 채널 게시를 기본 채널로 선택할 수 없습니다." });
             }
 
             Guid? projectId = null;
@@ -142,16 +164,30 @@ public static class NotificationDeliveryEndpointExtensions
                     : request.ProjectName.Trim();
             }
 
+            if (sendMode == NotificationManualSendModes.WorkAssignment && projectId is null)
+            {
+                return Results.BadRequest(new { message = "업무 배정 알림은 기존 프로젝트를 선택해야 합니다." });
+            }
+
             var mailUserIds = NormalizeIds(request.MailRecipientUserIds, request.MailRecipientUserId);
             var teamsActivityUserIds = NormalizeIds(request.TeamsActivityRecipientUserIds, request.TeamsActivityRecipientUserId);
+            var workAssigneeUserIds = NormalizeIds(request.WorkAssigneeUserIds, request.WorkAssigneeUserId);
             var mailEmails = NormalizeEmails(request.MailRecipientEmails, request.MailRecipientEmail);
 
-            if (channels.Contains(NotificationDeliveryChannels.TeamsActivity) && teamsActivityUserIds.Count == 0)
+            if (sendMode == NotificationManualSendModes.WorkAssignment && workAssigneeUserIds.Count == 0)
+            {
+                return Results.BadRequest(new { message = "업무 배정 담당자를 한 명 이상 선택해 주세요." });
+            }
+
+            if (sendMode == NotificationManualSendModes.Personal
+                && channels.Contains(NotificationDeliveryChannels.TeamsActivity)
+                && teamsActivityUserIds.Count == 0)
             {
                 return Results.BadRequest(new { message = "Teams Activity 수신자를 한 명 이상 선택해 주세요." });
             }
 
-            if (channels.Contains(NotificationDeliveryChannels.Mail)
+            if (sendMode == NotificationManualSendModes.Personal
+                && channels.Contains(NotificationDeliveryChannels.Mail)
                 && mailUserIds.Count == 0
                 && mailEmails.Count == 0)
             {
@@ -167,7 +203,7 @@ public static class NotificationDeliveryEndpointExtensions
             }
 
             var notificationOptions = options.CurrentValue;
-            if (channels.Contains(NotificationDeliveryChannels.TeamsChannel)
+            if (sendMode == NotificationManualSendModes.ChannelNotice
                 && (!notificationOptions.Teams.Enabled || string.IsNullOrWhiteSpace(notificationOptions.Teams.WebhookUrl)))
             {
                 return Results.BadRequest(new { message = "Teams 채널 발송 설정이 완료되지 않았습니다." });
@@ -183,8 +219,19 @@ public static class NotificationDeliveryEndpointExtensions
                 requestedAtUtc);
             var results = new List<NotificationManualSendChannelResponse>();
 
-            if (channels.Contains(NotificationDeliveryChannels.TeamsChannel))
+            if (sendMode == NotificationManualSendModes.ChannelNotice)
             {
+                var notificationId = await deliveryStore.CreateManualNotificationAsync(
+                    projectId,
+                    null,
+                    notificationKind,
+                    title,
+                    message,
+                    correlationId,
+                    NotificationVisibilityScopes.Authenticated,
+                    NotificationSourceKinds.ChannelNotice,
+                    currentUserId.Value,
+                    cancellationToken);
                 results.Add(await QueueManualDeliveryAsync(
                     deliveryStore,
                     NotificationDeliveryChannels.TeamsChannel,
@@ -203,117 +250,270 @@ public static class NotificationDeliveryEndpointExtensions
                     $"manual-send:{correlationId}:teams-channel",
                     "Teams 채널",
                     projectId,
+                    notificationId,
+                    null,
                     payload,
                     currentUserId.Value,
+                    null,
                     cancellationToken));
             }
-
-            if (channels.Contains(NotificationDeliveryChannels.TeamsActivity))
+            else if (sendMode == NotificationManualSendModes.WorkAssignment)
             {
-                foreach (var recipientUserId in teamsActivityUserIds)
+                var workflowStageCode = NormalizeWorkflowStageCode(request.WorkflowStageCode);
+                foreach (var assigneeUserId in workAssigneeUserIds)
                 {
-                    var recipient = await deliveryStore.GetTeamsActivityRecipientAsync(recipientUserId, cancellationToken);
-                    if (recipient is null)
+                    var assignee = await deliveryStore.GetTeamsActivityRecipientAsync(assigneeUserId, cancellationToken);
+                    if (assignee is null || !assignee.IsActive)
                     {
-                        results.Add(ManualSendFailed(NotificationDeliveryChannels.TeamsActivity, "TeamsActivityRecipientNotFound", "Teams Activity 수신자를 찾을 수 없습니다.", "Teams Activity Feed"));
+                        results.Add(ManualSendFailed("InApp", "WorkAssigneeNotFound", "업무 배정 담당자를 찾을 수 없거나 비활성 상태입니다.", "내 업무"));
                         continue;
                     }
 
-                    if (!recipient.IsActive
-                        || !string.Equals(recipient.AuthProvider, "EntraId", StringComparison.Ordinal)
-                        || string.IsNullOrWhiteSpace(recipient.EntraObjectId))
-                    {
-                        results.Add(ManualSendFailed(NotificationDeliveryChannels.TeamsActivity, "TeamsActivityRecipientInvalid", "Teams Activity actual 발송은 활성 EntraId 사용자만 선택할 수 있습니다.", MaskRecipient(recipient)));
-                        continue;
-                    }
-
-                    results.Add(await QueueManualDeliveryAsync(
-                        deliveryStore,
-                        NotificationDeliveryChannels.TeamsActivity,
-                        recipient.UserId,
-                        new NotificationDeliveryDisplaySnapshot(
-                            title,
-                            message,
-                            projectName,
-                            null,
-                            recipient.DisplayName,
-                            recipient.Email,
-                            NotificationDisplayRecipientKinds.User,
-                            "Teams Activity Feed",
-                            notificationKind,
-                            correlationId),
-                        $"manual-send:{correlationId}:teams-activity:{recipient.UserId:N}",
-                        MaskRecipient(recipient),
-                        projectId,
-                        payload,
+                    var workItemId = await deliveryStore.CreateManualWorkItemAsync(
+                        projectId!.Value,
+                        assignee.UserId,
+                        workflowStageCode,
+                        title,
+                        message,
+                        request.DueDate,
                         currentUserId.Value,
-                        cancellationToken));
+                        correlationId,
+                        cancellationToken);
+                    var notificationId = await deliveryStore.CreateManualNotificationAsync(
+                        projectId,
+                        workItemId,
+                        notificationKind,
+                        title,
+                        message,
+                        $"{correlationId}:{assignee.UserId:N}",
+                        NotificationVisibilityScopes.RecipientOnly,
+                        NotificationSourceKinds.WorkAssignment,
+                        currentUserId.Value,
+                        cancellationToken);
+                    var notificationRecipientId = await deliveryStore.EnsureNotificationRecipientAsync(
+                        notificationId,
+                        assignee.UserId,
+                        cancellationToken);
+
+                    if (channels.Count == 0)
+                    {
+                        results.Add(ManualSendQueuedInApp(MaskRecipient(assignee)));
+                    }
+
+                    if (channels.Contains(NotificationDeliveryChannels.TeamsActivity))
+                    {
+                        if (!string.Equals(assignee.AuthProvider, "EntraId", StringComparison.Ordinal)
+                            || string.IsNullOrWhiteSpace(assignee.EntraObjectId))
+                        {
+                            results.Add(ManualSendFailed(NotificationDeliveryChannels.TeamsActivity, "TeamsActivityRecipientInvalid", "Teams Activity actual 발송은 활성 EntraId 사용자만 선택할 수 있습니다.", MaskRecipient(assignee)));
+                        }
+                        else
+                        {
+                            results.Add(await QueueManualDeliveryAsync(
+                                deliveryStore,
+                                NotificationDeliveryChannels.TeamsActivity,
+                                assignee.UserId,
+                                new NotificationDeliveryDisplaySnapshot(
+                                    title,
+                                    message,
+                                    projectName,
+                                    title,
+                                    assignee.DisplayName,
+                                    assignee.Email,
+                                    NotificationDisplayRecipientKinds.User,
+                                    "Teams Activity Feed",
+                                    notificationKind,
+                                    correlationId),
+                                $"manual-send:{correlationId}:work:{assignee.UserId:N}:teams-activity",
+                                MaskRecipient(assignee),
+                                projectId,
+                                notificationId,
+                                notificationRecipientId,
+                                payload,
+                                currentUserId.Value,
+                                workItemId,
+                                cancellationToken));
+                        }
+                    }
+
+                    if (channels.Contains(NotificationDeliveryChannels.Mail))
+                    {
+                        if (string.IsNullOrWhiteSpace(assignee.Email))
+                        {
+                            results.Add(ManualSendFailed(NotificationDeliveryChannels.Mail, "RecipientEmailMissing", "메일 수신자 이메일을 확인해 주세요.", MaskRecipient(assignee)));
+                        }
+                        else
+                        {
+                            results.Add(await QueueManualDeliveryAsync(
+                                deliveryStore,
+                                NotificationDeliveryChannels.Mail,
+                                assignee.UserId,
+                                new NotificationDeliveryDisplaySnapshot(
+                                    title,
+                                    message,
+                                    projectName,
+                                    title,
+                                    assignee.DisplayName,
+                                    assignee.Email,
+                                    NotificationDisplayRecipientKinds.User,
+                                    "Mail",
+                                    notificationKind,
+                                    correlationId),
+                                $"manual-send:{correlationId}:work:{assignee.UserId:N}:mail",
+                                $"{assignee.DisplayName} ({MaskAddress(assignee.Email)})",
+                                projectId,
+                                notificationId,
+                                notificationRecipientId,
+                                payload,
+                                currentUserId.Value,
+                                workItemId,
+                                cancellationToken));
+                        }
+                    }
                 }
             }
-
-            if (channels.Contains(NotificationDeliveryChannels.Mail))
+            else
             {
-                foreach (var recipientUserId in mailUserIds)
+                var notificationId = await deliveryStore.CreateManualNotificationAsync(
+                    projectId,
+                    null,
+                    notificationKind,
+                    title,
+                    message,
+                    correlationId,
+                    NotificationVisibilityScopes.RecipientOnly,
+                    NotificationSourceKinds.Manual,
+                    currentUserId.Value,
+                    cancellationToken);
+
+                if (channels.Contains(NotificationDeliveryChannels.TeamsActivity))
                 {
-                    var recipient = await deliveryStore.GetTeamsActivityRecipientAsync(recipientUserId, cancellationToken);
-                    if (recipient is null)
+                    foreach (var recipientUserId in teamsActivityUserIds)
                     {
-                        results.Add(ManualSendFailed(NotificationDeliveryChannels.Mail, "MailRecipientNotFound", "메일 수신자를 찾을 수 없습니다.", "메일 수신자 미등록"));
-                        continue;
-                    }
+                        var recipient = await deliveryStore.GetTeamsActivityRecipientAsync(recipientUserId, cancellationToken);
+                        if (recipient is null)
+                        {
+                            results.Add(ManualSendFailed(NotificationDeliveryChannels.TeamsActivity, "TeamsActivityRecipientNotFound", "Teams Activity 수신자를 찾을 수 없습니다.", "Teams Activity Feed"));
+                            continue;
+                        }
 
-                    if (!recipient.IsActive || string.IsNullOrWhiteSpace(recipient.Email))
-                    {
-                        results.Add(ManualSendFailed(NotificationDeliveryChannels.Mail, "RecipientEmailMissing", "메일 수신자 이메일을 확인해 주세요.", MaskRecipient(recipient)));
-                        continue;
-                    }
+                        if (!recipient.IsActive
+                            || !string.Equals(recipient.AuthProvider, "EntraId", StringComparison.Ordinal)
+                            || string.IsNullOrWhiteSpace(recipient.EntraObjectId))
+                        {
+                            results.Add(ManualSendFailed(NotificationDeliveryChannels.TeamsActivity, "TeamsActivityRecipientInvalid", "Teams Activity actual 발송은 활성 EntraId 사용자만 선택할 수 있습니다.", MaskRecipient(recipient)));
+                            continue;
+                        }
 
-                    results.Add(await QueueManualDeliveryAsync(
-                        deliveryStore,
-                        NotificationDeliveryChannels.Mail,
-                        recipient.UserId,
-                        new NotificationDeliveryDisplaySnapshot(
-                            title,
-                            message,
-                            projectName,
+                        var notificationRecipientId = await deliveryStore.EnsureNotificationRecipientAsync(
+                            notificationId,
+                            recipient.UserId,
+                            cancellationToken);
+                        results.Add(await QueueManualDeliveryAsync(
+                            deliveryStore,
+                            NotificationDeliveryChannels.TeamsActivity,
+                            recipient.UserId,
+                            new NotificationDeliveryDisplaySnapshot(
+                                title,
+                                message,
+                                projectName,
+                                null,
+                                recipient.DisplayName,
+                                recipient.Email,
+                                NotificationDisplayRecipientKinds.User,
+                                "Teams Activity Feed",
+                                notificationKind,
+                                correlationId),
+                            $"manual-send:{correlationId}:teams-activity:{recipient.UserId:N}",
+                            MaskRecipient(recipient),
+                            projectId,
+                            notificationId,
+                            notificationRecipientId,
+                            payload,
+                            currentUserId.Value,
                             null,
-                            recipient.DisplayName,
-                            recipient.Email,
-                            NotificationDisplayRecipientKinds.User,
-                            "Mail",
-                            notificationKind,
-                            correlationId),
-                        $"manual-send:{correlationId}:mail:{recipient.UserId:N}",
-                        $"{recipient.DisplayName} ({MaskAddress(recipient.Email)})",
-                        projectId,
-                        payload,
-                        currentUserId.Value,
-                        cancellationToken));
+                            cancellationToken));
+                    }
                 }
 
-                foreach (var recipientEmail in mailEmails)
+                if (channels.Contains(NotificationDeliveryChannels.Mail))
                 {
-                    results.Add(await QueueManualDeliveryAsync(
-                        deliveryStore,
-                        NotificationDeliveryChannels.Mail,
-                        null,
-                        new NotificationDeliveryDisplaySnapshot(
-                            title,
-                            message,
-                            projectName,
+                    foreach (var recipientUserId in mailUserIds)
+                    {
+                        var recipient = await deliveryStore.GetTeamsActivityRecipientAsync(recipientUserId, cancellationToken);
+                        if (recipient is null)
+                        {
+                            results.Add(ManualSendFailed(NotificationDeliveryChannels.Mail, "MailRecipientNotFound", "메일 수신자를 찾을 수 없습니다.", "메일 수신자 미등록"));
+                            continue;
+                        }
+
+                        if (!recipient.IsActive || string.IsNullOrWhiteSpace(recipient.Email))
+                        {
+                            results.Add(ManualSendFailed(NotificationDeliveryChannels.Mail, "RecipientEmailMissing", "메일 수신자 이메일을 확인해 주세요.", MaskRecipient(recipient)));
+                            continue;
+                        }
+
+                        var notificationRecipientId = await deliveryStore.EnsureNotificationRecipientAsync(
+                            notificationId,
+                            recipient.UserId,
+                            cancellationToken);
+                        results.Add(await QueueManualDeliveryAsync(
+                            deliveryStore,
+                            NotificationDeliveryChannels.Mail,
+                            recipient.UserId,
+                            new NotificationDeliveryDisplaySnapshot(
+                                title,
+                                message,
+                                projectName,
+                                null,
+                                recipient.DisplayName,
+                                recipient.Email,
+                                NotificationDisplayRecipientKinds.User,
+                                "Mail",
+                                notificationKind,
+                                correlationId),
+                            $"manual-send:{correlationId}:mail:{recipient.UserId:N}",
+                            $"{recipient.DisplayName} ({MaskAddress(recipient.Email)})",
+                            projectId,
+                            notificationId,
+                            notificationRecipientId,
+                            payload,
+                            currentUserId.Value,
                             null,
+                            cancellationToken));
+                    }
+
+                    foreach (var recipientEmail in mailEmails)
+                    {
+                        var matchedRecipient = await deliveryStore.GetActiveUserByEmailAsync(recipientEmail, cancellationToken);
+                        var notificationRecipientId = matchedRecipient is null
+                            ? (Guid?)null
+                            : await deliveryStore.EnsureNotificationRecipientAsync(notificationId, matchedRecipient.UserId, cancellationToken);
+                        results.Add(await QueueManualDeliveryAsync(
+                            deliveryStore,
+                            NotificationDeliveryChannels.Mail,
+                            matchedRecipient?.UserId,
+                            new NotificationDeliveryDisplaySnapshot(
+                                title,
+                                message,
+                                projectName,
+                                null,
+                                matchedRecipient?.DisplayName,
+                                recipientEmail,
+                                matchedRecipient is null ? NotificationDisplayRecipientKinds.Email : NotificationDisplayRecipientKinds.User,
+                                "Mail",
+                                notificationKind,
+                                correlationId),
+                            $"manual-send:{correlationId}:mail:{recipientEmail.ToLowerInvariant()}",
+                            matchedRecipient is null ? MaskAddress(recipientEmail) : $"{matchedRecipient.DisplayName} ({MaskAddress(recipientEmail)})",
+                            projectId,
+                            notificationId,
+                            notificationRecipientId,
+                            payload,
+                            currentUserId.Value,
                             null,
-                            recipientEmail,
-                            NotificationDisplayRecipientKinds.Email,
-                            "Mail",
-                            notificationKind,
-                            correlationId),
-                        $"manual-send:{correlationId}:mail:{recipientEmail.ToLowerInvariant()}",
-                        MaskAddress(recipientEmail),
-                        projectId,
-                        payload,
-                        currentUserId.Value,
-                        cancellationToken));
+                            cancellationToken));
+                    }
                 }
             }
 
@@ -339,6 +539,31 @@ public static class NotificationDeliveryEndpointExtensions
         })
         .RequireAuthorization(QmsPolicies.AdminUsersRead)
         .WithName("GetNotificationDeliveryDetail");
+
+        app.MapGet("/api/my/teams-activity/deliveries/{id:guid}", async (
+            Guid id,
+            ClaimsPrincipal user,
+            NotificationDeliveryStore deliveryStore,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(user);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var canReadAllDeliveries = user.HasClaim(QmsClaimTypes.Permission, Emi.Qms.Api.Identity.QmsPermissions.UsersManage);
+            var detail = await deliveryStore.GetDeliveryDetailAsync(
+                id,
+                cancellationToken,
+                canReadAllDeliveries ? null : currentUserId,
+                teamsActivityOnly: true);
+            return detail is null
+                ? Results.NotFound(new { message = "Teams Activity 알림 상세를 찾을 수 없습니다." })
+                : Results.Ok(detail);
+        })
+        .RequireAuthorization()
+        .WithName("GetMyTeamsActivityDeliveryDetail");
 
         app.MapPost("/api/admin/notification-deliveries/test-mail", async (
             NotificationTestMailRequest request,
@@ -458,10 +683,10 @@ public static class NotificationDeliveryEndpointExtensions
             var message = string.IsNullOrWhiteSpace(request.Message)
                 ? "EMI 프로젝트 통합관리시스템 Teams Activity Feed dry-run 테스트입니다. 실제 업무 알림이 아닙니다."
                 : request.Message.Trim();
-            var installedAppId = string.IsNullOrWhiteSpace(request.InstalledAppId)
-                ? teamsActivityOptions.InstalledAppId
-                : request.InstalledAppId;
-            var topicEntityUrl = BuildInstalledAppEntityUrl(recipient.EntraObjectId, installedAppId);
+            var topicEntityUrl = BuildInstalledAppTopicEntityUrl(
+                recipient.EntraObjectId,
+                teamsActivityOptions,
+                request.InstalledAppId);
             var teamsActivityHandler = channelHandlers.Single(handler => handler.Channel == NotificationDeliveryChannels.TeamsActivity);
             var deliveryId = await deliveryStore.CreateManualTestTeamsActivityDeliveryAsync(
                 recipient.UserId,
@@ -530,8 +755,11 @@ public static class NotificationDeliveryEndpointExtensions
         string groupKey,
         string target,
         Guid? projectId,
+        Guid? notificationId,
+        Guid? notificationRecipientId,
         NotificationManualPayload manualPayload,
         Guid requestedByUserId,
+        Guid? workItemId,
         CancellationToken cancellationToken)
     {
         var deliveryId = await deliveryStore.CreateManualDeliveryAsync(
@@ -542,7 +770,10 @@ public static class NotificationDeliveryEndpointExtensions
             cancellationToken,
             projectId,
             manualPayload,
-            requestedByUserId);
+            requestedByUserId,
+            notificationId,
+            notificationRecipientId,
+            workItemId);
 
         return new NotificationManualSendChannelResponse(
             channel,
@@ -553,6 +784,19 @@ public static class NotificationDeliveryEndpointExtensions
             null,
             target,
             "발송 요청이 접수되었습니다.");
+    }
+
+    private static NotificationManualSendChannelResponse ManualSendQueuedInApp(string target)
+    {
+        return new NotificationManualSendChannelResponse(
+            "InApp",
+            "인앱 알림",
+            null,
+            "Queued",
+            null,
+            null,
+            target,
+            "인앱 알림과 내 업무가 생성되었습니다.");
     }
 
     private static NotificationManualSendChannelResponse ManualSendFailed(
@@ -775,7 +1019,6 @@ public static class NotificationDeliveryEndpointExtensions
         }
 
         var activityType = ResolveManualTeamsActivityType(notificationKind, options.ActivityTypes);
-        var topicEntityUrl = BuildInstalledAppEntityUrl(recipient.EntraObjectId, options.InstalledAppId);
         var body = BuildManualBody(kindLabel, title, projectName, message, correlationId, "Teams Activity Feed");
         var deliveryId = await deliveryStore.CreateManualDeliveryAsync(
             NotificationDeliveryChannels.TeamsActivity,
@@ -808,9 +1051,7 @@ public static class NotificationDeliveryEndpointExtensions
                 RecipientEntraObjectId: recipient.EntraObjectId,
                 RecipientAuthProvider: recipient.AuthProvider,
                 RecipientUserIsActive: recipient.IsActive,
-                TeamsActivityType: activityType,
-                TeamsActivityTopicSource: topicEntityUrl is null ? null : "entityUrl",
-                TeamsActivityTopicValue: topicEntityUrl),
+                TeamsActivityType: activityType),
             cancellationToken);
         await deliveryStore.MarkDeliveryResultAsync(deliveryId, result, retryCount: 1, cancellationToken);
         return ToManualSendChannelResponse(NotificationDeliveryChannels.TeamsActivity, deliveryId, result, MaskRecipient(recipient));
@@ -949,6 +1190,16 @@ public static class NotificationDeliveryEndpointExtensions
             .ToArray();
     }
 
+    private static string NormalizeManualSendMode(string? sendMode)
+    {
+        return sendMode?.Trim() switch
+        {
+            NotificationManualSendModes.ChannelNotice => NotificationManualSendModes.ChannelNotice,
+            NotificationManualSendModes.WorkAssignment => NotificationManualSendModes.WorkAssignment,
+            _ => NotificationManualSendModes.Personal
+        };
+    }
+
     private static string NormalizeManualKind(string? kind)
     {
         return kind?.Trim() switch
@@ -959,6 +1210,32 @@ public static class NotificationDeliveryEndpointExtensions
             NotificationManualKinds.DailyDigest => NotificationManualKinds.DailyDigest,
             NotificationManualKinds.Custom => NotificationManualKinds.Custom,
             _ => NotificationManualKinds.Custom
+        };
+    }
+
+    private static string NormalizeWorkflowStageCode(string? stageCode)
+    {
+        return stageCode?.Trim() switch
+        {
+            WorkflowStageCodes.SalesProjectCreated => WorkflowStageCodes.SalesProjectCreated,
+            WorkflowStageCodes.DesignPanelInfo => WorkflowStageCodes.DesignPanelInfo,
+            WorkflowStageCodes.ProductionPlanning => WorkflowStageCodes.ProductionPlanning,
+            WorkflowStageCodes.ProcurementInfo => WorkflowStageCodes.ProcurementInfo,
+            WorkflowStageCodes.MaterialArrived => WorkflowStageCodes.MaterialArrived,
+            WorkflowStageCodes.IQC => WorkflowStageCodes.IQC,
+            WorkflowStageCodes.ReceiptConfirmed => WorkflowStageCodes.ReceiptConfirmed,
+            WorkflowStageCodes.KittingCompleted => WorkflowStageCodes.KittingCompleted,
+            WorkflowStageCodes.ManufacturingWork => WorkflowStageCodes.ManufacturingWork,
+            WorkflowStageCodes.LQC => WorkflowStageCodes.LQC,
+            WorkflowStageCodes.ManufacturingCompleted => WorkflowStageCodes.ManufacturingCompleted,
+            WorkflowStageCodes.OQC => WorkflowStageCodes.OQC,
+            WorkflowStageCodes.CustomerInspection => WorkflowStageCodes.CustomerInspection,
+            WorkflowStageCodes.FAT => WorkflowStageCodes.FAT,
+            WorkflowStageCodes.PackingCompleted => WorkflowStageCodes.PackingCompleted,
+            WorkflowStageCodes.DepartureProcessed => WorkflowStageCodes.DepartureProcessed,
+            WorkflowStageCodes.DeliveryCompleted => WorkflowStageCodes.DeliveryCompleted,
+            WorkflowStageCodes.SalesSettlementCompleted => WorkflowStageCodes.SalesSettlementCompleted,
+            _ => WorkflowStageCodes.ProductionPlanning
         };
     }
 
@@ -1000,6 +1277,7 @@ public static class NotificationDeliveryEndpointExtensions
             NotificationDeliveryChannels.TeamsChannel => "Teams 채널",
             NotificationDeliveryChannels.TeamsActivity => "Teams Activity",
             NotificationDeliveryChannels.Mail => "메일",
+            "InApp" => "인앱 알림",
             _ => channel
         };
     }
@@ -1074,15 +1352,23 @@ public static class NotificationDeliveryEndpointExtensions
             """;
     }
 
-    private static string? BuildInstalledAppEntityUrl(string? recipientEntraObjectId, string? installedAppId)
+    private static string? BuildInstalledAppTopicEntityUrl(
+        string? recipientEntraObjectId,
+        NotificationTeamsActivityOptions options,
+        string? installedAppIdOverride)
     {
+        var installedAppId = installedAppIdOverride;
         if (string.IsNullOrWhiteSpace(recipientEntraObjectId)
             || string.IsNullOrWhiteSpace(installedAppId))
         {
             return null;
         }
 
-        return "https://graph.microsoft.com/v1.0/users/"
+        var baseUrl = string.IsNullOrWhiteSpace(options.BaseUrl)
+            ? "https://graph.microsoft.com/v1.0"
+            : options.BaseUrl.TrimEnd('/');
+        return baseUrl
+            + "/users/"
             + Uri.EscapeDataString(recipientEntraObjectId.Trim())
             + "/teamwork/installedApps/"
             + Uri.EscapeDataString(installedAppId.Trim());

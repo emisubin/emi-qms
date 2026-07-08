@@ -1,5 +1,6 @@
 import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useMsal } from '@azure/msal-react';
+import { app as teamsApp } from '@microsoft/teams-js';
 import {
   ApiError,
   applyAdminCalendarHolidayExcel,
@@ -56,9 +57,11 @@ import {
   getProductionPlanningSummary,
   getProcurementDashboard,
   getBusinessCalendar,
+  getMyTeamsActivityDelivery,
   getMyWorkSummary,
   getNotificationSummary,
   getMaterialReceipts,
+  getNotificationDetail,
   getReadyHealth,
   getSalesOwners,
   getPermissionMatrix,
@@ -193,6 +196,8 @@ import type {
 type View =
   | { kind: 'my-work' }
   | { kind: 'teams-activity' }
+  | { kind: 'teams-activity-detail'; deliveryId: string }
+  | { kind: 'teams-notification-detail'; notificationId: string }
   | { kind: 'list' }
   | { kind: 'create' }
   | { kind: 'detail'; projectId: string; section?: ProjectDetailSection }
@@ -313,7 +318,22 @@ function initialViewFromLocation(): View {
     return { kind: 'my-work' };
   }
 
+  if (window.location.pathname.startsWith('/teams/activity/deliveries/')) {
+    const deliveryId = window.location.pathname.split('/').filter(Boolean).at(-1);
+    return deliveryId ? { kind: 'teams-activity-detail', deliveryId } : { kind: 'teams-activity' };
+  }
+
+  if (window.location.pathname.startsWith('/teams/activity/notifications/')) {
+    const notificationId = window.location.pathname.split('/').filter(Boolean).at(-1);
+    return notificationId ? { kind: 'teams-notification-detail', notificationId } : { kind: 'teams-activity' };
+  }
+
   if (window.location.pathname === '/teams/activity' || window.location.pathname === '/teams/notifications') {
+    const notificationId = extractNotificationIdFromTeamsActivityLocation();
+    if (notificationId) {
+      return { kind: 'teams-notification-detail', notificationId };
+    }
+
     return { kind: 'teams-activity' };
   }
 
@@ -442,7 +462,104 @@ function isLikelyTeamsContext() {
     return true;
   }
 
-  return /teams\\.microsoft\\.com|teams\\.live\\.com/iu.test(document.referrer);
+  return /teams\.microsoft\.com|teams\.live\.com/iu.test(document.referrer);
+}
+
+function extractNotificationIdFromTeamsActivityLocation() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const notificationId = normalizeNotificationId(params.get('notificationId'));
+  if (notificationId) {
+    return notificationId;
+  }
+
+  const subEntityId = normalizeNotificationSubEntityId(params.get('subEntityId') ?? params.get('subPageId'));
+  if (subEntityId) {
+    return subEntityId;
+  }
+
+  const context = params.get('context');
+  if (!context) {
+    return null;
+  }
+
+  try {
+    return extractNotificationIdFromTeamsContext(JSON.parse(context));
+  } catch {
+    return null;
+  }
+}
+
+async function resolveTeamsContextNotificationId() {
+  if (!isLikelyTeamsContext()) {
+    return null;
+  }
+
+  try {
+    await teamsApp.initialize();
+    return extractNotificationIdFromTeamsContext(await teamsApp.getContext());
+  } catch {
+    return null;
+  }
+}
+
+function extractNotificationIdFromTeamsContext(context: unknown) {
+  const candidates = [
+    readNestedString(context, ['page', 'subPageId']),
+    readNestedString(context, ['page', 'subEntityId']),
+    readNestedString(context, ['subPageId']),
+    readNestedString(context, ['subEntityId'])
+  ];
+
+  for (const candidate of candidates) {
+    const notificationId = normalizeNotificationSubEntityId(candidate);
+    if (notificationId) {
+      return notificationId;
+    }
+  }
+
+  return null;
+}
+
+function readNestedString(value: unknown, path: string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!current || typeof current !== 'object' || !(segment in current)) {
+      return null;
+    }
+
+    current = (current as Record<string, unknown>)[segment];
+  }
+
+  return typeof current === 'string' ? current : null;
+}
+
+function normalizeNotificationSubEntityId(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const prefix = 'notification:';
+  const trimmed = value.trim();
+  if (!trimmed.toLowerCase().startsWith(prefix)) {
+    return normalizeNotificationId(trimmed);
+  }
+
+  return normalizeNotificationId(trimmed.slice(prefix.length));
+}
+
+function normalizeNotificationId(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(trimmed)
+    ? trimmed
+    : null;
 }
 
 function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
@@ -492,6 +609,10 @@ function pathForView(view: View) {
       return '/my-work';
     case 'teams-activity':
       return '/teams/activity';
+    case 'teams-activity-detail':
+      return `/teams/activity/deliveries/${view.deliveryId}`;
+    case 'teams-notification-detail':
+      return `/teams/activity/notifications/${view.notificationId}`;
     case 'detail':
       return `/projects/${view.projectId}${view.section && view.section !== 'panels' ? `?section=${view.section}` : ''}`;
     case 'panel-info-edit':
@@ -606,12 +727,18 @@ function EntraAuthenticatedApp({
 
   const login = () => {
     clearTestUserSwitch();
-    void instance.loginRedirect(loginRequest);
+    void instance.loginRedirect({
+      ...loginRequest,
+      redirectStartPage: typeof window === 'undefined' ? undefined : window.location.href
+    });
   };
 
   const loginWithDifferentAccount = () => {
     clearTestUserSwitch();
-    void instance.loginRedirect(accountSwitchLoginRequest);
+    void instance.loginRedirect({
+      ...accountSwitchLoginRequest,
+      redirectStartPage: typeof window === 'undefined' ? undefined : window.location.href
+    });
   };
 
   const logout = () => {
@@ -895,7 +1022,53 @@ function QmsAppShell({
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  if (!isDevMode && view.kind === 'teams-activity' && currentUser.kind !== 'ready') {
+  useEffect(() => {
+    if (typeof window === 'undefined' || view.kind !== 'teams-notification-detail') {
+      return;
+    }
+
+    if (window.location.pathname === '/teams/activity' || window.location.pathname === '/teams/notifications') {
+      window.history.replaceState(null, '', pathForView(view));
+    }
+  }, [view]);
+
+  useEffect(() => {
+    if (view.kind !== 'teams-activity') {
+      return undefined;
+    }
+
+    const notificationIdFromUrl = extractNotificationIdFromTeamsActivityLocation();
+    let cancelled = false;
+    if (notificationIdFromUrl) {
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setView({ kind: 'teams-notification-detail', notificationId: notificationIdFromUrl });
+        }
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    resolveTeamsContextNotificationId()
+      .then((notificationId) => {
+        if (!cancelled && notificationId) {
+          setView({ kind: 'teams-notification-detail', notificationId });
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setView, view.kind]);
+
+  if (!isDevMode
+    && (view.kind === 'teams-activity'
+      || view.kind === 'teams-activity-detail'
+      || view.kind === 'teams-notification-detail')
+    && currentUser.kind !== 'ready') {
     return (
       <TeamsActivityAuthFallback
         state={currentUser}
@@ -1223,6 +1396,7 @@ function QmsAppShell({
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notifications' ? (
         <NotificationsPage
           developmentUserKey={developmentUserKey}
+          onOpenNotification={(notificationId) => setView({ kind: 'teams-notification-detail', notificationId })}
           onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
           onBadgeRefresh={refreshShellBadges}
         />
@@ -1232,8 +1406,26 @@ function QmsAppShell({
         <TeamsActivityPage
           developmentUserKey={developmentUserKey}
           onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
+          onOpenNotification={(notificationId) => setView({ kind: 'teams-notification-detail', notificationId })}
           onOpenMyWork={() => setView({ kind: 'my-work' })}
           onOpenHome={() => setView({ kind: 'list' })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'teams-activity-detail' ? (
+        <TeamsActivityDeliveryDetailPage
+          developmentUserKey={developmentUserKey}
+          deliveryId={view.deliveryId}
+          onBack={() => setView({ kind: 'teams-activity' })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'teams-notification-detail' ? (
+        <TeamsActivityNotificationDetailPage
+          developmentUserKey={developmentUserKey}
+          notificationId={view.notificationId}
+          onBack={() => setView({ kind: 'teams-activity' })}
+          onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
         />
       ) : null}
 
@@ -2908,6 +3100,7 @@ function AdminWorkHistoryPage({ developmentUserKey }: { developmentUserKey: stri
 }
 
 type ManualNotificationDraft = {
+  sendMode: 'Personal' | 'ChannelNotice' | 'WorkAssignment';
   notificationKind: string;
   title: string;
   projectSelectionType: 'Project' | 'Other';
@@ -2918,7 +3111,16 @@ type ManualNotificationDraft = {
   teamsActivityRecipientUserIds: string[];
   mailRecipientUserIds: string[];
   mailRecipientEmailsText: string;
+  workAssigneeUserIds: string[];
+  workflowStageCode: string;
+  dueDate: string;
 };
+
+const manualSendModes = [
+  { value: 'Personal', label: '개인 알림', description: 'Teams Activity 또는 Mail로 특정 사용자에게만 보냅니다.' },
+  { value: 'ChannelNotice', label: '채널 공지', description: '설정된 Teams 채널에 게시하고 로그인된 active 사용자가 상세를 볼 수 있습니다.' },
+  { value: 'WorkAssignment', label: '업무 배정', description: '실제 내 업무를 생성하고 담당자에게 알립니다.' }
+] as const;
 
 const manualNotificationKinds = [
   { value: 'ProjectCreated', label: '프로젝트 생성 알림' },
@@ -2928,23 +3130,38 @@ const manualNotificationKinds = [
 ];
 
 const manualNotificationChannels = [
-  { value: 'TeamsChannel', label: 'Teams 채널' },
   { value: 'TeamsActivity', label: 'Teams Activity' },
   { value: 'Mail', label: 'Mail' }
 ];
 
+const manualWorkflowStageOptions = [
+  { value: 'ProductionPlanning', label: '생산계획·담당자' },
+  { value: 'DesignPanelInfo', label: '제품명·사이즈' },
+  { value: 'ProcurementInfo', label: '구매정보' },
+  { value: 'MaterialArrived', label: '자재 도착' },
+  { value: 'IQC', label: '수입검사' },
+  { value: 'ManufacturingWork', label: '제조 작업' },
+  { value: 'LQC', label: 'LQC' },
+  { value: 'OQC', label: '자체검수' },
+  { value: 'PackingCompleted', label: '포장 완료' }
+];
+
 function createManualNotificationDraft(): ManualNotificationDraft {
   return {
+    sendMode: 'Personal',
     notificationKind: 'ProjectCreated',
     title: '[테스트] 프로젝트 생성 알림',
     projectSelectionType: 'Other',
     projectId: '',
     projectName: 'TASK-NOTIFY-003 통합 알림 테스트',
     message: 'EMI 프로젝트 통합관리시스템 프로젝트 생성 알림 3채널 최종 검수입니다. 실제 업무 알림이 아닙니다.',
-    channels: ['TeamsChannel', 'TeamsActivity', 'Mail'],
+    channels: ['TeamsActivity', 'Mail'],
     teamsActivityRecipientUserIds: [],
     mailRecipientUserIds: [],
-    mailRecipientEmailsText: ''
+    mailRecipientEmailsText: '',
+    workAssigneeUserIds: [],
+    workflowStageCode: 'ProductionPlanning',
+    dueDate: ''
   };
 }
 
@@ -3007,9 +3224,45 @@ function AdminManualNotificationPage({
   const selectedProjectName = draft.projectSelectionType === 'Project'
     ? selectedProject?.projectTitle ?? ''
     : draft.projectName.trim() || '기타';
-  const notificationKindLabel = manualNotificationKindLabel(draft.notificationKind);
+  const effectiveNotificationKind = draft.sendMode === 'WorkAssignment' ? 'WorkItemAssigned' : draft.notificationKind;
+  const notificationKindLabel = manualNotificationKindLabel(effectiveNotificationKind);
   const manualBodyPreview = buildManualNotificationBodyPreview(notificationKindLabel, selectedProjectName, draft.title, draft.message);
   const teamsActivityPreview = `${notificationKindLabel}, ${draft.title}\n${summarizeInline(draft.message, 150)}`;
+
+  const setSendMode = (sendMode: ManualNotificationDraft['sendMode']) => {
+    setDraft((current) => {
+      if (sendMode === 'ChannelNotice') {
+        return {
+          ...current,
+          sendMode,
+          channels: ['TeamsChannel'],
+          teamsActivityRecipientUserIds: [],
+          mailRecipientUserIds: [],
+          mailRecipientEmailsText: '',
+          workAssigneeUserIds: []
+        };
+      }
+
+      if (sendMode === 'WorkAssignment') {
+        return {
+          ...current,
+          sendMode,
+          notificationKind: 'WorkItemAssigned',
+          channels: current.channels.filter((channel) => channel === 'TeamsActivity' || channel === 'Mail'),
+          teamsActivityRecipientUserIds: [],
+          mailRecipientUserIds: [],
+          mailRecipientEmailsText: ''
+        };
+      }
+
+      return {
+        ...current,
+        sendMode,
+        channels: current.channels.filter((channel) => channel === 'TeamsActivity' || channel === 'Mail'),
+        workAssigneeUserIds: []
+      };
+    });
+  };
 
   const setChannel = (channel: string, checked: boolean) => {
     setDraft((current) => ({
@@ -3031,18 +3284,27 @@ function AdminManualNotificationPage({
     if (draft.projectSelectionType === 'Project' && !draft.projectId) {
       errors.projectId = '프로젝트를 선택하거나 기타를 선택해 주세요.';
     }
-    if (draft.channels.length === 0) {
+    if (draft.sendMode === 'WorkAssignment' && draft.projectSelectionType !== 'Project') {
+      errors.projectId = '업무 배정은 기존 프로젝트를 선택해야 합니다.';
+    }
+    if (draft.sendMode !== 'WorkAssignment' && draft.channels.length === 0) {
       errors.channels = '발송 채널을 하나 이상 선택해 주세요.';
     }
-    if (draft.channels.includes('TeamsActivity') && draft.teamsActivityRecipientUserIds.length === 0) {
+    if (draft.sendMode === 'Personal' && draft.channels.includes('TeamsActivity') && draft.teamsActivityRecipientUserIds.length === 0) {
       errors.teamsActivityRecipientUserIds = 'Teams Activity 수신자를 한 명 이상 선택해 주세요.';
     }
     const mailEmails = splitEmailList(draft.mailRecipientEmailsText);
-    if (draft.channels.includes('Mail') && draft.mailRecipientUserIds.length === 0 && mailEmails.length === 0) {
+    if (draft.sendMode === 'Personal' && draft.channels.includes('Mail') && draft.mailRecipientUserIds.length === 0 && mailEmails.length === 0) {
       errors.mailRecipients = '메일 수신자를 한 명 이상 선택하거나 이메일을 입력해 주세요.';
     }
     if (mailEmails.some((email) => !isEmailLike(email))) {
       errors.mailRecipientEmailsText = '메일 수신자 이메일 형식이 올바르지 않습니다.';
+    }
+    if (draft.sendMode === 'WorkAssignment' && draft.workAssigneeUserIds.length === 0) {
+      errors.workAssigneeUserIds = '업무 담당자를 한 명 이상 선택해 주세요.';
+    }
+    if (draft.sendMode === 'WorkAssignment' && !draft.workflowStageCode) {
+      errors.workflowStageCode = '업무 단계를 선택해 주세요.';
     }
     return errors;
   };
@@ -3066,7 +3328,8 @@ function AdminManualNotificationPage({
     setMessage('발송 요청을 저장하고 있습니다.');
     try {
       const response = await sendAdminManualNotification(developmentUserKey, {
-        notificationKind: draft.notificationKind,
+        sendMode: draft.sendMode,
+        notificationKind: effectiveNotificationKind,
         projectId: draft.projectSelectionType === 'Project' ? draft.projectId : null,
         projectSelectionType: draft.projectSelectionType,
         title: draft.title.trim(),
@@ -3075,7 +3338,10 @@ function AdminManualNotificationPage({
         channels: draft.channels,
         teamsActivityRecipientUserIds: draft.teamsActivityRecipientUserIds,
         mailRecipientUserIds: draft.mailRecipientUserIds,
-        mailRecipientEmails: splitEmailList(draft.mailRecipientEmailsText)
+        mailRecipientEmails: splitEmailList(draft.mailRecipientEmailsText),
+        workAssigneeUserIds: draft.workAssigneeUserIds,
+        workflowStageCode: draft.workflowStageCode || null,
+        dueDate: draft.dueDate || null
       });
       setResult(response);
       setMessage('발송 요청이 접수되었습니다. 알림발송상태에서 결과를 확인할 수 있습니다. 잠시 후 이동합니다.');
@@ -3113,10 +3379,30 @@ function AdminManualNotificationPage({
       {projectsState.kind !== 'loading' && projectsState.kind !== 'ready' ? <StateMessage state={projectsState} /> : null}
       {usersState.kind === 'ready' && projectsState.kind === 'ready' ? (
         <form className="subsection manual-notification-form" onSubmit={(event) => void submit(event)}>
+          <fieldset className="manual-channel-fieldset">
+            <legend>발송 유형</legend>
+            <div className="segmented-control">
+              {manualSendModes.map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  className={draft.sendMode === mode.value ? 'active-filter' : undefined}
+                  onClick={() => setSendMode(mode.value)}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <p className="muted-text">{manualSendModes.find((mode) => mode.value === draft.sendMode)?.description}</p>
+          </fieldset>
           <div className="detail-grid">
             <label className="form-field compact-field">
               <span>알림 유형</span>
-              <select value={draft.notificationKind} onChange={(event) => setDraft((current) => ({ ...current, notificationKind: event.target.value }))}>
+              <select
+                value={effectiveNotificationKind}
+                disabled={draft.sendMode === 'WorkAssignment'}
+                onChange={(event) => setDraft((current) => ({ ...current, notificationKind: event.target.value }))}
+              >
                 {manualNotificationKinds.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
               </select>
             </label>
@@ -3155,6 +3441,38 @@ function AdminManualNotificationPage({
             <textarea rows={5} value={draft.message} onChange={(event) => setDraft((current) => ({ ...current, message: event.target.value }))} />
             {fieldErrors.message ? <small role="alert" className="field-error-message">{fieldErrors.message}</small> : null}
           </label>
+          {draft.sendMode === 'WorkAssignment' ? (
+            <div className="detail-grid">
+              <label className={fieldErrors.workAssigneeUserIds ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+                <span>업무 담당자</span>
+                <select
+                  multiple
+                  value={draft.workAssigneeUserIds}
+                  onChange={(event) => {
+                    const values = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
+                    setDraft((current) => ({ ...current, workAssigneeUserIds: values }));
+                  }}
+                >
+                  {activeUsers.map((user) => (
+                    <option key={user.userId} value={user.userId}>{user.displayName}{user.email ? ` · ${user.email}` : ''}</option>
+                  ))}
+                </select>
+                <small className="muted-text">담당자별로 실제 내 업무가 생성됩니다.</small>
+                {fieldErrors.workAssigneeUserIds ? <small role="alert" className="field-error-message">{fieldErrors.workAssigneeUserIds}</small> : null}
+              </label>
+              <label className={fieldErrors.workflowStageCode ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+                <span>업무 단계</span>
+                <select value={draft.workflowStageCode} onChange={(event) => setDraft((current) => ({ ...current, workflowStageCode: event.target.value }))}>
+                  {manualWorkflowStageOptions.map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}
+                </select>
+                {fieldErrors.workflowStageCode ? <small role="alert" className="field-error-message">{fieldErrors.workflowStageCode}</small> : null}
+              </label>
+              <label className="form-field compact-field">
+                <span>예정일</span>
+                <input type="date" value={draft.dueDate} onChange={(event) => setDraft((current) => ({ ...current, dueDate: event.target.value }))} />
+              </label>
+            </div>
+          ) : null}
           <section className="manual-preview-panel" aria-label="발송 미리보기">
             <h3>미리보기</h3>
             <div className="detail-grid">
@@ -3171,70 +3489,86 @@ function AdminManualNotificationPage({
           </section>
           <fieldset className={fieldErrors.channels ? 'manual-channel-fieldset has-error' : 'manual-channel-fieldset'}>
             <legend>수신/게시 채널</legend>
-            <div className="checkbox-row">
-              {manualNotificationChannels.map((channel) => (
-                <label className="inline-check" key={channel.value}>
-                  <input
-                    type="checkbox"
-                    checked={draft.channels.includes(channel.value)}
-                    onChange={(event) => setChannel(channel.value, event.target.checked)}
-                  />
-                  {channel.label}
-              </label>
-            ))}
-            </div>
+            {draft.sendMode === 'ChannelNotice' ? (
+              <p className="muted-text">설정된 Teams 채널에 게시합니다.</p>
+            ) : (
+              <>
+                <div className="checkbox-row">
+                  {manualNotificationChannels.map((channel) => (
+                    <label className="inline-check" key={channel.value}>
+                      <input
+                        type="checkbox"
+                        checked={draft.channels.includes(channel.value)}
+                        onChange={(event) => setChannel(channel.value, event.target.checked)}
+                      />
+                      {channel.label}
+                    </label>
+                  ))}
+                </div>
+                {draft.sendMode === 'WorkAssignment' ? <small className="muted-text">외부 채널을 선택하지 않아도 인앱 알림과 내 업무는 생성됩니다.</small> : null}
+              </>
+            )}
             {fieldErrors.channels ? <small role="alert" className="field-error-message">{fieldErrors.channels}</small> : null}
           </fieldset>
-          <div className="detail-grid">
-            <label className={fieldErrors.teamsActivityRecipientUserIds ? 'form-field compact-field has-error' : 'form-field compact-field'}>
-              <span>Teams Activity 수신자</span>
-              <select
-                multiple
-                value={draft.teamsActivityRecipientUserIds}
-                onChange={(event) => {
-                  const values = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
-                  setDraft((current) => ({
-                    ...current,
-                    teamsActivityRecipientUserIds: values
-                  }));
-                }}
-              >
-                {entraUsers.map((user) => (
-                  <option key={user.userId} value={user.userId}>{user.displayName}{user.email ? ` · ${user.email}` : ''}</option>
-                ))}
-              </select>
-              <small className="muted-text">actual 발송은 EntraId active 사용자만 가능합니다.</small>
-              {fieldErrors.teamsActivityRecipientUserIds ? <small role="alert" className="field-error-message">{fieldErrors.teamsActivityRecipientUserIds}</small> : null}
-            </label>
-            <label className={fieldErrors.mailRecipients ? 'form-field compact-field has-error' : 'form-field compact-field'}>
-              <span>Mail 사용자</span>
-              <select
-                multiple
-                value={draft.mailRecipientUserIds}
-                onChange={(event) => {
-                  const values = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
-                  setDraft((current) => ({
-                    ...current,
-                    mailRecipientUserIds: values
-                  }));
-                }}
-              >
-                {mailUsers.map((user) => (
-                  <option key={user.userId} value={user.userId}>{user.displayName}{user.email ? ` · ${user.email}` : ''}</option>
-                ))}
-              </select>
-              {fieldErrors.mailRecipients ? <small role="alert" className="field-error-message">{fieldErrors.mailRecipients}</small> : null}
-            </label>
-            <label className={fieldErrors.mailRecipientEmailsText ? 'form-field compact-field has-error' : 'form-field compact-field'}>
-              <span>Mail 직접 입력</span>
-              <textarea rows={4} value={draft.mailRecipientEmailsText} onChange={(event) => setDraft((current) => ({ ...current, mailRecipientEmailsText: event.target.value }))} placeholder="쉼표, 세미콜론, 줄바꿈으로 여러 이메일 입력" />
-              {fieldErrors.mailRecipientEmailsText ? <small role="alert" className="field-error-message">{fieldErrors.mailRecipientEmailsText}</small> : null}
-            </label>
-            <label className="form-field compact-field">
-              <span>Teams 채널 게시 대상</span>
-              <input value="설정된 Teams 채널" readOnly />
-            </label>
-          </div>
+          {draft.sendMode === 'Personal' ? (
+            <div className="detail-grid">
+              <label className={fieldErrors.teamsActivityRecipientUserIds ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+                <span>Teams Activity 수신자</span>
+                <select
+                  multiple
+                  value={draft.teamsActivityRecipientUserIds}
+                  onChange={(event) => {
+                    const values = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
+                    setDraft((current) => ({
+                      ...current,
+                      teamsActivityRecipientUserIds: values
+                    }));
+                  }}
+                >
+                  {entraUsers.map((user) => (
+                    <option key={user.userId} value={user.userId}>{user.displayName}{user.email ? ` · ${user.email}` : ''}</option>
+                  ))}
+                </select>
+                <small className="muted-text">actual 발송은 EntraId active 사용자만 가능합니다.</small>
+                {fieldErrors.teamsActivityRecipientUserIds ? <small role="alert" className="field-error-message">{fieldErrors.teamsActivityRecipientUserIds}</small> : null}
+              </label>
+              <label className={fieldErrors.mailRecipients ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+                <span>Mail 사용자</span>
+                <select
+                  multiple
+                  value={draft.mailRecipientUserIds}
+                  onChange={(event) => {
+                    const values = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
+                    setDraft((current) => ({
+                      ...current,
+                      mailRecipientUserIds: values
+                    }));
+                  }}
+                >
+                  {mailUsers.map((user) => (
+                    <option key={user.userId} value={user.userId}>{user.displayName}{user.email ? ` · ${user.email}` : ''}</option>
+                  ))}
+                </select>
+                {fieldErrors.mailRecipients ? <small role="alert" className="field-error-message">{fieldErrors.mailRecipients}</small> : null}
+              </label>
+              <label className={fieldErrors.mailRecipientEmailsText ? 'form-field compact-field has-error' : 'form-field compact-field'}>
+                <span>Mail 직접 입력</span>
+                <textarea rows={4} value={draft.mailRecipientEmailsText} onChange={(event) => setDraft((current) => ({ ...current, mailRecipientEmailsText: event.target.value }))} placeholder="쉼표, 세미콜론, 줄바꿈으로 여러 이메일 입력" />
+                {fieldErrors.mailRecipientEmailsText ? <small role="alert" className="field-error-message">{fieldErrors.mailRecipientEmailsText}</small> : null}
+              </label>
+            </div>
+          ) : null}
+          {draft.sendMode === 'ChannelNotice' ? (
+            <div className="detail-grid">
+              <label className="form-field compact-field">
+                <span>Teams 채널 게시 대상</span>
+                <input value="설정된 Teams 채널" readOnly />
+              </label>
+              <div className="admin-guidance">
+                <p>채널 공지는 현재 Teams 멤버십을 시스템에서 알 수 없으므로 로그인된 active 사용자가 상세를 볼 수 있습니다.</p>
+              </div>
+            </div>
+          ) : null}
           <div className="button-row">
             <button type="submit" disabled={isSending}>{isSending ? '요청 저장 중...' : '발송'}</button>
             <button type="button" onClick={reset} disabled={isSending}>초기화</button>
@@ -4426,11 +4760,13 @@ function TeamsActivityAuthFallback({
 function TeamsActivityPage({
   developmentUserKey,
   onOpenProject,
+  onOpenNotification,
   onOpenMyWork,
   onOpenHome
 }: {
   developmentUserKey: string;
   onOpenProject: (projectId: string, linkUrl?: string | null) => void;
+  onOpenNotification: (notificationId: string) => void;
   onOpenMyWork: () => void;
   onOpenHome: () => void;
 }) {
@@ -4534,11 +4870,16 @@ function TeamsActivityPage({
                       {item.projectTitle ? <span>{item.projectTitle}</span> : <span>프로젝트 미연결</span>}
                       {item.projectCode ? <span>{item.projectCode}</span> : null}
                     </div>
-                    {item.projectId ? (
-                      <button type="button" onClick={() => onOpenProject(item.projectId!, item.linkUrl)}>
-                        관련 업무로 이동
+                    <div className="button-row">
+                      <button type="button" onClick={() => onOpenNotification(item.notificationId)}>
+                        알림 상세
                       </button>
-                    ) : null}
+                      {item.projectId ? (
+                        <button type="button" onClick={() => onOpenProject(item.projectId!, item.linkUrl)}>
+                          관련 업무로 이동
+                        </button>
+                      ) : null}
+                    </div>
                   </article>
                 ))}
               </div>
@@ -4585,6 +4926,194 @@ function TeamsActivityPage({
   );
 }
 
+function TeamsActivityNotificationDetailPage({
+  developmentUserKey,
+  notificationId,
+  onBack,
+  onOpenProject
+}: {
+  developmentUserKey: string;
+  notificationId: string;
+  onBack: () => void;
+  onOpenProject: (projectId: string, linkUrl?: string | null) => void;
+}) {
+  const [state, setState] = useState<LoadState<NotificationItem>>({ kind: 'loading' });
+  const [message, setMessage] = useState('');
+
+  const load = useCallback(() => {
+    setMessage('');
+    setState({ kind: 'loading' });
+    getNotificationDetail(developmentUserKey, notificationId)
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '알림 상세를 불러올 수 없습니다.')));
+  }, [developmentUserKey, notificationId]);
+
+  useEffect(() => {
+    queueMicrotask(load);
+  }, [load]);
+
+  const markRead = async () => {
+    setMessage('');
+    try {
+      const updated = await markNotificationRead(developmentUserKey, notificationId);
+      setState({ kind: 'ready', data: updated });
+      setMessage('알림을 읽음 처리했습니다.');
+    } catch (error: unknown) {
+      setMessage(friendlyErrorMessage(error, '알림 읽음 처리에 실패했습니다.'));
+    }
+  };
+
+  return (
+    <section className="page-surface workflow-page teams-activity-page">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Teams</p>
+          <h2>알림 상세</h2>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onBack}>전체 알림으로 돌아가기</button>
+          <button type="button" onClick={load}>새로고침</button>
+        </div>
+      </div>
+
+      {state.kind === 'loading' ? <p className="muted-text">알림 상세를 불러오는 중입니다.</p> : null}
+      {message ? <ActionFeedback message={message} tone={message.includes('실패') ? 'error' : 'success'} /> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' ? (
+        <div className="teams-activity-guide" role="note">
+          <strong>알림 상세를 표시할 수 없습니다.</strong>
+          <p>{loadStateMessage(state) ?? '알림을 찾을 수 없거나 현재 계정으로 볼 수 없습니다.'}</p>
+          <p>Teams deep link로 상세 화면을 열지 못한 경우 전체 알림 화면으로 돌아가 최근 알림을 다시 선택하세요.</p>
+          <button type="button" onClick={onBack}>전체 알림으로 돌아가기</button>
+        </div>
+      ) : null}
+
+      {state.kind === 'ready' ? (
+        <section className="teams-activity-panel notification-detail-panel" aria-label="인앱 알림 상세">
+          <div className="detail-grid">
+            <DetailItem label="구분" value={state.data.sourceKindLabel ?? state.data.notificationTypeLabel} />
+            <DetailItem label="알림 유형" value={state.data.notificationTypeLabel} />
+            <DetailItem label="프로젝트명" value={state.data.projectTitle ?? '프로젝트 없음'} />
+            <DetailItem label="관련 업무" value={state.data.workItemTitle ?? '-'} />
+            <DetailItem label="제목" value={state.data.title} />
+            <DetailItem label="생성시각" value={formatDateTime(state.data.createdAtUtc)} />
+            <DetailItem label="읽음 상태" value={state.data.readAtUtc ? '읽음' : '읽지 않음'} />
+            <DetailItem label="접근 범위" value={state.data.visibilityScopeLabel ?? '-'} />
+          </div>
+          <div className="notification-detail-message">
+            <strong>내용</strong>
+            <p>{state.data.message}</p>
+          </div>
+          <div className="button-row">
+            {!state.data.readAtUtc ? <button type="button" onClick={() => void markRead()}>읽음 처리</button> : null}
+            {state.data.workItemId && state.data.projectId ? (
+              <button type="button" onClick={() => onOpenProject(state.data.projectId!, state.data.linkUrl)}>
+                관련 업무 보기
+              </button>
+            ) : null}
+            {state.data.projectId ? (
+              <button type="button" onClick={() => onOpenProject(state.data.projectId!, state.data.linkUrl)}>
+                관련 프로젝트 보기
+              </button>
+            ) : null}
+            {state.data.linkUrl && !state.data.projectId ? (
+              <button type="button" onClick={() => { window.location.href = state.data.linkUrl!; }}>
+                알림 링크 열기
+              </button>
+            ) : null}
+          </div>
+          <details className="advanced-detail">
+            <summary>내부 추적값</summary>
+            <dl>
+              <div><dt>Notification ID</dt><dd>{state.data.notificationId}</dd></div>
+              <div><dt>Work Item ID</dt><dd>{state.data.workItemId ?? '-'}</dd></div>
+              <div><dt>Link URL</dt><dd>{state.data.linkUrl ?? '-'}</dd></div>
+            </dl>
+          </details>
+        </section>
+      ) : null}
+    </section>
+  );
+}
+
+function TeamsActivityDeliveryDetailPage({
+  developmentUserKey,
+  deliveryId,
+  onBack
+}: {
+  developmentUserKey: string;
+  deliveryId: string;
+  onBack: () => void;
+}) {
+  const [state, setState] = useState<LoadState<AdminNotificationDeliveryDetail>>({ kind: 'loading' });
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getMyTeamsActivityDelivery(developmentUserKey, deliveryId)
+      .then((data) => setState({ kind: 'ready', data }))
+      .catch((error: unknown) => setState(toLoadError(error, '알림 상세를 불러올 수 없습니다.')));
+  }, [deliveryId, developmentUserKey]);
+
+  useEffect(() => {
+    queueMicrotask(load);
+  }, [load]);
+
+  return (
+    <section className="page-surface workflow-page teams-activity-page">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Teams</p>
+          <h2>알림 상세</h2>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onBack}>전체 알림으로 돌아가기</button>
+          <button type="button" onClick={load}>새로고침</button>
+        </div>
+      </div>
+
+      {state.kind === 'loading' ? <p className="muted-text">알림 상세를 불러오는 중입니다.</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' ? (
+        <div className="teams-activity-guide" role="note">
+          <strong>알림 상세를 표시할 수 없습니다.</strong>
+          <p>{loadStateMessage(state) ?? '알림을 찾을 수 없거나 현재 계정으로 볼 수 없습니다.'}</p>
+          <button type="button" onClick={onBack}>전체 알림으로 돌아가기</button>
+        </div>
+      ) : null}
+
+      {state.kind === 'ready' ? (
+        <section className="teams-activity-panel notification-detail-panel" aria-label="Teams Activity 알림 상세">
+          <div className="detail-grid">
+            <DetailItem label="구분" value={state.data.categoryLabel} />
+            <DetailItem label="알림 유형" value={state.data.notificationKindLabel ?? '-'} />
+            <DetailItem label="프로젝트명" value={state.data.projectName ?? '-'} />
+            <DetailItem label="제목" value={state.data.title} />
+            <DetailItem label="발송시각" value={formatNullableDateTime(state.data.manualRequestedAtUtc ?? state.data.createdAtUtc)} />
+            <DetailItem label="채널" value={state.data.channelLabel} />
+            <DetailItem label="수신자" value={state.data.recipient} />
+            <DetailItem label="상태" value={state.data.statusLabel} />
+            <DetailItem label="발송 완료" value={formatNullableDateTime(state.data.sentAtUtc)} />
+          </div>
+          <div className="notification-detail-message">
+            <strong>내용</strong>
+            <p>{state.data.message ?? '-'}</p>
+          </div>
+          <div className="admin-guidance">
+            <p><strong>오류/대기 사유:</strong> {state.data.errorCode ?? '-'} {state.data.errorMessage ? `· ${state.data.errorMessage}` : ''}</p>
+            <p><strong>관리자 조치 안내:</strong> {state.data.actionGuide}</p>
+          </div>
+          <details className="advanced-detail">
+            <summary>내부 추적값</summary>
+            <dl>
+              <div><dt>Delivery ID</dt><dd>{state.data.deliveryId}</dd></div>
+              <div><dt>Correlation ID</dt><dd>{state.data.correlationId ?? '-'}</dd></div>
+              <div><dt>Provider Message ID</dt><dd>{state.data.providerMessageId ?? '-'}</dd></div>
+            </dl>
+          </details>
+        </section>
+      ) : null}
+    </section>
+  );
+}
+
 type NotificationTab = 'All' | 'unread' | 'read';
 
 const notificationTabs: Array<{ key: NotificationTab; label: string }> = [
@@ -4595,10 +5124,12 @@ const notificationTabs: Array<{ key: NotificationTab; label: string }> = [
 
 function NotificationsPage({
   developmentUserKey,
+  onOpenNotification,
   onOpenProject,
   onBadgeRefresh
 }: {
   developmentUserKey: string;
+  onOpenNotification: (notificationId: string) => void;
   onOpenProject: (projectId: string, linkUrl?: string | null) => void;
   onBadgeRefresh: () => void;
 }) {
@@ -4722,6 +5253,7 @@ function NotificationsPage({
                       </div>
                       <p>{item.message}</p>
                       <div className="button-row">
+                        <button type="button" onClick={() => onOpenNotification(item.notificationId)}>상세</button>
                         {item.projectId ? <button type="button" onClick={() => onOpenProject(item.projectId!, item.linkUrl)}>이동</button> : null}
                         {!item.readAtUtc ? <button type="button" onClick={() => read(item.notificationId)}>읽음</button> : null}
                       </div>
@@ -4749,6 +5281,7 @@ function NotificationsPage({
                           <td>{formatDateTime(item.createdAtUtc)}</td>
                           <td>
                             <div className="button-row">
+                              <button type="button" onClick={() => onOpenNotification(item.notificationId)}>상세</button>
                               {item.projectId ? <button type="button" onClick={() => onOpenProject(item.projectId!, item.linkUrl)}>이동</button> : null}
                               {!item.readAtUtc ? <button type="button" onClick={() => read(item.notificationId)}>읽음</button> : null}
                             </div>

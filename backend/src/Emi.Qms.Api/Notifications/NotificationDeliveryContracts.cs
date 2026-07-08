@@ -48,6 +48,31 @@ public static class NotificationManualKinds
     public const string Custom = "Custom";
 }
 
+public static class NotificationManualSendModes
+{
+    public const string Personal = "Personal";
+    public const string ChannelNotice = "ChannelNotice";
+    public const string WorkAssignment = "WorkAssignment";
+}
+
+public static class NotificationVisibilityScopes
+{
+    public const string RecipientOnly = "RecipientOnly";
+    public const string Authenticated = "Authenticated";
+    public const string AdminOnly = "AdminOnly";
+}
+
+public static class NotificationSourceKinds
+{
+    public const string Automatic = "Automatic";
+    public const string Manual = "Manual";
+    public const string ChannelNotice = "ChannelNotice";
+    public const string WorkAssignment = "WorkAssignment";
+    public const string DailyDigest = "DailyDigest";
+    public const string Escalation = "Escalation";
+    public const string System = "System";
+}
+
 public static class NotificationDisplayRecipientKinds
 {
     public const string User = "User";
@@ -262,6 +287,7 @@ public sealed record NotificationDeliveryAdminActionItemResponse(
     string Message);
 
 public sealed record NotificationManualSendRequest(
+    string? SendMode,
     string? NotificationKind,
     Guid? ProjectId,
     string? ProjectSelectionType,
@@ -272,8 +298,12 @@ public sealed record NotificationManualSendRequest(
     IReadOnlyList<Guid>? TeamsActivityRecipientUserIds,
     IReadOnlyList<Guid>? MailRecipientUserIds,
     IReadOnlyList<string>? MailRecipientEmails,
+    IReadOnlyList<Guid>? WorkAssigneeUserIds,
+    string? WorkflowStageCode,
+    DateOnly? DueDate,
     Guid? TeamsActivityRecipientUserId,
     Guid? MailRecipientUserId,
+    Guid? WorkAssigneeUserId,
     string? MailRecipientEmail,
     string? CorrelationId);
 

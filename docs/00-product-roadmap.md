@@ -373,7 +373,7 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 #### 6.5.6 구현 방향
 
 - Teams 통합 채널 게시는 Webhook 기반으로 구현한다. Webhook payload는 Power Automate Teams 카드 액션과 호환되는 Adaptive Card root JSON을 기본으로 한다.
-- Teams 개인별 알림은 DM보다 Activity Feed를 우선 검토한다. Activity Feed는 Teams 앱 manifest, Graph 권한, 조직 앱 배포가 필요하므로 TASK-NOTIFY-003 후속으로 분리한다.
+- Teams 개인별 알림은 DM보다 Activity Feed를 우선 사용한다. Activity Feed는 Teams 앱 manifest, Graph 권한, 조직 앱 배포, Teams deep link가 필요하며 TASK-NOTIFY-003에서 actual 발송까지 검증했다.
 - 메일: 초기/UAT/시범운영 actual 발송은 Gmail 전용 계정 SMTP를 사용한다. Gmail 계정은 2단계 인증과 앱 비밀번호를 사용하며 실제 값은 env/secret으로만 관리한다.
 - Hiworks SMTP와 Microsoft Graph Mail.Send는 사내 정책상 기본 발송 경로로 사용하지 않는다. Graph Mail provider는 Exchange Online 조직 또는 후속 선택지로 optional 유지한다.
 - 아키텍처: 도메인 이벤트 발행 → NotificationDispatcher → 채널별 핸들러(InApp / Teams / Mail). 인앱은 이미 구현되어 있으므로 Dispatcher 뒤에 Teams/Mail 핸들러를 추가하는 형태로 확장한다. 18단계 각 단계에 알림 로직을 하드코딩하지 않는다.
@@ -901,7 +901,7 @@ Excel 출력 대상 후보:
 | 생산계획 | Item 기반 단계, 프로젝트별 snapshot, 단계명/필수 여부 override, Excel, Business Calendar 기준 캘린더 휴일 표시 | 캘린더 UX 지속 보정, 관리자 기준정보화 |
 | 구매 필수 항목 | Item별 필수 구매 항목 설정, 새 프로젝트 skeleton 자동 생성 | 업체/발주정보 입력 기준과 완료 판정 보강 |
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
-| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed 개인 알림 actual, installedAppId + entityUrl 발송, `/teams/activity` 탭, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, retry/dedupe, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, `work_item_escalations`, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외·대기 재시도 | 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, 실패 재처리 UI 고도화 |
+| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 원본 구조, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed 개인 알림 actual, text topic + Teams deep link 발송, `/teams/activity` 탭, `/teams/activity/notifications/{id}` 상세, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, retry/dedupe, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, `work_item_escalations`, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송 3모드, 수동 업무 배정 work_item 생성, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외·대기 재시도 | 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, 실패 재처리 UI 고도화, 기존 업무 화면 action feedback UX 확대 |
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존 | 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
@@ -924,7 +924,7 @@ Excel 출력 대상 후보:
 - 영업 정산과 세금계산서 발행 완료를 추가한다.
 - 모든 페이지 Excel 출력 공통 기능을 추가한다.
 - Microsoft 365 로그인 기반은 구현 완료되었으며, 운영 배포 전 실제 Entra 앱 등록값, 운영 redirect URI, secret/env 관리, Production/Staging dev auth 비활성, AdminUserSwitch 비활성 설정을 검수한다.
-- Teams Activity Feed 개인별 알림은 TASK-NOTIFY-003에서 actual 발송까지 구현되었으며, 운영 전 manifest `contentUrl`/`websiteUrl`을 운영 URL로 교체하고 조직 앱 배포 상태를 검수한다.
+- Teams Activity Feed 개인별 알림은 TASK-NOTIFY-003에서 text topic + Teams deep link 방식으로 actual 발송까지 구현되었으며, 운영 전 manifest `contentUrl`/`websiteUrl`과 deep link webUrl을 운영 URL로 교체하고 조직 앱 배포 상태를 검수한다.
 - 예정일 기반 에스컬레이션 엔진은 `work_items.due_date` 기준으로 구현되었으며, 실제 운영 대상 업무의 due_date 입력/동기화 정책은 후속으로 확정한다.
 - 공휴일/영업일 기반은 구현 완료되었으며, 운영 전 연간 대한민국 공휴일/대체공휴일/임시공휴일/회사휴일 데이터를 관리자 휴일 관리 또는 공식 API sync로 검수한다.
 - 공식 대한민국 공휴일 API service key 연동과 자동 sync scheduler는 후속으로 검토한다.
@@ -1011,7 +1011,7 @@ Excel 출력 대상 후보:
 
 - 상태: 완료
 - 목적: Teams Activity Feed actual 발송을 추가하고, 3채널 알림 운영/추적 UX를 고도화한다.
-- 포함 범위: Teams Activity Feed actual provider, installedAppId + entityUrl topic, `/teams/activity` 탭, TeamsChannel/Mail/TeamsActivity 3채널 smoke, 관리자 수동 알림 발송, queue 방식 수동 발송, TeamsActivity/Mail 다중 수신자, display snapshot/detail, 자동/수동 알림 양식 통일, 실패/대기 확인·제외·대기 재시도, notification delivery admin handling
+- 포함 범위: Teams Activity Feed actual provider, text topic + Teams deep link webUrl, installedAppId 운영 의존 제거, `/teams/activity` 탭, `/teams/activity/notifications/{id}` 상세, 인앱 notification 원본 구조, 개인 알림/채널 공지 접근권한, TeamsChannel/Mail/TeamsActivity 3채널 smoke, 관리자 수동 알림 발송 3모드, 업무 배정 수동 발송 시 work_item 생성, queue 방식 수동 발송, TeamsActivity/Mail 다중 수신자, display snapshot/detail, 자동/수동 알림 양식 통일, 실패/대기 확인·제외·대기 재시도, notification delivery admin handling, HTTPS local Teams test
 - 제외 범위: Teams manifest/icon repo 포함, 운영 URL 확정, `projectCreated` activityType manifest 추가, 사용자별 알림 설정 UI, 실패 delivery 강제 성공 처리, delivery row hard delete, Teams DM/Bot 구현
 - 선행조건: TASK-NOTIFY-001, TASK-NOTIFY-002, TASK-ADMIN-001, Teams 앱 승인, Graph TeamsActivity 권한 승인
 - 주요 테스트: backend 전체 test, Notification/Admin targeted tests, Migration tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, UAT health, UAT `/teams/activity` smoke, 3채널 actual smoke, secret scan
@@ -1117,7 +1117,7 @@ Excel 출력 대상 후보:
 | 23 | Microsoft 365 로그인 적용 시점 | 완료 | 인프라/운영 결정 | TASK-INFRA-001 | 인증 기반 구현 완료. 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 필요 |
 | 24 | 관리자 페이지 범위 | 완료 | 사용자 요청 | TASK-ADMIN-001 | 시스템 관리 중심으로 구현 완료. 업무 부서 입력 기준정보는 후속 결정 |
 | 25 | 프로젝트 대표 상태 방식 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 병목 기준 + 진행률 |
-| 26 | 알림 채널 구성 | 완료 | 실무 협의 | TASK-NOTIFY-001/002/003 | 인앱 원본, Teams 통합 채널 게시, Gmail SMTP 메일, Teams Activity Feed 개인 알림 actual, delivery 이력, due_date 기반 에스컬레이션 엔진, 관리자 수동 발송/추적 UX 구현 완료. 운영 URL/manifest 배포 검수는 후속 |
+| 26 | 알림 채널 구성 | 완료 | 실무 협의 | TASK-NOTIFY-001/002/003 | 인앱 notification 원본, Teams 통합 채널 게시, Gmail SMTP 메일, Teams Activity Feed 개인 알림 actual, text topic + Teams deep link, delivery 이력, due_date 기반 에스컬레이션 엔진, 관리자 수동 발송/추적 UX 구현 완료. 운영 URL/manifest 배포 검수는 후속 |
 | 27 | 진행률(%) 계산식 정의 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수. FAT는 대상 프로젝트만 분모 포함. 프로젝트 상태 집계는 9장 기준. |
 | 28 | Teams 통합 채널 생성 및 Webhook URL | 검수 완료 | 사용자 | TASK-NOTIFY-001 | 테스트 채널/Webhook actual 검수 완료. 운영 전 Webhook 재발급과 secret 주입 필요 |
 | 29 | 알림 전용 메일 계정 생성 | 검수 완료 | 사용자 | TASK-NOTIFY-001 | Hiworks/M365 Graph Mail.Send 대신 Gmail SMTP 초기 경로 사용. 장기 운영 발송 수단 검토 필요 |
@@ -1125,7 +1125,7 @@ Excel 출력 대상 후보:
 | 31 | 퇴사/부서이동 시 미완료 내 업무 이관 규칙 | 미확정 | 실무 협의 | TASK-INFRA-001 이후 | 담당자 부재 시 업무 귀속 처리 |
 | 32 | 에스컬레이션 기한의 관리자 설정 가능 여부 | 미확정 | 실무 협의 | TASK-NOTIFY-002 이후 | L0/L1/L2/L3 기준은 코드 고정으로 구현. 관리자 설정 UI는 후속 검토 |
 | 33 | dev user 담당 프로젝트/내 업무의 실계정 이관 수동 절차 | 미확정 | 실무 협의 | INFRA-001 이후 | 자동 병합 금지에 따른 후속 |
-| 34 | Teams Activity Feed 개인별 알림 준비 | 완료 | 사용자/관리자 | TASK-NOTIFY-003 | Teams 앱 manifest/조직 앱/Graph 권한/installedAppId 기반 actual 발송 검수 완료. 운영 전 manifest URL을 운영 URL로 교체 필요 |
+| 34 | Teams Activity Feed 개인별 알림 준비 | 완료 | 사용자/관리자 | TASK-NOTIFY-003 | Teams 앱 manifest/조직 앱/Graph 권한/text topic + Teams deep link actual 발송 검수 완료. 사용자별 installedAppId 운영 의존은 제거했다. 운영 전 manifest URL과 deep link base URL을 운영 URL로 교체 필요 |
 | 35 | Gmail SMTP 운영 적합성 및 공식 발송 수단 전환 | 미확정 | 사용자/총무/보안 | 운영 전 검토 | Gmail SMTP는 초기/UAT/시범운영용. 발송량, 보안, 스팸 정책과 회사 공식 발송 수단 전환 검토 |
 | 36 | 운영용 Teams Webhook 재발급 | 미확정 | 사용자/운영 | 운영 배포 전 | UAT/test Webhook과 운영 Webhook을 분리하고 secret/env로만 주입 |
 | 37 | 대한민국 공휴일 데이터 동기화 service key | 미확정 | 사용자/운영 | CALENDAR sync 후속 | 공식 API sync 구조는 있으나 service key 준비 전까지 관리자 Excel/manual 등록 사용 |
@@ -1188,9 +1188,10 @@ Excel 출력 대상 후보:
 | 2026-07-03 | 관리자 삭제는 삭제 예정 상태로 전환하고 7일 내 복구 가능하게 설계 | 실수 삭제를 방지하고 복구 기간을 제공하기 위함 | 20장 |
 | 2026-07-03 | 삭제 예정 데이터는 재삭제 시 즉시 완전 삭제를 시도하되, 참조 데이터가 있으면 삭제 보류 처리 | 관리자 통제권과 데이터 무결성을 동시에 보장하기 위함 | 20장 |
 | 2026-07-03 | 모든 TASK 완료 전 사용자 검수 체크리스트를 포함 | 자동 테스트 외 실제 화면 검수를 누락하지 않기 위함 | 27장 |
-| 2026-07-08 | Teams Activity Feed actual 발송은 installedAppId 기반 entityUrl topic을 사용 | text topic 방식의 설치 앱 식별 불일치를 피하고 Graph installedApps 기준 설치 앱을 명확히 지정하기 위함 | 6장, 23장 |
+| 2026-07-08 | Teams Activity Feed actual 발송은 text topic + Teams deep link webUrl을 기본으로 사용 | 사용자별 installedAppId 운영 관리를 제거하고 Teams Activity 클릭 시 인앱 알림 상세로 이동시키기 위함 | 6장, 23장 |
 | 2026-07-08 | 관리자 수동 알림 발송은 provider 동기 호출이 아니라 Pending delivery queue 저장 방식으로 처리 | 관리자가 발송 버튼 클릭 후 오래 기다리지 않고, worker/retry/이력 구조와 일관되게 운영하기 위함 | 6장, 23장 |
 | 2026-07-08 | 수동/자동 알림의 Mail/TeamsChannel/TeamsActivity 표시 양식을 통일 | 채널별 표현 차이를 줄이고 알림발송상태에서 제목, 유형, 프로젝트, 수신자를 일관되게 추적하기 위함 | 6장, 23장 |
+| 2026-07-08 | 관리자 수동 업무 배정 알림은 실제 work_item을 생성한다 | 업무 배정 알림이 수신자의 내 업무와 연결되지 않는 구조를 방지하기 위함 | 6장, 23장 |
 | 2026-07-08 | Teams manifest/icon은 repo에 포함하지 않고 배포 패키지는 운영자가 별도 관리 | 앱 패키지와 아이콘은 조직 Teams 앱 배포 산출물이며 코드 repo에 민감/운영 파일을 섞지 않기 위함 | 23장, 27장 |
 
 ## 26. 용어 사전
@@ -1245,7 +1246,7 @@ Codex는 새 TASK 시작 시 다음 원칙을 따른다.
 - 외부 채널 secret은 `.env` 또는 배포 secret으로만 관리한다.
 - Webhook URL, SMTP password, Gmail app password, token, Authorization header는 문서/보고서/로그에 원문 작성하지 않는다.
 - Teams manifest/icon은 repo에 commit하지 않는다.
-- Teams Activity actual 발송은 Graph installedApps 기준 installedAppId + entityUrl topic 정합성을 먼저 확인한다.
+- Teams Activity actual 발송은 text topic + Teams deep link webUrl을 기본으로 사용한다. installedAppId 방식은 diagnostic/fallback으로만 둔다.
 - 수동/자동 외부 알림은 Mail 제목 `[알림 유형] 제목`, Mail/TeamsChannel 공통 본문, TeamsActivity 짧은 preview 원칙을 유지한다.
 - correlation id는 내부 추적값으로 유지하되 제목/본문/TeamsActivity preview에는 노출하지 않는다.
 - 공휴일/영업일 계산은 BusinessDayCalculator를 재사용한다.

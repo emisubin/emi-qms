@@ -1,6 +1,20 @@
 import { StrictMode } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const teamsJsMock = vi.hoisted(() => ({
+  context: null as unknown,
+  initialize: vi.fn(async () => undefined),
+  getContext: vi.fn(async () => ({}))
+}));
+
+vi.mock('@microsoft/teams-js', () => ({
+  app: {
+    initialize: teamsJsMock.initialize,
+    getContext: teamsJsMock.getContext
+  }
+}));
+
 import { App } from '../src/App';
 
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
@@ -22,7 +36,13 @@ describe('App', () => {
     adminUserDeletionScheduled = false;
     adminDepartmentDeletionScheduled = false;
     adminHolidayDeletionScheduled = false;
+    teamsJsMock.context = null;
+    teamsJsMock.initialize.mockClear();
+    teamsJsMock.getContext.mockClear();
+    teamsJsMock.initialize.mockResolvedValue(undefined);
+    teamsJsMock.getContext.mockImplementation(async () => teamsJsMock.context ?? {});
     window.localStorage.clear();
+    Object.defineProperty(document, 'referrer', { value: '', configurable: true });
     vi.stubGlobal('fetch', vi.fn(mockFetch));
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:panel-template');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
@@ -126,6 +146,38 @@ describe('App', () => {
     expect(screen.getByText('내 미완료 업무')).toBeInTheDocument();
     expect(screen.getByText('생산계획, 담당자 입력')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '내 업무 전체 보기' })).toBeInTheDocument();
+  });
+
+  it('opens a notification detail from Teams context subEntityId on the Teams Activity route', async () => {
+    const notificationId = '77000000-0000-0000-0000-000000000001';
+    Object.defineProperty(document, 'referrer', { value: 'https://teams.microsoft.com/l/entity/app/home', configurable: true });
+    teamsJsMock.context = {
+      page: {
+        subEntityId: `notification:${notificationId}`
+      }
+    };
+    window.history.pushState(null, '', '/teams/activity');
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '알림 상세' })).toBeInTheDocument();
+    expect(await screen.findByText('TASK-003A Demo 프로젝트가 생성되었습니다.')).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/teams/activity/notifications/${notificationId}`);
+    expect(teamsJsMock.initialize).toHaveBeenCalled();
+    expect(teamsJsMock.getContext).toHaveBeenCalled();
+  });
+
+  it('opens a notification detail from the Teams Activity context query fallback', async () => {
+    const notificationId = '77000000-0000-0000-0000-000000000001';
+    const context = encodeURIComponent(JSON.stringify({ subEntityId: `notification:${notificationId}` }));
+    window.history.pushState(null, '', `/teams/activity?context=${context}`);
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '알림 상세' })).toBeInTheDocument();
+    expect(await screen.findByText('TASK-003A Demo 프로젝트가 생성되었습니다.')).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/teams/activity/notifications/${notificationId}`);
+    expect(teamsJsMock.initialize).not.toHaveBeenCalled();
   });
 
   it('opens the target project section from a work item deep link', async () => {
@@ -1965,6 +2017,26 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (path === '/api/notifications/summary') {
     return json({ unreadCount: 1, blockingCount: 0 });
+  }
+
+  if (path.startsWith('/api/notifications/')) {
+    const notificationId = path.split('/').at(-1) ?? '77000000-0000-0000-0000-000000000001';
+    return json({
+      notificationId,
+      projectId,
+      projectTitle: 'TASK-003A Demo',
+      projectCode: 'PJT-003A',
+      projectItem: 'UL67',
+      notificationType: 'Reference',
+      notificationTypeLabel: '참조',
+      severity: 'Info',
+      severityLabel: '정보',
+      title: '프로젝트가 생성되었습니다.',
+      message: 'TASK-003A Demo 프로젝트가 생성되었습니다.',
+      linkUrl: `/projects/${projectId}`,
+      createdAtUtc: '2026-06-25T00:00:00Z',
+      readAtUtc: null
+    });
   }
 
   if (path === '/api/notifications') {

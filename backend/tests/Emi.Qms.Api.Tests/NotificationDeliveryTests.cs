@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Notifications;
+using Emi.Qms.Api.Workflow;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -350,6 +351,30 @@ public sealed class NotificationDeliveryTests
     }
 
     [Fact]
+    public async Task NotificationDetailEndpoint_AllowsRecipientAndDeniesOtherUsers()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.InsertNotificationAsync(
+            "notification-detail-access",
+            "Info",
+            "Info",
+            "알림 상세 접근 테스트",
+            "알림 상세는 수신자에게만 표시됩니다.",
+            DevAdminUserId);
+        var notificationId = await context.ReadScalarAsync<Guid>("select id from notifications where idempotency_key = 'notification-detail-access';");
+        using var adminClient = context.CreateClient("dev-admin");
+        using var salesClient = context.CreateClient("dev-sales");
+
+        var ok = await adminClient.GetAsync($"/api/notifications/{notificationId}", TestContext.Current.CancellationToken);
+        var forbidden = await salesClient.GetAsync($"/api/notifications/{notificationId}", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        using var body = await JsonDocument.ParseAsync(await ok.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal("알림 상세 접근 테스트", body.RootElement.GetProperty("title").GetString());
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+    }
+
+    [Fact]
     public async Task Dispatcher_RetriesFailedTeamsWebhookDelivery_UpToConfiguredLimit()
     {
         await using var context = await NotificationDeliveryTestContext.CreateAsync(
@@ -457,7 +482,7 @@ public sealed class NotificationDeliveryTests
                 null),
             new NotificationTeamsActivityOptions
             {
-                TopicWebUrl = "https://teams.microsoft.com/l/entity/app/home"
+                TopicWebUrl = "https://localhost:5174/teams/activity"
             });
 
         Assert.Equal("deadlineOverdue", result.ActivityType);
@@ -472,8 +497,8 @@ public sealed class NotificationDeliveryTests
             result.TemplateParameters,
             "teams-app-id",
             "ABC123")).Topic.Source);
-        Assert.Equal("https://teams.microsoft.com/l/entity/app/home", result.TopicWebUrl);
-        Assert.Equal("예정일이 지난 업무입니다.", result.PreviewText);
+        Assert.Equal("https://localhost:5174/projects/40000000-0000-0000-0000-000000000001", result.TopicWebUrl);
+        Assert.Equal("지연 업무 / 예정일 초과 / 담당자 확인 필요", result.PreviewText);
         Assert.True(result.PreviewText.Length <= 150);
         Assert.Equal("L2", result.TemplateParameters["escalationLevel"]);
         Assert.Equal("지연 업무", result.TemplateParameters["taskName"]);
@@ -498,7 +523,7 @@ public sealed class NotificationDeliveryTests
                 TeamsActivityTopicValue: entityUrl),
             new NotificationTeamsActivityOptions
             {
-                TopicWebUrl = "https://teams.microsoft.com/l/entity/app/home"
+                TopicWebUrl = "https://localhost:5174/teams/activity"
             });
 
         var graphRequest = GraphTeamsActivityNotificationRequest.FromRequest(new TeamsActivitySendRequest(
@@ -539,7 +564,7 @@ public sealed class NotificationDeliveryTests
                 TeamsActivityType: "workItemAssigned"),
             new NotificationTeamsActivityOptions
             {
-                TopicWebUrl = "https://teams.microsoft.com/l/entity/app/home"
+                TopicWebUrl = "https://localhost:5174/teams/activity"
             });
 
         Assert.StartsWith("EMI 프로젝트 통합관리시스템 프로젝트 생성 알림", result.PreviewText, StringComparison.Ordinal);
@@ -581,7 +606,7 @@ public sealed class NotificationDeliveryTests
                 {
                     Enabled = true,
                     DryRun = false,
-                    TopicWebUrl = "https://teams.microsoft.com/l/entity/app/home",
+                    TopicWebUrl = "https://localhost:5174/teams/activity",
                     TeamsAppId = "teams-app-id"
                 }
             }),
@@ -594,6 +619,32 @@ public sealed class NotificationDeliveryTests
         Assert.NotNull(client.Request);
         Assert.Equal("entra-user-object-id", client.Request.UserId);
         Assert.Equal("workItemAssigned", client.Request.ActivityType);
+        Assert.Null(client.Request.TeamsAppId);
+    }
+
+    [Fact]
+    public async Task TeamsActivityChannelHandler_UsesTeamsAppIdOnlyWhenConfigured()
+    {
+        var client = new CapturingTeamsActivityClient();
+        var handler = new TeamsActivityChannelHandler(
+            new StaticOptionsMonitor<NotificationOptions>(new NotificationOptions
+            {
+                TeamsActivity = new NotificationTeamsActivityOptions
+                {
+                    Enabled = true,
+                    DryRun = false,
+                    TopicWebUrl = "https://localhost:5174/teams/activity",
+                    TeamsAppId = "teams-app-id",
+                    UseTeamsAppIdForTextTopic = true
+                }
+            }),
+            client);
+
+        var result = await handler.SendAsync(CreateTeamsActivityDeliveryMessage(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(NotificationDeliveryStatuses.Sent, result.Status);
+        Assert.True(client.WasCalled);
+        Assert.NotNull(client.Request);
         Assert.Equal("teams-app-id", client.Request.TeamsAppId);
     }
 
@@ -637,7 +688,7 @@ public sealed class NotificationDeliveryTests
                     TenantId = "tenant-id",
                     ClientId = "teams-activity-client-id",
                     ClientSecret = "placeholder-secret",
-                    TopicWebUrl = "https://teams.microsoft.com/l/entity/app/home"
+                    TopicWebUrl = "https://localhost:5174/teams/activity"
                 }
             }),
             new FixedTimeProvider(new DateTimeOffset(2026, 7, 3, 0, 0, 0, TimeSpan.Zero)));
@@ -648,13 +699,13 @@ public sealed class NotificationDeliveryTests
                 "workItemAssigned",
                 "text",
                 "테스트 업무",
-                "https://teams.microsoft.com/l/entity/app/home",
+                "https://localhost:5174/teams/activity/notifications/00000000-0000-0000-0000-000000000001",
                 "테스트 업무가 배정되었습니다.",
                 new Dictionary<string, string>
                 {
                     ["taskName"] = "테스트 업무"
                 },
-                "teams-app-id",
+                null,
                 "ABC123"),
             TestContext.Current.CancellationToken);
 
@@ -669,15 +720,15 @@ public sealed class NotificationDeliveryTests
         using var document = JsonDocument.Parse(Assert.IsType<string>(handler.ActivityRequestBody));
         var root = document.RootElement;
         Assert.Equal("workItemAssigned", root.GetProperty("activityType").GetString());
-        Assert.Equal("teams-app-id", root.GetProperty("teamsAppId").GetString());
+        Assert.False(root.TryGetProperty("teamsAppId", out _));
         Assert.Equal("text", root.GetProperty("topic").GetProperty("source").GetString());
-        Assert.Equal("https://teams.microsoft.com/l/entity/app/home", root.GetProperty("topic").GetProperty("webUrl").GetString());
+        Assert.Equal("https://localhost:5174/teams/activity/notifications/00000000-0000-0000-0000-000000000001", root.GetProperty("topic").GetProperty("webUrl").GetString());
         Assert.Equal("테스트 업무가 배정되었습니다.", root.GetProperty("previewText").GetProperty("content").GetString());
         Assert.Equal("taskName", root.GetProperty("templateParameters")[0].GetProperty("name").GetString());
     }
 
     [Fact]
-    public async Task GraphTeamsActivityClient_TextTopicWithNonTeamsWebUrl_FailsBeforeGraphRequest()
+    public async Task GraphTeamsActivityClient_TextTopicWithHttpWebUrl_FailsBeforeGraphRequest()
     {
         var handler = new TeamsActivityHttpMessageHandler(HttpStatusCode.NoContent);
         var client = new GraphTeamsActivityClient(
@@ -699,7 +750,7 @@ public sealed class NotificationDeliveryTests
                 "workItemAssigned",
                 "text",
                 "테스트 업무",
-                "https://qms.example.test/projects/1",
+                "http://localhost:5174/teams/activity/notifications/00000000-0000-0000-0000-000000000001",
                 "테스트 업무가 배정되었습니다.",
                 new Dictionary<string, string>
                 {
@@ -800,6 +851,7 @@ public sealed class NotificationDeliveryTests
     [Theory]
     [InlineData("Failed to find Teams application '00000000-0000-0000-0000-000000000000' within the recipient's installed applications.", "TeamsActivityAppNotInstalled")]
     [InlineData("Invalid 'webUrl' specified, Weburl must start with a valid Microsoft Teams domain followed by '/l/'.", "TeamsActivityInvalidTopic")]
+    [InlineData("The app installation id, 'abc123abc123abc123abc123abc123', provided in the topic is not a valid app installation id.", "TeamsActivityInvalidInstalledAppId")]
     public async Task GraphTeamsActivityClient_MapsGraphBadRequestBody(string graphMessage, string expectedErrorCode)
     {
         var handler = new TeamsActivityHttpMessageHandler(
@@ -845,6 +897,7 @@ public sealed class NotificationDeliveryTests
         Assert.Equal(NotificationDeliveryStatuses.Failed, result.Status);
         Assert.Equal(expectedErrorCode, result.ErrorCode);
         Assert.DoesNotContain("00000000-0000-0000-0000-000000000000", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("abc123abc123abc123abc123abc123", result.ErrorMessage, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1333,6 +1386,44 @@ public sealed class NotificationDeliveryTests
     }
 
     [Fact]
+    public async Task MarkDeliveryResult_TeamsActivityAppNotInstalled_DoesNotScheduleRetry()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.ExecuteSqlAsync("""
+            insert into notification_deliveries (
+                channel,
+                delivery_type,
+                status,
+                dedupe_key,
+                group_key,
+                next_attempt_at_utc
+            )
+            values (
+                'TeamsActivity',
+                'ManualTest',
+                'Pending',
+                'non-retryable-app-not-installed',
+                'non-retryable-app-not-installed',
+                '2026-07-03T00:00:00Z'
+            );
+            """);
+        var deliveryId = await context.ReadScalarAsync<Guid>(
+            "select id from notification_deliveries where dedupe_key = 'non-retryable-app-not-installed';");
+
+        await context.DeliveryStore.MarkDeliveryResultAsync(
+            deliveryId,
+            NotificationChannelResult.Failed(
+                "TeamsActivityAppNotInstalled",
+                "수신자의 Teams 앱 설치 상태 또는 Teams 앱 정책을 확인하세요."),
+            retryCount: 3,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(NotificationDeliveryStatuses.Failed, await context.ReadScalarAsync<string>("select status from notification_deliveries where id = '" + deliveryId + "';"));
+        Assert.Equal(1, await context.ReadScalarAsync<int>("select attempt_count from notification_deliveries where id = '" + deliveryId + "';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where id = '" + deliveryId + "' and next_attempt_at_utc is not null;"));
+    }
+
+    [Fact]
     public async Task AdminManualSendEndpoint_CreatesThreeChannelDeliveriesWithDisplaySnapshots()
     {
         await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
@@ -1342,7 +1433,9 @@ public sealed class NotificationDeliveryTests
             ["Notifications:Teams:WebhookUrl"] = "https://example.invalid/webhook",
             ["Notifications:TeamsActivity:Enabled"] = "true",
             ["Notifications:TeamsActivity:DryRun"] = "true",
-            ["Notifications:TeamsActivity:InstalledAppId"] = "installation-id",
+            ["Notifications:TeamsActivity:TopicWebUrl"] = "https://localhost:5174/teams/activity",
+            ["Notifications:TeamsActivity:TeamsCatalogAppId"] = "catalog-app-id",
+            ["Notifications:TeamsActivity:TeamsManifestExternalId"] = "manifest-external-id",
             ["Notifications:Mail:Enabled"] = "true",
             ["Notifications:Mail:DryRun"] = "true",
             ["Notifications:Mail:Provider"] = "Smtp",
@@ -1358,6 +1451,7 @@ public sealed class NotificationDeliveryTests
             where id = '50000000-0000-0000-0000-000000000001';
             """);
         var request = new NotificationManualSendRequest(
+            NotificationManualSendModes.Personal,
             NotificationManualKinds.ProjectCreated,
             DemoProjectId,
             "Project",
@@ -1365,13 +1459,16 @@ public sealed class NotificationDeliveryTests
             "TASK-NOTIFY-003 통합 알림 테스트",
             "실제 업무 알림이 아닙니다.",
             [
-                NotificationDeliveryChannels.TeamsChannel,
                 NotificationDeliveryChannels.TeamsActivity,
                 NotificationDeliveryChannels.Mail
             ],
             [DevAdminUserId],
             [DevAdminUserId],
             ["recipient@example.test"],
+            [],
+            null,
+            null,
+            null,
             null,
             null,
             null,
@@ -1386,16 +1483,19 @@ public sealed class NotificationDeliveryTests
         var response = await ok.Content.ReadFromJsonAsync<NotificationManualSendResponse>(TestContext.Current.CancellationToken);
         Assert.NotNull(response);
         Assert.Matches("^[0-9A-F]{8}$", response.CorrelationId);
-        Assert.Equal(4, response.Items.Count);
-        Assert.Equal(4, response.RequestedCount);
-        Assert.Equal(4, response.QueuedCount);
+        Assert.Equal(3, response.Items.Count);
+        Assert.Equal(3, response.RequestedCount);
+        Assert.Equal(3, response.QueuedCount);
         Assert.All(response.Items, item => Assert.Equal("Queued", item.Status));
 
         var correlationId = response.CorrelationId;
-        Assert.Equal(4L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from notifications where idempotency_key = 'manual:{correlationId}' and title = '[테스트] 프로젝트 생성 알림';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from notification_recipients nr join notifications n on n.id = nr.notification_id where n.idempotency_key = 'manual:{correlationId}' and nr.user_id = '{DevAdminUserId}';"));
+        Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}';"));
+        Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries nd join notifications n on n.id = nd.notification_id where nd.correlation_id = '{correlationId}' and n.idempotency_key = 'manual:{correlationId}';"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}' and notification_recipient_id is not null;"));
         Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}' and channel = 'Mail' and display_recipient_email = 'recipient@example.test';"));
-        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}' and channel = 'TeamsChannel' and display_channel_target = 'Teams 채널';"));
-        Assert.Equal(4L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}' and manual_notification_kind = 'ProjectCreated' and display_title = '[테스트] 프로젝트 생성 알림' and status = 'Pending';"));
+        Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}' and manual_notification_kind = 'ProjectCreated' and display_title = '[테스트] 프로젝트 생성 알림' and status = 'Pending';"));
 
         var pending = await context.DeliveryStore.GetDueDeliveriesAsync(10, 3, TestContext.Current.CancellationToken);
         var mailDelivery = Assert.Single(pending, item => item.Channel == NotificationDeliveryChannels.Mail && item.DisplayRecipientEmail == "recipient@example.test");
@@ -1405,10 +1505,32 @@ public sealed class NotificationDeliveryTests
         Assert.Contains("EMI 프로젝트 통합관리시스템 알림", mailMessage.Body, StringComparison.Ordinal);
         Assert.Contains("알림 유형: 프로젝트 생성 알림", mailMessage.Body, StringComparison.Ordinal);
         Assert.Contains("프로젝트명: Demo Project Alpha", mailMessage.Body, StringComparison.Ordinal);
+        Assert.Contains("/teams/activity/notifications/", mailMessage.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain(correlationId, mailMessage.Body, StringComparison.Ordinal);
+
+        var teamsActivityDelivery = Assert.Single(pending, item => item.Channel == NotificationDeliveryChannels.TeamsActivity);
+        var teamsActivityMessage = await context.DeliveryStore.RenderMessageAsync(teamsActivityDelivery, TestContext.Current.CancellationToken);
+        Assert.Null(teamsActivityMessage.TeamsActivityTopicSource);
+        Assert.Null(teamsActivityMessage.TeamsActivityTopicValue);
+        Assert.Contains("https://teams.microsoft.com/l/entity/", teamsActivityMessage.LinkUrl, StringComparison.Ordinal);
+        Assert.Contains("/catalog-app-id/home?", teamsActivityMessage.LinkUrl, StringComparison.Ordinal);
+        Assert.DoesNotContain("/manifest-external-id/home?", teamsActivityMessage.LinkUrl, StringComparison.Ordinal);
+        Assert.Contains($"label={Uri.EscapeDataString("알림상세")}", teamsActivityMessage.LinkUrl, StringComparison.Ordinal);
+        Assert.Contains("/teams/activity/notifications/", Uri.UnescapeDataString(teamsActivityMessage.LinkUrl!), StringComparison.Ordinal);
+        Assert.Contains($$"""{"subEntityId":"notification:""", Uri.UnescapeDataString(teamsActivityMessage.LinkUrl!), StringComparison.Ordinal);
+        Assert.DoesNotContain(correlationId, teamsActivityMessage.Subject, StringComparison.Ordinal);
+        Assert.DoesNotContain(correlationId, teamsActivityMessage.Body, StringComparison.Ordinal);
+        var renderedTeamsActivity = TeamsActivityNotificationRenderer.Render(
+            teamsActivityMessage,
+            context.NotificationOptions.CurrentValue.TeamsActivity);
+        Assert.Equal("text", renderedTeamsActivity.TopicSource);
+        Assert.Contains("https://teams.microsoft.com/l/entity/", renderedTeamsActivity.TopicWebUrl, StringComparison.Ordinal);
+        Assert.Contains("/teams/activity/notifications/", Uri.UnescapeDataString(renderedTeamsActivity.TopicWebUrl!), StringComparison.Ordinal);
+        Assert.Contains($"label={Uri.EscapeDataString("알림상세")}", renderedTeamsActivity.TopicWebUrl, StringComparison.Ordinal);
 
         var summary = await context.Dispatcher.DispatchAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(4, summary.ProcessedDeliveryCount);
-        Assert.Equal(4L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}' and status = 'DryRunSent';"));
+        Assert.Equal(3, summary.ProcessedDeliveryCount);
+        Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}' and status = 'DryRunSent';"));
 
         var list = await adminClient.GetAsync("/api/admin/notification-deliveries?deliveryType=ManualTest", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, list.StatusCode);
@@ -1416,7 +1538,7 @@ public sealed class NotificationDeliveryTests
         var items = body.RootElement.GetProperty("items").EnumerateArray()
             .Where(item => item.GetProperty("correlationId").GetString() == correlationId)
             .ToArray();
-        Assert.Equal(4, items.Length);
+        Assert.Equal(3, items.Length);
         Assert.All(items, item =>
         {
             Assert.Equal("[테스트] 프로젝트 생성 알림", item.GetProperty("displayTitle").GetString());
@@ -1424,7 +1546,104 @@ public sealed class NotificationDeliveryTests
             Assert.NotEqual("수신자 미등록", item.GetProperty("displayRecipient").GetString());
         });
         Assert.Contains(items, item => item.GetProperty("channel").GetString() == "Mail" && item.GetProperty("recipientEmailMasked").GetString() == "r***@example.test");
-        Assert.Contains(items, item => item.GetProperty("channel").GetString() == "TeamsChannel" && item.GetProperty("displayRecipient").GetString() == "Teams 채널");
+        var notificationId = await context.ReadScalarAsync<Guid>($"select id from notifications where idempotency_key = 'manual:{correlationId}';");
+        var salesDetail = await salesClient.GetAsync($"/api/notifications/{notificationId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, salesDetail.StatusCode);
+    }
+
+    [Fact]
+    public async Task AdminManualSendEndpoint_CreatesAuthenticatedChannelNotice()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:Teams:Enabled"] = "true",
+            ["Notifications:Teams:DryRun"] = "true",
+            ["Notifications:Teams:WebhookUrl"] = "https://example.invalid/webhook"
+        });
+        using var adminClient = context.CreateClient("dev-admin");
+        using var salesClient = context.CreateClient("dev-sales");
+        var request = new NotificationManualSendRequest(
+            NotificationManualSendModes.ChannelNotice,
+            NotificationManualKinds.Custom,
+            null,
+            "Other",
+            "채널 공지",
+            "기타",
+            "로그인 사용자가 확인할 수 있는 채널 공지입니다.",
+            [NotificationDeliveryChannels.TeamsChannel],
+            [],
+            [],
+            [],
+            [],
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+        var ok = await adminClient.PostAsJsonAsync("/api/admin/notification-deliveries/send-manual", request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        var response = await ok.Content.ReadFromJsonAsync<NotificationManualSendResponse>(TestContext.Current.CancellationToken);
+        Assert.NotNull(response);
+        Assert.Single(response.Items);
+        Assert.Equal(NotificationDeliveryChannels.TeamsChannel, response.Items[0].Channel);
+        var notificationId = await context.ReadScalarAsync<Guid>($"select id from notifications where idempotency_key = 'manual:{response.CorrelationId}' and visibility_scope = 'Authenticated' and source_kind = 'ChannelNotice';");
+        var detail = await salesClient.GetAsync($"/api/notifications/{notificationId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        var read = await salesClient.PostAsync($"/api/notifications/{notificationId}/read", null, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from notification_recipients where notification_id = '{notificationId}' and user_id = '{DevSalesUserId}' and read_at_utc is not null;"));
+    }
+
+    [Fact]
+    public async Task AdminManualSendEndpoint_WorkAssignmentCreatesWorkItemAndRecipientNotification()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>());
+        using var adminClient = context.CreateClient("dev-admin");
+        using var productionClient = context.CreateClient("dev-production");
+        var request = new NotificationManualSendRequest(
+            NotificationManualSendModes.WorkAssignment,
+            NotificationManualKinds.WorkItemAssigned,
+            DemoProjectId,
+            "Project",
+            "수동 업무 배정",
+            "Demo Project Alpha",
+            "관리자가 직접 배정한 업무입니다.",
+            [],
+            [],
+            [],
+            [],
+            [DevProductionUserId],
+            WorkflowStageCodes.ProcurementInfo,
+            new DateOnly(2026, 7, 20),
+            null,
+            null,
+            null,
+            null,
+            null);
+
+        var ok = await adminClient.PostAsJsonAsync("/api/admin/notification-deliveries/send-manual", request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        var response = await ok.Content.ReadFromJsonAsync<NotificationManualSendResponse>(TestContext.Current.CancellationToken);
+        Assert.NotNull(response);
+        Assert.Single(response.Items);
+        Assert.Equal("InApp", response.Items[0].Channel);
+        var recipientSuffix = DevProductionUserId.ToString("N");
+        var notificationId = await context.ReadScalarAsync<Guid>($"select id from notifications where idempotency_key = 'manual:{response.CorrelationId}:{recipientSuffix}' and visibility_scope = 'RecipientOnly' and source_kind = 'WorkAssignment';");
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from notification_recipients where notification_id = '{notificationId}' and user_id = '{DevProductionUserId}';"));
+        var workItemId = await context.ReadScalarAsync<Guid>($"select work_item_id from notifications where id = '{notificationId}';");
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from work_items where id = '{workItemId}' and assigned_user_id = '{DevProductionUserId}' and title = '수동 업무 배정' and due_date = '2026-07-20';"));
+
+        var detail = await productionClient.GetAsync($"/api/notifications/{notificationId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        var myWork = await productionClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, myWork.StatusCode);
+        var myWorkJson = await myWork.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.Contains(workItemId.ToString(), myWorkJson, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1685,7 +1904,9 @@ public sealed class NotificationDeliveryTests
         Assert.StartsWith("예정일 임박 알림, 예정일 임박:", message.Subject, StringComparison.Ordinal);
         Assert.Contains("예정일의 직전 영업일입니다.", message.Body, StringComparison.Ordinal);
         Assert.Equal("deadlineApproaching", rendered.ActivityType);
-        Assert.Equal(message.Body, rendered.PreviewText);
+        Assert.Contains("예정일 임박", rendered.PreviewText, StringComparison.Ordinal);
+        Assert.Contains("담당자 확인 필요", rendered.PreviewText, StringComparison.Ordinal);
+        Assert.NotEqual(message.Body, rendered.PreviewText);
         Assert.True(rendered.PreviewText.Length <= 150);
         Assert.DoesNotContain("Correlation", rendered.PreviewText, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1L, await context.ReadScalarAsync<long>("""

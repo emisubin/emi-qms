@@ -333,6 +333,7 @@ export interface AdminNotificationDeliveryActionItem {
 }
 
 export interface AdminManualNotificationSendRequest {
+  sendMode: string;
   notificationKind: string;
   projectId: string | null;
   projectSelectionType: string | null;
@@ -343,6 +344,9 @@ export interface AdminManualNotificationSendRequest {
   teamsActivityRecipientUserIds: string[];
   mailRecipientUserIds: string[];
   mailRecipientEmails: string[];
+  workAssigneeUserIds: string[];
+  workflowStageCode: string | null;
+  dueDate: string | null;
 }
 
 export interface AdminManualNotificationSendResponse {
@@ -1368,10 +1372,18 @@ export interface NotificationItem {
   projectTitle: string | null;
   projectCode: string | null;
   projectItem: string | null;
+  workItemId: string | null;
+  workItemTitle: string | null;
+  workflowStageCode: string | null;
+  workflowStageName: string | null;
   notificationType: string;
   notificationTypeLabel: string;
   severity: string;
   severityLabel: string;
+  visibilityScope: string;
+  visibilityScopeLabel: string;
+  sourceKind: string;
+  sourceKindLabel: string;
   title: string;
   message: string;
   linkUrl: string | null;

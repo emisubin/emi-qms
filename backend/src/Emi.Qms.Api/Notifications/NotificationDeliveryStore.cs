@@ -3,6 +3,7 @@ using Emi.Qms.Api.ProductionPlanning;
 using Npgsql;
 using NpgsqlTypes;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Emi.Qms.Api.Notifications;
 
@@ -227,10 +228,11 @@ public sealed class NotificationDeliveryStore(
         CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
-        var isFinal = result.Status is NotificationDeliveryStatuses.Sent
+        var isFinal = (result.Status is NotificationDeliveryStatuses.Sent
             or NotificationDeliveryStatuses.DryRunSent
             or NotificationDeliveryStatuses.Disabled
-            or NotificationDeliveryStatuses.Suppressed;
+            or NotificationDeliveryStatuses.Suppressed)
+            || IsNonRetryableNotificationFailure(result.ErrorCode);
 
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
@@ -261,6 +263,16 @@ public sealed class NotificationDeliveryStore(
         command.Parameters.AddWithValue("error_message", (object?)SanitizeError(result.ErrorMessage) ?? DBNull.Value);
         command.Parameters.AddWithValue("provider_message_id", (object?)result.ProviderMessageId ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static bool IsNonRetryableNotificationFailure(string? errorCode)
+    {
+        return errorCode is "TeamsActivityAppNotInstalled"
+            or "TeamsActivityInvalidActivityType"
+            or "TeamsActivityInvalidTopic"
+            or "TeamsActivityInvalidInstalledAppId"
+            or "TeamsActivityPermissionDenied"
+            or "TeamsActivityUserOrAppNotFound";
     }
 
     public async Task<NotificationDeliveryListResponse> ListDeliveriesAsync(
@@ -360,7 +372,11 @@ public sealed class NotificationDeliveryStore(
         return new NotificationDeliveryListResponse(items);
     }
 
-    public async Task<NotificationDeliveryDetailResponse?> GetDeliveryDetailAsync(Guid deliveryId, CancellationToken cancellationToken)
+    public async Task<NotificationDeliveryDetailResponse?> GetDeliveryDetailAsync(
+        Guid deliveryId,
+        CancellationToken cancellationToken,
+        Guid? recipientUserId = null,
+        bool teamsActivityOnly = false)
     {
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
@@ -425,9 +441,13 @@ public sealed class NotificationDeliveryStore(
             left join work_items wi on wi.id = nd.work_item_id
             left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
             left join qms_users handled_by on handled_by.id = nd.admin_handled_by_user_id
-            where nd.id = @id;
+            where nd.id = @id
+              and (@recipient_user_id is null or nd.recipient_user_id = @recipient_user_id)
+              and (@teams_activity_only = false or nd.channel = 'TeamsActivity');
             """);
         command.Parameters.AddWithValue("id", deliveryId);
+        command.Parameters.Add(new NpgsqlParameter("recipient_user_id", NpgsqlDbType.Uuid) { Value = (object?)recipientUserId ?? DBNull.Value });
+        command.Parameters.AddWithValue("teams_activity_only", teamsActivityOnly);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -584,6 +604,162 @@ public sealed class NotificationDeliveryStore(
             cancellationToken);
     }
 
+    public async Task<Guid> CreateManualNotificationAsync(
+        Guid? projectId,
+        Guid? workItemId,
+        string notificationKind,
+        string title,
+        string message,
+        string correlationId,
+        string visibilityScope,
+        string sourceKind,
+        Guid requestedByUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            insert into notifications (
+                id,
+                project_id,
+                work_item_id,
+                notification_type,
+                severity,
+                title,
+                message,
+                link_url,
+                idempotency_key,
+                visibility_scope,
+                source_kind,
+                manual_requested_by_user_id
+            )
+            values (
+                @id,
+                @project_id,
+                @work_item_id,
+                'Info',
+                @severity,
+                @title,
+                @message,
+                @link_url,
+                @idempotency_key,
+                @visibility_scope,
+                @source_kind,
+                @manual_requested_by_user_id
+            )
+            on conflict (idempotency_key) do update
+            set title = excluded.title,
+                message = excluded.message,
+                link_url = excluded.link_url,
+                visibility_scope = excluded.visibility_scope,
+                source_kind = excluded.source_kind,
+                work_item_id = excluded.work_item_id,
+                manual_requested_by_user_id = excluded.manual_requested_by_user_id
+            returning id;
+            """);
+        var notificationId = Guid.NewGuid();
+        command.Parameters.AddWithValue("id", notificationId);
+        command.Parameters.AddWithValue("project_id", (object?)projectId ?? DBNull.Value);
+        command.Parameters.AddWithValue("work_item_id", (object?)workItemId ?? DBNull.Value);
+        command.Parameters.AddWithValue("severity", ManualNotificationSeverity(notificationKind));
+        command.Parameters.AddWithValue("title", title);
+        command.Parameters.AddWithValue("message", message);
+        command.Parameters.AddWithValue("link_url", (object?)BuildTeamsActivityNotificationDetailUrl(notificationId) ?? DBNull.Value);
+        command.Parameters.AddWithValue("idempotency_key", $"manual:{correlationId}");
+        command.Parameters.AddWithValue("visibility_scope", NormalizeVisibilityScope(visibilityScope));
+        command.Parameters.AddWithValue("source_kind", NormalizeSourceKind(sourceKind));
+        command.Parameters.AddWithValue("manual_requested_by_user_id", requestedByUserId);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is Guid id
+            ? id
+            : throw new InvalidOperationException("Manual notification id was not returned.");
+    }
+
+    public async Task<Guid> CreateManualWorkItemAsync(
+        Guid projectId,
+        Guid assignedUserId,
+        string workflowStageCode,
+        string title,
+        string message,
+        DateOnly? dueDate,
+        Guid createdByUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            insert into work_items (
+                project_id,
+                target_type,
+                target_id,
+                workflow_stage_code,
+                responsibility_type,
+                assigned_user_id,
+                assigned_role_code,
+                title,
+                description,
+                status,
+                priority,
+                due_date,
+                idempotency_key,
+                created_by_user_id
+            )
+            values (
+                @project_id,
+                'Project',
+                @project_id,
+                @workflow_stage_code,
+                'ManualAssignment',
+                @assigned_user_id,
+                null,
+                @title,
+                @description,
+                'Requested',
+                'Normal',
+                @due_date,
+                @idempotency_key,
+                @created_by_user_id
+            )
+            on conflict (idempotency_key) do update
+            set title = excluded.title,
+                description = excluded.description,
+                due_date = excluded.due_date
+            returning id;
+            """);
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("workflow_stage_code", workflowStageCode);
+        command.Parameters.AddWithValue("assigned_user_id", assignedUserId);
+        command.Parameters.AddWithValue("title", title);
+        command.Parameters.AddWithValue("description", message);
+        command.Parameters.AddWithValue("due_date", (object?)dueDate ?? DBNull.Value);
+        command.Parameters.AddWithValue("idempotency_key", $"manual-work:{correlationId}:{assignedUserId:N}");
+        command.Parameters.AddWithValue("created_by_user_id", createdByUserId);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is Guid id
+            ? id
+            : throw new InvalidOperationException("Manual work item id was not returned.");
+    }
+
+    public async Task<Guid> EnsureNotificationRecipientAsync(
+        Guid notificationId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            insert into notification_recipients (notification_id, user_id)
+            values (@notification_id, @user_id)
+            on conflict (notification_id, user_id) do update
+            set user_id = excluded.user_id
+            returning id;
+            """);
+        command.Parameters.AddWithValue("notification_id", notificationId);
+        command.Parameters.AddWithValue("user_id", userId);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is Guid id
+            ? id
+            : throw new InvalidOperationException("Manual notification recipient id was not returned.");
+    }
+
     public async Task<Guid> CreateManualDeliveryAsync(
         string channel,
         Guid? recipientUserId,
@@ -592,12 +768,18 @@ public sealed class NotificationDeliveryStore(
         CancellationToken cancellationToken,
         Guid? projectId = null,
         NotificationManualPayload? manualPayload = null,
-        Guid? requestedByUserId = null)
+        Guid? requestedByUserId = null,
+        Guid? notificationId = null,
+        Guid? notificationRecipientId = null,
+        Guid? workItemId = null)
     {
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
             insert into notification_deliveries (
+                notification_id,
+                notification_recipient_id,
                 project_id,
+                work_item_id,
                 recipient_user_id,
                 channel,
                 delivery_type,
@@ -620,7 +802,10 @@ public sealed class NotificationDeliveryStore(
                 manual_requested_at_utc
             )
             values (
+                @notification_id,
+                @notification_recipient_id,
                 @project_id,
+                @work_item_id,
                 @recipient_user_id,
                 @channel,
                 'ManualTest',
@@ -645,7 +830,10 @@ public sealed class NotificationDeliveryStore(
             returning id;
             """);
         var now = timeProvider.GetUtcNow();
+        command.Parameters.AddWithValue("notification_id", (object?)notificationId ?? DBNull.Value);
+        command.Parameters.AddWithValue("notification_recipient_id", (object?)notificationRecipientId ?? DBNull.Value);
         command.Parameters.AddWithValue("project_id", (object?)projectId ?? DBNull.Value);
+        command.Parameters.AddWithValue("work_item_id", (object?)workItemId ?? DBNull.Value);
         command.Parameters.AddWithValue("recipient_user_id", (object?)recipientUserId ?? DBNull.Value);
         command.Parameters.AddWithValue("channel", channel);
         command.Parameters.AddWithValue("dedupe_key", $"{groupKey}:{now:yyyyMMddHHmmss}:{Guid.NewGuid():N}");
@@ -704,6 +892,34 @@ public sealed class NotificationDeliveryStore(
             reader.GetBoolean(5));
     }
 
+    public async Task<TeamsActivityRecipientProfile?> GetActiveUserByEmailAsync(string email, CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            select id, display_name, email, entra_object_id, auth_provider, is_active
+            from qms_users
+            where is_active = true
+              and lower(btrim(email)) = lower(btrim(@email))
+            order by created_at_utc
+            limit 1;
+            """);
+        command.Parameters.AddWithValue("email", email);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new TeamsActivityRecipientProfile(
+            reader.GetGuid(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            reader.GetString(4),
+            reader.GetBoolean(5));
+    }
+
     public async Task<NotificationDeliveryMessage> RenderMessageAsync(NotificationDeliveryRecord delivery, CancellationToken cancellationToken)
     {
         if (delivery.DeliveryType == NotificationDeliveryTypes.DailyDigest && delivery.RecipientUserId is not null)
@@ -730,14 +946,14 @@ public sealed class NotificationDeliveryStore(
 
         if (delivery.Channel == NotificationDeliveryChannels.TeamsActivity)
         {
-            var topicEntityUrl = BuildInstalledAppEntityUrl(delivery.RecipientEntraObjectId);
+            var detailUrl = ResolveTeamsActivityNotificationLink(delivery);
             return new NotificationDeliveryMessage(
                 delivery.DeliveryId,
                 delivery.Channel,
                 delivery.DeliveryType,
                 $"{kindLabel}, {title}",
                 message,
-                delivery.LinkUrl,
+                detailUrl ?? delivery.LinkUrl,
                 delivery.DisplayRecipientName ?? delivery.RecipientDisplayName,
                 delivery.DisplayRecipientEmail ?? delivery.RecipientEmail,
                 CorrelationId: delivery.CorrelationId,
@@ -745,12 +961,11 @@ public sealed class NotificationDeliveryStore(
                 RecipientEntraObjectId: delivery.RecipientEntraObjectId,
                 RecipientAuthProvider: delivery.RecipientAuthProvider,
                 RecipientUserIsActive: delivery.RecipientUserIsActive,
-                TeamsActivityType: ResolveAutomaticTeamsActivityType(delivery.DeliveryType),
-                TeamsActivityTopicSource: topicEntityUrl is null ? null : "entityUrl",
-                TeamsActivityTopicValue: topicEntityUrl);
+                TeamsActivityType: ResolveAutomaticTeamsActivityType(delivery.DeliveryType));
         }
 
-        var body = BuildNotificationBody(kindLabel, title, projectName, message, timeProvider.GetUtcNow());
+        var linkUrl = ResolveExternalNotificationLink(delivery);
+        var body = BuildNotificationBody(kindLabel, title, projectName, message, timeProvider.GetUtcNow(), linkUrl);
         var subject = delivery.Channel == NotificationDeliveryChannels.Mail
             ? $"[{kindLabel}] {title}"
             : "EMI 프로젝트 통합관리시스템 알림";
@@ -761,7 +976,7 @@ public sealed class NotificationDeliveryStore(
             delivery.DeliveryType,
             subject,
             body,
-            delivery.LinkUrl,
+            linkUrl,
             delivery.DisplayRecipientName ?? delivery.RecipientDisplayName,
             delivery.DisplayRecipientEmail ?? delivery.RecipientEmail,
             delivery.Channel == NotificationDeliveryChannels.Mail,
@@ -794,14 +1009,14 @@ public sealed class NotificationDeliveryStore(
 
         if (delivery.Channel == NotificationDeliveryChannels.TeamsActivity)
         {
-            var topicEntityUrl = BuildInstalledAppEntityUrl(delivery.RecipientEntraObjectId);
+            var detailUrl = ResolveTeamsActivityNotificationLink(delivery);
             return new NotificationDeliveryMessage(
                 delivery.DeliveryId,
                 delivery.Channel,
                 delivery.DeliveryType,
                 $"{kindLabel}, {title}",
                 message,
-                delivery.LinkUrl,
+                detailUrl ?? delivery.LinkUrl,
                 delivery.DisplayRecipientName ?? delivery.RecipientDisplayName,
                 delivery.DisplayRecipientEmail ?? delivery.RecipientEmail,
                 CorrelationId: delivery.CorrelationId,
@@ -809,12 +1024,11 @@ public sealed class NotificationDeliveryStore(
                 RecipientEntraObjectId: delivery.RecipientEntraObjectId,
                 RecipientAuthProvider: delivery.RecipientAuthProvider,
                 RecipientUserIsActive: delivery.RecipientUserIsActive,
-                TeamsActivityType: ResolveManualTeamsActivityType(kind),
-                TeamsActivityTopicSource: topicEntityUrl is null ? null : "entityUrl",
-                TeamsActivityTopicValue: topicEntityUrl);
+                TeamsActivityType: ResolveManualTeamsActivityType(kind));
         }
 
-        var body = BuildNotificationBody(kindLabel, title, projectName, message, requestedAtUtc);
+        var linkUrl = ResolveExternalNotificationLink(delivery);
+        var body = BuildNotificationBody(kindLabel, title, projectName, message, requestedAtUtc, linkUrl);
         var subject = delivery.Channel == NotificationDeliveryChannels.Mail
             ? $"[{kindLabel}] {title}"
             : "EMI 프로젝트 통합관리시스템 알림";
@@ -824,7 +1038,7 @@ public sealed class NotificationDeliveryStore(
             delivery.DeliveryType,
             subject,
             body,
-            delivery.LinkUrl,
+            linkUrl,
             delivery.DisplayRecipientName ?? delivery.RecipientDisplayName,
             delivery.DisplayRecipientEmail ?? delivery.RecipientEmail,
             delivery.Channel == NotificationDeliveryChannels.Mail,
@@ -868,8 +1082,16 @@ public sealed class NotificationDeliveryStore(
         string title,
         string? projectName,
         string message,
-        DateTimeOffset requestedAtUtc)
+        DateTimeOffset requestedAtUtc,
+        string? detailUrl = null)
     {
+        var detailLine = string.IsNullOrWhiteSpace(detailUrl)
+            ? string.Empty
+            : $"""
+
+                알림 상세 보기:
+                {detailUrl}
+                """;
         return $"""
             EMI 프로젝트 통합관리시스템 알림
 
@@ -881,29 +1103,37 @@ public sealed class NotificationDeliveryStore(
             {message}
 
             발송시각: {FormatKoreanDateTime(requestedAtUtc)}
+            {detailLine}
 
             끝.
             """;
     }
 
-    private string? BuildInstalledAppEntityUrl(string? recipientEntraObjectId)
+    private string? BuildTeamsActivityDeliveryDetailUrl(Guid deliveryId)
     {
-        var installedAppId = configuration["Notifications:TeamsActivity:InstalledAppId"];
-        if (string.IsNullOrWhiteSpace(recipientEntraObjectId)
-            || string.IsNullOrWhiteSpace(installedAppId))
+        return new NotificationLinkBuilder(configuration).BuildDeliveryDetailUrl(deliveryId);
+    }
+
+    private string? ResolveExternalNotificationLink(NotificationDeliveryRecord delivery)
+    {
+        return delivery.NotificationId is { } notificationId
+            ? BuildTeamsActivityNotificationDetailUrl(notificationId)
+            : delivery.LinkUrl;
+    }
+
+    private string? ResolveTeamsActivityNotificationLink(NotificationDeliveryRecord delivery)
+    {
+        if (delivery.NotificationId is { } notificationId)
         {
-            return null;
+            return new NotificationLinkBuilder(configuration).BuildTeamsActivityNotificationWebUrl(notificationId);
         }
 
-        var graphBaseUrl = configuration["Notifications:TeamsActivity:BaseUrl"];
-        var baseUrl = string.IsNullOrWhiteSpace(graphBaseUrl)
-            ? "https://graph.microsoft.com/v1.0"
-            : graphBaseUrl.TrimEnd('/');
-        return baseUrl
-            + "/users/"
-            + Uri.EscapeDataString(recipientEntraObjectId.Trim())
-            + "/teamwork/installedApps/"
-            + Uri.EscapeDataString(installedAppId.Trim());
+        return delivery.LinkUrl;
+    }
+
+    private string? BuildTeamsActivityNotificationDetailUrl(Guid notificationId)
+    {
+        return new NotificationLinkBuilder(configuration).BuildNotificationDetailUrl(notificationId);
     }
 
     private string ResolveManualTeamsActivityType(string? kind)
@@ -964,6 +1194,37 @@ public sealed class NotificationDeliveryStore(
         return delivery.CreatedAtUtc
             .ToOffset(TimeSpan.FromHours(9))
             .ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string ManualNotificationSeverity(string notificationKind)
+    {
+        return string.Equals(notificationKind, NotificationManualKinds.Urgent, StringComparison.Ordinal)
+            ? "Critical"
+            : "Info";
+    }
+
+    private static string NormalizeVisibilityScope(string? value)
+    {
+        return value?.Trim() switch
+        {
+            NotificationVisibilityScopes.Authenticated => NotificationVisibilityScopes.Authenticated,
+            NotificationVisibilityScopes.AdminOnly => NotificationVisibilityScopes.AdminOnly,
+            _ => NotificationVisibilityScopes.RecipientOnly
+        };
+    }
+
+    private static string NormalizeSourceKind(string? value)
+    {
+        return value?.Trim() switch
+        {
+            NotificationSourceKinds.Manual => NotificationSourceKinds.Manual,
+            NotificationSourceKinds.ChannelNotice => NotificationSourceKinds.ChannelNotice,
+            NotificationSourceKinds.WorkAssignment => NotificationSourceKinds.WorkAssignment,
+            NotificationSourceKinds.DailyDigest => NotificationSourceKinds.DailyDigest,
+            NotificationSourceKinds.Escalation => NotificationSourceKinds.Escalation,
+            NotificationSourceKinds.System => NotificationSourceKinds.System,
+            _ => NotificationSourceKinds.Automatic
+        };
     }
 
     private async Task<NotificationDeliveryMessage> RenderDailyDigestAsync(NotificationDeliveryRecord delivery, CancellationToken cancellationToken)
@@ -1059,14 +1320,14 @@ public sealed class NotificationDeliveryStore(
 
         if (delivery.Channel == NotificationDeliveryChannels.TeamsActivity)
         {
-            var topicEntityUrl = BuildInstalledAppEntityUrl(delivery.RecipientEntraObjectId);
+            var linkUrl = ResolveTeamsActivityNotificationLink(delivery);
             return new NotificationDeliveryMessage(
                 delivery.DeliveryId,
                 delivery.Channel,
                 delivery.DeliveryType,
                 $"{kindLabel}, {digestTitle}",
                 string.IsNullOrWhiteSpace(content) ? "오늘 표시할 업무 요약이 없습니다." : content,
-                null,
+                linkUrl,
                 delivery.RecipientDisplayName,
                 delivery.RecipientEmail,
                 CorrelationId: delivery.CorrelationId,
@@ -1074,9 +1335,7 @@ public sealed class NotificationDeliveryStore(
                 RecipientEntraObjectId: delivery.RecipientEntraObjectId,
                 RecipientAuthProvider: delivery.RecipientAuthProvider,
                 RecipientUserIsActive: delivery.RecipientUserIsActive,
-                TeamsActivityType: ResolveAutomaticTeamsActivityType(delivery.DeliveryType),
-                TeamsActivityTopicSource: topicEntityUrl is null ? null : "entityUrl",
-                TeamsActivityTopicValue: topicEntityUrl);
+                TeamsActivityType: ResolveAutomaticTeamsActivityType(delivery.DeliveryType));
         }
 
         return new NotificationDeliveryMessage(
@@ -1468,7 +1727,9 @@ public sealed class NotificationDeliveryStore(
             return null;
         }
 
-        return message.Length <= 500 ? message : message[..500];
+        var singleLine = string.Join(' ', message.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        var masked = Regex.Replace(singleLine, @"[A-Za-z0-9_-]{16,}", "[MASKED_ID]");
+        return masked.Length <= 500 ? masked : masked[..500];
     }
 
     private static string? NormalizeFilter(string? value)
@@ -1605,7 +1866,7 @@ public sealed class NotificationDeliveryStore(
             row.SentAtUtc,
             row.SuppressedAtUtc,
             row.ErrorCode,
-            row.ErrorMessage,
+            SanitizeError(row.ErrorMessage),
             ActionGuide(row),
             PendingReason(row),
             row.DisplayRecipientName ?? row.RecipientDisplayName,
@@ -1661,7 +1922,7 @@ public sealed class NotificationDeliveryStore(
             row.LastAttemptAtUtc,
             row.SentAtUtc,
             row.ErrorCode,
-            row.ErrorMessage,
+            SanitizeError(row.ErrorMessage),
             ActionGuide(row),
             handlingStatus,
             AdminHandlingStatusLabel(handlingStatus),
@@ -1925,9 +2186,10 @@ public sealed class NotificationDeliveryStore(
             "SmtpAuthenticationFailed" => "SMTP 계정 또는 앱 비밀번호를 확인하세요.",
             "SmtpConnectionFailed" => "SMTP 서버, 포트, 보안 연결 설정을 확인하세요.",
             "SmtpSendFailed" => "메일 서버 응답과 수신자 주소를 확인하세요.",
-            "TeamsActivityAppNotInstalled" => "수신자의 Teams 앱 설치 또는 installedAppId를 확인하세요.",
+            "TeamsActivityAppNotInstalled" => "수신자의 Teams 앱 설치 상태 또는 Teams 앱 정책을 확인하세요.",
             "TeamsActivityPermissionDenied" => "Graph 권한과 관리자 동의를 확인하세요.",
             "TeamsActivityInvalidActivityType" => "Teams manifest의 activityType 선언을 확인하세요.",
+            "TeamsActivityInvalidTopic" => "Teams manifest validDomains와 webUrl 도메인을 확인하세요.",
             "TeamsWebhookFailed" => "Teams 채널 Webhook 또는 Power Automate 실행 결과를 확인하세요.",
             "TeamsActivityThrottled" => "일시 오류일 수 있으니 재시도 상태를 확인하세요.",
             "TeamsActivityGraphError" => "오류 코드와 서버 로그를 확인하세요.",

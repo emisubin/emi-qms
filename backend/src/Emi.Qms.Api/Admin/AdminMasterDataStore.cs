@@ -24,11 +24,13 @@ public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connec
                     select count(*)::integer
                     from notification_deliveries
                     where status = 'Failed'
+                      and coalesce(admin_handling_status, 'Open') = 'Open'
                 ) as failed_delivery_count,
                 (
                     select count(*)::integer
                     from notification_deliveries
                     where status = 'Pending'
+                      and coalesce(admin_handling_status, 'Open') = 'Open'
                 ) as pending_delivery_count,
                 (
                     select max(sent_at_utc)

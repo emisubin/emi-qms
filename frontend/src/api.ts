@@ -10,6 +10,11 @@ import type {
   AdminBulkActionResponse,
   AdminDepartmentListResponse,
   AdminMasterChangeLogListResponse,
+  AdminManualNotificationSendRequest,
+  AdminManualNotificationSendResponse,
+  AdminNotificationDeliveryActionRequest,
+  AdminNotificationDeliveryActionResponse,
+  AdminNotificationDeliveryDetail,
   AdminNotificationDeliveryListResponse,
   AdminReorderRequest,
   AdminWorkItemEscalationListResponse,
@@ -73,7 +78,7 @@ import type {
   UpdateProjectRequest
 } from './projects';
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5080';
+const apiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5080');
 export const defaultDevelopmentUserKey = import.meta.env.DEV
   ? (import.meta.env.VITE_DEV_USER_KEY ?? 'dev-sales')
   : undefined;
@@ -87,6 +92,31 @@ export function setAccessTokenProvider(provider: (() => Promise<string | null>) 
 
 export function setAdminTestUserKey(testUserKey: string | null) {
   adminTestUserKey = testUserKey?.trim() || null;
+}
+
+function normalizeApiBaseUrl(value: string) {
+  const normalized = value.trim();
+  if (!normalized || normalized === '/' || normalized === '.') {
+    return '';
+  }
+
+  return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+}
+
+function buildApiUrl(path: string) {
+  if (!apiBaseUrl) {
+    return path;
+  }
+
+  if (apiBaseUrl === '/api' && (path === '/api' || path.startsWith('/api/'))) {
+    return path;
+  }
+
+  if (apiBaseUrl === '/api' && (path === '/health' || path.startsWith('/health/'))) {
+    return path;
+  }
+
+  return `${apiBaseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
 }
 
 export class ApiError extends Error {
@@ -273,7 +303,7 @@ export async function getAdminWorkItemHistory(developmentUserKey?: string): Prom
 
 export async function getAdminNotificationDeliveries(
   developmentUserKey?: string,
-  filters: { status?: string | null; channel?: string | null; deliveryType?: string | null } = {}
+  filters: { status?: string | null; channel?: string | null; deliveryType?: string | null; handlingStatus?: string | null } = {}
 ): Promise<AdminNotificationDeliveryListResponse> {
   const params = new URLSearchParams();
   if (filters.status) {
@@ -285,8 +315,65 @@ export async function getAdminNotificationDeliveries(
   if (filters.deliveryType) {
     params.set('deliveryType', filters.deliveryType);
   }
+  if (filters.handlingStatus) {
+    params.set('handlingStatus', filters.handlingStatus);
+  }
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<AdminNotificationDeliveryListResponse>(`/api/admin/notification-deliveries${query}`, developmentUserKey);
+}
+
+export async function acknowledgeAdminNotificationDeliveries(
+  developmentUserKey: string | undefined,
+  request: AdminNotificationDeliveryActionRequest
+): Promise<AdminNotificationDeliveryActionResponse> {
+  return fetchJson<AdminNotificationDeliveryActionResponse>('/api/admin/notification-deliveries/acknowledge', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function dismissAdminNotificationDeliveries(
+  developmentUserKey: string | undefined,
+  request: AdminNotificationDeliveryActionRequest
+): Promise<AdminNotificationDeliveryActionResponse> {
+  return fetchJson<AdminNotificationDeliveryActionResponse>('/api/admin/notification-deliveries/dismiss', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function retryAdminNotificationDeliveries(
+  developmentUserKey: string | undefined,
+  request: AdminNotificationDeliveryActionRequest
+): Promise<AdminNotificationDeliveryActionResponse> {
+  return fetchJson<AdminNotificationDeliveryActionResponse>('/api/admin/notification-deliveries/retry', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function sendAdminManualNotification(
+  developmentUserKey: string | undefined,
+  request: AdminManualNotificationSendRequest
+): Promise<AdminManualNotificationSendResponse> {
+  return fetchJson<AdminManualNotificationSendResponse>('/api/admin/notification-deliveries/send-manual', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getAdminNotificationDelivery(
+  developmentUserKey: string | undefined,
+  deliveryId: string
+): Promise<AdminNotificationDeliveryDetail> {
+  return fetchJson<AdminNotificationDeliveryDetail>(`/api/admin/notification-deliveries/${deliveryId}`, developmentUserKey);
+}
+
+export async function getMyTeamsActivityDelivery(
+  developmentUserKey: string | undefined,
+  deliveryId: string
+): Promise<AdminNotificationDeliveryDetail> {
+  return fetchJson<AdminNotificationDeliveryDetail>(`/api/my/teams-activity/deliveries/${deliveryId}`, developmentUserKey);
 }
 
 export async function getAdminWorkItemEscalations(
@@ -407,6 +494,13 @@ export async function listNotifications(
 ): Promise<NotificationListResponse> {
   const query = readStatus ? `?readStatus=${encodeURIComponent(readStatus)}` : '';
   return fetchJson<NotificationListResponse>(`/api/notifications${query}`, developmentUserKey);
+}
+
+export async function getNotificationDetail(
+  developmentUserKey: string | undefined,
+  notificationId: string
+): Promise<NotificationItem> {
+  return fetchJson<NotificationItem>(`/api/notifications/${notificationId}`, developmentUserKey);
 }
 
 export async function markNotificationRead(
@@ -1187,7 +1281,7 @@ async function fetchWithAuth(path: string, developmentUserKey?: string, init?: R
     }
   }
 
-  return fetch(`${apiBaseUrl}${path}`, { ...init, headers });
+  return fetch(buildApiUrl(path), { ...init, headers });
 }
 
 async function fetchJson<T>(path: string, developmentUserKey?: string, init?: RequestInit): Promise<T> {

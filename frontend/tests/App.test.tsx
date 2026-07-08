@@ -1,6 +1,20 @@
 import { StrictMode } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const teamsJsMock = vi.hoisted(() => ({
+  context: null as unknown,
+  initialize: vi.fn(async () => undefined),
+  getContext: vi.fn(async () => ({}))
+}));
+
+vi.mock('@microsoft/teams-js', () => ({
+  app: {
+    initialize: teamsJsMock.initialize,
+    getContext: teamsJsMock.getContext
+  }
+}));
+
 import { App } from '../src/App';
 
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
@@ -22,7 +36,13 @@ describe('App', () => {
     adminUserDeletionScheduled = false;
     adminDepartmentDeletionScheduled = false;
     adminHolidayDeletionScheduled = false;
+    teamsJsMock.context = null;
+    teamsJsMock.initialize.mockClear();
+    teamsJsMock.getContext.mockClear();
+    teamsJsMock.initialize.mockResolvedValue(undefined);
+    teamsJsMock.getContext.mockImplementation(async () => teamsJsMock.context ?? {});
     window.localStorage.clear();
+    Object.defineProperty(document, 'referrer', { value: '', configurable: true });
     vi.stubGlobal('fetch', vi.fn(mockFetch));
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:panel-template');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
@@ -113,6 +133,51 @@ describe('App', () => {
     expect(within(notificationTabs).getByRole('button', { name: '읽음' })).toBeInTheDocument();
     expect(screen.getByText('프로젝트가 생성되었습니다.')).toBeInTheDocument();
     expect(screen.getAllByText('읽지 않음').length).toBeGreaterThan(0);
+  });
+
+  it('renders the Teams Activity tab route with recent notifications and work summary', async () => {
+    window.history.pushState(null, '', '/teams/activity');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'EMI 프로젝트 통합관리시스템 알림' })).toBeInTheDocument();
+    expect(screen.getByText('Teams 알림을 선택하면 관련 업무를 확인할 수 있습니다. 상세 업무 화면은 시스템 링크에서 확인하세요.')).toBeInTheDocument();
+    expect(await screen.findByText('프로젝트가 생성되었습니다.')).toBeInTheDocument();
+    expect(screen.getByText('최근 알림')).toBeInTheDocument();
+    expect(screen.getByText('내 미완료 업무')).toBeInTheDocument();
+    expect(screen.getByText('생산계획, 담당자 입력')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '내 업무 전체 보기' })).toBeInTheDocument();
+  });
+
+  it('opens a notification detail from Teams context subEntityId on the Teams Activity route', async () => {
+    const notificationId = '77000000-0000-0000-0000-000000000001';
+    Object.defineProperty(document, 'referrer', { value: 'https://teams.microsoft.com/l/entity/app/home', configurable: true });
+    teamsJsMock.context = {
+      page: {
+        subEntityId: `notification:${notificationId}`
+      }
+    };
+    window.history.pushState(null, '', '/teams/activity');
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '알림 상세' })).toBeInTheDocument();
+    expect(await screen.findByText('TASK-003A Demo 프로젝트가 생성되었습니다.')).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/teams/activity/notifications/${notificationId}`);
+    expect(teamsJsMock.initialize).toHaveBeenCalled();
+    expect(teamsJsMock.getContext).toHaveBeenCalled();
+  });
+
+  it('opens a notification detail from the Teams Activity context query fallback', async () => {
+    const notificationId = '77000000-0000-0000-0000-000000000001';
+    const context = encodeURIComponent(JSON.stringify({ subEntityId: `notification:${notificationId}` }));
+    window.history.pushState(null, '', `/teams/activity?context=${context}`);
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '알림 상세' })).toBeInTheDocument();
+    expect(await screen.findByText('TASK-003A Demo 프로젝트가 생성되었습니다.')).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/teams/activity/notifications/${notificationId}`);
+    expect(teamsJsMock.initialize).not.toHaveBeenCalled();
   });
 
   it('opens the target project section from a work item deep link', async () => {
@@ -278,17 +343,31 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
     expect(screen.getByText('현재 필터:')).toBeInTheDocument();
     expect(screen.getAllByText('발송 실패').length).toBeGreaterThan(0);
-    expect(screen.getByText('사용자 이메일 등록/확인이 필요합니다.')).toBeInTheDocument();
+    expect(screen.getByText('수신자 이메일 또는 사용자 정보를 확인하세요.')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '미처리 실패' })).toHaveAttribute('aria-selected', 'true');
+    const failedConfirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByLabelText('발송 실패 테스트 선택'));
+    fireEvent.click(screen.getByRole('button', { name: '선택 확인 처리' }));
+    expect(await screen.findByText(/처리 완료 1건/)).toBeInTheDocument();
+    failedConfirmSpy.mockRestore();
     expect(screen.queryByRole('button', { name: '수동 재처리' })).not.toBeInTheDocument();
 
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
     fireEvent.click(await screen.findByRole('button', { name: '대기 알림 보기' }));
     expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
-    expect(screen.getByText('발송 worker 처리 대기')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '미처리 대기' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByText('발송 worker 처리 대기 중입니다.').length).toBeGreaterThan(0);
+    const pendingConfirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByLabelText('예정일 초과 알림 선택'));
+    fireEvent.click(screen.getByRole('button', { name: '선택 재발송' }));
+    expect(await screen.findByText(/처리 완료 1건/)).toBeInTheDocument();
+    pendingConfirmSpy.mockRestore();
 
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
     fireEvent.click(await screen.findByRole('button', { name: '진행 중 에스컬레이션 보기' }));
     expect(await screen.findByRole('heading', { name: '에스컬레이션 상태' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '진행 중' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'L1 예정일 초과' })).toBeInTheDocument();
     expect(screen.getByText('진행 중 에스컬레이션은 예정일 임박 또는 초과 후 아직 완료/취소되지 않은 업무입니다. L0는 예정일 임박, L1~L3는 초과 단계입니다.')).toBeInTheDocument();
     expect(screen.getByText('정담당자 조치 상태를 확인하세요.')).toBeInTheDocument();
 
@@ -338,6 +417,30 @@ describe('App', () => {
     expect(screen.getByText('Read administrator history')).toBeInTheDocument();
     expect(document.querySelectorAll('.permission-matrix-value-cell').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: '삭제' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(await screen.findByRole('button', { name: '알림 수동 발송' }));
+    expect(await screen.findByRole('heading', { name: '알림 수동 발송' })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('[테스트] 프로젝트 생성 알림')).toBeInTheDocument();
+    const teamsActivitySelect = screen.getByRole('listbox', { name: /Teams Activity 수신자/ }) as HTMLSelectElement;
+    const teamsActivityOption = within(teamsActivitySelect).getByRole('option', { name: /Entra Notification User/ }) as HTMLOptionElement;
+    teamsActivityOption.selected = true;
+    fireEvent.change(teamsActivitySelect);
+    const mailSelect = screen.getByRole('listbox', { name: /Mail 사용자/ }) as HTMLSelectElement;
+    const mailOption = within(mailSelect).getByRole('option', { name: /Entra Notification User/ }) as HTMLOptionElement;
+    mailOption.selected = true;
+    fireEvent.change(mailSelect);
+    expect(screen.queryByText('발송 방식')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '발송' })).toBeInTheDocument();
+    expect(screen.queryByText(/Correlation ID/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '발송' }));
+    expect(await screen.findByText('발송 요청이 접수되었습니다. 알림발송상태에서 결과를 확인할 수 있습니다. 잠시 후 이동합니다.')).toBeInTheDocument();
+    expect(screen.queryByText((_, element) => Boolean(element?.textContent?.includes('N003-UNIT-FRONT')))).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
+    const sentRow = (await screen.findByText('Daily Digest')).closest('tr');
+    expect(sentRow).not.toBeNull();
+    expect(within(sentRow as HTMLTableRowElement).getByText('발송 완료')).toBeInTheDocument();
+    expect(within(sentRow as HTMLTableRowElement).queryByText('미처리')).not.toBeInTheDocument();
   });
 
   it('shows field-level department validation errors', async () => {
@@ -1354,6 +1457,27 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
           lifecycleStatus: 'Active',
           lifecycleStatusLabel: '활성',
           scheduledHardDeleteLabel: null
+        },
+        {
+          userId: '50000000-0000-0000-0000-000000000003',
+          developmentUserKey: '',
+          displayName: 'Entra Notification User',
+          email: 'notify@example.invalid',
+          authProvider: 'EntraId',
+          isActive: true,
+          approvalPending: false,
+          departmentId: '10000000-0000-0000-0000-000000000002',
+          departmentCode: 'sales',
+          departmentName: 'Sales',
+          roles: ['sales'],
+          isReadOnly: false,
+          deletionRequestedAtUtc: null,
+          scheduledHardDeleteAtUtc: null,
+          purgeBlockedAtUtc: null,
+          purgeBlockedReason: null,
+          lifecycleStatus: 'Active',
+          lifecycleStatusLabel: '활성',
+          scheduledHardDeleteLabel: null
         }
       ],
       departments: [
@@ -1481,15 +1605,53 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
+  if (path.startsWith('/api/admin/notification-deliveries/') && init?.method !== 'POST') {
+    return json({
+      deliveryId: path.split('/').at(-1),
+      categoryLabel: '관리자 수동 발송',
+      notificationKindLabel: '프로젝트 생성 알림',
+      projectName: 'TASK-003A Demo',
+      title: '[테스트] 프로젝트 생성 알림',
+      message: '실제 업무 알림이 아닙니다.',
+      manualRequestedAtUtc: '2026-07-07T00:00:00Z',
+      createdAtUtc: '2026-07-07T00:00:00Z',
+      channel: 'Mail',
+      channelLabel: '메일',
+      recipient: 'Dev Sales User',
+      status: 'Sent',
+      statusLabel: '발송 완료',
+      attemptCount: 1,
+      nextAttemptAtUtc: null,
+      lastAttemptAtUtc: '2026-07-07T00:00:00Z',
+      sentAtUtc: '2026-07-07T00:00:00Z',
+      errorCode: null,
+      errorMessage: null,
+      actionGuide: '상태를 확인하세요.',
+      adminHandlingStatus: 'Open',
+      adminHandlingStatusLabel: '미처리',
+      adminHandlingNote: null,
+      correlationId: 'N003-UNIT-FRONT',
+      providerMessageId: 'provider-message'
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
 	  if (path === '/api/admin/notification-deliveries') {
 	    const status = url.searchParams.get('status') ?? 'Sent';
+	    const handlingStatus = url.searchParams.get('handlingStatus') ?? 'Open';
 	    return json({
 	      items: [
 	        {
 	          deliveryId: '79000000-0000-0000-0000-000000000101',
+	          notificationId: status === 'Pending' ? null : '79000000-0000-0000-0000-000000000301',
+	          recipientUserId: salesOwnerId,
+	          projectId,
+	          workItemId: '76000000-0000-0000-0000-000000000001',
 	          channel: 'Mail',
+	          channelLabel: '메일',
 	          deliveryType: status === 'Pending' ? 'OverdueL1' : 'DailyDigest',
+	          deliveryTypeLabel: status === 'Pending' ? '예정일 초과 L1' : '일일 요약',
 	          status,
+	          statusLabel: status === 'Pending' ? '발송 대기' : status === 'Failed' ? '발송 실패' : '발송 완료',
 	          attemptCount: status === 'Pending' ? 0 : 1,
 	          nextAttemptAtUtc: status === 'Pending' ? '2026-07-07T01:00:00Z' : null,
 	          lastAttemptAtUtc: status === 'Sent' ? '2026-07-07T00:00:00Z' : null,
@@ -1497,14 +1659,92 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 	          suppressedAtUtc: null,
 	          errorCode: status === 'Failed' ? 'RecipientEmailMissing' : null,
 	          errorMessage: status === 'Failed' ? '수신자 이메일이 없습니다.' : null,
+	          actionGuide: status === 'Failed' ? '수신자 이메일 또는 사용자 정보를 확인하세요.' : '발송 worker 처리 대기 중입니다.',
+	          pendingReason: status === 'Pending' ? '발송 worker 처리 대기 중입니다.' : null,
 	          recipientDisplayName: 'Dev Sales User',
 	          recipientEmail: null,
+	          recipientEmailMasked: null,
 	          projectTitle: 'TASK-003A Demo',
 	          projectCode: 'PJT-003A',
+	          workItemTitle: '생산계획, 담당자 입력',
+	          workflowStageName: '생산계획·담당자',
 	          notificationTitle: status === 'Pending' ? '예정일 초과 알림' : 'Daily Digest',
+	          notificationMessageSummary: status === 'Pending' ? '예정일 초과 알림 대기 중입니다.' : '일일 요약 발송 이력입니다.',
+	          displayMessageSummary: status === 'Pending' ? '예정일 초과 알림 대기 중입니다.' : '일일 요약 발송 이력입니다.',
+	          displayTitle: status === 'Pending' ? '예정일 초과 알림' : status === 'Failed' ? '발송 실패 테스트' : 'Daily Digest',
+	          displayRecipient: 'Dev Sales User',
+	          displayProject: 'TASK-003A Demo · PJT-003A',
+	          displayRecipientKind: 'User',
+	          displayChannelTarget: null,
+	          manualNotificationKind: null,
+	          manualNotificationKindLabel: null,
+	          correlationId: null,
+	          linkUrl: `/projects/${projectId}`,
+	          adminHandlingStatus: handlingStatus,
+	          adminHandlingStatusLabel: handlingStatus === 'Acknowledged' ? '확인됨' : handlingStatus === 'Dismissed' ? '제외됨' : '미처리',
+	          adminHandledAtUtc: handlingStatus === 'Open' ? null : '2026-07-07T01:30:00Z',
+	          adminHandledByUserId: handlingStatus === 'Open' ? null : '50000000-0000-0000-0000-000000000001',
+	          adminHandledByDisplayName: handlingStatus === 'Open' ? null : 'Dev System Administrator',
+	          adminHandlingNote: handlingStatus === 'Open' ? null : '확인했습니다.',
 	          createdAtUtc: '2026-07-07T00:00:00Z',
 	          updatedAtUtc: '2026-07-07T00:00:00Z'
 	        }
+      ]
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === '/api/admin/notification-deliveries/acknowledge' || path === '/api/admin/notification-deliveries/dismiss' || path === '/api/admin/notification-deliveries/retry') {
+    return json({
+      requestedCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
+      skippedCount: 0,
+      items: [
+        {
+          deliveryId: '79000000-0000-0000-0000-000000000101',
+          status: 'Succeeded',
+          message: path.endsWith('/retry') ? '재발송 대기열에 등록했습니다.' : '처리했습니다.'
+        }
+      ]
+    }, userKey === 'dev-admin' ? 200 : 403);
+  }
+
+  if (path === '/api/admin/notification-deliveries/send-manual') {
+    return json({
+      correlationId: 'N003-UNIT-FRONT',
+      requestedCount: 3,
+      queuedCount: 3,
+      items: [
+        {
+          channel: 'TeamsChannel',
+          channelLabel: 'Teams 채널',
+          deliveryId: '79000000-0000-0000-0000-000000000401',
+          status: 'Queued',
+          errorCode: null,
+          errorMessage: null,
+          target: 'Teams 채널',
+          message: '발송 요청이 접수되었습니다.'
+        },
+        {
+          channel: 'TeamsActivity',
+          channelLabel: 'Teams Activity',
+          deliveryId: '79000000-0000-0000-0000-000000000402',
+          status: 'Queued',
+          errorCode: null,
+          errorMessage: null,
+          target: 'Entra Sales User',
+          message: '발송 요청이 접수되었습니다.'
+        },
+        {
+          channel: 'Mail',
+          channelLabel: '메일',
+          deliveryId: '79000000-0000-0000-0000-000000000403',
+          status: 'Queued',
+          errorCode: null,
+          errorMessage: null,
+          target: 's***@example.invalid',
+          message: '발송 요청이 접수되었습니다.'
+        }
       ]
     }, userKey === 'dev-admin' ? 200 : 403);
   }
@@ -1777,6 +2017,26 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (path === '/api/notifications/summary') {
     return json({ unreadCount: 1, blockingCount: 0 });
+  }
+
+  if (path.startsWith('/api/notifications/')) {
+    const notificationId = path.split('/').at(-1) ?? '77000000-0000-0000-0000-000000000001';
+    return json({
+      notificationId,
+      projectId,
+      projectTitle: 'TASK-003A Demo',
+      projectCode: 'PJT-003A',
+      projectItem: 'UL67',
+      notificationType: 'Reference',
+      notificationTypeLabel: '참조',
+      severity: 'Info',
+      severityLabel: '정보',
+      title: '프로젝트가 생성되었습니다.',
+      message: 'TASK-003A Demo 프로젝트가 생성되었습니다.',
+      linkUrl: `/projects/${projectId}`,
+      createdAtUtc: '2026-06-25T00:00:00Z',
+      readAtUtc: null
+    });
   }
 
   if (path === '/api/notifications') {

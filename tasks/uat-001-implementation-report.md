@@ -187,10 +187,10 @@ Rollback은 merge 전 branch commit을 되돌리는 방식이다. Startup 보호
 
 - Checklist 작성됨
 - 자동 검증 완료
-- 사용자 검수 대기
-- 사용자 검수 완료/실패: 아직 판정하지 않음
+- 사용자 검수 완료
+- 검수 증빙: Task 승인자 / 2026-07-10 / PR #23 및 HTTPS Development UAT / 승인 / 현재 대화의 명시적 검수·병합 승인
 - Actual 외부 알림 smoke: 미실행, 신규 발송 금지 결정에 따름
-- 저장/수정 검수: 사용자 수행 대기
+- 자동 검증에서 저장/수정과 actual 외부 알림 신규 smoke는 실행하지 않았으며 사용자 검수 결과와 구분함
 
 5종 산출물:
 
@@ -198,4 +198,4 @@ Rollback은 merge 전 branch commit을 되돌리는 방식이다. Startup 보호
 - SOP: [TASK-UAT-001 SOP](uat-001-sop.md)
 - User manual: [TASK-UAT-001 User Manual](uat-001-user-manual.md)
 - Roadmap update: [Product Roadmap](../docs/00-product-roadmap.md#task-uat-001-https-development-uat-안정화)
-- User validation checklist: [Task 정의 18장](uat-001-https-dev-stability.md#18-사용자-검수-체크리스트), 작성됨 / 자동 검증 완료 / 사용자 검수 대기
+- User validation checklist: [Task 정의 18장](uat-001-https-dev-stability.md#18-사용자-검수-체크리스트), 작성됨 / 자동 검증 완료 / 사용자 검수 완료

@@ -185,19 +185,22 @@ corepack pnpm --filter emi-qms-frontend run e2e:full-stack
 
 ## 20. 사용자 검수 체크리스트
 
-상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 대기`.
+상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 완료`.
 
-- [ ] HTTP startup과 HTTPS startup을 SOP 순서로 각각 실행 가능
-- [ ] Mode 전환 후 5174가 기대 protocol만 응답
-- [ ] 다른 process 점유 시 종료하지 않고 실패
-- [ ] HTTPS Teams Activity와 관리자 화면 정상
-- [ ] 저장·수정 가능한 Development mode 확인
-- [ ] 승인된 실제 알림 검수 범위 확인
-- [ ] UAT DB/schema/data와 persistent volume 유지
-- [ ] E2E가 UAT 자원을 사용하지 않음
-- [ ] 오류 대응과 금지사항을 이해함
+- [x] HTTP startup과 HTTPS startup을 SOP 순서로 각각 실행 가능
+- [x] Mode 전환 후 5174가 기대 protocol만 응답
+- [x] 다른 process 점유 시 종료하지 않고 실패
+- [x] HTTPS Teams Activity와 관리자 화면 정상
+- [x] 저장·수정 가능한 Development mode 확인
+- [x] 실제 알림은 별도 승인 범위에서만 검수하는 원칙 확인
+- [x] UAT DB/schema/data와 persistent volume 유지
+- [x] E2E가 UAT 자원을 사용하지 않음
+- [x] 오류 대응과 금지사항을 이해함
+
+검수 증빙: Task 승인자 / 2026-07-10 / PR #23 및 HTTPS Development UAT / 승인 / 현재 대화의 명시적 검수·병합 승인.
 
 ## 21. 변경 이력
 
 - 2026-07-10: TASK-UAT-001 최초 작성 — strict port/ownership/readiness/dotenv/transaction 도입
-- 2026-07-10: 최신 main `45fd61c` 통합, E2E isolation 연계와 사용자 검수 대기 상태 반영
+- 2026-07-10: 최신 main `45fd61c` 통합, E2E isolation 연계와 당시 사용자 검수 대기 상태 반영(역사적 기록)
+- 2026-07-10: 사용자 검수 완료와 PR #23 squash merge 승인 반영

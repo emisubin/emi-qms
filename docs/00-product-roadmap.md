@@ -1069,7 +1069,7 @@ Excel 출력 대상 후보:
 
 ### TASK-UAT-001: HTTPS Development UAT 안정화
 
-- 상태/다음 순서: 구현·자동 검증 완료 후보 / Draft PR / 사용자 검수 대기
+- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #23 squash merge 승인
 - 목적: Teams Activity 검수를 위한 HTTPS Development UAT의 frontend strict port, process ownership, HTTP/HTTPS readiness, notification env와 master-data transaction을 안정화한다.
 - 포함 범위: 5174 strict port/ownership/PID, repo 경로 boundary, protocol mismatch 판정, literal notify dotenv loading, worker/provider Development 설정, master-data transaction, HTTPS UAT health와 화면 검수, E2E isolation 연계
 - 제외 범위: read-only Review mode, dependency security, notification claim/lease, escalation starvation, 마지막 관리자 동시성
@@ -1303,7 +1303,7 @@ TASK-UAT-001 이후 현재 실행 순서는 `TASK-FRONTEND-SEC-001 → TASK-UAT-
 | 52 | 사용자별 알림 설정 | 계획 | 사용자/운영 | TASK-NOTIFY-005 | NOTIFY-004 완료와 필수 알림 opt-out/channel taxonomy 결정이 선행 |
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
 | 54 | Full-Stack E2E PostgreSQL 물리 격리 | 완료 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 squash merge `45fd61c` |
-| 55 | HTTPS Development UAT 안정화 | 자동 검증 완료 / 사용자 검수 대기 | 개발/운영 | TASK-UAT-001 | strict port/ownership, protocol readiness, notification env, master-data transaction, isolated E2E와 persistent UAT 보존. Draft PR |
+| 55 | HTTPS Development UAT 안정화 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-001 | strict port/ownership, protocol readiness, notification env, master-data transaction, isolated E2E와 persistent UAT 보존. PR #23 |
 | 56 | Frontend dependency security | 계획 | 개발/보안 | TASK-FRONTEND-SEC-001 | 공식 audit를 재현하고 최소 호환 upgrade와 전체 frontend 회귀 검증 수행 |
 | 57 | Review-safe UAT | 계획 | 개발/운영 | TASK-UAT-002 | mutation/worker/external egress 차단과 Development UAT mode 구분 |
 | 58 | UAT 통합 사용자 검수 | 계획 | 사용자/개발 | UAT-VERIFY-001 | Development write/Teams 검수와 Review mode 보호를 통합 확인하고 checklist 상태 확정 |

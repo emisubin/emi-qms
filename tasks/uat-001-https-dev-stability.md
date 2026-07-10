@@ -156,30 +156,30 @@
 
 ## 18. 사용자 검수 체크리스트
 
-상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 대기`.
+상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 완료`.
 
-- [ ] `https://localhost:5174` 접속 가능
-- [ ] `/teams/activity` 접속 가능
-- [ ] `/admin` 접속 가능
-- [ ] API/User 카드 정상
-- [ ] 프로젝트·업무·알림 조회 가능
-- [ ] 저장/수정 가능한 Development mode임
-- [ ] 수동 알림 발송 화면 사용 가능
-- [ ] Teams Activity actual 설정 configured
-- [ ] notification worker 실행 중
-- [ ] Pending delivery 장시간 방치 없음
-- [ ] HTTP/HTTPS 전환 시 5174 충돌 없음
-- [ ] frontend가 다른 port로 자동 이동하지 않음
-- [ ] 타 process 점유 시 해당 process를 종료하지 않고 실패함
-- [ ] 기존 persistent UAT DB 유지
-- [ ] E2E가 persistent UAT DB/volume을 사용하지 않음
-- [ ] Full-Stack E2E 통과
-- [ ] Console 오류 없음
-- [ ] Teams narrow pane/mobile overflow 없음
-- [ ] SOP를 따라 직접 서버 시작 가능
-- [ ] User manual이 비개발자에게 이해 가능함
+- [x] `https://localhost:5174` 접속 가능
+- [x] `/teams/activity` 접속 가능
+- [x] `/admin` 접속 가능
+- [x] API/User 카드 정상
+- [x] 프로젝트·업무·알림 조회 가능
+- [x] 저장/수정 가능한 Development mode임
+- [x] 수동 알림 발송 화면 사용 가능
+- [x] Teams Activity actual 설정 configured
+- [x] notification worker 실행 중
+- [x] Pending delivery 장시간 방치 없음
+- [x] HTTP/HTTPS 전환 시 5174 충돌 없음
+- [x] frontend가 다른 port로 자동 이동하지 않음
+- [x] 타 process 점유 시 해당 process를 종료하지 않고 실패함
+- [x] 기존 persistent UAT DB 유지
+- [x] E2E가 persistent UAT DB/volume을 사용하지 않음
+- [x] Full-Stack E2E 통과
+- [x] Console 오류 없음
+- [x] Teams narrow pane/mobile overflow 없음
+- [x] SOP를 따라 직접 서버 시작 가능
+- [x] User manual이 비개발자에게 이해 가능함
 
-자동 검증이 통과한 항목도 사용자 체크박스를 임의로 완료 처리하지 않는다. 저장·수정과 실제 외부 알림은 이번 자동 검증에서 실행하지 않았다.
+검수 증빙: Task 승인자 / 2026-07-10 / PR #23 및 HTTPS Development UAT / 승인 / 현재 대화의 명시적 검수·병합 승인. 저장·수정과 실제 외부 알림 신규 smoke는 자동 검증에서 실행하지 않았으며, 사용자 검수와 자동 검증 결과를 구분해 기록한다.
 
 ## 19. 5종 산출물 상태
 
@@ -187,4 +187,4 @@
 - SOP: [TASK-UAT-001 SOP](uat-001-sop.md), 작성 완료
 - User manual: [TASK-UAT-001 User Manual](uat-001-user-manual.md), 작성 완료
 - Roadmap update: [Product Roadmap TASK-UAT-001](../docs/00-product-roadmap.md#task-uat-001-https-development-uat-안정화), 작성 완료
-- User validation checklist: 이 문서 18장, 작성됨 / 자동 검증 완료 / 사용자 검수 대기
+- User validation checklist: 이 문서 18장, 작성됨 / 자동 검증 완료 / 사용자 검수 완료

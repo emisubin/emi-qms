@@ -63,6 +63,7 @@ import {
   getMaterialReceipts,
   getNotificationDetail,
   getReadyHealth,
+  getRuntimeMode,
   getSalesOwners,
   getPermissionMatrix,
   listMyAssignedProjects,
@@ -99,6 +100,7 @@ import {
   startMyWorkItem,
   setAdminTestUserKey,
   setAccessTokenProvider,
+  setRuntimeMutationAllowed,
   updateAdminCalendarHoliday,
   updateAdminDepartment,
   updateAdminUser,
@@ -110,6 +112,7 @@ import {
   updateProjectProcurement,
   updateProject
 } from './api';
+import type { RuntimeMode } from './api';
 import {
   accountSwitchLoginRequest,
   acquireAccessToken,
@@ -910,6 +913,58 @@ type EntraAuthGateState =
   | { kind: 'reauth-required'; message: string }
   | { kind: 'error'; message: string };
 
+const reviewSafeActionPattern = /(저장|수정|삭제|복구|발송|재시도|확인 처리|제외 처리|작업 시작|업무 시작|작업 완료|업무 완료|취소|반영|적용|업로드|등록|추가|신규|승인|비활성|활성화|동기화|일괄|가져오기|읽음 처리|retry|acknowledge|dismiss|import|upload)/i;
+const reviewSafeDisabledReason = '검수 전용 읽기 모드에서는 변경 작업을 수행할 수 없습니다.';
+
+function ReviewSafeControlGuard({ mutationAllowed }: { mutationAllowed: boolean }) {
+  useEffect(() => {
+    const apply = () => {
+      const controls = document.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input[type="submit"], input[type="file"]');
+      controls.forEach((control) => {
+        const isNavigation = control.getAttribute('role') === 'tab'
+          || control.hasAttribute('aria-current')
+          || control.classList.contains('app-nav-button');
+        const label = `${control.textContent ?? ''} ${control.getAttribute('aria-label') ?? ''} ${control.getAttribute('title') ?? ''}`.trim();
+        const isMutation = control instanceof HTMLInputElement && control.type === 'file'
+          || (!isNavigation && reviewSafeActionPattern.test(label));
+
+        if (!isMutation) {
+          return;
+        }
+
+        if (!mutationAllowed) {
+          if (!control.hasAttribute('data-review-safe-original-disabled')) {
+            control.setAttribute('data-review-safe-original-disabled', control.disabled ? 'true' : 'false');
+          }
+          control.disabled = true;
+          control.setAttribute('aria-disabled', 'true');
+          control.setAttribute('data-review-safe-disabled', 'true');
+          control.title = reviewSafeDisabledReason;
+          return;
+        }
+
+        const originalDisabled = control.getAttribute('data-review-safe-original-disabled');
+        if (originalDisabled !== null) {
+          control.disabled = originalDisabled === 'true';
+          control.removeAttribute('data-review-safe-original-disabled');
+          control.removeAttribute('data-review-safe-disabled');
+          control.removeAttribute('aria-disabled');
+          if (control.title === reviewSafeDisabledReason) {
+            control.removeAttribute('title');
+          }
+        }
+      });
+    };
+
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [mutationAllowed]);
+
+  return null;
+}
+
 function QmsAppShell({
   authMode,
   onLogout,
@@ -938,6 +993,7 @@ function QmsAppShell({
   });
   const [view, setViewState] = useState<View>(() => initialViewFromLocation());
   const [health, setHealth] = useState<LoadState<ReadyHealth>>({ kind: 'loading' });
+  const [runtimeMode, setRuntimeMode] = useState<LoadState<RuntimeMode>>({ kind: 'loading' });
   const [currentUser, setCurrentUser] = useState<LoadState<CurrentUser>>({ kind: 'loading' });
   const [shellBadges, setShellBadges] = useState<ShellBadgeState>({ requestedWorkCount: 0, unreadNotificationCount: 0 });
   const [adminTestUserKey, setAdminTestUserKeyState] = useState('');
@@ -967,6 +1023,17 @@ function QmsAppShell({
   }, []);
 
   const loadShell = useCallback(() => {
+    setRuntimeMutationAllowed(false);
+    getRuntimeMode()
+      .then((data) => {
+        setRuntimeMutationAllowed(data.mutationAllowed);
+        setRuntimeMode({ kind: 'ready', data });
+      })
+      .catch((error: unknown) => {
+        setRuntimeMutationAllowed(false);
+        setRuntimeMode(toLoadError(error, '실행 모드를 확인할 수 없어 변경 작업을 차단했습니다.'));
+      });
+
     getReadyHealth()
       .then((data) => setHealth({ kind: 'ready', data }))
       .catch((error: unknown) => setHealth(toLoadError(error, 'API 상태를 확인할 수 없습니다.')));
@@ -1122,6 +1189,7 @@ function QmsAppShell({
   }
 
   const permissions = user?.permissions ?? [];
+  const mutationEnabled = runtimeMode.kind === 'ready' && runtimeMode.data.mutationAllowed;
   const canCreate = permissions.includes('Project.Create');
   const canUpdate = permissions.includes('Project.Update');
   const canHold = permissions.includes('Project.Hold');
@@ -1157,6 +1225,7 @@ function QmsAppShell({
       <AppNavigation items={navigationItems} onNavigate={setView} />
 
       <div className="app-content">
+        <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
         <header className="topbar">
           <div>
             <p className="eyebrow">EMI</p>
@@ -1209,6 +1278,24 @@ function QmsAppShell({
             )}
           </div>
         </header>
+
+        {runtimeMode.kind === 'ready' && runtimeMode.data.reviewSafe ? (
+          <div className="review-safe-banner" role="status">
+            검수 전용 읽기 모드 — 조회·검색·필터만 가능하며 저장, 삭제, 발송 및 상태 변경은 차단되어 있습니다.
+          </div>
+        ) : null}
+
+        {runtimeMode.kind === 'loading' ? (
+          <div className="review-safe-banner review-safe-banner--checking" role="status">
+            실행 모드 확인 중 — 확인이 끝날 때까지 변경 작업을 차단합니다.
+          </div>
+        ) : null}
+
+        {runtimeMode.kind === 'error' || runtimeMode.kind === 'forbidden' || runtimeMode.kind === 'not-found' ? (
+          <div className="review-safe-banner review-safe-banner--error" role="alert">
+            실행 모드를 확인할 수 없어 변경 작업을 차단했습니다. 조회는 가능하지만 저장·삭제·발송은 사용할 수 없습니다.
+          </div>
+        ) : null}
 
         {!isDevMode && user?.isTestUserSwitch ? (
           <div className="test-user-banner" role="status">

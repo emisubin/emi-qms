@@ -70,6 +70,54 @@ describe('App', () => {
     expect(screen.getAllByText('KRW 1,250,000.5').length).toBeGreaterThan(0);
   });
 
+  it('shows review-safe mode and disables mutation actions while keeping navigation available', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/runtime-mode') {
+        return json({
+          mode: 'ReviewSafe',
+          reviewSafe: true,
+          mutationAllowed: false,
+          backgroundWorkersEnabled: false,
+          externalProvidersEnabled: false,
+          databaseReadOnly: true,
+          migrationExecutionEnabled: false,
+          environment: 'Development',
+          ready: true,
+          reason: 'ready',
+          expectedMigration: '0027_notification_access_scope_and_manual_work_items',
+          actualMigration: '0027_notification_access_scope_and_manual_work_items'
+        });
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByText(/검수 전용 읽기 모드/)).toBeInTheDocument();
+    const createButton = await screen.findByRole('button', { name: '신규 프로젝트' });
+    await waitFor(() => expect(createButton).toBeDisabled());
+    expect(createButton).toHaveAttribute('title', '검수 전용 읽기 모드에서는 변경 작업을 수행할 수 없습니다.');
+    expect(screen.getAllByRole('button', { name: '프로젝트' }).some((button) => !button.hasAttribute('disabled'))).toBe(true);
+    expect(screen.getByRole('tab', { name: '진행' })).toBeEnabled();
+  });
+
+  it('fails closed when runtime mode cannot be loaded', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/runtime-mode') {
+        return new Response(null, { status: 503 });
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByText(/실행 모드를 확인할 수 없어 변경 작업을 차단했습니다/)).toBeInTheDocument();
+    const createButton = await screen.findByRole('button', { name: '신규 프로젝트' });
+    await waitFor(() => expect(createButton).toBeDisabled());
+  });
+
   it('shows all project tabs by default with a sticky desktop header and workflow progress', async () => {
     render(<App />);
 
@@ -1401,6 +1449,23 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       status: 'ok',
       database: { isReady: true, reason: 'reachable' },
       checkedAtUtc: '2026-06-25T00:00:00Z'
+    });
+  }
+
+  if (path === '/api/runtime-mode') {
+    return json({
+      mode: 'Development',
+      reviewSafe: false,
+      mutationAllowed: true,
+      backgroundWorkersEnabled: true,
+      externalProvidersEnabled: true,
+      databaseReadOnly: false,
+      migrationExecutionEnabled: true,
+      environment: 'Development',
+      ready: true,
+      reason: 'not_applicable',
+      expectedMigration: '0027_notification_access_scope_and_manual_work_items',
+      actualMigration: null
     });
   }
 

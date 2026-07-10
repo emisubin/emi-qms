@@ -12,6 +12,94 @@ namespace Emi.Qms.Api.Tests;
 public sealed class PostgreSqlMigrationTests
 {
     [Fact]
+    public async Task ReviewSafeDatabaseSession_IsReadOnlyAcrossPoolReuse_AndReportsSchemaState()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var normalConfiguration = database.CreateConfiguration();
+        var normalProvider = new DatabaseConnectionStringProvider(normalConfiguration);
+        await CreateMigrationRunner(database.RepositoryRoot, normalProvider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        await using (var normalDataSource = NpgsqlDataSource.Create(normalProvider.GetConnectionString()!))
+        await using (var createCommand = normalDataSource.CreateCommand(
+            "create table review_safe_write_probe (id integer primary key, value text not null);"))
+        {
+            await createCommand.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        var reviewConfiguration = database.CreateConfiguration(
+            new Dictionary<string, string?> { ["ReviewSafe:Enabled"] = "true" });
+        var reviewProvider = new DatabaseConnectionStringProvider(reviewConfiguration);
+        var environment = new TestWebHostEnvironment(database.RepositoryRoot)
+        {
+            EnvironmentName = "Development"
+        };
+        var statusService = new Emi.Qms.Api.ReviewSafe.ReviewSafeStatusService(
+            reviewProvider,
+            new Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog(environment),
+            reviewConfiguration,
+            environment);
+
+        await using var reviewDataSource = NpgsqlDataSource.Create(reviewProvider.GetConnectionString()!);
+        await using (var firstConnection = await reviewDataSource.OpenConnectionAsync(TestContext.Current.CancellationToken))
+        {
+            Assert.Equal("on", await ReadConnectionScalarAsync(firstConnection, "show transaction_read_only;"));
+            Assert.Equal(
+                Emi.Qms.Api.ReviewSafe.ReviewSafeMode.DatabaseApplicationName,
+                await ReadConnectionScalarAsync(firstConnection, "show application_name;"));
+            Assert.Equal("1", await ReadConnectionScalarAsync(firstConnection, "select 1;"));
+            await AssertReadOnlyFailureAsync(
+                firstConnection,
+                "insert into review_safe_write_probe (id, value) values (1, 'blocked');");
+
+            await using var transaction = await firstConnection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+            await AssertReadOnlyFailureAsync(
+                firstConnection,
+                "update review_safe_write_probe set value = 'blocked' where id = 1;",
+                transaction);
+            await transaction.RollbackAsync(TestContext.Current.CancellationToken);
+        }
+
+        await using (var pooledConnection = await reviewDataSource.OpenConnectionAsync(TestContext.Current.CancellationToken))
+        {
+            Assert.Equal("on", await ReadConnectionScalarAsync(pooledConnection, "show transaction_read_only;"));
+            await AssertReadOnlyFailureAsync(
+                pooledConnection,
+                "delete from review_safe_write_probe where id = 1;");
+        }
+
+        var status = await statusService.CheckAsync(TestContext.Current.CancellationToken);
+        Assert.True(status.Ready);
+        Assert.True(status.DatabaseReadOnly);
+        Assert.Equal(status.ExpectedMigration, status.ActualMigration);
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            normalProvider,
+            "select count(*) from review_safe_write_probe;",
+            TestContext.Current.CancellationToken));
+
+        var identityStore = new DbIdentityStore(reviewProvider, reviewConfiguration);
+        Assert.Null(await identityStore.GetProfileByEntraObjectIdAsync(
+            "review-safe-missing-user",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            normalProvider,
+            "select count(*) from qms_users where entra_object_id = 'review-safe-missing-user';",
+            TestContext.Current.CancellationToken));
+
+        await using (var normalDataSource = NpgsqlDataSource.Create(normalProvider.GetConnectionString()!))
+        await using (var removeLatest = normalDataSource.CreateCommand(
+            "delete from schema_migrations where version = (select max(version) from schema_migrations);"))
+        {
+            Assert.Equal(1, await removeLatest.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+        }
+
+        var mismatch = await statusService.CheckAsync(TestContext.Current.CancellationToken);
+        Assert.False(mismatch.Ready);
+        Assert.Equal("schema_mismatch", mismatch.Reason);
+        Assert.NotEqual(mismatch.ExpectedMigration, mismatch.ActualMigration);
+    }
+
+    [Fact]
     public async Task SchemaMigration_AppliesWithoutFakeDevelopmentData()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -941,10 +1029,34 @@ public sealed class PostgreSqlMigrationTests
         string repositoryRoot,
         DatabaseConnectionStringProvider connectionStringProvider)
     {
+        var environment = new TestWebHostEnvironment(repositoryRoot);
         return new DatabaseMigrationRunner(
             connectionStringProvider,
-            new TestWebHostEnvironment(repositoryRoot),
+            new Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog(environment),
+            new ConfigurationBuilder().Build(),
             NullLogger<DatabaseMigrationRunner>.Instance);
+    }
+
+    private static async Task<string?> ReadConnectionScalarAsync(
+        NpgsqlConnection connection,
+        string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return (await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))?.ToString();
+    }
+
+    private static async Task AssertReadOnlyFailureAsync(
+        NpgsqlConnection connection,
+        string sql,
+        NpgsqlTransaction? transaction = null)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.Transaction = transaction;
+        var exception = await Assert.ThrowsAsync<PostgresException>(
+            () => command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(PostgresErrorCodes.ReadOnlySqlTransaction, exception.SqlState);
     }
 
     private static DevelopmentIdentitySeeder CreateSeeder(

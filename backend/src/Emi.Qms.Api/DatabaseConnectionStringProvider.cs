@@ -1,4 +1,5 @@
 using Npgsql;
+using Emi.Qms.Api.ReviewSafe;
 
 namespace Emi.Qms.Api;
 
@@ -10,7 +11,7 @@ public sealed class DatabaseConnectionStringProvider(IConfiguration configuratio
 
         if (!string.IsNullOrWhiteSpace(configured))
         {
-            return configured;
+            return ApplyRuntimeSafety(configured);
         }
 
         var host = configuration["DATABASE_HOST"];
@@ -46,6 +47,22 @@ public sealed class DatabaseConnectionStringProvider(IConfiguration configuratio
             Password = password,
             Pooling = true,
             Timeout = 3
+        };
+
+        return ApplyRuntimeSafety(builder.ConnectionString);
+    }
+
+    private string ApplyRuntimeSafety(string connectionString)
+    {
+        if (!ReviewSafeMode.IsEnabled(configuration))
+        {
+            return connectionString;
+        }
+
+        var builder = new NpgsqlConnectionStringBuilder(connectionString)
+        {
+            ApplicationName = ReviewSafeMode.DatabaseApplicationName,
+            Options = "-c default_transaction_read_only=on"
         };
 
         return builder.ConnectionString;

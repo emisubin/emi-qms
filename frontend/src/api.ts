@@ -85,6 +85,22 @@ export const defaultDevelopmentUserKey = import.meta.env.DEV
 
 let accessTokenProvider: (() => Promise<string | null>) | null = null;
 let adminTestUserKey: string | null = null;
+let mutationAllowed = false;
+
+export type RuntimeMode = {
+  mode: string;
+  reviewSafe: boolean;
+  mutationAllowed: boolean;
+  backgroundWorkersEnabled: boolean;
+  externalProvidersEnabled: boolean;
+  databaseReadOnly: boolean;
+  migrationExecutionEnabled: boolean;
+  environment: string;
+  ready: boolean;
+  reason: string;
+  expectedMigration: string;
+  actualMigration: string | null;
+};
 
 export function setAccessTokenProvider(provider: (() => Promise<string | null>) | null) {
   accessTokenProvider = provider;
@@ -92,6 +108,10 @@ export function setAccessTokenProvider(provider: (() => Promise<string | null>) 
 
 export function setAdminTestUserKey(testUserKey: string | null) {
   adminTestUserKey = testUserKey?.trim() || null;
+}
+
+export function setRuntimeMutationAllowed(allowed: boolean) {
+  mutationAllowed = allowed;
 }
 
 function normalizeApiBaseUrl(value: string) {
@@ -131,6 +151,10 @@ export class ApiError extends Error {
 
 export async function getReadyHealth(): Promise<ReadyHealth> {
   return fetchJson<ReadyHealth>('/health/ready');
+}
+
+export async function getRuntimeMode(): Promise<RuntimeMode> {
+  return fetchJson<RuntimeMode>('/api/runtime-mode');
 }
 
 export async function getCurrentUser(developmentUserKey?: string): Promise<CurrentUser> {
@@ -1285,6 +1309,11 @@ async function fetchWithAuth(path: string, developmentUserKey?: string, init?: R
 }
 
 async function fetchJson<T>(path: string, developmentUserKey?: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !mutationAllowed) {
+    throw new ApiError(423, '현재 UAT는 검수 전용 읽기 모드입니다. 저장, 삭제, 발송 또는 상태 변경을 수행할 수 없습니다.');
+  }
+
   const headers = new Headers(init?.headers);
 
   if (init?.body && !(init.body instanceof FormData)) {

@@ -205,7 +205,7 @@ Delivery status와 max timestamp도 before/after 동일했고 PostgreSQL contain
 
 ## 22. 후속 Task
 
-1. 사용자 검수와 Draft PR merge 결정
+1. PR #27 squash merge
 2. Review-safe 5190/5092 controlled handover
 3. UAT-VERIFY-001 clean branch에서 처음부터 재검증
 4. TASK-NOTIFY-REL-001
@@ -239,7 +239,7 @@ Delivery status와 max timestamp도 before/after 동일했고 PostgreSQL contain
 
 - Checklist 작성됨
 - 자동 검증 완료
-- 사용자 검수 대기
-- PR 병합 승인 대기
+- 사용자 검수 완료
+- PR #27 병합 승인
 
-남은 사용자 항목은 5191 화면, 27/28/1 의미, legacy 보존, mismatch 503 증빙, SOP/User manual 이해다. 사용자 검수 완료로 임의 표시하지 않았다.
+검수 사용자 A는 2026-07-10 Candidate 5191에서 Review-safe banner와 주요 조회 화면, Compatible 표시, Canonical 27 / Live 28 / Approved Legacy 1의 의미와 marker 보존 정책을 확인했다. SOP와 User manual, merge 후 controlled handover 및 그 이후 UAT-VERIFY-001을 처음부터 재실행하는 순서에 동의하고 PR #27 병합을 승인했다. Mismatch fixture 503, DB read-only, mutation 423, worker/provider 미실행과 Persistent UAT 무변경은 자동 증빙을 함께 사용했다.

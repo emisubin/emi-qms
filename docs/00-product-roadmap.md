@@ -1132,7 +1132,7 @@ Excel 출력 대상 후보:
 
 ### TASK-DB-MIGRATION-001: Migration ledger 전체 집합 검증
 
-- 상태/다음 순서: 구현·자동 검증 완료 후보 / 사용자 검수 대기 / Draft PR
+- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #27 squash merge 승인 / Review-safe controlled handover 대기
 - 목적: repository migration canonical 전체 집합과 live ledger 전체 집합을 비교하고, 코드 리뷰로 승인된 historical marker만 schema probe 후 호환 처리한다.
 - 포함 범위: validated migration catalog, full-set ledger inspector, exact approved legacy policy, TeamsActivity channel schema probe, Review-safe readiness/runtime diagnostic, frontend 요약 표시, isolated fixture, candidate 5093/5191
 - 제외 범위: 기존/신규 SQL migration, live ledger row 삭제·rename·추가, Persistent UAT data 변경, Development startup 정책 확대, UAT-VERIFY 데이터 검증 재개
@@ -1142,6 +1142,7 @@ Excel 출력 대상 후보:
 - 자동 검증 결과: exact/compatible ready 200, unknown/missing/successor/schema mismatch ready 503, catalog duplicate/missing prefix 차단, backend 311/311, frontend 59/59, mock UI 1/1, Full-Stack E2E 16/16, candidate 5191/5093 ready 200
 - 핵심 검수 기준: Compatible 27/28/1 표시, legacy row 보존, DB read-only, mutation 423, worker/provider 미실행, Persistent UAT snapshot 보존
 - 산출물: [Task 정의와 검수 체크리스트](../tasks/db-migration-001.md), [Implementation report](../tasks/db-migration-001-implementation-report.md), [SOP](../tasks/db-migration-001-sop.md), [User manual](../tasks/db-migration-001-user-manual.md), 이 Roadmap update
+- 사용자 검수 결과: Candidate 5191의 banner·주요 조회 화면·Compatible 27/28/1 표시, legacy marker 보존 의미, SOP/User manual 검수 완료. PR #27 병합 승인
 - 주요 위험: merge 후 current 5190/5092 controlled handover 전까지 latest-only runtime이 남음, 새 legacy 승인 시 exact policy/schema probe/code review 필요, checksum guard는 후속 P3
 
 ### TASK-AUTH-HARDEN-001: Last System Administrator concurrency guard
@@ -1344,7 +1345,7 @@ Excel 출력 대상 후보:
 | 61 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-HARDEN-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
 | 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
-| 64 | Migration ledger 전체 집합 검증 | 자동 검증 완료 후보 / 사용자 검수 대기 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경 |
+| 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1415,6 +1416,7 @@ Excel 출력 대상 후보:
 | 2026-07-10 | TASK-UAT-002의 5190 조회·mutation 차단·SOP/User manual 사용자 검수를 완료하고 PR #26 병합을 승인 | 자동 방어 증빙과 사용자 직접 검수 gate를 모두 닫고 다음 remediation을 UAT-VERIFY-001로 전환하기 위함 | 23장, 24장, TASK-UAT-002 |
 | 2026-07-10 | UAT-VERIFY-001은 repository 27개와 live ledger 28개 차이를 latest-only readiness가 놓치는 P2로 중단하고 TASK-DB-MIGRATION-001을 선행 | 전체 migration set과 schema 호환성을 증명하지 않은 상태에서 Persistent UAT 통합 검증을 완료로 오판하지 않기 위함 | 23장, 24장, UAT-VERIFY-001 |
 | 2026-07-10 | `0020_teams_activity_delivery_channel`은 동일 blob의 canonical `0023` successor와 schema probe가 모두 확인될 때만 승인 legacy로 보존 | live 감사 이력을 삭제하지 않으면서 unknown/missing/유사 marker를 fail-closed로 차단하기 위함 | 23장, 24장, TASK-DB-MIGRATION-001 |
+| 2026-07-10 | TASK-DB-MIGRATION-001의 Candidate 5191·27/28/1 호환 상태·legacy marker 보존·SOP/User manual 사용자 검수를 완료하고 PR #27 병합을 승인 | full-set readiness의 자동 증빙과 사용자 직접 검수 gate를 닫고 다음 단계를 Review-safe controlled handover로 전환하기 위함 | 23장, 24장, TASK-DB-MIGRATION-001 |
 
 ## 26. 용어 사전
 

@@ -1431,7 +1431,7 @@ Excel 출력 대상 후보:
 | 2026-07-10 | UAT-VERIFY-001은 repository 27개와 live ledger 28개 차이를 latest-only readiness가 놓치는 P2로 중단하고 TASK-DB-MIGRATION-001을 선행 | 전체 migration set과 schema 호환성을 증명하지 않은 상태에서 Persistent UAT 통합 검증을 완료로 오판하지 않기 위함 | 23장, 24장, UAT-VERIFY-001 |
 | 2026-07-10 | `0020_teams_activity_delivery_channel`은 동일 blob의 canonical `0023` successor와 schema probe가 모두 확인될 때만 승인 legacy로 보존 | live 감사 이력을 삭제하지 않으면서 unknown/missing/유사 marker를 fail-closed로 차단하기 위함 | 23장, 24장, TASK-DB-MIGRATION-001 |
 | 2026-07-10 | TASK-DB-MIGRATION-001의 Candidate 5191·27/28/1 호환 상태·legacy marker 보존·SOP/User manual 사용자 검수를 완료하고 PR #27 병합을 승인 | full-set readiness의 자동 증빙과 사용자 직접 검수 gate를 닫고 다음 단계를 Review-safe controlled handover로 전환하기 위함 | 23장, 24장, TASK-DB-MIGRATION-001 |
-| 2026-07-11 | TASK-UAT-HANDOVER-002는 raw DOM 검증을 폐기하고 boolean/count/enum output guard를 적용한 뒤 merged main full-ledger runtime을 공식 5190/5092로 통제 전환 | Persistent UAT와 기존 runtime을 보호하면서 UAT-VERIFY 재실행의 최신 main 전제와 개인정보 안전 증빙을 함께 충족하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-002 |
+| 2026-07-10 | TASK-UAT-HANDOVER-002는 raw DOM 검증을 폐기하고 boolean/count/enum output guard를 적용한 뒤 merged main full-ledger runtime을 공식 5190/5092로 통제 전환 | Persistent UAT와 기존 runtime을 보호하면서 UAT-VERIFY 재실행의 최신 main 전제와 개인정보 안전 증빙을 함께 충족하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-002 |
 
 ## 26. 용어 사전
 

@@ -172,4 +172,4 @@ SELECT aggregate만 사용한다.
 
 | 날짜 | 버전 | 내용 |
 | --- | --- | --- |
-| 2026-07-11 | 1.0 | Privacy-safe Review-safe runtime handover SOP 최초 작성 |
+| 2026-07-10 | 1.0 | Privacy-safe Review-safe runtime handover SOP 최초 작성 |

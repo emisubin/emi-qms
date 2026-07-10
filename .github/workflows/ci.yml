@@ -94,7 +94,7 @@ jobs:
       DATABASE_PORT: 5432
       DATABASE_NAME: emi_qms_dev
       DATABASE_USER: emi_qms
-      E2E_DATABASE_NAME: emi_qms_e2e
+      E2E_DATABASE_NAME: emi_qms_e2e_ci
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5

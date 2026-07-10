@@ -1344,10 +1344,10 @@ async function findProjectId(projectTitle: string) {
 }
 
 function queryDatabaseValue(sql: string) {
-  const databaseName = process.env.E2E_DATABASE_NAME ?? 'emi_qms_e2e';
-  const databaseHost = process.env.DATABASE_HOST ?? 'localhost';
-  const databasePort = process.env.DATABASE_PORT ?? '5432';
-  const databaseUser = process.env.DATABASE_USER ?? 'emi_qms';
+  const databaseName = requireEnv('E2E_DATABASE_NAME');
+  const databaseHost = requireEnv('DATABASE_HOST');
+  const databasePort = requireEnv('DATABASE_PORT');
+  const databaseUser = requireEnv('DATABASE_USER');
   const databasePassword = requireEnv('DATABASE_PASSWORD');
 
   if (commandExists('psql')) {
@@ -1381,13 +1381,13 @@ function queryDatabaseValue(sql: string) {
     'docker',
     [
       'compose',
-      '--env-file',
-      `${repositoryRoot()}/.env`,
-      '-f',
-      `${repositoryRoot()}/infrastructure/docker-compose.yml`,
+      '--project-name',
+      requireEnv('E2E_COMPOSE_PROJECT_NAME'),
+      '--file',
+      requireEnv('E2E_COMPOSE_FILE'),
       'exec',
       '-T',
-      postgresComposeService(),
+      requireEnv('E2E_POSTGRES_SERVICE'),
       'psql',
       '--username',
       databaseUser,
@@ -1508,28 +1508,6 @@ function escapeXml(value: string) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;');
-}
-
-function postgresComposeService() {
-  return execFileSync(
-    'docker',
-    [
-      'compose',
-      '--env-file',
-      `${repositoryRoot()}/.env`,
-      '-f',
-      `${repositoryRoot()}/infrastructure/docker-compose.yml`,
-      'config',
-      '--services'
-    ],
-    { encoding: 'utf8' }
-  )
-    .split('\n')
-    .find((service) => service.trim() === 'postgres') ?? 'postgres';
-}
-
-function repositoryRoot() {
-  return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
 }
 
 function commandExists(command: string) {

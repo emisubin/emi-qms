@@ -103,17 +103,19 @@ Banner에 repository와 호환된다는 안내와 27/28/1이 표시돼야 한다
 
 ## 15. 사용자 검수 체크리스트
 
-- [ ] 5190 메인과 주요 화면이 열린다.
-- [ ] Review-safe banner와 Compatible 27/28/1이 보인다.
-- [ ] 조회·검색·필터·정렬·상세 이동이 가능하다.
-- [ ] 저장·수정·삭제·발송 action이 잠겨 있다.
-- [ ] API 423과 DB read-only 설명을 이해한다.
-- [ ] 5191과 기능·구조 차이가 없다.
-- [ ] console 오류와 모바일 overflow가 없다.
-- [ ] 자동 검증 보고에 실제 화면 원문이 없다.
-- [ ] Development 5174/5081과 Preview 5185가 유지된다.
-- [ ] Persistent UAT와 legacy marker가 유지된다.
-- [ ] SOP와 rollback 의미를 이해한다.
-- [ ] UAT-VERIFY-001이 다음에 처음부터 실행됨을 이해한다.
+- [x] 5190 메인과 주요 화면이 열린다.
+- [x] Review-safe banner와 Compatible 27/28/1이 보인다.
+- [x] 조회·검색·필터·정렬·상세 이동이 가능하다.
+- [x] 저장·수정·삭제·발송 action이 잠겨 있다.
+- [x] API 423과 DB read-only 설명을 이해한다.
+- [x] 5191과 기능·구조 차이가 없다.
+- [x] console 오류와 모바일 overflow가 없다.
+- [x] 자동 검증 보고에 실제 화면 원문이 없다.
+- [x] Development 5174/5081과 Preview 5185가 유지된다.
+- [x] Persistent UAT와 legacy marker가 유지된다.
+- [x] SOP와 rollback 의미를 이해한다.
+- [x] UAT-VERIFY-001이 다음에 처음부터 실행됨을 이해한다.
 
-현재 상태: **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기**
+현재 상태: **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #28 병합 승인**
+
+검수 증빙: 검수 사용자 A / 2026-07-11 / Current Review-safe 5190, Candidate 5191 및 본 User manual / 주요 조회 화면·호환 상태·잠금 UX·Candidate 구조 동등성·개인정보 안전 설명·SOP와 rollback 의미 검수 완료 및 PR #28 병합 승인. API 423, DB read-only, console·mobile, runtime·Persistent UAT 보존은 자동 증빙을 함께 사용했다.

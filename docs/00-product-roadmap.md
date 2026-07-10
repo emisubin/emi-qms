@@ -1147,7 +1147,7 @@ Excel 출력 대상 후보:
 
 ### TASK-UAT-HANDOVER-002: Privacy-safe Review-safe runtime handover
 
-- 상태/다음 순서: 구현·자동 검증 완료 후보 / 사용자 검수 대기 / Draft PR 후 UAT-VERIFY-001 재실행
+- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #28 squash merge 승인 / 다음 UAT-VERIFY-001 재실행
 - 목적: PR #27 merged main의 full-ledger Review-safe runtime을 공식 5190/5092로 통제 전환하고 개인정보 안전 browser 검증과 rollback 증빙을 확립한다.
 - 포함 범위: Candidate/main tree 비교, raw DOM 폐기와 boolean/count/enum output guard, desktop/390px fixed route matrix, Existing process ownership·rollback, 5190/5092 cutover, 27/28/1·DB read-only·mutation/worker/provider 차단, Persistent UAT aggregate 전후 비교
 - 제외 범위: runtime code, migration SQL, dependency/lockfile/script, live ledger·업무 data 변경, actual external provider, Development/Preview/Candidate 재시작, UAT-VERIFY-001 재개
@@ -1156,6 +1156,7 @@ Excel 출력 대상 후보:
 - 자동 검증 결과: Candidate/Main tree 동일, Candidate와 Main 각각 desktop 11/11·390px 11/11, output negative guard 5/5 차단, Main ready 200 Compatible 27/28/1, mutation 5/5 423, targeted 32/32, frontend 59/59, audit 0, Persistent UAT aggregate/container/volume/restart 동일
 - 개인정보 안전 원칙: 실제 UAT에서 raw DOM/accessibility snapshot, text/HTML, screenshot, response body와 console message 원문을 출력하지 않고 fixed schema의 boolean/count/enum만 기록
 - 산출물: [Task 정의와 검수 체크리스트](../tasks/uat-handover-002.md), [Implementation report](../tasks/uat-handover-002-implementation-report.md), [SOP](../tasks/uat-handover-002-sop.md), [User manual](../tasks/uat-handover-002-user-manual.md), 이 Roadmap update
+- 사용자 검수 결과: Current 5190의 banner·주요 조회 화면·Compatible 27/28/1 표시·mutation action 비활성화, Candidate 5191과의 기능·구조 동등성, 개인정보 안전 browser 검증 정책, SOP/User manual 검수 완료. PR #28 병합 승인
 - 주요 위험: Candidate와 legacy worktree 정리 미실행, UAT-VERIFY 장기 검증 중 Development worker 자연 변화 구분 필요, migration checksum guard P3
 
 ### TASK-AUTH-HARDEN-001: Last System Administrator concurrency guard
@@ -1217,7 +1218,7 @@ Excel 출력 대상 후보:
 - 핵심 검수 기준: 필수 알림 해제 차단, 기본값 호환, event/channel별 저장과 재로그인 유지, 인앱 원본 보존, preference 변경 audit, 외부 delivery 생성 여부 검증
 - 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
 
-현재 실행 순서는 `TASK-UAT-HANDOVER-002 사용자 검수/merge → UAT-VERIFY-001 처음부터 재실행 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다.
+현재 실행 순서는 `PR #28 merge → UAT-VERIFY-001 처음부터 재실행 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1359,7 +1360,7 @@ Excel 출력 대상 후보:
 | 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
-| 65 | Privacy-safe Review-safe runtime handover | 자동 검증 완료 / 사용자 검수 대기 | 개발/운영 | TASK-UAT-HANDOVER-002 | merged main 5190/5092, Compatible 27/28/1, redacted browser matrix, DB read-only·423, Candidate/Persistent UAT 보존 |
+| 65 | Privacy-safe Review-safe runtime handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-002 | merged main 5190/5092, Compatible 27/28/1, redacted browser matrix, DB read-only·423, Candidate/Persistent UAT 보존. PR #28 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1432,6 +1433,7 @@ Excel 출력 대상 후보:
 | 2026-07-10 | `0020_teams_activity_delivery_channel`은 동일 blob의 canonical `0023` successor와 schema probe가 모두 확인될 때만 승인 legacy로 보존 | live 감사 이력을 삭제하지 않으면서 unknown/missing/유사 marker를 fail-closed로 차단하기 위함 | 23장, 24장, TASK-DB-MIGRATION-001 |
 | 2026-07-10 | TASK-DB-MIGRATION-001의 Candidate 5191·27/28/1 호환 상태·legacy marker 보존·SOP/User manual 사용자 검수를 완료하고 PR #27 병합을 승인 | full-set readiness의 자동 증빙과 사용자 직접 검수 gate를 닫고 다음 단계를 Review-safe controlled handover로 전환하기 위함 | 23장, 24장, TASK-DB-MIGRATION-001 |
 | 2026-07-10 | TASK-UAT-HANDOVER-002는 raw DOM 검증을 폐기하고 boolean/count/enum output guard를 적용한 뒤 merged main full-ledger runtime을 공식 5190/5092로 통제 전환 | Persistent UAT와 기존 runtime을 보호하면서 UAT-VERIFY 재실행의 최신 main 전제와 개인정보 안전 증빙을 함께 충족하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-002 |
+| 2026-07-11 | TASK-UAT-HANDOVER-002의 Current 5190·Candidate 5191 구조 동등성·Compatible 27/28/1·개인정보 안전 검증 정책·SOP/User manual 사용자 검수를 완료하고 PR #28 병합을 승인 | 공식 Review-safe runtime handover의 자동 증빙과 사용자 직접 검수 gate를 모두 닫고 UAT-VERIFY-001을 최신 main에서 처음부터 재실행하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-002 |
 
 ## 26. 용어 사전
 

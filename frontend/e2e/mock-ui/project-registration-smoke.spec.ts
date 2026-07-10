@@ -138,6 +138,23 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
       });
     }
 
+    if (path === '/api/runtime-mode') {
+      return fulfillJson(route, {
+        mode: 'Development',
+        reviewSafe: false,
+        mutationAllowed: true,
+        backgroundWorkersEnabled: true,
+        externalProvidersEnabled: true,
+        databaseReadOnly: false,
+        migrationExecutionEnabled: true,
+        environment: 'Development',
+        ready: true,
+        reason: 'not_applicable',
+        expectedMigration: '0027_notification_access_scope_and_manual_work_items',
+        actualMigration: null
+      });
+    }
+
     if (path === '/api/me') {
       return fulfillJson(route, currentUser(userKey));
     }

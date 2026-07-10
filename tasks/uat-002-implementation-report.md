@@ -185,7 +185,7 @@ Delivery status도 Disabled 1, DryRunSent 6, Failed 20, Sent 59, Suppressed 6으
 | DB read-only/schema/JIT integration | 성공 |
 | authorization/migration | 전체 backend suite에 포함, 성공 |
 | frontend lint/typecheck/unit/build | 성공, 59/59 |
-| mock UI | frontend unit suite 성공 |
+| mock UI | Playwright 1/1 성공 |
 | Full-Stack E2E | isolated DB 16/16, cleanup 성공 |
 | HTTPS Review-safe startup | 5092/5190 성공 |
 | API/health/mutation | GET/health 200, mutation 423 |
@@ -249,6 +249,7 @@ Delivery status도 Disabled 1, DryRunSent 6, Failed 20, Sent 59, Suppressed 6으
 - 첫 수동 curl mutation loop는 zsh glob으로 실행되지 않았다. URL quoting 후 동일 검증을 다시 수행해 실제 결과만 증빙했다.
 - 최종 build 교체 중 screen session 종료 뒤 backend child listener가 남았다. Startup script는 예상대로 occupied port에서 fail-closed했고, PID/cwd/command가 Review-safe process임을 다시 확인한 뒤 해당 listener만 정상 종료해 재기동했다. Development 5081/5174/5185에는 영향이 없었다.
 - 최종 route 확장 확인에서 date range가 생략된 공휴일 GET이 PostgreSQL의 untyped null parameter 때문에 500을 반환했다. Date parameter를 명시적으로 typing하고 기존 production-planning test에 no-range 회귀를 추가했으며 실제 5190 GET 200, sync POST 423을 확인했다.
+- 첫 Draft PR CI에서 mock UI fixture가 `/api/runtime-mode`를 제공하지 않아 frontend가 안전하게 fail-closed했고 “신규 프로젝트”가 disabled됐다. Production 문제가 아니라 test harness 계약 누락으로 판정해 Development runtime 응답을 fixture에 추가하고 mock UI smoke와 CI를 다시 검증했다.
 
 ## 26. 사용자 검수 결과와 남은 항목
 

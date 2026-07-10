@@ -100,6 +100,14 @@ export type RuntimeMode = {
   reason: string;
   expectedMigration: string;
   actualMigration: string | null;
+  migrationLedgerStatus: string | null;
+  expectedMigrationCount: number;
+  actualMigrationCount: number | null;
+  missingMigrations: string[];
+  unexpectedMigrations: string[];
+  approvedLegacyMigrations: string[];
+  migrationSchemaCompatible: boolean;
+  migrationLedgerReady: boolean;
 };
 
 export function setAccessTokenProvider(provider: (() => Promise<string | null>) | null) {

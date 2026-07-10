@@ -86,7 +86,15 @@ describe('App', () => {
           ready: true,
           reason: 'ready',
           expectedMigration: '0027_notification_access_scope_and_manual_work_items',
-          actualMigration: '0027_notification_access_scope_and_manual_work_items'
+          actualMigration: '0027_notification_access_scope_and_manual_work_items',
+          migrationLedgerStatus: 'CompatibleWithApprovedLegacy',
+          expectedMigrationCount: 27,
+          actualMigrationCount: 28,
+          missingMigrations: [],
+          unexpectedMigrations: [],
+          approvedLegacyMigrations: ['0020_teams_activity_delivery_channel'],
+          migrationSchemaCompatible: true,
+          migrationLedgerReady: true
         });
       }
       return mockFetch(input, init);
@@ -95,6 +103,8 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByText(/검수 전용 읽기 모드/)).toBeInTheDocument();
+    expect(screen.getByText(/Canonical 27개, Live 28개/)).toBeInTheDocument();
+    expect(screen.getByText(/승인된 과거 marker 1건/)).toBeInTheDocument();
     const createButton = await screen.findByRole('button', { name: '신규 프로젝트' });
     await waitFor(() => expect(createButton).toBeDisabled());
     expect(createButton).toHaveAttribute('title', '검수 전용 읽기 모드에서는 변경 작업을 수행할 수 없습니다.');
@@ -1465,7 +1475,15 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       ready: true,
       reason: 'not_applicable',
       expectedMigration: '0027_notification_access_scope_and_manual_work_items',
-      actualMigration: null
+      actualMigration: null,
+      migrationLedgerStatus: null,
+      expectedMigrationCount: 27,
+      actualMigrationCount: null,
+      missingMigrations: [],
+      unexpectedMigrations: [],
+      approvedLegacyMigrations: [],
+      migrationSchemaCompatible: false,
+      migrationLedgerReady: false
     });
   }
 

@@ -1,8 +1,11 @@
+using System.Net;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.ReviewSafe;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Xunit;
@@ -34,9 +37,11 @@ public sealed class PostgreSqlMigrationTests
         {
             EnvironmentName = "Development"
         };
-        var statusService = new Emi.Qms.Api.ReviewSafe.ReviewSafeStatusService(
+        var catalog = new DatabaseMigrationCatalog(environment);
+        var statusService = new ReviewSafeStatusService(
             reviewProvider,
-            new Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog(environment),
+            catalog,
+            new MigrationLedgerInspector(catalog),
             reviewConfiguration,
             environment);
 
@@ -72,6 +77,8 @@ public sealed class PostgreSqlMigrationTests
         Assert.True(status.Ready);
         Assert.True(status.DatabaseReadOnly);
         Assert.Equal(status.ExpectedMigration, status.ActualMigration);
+        Assert.Equal(MigrationLedgerInspector.ExactStatus, status.MigrationLedgerStatus);
+        Assert.True(status.MigrationLedgerReady);
         Assert.Equal(0L, await ReadScalarAsync<long>(
             normalProvider,
             "select count(*) from review_safe_write_probe;",
@@ -95,8 +102,120 @@ public sealed class PostgreSqlMigrationTests
 
         var mismatch = await statusService.CheckAsync(TestContext.Current.CancellationToken);
         Assert.False(mismatch.Ready);
-        Assert.Equal("schema_mismatch", mismatch.Reason);
+        Assert.Equal("migration_ledger_missing", mismatch.Reason);
         Assert.NotEqual(mismatch.ExpectedMigration, mismatch.ActualMigration);
+    }
+
+    [Theory]
+    [InlineData("Exact", true, MigrationLedgerInspector.ExactStatus, "ready", 200)]
+    [InlineData("HistoricalCompatible", true, MigrationLedgerInspector.CompatibleStatus, "ready", 200)]
+    [InlineData("UnknownExtra", false, MigrationLedgerInspector.MismatchStatus, "migration_ledger_unexpected", 503)]
+    [InlineData("MissingCanonical", false, MigrationLedgerInspector.MismatchStatus, "migration_ledger_missing", 503)]
+    [InlineData("LegacySuccessorMissing", false, MigrationLedgerInspector.MismatchStatus, "migration_ledger_legacy_successor_missing", 503)]
+    [InlineData("LegacySchemaMismatch", false, MigrationLedgerInspector.MismatchStatus, "migration_ledger_legacy_schema_mismatch", 503)]
+    [InlineData("SimilarUnapprovedName", false, MigrationLedgerInspector.MismatchStatus, "migration_ledger_unexpected", 503)]
+    public async Task MigrationLedger_FixturesAreFailClosed(
+        string fixture,
+        bool expectedReady,
+        string expectedStatus,
+        string expectedReason,
+        int expectedHttpStatus)
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var normalConfiguration = database.CreateConfiguration();
+        var normalProvider = new DatabaseConnectionStringProvider(normalConfiguration);
+        await CreateMigrationRunner(database.RepositoryRoot, normalProvider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        switch (fixture)
+        {
+            case "HistoricalCompatible":
+                await ExecuteSqlAsync(
+                    normalProvider,
+                    "insert into schema_migrations (version) values ('0020_teams_activity_delivery_channel');",
+                    TestContext.Current.CancellationToken);
+                break;
+            case "UnknownExtra":
+                await ExecuteSqlAsync(
+                    normalProvider,
+                    "insert into schema_migrations (version) values ('0099_unknown_migration');",
+                    TestContext.Current.CancellationToken);
+                break;
+            case "MissingCanonical":
+                await ExecuteSqlAsync(
+                    normalProvider,
+                    "delete from schema_migrations where version = '0026_notification_delivery_manual_payload';",
+                    TestContext.Current.CancellationToken);
+                break;
+            case "LegacySuccessorMissing":
+                await ExecuteSqlAsync(
+                    normalProvider,
+                    """
+                    insert into schema_migrations (version) values ('0020_teams_activity_delivery_channel');
+                    delete from schema_migrations where version = '0023_teams_activity_delivery_channel';
+                    """,
+                    TestContext.Current.CancellationToken);
+                break;
+            case "LegacySchemaMismatch":
+                await ExecuteSqlAsync(
+                    normalProvider,
+                    """
+                    insert into schema_migrations (version) values ('0020_teams_activity_delivery_channel');
+                    alter table notification_deliveries drop constraint ck_notification_deliveries_channel;
+                    alter table notification_deliveries add constraint ck_notification_deliveries_channel
+                        check (channel in ('TeamsChannel', 'TeamsDirectMessage', 'Mail'));
+                    """,
+                    TestContext.Current.CancellationToken);
+                break;
+            case "SimilarUnapprovedName":
+                await ExecuteSqlAsync(
+                    normalProvider,
+                    "insert into schema_migrations (version) values ('0020_teams_activity_delivery_channels');",
+                    TestContext.Current.CancellationToken);
+                break;
+        }
+
+        var reviewConfiguration = database.CreateConfiguration(
+            new Dictionary<string, string?> { ["ReviewSafe:Enabled"] = "true" });
+        var reviewProvider = new DatabaseConnectionStringProvider(reviewConfiguration);
+        var environment = new TestWebHostEnvironment(database.RepositoryRoot)
+        {
+            EnvironmentName = Environments.Development
+        };
+        var catalog = new DatabaseMigrationCatalog(environment);
+        var statusService = new ReviewSafeStatusService(
+            reviewProvider,
+            catalog,
+            new MigrationLedgerInspector(catalog),
+            reviewConfiguration,
+            environment);
+
+        var status = await statusService.CheckAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(expectedReady, status.Ready);
+        Assert.Equal(expectedStatus, status.MigrationLedgerStatus);
+        Assert.Equal(expectedReason, status.Reason);
+        Assert.Equal(expectedReady, status.MigrationLedgerReady);
+        Assert.Equal(catalog.GetSnapshot().ExpectedCount, status.ExpectedMigrationCount);
+        if (fixture == "HistoricalCompatible")
+        {
+            Assert.Equal(catalog.GetSnapshot().ExpectedCount + 1, status.ActualMigrationCount);
+            Assert.Equal([MigrationLedgerCompatibilityPolicy.LegacyTeamsActivityVersion], status.ApprovedLegacyMigrations);
+        }
+
+        await using var factory = QmsWebApplicationFactory.Create(
+            Environments.Development,
+            new Dictionary<string, string?>
+            {
+                ["ReviewSafe:Enabled"] = "true",
+                ["DevAuthentication:Enabled"] = "true",
+                ["DevelopmentData:SeedEnabled"] = "false",
+                ["Database:ApplyMigrationsOnStartup"] = "false",
+                ["ConnectionStrings:QmsDatabase"] = normalProvider.GetConnectionString()
+            },
+            includeDefaultDevelopmentAuthentication: true);
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
+        Assert.Equal((HttpStatusCode)expectedHttpStatus, response.StatusCode);
     }
 
     [Fact]

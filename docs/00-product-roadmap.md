@@ -1081,7 +1081,7 @@ Excel 출력 대상 후보:
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 
-- 상태/다음 순서: 구현·자동 검증 완료 후보 / Draft PR 준비 / 사용자 검수 대기
+- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #24 squash merge 승인
 - 목적: frontend dependency vulnerability baseline을 재현하고 최소 호환 upgrade로 알려진 보안 위험을 해소한다.
 - 포함 범위: Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0, audit 전 Critical 1/High 3/Moderate 2/Low 1에서 전체 0, synthetic deny regression, HTTP/HTTPS alternate-port, frontend/backend/E2E 회귀
 - 제외 범위: 기능 개발, 프레임워크 전면 교체, 근거 없는 일괄 major upgrade
@@ -1315,7 +1315,7 @@ TASK-UAT-001 이후 현재 실행 순서는 `TASK-FRONTEND-SEC-001 → TASK-UAT-
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
 | 54 | Full-Stack E2E PostgreSQL 물리 격리 | 완료 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 squash merge `45fd61c` |
 | 55 | HTTPS Development UAT 안정화 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-001 | strict port/ownership, protocol readiness, notification env, master-data transaction, isolated E2E와 persistent UAT 보존. PR #23 |
-| 56 | Frontend dependency security | 자동 검증 완료 / 사용자 검수 대기 | 개발/보안 | TASK-FRONTEND-SEC-001 | Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0. Audit 전체 0, frontend/backend/E2E와 alternate HTTPS 회귀 통과. Draft PR 후보 |
+| 56 | Frontend dependency security | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/보안 | TASK-FRONTEND-SEC-001 | Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0. Audit 전체 0, frontend/backend/E2E와 5174/5185 비교 검수 통과. PR #24 |
 | 57 | Review-safe UAT | 계획 | 개발/운영 | TASK-UAT-002 | mutation/worker/external egress 차단과 Development UAT mode 구분 |
 | 58 | UAT 통합 사용자 검수 | 계획 | 사용자/개발 | UAT-VERIFY-001 | Development write/Teams 검수와 Review mode 보호를 통합 확인하고 checklist 상태 확정 |
 | 59 | Notification delivery claim/lease | 계획 | 개발/운영 | TASK-NOTIFY-REL-001 | 동시 worker 중복 발송 방지와 retry lineage를 전용 PostgreSQL 동시성 test로 검증 |

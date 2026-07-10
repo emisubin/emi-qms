@@ -144,6 +144,8 @@ Live 결과는 boolean, integer, fixed enum, aggregate count, status code, table
 - 신규 미해결 P2: 0
 - P3: migration checksum guard, synthetic/historical cleanup 후보
 
+PR #29 최종 gate의 첫 GitHub 조회에서 필요한 상태보다 넓은 metadata field를 요청해 작성자 식별 정보가 도구 출력에 포함되는 검증 절차 P2가 발생했다. 제품 runtime 결함이 아니며 Repository와 Persistent UAT DB 변경은 없었다. 사용자는 이 Finding을 수용하고 재개를 승인했다. 이후 작성자·committer·reviewer·assignee field와 기본 table/raw 응답 방식을 폐기하고, 필요한 field만 요청해 boolean·integer·고정 enum으로 projection한 뒤 output guard를 적용했다. Repository tracked/staged/PR leak는 0으로 재확인했으며 실제 개인정보 값은 이 문서에 기록하지 않는다.
+
 첫 browser fallback 시도는 없는 상세 identifier를 사용해 expected 404가 browser console error count에 포함됐다. Raw message는 읽거나 출력하지 않았고, 동적 identifier가 없는 fixed list fallback으로 교체해 desktop/mobile console error 0을 재확인했다. 제품 code defect가 아닌 검증 fixture 시행착오다.
 
 ## 21. 제한사항
@@ -178,7 +180,10 @@ Live 결과는 boolean, integer, fixed enum, aggregate count, status code, table
 - Invalid detail fallback은 expected 404도 console error로 집계하므로 폐기했다. Fixed 목록 fallback으로 대체했다.
 - Live identifier와 원문을 보고서에 예시로 넣는 접근은 사용하지 않았다.
 - Persistent DB write rejection을 직접 DML로 시도하는 접근은 금지사항 때문에 사용하지 않았다.
+- GitHub PR 전체 metadata 또는 기본 table/raw 응답을 조회하는 접근은 개인정보 최소 출력 경계를 보장하지 못해 폐기했다. PR 번호·상태·Draft·merge 상태·branch·head SHA·changed file count·CI status count만 fixed-field projection하고 schema guard를 통과시킨다.
 
 ## 26. 사용자 검수 결과와 남은 항목
 
-현재 상태는 **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기**다. 사용자는 5190 화면, dashboard/detail 수치, notification scope, table alignment, desktop/390px, SOP와 User manual을 직접 확인해야 한다. 자동 검증 항목을 사용자 검수 완료로 표시하지 않았다.
+현재 상태는 **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #29 병합 승인**이다.
+
+검수 사용자 A는 2026-07-11 Current Review-safe 5190에서 주요 조회 화면, dashboard/detail 수치, notification scope, table alignment, desktop/390px, SOP, User manual과 데이터 정리 권장안을 확인했다. UAT 기준선 Go와 남은 P2에 따른 신규 기능 No-Go 유지에 동의하고 PR #29 병합을 승인했다. GitHub metadata 출력 Finding은 검증 절차 P2로 수용했으며 fixed-field projection, output guard와 leak 재검사로 보정한 뒤 merge 절차 재개를 명시적으로 승인했다. Runtime·DB·provider 보존은 자동 증빙을 함께 사용했다.

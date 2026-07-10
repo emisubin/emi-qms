@@ -1120,7 +1120,7 @@ Excel 출력 대상 후보:
 
 ### UAT-VERIFY-001: UAT 통합 사용자 검수
 
-- 상태/다음 순서: 최신 main 자동 검증 완료 후보 / 사용자 검수 대기 / 다음 TASK-NOTIFY-REL-001
+- 상태/다음 순서: 최신 main 자동 검증·사용자 검수 완료 / UAT 기준선 Go / PR #29 squash merge 승인 / 다음 TASK-NOTIFY-REL-001
 - 목적: 최신 main과 공식 Review-safe UAT의 migration·schema·data·authorization·notification·UI/UX·persistence 기준선을 read-only로 통합 검증한다.
 - 포함 범위: runtime file 정합성, full migration ledger와 critical schema, 10개 핵심 table aggregate·참조 무결성, notification/dashboard/escalation/deletion lifecycle, 권한·access scope, Review-safe live 방어, 개인정보 안전 desktop/390px, isolated 자동 test
 - 제외 범위: runtime/migration/dependency/script 수정, Persistent UAT data 정리, 실제 외부 발송, 기존 runtime 재시작, 신규 기능 구현·운영 배포
@@ -1133,6 +1133,8 @@ Excel 출력 대상 후보:
 - data cleanup 후보: notification 19, work item 3, delivery 41, department 1, holiday 3. Synthetic/historical 예외는 P3와 `TASK-UAT-DATA-001` 권장으로 분리하고 본 Task에서 변경하지 않음
 - 산출물: [Task 정의와 검수 체크리스트](../tasks/uat-verify-001.md), [Implementation report](../tasks/uat-verify-001-implementation-report.md), [SOP](../tasks/uat-verify-001-sop.md), [User manual](../tasks/uat-verify-001-user-manual.md), 이 Roadmap update
 - Findings: 신규 P0/P1/P2 0, 기존 migration checksum guard P3 유지
+- 사용자 검수 결과: Current Review-safe 5190의 주요 조회·dashboard/detail·권한·알림 범위·표 정렬·desktop/390px·SOP/User manual·데이터 정리 권장안 검수 완료. UAT 기준선 Go, 신규 기능 No-Go 유지와 PR #29 병합 승인
+- 개인정보 검증 절차 보정: 과도한 GitHub metadata 조회 Finding을 검증 절차 P2로 수용하고, 작성자 관련 field를 제외한 fixed-field projection·output guard·tracked/staged/PR leak 0 재확인 후 merge 절차 재개 승인
 - 주요 위험: 자동 검증과 사용자 완료 상태 혼동, shared Development worker 자연 변화의 attribution, synthetic/historical data를 실제 업무 data와 혼동해 임의 정리하는 위험
 
 ### TASK-DB-MIGRATION-001: Migration ledger 전체 집합 검증
@@ -1223,7 +1225,7 @@ Excel 출력 대상 후보:
 - 핵심 검수 기준: 필수 알림 해제 차단, 기본값 호환, event/channel별 저장과 재로그인 유지, 인앱 원본 보존, preference 변경 audit, 외부 delivery 생성 여부 검증
 - 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
 
-현재 실행 순서는 `UAT-VERIFY-001 사용자 검수/merge → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다. 전체 신규 기능 No-Go는 남은 P2 remediation이 닫힐 때까지 유지한다.
+현재 실행 순서는 `TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다. 전체 신규 기능 No-Go는 남은 P2 remediation이 닫힐 때까지 유지한다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1358,7 +1360,7 @@ Excel 출력 대상 후보:
 | 55 | HTTPS Development UAT 안정화 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-001 | strict port/ownership, protocol readiness, notification env, master-data transaction, isolated E2E와 persistent UAT 보존. PR #23 |
 | 56 | Frontend dependency security | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/보안 | TASK-FRONTEND-SEC-001 | Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0. Audit 전체 0, frontend/backend/E2E와 5174/5185 비교 검수 통과. PR #24 |
 | 57 | Review-safe UAT | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-002 | 5092/5190, startup·worker·provider·HTTP mutation 차단, DB session read-only, schema readiness, Development UAT 분리. PR #26 |
-| 58 | UAT 통합 사용자 검수 | 자동 검증 완료 후보 / 사용자 검수 대기 | 사용자/개발 | UAT-VERIFY-001 | 최신 main runtime·ledger/schema/data/권한/dashboard/Review-safe/UI 기준선 통과. 신규 P0/P1/P2 0, Draft PR과 사용자 검수 대기 |
+| 58 | UAT 통합 사용자 검수 | 자동 검증·사용자 검수 완료 / merge 승인 | 사용자/개발 | UAT-VERIFY-001 | 최신 main runtime·ledger/schema/data/권한/dashboard/Review-safe/UI 기준선과 개인정보 안전 merge projection 통과. UAT 기준선 Go, 신규 기능 No-Go 유지, PR #29 병합 승인 |
 | 59 | Notification delivery claim/lease | 계획 | 개발/운영 | TASK-NOTIFY-REL-001 | 동시 worker 중복 발송 방지와 retry lineage를 전용 PostgreSQL 동시성 test로 검증 |
 | 60 | Escalation starvation | 계획 | 개발/운영 | TASK-NOTIFY-ESC-001 | batch 정렬과 starvation 보정, L0~L3 회귀를 별도 검증 |
 | 61 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-HARDEN-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
@@ -1440,6 +1442,7 @@ Excel 출력 대상 후보:
 | 2026-07-10 | TASK-UAT-HANDOVER-002는 raw DOM 검증을 폐기하고 boolean/count/enum output guard를 적용한 뒤 merged main full-ledger runtime을 공식 5190/5092로 통제 전환 | Persistent UAT와 기존 runtime을 보호하면서 UAT-VERIFY 재실행의 최신 main 전제와 개인정보 안전 증빙을 함께 충족하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-002 |
 | 2026-07-11 | TASK-UAT-HANDOVER-002의 Current 5190·Candidate 5191 구조 동등성·Compatible 27/28/1·개인정보 안전 검증 정책·SOP/User manual 사용자 검수를 완료하고 PR #28 병합을 승인 | 공식 Review-safe runtime handover의 자동 증빙과 사용자 직접 검수 gate를 모두 닫고 UAT-VERIFY-001을 최신 main에서 처음부터 재실행하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-002 |
 | 2026-07-11 | UAT-VERIFY-001을 최신 main에서 처음부터 재실행해 full ledger·schema·aggregate·권한·dashboard·Review-safe·desktop/390px·isolated CI 기준선을 통과하고 사용자 검수 대기로 전환 | 이전 false-ready 원인이 제거된 공식 runtime에서 Persistent UAT 통합 기준선을 데이터 변경 없이 확정 후보로 만들고 다음 TASK-NOTIFY-REL-001 gate를 준비하기 위함 | 23장, 24장, UAT-VERIFY-001 |
+| 2026-07-11 | UAT-VERIFY-001 사용자 검수와 UAT 기준선 Go를 승인하고, GitHub metadata 과다 조회 Finding을 검증 절차 P2로 수용해 fixed-field projection과 output guard로 보정한 뒤 PR #29 병합을 승인 | 제품 runtime·Repository·Persistent UAT를 변경하지 않고 개인정보 안전 merge gate를 복구하며 다음 remediation을 TASK-NOTIFY-REL-001로 전환하기 위함 | 23장, 24장, UAT-VERIFY-001 |
 
 ## 26. 용어 사전
 

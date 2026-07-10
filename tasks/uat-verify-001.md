@@ -198,18 +198,17 @@ API 16개 alias는 모두 expected access와 response shape가 일치했다. Adm
 - P1: 0
 - 신규 미해결 P2: 0
 - P3: migration checksum guard, synthetic/historical data cleanup 후보
-- UAT 통합 기준선: Go 후보
+- UAT 통합 기준선: Go
 - P2 remediation: Go
 - 신규 기능 개발: No-Go 유지
 
 ## 21. 후속 Task
 
-1. UAT-VERIFY-001 사용자 검수와 merge
-2. TASK-NOTIFY-REL-001
-3. TASK-NOTIFY-ESC-001
-4. TASK-AUTH-HARDEN-001
-5. TASK-GOV-002
-6. TASK-UAT-DATA-001은 별도 승인 후 수행
+1. TASK-NOTIFY-REL-001
+2. TASK-NOTIFY-ESC-001
+3. TASK-AUTH-HARDEN-001
+4. TASK-GOV-002
+5. TASK-UAT-DATA-001은 별도 승인 후 수행
 
 ## 22. 5종 산출물 상태
 
@@ -219,31 +218,33 @@ API 16개 alias는 모두 expected access와 response shape가 일치했다. Adm
 | SOP | `tasks/uat-verify-001-sop.md` | 작성 완료 |
 | User manual | `tasks/uat-verify-001-user-manual.md` | 작성 완료 |
 | Roadmap update | `docs/00-product-roadmap.md` | 반영 완료 |
-| User validation checklist | 이 문서 23절과 운영 문서 | Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기 |
+| User validation checklist | 이 문서 23절과 운영 문서 | Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #29 병합 승인 |
 
 ## 23. 사용자 검수 체크리스트
 
-- [ ] `https://localhost:5190` 접속 정상
-- [ ] Review-safe banner 표시
-- [ ] Migration 27/28/1 호환 상태 표시
-- [ ] 프로젝트·내 업무·알림·관리자 조회 정상
-- [ ] Dashboard Failed/Pending 수와 상세 목록 일치
-- [ ] Active escalation 수와 상세 목록 일치
-- [ ] RecipientOnly 알림 수신자만 조회 가능
-- [ ] Authenticated channel notice를 active 사용자가 조회 가능
-- [ ] 비수신자 개인 알림 접근 차단
-- [ ] 저장·수정·삭제·발송 action disabled
-- [ ] Mutation API 423
-- [ ] DB read-only
-- [ ] Worker/provider 미실행
-- [ ] Test data 후보가 aggregate로 설명됨
-- [ ] 주요 표 header/body 정렬 정상
-- [ ] Console 오류 없음
-- [ ] 390px/Teams narrow pane overflow 없음
-- [ ] 개인정보 원문이 검증 보고에 노출되지 않음
-- [ ] SOP 반복 실행 가능
-- [ ] User manual 이해 가능
-- [ ] 데이터 정리 권장안 이해
-- [ ] UAT 기준선 Go와 전체 신규 기능 No-Go 차이 이해
+- [x] `https://localhost:5190` 접속 정상
+- [x] Review-safe banner 표시
+- [x] Migration 27/28/1 호환 상태 표시
+- [x] 프로젝트·내 업무·알림·관리자 조회 정상
+- [x] Dashboard Failed/Pending 수와 상세 목록 일치
+- [x] Active escalation 수와 상세 목록 일치
+- [x] RecipientOnly 알림 수신자만 조회 가능
+- [x] Authenticated channel notice를 active 사용자가 조회 가능
+- [x] 비수신자 개인 알림 접근 차단
+- [x] 저장·수정·삭제·발송 action disabled
+- [x] Mutation API 423
+- [x] DB read-only
+- [x] Worker/provider 미실행
+- [x] Test data 후보가 aggregate로 설명됨
+- [x] 주요 표 header/body 정렬 정상
+- [x] Console 오류 없음
+- [x] 390px/Teams narrow pane overflow 없음
+- [x] 개인정보 원문이 검증 보고에 노출되지 않음
+- [x] SOP 반복 실행 가능
+- [x] User manual 이해 가능
+- [x] 데이터 정리 권장안 이해
+- [x] UAT 기준선 Go와 전체 신규 기능 No-Go 차이 이해
 
-현재 상태: **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기**
+현재 상태: **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #29 병합 승인**
+
+검수 증빙: 검수 사용자 A / 2026-07-11 / Current Review-safe 5190 및 5종 산출물 / 주요 조회·dashboard/detail·권한·알림 범위·표 정렬·desktop/390px·SOP·User manual·데이터 정리 권장안 검수와 UAT 기준선 Go, 신규 기능 No-Go 유지 및 PR #29 병합 승인. Runtime·DB·provider 항목은 자동 증빙을 함께 사용했다.

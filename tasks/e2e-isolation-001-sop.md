@@ -4,6 +4,8 @@
 
 Full-Stack E2E를 persistent UAT와 물리적으로 분리된 PostgreSQL에서 실행하고, 시작·검증·cleanup·장애 대응을 동일한 절차로 수행하기 위한 운영 지침이다.
 
+Task 종료 산출물과 사용자 검수 상태는 canonical [Task 종료 및 산출물 정책](../docs/12-task-completion-policy.md)을 따른다.
+
 ## 2. 적용 범위
 
 - Local Full-Stack Playwright E2E

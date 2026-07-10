@@ -43,7 +43,7 @@
 - application migration 추가 또는 수정
 - runtime notification claim/lease와 retry 구현
 - 실제 Teams, Graph, SMTP, Webhook 호출
-- PR #21과 기존 Task 종료 정책 branch 변경
+- PR #21에서 확립한 canonical Task 종료 정책 재정의. 본 Task는 정책을 따르고 Roadmap의 구현 상태만 갱신한다.
 
 ## 7. 데이터 안전 불변식
 
@@ -116,7 +116,6 @@
 
 ## 12. 남아 있는 항목
 
-- GitHub Actions 실제 CI 실행 결과는 Draft PR 생성 후 확인한다.
 - 사용자 checklist는 작성됐으며 사용자 검수 대기다.
 - CI Full-Stack job의 기존 bootstrap PostgreSQL은 전용 E2E script가 사용하지 않는 중복 자원으로 남아 있다. 동작·안전 문제는 아니며 후속 P3 최적화 대상이다.
 
@@ -125,7 +124,7 @@
 - Implementation report: `tasks/e2e-isolation-001-implementation-report.md`
 - SOP: `tasks/e2e-isolation-001-sop.md`
 - User manual: `tasks/e2e-isolation-001-user-manual.md`
-- Roadmap update: Pending — PR #21이 canonical Roadmap/governance 영역을 소유함
+- Roadmap update: 작성 완료 — [Product Roadmap TASK-E2E-ISOLATION-001](../docs/00-product-roadmap.md#task-e2e-isolation-001-full-stack-e2e-postgresql-물리-격리)
 - User validation checklist: 작성됨, 사용자 검수 대기
 
 ## 14. 사용자 검수 체크리스트

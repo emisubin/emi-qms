@@ -1036,7 +1036,7 @@ Excel 출력 대상 후보:
 
 ### BASELINE-GOV-001: 개인정보 및 Task 거버넌스 기준선 정비
 
-- 상태: 자동 문서 검증·allowlist staging 완료 / draft PR 준비 / 사용자 검수 대기
+- 상태: 완료 — 사용자 승인 후 PR #21 squash merge(`3bc3ef8`)
 - 목적: tracked 문서의 사용자 개인정보를 비식별화하고 모든 Task의 종료 산출물·품질 gate·검수 상태 기준을 단일 정책으로 확립한다.
 - 포함 범위: 기존 동일 목적 branch read-only 비교, NOTIFY-003 문서 비식별화, [Task 종료 및 산출물 정책](12-task-completion-policy.md), Activity Feed provider/capability와 event coverage 상태 분리, 후속 Task 우선순위 등록
 - 제외 범위: runtime code, dependency, migration, DB, UAT, worker, 외부 발송, 후속 기능 구현
@@ -1055,20 +1055,32 @@ Excel 출력 대상 후보:
 - 핵심 검수 기준: 실제 값 원문을 재노출하지 않고 결정 근거·영향·완화책·실행 승인 여부를 문서화
 - 주요 위험: rewrite 시 commit hash 변경과 열린 branch/PR 단절, 미조치 시 history 접근자가 과거 개인정보를 조회할 가능성
 
-### TASK-UAT-001: Safe UAT review mode
+### TASK-E2E-ISOLATION-001: Full-Stack E2E PostgreSQL 물리 격리
 
-- 상태/No-Go 순서: 계획 / 1순위
-- 목적: 데이터 변경과 외부 발송 없이 UAT의 schema, health, route와 persistence를 안전하게 검토할 수 있는 명시적 review mode를 제공한다.
-- 포함 범위: read-only 진단 계약, mutation/worker/external delivery 차단, 현재 모드 표시, 안전한 health·route·schema 확인과 회귀 테스트
-- 제외 범위: 테스트 데이터 정리, 실제 알림 발송, 운영 배포, 기능 UI 변경
-- 선행조건: 허용할 read-only endpoint와 차단할 mutation/egress 목록 확정
-- 예상 migration: 없음 예상
-- 핵심 검수 기준: review mode에서 DB write와 외부 egress가 차단되고 health/API/UI 진단은 가능하며 일반 UAT mode와 혼동되지 않음
-- 주요 위험: 차단 누락으로 인한 데이터·외부 시스템 변경, 안전 모드가 실제 운영 설정에 유입되는 문제
+- 상태/No-Go 기반: 구현·자동 검증 완료 / Draft PR #22 / 사용자 검수 대기
+- 목적: Full-Stack E2E를 persistent UAT PostgreSQL과 container/network/storage 수준에서 분리하고 UAT/운영성 DB 이름을 data command 전에 차단한다.
+- 포함 범위: 실행별 전용 PostgreSQL Compose project, 동적 loopback port, tmpfs storage, `emi_qms_e2e_*` DB-name guard, scoped cleanup, Testing external provider 차단, host `psql` 없는 Docker-only 경로
+- 제외 범위: persistent UAT Compose/volume 변경, UAT DB reset, migration 변경, 실제 Teams/Graph/SMTP/Webhook 발송
+- 선행조건: Docker Compose v2, canonical [Task 종료 및 산출물 정책](12-task-completion-policy.md)
+- 예상 migration: 없음
+- 핵심 검수 기준: UAT/E2E container·network ID 분리, E2E Docker volume mount 0, invalid DB name SQL-before-fail, Full-Stack E2E 16개 통과, cleanup 후 E2E 자원 0, UAT health/schema/업무 data 유지
+- 산출물: [Task 정의와 검수 체크리스트](../tasks/e2e-isolation-001.md), [Implementation report](../tasks/e2e-isolation-001-implementation-report.md), [SOP](../tasks/e2e-isolation-001-sop.md), [User manual](../tasks/e2e-isolation-001-user-manual.md), 이 Roadmap update
+- 주요 위험: 동적 application port 선택의 짧은 race window, CI의 사용하지 않는 bootstrap PostgreSQL 자원, 사용자 검수 미완료
 
-### TASK-SEC-001: Frontend dependency security remediation
+### TASK-UAT-001: HTTPS Development UAT 안정화
 
-- 상태/No-Go 순서: 계획 / 2순위
+- 상태/다음 순서: 구현·자동 검증 WIP 보존 / 사용자 검수·종료 산출물 보강을 위해 재개
+- 목적: Teams Activity 검수를 위한 HTTPS Development UAT의 frontend strict port, process ownership, HTTP/HTTPS readiness, notification env와 master-data transaction을 안정화한다.
+- 포함 범위: 5174 strict port/ownership/PID, protocol mismatch 판정, literal notify dotenv loading, worker/provider Development 설정, master-data transaction, HTTPS UAT health와 화면 검수
+- 제외 범위: read-only Review mode, dependency security, notification claim/lease, escalation starvation, 마지막 관리자 동시성
+- 선행조건: TASK-E2E-ISOLATION-001 자동 검증 완료, persistent UAT와 HTTPS server 보존
+- 예상 migration: 없음
+- 핵심 검수 기준: HTTPS/Teams route 200, HTTP/HTTPS 전환, 다른 process 비종료, UAT DB 보존, 사용자 저장·수정·알림 검수, 5종 산출물 확정
+- 주요 위험: Development actual provider 오발송, UAT worker 자연 변경과 E2E 영향 혼동, 사용자 검수 전 완료 오판
+
+### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
+
+- 상태/다음 순서: 계획 / TASK-UAT-001 다음
 - 목적: frontend dependency vulnerability baseline을 재현하고 최소 호환 upgrade로 알려진 보안 위험을 해소한다.
 - 포함 범위: 공식 audit 재현, 직접·전이 dependency 원인 확인, 최소 버전 보정, lockfile과 frontend 전체 회귀 검증
 - 제외 범위: 기능 개발, 프레임워크 전면 교체, 근거 없는 일괄 major upgrade
@@ -1076,6 +1088,28 @@ Excel 출력 대상 후보:
 - 예상 migration: 없음. dependency/lockfile 변경 예상
 - 핵심 검수 기준: 대상 vulnerability 해소, frontend lint/typecheck/unit/build와 Full-Stack E2E 회귀, 남은 advisory의 risk decision
 - 주요 위험: transitive dependency 충돌, major upgrade 범위 팽창, lockfile drift
+
+### TASK-UAT-002: Review-safe UAT
+
+- 상태/다음 순서: 계획 / TASK-FRONTEND-SEC-001 다음
+- 목적: 데이터 변경과 외부 발송 없이 UAT의 schema, health, route와 persistence를 안전하게 검토할 수 있는 명시적 Review mode를 제공한다.
+- 포함 범위: read-only 진단 계약, mutation/worker/external delivery 차단, 현재 mode 표시, 안전한 health·route·schema 확인과 회귀 테스트
+- 제외 범위: Development UAT 저장·수정 검수, 테스트 데이터 정리, 실제 알림 발송, 운영 배포
+- 선행조건: TASK-UAT-001 완료, 차단할 mutation/egress와 허용할 read-only endpoint 목록 확정
+- 예상 migration: 없음 예상
+- 핵심 검수 기준: Review mode에서 DB write와 외부 egress가 차단되고 health/API/UI 진단은 가능하며 Development UAT와 혼동되지 않음
+- 주요 위험: 차단 누락, Review 설정의 Development/운영 유입, worker lifecycle 오판
+
+### UAT-VERIFY-001: UAT 통합 사용자 검수
+
+- 상태/다음 순서: 계획 / TASK-UAT-002 다음
+- 목적: Development HTTPS UAT와 Review-safe UAT의 용도·보호·전환을 사용자가 통합 검수하고 남은 P2 remediation 착수 조건을 확정한다.
+- 포함 범위: 저장·수정·알림 Development 검수, Review mode mutation/egress 차단, Teams narrow pane, DB persistence, SOP/User manual 실행 가능성
+- 제외 범위: 신규 기능 구현, 실제 운영 배포, 테스트 data hard delete
+- 선행조건: TASK-UAT-001, TASK-FRONTEND-SEC-001, TASK-UAT-002 완료
+- 예상 migration: 없음
+- 핵심 검수 기준: 두 mode의 URL/상태 구분, Development write와 Review 차단, UAT data 보존, 실제 외부 알림 승인 범위 준수, 사용자 checklist 완료
+- 주요 위험: 자동 검증과 사용자 완료 상태 혼동, 검수 중 실제 data/외부 provider 변경
 
 ### TASK-AUTH-001: Last System Administrator concurrency guard
 
@@ -1134,7 +1168,7 @@ Excel 출력 대상 후보:
 - 핵심 검수 기준: 필수 알림 해제 차단, 기본값 호환, event/channel별 저장과 재로그인 유지, 인앱 원본 보존, preference 변경 audit, 외부 delivery 생성 여부 검증
 - 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
 
-전역 No-Go remediation 순서는 `TASK-UAT-001 → TASK-SEC-001 → TASK-NOTIFY-004 → TASK-AUTH-001`이다. Safe UAT가 NOTIFY-004의 선행조건이며, dependency security는 독립된 보안 기준선으로 먼저 해소한다. 이후 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`다. UX-001은 공통 계약을 먼저 정리하되 NOTIFY-004와 묶지 않고 별도 검수한다.
+현재 다음 실행 순서는 `TASK-UAT-001 재개 → TASK-FRONTEND-SEC-001 → TASK-UAT-002 → UAT-VERIFY-001`이다. 이후 남은 No-Go remediation인 `TASK-NOTIFY-004`와 `TASK-AUTH-001`을 진행한다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1264,11 +1298,14 @@ Excel 출력 대상 후보:
 | 50 | 외부 알림 delivery 동시성·실패 재처리 | 계획 | 개발/운영 | TASK-NOTIFY-004 | safe UAT와 DB 동시성 테스트 환경을 먼저 준비하고 claim/lease·retry lineage·starvation을 함께 검증 |
 | 51 | 기존 업무 화면 Action Feedback UX | 계획 | 사용자/개발 | TASK-UX-001 | A1 공통 계약과 내 업무/알림을 먼저 검수한 뒤 A2 업무 화면으로 확대 |
 | 52 | 사용자별 알림 설정 | 계획 | 사용자/운영 | TASK-NOTIFY-005 | NOTIFY-004 완료와 필수 알림 opt-out/channel taxonomy 결정이 선행 |
-| 53 | Task 종료 5종 산출물과 개인정보 기준 | 사용자 검수 대기 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
-| 54 | Safe UAT review mode | 계획 | 개발/운영 | TASK-UAT-001 | mutation/worker/external egress를 차단한 상태에서 health·route·schema·persistence를 검토하는 기반 필요 |
-| 55 | Frontend dependency security | 계획 | 개발/보안 | TASK-SEC-001 | 새 Task 시작 시 공식 audit를 재현하고 최소 호환 upgrade와 전체 frontend 회귀 검증 수행 |
-| 56 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
-| 57 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
+| 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
+| 54 | Full-Stack E2E PostgreSQL 물리 격리 | 자동 검증 완료 / 사용자 검수 대기 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 Draft |
+| 55 | HTTPS Development UAT 안정화 | WIP 보존 / 재개 예정 | 개발/운영 | TASK-UAT-001 | strict port/ownership, protocol readiness, notification env, master-data transaction과 사용자 write/Teams 검수 마무리 |
+| 56 | Frontend dependency security | 계획 | 개발/보안 | TASK-FRONTEND-SEC-001 | 공식 audit를 재현하고 최소 호환 upgrade와 전체 frontend 회귀 검증 수행 |
+| 57 | Review-safe UAT | 계획 | 개발/운영 | TASK-UAT-002 | mutation/worker/external egress 차단과 Development UAT mode 구분 |
+| 58 | UAT 통합 사용자 검수 | 계획 | 사용자/개발 | UAT-VERIFY-001 | Development write/Teams 검수와 Review mode 보호를 통합 확인하고 checklist 상태 확정 |
+| 59 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
+| 60 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1327,7 +1364,9 @@ Excel 출력 대상 후보:
 | 2026-07-10 | 후속 기능 후보 B/A/C의 상대 순서는 TASK-NOTIFY-004 → TASK-UX-001 → TASK-NOTIFY-005 | delivery 신뢰성을 먼저 확립하고 공통 feedback을 분리 검수한 뒤 preference를 적용하기 위함. 전역 No-Go remediation 선행 순서는 별도 행을 따른다 | 23장, 24장 |
 | 2026-07-10 | 기존 `docs/task-close-process-guidelines`의 유효 규칙은 BASELINE-GOV-001 canonical 정책에 수동 통합하고 기존 branch는 대체 상태로 보존 | 오래된 branch를 merge/cherry-pick하지 않고 5종 산출물·검수 상태를 포함한 최신 정책으로 drift를 해소하기 위함 | 23장, [Task 종료 및 산출물 정책](12-task-completion-policy.md) |
 | 2026-07-10 | Git history 개인정보는 current checkout 비식별화와 분리해 risk decision으로 관리 | history rewrite는 commit hash와 협업 branch를 변경하는 별도 승인 작업이기 때문 | 24장 |
-| 2026-07-10 | 전역 No-Go remediation은 TASK-UAT-001 → TASK-SEC-001 → TASK-NOTIFY-004 → TASK-AUTH-001 순서로 수행 | 안전한 검수 기반, dependency 보안, 외부 delivery 동시성, 마지막 관리자 경쟁 조건을 신규 기능보다 먼저 해소하기 위함 | 23장, 24장 |
+| 2026-07-10 | 전역 No-Go remediation은 TASK-UAT-001 → TASK-SEC-001 → TASK-NOTIFY-004 → TASK-AUTH-001 순서로 수행(당시 결정, 다음 행의 현재 순서로 대체됨) | 안전한 검수 기반, dependency 보안, 외부 delivery 동시성, 마지막 관리자 경쟁 조건을 신규 기능보다 먼저 해소하기 위함 | 23장, 24장 |
+| 2026-07-10 | 현재 다음 실행 순서는 TASK-UAT-001 재개 → TASK-FRONTEND-SEC-001 → TASK-UAT-002 → UAT-VERIFY-001 | HTTPS Development UAT WIP를 먼저 완료하고 dependency 보안과 Review-safe mode를 분리한 뒤 통합 사용자 검수로 gate를 닫기 위함 | 23장, 24장 |
+| 2026-07-10 | Full-Stack E2E는 실행별 전용 PostgreSQL container/network/tmpfs와 `emi_qms_e2e_*` guard를 사용 | host `psql` 부재 시 persistent UAT fallback과 DB 이름 오설정의 삭제 위험을 제거하기 위함 | 23장, 24장, TASK-E2E-ISOLATION-001 |
 
 ## 26. 용어 사전
 

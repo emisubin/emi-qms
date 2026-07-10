@@ -151,7 +151,15 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
         ready: true,
         reason: 'not_applicable',
         expectedMigration: '0027_notification_access_scope_and_manual_work_items',
-        actualMigration: null
+        actualMigration: null,
+        migrationLedgerStatus: null,
+        expectedMigrationCount: 27,
+        actualMigrationCount: null,
+        missingMigrations: [],
+        unexpectedMigrations: [],
+        approvedLegacyMigrations: [],
+        migrationSchemaCompatible: false,
+        migrationLedgerReady: false
       });
     }
 

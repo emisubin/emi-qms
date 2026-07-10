@@ -1,10 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
-using Emi.Qms.Api.ReviewSafe;
-using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.ProductionPlanning;
+using Emi.Qms.Api.ReviewSafe;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,6 +47,17 @@ public sealed class ReviewSafeModeTests
         ReviewSafeMode.ThrowIfInvalidActivation(
             new TestHostEnvironment { EnvironmentName = "UAT" },
             enabled);
+
+        var invalidApplicationName = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ReviewSafe:Enabled"] = "true",
+                ["ReviewSafe:DatabaseApplicationName"] = "arbitrary-review-name"
+            })
+            .Build();
+        Assert.Throws<InvalidOperationException>(() => ReviewSafeMode.ThrowIfInvalidActivation(
+            new TestHostEnvironment { EnvironmentName = Environments.Development },
+            invalidApplicationName));
     }
 
     [Fact]
@@ -199,6 +210,65 @@ public sealed class ReviewSafeModeTests
         var builder = new Npgsql.NpgsqlConnectionStringBuilder(value);
         Assert.Equal(ReviewSafeMode.DatabaseApplicationName, builder.ApplicationName);
         Assert.Equal("-c default_transaction_read_only=on", builder.Options);
+
+        var candidateConfiguration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ReviewSafe:Enabled"] = "true",
+                ["ReviewSafe:DatabaseApplicationName"] = ReviewSafeMode.MigrationCandidateDatabaseApplicationName,
+                ["ConnectionStrings:QmsDatabase"] = "Host=localhost;Port=5432;Database=emi_qms_e2e_guard;Username=test;Password=placeholder"
+            })
+            .Build();
+        var candidate = new Npgsql.NpgsqlConnectionStringBuilder(
+            new DatabaseConnectionStringProvider(candidateConfiguration).GetConnectionString());
+        Assert.Equal(ReviewSafeMode.MigrationCandidateDatabaseApplicationName, candidate.ApplicationName);
+    }
+
+    [Fact]
+    public async Task MigrationCatalog_RejectsDuplicateAndMissingPrefixes()
+    {
+        var duplicateDirectory = Directory.CreateTempSubdirectory("emi-qms-migration-catalog-duplicate-");
+        var missingDirectory = Directory.CreateTempSubdirectory("emi-qms-migration-catalog-missing-");
+        try
+        {
+            File.WriteAllText(Path.Combine(duplicateDirectory.FullName, "0001_first.sql"), "select 1;");
+            File.WriteAllText(Path.Combine(duplicateDirectory.FullName, "0001_second.sql"), "select 1;");
+            var duplicate = Assert.Throws<MigrationCatalogException>(
+                () => DatabaseMigrationCatalog.FromPath(duplicateDirectory.FullName).GetSnapshot());
+            Assert.Equal("migration_catalog_duplicate_prefix", duplicate.Reason);
+            var duplicateStatus = await CreateCatalogFailureStatusAsync(duplicateDirectory.FullName);
+            Assert.Equal("migration_catalog_invalid", duplicateStatus.Reason);
+            Assert.Equal(MigrationLedgerInspector.MismatchStatus, duplicateStatus.MigrationLedgerStatus);
+
+            File.WriteAllText(Path.Combine(missingDirectory.FullName, "0001_first.sql"), "select 1;");
+            File.WriteAllText(Path.Combine(missingDirectory.FullName, "0003_third.sql"), "select 1;");
+            var missing = Assert.Throws<MigrationCatalogException>(
+                () => DatabaseMigrationCatalog.FromPath(missingDirectory.FullName).GetSnapshot());
+            Assert.Equal("migration_catalog_missing_prefix", missing.Reason);
+            var missingStatus = await CreateCatalogFailureStatusAsync(missingDirectory.FullName);
+            Assert.Equal("migration_catalog_invalid", missingStatus.Reason);
+            Assert.Equal(MigrationLedgerInspector.MismatchStatus, missingStatus.MigrationLedgerStatus);
+        }
+        finally
+        {
+            duplicateDirectory.Delete(recursive: true);
+            missingDirectory.Delete(recursive: true);
+        }
+    }
+
+    private static Task<ReviewSafeRuntimeStatus> CreateCatalogFailureStatusAsync(string migrationsPath)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["ReviewSafe:Enabled"] = "true" })
+            .Build();
+        var catalog = DatabaseMigrationCatalog.FromPath(migrationsPath);
+        var service = new ReviewSafeStatusService(
+            new DatabaseConnectionStringProvider(configuration),
+            catalog,
+            new MigrationLedgerInspector(catalog),
+            configuration,
+            new TestHostEnvironment { EnvironmentName = Environments.Development });
+        return service.CheckAsync(TestContext.Current.CancellationToken);
     }
 
     private static string FindRepositoryRoot()

@@ -41,6 +41,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<DatabaseConnectionStringProvider>();
 builder.Services.AddSingleton<DatabaseHealthChecker>();
 builder.Services.AddSingleton<DatabaseMigrationCatalog>();
+builder.Services.AddSingleton<MigrationLedgerInspector>();
 builder.Services.AddSingleton<DatabaseMigrationRunner>();
 builder.Services.AddSingleton<ReviewSafeStatusService>();
 builder.Services.AddSingleton<DevelopmentIdentitySeeder>();

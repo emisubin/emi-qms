@@ -1,5 +1,5 @@
-using Npgsql;
 using Emi.Qms.Api.ReviewSafe;
+using Npgsql;
 
 namespace Emi.Qms.Api;
 
@@ -61,7 +61,7 @@ public sealed class DatabaseConnectionStringProvider(IConfiguration configuratio
 
         var builder = new NpgsqlConnectionStringBuilder(connectionString)
         {
-            ApplicationName = ReviewSafeMode.DatabaseApplicationName,
+            ApplicationName = ReviewSafeMode.ResolveDatabaseApplicationName(configuration),
             Options = "-c default_transaction_read_only=on"
         };
 

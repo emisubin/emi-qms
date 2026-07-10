@@ -176,21 +176,24 @@ Review-safe는 별도 port/session이므로 rollback은 Review-safe 5092/5190만
 
 ## 18. 사용자 검수 체크리스트
 
-- [ ] 5190 접속과 banner 표시
-- [ ] 조회·검색·필터·정렬·상세 이동
-- [ ] 저장/수정/삭제/복구/상태 action disabled 및 이유
-- [ ] 읽음/발송/retry/acknowledge/dismiss disabled
-- [ ] 직접 mutation API 423
-- [ ] DB read-only와 schema ready
-- [ ] migration/seed/worker/provider 미실행
-- [ ] Development 5174/5081과 Preview 5185 유지
-- [ ] console error와 390px overflow 없음
-- [ ] 본 SOP 순서로 재현 가능
+- [x] 5190 접속과 banner 표시
+- [x] 조회·검색·필터·정렬·상세 이동
+- [x] 저장/수정/삭제/복구/상태 action disabled 및 이유
+- [x] 읽음/발송/retry/acknowledge/dismiss disabled
+- [x] 직접 mutation API 423
+- [x] DB read-only와 schema ready
+- [x] migration/seed/worker/provider 미실행
+- [x] Development 5174/5081과 Preview 5185 유지
+- [x] console error와 390px overflow 없음
+- [x] 본 SOP 순서로 재현 가능
 
-현재 상태: **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기**
+현재 상태: **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #26 병합 승인**
+
+검수 증빙: 검수 사용자 A / 2026-07-10 / HTTPS Review-safe UAT 5190와 본 SOP / 직접 화면·절차 검수 및 병합 승인. API·DB·worker/provider 항목은 자동 증빙을 함께 사용했다.
 
 ## 19. 변경 이력
 
 | 날짜 | 버전 | 내용 |
 |---|---|---|
 | 2026-07-10 | 1.0 | TASK-UAT-002 Review-safe UAT 최초 작성 |
+| 2026-07-10 | 1.1 | 사용자 검수 완료와 PR #26 병합 승인 반영 |

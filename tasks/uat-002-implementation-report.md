@@ -193,7 +193,7 @@ Delivery status도 Disabled 1, DryRunSent 6, Failed 20, Sent 59, Suppressed 6으
 | 390px | 3개 route overflow 0 |
 | persistent UAT snapshot | 전후 동일 |
 
-기존 warning은 frontend Fast Refresh 1건과 production chunk-size 1건이다. 신규 dependency/runtime warning은 없다. 사용자 직접 검수와 CI는 아직 미실행/대기다.
+기존 warning은 frontend Fast Refresh 1건과 production chunk-size 1건이다. 신규 dependency/runtime warning은 없다. PR #26 head `89990da` 기준 GitHub Actions Run `29082148114`의 Backend, Frontend와 Full-Stack E2E가 모두 성공했고, 이후 사용자 직접 검수도 완료됐다.
 
 ## 19. 보안/secret
 
@@ -208,7 +208,7 @@ Delivery status도 Disabled 1, DryRunSent 6, Failed 20, Sent 59, Suppressed 6으
 - frontend mutation control 분류는 UX 보조이며 새 action 문구 추가 시 guard test 갱신이 필요하다.
 - persistent UAT를 Development worker와 공유하므로 장시간 전체 DB 불변은 보장하지 않는다. Review application session과 delivery/log source로 구분한다.
 - Review-safe는 별도 DB role이 아니라 session read-only를 사용한다. application code가 별도 비관리 connection을 만들면 정책 검토가 필요하다.
-- 사용자 검수와 UAT-VERIFY-001은 아직 완료되지 않았다.
+- TASK-UAT-002 사용자 검수는 완료됐으며 UAT-VERIFY-001 통합 검수는 아직 시작하지 않았다.
 
 ## 21. Rollback
 
@@ -257,10 +257,10 @@ Delivery status도 Disabled 1, DryRunSent 6, Failed 20, Sent 59, Suppressed 6으
 
 - Checklist 작성됨
 - 자동 검증 완료
-- 사용자 검수 대기
-- Draft PR 예정
+- 사용자 검수 완료
+- PR #26 병합 승인
 
-사용자는 5190에서 banner, 조회/검색/필터, action disabled와 이유, Development UAT 유지, SOP/User manual 실행 가능성을 직접 확인해야 한다. 미체크 항목은 완료로 간주하지 않는다.
+검수 사용자 A는 2026-07-10 Review-safe UAT 5190에서 banner, 주요 조회 화면, 검색·필터·정렬·상세 이동, mutation action disabled와 이유, console·narrow pane, Development 5174/5081과 Preview 5185 유지, SOP와 User manual을 직접 확인하고 PR #26 병합을 승인했다. API 423, DB read-only, startup·worker·provider 차단과 외부 provider 호출 0은 자동 증빙을 함께 사용했다. UAT-VERIFY-001은 이번 승인 범위에 포함하지 않고 다음 Task로 유지한다.
 
 ## 27. 5종 산출물
 
@@ -270,4 +270,4 @@ Delivery status도 Disabled 1, DryRunSent 6, Failed 20, Sent 59, Suppressed 6으
 | SOP | `tasks/uat-002-sop.md` | 작성 완료 |
 | User manual | `tasks/uat-002-user-manual.md` | 작성 완료 |
 | Roadmap update | `docs/00-product-roadmap.md` | 작성 완료 |
-| User validation checklist | `tasks/uat-002-review-safe.md` 12절 및 각 운영 문서 | Checklist 작성됨 / 사용자 검수 대기 |
+| User validation checklist | `tasks/uat-002-review-safe.md` 12절 및 각 운영 문서 | Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 |

@@ -270,7 +270,7 @@ Endpoint:
 - `.env.notify-local`의 TeamsActivity 필수 값은 모두 configured 상태로 확인했다.
 - `Notifications__TeamsActivity__TenantId`는 기존 Entra tenant 설정과 같은 회사 tenant 값을 사용한다. 원문 값은 문서와 로그에 남기지 않는다.
 - UAT latest migration은 `0023_teams_activity_delivery_channel`까지 적용됐다.
-- 박수빈 EntraId active 사용자 row를 수신자로 사용했다. 보고에는 qms user id와 masked 정보만 사용한다.
+- 검수 사용자 A EntraId active 사용자 row를 수신자로 사용했다. 보고에는 qms user id와 masked 정보만 사용한다.
 - 최초 actual smoke는 `topic.webUrl`이 localhost 계열 URL이라 Graph HTTP 400 `InvalidTopic`으로 실패했다.
 - `topic.webUrl`은 Microsoft Graph 요구에 따라 `https://teams.microsoft.com/l/...` 형식의 Teams deep link여야 한다. ignored `.env.notify-local`의 `TopicWebUrl`은 Teams deep link 형식으로 보정했다.
 - 재시도 결과 Graph actual 호출은 수행됐지만, 수신자에게 Teams 앱이 설치되어 있지 않아 `TeamsActivityAppNotInstalled`로 실패했다.
@@ -280,20 +280,20 @@ Endpoint:
 
 다음 actual 성공 검수 전제:
 
-- 박수빈 Teams 클라이언트 또는 Teams Admin Center 정책으로 EMI 프로젝트 통합관리시스템 Teams 앱을 사용자에게 설치한다.
+- 검수 사용자 A Teams 클라이언트 또는 Teams Admin Center 정책으로 EMI 프로젝트 통합관리시스템 Teams 앱을 사용자에게 설치한다.
 - 설치 후 같은 admin test endpoint를 재실행한다.
 - Graph 204가 반환되면 `notification_deliveries.status=Sent`, `sent_at_utc`와 provider request id를 확인한다.
 - 사용자는 Teams Activity Feed에서 `TASK-NOTIFY-003 Teams Activity actual test` 알림 수신 여부와 클릭 동작을 확인한다.
 
 ## 17. 2026-07-07 AppNotInstalled 진단 보강
 
-사용자가 박수빈 Teams 계정에 앱 설치를 확인했고 현재 권한은 `TeamsActivity.Send`이므로, `TeamsActivityAppNotInstalled`를 단순 미설치나 RSC authorization 누락으로 확정하지 않고 Graph payload / 사용자 id / Teams app id / topic 방식 정합성 문제로 재진단했다.
+사용자가 검수 사용자 A Teams 계정에 앱 설치를 확인했고 현재 권한은 `TeamsActivity.Send`이므로, `TeamsActivityAppNotInstalled`를 단순 미설치나 RSC authorization 누락으로 확정하지 않고 Graph payload / 사용자 id / Teams app id / topic 방식 정합성 문제로 재진단했다.
 
 진단 결과:
 
 - Graph `sendActivityNotification`은 실제 endpoint까지 도달했고, Graph 응답 본문 기준으로 `TeamsActivityAppNotInstalled`로 분류됐다.
 - 현재 Notifications 앱 권한으로 `GET /users/{userId}/teamwork/installedApps?$expand=teamsAppDefinition` 조회를 시도했으나, 설치 앱 읽기 권한 부족으로 403이 반환됐다.
-- 따라서 현재 앱 토큰만으로는 박수빈 사용자에게 설치된 Teams 앱의 installation id, manifest id, `webApplicationInfo.id`, manifest version을 확인할 수 없다.
+- 따라서 현재 앱 토큰만으로는 검수 사용자 A 사용자에게 설치된 Teams 앱의 installation id, manifest id, `webApplicationInfo.id`, manifest version을 확인할 수 없다.
 - 현재 actual 검수 권한은 `TeamsActivity.Send`이므로 `TeamsActivity.Send.User` RSC authorization 누락은 1차 원인으로 보지 않는다.
 - manifest `id`는 `.env.notify-local`의 `Notifications__TeamsActivity__TeamsAppId`와 일치해야 한다.
 - manifest `webApplicationInfo.id`는 `.env.notify-local`의 `Notifications__TeamsActivity__ClientId`와 일치해야 한다.
@@ -311,7 +311,7 @@ Endpoint:
 
 actual smoke 재시도 전제:
 
-- Graph installedApps 조회 또는 Teams Admin Center/Graph Explorer로 박수빈 사용자에게 설치된 EMI 프로젝트 통합관리시스템 앱의 installation id를 확인한다.
+- Graph installedApps 조회 또는 Teams Admin Center/Graph Explorer로 검수 사용자 A 사용자에게 설치된 EMI 프로젝트 통합관리시스템 앱의 installation id를 확인한다.
 - 설치된 manifest id와 `Notifications__TeamsActivity__TeamsAppId`가 일치하는지 확인한다.
 - 설치된 manifest `webApplicationInfo.id`와 `Notifications__TeamsActivity__ClientId`가 일치하는지 확인한다.
 - `activityTypes.workItemAssigned`와 RSC `TeamsActivity.Send.User` 선언/승인이 확인된다.
@@ -360,7 +360,7 @@ Smoke 결과:
 | Channel | 대상 | delivery_type | status | delivery id | error_code |
 | --- | --- | --- | --- | --- | --- |
 | TeamsChannel | 설정된 Teams 테스트 채널 게시, 개인 DM 아님 | UrgentBlocking | Sent | `3c9c3cc2-e280-4491-8122-4facdb9ba9d8` | 없음 |
-| TeamsActivity | 박수빈 EntraId 사용자 Activity Feed | ManualTest | Sent | `07da3020-276a-41ba-8a90-9178d1133e0c` | 없음 |
+| TeamsActivity | 검수 사용자 A EntraId 사용자 Activity Feed | ManualTest | Sent | `07da3020-276a-41ba-8a90-9178d1133e0c` | 없음 |
 | Mail | `.env.notify-local` TestRecipientEmail 수신자 | ManualTest | Sent | `f9cded9d-e78f-4d67-a4fd-18b8f6735e4d` | 없음 |
 
 검증 결과:
@@ -573,8 +573,8 @@ TeamsActivity 수동 발송 정책:
 - [ ] 알림 유형에서 `프로젝트 생성 알림` 선택 가능
 - [ ] 제목/프로젝트명/본문 입력 가능
 - [ ] Teams 채널 / Teams Activity / Mail 채널 선택 가능
-- [ ] Teams Activity 수신자로 박수빈 선택 가능
-- [ ] Mail 수신자로 박수빈 또는 테스트 이메일 선택 가능
+- [ ] Teams Activity 수신자로 검수 사용자 A 선택 가능
+- [ ] Mail 수신자로 검수 사용자 A 또는 테스트 이메일 선택 가능
 - [ ] 발송 후 채널별 결과가 표시됨
 - [ ] Teams 채널에 프로젝트 생성 알림 게시 확인
 - [ ] Teams Activity Feed에 짧은 preview 알림 표시
@@ -582,8 +582,8 @@ TeamsActivity 수동 발송 정책:
 - [ ] 알림발송상태에서 TeamsChannel row가 `프로젝트 생성 알림`으로 보임
 - [ ] 알림발송상태에서 TeamsActivity row가 `프로젝트 생성 알림`으로 보임
 - [ ] 알림발송상태에서 Mail row가 `프로젝트 생성 알림`으로 보임
-- [ ] Mail row에서 수신자가 박수빈 또는 실제 수신 이메일로 표시됨
-- [ ] TeamsActivity row에서 수신자가 박수빈으로 표시됨
+- [ ] Mail row에서 수신자가 검수 사용자 A 또는 실제 수신 이메일로 표시됨
+- [ ] TeamsActivity row에서 수신자가 검수 사용자 A으로 표시됨
 - [ ] TeamsChannel row에서 대상이 Teams 채널로 표시됨
 - [ ] 세 채널 row를 correlation id로 함께 추적 가능
 - [ ] 수신자 미등록으로 잘못 표시되지 않음
@@ -856,7 +856,7 @@ deep link 제한:
 
 manifest / localhost 제한:
 
-- 현재 localhost manifest는 박수빈 PC 로컬 검수용이다.
+- 현재 localhost manifest는 검수 사용자 A PC 로컬 검수용이다.
 - 다른 사용자가 같은 Teams 앱을 열면 각자 자기 PC의 `localhost`를 바라본다.
 - 다른 사용자에게 actual 검수를 확장하려면 Dev Tunnel, ngrok, 또는 운영 HTTPS 도메인이 필요하다.
 - 로컬 manifest v1.0.1 권장값은 다음과 같다.
@@ -898,9 +898,9 @@ TeamsActivity topic 정책:
 - 기본 topic value:
   - `https://graph.microsoft.com/v1.0/appCatalogs/teamsApps/{TeamsCatalogAppId}`
 - `.env.notify-local`에는 `Notifications__TeamsActivity__TeamsCatalogAppId`를 설정해야 한다.
-- `Notifications__TeamsActivity__InstalledAppId`는 박수빈 단일 계정 검수처럼 진단/fallback 용도로만 유지한다.
+- `Notifications__TeamsActivity__InstalledAppId`는 검수 사용자 A 단일 계정 검수처럼 진단/fallback 용도로만 유지한다.
 - `TeamsCatalogAppId`는 Graph installedApps 응답의 `teamsApp.id`이며 manifest external id와 다르다.
-- 현재 로컬 `.env.notify-local`에는 `TeamsCatalogAppId`가 아직 없어서 박수빈/한소정 catalog topic actual 재검증은 설정 후 다시 수행해야 한다.
+- 현재 로컬 `.env.notify-local`에는 `TeamsCatalogAppId`가 아직 없어서 검수 사용자 A/검수 사용자 B catalog topic actual 재검증은 설정 후 다시 수행해야 한다.
 
 알림 상세 route:
 
@@ -918,7 +918,7 @@ TeamsActivity topic 정책:
 - Mail/TeamsChannel 본문에는 `알림 상세 보기` 링크를 추가할 수 있다.
 - TeamsActivity preview/template에는 notification id와 correlation id를 노출하지 않는다.
 - 권한 검사는 frontend route가 아니라 `GET /api/notifications/{notificationId}` 서버 API에서 강제한다.
-- localhost manifest는 본인 PC 전용이므로, 한소정 등 다른 사용자 actual 검수에는 Dev Tunnel/ngrok/운영 HTTPS 도메인이 필요하다.
+- localhost manifest는 본인 PC 전용이므로, 검수 사용자 B 등 다른 사용자 actual 검수에는 Dev Tunnel/ngrok/운영 HTTPS 도메인이 필요하다.
 
 사용자 검수 체크리스트:
 
@@ -931,9 +931,9 @@ TeamsActivity topic 정책:
 - [ ] 권한 없는 사용자는 알림/업무 상세 접근이 차단됨
 - [ ] 알림 상세에서 관련 업무 보기 버튼이 동작함
 - [ ] 알림 상세에서 관련 프로젝트 보기 버튼이 동작함
-- [ ] 박수빈 TeamsActivity 수신 성공
-- [ ] 한소정 TeamsActivity 수신 성공
-- [ ] 한소정에게 별도 installedAppId를 수동 입력하지 않음
+- [ ] 검수 사용자 A TeamsActivity 수신 성공
+- [ ] 검수 사용자 B TeamsActivity 수신 성공
+- [ ] 검수 사용자 B에게 별도 installedAppId를 수동 입력하지 않음
 - [ ] 수동 발송 알림이 관리자 수동 발송으로 구분됨
 - [ ] 외부 알림 제목/본문에 correlation id가 노출되지 않음
 - [ ] Console 오류 없음
@@ -1120,9 +1120,9 @@ UAT actual 결과:
 
 - HTTPS UAT: `https://localhost:5174/teams/activity` 200
 - worker: manual TeamsActivity Pending delivery를 처리해 Graph actual 호출 수행
-- 일반 앱 상세 URL을 `topic.webUrl`로 넣은 text topic smoke: 박수빈/한소정 모두 `TeamsActivityInvalidTopic`
-- Teams deep link `topic.webUrl`로 전환 후 text topic smoke: 박수빈/한소정 모두 `Sent`
-- 한소정에게 별도 installedAppId를 수동 입력하지 않았다.
+- 일반 앱 상세 URL을 `topic.webUrl`로 넣은 text topic smoke: 검수 사용자 A/검수 사용자 B 모두 `TeamsActivityInvalidTopic`
+- Teams deep link `topic.webUrl`로 전환 후 text topic smoke: 검수 사용자 A/검수 사용자 B 모두 `Sent`
+- 검수 사용자 B에게 별도 installedAppId를 수동 입력하지 않았다.
 - 생성된 TeamsActivity delivery는 notification 상세 API `GET /api/notifications/{notificationId}` 200으로 연결됐다.
 
 실패/재시도 정책:
@@ -1142,9 +1142,9 @@ UAT actual 결과:
 - [ ] 권한 없는 사용자는 알림/업무 상세 접근이 차단됨
 - [ ] 알림 상세에서 관련 업무 보기 버튼이 동작함
 - [ ] 알림 상세에서 관련 프로젝트 보기 버튼이 동작함
-- [ ] 박수빈 TeamsActivity 수신 성공
-- [ ] 한소정 TeamsActivity 수신 성공
-- [ ] 한소정에게 별도 installedAppId를 수동 입력하지 않음
+- [ ] 검수 사용자 A TeamsActivity 수신 성공
+- [ ] 검수 사용자 B TeamsActivity 수신 성공
+- [ ] 검수 사용자 B에게 별도 installedAppId를 수동 입력하지 않음
 - [ ] 수동 발송 알림이 관리자 수동 발송으로 구분됨
 - [ ] 외부 알림 제목/본문에 correlation id가 노출되지 않음
 - [ ] Console 오류 없음

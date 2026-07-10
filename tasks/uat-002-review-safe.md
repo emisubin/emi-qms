@@ -134,7 +134,7 @@ Migration, dependency/lockfile, Teams manifest/icon은 변경하지 않는다.
 - persistent UAT: 5분 관찰 전후 schema·핵심 9개 table·delivery status 동일, container ID/restart count 동일
 - provider 실제 호출: registration/log/delivery snapshot 기준 0
 
-사용자 검수는 아직 실행하지 않았으며 성공으로 표시하지 않는다.
+사용자 검수는 검수 사용자 A가 2026-07-10 Review-safe UAT 5190에서 직접 수행했고, 조회 동작·mutation action 차단·SOP·User manual과 PR #26 병합을 승인했다. 자동 검증과 사용자 직접 검수 증빙은 별도 상태로 유지한다.
 
 ## 10. 남은 위험과 후속 Task
 
@@ -155,31 +155,33 @@ Migration, dependency/lockfile, Teams manifest/icon은 변경하지 않는다.
 | SOP | `tasks/uat-002-sop.md` | 작성 완료 |
 | User manual | `tasks/uat-002-user-manual.md` | 작성 완료 |
 | Roadmap update | `docs/00-product-roadmap.md` | 반영 완료 |
-| User validation checklist | 본 문서 12절 | Checklist 작성됨 / 사용자 검수 대기 |
+| User validation checklist | 본 문서 12절 | Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 |
 
 ## 12. 사용자 검수 체크리스트
 
-- [ ] `https://localhost:5190` 접속 가능
-- [ ] Review-safe banner가 모든 주요 화면에 표시됨
-- [ ] 프로젝트·업무·알림·관리자 데이터를 조회할 수 있음
-- [ ] 검색·필터·정렬·상세 이동 가능
-- [ ] 저장 버튼 disabled 및 이유 표시
-- [ ] 수정 버튼 disabled 및 이유 표시
-- [ ] 삭제·복구 버튼 disabled 및 이유 표시
-- [ ] 업무 시작·완료·취소 disabled
-- [ ] 읽음 처리 disabled
-- [ ] 수동 알림 발송 disabled
-- [ ] retry·확인·제외 처리 disabled
-- [ ] API 직접 `POST`/`PUT`/`PATCH`/`DELETE`가 서버에서 차단됨
-- [ ] Review backend DB session이 read-only임
-- [ ] migration/seed/master upsert가 실행되지 않음
-- [ ] notification/escalation/purge worker가 실행되지 않음
-- [ ] Teams/Mail/Channel 실제 발송 없음
-- [ ] Development UAT 5174는 기존대로 동작함
-- [ ] 5185 Preview가 유지됨
-- [ ] Console 오류 없음
-- [ ] 390px/Teams narrow pane overflow 없음
-- [ ] SOP를 따라 Review-safe 서버를 직접 실행할 수 있음
-- [ ] User manual이 비개발자도 이해 가능함
+- [x] `https://localhost:5190` 접속 가능
+- [x] Review-safe banner가 모든 주요 화면에 표시됨
+- [x] 프로젝트·업무·알림·관리자 데이터를 조회할 수 있음
+- [x] 검색·필터·정렬·상세 이동 가능
+- [x] 저장 버튼 disabled 및 이유 표시
+- [x] 수정 버튼 disabled 및 이유 표시
+- [x] 삭제·복구 버튼 disabled 및 이유 표시
+- [x] 업무 시작·완료·취소 disabled
+- [x] 읽음 처리 disabled
+- [x] 수동 알림 발송 disabled
+- [x] retry·확인·제외 처리 disabled
+- [x] API 직접 `POST`/`PUT`/`PATCH`/`DELETE`가 서버에서 차단됨
+- [x] Review backend DB session이 read-only임
+- [x] migration/seed/master upsert가 실행되지 않음
+- [x] notification/escalation/purge worker가 실행되지 않음
+- [x] Teams/Mail/Channel 실제 발송 없음
+- [x] Development UAT 5174는 기존대로 동작함
+- [x] 5185 Preview가 유지됨
+- [x] Console 오류 없음
+- [x] 390px/Teams narrow pane overflow 없음
+- [x] SOP를 따라 Review-safe 서버를 직접 실행할 수 있음
+- [x] User manual이 비개발자도 이해 가능함
 
-현재 상태: **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기**
+현재 상태: **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #26 병합 승인**
+
+검수 증빙: 검수 사용자 A / 2026-07-10 / HTTPS Review-safe UAT 5190 및 PR #26 문서 / 직접 화면·문서 검수와 병합 승인. API 423, DB read-only, startup·worker·provider 차단, Development/Preview/Persistent UAT 보존과 외부 provider 호출 0은 자동 증빙을 함께 사용했다.

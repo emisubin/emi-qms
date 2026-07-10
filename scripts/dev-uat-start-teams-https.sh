@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+export FRONTEND_PORT="${FRONTEND_PORT:-5174}"
 CERT_PATH="${VITE_DEV_HTTPS_CERT:-${REPO_ROOT}/.certs/localhost.pem}"
 KEY_PATH="${VITE_DEV_HTTPS_KEY:-${REPO_ROOT}/.certs/localhost-key.pem}"
 
@@ -27,8 +28,8 @@ export VITE_DEV_HTTPS_CERT="${CERT_PATH}"
 export VITE_DEV_HTTPS_KEY="${KEY_PATH}"
 export UAT_FRONTEND_HTTPS_API_BASE_URL="${UAT_FRONTEND_HTTPS_API_BASE_URL:-}"
 export VITE_DEV_PROXY_TARGET="${VITE_DEV_PROXY_TARGET:-http://127.0.0.1:5081}"
-export FRONTEND_ORIGIN="${FRONTEND_ORIGIN:-https://localhost:5174,http://127.0.0.1:5174,http://localhost:5174}"
+export FRONTEND_ORIGIN="${FRONTEND_ORIGIN:-https://localhost:${FRONTEND_PORT},http://127.0.0.1:${FRONTEND_PORT},http://localhost:${FRONTEND_PORT}}"
 export VITE_HMR_HOST="${VITE_HMR_HOST:-localhost}"
-export VITE_HMR_CLIENT_PORT="${VITE_HMR_CLIENT_PORT:-5174}"
+export VITE_HMR_CLIENT_PORT="${VITE_HMR_CLIENT_PORT:-${FRONTEND_PORT}}"
 
 exec "${SCRIPT_DIR}/dev-uat-start.sh"

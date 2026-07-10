@@ -9,7 +9,12 @@ const hmrHost = process.env.VITE_HMR_HOST;
 const hmrClientPort = process.env.VITE_HMR_CLIENT_PORT
   ? Number(process.env.VITE_HMR_CLIENT_PORT)
   : undefined;
+const devServerPort = Number(process.env.VITE_DEV_SERVER_PORT ?? '5173');
 const proxyTarget = process.env.VITE_DEV_PROXY_TARGET ?? 'http://localhost:5080';
+
+if (!Number.isInteger(devServerPort) || devServerPort < 1 || devServerPort > 65535) {
+  throw new Error('VITE_DEV_SERVER_PORT must be a valid TCP port.');
+}
 
 function isEnabled(value: string | undefined) {
   return ['1', 'true', 'yes', 'on'].includes((value ?? '').trim().toLowerCase());
@@ -55,7 +60,8 @@ function loadHttpsOptions() {
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: devServerPort,
+    strictPort: true,
     https: loadHttpsOptions(),
     proxy: {
       '/api': {

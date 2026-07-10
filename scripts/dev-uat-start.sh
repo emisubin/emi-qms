@@ -7,6 +7,7 @@ cd "${REPO_ROOT}"
 
 load_dotenv_file() {
   local env_file="$1"
+  local allowed_key_prefix="${2:-}"
   local line
   local key
   local value
@@ -32,6 +33,9 @@ load_dotenv_file() {
     fi
 
     [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    if [[ -n "${allowed_key_prefix}" && "${key}" != "${allowed_key_prefix}"* ]]; then
+      continue
+    fi
     export "${key}=${value}"
   done < "${env_file}"
 }
@@ -41,13 +45,18 @@ if [[ -f .env ]]; then
 fi
 
 if [[ "${UAT_LOAD_NOTIFY_LOCAL_ENV:-false}" == "true" && -f .env.notify-local ]]; then
-  load_dotenv_file .env.notify-local
+  load_dotenv_file .env.notify-local "Notifications__"
 fi
 
 export DATABASE_HOST="${DATABASE_HOST:-localhost}"
 export DATABASE_PORT="${DATABASE_PORT:-5432}"
 export DATABASE_USER="${DATABASE_USER:-emi_qms}"
 export DATABASE_NAME="${UAT_DATABASE_NAME:-emi_qms_uat_005a}"
+export FRONTEND_PORT="${FRONTEND_PORT:-5174}"
+if [[ "${FRONTEND_PORT}" != "5174" ]]; then
+  echo "Manual UAT frontend must use port 5174; received FRONTEND_PORT=${FRONTEND_PORT}." >&2
+  exit 1
+fi
 export ASPNETCORE_ENVIRONMENT="Development"
 export AUTH_MODE="Dev"
 export Authentication__Mode="Dev"
@@ -59,12 +68,14 @@ export VITE_DEV_USER_KEY="${VITE_DEV_USER_KEY:-dev-production}"
 export UAT_FRONTEND_HTTPS="${UAT_FRONTEND_HTTPS:-false}"
 UAT_FRONTEND_HTTPS_NORMALIZED="$(printf '%s' "${UAT_FRONTEND_HTTPS}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${UAT_FRONTEND_HTTPS_NORMALIZED}" == "true" || "${UAT_FRONTEND_HTTPS}" == "1" ]]; then
-  if [[ ",${FRONTEND_ORIGIN:-}," == *",https://localhost:5174,"* ]]; then
+  FRONTEND_BASE_URL="https://localhost:${FRONTEND_PORT}"
+  FRONTEND_WRONG_PROTOCOL_URL="http://localhost:${FRONTEND_PORT}"
+  if [[ ",${FRONTEND_ORIGIN:-}," == *",${FRONTEND_BASE_URL},"* ]]; then
     export FRONTEND_ORIGIN="${FRONTEND_ORIGIN}"
   elif [[ -n "${FRONTEND_ORIGIN:-}" ]]; then
-    export FRONTEND_ORIGIN="https://localhost:5174,${FRONTEND_ORIGIN}"
+    export FRONTEND_ORIGIN="${FRONTEND_BASE_URL},${FRONTEND_ORIGIN}"
   else
-    export FRONTEND_ORIGIN="https://localhost:5174,http://127.0.0.1:5174,http://localhost:5174"
+    export FRONTEND_ORIGIN="${FRONTEND_BASE_URL},http://127.0.0.1:${FRONTEND_PORT},http://localhost:${FRONTEND_PORT}"
   fi
   export VITE_API_BASE_URL="${UAT_FRONTEND_HTTPS_API_BASE_URL:-}"
   export VITE_DEV_PROXY_TARGET="${VITE_DEV_PROXY_TARGET:-http://127.0.0.1:5081}"
@@ -73,12 +84,46 @@ if [[ "${UAT_FRONTEND_HTTPS_NORMALIZED}" == "true" || "${UAT_FRONTEND_HTTPS}" ==
   export VITE_DEV_HTTPS_KEY="${VITE_DEV_HTTPS_KEY:-${REPO_ROOT}/.certs/localhost-key.pem}"
   export VITE_HMR_HOST="${VITE_HMR_HOST:-localhost}"
 else
-  export FRONTEND_ORIGIN="${FRONTEND_ORIGIN:-http://127.0.0.1:5174,http://localhost:5174}"
+  FRONTEND_BASE_URL="http://localhost:${FRONTEND_PORT}"
+  FRONTEND_WRONG_PROTOCOL_URL="https://localhost:${FRONTEND_PORT}"
+  export FRONTEND_ORIGIN="${FRONTEND_ORIGIN:-http://127.0.0.1:${FRONTEND_PORT},http://localhost:${FRONTEND_PORT}}"
   export VITE_API_BASE_URL="${VITE_API_BASE_URL:-http://127.0.0.1:5081}"
   export VITE_DEV_PROXY_TARGET="${VITE_DEV_PROXY_TARGET:-http://127.0.0.1:5081}"
   export VITE_HMR_HOST="${VITE_HMR_HOST:-127.0.0.1}"
 fi
-export VITE_HMR_CLIENT_PORT="5174"
+export VITE_DEV_SERVER_PORT="${FRONTEND_PORT}"
+export VITE_HMR_CLIENT_PORT="${FRONTEND_PORT}"
+export Notifications__Links__BaseUrl="${Notifications__Links__BaseUrl:-${FRONTEND_BASE_URL}}"
+
+report_env_key_state() {
+  local key="$1"
+  local value
+  value="$(printenv "${key}" 2>/dev/null || true)"
+  if [[ -n "${value}" ]]; then
+    echo "  ${key}: configured"
+  else
+    echo "  ${key}: missing"
+  fi
+}
+
+if [[ "${UAT_LOAD_NOTIFY_LOCAL_ENV:-false}" == "true" ]]; then
+  echo "Notification Development environment status (values hidden)"
+  for notify_key in \
+    Notifications__Dispatch__Enabled \
+    Notifications__Teams__Enabled \
+    Notifications__Teams__DryRun \
+    Notifications__Mail__Enabled \
+    Notifications__Mail__DryRun \
+    Notifications__TeamsActivity__Enabled \
+    Notifications__TeamsActivity__DryRun \
+    Notifications__TeamsActivity__TenantId \
+    Notifications__TeamsActivity__ClientId \
+    Notifications__TeamsActivity__ClientSecret \
+    Notifications__TeamsActivity__TeamsCatalogAppId \
+    Notifications__Links__BaseUrl; do
+    report_env_key_state "${notify_key}"
+  done
+fi
 
 if [[ -z "${DATABASE_PASSWORD:-}" ]]; then
   echo "DATABASE_PASSWORD is required. Set it in .env or the shell environment." >&2
@@ -126,6 +171,8 @@ done
 
 echo "Ensuring manual UAT workflow stage master data..."
 docker exec -i emi-qms-postgres psql -v ON_ERROR_STOP=1 -U "${DATABASE_USER}" -d "${DATABASE_NAME}" >/dev/null <<'SQL'
+begin;
+
 update workflow_stages
 set sequence_number = sequence_number + 1000
 where stage_code in (
@@ -175,10 +222,14 @@ set sequence_number = excluded.sequence_number,
     stage_name = excluded.stage_name,
     is_optional = excluded.is_optional,
     is_active = excluded.is_active;
+
+commit;
 SQL
 
 echo "Ensuring manual UAT production planning schema and master data..."
-docker exec -i emi-qms-postgres psql -U "${DATABASE_USER}" -d "${DATABASE_NAME}" >/dev/null <<'SQL'
+docker exec -i emi-qms-postgres psql -v ON_ERROR_STOP=1 -U "${DATABASE_USER}" -d "${DATABASE_NAME}" >/dev/null <<'SQL'
+begin;
+
 alter table if exists project_production_plan_items
     add column if not exists is_active boolean not null default true;
 
@@ -347,15 +398,17 @@ select active_templates.template_id, default_steps.sequence_number, default_step
 from active_templates
 cross join default_steps
 on conflict (template_id, sequence_number) do nothing;
+
+commit;
 SQL
 
 echo "Manual UAT fixed environment"
 echo "  Backend:  http://127.0.0.1:5081"
 if [[ "${UAT_FRONTEND_HTTPS_NORMALIZED}" == "true" || "${UAT_FRONTEND_HTTPS}" == "1" ]]; then
-  echo "  Frontend: https://localhost:5174"
+  echo "  Frontend: ${FRONTEND_BASE_URL}"
   echo "  API proxy: /api and /health -> ${VITE_DEV_PROXY_TARGET}"
 else
-  echo "  Frontend: http://127.0.0.1:5174"
+  echo "  Frontend: ${FRONTEND_BASE_URL}"
 fi
 echo "  DB:       ${DATABASE_NAME}"
 echo "  Note: E2E tests use their own temporary database and must not reuse this DB."
@@ -365,7 +418,8 @@ FRONTEND_LOG="${UAT_FRONTEND_LOG:-/tmp/emi-qms-dev-uat-frontend.log}"
 BACKEND_PID_FILE="${UAT_BACKEND_PID_FILE:-/tmp/emi-qms-dev-uat-backend.pid}"
 FRONTEND_PID_FILE="${UAT_FRONTEND_PID_FILE:-/tmp/emi-qms-dev-uat-frontend.pid}"
 BACKEND_PORT=5081
-FRONTEND_PORT=5174
+BACKEND_SCREEN_SESSION="emi-qms-uat-backend"
+FRONTEND_SCREEN_SESSION="emi-qms-uat-frontend"
 
 find_port_pids() {
   local port="$1"
@@ -387,6 +441,12 @@ pid_args() {
   ps -p "${pid}" -o args= 2>/dev/null || true
 }
 
+path_is_within() {
+  local candidate="$1"
+  local root="$2"
+  [[ "${candidate}" == "${root}" || "${candidate}" == "${root}/"* ]]
+}
+
 describe_pid() {
   local pid="$1"
   local cwd
@@ -405,7 +465,8 @@ is_expected_uat_backend_pid() {
   comm="$(pid_comm "${pid}")"
   args="$(pid_args "${pid}")"
 
-  [[ -n "${cwd}" && "${cwd}" == "${REPO_ROOT}"* ]] || return 1
+  [[ -n "${cwd}" ]] || return 1
+  path_is_within "${cwd}" "${REPO_ROOT}" || return 1
   [[ "${cwd}" == "${REPO_ROOT}/backend/src/Emi.Qms.Api"* \
     || "${args}" == *"backend/src/Emi.Qms.Api"* \
     || "${args}" == *"Emi.Qms.Api"* \
@@ -415,6 +476,21 @@ is_expected_uat_backend_pid() {
     || "${args}" == *"backend/src/Emi.Qms.Api"* \
     || "${comm}" == "Emi.Qms.Api"* \
     || "${comm}" == "dotnet"* ]]
+}
+
+is_expected_uat_frontend_pid() {
+  local pid="$1"
+  local cwd
+  local comm
+  local args
+  cwd="$(pid_cwd "${pid}")"
+  comm="$(pid_comm "${pid}")"
+  args="$(pid_args "${pid}")"
+
+  [[ -n "${cwd}" ]] || return 1
+  path_is_within "${cwd}" "${REPO_ROOT}/frontend" || return 1
+  [[ "${args}" == *"vite"* ]] || return 1
+  [[ "${comm}" == "node"* || "${args}" == *"node"* || "${args}" == *"vite"* ]]
 }
 
 wait_pid_exit() {
@@ -449,6 +525,52 @@ stop_expected_backend_pid() {
   exit 1
 }
 
+stop_expected_frontend_pid() {
+  local pid="$1"
+  echo "Stopping existing UAT frontend listener PID ${pid}..."
+  kill "${pid}" >/dev/null 2>&1 || true
+  if wait_pid_exit "${pid}" 20; then
+    return 0
+  fi
+
+  if is_expected_uat_frontend_pid "${pid}"; then
+    echo "Existing UAT frontend PID ${pid} did not exit after SIGTERM; sending SIGKILL."
+    kill -9 "${pid}" >/dev/null 2>&1 || true
+    wait_pid_exit "${pid}" 10
+    return
+  fi
+
+  echo "Refusing to force-stop unexpected process on frontend port ${FRONTEND_PORT}."
+  describe_pid "${pid}"
+  exit 1
+}
+
+stop_repo_owned_screen_session() {
+  local session_name="$1"
+  local sessions
+  local line
+  local session_ref
+  local session_pid
+  local cwd
+
+  command -v screen >/dev/null 2>&1 || return 0
+  sessions="$(screen -ls 2>/dev/null | sed -n "/\.${session_name}[[:space:]]/p" || true)"
+  [[ -n "${sessions}" ]] || return 0
+
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    session_ref="$(printf '%s\n' "${line}" | awk '{print $1}')"
+    session_pid="${session_ref%%.*}"
+    cwd="$(pid_cwd "${session_pid}")"
+    if [[ -z "${cwd}" ]] || ! path_is_within "${cwd}" "${REPO_ROOT}"; then
+      echo "Refusing to stop screen session ${session_ref}; it is not owned by this repository."
+      exit 1
+    fi
+    echo "Stopping existing repository UAT screen session ${session_ref}..."
+    screen -S "${session_ref}" -X quit >/dev/null 2>&1 || true
+  done <<< "${sessions}"
+}
+
 wait_port_closed() {
   local port="$1"
   for _ in $(seq 1 20); do
@@ -457,57 +579,84 @@ wait_port_closed() {
     fi
     sleep 0.5
   done
-  echo "Port ${port} is still occupied after stopping expected UAT backend process."
+  echo "Port ${port} is still occupied after stopping the expected repository UAT process."
   lsof -nP -iTCP:"${port}" -sTCP:LISTEN || true
   exit 1
 }
 
 stop_existing_uat_backend() {
-  if command -v screen >/dev/null 2>&1; then
-    screen -S emi-qms-uat-backend -X quit >/dev/null 2>&1 || true
-    sleep 1
-  fi
-
   local pids
   pids="$(find_port_pids "${BACKEND_PORT}")"
-  if [[ -z "${pids}" ]]; then
-    return 0
-  fi
-
   while IFS= read -r pid; do
     [[ -n "${pid}" ]] || continue
-    if is_expected_uat_backend_pid "${pid}"; then
-      stop_expected_backend_pid "${pid}"
-    else
+    if ! is_expected_uat_backend_pid "${pid}"; then
       echo "Port ${BACKEND_PORT} is occupied by an unexpected process; not stopping it."
       describe_pid "${pid}"
       exit 1
     fi
   done <<< "${pids}"
 
-  wait_port_closed "${BACKEND_PORT}"
+  stop_repo_owned_screen_session "${BACKEND_SCREEN_SESSION}"
+  sleep 1
+
+  pids="$(find_port_pids "${BACKEND_PORT}")"
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    stop_expected_backend_pid "${pid}"
+  done <<< "${pids}"
+
+  if [[ -n "${pids}" ]]; then
+    wait_port_closed "${BACKEND_PORT}"
+  fi
+}
+
+stop_existing_uat_frontend() {
+  local pids
+  pids="$(find_port_pids "${FRONTEND_PORT}")"
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    if ! is_expected_uat_frontend_pid "${pid}"; then
+      echo "Port ${FRONTEND_PORT} is occupied by an unexpected process; not stopping it."
+      describe_pid "${pid}"
+      exit 1
+    fi
+  done <<< "${pids}"
+
+  stop_repo_owned_screen_session "${FRONTEND_SCREEN_SESSION}"
+  sleep 1
+
+  pids="$(find_port_pids "${FRONTEND_PORT}")"
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    stop_expected_frontend_pid "${pid}"
+  done <<< "${pids}"
+
+  if [[ -n "${pids}" ]]; then
+    wait_port_closed "${FRONTEND_PORT}"
+  fi
 }
 
 wait_http_ok() {
   local url="$1"
   local label="$2"
+  local log_file="${3:-}"
   for _ in $(seq 1 90); do
-    if curl -fsS "${url}" >/dev/null 2>&1; then
+    if curl -fsS --max-time 3 "${url}" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
   done
 
   echo "${label} did not become healthy in time."
-  if [[ -f "${BACKEND_LOG}" ]]; then
-    tail -80 "${BACKEND_LOG}" || true
+  if [[ -n "${log_file}" && -f "${log_file}" ]]; then
+    tail -80 "${log_file}" || true
   fi
   exit 1
 }
 
 assert_backend_started() {
-  wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/health/live" "UAT backend /health/live"
-  wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/health/ready" "UAT backend /health/ready"
+  wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/health/live" "UAT backend /health/live" "${BACKEND_LOG}"
+  wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/health/ready" "UAT backend /health/ready" "${BACKEND_LOG}"
 
   local backend_pid=""
   local pid
@@ -531,23 +680,66 @@ assert_backend_started() {
     exit 1
   fi
 
+  printf '%s\n' "${backend_pid}" > "${BACKEND_PID_FILE}"
   echo "UAT backend ready on port ${BACKEND_PORT}. PID: ${backend_pid}"
 }
 
+assert_frontend_started() {
+  wait_http_ok "${FRONTEND_BASE_URL}/" "UAT frontend ${FRONTEND_BASE_URL}" "${FRONTEND_LOG}"
+  wait_http_ok "${FRONTEND_BASE_URL}/health/live" "UAT frontend /health proxy" "${FRONTEND_LOG}"
+
+  if [[ "${UAT_FRONTEND_HTTPS_NORMALIZED}" == "true" || "${UAT_FRONTEND_HTTPS}" == "1" ]]; then
+    wait_http_ok "${FRONTEND_BASE_URL}/teams/activity" "UAT Teams Activity route" "${FRONTEND_LOG}"
+  fi
+
+  if curl -fsS --max-time 3 "${FRONTEND_WRONG_PROTOCOL_URL}/" >/dev/null 2>&1; then
+    echo "UAT frontend protocol mismatch: ${FRONTEND_WRONG_PROTOCOL_URL} unexpectedly succeeded."
+    exit 1
+  fi
+
+  local frontend_pid=""
+  local pid
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    if is_expected_uat_frontend_pid "${pid}"; then
+      frontend_pid="${pid}"
+      break
+    fi
+  done <<< "$(find_port_pids "${FRONTEND_PORT}")"
+
+  if [[ -z "${frontend_pid}" ]]; then
+    echo "UAT frontend port ${FRONTEND_PORT} is listening, but the process is not this repository's Vite frontend."
+    lsof -nP -iTCP:"${FRONTEND_PORT}" -sTCP:LISTEN || true
+    exit 1
+  fi
+
+  if [[ -f "${FRONTEND_LOG}" ]] && grep -Eqi "address already in use|port ${FRONTEND_PORT} is already in use" "${FRONTEND_LOG}"; then
+    echo "UAT frontend log contains a strict-port startup failure."
+    tail -80 "${FRONTEND_LOG}" || true
+    exit 1
+  fi
+
+  printf '%s\n' "${frontend_pid}" > "${FRONTEND_PID_FILE}"
+  echo "UAT frontend ready at ${FRONTEND_BASE_URL}. PID: ${frontend_pid}"
+}
+
 if command -v screen >/dev/null 2>&1; then
+  stop_existing_uat_frontend
   stop_existing_uat_backend
-  screen -S emi-qms-uat-frontend -X quit >/dev/null 2>&1 || true
 
   mkdir -p "$(dirname "${BACKEND_LOG}")" "$(dirname "${FRONTEND_LOG}")"
   : > "${BACKEND_LOG}"
-  screen -dmS emi-qms-uat-backend bash -lc "cd '${REPO_ROOT}' && dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release > '${BACKEND_LOG}' 2>&1"
+  screen -dmS "${BACKEND_SCREEN_SESSION}" bash -lc "cd '${REPO_ROOT}' && dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release > '${BACKEND_LOG}' 2>&1"
   assert_backend_started
 
-  screen -dmS emi-qms-uat-frontend bash -lc "cd '${REPO_ROOT}/frontend' && corepack pnpm exec vite --host 127.0.0.1 --port 5174 > '${FRONTEND_LOG}' 2>&1"
+  : > "${FRONTEND_LOG}"
+  screen -dmS "${FRONTEND_SCREEN_SESSION}" bash -lc "cd '${REPO_ROOT}/frontend' && corepack pnpm exec vite --host 127.0.0.1 --port '${FRONTEND_PORT}' --strictPort > '${FRONTEND_LOG}' 2>&1"
+  assert_frontend_started
 
-  echo "Started manual UAT backend screen session: emi-qms-uat-backend Log: ${BACKEND_LOG}"
-  echo "Started manual UAT frontend screen session: emi-qms-uat-frontend Log: ${FRONTEND_LOG}"
+  echo "Started manual UAT backend screen session: ${BACKEND_SCREEN_SESSION} Log: ${BACKEND_LOG}"
+  echo "Started manual UAT frontend screen session: ${FRONTEND_SCREEN_SESSION} Log: ${FRONTEND_LOG}"
 else
+  stop_existing_uat_frontend
   stop_existing_uat_backend
   mkdir -p "$(dirname "${BACKEND_LOG}")" "$(dirname "${FRONTEND_LOG}")"
   : > "${BACKEND_LOG}"
@@ -557,9 +749,10 @@ else
 
   (
     cd frontend
-    nohup corepack pnpm exec vite --host 127.0.0.1 --port 5174 > "${FRONTEND_LOG}" 2>&1 &
+    nohup corepack pnpm exec vite --host 127.0.0.1 --port "${FRONTEND_PORT}" --strictPort > "${FRONTEND_LOG}" 2>&1 &
     echo "$!" > "${FRONTEND_PID_FILE}"
   )
+  assert_frontend_started
 
   echo "Started manual UAT backend. PID: $(cat "${BACKEND_PID_FILE}") Log: ${BACKEND_LOG}"
   echo "Started manual UAT frontend. PID: $(cat "${FRONTEND_PID_FILE}") Log: ${FRONTEND_LOG}"

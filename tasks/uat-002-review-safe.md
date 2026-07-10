@@ -125,6 +125,7 @@ Migration, dependency/lockfile, Teams manifest/icon은 변경하지 않는다.
 - Review-safe targeted/API/registration test: 7/7 성공
 - DB read-only/schema mismatch/Entra read-only integration: 성공
 - frontend lint/typecheck/unit/build: 성공, unit 59/59
+- mock UI smoke: 1/1 성공
 - 기존 warning: Fast Refresh 1건, production chunk-size 1건. 신규 warning 없음
 - Full-Stack E2E: isolated PostgreSQL에서 16/16 성공, 전용 자원 cleanup 성공
 - Review-safe HTTPS startup: 5092/5190 성공, runtime/readiness 일치

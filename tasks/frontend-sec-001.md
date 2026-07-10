@@ -138,21 +138,23 @@ Merge 전에는 Task commit을 revert하거나 branch를 폐기한다. Merge 후
 - SOP: [TASK-FRONTEND-SEC-001 SOP](frontend-sec-001-sop.md), 작성 완료
 - User manual: [TASK-FRONTEND-SEC-001 User Manual](frontend-sec-001-user-manual.md), 작성 완료
 - Roadmap update: [Product Roadmap TASK-FRONTEND-SEC-001](../docs/00-product-roadmap.md#task-frontend-sec-001-frontend-dependency-security-remediation), 작성 완료
-- User validation checklist: 이 문서 18장, Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기
+- User validation checklist: 이 문서 18장, Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료
 
 ## 18. 사용자 검수 체크리스트
 
-상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 대기`.
+상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 완료`.
 
-- [ ] 메인 화면이 기존과 동일하게 열림
-- [ ] 프로젝트·업무·관리자 화면이 열림
-- [ ] Teams Activity 화면이 열림
-- [ ] HTTPS 접속이 정상
-- [ ] API/User 카드 정상
-- [ ] 화면 동작과 style의 눈에 띄는 회귀 없음
-- [ ] SOP가 실행 가능함
-- [ ] User manual이 이해 가능함
-- [ ] `pnpm audit` High 0 확인
-- [ ] 실제 UAT 반영은 별도 controlled handover가 필요함을 이해함
+검수 증빙: 2026-07-10, HTTPS Development UAT 비교 환경(기존 5174 / patched Preview 5185), 역할 기반 검수, 화면·SOP·User manual 확인, 결과 승인.
+
+- [x] 메인 화면이 기존과 동일하게 열림
+- [x] 프로젝트·업무·관리자 화면이 열림
+- [x] Teams Activity 화면이 열림
+- [x] HTTPS 접속이 정상
+- [x] API/User 카드 정상
+- [x] 화면 동작과 style의 눈에 띄는 회귀 없음
+- [x] SOP가 실행 가능함
+- [x] User manual이 이해 가능함
+- [x] `pnpm audit` High 0 확인
+- [x] 실제 UAT 반영은 별도 controlled handover가 필요함을 이해함
 
 자동 검증 결과와 사용자 직접 검수는 별도 상태로 관리하고, 체크박스를 임의로 완료 처리하지 않는다.

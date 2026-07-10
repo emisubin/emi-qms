@@ -1081,14 +1081,25 @@ Excel 출력 대상 후보:
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 
-- 상태/다음 순서: 계획 / TASK-UAT-001 다음
+- 상태/다음 순서: 구현·자동 검증 완료 후보 / Draft PR 준비 / 사용자 검수 대기
 - 목적: frontend dependency vulnerability baseline을 재현하고 최소 호환 upgrade로 알려진 보안 위험을 해소한다.
-- 포함 범위: 공식 audit 재현, 직접·전이 dependency 원인 확인, 최소 버전 보정, lockfile과 frontend 전체 회귀 검증
+- 포함 범위: Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0, audit 전 Critical 1/High 3/Moderate 2/Low 1에서 전체 0, synthetic deny regression, HTTP/HTTPS alternate-port, frontend/backend/E2E 회귀
 - 제외 범위: 기능 개발, 프레임워크 전면 교체, 근거 없는 일괄 major upgrade
-- 선행조건: 현재 audit 결과와 영향 dependency를 새 Task 시작 시 재검증
-- 예상 migration: 없음. dependency/lockfile 변경 예상
-- 핵심 검수 기준: 대상 vulnerability 해소, frontend lint/typecheck/unit/build와 Full-Stack E2E 회귀, 남은 advisory의 risk decision
-- 주요 위험: transitive dependency 충돌, major upgrade 범위 팽창, lockfile drift
+- 선행조건: TASK-UAT-001과 E2E isolation 완료
+- 예상 migration: 없음. `frontend/package.json`과 `pnpm-lock.yaml`만 dependency 변경
+- 핵심 검수 기준: audit 전체 0, synthetic canary 노출 0, frontend unit 57/57, backend 295/295, migration 16/16, Full-Stack E2E 16/16, 5184/5185 proxy·strict port·console·overflow 회귀, persistent UAT snapshot 유지
+- 산출물: [Task 정의와 검수 체크리스트](../tasks/frontend-sec-001.md), [Implementation report](../tasks/frontend-sec-001-implementation-report.md), [SOP](../tasks/frontend-sec-001-sop.md), [User manual](../tasks/frontend-sec-001-user-manual.md), 이 Roadmap update
+- 주요 위험: 현재 running 5174는 Vite 7.3.0 process로 patch 전 runtime이다. Merge 후 `TASK-UAT-HANDOVER-001` controlled restart 전에는 patched UAT로 간주하지 않는다.
+
+### TASK-UAT-HANDOVER-001: Patched frontend UAT runtime handover
+
+- 상태/다음 순서: 계획 / TASK-FRONTEND-SEC-001 merge와 사용자 승인 후
+- 목적: 기존 HTTPS Development UAT를 통제된 절차로 재기동해 merged patched dependency를 실제 5174 runtime에 반영한다.
+- 포함 범위: 기존 WIP 보존 결정, maintenance window, frontend/backend PID/session handover, Vite/esbuild/Vitest runtime version 확인, HTTPS/Teams/API/worker/UAT persistence smoke
+- 제외 범위: dependency 추가 변경, Review-safe UAT 구현, DB reset, actual external notification 신규 smoke
+- 예상 migration: 없음
+- 핵심 검수 기준: patched checkout 기반 5174, trusted HTTPS, route/API 정상, UAT DB/schema/count 유지, rollback 가능한 session 기록
+- 주요 위험: 현재 dirty legacy worktree와 merged main 간 중복 WIP, handover 중 짧은 UAT 중단, 잘못된 checkout에서 startup
 
 ### TASK-UAT-002: Review-safe UAT
 
@@ -1304,13 +1315,14 @@ TASK-UAT-001 이후 현재 실행 순서는 `TASK-FRONTEND-SEC-001 → TASK-UAT-
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
 | 54 | Full-Stack E2E PostgreSQL 물리 격리 | 완료 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 squash merge `45fd61c` |
 | 55 | HTTPS Development UAT 안정화 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-001 | strict port/ownership, protocol readiness, notification env, master-data transaction, isolated E2E와 persistent UAT 보존. PR #23 |
-| 56 | Frontend dependency security | 계획 | 개발/보안 | TASK-FRONTEND-SEC-001 | 공식 audit를 재현하고 최소 호환 upgrade와 전체 frontend 회귀 검증 수행 |
+| 56 | Frontend dependency security | 자동 검증 완료 / 사용자 검수 대기 | 개발/보안 | TASK-FRONTEND-SEC-001 | Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0. Audit 전체 0, frontend/backend/E2E와 alternate HTTPS 회귀 통과. Draft PR 후보 |
 | 57 | Review-safe UAT | 계획 | 개발/운영 | TASK-UAT-002 | mutation/worker/external egress 차단과 Development UAT mode 구분 |
 | 58 | UAT 통합 사용자 검수 | 계획 | 사용자/개발 | UAT-VERIFY-001 | Development write/Teams 검수와 Review mode 보호를 통합 확인하고 checklist 상태 확정 |
 | 59 | Notification delivery claim/lease | 계획 | 개발/운영 | TASK-NOTIFY-REL-001 | 동시 worker 중복 발송 방지와 retry lineage를 전용 PostgreSQL 동시성 test로 검증 |
 | 60 | Escalation starvation | 계획 | 개발/운영 | TASK-NOTIFY-ESC-001 | batch 정렬과 starvation 보정, L0~L3 회귀를 별도 검증 |
 | 61 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-HARDEN-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
 | 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
+| 63 | Patched frontend UAT handover | 계획 | 개발/운영 | TASK-UAT-HANDOVER-001 | 현재 5174는 patch 전 runtime. FRONTEND-SEC-001 merge 후 controlled restart와 UAT persistence 검증 필요 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1373,6 +1385,8 @@ TASK-UAT-001 이후 현재 실행 순서는 `TASK-FRONTEND-SEC-001 → TASK-UAT-
 | 2026-07-10 | 현재 다음 실행 순서는 TASK-UAT-001 재개 → TASK-FRONTEND-SEC-001 → TASK-UAT-002 → UAT-VERIFY-001 | HTTPS Development UAT WIP를 먼저 완료하고 dependency 보안과 Review-safe mode를 분리한 뒤 통합 사용자 검수로 gate를 닫기 위함 | 23장, 24장 |
 | 2026-07-10 | Full-Stack E2E는 실행별 전용 PostgreSQL container/network/tmpfs와 `emi_qms_e2e_*` guard를 사용 | host `psql` 부재 시 persistent UAT fallback과 DB 이름 오설정의 삭제 위험을 제거하기 위함 | 23장, 24장, TASK-E2E-ISOLATION-001 |
 | 2026-07-10 | TASK-UAT-001 이후 remediation 순서를 TASK-FRONTEND-SEC-001 → TASK-UAT-002 → UAT-VERIFY-001 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001로 확정 | Development UAT 안정화 후 dependency 보안과 Review-safe mode를 닫고, notification reliability·starvation·마지막 관리자 동시성을 분리 검증하기 위함 | 23장, 24장, TASK-UAT-001 |
+| 2026-07-10 | TASK-FRONTEND-SEC-001은 Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0으로 audit 전체 0을 달성하고 실제 5174 반영은 TASK-UAT-HANDOVER-001로 분리 | 현재 실행 중인 patch 전 UAT를 보존하면서 dependency 변경 검증과 runtime 교체 위험을 분리하기 위함 | 23장, 24장, TASK-FRONTEND-SEC-001 |
+| 2026-07-10 | 현재 remediation 순서를 TASK-UAT-HANDOVER-001 → TASK-UAT-002 → UAT-VERIFY-001 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002로 갱신 | Patched dependency를 실제 UAT runtime에 안전하게 반영한 뒤 Review-safe mode와 통합 검수를 진행하기 위함 | 23장, 24장 |
 
 ## 26. 용어 사전
 

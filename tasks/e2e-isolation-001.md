@@ -116,7 +116,7 @@
 
 ## 12. 남아 있는 항목
 
-- 사용자 checklist는 작성됐으며 사용자 검수 대기다.
+- 사용자 checklist는 2026-07-10 명시적 merge 승인으로 완료됐다.
 - CI Full-Stack job의 기존 bootstrap PostgreSQL은 전용 E2E script가 사용하지 않는 중복 자원으로 남아 있다. 동작·안전 문제는 아니며 후속 P3 최적화 대상이다.
 
 ## 13. 산출물 상태
@@ -125,21 +125,23 @@
 - SOP: `tasks/e2e-isolation-001-sop.md`
 - User manual: `tasks/e2e-isolation-001-user-manual.md`
 - Roadmap update: 작성 완료 — [Product Roadmap TASK-E2E-ISOLATION-001](../docs/00-product-roadmap.md#task-e2e-isolation-001-full-stack-e2e-postgresql-물리-격리)
-- User validation checklist: 작성됨, 사용자 검수 대기
+- User validation checklist: 작성됨, 자동 검증 완료, 사용자 검수 완료
 
 ## 14. 사용자 검수 체크리스트
 
-- [ ] Full-Stack E2E가 persistent UAT PostgreSQL container를 사용하지 않음
-- [ ] E2E container와 UAT container가 서로 다름
-- [ ] E2E network와 UAT network가 서로 다름
-- [ ] E2E storage가 UAT named volume을 사용하지 않음
-- [ ] E2E database 이름에 UAT 이름을 넣으면 SQL 실행 전에 거부됨
-- [ ] E2E database 이름은 `emi_qms_e2e_*`만 허용됨
-- [ ] 기존 Full-Stack E2E suite가 통과함
-- [ ] E2E 종료 후 전용 container/network/storage가 정리됨
-- [ ] E2E 종료 후 UAT DB row count와 schema가 유지됨
-- [ ] UAT PostgreSQL은 E2E 전후 healthy 상태임
-- [ ] E2E에서 실제 Teams/Mail/TeamsChannel 발송이 발생하지 않음
-- [ ] host `psql`이 없어도 전용 E2E PostgreSQL로 실행 가능
-- [ ] SOP를 따라 E2E를 직접 실행할 수 있음
-- [ ] User manual이 비개발자도 이해 가능함
+검수 증빙: Task 승인자 역할, 2026-07-10, PR #22 및 HTTPS Development UAT 환경, 승인, 대화의 명시적 merge 승인.
+
+- [x] Full-Stack E2E가 persistent UAT PostgreSQL container를 사용하지 않음
+- [x] E2E container와 UAT container가 서로 다름
+- [x] E2E network와 UAT network가 서로 다름
+- [x] E2E storage가 UAT named volume을 사용하지 않음
+- [x] E2E database 이름에 UAT 이름을 넣으면 SQL 실행 전에 거부됨
+- [x] E2E database 이름은 `emi_qms_e2e_*`만 허용됨
+- [x] 기존 Full-Stack E2E suite가 통과함
+- [x] E2E 종료 후 전용 container/network/storage가 정리됨
+- [x] E2E 종료 후 UAT DB row count와 schema가 유지됨
+- [x] UAT PostgreSQL은 E2E 전후 healthy 상태임
+- [x] E2E에서 실제 Teams/Mail/TeamsChannel 발송이 발생하지 않음
+- [x] host `psql`이 없어도 전용 E2E PostgreSQL로 실행 가능
+- [x] SOP를 따라 E2E를 직접 실행할 수 있음
+- [x] User manual이 비개발자도 이해 가능함

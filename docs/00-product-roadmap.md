@@ -1057,7 +1057,7 @@ Excel 출력 대상 후보:
 
 ### TASK-E2E-ISOLATION-001: Full-Stack E2E PostgreSQL 물리 격리
 
-- 상태/No-Go 기반: 구현·자동 검증 완료 / Draft PR #22 / 사용자 검수 대기
+- 상태/No-Go 기반: 구현·자동 검증·사용자 검수 완료 / PR #22 squash merge 승인
 - 목적: Full-Stack E2E를 persistent UAT PostgreSQL과 container/network/storage 수준에서 분리하고 UAT/운영성 DB 이름을 data command 전에 차단한다.
 - 포함 범위: 실행별 전용 PostgreSQL Compose project, 동적 loopback port, tmpfs storage, `emi_qms_e2e_*` DB-name guard, scoped cleanup, Testing external provider 차단, host `psql` 없는 Docker-only 경로
 - 제외 범위: persistent UAT Compose/volume 변경, UAT DB reset, migration 변경, 실제 Teams/Graph/SMTP/Webhook 발송
@@ -1065,7 +1065,7 @@ Excel 출력 대상 후보:
 - 예상 migration: 없음
 - 핵심 검수 기준: UAT/E2E container·network ID 분리, E2E Docker volume mount 0, invalid DB name SQL-before-fail, Full-Stack E2E 16개 통과, cleanup 후 E2E 자원 0, UAT health/schema/업무 data 유지
 - 산출물: [Task 정의와 검수 체크리스트](../tasks/e2e-isolation-001.md), [Implementation report](../tasks/e2e-isolation-001-implementation-report.md), [SOP](../tasks/e2e-isolation-001-sop.md), [User manual](../tasks/e2e-isolation-001-user-manual.md), 이 Roadmap update
-- 주요 위험: 동적 application port 선택의 짧은 race window, CI의 사용하지 않는 bootstrap PostgreSQL 자원, 사용자 검수 미완료
+- 주요 위험: 동적 application port 선택의 짧은 race window, CI의 사용하지 않는 bootstrap PostgreSQL 자원
 
 ### TASK-UAT-001: HTTPS Development UAT 안정화
 
@@ -1299,7 +1299,7 @@ Excel 출력 대상 후보:
 | 51 | 기존 업무 화면 Action Feedback UX | 계획 | 사용자/개발 | TASK-UX-001 | A1 공통 계약과 내 업무/알림을 먼저 검수한 뒤 A2 업무 화면으로 확대 |
 | 52 | 사용자별 알림 설정 | 계획 | 사용자/운영 | TASK-NOTIFY-005 | NOTIFY-004 완료와 필수 알림 opt-out/channel taxonomy 결정이 선행 |
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
-| 54 | Full-Stack E2E PostgreSQL 물리 격리 | 자동 검증 완료 / 사용자 검수 대기 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 Draft |
+| 54 | Full-Stack E2E PostgreSQL 물리 격리 | 사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 squash merge 승인 |
 | 55 | HTTPS Development UAT 안정화 | WIP 보존 / 재개 예정 | 개발/운영 | TASK-UAT-001 | strict port/ownership, protocol readiness, notification env, master-data transaction과 사용자 write/Teams 검수 마무리 |
 | 56 | Frontend dependency security | 계획 | 개발/보안 | TASK-FRONTEND-SEC-001 | 공식 audit를 재현하고 최소 호환 upgrade와 전체 frontend 회귀 검증 수행 |
 | 57 | Review-safe UAT | 계획 | 개발/운영 | TASK-UAT-002 | mutation/worker/external egress 차단과 Development UAT mode 구분 |

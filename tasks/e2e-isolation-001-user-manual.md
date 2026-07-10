@@ -118,15 +118,15 @@ UAT worker나 사용자 검수 동작에 따른 자연 변경일 수 있다. E2E
 
 ## 15. 사용자 검수 체크리스트
 
-이 checklist가 존재하거나 자동 테스트가 통과했다는 이유만으로 사용자 검수 완료가 되지는 않는다. 현재 상태는 `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 대기`다.
+이 checklist가 존재하거나 자동 테스트가 통과했다는 이유만으로 사용자 검수 완료가 되지는 않는다. 현재 상태는 2026-07-10 명시적 승인에 따른 `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 완료`다.
 
-- [ ] 기본 Full-Stack E2E 명령을 실행할 수 있음
-- [ ] E2E와 UAT container가 서로 다름
-- [ ] E2E와 UAT network가 서로 다름
-- [ ] E2E가 UAT named volume을 사용하지 않음
-- [ ] UAT DB 이름이 SQL 전에 거부됨
-- [ ] 기존 Full-Stack E2E suite가 통과함
-- [ ] 종료 후 E2E container/network/storage가 남지 않음
-- [ ] UAT DB와 HTTPS UAT가 유지됨
-- [ ] 실제 외부 알림이 발생하지 않음
-- [ ] 이 문서의 오류 대응을 이해할 수 있음
+- [x] 기본 Full-Stack E2E 명령을 실행할 수 있음
+- [x] E2E와 UAT container가 서로 다름
+- [x] E2E와 UAT network가 서로 다름
+- [x] E2E가 UAT named volume을 사용하지 않음
+- [x] UAT DB 이름이 SQL 전에 거부됨
+- [x] 기존 Full-Stack E2E suite가 통과함
+- [x] 종료 후 E2E container/network/storage가 남지 않음
+- [x] UAT DB와 HTTPS UAT가 유지됨
+- [x] 실제 외부 알림이 발생하지 않음
+- [x] 이 문서의 오류 대응을 이해할 수 있음

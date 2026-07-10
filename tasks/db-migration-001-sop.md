@@ -197,18 +197,23 @@ Candidate는 별도 5093/5191, 별도 screen/PID/log를 사용한다. 다음을 
 
 ## 19. 사용자 검수 체크리스트
 
-- [ ] 5191 접속 및 banner 확인
-- [ ] Compatible 상태 확인
-- [ ] Canonical 27 / Live 28 / Legacy 1 이해
-- [ ] marker 보존 확인
-- [ ] unknown/missing 503 증빙 확인
-- [ ] DB read-only와 mutation 423 확인
-- [ ] Persistent UAT data 유지 확인
-- [ ] SOP 반복 실행 가능
-- [ ] UAT-VERIFY 재개 순서 확인
+- [x] 5191 접속 및 banner 확인
+- [x] Compatible 상태 확인
+- [x] Canonical 27 / Live 28 / Legacy 1 이해
+- [x] marker 보존 확인
+- [x] unknown/missing 503 증빙 확인
+- [x] DB read-only와 mutation 423 확인
+- [x] Persistent UAT data 유지 확인
+- [x] SOP 반복 실행 가능
+- [x] UAT-VERIFY 재개 순서 확인
+
+현재 상태: **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #27 병합 승인**
+
+검수 증빙: 검수 사용자 A / 2026-07-10 / Candidate Review-safe UAT 5191와 본 SOP / 직접 화면·절차 검수 및 병합 승인. Fixture·DB·worker/provider 항목은 자동 증빙을 함께 사용했다.
 
 ## 20. 변경 이력
 
 | 날짜 | 버전 | 내용 |
 | --- | --- | --- |
 | 2026-07-10 | 1.0 | TASK-DB-MIGRATION-001 최초 작성 |
+| 2026-07-10 | 1.1 | 사용자 검수 완료와 PR #27 병합 승인 반영 |

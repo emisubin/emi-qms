@@ -160,23 +160,25 @@ Development worker의 자연 변화 가능성은 candidate write와 구분하며
 | Roadmap update | `docs/00-product-roadmap.md` | 작성 완료 |
 | User validation checklist | 이 문서와 각 산출물 | 작성 완료 |
 
-상태 구분: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기.
+상태 구분: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #27 병합 승인.
 
 ## 18. 사용자 검수 체크리스트
 
-- [ ] Candidate https://localhost:5191 접속 정상
-- [ ] Review-safe banner 표시
-- [ ] Runtime migration 상태가 호환으로 표시됨
-- [ ] Canonical 27 / Live 28 / Legacy 1의 의미를 이해함
-- [ ] 현재 UAT 데이터가 손상됐다는 의미가 아님을 이해함
-- [ ] Legacy marker가 삭제되지 않았음을 확인
-- [ ] Unknown extra/missing fixture가 readiness 503으로 차단됨
-- [ ] Historical UAT가 approved legacy 상태로 ready 200임
-- [ ] DB read-only 유지
-- [ ] Mutation API 423
-- [ ] Worker/provider 미실행
-- [ ] Persistent UAT 데이터 유지
-- [ ] SOP 실행 가능
-- [ ] User manual 이해 가능
-- [ ] UAT-VERIFY-001이 merge/handover 후 재개된다는 점 확인
-- [ ] 전체 신규 기능 No-Go 유지 확인
+- [x] Candidate https://localhost:5191 접속 정상
+- [x] Review-safe banner 표시
+- [x] Runtime migration 상태가 호환으로 표시됨
+- [x] Canonical 27 / Live 28 / Legacy 1의 의미를 이해함
+- [x] 현재 UAT 데이터가 손상됐다는 의미가 아님을 이해함
+- [x] Legacy marker가 삭제되지 않았음을 확인
+- [x] Unknown extra/missing fixture가 readiness 503으로 차단됨
+- [x] Historical UAT가 approved legacy 상태로 ready 200임
+- [x] DB read-only 유지
+- [x] Mutation API 423
+- [x] Worker/provider 미실행
+- [x] Persistent UAT 데이터 유지
+- [x] SOP 실행 가능
+- [x] User manual 이해 가능
+- [x] UAT-VERIFY-001이 merge/handover 후 재개된다는 점 확인
+- [x] 전체 신규 기능 No-Go 유지 확인
+
+검수 증빙: 검수 사용자 A / 2026-07-10 / Candidate Review-safe UAT 5191 및 5종 산출물 / 화면·정책·문서 검수 완료와 PR #27 병합 승인. Fixture, DB read-only, mutation 423, worker/provider 미실행과 Persistent UAT 무변경은 자동 증빙을 함께 사용했다.

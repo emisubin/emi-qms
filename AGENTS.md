@@ -64,6 +64,10 @@ Migration 수정한 경우:
 - UAT DB persistence
 - secret/PII scan
 
+## Task 종료 정책
+
+모든 Task는 [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)을 canonical source로 따른다. 종료 전 5종 산출물 상태, Finding gate, 자동 검증과 사용자 검수 상태의 구분, 개인정보·secret 검사와 Commit/PR/Merge 전 검증을 확인하며, 이 절에는 세부 규칙을 중복 정의하지 않는다.
+
 ## 완료 보고 형식
 
 1. 수정 요약

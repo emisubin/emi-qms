@@ -322,19 +322,46 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 
 #### 6.5.2 알림 유형 × 채널 매트릭스
 
+이 표의 Teams 열은 event coverage 상태다. 아래의 provider/capability 완료 여부와 개별 event의 자동 연결 여부를 혼동하지 않는다.
+
 | 알림 유형 | 인앱 | Teams | 메일 |
 | --- | --- | --- | --- |
-| 내 업무 생성 (일반 단계 핸드오프) | 즉시 | 개인별 Activity Feed 후속 | 일일 요약에 포함 |
+| 내 업무 생성 (일반 단계 핸드오프) | 즉시 | 수동 업무 배정은 적용, 자동 단계 핸드오프는 후속 | 일일 요약에 포함 |
 | 참조 알림 | 즉시 | 발송 안 함 | 일일 요약에 포함 |
-| 긴급/차단 (부적합, PUNCH, 제조 중단) | 즉시 | 통합 채널 게시, 개인별 Activity Feed 후속 | 즉시 (조치 담당자 + 생산관리) |
-| 재검사 요청 | 즉시 | 개인별 Activity Feed 후속 | 발송 안 함 |
-| 예정일 임박 (D-1) | 즉시 | Activity Feed 후속 | 발송 안 함 |
-| 예정일 초과 | 즉시 | Activity Feed 후속 (에스컬레이션 적용) | 에스컬레이션 단계에서만 |
+| 긴급/차단 (부적합, PUNCH, 제조 중단) | 즉시 | 통합 채널 게시 기반은 구현, 개인 자동 Activity Feed는 후속 | 즉시 (조치 담당자 + 생산관리) |
+| 재검사 요청 | 즉시 | Activity Feed event 연결 미확인 | 발송 안 함 |
+| 예정일 임박 (D-1) | 즉시 | L0는 설정 선택 시 Activity Feed, 기본 설정은 dry-run DM | 발송 안 함 |
+| 예정일 초과 | 즉시 | L1/L2는 설정 선택 시 Activity Feed, 기본 설정은 dry-run DM | 에스컬레이션 단계에서만 |
 | 일일 요약 | — | 발송 안 함 | 매일 1통 |
-| 프로젝트 완료 / 세금계산서 단계 | 즉시 | 영업 담당 Activity Feed 후속 | 발송 (증빙 성격) |
+| 프로젝트 완료 / 세금계산서 단계 | 즉시 | Activity type/renderer 기반만 존재하며 event 연결 미확인 | 발송 (증빙 성격) |
 
 - 메일이 실시간으로 발송되는 경우는 긴급/차단과 에스컬레이션 두 가지뿐이다.
 - 긴급/차단 알림의 Teams 채널 게시는 부서별 채널이 아니라 통합 채널 1개로 운영한다.
+
+#### 6.5.2.1 Activity Feed provider/capability 상태
+
+| capability | 상태 | 근거/주의 |
+| --- | --- | --- |
+| Graph Activity Feed provider 및 channel handler | 완료 | TASK-NOTIFY-003에서 actual 발송을 검수했다 |
+| text topic + Teams deep link | 완료 | 사용자별 installedAppId 운영 의존을 제거했다 |
+| recipient/access scope와 notification 연결 | 완료 | 개인 알림은 RecipientOnly, 채널 공지는 Authenticated 정책을 사용한다 |
+| `/teams/activity` 및 상세 route | 완료 | Teams tab과 인앱 notification/detail을 연결한다 |
+| 관리자 수동 개인/업무 배정 Activity Feed | 완료 | 선택한 EntraId 사용자별 Pending delivery를 생성한다 |
+| 자동 event 전체 적용 | 부분 적용 | provider가 처리할 수 있는 것과 event가 실제 TeamsActivity delivery를 생성하는 것은 별도다 |
+
+#### 6.5.2.2 Activity Feed event coverage 상태
+
+| event | 상태 | 현재 기준 |
+| --- | --- | --- |
+| 관리자 수동 개인 알림 | 적용 | TeamsActivity 채널을 선택한 경우 |
+| 관리자 수동 업무 배정 | 적용 | work_item, notification, recipient, TeamsActivity delivery를 연결한다 |
+| L0/L1/L2 예정일 에스컬레이션 | 부분 적용 | `TeamsPersonalChannelStrategy=TeamsActivity`일 때 연결된다. repository 기본값은 `TeamsDirectMessageDryRun`이다 |
+| 긴급/차단 자동 event | 후속 | renderer activity type만으로 자동 event 연결 완료를 의미하지 않는다 |
+| 재검사 요청 | 미확인 | 현재 코드·문서에서 TeamsActivity delivery 생성 연결을 확인하지 못했다 |
+| 자동 단계 핸드오프 업무 생성 | 후속 | 수동 업무 배정 적용과 구분한다 |
+| 프로젝트 완료 | 미확인 | activity type/renderer는 존재하지만 실제 event 연결은 확인하지 못했다 |
+
+후속 event coverage는 해당 event의 notification 원본, recipient, delivery 생성 경로와 테스트를 함께 확인한 뒤 상태를 올린다.
 
 #### 6.5.3 일일 요약 메일
 
@@ -354,9 +381,9 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 
 | 단계 | 조건 | 발송 대상과 채널 |
 | --- | --- | --- |
-| L0 | 예정일 D-1 | 정담당자 Teams Activity Feed 후속 |
-| L1 | 예정일 초과 즉시 | 정담당자 Teams Activity Feed 후속 + 메일 |
-| L2 | 초과 +2영업일 미조치 | 부담당자 + 생산관리 담당자 Teams Activity Feed 후속 |
+| L0 | 예정일 D-1 | 정담당자 Teams 개인 delivery. 설정 선택 시 Activity Feed, 기본은 dry-run DM |
+| L1 | 예정일 초과 즉시 | 정담당자 Teams 개인 delivery + 메일. Teams는 설정 선택 시 Activity Feed |
+| L2 | 초과 +2영업일 미조치 | 부담당자 + 생산관리 담당자 Teams 개인 delivery. 설정 선택 시 Activity Feed |
 | L3 | 초과 +3영업일 미조치 | 생산관리 담당자 + 영업 담당자 메일 |
 
 - 긴급/차단 알림은 L1에서 시작한다. 발생 즉시가 이미 긴급 상황이기 때문이다.
@@ -373,7 +400,7 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 #### 6.5.6 구현 방향
 
 - Teams 통합 채널 게시는 Webhook 기반으로 구현한다. Webhook payload는 Power Automate Teams 카드 액션과 호환되는 Adaptive Card root JSON을 기본으로 한다.
-- Teams 개인별 알림은 DM보다 Activity Feed를 우선 사용한다. Activity Feed는 Teams 앱 manifest, Graph 권한, 조직 앱 배포, Teams deep link가 필요하며 TASK-NOTIFY-003에서 actual 발송까지 검증했다.
+- Teams 개인별 알림은 DM보다 Activity Feed를 우선 사용한다. Activity Feed provider/capability는 Teams 앱 manifest, Graph 권한, 조직 앱 배포, Teams deep link를 포함해 TASK-NOTIFY-003에서 actual 발송까지 검증했다. 개별 자동 event coverage는 6.5.2.2 표를 따른다.
 - 메일: 초기/UAT/시범운영 actual 발송은 Gmail 전용 계정 SMTP를 사용한다. Gmail 계정은 2단계 인증과 앱 비밀번호를 사용하며 실제 값은 env/secret으로만 관리한다.
 - Hiworks SMTP와 Microsoft Graph Mail.Send는 사내 정책상 기본 발송 경로로 사용하지 않는다. Graph Mail provider는 Exchange Online 조직 또는 후속 선택지로 optional 유지한다.
 - 아키텍처: 도메인 이벤트 발행 → NotificationDispatcher → 채널별 핸들러(InApp / Teams / Mail). 인앱은 이미 구현되어 있으므로 Dispatcher 뒤에 Teams/Mail 핸들러를 추가하는 형태로 확장한다. 18단계 각 단계에 알림 로직을 하드코딩하지 않는다.
@@ -901,7 +928,7 @@ Excel 출력 대상 후보:
 | 생산계획 | Item 기반 단계, 프로젝트별 snapshot, 단계명/필수 여부 override, Excel, Business Calendar 기준 캘린더 휴일 표시 | 캘린더 UX 지속 보정, 관리자 기준정보화 |
 | 구매 필수 항목 | Item별 필수 구매 항목 설정, 새 프로젝트 skeleton 자동 생성 | 업체/발주정보 입력 기준과 완료 판정 보강 |
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
-| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 원본 구조, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed 개인 알림 actual, text topic + Teams deep link 발송, `/teams/activity` 탭, `/teams/activity/notifications/{id}` 상세, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, retry/dedupe, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, `work_item_escalations`, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송 3모드, 수동 업무 배정 work_item 생성, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외·대기 재시도 | 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, 실패 재처리 UI 고도화, 기존 업무 화면 action feedback UX 확대 |
+| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 원본 구조, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed provider actual, text topic + Teams deep link, `/teams/activity` 탭, `/teams/activity/notifications/{id}` 상세, 관리자 수동 개인/업무 배정 Activity Feed, 설정 선택형 L0~L2 Activity Feed, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, retry/dedupe, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, `work_item_escalations`, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송 3모드, 수동 업무 배정 work_item 생성, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외·대기 재시도 | Activity Feed 자동 event coverage 확대, 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, delivery 신뢰성/실패 재처리 고도화, 기존 업무 화면 action feedback UX 확대 |
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존 | 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
@@ -924,7 +951,7 @@ Excel 출력 대상 후보:
 - 영업 정산과 세금계산서 발행 완료를 추가한다.
 - 모든 페이지 Excel 출력 공통 기능을 추가한다.
 - Microsoft 365 로그인 기반은 구현 완료되었으며, 운영 배포 전 실제 Entra 앱 등록값, 운영 redirect URI, secret/env 관리, Production/Staging dev auth 비활성, AdminUserSwitch 비활성 설정을 검수한다.
-- Teams Activity Feed 개인별 알림은 TASK-NOTIFY-003에서 text topic + Teams deep link 방식으로 actual 발송까지 구현되었으며, 운영 전 manifest `contentUrl`/`websiteUrl`과 deep link webUrl을 운영 URL로 교체하고 조직 앱 배포 상태를 검수한다.
+- Teams Activity Feed provider/capability와 관리자 수동 개인/업무 배정 경로는 TASK-NOTIFY-003에서 text topic + Teams deep link 방식으로 actual 발송까지 구현되었다. 자동 event coverage는 6.5.2.2의 적용/부분 적용/미확인/후속 상태를 따르며, 운영 전 manifest `contentUrl`/`websiteUrl`과 deep link webUrl을 운영 URL로 교체하고 조직 앱 배포 상태를 검수한다.
 - 예정일 기반 에스컬레이션 엔진은 `work_items.due_date` 기준으로 구현되었으며, 실제 운영 대상 업무의 due_date 입력/동기화 정책은 후속으로 확정한다.
 - 공휴일/영업일 기반은 구현 완료되었으며, 운영 전 연간 대한민국 공휴일/대체공휴일/임시공휴일/회사휴일 데이터를 관리자 휴일 관리 또는 공식 API sync로 검수한다.
 - 공식 대한민국 공휴일 API service key 연동과 자동 sync scheduler는 후속으로 검토한다.
@@ -1007,14 +1034,107 @@ Excel 출력 대상 후보:
 - 선행조건: 권한/관리자 정책 확정
 - 주요 테스트: backend 전체 test, Admin targeted tests, Migration tests, Authorization tests, Calendar/Holiday tests, User/Identity tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, UAT admin browser/deletion smoke, secret scan
 
+### BASELINE-GOV-001: 개인정보 및 Task 거버넌스 기준선 정비
+
+- 상태: 자동 문서 검증·allowlist staging 완료 / draft PR 준비 / 사용자 검수 대기
+- 목적: tracked 문서의 사용자 개인정보를 비식별화하고 모든 Task의 종료 산출물·품질 gate·검수 상태 기준을 단일 정책으로 확립한다.
+- 포함 범위: 기존 동일 목적 branch read-only 비교, NOTIFY-003 문서 비식별화, [Task 종료 및 산출물 정책](12-task-completion-policy.md), Activity Feed provider/capability와 event coverage 상태 분리, 후속 Task 우선순위 등록
+- 제외 범위: runtime code, dependency, migration, DB, UAT, worker, 외부 발송, 후속 기능 구현
+- 선행조건: main Git 기준선 일치, 기존 WIP 보존, 동일 목적 branch의 고유 정책 비교·통합
+- 산출물: [Task 정의와 검수 체크리스트](../tasks/baseline-gov-001.md), [Implementation report](../tasks/baseline-gov-001-implementation-report.md), [SOP](../tasks/baseline-gov-001-sop.md), [User manual](../tasks/baseline-gov-001-user-manual.md), 이 Roadmap update
+- 완료 조건: 문서/링크/PII/secret/범위 검증 통과와 사용자 validation checklist 확인. 체크리스트 생성과 사용자 검수 완료를 구분한다.
+
+### TASK-GOV-002: Git history 개인정보 risk decision
+
+- 상태: 계획 / 별도 사용자·보안 결정 필요
+- 목적: current checkout에서 제거된 개인정보가 Git history에 남은 위험과 repository 공개 범위를 평가하고, history rewrite 필요 여부와 협업 절차를 결정한다.
+- 포함 범위: 영향 commit/file 수, repository visibility와 clone/fork/branch 영향, 보존·rewrite 대안, 공지·backup·re-clone 계획
+- 제외 범위: 승인 전 history rewrite, force push, tag/branch 재작성 또는 삭제
+- 선행조건: repository owner/보안 담당 risk owner 지정, 공개 범위와 downstream clone/fork 확인
+- 예상 migration: 없음
+- 핵심 검수 기준: 실제 값 원문을 재노출하지 않고 결정 근거·영향·완화책·실행 승인 여부를 문서화
+- 주요 위험: rewrite 시 commit hash 변경과 열린 branch/PR 단절, 미조치 시 history 접근자가 과거 개인정보를 조회할 가능성
+
+### TASK-UAT-001: Safe UAT review mode
+
+- 상태/No-Go 순서: 계획 / 1순위
+- 목적: 데이터 변경과 외부 발송 없이 UAT의 schema, health, route와 persistence를 안전하게 검토할 수 있는 명시적 review mode를 제공한다.
+- 포함 범위: read-only 진단 계약, mutation/worker/external delivery 차단, 현재 모드 표시, 안전한 health·route·schema 확인과 회귀 테스트
+- 제외 범위: 테스트 데이터 정리, 실제 알림 발송, 운영 배포, 기능 UI 변경
+- 선행조건: 허용할 read-only endpoint와 차단할 mutation/egress 목록 확정
+- 예상 migration: 없음 예상
+- 핵심 검수 기준: review mode에서 DB write와 외부 egress가 차단되고 health/API/UI 진단은 가능하며 일반 UAT mode와 혼동되지 않음
+- 주요 위험: 차단 누락으로 인한 데이터·외부 시스템 변경, 안전 모드가 실제 운영 설정에 유입되는 문제
+
+### TASK-SEC-001: Frontend dependency security remediation
+
+- 상태/No-Go 순서: 계획 / 2순위
+- 목적: frontend dependency vulnerability baseline을 재현하고 최소 호환 upgrade로 알려진 보안 위험을 해소한다.
+- 포함 범위: 공식 audit 재현, 직접·전이 dependency 원인 확인, 최소 버전 보정, lockfile과 frontend 전체 회귀 검증
+- 제외 범위: 기능 개발, 프레임워크 전면 교체, 근거 없는 일괄 major upgrade
+- 선행조건: 현재 audit 결과와 영향 dependency를 새 Task 시작 시 재검증
+- 예상 migration: 없음. dependency/lockfile 변경 예상
+- 핵심 검수 기준: 대상 vulnerability 해소, frontend lint/typecheck/unit/build와 Full-Stack E2E 회귀, 남은 advisory의 risk decision
+- 주요 위험: transitive dependency 충돌, major upgrade 범위 팽창, lockfile drift
+
+### TASK-AUTH-001: Last System Administrator concurrency guard
+
+- 상태/No-Go 순서: 계획 / 4순위
+- 목적: 동시에 실행되는 관리자 비활성화·역할 제거 요청에서도 마지막 active System Administrator 보호를 서버에서 보장한다.
+- 포함 범위: transaction/locking 정책, 사용자 비활성화와 role 제거의 공통 guard, 동시성 integration test, 오류 응답·audit 확인
+- 제외 범위: role/permission 편집 UI 전면 개편, Entra group/App Role 연동
+- 선행조건: PostgreSQL 동시성 테스트 환경과 관리 action 경계 확정
+- 예상 migration: 미정. 가능한 한 transaction/locking으로 해결하고 schema 변경이 필요하면 additive migration으로 분리
+- 핵심 검수 기준: 경쟁 요청 중 하나만 성공하고 active System Administrator가 항상 1명 이상 유지됨
+- 주요 위험: check-then-update race, 과도한 lock, 사용자/role API 간 guard 불일치
+
 ### TASK-NOTIFY-003: Teams Activity Feed 개인 알림 / 알림 운영 UX
 
-- 상태: 완료
+- 상태: 완료(provider/capability 및 명시된 수동 발송 범위). 자동 event 전체 적용 완료를 의미하지 않는다.
 - 목적: Teams Activity Feed actual 발송을 추가하고, 3채널 알림 운영/추적 UX를 고도화한다.
 - 포함 범위: Teams Activity Feed actual provider, text topic + Teams deep link webUrl, installedAppId 운영 의존 제거, `/teams/activity` 탭, `/teams/activity/notifications/{id}` 상세, 인앱 notification 원본 구조, 개인 알림/채널 공지 접근권한, TeamsChannel/Mail/TeamsActivity 3채널 smoke, 관리자 수동 알림 발송 3모드, 업무 배정 수동 발송 시 work_item 생성, queue 방식 수동 발송, TeamsActivity/Mail 다중 수신자, display snapshot/detail, 자동/수동 알림 양식 통일, 실패/대기 확인·제외·대기 재시도, notification delivery admin handling, HTTPS local Teams test
 - 제외 범위: Teams manifest/icon repo 포함, 운영 URL 확정, `projectCreated` activityType manifest 추가, 사용자별 알림 설정 UI, 실패 delivery 강제 성공 처리, delivery row hard delete, Teams DM/Bot 구현
+- event coverage: 관리자 수동 개인/업무 배정은 적용, L0~L2는 설정 선택형 부분 적용, 그 밖의 자동 event는 6.5.2.2의 후속/미확인 상태를 따른다.
 - 선행조건: TASK-NOTIFY-001, TASK-NOTIFY-002, TASK-ADMIN-001, Teams 앱 승인, Graph TeamsActivity 권한 승인
 - 주요 테스트: backend 전체 test, Notification/Admin targeted tests, Migration tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, UAT health, UAT `/teams/activity` smoke, 3채널 actual smoke, secret scan
+
+### TASK-NOTIFY-004: 외부 알림 delivery 신뢰성 및 실패 재처리
+
+- 상태/권장 순서: 계획 / No-Go 3순위·후속 후보 B
+- 목적: 동시 worker와 실패 재처리 상황에서도 외부 알림을 중복 발송하지 않고, 재시도 원인과 계보를 추적 가능하게 만든다.
+- 포함 범위: delivery claim/lease, 동시 worker 중복 발송 방지, retryable/non-retryable 분류, Failed delivery 재처리와 retry lineage, escalation batch starvation 보정
+- 제외 범위: 사용자별 채널 preference UI, 기존 업무 화면 feedback 전면 개편, 실제 운영 secret/채널 교체
+- 선행조건: 외부 발송 없이 확인 가능한 safe UAT 검수 기반, 독립된 DB 동시성 테스트 환경, 실패 재처리 승인·감사 정책 확정
+- 예상 migration: 필요 예상. claim/lease와 retry lineage를 additive migration으로 설계하고 기존 delivery 보존 및 forward-fix 정책을 명시한다.
+- backend/frontend 영향: backend dispatcher/store/worker/escalation이 중심이며, frontend 관리자 delivery monitor와 재처리 action/status가 영향받는다.
+- 핵심 검수 기준: 두 worker 경쟁 시 1회만 claim/발송, lease 만료 복구, 오류 분류별 retry 차등, 원본과 재시도 lineage 표시, 오래된 escalation 후보 starvation 방지
+- 주요 위험: 실제 외부 중복 발송, lease 고착, 기존 Pending/Failed 이력 훼손, batch 정렬 변경에 따른 에스컬레이션 지연
+
+### TASK-UX-001: 기존 업무 화면 Action Feedback UX 확대
+
+- 상태/권장 순서: 계획 / 후속 기능 후보 A
+- 목적: 저장·삭제·복구·발송 결과와 validation 오류를 사용자의 action 위치에서 즉시 이해하고 다음 행동으로 이어지게 한다.
+- 포함 범위: A1 공통 feedback contract와 내 업무/알림, A2 생산계획/구매/자재/패널/Excel 화면의 inline feedback·field error·focus·`aria-live` 적용
+- 제외 범위: 업무 규칙 변경, API 계약의 기능 확장, 알림 delivery 재처리 로직, 사용자 preference
+- 선행조건: 공통 feedback, field error, focus, `aria-live`, target-not-found 계약 확정. A1 검수 후 A2를 진행한다.
+- 예상 migration: 없음 예상. API 오류 계약 보정이 필요하면 runtime 범위를 Task 안에서 별도 명시한다.
+- backend/frontend 영향: frontend 공통 component/hook와 각 업무 화면이 중심이며, backend는 일관된 field error 응답 확인 범위다.
+- 핵심 검수 기준: action 인접 성공/실패 표시, 첫 오류 focus, screen reader 안내, 중복 submit 방지, loading/error/empty/target-not-found 다음 행동 안내, 모바일 overflow 회귀 없음
+- 주요 위험: 화면별 임시 구현으로 contract가 분산되는 문제, 상단 banner와 inline feedback 중복, focus 이동 회귀, A1/A2 범위 팽창
+
+### TASK-NOTIFY-005: 사용자별 알림 설정
+
+- 상태/권장 순서: 계획 / 후속 기능 후보 C
+- 목적: 사용자가 허용된 범위에서 event별 외부 채널 수신 방식을 조정하되 필수 업무 알림과 인앱 원본을 보존한다.
+- 포함 범위: channel taxonomy, 사용자별 event/channel preference 저장·조회·수정, dispatcher 적용, 관리자/사용자 설정 UI, 기본값과 audit
+- 제외 범위: 인앱 notification 원본 opt-out, 법적·업무상 필수 알림 해제, provider 신뢰성 재구현, 신규 외부 채널 추가
+- 선행조건: TASK-NOTIFY-004 완료, 필수 알림 opt-out 금지 정책 확정, channel/event taxonomy 확정
+- 예상 migration: 필요 예상. preference와 기본값/audit를 additive migration으로 설계한다.
+- backend/frontend 영향: backend preference model/API/dispatcher와 frontend 사용자 설정 UI가 모두 영향받는다.
+- 핵심 검수 기준: 필수 알림 해제 차단, 기본값 호환, event/channel별 저장과 재로그인 유지, 인앱 원본 보존, preference 변경 audit, 외부 delivery 생성 여부 검증
+- 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
+
+전역 No-Go remediation 순서는 `TASK-UAT-001 → TASK-SEC-001 → TASK-NOTIFY-004 → TASK-AUTH-001`이다. Safe UAT가 NOTIFY-004의 선행조건이며, dependency security는 독립된 보안 기준선으로 먼저 해소한다. 이후 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`다. UX-001은 공통 계약을 먼저 정리하되 NOTIFY-004와 묶지 않고 별도 검수한다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1117,7 +1237,7 @@ Excel 출력 대상 후보:
 | 23 | Microsoft 365 로그인 적용 시점 | 완료 | 인프라/운영 결정 | TASK-INFRA-001 | 인증 기반 구현 완료. 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 필요 |
 | 24 | 관리자 페이지 범위 | 완료 | 사용자 요청 | TASK-ADMIN-001 | 시스템 관리 중심으로 구현 완료. 업무 부서 입력 기준정보는 후속 결정 |
 | 25 | 프로젝트 대표 상태 방식 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 병목 기준 + 진행률 |
-| 26 | 알림 채널 구성 | 완료 | 실무 협의 | TASK-NOTIFY-001/002/003 | 인앱 notification 원본, Teams 통합 채널 게시, Gmail SMTP 메일, Teams Activity Feed 개인 알림 actual, text topic + Teams deep link, delivery 이력, due_date 기반 에스컬레이션 엔진, 관리자 수동 발송/추적 UX 구현 완료. 운영 URL/manifest 배포 검수는 후속 |
+| 26 | 알림 채널 구성 | 부분 완료 | 실무 협의 | TASK-NOTIFY-001/002/003/004/005 | 인앱 원본, Teams 통합 채널, Gmail SMTP, Activity Feed provider actual, delivery 이력과 에스컬레이션 엔진은 구현. 자동 event coverage, delivery 신뢰성, 사용자 preference와 운영 URL/manifest 검수는 후속 |
 | 27 | 진행률(%) 계산식 정의 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수. FAT는 대상 프로젝트만 분모 포함. 프로젝트 상태 집계는 9장 기준. |
 | 28 | Teams 통합 채널 생성 및 Webhook URL | 검수 완료 | 사용자 | TASK-NOTIFY-001 | 테스트 채널/Webhook actual 검수 완료. 운영 전 Webhook 재발급과 secret 주입 필요 |
 | 29 | 알림 전용 메일 계정 생성 | 검수 완료 | 사용자 | TASK-NOTIFY-001 | Hiworks/M365 Graph Mail.Send 대신 Gmail SMTP 초기 경로 사용. 장기 운영 발송 수단 검토 필요 |
@@ -1125,7 +1245,7 @@ Excel 출력 대상 후보:
 | 31 | 퇴사/부서이동 시 미완료 내 업무 이관 규칙 | 미확정 | 실무 협의 | TASK-INFRA-001 이후 | 담당자 부재 시 업무 귀속 처리 |
 | 32 | 에스컬레이션 기한의 관리자 설정 가능 여부 | 미확정 | 실무 협의 | TASK-NOTIFY-002 이후 | L0/L1/L2/L3 기준은 코드 고정으로 구현. 관리자 설정 UI는 후속 검토 |
 | 33 | dev user 담당 프로젝트/내 업무의 실계정 이관 수동 절차 | 미확정 | 실무 협의 | INFRA-001 이후 | 자동 병합 금지에 따른 후속 |
-| 34 | Teams Activity Feed 개인별 알림 준비 | 완료 | 사용자/관리자 | TASK-NOTIFY-003 | Teams 앱 manifest/조직 앱/Graph 권한/text topic + Teams deep link actual 발송 검수 완료. 사용자별 installedAppId 운영 의존은 제거했다. 운영 전 manifest URL과 deep link base URL을 운영 URL로 교체 필요 |
+| 34 | Teams Activity Feed provider/capability | 완료 | 사용자/관리자 | TASK-NOTIFY-003 | Teams 앱 manifest/조직 앱/Graph 권한/text topic + Teams deep link actual 발송 검수 완료. 사용자별 installedAppId 운영 의존은 제거했다. 자동 event coverage는 6.5.2.2에서 별도 관리하고 운영 전 URL 전환 필요 |
 | 35 | Gmail SMTP 운영 적합성 및 공식 발송 수단 전환 | 미확정 | 사용자/총무/보안 | 운영 전 검토 | Gmail SMTP는 초기/UAT/시범운영용. 발송량, 보안, 스팸 정책과 회사 공식 발송 수단 전환 검토 |
 | 36 | 운영용 Teams Webhook 재발급 | 미확정 | 사용자/운영 | 운영 배포 전 | UAT/test Webhook과 운영 Webhook을 분리하고 secret/env로만 주입 |
 | 37 | 대한민국 공휴일 데이터 동기화 service key | 미확정 | 사용자/운영 | CALENDAR sync 후속 | 공식 API sync 구조는 있으나 service key 준비 전까지 관리자 Excel/manual 등록 사용 |
@@ -1141,6 +1261,14 @@ Excel 출력 대상 후보:
 | 47 | 삭제 예정 데이터 purge 운영 정책 | 미확정 | 사용자/운영 | 운영 고도화 | 7일 후 purge worker는 구현. 보류 데이터 처리/운영 알림은 후속 검토 |
 | 48 | 전체 field-level audit 확장 | 미확정 | 사용자/운영 | Audit 후속 | ADMIN-001은 관리자 변경 이력 중심 |
 | 49 | 관리자 모바일 UX 고도화 | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001은 page-level overflow 방지 기준으로 검수 |
+| 50 | 외부 알림 delivery 동시성·실패 재처리 | 계획 | 개발/운영 | TASK-NOTIFY-004 | safe UAT와 DB 동시성 테스트 환경을 먼저 준비하고 claim/lease·retry lineage·starvation을 함께 검증 |
+| 51 | 기존 업무 화면 Action Feedback UX | 계획 | 사용자/개발 | TASK-UX-001 | A1 공통 계약과 내 업무/알림을 먼저 검수한 뒤 A2 업무 화면으로 확대 |
+| 52 | 사용자별 알림 설정 | 계획 | 사용자/운영 | TASK-NOTIFY-005 | NOTIFY-004 완료와 필수 알림 opt-out/channel taxonomy 결정이 선행 |
+| 53 | Task 종료 5종 산출물과 개인정보 기준 | 사용자 검수 대기 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
+| 54 | Safe UAT review mode | 계획 | 개발/운영 | TASK-UAT-001 | mutation/worker/external egress를 차단한 상태에서 health·route·schema·persistence를 검토하는 기반 필요 |
+| 55 | Frontend dependency security | 계획 | 개발/보안 | TASK-SEC-001 | 새 Task 시작 시 공식 audit를 재현하고 최소 호환 upgrade와 전체 frontend 회귀 검증 수행 |
+| 56 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
+| 57 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1177,7 +1305,7 @@ Excel 출력 대상 후보:
 | 2026-07-02 | 로그인 상태 유지는 MSAL cache와 silent token acquisition 기준으로 제공 | Microsoft 보안 정책을 우회하지 않으면서 반복 인증 부담을 줄이기 위함 | 20장, 27장 |
 | 2026-07-03 | TASK-NOTIFY-001에서 외부 알림 delivery 계층을 구현 | 인앱 알림을 원본으로 유지하면서 Teams/Mail 발송 이력을 분리 관리하기 위함 | 6장, 23장 |
 | 2026-07-03 | 초기 메일 발송은 Gmail SMTP 전용 계정으로 처리 | 사내 정책상 Hiworks SMTP와 Microsoft Graph Mail.Send를 기본 발송 경로로 사용하지 않기로 결정 | 6장 |
-| 2026-07-03 | Teams 개인별 알림은 Activity Feed 후속 TASK로 분리 | Teams 앱/manifest/Graph 권한/조직 배포가 필요한 별도 범위이기 때문 | 6장, 23장 |
+| 2026-07-03 | 역사적 결정: Teams 개인별 알림을 Activity Feed 후속 TASK로 분리 | Teams 앱/manifest/Graph 권한/조직 배포가 필요한 별도 범위였으며 provider/capability는 이후 TASK-NOTIFY-003에서 완료 | 6장, 23장 |
 | 2026-07-03 | 영업일 기준은 토/일, 대한민국 공휴일, 대체공휴일, 임시공휴일, 회사휴일을 비영업일로 계산 | 생산계획 캘린더와 예정일 에스컬레이션 기준을 통일하기 위함 | 9장, 10장 |
 | 2026-07-03 | 회사휴일은 System Administrator가 수동 등록하고 Excel 일괄 등록을 지원 | 공식 공휴일 API service key 없이도 운영 휴일 데이터를 관리하기 위함 | 20장, 23장 |
 | 2026-07-03 | NOTIFY-002 에스컬레이션은 BusinessDayCalculator를 재사용 | 알림 날짜와 생산계획 캘린더의 영업일 기준 불일치를 방지하기 위함 | 6장, 23장 |
@@ -1193,6 +1321,13 @@ Excel 출력 대상 후보:
 | 2026-07-08 | 수동/자동 알림의 Mail/TeamsChannel/TeamsActivity 표시 양식을 통일 | 채널별 표현 차이를 줄이고 알림발송상태에서 제목, 유형, 프로젝트, 수신자를 일관되게 추적하기 위함 | 6장, 23장 |
 | 2026-07-08 | 관리자 수동 업무 배정 알림은 실제 work_item을 생성한다 | 업무 배정 알림이 수신자의 내 업무와 연결되지 않는 구조를 방지하기 위함 | 6장, 23장 |
 | 2026-07-08 | Teams manifest/icon은 repo에 포함하지 않고 배포 패키지는 운영자가 별도 관리 | 앱 패키지와 아이콘은 조직 Teams 앱 배포 산출물이며 코드 repo에 민감/운영 파일을 섞지 않기 위함 | 23장, 27장 |
+| 2026-07-10 | 모든 Task 종료 기준은 canonical 5종 산출물 정책을 사용하고 미적용 항목도 이유와 함께 N/A로 기록 | 문서 수가 아니라 산출물의 추적성, Finding gate, 검수 상태를 일관되게 관리하기 위함 | [Task 종료 및 산출물 정책](12-task-completion-policy.md), 27장 |
+| 2026-07-10 | 사용자 검수 증빙은 역할명 또는 익명 사용자 A/B만 기록하고 실제 실명·회사 이메일·UPN은 기록하지 않는다 | tracked 문서의 개인정보 노출을 방지하면서 검수 흐름과 증빙 의미를 보존하기 위함 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) |
+| 2026-07-10 | Teams Activity Feed provider/capability 완료와 개별 자동 event coverage를 별도 상태로 관리 | provider가 activity type을 처리할 수 있다는 사실만으로 event delivery 연결까지 완료 처리하지 않기 위함 | 6장, 21장, 23장 |
+| 2026-07-10 | 후속 기능 후보 B/A/C의 상대 순서는 TASK-NOTIFY-004 → TASK-UX-001 → TASK-NOTIFY-005 | delivery 신뢰성을 먼저 확립하고 공통 feedback을 분리 검수한 뒤 preference를 적용하기 위함. 전역 No-Go remediation 선행 순서는 별도 행을 따른다 | 23장, 24장 |
+| 2026-07-10 | 기존 `docs/task-close-process-guidelines`의 유효 규칙은 BASELINE-GOV-001 canonical 정책에 수동 통합하고 기존 branch는 대체 상태로 보존 | 오래된 branch를 merge/cherry-pick하지 않고 5종 산출물·검수 상태를 포함한 최신 정책으로 drift를 해소하기 위함 | 23장, [Task 종료 및 산출물 정책](12-task-completion-policy.md) |
+| 2026-07-10 | Git history 개인정보는 current checkout 비식별화와 분리해 risk decision으로 관리 | history rewrite는 commit hash와 협업 branch를 변경하는 별도 승인 작업이기 때문 | 24장 |
+| 2026-07-10 | 전역 No-Go remediation은 TASK-UAT-001 → TASK-SEC-001 → TASK-NOTIFY-004 → TASK-AUTH-001 순서로 수행 | 안전한 검수 기반, dependency 보안, 외부 delivery 동시성, 마지막 관리자 경쟁 조건을 신규 기능보다 먼저 해소하기 위함 | 23장, 24장 |
 
 ## 26. 용어 사전
 
@@ -1232,10 +1367,8 @@ Codex는 새 TASK 시작 시 다음 원칙을 따른다.
 - QR 기준을 임의로 변경하지 않는다.
 - 공식 명칭은 EMI 프로젝트 통합관리시스템으로 쓴다.
 - 시스템명을 특정 품질관리 약어로 부르지 않는다.
-- TASK 종료 시 최종 리뷰에서 P0/P1/P2가 없고 필수 테스트가 통과하면, commit/PR 전에 docs/00-product-roadmap.md를 현재 구현 결과에 맞게 갱신한다.
-- roadmap 갱신 대상은 현재까지 개발된 기능, 향후 로드맵 상태, 추적 대상 리스트, Decision Log다.
-- TASK 완료 내용을 roadmap에 반영하지 않은 채 PR을 게시하지 않는다.
-- 단, 작은 hotfix나 문서 범위가 명확히 별도인 경우에는 완료 보고에 제외 사유를 명시한다.
+- 모든 Task의 종료 산출물, Finding gate, 개인정보 보호와 사용자 검수 상태 판정은 [Task 종료 및 산출물 정책](12-task-completion-policy.md)을 따른다.
+- Roadmap은 제품 방향과 Task 상태의 source of truth로 유지하고, canonical 종료 정책에 따라 현재 구현, 후속 Task, 추적 대상과 Decision Log를 갱신한다.
 - 백엔드 스택 전환을 제안하거나 수행하지 않는다.
 - 코드 네임스페이스/솔루션명 리네이밍을 제안하거나 수행하지 않는다.
 - 검수 사용자 전환은 Development/Testing/UAT에서만 사용하고 Production/Staging에서는 활성화하지 않는다.
@@ -1256,7 +1389,6 @@ Codex는 새 TASK 시작 시 다음 원칙을 따른다.
 - 에스컬레이션 채널은 TeamsActivity 전환 가능성을 고려해 특정 actual Teams 채널로 하드코딩하지 않는다.
 - due_date 없는 업무는 에스컬레이션하지 않는다.
 - 생산계획/구매 예정일과 `work_items.due_date` 자동 동기화는 사용자 결정 전 구현하지 않는다.
-- 모든 TASK 지시문/완료보고에는 사용자 검수 체크리스트를 포함한다.
 - 관리자 삭제 기능은 hard delete 전 유예/복구 정책을 명확히 해야 한다.
 - 관리자는 시스템 관리 중심이며, 업무 부서의 입력 기준정보는 사용자 결정 없이 관리자 페이지에 통합하지 않는다.
 - 사용자-facing 추적 단위는 “패널” 단독 표기를 사용한다.

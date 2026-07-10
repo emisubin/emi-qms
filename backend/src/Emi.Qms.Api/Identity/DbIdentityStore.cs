@@ -29,6 +29,16 @@ public sealed class DbIdentityStore(
             cancellationToken);
     }
 
+    public Task<UserAuthorizationProfile?> GetProfileByEntraObjectIdAsync(
+        string entraObjectId,
+        CancellationToken cancellationToken)
+    {
+        return GetProfileAsync(
+            "u.entra_object_id = @lookup and u.auth_provider = 'EntraId'",
+            ("lookup", entraObjectId.Trim()),
+            cancellationToken);
+    }
+
     public async Task<UserAuthorizationProfile?> GetOrCreateEntraProfileAsync(
         string entraObjectId,
         string displayName,

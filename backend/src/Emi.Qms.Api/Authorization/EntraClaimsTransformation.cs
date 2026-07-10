@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Identity;
 using Microsoft.AspNetCore.Authentication;
+using Emi.Qms.Api.ReviewSafe;
 
 namespace Emi.Qms.Api.Authorization;
 
@@ -32,11 +33,13 @@ public sealed class EntraClaimsTransformation(
             ?? "Microsoft 365 사용자";
         var email = FindFirstValue(principal, "preferred_username", ClaimTypes.Email, "email", UpnClaimType);
 
-        var profile = await dbIdentityStore.GetOrCreateEntraProfileAsync(
-            objectId,
-            displayName,
-            email,
-            CancellationToken.None);
+        var profile = ReviewSafeMode.IsEnabled(configuration)
+            ? await dbIdentityStore.GetProfileByEntraObjectIdAsync(objectId, CancellationToken.None)
+            : await dbIdentityStore.GetOrCreateEntraProfileAsync(
+                objectId,
+                displayName,
+                email,
+                CancellationToken.None);
         if (profile is null)
         {
             return principal;

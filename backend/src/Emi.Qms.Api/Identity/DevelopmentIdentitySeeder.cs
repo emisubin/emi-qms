@@ -1,4 +1,5 @@
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.ReviewSafe;
 using Npgsql;
 
 namespace Emi.Qms.Api.Identity;
@@ -11,6 +12,11 @@ public sealed class DevelopmentIdentitySeeder(
 {
     public bool IsEnabled()
     {
+        if (ReviewSafeMode.IsEnabled(configuration))
+        {
+            return false;
+        }
+
         var decision = DevelopmentFeaturePolicy.EvaluateDevelopmentDataSeeding(environment, configuration);
         DevelopmentFeaturePolicy.ThrowIfInvalidActivation(decision, environment);
         return decision.IsEnabled;
@@ -18,6 +24,11 @@ public sealed class DevelopmentIdentitySeeder(
 
     public async Task SeedAsync(CancellationToken cancellationToken)
     {
+        if (ReviewSafeMode.IsEnabled(configuration))
+        {
+            throw new InvalidOperationException("Development data seeding is disabled in review-safe UAT mode.");
+        }
+
         var decision = DevelopmentFeaturePolicy.EvaluateDevelopmentDataSeeding(environment, configuration);
         DevelopmentFeaturePolicy.ThrowIfInvalidActivation(decision, environment);
 

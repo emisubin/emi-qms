@@ -11,7 +11,9 @@ internal static class TestConfigurationIsolation
         "DevelopmentData:SeedEnabled",
         "DEV_DATA_SEED_ENABLED",
         "Database:ApplyMigrationsOnStartup",
-        "DATABASE_APPLY_MIGRATIONS_ON_STARTUP"
+        "DATABASE_APPLY_MIGRATIONS_ON_STARTUP",
+        "ReviewSafe:Enabled",
+        "REVIEW_SAFE_ENABLED"
     };
 
     public static IConfiguration BuildBaseDatabaseConfiguration(IReadOnlyDictionary<string, string?> dotEnvValues)

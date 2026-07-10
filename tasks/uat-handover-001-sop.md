@@ -129,17 +129,18 @@ Backend와 PostgreSQL을 rollback 명목으로 재시작하지 않는다.
 
 ## 17. 사용자 검수 체크리스트
 
-상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 대기`.
+상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 완료`.
 
-- [ ] 5174 main/project/work/admin 정상
-- [ ] Teams Activity 웹 화면 정상
-- [ ] Teams client 기존 Activity 알림 상세 정상
-- [ ] 5185 대비 기능·style 회귀 없음
-- [ ] Console error와 narrow overflow 없음
-- [ ] Backend/PostgreSQL 미재시작 확인
-- [ ] 신규 external notification 미발송 확인
-- [ ] Rollback 절차를 따라갈 수 있음
+- [x] 5174 main/project/work/admin 정상
+- [x] Teams Activity 웹 화면 정상
+- [x] Teams client 기존 Activity 알림 상세 정상
+- [x] 5185 대비 기능·style 회귀 없음
+- [x] Console error와 narrow overflow 없음
+- [x] Backend/PostgreSQL 미재시작 확인
+- [x] 신규 external notification 미발송 확인
+- [x] Rollback 절차를 따라갈 수 있음
 
 ## 18. 변경 이력
 
 - 2026-07-10: 최신 main Vite 7.3.6 frontend를 5174에 controlled handover하고 절차 최초 작성
+- 2026-07-10: Teams client·화면·문서 검수 완료와 PR #25 병합 승인 반영

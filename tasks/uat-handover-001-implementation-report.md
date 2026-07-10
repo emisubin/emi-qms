@@ -72,7 +72,7 @@ Root, Teams Activity, admin 3개 route, API 2개와 health 2개가 200이었고 
 
 ## 13. Teams 앱 검수
 
-웹 Teams Activity와 TeamsJS 외부 fallback은 정상이다. 실제 Teams client의 기존 Activity 알림 클릭, 우측 앱 화면과 narrow pane은 사용자 검수 대기다. 신규 actual 알림은 생성·발송하지 않았다.
+웹 Teams Activity와 TeamsJS 외부 fallback은 정상이다. 초기 자동 검증 시 실제 Teams client 확인은 대기였으며, 이후 검수 사용자 A가 기존 Activity 알림 클릭, 우측 앱 화면과 narrow pane을 직접 검수해 완료했다. 신규 actual 알림은 생성·발송하지 않았다.
 
 ## 14. DB before/after
 
@@ -120,9 +120,11 @@ Frontend GET과 browser read-only navigation만 수행했다. Notification deliv
 
 - Checklist 작성됨
 - 자동 검증 완료
-- 사용자 검수 대기
-- 실제 Teams client와 기존 Activity 알림 상세 이동 확인이 남아 있다.
-- 5174/5185는 사용자 검수 동안 유지한다.
+- 사용자 검수 완료
+- 직접 검수 증빙: 검수 사용자 A / 2026-07-10 / HTTPS Development UAT 5174와 Teams client / main·project·work·admin, 기존 Activity 알림 상세, 로그인·권한 안내, console·narrow pane, SOP·User manual 확인 / 승인
+- 자동 증빙: API/User 정상, 5185 구조 비교 일치, Backend/PostgreSQL 미재시작, delivery snapshot 동일과 신규 외부 발송 없음
+- PR #25 병합 승인 확인
+- 5185 Preview는 후속 cleanup 전까지 유지한다.
 
 5종 산출물:
 
@@ -130,4 +132,4 @@ Frontend GET과 browser read-only navigation만 수행했다. Notification deliv
 - SOP: [TASK-UAT-HANDOVER-001 SOP](uat-handover-001-sop.md), 작성 완료
 - User manual: [TASK-UAT-HANDOVER-001 User Manual](uat-handover-001-user-manual.md), 작성 완료
 - Roadmap update: [Product Roadmap](../docs/00-product-roadmap.md#task-uat-handover-001-patched-frontend-uat-runtime-handover), 작성 완료
-- User validation checklist: [Task 정의 16장](uat-handover-001.md#16-사용자-검수-체크리스트), Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기
+- User validation checklist: [Task 정의 16장](uat-handover-001.md#16-사용자-검수-체크리스트), Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료

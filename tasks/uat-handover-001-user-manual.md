@@ -90,15 +90,15 @@ Runtime handover는 사용자가 접속하는 개발 UAT 화면을 검증된 새
 
 ## 14. 사용자 검수 체크리스트
 
-상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 대기`.
+상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 완료`.
 
-- [ ] 5174 메인, 프로젝트와 내 업무 화면 정상
-- [ ] 관리자와 알림 발송 상태 화면 정상
-- [ ] Teams Activity 웹 화면 정상
-- [ ] Teams 앱 내부 화면과 기존 알림 상세 정상
-- [ ] API/User 카드 정상
-- [ ] 5185와 눈에 띄는 기능·style 차이 없음
-- [ ] Console error와 narrow pane overflow 없음
-- [ ] Backend/PostgreSQL이 재시작되지 않았음을 이해함
-- [ ] 신규 실제 알림을 발송하지 않았음을 확인함
-- [ ] SOP와 이 문서가 이해 가능함
+- [x] 5174 메인, 프로젝트와 내 업무 화면 정상
+- [x] 관리자와 알림 발송 상태 화면 정상
+- [x] Teams Activity 웹 화면 정상
+- [x] Teams 앱 내부 화면과 기존 알림 상세 정상
+- [x] API/User 카드 정상
+- [x] 5185와 눈에 띄는 기능·style 차이 없음
+- [x] Console error와 narrow pane overflow 없음
+- [x] Backend/PostgreSQL이 재시작되지 않았음을 이해함
+- [x] 신규 실제 알림을 발송하지 않았음을 확인함
+- [x] SOP와 이 문서가 이해 가능함

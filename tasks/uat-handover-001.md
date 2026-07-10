@@ -108,22 +108,24 @@ PostgreSQL container ID, persistent volume, health와 restart count 0은 전환 
 - SOP: [TASK-UAT-HANDOVER-001 SOP](uat-handover-001-sop.md), 작성 완료
 - User manual: [TASK-UAT-HANDOVER-001 User Manual](uat-handover-001-user-manual.md), 작성 완료
 - Roadmap update: [Product Roadmap TASK-UAT-HANDOVER-001](../docs/00-product-roadmap.md#task-uat-handover-001-patched-frontend-uat-runtime-handover), 작성 완료
-- User validation checklist: 이 문서 16장, Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기
+- User validation checklist: 이 문서 16장, Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료
 
 ## 16. 사용자 검수 체크리스트
 
-상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 대기`.
+상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 완료`.
 
-- [ ] 5174 메인 화면 정상
-- [ ] 프로젝트, 내 업무와 관리자 화면 정상
-- [ ] Teams Activity 웹 화면 정상
-- [ ] API/User 카드 정상
-- [ ] Teams 앱 내부 화면 정상
-- [ ] 기존 Activity 알림 클릭 후 상세 이동 정상
-- [ ] 5185 Preview와 기능·스타일 차이 없음
-- [ ] Console 오류 없음
-- [ ] Teams narrow pane overflow 없음
-- [ ] SOP를 따라 handover/rollback 절차를 이해할 수 있음
-- [ ] User manual이 비개발자에게 이해 가능함
-- [ ] Backend와 PostgreSQL이 재시작되지 않았음을 이해함
-- [ ] 신규 외부 알림을 발송하지 않았음을 확인함
+검수 증빙: 검수 사용자 A / 2026-07-10 / HTTPS Development UAT 5174와 Teams client / 직접 화면·문서 검수 및 PR #25 병합 승인. API/User, 5185 구조 비교, Backend/PostgreSQL 보존과 외부 발송 부재는 자동 증빙을 함께 사용했다.
+
+- [x] 5174 메인 화면 정상
+- [x] 프로젝트, 내 업무와 관리자 화면 정상
+- [x] Teams Activity 웹 화면 정상
+- [x] API/User 카드 정상
+- [x] Teams 앱 내부 화면 정상
+- [x] 기존 Activity 알림 클릭 후 상세 이동 정상
+- [x] 5185 Preview와 기능·스타일 차이 없음
+- [x] Console 오류 없음
+- [x] Teams narrow pane overflow 없음
+- [x] SOP를 따라 handover/rollback 절차를 이해할 수 있음
+- [x] User manual이 비개발자에게 이해 가능함
+- [x] Backend와 PostgreSQL이 재시작되지 않았음을 이해함
+- [x] 신규 외부 알림을 발송하지 않았음을 확인함

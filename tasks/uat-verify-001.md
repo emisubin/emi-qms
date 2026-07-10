@@ -224,7 +224,8 @@ API 16개 alias는 모두 expected access와 response shape가 일치했다. Adm
 ## 23. 사용자 검수 체크리스트
 
 - [ ] `https://localhost:5190` 접속 정상
-- [ ] Review-safe banner와 Migration 27/28/1 호환 상태 표시
+- [ ] Review-safe banner 표시
+- [ ] Migration 27/28/1 호환 상태 표시
 - [ ] 프로젝트·내 업무·알림·관리자 조회 정상
 - [ ] Dashboard Failed/Pending 수와 상세 목록 일치
 - [ ] Active escalation 수와 상세 목록 일치
@@ -233,12 +234,16 @@ API 16개 alias는 모두 expected access와 response shape가 일치했다. Adm
 - [ ] 비수신자 개인 알림 접근 차단
 - [ ] 저장·수정·삭제·발송 action disabled
 - [ ] Mutation API 423
+- [ ] DB read-only
+- [ ] Worker/provider 미실행
+- [ ] Test data 후보가 aggregate로 설명됨
 - [ ] 주요 표 header/body 정렬 정상
-- [ ] Console 오류와 page overflow 없음
+- [ ] Console 오류 없음
+- [ ] 390px/Teams narrow pane overflow 없음
 - [ ] 개인정보 원문이 검증 보고에 노출되지 않음
 - [ ] SOP 반복 실행 가능
 - [ ] User manual 이해 가능
 - [ ] 데이터 정리 권장안 이해
-- [ ] 전체 신규 기능 No-Go 유지 확인
+- [ ] UAT 기준선 Go와 전체 신규 기능 No-Go 차이 이해
 
 현재 상태: **Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기**

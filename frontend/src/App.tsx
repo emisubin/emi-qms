@@ -1281,7 +1281,18 @@ function QmsAppShell({
 
         {runtimeMode.kind === 'ready' && runtimeMode.data.reviewSafe ? (
           <div className="review-safe-banner" role="status">
-            검수 전용 읽기 모드 — 조회·검색·필터만 가능하며 저장, 삭제, 발송 및 상태 변경은 차단되어 있습니다.
+            <strong>검수 전용 읽기 모드</strong>
+            <span>조회·검색·필터만 가능하며 저장, 삭제, 발송 및 상태 변경은 차단되어 있습니다.</span>
+            {runtimeMode.data.migrationLedgerStatus === 'CompatibleWithApprovedLegacy' ? (
+              <span>
+                Migration 이력은 현재 repository와 호환됩니다. Canonical {runtimeMode.data.expectedMigrationCount}개,
+                Live {runtimeMode.data.actualMigrationCount ?? '-'}개이며 승인된 과거 marker {runtimeMode.data.approvedLegacyMigrations.length}건이 보존되어 있습니다.
+              </span>
+            ) : runtimeMode.data.migrationLedgerStatus === 'Exact' ? (
+              <span>Migration 이력은 현재 repository와 정확히 일치합니다.</span>
+            ) : (
+              <span className="review-safe-ledger-warning">Migration 이력이 현재 repository와 일치하지 않아 검수 준비 상태가 아닙니다.</span>
+            )}
           </div>
         ) : null}
 

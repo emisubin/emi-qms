@@ -1120,14 +1120,29 @@ Excel 출력 대상 후보:
 
 ### UAT-VERIFY-001: UAT 통합 사용자 검수
 
-- 상태/다음 순서: 계획 / TASK-UAT-002 다음
+- 상태/다음 순서: 중단 / TASK-DB-MIGRATION-001 merge와 Review-safe controlled handover 후 처음부터 재실행
 - 목적: Development HTTPS UAT와 Review-safe UAT의 용도·보호·전환을 사용자가 통합 검수하고 남은 P2 remediation 착수 조건을 확정한다.
 - 포함 범위: 저장·수정·알림 Development 검수, Review mode mutation/egress 차단, Teams narrow pane, DB persistence, SOP/User manual 실행 가능성
 - 제외 범위: 신규 기능 구현, 실제 운영 배포, 테스트 data hard delete
-- 선행조건: TASK-UAT-001, TASK-FRONTEND-SEC-001, TASK-UAT-002 완료
+- 선행조건: TASK-UAT-001, TASK-FRONTEND-SEC-001, TASK-UAT-002, TASK-DB-MIGRATION-001 완료와 merged Review-safe runtime handover
 - 예상 migration: 없음
 - 핵심 검수 기준: 두 mode의 URL/상태 구분, Development write와 Review 차단, UAT data 보존, 실제 외부 알림 승인 범위 준수, 사용자 checklist 완료
-- 주요 위험: 자동 검증과 사용자 완료 상태 혼동, 검수 중 실제 data/외부 provider 변경
+- 중단 원인: repository canonical 27개와 Persistent UAT live ledger 28개의 전체 집합 차이를 latest-only readiness가 탐지하지 못하는 false-ready P2
+- 주요 위험: 자동 검증과 사용자 완료 상태 혼동, 검수 중 실제 data/외부 provider 변경, ledger mismatch를 최신 version 일치만으로 정상 오판
+
+### TASK-DB-MIGRATION-001: Migration ledger 전체 집합 검증
+
+- 상태/다음 순서: 구현·자동 검증 완료 후보 / 사용자 검수 대기 / Draft PR
+- 목적: repository migration canonical 전체 집합과 live ledger 전체 집합을 비교하고, 코드 리뷰로 승인된 historical marker만 schema probe 후 호환 처리한다.
+- 포함 범위: validated migration catalog, full-set ledger inspector, exact approved legacy policy, TeamsActivity channel schema probe, Review-safe readiness/runtime diagnostic, frontend 요약 표시, isolated fixture, candidate 5093/5191
+- 제외 범위: 기존/신규 SQL migration, live ledger row 삭제·rename·추가, Persistent UAT data 변경, Development startup 정책 확대, UAT-VERIFY 데이터 검증 재개
+- 선행조건: TASK-UAT-002 완료, UAT-VERIFY-001 false-ready Finding, E2E isolation
+- 예상 migration: 없음. repository `0001~0027` SQL과 live `schema_migrations`를 수정하지 않음
+- 기준선: canonical 27개, historical live 28개, approved legacy `0020_teams_activity_delivery_channel`, canonical successor `0023_teams_activity_delivery_channel`
+- 자동 검증 결과: exact/compatible ready 200, unknown/missing/successor/schema mismatch ready 503, catalog duplicate/missing prefix 차단, backend 311/311, frontend 59/59, mock UI 1/1, Full-Stack E2E 16/16, candidate 5191/5093 ready 200
+- 핵심 검수 기준: Compatible 27/28/1 표시, legacy row 보존, DB read-only, mutation 423, worker/provider 미실행, Persistent UAT snapshot 보존
+- 산출물: [Task 정의와 검수 체크리스트](../tasks/db-migration-001.md), [Implementation report](../tasks/db-migration-001-implementation-report.md), [SOP](../tasks/db-migration-001-sop.md), [User manual](../tasks/db-migration-001-user-manual.md), 이 Roadmap update
+- 주요 위험: merge 후 current 5190/5092 controlled handover 전까지 latest-only runtime이 남음, 새 legacy 승인 시 exact policy/schema probe/code review 필요, checksum guard는 후속 P3
 
 ### TASK-AUTH-HARDEN-001: Last System Administrator concurrency guard
 
@@ -1188,7 +1203,7 @@ Excel 출력 대상 후보:
 - 핵심 검수 기준: 필수 알림 해제 차단, 기본값 호환, event/channel별 저장과 재로그인 유지, 인앱 원본 보존, preference 변경 audit, 외부 delivery 생성 여부 검증
 - 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
 
-현재 실행 순서는 `UAT-VERIFY-001 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다.
+현재 실행 순서는 `TASK-DB-MIGRATION-001 사용자 검수/merge → Review-safe 5190/5092 controlled handover → UAT-VERIFY-001 처음부터 재실행 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1323,12 +1338,13 @@ Excel 출력 대상 후보:
 | 55 | HTTPS Development UAT 안정화 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-001 | strict port/ownership, protocol readiness, notification env, master-data transaction, isolated E2E와 persistent UAT 보존. PR #23 |
 | 56 | Frontend dependency security | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/보안 | TASK-FRONTEND-SEC-001 | Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0. Audit 전체 0, frontend/backend/E2E와 5174/5185 비교 검수 통과. PR #24 |
 | 57 | Review-safe UAT | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-002 | 5092/5190, startup·worker·provider·HTTP mutation 차단, DB session read-only, schema readiness, Development UAT 분리. PR #26 |
-| 58 | UAT 통합 사용자 검수 | 계획 | 사용자/개발 | UAT-VERIFY-001 | Development write/Teams 검수와 Review mode 보호를 통합 확인하고 checklist 상태 확정 |
+| 58 | UAT 통합 사용자 검수 | false-ready P2로 중단 | 사용자/개발 | UAT-VERIFY-001 | TASK-DB-MIGRATION-001 merge와 Review-safe handover 후 처음부터 재실행 |
 | 59 | Notification delivery claim/lease | 계획 | 개발/운영 | TASK-NOTIFY-REL-001 | 동시 worker 중복 발송 방지와 retry lineage를 전용 PostgreSQL 동시성 test로 검증 |
 | 60 | Escalation starvation | 계획 | 개발/운영 | TASK-NOTIFY-ESC-001 | batch 정렬과 starvation 보정, L0~L3 회귀를 별도 검증 |
 | 61 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-HARDEN-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
 | 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
+| 64 | Migration ledger 전체 집합 검증 | 자동 검증 완료 후보 / 사용자 검수 대기 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1397,6 +1413,8 @@ Excel 출력 대상 후보:
 | 2026-07-10 | TASK-UAT-HANDOVER-001의 5174·Teams client·기존 Activity 상세·SOP/User manual 사용자 검수를 완료하고 PR #25 병합을 승인 | Patched runtime handover의 자동 증빙과 사용자 직접 검수 gate를 모두 닫고 다음 remediation을 TASK-UAT-002로 전환하기 위함 | 24장, TASK-UAT-HANDOVER-001 |
 | 2026-07-10 | TASK-UAT-002는 Development 5174/5081과 분리된 Review-safe 5190/5092에서 startup·worker·provider·HTTP·identity·DB의 다층 read-only를 강제 | 감사/기준선 조회에서 DB와 외부 시스템 변경을 차단하면서 Development UAT의 저장·worker 검수 능력을 유지하기 위함 | 23장, 24장, TASK-UAT-002 |
 | 2026-07-10 | TASK-UAT-002의 5190 조회·mutation 차단·SOP/User manual 사용자 검수를 완료하고 PR #26 병합을 승인 | 자동 방어 증빙과 사용자 직접 검수 gate를 모두 닫고 다음 remediation을 UAT-VERIFY-001로 전환하기 위함 | 23장, 24장, TASK-UAT-002 |
+| 2026-07-10 | UAT-VERIFY-001은 repository 27개와 live ledger 28개 차이를 latest-only readiness가 놓치는 P2로 중단하고 TASK-DB-MIGRATION-001을 선행 | 전체 migration set과 schema 호환성을 증명하지 않은 상태에서 Persistent UAT 통합 검증을 완료로 오판하지 않기 위함 | 23장, 24장, UAT-VERIFY-001 |
+| 2026-07-10 | `0020_teams_activity_delivery_channel`은 동일 blob의 canonical `0023` successor와 schema probe가 모두 확인될 때만 승인 legacy로 보존 | live 감사 이력을 삭제하지 않으면서 unknown/missing/유사 marker를 fail-closed로 차단하기 위함 | 23장, 24장, TASK-DB-MIGRATION-001 |
 
 ## 26. 용어 사전
 

@@ -54,6 +54,12 @@ button:disabled {
   color: #5b3d00;
   padding: 0.8rem 1rem;
   font-weight: 700;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.review-safe-ledger-warning {
+  color: #b42318;
 }
 
 .review-safe-banner--checking {

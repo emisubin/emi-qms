@@ -5,13 +5,14 @@ namespace Emi.Qms.Api.ReviewSafe;
 public sealed class ReviewSafeStatusService(
     DatabaseConnectionStringProvider connectionStringProvider,
     DatabaseMigrationCatalog migrationCatalog,
+    MigrationLedgerInspector migrationLedgerInspector,
     IConfiguration configuration,
     IHostEnvironment environment)
 {
     public async Task<ReviewSafeRuntimeStatus> CheckAsync(CancellationToken cancellationToken)
     {
         var enabled = ReviewSafeMode.IsEnabled(configuration);
-        var expectedMigration = migrationCatalog.GetExpectedLatestVersion();
+        var catalogState = ReadCatalogState();
         if (!enabled)
         {
             return new ReviewSafeRuntimeStatus(
@@ -25,14 +26,35 @@ public sealed class ReviewSafeStatusService(
                 environment.EnvironmentName,
                 true,
                 "not_applicable",
-                expectedMigration,
-                null);
+                catalogState.LatestVersion,
+                null,
+                null,
+                catalogState.ExpectedCount,
+                null,
+                [],
+                [],
+                [],
+                false,
+                false);
+        }
+
+        if (!catalogState.Valid)
+        {
+            return ReviewFailure(
+                catalogState.Reason,
+                catalogState.LatestVersion,
+                catalogState.ExpectedCount,
+                catalogState.LedgerStatus);
         }
 
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            return ReviewFailure("database_not_configured", expectedMigration);
+            return ReviewFailure(
+                "database_not_configured",
+                catalogState.LatestVersion,
+                catalogState.ExpectedCount,
+                MigrationLedgerInspector.UnavailableStatus);
         }
 
         try
@@ -42,21 +64,19 @@ public sealed class ReviewSafeStatusService(
 
             var readOnly = await ReadSettingAsync(connection, "transaction_read_only", cancellationToken);
             var applicationName = await ReadSettingAsync(connection, "application_name", cancellationToken);
-            var actualMigration = await ReadActualMigrationAsync(connection, cancellationToken);
+            var ledger = await migrationLedgerInspector.InspectAsync(connection, cancellationToken);
             var databaseReadOnly = string.Equals(readOnly, "on", StringComparison.OrdinalIgnoreCase);
+            var expectedApplicationName = ReviewSafeMode.ResolveDatabaseApplicationName(configuration);
             var applicationNameMatches = string.Equals(
                 applicationName,
-                ReviewSafeMode.DatabaseApplicationName,
+                expectedApplicationName,
                 StringComparison.Ordinal);
-            var migrationMatches = string.Equals(actualMigration, expectedMigration, StringComparison.Ordinal);
-            var isReady = databaseReadOnly && applicationNameMatches && migrationMatches;
+            var isReady = databaseReadOnly && applicationNameMatches && ledger.MigrationLedgerReady;
             var reason = !databaseReadOnly
                 ? "database_not_read_only"
                 : !applicationNameMatches
                     ? "database_application_name_mismatch"
-                    : !migrationMatches
-                        ? "schema_mismatch"
-                        : "ready";
+                    : ledger.Reason;
 
             return new ReviewSafeRuntimeStatus(
                 "ReviewSafe",
@@ -69,8 +89,16 @@ public sealed class ReviewSafeStatusService(
                 environment.EnvironmentName,
                 isReady,
                 reason,
-                expectedMigration,
-                actualMigration);
+                ledger.ExpectedLatestMigration ?? catalogState.LatestVersion,
+                ledger.ActualLatestMigration,
+                ledger.Status,
+                ledger.ExpectedMigrationCount,
+                ledger.ActualMigrationCount,
+                ledger.MissingMigrations,
+                ledger.UnexpectedMigrations,
+                ledger.ApprovedLegacyMigrations,
+                ledger.MigrationSchemaCompatible,
+                ledger.MigrationLedgerReady);
         }
         catch (OperationCanceledException)
         {
@@ -78,11 +106,36 @@ public sealed class ReviewSafeStatusService(
         }
         catch
         {
-            return ReviewFailure("database_unreachable", expectedMigration);
+            return ReviewFailure(
+                "database_unreachable",
+                catalogState.LatestVersion,
+                catalogState.ExpectedCount,
+                MigrationLedgerInspector.UnavailableStatus);
         }
     }
 
-    private ReviewSafeRuntimeStatus ReviewFailure(string reason, string expectedMigration)
+    private (bool Valid, int ExpectedCount, string LatestVersion, string Reason, string LedgerStatus) ReadCatalogState()
+    {
+        try
+        {
+            var snapshot = migrationCatalog.GetSnapshot();
+            return (true, snapshot.ExpectedCount, snapshot.LatestVersion, "ready", MigrationLedgerInspector.ExactStatus);
+        }
+        catch (MigrationCatalogException)
+        {
+            return (false, 0, string.Empty, "migration_catalog_invalid", MigrationLedgerInspector.MismatchStatus);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return (false, 0, string.Empty, "migration_ledger_unavailable", MigrationLedgerInspector.UnavailableStatus);
+        }
+    }
+
+    private ReviewSafeRuntimeStatus ReviewFailure(
+        string reason,
+        string expectedMigration,
+        int expectedMigrationCount,
+        string ledgerStatus)
     {
         return new ReviewSafeRuntimeStatus(
             "ReviewSafe",
@@ -96,7 +149,15 @@ public sealed class ReviewSafeStatusService(
             false,
             reason,
             expectedMigration,
-            null);
+            null,
+            ledgerStatus,
+            expectedMigrationCount,
+            null,
+            [],
+            [],
+            [],
+            false,
+            false);
     }
 
     private static async Task<string?> ReadSettingAsync(
@@ -106,20 +167,6 @@ public sealed class ReviewSafeStatusService(
     {
         await using var command = connection.CreateCommand();
         command.CommandText = $"show {setting};";
-        return (await command.ExecuteScalarAsync(cancellationToken))?.ToString();
-    }
-
-    private static async Task<string?> ReadActualMigrationAsync(
-        NpgsqlConnection connection,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            select version
-            from schema_migrations
-            order by version desc
-            limit 1;
-            """;
         return (await command.ExecuteScalarAsync(cancellationToken))?.ToString();
     }
 }
@@ -136,4 +183,12 @@ public sealed record ReviewSafeRuntimeStatus(
     bool Ready,
     string Reason,
     string ExpectedMigration,
-    string? ActualMigration);
+    string? ActualMigration,
+    string? MigrationLedgerStatus,
+    int ExpectedMigrationCount,
+    int? ActualMigrationCount,
+    IReadOnlyList<string> MissingMigrations,
+    IReadOnlyList<string> UnexpectedMigrations,
+    IReadOnlyList<string> ApprovedLegacyMigrations,
+    bool MigrationSchemaCompatible,
+    bool MigrationLedgerReady);

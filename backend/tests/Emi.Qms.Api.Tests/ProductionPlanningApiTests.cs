@@ -1166,6 +1166,11 @@ public sealed class ProductionPlanningApiTests
         Assert.DoesNotContain(holidayItems, item => item.GetProperty("name").GetString() == "비활성 공휴일");
         Assert.DoesNotContain(holidayItems, item => item.GetProperty("name").GetString() == "검수공휴일");
 
+        using var holidaysWithoutDateRange = await salesClient.GetAsync(
+            "/api/system/holidays?countryCode=KR",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, holidaysWithoutDateRange.StatusCode);
+
         Assert.Equal(HttpStatusCode.Forbidden, (await salesClient.PostAsJsonAsync("/api/system/holidays/sync/kr", new { year = 2026 }, TestContext.Current.CancellationToken)).StatusCode);
 
         using var sync = await ReadJsonAsync(await adminClient.PostAsJsonAsync("/api/system/holidays/sync/kr", new { year = 2026 }, TestContext.Current.CancellationToken));

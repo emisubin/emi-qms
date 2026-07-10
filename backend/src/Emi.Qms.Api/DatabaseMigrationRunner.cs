@@ -1,25 +1,28 @@
 using Npgsql;
+using Emi.Qms.Api.ReviewSafe;
 
 namespace Emi.Qms.Api;
 
 public sealed class DatabaseMigrationRunner(
     DatabaseConnectionStringProvider connectionStringProvider,
-    IWebHostEnvironment environment,
+    DatabaseMigrationCatalog migrationCatalog,
+    IConfiguration configuration,
     ILogger<DatabaseMigrationRunner> logger)
 {
     public async Task ApplyAsync(CancellationToken cancellationToken)
     {
+        if (ReviewSafeMode.IsEnabled(configuration))
+        {
+            throw new InvalidOperationException("Database migrations are disabled in review-safe UAT mode.");
+        }
+
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        var migrationsPath = ResolveMigrationsPath();
-        var migrationFiles = Directory
-            .GetFiles(migrationsPath, "*.sql", SearchOption.TopDirectoryOnly)
-            .OrderBy(Path.GetFileName, StringComparer.Ordinal)
-            .ToList();
+        var migrationFiles = migrationCatalog.GetMigrationFiles();
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -81,28 +84,4 @@ public sealed class DatabaseMigrationRunner(
         return value is bool isApplied && isApplied;
     }
 
-    private string ResolveMigrationsPath()
-    {
-        var candidates = new[]
-        {
-            Path.Combine(environment.ContentRootPath, "database", "migrations"),
-            Path.Combine(environment.ContentRootPath, "..", "database", "migrations"),
-            Path.Combine(environment.ContentRootPath, "..", "..", "database", "migrations"),
-            Path.Combine(environment.ContentRootPath, "..", "..", "..", "database", "migrations"),
-            Path.Combine(AppContext.BaseDirectory, "database", "migrations"),
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "database", "migrations"),
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "database", "migrations")
-        };
-
-        var existing = candidates
-            .Select(Path.GetFullPath)
-            .FirstOrDefault(Directory.Exists);
-
-        if (existing is null)
-        {
-            throw new DirectoryNotFoundException("Could not find database/migrations.");
-        }
-
-        return existing;
-    }
 }

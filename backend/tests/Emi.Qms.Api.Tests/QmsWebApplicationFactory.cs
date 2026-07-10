@@ -62,6 +62,16 @@ public sealed class QmsWebApplicationFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(environment);
+        if (configuration is not null)
+        {
+            foreach (var item in configuration)
+            {
+                if (item.Value is not null)
+                {
+                    builder.UseSetting(item.Key, item.Value);
+                }
+            }
+        }
         builder.ConfigureAppConfiguration((_, configBuilder) =>
         {
             configBuilder.Sources.Clear();

@@ -46,6 +46,32 @@ button:disabled {
   opacity: 0.55;
 }
 
+.review-safe-banner {
+  margin: 0 0 1rem;
+  border: 1px solid #9a6b00;
+  border-radius: 0.75rem;
+  background: #fff6d8;
+  color: #5b3d00;
+  padding: 0.8rem 1rem;
+  font-weight: 700;
+}
+
+.review-safe-banner--checking {
+  border-color: #53709b;
+  background: #edf4ff;
+  color: #243f68;
+}
+
+.review-safe-banner--error {
+  border-color: #b42318;
+  background: #fff0ee;
+  color: #7a271a;
+}
+
+[data-review-safe-disabled='true'] {
+  cursor: not-allowed;
+}
+
 input,
 select,
 textarea {

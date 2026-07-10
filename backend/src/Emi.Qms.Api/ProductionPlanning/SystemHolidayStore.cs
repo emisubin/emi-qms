@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Xml.Linq;
 using Emi.Qms.Api.Calendar;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Emi.Qms.Api.ProductionPlanning;
 
@@ -27,8 +28,14 @@ public sealed class SystemHolidayStore(
             order by holiday_date, name;
             """);
         command.Parameters.AddWithValue("country_code", NormalizeCountryCode(countryCode));
-        command.Parameters.AddWithValue("date_from", (object?)dateFrom ?? DBNull.Value);
-        command.Parameters.AddWithValue("date_to", (object?)dateTo ?? DBNull.Value);
+        command.Parameters.Add(new NpgsqlParameter("date_from", NpgsqlDbType.Date)
+        {
+            Value = (object?)dateFrom ?? DBNull.Value
+        });
+        command.Parameters.Add(new NpgsqlParameter("date_to", NpgsqlDbType.Date)
+        {
+            Value = (object?)dateTo ?? DBNull.Value
+        });
 
         var holidays = new List<SystemHolidayResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);

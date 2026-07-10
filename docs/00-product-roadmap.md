@@ -1106,14 +1106,16 @@ Excel 출력 대상 후보:
 
 ### TASK-UAT-002: Review-safe UAT
 
-- 상태/다음 순서: 계획 / TASK-FRONTEND-SEC-001 다음
+- 상태/다음 순서: 구현·자동 검증 완료 후보 / 사용자 검수 대기 / 다음 UAT-VERIFY-001
 - 목적: 데이터 변경과 외부 발송 없이 UAT의 schema, health, route와 persistence를 안전하게 검토할 수 있는 명시적 Review mode를 제공한다.
-- 포함 범위: read-only 진단 계약, mutation/worker/external delivery 차단, 현재 mode 표시, 안전한 health·route·schema 확인과 회귀 테스트
+- 포함 범위: Development 5174/5081과 분리된 HTTPS 5190/Backend 5092, authoritative runtime mode, migration/seed/upsert 차단, mutation worker·actual provider 미등록, unsafe HTTP method 423, Entra JIT write 차단, DB session read-only, schema mismatch readiness 503, 전역 banner와 mutation action disabled
 - 제외 범위: Development UAT 저장·수정 검수, 테스트 데이터 정리, 실제 알림 발송, 운영 배포
-- 선행조건: TASK-UAT-001 완료, 차단할 mutation/egress와 허용할 read-only endpoint 목록 확정
-- 예상 migration: 없음 예상
-- 핵심 검수 기준: Review mode에서 DB write와 외부 egress가 차단되고 health/API/UI 진단은 가능하며 Development UAT와 혼동되지 않음
-- 주요 위험: 차단 누락, Review 설정의 Development/운영 유입, worker lifecycle 오판
+- 선행조건: TASK-UAT-001, TASK-E2E-ISOLATION-001, TASK-FRONTEND-SEC-001, TASK-UAT-HANDOVER-001 완료
+- 예상 migration: 없음. 기존 DB role/schema도 변경하지 않음
+- 자동 검증 결과: backend 303/303, frontend 59/59, Full-Stack E2E 16/16, 실제 5092/5190 startup, 주요 route 11개와 390px 3개, mutation 4 method/method override 423, DB read-only pool test, 5분 UAT snapshot·delivery status·container/PID 보존, actual provider call 0
+- 핵심 검수 기준: 5190 banner와 조회 기능, mutation button disabled/이유, 직접 API 423, DB read-only, worker/provider/startup write 0, Development 5174와 Preview 5185 유지
+- 산출물: [Task 정의와 검수 체크리스트](../tasks/uat-002-review-safe.md), [Implementation report](../tasks/uat-002-implementation-report.md), [SOP](../tasks/uat-002-sop.md), [User manual](../tasks/uat-002-user-manual.md), 이 Roadmap update
+- 주요 위험: 신규 frontend action 문구가 공통 UX guard 분류에서 빠질 수 있으나 서버 middleware와 DB read-only가 최종 차단한다. 같은 DB를 사용하는 Development worker 자연 변화는 source를 구분해야 한다.
 
 ### UAT-VERIFY-001: UAT 통합 사용자 검수
 
@@ -1185,7 +1187,7 @@ Excel 출력 대상 후보:
 - 핵심 검수 기준: 필수 알림 해제 차단, 기본값 호환, event/channel별 저장과 재로그인 유지, 인앱 원본 보존, preference 변경 audit, 외부 delivery 생성 여부 검증
 - 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
 
-TASK-UAT-001 이후 현재 실행 순서는 `TASK-FRONTEND-SEC-001 → TASK-UAT-002 → UAT-VERIFY-001 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다.
+현재 실행 순서는 `TASK-UAT-002 사용자 검수 → UAT-VERIFY-001 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1319,7 +1321,7 @@ TASK-UAT-001 이후 현재 실행 순서는 `TASK-FRONTEND-SEC-001 → TASK-UAT-
 | 54 | Full-Stack E2E PostgreSQL 물리 격리 | 완료 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 squash merge `45fd61c` |
 | 55 | HTTPS Development UAT 안정화 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-001 | strict port/ownership, protocol readiness, notification env, master-data transaction, isolated E2E와 persistent UAT 보존. PR #23 |
 | 56 | Frontend dependency security | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/보안 | TASK-FRONTEND-SEC-001 | Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0. Audit 전체 0, frontend/backend/E2E와 5174/5185 비교 검수 통과. PR #24 |
-| 57 | Review-safe UAT | 계획 | 개발/운영 | TASK-UAT-002 | mutation/worker/external egress 차단과 Development UAT mode 구분 |
+| 57 | Review-safe UAT | 구현·자동 검증 완료 후보 / 사용자 검수 대기 | 개발/운영 | TASK-UAT-002 | 5092/5190, startup·worker·provider·HTTP mutation 차단, DB session read-only, schema readiness, Development UAT 분리 |
 | 58 | UAT 통합 사용자 검수 | 계획 | 사용자/개발 | UAT-VERIFY-001 | Development write/Teams 검수와 Review mode 보호를 통합 확인하고 checklist 상태 확정 |
 | 59 | Notification delivery claim/lease | 계획 | 개발/운영 | TASK-NOTIFY-REL-001 | 동시 worker 중복 발송 방지와 retry lineage를 전용 PostgreSQL 동시성 test로 검증 |
 | 60 | Escalation starvation | 계획 | 개발/운영 | TASK-NOTIFY-ESC-001 | batch 정렬과 starvation 보정, L0~L3 회귀를 별도 검증 |
@@ -1392,6 +1394,7 @@ TASK-UAT-001 이후 현재 실행 순서는 `TASK-FRONTEND-SEC-001 → TASK-UAT-
 | 2026-07-10 | 현재 remediation 순서를 TASK-UAT-HANDOVER-001 → TASK-UAT-002 → UAT-VERIFY-001 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002로 갱신 | Patched dependency를 실제 UAT runtime에 안전하게 반영한 뒤 Review-safe mode와 통합 검수를 진행하기 위함 | 23장, 24장 |
 | 2026-07-10 | TASK-UAT-HANDOVER-001은 최신 main detached runtime을 5186에서 검증한 뒤 frontend 5174만 교체하고 Backend 5081·persistent PostgreSQL·5185 Preview를 유지 | 문서 branch와 runtime tree를 분리하고 전체 UAT 재시작 없이 보안 patch를 실제 Teams/UAT 주소에 적용하기 위함 | 24장, TASK-UAT-HANDOVER-001 |
 | 2026-07-10 | TASK-UAT-HANDOVER-001의 5174·Teams client·기존 Activity 상세·SOP/User manual 사용자 검수를 완료하고 PR #25 병합을 승인 | Patched runtime handover의 자동 증빙과 사용자 직접 검수 gate를 모두 닫고 다음 remediation을 TASK-UAT-002로 전환하기 위함 | 24장, TASK-UAT-HANDOVER-001 |
+| 2026-07-10 | TASK-UAT-002는 Development 5174/5081과 분리된 Review-safe 5190/5092에서 startup·worker·provider·HTTP·identity·DB의 다층 read-only를 강제 | 감사/기준선 조회에서 DB와 외부 시스템 변경을 차단하면서 Development UAT의 저장·worker 검수 능력을 유지하기 위함 | 23장, 24장, TASK-UAT-002 |
 
 ## 26. 용어 사전
 

@@ -1093,13 +1093,16 @@ Excel 출력 대상 후보:
 
 ### TASK-UAT-HANDOVER-001: Patched frontend UAT runtime handover
 
-- 상태/다음 순서: 계획 / TASK-FRONTEND-SEC-001 merge와 사용자 승인 후
+- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #25 squash merge 승인
 - 목적: 기존 HTTPS Development UAT를 통제된 절차로 재기동해 merged patched dependency를 실제 5174 runtime에 반영한다.
-- 포함 범위: 기존 WIP 보존 결정, maintenance window, frontend/backend PID/session handover, Vite/esbuild/Vitest runtime version 확인, HTTPS/Teams/API/worker/UAT persistence smoke
+- 포함 범위: 최신 main `1dcefa1522a2f0c3db785756e043038b7eefb4ac` detached runtime, HTTPS 5186 candidate, frontend-only PID/session handover, Vite 7.3.6·esbuild 0.28.1·Vitest 4.1.0, HTTPS/Teams/API/UAT persistence smoke, rollback 절차
 - 제외 범위: dependency 추가 변경, Review-safe UAT 구현, DB reset, actual external notification 신규 smoke
 - 예상 migration: 없음
-- 핵심 검수 기준: patched checkout 기반 5174, trusted HTTPS, route/API 정상, UAT DB/schema/count 유지, rollback 가능한 session 기록
-- 주요 위험: 현재 dirty legacy worktree와 merged main 간 중복 WIP, handover 중 짧은 UAT 중단, 잘못된 checkout에서 startup
+- 핵심 검수 기준: patched checkout 기반 5174, trusted HTTPS, route/API 정상, Backend 5081 PID 유지, UAT DB/schema/count와 PostgreSQL restart count 유지, rollback 가능한 session 기록
+- 자동 검증 결과: 5186 검증 후 종료, 5174 Vite 7.3.6 cutover 완료, Backend/PostgreSQL 미재시작, DB/delivery snapshot 동일, 5185 Preview 유지, 신규 외부 알림 발송 없음
+- 산출물: [Task 정의와 검수 체크리스트](../tasks/uat-handover-001.md), [Implementation report](../tasks/uat-handover-001-implementation-report.md), [SOP](../tasks/uat-handover-001-sop.md), [User manual](../tasks/uat-handover-001-user-manual.md), 이 Roadmap update
+- 사용자 검수 결과: 5174 main/project/work/admin, Teams client와 기존 Activity 상세, 로그인·권한 안내, console·narrow pane, SOP/User manual 검수 완료. PR #25 병합 승인
+- 주요 위험: 5185 Preview와 legacy worktree cleanup 미실행, 현재 dirty legacy worktree와 merged main 간 중복 WIP, rollback 전 process ownership 오판
 
 ### TASK-UAT-002: Review-safe UAT
 
@@ -1322,7 +1325,7 @@ TASK-UAT-001 이후 현재 실행 순서는 `TASK-FRONTEND-SEC-001 → TASK-UAT-
 | 60 | Escalation starvation | 계획 | 개발/운영 | TASK-NOTIFY-ESC-001 | batch 정렬과 starvation 보정, L0~L3 회귀를 별도 검증 |
 | 61 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-HARDEN-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
 | 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
-| 63 | Patched frontend UAT handover | 계획 | 개발/운영 | TASK-UAT-HANDOVER-001 | 현재 5174는 patch 전 runtime. FRONTEND-SEC-001 merge 후 controlled restart와 UAT persistence 검증 필요 |
+| 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1387,6 +1390,8 @@ TASK-UAT-001 이후 현재 실행 순서는 `TASK-FRONTEND-SEC-001 → TASK-UAT-
 | 2026-07-10 | TASK-UAT-001 이후 remediation 순서를 TASK-FRONTEND-SEC-001 → TASK-UAT-002 → UAT-VERIFY-001 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001로 확정 | Development UAT 안정화 후 dependency 보안과 Review-safe mode를 닫고, notification reliability·starvation·마지막 관리자 동시성을 분리 검증하기 위함 | 23장, 24장, TASK-UAT-001 |
 | 2026-07-10 | TASK-FRONTEND-SEC-001은 Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0으로 audit 전체 0을 달성하고 실제 5174 반영은 TASK-UAT-HANDOVER-001로 분리 | 현재 실행 중인 patch 전 UAT를 보존하면서 dependency 변경 검증과 runtime 교체 위험을 분리하기 위함 | 23장, 24장, TASK-FRONTEND-SEC-001 |
 | 2026-07-10 | 현재 remediation 순서를 TASK-UAT-HANDOVER-001 → TASK-UAT-002 → UAT-VERIFY-001 → TASK-NOTIFY-REL-001 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002로 갱신 | Patched dependency를 실제 UAT runtime에 안전하게 반영한 뒤 Review-safe mode와 통합 검수를 진행하기 위함 | 23장, 24장 |
+| 2026-07-10 | TASK-UAT-HANDOVER-001은 최신 main detached runtime을 5186에서 검증한 뒤 frontend 5174만 교체하고 Backend 5081·persistent PostgreSQL·5185 Preview를 유지 | 문서 branch와 runtime tree를 분리하고 전체 UAT 재시작 없이 보안 patch를 실제 Teams/UAT 주소에 적용하기 위함 | 24장, TASK-UAT-HANDOVER-001 |
+| 2026-07-10 | TASK-UAT-HANDOVER-001의 5174·Teams client·기존 Activity 상세·SOP/User manual 사용자 검수를 완료하고 PR #25 병합을 승인 | Patched runtime handover의 자동 증빙과 사용자 직접 검수 gate를 모두 닫고 다음 remediation을 TASK-UAT-002로 전환하기 위함 | 24장, TASK-UAT-HANDOVER-001 |
 
 ## 26. 용어 사전
 

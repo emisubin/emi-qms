@@ -251,6 +251,93 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task NotificationDeliveryClaimLeaseMigration_AddsProcessingClaimsAttemptsAndIndexes()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+        var runner = CreateMigrationRunner(database.RepositoryRoot, connectionStringProvider);
+
+        await runner.ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(28L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal("0028_notification_delivery_claim_lease", await ReadScalarAsync<string>(
+            connectionStringProvider,
+            "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into notification_deliveries (channel, delivery_type, status, dedupe_key)
+            values ('TeamsChannel', 'ManualTest', 'Pending', 'migration-0028-preserved-row');
+
+            update notification_deliveries
+            set status = 'Processing',
+                attempt_count = 1,
+                claim_token = uuid_generate_v4(),
+                claimed_at_utc = '2026-07-11T00:00:00Z',
+                claim_expires_at_utc = '2026-07-11T00:05:00Z',
+                claimed_by_instance_id = 'opaque-test-worker'
+            where dedupe_key = 'migration-0028-preserved-row';
+
+            insert into notification_delivery_attempts (
+                delivery_id, attempt_no, claim_token, worker_instance_id,
+                claimed_at_utc, lease_expires_at_utc, outcome
+            )
+            select id, attempt_count, claim_token, claimed_by_instance_id,
+                   claimed_at_utc, claim_expires_at_utc, 'Processing'
+            from notification_deliveries
+            where dedupe_key = 'migration-0028-preserved-row';
+            """,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from notification_delivery_attempts where outcome = 'Processing';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_indexes
+            where schemaname = 'public'
+              and indexname in (
+                'ix_notification_deliveries_claim_due',
+                'ix_notification_deliveries_claim_owner',
+                'ix_notification_delivery_attempts_delivery',
+                'ix_notification_delivery_attempts_processing_lease'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into notification_deliveries (channel, delivery_type, status, dedupe_key)
+            values ('TeamsChannel', 'ManualTest', 'Processing', 'migration-0028-invalid-claim');
+            """,
+            TestContext.Current.CancellationToken));
+
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into notification_delivery_attempts (
+                delivery_id, attempt_no, claim_token, worker_instance_id,
+                claimed_at_utc, lease_expires_at_utc, outcome
+            )
+            select id, 1, uuid_generate_v4(), 'opaque-test-worker',
+                   '2026-07-11T00:00:00Z', '2026-07-11T00:05:00Z', 'Processing'
+            from notification_deliveries
+            where dedupe_key = 'migration-0028-preserved-row';
+            """,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task SchemaMigration_AssignsConfirmedProjectAndSensitivePermissions()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);

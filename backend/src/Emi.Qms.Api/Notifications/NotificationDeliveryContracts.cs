@@ -25,11 +25,26 @@ public static class NotificationDeliveryTypes
 public static class NotificationDeliveryStatuses
 {
     public const string Pending = "Pending";
+    public const string Processing = "Processing";
     public const string Sent = "Sent";
     public const string Failed = "Failed";
     public const string Suppressed = "Suppressed";
     public const string Disabled = "Disabled";
     public const string DryRunSent = "DryRunSent";
+}
+
+public static class NotificationDeliveryAttemptOutcomes
+{
+    public const string Processing = "Processing";
+    public const string Sent = "Sent";
+    public const string DryRunSent = "DryRunSent";
+    public const string Disabled = "Disabled";
+    public const string Suppressed = "Suppressed";
+    public const string RetryScheduled = "RetryScheduled";
+    public const string FailedPermanent = "FailedPermanent";
+    public const string LeaseExpiredBeforeProviderCall = "LeaseExpiredBeforeProviderCall";
+    public const string LeaseExpiredAfterProviderCallStarted = "LeaseExpiredAfterProviderCallStarted";
+    public const string OwnershipLost = "OwnershipLost";
 }
 
 public static class NotificationDeliveryAdminHandlingStatuses
@@ -139,7 +154,41 @@ public sealed record NotificationDeliveryRecord(
     string? CorrelationId,
     string? ManualPayloadJson,
     Guid? ManualRequestedByUserId,
-    DateTimeOffset? ManualRequestedAtUtc);
+    DateTimeOffset? ManualRequestedAtUtc,
+    Guid? ClaimToken,
+    DateTimeOffset? ClaimedAtUtc,
+    DateTimeOffset? ClaimExpiresAtUtc,
+    string? ClaimedByInstanceId);
+
+public sealed record ClaimedNotificationDelivery(
+    NotificationDeliveryRecord Delivery,
+    Guid ClaimToken,
+    int AttemptNumber,
+    DateTimeOffset LeaseExpiresAtUtc);
+
+public sealed record NotificationDeliveryAttemptRecord(
+    int AttemptNumber,
+    string WorkerInstanceId,
+    DateTimeOffset ClaimedAtUtc,
+    DateTimeOffset LeaseExpiresAtUtc,
+    DateTimeOffset? ProviderCallStartedAtUtc,
+    DateTimeOffset? CompletedAtUtc,
+    string Outcome,
+    string? ErrorCode,
+    string? ErrorMessage,
+    string? ProviderMessageId);
+
+public sealed record NotificationDeliveryAttemptResponse(
+    int AttemptNumber,
+    string WorkerInstance,
+    DateTimeOffset ClaimedAtUtc,
+    DateTimeOffset LeaseExpiresAtUtc,
+    DateTimeOffset? ProviderCallStartedAtUtc,
+    DateTimeOffset? CompletedAtUtc,
+    string Outcome,
+    string? ErrorCode,
+    string? ErrorMessage,
+    string? ProviderMessageId);
 
 public sealed record NotificationDeliveryDisplaySnapshot(
     string? DisplayTitle,
@@ -267,6 +316,9 @@ public sealed record NotificationDeliveryResponse(
     Guid? AdminHandledByUserId,
     string? AdminHandledByDisplayName,
     string? AdminHandlingNote,
+    DateTimeOffset? ClaimedAtUtc,
+    DateTimeOffset? ClaimExpiresAtUtc,
+    bool ClaimIsStale,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
@@ -348,7 +400,12 @@ public sealed record NotificationDeliveryDetailResponse(
     string AdminHandlingStatusLabel,
     string? AdminHandlingNote,
     string? CorrelationId,
-    string? ProviderMessageId);
+    string? ProviderMessageId,
+    DateTimeOffset? ClaimedAtUtc,
+    DateTimeOffset? ClaimExpiresAtUtc,
+    bool ClaimIsStale,
+    string? ClaimedByInstance,
+    IReadOnlyList<NotificationDeliveryAttemptResponse> Attempts);
 
 public sealed record NotificationTestMailRequest(
     string? RecipientEmail,

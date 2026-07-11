@@ -548,6 +548,9 @@ public sealed class ProcurementApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
         var projectId = await CreateProjectAsync(salesClient, "PROC-DASH", "Proc Dashboard");
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var futureReceiptDate = today.AddDays(30).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var pastReceiptDate = today.AddDays(-30).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
 
         var save = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
@@ -556,9 +559,9 @@ public sealed class ProcurementApiTests
                 reason = "dashboard setup",
                 items = new[]
                 {
-                    new { orderItem = "Pending Item", expectedReceiptDate = "2026-07-10" },
-                    new { orderItem = "Past Pending Item", expectedReceiptDate = "2026-06-20" },
-                    new { orderItem = "Completed Item", expectedReceiptDate = "2026-06-20" }
+                    new { orderItem = "Pending Item", expectedReceiptDate = futureReceiptDate },
+                    new { orderItem = "Past Pending Item", expectedReceiptDate = pastReceiptDate },
+                    new { orderItem = "Completed Item", expectedReceiptDate = pastReceiptDate }
                 }
             },
             TestContext.Current.CancellationToken);
@@ -609,7 +612,7 @@ public sealed class ProcurementApiTests
         Assert.Equal(3, project.GetProperty("procurementItemCount").GetInt32());
         Assert.Equal(1, project.GetProperty("receiptCompletedCount").GetInt32());
         Assert.Equal(1, project.GetProperty("pastExpectedReceiptDateCount").GetInt32());
-        Assert.Equal("2026-06-20", project.GetProperty("nearestExpectedReceiptDate").GetString());
+        Assert.Equal(pastReceiptDate, project.GetProperty("nearestExpectedReceiptDate").GetString());
     }
 
     [Fact]

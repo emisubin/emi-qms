@@ -4,6 +4,8 @@ public sealed record AdminDashboardResponse(
     int PendingUserCount,
     int FailedDeliveryCount,
     int PendingDeliveryCount,
+    int ProcessingDeliveryCount,
+    int SentDeliveryCount,
     DateTimeOffset? LastDailyDigestSentAtUtc,
     int ActiveEscalationCount,
     int RecentMasterChangeCount,

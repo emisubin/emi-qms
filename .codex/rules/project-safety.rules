@@ -1,0 +1,155 @@
+# Project-local command safety policy.
+# These rules apply when the repository .codex layer is trusted. They complement,
+# rather than replace, AGENTS.md judgment and task-specific user approval.
+
+prefix_rule(
+    pattern = [["bash", "zsh", "sh"], ["-lc", "-c"]],
+    decision = "prompt",
+    justification = "Shell wrappers can hide multiple operations; inspect the full script and apply AGENTS.md scope before approval.",
+    match = ["bash -lc git-status", "zsh -c git-status", "sh -c git-status"],
+    not_match = ["bash scripts/e2e-full-stack.sh", "git status --short"],
+)
+
+prefix_rule(
+    pattern = ["git", "add", "."],
+    decision = "forbidden",
+    justification = "Stage the reviewed Task allowlist with explicit file paths.",
+    match = ["git add ."],
+    not_match = ["git add AGENTS.md", "git add docs/development/validation-matrix.md"],
+)
+
+prefix_rule(
+    pattern = ["git", "add", "-A"],
+    decision = "forbidden",
+    justification = "Stage the reviewed Task allowlist with explicit file paths.",
+    match = ["git add -A"],
+    not_match = ["git add -- AGENTS.md"],
+)
+
+prefix_rule(
+    pattern = ["git", "push", ["--force", "--force-with-lease", "-f"]],
+    decision = "forbidden",
+    justification = "Use a normal fast-forward push; history rewriting requires a separate approved procedure.",
+    match = ["git push --force origin feature", "git push --force-with-lease", "git push -f"],
+    not_match = ["git push origin feature", "git push origin --force"],
+)
+
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "forbidden",
+    justification = "Preserve user WIP; inspect the diff and request an explicit recovery plan instead.",
+    match = ["git reset --hard", "git reset --hard HEAD~1"],
+    not_match = ["git reset AGENTS.md"],
+)
+
+prefix_rule(
+    pattern = ["git", "clean", ["-fd", "-df", "-fdx", "-xdf"]],
+    decision = "forbidden",
+    justification = "Do not delete untracked user files; remove only verified Task-owned artifacts explicitly.",
+    match = ["git clean -fd", "git clean -df", "git clean -fdx"],
+    not_match = ["git clean -n"],
+)
+
+prefix_rule(
+    pattern = ["git", "filter-repo"],
+    decision = "forbidden",
+    justification = "History rewriting belongs to the separately approved governance procedure.",
+    match = ["git filter-repo --path AGENTS.md"],
+    not_match = ["git status --short"],
+)
+
+prefix_rule(
+    pattern = ["git", "prune"],
+    decision = "forbidden",
+    justification = "Do not perform broad object pruning during Task work.",
+    match = ["git prune", "git prune --expire now"],
+    not_match = ["git worktree prune"],
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", "down", "-v"],
+    decision = "forbidden",
+    justification = "Persistent volumes must be preserved; stop only explicitly owned disposable resources without -v.",
+    match = ["docker compose down -v"],
+    not_match = ["docker compose down", "docker compose ps"],
+)
+
+prefix_rule(
+    pattern = ["dropdb"],
+    decision = "forbidden",
+    justification = "Use the guarded E2E cleanup script for disposable emi_qms_e2e_* databases; never drop Persistent UAT directly.",
+    match = ["dropdb emi_qms_uat", "dropdb emi_qms_e2e_test"],
+    not_match = ["createdb emi_qms_e2e_test"],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "merge"],
+    decision = "prompt",
+    justification = "Merge requires the latest CI, Finding gate and explicit user validation approval.",
+    match = ["gh pr merge 31 --squash"],
+    not_match = ["gh pr checks 31"],
+)
+
+prefix_rule(
+    pattern = ["git", "push", "origin", "main"],
+    decision = "prompt",
+    justification = "Direct main push is prohibited by Repository policy; use an approved PR workflow.",
+    match = ["git push origin main"],
+    not_match = ["git push origin feature/task"],
+)
+
+prefix_rule(
+    pattern = ["psql"],
+    decision = "prompt",
+    justification = "Confirm the target DB, read/write intent and Persistent UAT protection before direct SQL execution.",
+    match = ["psql --dbname emi_qms_uat", "psql -c SELECT 1"],
+    not_match = ["pg_isready"],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "view"],
+    decision = "prompt",
+    justification = "Request only privacy-safe fixed fields; do not output raw body, comments or personal metadata.",
+    match = ["gh pr view 31", "gh pr view 31 --json body,comments"],
+    not_match = ["gh pr checks 31"],
+)
+
+prefix_rule(
+    pattern = ["git", "worktree", ["remove", "prune"]],
+    decision = "prompt",
+    justification = "Verify runtime dependencies, clean state and preservation requirements before worktree cleanup.",
+    match = ["git worktree remove ../task", "git worktree prune"],
+    not_match = ["git worktree list"],
+)
+
+prefix_rule(
+    pattern = ["git", "branch", ["-d", "-D"]],
+    decision = "prompt",
+    justification = "Branch deletion requires merge and preservation checks.",
+    match = ["git branch -d feature/task", "git branch -D feature/task"],
+    not_match = ["git branch --show-current"],
+)
+
+prefix_rule(
+    pattern = [["kill", "pkill"]],
+    decision = "prompt",
+    justification = "Verify listener PID, cwd, command and Task ownership before terminating a runtime.",
+    match = ["kill 1234", "pkill dotnet"],
+    not_match = ["ps -p 1234"],
+)
+
+prefix_rule(
+    pattern = ["docker", ["stop", "restart", "rm"]],
+    decision = "prompt",
+    justification = "Verify container ownership and Persistent UAT exclusion before lifecycle changes.",
+    match = ["docker stop test", "docker restart test", "docker rm test"],
+    not_match = ["docker ps"],
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", ["stop", "restart", "rm"]],
+    decision = "prompt",
+    justification = "Verify service ownership and Persistent UAT protection before lifecycle changes.",
+    match = ["docker compose stop postgres", "docker compose restart api"],
+    not_match = ["docker compose ps"],
+)

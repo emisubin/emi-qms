@@ -1,7 +1,10 @@
+using Microsoft.Extensions.Options;
+
 namespace Emi.Qms.Api.Admin;
 
 public sealed class AdminDeletionPurgeWorker(
-    AdminScheduledDeletionService deletionService,
+    IAdminDeletionPurgeService deletionService,
+    IOptionsMonitor<AdminDeletionPurgeOptions> options,
     ILogger<AdminDeletionPurgeWorker> logger)
     : BackgroundService
 {
@@ -9,9 +12,21 @@ public sealed class AdminDeletionPurgeWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!options.CurrentValue.Enabled)
+        {
+            logger.LogInformation("Administrator deletion purge worker is disabled by configuration.");
+            return;
+        }
+
         using var timer = new PeriodicTimer(Interval);
         while (!stoppingToken.IsCancellationRequested)
         {
+            if (!options.CurrentValue.Enabled)
+            {
+                logger.LogInformation("Administrator deletion purge worker stopped because it was disabled by configuration.");
+                return;
+            }
+
             try
             {
                 await deletionService.PurgeDueAsync(stoppingToken);

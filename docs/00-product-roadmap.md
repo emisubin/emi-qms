@@ -1393,6 +1393,7 @@ Excel 출력 대상 후보:
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
 | 65 | Privacy-safe Review-safe runtime handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-002 | merged main 5190/5092, Compatible 27/28/1, redacted browser matrix, DB read-only·423, Candidate/Persistent UAT 보존. PR #28 |
 | 66 | Notification claim/lease UAT handover | 계획 | 개발/운영 | TASK-UAT-HANDOVER-003 | PR merge 후 Persistent UAT 0028, canonical 28 + approved legacy 1 = live 29, fake/dry-run과 runtime controlled handover |
+| 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / Draft PR 게시 대상 / merge 대기 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1470,6 +1471,8 @@ Excel 출력 대상 후보:
 | 2026-07-11 | UAT-VERIFY-001 사용자 검수와 UAT 기준선 Go를 승인하고, GitHub metadata 과다 조회 Finding을 검증 절차 P2로 수용해 fixed-field projection과 output guard로 보정한 뒤 PR #29 병합을 승인 | 제품 runtime·Repository·Persistent UAT를 변경하지 않고 개인정보 안전 merge gate를 복구하며 다음 remediation을 TASK-NOTIFY-REL-001로 전환하기 위함 | 23장, 24장, UAT-VERIFY-001 |
 | 2026-07-11 | TASK-NOTIFY-REL-001에서 delivery claim/lease·Processing·fencing·attempt audit을 구현하고 전용 tmpfs candidate 검증 후 사용자 검수 대기로 전환 | 정상 다중 worker 중복 provider 호출과 늦은 DB overwrite P2를 제거하되 provider/DB crash 경계의 at-least-once 제한을 명시하고 Persistent UAT 적용을 TASK-UAT-HANDOVER-003으로 분리하기 위함 | 23장, 24장, TASK-NOTIFY-REL-001 |
 | 2026-07-11 | TASK-NOTIFY-REL-001 사용자 검수와 PR #30 squash merge를 승인 | claim/lease·fencing·attempt audit, 정상 경쟁 provider call 1회, at-least-once 제한과 exactly-once 미보장, Persistent UAT 0028 미적용, actual provider 호출 0을 확인하고 다음 단계를 TASK-UAT-HANDOVER-003으로 전환하기 위함 | 23장, 24장, TASK-NOTIFY-REL-001 |
+| 2026-07-11 | 반복되는 공통 개발 원칙을 Root/영역별 `AGENTS.md`, 종료 정책, 개발 검증 문서와 project-local Codex Rules로 분리 | Task 프롬프트는 목표·범위·완료 기준에 집중하고 판단 규칙과 명령 통제를 각각 단일 source에서 유지하기 위함 | [Root 지침](../AGENTS.md), [종료 정책](12-task-completion-policy.md), [Validation Matrix](development/validation-matrix.md), [Privacy-safe Evidence](development/privacy-safe-evidence.md) |
+| 2026-07-11 | TASK-GOV-CODEX-001 사용자 검수와 Draft PR 게시를 승인하고 shell wrapper는 prompt하되 내부 명령 완전 차단으로 과장하지 않음 | 실제 execpolicy 판정과 문서를 일치시키고 project-local Rules를 AGENTS·safe script의 보조 통제로 유지하기 위함 | 24장, 27장, TASK-GOV-CODEX-001 |
 
 ## 26. 용어 사전
 
@@ -1500,79 +1503,20 @@ Excel 출력 대상 후보:
 | 영업 정산 | 납품 후 세금계산서 및 완료 처리 | 최종 단계 |
 | 세금계산서·완료 | 영업 정산 완료와 프로젝트 완료 | 18단계 마지막 |
 
-## 27. Codex 작업 시 유의사항
+## 27. Repository 작업 지침과 제품 불변조건
 
-Codex는 새 TASK 시작 시 다음 원칙을 따른다.
+개발 작업 방식은 [Root AGENTS.md](../AGENTS.md)와 경로별 하위 지침을 따른다. 종료·Finding·사용자 검수는 [Task 종료 및 산출물 정책](12-task-completion-policy.md), 변경 유형별 테스트는 [Validation Matrix](development/validation-matrix.md), 비식별 증빙은 [Privacy-safe Evidence](development/privacy-safe-evidence.md)가 canonical source다. 이 Roadmap은 해당 절차를 중복하지 않고 제품 방향, Task 상태와 결정 이력을 관리한다.
 
-- 이 문서를 먼저 읽는다.
-- 전체 방향을 임의로 바꾸지 않는다.
-- QR 기준을 임의로 변경하지 않는다.
-- 공식 명칭은 EMI 프로젝트 통합관리시스템으로 쓴다.
-- 시스템명을 특정 품질관리 약어로 부르지 않는다.
-- 모든 Task의 종료 산출물, Finding gate, 개인정보 보호와 사용자 검수 상태 판정은 [Task 종료 및 산출물 정책](12-task-completion-policy.md)을 따른다.
-- Roadmap은 제품 방향과 Task 상태의 source of truth로 유지하고, canonical 종료 정책에 따라 현재 구현, 후속 Task, 추적 대상과 Decision Log를 갱신한다.
-- 백엔드 스택 전환을 제안하거나 수행하지 않는다.
-- 코드 네임스페이스/솔루션명 리네이밍을 제안하거나 수행하지 않는다.
-- 검수 사용자 전환은 Development/Testing/UAT에서만 사용하고 Production/Staging에서는 활성화하지 않는다.
-- 검수 사용자 전환은 실제 Microsoft 로그인 사용자 중 System Administrator에게만 허용한다.
-- 검수 사용자 전환은 dev user persona 대상 검수 편의 기능이며 실제 Entra 사용자 impersonation으로 확장하지 않는다.
-- 로그인 상태 유지는 MSAL cache와 Microsoft Entra SSO 정책 범위에서만 제공하고 MFA, 조건부 액세스, sign-in frequency를 우회하지 않는다.
-- token을 앱 코드에서 직접 localStorage/sessionStorage에 저장하지 않는다.
-- 외부 채널 secret은 `.env` 또는 배포 secret으로만 관리한다.
-- Webhook URL, SMTP password, Gmail app password, token, Authorization header는 문서/보고서/로그에 원문 작성하지 않는다.
-- Teams manifest/icon은 repo에 commit하지 않는다.
-- Teams Activity actual 발송은 text topic + Teams deep link webUrl을 기본으로 사용한다. installedAppId 방식은 diagnostic/fallback으로만 둔다.
-- 수동/자동 외부 알림은 Mail 제목 `[알림 유형] 제목`, Mail/TeamsChannel 공통 본문, TeamsActivity 짧은 preview 원칙을 유지한다.
-- correlation id는 내부 추적값으로 유지하되 제목/본문/TeamsActivity preview에는 노출하지 않는다.
-- 공휴일/영업일 계산은 BusinessDayCalculator를 재사용한다.
-- 새 기능에서 주말/공휴일 계산을 별도 하드코딩하지 않는다.
-- 공식 공휴일 데이터가 부족한 환경에서는 관리자 휴일 관리 기능으로 운영 데이터를 보강한다.
-- 예정일/영업일 계산은 BusinessDayCalculator를 재사용하고, Notification/Escalation worker에 별도 날짜 계산을 하드코딩하지 않는다.
-- 에스컬레이션 채널은 TeamsActivity 전환 가능성을 고려해 특정 actual Teams 채널로 하드코딩하지 않는다.
-- due_date 없는 업무는 에스컬레이션하지 않는다.
-- 생산계획/구매 예정일과 `work_items.due_date` 자동 동기화는 사용자 결정 전 구현하지 않는다.
-- 관리자 삭제 기능은 hard delete 전 유예/복구 정책을 명확히 해야 한다.
-- 관리자는 시스템 관리 중심이며, 업무 부서의 입력 기준정보는 사용자 결정 없이 관리자 페이지에 통합하지 않는다.
-- 사용자-facing 추적 단위는 “패널” 단독 표기를 사용한다.
-- “제품/패널” 병기 표현을 새로 추가하지 않는다.
-- 진행률 계산식은 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수 기준을 따른다.
-- UAT DB를 drop/truncate하지 않는다.
-- Docker volume을 삭제하지 않는다.
-- E2E DB만 임시 삭제 가능하다.
-- 기존 main 반영 migration은 수정하지 않는다.
-- TASK 범위 밖 기능을 확장하지 않는다.
-- 사용자 화면 문구는 한글로 작성한다.
-- raw enum, SQL, stack trace, 내부 경로를 사용자에게 노출하지 않는다.
-- 권한은 서버에서 강제한다.
-- 완료/성공은 실제 실행한 것만 보고한다.
-- 테스트하지 않은 것은 테스트하지 않았다고 보고한다.
-- Commit, Push, PR, Merge는 명시 요청이 있을 때만 수행한다.
+제품 변경 시 다음 불변조건을 확인한다.
 
-### 27.1 문서 작성 및 유지 스타일
+- 공식 사용자 표시명은 EMI 프로젝트 통합관리시스템이며 내부 `Emi.Qms` solution/namespace는 유지한다.
+- 18단계 업무 순서, QR 기준, 패널 단독 용어와 필수 workflow 기반 진행률을 임의 변경하지 않는다.
+- Backend stack을 전환하지 않고 권한과 업무 규칙은 서버에서 강제한다.
+- 검수 사용자 전환은 Development/Testing/UAT의 System Administrator와 dev persona 범위이며 실제 Entra impersonation으로 확장하지 않는다.
+- MSAL cache, MFA, 조건부 액세스와 sign-in frequency를 우회하거나 token을 앱 코드에서 직접 storage에 저장하지 않는다.
+- Teams Activity, Mail/TeamsChannel 양식과 event coverage는 6장의 확정 상태를 따르며 correlation id를 사용자 메시지에 노출하지 않는다.
+- 영업일 계산은 `BusinessDayCalculator`, 에스컬레이션은 `work_items.due_date` 정책을 사용하고 미확정 동기화 정책을 임의 구현하지 않는다.
+- 관리자 삭제는 유예·복구·참조 무결성을 보존하고 업무 부서 기준정보를 사용자 결정 없이 관리자 페이지로 통합하지 않는다.
+- 사용자-facing 문구는 한글로 작성하고 확정사항·미확정사항·후속 Task를 구분한다.
 
-- 한국어로 작성한다.
-- Markdown을 사용한다.
-- 표를 적극 사용한다.
-- 너무 요약하지 않고 세부 내용을 충분히 작성한다.
-- 확정사항과 미확정사항을 구분한다.
-- 후속 TASK와 연결한다.
-- 개발자가 바로 읽고 이해할 수 있게 작성한다.
-- 업무 담당자가 읽어도 이해할 수 있게 작성한다.
-- 내부 코드명과 사용자 표시명을 구분한다.
-
-### 27.2 현재 문서 기준 검증 체크리스트
-
-문서를 수정한 후에는 다음을 확인한다.
-
-- Markdown 문법이 깨지지 않았는지
-- 파일 경로가 정상인지
-- 공식 명칭을 EMI 프로젝트 통합관리시스템으로 썼는지
-- 시스템명을 특정 품질관리 약어로 부르지 않았는지
-- 백엔드 스택 전환이나 코드 리네이밍을 제안하지 않았는지
-- 사용자-facing 추적 단위를 패널 단독 표기로 썼는지
-- 18단계 순서가 정확한지
-- 진행률 계산식이 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수 기준인지
-- 현재 Item 기준이 RPP인지
-- 과거 오기 값이 현재 기준값으로 쓰이지 않았는지
-- 추적 대상 리스트가 포함되어 있는지
-- git diff가 문서 변경만 포함하는지
+Roadmap 변경 후에는 문서 link, 공식 명칭, 18단계 순서, RPP 기준값, 패널 용어, 진행률 공식, 추적 대상과 Decision Log가 유지되는지 검증한다.

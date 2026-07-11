@@ -110,24 +110,24 @@ Provider 성공과 DB completion 사이 전달 의미는 계속 at-least-once이
 | User manual | 작성 완료 |
 | Roadmap update | 반영 완료 |
 
-현재 상태는 Checklist 작성됨, 자동 검증 완료, 사용자 검수 대기다.
+현재 상태는 Checklist 작성됨, 자동 검증 완료, 사용자 검수 완료, PR #31 병합 승인, 미체크 항목 0이다.
 
 ## 22. 사용자 검수 체크리스트
 
-- [ ] purge worker 기본 상태가 활성임을 이해
-- [ ] explicit disable 시 worker 미등록 확인
-- [ ] explicit disable 시 purge query/delete 0 확인
-- [ ] ReviewSafe에서 purge worker 미등록 확인
-- [ ] 세 mutation worker 상태 확인 가능
-- [ ] Phase A에서 세 worker 모두 disabled 확인
-- [ ] Phase A synthetic due 후보 불변 확인
-- [ ] normal Development 기본 동작 회귀 없음
-- [ ] Persistent UAT와 migration ledger 무변경 확인
-- [ ] migration 0028 미적용 확인
-- [ ] actual provider 호출 0 확인
-- [ ] 기존 runtime 9/9 유지 확인
-- [ ] 기존 backup 보존과 fresh backup 필요성 이해
-- [ ] SOP 실행 가능
-- [ ] User manual 이해 가능
-- [ ] 다음 단계 TASK-UAT-HANDOVER-003 확인
-- [ ] 신규 기능 개발 No-Go 유지
+- [x] purge worker 기본 상태가 활성임을 이해
+- [x] explicit disable 시 worker 미등록 확인
+- [x] explicit disable 시 purge query/delete 0 확인
+- [x] ReviewSafe에서 purge worker 미등록 확인
+- [x] 세 mutation worker 상태 확인 가능
+- [x] Phase A에서 세 worker 모두 disabled 확인
+- [x] Phase A synthetic due 후보 불변 확인
+- [x] normal Development 기본 동작 회귀 없음
+- [x] Persistent UAT와 migration ledger 무변경 확인
+- [x] migration 0028 미적용 확인
+- [x] actual provider 호출 0 확인
+- [x] 기존 runtime 9/9 유지 확인
+- [x] 기존 backup 보존과 fresh backup 필요성 이해
+- [x] SOP 실행 가능
+- [x] User manual 이해 가능
+- [x] 다음 단계 TASK-UAT-HANDOVER-003 확인
+- [x] 신규 기능 개발 No-Go 유지

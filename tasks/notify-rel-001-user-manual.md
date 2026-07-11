@@ -90,19 +90,21 @@ Lease 만료 전에는 정상일 수 있다. 만료 후 다음 poll에도 남으
 
 ## 16. 사용자 검수 체크리스트
 
-- [ ] https://localhost:5192 접속 가능
-- [ ] Pending/Processing/Sent/Failed 구분
-- [ ] Processing count/filter 정상
-- [ ] Processing row action disabled
-- [ ] attempt 번호와 outcome 이해 가능
-- [ ] stale lease 안내 이해 가능
-- [ ] 기존 상태 표시 회귀 없음
-- [ ] 정상 경쟁 provider 1회 증빙 이해
-- [ ] late result overwrite 차단 이해
-- [ ] exactly-once가 아님을 이해
-- [ ] Persistent UAT 0028 미적용 확인
-- [ ] 실제 외부 발송 0 확인
-- [ ] Console 오류와 390px overflow 0 확인
-- [ ] SOP 실행 가능
-- [ ] 다음 단계 TASK-UAT-HANDOVER-003 확인
-- [ ] 신규 기능 개발 No-Go 유지 확인
+- [x] https://localhost:5192 접속 가능
+- [x] Pending/Processing/Sent/Failed 구분
+- [x] Processing count/filter 정상
+- [x] Processing row action disabled
+- [x] attempt 번호와 outcome 이해 가능
+- [x] stale lease 안내 이해 가능
+- [x] 기존 상태 표시 회귀 없음
+- [x] 정상 경쟁 provider 1회 증빙 이해
+- [x] late result overwrite 차단 이해
+- [x] at-least-once 제한과 exactly-once 미보장 이해
+- [x] Persistent UAT 0028 미적용 확인
+- [x] 실제 외부 발송 0 확인
+- [x] Console 오류와 390px overflow 0 확인
+- [x] SOP 실행 가능
+- [x] 다음 단계 TASK-UAT-HANDOVER-003 확인
+- [x] 신규 기능 개발 No-Go 유지 확인
+
+사용자 검수 완료, PR #30 squash merge 승인, 미체크 항목 0이다. Candidate 확인과 별개로 Persistent UAT는 아직 변경되지 않았으며 다음 TASK-UAT-HANDOVER-003에서만 통제 적용한다.

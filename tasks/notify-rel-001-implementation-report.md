@@ -155,7 +155,7 @@ Persistent UAT는 read-only aggregate만 조회했다. 전후 snapshot 16/16 fie
 
 ## 31. 사용자 검수 결과와 남은 항목
 
-Checklist 작성과 자동 검증은 완료됐다. 사용자 검수는 대기 중이며 완료로 표시하지 않는다. Candidate 화면, attempt 의미, at-least-once 제한, Persistent UAT 미적용, 후속 handover를 확인해야 한다.
+Checklist 작성과 자동 검증, 사용자 검수를 완료했고 사용자가 PR #30 squash merge를 승인했다. 미체크 사용자 항목은 0개다. Candidate의 Pending/Processing 구분, Processing action 차단, attempt 이력과 stale lease 안내, 정상 경쟁 provider call 1회와 늦은 completion fencing, at-least-once 제한 및 exactly-once 미보장, Persistent UAT 0028 미적용, actual provider 호출 0을 확인했다. 다음 Task는 TASK-UAT-HANDOVER-003이며 전체 신규 기능 개발 No-Go를 유지한다.
 
 ## 32. 주요 파일 목록
 

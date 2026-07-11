@@ -126,7 +126,7 @@ public sealed class NotificationDeliveryTests
         var created = await context.DeliveryStore.CreateImmediateDeliveriesAsync(
             context.NotificationOptions.CurrentValue,
             TestContext.Current.CancellationToken);
-        var deliveries = await context.DeliveryStore.GetDueDeliveriesAsync(10, 3, TestContext.Current.CancellationToken);
+        var deliveries = await context.ClaimDueRecordsAsync();
         var mailDelivery = Assert.Single(deliveries, item => item.Channel == NotificationDeliveryChannels.Mail);
         var teamsChannelDelivery = Assert.Single(deliveries, item => item.Channel == NotificationDeliveryChannels.TeamsChannel);
 
@@ -270,7 +270,7 @@ public sealed class NotificationDeliveryTests
         var created = await context.DeliveryStore.CreateDailyDigestDeliveriesIfDueAsync(
             context.NotificationOptions.CurrentValue,
             TestContext.Current.CancellationToken);
-        var deliveries = await context.DeliveryStore.GetDueDeliveriesAsync(10, 3, TestContext.Current.CancellationToken);
+        var deliveries = await context.ClaimDueRecordsAsync();
         var delivery = Assert.Single(deliveries, item => item.DeliveryType == NotificationDeliveryTypes.DailyDigest);
 
         var message = await context.DeliveryStore.RenderMessageAsync(delivery, TestContext.Current.CancellationToken);
@@ -340,7 +340,7 @@ public sealed class NotificationDeliveryTests
         var created = await context.DeliveryStore.CreateDailyDigestDeliveriesIfDueAsync(
             context.NotificationOptions.CurrentValue,
             TestContext.Current.CancellationToken);
-        var deliveries = await context.DeliveryStore.GetDueDeliveriesAsync(10, 3, TestContext.Current.CancellationToken);
+        var deliveries = await context.ClaimDueRecordsAsync();
         var delivery = Assert.Single(deliveries, item => item.DeliveryType == NotificationDeliveryTypes.DailyDigest);
 
         var message = await context.DeliveryStore.RenderMessageAsync(delivery, TestContext.Current.CancellationToken);
@@ -413,6 +413,275 @@ public sealed class NotificationDeliveryTests
         Assert.Equal(3, await context.ReadScalarAsync<int>("select attempt_count from notification_deliveries where channel = 'TeamsChannel';"));
         Assert.Equal("Failed", await context.ReadScalarAsync<string>("select status from notification_deliveries where channel = 'TeamsChannel';"));
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsChannel' and next_attempt_at_utc is not null;"));
+    }
+
+    [Fact]
+    public async Task ClaimLease_SingleDeliveryTwoWorkers_CallsProviderOnceAndCreatesOneAttempt()
+    {
+        var handler = new CountingNotificationChannelHandler();
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(
+            configureTestServices: services => ReplaceNotificationHandlers(services, handler));
+        await context.InsertPendingDeliveryAsync("single-two-workers");
+
+        var summaries = await Task.WhenAll(
+            context.Dispatcher.SendDueDeliveriesAsync(context.NotificationOptions.CurrentValue, TestContext.Current.CancellationToken),
+            context.Dispatcher.SendDueDeliveriesAsync(context.NotificationOptions.CurrentValue, TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, summaries.Sum());
+        Assert.Equal(1, handler.CallCount);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_delivery_attempts;"));
+        Assert.Equal(NotificationDeliveryStatuses.Sent, await context.ReadScalarAsync<string>("select status from notification_deliveries;"));
+    }
+
+    [Fact]
+    public async Task ClaimLease_MultipleDeliveriesTwoWorkers_SplitsSkipLockedBatchWithoutDuplicates()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.ExecuteSqlAsync("""
+            insert into notification_deliveries (channel, delivery_type, status, dedupe_key, next_attempt_at_utc)
+            select 'TeamsChannel', 'ManualTest', 'Pending', 'split-' || value::text, '2026-07-03T00:00:00Z'
+            from generate_series(1, 10) value;
+            """);
+
+        var claims = await Task.WhenAll(
+            context.DeliveryStore.ClaimDueDeliveriesAsync(5, 3, "worker-a", TimeSpan.FromMinutes(5), TestContext.Current.CancellationToken),
+            context.DeliveryStore.ClaimDueDeliveriesAsync(5, 3, "worker-b", TimeSpan.FromMinutes(5), TestContext.Current.CancellationToken));
+
+        Assert.Equal(10, claims.Sum(batch => batch.Count));
+        Assert.Equal(10, claims.SelectMany(batch => batch).Select(item => item.Delivery.DeliveryId).Distinct().Count());
+        Assert.All(claims, batch => Assert.Equal(5, batch.Count));
+        Assert.Equal(10L, await context.ReadScalarAsync<long>("select count(*) from notification_delivery_attempts;"));
+    }
+
+    [Fact]
+    public async Task ClaimLease_ProviderNotStartedCrash_ReclaimsAndAuditsExpiry()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.InsertPendingDeliveryAsync("crash-before-provider");
+        var first = Assert.Single(await context.ClaimDueAsync("worker-a"));
+        context.TimeProvider.Advance(TimeSpan.FromMinutes(6));
+
+        var second = Assert.Single(await context.ClaimDueAsync("worker-b"));
+        Assert.Equal(2, second.AttemptNumber);
+        Assert.Equal(NotificationDeliveryAttemptOutcomes.LeaseExpiredBeforeProviderCall,
+            await context.ReadScalarAsync<string>("select outcome from notification_delivery_attempts where attempt_no = 1;"));
+        Assert.True(await context.DeliveryStore.CompleteDeliveryAttemptAsync(
+            second.Delivery.DeliveryId,
+            second.ClaimToken,
+            NotificationChannelResult.Sent("fake-provider"),
+            3,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(NotificationDeliveryStatuses.Sent, await context.ReadScalarAsync<string>("select status from notification_deliveries;"));
+        Assert.NotEqual(first.ClaimToken, second.ClaimToken);
+    }
+
+    [Fact]
+    public async Task ClaimLease_ProviderStartedExpiry_RecordsAmbiguousAtLeastOnceBoundary()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.InsertPendingDeliveryAsync("crash-after-provider-start");
+        var first = Assert.Single(await context.ClaimDueAsync("worker-a"));
+        Assert.True(await context.DeliveryStore.MarkProviderCallStartedAsync(
+            first.Delivery.DeliveryId,
+            first.ClaimToken,
+            TestContext.Current.CancellationToken));
+        context.TimeProvider.Advance(TimeSpan.FromMinutes(6));
+
+        var second = Assert.Single(await context.ClaimDueAsync("worker-b"));
+
+        Assert.Equal(NotificationDeliveryAttemptOutcomes.LeaseExpiredAfterProviderCallStarted,
+            await context.ReadScalarAsync<string>("select outcome from notification_delivery_attempts where attempt_no = 1;"));
+        Assert.Equal(2, second.AttemptNumber);
+    }
+
+    [Fact]
+    public async Task ClaimLease_ProviderSuccessBeforeCompletionCrash_CanBeRetriedAndRemainsAuditable()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.InsertPendingDeliveryAsync("provider-success-before-db-completion");
+        var providerCallCount = 0;
+        var first = Assert.Single(await context.ClaimDueAsync("worker-a"));
+        Assert.True(await context.DeliveryStore.MarkProviderCallStartedAsync(first.Delivery.DeliveryId, first.ClaimToken, TestContext.Current.CancellationToken));
+        providerCallCount++;
+        context.TimeProvider.Advance(TimeSpan.FromMinutes(6));
+        var second = Assert.Single(await context.ClaimDueAsync("worker-b"));
+        Assert.True(await context.DeliveryStore.MarkProviderCallStartedAsync(second.Delivery.DeliveryId, second.ClaimToken, TestContext.Current.CancellationToken));
+        providerCallCount++;
+        Assert.True(await context.DeliveryStore.CompleteDeliveryAttemptAsync(second.Delivery.DeliveryId, second.ClaimToken, NotificationChannelResult.Sent("fake-provider"), 3, TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, providerCallCount);
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("select count(*) from notification_delivery_attempts;"));
+        Assert.Equal(NotificationDeliveryAttemptOutcomes.LeaseExpiredAfterProviderCallStarted,
+            await context.ReadScalarAsync<string>("select outcome from notification_delivery_attempts where attempt_no = 1;"));
+    }
+
+    [Fact]
+    public async Task ClaimLease_LateCompletionIsFencedAndDoesNotOverwriteNewOwner()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.InsertPendingDeliveryAsync("late-completion-fencing");
+        var first = Assert.Single(await context.ClaimDueAsync("worker-a"));
+        context.TimeProvider.Advance(TimeSpan.FromMinutes(6));
+        var second = Assert.Single(await context.ClaimDueAsync("worker-b"));
+
+        Assert.False(await context.DeliveryStore.CompleteDeliveryAttemptAsync(first.Delivery.DeliveryId, first.ClaimToken, NotificationChannelResult.Sent("late-provider"), 3, TestContext.Current.CancellationToken));
+        Assert.Equal(NotificationDeliveryStatuses.Processing, await context.ReadScalarAsync<string>("select status from notification_deliveries;"));
+        Assert.True(await context.DeliveryStore.CompleteDeliveryAttemptAsync(second.Delivery.DeliveryId, second.ClaimToken, NotificationChannelResult.Sent("current-provider"), 3, TestContext.Current.CancellationToken));
+        Assert.Equal(NotificationDeliveryStatuses.Sent, await context.ReadScalarAsync<string>("select status from notification_deliveries;"));
+        Assert.Equal("NotificationDeliveryClaimLost", await context.ReadScalarAsync<string>("select error_code from notification_delivery_attempts where attempt_no = 1;"));
+    }
+
+    [Fact]
+    public async Task ClaimLease_TransientFailureReturnsPendingAndSchedulesRetry()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.InsertPendingDeliveryAsync("transient-failure");
+        var claimed = Assert.Single(await context.ClaimDueAsync("worker-a"));
+
+        Assert.True(await context.DeliveryStore.CompleteDeliveryAttemptAsync(
+            claimed.Delivery.DeliveryId,
+            claimed.ClaimToken,
+            NotificationChannelResult.Failed("TeamsActivityThrottled", "일시 오류입니다."),
+            3,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(NotificationDeliveryStatuses.Pending, await context.ReadScalarAsync<string>("select status from notification_deliveries;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where claim_token is null and next_attempt_at_utc is not null;"));
+        Assert.Equal(NotificationDeliveryAttemptOutcomes.RetryScheduled, await context.ReadScalarAsync<string>("select outcome from notification_delivery_attempts;"));
+    }
+
+    [Fact]
+    public async Task ClaimLease_PermanentFailureStopsRetryAndClearsClaim()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.InsertPendingDeliveryAsync("permanent-failure");
+        var claimed = Assert.Single(await context.ClaimDueAsync("worker-a"));
+
+        Assert.True(await context.DeliveryStore.CompleteDeliveryAttemptAsync(
+            claimed.Delivery.DeliveryId,
+            claimed.ClaimToken,
+            NotificationChannelResult.Failed("TeamsActivityPermissionDenied", "권한 오류입니다."),
+            3,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(NotificationDeliveryStatuses.Failed, await context.ReadScalarAsync<string>("select status from notification_deliveries;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where claim_token is null and next_attempt_at_utc is null;"));
+        Assert.Equal(NotificationDeliveryAttemptOutcomes.FailedPermanent, await context.ReadScalarAsync<string>("select outcome from notification_delivery_attempts;"));
+    }
+
+    [Fact]
+    public void ClaimLease_InvalidLeaseShorterThanProviderTimeoutFailsValidation()
+    {
+        var options = new NotificationOptions
+        {
+            Dispatch = new NotificationDispatchOptions { ClaimLeaseSeconds = 120 },
+            Mail = new NotificationMailOptions { Smtp = new NotificationSmtpOptions { TimeoutSeconds = 100 } }
+        };
+
+        Assert.Throws<InvalidOperationException>(() => NotificationDeliveryLeasePolicy.GetValidatedLeaseDuration(options));
+        Assert.True(new NotificationOptionsValidator().Validate(null, options).Failed);
+    }
+
+    [Fact]
+    public void ClaimLease_InvalidLeaseConfigurationFailsApplicationStartup()
+    {
+        using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string, string?>
+        {
+            ["Authentication:Mode"] = "Dev",
+            ["DevAuthentication:Enabled"] = "true",
+            ["Database:ApplyMigrationsOnStartup"] = "false",
+            ["DevelopmentData:SeedEnabled"] = "false",
+            ["Notifications:Dispatch:ClaimLeaseSeconds"] = "120",
+            ["Notifications:Mail:Smtp:TimeoutSeconds"] = "100"
+        });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        Assert.Contains("Notifications:Dispatch:ClaimLeaseSeconds", exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ClaimLease_ProcessingAdminActionsAreSkippedAndStatusIsUnchanged()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        var deliveryId = await context.InsertPendingDeliveryAsync("processing-admin-actions");
+        _ = Assert.Single(await context.ClaimDueAsync("worker-a"));
+        using var adminClient = context.CreateClient("dev-admin");
+        var request = new NotificationDeliveryAdminActionRequest([deliveryId], "processing row must remain unchanged");
+
+        var acknowledge = await adminClient.PostAsJsonAsync("/api/admin/notification-deliveries/acknowledge", request, TestContext.Current.CancellationToken);
+        var dismiss = await adminClient.PostAsJsonAsync("/api/admin/notification-deliveries/dismiss", request, TestContext.Current.CancellationToken);
+        var retry = await adminClient.PostAsJsonAsync("/api/admin/notification-deliveries/retry", request, TestContext.Current.CancellationToken);
+
+        Assert.All([acknowledge, dismiss, retry], response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+        using var listResponse = await adminClient.GetAsync("/api/admin/notification-deliveries?status=Processing", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        using var list = await JsonDocument.ParseAsync(await listResponse.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
+        var processingItem = Assert.Single(list.RootElement.GetProperty("items").EnumerateArray());
+        Assert.Equal("Processing", processingItem.GetProperty("status").GetString());
+        Assert.False(processingItem.GetProperty("claimIsStale").GetBoolean());
+        Assert.Equal(JsonValueKind.String, processingItem.GetProperty("claimExpiresAtUtc").ValueKind);
+
+        using var detailResponse = await adminClient.GetAsync($"/api/admin/notification-deliveries/{deliveryId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        using var detail = await JsonDocument.ParseAsync(await detailResponse.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal("Processing", detail.RootElement.GetProperty("status").GetString());
+        var attempt = Assert.Single(detail.RootElement.GetProperty("attempts").EnumerateArray());
+        Assert.Equal("Processing", attempt.GetProperty("outcome").GetString());
+        Assert.DoesNotContain("worker-a", detail.RootElement.GetRawText(), StringComparison.Ordinal);
+
+        using var dashboardResponse = await adminClient.GetAsync("/api/admin/dashboard", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, dashboardResponse.StatusCode);
+        using var dashboard = await JsonDocument.ParseAsync(await dashboardResponse.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(1, dashboard.RootElement.GetProperty("processingDeliveryCount").GetInt32());
+        Assert.Equal(NotificationDeliveryStatuses.Processing, await context.ReadScalarAsync<string>("select status from notification_deliveries;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_delivery_attempts where outcome = 'Processing';"));
+    }
+
+    [Fact]
+    public async Task ClaimLease_StaleConcurrentRecoveryCreatesOnlyOneNewClaim()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.InsertPendingDeliveryAsync("stale-concurrent-recovery");
+        _ = Assert.Single(await context.ClaimDueAsync("worker-a"));
+        context.TimeProvider.Advance(TimeSpan.FromMinutes(6));
+
+        var claims = await Task.WhenAll(
+            context.ClaimDueAsync("worker-b"),
+            context.ClaimDueAsync("worker-c"));
+
+        Assert.Equal(1, claims.Sum(batch => batch.Count));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("select count(*) from notification_delivery_attempts;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_delivery_attempts where outcome = 'Processing';"));
+    }
+
+    [Fact]
+    public async Task ClaimLease_CancellationLeavesProcessingForLeaseRecovery()
+    {
+        using var source = new CancellationTokenSource();
+        var handler = new CancellingNotificationChannelHandler(source);
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(
+            configureTestServices: services => ReplaceNotificationHandlers(services, handler));
+        await context.InsertPendingDeliveryAsync("cancellation-recovery");
+        var claimed = Assert.Single(await context.ClaimDueAsync("worker-a"));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => context.Dispatcher.SendClaimedDeliveryAsync(
+            claimed,
+            context.NotificationOptions.CurrentValue,
+            null,
+            source.Token));
+
+        Assert.Equal(NotificationDeliveryStatuses.Processing, await context.ReadScalarAsync<string>("select status from notification_deliveries;"));
+        Assert.Equal(NotificationDeliveryAttemptOutcomes.Processing, await context.ReadScalarAsync<string>("select outcome from notification_delivery_attempts;"));
+    }
+
+    private static void ReplaceNotificationHandlers(IServiceCollection services, INotificationChannelHandler handler)
+    {
+        foreach (var descriptor in services.Where(service => service.ServiceType == typeof(INotificationChannelHandler)).ToArray())
+        {
+            services.Remove(descriptor);
+        }
+
+        services.AddSingleton<INotificationChannelHandler>(handler);
     }
 
     [Fact]
@@ -1410,8 +1679,15 @@ public sealed class NotificationDeliveryTests
         var deliveryId = await context.ReadScalarAsync<Guid>(
             "select id from notification_deliveries where dedupe_key = 'non-retryable-app-not-installed';");
 
-        await context.DeliveryStore.MarkDeliveryResultAsync(
+        var claimed = Assert.Single(await context.DeliveryStore.ClaimDueDeliveriesAsync(
+            10,
+            3,
+            "test-worker",
+            TimeSpan.FromMinutes(5),
+            TestContext.Current.CancellationToken));
+        await context.DeliveryStore.CompleteDeliveryAttemptAsync(
             deliveryId,
+            claimed.ClaimToken,
             NotificationChannelResult.Failed(
                 "TeamsActivityAppNotInstalled",
                 "수신자의 Teams 앱 설치 상태 또는 Teams 앱 정책을 확인하세요."),
@@ -1497,7 +1773,8 @@ public sealed class NotificationDeliveryTests
         Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}' and channel = 'Mail' and display_recipient_email = 'recipient@example.test';"));
         Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}' and manual_notification_kind = 'ProjectCreated' and display_title = '[테스트] 프로젝트 생성 알림' and status = 'Pending';"));
 
-        var pending = await context.DeliveryStore.GetDueDeliveriesAsync(10, 3, TestContext.Current.CancellationToken);
+        var claimed = await context.ClaimDueAsync();
+        var pending = claimed.Select(item => item.Delivery).ToArray();
         var mailDelivery = Assert.Single(pending, item => item.Channel == NotificationDeliveryChannels.Mail && item.DisplayRecipientEmail == "recipient@example.test");
         var mailMessage = await context.DeliveryStore.RenderMessageAsync(mailDelivery, TestContext.Current.CancellationToken);
         Assert.Equal("[프로젝트 생성 알림] [테스트] 프로젝트 생성 알림", mailMessage.Subject);
@@ -1528,8 +1805,14 @@ public sealed class NotificationDeliveryTests
         Assert.Contains("/teams/activity/notifications/", Uri.UnescapeDataString(renderedTeamsActivity.TopicWebUrl!), StringComparison.Ordinal);
         Assert.Contains($"label={Uri.EscapeDataString("알림상세")}", renderedTeamsActivity.TopicWebUrl, StringComparison.Ordinal);
 
-        var summary = await context.Dispatcher.DispatchAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(3, summary.ProcessedDeliveryCount);
+        foreach (var item in claimed)
+        {
+            await context.Dispatcher.SendClaimedDeliveryAsync(
+                item,
+                context.NotificationOptions.CurrentValue,
+                null,
+                TestContext.Current.CancellationToken);
+        }
         Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from notification_deliveries where correlation_id = '{correlationId}' and status = 'DryRunSent';"));
 
         var list = await adminClient.GetAsync("/api/admin/notification-deliveries?deliveryType=ManualTest", TestContext.Current.CancellationToken);
@@ -1834,9 +2117,9 @@ public sealed class NotificationDeliveryTests
 
         var summary = await context.Dispatcher.DispatchAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(1, summary.ProcessedDeliveryCount);
+        Assert.Equal(0, summary.ProcessedDeliveryCount);
         Assert.Equal(NotificationDeliveryStatuses.Failed, await context.ReadScalarAsync<string>("select status from notification_deliveries where delivery_type = 'ManualTest';"));
-        Assert.Equal(2, await context.ReadScalarAsync<int>("select attempt_count from notification_deliveries where delivery_type = 'ManualTest';"));
+        Assert.Equal(1, await context.ReadScalarAsync<int>("select attempt_count from notification_deliveries where delivery_type = 'ManualTest';"));
         Assert.Equal("GraphMailSenderNotFound", await context.ReadScalarAsync<string>("select error_code from notification_deliveries where delivery_type = 'ManualTest';"));
     }
 
@@ -1894,7 +2177,7 @@ public sealed class NotificationDeliveryTests
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsDirectMessage';"));
 
         var delivery = Assert.Single(
-            await context.DeliveryStore.GetDueDeliveriesAsync(10, 3, TestContext.Current.CancellationToken),
+            await context.ClaimDueRecordsAsync(),
             item => item.Channel == NotificationDeliveryChannels.TeamsActivity);
         var message = await context.DeliveryStore.RenderMessageAsync(delivery, TestContext.Current.CancellationToken);
         var rendered = TeamsActivityNotificationRenderer.Render(
@@ -2148,15 +2431,21 @@ public sealed class NotificationDeliveryTests
 
     private sealed class NotificationDeliveryTestContext : IAsyncDisposable
     {
-        private NotificationDeliveryTestContext(PostgreSqlTestDatabase database, QmsWebApplicationFactory factory)
+        private NotificationDeliveryTestContext(
+            PostgreSqlTestDatabase database,
+            QmsWebApplicationFactory factory,
+            MutableTimeProvider timeProvider)
         {
             Database = database;
             Factory = factory;
+            TimeProvider = timeProvider;
             _ = Factory.CreateClient();
         }
 
         private PostgreSqlTestDatabase Database { get; }
         private QmsWebApplicationFactory Factory { get; }
+
+        public MutableTimeProvider TimeProvider { get; }
 
         public NotificationDispatcher Dispatcher => Factory.Services.GetRequiredService<NotificationDispatcher>();
 
@@ -2165,6 +2454,48 @@ public sealed class NotificationDeliveryTests
         public IOptionsMonitor<NotificationOptions> NotificationOptions => Factory.Services.GetRequiredService<IOptionsMonitor<NotificationOptions>>();
 
         public NotificationEscalationService Escalations => Factory.Services.GetRequiredService<NotificationEscalationService>();
+
+        public async Task<IReadOnlyList<NotificationDeliveryRecord>> ClaimDueRecordsAsync()
+        {
+            return (await ClaimDueAsync()).Select(item => item.Delivery).ToArray();
+        }
+
+        public Task<IReadOnlyList<ClaimedNotificationDelivery>> ClaimDueAsync(string workerInstanceId = "test-worker")
+        {
+            return DeliveryStore.ClaimDueDeliveriesAsync(
+                10,
+                3,
+                workerInstanceId,
+                TimeSpan.FromMinutes(5),
+                TestContext.Current.CancellationToken);
+        }
+
+        public Task<Guid> InsertPendingDeliveryAsync(string dedupeKey)
+        {
+            return ReadScalarAsync<Guid>($"""
+                insert into notification_deliveries (
+                    channel,
+                    delivery_type,
+                    status,
+                    dedupe_key,
+                    next_attempt_at_utc,
+                    display_title,
+                    display_message,
+                    manual_notification_kind
+                )
+                values (
+                    'TeamsChannel',
+                    'ManualTest',
+                    'Pending',
+                    '{dedupeKey}',
+                    '2026-07-03T00:00:00Z',
+                    '동시성 테스트',
+                    'isolated fake provider test',
+                    'Custom'
+                )
+                returning id;
+                """);
+        }
 
         public static async Task<NotificationDeliveryTestContext> CreateAsync(
             IReadOnlyDictionary<string, string?>? overrides = null,
@@ -2198,6 +2529,7 @@ public sealed class NotificationDeliveryTests
                 }
             }
 
+            var mutableTimeProvider = new MutableTimeProvider(new DateTimeOffset(2026, 7, 3, 0, 0, 0, TimeSpan.Zero));
             var factory = QmsWebApplicationFactory.Create(
                 "Testing",
                 values,
@@ -2206,11 +2538,11 @@ public sealed class NotificationDeliveryTests
                 {
                     var timeProviderDescriptor = services.Single(service => service.ServiceType == typeof(TimeProvider));
                     services.Remove(timeProviderDescriptor);
-                    services.AddSingleton<TimeProvider>(new FixedTimeProvider(new DateTimeOffset(2026, 7, 3, 0, 0, 0, TimeSpan.Zero)));
+                    services.AddSingleton<TimeProvider>(mutableTimeProvider);
                     configureTestServices?.Invoke(services);
                 });
 
-            return new NotificationDeliveryTestContext(database, factory);
+            return new NotificationDeliveryTestContext(database, factory, mutableTimeProvider);
         }
 
         public HttpClient CreateClient(string developmentUserKey)
@@ -2335,12 +2667,24 @@ public sealed class NotificationDeliveryTests
         }
     }
 
-    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
+        private DateTimeOffset currentUtcNow = utcNow;
+
         public override DateTimeOffset GetUtcNow()
         {
-            return utcNow;
+            return currentUtcNow;
         }
+
+        public void Advance(TimeSpan duration)
+        {
+            currentUtcNow = currentUtcNow.Add(duration);
+        }
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
     private sealed class FailingTeamsWebhookClient : ITeamsWebhookClient
@@ -2348,6 +2692,36 @@ public sealed class NotificationDeliveryTests
         public Task<string> PostAsync(string webhookUrl, TeamsWebhookPayload payload, CancellationToken cancellationToken)
         {
             return Task.FromResult("http:500");
+        }
+    }
+
+    private sealed class CountingNotificationChannelHandler : INotificationChannelHandler
+    {
+        private int callCount;
+
+        public string Channel => NotificationDeliveryChannels.TeamsChannel;
+
+        public int CallCount => Volatile.Read(ref callCount);
+
+        public bool WillCallExternalProvider(NotificationDeliveryMessage message) => true;
+
+        public Task<NotificationChannelResult> SendAsync(NotificationDeliveryMessage message, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref callCount);
+            return Task.FromResult(NotificationChannelResult.Sent("fake-provider"));
+        }
+    }
+
+    private sealed class CancellingNotificationChannelHandler(CancellationTokenSource source) : INotificationChannelHandler
+    {
+        public string Channel => NotificationDeliveryChannels.TeamsChannel;
+
+        public bool WillCallExternalProvider(NotificationDeliveryMessage message) => false;
+
+        public Task<NotificationChannelResult> SendAsync(NotificationDeliveryMessage message, CancellationToken cancellationToken)
+        {
+            source.Cancel();
+            throw new OperationCanceledException(source.Token);
         }
     }
 

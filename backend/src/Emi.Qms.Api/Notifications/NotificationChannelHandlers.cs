@@ -8,6 +8,8 @@ public interface INotificationChannelHandler
 {
     string Channel { get; }
 
+    bool WillCallExternalProvider(NotificationDeliveryMessage message);
+
     Task<NotificationChannelResult> SendAsync(NotificationDeliveryMessage message, CancellationToken cancellationToken);
 }
 
@@ -93,6 +95,15 @@ public sealed class TeamsChannelHandler(
 {
     public string Channel => NotificationDeliveryChannels.TeamsChannel;
 
+    public bool WillCallExternalProvider(NotificationDeliveryMessage message)
+    {
+        var teams = options.CurrentValue.Teams;
+        return teams.Enabled
+            && !teams.DryRun
+            && string.Equals(teams.PayloadMode, "AdaptiveCardRoot", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(teams.WebhookUrl);
+    }
+
     public async Task<NotificationChannelResult> SendAsync(NotificationDeliveryMessage message, CancellationToken cancellationToken)
     {
         var teams = options.CurrentValue.Teams;
@@ -144,6 +155,8 @@ public sealed class TeamsDirectMessageHandler(IOptionsMonitor<NotificationOption
 {
     public string Channel => NotificationDeliveryChannels.TeamsDirectMessage;
 
+    public bool WillCallExternalProvider(NotificationDeliveryMessage message) => false;
+
     public Task<NotificationChannelResult> SendAsync(NotificationDeliveryMessage message, CancellationToken cancellationToken)
     {
         var teams = options.CurrentValue.Teams;
@@ -164,6 +177,30 @@ public sealed class TeamsActivityChannelHandler(
     : INotificationChannelHandler
 {
     public string Channel => NotificationDeliveryChannels.TeamsActivity;
+
+    public bool WillCallExternalProvider(NotificationDeliveryMessage message)
+    {
+        var teamsActivity = options.CurrentValue.TeamsActivity;
+        if (!teamsActivity.Enabled || teamsActivity.DryRun || message.RecipientUserIsActive == false)
+        {
+            return false;
+        }
+
+        var renderResult = TeamsActivityNotificationRenderer.Render(message, teamsActivity);
+        if (!TeamsActivityNotificationRenderer.IsDeclaredActivityType(renderResult.ActivityType, teamsActivity.ActivityTypes))
+        {
+            return false;
+        }
+
+        if (teamsActivity.RequireEntraUser
+            && !string.Equals(message.RecipientAuthProvider, "EntraId", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(message.RecipientEntraObjectId)
+            || (teamsActivity.UseUserPrincipalNameFallback && !string.IsNullOrWhiteSpace(message.RecipientEmail));
+    }
 
     public Task<NotificationChannelResult> SendAsync(NotificationDeliveryMessage message, CancellationToken cancellationToken)
     {
@@ -239,6 +276,16 @@ public sealed class MailChannelHandler(
     : INotificationChannelHandler
 {
     public string Channel => NotificationDeliveryChannels.Mail;
+
+    public bool WillCallExternalProvider(NotificationDeliveryMessage message)
+    {
+        var mail = options.CurrentValue.Mail;
+        return mail.Enabled
+            && !string.IsNullOrWhiteSpace(message.RecipientEmail)
+            && !mail.DryRun
+            && !string.IsNullOrWhiteSpace(mail.Provider)
+            && !string.Equals(mail.Provider, "DryRun", StringComparison.OrdinalIgnoreCase);
+    }
 
     public Task<NotificationChannelResult> SendAsync(NotificationDeliveryMessage message, CancellationToken cancellationToken)
     {

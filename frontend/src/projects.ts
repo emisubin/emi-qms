@@ -123,6 +123,8 @@ export interface AdminDashboardResponse {
   pendingUserCount: number;
   failedDeliveryCount: number;
   pendingDeliveryCount: number;
+  processingDeliveryCount: number;
+  sentDeliveryCount: number;
   lastDailyDigestSentAtUtc: string | null;
   activeEscalationCount: number;
   recentMasterChangeCount: number;
@@ -309,6 +311,9 @@ export interface AdminNotificationDelivery {
   adminHandledByUserId: string | null;
   adminHandledByDisplayName: string | null;
   adminHandlingNote: string | null;
+  claimedAtUtc: string | null;
+  claimExpiresAtUtc: string | null;
+  claimIsStale: boolean;
   createdAtUtc: string;
   updatedAtUtc: string;
 }
@@ -392,6 +397,24 @@ export interface AdminNotificationDeliveryDetail {
   adminHandlingStatusLabel: string;
   adminHandlingNote: string | null;
   correlationId: string | null;
+  providerMessageId: string | null;
+  claimedAtUtc: string | null;
+  claimExpiresAtUtc: string | null;
+  claimIsStale: boolean;
+  claimedByInstance: string | null;
+  attempts: AdminNotificationDeliveryAttempt[];
+}
+
+export interface AdminNotificationDeliveryAttempt {
+  attemptNumber: number;
+  workerInstance: string;
+  claimedAtUtc: string;
+  leaseExpiresAtUtc: string;
+  providerCallStartedAtUtc: string | null;
+  completedAtUtc: string | null;
+  outcome: string;
+  errorCode: string | null;
+  errorMessage: string | null;
   providerMessageId: string | null;
 }
 

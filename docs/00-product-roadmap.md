@@ -1183,12 +1183,24 @@ Excel 출력 대상 후보:
 
 ### TASK-UAT-HANDOVER-003: Notification delivery claim/lease UAT handover
 
-- 상태/다음 순서: 계획 / TASK-NOTIFY-REL-001 merge 후 수행
+- 상태/다음 순서: preflight 중단 / TASK-UAT-MAINTENANCE-001 사용자 검수·merge 후 처음부터 재개
 - 목적: Persistent UAT에 canonical 0028을 통제 적용하고 Development·Review-safe runtime을 최신 main으로 전환한다.
 - 포함 범위: preflight backup/rollback·forward-fix, migration 0028, canonical 28 + approved legacy 1 = live 29 ledger 확인, fake/dry-run concurrency, Development/Review-safe controlled handover, snapshot 전후 검증
 - 제외 범위: actual 외부 발송, 기존 업무 data 정리, escalation starvation 구현
 - 선행조건: TASK-NOTIFY-REL-001 사용자 검수·merge와 candidate 증빙
 - 핵심 gate: live schema 0028, worker/provider 보호, 기존 runtime rollback 가능, actual provider 0, Persistent data 보존
+
+### TASK-UAT-MAINTENANCE-001: Mutation worker maintenance gate
+
+- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #31 squash merge 승인 / 다음 TASK-UAT-HANDOVER-003 재개
+- 배경: HANDOVER-003에서 Development purge worker가 무조건 등록·즉시 실행돼 all-workers-disabled Phase A를 만들 수 없는 P2 발견
+- 포함 범위: `AdminDeletionPurge:Enabled` 기본 true와 strict validation, delivery·escalation·purge 조건부 DI, purge 내부 방어, worker별 runtime boolean, isolated Phase A/default 회귀
+- 자동 검증: targeted 14/14, backend 331/331, frontend 61/61, Full-Stack E2E 16/16, isolated synthetic due 후보 두 관찰 구간 불변, enabled purge 회귀 성공
+- Persistent UAT: migration 0028 미적용, DB write/restart 0, 기존 listener 9/9 유지, secure backup 보존
+- backup 정책: 기존 pre-0028 backup은 rehearsal evidence로 보존하고 HANDOVER-003 migration 직전에 fresh backup과 isolated restore를 다시 수행
+- 산출물: [Task 정의와 검수 체크리스트](../tasks/uat-maintenance-001.md), [Implementation report](../tasks/uat-maintenance-001-implementation-report.md), [SOP](../tasks/uat-maintenance-001-sop.md), [User manual](../tasks/uat-maintenance-001-user-manual.md), 이 Roadmap update
+- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #31 병합 승인 / 미체크 항목 0
+- 전체 신규 기능 개발: No-Go 유지
 
 ### TASK-AUTH-HARDEN-001: Last System Administrator concurrency guard
 
@@ -1249,7 +1261,7 @@ Excel 출력 대상 후보:
 - 핵심 검수 기준: 필수 알림 해제 차단, 기본값 호환, event/channel별 저장과 재로그인 유지, 인앱 원본 보존, preference 변경 audit, 외부 delivery 생성 여부 검증
 - 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
 
-현재 실행 순서는 `TASK-NOTIFY-REL-001 사용자 검수/merge → TASK-UAT-HANDOVER-003 → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다. 전체 신규 기능 No-Go는 남은 P2 remediation이 닫힐 때까지 유지한다.
+현재 실행 순서는 `TASK-UAT-MAINTENANCE-001 사용자 검수/merge → TASK-UAT-HANDOVER-003 preflight 재개 → fresh backup/restore rehearsal → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다. 전체 신규 기능 No-Go는 남은 P2 remediation이 닫힐 때까지 유지한다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1394,6 +1406,7 @@ Excel 출력 대상 후보:
 | 65 | Privacy-safe Review-safe runtime handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-002 | merged main 5190/5092, Compatible 27/28/1, redacted browser matrix, DB read-only·423, Candidate/Persistent UAT 보존. PR #28 |
 | 66 | Notification claim/lease UAT handover | 계획 | 개발/운영 | TASK-UAT-HANDOVER-003 | PR merge 후 Persistent UAT 0028, canonical 28 + approved legacy 1 = live 29, fake/dry-run과 runtime controlled handover |
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / Draft PR 게시 대상 / merge 대기 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
+| 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1473,6 +1486,8 @@ Excel 출력 대상 후보:
 | 2026-07-11 | TASK-NOTIFY-REL-001 사용자 검수와 PR #30 squash merge를 승인 | claim/lease·fencing·attempt audit, 정상 경쟁 provider call 1회, at-least-once 제한과 exactly-once 미보장, Persistent UAT 0028 미적용, actual provider 호출 0을 확인하고 다음 단계를 TASK-UAT-HANDOVER-003으로 전환하기 위함 | 23장, 24장, TASK-NOTIFY-REL-001 |
 | 2026-07-11 | 반복되는 공통 개발 원칙을 Root/영역별 `AGENTS.md`, 종료 정책, 개발 검증 문서와 project-local Codex Rules로 분리 | Task 프롬프트는 목표·범위·완료 기준에 집중하고 판단 규칙과 명령 통제를 각각 단일 source에서 유지하기 위함 | [Root 지침](../AGENTS.md), [종료 정책](12-task-completion-policy.md), [Validation Matrix](development/validation-matrix.md), [Privacy-safe Evidence](development/privacy-safe-evidence.md) |
 | 2026-07-11 | TASK-GOV-CODEX-001 사용자 검수와 Draft PR 게시를 승인하고 shell wrapper는 prompt하되 내부 명령 완전 차단으로 과장하지 않음 | 실제 execpolicy 판정과 문서를 일치시키고 project-local Rules를 AGENTS·safe script의 보조 통제로 유지하기 위함 | 24장, 27장, TASK-GOV-CODEX-001 |
+| 2026-07-11 | HANDOVER-003 preflight에서 purge worker disable gate 부재 P2를 발견해 Persistent migration 전에 중단하고 TASK-UAT-MAINTENANCE-001로 분리 | worker가 등록된 idle 상태를 maintenance-safe로 오판하지 않고 세 mutation worker 미등록과 candidate 불변을 먼저 보장하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-003, TASK-UAT-MAINTENANCE-001 |
+| 2026-07-11 | TASK-UAT-MAINTENANCE-001 사용자 검수와 PR #31 squash merge를 승인 | purge 기본 true, explicit disable·ReviewSafe·Phase A worker 미등록, synthetic 후보 불변, Persistent UAT·0028·runtime·backup 보존을 확인하고 HANDOVER-003 재개 조건을 충족하기 위함 | 23장, 24장, TASK-UAT-MAINTENANCE-001 |
 
 ## 26. 용어 사전
 

@@ -5,7 +5,7 @@ namespace Emi.Qms.Api.Admin;
 
 public sealed class AdminScheduledDeletionService(
     DatabaseConnectionStringProvider connectionStringProvider,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider) : IAdminDeletionPurgeService
 {
     private static readonly string[] UserReferenceColumns =
     [

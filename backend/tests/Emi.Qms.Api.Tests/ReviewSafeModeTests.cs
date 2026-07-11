@@ -109,6 +109,10 @@ public sealed class ReviewSafeModeTests
         Assert.True(status.ReviewSafe);
         Assert.False(status.MutationAllowed);
         Assert.False(status.BackgroundWorkersEnabled);
+        Assert.False(status.NotificationDeliveryWorkerEnabled);
+        Assert.False(status.NotificationEscalationWorkerEnabled);
+        Assert.False(status.AdminDeletionPurgeWorkerEnabled);
+        Assert.False(status.MutationWorkersEnabled);
         Assert.False(status.ExternalProvidersEnabled);
         Assert.False(status.MigrationExecutionEnabled);
         Assert.False(status.Ready);
@@ -152,7 +156,10 @@ public sealed class ReviewSafeModeTests
                 ["ReviewSafe:Enabled"] = "false",
                 ["DevAuthentication:Enabled"] = "true",
                 ["DevelopmentData:SeedEnabled"] = "false",
-                ["Database:ApplyMigrationsOnStartup"] = "false"
+                ["Database:ApplyMigrationsOnStartup"] = "false",
+                ["Notifications:Dispatch:Enabled"] = "true",
+                ["Notifications:Escalation:Enabled"] = "true",
+                ["AdminDeletionPurge:Enabled"] = "true"
             },
             includeDefaultDevelopmentAuthentication: true);
         _ = factory.Services;

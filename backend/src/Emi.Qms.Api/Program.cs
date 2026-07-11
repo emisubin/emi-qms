@@ -15,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 ReviewSafeMode.ThrowIfInvalidActivation(builder.Environment, builder.Configuration);
 var reviewSafeEnabled = ReviewSafeMode.IsEnabled(builder.Configuration);
+var mutationWorkerActivation = MutationWorkerActivationPolicy.Evaluate(builder.Configuration, reviewSafeEnabled);
 
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 
@@ -59,6 +60,12 @@ builder.Services.AddSingleton<AdminCalendarHolidayStore>();
 builder.Services.AddSingleton<CalendarHolidayExcelParser>();
 builder.Services.AddSingleton<AdminMasterDataStore>();
 builder.Services.AddSingleton<AdminScheduledDeletionService>();
+builder.Services.AddSingleton<IAdminDeletionPurgeService>(services =>
+    services.GetRequiredService<AdminScheduledDeletionService>());
+builder.Services.AddOptions<AdminDeletionPurgeOptions>()
+    .Bind(builder.Configuration.GetSection(AdminDeletionPurgeOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<AdminDeletionPurgeOptions>, AdminDeletionPurgeOptionsValidator>();
 builder.Services.AddSingleton<WorkflowStore>();
 builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Notifications"));
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<NotificationOptions>, NotificationOptionsValidator>();
@@ -81,8 +88,17 @@ if (!reviewSafeEnabled)
     builder.Services.AddHttpClient<IGraphMailClient, GraphMailClient>();
     builder.Services.AddHttpClient<ITeamsWebhookClient, TeamsWebhookClient>();
     builder.Services.AddHttpClient<ITeamsActivityClient, GraphTeamsActivityClient>();
+}
+if (mutationWorkerActivation.NotificationDeliveryWorkerEnabled)
+{
     builder.Services.AddHostedService<NotificationDeliveryWorker>();
+}
+if (mutationWorkerActivation.NotificationEscalationWorkerEnabled)
+{
     builder.Services.AddHostedService<NotificationEscalationWorker>();
+}
+if (mutationWorkerActivation.AdminDeletionPurgeWorkerEnabled)
+{
     builder.Services.AddHostedService<AdminDeletionPurgeWorker>();
 }
 if (reviewSafeEnabled)

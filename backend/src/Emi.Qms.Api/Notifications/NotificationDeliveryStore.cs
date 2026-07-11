@@ -135,10 +135,206 @@ public sealed class NotificationDeliveryStore(
         return created;
     }
 
-    public async Task<IReadOnlyList<NotificationDeliveryRecord>> GetDueDeliveriesAsync(int limit, int retryCount, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<ClaimedNotificationDelivery>> ClaimDueDeliveriesAsync(
+        int limit,
+        int retryCount,
+        string workerInstanceId,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
     {
+        return ClaimDeliveriesAsync(null, limit, retryCount, workerInstanceId, leaseDuration, cancellationToken);
+    }
+
+    public async Task<ClaimedNotificationDelivery?> ClaimDeliveryAsync(
+        Guid deliveryId,
+        int retryCount,
+        string workerInstanceId,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        var claimed = await ClaimDeliveriesAsync(deliveryId, 1, retryCount, workerInstanceId, leaseDuration, cancellationToken);
+        return claimed.SingleOrDefault();
+    }
+
+    private async Task<IReadOnlyList<ClaimedNotificationDelivery>> ClaimDeliveriesAsync(
+        Guid? deliveryId,
+        int limit,
+        int retryCount,
+        string workerInstanceId,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(workerInstanceId))
+        {
+            throw new ArgumentException("Worker instance id is required.", nameof(workerInstanceId));
+        }
+
+        if (leaseDuration <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(leaseDuration));
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var leaseExpiresAtUtc = now.Add(leaseDuration);
+        var maxAttempts = Math.Max(1, retryCount);
+
         await using var dataSource = CreateDataSource();
-        await using var command = dataSource.CreateCommand("""
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        await using (var expireAttempts = connection.CreateCommand())
+        {
+            expireAttempts.Transaction = transaction;
+            expireAttempts.CommandText = """
+                update notification_delivery_attempts attempt
+                set outcome = case
+                        when attempt.provider_call_started_at_utc is null then 'LeaseExpiredBeforeProviderCall'
+                        else 'LeaseExpiredAfterProviderCallStarted'
+                    end,
+                    completed_at_utc = @now,
+                    error_code = case
+                        when attempt.provider_call_started_at_utc is null then 'NotificationDeliveryLeaseExpiredBeforeProviderCall'
+                        else 'NotificationDeliveryLeaseExpiredAfterProviderCallStarted'
+                    end,
+                    error_message = case
+                        when attempt.provider_call_started_at_utc is null then 'Provider 호출 전에 claim lease가 만료되었습니다.'
+                        else 'Provider 호출 시작 후 claim lease가 만료되어 결과가 불확실합니다.'
+                    end,
+                    updated_at_utc = @now
+                from notification_deliveries delivery
+                where attempt.delivery_id = delivery.id
+                  and attempt.claim_token = delivery.claim_token
+                  and attempt.outcome = 'Processing'
+                  and delivery.status = 'Processing'
+                  and delivery.claim_expires_at_utc <= @now;
+                """;
+            expireAttempts.Parameters.AddWithValue("now", now);
+            await expireAttempts.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var finalizeExhausted = connection.CreateCommand())
+        {
+            finalizeExhausted.Transaction = transaction;
+            finalizeExhausted.CommandText = """
+                update notification_deliveries
+                set status = 'Failed',
+                    last_attempt_at_utc = @now,
+                    next_attempt_at_utc = null,
+                    error_code = 'NotificationDeliveryLeaseExpiredAtRetryLimit',
+                    error_message = '재시도 한도에서 claim lease가 만료되어 자동 재시도를 중단했습니다.',
+                    claim_token = null,
+                    claimed_at_utc = null,
+                    claim_expires_at_utc = null,
+                    claimed_by_instance_id = null,
+                    updated_at_utc = @now
+                where status = 'Processing'
+                  and claim_expires_at_utc <= @now
+                  and attempt_count >= @max_attempt_count;
+                """;
+            finalizeExhausted.Parameters.AddWithValue("now", now);
+            finalizeExhausted.Parameters.AddWithValue("max_attempt_count", maxAttempts);
+            await finalizeExhausted.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var candidateIds = new List<Guid>();
+        await using (var candidates = connection.CreateCommand())
+        {
+            candidates.Transaction = transaction;
+            candidates.CommandText = """
+                select id
+                from notification_deliveries
+                where (@delivery_id is null or id = @delivery_id)
+                  and (
+                      (
+                          status = 'Pending'
+                          and (next_attempt_at_utc is null or next_attempt_at_utc <= @now)
+                      )
+                      or (
+                          status = 'Processing'
+                          and claim_expires_at_utc <= @now
+                      )
+                  )
+                  and coalesce(admin_handling_status, 'Open') = 'Open'
+                  and attempt_count < @max_attempt_count
+                order by coalesce(next_attempt_at_utc, claim_expires_at_utc, created_at_utc), created_at_utc, id
+                for update skip locked
+                limit @limit;
+                """;
+            candidates.Parameters.Add(new NpgsqlParameter("delivery_id", NpgsqlDbType.Uuid) { Value = (object?)deliveryId ?? DBNull.Value });
+            candidates.Parameters.AddWithValue("now", now);
+            candidates.Parameters.AddWithValue("max_attempt_count", maxAttempts);
+            candidates.Parameters.AddWithValue("limit", Math.Max(1, limit));
+            await using var reader = await candidates.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                candidateIds.Add(reader.GetGuid(0));
+            }
+        }
+
+        if (candidateIds.Count == 0)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return [];
+        }
+
+        await using (var claim = connection.CreateCommand())
+        {
+            claim.Transaction = transaction;
+            claim.CommandText = """
+                update notification_deliveries
+                set status = 'Processing',
+                    attempt_count = attempt_count + 1,
+                    next_attempt_at_utc = null,
+                    last_attempt_at_utc = @now,
+                    error_code = null,
+                    error_message = null,
+                    claim_token = uuid_generate_v4(),
+                    claimed_at_utc = @now,
+                    claim_expires_at_utc = @lease_expires_at_utc,
+                    claimed_by_instance_id = @worker_instance_id,
+                    updated_at_utc = @now
+                where id = any(@ids);
+                """;
+            claim.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = candidateIds.ToArray() });
+            claim.Parameters.AddWithValue("now", now);
+            claim.Parameters.AddWithValue("lease_expires_at_utc", leaseExpiresAtUtc);
+            claim.Parameters.AddWithValue("worker_instance_id", workerInstanceId);
+            await claim.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var createAttempts = connection.CreateCommand())
+        {
+            createAttempts.Transaction = transaction;
+            createAttempts.CommandText = """
+                insert into notification_delivery_attempts (
+                    delivery_id,
+                    attempt_no,
+                    claim_token,
+                    worker_instance_id,
+                    claimed_at_utc,
+                    lease_expires_at_utc,
+                    outcome
+                )
+                select
+                    id,
+                    attempt_count,
+                    claim_token,
+                    claimed_by_instance_id,
+                    claimed_at_utc,
+                    claim_expires_at_utc,
+                    'Processing'
+                from notification_deliveries
+                where id = any(@ids);
+                """;
+            createAttempts.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = candidateIds.ToArray() });
+            await createAttempts.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var claimedRows = new List<ClaimedNotificationDelivery>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
             select
                 nd.id,
                 nd.notification_id,
@@ -192,7 +388,11 @@ public sealed class NotificationDeliveryStore(
                 nd.correlation_id,
                 nd.manual_payload_json::text,
                 nd.manual_requested_by_user_id,
-                nd.manual_requested_at_utc
+                nd.manual_requested_at_utc,
+                nd.claim_token,
+                nd.claimed_at_utc,
+                nd.claim_expires_at_utc,
+                nd.claimed_by_instance_id
             from notification_deliveries nd
             left join qms_users u on u.id = nd.recipient_user_id
             left join notifications n on n.id = nd.notification_id
@@ -200,69 +400,173 @@ public sealed class NotificationDeliveryStore(
             left join work_items wi on wi.id = nd.work_item_id
             left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
             left join qms_users handled_by on handled_by.id = nd.admin_handled_by_user_id
-            where nd.status in ('Pending', 'Failed')
-              and coalesce(nd.admin_handling_status, 'Open') = 'Open'
-              and nd.attempt_count < @max_attempt_count
-              and (nd.next_attempt_at_utc is null or nd.next_attempt_at_utc <= @now)
-            order by nd.created_at_utc
-            limit @limit;
-            """);
-        command.Parameters.AddWithValue("now", timeProvider.GetUtcNow());
-        command.Parameters.AddWithValue("max_attempt_count", Math.Max(1, retryCount));
-        command.Parameters.AddWithValue("limit", Math.Max(1, limit));
-
-        var rows = new List<NotificationDeliveryRecord>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            rows.Add(ReadDeliveryRecord(reader));
+            where nd.id = any(@ids)
+            order by array_position(@ids, nd.id);
+            """;
+            command.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = candidateIds.ToArray() });
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var row = ReadDeliveryRecord(reader);
+                claimedRows.Add(new ClaimedNotificationDelivery(
+                    row,
+                    row.ClaimToken ?? throw new InvalidOperationException("Claim token was not returned."),
+                    row.AttemptCount,
+                    row.ClaimExpiresAtUtc ?? throw new InvalidOperationException("Claim expiry was not returned.")));
+            }
         }
 
-        return rows;
+        await transaction.CommitAsync(cancellationToken);
+        return claimedRows;
     }
 
-    public async Task MarkDeliveryResultAsync(
+    public async Task<bool> MarkProviderCallStartedAsync(
         Guid deliveryId,
+        Guid claimToken,
+        CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            update notification_delivery_attempts attempt
+            set provider_call_started_at_utc = @now,
+                updated_at_utc = @now
+            from notification_deliveries delivery
+            where attempt.delivery_id = @delivery_id
+              and attempt.claim_token = @claim_token
+              and attempt.outcome = 'Processing'
+              and attempt.provider_call_started_at_utc is null
+              and delivery.id = attempt.delivery_id
+              and delivery.status = 'Processing'
+              and delivery.claim_token = @claim_token;
+            """);
+        command.Parameters.AddWithValue("delivery_id", deliveryId);
+        command.Parameters.AddWithValue("claim_token", claimToken);
+        command.Parameters.AddWithValue("now", now);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
+    public async Task<bool> CompleteDeliveryAttemptAsync(
+        Guid deliveryId,
+        Guid claimToken,
         NotificationChannelResult result,
         int retryCount,
         CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
-        var isFinal = (result.Status is NotificationDeliveryStatuses.Sent
+        var terminalResult = (result.Status is NotificationDeliveryStatuses.Sent
             or NotificationDeliveryStatuses.DryRunSent
             or NotificationDeliveryStatuses.Disabled
             or NotificationDeliveryStatuses.Suppressed)
             || IsNonRetryableNotificationFailure(result.ErrorCode);
+        var maxAttempts = Math.Max(1, retryCount);
 
         await using var dataSource = CreateDataSource();
-        await using var command = dataSource.CreateCommand("""
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
             update notification_deliveries
-            set status = @status,
-                attempt_count = attempt_count + 1,
+            set status = case
+                    when @result_status = 'Failed' and not @terminal_result and attempt_count < @retry_count then 'Pending'
+                    else @result_status
+                end,
                 last_attempt_at_utc = @now,
-                sent_at_utc = case when @status in ('Sent', 'DryRunSent') then @now else sent_at_utc end,
-                suppressed_at_utc = case when @status in ('Suppressed', 'Disabled') then @now else suppressed_at_utc end,
+                sent_at_utc = case when @result_status in ('Sent', 'DryRunSent') then @now else sent_at_utc end,
+                suppressed_at_utc = case when @result_status in ('Suppressed', 'Disabled') then @now else suppressed_at_utc end,
                 next_attempt_at_utc = case
-                    when @is_final then null
-                    when attempt_count + 1 >= @retry_count then null
-                    else @next_attempt_at_utc
+                    when @result_status = 'Failed' and not @terminal_result and attempt_count < @retry_count then @next_attempt_at_utc
+                    else null
                 end,
                 error_code = @error_code,
                 error_message = @error_message,
                 provider_message_id = @provider_message_id,
+                claim_token = null,
+                claimed_at_utc = null,
+                claim_expires_at_utc = null,
+                claimed_by_instance_id = null,
                 updated_at_utc = @now
-            where id = @id;
-            """);
-        command.Parameters.AddWithValue("id", deliveryId);
-        command.Parameters.AddWithValue("status", result.Status);
+            where id = @delivery_id
+              and status = 'Processing'
+              and claim_token = @claim_token
+            returning attempt_count;
+            """;
+        command.Parameters.AddWithValue("delivery_id", deliveryId);
+        command.Parameters.AddWithValue("claim_token", claimToken);
+        command.Parameters.AddWithValue("result_status", result.Status);
         command.Parameters.AddWithValue("now", now);
-        command.Parameters.AddWithValue("is_final", isFinal);
-        command.Parameters.AddWithValue("retry_count", Math.Max(1, retryCount));
+        command.Parameters.AddWithValue("terminal_result", terminalResult);
+        command.Parameters.AddWithValue("retry_count", maxAttempts);
         command.Parameters.AddWithValue("next_attempt_at_utc", now.AddMinutes(5));
         command.Parameters.AddWithValue("error_code", (object?)result.ErrorCode ?? DBNull.Value);
         command.Parameters.AddWithValue("error_message", (object?)SanitizeError(result.ErrorMessage) ?? DBNull.Value);
         command.Parameters.AddWithValue("provider_message_id", (object?)result.ProviderMessageId ?? DBNull.Value);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        var attemptCountValue = await command.ExecuteScalarAsync(cancellationToken);
+
+        if (attemptCountValue is not int attemptCount)
+        {
+            await using var ownershipLost = connection.CreateCommand();
+            ownershipLost.Transaction = transaction;
+            ownershipLost.CommandText = """
+                update notification_delivery_attempts
+                set outcome = case when outcome = 'Processing' then 'OwnershipLost' else outcome end,
+                    completed_at_utc = coalesce(completed_at_utc, @now),
+                    error_code = 'NotificationDeliveryClaimLost',
+                    error_message = '현재 claim 소유권이 없어 늦은 완료 결과를 반영하지 않았습니다.',
+                    updated_at_utc = @now
+                where delivery_id = @delivery_id
+                  and claim_token = @claim_token;
+                """;
+            ownershipLost.Parameters.AddWithValue("delivery_id", deliveryId);
+            ownershipLost.Parameters.AddWithValue("claim_token", claimToken);
+            ownershipLost.Parameters.AddWithValue("now", now);
+            await ownershipLost.ExecuteNonQueryAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return false;
+        }
+
+        var retryScheduled = result.Status == NotificationDeliveryStatuses.Failed
+            && !terminalResult
+            && attemptCount < maxAttempts;
+        var outcome = result.Status switch
+        {
+            NotificationDeliveryStatuses.Sent => NotificationDeliveryAttemptOutcomes.Sent,
+            NotificationDeliveryStatuses.DryRunSent => NotificationDeliveryAttemptOutcomes.DryRunSent,
+            NotificationDeliveryStatuses.Disabled => NotificationDeliveryAttemptOutcomes.Disabled,
+            NotificationDeliveryStatuses.Suppressed => NotificationDeliveryAttemptOutcomes.Suppressed,
+            NotificationDeliveryStatuses.Failed when retryScheduled => NotificationDeliveryAttemptOutcomes.RetryScheduled,
+            _ => NotificationDeliveryAttemptOutcomes.FailedPermanent
+        };
+
+        await using var completeAttempt = connection.CreateCommand();
+        completeAttempt.Transaction = transaction;
+        completeAttempt.CommandText = """
+            update notification_delivery_attempts
+            set outcome = @outcome,
+                completed_at_utc = @now,
+                error_code = @error_code,
+                error_message = @error_message,
+                provider_message_id = @provider_message_id,
+                updated_at_utc = @now
+            where delivery_id = @delivery_id
+              and claim_token = @claim_token
+              and outcome = 'Processing';
+            """;
+        completeAttempt.Parameters.AddWithValue("delivery_id", deliveryId);
+        completeAttempt.Parameters.AddWithValue("claim_token", claimToken);
+        completeAttempt.Parameters.AddWithValue("outcome", outcome);
+        completeAttempt.Parameters.AddWithValue("now", now);
+        completeAttempt.Parameters.AddWithValue("error_code", (object?)result.ErrorCode ?? DBNull.Value);
+        completeAttempt.Parameters.AddWithValue("error_message", (object?)SanitizeError(result.ErrorMessage) ?? DBNull.Value);
+        completeAttempt.Parameters.AddWithValue("provider_message_id", (object?)result.ProviderMessageId ?? DBNull.Value);
+        if (await completeAttempt.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException("Notification delivery attempt audit completion failed.");
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     private static bool IsNonRetryableNotificationFailure(string? errorCode)
@@ -337,7 +641,11 @@ public sealed class NotificationDeliveryStore(
                 nd.correlation_id,
                 nd.manual_payload_json::text,
                 nd.manual_requested_by_user_id,
-                nd.manual_requested_at_utc
+                nd.manual_requested_at_utc,
+                nd.claim_token,
+                nd.claimed_at_utc,
+                nd.claim_expires_at_utc,
+                nd.claimed_by_instance_id
             from notification_deliveries nd
             left join qms_users u on u.id = nd.recipient_user_id
             left join notifications n on n.id = nd.notification_id
@@ -366,7 +674,7 @@ public sealed class NotificationDeliveryStore(
         while (await reader.ReadAsync(cancellationToken))
         {
             var row = ReadDeliveryRecord(reader);
-            items.Add(ToResponse(row));
+            items.Add(ToResponse(row, timeProvider.GetUtcNow()));
         }
 
         return new NotificationDeliveryListResponse(items);
@@ -433,7 +741,11 @@ public sealed class NotificationDeliveryStore(
                 nd.correlation_id,
                 nd.manual_payload_json::text,
                 nd.manual_requested_by_user_id,
-                nd.manual_requested_at_utc
+                nd.manual_requested_at_utc,
+                nd.claim_token,
+                nd.claimed_at_utc,
+                nd.claim_expires_at_utc,
+                nd.claimed_by_instance_id
             from notification_deliveries nd
             left join qms_users u on u.id = nd.recipient_user_id
             left join notifications n on n.id = nd.notification_id
@@ -449,13 +761,19 @@ public sealed class NotificationDeliveryStore(
         command.Parameters.Add(new NpgsqlParameter("recipient_user_id", NpgsqlDbType.Uuid) { Value = (object?)recipientUserId ?? DBNull.Value });
         command.Parameters.AddWithValue("teams_activity_only", teamsActivityOnly);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        NotificationDeliveryRecord row;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return null;
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+
+            row = ReadDeliveryRecord(reader);
         }
 
-        return ToDetailResponse(ReadDeliveryRecord(reader));
+        var attempts = await ListDeliveryAttemptsAsync(dataSource, deliveryId, cancellationToken);
+        return ToDetailResponse(row, attempts, timeProvider.GetUtcNow());
     }
 
     public async Task<ManualNotificationProjectSnapshot?> GetProjectSnapshotAsync(Guid projectId, CancellationToken cancellationToken)
@@ -1834,7 +2152,7 @@ public sealed class NotificationDeliveryStore(
         return await command.ExecuteScalarAsync(cancellationToken) as string;
     }
 
-    private static NotificationDeliveryResponse ToResponse(NotificationDeliveryRecord row)
+    private static NotificationDeliveryResponse ToResponse(NotificationDeliveryRecord row, DateTimeOffset now)
     {
         var responseRecipientEmail = !string.IsNullOrWhiteSpace(row.DisplayRecipientEmail)
             ? row.DisplayRecipientEmail
@@ -1867,8 +2185,8 @@ public sealed class NotificationDeliveryStore(
             row.SuppressedAtUtc,
             row.ErrorCode,
             SanitizeError(row.ErrorMessage),
-            ActionGuide(row),
-            PendingReason(row),
+            ActionGuide(row, now),
+            PendingReason(row, now),
             row.DisplayRecipientName ?? row.RecipientDisplayName,
             responseRecipientEmail,
             MaskAddress(responseRecipientEmail),
@@ -1894,11 +2212,17 @@ public sealed class NotificationDeliveryStore(
             row.AdminHandledByUserId,
             row.AdminHandledByDisplayName,
             row.AdminHandlingNote,
+            row.ClaimedAtUtc,
+            row.ClaimExpiresAtUtc,
+            row.Status == NotificationDeliveryStatuses.Processing && row.ClaimExpiresAtUtc <= now,
             row.CreatedAtUtc,
             row.UpdatedAtUtc);
     }
 
-    private static NotificationDeliveryDetailResponse ToDetailResponse(NotificationDeliveryRecord row)
+    private static NotificationDeliveryDetailResponse ToDetailResponse(
+        NotificationDeliveryRecord row,
+        IReadOnlyList<NotificationDeliveryAttemptResponse> attempts,
+        DateTimeOffset now)
     {
         var handlingStatus = string.IsNullOrWhiteSpace(row.AdminHandlingStatus)
             ? NotificationDeliveryAdminHandlingStatuses.Open
@@ -1923,12 +2247,60 @@ public sealed class NotificationDeliveryStore(
             row.SentAtUtc,
             row.ErrorCode,
             SanitizeError(row.ErrorMessage),
-            ActionGuide(row),
+            ActionGuide(row, now),
             handlingStatus,
             AdminHandlingStatusLabel(handlingStatus),
             row.AdminHandlingNote,
             row.CorrelationId,
-            MaskProviderMessageId(row.ProviderMessageId));
+            MaskProviderMessageId(row.ProviderMessageId),
+            row.ClaimedAtUtc,
+            row.ClaimExpiresAtUtc,
+            row.Status == NotificationDeliveryStatuses.Processing && row.ClaimExpiresAtUtc <= now,
+            MaskWorkerInstanceId(row.ClaimedByInstanceId),
+            attempts);
+    }
+
+    private static async Task<IReadOnlyList<NotificationDeliveryAttemptResponse>> ListDeliveryAttemptsAsync(
+        NpgsqlDataSource dataSource,
+        Guid deliveryId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand("""
+            select
+                attempt_no,
+                worker_instance_id,
+                claimed_at_utc,
+                lease_expires_at_utc,
+                provider_call_started_at_utc,
+                completed_at_utc,
+                outcome,
+                error_code,
+                error_message,
+                provider_message_id
+            from notification_delivery_attempts
+            where delivery_id = @delivery_id
+            order by attempt_no desc;
+            """);
+        command.Parameters.AddWithValue("delivery_id", deliveryId);
+
+        var attempts = new List<NotificationDeliveryAttemptResponse>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            attempts.Add(new NotificationDeliveryAttemptResponse(
+                reader.GetInt32(0),
+                MaskWorkerInstanceId(reader.GetString(1)) ?? "opaque",
+                reader.GetFieldValue<DateTimeOffset>(2),
+                reader.GetFieldValue<DateTimeOffset>(3),
+                reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
+                reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5),
+                reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.IsDBNull(8) ? null : SanitizeError(reader.GetString(8)),
+                reader.IsDBNull(9) ? null : MaskProviderMessageId(reader.GetString(9))));
+        }
+
+        return attempts;
     }
 
     private static string ResolveCategoryLabel(NotificationDeliveryRecord row)
@@ -1967,6 +2339,16 @@ public sealed class NotificationDeliveryStore(
         }
 
         return value[..12] + "..." + value[^8..];
+    }
+
+    private static string? MaskWorkerInstanceId(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Length <= 8 ? "opaque" : value[..4] + "..." + value[^4..];
     }
 
     private static string ResolveDisplayTitle(NotificationDeliveryRecord row)
@@ -2134,6 +2516,7 @@ public sealed class NotificationDeliveryStore(
         return status switch
         {
             NotificationDeliveryStatuses.Pending => "발송 대기",
+            NotificationDeliveryStatuses.Processing => "발송 처리 중",
             NotificationDeliveryStatuses.Sent => "발송 완료",
             NotificationDeliveryStatuses.Failed => "발송 실패",
             NotificationDeliveryStatuses.Suppressed => "발송 제외",
@@ -2153,8 +2536,15 @@ public sealed class NotificationDeliveryStore(
         };
     }
 
-    private static string? PendingReason(NotificationDeliveryRecord row)
+    private static string? PendingReason(NotificationDeliveryRecord row, DateTimeOffset now)
     {
+        if (row.Status == NotificationDeliveryStatuses.Processing)
+        {
+            return row.ClaimExpiresAtUtc <= now
+                ? "처리 lease가 만료되어 다음 worker의 회수를 기다리고 있습니다."
+                : "한 worker가 claim lease 안에서 발송을 처리하고 있습니다.";
+        }
+
         if (row.Status != NotificationDeliveryStatuses.Pending)
         {
             return null;
@@ -2173,11 +2563,16 @@ public sealed class NotificationDeliveryStore(
         return "발송 worker 또는 채널 설정 확인이 필요합니다.";
     }
 
-    private static string ActionGuide(NotificationDeliveryRecord row)
+    private static string ActionGuide(NotificationDeliveryRecord row, DateTimeOffset now)
     {
         if (row.Status == NotificationDeliveryStatuses.Pending)
         {
-            return PendingReason(row) ?? "대기 상태입니다. 오래된 대기 건은 worker/dispatch 설정을 확인하세요.";
+            return PendingReason(row, now) ?? "대기 상태입니다. 오래된 대기 건은 worker/dispatch 설정을 확인하세요.";
+        }
+
+        if (row.Status == NotificationDeliveryStatuses.Processing)
+        {
+            return "발송 처리 중에는 확인, 제외 또는 재시도를 실행할 수 없습니다. lease 만료 시 worker가 안전하게 회수합니다.";
         }
 
         return row.ErrorCode switch
@@ -2253,7 +2648,11 @@ public sealed class NotificationDeliveryStore(
             reader.IsDBNull(49) ? null : reader.GetString(49),
             reader.IsDBNull(50) ? null : reader.GetString(50),
             reader.IsDBNull(51) ? null : reader.GetGuid(51),
-            reader.IsDBNull(52) ? null : reader.GetFieldValue<DateTimeOffset>(52));
+            reader.IsDBNull(52) ? null : reader.GetFieldValue<DateTimeOffset>(52),
+            reader.IsDBNull(53) ? null : reader.GetGuid(53),
+            reader.IsDBNull(54) ? null : reader.GetFieldValue<DateTimeOffset>(54),
+            reader.IsDBNull(55) ? null : reader.GetFieldValue<DateTimeOffset>(55),
+            reader.IsDBNull(56) ? null : reader.GetString(56));
     }
 
     private NpgsqlDataSource CreateDataSource()

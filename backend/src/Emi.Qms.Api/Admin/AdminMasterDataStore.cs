@@ -33,6 +33,16 @@ public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connec
                       and coalesce(admin_handling_status, 'Open') = 'Open'
                 ) as pending_delivery_count,
                 (
+                    select count(*)::integer
+                    from notification_deliveries
+                    where status = 'Processing'
+                ) as processing_delivery_count,
+                (
+                    select count(*)::integer
+                    from notification_deliveries
+                    where status = 'Sent'
+                ) as sent_delivery_count,
+                (
                     select max(sent_at_utc)
                     from notification_deliveries
                     where delivery_type = 'DailyDigest'
@@ -54,9 +64,11 @@ public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connec
         var pendingUserCount = reader.GetInt32(0);
         var failedDeliveryCount = reader.GetInt32(1);
         var pendingDeliveryCount = reader.GetInt32(2);
-        DateTimeOffset? lastDailyDigestSentAtUtc = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3);
-        var activeEscalationCount = reader.GetInt32(4);
-        var recentMasterChangeCount = reader.GetInt32(5);
+        var processingDeliveryCount = reader.GetInt32(3);
+        var sentDeliveryCount = reader.GetInt32(4);
+        DateTimeOffset? lastDailyDigestSentAtUtc = reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5);
+        var activeEscalationCount = reader.GetInt32(6);
+        var recentMasterChangeCount = reader.GetInt32(7);
         await reader.CloseAsync();
 
         var activeEscalationLevels = await ReadActiveEscalationLevelsAsync(dataSource, cancellationToken);
@@ -65,6 +77,8 @@ public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connec
             pendingUserCount,
             failedDeliveryCount,
             pendingDeliveryCount,
+            processingDeliveryCount,
+            sentDeliveryCount,
             lastDailyDigestSentAtUtc,
             activeEscalationCount,
             recentMasterChangeCount,

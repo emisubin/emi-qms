@@ -22,6 +22,7 @@ public sealed class NotificationDispatchOptions
     public bool Enabled { get; init; }
     public int WorkerIntervalSeconds { get; init; } = 60;
     public int RetryCount { get; init; } = 3;
+    public int ClaimLeaseSeconds { get; init; } = 300;
     public int DedupeWindowHours { get; init; } = 24;
     public int BatchWindowSeconds { get; init; } = 120;
     public int MaxBatchSize { get; init; } = 50;

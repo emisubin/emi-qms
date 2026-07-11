@@ -1168,7 +1168,7 @@ Excel 출력 대상 후보:
 
 ### TASK-NOTIFY-REL-001: Notification delivery claim/lease와 attempt audit
 
-- 상태/다음 순서: 구현·자동 검증 완료 후보 / 사용자 검수 대기 / 다음 TASK-UAT-HANDOVER-003
+- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #30 squash merge 승인 / 다음 TASK-UAT-HANDOVER-003
 - 목적: 다중 notification worker 정상 경쟁에서 같은 delivery의 provider 중복 호출과 늦은 completion overwrite를 차단하고 attempt별 계보를 감사 가능하게 만든다.
 - 포함 범위: additive migration 0028, Pending→Processing claim, `FOR UPDATE SKIP LOCKED`, 300초 lease, opaque worker, fencing token, attempt audit, stale recovery, retry/permanent 분류, 관리자 Processing count/filter/detail/action 차단, isolated candidate 5094/5192
 - 제외 범위: Persistent UAT 0028 적용, 기존 runtime handover, actual Teams/Mail/Channel 발송, provider exactly-once, escalation starvation, 사용자별 알림 설정, 기존 실패 data 정리
@@ -1178,7 +1178,7 @@ Excel 출력 대상 후보:
 - Candidate: HTTPS 5192/backend 5094, 전용 `emi_qms_e2e_*` tmpfs PostgreSQL, canonical migration 28/latest 0028, synthetic Pending/Processing/Sent/Failed와 attempt history, actual provider 0
 - Persistent UAT: 0028 미적용, aggregate 16/16 전후 동일, PostgreSQL restart 0, 기존 runtime PID 유지
 - 산출물: [Task 정의와 검수 체크리스트](../tasks/notify-rel-001.md), [Implementation report](../tasks/notify-rel-001-implementation-report.md), [SOP](../tasks/notify-rel-001-sop.md), [User manual](../tasks/notify-rel-001-user-manual.md), 이 Roadmap update
-- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기
+- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #30 병합 승인 / 미체크 항목 0
 - 주요 위험: provider transaction과 DB transaction 사이 crash ambiguity, Persistent UAT controlled migration/handover 미수행, migration checksum guard P3
 
 ### TASK-UAT-HANDOVER-003: Notification delivery claim/lease UAT handover
@@ -1385,7 +1385,7 @@ Excel 출력 대상 후보:
 | 56 | Frontend dependency security | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/보안 | TASK-FRONTEND-SEC-001 | Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0. Audit 전체 0, frontend/backend/E2E와 5174/5185 비교 검수 통과. PR #24 |
 | 57 | Review-safe UAT | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-002 | 5092/5190, startup·worker·provider·HTTP mutation 차단, DB session read-only, schema readiness, Development UAT 분리. PR #26 |
 | 58 | UAT 통합 사용자 검수 | 자동 검증·사용자 검수 완료 / merge 승인 | 사용자/개발 | UAT-VERIFY-001 | 최신 main runtime·ledger/schema/data/권한/dashboard/Review-safe/UI 기준선과 개인정보 안전 merge projection 통과. UAT 기준선 Go, 신규 기능 No-Go 유지, PR #29 병합 승인 |
-| 59 | Notification delivery claim/lease | 구현·자동 검증 완료 후보 / 사용자 검수 대기 | 개발/운영 | TASK-NOTIFY-REL-001 | Processing·SKIP LOCKED·lease/fencing·attempt audit, backend 325/325, isolated candidate 5094/5192. Persistent UAT 0028 미적용, exactly-once 미보장 |
+| 59 | Notification delivery claim/lease | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-REL-001 | Processing·SKIP LOCKED·lease/fencing·attempt audit, 정상 경쟁 provider call 1회, isolated candidate 5094/5192. Persistent UAT 0028 미적용, actual provider 호출 0, at-least-once이며 exactly-once 미보장. PR #30 |
 | 60 | Escalation starvation | 계획 | 개발/운영 | TASK-NOTIFY-ESC-001 | batch 정렬과 starvation 보정, L0~L3 회귀를 별도 검증 |
 | 61 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-HARDEN-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
 | 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
@@ -1469,6 +1469,7 @@ Excel 출력 대상 후보:
 | 2026-07-11 | UAT-VERIFY-001을 최신 main에서 처음부터 재실행해 full ledger·schema·aggregate·권한·dashboard·Review-safe·desktop/390px·isolated CI 기준선을 통과하고 사용자 검수 대기로 전환 | 이전 false-ready 원인이 제거된 공식 runtime에서 Persistent UAT 통합 기준선을 데이터 변경 없이 확정 후보로 만들고 다음 TASK-NOTIFY-REL-001 gate를 준비하기 위함 | 23장, 24장, UAT-VERIFY-001 |
 | 2026-07-11 | UAT-VERIFY-001 사용자 검수와 UAT 기준선 Go를 승인하고, GitHub metadata 과다 조회 Finding을 검증 절차 P2로 수용해 fixed-field projection과 output guard로 보정한 뒤 PR #29 병합을 승인 | 제품 runtime·Repository·Persistent UAT를 변경하지 않고 개인정보 안전 merge gate를 복구하며 다음 remediation을 TASK-NOTIFY-REL-001로 전환하기 위함 | 23장, 24장, UAT-VERIFY-001 |
 | 2026-07-11 | TASK-NOTIFY-REL-001에서 delivery claim/lease·Processing·fencing·attempt audit을 구현하고 전용 tmpfs candidate 검증 후 사용자 검수 대기로 전환 | 정상 다중 worker 중복 provider 호출과 늦은 DB overwrite P2를 제거하되 provider/DB crash 경계의 at-least-once 제한을 명시하고 Persistent UAT 적용을 TASK-UAT-HANDOVER-003으로 분리하기 위함 | 23장, 24장, TASK-NOTIFY-REL-001 |
+| 2026-07-11 | TASK-NOTIFY-REL-001 사용자 검수와 PR #30 squash merge를 승인 | claim/lease·fencing·attempt audit, 정상 경쟁 provider call 1회, at-least-once 제한과 exactly-once 미보장, Persistent UAT 0028 미적용, actual provider 호출 0을 확인하고 다음 단계를 TASK-UAT-HANDOVER-003으로 전환하기 위함 | 23장, 24장, TASK-NOTIFY-REL-001 |
 
 ## 26. 용어 사전
 

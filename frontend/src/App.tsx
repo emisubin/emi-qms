@@ -2728,6 +2728,18 @@ function AdminDashboardPage({
             <p>아직 worker가 처리하지 않았거나 다음 재시도 시각을 기다리는 외부 알림입니다.</p>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Pending' })}>대기 알림 보기</button>
           </article>
+          <article className="admin-dashboard-card" data-tone="warning">
+            <span>발송 처리 중</span>
+            <strong>{state.data.processingDeliveryCount}건</strong>
+            <p>한 worker가 claim lease 안에서 처리 중인 외부 알림입니다.</p>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Processing' })}>처리 중 알림 보기</button>
+          </article>
+          <article className="admin-dashboard-card">
+            <span>발송 완료</span>
+            <strong>{state.data.sentDeliveryCount}건</strong>
+            <p>외부 provider가 요청을 수락해 완료된 알림입니다.</p>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Sent' })}>완료 알림 보기</button>
+          </article>
           <article className="admin-dashboard-card">
             <span>마지막 일일 요약</span>
             <strong>{formatNullableDateTime(state.data.lastDailyDigestSentAtUtc)}</strong>
@@ -3765,12 +3777,13 @@ function summarizeInline(value: string, maxLength: number) {
   return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}...`;
 }
 
-type DeliveryTabKey = 'all' | 'open-failed' | 'open-pending' | 'sent' | 'acknowledged' | 'dismissed' | 'other';
+type DeliveryTabKey = 'all' | 'open-failed' | 'open-pending' | 'processing' | 'sent' | 'acknowledged' | 'dismissed' | 'other';
 
 const deliveryTabs: Array<{ key: DeliveryTabKey; label: string }> = [
   { key: 'all', label: '전체' },
   { key: 'open-failed', label: '미처리 실패' },
   { key: 'open-pending', label: '미처리 대기' },
+  { key: 'processing', label: '발송 처리 중' },
   { key: 'sent', label: '발송 완료' },
   { key: 'acknowledged', label: '확인됨' },
   { key: 'dismissed', label: '제외됨' },
@@ -3803,6 +3816,9 @@ function deliveryTabFromFilters(status: string | null, handlingStatus: string | 
   if (status === 'Pending') {
     return 'open-pending';
   }
+  if (status === 'Processing') {
+    return 'processing';
+  }
   if (status === 'Sent') {
     return 'sent';
   }
@@ -3818,6 +3834,8 @@ function deliveryTabFilters(tab: DeliveryTabKey): { status?: string | null; hand
       return { status: 'Failed', handlingStatus: 'Open' };
     case 'open-pending':
       return { status: 'Pending', handlingStatus: 'Open' };
+    case 'processing':
+      return { status: 'Processing' };
     case 'sent':
       return { status: 'Sent' };
     case 'acknowledged':
@@ -3880,6 +3898,33 @@ function deliveryTypeLabel(deliveryType: string) {
       return '참조 알림';
     default:
       return deliveryType;
+  }
+}
+
+function deliveryAttemptOutcomeLabel(outcome: string) {
+  switch (outcome) {
+    case 'Processing':
+      return '처리 중';
+    case 'Sent':
+      return '발송 완료';
+    case 'DryRunSent':
+      return 'Dry-run 완료';
+    case 'Disabled':
+      return '채널 비활성';
+    case 'Suppressed':
+      return '발송 제외';
+    case 'RetryScheduled':
+      return '재시도 예약';
+    case 'FailedPermanent':
+      return '영구 실패';
+    case 'LeaseExpiredBeforeProviderCall':
+      return 'Provider 호출 전 lease 만료';
+    case 'LeaseExpiredAfterProviderCallStarted':
+      return 'Provider 호출 후 결과 불확실';
+    case 'OwnershipLost':
+      return 'Claim 소유권 상실';
+    default:
+      return '알 수 없음';
   }
 }
 
@@ -4031,7 +4076,7 @@ function AdminNotificationDeliveriesPage({
   const displayedItems = state.kind === 'ready'
     ? state.data.items.filter((item) => deliveryTabLocalFilter(activeTab, item))
     : [];
-  const visibleIds = displayedItems.map((item) => item.deliveryId);
+  const visibleIds = displayedItems.filter((item) => item.status !== 'Processing').map((item) => item.deliveryId);
   const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
   const selectedItems = displayedItems.filter((item) => selectedIds.includes(item.deliveryId));
 
@@ -4121,6 +4166,7 @@ function AdminNotificationDeliveriesPage({
         <button type="button" onClick={() => void runDeliveryAction('acknowledge')} disabled={selectedIds.length === 0}>선택 확인 처리</button>
         <button type="button" onClick={() => void runDeliveryAction('dismiss')} disabled={selectedIds.length === 0}>선택 제외 처리</button>
         <button type="button" onClick={() => void runDeliveryAction('retry')} disabled={selectedItems.length === 0 || selectedItems.some((item) => item.status !== 'Pending')}>선택 재발송</button>
+        {displayedItems.some((item) => item.status === 'Processing') ? <small>발송 처리 중인 항목은 claim 소유권 보호를 위해 선택하거나 상태를 변경할 수 없습니다.</small> : null}
       </div>
       <ActionFeedback message={message} tone={message.includes('오류') ? 'error' : message.includes('저장하고') ? 'loading' : message ? 'success' : 'neutral'} />
       {state.kind === 'loading' ? <p>발송 상태를 불러오는 중입니다.</p> : null}
@@ -4154,6 +4200,8 @@ function AdminNotificationDeliveriesPage({
                     <input
                       type="checkbox"
                       aria-label={`${item.displayTitle} 선택`}
+                      disabled={item.status === 'Processing'}
+                      title={item.status === 'Processing' ? '발송 처리 중에는 확인, 제외 또는 재시도를 실행할 수 없습니다.' : undefined}
                       checked={selectedIds.includes(item.deliveryId)}
                       onChange={(event) => setSelectedIds((current) => (
                         event.target.checked
@@ -4176,7 +4224,8 @@ function AdminNotificationDeliveriesPage({
                   </td>
                   <td className="admin-table__cell--text">{item.channelLabel}<br /><small>{item.manualNotificationKindLabel ?? item.deliveryTypeLabel}</small></td>
                   <td className="admin-table__cell--status">
-                    <StatusBadge label={item.statusLabel} tone={item.status === 'Failed' ? 'danger' : item.status === 'Pending' ? 'warning' : 'neutral'} />
+                    <StatusBadge label={item.statusLabel} tone={item.status === 'Failed' ? 'danger' : item.status === 'Pending' || item.status === 'Processing' ? 'warning' : 'neutral'} />
+                    {item.status === 'Processing' ? <><br /><small>{item.claimIsStale ? 'lease 만료 — 회수 대기' : 'claim lease 유효'}</small></> : null}
                     {shouldShowDeliveryHandlingStatus(item.status) ? (
                       <>
                         <br />
@@ -4189,6 +4238,8 @@ function AdminNotificationDeliveriesPage({
                     <small>생성 {formatNullableDateTime(item.createdAtUtc)}</small>
                     <br />
                     <small>다음 {formatNullableDateTime(item.nextAttemptAtUtc)}</small>
+                    <br />
+                    <small>lease {formatNullableDateTime(item.claimExpiresAtUtc)}</small>
                     <br />
                     <small>발송 {formatNullableDateTime(item.sentAtUtc)}</small>
                   </td>
@@ -4270,6 +4321,9 @@ function AdminNotificationDeliveryDetailPage({
             <DetailItem label="최근 시도" value={formatNullableDateTime(state.data.lastAttemptAtUtc)} />
             <DetailItem label="발송 완료" value={formatNullableDateTime(state.data.sentAtUtc)} />
             <DetailItem label="처리상태" value={shouldShowDeliveryHandlingStatus(state.data.status) ? state.data.adminHandlingStatusLabel : '-'} />
+            <DetailItem label="현재 시도 시작" value={formatNullableDateTime(state.data.claimedAtUtc)} />
+            <DetailItem label="Lease 만료 예정" value={formatNullableDateTime(state.data.claimExpiresAtUtc)} />
+            <DetailItem label="Lease 상태" value={state.data.status === 'Processing' ? (state.data.claimIsStale ? '만료 — 회수 대기' : '유효') : '-'} />
           </div>
           <div className="notification-detail-message">
             <strong>내용</strong>
@@ -4288,6 +4342,41 @@ function AdminNotificationDeliveryDetailPage({
               <div><dt>Provider Message ID</dt><dd>{state.data.providerMessageId ?? '-'}</dd></div>
             </dl>
           </details>
+          <section className="subsection">
+            <h3>발송 시도 이력</h3>
+            {state.data.attempts.length === 0 ? <p className="muted-text">기록된 발송 시도가 없습니다.</p> : (
+              <div className="table-scroll">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th className="admin-table__cell--number">시도</th>
+                      <th className="admin-table__cell--status">결과</th>
+                      <th className="admin-table__cell--date">시작/완료</th>
+                      <th className="admin-table__cell--text">오류/Provider</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {state.data.attempts.map((attempt) => (
+                      <tr key={attempt.attemptNumber}>
+                        <td className="admin-table__cell--number">{attempt.attemptNumber}회</td>
+                        <td className="admin-table__cell--status"><StatusBadge label={deliveryAttemptOutcomeLabel(attempt.outcome)} tone={attempt.outcome === 'FailedPermanent' ? 'danger' : attempt.outcome === 'Processing' || attempt.outcome === 'RetryScheduled' ? 'warning' : 'neutral'} /></td>
+                        <td className="admin-table__cell--date">
+                          <small>시작 {formatNullableDateTime(attempt.claimedAtUtc)}</small><br />
+                          <small>Provider {formatNullableDateTime(attempt.providerCallStartedAtUtc)}</small><br />
+                          <small>완료 {formatNullableDateTime(attempt.completedAtUtc)}</small>
+                        </td>
+                        <td className="admin-table__cell--text">
+                          <strong>{attempt.errorCode ?? '-'}</strong>
+                          {attempt.errorMessage ? <><br /><small>{attempt.errorMessage}</small></> : null}
+                          {attempt.providerMessageId ? <><br /><small>Provider {attempt.providerMessageId}</small></> : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         </section>
       ) : null}
     </AdminPageShell>

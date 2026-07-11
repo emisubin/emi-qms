@@ -568,7 +568,7 @@ public static class NotificationDeliveryEndpointExtensions
         app.MapPost("/api/admin/notification-deliveries/test-mail", async (
             NotificationTestMailRequest request,
             NotificationDeliveryStore deliveryStore,
-            IEnumerable<INotificationChannelHandler> channelHandlers,
+            NotificationDispatcher dispatcher,
             IOptionsMonitor<NotificationOptions> options,
             CancellationToken cancellationToken) =>
         {
@@ -600,7 +600,6 @@ public static class NotificationDeliveryEndpointExtensions
             var correlationId = CreateCorrelationId();
             var subject = BuildSubject(request.Subject, request.SubjectSuffix, correlationId);
             var saveToSentItems = request.SaveToSentItems ?? mailOptions.SaveTestMailToSentItems;
-            var mailHandler = channelHandlers.Single(handler => handler.Channel == NotificationDeliveryChannels.Mail);
             var deliveryId = await deliveryStore.CreateManualTestMailDeliveryAsync(
                 new NotificationDeliveryDisplaySnapshot(
                     subject,
@@ -614,7 +613,8 @@ public static class NotificationDeliveryEndpointExtensions
                     InferManualKind(subject),
                     correlationId),
                 cancellationToken);
-            var result = await mailHandler.SendAsync(
+            var result = await dispatcher.DispatchDeliveryAsync(
+                deliveryId,
                 new NotificationDeliveryMessage(
                     deliveryId,
                     NotificationDeliveryChannels.Mail,
@@ -628,8 +628,8 @@ public static class NotificationDeliveryEndpointExtensions
                     correlationId,
                     mailOptions.SenderUserId,
                     mailOptions.SenderAddress),
+                retryCount: 1,
                 cancellationToken);
-            await deliveryStore.MarkDeliveryResultAsync(deliveryId, result, retryCount: 1, cancellationToken);
 
             return Results.Ok(new NotificationTestMailResponse(
                 deliveryId,
@@ -652,7 +652,7 @@ public static class NotificationDeliveryEndpointExtensions
         app.MapPost("/api/admin/notification-deliveries/test-teams-activity", async (
             NotificationTestTeamsActivityRequest request,
             NotificationDeliveryStore deliveryStore,
-            IEnumerable<INotificationChannelHandler> channelHandlers,
+            NotificationDispatcher dispatcher,
             IOptionsMonitor<NotificationOptions> options,
             CancellationToken cancellationToken) =>
         {
@@ -687,7 +687,6 @@ public static class NotificationDeliveryEndpointExtensions
                 recipient.EntraObjectId,
                 teamsActivityOptions,
                 request.InstalledAppId);
-            var teamsActivityHandler = channelHandlers.Single(handler => handler.Channel == NotificationDeliveryChannels.TeamsActivity);
             var deliveryId = await deliveryStore.CreateManualTestTeamsActivityDeliveryAsync(
                 recipient.UserId,
                 new NotificationDeliveryDisplaySnapshot(
@@ -702,7 +701,8 @@ public static class NotificationDeliveryEndpointExtensions
                     InferManualKind(title),
                     correlationId),
                 cancellationToken);
-            var result = await teamsActivityHandler.SendAsync(
+            var result = await dispatcher.DispatchDeliveryAsync(
+                deliveryId,
                 new NotificationDeliveryMessage(
                     deliveryId,
                     NotificationDeliveryChannels.TeamsActivity,
@@ -720,8 +720,8 @@ public static class NotificationDeliveryEndpointExtensions
                     TeamsActivityType: activityType,
                     TeamsActivityTopicSource: topicEntityUrl is null ? null : "entityUrl",
                     TeamsActivityTopicValue: topicEntityUrl),
+                retryCount: 1,
                 cancellationToken);
-            await deliveryStore.MarkDeliveryResultAsync(deliveryId, result, retryCount: 1, cancellationToken);
 
             var isActualEligible = recipient.IsActive
                 && string.Equals(recipient.AuthProvider, "EntraId", StringComparison.Ordinal)
@@ -854,7 +854,7 @@ public static class NotificationDeliveryEndpointExtensions
 
     private static async Task<NotificationManualSendChannelResponse> SendManualChannelAsync(
         string channel,
-        INotificationChannelHandler handler,
+        NotificationDispatcher dispatcher,
         NotificationManualSendRequest request,
         NotificationDeliveryStore deliveryStore,
         NotificationOptions options,
@@ -871,7 +871,7 @@ public static class NotificationDeliveryEndpointExtensions
             return channel switch
             {
                 NotificationDeliveryChannels.TeamsChannel => await SendManualTeamsChannelAsync(
-                    handler,
+                    dispatcher,
                     deliveryStore,
                     notificationKind,
                     kindLabel,
@@ -881,7 +881,7 @@ public static class NotificationDeliveryEndpointExtensions
                     correlationId,
                     cancellationToken),
                 NotificationDeliveryChannels.TeamsActivity => await SendManualTeamsActivityAsync(
-                    handler,
+                    dispatcher,
                     request,
                     deliveryStore,
                     options.TeamsActivity,
@@ -893,7 +893,7 @@ public static class NotificationDeliveryEndpointExtensions
                     correlationId,
                     cancellationToken),
                 NotificationDeliveryChannels.Mail => await SendManualMailAsync(
-                    handler,
+                    dispatcher,
                     request,
                     deliveryStore,
                     options.Mail,
@@ -934,7 +934,7 @@ public static class NotificationDeliveryEndpointExtensions
     }
 
     private static async Task<NotificationManualSendChannelResponse> SendManualTeamsChannelAsync(
-        INotificationChannelHandler handler,
+        NotificationDispatcher dispatcher,
         NotificationDeliveryStore deliveryStore,
         string notificationKind,
         string kindLabel,
@@ -962,7 +962,8 @@ public static class NotificationDeliveryEndpointExtensions
                 correlationId),
             $"manual-send:{correlationId}:teams-channel",
             cancellationToken);
-        var result = await handler.SendAsync(
+        var result = await dispatcher.DispatchDeliveryAsync(
+            deliveryId,
             new NotificationDeliveryMessage(
                 deliveryId,
                 NotificationDeliveryChannels.TeamsChannel,
@@ -973,13 +974,13 @@ public static class NotificationDeliveryEndpointExtensions
                 target,
                 null,
                 CorrelationId: correlationId),
+            retryCount: 1,
             cancellationToken);
-        await deliveryStore.MarkDeliveryResultAsync(deliveryId, result, retryCount: 1, cancellationToken);
         return ToManualSendChannelResponse(NotificationDeliveryChannels.TeamsChannel, deliveryId, result, target);
     }
 
     private static async Task<NotificationManualSendChannelResponse> SendManualTeamsActivityAsync(
-        INotificationChannelHandler handler,
+        NotificationDispatcher dispatcher,
         NotificationManualSendRequest request,
         NotificationDeliveryStore deliveryStore,
         NotificationTeamsActivityOptions options,
@@ -1036,7 +1037,8 @@ public static class NotificationDeliveryEndpointExtensions
                 correlationId),
             $"manual-send:{correlationId}:teams-activity",
             cancellationToken);
-        var result = await handler.SendAsync(
+        var result = await dispatcher.DispatchDeliveryAsync(
+            deliveryId,
             new NotificationDeliveryMessage(
                 deliveryId,
                 NotificationDeliveryChannels.TeamsActivity,
@@ -1052,13 +1054,13 @@ public static class NotificationDeliveryEndpointExtensions
                 RecipientAuthProvider: recipient.AuthProvider,
                 RecipientUserIsActive: recipient.IsActive,
                 TeamsActivityType: activityType),
+            retryCount: 1,
             cancellationToken);
-        await deliveryStore.MarkDeliveryResultAsync(deliveryId, result, retryCount: 1, cancellationToken);
         return ToManualSendChannelResponse(NotificationDeliveryChannels.TeamsActivity, deliveryId, result, MaskRecipient(recipient));
     }
 
     private static async Task<NotificationManualSendChannelResponse> SendManualMailAsync(
-        INotificationChannelHandler handler,
+        NotificationDispatcher dispatcher,
         NotificationManualSendRequest request,
         NotificationDeliveryStore deliveryStore,
         NotificationMailOptions options,
@@ -1127,7 +1129,8 @@ public static class NotificationDeliveryEndpointExtensions
                 correlationId),
             $"manual-send:{correlationId}:mail",
             cancellationToken);
-        var result = await handler.SendAsync(
+        var result = await dispatcher.DispatchDeliveryAsync(
+            deliveryId,
             new NotificationDeliveryMessage(
                 deliveryId,
                 NotificationDeliveryChannels.Mail,
@@ -1145,8 +1148,8 @@ public static class NotificationDeliveryEndpointExtensions
                 RecipientEntraObjectId: recipient?.EntraObjectId,
                 RecipientAuthProvider: recipient?.AuthProvider,
                 RecipientUserIsActive: recipient?.IsActive),
+            retryCount: 1,
             cancellationToken);
-        await deliveryStore.MarkDeliveryResultAsync(deliveryId, result, retryCount: 1, cancellationToken);
         return ToManualSendChannelResponse(NotificationDeliveryChannels.Mail, deliveryId, result, target);
     }
 

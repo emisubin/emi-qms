@@ -501,6 +501,38 @@ describe('App', () => {
     expect(within(sentRow as HTMLTableRowElement).queryByText('미처리')).not.toBeInTheDocument();
   });
 
+  it('shows Processing lease state and disables admin actions', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    window.history.pushState(null, '', '/admin/system/notification-deliveries?status=Processing');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '발송 처리 중' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByText('발송 처리 중').length).toBeGreaterThan(0);
+    expect(screen.getByText('claim lease 유효')).toBeInTheDocument();
+    expect(screen.getByText('발송 처리 중인 항목은 claim 소유권 보호를 위해 선택하거나 상태를 변경할 수 없습니다.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Daily Digest 선택')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '선택 확인 처리' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '선택 제외 처리' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '선택 재발송' })).toBeDisabled();
+  });
+
+  it('shows masked delivery attempt audit in admin detail', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    window.history.pushState(null, '', '/admin/system/notification-deliveries/79000000-0000-0000-0000-000000000101');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    expect(await screen.findByRole('heading', { name: '알림 발송 상세' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '발송 시도 이력' })).toBeInTheDocument();
+    expect(screen.getAllByText('발송 완료').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('1회').length).toBeGreaterThan(0);
+    expect(screen.queryByText('opaque-test-worker')).not.toBeInTheDocument();
+  });
+
   it('shows field-level department validation errors', async () => {
     render(<App />);
 
@@ -1579,6 +1611,8 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       pendingUserCount: 1,
       failedDeliveryCount: 2,
 	      pendingDeliveryCount: 3,
+      processingDeliveryCount: 1,
+      sentDeliveryCount: 8,
 	      lastDailyDigestSentAtUtc: '2026-07-07T07:30:00Z',
 	      activeEscalationCount: 4,
 	      recentMasterChangeCount: 5,
@@ -1714,7 +1748,25 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       adminHandlingStatusLabel: '미처리',
       adminHandlingNote: null,
       correlationId: 'N003-UNIT-FRONT',
-      providerMessageId: 'provider-message'
+      providerMessageId: 'provider-message',
+      claimedAtUtc: null,
+      claimExpiresAtUtc: null,
+      claimIsStale: false,
+      claimedByInstance: null,
+      attempts: [
+        {
+          attemptNumber: 1,
+          workerInstance: 'opaque',
+          claimedAtUtc: '2026-07-07T00:00:00Z',
+          leaseExpiresAtUtc: '2026-07-07T00:05:00Z',
+          providerCallStartedAtUtc: '2026-07-07T00:00:01Z',
+          completedAtUtc: '2026-07-07T00:00:02Z',
+          outcome: 'Sent',
+          errorCode: null,
+          errorMessage: null,
+          providerMessageId: 'provider-message'
+        }
+      ]
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
@@ -1734,7 +1786,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 	          deliveryType: status === 'Pending' ? 'OverdueL1' : 'DailyDigest',
 	          deliveryTypeLabel: status === 'Pending' ? '예정일 초과 L1' : '일일 요약',
 	          status,
-	          statusLabel: status === 'Pending' ? '발송 대기' : status === 'Failed' ? '발송 실패' : '발송 완료',
+	          statusLabel: status === 'Pending' ? '발송 대기' : status === 'Processing' ? '발송 처리 중' : status === 'Failed' ? '발송 실패' : '발송 완료',
 	          attemptCount: status === 'Pending' ? 0 : 1,
 	          nextAttemptAtUtc: status === 'Pending' ? '2026-07-07T01:00:00Z' : null,
 	          lastAttemptAtUtc: status === 'Sent' ? '2026-07-07T00:00:00Z' : null,
@@ -1769,6 +1821,9 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 	          adminHandledByUserId: handlingStatus === 'Open' ? null : '50000000-0000-0000-0000-000000000001',
 	          adminHandledByDisplayName: handlingStatus === 'Open' ? null : 'Dev System Administrator',
 	          adminHandlingNote: handlingStatus === 'Open' ? null : '확인했습니다.',
+	          claimedAtUtc: status === 'Processing' ? '2026-07-07T00:00:00Z' : null,
+	          claimExpiresAtUtc: status === 'Processing' ? '2026-07-07T00:05:00Z' : null,
+	          claimIsStale: false,
 	          createdAtUtc: '2026-07-07T00:00:00Z',
 	          updatedAtUtc: '2026-07-07T00:00:00Z'
 	        }

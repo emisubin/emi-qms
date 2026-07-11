@@ -12,6 +12,7 @@ public sealed class ReviewSafeStatusService(
     public async Task<ReviewSafeRuntimeStatus> CheckAsync(CancellationToken cancellationToken)
     {
         var enabled = ReviewSafeMode.IsEnabled(configuration);
+        var mutationWorkerActivation = MutationWorkerActivationPolicy.Evaluate(configuration, enabled);
         var catalogState = ReadCatalogState();
         if (!enabled)
         {
@@ -19,7 +20,7 @@ public sealed class ReviewSafeStatusService(
                 "Development",
                 false,
                 true,
-                true,
+                mutationWorkerActivation.MutationWorkersEnabled,
                 true,
                 false,
                 true,
@@ -35,7 +36,11 @@ public sealed class ReviewSafeStatusService(
                 [],
                 [],
                 false,
-                false);
+                false,
+                mutationWorkerActivation.NotificationDeliveryWorkerEnabled,
+                mutationWorkerActivation.NotificationEscalationWorkerEnabled,
+                mutationWorkerActivation.AdminDeletionPurgeWorkerEnabled,
+                mutationWorkerActivation.MutationWorkersEnabled);
         }
 
         if (!catalogState.Valid)
@@ -98,7 +103,11 @@ public sealed class ReviewSafeStatusService(
                 ledger.UnexpectedMigrations,
                 ledger.ApprovedLegacyMigrations,
                 ledger.MigrationSchemaCompatible,
-                ledger.MigrationLedgerReady);
+                ledger.MigrationLedgerReady,
+                false,
+                false,
+                false,
+                false);
         }
         catch (OperationCanceledException)
         {
@@ -157,6 +166,10 @@ public sealed class ReviewSafeStatusService(
             [],
             [],
             false,
+            false,
+            false,
+            false,
+            false,
             false);
     }
 
@@ -191,4 +204,8 @@ public sealed record ReviewSafeRuntimeStatus(
     IReadOnlyList<string> UnexpectedMigrations,
     IReadOnlyList<string> ApprovedLegacyMigrations,
     bool MigrationSchemaCompatible,
-    bool MigrationLedgerReady);
+    bool MigrationLedgerReady,
+    bool NotificationDeliveryWorkerEnabled,
+    bool NotificationEscalationWorkerEnabled,
+    bool AdminDeletionPurgeWorkerEnabled,
+    bool MutationWorkersEnabled);

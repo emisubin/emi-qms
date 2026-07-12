@@ -111,17 +111,18 @@ Boolean, integer, fixed enum과 route alias만 보고한다. Raw DB row, API bod
 
 ## 22. 사용자 검수 체크리스트
 
-- [ ] 101/200/201 tail 진행 결과 확인
-- [ ] 후보 오류 뒤 같은 poll 진행 확인
-- [ ] cancellation 전파 확인
-- [ ] L0~L3와 recipient 정책 불변 확인
-- [ ] 동시 evaluator duplicate 0 확인
-- [ ] query plan이 migration 없이 수용 가능함 확인
-- [ ] Persistent UAT와 runtime 무변경 확인
-- [ ] controlled UAT가 별도 승인임을 확인
+- [x] 101/200/201 tail 진행 결과 확인
+- [x] 후보 오류 뒤 같은 poll 진행 확인
+- [x] cancellation 전파 확인
+- [x] L0~L3와 recipient 정책 불변 확인
+- [x] 동시 evaluator duplicate 0 확인
+- [x] query plan이 migration 없이 수용 가능함 확인
+- [x] Persistent UAT와 runtime 무변경 확인
+- [x] controlled UAT가 별도 승인임을 확인
 
 ## 23. 변경 이력
 
 | 일자 | 변경 |
 | --- | --- |
 | 2026-07-12 | TASK-NOTIFY-ESC-001 구현·자동 검증 및 사용자 검수 대기 절차 작성 |
+| 2026-07-13 | 사용자 검수 완료와 PR #34 squash merge 승인 반영 |

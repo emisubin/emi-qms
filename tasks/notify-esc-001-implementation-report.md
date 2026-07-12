@@ -154,4 +154,4 @@ Schema를 늘리지 않고 이미 안전하게 갱신되던 evaluation timestamp
 
 ## 27. 사용자 검수 결과와 남은 항목
 
-Checklist와 자동 검증은 완료됐다. 사용자 검수와 Persistent UAT controlled 적용은 대기 상태다. 신규 기능 개발 No-Go를 유지한다.
+Checklist, 자동 검증과 사용자 검수를 완료했고 PR #34 squash merge 승인을 확인했다. 미체크 사용자 항목은 0이다. Persistent UAT controlled 적용은 별도 승인 대기이며 escalation worker는 disabled 상태를 유지한다. 신규 기능 개발 No-Go를 유지한다.

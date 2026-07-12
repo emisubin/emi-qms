@@ -104,19 +104,19 @@ Persistent UAT는 read-only aggregate만 확인했다. Ledger 28/29/1, Pending/P
 | User manual | 작성 완료 |
 | Roadmap update | 반영 완료 |
 
-현재 상태: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기 / Draft PR.
+현재 상태: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #34 병합 승인 / 미체크 항목 0.
 
 ## 19. 사용자 검수 체크리스트
 
-- [ ] 101번째 이후 후보도 유한한 poll 안에 평가됨을 이해
-- [ ] 99/100/101/200/201 경계 결과 확인
-- [ ] 후보 한 건의 오류가 나머지 후보를 중단하지 않음 확인
-- [ ] cancellation은 즉시 전파됨 확인
-- [ ] L0~L3 날짜 정책이 그대로임을 확인
-- [ ] recipient 정책이 그대로임을 확인
-- [ ] escalation·notification·delivery 중복 0 확인
-- [ ] 화면/API 변경 없음 확인
-- [ ] Persistent UAT와 기존 runtime 무변경 확인
-- [ ] actual provider 호출 0 확인
-- [ ] at-least-once 제한 이해
-- [ ] 다음 controlled UAT 적용은 별도 승인임을 확인
+- [x] 101번째 이후 후보도 유한한 poll 안에 평가됨을 이해
+- [x] 99/100/101/200/201 경계 결과 확인
+- [x] 후보 한 건의 오류가 나머지 후보를 중단하지 않음 확인
+- [x] cancellation은 즉시 전파됨 확인
+- [x] L0~L3 날짜 정책이 그대로임을 확인
+- [x] recipient 정책이 그대로임을 확인
+- [x] escalation·notification·delivery 중복 0 확인
+- [x] 화면/API 변경 없음 확인
+- [x] Persistent UAT와 기존 runtime 무변경 확인
+- [x] actual provider 호출 0 확인
+- [x] at-least-once 제한 이해
+- [x] 다음 controlled UAT 적용은 별도 승인임을 확인

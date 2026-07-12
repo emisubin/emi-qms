@@ -1183,12 +1183,19 @@ Excel 출력 대상 후보:
 
 ### TASK-UAT-HANDOVER-003: Notification delivery claim/lease UAT handover
 
-- 상태/다음 순서: preflight 중단 / TASK-UAT-MAINTENANCE-001 사용자 검수·merge 후 처음부터 재개
+- 상태/다음 순서: 구현 완료 후보 / 자동 검증 완료 / 사용자 검수 대기 / Draft PR 게시 준비 완료 / 다음 TASK-NOTIFY-ESC-001
 - 목적: Persistent UAT에 canonical 0028을 통제 적용하고 Development·Review-safe runtime을 최신 main으로 전환한다.
-- 포함 범위: preflight backup/rollback·forward-fix, migration 0028, canonical 28 + approved legacy 1 = live 29 ledger 확인, fake/dry-run concurrency, Development/Review-safe controlled handover, snapshot 전후 검증
+- 포함 범위: fresh backup·isolated restore·fault rollback, migration 0028, canonical 28 + approved legacy 1 = live 29 ledger 확인, Review-safe 5190/5092와 Development 5174/5081 controlled handover, Phase A/Phase B와 장시간 snapshot 검증
 - 제외 범위: actual 외부 발송, 기존 업무 data 정리, escalation starvation 구현
 - 선행조건: TASK-NOTIFY-REL-001 사용자 검수·merge와 candidate 증빙
-- 핵심 gate: live schema 0028, worker/provider 보호, 기존 runtime rollback 가능, actual provider 0, Persistent data 보존
+- 핵심 결과: live 0028 schema와 ledger 28/29/1, missing/unknown 0, 최신 main Review-safe read-only·mutation 423, Development normal configuration 복구, 사용자 승인 ManualTest 1건의 단일 claim/attempt/Sent와 unrelated provider call 0, Persistent aggregate 보존
+- worker 정책: normal configuration은 delivery·purge true, escalation false이며 TASK-NOTIFY-ESC-001 전 임의 활성화하지 않음
+- backup/rollback: fresh backup mode 600과 checksum·isolated restore 확인, Persistent restore 미수행, 적용 후 forward-fix 원칙
+- runtime: obsolete Review Candidate 5191/5093 종료, Notification Candidate 5192/5094와 Maintenance Candidate 5595 유지
+- 개인정보 안전: desktop/390px 결과를 boolean/count/fixed alias로 검증하고 raw DOM/API body/screenshot 미생성
+- 관찰 Finding: `UNEXPECTED_MANUAL_DELIVERY_DELTA` 자동 fail-stop 후 사용자 의도 활동임을 확인해 `AUTHORIZED_USER_ACTIVITY`로 재분류, 제품/runtime isolation 결함과 data cleanup 필요 없음, 기존 공식 runtime 유효 관찰 45분을 인정하고 다음 purge interval 1회 추가 확인
+- 산출물: [Task 정의와 checklist](../tasks/uat-handover-003.md), [Implementation report](../tasks/uat-handover-003-implementation-report.md), [SOP](../tasks/uat-handover-003-sop.md), [User manual](../tasks/uat-handover-003-user-manual.md), 이 Roadmap update
+- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 후보 / 사용자 검수 대기
 
 ### TASK-UAT-MAINTENANCE-001: Mutation worker maintenance gate
 
@@ -1488,6 +1495,7 @@ Excel 출력 대상 후보:
 | 2026-07-11 | TASK-GOV-CODEX-001 사용자 검수와 Draft PR 게시를 승인하고 shell wrapper는 prompt하되 내부 명령 완전 차단으로 과장하지 않음 | 실제 execpolicy 판정과 문서를 일치시키고 project-local Rules를 AGENTS·safe script의 보조 통제로 유지하기 위함 | 24장, 27장, TASK-GOV-CODEX-001 |
 | 2026-07-11 | HANDOVER-003 preflight에서 purge worker disable gate 부재 P2를 발견해 Persistent migration 전에 중단하고 TASK-UAT-MAINTENANCE-001로 분리 | worker가 등록된 idle 상태를 maintenance-safe로 오판하지 않고 세 mutation worker 미등록과 candidate 불변을 먼저 보장하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-003, TASK-UAT-MAINTENANCE-001 |
 | 2026-07-11 | TASK-UAT-MAINTENANCE-001 사용자 검수와 PR #31 squash merge를 승인 | purge 기본 true, explicit disable·ReviewSafe·Phase A worker 미등록, synthetic 후보 불변, Persistent UAT·0028·runtime·backup 보존을 확인하고 HANDOVER-003 재개 조건을 충족하기 위함 | 23장, 24장, TASK-UAT-MAINTENANCE-001 |
+| 2026-07-12 | TASK-UAT-HANDOVER-003에서 fresh backup·isolated rehearsal 후 Persistent UAT 0028과 latest main Review-safe/Development runtime을 통제 적용해 사용자 검수 대기로 전환 | Ledger 28/29/1, worker/provider gate, 사용자 승인 ManualTest 1건의 정상 Sent lineage와 unrelated provider call 0, Persistent aggregate 보존을 확인하고 다음 escalation starvation remediation을 준비하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-003 |
 
 ## 26. 용어 사전
 

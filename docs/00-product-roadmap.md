@@ -1215,7 +1215,7 @@ Excel 출력 대상 후보:
 
 ### TASK-UAT-NOTIFY-ESC-001: Escalation fair-ordering controlled UAT activation
 
-- 상태/다음 순서: 구현·자동 검증 완료 / 사용자 검수 대기 / Draft PR 게시 대상 / 다음 코드 P2 `TASK-AUTH-HARDEN-001`
+- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #35 squash merge 승인 / 다음 코드 P2 `TASK-AUTH-HARDEN-001`
 - 목적: PR #34의 fair ordering·candidate failure isolation을 Persistent UAT와 latest-main Development runtime에 통제 적용한다.
 - Phase A: ledger 28/29/1, Pending/Processing 0/0, active escalation 0, eligible L0/L1/L2/L3와 신규 escalation·notification·delivery 후보 0을 read-only forecast로 확인
 - Phase B: escalation-only temporary evaluator poll 2회, delivery·purge·digest·migration·seed·upsert·actual provider 차단, Persistent DB/provider delta 0
@@ -1227,7 +1227,7 @@ Excel 출력 대상 후보:
 - 보호: Persistent ledger 28/29/1, 핵심 aggregate·timestamp 불변, PostgreSQL restart 0, backup size/mode/checksum 불변, restore 0, Review-safe 5190/5092 유지
 - runtime: Development 5174/5081 UP, Review-safe 5190/5092 UP, Preview 5185 DOWN, Candidate 보존
 - 산출물: [Task 정의와 checklist](../tasks/uat-notify-esc-001.md), [Implementation report](../tasks/uat-notify-esc-001-implementation-report.md), [SOP](../tasks/uat-notify-esc-001-sop.md), [User manual](../tasks/uat-notify-esc-001-user-manual.md), 이 Roadmap update
-- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기
+- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #35 병합 승인 / 미체크 항목 0
 - 전달 계약: at-least-once 유지, exactly-once로 확대하지 않음
 - 전체 신규 기능 개발: No-Go 유지
 
@@ -1448,7 +1448,7 @@ Excel 출력 대상 후보:
 | 66 | Notification claim/lease UAT handover | 사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-003 | Persistent UAT 0028, canonical 28 + approved legacy 1 = live 29, Review-safe/Development controlled handover, 승인된 ManualTest 단일 Sent lineage와 unrelated provider call 0 |
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / Draft PR 게시 대상 / merge 대기 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
-| 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증 완료 / 사용자 검수 대기 / Draft PR 게시 대상 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN |
+| 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1535,6 +1535,7 @@ Excel 출력 대상 후보:
 | 2026-07-12 | TASK-NOTIFY-ESC-001에서 기존 evaluation timestamp 기반 fair ordering과 후보별 오류 격리를 구현해 사용자 검수 대기로 전환 | 100건 고정 window가 tail을 starvation시키고 후보 오류가 poll을 종료하던 P2를 schema/API/UI 변경 없이 제거하며 L0~L3·recipient·중복 방지·at-least-once 계약을 유지하기 위함 | 23장, 24장, TASK-NOTIFY-ESC-001 |
 | 2026-07-13 | TASK-NOTIFY-ESC-001 사용자 검수와 PR #34 squash merge를 승인 | 101/200/201 유한 poll, 후보 오류 뒤 tail 진행, 동시 evaluator 중복 0, L0~L3·BusinessDay·recipient 정책 불변, Persistent UAT 미적용과 at-least-once 제한을 확인하기 위함 | 23장, 24장, TASK-NOTIFY-ESC-001 |
 | 2026-07-13 | TASK-UAT-NOTIFY-ESC-001에서 Phase A forecast, escalation-only Phase B와 latest-main Development Phase C를 통과해 사용자 검수 대기로 전환 | Live candidate 0 시점에 worker registration·poll cadence·runtime ownership·provider 차단과 Persistent aggregate 불변을 확인하고 PR #34의 isolated 101/200/201 증빙을 controlled UAT에 연결하기 위함 | 23장, 24장, TASK-UAT-NOTIFY-ESC-001 |
+| 2026-07-13 | TASK-UAT-NOTIFY-ESC-001 사용자 검수와 PR #35 squash merge를 승인 | Phase A/B/C, exact-process ownership 예외 해소, Development·Review-safe 상태, ledger 28/29/1, Pending/Processing 0/0, actual provider 호출 0, live candidate 0 제한과 at-least-once 계약을 확인하기 위함 | 23장, 24장, TASK-UAT-NOTIFY-ESC-001 |
 
 ## 26. 용어 사전
 

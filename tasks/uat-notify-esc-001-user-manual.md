@@ -55,13 +55,15 @@ Ledger `28/29/1`, Pending/Processing `0/0`, 핵심 aggregate와 timestamp가 유
 
 ## 12. 사용자 검수 체크리스트
 
-- [ ] Development 5174의 주요 조회 화면이 정상이다.
-- [ ] Review-safe 5190이 정상이다.
-- [ ] Processing/attempt 표시를 확인했다.
-- [ ] desktop과 390px 화면에 가로 넘침이 없다.
-- [ ] 실제 provider 호출이 0임을 확인했다.
-- [ ] Persistent UAT와 backup이 보호됐음을 이해했다.
-- [ ] live candidate 0 검증 제한을 이해했다.
-- [ ] at-least-once 제한을 이해했다.
-- [ ] Preview 5185가 maintenance 격리로 DOWN임을 이해했다.
-- [ ] 다음 코드 P2가 TASK-AUTH-HARDEN-001임을 확인했다.
+- [x] Development 5174의 주요 조회 화면이 정상이다.
+- [x] Review-safe 5190이 정상이다.
+- [x] Processing/attempt 표시를 확인했다.
+- [x] desktop과 390px 화면에 가로 넘침이 없다.
+- [x] 실제 provider 호출이 0임을 확인했다.
+- [x] Persistent UAT와 backup이 보호됐음을 이해했다.
+- [x] live candidate 0 검증 제한을 이해했다.
+- [x] at-least-once 제한을 이해했다.
+- [x] Preview 5185가 maintenance 격리로 DOWN임을 이해했다.
+- [x] 다음 코드 P2가 TASK-AUTH-HARDEN-001임을 확인했다.
+
+검수 상태: 사용자 검수 완료 / PR #35 squash merge 승인 / 미체크 항목 0.

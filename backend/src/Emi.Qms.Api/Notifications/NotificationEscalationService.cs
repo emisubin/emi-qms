@@ -6,8 +6,13 @@ namespace Emi.Qms.Api.Notifications;
 public sealed class NotificationEscalationService(
     WorkItemEscalationStore escalationStore,
     TimeProvider timeProvider,
-    IOptionsMonitor<NotificationOptions> options)
+    IOptionsMonitor<NotificationOptions> options,
+    ILogger<NotificationEscalationService> logger)
 {
+    private const string CandidateEvaluationFailureCode = "ESCALATION_CANDIDATE_EVALUATION_FAILED";
+    private static readonly EventId CandidateEvaluationFailedEvent =
+        new(1, "NotificationEscalationCandidateEvaluationFailed");
+
     public async Task<NotificationEscalationSummary> EvaluateAsync(CancellationToken cancellationToken)
     {
         var currentOptions = options.CurrentValue.Escalation;
@@ -30,20 +35,41 @@ public sealed class NotificationEscalationService(
         var localToday = GetLocalToday(currentOptions.TimeZone);
         var notificationCount = 0;
         var deliveryCount = 0;
+        var failedCandidateCount = 0;
 
         foreach (var candidate in candidates)
         {
-            var nextCheck = CalculateNextCheckAtUtc(candidate.DueDate, calculator, localToday, currentOptions.TimeZone);
-            await escalationStore.UpsertActiveEscalationAsync(candidate, nextCheck, cancellationToken);
-            var level = DetermineDueLevel(candidate, calculator, localToday);
-            if (level is null)
+            try
             {
-                continue;
-            }
+                var nextCheck = CalculateNextCheckAtUtc(candidate.DueDate, calculator, localToday, currentOptions.TimeZone);
+                await escalationStore.UpsertActiveEscalationAsync(candidate, nextCheck, cancellationToken);
+                var level = DetermineDueLevel(candidate, calculator, localToday);
+                if (level is null)
+                {
+                    continue;
+                }
 
-            var result = await escalationStore.CreateEscalationAsync(candidate, level, currentOptions, cancellationToken);
-            notificationCount += result.NotificationCount;
-            deliveryCount += result.DeliveryCount;
+                var result = await escalationStore.CreateEscalationAsync(candidate, level, currentOptions, cancellationToken);
+                notificationCount += result.NotificationCount;
+                deliveryCount += result.DeliveryCount;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                failedCandidateCount += 1;
+            }
+        }
+
+        if (failedCandidateCount > 0)
+        {
+            logger.LogWarning(
+                CandidateEvaluationFailedEvent,
+                "Notification escalation candidate evaluation completed with failures. FailureCode={FailureCode} FailedCandidateCount={FailedCandidateCount}.",
+                CandidateEvaluationFailureCode,
+                failedCandidateCount);
         }
 
         return new NotificationEscalationSummary(candidates.Count, notificationCount, deliveryCount, resolved);

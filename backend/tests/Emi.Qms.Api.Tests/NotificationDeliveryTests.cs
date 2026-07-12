@@ -21,6 +21,18 @@ public sealed class NotificationDeliveryTests
     private static readonly Guid DevProcurementUserId = new("50000000-0000-0000-0000-000000000011");
     private static readonly Guid DemoProjectId = new("40000000-0000-0000-0000-000000000001");
 
+    private static IReadOnlyDictionary<string, string?> EscalationTestOptions()
+    {
+        return new Dictionary<string, string?>
+        {
+            ["Notifications:Escalation:Enabled"] = "true",
+            ["Notifications:Escalation:MaxBatchSize"] = "100",
+            ["Notifications:Escalation:TeamsPersonalDryRun"] = "true",
+            ["Notifications:Escalation:MailEnabled"] = "false",
+            ["Notifications:Dispatch:Enabled"] = "false"
+        };
+    }
+
     [Fact]
     public async Task Dispatcher_CreatesDryRunTeamsAndMailDeliveries_ForUrgentNotification()
     {
@@ -2327,6 +2339,211 @@ public sealed class NotificationDeliveryTests
         Assert.False(await context.ReadScalarAsync<bool>("select resolved_at_utc is null from work_item_escalations;"));
     }
 
+    [Theory]
+    [InlineData(99, 1)]
+    [InlineData(100, 1)]
+    [InlineData(101, 2)]
+    [InlineData(200, 2)]
+    [InlineData(201, 3)]
+    public async Task Escalation_FairOrderingEvaluatesEveryFiniteCandidateSet(
+        int eligibleCount,
+        int maximumPollCount)
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        await context.InsertSyntheticWorkItemsAsync(eligibleCount, "2026-07-06");
+
+        var polls = 0;
+        var evaluatedCount = 0L;
+        while (polls < maximumPollCount && evaluatedCount < eligibleCount)
+        {
+            await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+            polls += 1;
+            evaluatedCount = await context.ReadSyntheticEscalationCountAsync();
+        }
+
+        Assert.Equal(eligibleCount, evaluatedCount);
+        Assert.InRange(polls, 1, maximumPollCount);
+        Assert.True(await context.HasSyntheticEscalationAsync(eligibleCount));
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateEscalationCountAsync());
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateNotificationCountAsync());
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateDeliveryCountAsync());
+        Assert.Equal(0L, await context.ReadProviderStartedAttemptCountAsync());
+    }
+
+    [Fact]
+    public async Task Escalation_FairOrderingPrioritizesUnevaluatedTailAfterProcessedHead()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        await context.InsertSyntheticWorkItemsAsync(101, "2026-07-06");
+        await context.MarkSyntheticHeadAsAlreadyEscalatedAsync(100, WorkItemEscalationLevels.L0);
+
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(await context.HasSyntheticEscalationAsync(101));
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateEscalationCountAsync());
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateNotificationCountAsync());
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateDeliveryCountAsync());
+    }
+
+    [Fact]
+    public async Task Escalation_FairOrderingUsesStableWorkItemIdTieBreaker()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        await context.InsertSyntheticWorkItemsAsync(101, "2026-07-06", identicalCreatedAt: true);
+
+        var candidates = await context.EscalationStore.ReadOpenCandidatesAsync(100, TestContext.Current.CancellationToken);
+        var syntheticIds = candidates
+            .Select(candidate => candidate.WorkItemId)
+            .Where(NotificationDeliveryTestContext.IsSyntheticWorkItemId)
+            .ToArray();
+        var expected = syntheticIds
+            .OrderBy(value => value.ToString(), StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(100, syntheticIds.Length);
+        Assert.Equal(syntheticIds.Length, syntheticIds.Distinct().Count());
+        Assert.Equal(expected, syntheticIds);
+        Assert.Equal(NotificationDeliveryTestContext.SyntheticWorkItemId(100), syntheticIds[^1]);
+    }
+
+    [Fact]
+    public async Task Escalation_CandidateFailureDoesNotAbortPollOrStarveTail()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        await context.InsertSyntheticWorkItemsAsync(101, "2026-07-06");
+        await context.InstallSyntheticNotificationFailureAsync(1);
+
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(100L, await context.ReadSyntheticEscalationCountAsync());
+        Assert.True(await context.HasSyntheticNotificationAsync(100));
+        var failure = Assert.Single(context.Logs.Entries, entry =>
+            string.Equals(entry.EventId.Name, "NotificationEscalationCandidateEvaluationFailed", StringComparison.Ordinal));
+        Assert.Contains("ESCALATION_CANDIDATE_EVALUATION_FAILED", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("e1000000", failure.Message, StringComparison.OrdinalIgnoreCase);
+
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(await context.HasSyntheticEscalationAsync(101));
+        Assert.True(await context.HasSyntheticNotificationAsync(101));
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateEscalationCountAsync());
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateNotificationCountAsync());
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateDeliveryCountAsync());
+        Assert.Equal(0L, await context.ReadProviderStartedAttemptCountAsync());
+    }
+
+    [Fact]
+    public async Task Escalation_CancellationIsPropagated()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        using var source = new CancellationTokenSource();
+        source.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            context.Escalations.EvaluateAsync(source.Token));
+    }
+
+    [Fact]
+    public async Task Escalation_InactiveRecipientsDoNotStarveTail()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        await context.InsertSyntheticWorkItemsAsync(101, "2026-07-06");
+        await context.ExecuteSqlAsync($"update qms_users set is_active = false where id = '{DevAdminUserId}';");
+
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(101L, await context.ReadSyntheticEscalationCountAsync());
+        Assert.True(await context.HasSyntheticEscalationAsync(101));
+        Assert.Equal(0L, await context.ReadSyntheticNotificationCountAsync());
+    }
+
+    [Fact]
+    public async Task Escalation_EmptyResolvedRecipientSetDoesNotStarveTail()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        await context.InsertSyntheticWorkItemsAsync(101, "2026-06-30");
+        await context.RemoveL3ProjectAssigneesAsync();
+
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(101L, await context.ReadSyntheticEscalationCountAsync());
+        Assert.True(await context.HasSyntheticEscalationAsync(101));
+        Assert.Equal(0L, await context.ReadSyntheticNotificationCountAsync());
+    }
+
+    [Fact]
+    public async Task Escalation_ExcludesUndatedCompletedAndCancelledRowsWithoutStarvingEligibleTail()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        await context.InsertSyntheticWorkItemsAsync(104, "2026-07-06");
+        await context.ExcludeSyntheticWorkItemsFromEscalationAsync(102, 103, 104);
+
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(101L, await context.ReadSyntheticEscalationCountAsync());
+        Assert.True(await context.HasSyntheticEscalationAsync(101));
+        Assert.False(await context.HasSyntheticEscalationAsync(102));
+        Assert.False(await context.HasSyntheticEscalationAsync(103));
+        Assert.False(await context.HasSyntheticEscalationAsync(104));
+    }
+
+    [Fact]
+    public async Task Escalation_MixedLevelsUseFairSharedBatchWithoutDuplicates()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        await context.InsertSyntheticWorkItemsAsync(101, "2026-07-06");
+        await context.SetSyntheticMixedDueDatesAsync();
+        await context.UpsertProjectAssigneeAsync("ProductionPlanningPrimary", DevProductionUserId);
+        await context.UpsertProjectAssigneeAsync("SalesPrimary", DevSalesUserId);
+
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(101L, await context.ReadSyntheticEscalationCountAsync());
+        Assert.True(await context.HasSyntheticEscalationAsync(101));
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateEscalationCountAsync());
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateNotificationCountAsync());
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateDeliveryCountAsync());
+    }
+
+    [Fact]
+    public async Task Escalation_ServiceRecreationContinuesFromPersistentFairnessWatermark()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        await context.InsertSyntheticWorkItemsAsync(201, "2026-07-06");
+
+        await context.CreateFreshEscalationService().EvaluateAsync(TestContext.Current.CancellationToken);
+        await context.CreateFreshEscalationService().EvaluateAsync(TestContext.Current.CancellationToken);
+        await context.CreateFreshEscalationService().EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(201L, await context.ReadSyntheticEscalationCountAsync());
+        Assert.True(await context.HasSyntheticEscalationAsync(201));
+    }
+
+    [Fact]
+    public async Task Escalation_TwoConcurrentEvaluatorsDoNotDuplicateOrStarveCandidates()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
+        await context.InsertSyntheticWorkItemsAsync(200, "2026-07-06");
+
+        await Task.WhenAll(
+            context.CreateFreshEscalationService().EvaluateAsync(TestContext.Current.CancellationToken),
+            context.CreateFreshEscalationService().EvaluateAsync(TestContext.Current.CancellationToken));
+        await Task.WhenAll(
+            context.CreateFreshEscalationService().EvaluateAsync(TestContext.Current.CancellationToken),
+            context.CreateFreshEscalationService().EvaluateAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(200L, await context.ReadSyntheticEscalationCountAsync());
+        Assert.True(await context.HasSyntheticEscalationAsync(200));
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateEscalationCountAsync());
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateNotificationCountAsync());
+        Assert.Equal(0L, await context.ReadSyntheticDuplicateDeliveryCountAsync());
+        Assert.Equal(0L, await context.ReadProviderStartedAttemptCountAsync());
+    }
+
     [Fact]
     public async Task AdminEscalationEndpoint_IsSystemAdministratorOnly()
     {
@@ -2454,6 +2671,10 @@ public sealed class NotificationDeliveryTests
         public IOptionsMonitor<NotificationOptions> NotificationOptions => Factory.Services.GetRequiredService<IOptionsMonitor<NotificationOptions>>();
 
         public NotificationEscalationService Escalations => Factory.Services.GetRequiredService<NotificationEscalationService>();
+
+        public WorkItemEscalationStore EscalationStore => Factory.Services.GetRequiredService<WorkItemEscalationStore>();
+
+        public TestLogSink Logs => Factory.Logs;
 
         public async Task<IReadOnlyList<NotificationDeliveryRecord>> ClaimDueRecordsAsync()
         {
@@ -2598,6 +2819,210 @@ public sealed class NotificationDeliveryTests
                 update notification_deliveries
                 set next_attempt_at_utc = '2026-07-03T00:00:00Z'
                 where channel = '{channel}';
+                """);
+        }
+
+        public static Guid SyntheticWorkItemId(int index)
+        {
+            return Guid.Parse($"e1000000-0000-0000-0000-{index:000000000000}");
+        }
+
+        public static bool IsSyntheticWorkItemId(Guid value)
+        {
+            return value.ToString().StartsWith("e1000000-", StringComparison.Ordinal);
+        }
+
+        public NotificationEscalationService CreateFreshEscalationService()
+        {
+            return ActivatorUtilities.CreateInstance<NotificationEscalationService>(Factory.Services);
+        }
+
+        public Task InsertSyntheticWorkItemsAsync(
+            int count,
+            string dueDate,
+            bool identicalCreatedAt = false)
+        {
+            var createdAtExpression = identicalCreatedAt
+                ? "'2026-01-01T00:00:00Z'::timestamptz"
+                : "'2026-01-01T00:00:00Z'::timestamptz + make_interval(secs => source.index)";
+            return ExecuteSqlAsync($"""
+                insert into work_items (
+                    id, project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                    assigned_user_id, assigned_role_code, title, description, status, priority,
+                    due_date, idempotency_key, created_by_user_id, created_at_utc
+                )
+                select
+                    ('e1000000-0000-0000-0000-' || lpad(source.index::text, 12, '0'))::uuid,
+                    '{DemoProjectId}',
+                    'Project',
+                    '{DemoProjectId}',
+                    'ProductionPlanning',
+                    'ProductionPlanningPrimary',
+                    '{DevAdminUserId}',
+                    'system-administrator',
+                    'Synthetic escalation work item ' || source.index,
+                    'Synthetic starvation regression fixture.',
+                    'Requested',
+                    'Normal',
+                    '{dueDate}',
+                    'notify-esc-fair-' || source.index,
+                    '{DevAdminUserId}',
+                    {createdAtExpression}
+                from generate_series(1, {count}) as source(index);
+                """);
+        }
+
+        public Task<long> ReadSyntheticEscalationCountAsync()
+        {
+            return ReadScalarAsync<long>("select count(*) from work_item_escalations where work_item_id::text like 'e1000000-%';");
+        }
+
+        public Task<long> ReadSyntheticNotificationCountAsync()
+        {
+            return ReadScalarAsync<long>("select count(*) from notifications where idempotency_key like 'work-item:e1000000-%:escalation:%';");
+        }
+
+        public Task<long> ReadProviderStartedAttemptCountAsync()
+        {
+            return ReadScalarAsync<long>("select count(*) from notification_delivery_attempts where provider_call_started_at_utc is not null;");
+        }
+
+        public Task<bool> HasSyntheticEscalationAsync(int index)
+        {
+            return ReadScalarAsync<bool>($"select exists(select 1 from work_item_escalations where work_item_id = '{SyntheticWorkItemId(index)}');");
+        }
+
+        public Task<bool> HasSyntheticNotificationAsync(int index)
+        {
+            return ReadScalarAsync<bool>($"select exists(select 1 from notifications where idempotency_key like 'work-item:{SyntheticWorkItemId(index)}:%:escalation:%');");
+        }
+
+        public Task<long> ReadSyntheticDuplicateEscalationCountAsync()
+        {
+            return ReadScalarAsync<long>("""
+                select count(*)
+                from (
+                    select work_item_id
+                    from work_item_escalations
+                    where work_item_id::text like 'e1000000-%'
+                    group by work_item_id
+                    having count(*) > 1
+                ) duplicates;
+                """);
+        }
+
+        public Task<long> ReadSyntheticDuplicateNotificationCountAsync()
+        {
+            return ReadScalarAsync<long>("""
+                select count(*)
+                from (
+                    select idempotency_key
+                    from notifications
+                    where idempotency_key like 'work-item:e1000000-%:escalation:%'
+                    group by idempotency_key
+                    having count(*) > 1
+                ) duplicates;
+                """);
+        }
+
+        public Task<long> ReadSyntheticDuplicateDeliveryCountAsync()
+        {
+            return ReadScalarAsync<long>("""
+                select count(*)
+                from (
+                    select notification_id, recipient_user_id, channel, delivery_type
+                    from notification_deliveries
+                    where work_item_id::text like 'e1000000-%'
+                    group by notification_id, recipient_user_id, channel, delivery_type
+                    having count(*) > 1
+                ) duplicates;
+                """);
+        }
+
+        public Task MarkSyntheticHeadAsAlreadyEscalatedAsync(int count, string level)
+        {
+            var sentColumn = level switch
+            {
+                WorkItemEscalationLevels.L0 => "l0_sent_at_utc",
+                WorkItemEscalationLevels.L1 => "l1_sent_at_utc",
+                WorkItemEscalationLevels.L2 => "l2_sent_at_utc",
+                WorkItemEscalationLevels.L3 => "l3_sent_at_utc",
+                _ => throw new ArgumentOutOfRangeException(nameof(level))
+            };
+            return ExecuteSqlAsync($"""
+                insert into work_item_escalations (
+                    work_item_id, project_id, workflow_stage_code, assigned_user_id, due_date,
+                    status, current_level, {sentColumn}, next_check_at_utc, created_at_utc, updated_at_utc
+                )
+                select
+                    wi.id, wi.project_id, wi.workflow_stage_code, wi.assigned_user_id, wi.due_date,
+                    'Active', '{level}', '2026-07-03T00:00:00Z', '2026-07-03T01:00:00Z',
+                    '2026-01-01T00:00:00Z',
+                    '2026-01-01T00:00:00Z'::timestamptz + make_interval(secs => substring(wi.id::text from 25)::bigint)
+                from work_items wi
+                where wi.id::text like 'e1000000-%'
+                order by wi.id
+                limit {count};
+                """);
+        }
+
+        public Task InstallSyntheticNotificationFailureAsync(int index)
+        {
+            var id = SyntheticWorkItemId(index);
+            return ExecuteSqlAsync($"""
+                create or replace function fail_synthetic_escalation_notification()
+                returns trigger
+                language plpgsql
+                as $function$
+                begin
+                    if new.idempotency_key like 'work-item:{id}:%:escalation:%' then
+                        raise exception using errcode = 'P0001', message = 'SyntheticEscalationCandidateFailure';
+                    end if;
+                    return new;
+                end;
+                $function$;
+
+                create trigger trg_fail_synthetic_escalation_notification
+                before insert or update on notifications
+                for each row execute function fail_synthetic_escalation_notification();
+                """);
+        }
+
+        public Task RemoveL3ProjectAssigneesAsync()
+        {
+            return ExecuteSqlAsync($"""
+                delete from project_assignees
+                where project_id = '{DemoProjectId}'
+                  and responsibility_type = any(array[
+                      'ProductionPlanningPrimary',
+                      'ProductionPlanningSecondary',
+                      'ProductionPlanning',
+                      'SalesPrimary',
+                      'SalesSecondary'
+                  ]);
+                """);
+        }
+
+        public Task ExcludeSyntheticWorkItemsFromEscalationAsync(int undatedIndex, int completedIndex, int cancelledIndex)
+        {
+            return ExecuteSqlAsync($"""
+                update work_items set due_date = null where id = '{SyntheticWorkItemId(undatedIndex)}';
+                update work_items set status = 'Completed', completed_at_utc = '2026-07-03T00:00:00Z' where id = '{SyntheticWorkItemId(completedIndex)}';
+                update work_items set status = 'Cancelled', cancelled_at_utc = '2026-07-03T00:00:00Z' where id = '{SyntheticWorkItemId(cancelledIndex)}';
+                """);
+        }
+
+        public Task SetSyntheticMixedDueDatesAsync()
+        {
+            return ExecuteSqlAsync("""
+                update work_items
+                set due_date = case
+                    when substring(id::text from 25)::integer <= 25 then '2026-06-30'::date
+                    when substring(id::text from 25)::integer <= 50 then '2026-07-01'::date
+                    when substring(id::text from 25)::integer <= 75 then '2026-07-02'::date
+                    else '2026-07-06'::date
+                end
+                where id::text like 'e1000000-%';
                 """);
         }
 

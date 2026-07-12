@@ -1197,6 +1197,22 @@ Excel 출력 대상 후보:
 - 산출물: [Task 정의와 checklist](../tasks/uat-handover-003.md), [Implementation report](../tasks/uat-handover-003-implementation-report.md), [SOP](../tasks/uat-handover-003-sop.md), [User manual](../tasks/uat-handover-003-user-manual.md), 이 Roadmap update
 - 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #33 squash merge 승인 / 미체크 항목 0
 
+### TASK-NOTIFY-ESC-001: Escalation candidate starvation 보정
+
+- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #34 squash merge 승인 / 다음 controlled UAT 적용은 별도 승인
+- 목적: 고정된 첫 100건의 반복 점유와 후보 한 건의 오류가 poll 전체를 중단하는 P2를 제거한다.
+- 포함 범위: 기존 escalation history evaluation timestamp를 재사용한 fair ordering, deterministic work item tie-breaker, 후보별 오류 격리와 cancellation 전파, 99/100/101/200/201·재시작·동시 evaluator 검증
+- 제외 범위: migration/schema/API/UI/config, batch size, L0~L3·recipient 정책, escalation claim/lease, Persistent UAT 적용과 worker 활성화
+- 핵심 결과: 99/100은 1 poll, 101/200은 2 poll, 201은 3 poll 이내 unique 후보 전체 평가, 후보 오류 뒤 같은 poll 진행, escalation·notification·delivery 중복 0
+- ordering/watermark: 미평가·due 변경·inactive 후보 우선, active 후보는 가장 오래 평가되지 않은 순서, due date·created time·work item ID total order. 기존 `updated_at_utc`만 재사용하고 가짜 history를 만들지 않음
+- query plan: isolated PostgreSQL synthetic 후보 20,000건에서 LIMIT 100·top-N sort, 약 48ms. 기존 schema/index로 수용 가능해 migration 없음
+- 회귀: backend Release build·전체 suite, 신규 targeted 15/15, frontend 61/61·lint/typecheck/build, Full-Stack E2E 16/16, actionlint 통과
+- Persistent UAT: read-only 전후 불변, ledger 28/29/1, Pending/Processing 0/0, active escalation 0, runtime PID와 PostgreSQL restart 유지, escalation worker disabled, actual provider call 0
+- 산출물: [Task 정의와 검수 체크리스트](../tasks/notify-esc-001.md), [Implementation report](../tasks/notify-esc-001-implementation-report.md), [SOP](../tasks/notify-esc-001-sop.md), [User manual](../tasks/notify-esc-001-user-manual.md), 이 Roadmap update
+- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #34 병합 승인 / 미체크 항목 0
+- 전달 계약: 기존 at-least-once 유지, exactly-once로 확대하지 않음
+- 전체 신규 기능 개발: No-Go 유지
+
 ### TASK-UAT-MAINTENANCE-001: Mutation worker maintenance gate
 
 - 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #31 squash merge 승인 / 다음 TASK-UAT-HANDOVER-003 재개
@@ -1405,7 +1421,7 @@ Excel 출력 대상 후보:
 | 57 | Review-safe UAT | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-002 | 5092/5190, startup·worker·provider·HTTP mutation 차단, DB session read-only, schema readiness, Development UAT 분리. PR #26 |
 | 58 | UAT 통합 사용자 검수 | 자동 검증·사용자 검수 완료 / merge 승인 | 사용자/개발 | UAT-VERIFY-001 | 최신 main runtime·ledger/schema/data/권한/dashboard/Review-safe/UI 기준선과 개인정보 안전 merge projection 통과. UAT 기준선 Go, 신규 기능 No-Go 유지, PR #29 병합 승인 |
 | 59 | Notification delivery claim/lease | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-REL-001 | Processing·SKIP LOCKED·lease/fencing·attempt audit, 정상 경쟁 provider call 1회, isolated candidate 5094/5192. Persistent UAT 0028 미적용, actual provider 호출 0, at-least-once이며 exactly-once 미보장. PR #30 |
-| 60 | Escalation starvation | 계획 | 개발/운영 | TASK-NOTIFY-ESC-001 | batch 정렬과 starvation 보정, L0~L3 회귀를 별도 검증 |
+| 60 | Escalation starvation | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-ESC-001 | 기존 evaluation timestamp fair ordering, 후보 오류 격리, 101/200/201 유한 poll, 중복 0. Persistent UAT worker는 disabled 유지 |
 | 61 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-HARDEN-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
 | 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
@@ -1497,6 +1513,8 @@ Excel 출력 대상 후보:
 | 2026-07-11 | TASK-UAT-MAINTENANCE-001 사용자 검수와 PR #31 squash merge를 승인 | purge 기본 true, explicit disable·ReviewSafe·Phase A worker 미등록, synthetic 후보 불변, Persistent UAT·0028·runtime·backup 보존을 확인하고 HANDOVER-003 재개 조건을 충족하기 위함 | 23장, 24장, TASK-UAT-MAINTENANCE-001 |
 | 2026-07-12 | TASK-UAT-HANDOVER-003에서 fresh backup·isolated rehearsal 후 Persistent UAT 0028과 latest main Review-safe/Development runtime을 통제 적용해 사용자 검수 대기로 전환 | Ledger 28/29/1, worker/provider gate, 사용자 승인 ManualTest 1건의 정상 Sent lineage와 unrelated provider call 0, Persistent aggregate 보존을 확인하고 다음 escalation starvation remediation을 준비하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-003 |
 | 2026-07-12 | TASK-UAT-HANDOVER-003 사용자 검수와 PR #33 squash merge를 승인 | Development·Review-safe 정상, ledger 28/29/1, `AUTHORIZED_USER_ACTIVITY` 단일 Sent lineage, Pending/Processing 0/0, backup restore 0과 at-least-once 제한을 확인하고 다음 P2를 TASK-NOTIFY-ESC-001로 유지하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-003 |
+| 2026-07-12 | TASK-NOTIFY-ESC-001에서 기존 evaluation timestamp 기반 fair ordering과 후보별 오류 격리를 구현해 사용자 검수 대기로 전환 | 100건 고정 window가 tail을 starvation시키고 후보 오류가 poll을 종료하던 P2를 schema/API/UI 변경 없이 제거하며 L0~L3·recipient·중복 방지·at-least-once 계약을 유지하기 위함 | 23장, 24장, TASK-NOTIFY-ESC-001 |
+| 2026-07-13 | TASK-NOTIFY-ESC-001 사용자 검수와 PR #34 squash merge를 승인 | 101/200/201 유한 poll, 후보 오류 뒤 tail 진행, 동시 evaluator 중복 0, L0~L3·BusinessDay·recipient 정책 불변, Persistent UAT 미적용과 at-least-once 제한을 확인하기 위함 | 23장, 24장, TASK-NOTIFY-ESC-001 |
 
 ## 26. 용어 사전
 

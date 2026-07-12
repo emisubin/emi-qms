@@ -107,7 +107,24 @@ public sealed class WorkItemEscalationStore(
             where wi.due_date is not null
               and wi.status in ('Requested', 'InProgress')
               and p.deleted_at_utc is null
-            order by wi.due_date, wi.created_at_utc
+            order by
+                case
+                    when wie.work_item_id is null
+                      or wie.due_date is distinct from wi.due_date
+                      or wie.status <> 'Active'
+                    then 0
+                    else 1
+                end,
+                case
+                    when wie.work_item_id is null
+                      or wie.due_date is distinct from wi.due_date
+                      or wie.status <> 'Active'
+                    then wi.created_at_utc
+                    else wie.updated_at_utc
+                end,
+                wi.due_date,
+                wi.created_at_utc,
+                wi.id
             limit @limit;
             """);
         command.Parameters.AddWithValue("limit", Math.Max(1, maxBatchSize));

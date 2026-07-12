@@ -99,17 +99,17 @@ Application의 지원 mutation 경로를 보호한다. DBA direct SQL을 DB trig
 | User manual | 작성 완료 |
 | Roadmap update | 반영 완료 |
 
-현재 상태: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기 / Draft PR 준비.
+현재 상태: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #36 squash merge 승인 / 미체크 항목 0.
 
 ## 17. 사용자 검수 체크리스트
 
-- [ ] 마지막 active System Administrator 보호 목적을 이해
-- [ ] 서로 다른 두 administrator 동시 감소 시 하나가 거부됨을 확인
-- [ ] 비활성화·role 제거·삭제 예약이 같은 guard를 사용함을 확인
-- [ ] 동일 target의 기존 idempotent 결과가 유지됨을 확인
-- [ ] HTTP 400과 화면/API shape가 유지됨을 확인
-- [ ] Entra·승인 대기·Dev persona·bootstrap 정책이 바뀌지 않음을 확인
-- [ ] Migration·frontend·runtime configuration 변경이 없음을 확인
-- [ ] Persistent UAT와 기존 runtime이 변경되지 않음을 확인
-- [ ] direct SQL 우회는 보호 범위 밖이며 금지됨을 이해
-- [ ] controlled UAT가 별도 승인임을 확인
+- [x] 마지막 active System Administrator 보호 목적을 이해
+- [x] 서로 다른 두 administrator 동시 감소 시 하나가 거부됨을 확인
+- [x] 비활성화·role 제거·삭제 예약이 같은 guard를 사용함을 확인
+- [x] 동일 target의 기존 idempotent 결과가 유지됨을 확인
+- [x] HTTP 400과 화면/API shape가 유지됨을 확인
+- [x] Entra·승인 대기·Dev persona·bootstrap 정책이 바뀌지 않음을 확인
+- [x] Migration·frontend·runtime configuration 변경이 없음을 확인
+- [x] Persistent UAT와 기존 runtime이 변경되지 않음을 확인
+- [x] direct SQL 우회는 보호 범위 밖이며 금지됨을 이해
+- [x] controlled UAT가 별도 승인임을 확인

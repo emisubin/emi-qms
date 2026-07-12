@@ -68,7 +68,7 @@ Application의 지원 화면/API를 보호한다. DBA direct SQL을 허용하는
 
 ## 16. Persistent UAT 적용 상태
 
-현재 Draft PR은 code와 isolated 자동 검증 단계다. Persistent UAT user/role data와 runtime은 변경하지 않았다. Controlled UAT는 별도 승인이 필요하다.
+Code·isolated 자동 검증과 사용자 검수를 완료했고 PR #36 squash merge 승인을 확인했다. Persistent UAT user/role data와 runtime은 변경하지 않았다. Controlled UAT는 별도 승인이 필요하다.
 
 ## 17. FAQ
 
@@ -86,13 +86,13 @@ Application의 지원 화면/API를 보호한다. DBA direct SQL을 허용하는
 
 ## 18. 사용자 검수 체크리스트
 
-- [ ] 화면 변경 없음 확인
-- [ ] 마지막 administrator 보호 목적 이해
-- [ ] 동시 변경 시 한 요청이 거부될 수 있음을 이해
-- [ ] 새 administrator를 먼저 지정하는 절차 확인
-- [ ] 승인 대기·Dev persona 정책 불변 확인
-- [ ] transaction rollback 의미 이해
-- [ ] direct SQL 금지 이해
-- [ ] Persistent UAT controlled 적용이 별도 승인임을 확인
+- [x] 화면 변경 없음 확인
+- [x] 마지막 administrator 보호 목적 이해
+- [x] 동시 변경 시 한 요청이 거부될 수 있음을 이해
+- [x] 새 administrator를 먼저 지정하는 절차 확인
+- [x] 승인 대기·Dev persona 정책 불변 확인
+- [x] transaction rollback 의미 이해
+- [x] direct SQL 금지 이해
+- [x] Persistent UAT controlled 적용이 별도 승인임을 확인
 
-현재 상태: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기.
+현재 상태: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #36 squash merge 승인 / 미체크 항목 0.

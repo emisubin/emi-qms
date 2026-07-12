@@ -98,15 +98,16 @@ Boolean, integer, fixed enum과 route alias만 기록한다. 실제 이름, emai
 
 ## 19. 사용자 검수 체크리스트
 
-- [ ] last-admin 오류의 업무 의미 확인
-- [ ] 경쟁 요청 중 하나가 거부되는 정상 결과 확인
-- [ ] canonical predicate와 Dev/승인 대기 제외 확인
-- [ ] HTTP 400과 화면 변경 없음 확인
-- [ ] direct SQL 금지 이해
-- [ ] controlled UAT 별도 승인 이해
+- [x] last-admin 오류의 업무 의미 확인
+- [x] 경쟁 요청 중 하나가 거부되는 정상 결과 확인
+- [x] canonical predicate와 Dev/승인 대기 제외 확인
+- [x] HTTP 400과 화면 변경 없음 확인
+- [x] direct SQL 금지 이해
+- [x] controlled UAT 별도 승인 이해
 
 ## 20. 변경 이력
 
 | 일자 | 변경 |
 | --- | --- |
 | 2026-07-13 | TASK-AUTH-HARDEN-001 구현·자동 검증 및 사용자 검수 대기 절차 작성 |
+| 2026-07-13 | 사용자 검수 완료와 PR #36 squash merge 승인 반영 |

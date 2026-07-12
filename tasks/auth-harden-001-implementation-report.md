@@ -151,7 +151,7 @@ Target row lock과 pre-count만 유지하는 접근은 서로 다른 target race
 
 ## 24. 사용자 검수 결과와 남은 항목
 
-Checklist 작성과 자동 검증을 완료했다. 사용자 검수는 대기 상태이며 미체크 항목을 완료로 표시하지 않았다. Persistent UAT 적용은 별도 `TASK-UAT-AUTH-HARDEN-001` 승인 대상이다. 신규 기능 개발 No-Go를 유지한다.
+Checklist, 자동 검증과 사용자 검수를 완료했고 PR #36 squash merge 승인을 확인했다. 미체크 항목은 0이다. 사용자는 서로 다른 target 경쟁의 성공 1·거부 1·active count 1, rollback, 기존 HTTP 400·Entra 정책, Migration/API/Frontend 변경 0, direct SQL 금지 제한과 기존 범위 밖 import-order 위반 9건을 승인했다. Persistent UAT 적용은 별도 `TASK-UAT-AUTH-HARDEN-001` 승인 대상이며 신규 기능 개발 No-Go를 유지한다.
 
 ## 25. 주요 파일
 

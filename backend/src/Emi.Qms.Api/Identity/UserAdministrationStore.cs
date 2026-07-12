@@ -73,18 +73,18 @@ public sealed class UserAdministrationStore(
             return UserAdministrationMutationResult.Failure("존재하지 않는 역할이 포함되어 있습니다.");
         }
 
-        var currentlyAdmin = await UserHasRoleAsync(connection, transaction, userId, QmsRoles.SystemAdministrator, cancellationToken);
         var willBeAdmin = request.IsActive && requestedRoleCodes.Contains(QmsRoles.SystemAdministrator, StringComparer.Ordinal);
-        if (currentlyAdmin && !willBeAdmin)
+        if (!willBeAdmin)
         {
-            var otherActiveAdminCount = await CountOtherActiveSystemAdministratorsAsync(
+            var guardResult = await ActiveSystemAdministratorInvariantGuard.CheckRemovalAsync(
                 connection,
                 transaction,
                 userId,
                 cancellationToken);
-            if (otherActiveAdminCount == 0)
+            if (guardResult == ActiveSystemAdministratorGuardResult.Rejected)
             {
-                return UserAdministrationMutationResult.Failure("마지막 System Administrator는 삭제할 수 없습니다.");
+                return UserAdministrationMutationResult.Failure(
+                    ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage);
             }
         }
 
@@ -171,17 +171,15 @@ public sealed class UserAdministrationStore(
             return UserAdministrationMutationResult.Failure("개발 사용자는 삭제할 수 없습니다.");
         }
 
-        if (await UserHasRoleAsync(connection, transaction, userId, QmsRoles.SystemAdministrator, cancellationToken))
+        var guardResult = await ActiveSystemAdministratorInvariantGuard.CheckRemovalAsync(
+            connection,
+            transaction,
+            userId,
+            cancellationToken);
+        if (guardResult == ActiveSystemAdministratorGuardResult.Rejected)
         {
-            var otherActiveAdminCount = await CountOtherActiveSystemAdministratorsAsync(
-                connection,
-                transaction,
-                userId,
-                cancellationToken);
-            if (otherActiveAdminCount == 0)
-            {
-                return UserAdministrationMutationResult.Failure("마지막 System Administrator는 삭제할 수 없습니다.");
-            }
+            return UserAdministrationMutationResult.Failure(
+                ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage);
         }
 
         var now = timeProvider.GetUtcNow();
@@ -446,52 +444,6 @@ public sealed class UserAdministrationStore(
         command.CommandText = "select count(*) from roles where code = any(@role_codes);";
         command.Parameters.AddWithValue("role_codes", roleCodes.ToArray());
         return await command.ExecuteScalarAsync(cancellationToken) is long count && count == roleCodes.Count;
-    }
-
-    private static async Task<bool> UserHasRoleAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid userId,
-        string roleCode,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            select exists(
-                select 1
-                from user_roles ur
-                join roles r on r.id = ur.role_id
-                where ur.user_id = @user_id
-                  and r.code = @role_code
-            );
-            """;
-        command.Parameters.AddWithValue("user_id", userId);
-        command.Parameters.AddWithValue("role_code", roleCode);
-        return await command.ExecuteScalarAsync(cancellationToken) is bool exists && exists;
-    }
-
-    private static async Task<long> CountOtherActiveSystemAdministratorsAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid excludedUserId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            select count(*)
-            from qms_users u
-            join user_roles ur on ur.user_id = u.id
-            join roles r on r.id = ur.role_id
-            where u.is_active = true
-              and u.auth_provider = 'EntraId'
-              and r.code = @role_code
-              and u.id <> @excluded_user_id;
-            """;
-        command.Parameters.AddWithValue("role_code", QmsRoles.SystemAdministrator);
-        command.Parameters.AddWithValue("excluded_user_id", excludedUserId);
-        return (long)(await command.ExecuteScalarAsync(cancellationToken) ?? 0L);
     }
 
     private static IReadOnlyList<Guid> NormalizeIds(IReadOnlyList<Guid> ids)

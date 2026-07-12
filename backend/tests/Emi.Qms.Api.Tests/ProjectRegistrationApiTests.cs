@@ -1,10 +1,11 @@
+using System.Data;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Data;
 using ClosedXML.Excel;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Projects;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -240,6 +241,56 @@ public sealed class ProjectRegistrationApiTests
             new { ids = new[] { userId }, reason = "bulk restore" },
             TestContext.Current.CancellationToken));
         Assert.Equal("Restored", bulkRestore.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task LastCanonicalAdministratorMutationKeepsTheExistingBadRequestShape()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        var userId = Guid.NewGuid();
+
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider, entra_object_id, email
+            )
+            values (
+                '{userId}', '', 'Synthetic Last Administrator', null,
+                true, 'EntraId', 'synthetic-last-administrator', 'last-administrator@example.invalid'
+            );
+            insert into user_roles (user_id, role_id)
+            select '{userId}', id
+            from roles
+            where code = 'system-administrator';
+            """);
+
+        using var response = await adminClient.PatchAsJsonAsync(
+            $"/api/admin/users/{userId}",
+            new { departmentId = (Guid?)null, roleCodes = Array.Empty<string>(), isActive = false },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var json = await ReadJsonAsync(response);
+        Assert.Single(json.RootElement.EnumerateObject());
+        Assert.Equal(
+            ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage,
+            json.RootElement.GetProperty("message").GetString());
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from qms_users u
+            where u.is_active = true
+              and u.auth_provider = 'EntraId'
+              and u.deletion_requested_at_utc is null
+              and u.scheduled_hard_delete_at_utc is null
+              and u.purge_blocked_at_utc is null
+              and exists (
+                  select 1
+                  from user_roles ur
+                  join roles r on r.id = ur.role_id
+                  where ur.user_id = u.id
+                    and r.code = 'system-administrator'
+              );
+            """));
     }
 
     [Fact]

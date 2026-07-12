@@ -12,6 +12,278 @@ namespace Emi.Qms.Api.Tests;
 
 public sealed class IdentityInfrastructureTests
 {
+    [Theory]
+    [InlineData(AdminDecreaseOperation.Deactivate, AdminDecreaseOperation.Deactivate)]
+    [InlineData(AdminDecreaseOperation.RemoveRole, AdminDecreaseOperation.RemoveRole)]
+    [InlineData(AdminDecreaseOperation.Deactivate, AdminDecreaseOperation.RemoveRole)]
+    [InlineData(AdminDecreaseOperation.ScheduleDeletion, AdminDecreaseOperation.RemoveRole)]
+    public async Task ConcurrentDifferentAdministratorDecreasesPreserveTheCanonicalInvariant(
+        AdminDecreaseOperation firstOperation,
+        AdminDecreaseOperation secondOperation)
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "first.admin@example.com"
+        });
+        var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var first = await identityStore.GetOrCreateEntraProfileAsync(
+            "concurrency-admin-first",
+            "Concurrency Admin First",
+            "first.admin@example.com",
+            TestContext.Current.CancellationToken);
+        var second = await identityStore.GetOrCreateEntraProfileAsync(
+            "concurrency-admin-second",
+            "Concurrency Admin Second",
+            "second.admin@example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+
+        var promotion = await administration.UpdateEntraUserAsync(
+            second.User.Id,
+            new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], true),
+            first.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.True(promotion.Succeeded, promotion.ErrorMessage);
+
+        await using var roleLock = await context.LockCanonicalAdministratorRoleAsync();
+        var firstTask = ExecuteDecreaseAsync(administration, first.User.Id, first.User.Id, firstOperation);
+        var secondTask = ExecuteDecreaseAsync(administration, second.User.Id, first.User.Id, secondOperation);
+
+        await context.WaitForLockWaitersAsync(2);
+        Assert.False(firstTask.IsCompleted);
+        Assert.False(secondTask.IsCompleted);
+        await roleLock.ReleaseAsync();
+
+        var results = await Task.WhenAll(firstTask, secondTask);
+        Assert.Single(results, result => result.Succeeded);
+        var rejection = Assert.Single(results, result => !result.Succeeded);
+        Assert.Equal(ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage, rejection.ErrorMessage);
+        Assert.Equal(1L, await context.CountCanonicalActiveAdministratorsAsync());
+    }
+
+    [Fact]
+    public async Task CanonicalRoleLockCancellationRollsBackWithoutDomainErrorNormalization()
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "admin@example.com"
+        });
+        var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var admin = await identityStore.GetOrCreateEntraProfileAsync(
+            "lock-cancellation-admin",
+            "Lock Cancellation Admin",
+            "admin@example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(admin);
+
+        await using var roleLock = await context.LockCanonicalAdministratorRoleAsync();
+        using var cancellation = new CancellationTokenSource();
+        var mutation = administration.UpdateEntraUserAsync(
+            admin.User.Id,
+            new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], false),
+            admin.User.Id,
+            cancellation.Token);
+        await context.WaitForLockWaitersAsync(1);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await mutation);
+        await roleLock.ReleaseAsync();
+        Assert.Equal(1L, await context.CountCanonicalActiveAdministratorsAsync());
+    }
+
+    [Fact]
+    public async Task FailureAfterInvariantGuardRollsBackTheEntireAdministratorMutation()
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "first.admin@example.com"
+        });
+        var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var first = await identityStore.GetOrCreateEntraProfileAsync(
+            "rollback-admin-first",
+            "Rollback Admin First",
+            "first.admin@example.com",
+            TestContext.Current.CancellationToken);
+        var second = await identityStore.GetOrCreateEntraProfileAsync(
+            "rollback-admin-second",
+            "Rollback Admin Second",
+            "second.admin@example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        var promotion = await administration.UpdateEntraUserAsync(
+            second.User.Id,
+            new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], true),
+            first.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.True(promotion.Succeeded, promotion.ErrorMessage);
+
+        await context.ExecuteSqlAsync("""
+            create function reject_auth_harden_update() returns trigger language plpgsql as $$
+            begin
+                raise exception 'synthetic transaction failure';
+            end;
+            $$;
+            create trigger reject_auth_harden_update
+            before update on qms_users
+            for each row execute function reject_auth_harden_update();
+            """);
+
+        await Assert.ThrowsAsync<PostgresException>(async () =>
+            await administration.UpdateEntraUserAsync(
+                first.User.Id,
+                new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], false),
+                second.User.Id,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await context.CountCanonicalActiveAdministratorsAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentDuplicateTargetMutationKeepsTheExistingIdempotentOutcome()
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "first.admin@example.com"
+        });
+        var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var first = await identityStore.GetOrCreateEntraProfileAsync(
+            "duplicate-target-first",
+            "Duplicate Target First",
+            "first.admin@example.com",
+            TestContext.Current.CancellationToken);
+        var second = await identityStore.GetOrCreateEntraProfileAsync(
+            "duplicate-target-second",
+            "Duplicate Target Second",
+            "second.admin@example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.True((await administration.UpdateEntraUserAsync(
+            second.User.Id,
+            new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], true),
+            first.User.Id,
+            TestContext.Current.CancellationToken)).Succeeded);
+
+        var firstMutation = ExecuteDecreaseAsync(
+            administration,
+            first.User.Id,
+            second.User.Id,
+            AdminDecreaseOperation.Deactivate);
+        var duplicateMutation = ExecuteDecreaseAsync(
+            administration,
+            first.User.Id,
+            second.User.Id,
+            AdminDecreaseOperation.Deactivate);
+        var results = await Task.WhenAll(firstMutation, duplicateMutation);
+
+        Assert.All(results, result => Assert.True(result.Succeeded, result.ErrorMessage));
+        Assert.Equal(1L, await context.CountCanonicalActiveAdministratorsAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentAdministratorPromotionAndLastAdministratorRemovalAlwaysCommitAValidState()
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "existing.admin@example.com"
+        });
+        var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var existing = await identityStore.GetOrCreateEntraProfileAsync(
+            "promotion-race-existing",
+            "Promotion Race Existing",
+            "existing.admin@example.com",
+            TestContext.Current.CancellationToken);
+        var pending = await identityStore.GetOrCreateEntraProfileAsync(
+            "promotion-race-pending",
+            "Promotion Race Pending",
+            "pending.admin@example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(existing);
+        Assert.NotNull(pending);
+
+        await using var roleLock = await context.LockCanonicalAdministratorRoleAsync();
+        var removal = ExecuteDecreaseAsync(
+            administration,
+            existing.User.Id,
+            existing.User.Id,
+            AdminDecreaseOperation.RemoveRole);
+        var promotion = administration.UpdateEntraUserAsync(
+            pending.User.Id,
+            new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], true),
+            existing.User.Id,
+            TestContext.Current.CancellationToken);
+        await context.WaitForLockWaitersAsync(2);
+        await roleLock.ReleaseAsync();
+
+        var results = await Task.WhenAll(removal, promotion);
+        Assert.True(results[1].Succeeded, results[1].ErrorMessage);
+        Assert.True(results[0].Succeeded
+                    || results[0].ErrorMessage == ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage);
+        Assert.True(await context.CountCanonicalActiveAdministratorsAsync() >= 1L);
+    }
+
+    [Fact]
+    public async Task RepeatedConcurrentAdministratorDecreasesNeverCommitZeroActiveAdministrators()
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "first.admin@example.com"
+        });
+        var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var first = await identityStore.GetOrCreateEntraProfileAsync(
+            "stress-admin-first",
+            "Stress Admin First",
+            "first.admin@example.com",
+            TestContext.Current.CancellationToken);
+        var second = await identityStore.GetOrCreateEntraProfileAsync(
+            "stress-admin-second",
+            "Stress Admin Second",
+            "second.admin@example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+
+        for (var iteration = 0; iteration < 20; iteration += 1)
+        {
+            Assert.True((await administration.UpdateEntraUserAsync(
+                first.User.Id,
+                new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], true),
+                first.User.Id,
+                TestContext.Current.CancellationToken)).Succeeded);
+            Assert.True((await administration.UpdateEntraUserAsync(
+                second.User.Id,
+                new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], true),
+                first.User.Id,
+                TestContext.Current.CancellationToken)).Succeeded);
+
+            await using var roleLock = await context.LockCanonicalAdministratorRoleAsync();
+            var firstMutation = ExecuteDecreaseAsync(
+                administration,
+                iteration % 2 == 0 ? first.User.Id : second.User.Id,
+                first.User.Id,
+                AdminDecreaseOperation.Deactivate);
+            var secondMutation = ExecuteDecreaseAsync(
+                administration,
+                iteration % 2 == 0 ? second.User.Id : first.User.Id,
+                first.User.Id,
+                AdminDecreaseOperation.RemoveRole);
+            await context.WaitForLockWaitersAsync(2);
+            await roleLock.ReleaseAsync();
+
+            var results = await Task.WhenAll(firstMutation, secondMutation);
+            Assert.Single(results, result => result.Succeeded);
+            Assert.Single(results, result => !result.Succeeded);
+            Assert.Equal(1L, await context.CountCanonicalActiveAdministratorsAsync());
+        }
+    }
+
     [Fact]
     public async Task EntraJitCreatesPendingUserAndDoesNotMergeByEmail()
     {
@@ -117,15 +389,15 @@ public sealed class IdentityInfrastructureTests
             TestContext.Current.CancellationToken);
 
         Assert.False(lastAdminRoleRemoval.Succeeded);
-        Assert.Contains("마지막 System Administrator는 삭제할 수 없습니다.", lastAdminRoleRemoval.ErrorMessage, StringComparison.Ordinal);
+        Assert.Equal(ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage, lastAdminRoleRemoval.ErrorMessage);
         Assert.False(lastAdminDeactivation.Succeeded);
-        Assert.Contains("마지막 System Administrator는 삭제할 수 없습니다.", lastAdminDeactivation.ErrorMessage, StringComparison.Ordinal);
+        Assert.Equal(ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage, lastAdminDeactivation.ErrorMessage);
         var lastAdminDeletion = await administration.ScheduleEntraUserDeletionAsync(
             admin.User.Id,
             admin.User.Id,
             TestContext.Current.CancellationToken);
         Assert.False(lastAdminDeletion.Succeeded);
-        Assert.Contains("마지막 System Administrator는 삭제할 수 없습니다.", lastAdminDeletion.ErrorMessage, StringComparison.Ordinal);
+        Assert.Equal(ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage, lastAdminDeletion.ErrorMessage);
 
         var promotedExistingBootstrap = await store.GetOrCreateEntraProfileAsync(
             "existing-bootstrap-oid",
@@ -285,6 +557,39 @@ public sealed class IdentityInfrastructureTests
         return await transformation.TransformAsync(principal);
     }
 
+    private static Task<UserAdministrationMutationResult> ExecuteDecreaseAsync(
+        IUserAdministrationStore administration,
+        Guid targetUserId,
+        Guid currentUserId,
+        AdminDecreaseOperation operation)
+    {
+        return operation switch
+        {
+            AdminDecreaseOperation.Deactivate => administration.UpdateEntraUserAsync(
+                targetUserId,
+                new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], false),
+                currentUserId,
+                TestContext.Current.CancellationToken),
+            AdminDecreaseOperation.RemoveRole => administration.UpdateEntraUserAsync(
+                targetUserId,
+                new UpdateUserAdministrationRequest(null, [], true),
+                currentUserId,
+                TestContext.Current.CancellationToken),
+            AdminDecreaseOperation.ScheduleDeletion => administration.ScheduleEntraUserDeletionAsync(
+                targetUserId,
+                currentUserId,
+                TestContext.Current.CancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null)
+        };
+    }
+
+    public enum AdminDecreaseOperation
+    {
+        Deactivate,
+        RemoveRole,
+        ScheduleDeletion
+    }
+
     private sealed class IdentityTestContext : IAsyncDisposable
     {
         private IdentityTestContext(PostgreSqlTestDatabase database, QmsWebApplicationFactory factory)
@@ -338,10 +643,96 @@ public sealed class IdentityInfrastructureTests
             return Database.ReadScalarAsync<T>(sql, TestContext.Current.CancellationToken);
         }
 
+        public Task<long> CountCanonicalActiveAdministratorsAsync()
+        {
+            return ReadScalarAsync<long>("""
+                select count(*)
+                from qms_users u
+                where u.is_active = true
+                  and u.auth_provider = 'EntraId'
+                  and u.deletion_requested_at_utc is null
+                  and u.scheduled_hard_delete_at_utc is null
+                  and u.purge_blocked_at_utc is null
+                  and exists (
+                      select 1
+                      from user_roles ur
+                      join roles r on r.id = ur.role_id
+                      where ur.user_id = u.id
+                        and r.code = 'system-administrator'
+                  );
+                """);
+        }
+
+        public async Task<CanonicalRoleLock> LockCanonicalAdministratorRoleAsync()
+        {
+            var connection = await Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
+            var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                select id
+                from roles
+                where code = 'system-administrator'
+                for update;
+                """;
+            Assert.NotNull(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
+            return new CanonicalRoleLock(connection, transaction);
+        }
+
+        public async Task WaitForLockWaitersAsync(int expectedCount)
+        {
+            for (var attempt = 0; attempt < 100; attempt += 1)
+            {
+                var waiters = await ReadScalarAsync<long>("""
+                    select count(*)
+                    from pg_stat_activity
+                    where datname = current_database()
+                      and wait_event_type = 'Lock';
+                    """);
+                if (waiters >= expectedCount)
+                {
+                    return;
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(25), TestContext.Current.CancellationToken);
+            }
+
+            throw new TimeoutException("Expected PostgreSQL lock waiters were not observed.");
+        }
+
         public async ValueTask DisposeAsync()
         {
             Factory.Dispose();
             await Database.DisposeAsync();
+        }
+    }
+
+    private sealed class CanonicalRoleLock(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction) : IAsyncDisposable
+    {
+        private bool _released;
+
+        public async Task ReleaseAsync()
+        {
+            if (_released)
+            {
+                return;
+            }
+
+            await transaction.CommitAsync(TestContext.Current.CancellationToken);
+            _released = true;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (!_released)
+            {
+                await transaction.RollbackAsync();
+            }
+
+            await transaction.DisposeAsync();
+            await connection.DisposeAsync();
         }
     }
 
@@ -400,6 +791,13 @@ public sealed class IdentityInfrastructureTests
             var value = await command.ExecuteScalarAsync(cancellationToken);
             Assert.NotNull(value);
             return (T)value;
+        }
+
+        public async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken)
+        {
+            var connection = new NpgsqlConnection(BuildConnectionString(BaseConfiguration, DatabaseName));
+            await connection.OpenAsync(cancellationToken);
+            return connection;
         }
 
         public async ValueTask DisposeAsync()

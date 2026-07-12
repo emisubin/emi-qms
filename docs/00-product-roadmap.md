@@ -1247,14 +1247,17 @@ Excel 출력 대상 후보:
 
 기존 Roadmap의 `TASK-AUTH-001`을 실행 Task ID `TASK-AUTH-HARDEN-001`로 명확히 한다.
 
-- 상태/No-Go 순서: 계획 / 4순위
-- 목적: 동시에 실행되는 관리자 비활성화·역할 제거 요청에서도 마지막 active System Administrator 보호를 서버에서 보장한다.
-- 포함 범위: transaction/locking 정책, 사용자 비활성화와 role 제거의 공통 guard, 동시성 integration test, 오류 응답·audit 확인
-- 제외 범위: role/permission 편집 UI 전면 개편, Entra group/App Role 연동
-- 선행조건: PostgreSQL 동시성 테스트 환경과 관리 action 경계 확정
-- 예상 migration: 미정. 가능한 한 transaction/locking으로 해결하고 schema 변경이 필요하면 additive migration으로 분리
-- 핵심 검수 기준: 경쟁 요청 중 하나만 성공하고 active System Administrator가 항상 1명 이상 유지됨
-- 주요 위험: check-then-update race, 과도한 lock, 사용자/role API 간 guard 불일치
+- 상태/No-Go 순서: 구현·자동 검증 완료 / 사용자 검수 대기 / Draft PR / Persistent UAT 미적용
+- 목적: 동시에 실행되는 관리자 비활성화·역할 제거·삭제 요청에서도 마지막 canonical active System Administrator 보호를 PostgreSQL transaction에서 보장한다.
+- canonical predicate: active EntraId 사용자이며 삭제 요청·예약·purge 보류가 없고 canonical `system-administrator` role assignment가 존재한다. Dev persona와 승인 대기 사용자는 제외한다.
+- 구현: target user row 다음 canonical role row를 `FOR UPDATE`로 잠그고, 같은 transaction에서 target 상태와 다른 canonical active administrator 수를 재계산한다. 감소 가능한 모든 지원 경로가 같은 guard를 사용한다.
+- 적용 경로: 사용자 비활성화, 역할 전체 교체에 따른 System Administrator 제거, 삭제 예약, bulk delete 재사용 경로, 즉시·background purge 방어
+- 검증: 수정 전 isolated race에서 invariant 위반 35건을 재현했다. 수정 후 서로 다른 target 경쟁, 혼합 mutation, 동일 target, 증가/감소 경쟁, cancellation, 중간 실패와 20회 stress에서 committed active count 1 이상, partial update·unexpected deadlock 0을 확인했다.
+- API/UI: 기존 HTTP 400과 `{message}` shape를 유지하며 화면 변경은 없다. Migration·schema·dependency·runtime configuration 변경도 없다.
+- 운영 적용: Persistent UAT 사용자·role 데이터와 runtime은 변경하지 않았다. Merge 뒤 별도 `TASK-UAT-AUTH-HARDEN-001` controlled UAT 승인이 필요하다.
+- 산출물: [Task 정의와 검수 체크리스트](../tasks/auth-harden-001.md), [Implementation report](../tasks/auth-harden-001-implementation-report.md), [SOP](../tasks/auth-harden-001-sop.md), [User manual](../tasks/auth-harden-001-user-manual.md), 이 Roadmap update
+- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기
+- 전체 신규 기능 개발: 기존 P2가 남아 있으므로 No-Go 유지
 
 ### TASK-NOTIFY-003: Teams Activity Feed 개인 알림 / 알림 운영 UX
 

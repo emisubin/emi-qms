@@ -1,3 +1,4 @@
+using Emi.Qms.Api.Identity;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -57,6 +58,18 @@ public sealed class AdminScheduledDeletionService(
             return new AdminPurgeActionResult("Failed", "사용자를 찾을 수 없습니다.");
         }
 
+        var guardResult = await ActiveSystemAdministratorInvariantGuard.CheckRemovalAsync(
+            connection,
+            transaction,
+            userId,
+            cancellationToken);
+        if (guardResult == ActiveSystemAdministratorGuardResult.Rejected)
+        {
+            return new AdminPurgeActionResult(
+                "Failed",
+                ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage);
+        }
+
         var result = await PurgeUserRowAsync(connection, transaction, row, now, changedByUserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return result;
@@ -108,6 +121,17 @@ public sealed class AdminScheduledDeletionService(
         var result = new PurgeEntityResult();
         foreach (var user in users)
         {
+            var guardResult = await ActiveSystemAdministratorInvariantGuard.CheckRemovalAsync(
+                connection,
+                transaction,
+                user.Id,
+                cancellationToken);
+            if (guardResult == ActiveSystemAdministratorGuardResult.Rejected)
+            {
+                throw new InvalidOperationException(
+                    ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage);
+            }
+
             result.Add(await PurgeUserRowAsync(connection, transaction, user, now, null, cancellationToken));
         }
 
@@ -215,6 +239,7 @@ public sealed class AdminScheduledDeletionService(
             from {QuoteIdentifier(tableName)}
             where deletion_requested_at_utc is not null
               and scheduled_hard_delete_at_utc <= @now
+            order by id
             for update skip locked;
             """;
         command.Parameters.AddWithValue("now", now);

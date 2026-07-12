@@ -158,7 +158,7 @@ Persistent UAT를 초기화하지 않고 notification reliability schema와 runt
 
 ## 23. 사용자 검수 결과와 남은 항목
 
-Checklist 작성과 자동 검증은 완료했으며 사용자 직접 검수는 대기다. Draft PR만 게시하고 Ready 전환·merge는 하지 않는다.
+Checklist 작성, 자동 검증과 사용자 직접 검수를 완료했다. 사용자는 Development·Review-safe, ledger 28/29/1, `AUTHORIZED_USER_ACTIVITY` 단일 Sent lineage, Pending/Processing 0/0, backup 보존과 at-least-once 제한을 확인하고 PR #33 squash merge를 승인했다. 미체크 사용자 항목은 0이다.
 
 ## 24. 5종 산출물
 
@@ -168,4 +168,4 @@ Checklist 작성과 자동 검증은 완료했으며 사용자 직접 검수는 
 | 이 Implementation report | 작성 완료 |
 | [SOP](uat-handover-003-sop.md) | 작성 완료 |
 | [User manual](uat-handover-003-user-manual.md) | 작성 완료 |
-| [Roadmap](../docs/00-product-roadmap.md) | 반영 완료 후보 |
+| [Roadmap](../docs/00-product-roadmap.md) | 반영 완료 |

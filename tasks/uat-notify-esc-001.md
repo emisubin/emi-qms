@@ -82,25 +82,26 @@ Live candidate가 0인 시점의 no-op controlled activation이다. 101/200/201 
 
 - Checklist 작성됨
 - 자동 검증 완료
-- 사용자 검수 대기
-- Draft PR 게시 대상
+- 사용자 검수 완료
+- PR #35 squash merge 승인
+- 미체크 사용자 검수 항목 0
 - 신규 기능 개발 No-Go 유지
 
 ## 15. 사용자 검수 체크리스트
 
-- [ ] Development 5174 접속과 주요 조회 화면이 정상임을 확인
-- [ ] Review-safe 5190이 계속 정상임을 확인
-- [ ] escalation·delivery·purge worker가 정상 정책으로 각 1개임을 이해
-- [ ] live candidate가 0인 no-op 적용이라는 제한을 이해
-- [ ] backend 단독 poll 2회와 frontend 이후 poll 1회에서 DB delta가 0임을 확인
-- [ ] Pending/Processing이 0/0임을 확인
-- [ ] provider configuration은 복원됐지만 실제 호출은 0임을 확인
-- [ ] desktop과 390px read-only smoke 결과에 동의
-- [ ] Preview 5185가 maintenance 격리로 DOWN임을 이해
-- [ ] Persistent ledger 28/29/1과 PostgreSQL restart 0을 확인
-- [ ] backup restore·삭제·덮어쓰기가 없었음을 확인
-- [ ] at-least-once이며 exactly-once가 아님을 이해
-- [ ] SOP를 반복 실행할 수 있음을 확인
-- [ ] User manual을 이해
-- [ ] 다음 코드 P2가 TASK-AUTH-HARDEN-001임을 확인
-- [ ] 신규 기능 개발 No-Go 유지에 동의
+- [x] Development 5174 접속과 주요 조회 화면이 정상임을 확인
+- [x] Review-safe 5190이 계속 정상임을 확인
+- [x] escalation·delivery·purge worker가 정상 정책으로 각 1개임을 이해
+- [x] live candidate가 0인 no-op 적용이라는 제한을 이해
+- [x] backend 단독 poll 2회와 frontend 이후 poll 1회에서 DB delta가 0임을 확인
+- [x] Pending/Processing이 0/0임을 확인
+- [x] provider configuration은 복원됐지만 실제 호출은 0임을 확인
+- [x] desktop과 390px read-only smoke 결과에 동의
+- [x] Preview 5185가 maintenance 격리로 DOWN임을 이해
+- [x] Persistent ledger 28/29/1과 PostgreSQL restart 0을 확인
+- [x] backup restore·삭제·덮어쓰기가 없었음을 확인
+- [x] at-least-once이며 exactly-once가 아님을 이해
+- [x] SOP를 반복 실행할 수 있음을 확인
+- [x] User manual을 이해
+- [x] 다음 코드 P2가 TASK-AUTH-HARDEN-001임을 확인
+- [x] 신규 기능 개발 No-Go 유지에 동의

@@ -99,6 +99,8 @@ Poll 3회 모두 candidate/failure/DB/provider delta 0, worker 각 1, Developmen
 - backup restore 0
 - at-least-once 제한
 
+검수 결과: 2026-07-13 사용자 검수 완료, 미체크 항목 0, PR #35 squash merge 승인.
+
 ## 16. 변경 이력
 
 - 2026-07-13: Phase A/B/C controlled activation 절차 최초 작성

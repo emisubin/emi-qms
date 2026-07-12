@@ -1183,7 +1183,7 @@ Excel 출력 대상 후보:
 
 ### TASK-UAT-HANDOVER-003: Notification delivery claim/lease UAT handover
 
-- 상태/다음 순서: 구현 완료 후보 / 자동 검증 완료 / 사용자 검수 대기 / Draft PR 게시 준비 완료 / 다음 TASK-NOTIFY-ESC-001
+- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #33 squash merge 승인 / 다음 TASK-NOTIFY-ESC-001
 - 목적: Persistent UAT에 canonical 0028을 통제 적용하고 Development·Review-safe runtime을 최신 main으로 전환한다.
 - 포함 범위: fresh backup·isolated restore·fault rollback, migration 0028, canonical 28 + approved legacy 1 = live 29 ledger 확인, Review-safe 5190/5092와 Development 5174/5081 controlled handover, Phase A/Phase B와 장시간 snapshot 검증
 - 제외 범위: actual 외부 발송, 기존 업무 data 정리, escalation starvation 구현
@@ -1195,7 +1195,7 @@ Excel 출력 대상 후보:
 - 개인정보 안전: desktop/390px 결과를 boolean/count/fixed alias로 검증하고 raw DOM/API body/screenshot 미생성
 - 관찰 Finding: `UNEXPECTED_MANUAL_DELIVERY_DELTA` 자동 fail-stop 후 사용자 의도 활동임을 확인해 `AUTHORIZED_USER_ACTIVITY`로 재분류, 제품/runtime isolation 결함과 data cleanup 필요 없음, 기존 공식 runtime 유효 관찰 45분을 인정하고 다음 purge interval 1회 추가 확인
 - 산출물: [Task 정의와 checklist](../tasks/uat-handover-003.md), [Implementation report](../tasks/uat-handover-003-implementation-report.md), [SOP](../tasks/uat-handover-003-sop.md), [User manual](../tasks/uat-handover-003-user-manual.md), 이 Roadmap update
-- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 후보 / 사용자 검수 대기
+- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #33 squash merge 승인 / 미체크 항목 0
 
 ### TASK-UAT-MAINTENANCE-001: Mutation worker maintenance gate
 
@@ -1411,7 +1411,7 @@ Excel 출력 대상 후보:
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
 | 65 | Privacy-safe Review-safe runtime handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-002 | merged main 5190/5092, Compatible 27/28/1, redacted browser matrix, DB read-only·423, Candidate/Persistent UAT 보존. PR #28 |
-| 66 | Notification claim/lease UAT handover | 계획 | 개발/운영 | TASK-UAT-HANDOVER-003 | PR merge 후 Persistent UAT 0028, canonical 28 + approved legacy 1 = live 29, fake/dry-run과 runtime controlled handover |
+| 66 | Notification claim/lease UAT handover | 사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-003 | Persistent UAT 0028, canonical 28 + approved legacy 1 = live 29, Review-safe/Development controlled handover, 승인된 ManualTest 단일 Sent lineage와 unrelated provider call 0 |
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / Draft PR 게시 대상 / merge 대기 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 
@@ -1496,6 +1496,7 @@ Excel 출력 대상 후보:
 | 2026-07-11 | HANDOVER-003 preflight에서 purge worker disable gate 부재 P2를 발견해 Persistent migration 전에 중단하고 TASK-UAT-MAINTENANCE-001로 분리 | worker가 등록된 idle 상태를 maintenance-safe로 오판하지 않고 세 mutation worker 미등록과 candidate 불변을 먼저 보장하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-003, TASK-UAT-MAINTENANCE-001 |
 | 2026-07-11 | TASK-UAT-MAINTENANCE-001 사용자 검수와 PR #31 squash merge를 승인 | purge 기본 true, explicit disable·ReviewSafe·Phase A worker 미등록, synthetic 후보 불변, Persistent UAT·0028·runtime·backup 보존을 확인하고 HANDOVER-003 재개 조건을 충족하기 위함 | 23장, 24장, TASK-UAT-MAINTENANCE-001 |
 | 2026-07-12 | TASK-UAT-HANDOVER-003에서 fresh backup·isolated rehearsal 후 Persistent UAT 0028과 latest main Review-safe/Development runtime을 통제 적용해 사용자 검수 대기로 전환 | Ledger 28/29/1, worker/provider gate, 사용자 승인 ManualTest 1건의 정상 Sent lineage와 unrelated provider call 0, Persistent aggregate 보존을 확인하고 다음 escalation starvation remediation을 준비하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-003 |
+| 2026-07-12 | TASK-UAT-HANDOVER-003 사용자 검수와 PR #33 squash merge를 승인 | Development·Review-safe 정상, ledger 28/29/1, `AUTHORIZED_USER_ACTIVITY` 단일 Sent lineage, Pending/Processing 0/0, backup restore 0과 at-least-once 제한을 확인하고 다음 P2를 TASK-NOTIFY-ESC-001로 유지하기 위함 | 23장, 24장, TASK-UAT-HANDOVER-003 |
 
 ## 26. 용어 사전
 

@@ -99,23 +99,23 @@ PostgreSQL container restart 없이 기존 volume을 유지했다. Backup은 삭
 | Implementation report | [implementation report](uat-handover-003-implementation-report.md) | 작성 완료 |
 | SOP | [SOP](uat-handover-003-sop.md) | 작성 완료 |
 | User manual | [User manual](uat-handover-003-user-manual.md) | 작성 완료 |
-| Roadmap update | [Product Roadmap](../docs/00-product-roadmap.md) | 반영 완료 후보 |
+| Roadmap update | [Product Roadmap](../docs/00-product-roadmap.md) | 반영 완료 |
 
-현재 상태: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기 / Draft PR 게시 준비 완료.
+현재 상태: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #33 squash merge 승인 / 미체크 항목 0.
 
 ## 15. 사용자 검수 체크리스트
 
-- [ ] https://localhost:5174 접속 정상
-- [ ] 프로젝트·내 업무·알림·Teams Activity·관리자 조회 정상
-- [ ] Processing filter와 발송 시도 이력 접근 가능
-- [ ] 사용자 수동 발송 1건이 `AUTHORIZED_USER_ACTIVITY`로 기록되고 단일 attempt로 Sent 처리됨을 확인
-- [ ] Pending·Processing이 0임을 확인
-- [ ] 승인된 delivery 1건 외 provider 호출이 0임을 확인
-- [ ] Review-safe https://localhost:5190 정상
-- [ ] Migration ledger 28/29/1 의미 이해
-- [ ] Persistent UAT와 backup이 보존됨을 확인
-- [ ] External delivery가 at-least-once임을 이해
-- [ ] SOP 실행 가능
-- [ ] User manual 이해 가능
-- [ ] 다음 Task가 TASK-NOTIFY-ESC-001임을 확인
-- [ ] 전체 신규 기능 개발 No-Go 유지 확인
+- [x] https://localhost:5174 접속 정상
+- [x] 프로젝트·내 업무·알림·Teams Activity·관리자 조회 정상
+- [x] Processing filter와 발송 시도 이력 접근 가능
+- [x] 사용자 수동 발송 1건이 `AUTHORIZED_USER_ACTIVITY`로 기록되고 단일 attempt로 Sent 처리됨을 확인
+- [x] Pending·Processing이 0임을 확인
+- [x] 승인된 delivery 1건 외 provider 호출이 0임을 확인
+- [x] Review-safe https://localhost:5190 정상
+- [x] Migration ledger 28/29/1 의미 이해
+- [x] Persistent UAT와 backup이 보존됨을 확인
+- [x] External delivery가 at-least-once임을 이해
+- [x] SOP 실행 가능
+- [x] User manual 이해 가능
+- [x] 다음 Task가 TASK-NOTIFY-ESC-001임을 확인
+- [x] 전체 신규 기능 개발 No-Go 유지 확인

@@ -58,7 +58,7 @@ public sealed class AdminScheduledDeletionService(
             return new AdminPurgeActionResult("Failed", "사용자를 찾을 수 없습니다.");
         }
 
-        var guardResult = await ActiveSystemAdministratorInvariantGuard.CheckRemovalAsync(
+        var guardResult = await ActiveSystemAdministratorInvariantGuard.CheckPurgeRemovalAsync(
             connection,
             transaction,
             userId,
@@ -121,7 +121,7 @@ public sealed class AdminScheduledDeletionService(
         var result = new PurgeEntityResult();
         foreach (var user in users)
         {
-            var guardResult = await ActiveSystemAdministratorInvariantGuard.CheckRemovalAsync(
+            var guardResult = await ActiveSystemAdministratorInvariantGuard.CheckPurgeRemovalAsync(
                 connection,
                 transaction,
                 user.Id,

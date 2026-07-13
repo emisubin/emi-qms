@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -64,6 +65,62 @@ public sealed class IdentityInfrastructureTests
     }
 
     [Fact]
+    public async Task DuePurgeAndRoleRemovalUseTheSameCanonicalRoleBoundary()
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "remaining.admin@example.com"
+        });
+        var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var deletionService = context.Services.GetRequiredService<AdminScheduledDeletionService>();
+        var remaining = await identityStore.GetOrCreateEntraProfileAsync(
+            "purge-race-remaining",
+            "Purge Race Remaining",
+            "remaining.admin@example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(remaining);
+        var malformedTargetId = Guid.NewGuid();
+
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider,
+                entra_object_id, email, deletion_requested_at_utc, scheduled_hard_delete_at_utc
+            )
+            values (
+                '{malformedTargetId}', 'purge-race-target', 'Synthetic Purge Race Target', null,
+                true, 'EntraId', 'purge-race-target', 'purge-race-target@example.invalid',
+                now() - interval '8 days', now() - interval '1 day'
+            );
+            insert into user_roles (user_id, role_id)
+            select '{malformedTargetId}', id
+            from roles
+            where code = 'system-administrator';
+            """);
+
+        await using var roleLock = await context.LockCanonicalAdministratorRoleAsync();
+        var purgeTask = deletionService.PurgeDueAsync(TestContext.Current.CancellationToken);
+        var roleRemovalTask = administration.UpdateEntraUserAsync(
+            remaining.User.Id,
+            new UpdateUserAdministrationRequest(null, [], true),
+            remaining.User.Id,
+            TestContext.Current.CancellationToken);
+
+        await context.WaitForLockWaitersAsync(2);
+        Assert.False(purgeTask.IsCompleted);
+        Assert.False(roleRemovalTask.IsCompleted);
+        await roleLock.ReleaseAsync();
+
+        var purge = await purgeTask;
+        var roleRemoval = await roleRemovalTask;
+        Assert.Equal(0, purge.PurgedUserCount);
+        Assert.Equal(1, purge.BlockedCount);
+        Assert.False(roleRemoval.Succeeded);
+        Assert.Equal(ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage, roleRemoval.ErrorMessage);
+        Assert.Equal(1L, await context.CountCanonicalActiveAdministratorsAsync());
+    }
+
+    [Fact]
     public async Task CanonicalRoleLockCancellationRollsBackWithoutDomainErrorNormalization()
     {
         await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
@@ -92,6 +149,43 @@ public sealed class IdentityInfrastructureTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await mutation);
         await roleLock.ReleaseAsync();
         Assert.Equal(1L, await context.CountCanonicalActiveAdministratorsAsync());
+    }
+
+    [Fact]
+    public async Task PurgeRoleLockCancellationPreservesTheMalformedTarget()
+    {
+        await using var context = await IdentityTestContext.CreateAsync();
+        var deletionService = context.Services.GetRequiredService<AdminScheduledDeletionService>();
+        var targetUserId = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider,
+                entra_object_id, email, deletion_requested_at_utc, scheduled_hard_delete_at_utc
+            )
+            values (
+                '{targetUserId}', 'purge-cancellation-target', 'Synthetic Purge Cancellation Target', null,
+                true, 'EntraId', 'purge-cancellation-target', 'purge-cancellation-target@example.invalid',
+                now() - interval '8 days', now() - interval '1 day'
+            );
+            insert into user_roles (user_id, role_id)
+            select '{targetUserId}', id
+            from roles
+            where code = 'system-administrator';
+            """);
+
+        await using var roleLock = await context.LockCanonicalAdministratorRoleAsync();
+        using var cancellation = new CancellationTokenSource();
+        var purge = deletionService.PurgeUserNowAsync(
+            targetUserId,
+            Guid.NewGuid(),
+            cancellation.Token);
+        await context.WaitForLockWaitersAsync(1);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await purge);
+        await roleLock.ReleaseAsync();
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id = '{targetUserId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from user_roles where user_id = '{targetUserId}';"));
     }
 
     [Fact]

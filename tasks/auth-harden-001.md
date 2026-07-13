@@ -13,6 +13,7 @@
 - `CHECK_THEN_WRITE_RACE`: count와 write가 서로 다른 target 요청 사이에서 직렬화되지 않았다.
 - `PER_TARGET_LOCK_ONLY`: target user row lock만으로 다른 관리자 요청을 보호할 수 없었다.
 - `MISSING_MUTATION_PATH_GUARD`: purge 경로에는 방어적인 last-admin guard가 없었다.
+- `PURGE_GUARD_PREDICATE_UNREACHABLE`: canonical lifecycle-null predicate를 purge target에 재사용해 defensive rejection이 도달 불가능했다. Change 001에서 purge 전용 predicate로 보정했다.
 - 심각도: P2
 
 ## 4. Canonical predicate
@@ -52,10 +53,10 @@ Migration, schema/index, frontend, public API shape, runtime configuration, Entr
 - `UpdateEntraUserAsync`: 비활성화와 role 전체 교체에 따른 role 제거
 - `ScheduleEntraUserDeletionAsync`: 삭제 예약
 - Bulk delete: 위 삭제 예약 또는 즉시 purge 경로 재사용
-- `PurgeUserNowAsync`: 비정상 active-admin purge 방어
-- `PurgeDueAsync`: batch transaction 전체 rollback을 유지하는 방어
+- `PurgeUserNowAsync`: lifecycle marker를 제외한 purge 전용 active-admin predicate로 비정상 상태를 방어
+- `PurgeDueAsync`: 같은 purge 전용 predicate와 batch transaction 전체 rollback 유지
 
-정상 삭제 예정 row는 이미 canonical set 밖이므로 guard가 no-op이다.
+정상 삭제 예정 row는 inactive이므로 purge guard가 no-op이고 기존 reference 정책으로 진행한다. Lifecycle marker와 active Entra administrator role이 비정상적으로 공존하면 purge 전용 predicate가 canonical role row를 잠근 뒤 다른 canonical administrator를 재계산한다.
 
 ## 10. 오류 계약
 
@@ -70,6 +71,14 @@ Migration, schema/index, frontend, public API shape, runtime configuration, Entr
 - 20회 stress: violation 0, partial update 0, unexpected deadlock 0
 - cancellation·transaction 중간 실패: rollback, active count 유지
 - API: HTTP 400, response property 1개 유지
+- Change 001 purge defense targeted PostgreSQL tests: 5/5
+- Immediate last-admin rejection, due batch rollback, role-removal concurrency와 purge cancellation: 통과
+- Backend Release build: warning/error 0/0
+- Backend 전체: 361/361
+- Frontend lint/typecheck/unit/build: error 0 / 성공 / 61/61 / 성공
+- Mock UI와 isolated Full-Stack E2E: 1/1, 16/16
+- actionlint, Markdown link·anchor·heading, secret/PII와 changed-file allowlist: 통과
+- Persistent UAT read-only 전후: ledger 28/29/1, canonical active administrator 1, Pending/Processing 0/0, runtime·PostgreSQL identity 불변
 
 ## 12. Persistent UAT 보호
 
@@ -99,7 +108,7 @@ Application의 지원 mutation 경로를 보호한다. DBA direct SQL을 DB trig
 | User manual | 작성 완료 |
 | Roadmap update | 반영 완료 |
 
-현재 상태: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #36 squash merge 승인 / 미체크 항목 0.
+현재 상태: 원 구현 사용자 검수·PR #36 merge 완료 / Change 001 REDESIGN 구현·자동 검증·사용자 검수 완료 / Change 001 merge 승인.
 
 ## 17. 사용자 검수 체크리스트
 
@@ -113,3 +122,5 @@ Application의 지원 mutation 경로를 보호한다. DBA direct SQL을 DB trig
 - [x] Persistent UAT와 기존 runtime이 변경되지 않음을 확인
 - [x] direct SQL 우회는 보호 범위 밖이며 금지됨을 이해
 - [x] controlled UAT가 별도 승인임을 확인
+- [x] Change 001 purge 전용 predicate와 malformed lifecycle defense-in-depth 결과 확인
+- [x] Due purge 방어 거부의 batch 전체 rollback 결과 확인

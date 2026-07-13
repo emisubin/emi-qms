@@ -1247,16 +1247,18 @@ Excel 출력 대상 후보:
 
 기존 Roadmap의 `TASK-AUTH-001`을 실행 Task ID `TASK-AUTH-HARDEN-001`로 명확히 한다.
 
-- 상태/No-Go 순서: 구현·자동 검증·사용자 검수 완료 / PR #36 squash merge 승인 / Persistent UAT 미적용
+- 상태/No-Go 순서: PR #36 구현·자동 검증·사용자 검수·squash merge 완료 / Change 001 REDESIGN 구현·자동 검증·사용자 검수 완료 / Change 001 merge 승인 / Persistent UAT 미적용
 - 목적: 동시에 실행되는 관리자 비활성화·역할 제거·삭제 요청에서도 마지막 canonical active System Administrator 보호를 PostgreSQL transaction에서 보장한다.
 - canonical predicate: active EntraId 사용자이며 삭제 요청·예약·purge 보류가 없고 canonical `system-administrator` role assignment가 존재한다. Dev persona와 승인 대기 사용자는 제외한다.
 - 구현: target user row 다음 canonical role row를 `FOR UPDATE`로 잠그고, 같은 transaction에서 target 상태와 다른 canonical active administrator 수를 재계산한다. 감소 가능한 모든 지원 경로가 같은 guard를 사용한다.
-- 적용 경로: 사용자 비활성화, 역할 전체 교체에 따른 System Administrator 제거, 삭제 예약, bulk delete 재사용 경로, 즉시·background purge 방어
+- 적용 경로: 사용자 비활성화, 역할 전체 교체에 따른 System Administrator 제거, 삭제 예약과 bulk delete 재사용 경로는 canonical predicate를 사용한다. 즉시·background purge는 lifecycle marker를 제외하고 active Entra System Administrator 여부를 확인하는 별도 물리 삭제 방어 predicate를 사용한다.
+- Change 001: 기존 purge 경로가 canonical lifecycle-null predicate와 상호 배타적이어서 방어 거부가 도달 불가능했던 `PURGE_GUARD_PREDICATE_UNREACHABLE`을 REDESIGN으로 보정했다. Malformed lifecycle state를 defense-in-depth 대상으로 유지하며, 다른 canonical administrator가 없으면 즉시 purge는 기존 HTTP 400으로 거부하고 due purge는 batch transaction 전체를 rollback한다. 다른 administrator가 있으면 기존 reference scan을 계속 적용하므로 role assignment reference는 `PurgeBlocked`가 될 수 있다.
+- Change 001 검증: purge defense targeted PostgreSQL 5/5, backend 361/361, frontend 61/61·lint/typecheck/build, Mock UI 1/1, Full-Stack E2E 16/16, actionlint·문서·보안·allowlist 검증을 통과했다. Persistent read-only 전후 ledger 28/29/1, canonical active administrator 1, Pending/Processing 0/0과 runtime·PostgreSQL identity는 불변이다.
 - 검증: 수정 전 isolated race에서 invariant 위반 35건을 재현했다. 수정 후 서로 다른 target 경쟁, 혼합 mutation, 동일 target, 증가/감소 경쟁, cancellation, 중간 실패와 20회 stress에서 committed active count 1 이상, partial update·unexpected deadlock 0을 확인했다.
 - API/UI: 기존 HTTP 400과 `{message}` shape를 유지하며 화면 변경은 없다. Migration·schema·dependency·runtime configuration 변경도 없다.
 - 운영 적용: Persistent UAT 사용자·role 데이터와 runtime은 변경하지 않았다. Merge 뒤 별도 `TASK-UAT-AUTH-HARDEN-001` controlled UAT 승인이 필요하다.
-- 산출물: [Task 정의와 검수 체크리스트](../tasks/auth-harden-001.md), [Implementation report](../tasks/auth-harden-001-implementation-report.md), [SOP](../tasks/auth-harden-001-sop.md), [User manual](../tasks/auth-harden-001-user-manual.md), 이 Roadmap update
-- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #36 squash merge 승인 / 미체크 항목 0
+- 산출물: [Task 정의와 검수 체크리스트](../tasks/auth-harden-001.md), [Implementation report](../tasks/auth-harden-001-implementation-report.md), [SOP](../tasks/auth-harden-001-sop.md), [User manual](../tasks/auth-harden-001-user-manual.md), [Change 001](../tasks/uat-auth-harden-001-change-001.md), 이 Roadmap update
+- 사용자 검수: PR #36 검수 완료 / Change 001 구현·자동 검증·사용자 검수 완료 / Change 001 merge 승인 / 미체크 항목 0
 - 전체 신규 기능 개발: 기존 P2가 남아 있으므로 No-Go 유지
 
 ### TASK-NOTIFY-003: Teams Activity Feed 개인 알림 / 알림 운영 UX
@@ -1443,7 +1445,7 @@ Excel 출력 대상 후보:
 | 58 | UAT 통합 사용자 검수 | 자동 검증·사용자 검수 완료 / merge 승인 | 사용자/개발 | UAT-VERIFY-001 | 최신 main runtime·ledger/schema/data/권한/dashboard/Review-safe/UI 기준선과 개인정보 안전 merge projection 통과. UAT 기준선 Go, 신규 기능 No-Go 유지, PR #29 병합 승인 |
 | 59 | Notification delivery claim/lease | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-REL-001 | Processing·SKIP LOCKED·lease/fencing·attempt audit, 정상 경쟁 provider call 1회, isolated candidate 5094/5192. Persistent UAT 0028 미적용, actual provider 호출 0, at-least-once이며 exactly-once 미보장. PR #30 |
 | 60 | Escalation starvation | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-ESC-001 | 기존 evaluation timestamp fair ordering, 후보 오류 격리, 101/200/201 유한 poll, 중복 0. Persistent UAT worker는 disabled 유지 |
-| 61 | 마지막 System Administrator 동시성 보호 | 계획 | 개발/운영 | TASK-AUTH-HARDEN-001 | 경쟁 비활성화·role 제거 요청에서도 active System Administrator 1명 이상을 transaction/locking과 integration test로 보장 |
+| 61 | 마지막 System Administrator 동시성 보호 | PR #36 merge 완료 / Change 001 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-AUTH-HARDEN-001 | 감소 mutation 직렬화와 purge 전용 defense-in-depth predicate로 active System Administrator 1명 이상을 보호. Persistent UAT 미적용 |
 | 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
@@ -1540,6 +1542,8 @@ Excel 출력 대상 후보:
 | 2026-07-13 | TASK-UAT-NOTIFY-ESC-001에서 Phase A forecast, escalation-only Phase B와 latest-main Development Phase C를 통과해 사용자 검수 대기로 전환 | Live candidate 0 시점에 worker registration·poll cadence·runtime ownership·provider 차단과 Persistent aggregate 불변을 확인하고 PR #34의 isolated 101/200/201 증빙을 controlled UAT에 연결하기 위함 | 23장, 24장, TASK-UAT-NOTIFY-ESC-001 |
 | 2026-07-13 | TASK-UAT-NOTIFY-ESC-001 사용자 검수와 PR #35 squash merge를 승인 | Phase A/B/C, exact-process ownership 예외 해소, Development·Review-safe 상태, ledger 28/29/1, Pending/Processing 0/0, actual provider 호출 0, live candidate 0 제한과 at-least-once 계약을 확인하기 위함 | 23장, 24장, TASK-UAT-NOTIFY-ESC-001 |
 | 2026-07-13 | TASK-AUTH-HARDEN-001 사용자 검수와 PR #36 squash merge를 승인 | 서로 다른 administrator 감소 경쟁의 성공 1·거부 1·active count 1, partial update·unexpected deadlock 0, HTTP 400·Entra 정책 불변, Persistent UAT 미적용, direct SQL 금지와 기존 범위 밖 import-order debt 9건을 확인하기 위함 | 23장, 24장, TASK-AUTH-HARDEN-001 |
+| 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Change 001에서 REDESIGN과 due purge 전체 batch rollback을 승인 | Purge lifecycle과 canonical predicate가 상호 배타적이던 도달 불가능 guard를 물리 삭제 전용 predicate로 분리하고, malformed lifecycle state를 defense-in-depth로 보호하면서 기존 reference 정책과 public API를 유지하기 위함 | 23장, 24장, TASK-AUTH-HARDEN-001, Change 001 |
+| 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Change 001 사용자 검수와 merge를 승인 | Purge 전용 predicate, malformed lifecycle defense-in-depth, due purge 전체 batch rollback, 기존 `PurgeBlocked` reference 정책과 전체 validation 결과를 확인하고 코드·문서를 함께 게시하기 위함 | 23장, 24장, TASK-AUTH-HARDEN-001, Change 001 |
 
 ## 26. 용어 사전
 

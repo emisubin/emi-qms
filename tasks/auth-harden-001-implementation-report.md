@@ -20,8 +20,8 @@
 | role 전체 교체/System Administrator 제거 | 있음 | 공통 guard |
 | 삭제 예약 | 있음 | 공통 guard |
 | Bulk delete | 항목별 기존 경로 재사용 | schedule/purge guard 재사용 |
-| 즉시 purge | 있음 | 방어적 guard |
-| background due purge | batch transaction | 방어적 guard, 거부 시 전체 rollback |
+| 즉시 purge | 있음 | lifecycle marker를 제외한 purge 전용 defensive guard |
+| background due purge | batch transaction | purge 전용 guard, 거부 시 전체 rollback |
 
 Restore, user 활성화, role 추가, JIT와 bootstrap은 count 증가 경로다. 감소 guard 대상은 아니며 lock-order 경쟁 test를 수행했다.
 
@@ -45,9 +45,10 @@ Restore, user 활성화, role 추가, JIT와 bootstrap은 count 증가 경로다
 
 ## 9. 공통 guard
 
-`ActiveSystemAdministratorInvariantGuard`가 다음을 담당한다.
+`ActiveSystemAdministratorInvariantGuard`가 다음 두 질문을 분리해 담당한다.
 
-- target이 감소 대상인지 사전 판정
+- 지원 mutation에서는 target이 현재 canonical 감소 대상인지 판정
+- Purge에서는 lifecycle marker를 제외하고 active EntraId + canonical role target인지 판정
 - canonical role row 정확히 1건 lock
 - lock 후 target 상태·role membership 재검증
 - target을 제외한 canonical count 재계산
@@ -57,7 +58,11 @@ Role row가 없거나 중복이면 last-admin domain failure가 아니라 구성
 
 ## 10. Purge 방어
 
-정상 scheduled row는 inactive/deletion state이므로 canonical predicate 밖이며 guard가 no-op이다. 비정상 canonical active administrator가 purge 경로에 도달하면 즉시 purge는 domain failure로 거부하고 due purge는 기존 batch transaction을 rollback한다. Purge 일정과 복구 정책은 변경하지 않았다.
+원 구현은 lifecycle-null canonical predicate를 purge target에 재사용해 rejection이 도달 불가능했다. Change 001은 purge 전용 predicate에서 lifecycle marker를 제외하고 active EntraId + canonical role 상태를 확인한다.
+
+정상 scheduled row는 inactive이므로 purge guard가 `NotApplicable`이다. Lifecycle marker와 active administrator role이 비정상적으로 공존하고 다른 canonical administrator가 0이면 immediate purge는 domain failure로 거부하며 due purge는 기존 batch transaction 전체를 rollback한다. 다른 canonical administrator가 있으면 guard가 허용하고 기존 reference scan으로 진행한다. 현재 role assignment는 reference이므로 기존 정책에 따라 `PurgeBlocked`가 될 수 있다.
+
+Purge 전용 guard는 이미 손상된 canonical count를 복구하지 않으며, 비정상 row의 physical cleanup 전에 복구 가능성을 보존하는 defense-in-depth다. Purge 일정, restore와 reference 차단 정책은 변경하지 않았다.
 
 ## 11. 오류 정규화와 API 계약
 
@@ -76,6 +81,11 @@ Role row가 없거나 중복이면 last-admin domain failure가 아니라 구성
 | lock cancellation | cancellation 전파, partial 0 |
 | transaction 중간 failure | rollback, active count 2 유지 |
 | 20회 순서 반전 stress | invariant violation 0, unexpected deadlock 0 |
+| malformed last-admin immediate purge | HTTP 400, user/role delta 0 |
+| malformed due purge rejection | 앞선 delete 포함 batch rollback |
+| due purge + role 제거 | 동일 role-row 직렬화, final canonical 1 |
+| purge role-lock cancellation | cancellation 전파, user/role 보존 |
+| 다른 canonical admin 존재 | guard 허용 후 기존 `PurgeBlocked` 정책 유지 |
 
 Committed active count는 모든 성공 commit 뒤 1 이상이었다. Retry나 SERIALIZABLE transaction은 새로 도입하지 않았다.
 
@@ -97,13 +107,14 @@ Microsoft Entra 인증, 승인 대기, Dev persona read-only, bootstrap, restore
 - runtimeConfigRequired: false
 - controlledUatRequired: true
 
-Backend transaction/store만 변경했다. Frontend, Excel, PDF, 첨부파일, notification workflow와 기존 업무 화면 회귀 영향은 N/A이며 해당 source diff가 0이다.
+Backend transaction/guard와 purge store만 변경했다. Frontend, Excel, PDF, 첨부파일, notification workflow와 기존 업무 화면 회귀 영향은 N/A이며 해당 source diff가 0이다.
 
 ## 16. 자동 테스트
 
 - Backend Release build: warning/error 0/0
-- Last-admin/identity/API targeted: 15/15
-- Backend 전체: 356/356
+- 원 구현 Last-admin/identity/API targeted: 15/15
+- Change 001 purge defense targeted PostgreSQL: 5/5
+- Backend 전체: 361/361
 - Frontend lint: error 0, 기존 warning 1
 - Frontend typecheck: 성공
 - Frontend unit: 61/61
@@ -112,8 +123,10 @@ Backend transaction/store만 변경했다. Frontend, Excel, PDF, 첨부파일, n
 - Full-Stack E2E isolated DB: 16/16
 - actionlint: 성공
 - `git diff --check`: 성공
+- Markdown local link·anchor·heading: 오류 0
+- Secret/PII candidate와 changed-file allowlist: 오류 0 / 범위 밖 파일 0
 
-추가 `dotnet format --verify-no-changes`에서는 이번 Task changed file 위반 0을 확인했다. Repository baseline의 범위 밖 import-order 위반 9건 때문에 명령 전체 exit는 2였으며 이 Task에서 unrelated 파일을 수정하지 않았다. Controlled UAT의 실제 Entra user 동시 mutation은 미실행이며 사용자·data 변경 승인이 별도로 필요하다.
+추가 `dotnet format --verify-no-changes`에서는 이번 Task changed file 위반 0을 확인했다. Repository baseline의 범위 밖 import-order 위반 9건 때문에 명령 전체 exit는 2였으며 이 Task에서 unrelated 파일을 수정하지 않았다. Persistent read-only 전후 snapshot은 ledger 28/29/1, canonical active administrator 1, Pending/Processing 0/0과 runtime·PostgreSQL identity 불변을 확인했다. Controlled UAT의 실제 Entra user 동시 mutation은 미실행이며 사용자·data 변경 승인이 별도로 필요하다.
 
 ## 17. Persistent UAT·runtime 보호
 
@@ -129,7 +142,7 @@ Persistent UAT에는 read-only aggregate만 수행했다. 사용자·role·delet
 
 ## 20. 제한사항
 
-지원되는 application mutation 경로만 보호한다. DBA direct SQL을 DB constraint/trigger로 막지 않는다. Direct SQL user/role 변경은 운영 금지다. Lock timeout은 환경 설정을 새로 추가하지 않았고 cancellation path로 rollback 경계를 검증했다.
+지원되는 application mutation 경로만 보호한다. DBA direct SQL을 DB constraint/trigger로 막지 않는다. Direct SQL user/role 변경은 운영 금지다. Purge 전용 guard가 허용해도 기존 generic reference scan이 별도로 적용되며, System Administrator role assignment가 남아 있으면 `PurgeBlocked`가 될 수 있다. Lock timeout은 환경 설정을 새로 추가하지 않았고 cancellation path로 rollback 경계를 검증했다.
 
 ## 21. 해결한 업무 문제
 
@@ -149,9 +162,11 @@ Persistent UAT에는 read-only aggregate만 수행했다. 사용자·role·delet
 
 Target row lock과 pre-count만 유지하는 접근은 서로 다른 target race를 해결하지 못했다. 단순 sleep 기반 test 대신 coordinator transaction이 role row를 보유하고 PostgreSQL lock waiter를 확인하는 결정적 barrier를 사용했다. Test compile에서 namespace import와 xUnit collection assertion convention 2건을 바로잡았다.
 
+Change 001의 첫 targeted 실행에서는 제품 결함이 아닌 test expectation·fixture 문제 3건을 확인했다. System Administrator role assignment가 generic user reference이므로 다른 administrator가 있어도 기존 reference 정책상 physical delete가 아니라 `PurgeBlocked`로 진행되는 점을 test와 문서에 반영했다. 또한 lazy test host migration을 SQL fixture 전에 명시적으로 초기화하고, concurrency 결과를 실제 `BlockedCount` 계약에 맞췄다. 수정 뒤 targeted 5/5와 전체 361/361을 통과했다.
+
 ## 24. 사용자 검수 결과와 남은 항목
 
-Checklist, 자동 검증과 사용자 검수를 완료했고 PR #36 squash merge 승인을 확인했다. 미체크 항목은 0이다. 사용자는 서로 다른 target 경쟁의 성공 1·거부 1·active count 1, rollback, 기존 HTTP 400·Entra 정책, Migration/API/Frontend 변경 0, direct SQL 금지 제한과 기존 범위 밖 import-order 위반 9건을 승인했다. Persistent UAT 적용은 별도 `TASK-UAT-AUTH-HARDEN-001` 승인 대상이며 신규 기능 개발 No-Go를 유지한다.
+원 구현의 Checklist, 자동 검증과 사용자 검수를 완료했고 PR #36 squash merge 승인을 확인했다. 이후 `PURGE_GUARD_PREDICATE_UNREACHABLE` P2를 발견했으며 사용자는 Change 001의 REDESIGN, malformed lifecycle defense-in-depth와 due purge 전체 batch rollback을 승인했다. Change 001 구현·자동 검증·사용자 검수를 완료했고 merge 승인을 확인했다. Persistent UAT 적용은 별도 승인 대상이며 신규 기능 개발 No-Go를 유지한다.
 
 ## 25. 주요 파일
 
@@ -165,8 +180,8 @@ Checklist, 자동 검증과 사용자 검수를 완료했고 PR #36 squash merge
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Task·검수 checklist | `tasks/auth-harden-001.md` | 작성 완료 |
-| Implementation report | 이 문서 | 작성 완료 |
-| SOP | `tasks/auth-harden-001-sop.md` | 작성 완료 |
-| User manual | `tasks/auth-harden-001-user-manual.md` | 작성 완료 |
-| Roadmap | `docs/00-product-roadmap.md` | 반영 완료 |
+| Task·검수 checklist | `tasks/auth-harden-001.md` | Change 001 사용자 검수 완료·merge 승인 |
+| Implementation report | 이 문서 | Change 001 반영 |
+| SOP | `tasks/auth-harden-001-sop.md` | Change 001 반영 |
+| User manual | `tasks/auth-harden-001-user-manual.md` | Change 001 사용자 검수 완료·merge 승인 |
+| Roadmap | `docs/00-product-roadmap.md` | Change 001 반영 |

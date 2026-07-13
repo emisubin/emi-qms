@@ -17,7 +17,7 @@
 - 사용자 비활성화
 - System Administrator role 제거
 - 삭제 예약과 bulk delete
-- 즉시·자동 purge의 방어 경로
+- 비정상 lifecycle 상태의 즉시·자동 purge 방어 경로
 
 ## 5. 동시 변경 시 무엇이 보이나요?
 
@@ -38,6 +38,16 @@
 ## 9. 삭제 예정 복구 정책이 바뀌나요?
 
 아니다. 기존 삭제 예약, 보류, purge와 복구 일정은 그대로다.
+
+### Purge 방어는 언제 동작하나요?
+
+정상 삭제 예약은 사용자를 먼저 inactive로 전환한다. 만약 데이터 이상으로 삭제 marker와 active Entra System Administrator role이 함께 존재하면 purge 직전에 별도 방어가 동작한다.
+
+- 다른 canonical administrator가 없으면 즉시 purge는 기존 마지막 관리자 오류로 거부된다.
+- Background due purge는 해당 batch 전체를 rollback한다.
+- 다른 canonical administrator가 있으면 기존 purge reference 검사로 계속 진행하며, role assignment가 남아 있으면 `PurgeBlocked`가 될 수 있다.
+
+이 방어는 손상된 상태를 자동 복구하지 않는다. 운영자는 직접 SQL이나 강제 삭제를 하지 않고 데이터 무결성 Finding으로 보고해야 한다.
 
 ## 10. 인증 정책이 바뀌나요?
 
@@ -68,7 +78,7 @@ Application의 지원 화면/API를 보호한다. DBA direct SQL을 허용하는
 
 ## 16. Persistent UAT 적용 상태
 
-Code·isolated 자동 검증과 사용자 검수를 완료했고 PR #36 squash merge 승인을 확인했다. Persistent UAT user/role data와 runtime은 변경하지 않았다. Controlled UAT는 별도 승인이 필요하다.
+원 코드·isolated 자동 검증과 사용자 검수를 완료했고 PR #36 squash merge 승인을 확인했다. Change 001의 purge predicate REDESIGN 구현·자동 검증·사용자 검수를 완료했고 merge 승인을 확인했다. Persistent UAT user/role data와 runtime은 변경하지 않았다. Controlled UAT는 별도 승인이 필요하다.
 
 ## 17. FAQ
 
@@ -94,5 +104,7 @@ Code·isolated 자동 검증과 사용자 검수를 완료했고 PR #36 squash m
 - [x] transaction rollback 의미 이해
 - [x] direct SQL 금지 이해
 - [x] Persistent UAT controlled 적용이 별도 승인임을 확인
+- [x] Change 001 purge defense-in-depth 동작 확인
+- [x] Due purge batch 전체 rollback 동작 확인
 
-현재 상태: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 완료 / PR #36 squash merge 승인 / 미체크 항목 0.
+현재 상태: 원 구현 사용자 검수·PR #36 merge 완료 / Change 001 자동 검증·사용자 검수 완료 / Change 001 merge 승인.

@@ -294,6 +294,147 @@ public sealed class ProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task MalformedActiveLastAdministratorImmediatePurgeIsRejectedAndPreserved()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        var userId = Guid.NewGuid();
+
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider,
+                entra_object_id, email, deletion_requested_at_utc, scheduled_hard_delete_at_utc
+            )
+            values (
+                '{userId}', 'purge-defense-last', 'Synthetic Purge Defense Last', null, true, 'EntraId',
+                'purge-defense-last', 'purge-defense-last@example.invalid',
+                now() - interval '8 days', now() - interval '1 day'
+            );
+            insert into user_roles (user_id, role_id)
+            select '{userId}', id
+            from roles
+            where code = 'system-administrator';
+            """);
+
+        using var response = await adminClient.DeleteAsync(
+            $"/api/admin/users/{userId}/purge",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var json = await ReadJsonAsync(response);
+        Assert.Single(json.RootElement.EnumerateObject());
+        Assert.Equal(
+            ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage,
+            json.RootElement.GetProperty("message").GetString());
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id = '{userId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from user_roles where user_id = '{userId}';"));
+    }
+
+    [Fact]
+    public async Task PurgeDefenseAllowsSafeContinuationToTheExistingReferencePolicy()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        var remainingAdminId = Guid.NewGuid();
+        var malformedTargetId = Guid.NewGuid();
+        var scheduledTargetId = Guid.NewGuid();
+
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider,
+                entra_object_id, email, deletion_requested_at_utc, scheduled_hard_delete_at_utc
+            )
+            values
+                (
+                    '{remainingAdminId}', 'purge-defense-remaining', 'Synthetic Remaining Administrator', null,
+                    true, 'EntraId', 'purge-defense-remaining', 'purge-defense-remaining@example.invalid', null, null
+                ),
+                (
+                    '{malformedTargetId}', 'purge-defense-malformed', 'Synthetic Malformed Purge Target', null,
+                    true, 'EntraId', 'purge-defense-malformed', 'purge-defense-malformed@example.invalid',
+                    now() - interval '8 days', now() - interval '1 day'
+                ),
+                (
+                    '{scheduledTargetId}', 'purge-defense-scheduled', 'Synthetic Scheduled Purge Target', null,
+                    false, 'EntraId', 'purge-defense-scheduled', 'purge-defense-scheduled@example.invalid',
+                    now() - interval '8 days', now() - interval '1 day'
+                );
+            insert into user_roles (user_id, role_id)
+            select target.user_id, roles.id
+            from (values
+                ('{remainingAdminId}'::uuid),
+                ('{malformedTargetId}'::uuid),
+                ('{scheduledTargetId}'::uuid)
+            ) as target(user_id)
+            cross join roles
+            where roles.code = 'system-administrator';
+            """);
+
+        using var malformedResponse = await adminClient.DeleteAsync(
+            $"/api/admin/users/{malformedTargetId}/purge",
+            TestContext.Current.CancellationToken);
+        using var scheduledResponse = await adminClient.DeleteAsync(
+            $"/api/admin/users/{scheduledTargetId}/purge",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, malformedResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, scheduledResponse.StatusCode);
+        using var malformedJson = await ReadJsonAsync(malformedResponse);
+        using var scheduledJson = await ReadJsonAsync(scheduledResponse);
+        Assert.Equal("PurgeBlocked", malformedJson.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+        Assert.Equal("PurgeBlocked", scheduledJson.RootElement.GetProperty("items")[0].GetProperty("status").GetString());
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id = '{malformedTargetId}' and purge_blocked_at_utc is not null;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id = '{scheduledTargetId}' and purge_blocked_at_utc is not null;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id = '{remainingAdminId}';"));
+    }
+
+    [Fact]
+    public async Task MalformedDueAdministratorRejectionRollsBackTheEntirePurgeBatch()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        _ = context.Services;
+        var firstEligibleUserId = Guid.Parse("10000000-0000-0000-0000-000000000001");
+        var malformedAdminId = Guid.Parse("20000000-0000-0000-0000-000000000001");
+
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider,
+                entra_object_id, email, deletion_requested_at_utc, scheduled_hard_delete_at_utc
+            )
+            values
+                (
+                    '{firstEligibleUserId}', 'purge-batch-first', 'Synthetic Purge Batch First', null,
+                    false, 'EntraId', 'purge-batch-first', 'purge-batch-first@example.invalid',
+                    now() - interval '8 days', now() - interval '1 day'
+                ),
+                (
+                    '{malformedAdminId}', 'purge-batch-guard', 'Synthetic Purge Batch Guard', null,
+                    true, 'EntraId', 'purge-batch-guard', 'purge-batch-guard@example.invalid',
+                    now() - interval '8 days', now() - interval '1 day'
+                );
+            insert into user_roles (user_id, role_id)
+            select '{malformedAdminId}', id
+            from roles
+            where code = 'system-administrator';
+            """);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await context.Services.GetRequiredService<AdminScheduledDeletionService>()
+                .PurgeDueAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(ActiveSystemAdministratorInvariantGuard.LastAdministratorErrorMessage, exception.Message);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id = '{firstEligibleUserId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id = '{malformedAdminId}';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from admin_master_change_logs
+            where entity_type = 'User'
+              and action = 'Purged'
+              and entity_id in ('{firstEligibleUserId}', '{malformedAdminId}');
+            """));
+    }
+
+    [Fact]
     public async Task AdminScheduledDeletion_PurgesEligibleHolidayAndBlocksReferencedDepartment()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();

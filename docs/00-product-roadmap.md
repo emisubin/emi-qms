@@ -1110,6 +1110,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 자동 검증: 새 Codex read-only session route 9/9, static router 11/11, Fable CLI read-only option 8/8, diff·actionlint·Markdown·secret/PII·allowlist 통과
 - 사용자 검수: 완료
 
+### TASK-GOV-REPORTING-001: Task 시작·완료 보고 표준화
+
+- 상태: 구현·자동 검증·사용자 검수 완료 / squash merge 승인
+- 목적: 모든 새 Task와 분리 Codex session이 변경 전에 실제 Repository instruction chain을 읽고, Task 종료 시 고정 10개 항목으로 완료 보고하도록 표준화한다.
+- 포함 범위: Root `AGENTS.md`, Task 종료 정책, 실행 SOP, 사용자 확인 방법과 Decision Log
+- 완료 보고: 수정 요약, 수정 파일, 실행 테스트, 테스트 결과, Frontend URL, Backend URL, 수동 검수 checklist, 미커밋 변경, 남은 문제, 게시 가능 여부
+- 안전 경계: 적용 대상이 없는 항목도 `N/A`와 이유를 기록하며, 게시 가능 `GO`는 Git 게시 승인을 대신하지 않는다.
+- 제품 영향: Backend·Frontend·migration·runtime·Persistent UAT 변경 없음
+- 산출물: [Task와 검수 checklist](../tasks/gov-reporting-001.md), [Implementation report](../tasks/gov-reporting-001-implementation-report.md), [SOP](../tasks/gov-reporting-001-sop.md), [User manual](../tasks/gov-reporting-001-user-manual.md), 이 Roadmap update
+
 ### TASK-E2E-ISOLATION-001: Full-Stack E2E PostgreSQL 물리 격리
 
 - 상태/No-Go 기반: 완료 — PR #22 squash merge(`45fd61c`)
@@ -1577,6 +1587,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
 | 77 | Git history coordinated rewrite 실행 | P2 planning 필요 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | Maintenance, private containment 선택, secure backup, all-ref force push, cache 처리와 contributor re-clone을 별도 승인. 실행 완료 전 P2 Open |
+| 78 | Task instruction chain·완료 보고 형식 | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 모든 Task 시작 전 filesystem 지침 재확인과 종료 시 고정 10개 항목을 강제. 적용 대상 없음도 `N/A`와 이유 기록 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1681,6 +1692,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Phase A~D와 5종 산출물 Draft PR 게시를 승인 | Synthetic actual HTTP로 last-admin·purge transaction을 검증하고 Persistent identity mutation 없이 latest-main Development를 적용하며, break-glass 미증명 상태의 live mutation No-Go를 유지하기 위함 | 21장~24장, TASK-UAT-AUTH-HARDEN-001 |
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 사용자 검수와 PR #40 squash merge를 승인 | Privacy-safe evidence, isolated HTTP 경쟁·purge rollback, Persistent mutation-free runtime handover, Development·Review-safe 상태와 break-glass 미증명 live mutation No-Go를 확인하고 다음 P2를 TASK-GOV-002로 전환하기 위함 | 21장~25장, TASK-UAT-AUTH-HARDEN-001 |
 | 2026-07-13 | TASK-GOV-002에서 public Git history 개인정보를 coordinated all-ref rewrite로 처리하고 risk owner를 Repository owner/security owner로 지정하며 PR #41 squash merge를 승인 | Current checkout은 비식별화됐지만 origin main과 다수 branch의 과거 개인정보가 reachable하며 private-only나 main-only 조치로는 제거가 완전하지 않기 때문. 실제 rewrite·force push는 별도 TASK-GOV-HISTORY-REWRITE-001 승인 전 금지 | 22장~25장, TASK-GOV-002 |
+| 2026-07-13 | 모든 Task는 시작 전에 현재 Repository instruction chain을 읽고 종료 시 고정 10개 항목으로 완료 보고 | 과거 대화·축약 지침 의존을 막고 변경·검증·URL·검수·미커밋 상태·Finding·게시 gate를 매 Task에서 동일하게 확인하기 위함 | AGENTS.md, 23장~25장, TASK-GOV-REPORTING-001 |
+| 2026-07-13 | TASK-GOV-REPORTING-001 사용자 검수와 squash merge를 승인 | instruction chain gate, 고정 10개 항목, `N/A` 사유, 검증·검수·게시 상태 분리를 Repository 표준으로 확정하기 위함 | AGENTS.md, 23장~25장, TASK-GOV-REPORTING-001 |
 
 ## 26. 용어 사전
 

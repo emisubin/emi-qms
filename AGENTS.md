@@ -16,6 +16,14 @@
 
 대화 기록이나 기억을 canonical source로 사용하지 않는다. 문서끼리 또는 문서와 구현 사이에 의미 있는 충돌이 있으면 한쪽을 임의 선택하거나 수정하지 말고 위치, 영향과 선택지를 보고한 뒤 중단한다.
 
+### Task 시작 instruction chain gate
+
+- 모든 새 Task와 분리된 Codex 조사·구현·독립 검증 session은 첫 변경·runtime mutation·Git mutation 전에 현재 filesystem의 instruction chain을 다시 읽는다. 이전 Task, 대화 기억이나 요약에서 읽었다는 사실로 대체하지 않는다.
+- 최소 확인 범위는 Root `AGENTS.md`, 변경 경로에 적용되는 하위 `AGENTS.md`, Product Roadmap, Task 종료 및 산출물 정책, Validation Matrix, Privacy-safe Evidence와 해당 Task의 planning·review·change·implementation report다. 적용 대상이 없으면 그 이유를 기록한다.
+- instruction chain을 읽은 뒤 `instructionChainRead=true`, 선택한 `taskType`, branch/worktree 기준선과 적용되는 하위 지침을 privacy-safe projection으로 먼저 보고한다.
+- 적용 지침이 없거나 읽을 수 없고, 문서·코드와 의미 있게 충돌하거나, 읽은 뒤 base branch·instruction file이 바뀌면 구현을 시작하지 않고 다시 읽거나 충돌을 보고한다.
+- 같은 Task의 단순 연속 turn은 매번 전체 파일을 다시 읽지 않아도 되지만, 새 session, branch/base 변경, instruction file 변경 또는 source-of-truth drift가 있으면 gate를 다시 수행한다.
+
 ## 작업 격리와 범위
 
 - `main`에서 직접 개발하거나 push하지 않는다.
@@ -140,6 +148,30 @@ Planning, review와 change는 구현 완료 증빙을 대신하지 않는다. Im
 - stage 후 cached file 목록, 삭제, migration, dependency, env/certificate, generated artifact와 secret/PII 포함 여부를 재검증한다.
 - 사용자 검수 대기 상태에서 PR이 필요하면 Draft로 유지한다.
 - CI 실패, Finding gate 위반, 범위 밖 변경 또는 secret/PII가 있으면 게시·merge를 중단한다.
+
+## Task 종료 고정 10개 항목 완료 보고
+
+Task를 완료·중단하거나 사용자 검수 handoff로 종료할 때 최종 응답은 다음 10개 항목을 순서와 제목을 유지해 모두 포함한다.
+
+1. 수정 요약
+2. 수정한 파일
+3. 실행한 테스트
+4. 테스트 결과
+5. Frontend URL
+6. Backend URL
+7. 수동 검수 체크리스트
+8. 미커밋 변경사항
+9. 남은 문제
+10. 게시 가능 여부
+
+- 적용 대상이 없는 항목도 생략하지 않고 `N/A`와 구체적인 이유를 기록한다.
+- `실행한 테스트`와 `테스트 결과`를 분리하고, 미실행 검증과 이유를 성공 결과에 섞지 않는다.
+- URL은 실제 확인한 환경만 기록한다. Runtime을 확인하지 않은 문서·조사 Task는 `N/A — runtime 검증 대상 아님`처럼 적고 과거 URL을 추정하지 않는다.
+- 수동 검수 체크리스트는 자동 검증과 사용자 검수 상태를 구분하고 미체크 항목을 그대로 표시한다.
+- 미커밋 변경사항에는 changed/staged 상태와 commit·push·PR 여부를 기록한다.
+- 남은 문제에는 P0~P3 Finding, 미검증 항목, 외부 blocker와 별도 승인 필요 작업을 포함한다.
+- 게시 가능 여부는 `GO`, `NO_GO` 또는 `N/A`와 근거를 기록한다. `GO`도 commit·push·PR·merge의 사용자 승인을 대신하지 않는다.
+- 이 10개 항목은 대화의 완료 보고 형식이며 Implementation report와 5종 종료 산출물을 대체하지 않는다.
 
 ## 영역별 지침
 

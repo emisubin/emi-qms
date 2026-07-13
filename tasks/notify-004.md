@@ -10,7 +10,7 @@
 - publishingApproved: true
 - 자동 검증: 완료
 - 독립 Codex 검증: PASS
-- 사용자 검수: 대기 / Draft PR 게시 승인
+- 사용자 검수: 완료 / PR #44 squash merge 승인
 - Persistent UAT·runtime 적용: 대상 아님
 
 ## 2. 목적
@@ -82,7 +82,7 @@ Failed 수동 재처리는 다음 이유로 현재 P2 범위에서 제외한다.
 - Backend·Frontend·migration·runtime diff 0
 - Persistent UAT write와 actual provider call 0
 - 5종 산출물 상태·위치 추적 가능
-- 독립 Codex 검증 PASS와 사용자 검수 대기 상태를 분리
+- 독립 Codex 검증 PASS와 사용자 검수 완료 상태를 분리 기록
 
 ## 10. 5종 산출물 상태
 
@@ -92,17 +92,17 @@ Failed 수동 재처리는 다음 이유로 현재 P2 범위에서 제외한다.
 | SOP | [SOP](notify-004-sop.md) | 작성 완료 |
 | User manual | [User manual](notify-004-user-manual.md) | 작성 완료 |
 | Roadmap update | [Product Roadmap](../docs/00-product-roadmap.md) | 반영 완료 |
-| User validation checklist | 이 문서 11장 | 사용자 검수 대기 |
+| User validation checklist | 이 문서 11장 | 사용자 검수 완료 |
 
 ## 11. 사용자 검수 체크리스트
 
-- [ ] Terminal Failed가 automatic retry 종료 상태임을 확인
-- [ ] Pending 재발송과 Failed 수동 재처리가 다름을 확인
-- [ ] Failed는 현재 acknowledge/dismiss만 지원함을 확인
-- [ ] 수동 Failed 재처리는 현재 P2가 아닌 별도 신규 기능 후보임을 확인
-- [ ] Attempt history와 at-least-once 제한이 유지됨을 확인
-- [ ] Backend·Frontend·migration·runtime 변경 0을 확인
-- [ ] Persistent UAT write와 actual provider call 0을 확인
-- [ ] Implementation report, SOP와 User manual을 검수
+- [x] Terminal Failed가 automatic retry 종료 상태임을 확인
+- [x] Pending 재발송과 Failed 수동 재처리가 다름을 확인
+- [x] Failed는 현재 acknowledge/dismiss만 지원함을 확인
+- [x] 수동 Failed 재처리는 현재 P2가 아닌 별도 신규 기능 후보임을 확인
+- [x] Attempt history와 at-least-once 제한이 유지됨을 확인
+- [x] Backend·Frontend·migration·runtime 변경 0을 확인
+- [x] Persistent UAT write와 actual provider call 0을 확인
+- [x] Implementation report, SOP와 User manual을 검수
 
-사용자 검수 전 Ready 전환, merge와 완료 판정을 수행하지 않는다.
+사용자는 2026-07-14 검수를 완료하고 PR #44의 Ready 전환과 squash merge를 승인했다.

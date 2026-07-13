@@ -111,7 +111,7 @@ Manual retry generation, append-only admin action, 원본·새 cycle lineage, du
 
 ## 14. 사용자 검수 결과와 남은 항목
 
-사용자는 Option A 정책, 문서 정정 구현과 Draft 게시를 승인했다. 자동 문서 검증과 분리된 Codex read-only 검증은 PASS이며 내용 검수 checklist는 대기 상태다. Ready 전환과 merge 승인은 받지 않았다.
+사용자는 Option A 정책과 문서 정정 구현을 검수 완료했다. 자동 문서 검증과 분리된 Codex read-only 검증은 PASS이며 PR #44의 Ready 전환과 squash merge를 승인했다.
 
 ## 15. 5종 산출물
 
@@ -121,4 +121,4 @@ Manual retry generation, append-only admin action, 원본·새 cycle lineage, du
 | SOP | [SOP](notify-004-sop.md) | 작성 완료 |
 | User manual | [User manual](notify-004-user-manual.md) | 작성 완료 |
 | Roadmap update | [Product Roadmap](../docs/00-product-roadmap.md) | 반영 완료 |
-| User validation checklist | [Task 11장](notify-004.md#11-사용자-검수-체크리스트) | 사용자 검수 대기 |
+| User validation checklist | [Task 11장](notify-004.md#11-사용자-검수-체크리스트) | 사용자 검수 완료 |

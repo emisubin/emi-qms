@@ -974,7 +974,7 @@ Excel 출력 대상 후보:
 | 0.1 | TASK-UAT-AUTH-HARDEN-001 | UAT_RUNTIME | Completed | Planning Approved | Phase A~D 자동 검증·runtime 적용·사용자 검수 완료 | break-glass 미증명으로 live mutation 금지 | Yes | PR #40 squash merge 승인 → TASK-GOV-002 |
 | 0.2 | TASK-GOV-002 | POLICY_DECISION | Completed | Planning Approved | current checkout 비식별화·public history 조사·사용자 검수 완료 | PR #41 Ready·squash merge 승인 | No | PR #41 merge → TASK-GOV-HISTORY-REWRITE-001 |
 | 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | P2 Blocked | Scope Review Required | TASK-GOV-002 정책·risk owner | Maintenance, visibility, secure backup, all-ref force push와 re-clone 승인 | No | 별도 planning → 독립 검증 → 실행 승인 |
-| 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Implementation Ready | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | 문서 정책 정정 사용자 검수 |
+| 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Completed | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | PR #44 squash merge 승인 → 0.5 Finding gate 재평가 |
 | 0.5 | 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.4 판정 완료 | 없음 | No | Finding gate 재검증 |
 | 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | P2 Blocked | Deferred | 0.5 통과 | 사용자 승인 | No | Phase 1 개별 planning 시작 승인 |
 | 1.1 | TASK-007A Pending List | NEW_FEATURE | P2 Blocked | Scope Review Required | Phase 0 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
@@ -1361,7 +1361,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-NOTIFY-004: 외부 알림 delivery 신뢰성 및 실패 재처리 정책
 
-- 상태: `POLICY_CORRECTION_AND_DEFER` 승인 / 자동·독립 Codex 검증 완료 / Draft PR 게시 승인 / 사용자 검수 대기
+- 상태: `POLICY_CORRECTION_AND_DEFER` 승인 / 자동·독립 Codex 검증·사용자 검수 완료 / PR #44 squash merge 승인
 - 완료 범위: TASK-NOTIFY-REL-001의 claim/lease·fencing·automatic retry·retryable/non-retryable 분류·attempt lineage와 TASK-NOTIFY-ESC-001의 escalation starvation 보정 및 controlled UAT
 - 정책 결정: terminal `Failed`는 permanent failure 또는 retry limit 소진 후의 최종 상태로 유지한다. 현재 Backend와 UI는 Pending의 다음 시도 시각 앞당기기, Failed acknowledge/dismiss와 attempt 확인만 지원한다.
 - P2 판정: Runtime 결함이 아니라 TASK-NOTIFY-REL-001 SOP가 존재하지 않는 Failed retry 절차를 가리킨 문서 drift다. `FAILED_RETRY_DOCUMENTATION_DRIFT`는 문서 정정으로 처리한다.
@@ -1568,7 +1568,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 47 | 삭제 예정 데이터 purge 운영 정책 | 미확정 | 사용자/운영 | 운영 고도화 | 7일 후 purge worker는 구현. 보류 데이터 처리/운영 알림은 후속 검토 |
 | 48 | 전체 field-level audit 확장 | 미확정 | 사용자/운영 | Audit 후속 | ADMIN-001은 관리자 변경 이력 중심 |
 | 49 | 관리자 모바일 UX 고도화 | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001은 page-level overflow 방지 기준으로 검수 |
-| 50 | 외부 알림 delivery 동시성·실패 재처리 | 정책 승인 / 사용자 검수 대기 | 개발/운영 | TASK-NOTIFY-004 | claim/lease·automatic retry·attempt lineage·provider 오류 분류·starvation은 완료. Terminal Failed는 최종 상태로 유지하고 수동 재처리는 별도 신규 기능으로 Deferred |
+| 50 | 외부 알림 delivery 동시성·실패 재처리 | 정책 결정·사용자 검수 완료 / PR #44 squash merge 승인 | 개발/운영 | TASK-NOTIFY-004 | claim/lease·automatic retry·attempt lineage·provider 오류 분류·starvation은 완료. Terminal Failed는 최종 상태로 유지하고 수동 재처리는 별도 신규 기능으로 Deferred |
 | 51 | 기존 업무 화면 Action Feedback UX | 계획 | 사용자/개발 | TASK-UX-001 | A1 공통 계약과 내 업무/알림을 먼저 검수한 뒤 A2 업무 화면으로 확대 |
 | 52 | 사용자별 알림 설정 | 계획 | 사용자/운영 | TASK-NOTIFY-005 | NOTIFY-004 완료와 필수 알림 opt-out/channel taxonomy 결정이 선행 |
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
@@ -1705,6 +1705,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-13 | 모든 Task는 시작 전에 현재 Repository instruction chain을 읽고 종료 시 고정 10개 항목으로 완료 보고 | 과거 대화·축약 지침 의존을 막고 변경·검증·URL·검수·미커밋 상태·Finding·게시 gate를 매 Task에서 동일하게 확인하기 위함 | AGENTS.md, 23장~25장, TASK-GOV-REPORTING-001 |
 | 2026-07-13 | TASK-GOV-REPORTING-001 사용자 검수와 squash merge를 승인 | instruction chain gate, 고정 10개 항목, `N/A` 사유, 검증·검수·게시 상태 분리를 Repository 표준으로 확정하기 위함 | AGENTS.md, 23장~25장, TASK-GOV-REPORTING-001 |
 | 2026-07-14 | TASK-NOTIFY-004에서 terminal Failed를 현재 상태 모델의 최종 상태로 유지하고 수동 재처리를 별도 신규 기능으로 Deferred하는 `POLICY_CORRECTION_AND_DEFER`를 승인 | Automatic retry·최종 실패 가시성 계약은 이미 충족됐고, 전체 수동 재처리에는 retry generation·append-only audit·provider 중복 확인이라는 신규 능력이 필요하며 기존 SOP의 retry 안내만 실제 구현보다 앞서갔기 때문 | 22장~25장, TASK-NOTIFY-004 |
+| 2026-07-14 | TASK-NOTIFY-004 사용자 검수와 PR #44 squash merge를 승인 | Terminal Failed 정책 정정, Pending retry·acknowledge·dismiss 유지, at-least-once 제한, 코드·runtime·Persistent UAT 변경 0과 별도 신규 기능 Deferred 경계를 확인하기 위함 | 22장~25장, TASK-NOTIFY-004 |
 
 ## 26. 용어 사전
 

@@ -13,6 +13,8 @@
 - planningApproved: true
 - implementationApproved: true
 - publishingApproved: true
+- userValidationCompleted: true
+- mergeApproved: true
 - 권장 정책: `POLICY_CORRECTION_AND_DEFER`
 - approvedPolicy: `POLICY_CORRECTION_AND_DEFER`
 - approvalDate: `2026-07-14`
@@ -244,4 +246,4 @@ Option A 성공 기준:
 2. Option B — `RESTRICTED_SAFE_RETRY`: 일부 확정 실패만 재처리하는 신규 기능 planning을 시작한다. 모든 Failed를 해결하지는 않는다.
 3. Option C — `FULL_MANUAL_REPROCESSING`: migration 가능성을 포함한 전체 신규 기능 planning을 시작한다.
 
-사용자는 2026-07-14 Option A와 Draft 게시를 승인했다. 승인 범위는 문서 정책 정정, 자동·독립 검증, staging, commit, push와 Draft PR이며 Backend·Frontend·migration·runtime 변경, Ready 전환과 merge는 포함하지 않는다.
+사용자는 2026-07-14 Option A와 Draft 게시를 승인한 뒤 5종 산출물 검수를 완료하고 PR #44의 Ready 전환과 squash merge를 승인했다. Backend·Frontend·migration·runtime 변경은 승인 범위에 포함되지 않는다.

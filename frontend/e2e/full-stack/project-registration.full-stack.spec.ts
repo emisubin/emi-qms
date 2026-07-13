@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { expect, type APIRequestContext, type Page, test } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page, test } from '@playwright/test';
 
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
@@ -29,26 +29,23 @@ type ProductionPlanningResponse = {
   assignees: ProjectAssigneeResponse[];
 };
 
-async function fillProcurementEditInput(page: Page, rowIndex: number, inputIndex: number, value: string) {
+async function addProcurementEditRow(page: Page) {
   const editRows = page.getByRole('table', { name: '구매정보 수정' }).locator('.procurement-table-row.editable');
-  await expect.poll(async () => editRows.nth(rowIndex).locator('input').count(), { timeout: 15_000 }).toBeGreaterThan(inputIndex);
+  const initialRowCount = await editRows.count();
+  await page.getByRole('button', { name: '행 추가' }).click();
+  await expect(editRows).toHaveCount(initialRowCount + 1);
+  const addedRow = editRows.nth(initialRowCount);
+  await expect(addedRow).toBeVisible();
+  await expect(addedRow.locator('input')).toHaveCount(8);
+  return addedRow;
+}
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const input = editRows.nth(rowIndex).locator('input').nth(inputIndex);
-    try {
-      await expect(input).toBeVisible({ timeout: 5_000 });
-      await expect(input).toBeEnabled({ timeout: 5_000 });
-      await input.fill(value, { timeout: 5_000 });
-      await expect(input).toHaveValue(value, { timeout: 5_000 });
-      return;
-    } catch (error) {
-      if (attempt === 2) {
-        throw error;
-      }
-
-      await page.waitForTimeout(250);
-    }
-  }
+async function fillProcurementEditInput(row: Locator, inputIndex: number, value: string) {
+  const input = row.locator('input').nth(inputIndex);
+  await expect(input).toBeVisible();
+  await expect(input).toBeEnabled();
+  await input.fill(value);
+  await expect(input).toHaveValue(value);
 }
 
 test('TASK-003B-1 A: read/detail split keeps detail fixed and edit page accepts duplicate names', async ({ page, request }) => {
@@ -492,18 +489,9 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await expect(page.getByTestId('project-context-summary')).toContainText(`FS-4A-DIRECT-${unique}`);
   await expect(page.getByTestId('project-context-summary')).toContainText('2026-10-10');
   await expect(page.getByRole('table', { name: '구매정보 수정' })).toBeVisible();
-  const editTable = page.getByRole('table', { name: '구매정보 수정' });
-  const editRows = editTable.locator('.procurement-table-row.editable');
-  const initialEditRowCount = await editRows.count();
-  await page.getByRole('button', { name: '행 추가' }).click();
-  try {
-    await expect.poll(async () => editRows.count(), { timeout: 5_000 }).toBeGreaterThan(initialEditRowCount);
-  } catch {
-    await page.getByRole('button', { name: '행 추가' }).click();
-    await expect.poll(async () => editRows.count(), { timeout: 10_000 }).toBeGreaterThan(initialEditRowCount);
-  }
-  await fillProcurementEditInput(page, initialEditRowCount, 0, '4W');
-  await fillProcurementEditInput(page, initialEditRowCount, 4, '2026-07-10');
+  const addedRow = await addProcurementEditRow(page);
+  await fillProcurementEditInput(addedRow, 0, '4W');
+  await fillProcurementEditInput(addedRow, 4, '2026-07-10');
   await page.getByRole('button', { name: '저장' }).click();
   await expect(page.getByRole('tab', { name: '구매' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('table', { name: '구매정보' })).toContainText('4W');

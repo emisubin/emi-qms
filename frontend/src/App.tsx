@@ -9041,8 +9041,11 @@ function ProcurementEditPage({
   const [isSaving, setIsSaving] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [showExcel, setShowExcel] = useState(false);
+  const loadRequestIdRef = useRef(0);
 
   const load = useCallback(() => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     setState({ kind: 'loading' });
     setProjectState({ kind: 'loading' });
     Promise.all([
@@ -9050,11 +9053,19 @@ function ProcurementEditPage({
       getProject(developmentUserKey, projectId)
     ])
       .then(([response, project]) => {
+        if (requestId !== loadRequestIdRef.current) {
+          return;
+        }
+
         setState({ kind: 'ready', data: response });
         setProjectState({ kind: 'ready', data: project });
         setRows(response.items.map(procurementItemToForm));
       })
       .catch((error: unknown) => {
+        if (requestId !== loadRequestIdRef.current) {
+          return;
+        }
+
         setState(toLoadError(error, '구매정보를 불러올 수 없습니다.'));
         setProjectState(toLoadError(error, '프로젝트 정보를 불러오지 못했습니다.'));
       });

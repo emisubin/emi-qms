@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const teamsJsMock = vi.hoisted(() => ({
@@ -1153,6 +1153,45 @@ describe('App', () => {
     await screen.findByRole('heading', { name: 'TASK-003A Demo' });
     expect(screen.getByRole('tab', { name: '구매' })).toHaveAttribute('aria-selected', 'true');
     expect(JSON.stringify(savedRequests[0])).toContain('8W');
+  });
+
+  it('waits for the latest procurement edit load before accepting row input', async () => {
+    const editLoadResolvers: Array<(response: Response) => void> = [];
+    let deferEditLoads = false;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (deferEditLoads
+          && url.pathname === `/api/projects/${projectId}/procurement`
+          && (!init?.method || init.method === 'GET')) {
+        return new Promise<Response>((resolve) => editLoadResolvers.push(resolve));
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<StrictMode><App /></StrictMode>);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
+    deferEditLoads = true;
+    fireEvent.click(await screen.findByRole('button', { name: '구매정보 수정' }));
+
+    await waitFor(() => expect(editLoadResolvers).toHaveLength(2));
+    await act(async () => {
+      editLoadResolvers[0](json({ ...procurementResponse(), items: [] }));
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('table', { name: '구매정보 수정' })).not.toBeInTheDocument();
+
+    await act(async () => {
+      editLoadResolvers[1](json(procurementResponse()));
+      await Promise.resolve();
+    });
+    const editTable = await screen.findByRole('table', { name: '구매정보 수정' });
+    const initialRowCount = editTable.querySelectorAll('.procurement-table-row.editable').length;
+    fireEvent.click(screen.getByRole('button', { name: '행 추가' }));
+    expect(editTable.querySelectorAll('.procurement-table-row.editable')).toHaveLength(initialRowCount + 1);
   });
 
   it('shows project context on product detail and simplifies procurement Excel preview sections', async () => {

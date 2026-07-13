@@ -129,3 +129,10 @@ Automation, scheduled job, deployment와 local worktree가 old SHA를 push하지
 - Product code/runtime/DB diff 0
 - User checklist 완료 상태 명시
 - Draft PR만 허용
+
+## 13. PR #41 검수 상태
+
+- 사용자 검수: 완료
+- CI: Backend·Frontend·Full-Stack E2E 성공
+- Ready 전환·squash merge: 승인
+- 실제 history rewrite·force push·visibility 변경: 미승인·미실행

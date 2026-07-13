@@ -5,8 +5,8 @@
 - Task 유형: `DOCS_GOVERNANCE`
 - 구현: 완료
 - 자동 검증: 완료
-- 사용자 검수: 대기
-- 게시: Draft PR
+- 사용자 검수: 완료
+- 게시: PR #39 squash merge 승인
 - Fable 5 호출: 없음
 
 ## 2. 목표
@@ -81,7 +81,7 @@ Repository에는 향후 큐의 `tasks/<task-id>-planning.md`와 Codex review가 
 - `git diff --check` 통과
 - Markdown local link·anchor·중복 heading 오류 0
 - secret/PII 후보 0
-- 기존 Decision Log 누락 0 / 새 행 8
+- 기존 Decision Log 누락 0 / 새 행 9
 - 추적 번호 중복 0 / 마지막 번호 76
 - 알림 채널 matrix와 27장 canonical 지침 변경 0
 - 공용 태블릿·공용 기기 tracking/Decision Log 추가 0
@@ -99,11 +99,11 @@ Repository에는 향후 큐의 `tasks/<task-id>-planning.md`와 Codex review가 
 
 ## 13. 사용자 검수 체크리스트
 
-- [ ] 완료된 PR #34~#38과 controlled UAT 상태가 실제와 일치한다.
-- [ ] PR #37의 purge REDESIGN이 유지되고 정책 대기로 되돌아가지 않았다.
-- [ ] 남은 P2 Gate가 auth controlled UAT, Git history risk decision과 Failed manual retry 범위로 구분됐다.
-- [ ] 미래 기능 순서와 의존성이 실무 우선순위에 맞다.
-- [ ] 미래 기능 planning·implementation 승인이 아직 `false`임이 명확하다.
-- [ ] 공용 태블릿·공용 기기 session 정책이 신규 범위로 추가되지 않았다.
-- [ ] 현재 알림 채널 matrix가 변경되지 않았다.
-- [ ] 사용자 승인 전 PR이 Draft로 유지되고 merge되지 않는다.
+- [x] 완료된 PR #34~#38과 controlled UAT 상태가 실제와 일치한다.
+- [x] PR #37의 purge REDESIGN이 유지되고 정책 대기로 되돌아가지 않았다.
+- [x] 남은 P2 Gate가 auth controlled UAT, Git history risk decision과 Failed manual retry 범위로 구분됐다.
+- [x] 미래 기능 순서와 의존성이 실무 우선순위에 맞다.
+- [x] 미래 기능 planning·implementation 승인이 아직 `false`임이 명확하다.
+- [x] 공용 태블릿·공용 기기 session 정책이 신규 범위로 추가되지 않았다.
+- [x] 현재 알림 채널 matrix가 변경되지 않았다.
+- [x] 사용자 승인 전 PR이 Draft로 유지되고 merge되지 않았다.

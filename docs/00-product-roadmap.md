@@ -1668,6 +1668,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-13 | TASK-008A와 TASK-010A는 별도 planning·구현·검증·rollback 단위로 유지 | 입고 데이터·migration 경계와 키팅·제조 업무 생성의 중복 방지 경계가 달라 한 PR로 묶으면 rollback과 검수 범위가 커지기 때문 | 23장 |
 | 2026-07-13 | 현재 알림 채널 matrix 변경은 별도 POLICY_DECISION이 있어야 함 | 긴급·차단 메일, 에스컬레이션 메일과 Daily Digest 역할을 Roadmap 동기화만으로 변경하지 않기 위함 | 6장, 23장 |
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Change 001의 REDESIGN을 유지하고 controlled UAT에서 정책 결정을 다시 열지 않음 | PR #37에 병합된 purge 전용 predicate와 due purge batch rollback을 source of truth로 유지하고 남은 작업을 evidence·runtime handover에 한정하기 위함 | 23장, 24장, Change 001 |
+| 2026-07-13 | TASK-GOV-ROADMAP-001 사용자 검수와 PR #39 squash merge를 승인 | PR #34~#38 이후 실제 상태, 남은 P2 Gate, dependency 중심 실행 큐, planning 미승인 상태, 공용 기기 범위 제외와 기존 알림 채널 matrix 보존을 확인하기 위함 | 21장~25장, TASK-GOV-ROADMAP-001 |
 
 ## 26. 용어 사전
 

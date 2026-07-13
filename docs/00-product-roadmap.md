@@ -928,13 +928,14 @@ Excel 출력 대상 후보:
 | 생산계획 | Item 기반 단계, 프로젝트별 snapshot, 단계명/필수 여부 override, Excel, Business Calendar 기준 캘린더 휴일 표시 | 캘린더 UX 지속 보정, 관리자 기준정보화 |
 | 구매 필수 항목 | Item별 필수 구매 항목 설정, 새 프로젝트 skeleton 자동 생성 | 업체/발주정보 입력 기준과 완료 판정 보강 |
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
-| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 원본 구조, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed provider actual, text topic + Teams deep link, `/teams/activity` 탭, `/teams/activity/notifications/{id}` 상세, 관리자 수동 개인/업무 배정 Activity Feed, 설정 선택형 L0~L2 Activity Feed, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, retry/dedupe, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, `work_item_escalations`, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송 3모드, 수동 업무 배정 work_item 생성, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외·대기 재시도 | Activity Feed 자동 event coverage 확대, 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, delivery 신뢰성/실패 재처리 고도화, 기존 업무 화면 action feedback UX 확대 |
+| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 원본 구조, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed provider actual, text topic + Teams deep link, `/teams/activity` 탭과 상세, 관리자 수동 개인/업무 배정 Activity Feed, 설정 선택형 L0~L2 Activity Feed, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, Pending→Processing claim/lease, fencing, automatic retry, provider 오류 분류, attempt lineage, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, fair candidate ordering과 후보 오류 격리, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송 3모드, 수동 업무 배정 work_item 생성, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외와 Pending 재시도 | Activity Feed 자동 event coverage 확대, 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, terminal Failed 수동 재처리 범위 결정, 기존 업무 화면 action feedback UX 확대 |
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
-| 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존 | 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
+| 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존, PostgreSQL transaction 기반 마지막 active System Administrator 보호, purge 전용 malformed lifecycle defense-in-depth | TASK-UAT-AUTH-HARDEN-001 controlled runtime 적용, 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
 | 관리자 | 시스템 관리 중심 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림/에스컬레이션 조회, 발송 실패/대기 상세 추적, active escalation L0~L3 breakdown, 삭제 예정 + 7일 후 완전 삭제 시도, 복구, 일괄 삭제/복구, 삭제 보류, 부서 field-level validation | Item/포장방식/생산계획 단계/구매 필수 항목 관리자 통합 여부, role/permission 편집 UI, 삭제 예정 데이터 purge 운영 정책, 전체 field-level audit 확장 |
-| UAT | 고정 UAT DB, UAT backend/frontend 포트 | 게시 전 persistence 자동 검증 강화 |
+| UAT | 고정 Persistent UAT DB, Development 5174/5081, read-only Review-safe 5190/5092, canonical/live/approved legacy ledger 28/29/1, notification claim/lease handover와 escalation fair-ordering controlled UAT | TASK-UAT-AUTH-HARDEN-001 Phase A/B evidence gate와 Phase C/D runtime handover |
 | E2E | 전용 backend/frontend 포트, 전용 DB, cleanup | 신규 업무 단계마다 시나리오 추가 |
+| Repository workflow | `NEW_FEATURE` 전용 Fable 5 read-only planning, Codex review, 사용자 승인, 분리된 Codex 구현·독립 검증과 Codex-only 보강 작업 router | 각 신규 기능의 실제 planning/review 파일과 승인 상태를 Task별로 추적 |
 
 ## 22. 현재 기능에서 수정해야 할 방향
 
@@ -959,8 +960,47 @@ Excel 출력 대상 후보:
 - ADMIN-001은 시스템 관리 중심으로 구현 완료되었으며, Item/포장방식/생산계획 단계/구매 필수 항목의 관리자 통합 여부는 후속 사용자 결정으로 남긴다.
 - 관리자 삭제 예정 데이터의 7일 후 purge 운영 정책, 삭제 보류 처리 모니터링, 전체 field-level audit 확장은 운영 검수 후 고도화한다.
 - role/permission 편집 UI, Pending 유형 관리, 검사/제조 체크리스트 템플릿, 발송 실패 수동 재처리 UI는 ADMIN-001 범위에서 제외되어 후속으로 검토한다.
+- Notification claim/lease, automatic retry, attempt lineage, provider 오류 분류와 escalation starvation 보정은 완료됐다. `TASK-NOTIFY-004`는 terminal `Failed` delivery 수동 재처리의 P2 여부와 감사·중복 위험만 다시 조사하며 완료 범위를 재구현하지 않는다.
+- TASK-AUTH-HARDEN-001의 `PURGE_GUARD_PREDICATE_UNREACHABLE`은 Change 001 REDESIGN으로 해결됐다. 다음 auth Gate는 정책 재선택이 아니라 privacy-safe evidence 재검증과 Persistent UAT runtime handover다.
+- Git history 개인정보는 current checkout 비식별화와 분리된 `TASK-GOV-002` P2 risk decision으로 유지하며 승인 전 rewrite·filter-repo·force push를 수행하지 않는다.
+- 기존 import-order 위반 9건은 범위 밖 format debt/P3 후보이며 현재 P2 Gate에 포함하지 않는다.
 
 ## 23. 향후 개발 로드맵
+
+실행 순서는 고정 날짜가 아니라 현재 상태, 선행 의존성, 외부 blocker와 사용자 승인 Gate를 따른다. Repository에는 아래 신규 기능의 `tasks/<task-id>-planning.md`와 Codex review가 아직 없으므로 planning 승인과 implementation 승인은 모두 `false`다. 큐의 순서 승인은 개별 기능 범위·정책·구현 승인을 대신하지 않는다.
+
+| Priority | Task | Task Type | Status | Planning Status | Dependencies | External Blocker | UAT Required | Next Gate |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.1 | TASK-UAT-AUTH-HARDEN-001 | UAT_RUNTIME | Controlled UAT Pending | Scope Review Required | PR #36·Change 001 merge 완료 | break-glass 미증명으로 live mutation 금지 | Yes | privacy-safe projector → isolated Phase A/B → Phase C/D 별도 승인 |
+| 0.2 | TASK-GOV-002 | POLICY_DECISION | External Decision | Scope Review Required | current checkout 비식별화 완료 | risk owner, 공개 범위, clone/fork/downstream 영향 | No | read-only history risk 조사와 사용자 결정 |
+| 0.3 | TASK-NOTIFY-004 잔여 범위 | P2_REMEDIATION | Scope Review Required | Scope Review Required | claim/lease·automatic retry·attempt lineage·starvation 완료 | Failed 재처리 감사·중복·provider 위험 정책 | Yes | terminal Failed 수동 재처리의 P2 여부 확정 |
+| 0.4 | 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.3 판정 완료 | 없음 | No | Finding gate 재검증 |
+| 0.5 | 신규 기능 Go/No-Go | POLICY_DECISION | P2 Blocked | Deferred | 0.4 통과 | 사용자 승인 | No | Phase 1 개별 planning 시작 승인 |
+| 1.1 | TASK-007A Pending List | NEW_FEATURE | P2 Blocked | Scope Review Required | Phase 0 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
+| 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A | Pending 차단·상태 matrix 확정 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
+| 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A·007B | 사진 storage·압축·재시도 정책 | Yes | 동일 URL·390px/Teams narrow planning |
+| 1.4 | TASK-HOME-001 Home MVP | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007B·MOBILE-001 기반 | 활성화 가능한 widget 데이터 확인 | Yes | widget-slot planning과 MVP 범위 승인 |
+| 2.1 | TASK-008A 자재 도착·분할 입고 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A | 기존 데이터 migration·rollback 결정 | Yes | Fable 5 planning과 migration 별도 승인 |
+| 2.2 | TASK-008B 사급 자재 추적 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-008A data model | 사급 업무 정책 | Yes | TASK-008A 검수 후 planning |
+| 2.3 | TASK-009A IQC·사진·PDF | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A·008A | IQC 양식·필수 사진 위치 | Yes | 검사 계약과 PDF snapshot planning |
+| 2.4 | TASK-010A 패널별 키팅 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-008A·009A | 패널별 키팅·중복 방지 정책 | Yes | 독립 planning·구현·rollback 승인 |
+| 3.1 | TASK-011A 제조 체크리스트 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-010A·007A | 제조 표시·입력 항목 회신 | Yes | 제조 시작·종료·중단 planning |
+| 3.2 | TASK-012A 후속 품질 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-009A·011A | LQC/OQC/FAT 양식과 사진 기준 | Yes | 품질 단계별 planning |
+| 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | P2 Blocked | Deferred | TASK-009A·011A 실제 template model | 실제 운영 template 안정화 | Yes | data structure 확정 후 planning |
+| 3.4 | Pending 유형 관리자 화면 (ID 미정) | NEW_FEATURE | P2 Blocked | Deferred | TASK-007A 안정화 | 유형·권한 정책 | Yes | 별도 소형 Task ID와 planning 승인 |
+| 4.1 | TASK-013A 물류 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-012A | 포장 구성·사진·서명본 기준 | Yes | 물류 planning |
+| 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007B·013A | 세금계산서·완료 권한 정책 | Yes | 완료 조건 planning |
+| 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | P2 Blocked | Deferred | 주요 data model 안정화 | 개인정보·권한별 export 정책 | Yes | 공통 export planning |
+| 4.4 | QR 스캔 랜딩 (ID 미정) | NEW_FEATURE | P2 Blocked | Deferred | MOBILE-001·제조 흐름 | 공개/인증 landing 정책 | Yes | 별도 신규 기능 Task 승인 |
+| 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Deferred | Scope Review Required | 기능 흐름 안정화 | Figma Variables·CSS token 기준 | Yes | 기능 변경 없는 component/token 범위 승인 |
+| 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Deferred | Scope Review Required | DESIGN-000 | 홈→내 업무→현장→관리자 순서 | Yes | 화면별 planning과 사용자 승인 |
+| 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Deferred | Scope Review Required | 공통 feedback contract | 화면별 범위 팽창 방지 | Yes | A1 planning 후 A2 분리 |
+| 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Deferred | Scope Review Required | TASK-NOTIFY-004 범위 확정 | 필수 알림 opt-out·taxonomy 정책 | Yes | 별도 planning·정책 승인 |
+| 6.1 | 운영 전환 (Task ID 미정) | UAT_RUNTIME | Deferred | Scope Review Required | 기능·P2·design gate 완료 | hosting/domain, redirect URI, Teams catalog, provider, 교육 | Yes | 운영 전환 Task와 rollback 승인 |
+
+Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
+
+TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하나의 구현 또는 PR로 묶지 않는다. 메일·알림 채널 matrix는 현재 확정 상태를 유지하며 긴급·차단 메일, 에스컬레이션 메일 또는 메일의 역할을 바꾸려면 별도 `POLICY_DECISION`이 필요하다.
 
 ### TASK-006A: 업무 요청 / 내 업무 / 알림 기반 구조
 
@@ -1057,7 +1097,7 @@ Excel 출력 대상 후보:
 
 ### TASK-GOV-CODEX-002: Fable 5 신규 기능·Codex-only 작업 라우터
 
-- 상태: 구현·자동 검증·사용자 검수 완료 / PR #38 squash merge 승인
+- 상태: 완료 / PR #38 squash merge
 - 목적: 신규 기능만 Fable 5 read-only planning으로 보내고, 승인된 기능 구현과 BUGFIX·P2·SECURITY·UAT·DOCS·HOUSEKEEPING·POLICY 작업은 Codex-only 조사·승인·구현·독립 검증 흐름으로 처리한다.
 - 포함 범위: Root Task 유형 라우터, Fable 전용 `CLAUDE.md`, 수정 요청과 planning·review·change·implementation report 역할, Codex 세션 분리
 - 제외 범위: 제품 코드, migration, dependency, script, runtime, Persistent UAT와 실제 Fable 기획 호출
@@ -1272,6 +1312,15 @@ Excel 출력 대상 후보:
 - 사용자 검수: PR #36 검수 완료 / Change 001 구현·자동 검증·사용자 검수 완료 / Change 001 merge 승인 / 미체크 항목 0
 - 전체 신규 기능 개발: 기존 P2가 남아 있으므로 No-Go 유지
 
+### TASK-UAT-AUTH-HARDEN-001: Last administrator controlled UAT
+
+- 상태: Controlled UAT Pending / 신규 기능 개발 전 최우선 적용 Gate
+- 완료된 선행 범위: PR #36 concurrency guard와 Change 001 purge 전용 REDESIGN이 main에 병합됐다. `PURGE_GUARD_PREDICATE_UNREACHABLE` 정책 선택은 완료됐으며 다시 Decision Pending으로 돌리지 않는다.
+- 남은 범위: privacy-safe Collector·Aggregator·Projector end-to-end qualification, Persistent UAT read-only identity snapshot, synthetic PostgreSQL의 실제 HTTP Phase A/B, temporary Persistent read-only Phase C, official Development Phase D, 독립 5종 산출물과 Draft PR
+- 제한: Persistent live user/role/deletion mutation `NO_GO`, break-glass 복구 경로 증명 전 유일 administrator 실데이터 거부 test 금지, Direct SQL·자동 backup restore 금지
+- runtime 원칙: Review-safe를 유지하고 temporary validation에서 불필요한 writer·provider를 차단하며, official handover는 별도 사용자 승인과 rollback ownership 확인 뒤 수행한다.
+- planning 상태: Codex-only `UAT_RUNTIME`; canonical Task·Implementation report·SOP·User manual 파일은 아직 없고 planning/implementation 승인은 별도 실행 승인으로 관리한다.
+
 ### TASK-NOTIFY-003: Teams Activity Feed 개인 알림 / 알림 운영 UX
 
 - 상태: 완료(provider/capability 및 명시된 수동 발송 범위). 자동 event 전체 적용 완료를 의미하지 않는다.
@@ -1284,15 +1333,15 @@ Excel 출력 대상 후보:
 
 ### TASK-NOTIFY-004: 외부 알림 delivery 신뢰성 및 실패 재처리
 
-- 상태/권장 순서: 계획 / No-Go 3순위·후속 후보 B
-- 목적: 동시 worker와 실패 재처리 상황에서도 외부 알림을 중복 발송하지 않고, 재시도 원인과 계보를 추적 가능하게 만든다.
-- 포함 범위: delivery claim/lease, 동시 worker 중복 발송 방지, retryable/non-retryable 분류, Failed delivery 재처리와 retry lineage, escalation batch starvation 보정
+- 상태: Scope Review Required / 잔여 범위의 P2 여부 확정 필요
+- 완료 범위: TASK-NOTIFY-REL-001의 claim/lease·fencing·automatic retry·retryable/non-retryable 분류·attempt lineage와 TASK-NOTIFY-ESC-001의 escalation starvation 보정 및 controlled UAT
+- 남은 실제 범위: terminal `Failed` delivery의 관리자 수동 재처리. 현재 Backend와 UI의 retry action은 `Pending`만 허용한다.
+- 목적: Failed 재처리가 안전·감사·중복 방지에 필요한 P2인지 운영 편의 기능인지 먼저 판정하고, P2이면 독립 Task/PR로 보정한다.
+- 포함 범위 후보: Failed→재처리 상태 전이, 원본과 새 attempt lineage, 권한·audit, provider-call 중복 위험, terminal/non-retryable 정책과 사용자 확인
 - 제외 범위: 사용자별 채널 preference UI, 기존 업무 화면 feedback 전면 개편, 실제 운영 secret/채널 교체
-- 선행조건: 외부 발송 없이 확인 가능한 safe UAT 검수 기반, 독립된 DB 동시성 테스트 환경, 실패 재처리 승인·감사 정책 확정
-- 예상 migration: 필요 예상. claim/lease와 retry lineage를 additive migration으로 설계하고 기존 delivery 보존 및 forward-fix 정책을 명시한다.
-- backend/frontend 영향: backend dispatcher/store/worker/escalation이 중심이며, frontend 관리자 delivery monitor와 재처리 action/status가 영향받는다.
-- 핵심 검수 기준: 두 worker 경쟁 시 1회만 claim/발송, lease 만료 복구, 오류 분류별 retry 차등, 원본과 재시도 lineage 표시, 오래된 escalation 후보 starvation 방지
-- 주요 위험: 실제 외부 중복 발송, lease 고착, 기존 Pending/Failed 이력 훼손, batch 정렬 변경에 따른 에스컬레이션 지연
+- 선행조건: 실패 재처리 승인·감사·provider idempotency 정책 확정과 actual provider 없이 검증 가능한 isolated 환경
+- 영향 판단: migration 필요 여부는 조사 전 확정하지 않는다. 기존 claim/lease·attempt schema 재사용을 우선하며 완료 범위를 다시 구현하지 않는다.
+- 주요 위험: actual 외부 중복 발송, permanent failure 오분류, 기존 Failed 이력 훼손과 관리자의 반복 재처리
 
 ### TASK-UX-001: 기존 업무 화면 Action Feedback UX 확대
 
@@ -1318,7 +1367,7 @@ Excel 출력 대상 후보:
 - 핵심 검수 기준: 필수 알림 해제 차단, 기본값 호환, event/channel별 저장과 재로그인 유지, 인앱 원본 보존, preference 변경 audit, 외부 delivery 생성 여부 검증
 - 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
 
-현재 실행 순서는 `TASK-UAT-MAINTENANCE-001 사용자 검수/merge → TASK-UAT-HANDOVER-003 preflight 재개 → fresh backup/restore rehearsal → TASK-NOTIFY-ESC-001 → TASK-AUTH-HARDEN-001 → TASK-GOV-002`이다. `TASK-NOTIFY-REL-001`과 `TASK-NOTIFY-ESC-001`은 `TASK-NOTIFY-004` umbrella 중 claim/lease와 escalation starvation P2를 각각 분리한 실행 Task다. 기능 후보 순서는 `TASK-UX-001(A1 → A2) → TASK-NOTIFY-005`이며, UX-001은 NOTIFY-004와 묶지 않고 별도 검수한다. 전체 신규 기능 No-Go는 남은 P2 remediation이 닫힐 때까지 유지한다.
+현재 canonical 순서는 이 장 시작의 실행 큐를 따른다. TASK-NOTIFY-REL-001과 TASK-NOTIFY-ESC-001 완료 범위는 TASK-NOTIFY-004에서 재구현하지 않는다. TASK-UX-001과 TASK-NOTIFY-005는 큐에서 Deferred로 유지하며, 전체 신규 기능은 Phase 0 Finding gate와 사용자 Go 승인 전까지 `P2 Blocked`다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1328,13 +1377,46 @@ Excel 출력 대상 후보:
 - 선행조건: 내 업무/알림 기반
 - 주요 테스트: 생성, 조치, 재검사 요청, 권한, 중복 방지
 
+### TASK-007B: 패널·프로젝트 병목 상태 집계
+
+- 목적: Pending 차단 상태와 필수 workflow 진행률을 이용해 패널·프로젝트의 대표 병목 상태를 계산한다.
+- 포함 범위: 상태 matrix, Pending 차단, 패널·프로젝트 aggregate, 기존 진행률 공식 재사용
+- 제외 범위: HOME widget과 관리자용 Pending 유형 편집
+- 선행조건: TASK-007A 안정화, 상태 matrix 사용자 승인
+- 주요 테스트: 필수 단계 partial/all, open Pending 차단, FAT optional 분모, aggregate 권한
+
+### TASK-MOBILE-001: 동일 URL 적응형 현장 UX
+
+- 목적: 기존 URL과 인증 흐름을 유지하면서 모바일 내비게이션과 현장 입력·사진 업로드 기반을 제공한다.
+- 포함 범위: responsive navigation, 390px/Teams narrow, 사진 압축·재시도, 접근성·overflow 기준
+- 제외 범위: 공용 태블릿·공용 기기 mode, 별도 session 정책, sessionStorage 강제 정책
+- 선행조건: TASK-007A·007B, 첨부 storage·보안·backup 정책
+- 주요 테스트: desktop/390px/Teams narrow, 업로드 실패·재시도, 권한, page-level overflow 0
+
+### TASK-HOME-001: PC·모바일 Home MVP
+
+- 목적: 현재 데이터로 제공 가능한 요약을 widget-slot 구조로 단계적으로 활성화한다.
+- 포함 범위: PC·모바일 Home, widget slot, TASK-007B aggregate 재사용, loading·empty·error 상태
+- 제외 범위: 아직 source data가 없는 예측 widget과 시각 브랜드 전면 개편
+- 선행조건: TASK-007B, TASK-MOBILE-001 기반
+- 주요 테스트: widget 권한, empty/error, responsive layout, aggregate 정합성
+
 ### TASK-008A: 자재 도착 / IQC 요청 / 입고 확정
 
 - 목적: 구매품목 도착부터 입고 확정까지 자재 흐름 구현
-- 포함 범위: 자재 도착, IQC 요청, 입고 확정, 구매품목 상태
+- 포함 범위: 자재 도착, 분할 입고 일반화, IQC 요청, 입고 확정, 구매품목 상태
 - 제외 범위: IQC 상세 성적서 전체
 - 선행조건: 구매정보, Pending List 기반
-- 주요 테스트: 도착 등록, IQC 요청, 부적합 차단, 입고 확정
+- 주요 테스트: 도착·분할 입고, IQC 요청, 부적합 차단, 입고 확정
+- 변경 경계: 기존 데이터 migration 필요성과 rollback은 planning에서 확인하고 별도 승인한다.
+
+### TASK-008B: 사급 자재 추적
+
+- 목적: TASK-008A의 입고 데이터 모델을 재사용해 사급 자재의 제공·입고·잔량을 추적한다.
+- 포함 범위: 사급 구분, 수량·입고 이력, 프로젝트·구매품목 연결
+- 제외 범위: TASK-008A 데이터 모델 재구현과 외부 공급망 연동
+- 선행조건: TASK-008A 구현·검수 완료, 사급 업무 정책 확정
+- 주요 테스트: 분할 입고, 잔량, 권한, 중복·수량 무결성
 
 ### TASK-009A: 검사 체크리스트 템플릿 / IQC 디지털 성적서 / PDF 출력 기반
 
@@ -1368,6 +1450,14 @@ Excel 출력 대상 후보:
 - 선행조건: 검사성적서 양식, 사진 필수 위치 회신
 - 주요 테스트: 검사 결과, PUNCH, 재검사, FAT optional 처리
 
+### TASK-ADMIN-002: 검사·제조 Template 관리
+
+- 목적: 실제 검사·제조 template 데이터 구조가 안정된 뒤 관리 기능을 제공한다.
+- 포함 범위: template 조회·버전·활성화 정책과 승인된 편집 범위
+- 제외 범위: TASK-009A·011A보다 앞선 추상 template 설계
+- 선행조건: TASK-009A·011A의 실제 data model과 운영 검수
+- 주요 테스트: 권한, versioning, 사용 중 template 보호, audit
+
 ### TASK-013A: 물류 포장 / 출발 / 납품 완료
 
 - 목적: 포장부터 납품 완료까지 물류 흐름 구현
@@ -1391,6 +1481,12 @@ Excel 출력 대상 후보:
 - 제외 범위: 복잡한 보고서 PDF
 - 선행조건: 주요 화면 데이터 모델 안정화
 - 주요 테스트: 권한, 필터, 파일 타입, 개인정보 노출 방지
+
+### DESIGN-000 이후: 시각 토큰과 화면 통일
+
+- DESIGN-000은 Figma Variables, CSS token과 공통 component kit만 다루며 기능 변경을 포함하지 않는다.
+- DESIGN-001 이후는 Home, 내 업무, 현장 화면, 관리자 화면 순으로 별도 planning·검수한다.
+- 기능 Task에서도 loading·empty·error·success feedback, 접근성, 한글 안내와 390px/Teams narrow 기준은 선행 적용한다.
 
 ## 24. 추적 대상 리스트
 
@@ -1445,7 +1541,7 @@ Excel 출력 대상 후보:
 | 47 | 삭제 예정 데이터 purge 운영 정책 | 미확정 | 사용자/운영 | 운영 고도화 | 7일 후 purge worker는 구현. 보류 데이터 처리/운영 알림은 후속 검토 |
 | 48 | 전체 field-level audit 확장 | 미확정 | 사용자/운영 | Audit 후속 | ADMIN-001은 관리자 변경 이력 중심 |
 | 49 | 관리자 모바일 UX 고도화 | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001은 page-level overflow 방지 기준으로 검수 |
-| 50 | 외부 알림 delivery 동시성·실패 재처리 | 계획 | 개발/운영 | TASK-NOTIFY-004 | safe UAT와 DB 동시성 테스트 환경을 먼저 준비하고 claim/lease·retry lineage·starvation을 함께 검증 |
+| 50 | 외부 알림 delivery 동시성·실패 재처리 | 잔여 범위 조사 필요 | 개발/운영 | TASK-NOTIFY-004 | claim/lease·automatic retry·attempt lineage·provider 오류 분류·starvation은 완료. terminal Failed 수동 재처리의 P2 여부와 감사·중복 위험만 판정 |
 | 51 | 기존 업무 화면 Action Feedback UX | 계획 | 사용자/개발 | TASK-UX-001 | A1 공통 계약과 내 업무/알림을 먼저 검수한 뒤 A2 업무 화면으로 확대 |
 | 52 | 사용자별 알림 설정 | 계획 | 사용자/운영 | TASK-NOTIFY-005 | NOTIFY-004 완료와 필수 알림 opt-out/channel taxonomy 결정이 선행 |
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
@@ -1456,7 +1552,7 @@ Excel 출력 대상 후보:
 | 58 | UAT 통합 사용자 검수 | 자동 검증·사용자 검수 완료 / merge 승인 | 사용자/개발 | UAT-VERIFY-001 | 최신 main runtime·ledger/schema/data/권한/dashboard/Review-safe/UI 기준선과 개인정보 안전 merge projection 통과. UAT 기준선 Go, 신규 기능 No-Go 유지, PR #29 병합 승인 |
 | 59 | Notification delivery claim/lease | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-REL-001 | Processing·SKIP LOCKED·lease/fencing·attempt audit, 정상 경쟁 provider call 1회, isolated candidate 5094/5192. Persistent UAT 0028 미적용, actual provider 호출 0, at-least-once이며 exactly-once 미보장. PR #30 |
 | 60 | Escalation starvation | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-ESC-001 | 기존 evaluation timestamp fair ordering, 후보 오류 격리, 101/200/201 유한 poll, 중복 0. Persistent UAT worker는 disabled 유지 |
-| 61 | 마지막 System Administrator 동시성 보호 | PR #36 merge 완료 / Change 001 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-AUTH-HARDEN-001 | 감소 mutation 직렬화와 purge 전용 defense-in-depth predicate로 active System Administrator 1명 이상을 보호. Persistent UAT 미적용 |
+| 61 | 마지막 System Administrator 동시성 보호 | 코드·Change 001 merge 완료 / controlled UAT 대기 | 개발/운영 | TASK-UAT-AUTH-HARDEN-001 | 감소 mutation 직렬화와 purge 전용 defense-in-depth predicate 구현은 완료. privacy-safe Phase A/B와 Phase C/D runtime handover가 남았고 Persistent live mutation은 No-Go |
 | 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
@@ -1465,7 +1561,13 @@ Excel 출력 대상 후보:
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / PR #32 merge 완료 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
-| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | 구현·자동 검증·사용자 검수 완료 / PR #38 squash merge 승인 | 개발 | TASK-GOV-CODEX-002 | NEW_FEATURE만 Fable 5 planning, 나머지 유형은 Codex-only 조사·승인·구현·독립 검증. `tasks/` convention과 기존 안전·종료 정책 유지 |
+| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | 완료 / PR #38 squash merge | 개발 | TASK-GOV-CODEX-002 | NEW_FEATURE만 Fable 5 planning, 나머지 유형은 Codex-only 조사·승인·구현·독립 검증. `tasks/` convention과 기존 안전·종료 정책 유지 |
+| 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
+| 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
+| 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
+| 74 | terminal Failed delivery 수동 재처리 범위 | 범위 판정 필요 | 사용자/개발/운영 | TASK-NOTIFY-004 | P2 remediation인지 운영 편의 기능인지, 감사·중복·provider 위험을 먼저 조사 |
+| 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
+| 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1558,6 +1660,15 @@ Excel 출력 대상 후보:
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Change 001 사용자 검수와 merge를 승인 | Purge 전용 predicate, malformed lifecycle defense-in-depth, due purge 전체 batch rollback, 기존 `PurgeBlocked` reference 정책과 전체 validation 결과를 확인하고 코드·문서를 함께 게시하기 위함 | 23장, 24장, TASK-AUTH-HARDEN-001, Change 001 |
 | 2026-07-13 | TASK-GOV-CODEX-002에서 NEW_FEATURE 전용 Fable 5와 Codex-only 작업 라우터를 분리 | 신규 기능 기획과 기존 기능 보강의 역할·승인 경계를 명확히 하고 Fable의 Repository write·재귀 workflow를 차단하면서 PR #32의 canonical 안전 구조를 유지하기 위함 | 23장, 24장, 27장, TASK-GOV-CODEX-002 |
 | 2026-07-13 | TASK-GOV-CODEX-002 사용자 검수와 PR #38 squash merge를 승인 | NEW_FEATURE 전용 Fable 5 planning, Codex-only 보강 흐름, 세션 분리, read-only·단일 작성자·승인 gate와 기존 Repository 안전 규칙이 함께 유지됨을 확인하기 위함 | 23장, 24장, 27장, TASK-GOV-CODEX-002 |
+| 2026-07-13 | NEW_FEATURE만 Fable 5 planning을 사용하고 BUGFIX·P2_REMEDIATION·SECURITY·UAT_RUNTIME·DOCS_GOVERNANCE·HOUSEKEEPING·POLICY_DECISION은 Codex-only로 처리 | 신규 기능 기획과 기존 범위 보정의 책임·승인 경계를 분리하고 Fable의 Codex workflow 재귀 실행을 막기 위함 | AGENTS.md, CLAUDE.md, 23장 |
+| 2026-07-13 | 기능 흐름을 먼저 구현하고 시각 token·브랜드 통일은 DESIGN Task로 후행 | 기능 의존성과 업무 검증을 먼저 안정화하되 모든 기능 Task에서 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow와 overflow 0은 유지하기 위함 | 23장 |
+| 2026-07-13 | 모바일 기능은 별도 URL이 아닌 동일 URL 적응형 rendering을 기본으로 사용 | 인증·deep link·Teams 진입 경로를 분리하지 않고 PC와 현장 UX를 일관되게 유지하기 위함 | 23장, TASK-MOBILE-001 |
+| 2026-07-13 | Home은 widget-slot 구조로 만들고 현재 source data가 있는 widget부터 단계적으로 활성화 | 미구현 데이터와 예측 기능을 Home MVP에 섞지 않고 TASK-007B aggregate를 재사용하기 위함 | 23장, TASK-HOME-001 |
+| 2026-07-13 | Roadmap 실행 순서는 고정 날짜보다 status·dependency·external blocker·planning/implementation 승인과 UAT gate를 우선 | 목표 시기를 확정 약속으로 오해하지 않고 실제 준비 상태에 따라 안전하게 다음 Task를 선택하기 위함 | 23장, 24장 |
+| 2026-07-13 | TASK-008A와 TASK-010A는 별도 planning·구현·검증·rollback 단위로 유지 | 입고 데이터·migration 경계와 키팅·제조 업무 생성의 중복 방지 경계가 달라 한 PR로 묶으면 rollback과 검수 범위가 커지기 때문 | 23장 |
+| 2026-07-13 | 현재 알림 채널 matrix 변경은 별도 POLICY_DECISION이 있어야 함 | 긴급·차단 메일, 에스컬레이션 메일과 Daily Digest 역할을 Roadmap 동기화만으로 변경하지 않기 위함 | 6장, 23장 |
+| 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Change 001의 REDESIGN을 유지하고 controlled UAT에서 정책 결정을 다시 열지 않음 | PR #37에 병합된 purge 전용 predicate와 due purge batch rollback을 source of truth로 유지하고 남은 작업을 evidence·runtime handover에 한정하기 위함 | 23장, 24장, Change 001 |
+| 2026-07-13 | TASK-GOV-ROADMAP-001 사용자 검수와 PR #39 squash merge를 승인 | PR #34~#38 이후 실제 상태, 남은 P2 Gate, dependency 중심 실행 큐, planning 미승인 상태, 공용 기기 범위 제외와 기존 알림 채널 matrix 보존을 확인하기 위함 | 21장~25장, TASK-GOV-ROADMAP-001 |
 
 ## 26. 용어 사전
 

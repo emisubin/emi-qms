@@ -73,8 +73,8 @@ Root Task router section, `CLAUDE.md`, Task 문서와 Roadmap entry를 함께 re
 
 ## 10. 사용자 검수 결과와 남은 항목
 
-- 사용자 검수: 대기
-- 게시·merge: 별도 승인 확인 전 미수행
+- 사용자 검수: 완료
+- 게시·merge: PR #38 squash merge 승인
 - 기존 root WIP와 historical branch 정리: 별도 HOUSEKEEPING 승인 대상
 
 ## 11. 5종 산출물
@@ -85,4 +85,4 @@ Root Task router section, `CLAUDE.md`, Task 문서와 Roadmap entry를 함께 re
 | SOP | `tasks/gov-codex-002.md` 8장 | 작성됨 |
 | User manual | `tasks/gov-codex-002.md` 9장 | 작성됨 |
 | Roadmap update | `docs/00-product-roadmap.md` | 반영됨 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | 작성됨 / 사용자 검수 대기 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | 사용자 검수 완료 |

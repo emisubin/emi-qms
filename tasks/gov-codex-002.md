@@ -5,8 +5,8 @@
 - Task 유형: `DOCS_GOVERNANCE`
 - 구현: 완료
 - 자동 검증: 완료
-- 사용자 검수: 대기
-- 게시·merge: 미수행
+- 사용자 검수: 완료
+- 게시·merge: PR #38 squash merge 승인
 - Fable 5 호출: 없음
 
 ## 2. 목표
@@ -94,13 +94,13 @@
 | SOP | 이 문서 8장 | 작성됨 |
 | User manual | 이 문서 9장 | 작성됨 |
 | Roadmap update | `docs/00-product-roadmap.md` | 반영됨 |
-| User validation checklist | 이 문서 13장 | 작성됨 / 사용자 검수 대기 |
+| User validation checklist | 이 문서 13장 | 사용자 검수 완료 |
 
 ## 13. 사용자 검수 체크리스트
 
-- [ ] `NEW_FEATURE`만 Fable 5로 라우팅되는지 확인
-- [ ] 승인된 기능 구현과 BUGFIX/P2/SECURITY/UAT/DOCS/HOUSEKEEPING/POLICY가 Codex-only인지 확인
-- [ ] Fable이 Repository 파일과 Codex workflow를 재귀 실행하지 않는지 확인
-- [ ] planning·review·change·implementation report 역할이 구분되는지 확인
-- [ ] 사용자 승인 전 구현, Ready 전환과 merge가 금지되는지 확인
-- [ ] 기존 Repository 안전·Finding·5종 산출물 규칙이 유지되는지 확인
+- [x] `NEW_FEATURE`만 Fable 5로 라우팅되는지 확인
+- [x] 승인된 기능 구현과 BUGFIX/P2/SECURITY/UAT/DOCS/HOUSEKEEPING/POLICY가 Codex-only인지 확인
+- [x] Fable이 Repository 파일과 Codex workflow를 재귀 실행하지 않는지 확인
+- [x] planning·review·change·implementation report 역할이 구분되는지 확인
+- [x] 사용자 승인 전 구현, Ready 전환과 merge가 금지되는지 확인
+- [x] 기존 Repository 안전·Finding·5종 산출물 규칙이 유지되는지 확인

@@ -1057,14 +1057,14 @@ Excel 출력 대상 후보:
 
 ### TASK-GOV-CODEX-002: Fable 5 신규 기능·Codex-only 작업 라우터
 
-- 상태: 구현·자동 검증 완료 / 사용자 검수 대기 / 게시 미수행
+- 상태: 구현·자동 검증·사용자 검수 완료 / PR #38 squash merge 승인
 - 목적: 신규 기능만 Fable 5 read-only planning으로 보내고, 승인된 기능 구현과 BUGFIX·P2·SECURITY·UAT·DOCS·HOUSEKEEPING·POLICY 작업은 Codex-only 조사·승인·구현·독립 검증 흐름으로 처리한다.
 - 포함 범위: Root Task 유형 라우터, Fable 전용 `CLAUDE.md`, 수정 요청과 planning·review·change·implementation report 역할, Codex 세션 분리
 - 제외 범위: 제품 코드, migration, dependency, script, runtime, Persistent UAT와 실제 Fable 기획 호출
 - 안전 경계: Fable model `fable-5`, read-only 도구, private output capture, recursive workflow 금지, 지원 옵션 불충족 시 fail-closed
 - 산출물: [Task·SOP·User manual·검수 checklist](../tasks/gov-codex-002.md), [Implementation report](../tasks/gov-codex-002-implementation-report.md), 이 Roadmap update
 - 자동 검증: 새 Codex read-only session route 9/9, static router 11/11, Fable CLI read-only option 8/8, diff·actionlint·Markdown·secret/PII·allowlist 통과
-- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기
+- 사용자 검수: 완료
 
 ### TASK-E2E-ISOLATION-001: Full-Stack E2E PostgreSQL 물리 격리
 
@@ -1557,6 +1557,7 @@ Excel 출력 대상 후보:
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Change 001에서 REDESIGN과 due purge 전체 batch rollback을 승인 | Purge lifecycle과 canonical predicate가 상호 배타적이던 도달 불가능 guard를 물리 삭제 전용 predicate로 분리하고, malformed lifecycle state를 defense-in-depth로 보호하면서 기존 reference 정책과 public API를 유지하기 위함 | 23장, 24장, TASK-AUTH-HARDEN-001, Change 001 |
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Change 001 사용자 검수와 merge를 승인 | Purge 전용 predicate, malformed lifecycle defense-in-depth, due purge 전체 batch rollback, 기존 `PurgeBlocked` reference 정책과 전체 validation 결과를 확인하고 코드·문서를 함께 게시하기 위함 | 23장, 24장, TASK-AUTH-HARDEN-001, Change 001 |
 | 2026-07-13 | TASK-GOV-CODEX-002에서 NEW_FEATURE 전용 Fable 5와 Codex-only 작업 라우터를 분리 | 신규 기능 기획과 기존 기능 보강의 역할·승인 경계를 명확히 하고 Fable의 Repository write·재귀 workflow를 차단하면서 PR #32의 canonical 안전 구조를 유지하기 위함 | 23장, 24장, 27장, TASK-GOV-CODEX-002 |
+| 2026-07-13 | TASK-GOV-CODEX-002 사용자 검수와 PR #38 squash merge를 승인 | NEW_FEATURE 전용 Fable 5 planning, Codex-only 보강 흐름, 세션 분리, read-only·단일 작성자·승인 gate와 기존 Repository 안전 규칙이 함께 유지됨을 확인하기 위함 | 23장, 24장, 27장, TASK-GOV-CODEX-002 |
 
 ## 26. 용어 사전
 

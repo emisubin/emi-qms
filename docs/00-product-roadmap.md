@@ -933,7 +933,7 @@ Excel 출력 대상 후보:
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존, PostgreSQL transaction 기반 마지막 active System Administrator 보호, purge 전용 malformed lifecycle defense-in-depth, latest-main Development controlled runtime 적용 | Auth break-glass 계정·복구 rehearsal, 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
 | 관리자 | 시스템 관리 중심 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림/에스컬레이션 조회, 발송 실패/대기 상세 추적, active escalation L0~L3 breakdown, 삭제 예정 + 7일 후 완전 삭제 시도, 복구, 일괄 삭제/복구, 삭제 보류, 부서 field-level validation | Item/포장방식/생산계획 단계/구매 필수 항목 관리자 통합 여부, role/permission 편집 UI, 삭제 예정 데이터 purge 운영 정책, 전체 field-level audit 확장 |
-| UAT | 고정 Persistent UAT DB, latest-main Development 5174/5081, read-only Review-safe 5190/5092, canonical/live/approved legacy ledger 28/29/1, notification claim/lease·escalation fair-ordering·last-administrator controlled UAT | TASK-UAT-AUTH-HARDEN-001 사용자 검수·merge, Persistent live auth mutation은 break-glass 증명 전 No-Go |
+| UAT | 고정 Persistent UAT DB, latest-main Development 5174/5081, read-only Review-safe 5190/5092, canonical/live/approved legacy ledger 28/29/1, notification claim/lease·escalation fair-ordering·last-administrator controlled UAT | TASK-UAT-AUTH-HARDEN-001 검수 완료, Persistent live auth mutation은 break-glass 증명 전 No-Go |
 | E2E | 전용 backend/frontend 포트, 전용 DB, cleanup | 신규 업무 단계마다 시나리오 추가 |
 | Repository workflow | `NEW_FEATURE` 전용 Fable 5 read-only planning, Codex review, 사용자 승인, 분리된 Codex 구현·독립 검증과 Codex-only 보강 작업 router | 각 신규 기능의 실제 planning/review 파일과 승인 상태를 Task별로 추적 |
 
@@ -961,7 +961,7 @@ Excel 출력 대상 후보:
 - 관리자 삭제 예정 데이터의 7일 후 purge 운영 정책, 삭제 보류 처리 모니터링, 전체 field-level audit 확장은 운영 검수 후 고도화한다.
 - role/permission 편집 UI, Pending 유형 관리, 검사/제조 체크리스트 템플릿, 발송 실패 수동 재처리 UI는 ADMIN-001 범위에서 제외되어 후속으로 검토한다.
 - Notification claim/lease, automatic retry, attempt lineage, provider 오류 분류와 escalation starvation 보정은 완료됐다. `TASK-NOTIFY-004`는 terminal `Failed` delivery 수동 재처리의 P2 여부와 감사·중복 위험만 다시 조사하며 완료 범위를 재구현하지 않는다.
-- TASK-AUTH-HARDEN-001의 `PURGE_GUARD_PREDICATE_UNREACHABLE`은 Change 001 REDESIGN으로 해결됐고 TASK-UAT-AUTH-HARDEN-001 Phase A~D에서 privacy-safe evidence, isolated HTTP와 Persistent mutation-free runtime handover를 통과했다. 사용자 검수·merge 전까지 현재 Gate를 유지하며 Persistent live auth mutation은 break-glass 증명 전 No-Go다.
+- TASK-AUTH-HARDEN-001의 `PURGE_GUARD_PREDICATE_UNREACHABLE`은 Change 001 REDESIGN으로 해결됐고 TASK-UAT-AUTH-HARDEN-001 Phase A~D, privacy-safe evidence, isolated HTTP, Persistent mutation-free runtime handover와 사용자 검수를 통과했다. Persistent live auth mutation은 break-glass 증명 전 No-Go다.
 - Git history 개인정보는 current checkout 비식별화와 분리된 `TASK-GOV-002` P2 risk decision으로 유지하며 승인 전 rewrite·filter-repo·force push를 수행하지 않는다.
 - 기존 import-order 위반 9건은 범위 밖 format debt/P3 후보이며 현재 P2 Gate에 포함하지 않는다.
 
@@ -971,7 +971,7 @@ Excel 출력 대상 후보:
 
 | Priority | Task | Task Type | Status | Planning Status | Dependencies | External Blocker | UAT Required | Next Gate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0.1 | TASK-UAT-AUTH-HARDEN-001 | UAT_RUNTIME | Controlled UAT Pending | Implementation Ready | Phase A~D 자동 검증·runtime 적용 완료 | 사용자 검수 대기, break-glass 미증명으로 live mutation 금지 | Yes | 5종 산출물 검수 → PR Ready·merge 승인 |
+| 0.1 | TASK-UAT-AUTH-HARDEN-001 | UAT_RUNTIME | Completed | Planning Approved | Phase A~D 자동 검증·runtime 적용·사용자 검수 완료 | break-glass 미증명으로 live mutation 금지 | Yes | PR #40 squash merge 승인 → TASK-GOV-002 |
 | 0.2 | TASK-GOV-002 | POLICY_DECISION | External Decision | Scope Review Required | current checkout 비식별화 완료 | risk owner, 공개 범위, clone/fork/downstream 영향 | No | read-only history risk 조사와 사용자 결정 |
 | 0.3 | TASK-NOTIFY-004 잔여 범위 | P2_REMEDIATION | Scope Review Required | Scope Review Required | claim/lease·automatic retry·attempt lineage·starvation 완료 | Failed 재처리 감사·중복·provider 위험 정책 | Yes | terminal Failed 수동 재처리의 P2 여부 확정 |
 | 0.4 | 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.3 판정 완료 | 없음 | No | Finding gate 재검증 |
@@ -1314,7 +1314,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-UAT-AUTH-HARDEN-001: Last administrator controlled UAT
 
-- 상태: Phase A~D 자동 검증·runtime 적용 완료 / 사용자 검수 대기 / 신규 기능 개발 전 최우선 Gate
+- 상태: Phase A~D 자동 검증·runtime 적용·사용자 검수 완료 / PR #40 squash merge 승인
 - 완료된 선행 범위: PR #36 concurrency guard와 Change 001 purge 전용 REDESIGN이 main에 병합됐다. `PURGE_GUARD_PREDICATE_UNREACHABLE` 정책 선택은 완료됐으며 다시 Decision Pending으로 돌리지 않는다.
 - Phase A/B: Collector·Aggregator·Projector와 Release build end-to-end qualification, Persistent read-only identity snapshot, synthetic PostgreSQL actual HTTP, cancellation·failure, immediate/due purge와 20회 stress를 통과했다. 대표 cross-target 결과는 성공 7·안전 거부 5·minimum final active 1이며 violation·partial update·unexpected deadlock 0이다.
 - Phase C: latest-main temporary ReviewSafe backend에서 live/ready 200, DB read-only, mutation 423, worker/provider 0, read-only GET 4/4와 Persistent identity delta 0을 확인하고 정상 종료했다.
@@ -1323,7 +1323,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제한: Persistent live user/role/deletion mutation `NO_GO`, break-glass 복구 경로 증명 전 유일 administrator 실데이터 거부 test 금지, Direct SQL·자동 backup restore 금지
 - runtime 상태: Development 5174/5081은 latest-main, Review-safe 5190/5092는 기존 read-only fallback, Preview 5185는 maintenance 격리 DOWN, 기존 Candidate는 보존했다.
 - 산출물: [Task 정의와 검수 체크리스트](../tasks/uat-auth-harden-001.md), [Implementation report](../tasks/uat-auth-harden-001-implementation-report.md), [SOP](../tasks/uat-auth-harden-001-sop.md), [User manual](../tasks/uat-auth-harden-001-user-manual.md), 이 Roadmap update
-- 다음 Gate: 사용자 read-only 검수, PR Ready·merge 승인. 이후 P2 순서는 `TASK-GOV-002`다.
+- 다음 Gate: `TASK-GOV-002` read-only history risk 조사와 사용자 결정이다.
 
 ### TASK-NOTIFY-003: Teams Activity Feed 개인 알림 / 알림 운영 UX
 
@@ -1556,7 +1556,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 58 | UAT 통합 사용자 검수 | 자동 검증·사용자 검수 완료 / merge 승인 | 사용자/개발 | UAT-VERIFY-001 | 최신 main runtime·ledger/schema/data/권한/dashboard/Review-safe/UI 기준선과 개인정보 안전 merge projection 통과. UAT 기준선 Go, 신규 기능 No-Go 유지, PR #29 병합 승인 |
 | 59 | Notification delivery claim/lease | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-REL-001 | Processing·SKIP LOCKED·lease/fencing·attempt audit, 정상 경쟁 provider call 1회, isolated candidate 5094/5192. Persistent UAT 0028 미적용, actual provider 호출 0, at-least-once이며 exactly-once 미보장. PR #30 |
 | 60 | Escalation starvation | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-ESC-001 | 기존 evaluation timestamp fair ordering, 후보 오류 격리, 101/200/201 유한 poll, 중복 0. Persistent UAT worker는 disabled 유지 |
-| 61 | 마지막 System Administrator 동시성 보호 | controlled UAT Phase A~D 완료 / 사용자 검수 대기 | 개발/운영 | TASK-UAT-AUTH-HARDEN-001 | Privacy-safe evidence·isolated HTTP·temporary ReviewSafe·latest-main Development handover 완료. Persistent live mutation은 break-glass 증명 전 No-Go |
+| 61 | 마지막 System Administrator 동시성 보호 | controlled UAT Phase A~D·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-AUTH-HARDEN-001 | Privacy-safe evidence·isolated HTTP·temporary ReviewSafe·latest-main Development handover 완료. Persistent live mutation은 break-glass 증명 전 No-Go |
 | 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
@@ -1674,6 +1674,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Change 001의 REDESIGN을 유지하고 controlled UAT에서 정책 결정을 다시 열지 않음 | PR #37에 병합된 purge 전용 predicate와 due purge batch rollback을 source of truth로 유지하고 남은 작업을 evidence·runtime handover에 한정하기 위함 | 23장, 24장, Change 001 |
 | 2026-07-13 | TASK-GOV-ROADMAP-001 사용자 검수와 PR #39 squash merge를 승인 | PR #34~#38 이후 실제 상태, 남은 P2 Gate, dependency 중심 실행 큐, planning 미승인 상태, 공용 기기 범위 제외와 기존 알림 채널 matrix 보존을 확인하기 위함 | 21장~25장, TASK-GOV-ROADMAP-001 |
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Phase A~D와 5종 산출물 Draft PR 게시를 승인 | Synthetic actual HTTP로 last-admin·purge transaction을 검증하고 Persistent identity mutation 없이 latest-main Development를 적용하며, break-glass 미증명 상태의 live mutation No-Go를 유지하기 위함 | 21장~24장, TASK-UAT-AUTH-HARDEN-001 |
+| 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 사용자 검수와 PR #40 squash merge를 승인 | Privacy-safe evidence, isolated HTTP 경쟁·purge rollback, Persistent mutation-free runtime handover, Development·Review-safe 상태와 break-glass 미증명 live mutation No-Go를 확인하고 다음 P2를 TASK-GOV-002로 전환하기 위함 | 21장~25장, TASK-UAT-AUTH-HARDEN-001 |
 
 ## 26. 용어 사전
 

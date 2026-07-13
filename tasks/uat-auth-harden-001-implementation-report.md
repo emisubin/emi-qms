@@ -197,7 +197,7 @@ Fresh pre-0028 backup은 mode 600·non-empty·checksum evidence 일치를 확인
 
 ## 17. 사용자 검수 결과와 남은 항목
 
-자동 검증과 runtime handover는 완료했다. 사용자는 Phase A/B, Phase C/D와 5종 산출물 Draft PR 게시를 승인했다. 화면 read-only 사용자 검수와 PR Ready·merge 승인은 아직 대기다.
+자동 검증과 runtime handover를 완료했다. 사용자는 화면 read-only 결과와 5종 산출물을 검수하고 PR #40의 Ready 전환·squash merge를 승인했다.
 
 Persistent live identity mutation은 계속 `NO_GO`다. 재검토에는 인증 가능한 별도 Entra break-glass administrator, 복구 rehearsal와 별도 mutation 승인이 필요하다.
 
@@ -213,7 +213,7 @@ Tracked 문서에는 실제 사용자·email·ID, raw DB/API/DOM/log, credential
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Task·검수 checklist | `tasks/uat-auth-harden-001.md` | 자동 검증 완료 / 사용자 검수 대기 |
+| Task·검수 checklist | `tasks/uat-auth-harden-001.md` | 자동 검증·사용자 검수 완료 / PR #40 merge 승인 |
 | Implementation report | 이 문서 | 작성 완료 |
 | SOP | `tasks/uat-auth-harden-001-sop.md` | 작성 완료 |
 | User manual | `tasks/uat-auth-harden-001-user-manual.md` | 작성 완료 |

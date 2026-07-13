@@ -7,7 +7,8 @@
 - 기준 main: `41ce6047ced2`
 - Phase A/B: 자동 검증 완료
 - Phase C/D: runtime 적용·자동 검증 완료
-- 사용자 검수: 대기
+- 사용자 검수: 완료
+- PR #40: Ready 전환·squash merge 승인
 - Persistent live user/role/deletion mutation: `NO_GO`
 - 신규 기능 개발: 남은 P2 Gate가 있어 `NO_GO`
 
@@ -38,7 +39,7 @@ Canonical active System Administrator는 active EntraId 사용자이면서 delet
 - 정상 escalation·delivery·purge worker와 provider configuration 복원
 - Desktop·390px read-only browser smoke
 - Persistent 전후 digest와 aggregate 비교
-- 5종 산출물과 사용자 검수 대기 Draft PR
+- 5종 산출물과 사용자 검수 완료 Draft PR
 
 ## 5. 제외 범위
 
@@ -147,7 +148,7 @@ Latest-main temporary backend를 ReviewSafe로 실행했다.
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Task·검수 checklist | 이 문서 | 자동 검증 완료 / 사용자 검수 대기 |
+| Task·검수 checklist | 이 문서 | 자동 검증·사용자 검수 완료 / PR #40 merge 승인 |
 | Implementation report | `tasks/uat-auth-harden-001-implementation-report.md` | 작성 완료 |
 | SOP | `tasks/uat-auth-harden-001-sop.md` | 작성 완료 |
 | User manual | `tasks/uat-auth-harden-001-user-manual.md` | 작성 완료 |
@@ -155,11 +156,11 @@ Latest-main temporary backend를 ReviewSafe로 실행했다.
 
 ## 15. 사용자 검수 체크리스트
 
-- [ ] Development 5174 주요 화면이 정상적으로 열리는지 확인
-- [ ] 관리자 사용자 화면에 기존 사용자·role 정보가 정상 표시되는지 read-only로 확인
-- [ ] Review-safe 5190이 계속 조회 전용으로 제공되는지 확인
-- [ ] 동시 감소 경쟁에서 마지막 administrator 요청이 거부되는 계약을 이해
-- [ ] Purge guard는 malformed lifecycle defense-in-depth라는 제한을 확인
-- [ ] Persistent live user/role/deletion mutation은 수행하지 않았음을 확인
-- [ ] Direct SQL과 자동 backup restore 금지에 동의
-- [ ] 사용자 검수 완료 후 PR Ready·merge 여부를 별도로 승인
+- [x] Development 5174 주요 화면이 정상적으로 열리는지 확인
+- [x] 관리자 사용자 화면에 기존 사용자·role 정보가 정상 표시되는지 read-only로 확인
+- [x] Review-safe 5190이 계속 조회 전용으로 제공되는지 확인
+- [x] 동시 감소 경쟁에서 마지막 administrator 요청이 거부되는 계약을 이해
+- [x] Purge guard는 malformed lifecycle defense-in-depth라는 제한을 확인
+- [x] Persistent live user/role/deletion mutation은 수행하지 않았음을 확인
+- [x] Direct SQL과 자동 backup restore 금지에 동의
+- [x] 사용자 검수 완료 후 PR Ready·merge 여부를 별도로 승인

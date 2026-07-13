@@ -142,3 +142,10 @@ Task-owned raw artifact는 private mode로 수집하고 projection 뒤 삭제한
 4. 동시 요청에서 한 요청이 안전하게 거부될 수 있음을 확인한다.
 5. Persistent live identity mutation이 미수행임을 확인한다.
 6. 이상이 없으면 PR Ready·merge를 별도 승인한다.
+
+## 16. 사용자 검수 상태
+
+- 사용자 검수: 완료
+- PR #40: Ready 전환·squash merge 승인
+- Persistent live user/role/deletion mutation: `NO_GO` 유지
+- Direct SQL과 자동 backup restore: 금지 유지

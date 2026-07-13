@@ -962,7 +962,7 @@ Excel 출력 대상 후보:
 - role/permission 편집 UI, Pending 유형 관리, 검사/제조 체크리스트 템플릿, 발송 실패 수동 재처리 UI는 ADMIN-001 범위에서 제외되어 후속으로 검토한다.
 - Notification claim/lease, automatic retry, attempt lineage, provider 오류 분류와 escalation starvation 보정은 완료됐다. `TASK-NOTIFY-004`는 terminal `Failed` delivery 수동 재처리의 P2 여부와 감사·중복 위험만 다시 조사하며 완료 범위를 재구현하지 않는다.
 - TASK-AUTH-HARDEN-001의 `PURGE_GUARD_PREDICATE_UNREACHABLE`은 Change 001 REDESIGN으로 해결됐고 TASK-UAT-AUTH-HARDEN-001 Phase A~D, privacy-safe evidence, isolated HTTP, Persistent mutation-free runtime handover와 사용자 검수를 통과했다. Persistent live auth mutation은 break-glass 증명 전 No-Go다.
-- Git history 개인정보는 current checkout 비식별화와 분리된 `TASK-GOV-002` P2 risk decision으로 유지하며 승인 전 rewrite·filter-repo·force push를 수행하지 않는다.
+- Git history 개인정보는 `TASK-GOV-002`에서 `COORDINATED_HISTORY_REWRITE`로 정책을 확정했다. 실제 rewrite·filter-repo·force push·visibility 변경은 별도 `TASK-GOV-HISTORY-REWRITE-001` planning과 maintenance 승인 전 수행하지 않는다.
 - 기존 import-order 위반 9건은 범위 밖 format debt/P3 후보이며 현재 P2 Gate에 포함하지 않는다.
 
 ## 23. 향후 개발 로드맵
@@ -972,10 +972,11 @@ Excel 출력 대상 후보:
 | Priority | Task | Task Type | Status | Planning Status | Dependencies | External Blocker | UAT Required | Next Gate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0.1 | TASK-UAT-AUTH-HARDEN-001 | UAT_RUNTIME | Completed | Planning Approved | Phase A~D 자동 검증·runtime 적용·사용자 검수 완료 | break-glass 미증명으로 live mutation 금지 | Yes | PR #40 squash merge 승인 → TASK-GOV-002 |
-| 0.2 | TASK-GOV-002 | POLICY_DECISION | External Decision | Scope Review Required | current checkout 비식별화 완료 | risk owner, 공개 범위, clone/fork/downstream 영향 | No | read-only history risk 조사와 사용자 결정 |
-| 0.3 | TASK-NOTIFY-004 잔여 범위 | P2_REMEDIATION | Scope Review Required | Scope Review Required | claim/lease·automatic retry·attempt lineage·starvation 완료 | Failed 재처리 감사·중복·provider 위험 정책 | Yes | terminal Failed 수동 재처리의 P2 여부 확정 |
-| 0.4 | 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.3 판정 완료 | 없음 | No | Finding gate 재검증 |
-| 0.5 | 신규 기능 Go/No-Go | POLICY_DECISION | P2 Blocked | Deferred | 0.4 통과 | 사용자 승인 | No | Phase 1 개별 planning 시작 승인 |
+| 0.2 | TASK-GOV-002 | POLICY_DECISION | Completed | Planning Approved | current checkout 비식별화·public history 조사·사용자 검수 완료 | PR Ready·merge는 별도 승인 | No | Draft PR 게시 → TASK-GOV-HISTORY-REWRITE-001 |
+| 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | P2 Blocked | Scope Review Required | TASK-GOV-002 정책·risk owner | Maintenance, visibility, secure backup, all-ref force push와 re-clone 승인 | No | 별도 planning → 독립 검증 → 실행 승인 |
+| 0.4 | TASK-NOTIFY-004 잔여 범위 | P2_REMEDIATION | Scope Review Required | Scope Review Required | claim/lease·automatic retry·attempt lineage·starvation 완료 | Failed 재처리 감사·중복·provider 위험 정책 | Yes | terminal Failed 수동 재처리의 P2 여부 확정 |
+| 0.5 | 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.4 판정 완료 | 없음 | No | Finding gate 재검증 |
+| 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | P2 Blocked | Deferred | 0.5 통과 | 사용자 승인 | No | Phase 1 개별 planning 시작 승인 |
 | 1.1 | TASK-007A Pending List | NEW_FEATURE | P2 Blocked | Scope Review Required | Phase 0 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
 | 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A | Pending 차단·상태 matrix 확정 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
 | 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A·007B | 사진 storage·압축·재시도 정책 | Yes | 동일 URL·390px/Teams narrow planning |
@@ -1086,14 +1087,17 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-GOV-002: Git history 개인정보 risk decision
 
-- 상태: 계획 / 별도 사용자·보안 결정 필요
+- 상태: `COORDINATED_HISTORY_REWRITE` 정책 선택·planning·5종 산출물 사용자 검수 완료 / Draft PR 게시 승인
 - 목적: current checkout에서 제거된 개인정보가 Git history에 남은 위험과 repository 공개 범위를 평가하고, history rewrite 필요 여부와 협업 절차를 결정한다.
-- 포함 범위: 영향 commit/file 수, repository visibility와 clone/fork/branch 영향, 보존·rewrite 대안, 공지·backup·re-clone 계획
-- 제외 범위: 승인 전 history rewrite, force push, tag/branch 재작성 또는 삭제
-- 선행조건: repository owner/보안 담당 risk owner 지정, 공개 범위와 downstream clone/fork 확인
+- 확인 결과: Repository `PUBLIC`, current checkout exact match 0, origin main 영향 1 commit/2 files, 영향 remote ref 15/18, local branch 19/20, fork/open PR/tag 0. 외부 clone·download는 완전 열거 불가
+- 승인 정책: main-only나 private-only가 아닌 coordinated all-ref rewrite. Risk owner는 `Repository owner / security owner`
+- 포함 범위: 영향 commit/file/ref aggregate, visibility와 clone/fork 한계, 대안 비교, risk owner, 후속 maintenance·backup·re-clone 승인 경계
+- 제외 범위: 이 Task에서 history rewrite, force push, visibility·ruleset 변경, tag/branch 삭제
+- 후속 Task: `TASK-GOV-HISTORY-REWRITE-001`에서 fresh mirror, private mapping, secure backup, all-ref force push, fresh clone과 cache 검증을 별도 planning·승인
 - 예상 migration: 없음
 - 핵심 검수 기준: 실제 값 원문을 재노출하지 않고 결정 근거·영향·완화책·실행 승인 여부를 문서화
-- 주요 위험: rewrite 시 commit hash 변경과 열린 branch/PR 단절, 미조치 시 history 접근자가 과거 개인정보를 조회할 가능성
+- 주요 위험: descendant SHA 변경, old clone 재유입, partial ref rewrite, GitHub cache 잔존. Rewrite 완료 전 `GIT_HISTORY_PERSONAL_DATA_REMAINS` P2는 Open
+- 산출물: [Planning](../tasks/gov-002-planning.md), [Task와 검수 checklist](../tasks/gov-002.md), [Implementation report](../tasks/gov-002-implementation-report.md), [SOP](../tasks/gov-002-sop.md), [User manual](../tasks/gov-002-user-manual.md), 이 Roadmap update
 
 ### TASK-GOV-CODEX-002: Fable 5 신규 기능·Codex-only 작업 라우터
 
@@ -1557,7 +1561,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 59 | Notification delivery claim/lease | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-REL-001 | Processing·SKIP LOCKED·lease/fencing·attempt audit, 정상 경쟁 provider call 1회, isolated candidate 5094/5192. Persistent UAT 0028 미적용, actual provider 호출 0, at-least-once이며 exactly-once 미보장. PR #30 |
 | 60 | Escalation starvation | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-ESC-001 | 기존 evaluation timestamp fair ordering, 후보 오류 격리, 101/200/201 유한 poll, 중복 0. Persistent UAT worker는 disabled 유지 |
 | 61 | 마지막 System Administrator 동시성 보호 | controlled UAT Phase A~D·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-AUTH-HARDEN-001 | Privacy-safe evidence·isolated HTTP·temporary ReviewSafe·latest-main Development handover 완료. Persistent live mutation은 break-glass 증명 전 No-Go |
-| 62 | Git history 개인정보 | risk decision 필요 | 사용자/보안 | TASK-GOV-002 | current checkout은 비식별화하되 history rewrite·force push는 본 Task에서 금지. 저장소 공개 범위에 따라 별도 결정 |
+| 62 | Git history 개인정보 | 정책·사용자 검수 완료 / coordinated rewrite 실행 대기 | 사용자/보안 | TASK-GOV-002 | Public history 영향 1 commit/2 files, remote ref 15/18. Risk owner는 Repository owner/security owner이며 실제 rewrite는 후속 Task에서 별도 승인 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
 | 65 | Privacy-safe Review-safe runtime handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-002 | merged main 5190/5092, Compatible 27/28/1, redacted browser matrix, DB read-only·423, Candidate/Persistent UAT 보존. PR #28 |
@@ -1572,6 +1576,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 74 | terminal Failed delivery 수동 재처리 범위 | 범위 판정 필요 | 사용자/개발/운영 | TASK-NOTIFY-004 | P2 remediation인지 운영 편의 기능인지, 감사·중복·provider 위험을 먼저 조사 |
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
+| 77 | Git history coordinated rewrite 실행 | P2 planning 필요 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | Maintenance, private containment 선택, secure backup, all-ref force push, cache 처리와 contributor re-clone을 별도 승인. 실행 완료 전 P2 Open |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1675,6 +1680,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-13 | TASK-GOV-ROADMAP-001 사용자 검수와 PR #39 squash merge를 승인 | PR #34~#38 이후 실제 상태, 남은 P2 Gate, dependency 중심 실행 큐, planning 미승인 상태, 공용 기기 범위 제외와 기존 알림 채널 matrix 보존을 확인하기 위함 | 21장~25장, TASK-GOV-ROADMAP-001 |
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Phase A~D와 5종 산출물 Draft PR 게시를 승인 | Synthetic actual HTTP로 last-admin·purge transaction을 검증하고 Persistent identity mutation 없이 latest-main Development를 적용하며, break-glass 미증명 상태의 live mutation No-Go를 유지하기 위함 | 21장~24장, TASK-UAT-AUTH-HARDEN-001 |
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 사용자 검수와 PR #40 squash merge를 승인 | Privacy-safe evidence, isolated HTTP 경쟁·purge rollback, Persistent mutation-free runtime handover, Development·Review-safe 상태와 break-glass 미증명 live mutation No-Go를 확인하고 다음 P2를 TASK-GOV-002로 전환하기 위함 | 21장~25장, TASK-UAT-AUTH-HARDEN-001 |
+| 2026-07-13 | TASK-GOV-002에서 public Git history 개인정보를 coordinated all-ref rewrite로 처리하고 risk owner를 Repository owner/security owner로 지정하며 5종 산출물 Draft PR 게시를 승인 | Current checkout은 비식별화됐지만 origin main과 다수 branch의 과거 개인정보가 reachable하며 private-only나 main-only 조치로는 제거가 완전하지 않기 때문. 실제 rewrite·force push는 별도 TASK-GOV-HISTORY-REWRITE-001 승인 전 금지 | 22장~25장, TASK-GOV-002 |
 
 ## 26. 용어 사전
 

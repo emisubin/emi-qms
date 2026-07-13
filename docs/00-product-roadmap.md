@@ -928,7 +928,7 @@ Excel 출력 대상 후보:
 | 생산계획 | Item 기반 단계, 프로젝트별 snapshot, 단계명/필수 여부 override, Excel, Business Calendar 기준 캘린더 휴일 표시 | 캘린더 UX 지속 보정, 관리자 기준정보화 |
 | 구매 필수 항목 | Item별 필수 구매 항목 설정, 새 프로젝트 skeleton 자동 생성 | 업체/발주정보 입력 기준과 완료 판정 보강 |
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
-| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 원본 구조, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed provider actual, text topic + Teams deep link, `/teams/activity` 탭과 상세, 관리자 수동 개인/업무 배정 Activity Feed, 설정 선택형 L0~L2 Activity Feed, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, Pending→Processing claim/lease, fencing, automatic retry, provider 오류 분류, attempt lineage, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, fair candidate ordering과 후보 오류 격리, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송 3모드, 수동 업무 배정 work_item 생성, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외와 Pending 재시도 | Activity Feed 자동 event coverage 확대, 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, terminal Failed 수동 재처리 범위 결정, 기존 업무 화면 action feedback UX 확대 |
+| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 원본 구조, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed provider actual, text topic + Teams deep link, `/teams/activity` 탭과 상세, 관리자 수동 개인/업무 배정 Activity Feed, 설정 선택형 L0~L2 Activity Feed, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, Pending→Processing claim/lease, fencing, automatic retry, provider 오류 분류, attempt lineage, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, fair candidate ordering과 후보 오류 격리, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송 3모드, 수동 업무 배정 work_item 생성, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외와 Pending 재시도 | Activity Feed 자동 event coverage 확대, 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, terminal Failed 수동 재처리 신규 기능(Deferred), 기존 업무 화면 action feedback UX 확대 |
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존, PostgreSQL transaction 기반 마지막 active System Administrator 보호, purge 전용 malformed lifecycle defense-in-depth, latest-main Development controlled runtime 적용 | Auth break-glass 계정·복구 rehearsal, 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
@@ -959,8 +959,8 @@ Excel 출력 대상 후보:
 - NOTIFY-002는 BusinessDayCalculator를 재사용한다. 생산계획/구매 예정일을 `work_items.due_date`로 동기화할지 여부와 due_date 입력 UX는 후속으로 확정한다.
 - ADMIN-001은 시스템 관리 중심으로 구현 완료되었으며, Item/포장방식/생산계획 단계/구매 필수 항목의 관리자 통합 여부는 후속 사용자 결정으로 남긴다.
 - 관리자 삭제 예정 데이터의 7일 후 purge 운영 정책, 삭제 보류 처리 모니터링, 전체 field-level audit 확장은 운영 검수 후 고도화한다.
-- role/permission 편집 UI, Pending 유형 관리, 검사/제조 체크리스트 템플릿, 발송 실패 수동 재처리 UI는 ADMIN-001 범위에서 제외되어 후속으로 검토한다.
-- Notification claim/lease, automatic retry, attempt lineage, provider 오류 분류와 escalation starvation 보정은 완료됐다. `TASK-NOTIFY-004`는 terminal `Failed` delivery 수동 재처리의 P2 여부와 감사·중복 위험만 다시 조사하며 완료 범위를 재구현하지 않는다.
+- role/permission 편집 UI, Pending 유형 관리와 검사/제조 체크리스트 템플릿은 ADMIN-001 범위에서 제외되어 후속으로 검토한다. Terminal Failed 수동 재처리는 TASK-NOTIFY-004 정책 결정에 따라 별도 신규 기능 후보로 Deferred한다.
+- Notification claim/lease, automatic retry, attempt lineage, provider 오류 분류와 escalation starvation 보정은 완료됐다. `TASK-NOTIFY-004`는 terminal `Failed`를 현재 상태 모델의 최종 상태로 유지하고 Pending retry·acknowledge·dismiss만 지원하는 `POLICY_CORRECTION_AND_DEFER`를 승인했다. Failed 수동 재처리가 필요하면 retry generation·append-only audit·provider 중복 확인을 포함한 별도 NEW_FEATURE planning을 거친다.
 - TASK-AUTH-HARDEN-001의 `PURGE_GUARD_PREDICATE_UNREACHABLE`은 Change 001 REDESIGN으로 해결됐고 TASK-UAT-AUTH-HARDEN-001 Phase A~D, privacy-safe evidence, isolated HTTP, Persistent mutation-free runtime handover와 사용자 검수를 통과했다. Persistent live auth mutation은 break-glass 증명 전 No-Go다.
 - Git history 개인정보는 `TASK-GOV-002`에서 `COORDINATED_HISTORY_REWRITE`로 정책을 확정했다. 실제 rewrite·filter-repo·force push·visibility 변경은 별도 `TASK-GOV-HISTORY-REWRITE-001` planning과 maintenance 승인 전 수행하지 않는다.
 - 기존 import-order 위반 9건은 범위 밖 format debt/P3 후보이며 현재 P2 Gate에 포함하지 않는다.
@@ -974,7 +974,7 @@ Excel 출력 대상 후보:
 | 0.1 | TASK-UAT-AUTH-HARDEN-001 | UAT_RUNTIME | Completed | Planning Approved | Phase A~D 자동 검증·runtime 적용·사용자 검수 완료 | break-glass 미증명으로 live mutation 금지 | Yes | PR #40 squash merge 승인 → TASK-GOV-002 |
 | 0.2 | TASK-GOV-002 | POLICY_DECISION | Completed | Planning Approved | current checkout 비식별화·public history 조사·사용자 검수 완료 | PR #41 Ready·squash merge 승인 | No | PR #41 merge → TASK-GOV-HISTORY-REWRITE-001 |
 | 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | P2 Blocked | Scope Review Required | TASK-GOV-002 정책·risk owner | Maintenance, visibility, secure backup, all-ref force push와 re-clone 승인 | No | 별도 planning → 독립 검증 → 실행 승인 |
-| 0.4 | TASK-NOTIFY-004 잔여 범위 | P2_REMEDIATION | Scope Review Required | Scope Review Required | claim/lease·automatic retry·attempt lineage·starvation 완료 | Failed 재처리 감사·중복·provider 위험 정책 | Yes | terminal Failed 수동 재처리의 P2 여부 확정 |
+| 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Implementation Ready | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | 문서 정책 정정 사용자 검수 |
 | 0.5 | 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.4 판정 완료 | 없음 | No | Finding gate 재검증 |
 | 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | P2 Blocked | Deferred | 0.5 통과 | 사용자 승인 | No | Phase 1 개별 planning 시작 승인 |
 | 1.1 | TASK-007A Pending List | NEW_FEATURE | P2 Blocked | Scope Review Required | Phase 0 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
@@ -1359,17 +1359,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 선행조건: TASK-NOTIFY-001, TASK-NOTIFY-002, TASK-ADMIN-001, Teams 앱 승인, Graph TeamsActivity 권한 승인
 - 주요 테스트: backend 전체 test, Notification/Admin targeted tests, Migration tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, UAT health, UAT `/teams/activity` smoke, 3채널 actual smoke, secret scan
 
-### TASK-NOTIFY-004: 외부 알림 delivery 신뢰성 및 실패 재처리
+### TASK-NOTIFY-004: 외부 알림 delivery 신뢰성 및 실패 재처리 정책
 
-- 상태: Scope Review Required / 잔여 범위의 P2 여부 확정 필요
+- 상태: `POLICY_CORRECTION_AND_DEFER` 승인 / 자동·독립 Codex 검증 완료 / Draft PR 게시 승인 / 사용자 검수 대기
 - 완료 범위: TASK-NOTIFY-REL-001의 claim/lease·fencing·automatic retry·retryable/non-retryable 분류·attempt lineage와 TASK-NOTIFY-ESC-001의 escalation starvation 보정 및 controlled UAT
-- 남은 실제 범위: terminal `Failed` delivery의 관리자 수동 재처리. 현재 Backend와 UI의 retry action은 `Pending`만 허용한다.
-- 목적: Failed 재처리가 안전·감사·중복 방지에 필요한 P2인지 운영 편의 기능인지 먼저 판정하고, P2이면 독립 Task/PR로 보정한다.
-- 포함 범위 후보: Failed→재처리 상태 전이, 원본과 새 attempt lineage, 권한·audit, provider-call 중복 위험, terminal/non-retryable 정책과 사용자 확인
-- 제외 범위: 사용자별 채널 preference UI, 기존 업무 화면 feedback 전면 개편, 실제 운영 secret/채널 교체
-- 선행조건: 실패 재처리 승인·감사·provider idempotency 정책 확정과 actual provider 없이 검증 가능한 isolated 환경
-- 영향 판단: migration 필요 여부는 조사 전 확정하지 않는다. 기존 claim/lease·attempt schema 재사용을 우선하며 완료 범위를 다시 구현하지 않는다.
-- 주요 위험: actual 외부 중복 발송, permanent failure 오분류, 기존 Failed 이력 훼손과 관리자의 반복 재처리
+- 정책 결정: terminal `Failed`는 permanent failure 또는 retry limit 소진 후의 최종 상태로 유지한다. 현재 Backend와 UI는 Pending의 다음 시도 시각 앞당기기, Failed acknowledge/dismiss와 attempt 확인만 지원한다.
+- P2 판정: Runtime 결함이 아니라 TASK-NOTIFY-REL-001 SOP가 존재하지 않는 Failed retry 절차를 가리킨 문서 drift다. `FAILED_RETRY_DOCUMENTATION_DRIFT`는 문서 정정으로 처리한다.
+- 수동 재처리: Retry generation, append-only admin action, 원본·새 cycle lineage, duplicate-risk acknowledgement와 반복 제한이 필요한 별도 사용자 능력이다. 업무 필요성이 확인되면 `NEW_FEATURE`로 다시 기획한다.
+- 제외 범위: Failed→Pending/replacement delivery 상태 전이, API·UI·schema·migration·runtime 변경, actual provider 호출과 Persistent UAT write
+- 보장 수준: 정상 worker 경쟁은 claim/lease로 보호하지만 provider 성공 후 DB completion 전 중단은 중복 가능성이 있어 at-least-once이며 exactly-once가 아니다.
+- 산출물: [Task](../tasks/notify-004.md), [Planning](../tasks/notify-004-planning.md), [Implementation report](../tasks/notify-004-implementation-report.md), [SOP](../tasks/notify-004-sop.md), [User manual](../tasks/notify-004-user-manual.md)
 
 ### TASK-UX-001: 기존 업무 화면 Action Feedback UX 확대
 
@@ -1569,7 +1568,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 47 | 삭제 예정 데이터 purge 운영 정책 | 미확정 | 사용자/운영 | 운영 고도화 | 7일 후 purge worker는 구현. 보류 데이터 처리/운영 알림은 후속 검토 |
 | 48 | 전체 field-level audit 확장 | 미확정 | 사용자/운영 | Audit 후속 | ADMIN-001은 관리자 변경 이력 중심 |
 | 49 | 관리자 모바일 UX 고도화 | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001은 page-level overflow 방지 기준으로 검수 |
-| 50 | 외부 알림 delivery 동시성·실패 재처리 | 잔여 범위 조사 필요 | 개발/운영 | TASK-NOTIFY-004 | claim/lease·automatic retry·attempt lineage·provider 오류 분류·starvation은 완료. terminal Failed 수동 재처리의 P2 여부와 감사·중복 위험만 판정 |
+| 50 | 외부 알림 delivery 동시성·실패 재처리 | 정책 승인 / 사용자 검수 대기 | 개발/운영 | TASK-NOTIFY-004 | claim/lease·automatic retry·attempt lineage·provider 오류 분류·starvation은 완료. Terminal Failed는 최종 상태로 유지하고 수동 재처리는 별도 신규 기능으로 Deferred |
 | 51 | 기존 업무 화면 Action Feedback UX | 계획 | 사용자/개발 | TASK-UX-001 | A1 공통 계약과 내 업무/알림을 먼저 검수한 뒤 A2 업무 화면으로 확대 |
 | 52 | 사용자별 알림 설정 | 계획 | 사용자/운영 | TASK-NOTIFY-005 | NOTIFY-004 완료와 필수 알림 opt-out/channel taxonomy 결정이 선행 |
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
@@ -1593,7 +1592,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
 | 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
 | 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
-| 74 | terminal Failed delivery 수동 재처리 범위 | 범위 판정 필요 | 사용자/개발/운영 | TASK-NOTIFY-004 | P2 remediation인지 운영 편의 기능인지, 감사·중복·provider 위험을 먼저 조사 |
+| 74 | terminal Failed delivery 수동 재처리 범위 | 정책 결정 완료 / Deferred | 사용자/개발/운영 | TASK-NOTIFY-004 | 현재 P2 필수 보정 아님. Retry generation·append-only audit·duplicate-risk 확인이 필요한 별도 NEW_FEATURE 후보 |
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
 | 77 | Git history coordinated rewrite 실행 | P2 planning 필요 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | Maintenance, private containment 선택, secure backup, all-ref force push, cache 처리와 contributor re-clone을 별도 승인. 실행 완료 전 P2 Open |
@@ -1705,6 +1704,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-13 | TASK-GOV-002에서 public Git history 개인정보를 coordinated all-ref rewrite로 처리하고 risk owner를 Repository owner/security owner로 지정하며 PR #41 squash merge를 승인 | Current checkout은 비식별화됐지만 origin main과 다수 branch의 과거 개인정보가 reachable하며 private-only나 main-only 조치로는 제거가 완전하지 않기 때문. 실제 rewrite·force push는 별도 TASK-GOV-HISTORY-REWRITE-001 승인 전 금지 | 22장~25장, TASK-GOV-002 |
 | 2026-07-13 | 모든 Task는 시작 전에 현재 Repository instruction chain을 읽고 종료 시 고정 10개 항목으로 완료 보고 | 과거 대화·축약 지침 의존을 막고 변경·검증·URL·검수·미커밋 상태·Finding·게시 gate를 매 Task에서 동일하게 확인하기 위함 | AGENTS.md, 23장~25장, TASK-GOV-REPORTING-001 |
 | 2026-07-13 | TASK-GOV-REPORTING-001 사용자 검수와 squash merge를 승인 | instruction chain gate, 고정 10개 항목, `N/A` 사유, 검증·검수·게시 상태 분리를 Repository 표준으로 확정하기 위함 | AGENTS.md, 23장~25장, TASK-GOV-REPORTING-001 |
+| 2026-07-14 | TASK-NOTIFY-004에서 terminal Failed를 현재 상태 모델의 최종 상태로 유지하고 수동 재처리를 별도 신규 기능으로 Deferred하는 `POLICY_CORRECTION_AND_DEFER`를 승인 | Automatic retry·최종 실패 가시성 계약은 이미 충족됐고, 전체 수동 재처리에는 retry generation·append-only audit·provider 중복 확인이라는 신규 능력이 필요하며 기존 SOP의 retry 안내만 실제 구현보다 앞서갔기 때문 | 22장~25장, TASK-NOTIFY-004 |
 
 ## 26. 용어 사전
 

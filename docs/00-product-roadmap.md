@@ -1120,6 +1120,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제품 영향: Backend·Frontend·migration·runtime·Persistent UAT 변경 없음
 - 산출물: [Task와 검수 checklist](../tasks/gov-reporting-001.md), [Implementation report](../tasks/gov-reporting-001-implementation-report.md), [SOP](../tasks/gov-reporting-001-sop.md), [User manual](../tasks/gov-reporting-001-user-manual.md), 이 Roadmap update
 
+### TASK-E2E-RELIABILITY-001: 구매정보 편집 행 준비성 안정화
+
+- 상태: 구현·자동 검증·사용자 검수 완료 / squash merge 승인
+- 목적: 구매정보 편집 load가 겹칠 때 늦은 응답이 새 입력 행을 제거해 Full-Stack E2E가 간헐 실패하는 P2를 해소한다.
+- Root cause: `ProcurementEditPage`에 stale-response guard가 없어 StrictMode의 겹친 load가 edit state를 덮어쓸 수 있었고, 기존 E2E의 timeout·재클릭은 해당 race를 숨기거나 중복 행을 만들 수 있었다.
+- 보정: 기존 Repository request-id 패턴으로 최신 load만 반영하고, E2E는 행 추가 1회·정확한 row 증가·input 8개 준비를 결정적으로 검증한다.
+- 영향: Frontend source·unit·Full-Stack E2E만 변경. Backend·API·DB·migration·runtime configuration 변경 없음
+- 자동 검증: 수정 전 deterministic regression 실패 재현, 수정 후 targeted PASS, 대상 E2E 20/20, frontend unit 62/62·lint·typecheck·build, 전체 Full-Stack E2E 16/16 통과
+- 산출물: [Task와 검수 checklist](../tasks/e2e-reliability-001.md), [Implementation report](../tasks/e2e-reliability-001-implementation-report.md), [SOP](../tasks/e2e-reliability-001-sop.md), [User manual](../tasks/e2e-reliability-001-user-manual.md), 이 Roadmap update
+
 ### TASK-E2E-ISOLATION-001: Full-Stack E2E PostgreSQL 물리 격리
 
 - 상태/No-Go 기반: 완료 — PR #22 squash merge(`45fd61c`)
@@ -1588,6 +1598,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
 | 77 | Git history coordinated rewrite 실행 | P2 planning 필요 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | Maintenance, private containment 선택, secure backup, all-ref force push, cache 처리와 contributor re-clone을 별도 승인. 실행 완료 전 P2 Open |
 | 78 | Task instruction chain·완료 보고 형식 | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 모든 Task 시작 전 filesystem 지침 재확인과 종료 시 고정 10개 항목을 강제. 적용 대상 없음도 `N/A`와 이유 기록 |
+| 79 | Full-Stack E2E 구매정보 동적 행 timing | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발/품질 | TASK-E2E-RELIABILITY-001 | 최신 load만 edit state에 반영하고 행 추가 1회·정확한 row/input 준비를 검증. 대상 E2E 20/20, 전체 16/16 통과 |
 
 ## 25. 결정 이력 (Decision Log)
 

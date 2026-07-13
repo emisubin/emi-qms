@@ -1465,7 +1465,7 @@ Excel 출력 대상 후보:
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / PR #32 merge 완료 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
-| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | 구현·자동 검증 완료 / 사용자 검수 대기 | 개발 | TASK-GOV-CODEX-002 | NEW_FEATURE만 Fable 5 planning, 나머지 유형은 Codex-only 조사·승인·구현·독립 검증. `tasks/` convention과 기존 안전·종료 정책 유지 |
+| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | 구현·자동 검증·사용자 검수 완료 / PR #38 squash merge 승인 | 개발 | TASK-GOV-CODEX-002 | NEW_FEATURE만 Fable 5 planning, 나머지 유형은 Codex-only 조사·승인·구현·독립 검증. `tasks/` convention과 기존 안전·종료 정책 유지 |
 
 ## 25. 결정 이력 (Decision Log)
 

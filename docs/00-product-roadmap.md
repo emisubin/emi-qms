@@ -1055,6 +1055,17 @@ Excel 출력 대상 후보:
 - 핵심 검수 기준: 실제 값 원문을 재노출하지 않고 결정 근거·영향·완화책·실행 승인 여부를 문서화
 - 주요 위험: rewrite 시 commit hash 변경과 열린 branch/PR 단절, 미조치 시 history 접근자가 과거 개인정보를 조회할 가능성
 
+### TASK-GOV-CODEX-002: Fable 5 신규 기능·Codex-only 작업 라우터
+
+- 상태: 구현·자동 검증 완료 / 사용자 검수 대기 / 게시 미수행
+- 목적: 신규 기능만 Fable 5 read-only planning으로 보내고, 승인된 기능 구현과 BUGFIX·P2·SECURITY·UAT·DOCS·HOUSEKEEPING·POLICY 작업은 Codex-only 조사·승인·구현·독립 검증 흐름으로 처리한다.
+- 포함 범위: Root Task 유형 라우터, Fable 전용 `CLAUDE.md`, 수정 요청과 planning·review·change·implementation report 역할, Codex 세션 분리
+- 제외 범위: 제품 코드, migration, dependency, script, runtime, Persistent UAT와 실제 Fable 기획 호출
+- 안전 경계: Fable model `fable-5`, read-only 도구, private output capture, recursive workflow 금지, 지원 옵션 불충족 시 fail-closed
+- 산출물: [Task·SOP·User manual·검수 checklist](../tasks/gov-codex-002.md), [Implementation report](../tasks/gov-codex-002-implementation-report.md), 이 Roadmap update
+- 자동 검증: 새 Codex read-only session route 9/9, static router 11/11, Fable CLI read-only option 8/8, diff·actionlint·Markdown·secret/PII·allowlist 통과
+- 사용자 검수: Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기
+
 ### TASK-E2E-ISOLATION-001: Full-Stack E2E PostgreSQL 물리 격리
 
 - 상태/No-Go 기반: 완료 — PR #22 squash merge(`45fd61c`)
@@ -1451,9 +1462,10 @@ Excel 출력 대상 후보:
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
 | 65 | Privacy-safe Review-safe runtime handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-002 | merged main 5190/5092, Compatible 27/28/1, redacted browser matrix, DB read-only·423, Candidate/Persistent UAT 보존. PR #28 |
 | 66 | Notification claim/lease UAT handover | 사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-003 | Persistent UAT 0028, canonical 28 + approved legacy 1 = live 29, Review-safe/Development controlled handover, 승인된 ManualTest 단일 Sent lineage와 unrelated provider call 0 |
-| 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / Draft PR 게시 대상 / merge 대기 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
+| 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / PR #32 merge 완료 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
+| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | 구현·자동 검증 완료 / 사용자 검수 대기 | 개발 | TASK-GOV-CODEX-002 | NEW_FEATURE만 Fable 5 planning, 나머지 유형은 Codex-only 조사·승인·구현·독립 검증. `tasks/` convention과 기존 안전·종료 정책 유지 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1544,6 +1556,7 @@ Excel 출력 대상 후보:
 | 2026-07-13 | TASK-AUTH-HARDEN-001 사용자 검수와 PR #36 squash merge를 승인 | 서로 다른 administrator 감소 경쟁의 성공 1·거부 1·active count 1, partial update·unexpected deadlock 0, HTTP 400·Entra 정책 불변, Persistent UAT 미적용, direct SQL 금지와 기존 범위 밖 import-order debt 9건을 확인하기 위함 | 23장, 24장, TASK-AUTH-HARDEN-001 |
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Change 001에서 REDESIGN과 due purge 전체 batch rollback을 승인 | Purge lifecycle과 canonical predicate가 상호 배타적이던 도달 불가능 guard를 물리 삭제 전용 predicate로 분리하고, malformed lifecycle state를 defense-in-depth로 보호하면서 기존 reference 정책과 public API를 유지하기 위함 | 23장, 24장, TASK-AUTH-HARDEN-001, Change 001 |
 | 2026-07-13 | TASK-UAT-AUTH-HARDEN-001 Change 001 사용자 검수와 merge를 승인 | Purge 전용 predicate, malformed lifecycle defense-in-depth, due purge 전체 batch rollback, 기존 `PurgeBlocked` reference 정책과 전체 validation 결과를 확인하고 코드·문서를 함께 게시하기 위함 | 23장, 24장, TASK-AUTH-HARDEN-001, Change 001 |
+| 2026-07-13 | TASK-GOV-CODEX-002에서 NEW_FEATURE 전용 Fable 5와 Codex-only 작업 라우터를 분리 | 신규 기능 기획과 기존 기능 보강의 역할·승인 경계를 명확히 하고 Fable의 Repository write·재귀 workflow를 차단하면서 PR #32의 canonical 안전 구조를 유지하기 위함 | 23장, 24장, 27장, TASK-GOV-CODEX-002 |
 
 ## 26. 용어 사전
 

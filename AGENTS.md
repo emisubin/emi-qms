@@ -26,6 +26,88 @@
 - 승인된 포함 범위만 변경하고 범위 밖 개선은 Finding 또는 후속 Task로 분리한다.
 - Commit, push, PR, merge와 branch/worktree 정리는 사용자의 명시적 요청 범위에서만 수행한다.
 
+## Task 유형 라우터
+
+Codex는 작업을 시작하기 전에 실제 요청과 Repository 상태를 기준으로 `taskType`을 하나 선택한다.
+
+- `NEW_FEATURE`: 사용자가 새로 수행할 수 있는 업무 흐름, 화면, 데이터 개념·상태 전이, 외부 연동, 알림 채널 또는 권한 능력을 추가한다.
+- `APPROVED_FEATURE_IMPLEMENTATION`: 승인된 신규 기능 planning과 review resolution을 구현한다.
+- `BUGFIX`: 기존 계약과 기대 동작의 결함을 수정한다.
+- `P2_REMEDIATION`: 확인된 P2 Finding을 기존 정책 안에서 보정한다.
+- `SECURITY_HARDENING`: 기존 보안·권한·동시성 불변조건을 강화한다.
+- `UAT_RUNTIME`: migration 적용, UAT 검증, runtime handover와 운영 안전 gate를 다룬다.
+- `DOCS_GOVERNANCE`: 문서, Repository 지침과 Task 상태를 실제 상태에 맞춘다.
+- `HOUSEKEEPING`: 승인된 branch, worktree, candidate, backup과 임시 자원을 정리한다.
+- `POLICY_DECISION`: 기존 기능 범위 안에서 사용자 정책 선택이 필요하다.
+
+`NEW_FEATURE`만 Fable 5 신규 기능 기획 흐름으로 보낸다. 나머지 유형은 Codex-only 흐름을 사용하며, `APPROVED_FEATURE_IMPLEMENTATION`도 Fable을 다시 호출하지 않는다.
+
+Codex-only 조사 중 신규 제품 능력이나 기존 확정 정책을 바꾸는 설계가 필요해지면 구현을 중단한다. 신규 능력이면 `NEW_FEATURE`, 기존 범위의 정책 선택이면 `POLICY_DECISION`으로 재분류하고 사용자 승인을 다시 받는다.
+
+## 신규 기능: Fable 5 기획과 Codex 검토
+
+`NEW_FEATURE`는 다음 순서를 지킨다.
+
+1. Codex가 범위와 안전 조건을 확인하고 Fable 5를 읽기 전용 기획자로 호출한다.
+2. Fable 5가 신규 기능 planning 초안을 작성한다.
+3. Codex가 초안을 실제 코드, Roadmap, Decision Log와 정책에 대조해 review를 작성한다.
+4. Codex가 blocking Finding, 결정 필요 항목과 구현 범위를 보고하고 멈춘다.
+5. 사용자가 planning과 review resolution을 승인한다.
+6. 새 Codex 구현 세션이 승인된 계약만 구현하고 검증한다.
+7. 구현 세션과 분리된 Codex 검증 세션이 계약, diff와 검증 결과를 read-only로 재검토한다.
+8. 사용자 검수와 별도 게시·merge 승인을 받는다.
+
+### Fable 5 호출 경계
+
+- model은 `fable-5`를 사용한다.
+- Fable에는 `Read`, `Glob`, `Grep`과 동등한 Repository 읽기 기능만 허용한다.
+- shell, edit/write, Git mutation, MCP 쓰기, browser/computer control과 재귀 agent 호출을 허용하지 않는다.
+- safe mode, plan permission, 빈 MCP 설정, slash command 비활성화와 session persistence 비활성화를 함께 적용한다.
+- Fable stdout/stderr는 Repository 밖 private 임시 파일에 저장하고 tracked 파일로 직접 redirect하지 않는다.
+- Codex가 결과의 완전성, 개인정보·secret, 절대 경로와 상태 표기를 검증한 뒤에만 `apply_patch`로 planning 문서를 작성한다.
+- 위 읽기 전용 경계를 현재 실행 환경에서 보장할 수 없으면 Fable을 호출하지 않고 중단한다.
+- Fable은 [CLAUDE.md](CLAUDE.md)의 기획자 규칙만 수행하며 Task 라우팅, Codex 검토·구현·검증, 사용자 승인과 Git workflow를 재귀 실행하지 않는다.
+
+현재 Claude CLI에서는 최소한 `--safe-mode`, `--model fable-5`, `--permission-mode plan`, `--tools "Read,Glob,Grep"`, `--no-session-persistence`, `--disable-slash-commands`, `--strict-mcp-config`와 빈 `--mcp-config`를 함께 사용한다. Safe mode에서는 `CLAUDE.md`가 자동 로드되지 않으므로 prompt가 `CLAUDE.md`와 적용되는 `AGENTS.md`를 먼저 읽도록 명시한다. subprocess를 생성할 때부터 stdout/stderr를 private 임시 파일로 redirect하며, 이 옵션 중 하나라도 지원되지 않으면 실행하지 않는다.
+
+기본 planning 위치는 `tasks/<task-id>-planning.md`, Codex review 위치는 `tasks/<task-id>-review.md`다. `docs/tasks/`를 새로 만들지 않는다. Fable은 Repository 파일을 직접 만들거나 수정하지 않는다.
+
+## Codex-only 조사·구현·검증
+
+`APPROVED_FEATURE_IMPLEMENTATION`, `BUGFIX`, `P2_REMEDIATION`, `SECURITY_HARDENING`, `UAT_RUNTIME`, `DOCS_GOVERNANCE`, `HOUSEKEEPING`, `POLICY_DECISION`은 다음 순서를 지킨다.
+
+1. Codex 조사 세션이 Repository와 실제 상태를 read-only로 확인하고 가능한 경우 문제를 재현한다.
+2. Root cause, 불변조건, 대안, 권장 최소안, 영향 범위와 검증 계획을 사용자에게 제시한다.
+3. 사용자가 구현 범위와 필요한 mutation·게시 경계를 승인한다.
+4. 새 Codex 구현 세션이 승인 범위만 변경하고 검증한다.
+5. 구현 세션과 분리된 Codex 검증 세션이 승인 계약, Git diff, 테스트와 Finding gate를 read-only로 확인한다.
+6. 사용자 검수와 별도 게시·merge 승인을 받는다.
+
+조사 요청은 구현 승인이 아니다. 사용자가 같은 요청에서 구체적인 변경 범위와 실행을 명시적으로 승인한 경우에는 그 승인을 별도 조사 승인으로 다시 묻지 않되, 승인 범위를 넓혀 해석하지 않는다.
+
+## 수정 요청과 문서 역할
+
+구현 결과에 대한 수정 요청은 먼저 실제 코드와 기존 승인 계약에 대조한다. Codex는 증상, 기대 동작, 확인된 원인, 포함·제외 범위, 영향 파일, 보존할 불변조건과 검증 방법을 정리하고 사용자 승인을 받은 뒤 수정한다.
+
+승인된 planning 범위 안의 실질적 수정은 `tasks/<task-id>-change-###.md`에 순번대로 기록한다. 신규 사용자 능력, 신규 상태 전이, 신규 외부 연동 또는 권한 확대가 필요하면 change로 처리하지 않고 `NEW_FEATURE`로 재분류한다. 의미를 바꾸지 않는 단순 오탈자도 사용자가 수정 실행을 요청한 범위 안에서만 처리한다.
+
+문서 역할은 다음과 같이 분리한다.
+
+- Planning: 구현 전 업무 문제, 정책, 범위, 대안과 완료 기준을 정의한다.
+- Review: Codex가 planning을 실제 Repository와 대조한 Finding과 resolution을 기록한다.
+- Change: 승인된 planning 또는 Task 계약 안에서 후속 수정 지시를 고정한다.
+- Implementation report: 실제 구현, 결정, 변경 파일, 검증, 미실행 항목, Finding, rollback과 planning 대비 차이를 기록한다.
+
+Planning, review와 change는 구현 완료 증빙을 대신하지 않는다. Implementation report는 사용자 승인이나 planning 정책을 사후에 새로 만들어내지 않는다. Task 마감 산출물은 별도 파일 수를 임의로 강제하지 않고 [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)의 5종 상태·위치 추적 규칙을 따른다.
+
+## Codex 세션 분리
+
+- 신규 기능의 기획·검토, 승인 후 구현, 구현 후 독립 검증은 서로 다른 Codex 세션을 기본으로 한다.
+- Codex-only 작업도 조사, 승인 후 구현, 독립 검증 세션을 분리한다.
+- 독립 검증 세션은 구현 세션의 결론을 신뢰하지 않고 승인 계약, Repository 상태, diff와 실행 가능한 검증을 직접 확인한다.
+- 세션 사이 source of truth는 대화 기억이 아니라 planning, review와 resolution, Task, change, Implementation report, Git diff와 PR이다.
+- 사용자 승인 전 구현 세션으로 넘어가지 않고, merge 승인 전 Ready 전환이나 merge를 수행하지 않는다.
+
 ## 데이터와 migration 안전
 
 - Persistent UAT DB를 drop, truncate, reset하지 않고 persistent volume을 삭제하지 않는다.

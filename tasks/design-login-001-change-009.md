@@ -109,6 +109,8 @@ Purpose identity:
 - mock UI smoke: 1/1 PASS
 - 5187 검증 server는 test 종료와 함께 종료됐고 5174·5176 및 Backend·DB runtime을 재시작·교체하지 않았다.
 - 독립 검증 중 게시 후보 문서 2개에서 local home-directory 절대 경로 3회를 P2로 발견했다. stage 전 모두 symbolic worktree alias로 치환하고 privacy scan을 다시 통과했다.
-- stage·commit·push·PR·merge와 5174 Frontend 반영은 2026-07-15 사용자 승인에 따라 실행한다.
+- 고정 allowlist 26개를 commit·push하고 Ready PR #49를 생성했다. 기존 5174 process를 재시작하지 않고 제품 파일 8개만 HMR 반영해 승격본과 hash 8/8 일치를 확인했다.
+- HTTPS 5174 root·health live·health ready·Teams Activity page는 모두 200, HTTP 5174는 비활성이다. 익명 새 브라우저 projection은 login layout, primary button 1, secondary button 0, checkbox 1, image 5/5, viewport coverage true, overflow 0, console/request failure 0이다.
+- 5176·Backend 5081·Review-safe 5092/5190·PostgreSQL 5432 listener와 기존 runtime owner를 종료·재시작·교체하지 않았다.
 - 독립 Codex read-only 검증: PASS, 현재 P0/P1/P2/P3 `0/0/0/0`, 해결된 P2 1
-- 다음 Gate: 고정 allowlist 게시·CI 확인, 5174 Frontend-only 반영·검증, squash merge 실행
+- 다음 Gate: PR #49 필수 CI 통과 확인 후 승인된 squash merge 실행

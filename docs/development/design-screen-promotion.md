@@ -75,4 +75,4 @@ Gate 통과는 commit·push·PR·merge 승인을 대신하지 않는다.
 
 ## 8. 현재 적용
 
-`TASK-DESIGN-LOGIN-001`은 이 기준의 첫 적용 대상이다. Change 008까지의 구현·자동·독립 검증과 사용자 전체 검수, Change 009 최신 main fixed allowlist 이식·자동·독립 검증을 완료했다. 2026-07-15 사용자는 stage·commit·push·PR·merge와 5174 Frontend 반영을 승인했고, 5176 실험본과 Backend·DB runtime은 보존한다.
+`TASK-DESIGN-LOGIN-001`은 이 기준의 첫 적용 대상이다. Change 008까지의 구현·자동·독립 검증과 사용자 전체 검수, Change 009 최신 main fixed allowlist 이식·자동·독립 검증을 완료했다. 2026-07-15 승인에 따라 Ready PR #49를 게시하고 기존 process 재시작 없이 5174 Frontend 제품 파일 8개만 반영·검증했다. 5176 실험본과 Backend·DB runtime은 보존하며 squash merge는 필수 CI 통과 후 실행한다.

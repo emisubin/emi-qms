@@ -2,11 +2,11 @@
 
 ## 1. 결과
 
-- 상태: Change 008 구현·자동·독립 검증·사용자 검수 완료 / Change 009 fixed allowlist 이식·자동·독립 검증 완료 / 게시·5174 반영 승인, 실행 중
+- 상태: Change 008 구현·자동·독립 검증·사용자 검수 완료 / Change 009 fixed allowlist 이식·자동·독립 검증·5174 Frontend-only 반영 완료 / PR #49 CI·squash merge 진행 중
 - Task 유형: `APPROVED_FEATURE_IMPLEMENTATION`
 - 승인 계약: [Task와 사용자 검수 checklist](design-login-001.md), [Change 001](design-login-001-change-001.md), [Change 002](design-login-001-change-002.md), [Change 003](design-login-001-change-003.md), [Change 004](design-login-001-change-004.md), [Change 005](design-login-001-change-005.md), [Change 006](design-login-001-change-006.md), [Change 007](design-login-001-change-007.md), [Change 008](design-login-001-change-008.md), [Change 009](design-login-001-change-009.md)
-- 게시 상태: 2026-07-15 사용자가 stage·commit·push·PR·merge와 5174 Frontend 반영을 일괄 승인해 실행 중이다.
-- Runtime 상태: 기존 Development·Review-safe runtime을 종료·재시작·교체하지 않았다.
+- 게시 상태: commit·push·Ready PR #49 완료. squash merge는 승인됐고 필수 CI 통과 후 실행한다.
+- Runtime 상태: 기존 HTTPS 5174 process를 재시작하지 않고 Frontend 제품 파일 8개만 HMR 반영했다. 5176·Backend 5081·Review-safe 5092/5190·PostgreSQL 5432는 종료·재시작·교체하지 않았다.
 - 최종 범위: red/white flexible panel이 viewport를 채우고 각 panel 내부 Figma reference content를 등비 반응형으로 유지하는 PC Desktop 기본 로그인·loading 화면. Mobile/390px는 Change 001에 따라 제외했다.
 
 ### Change 009 화면 단위 승격
@@ -17,7 +17,8 @@
 - auth browser config는 promotion worktree를 실제 검사하도록 환경변수 port와 기본 5187 격리 실행, 기존 server 재사용 기본 false를 적용했다. 이 변경은 제품 runtime configuration이 아니라 allowlist 안의 test configuration이다.
 - 이식본에서 lint error 0·기존 warning 1, typecheck, unit 66/66, build, auth browser 12/12와 mock UI 1/1을 통과했다.
 - 5187 검증 server는 Playwright 종료와 함께 종료됐다. 5174·5176, Backend·Review-safe·PostgreSQL runtime은 종료·재시작·교체하지 않았다.
-- stage·commit·push·PR·merge와 5174 Frontend 반영은 2026-07-15 사용자 승인에 따라 실행한다.
+- 고정 allowlist 26개를 commit·push하고 Ready PR #49를 생성했다. 5174에는 제품 파일 8개만 반영해 promotion source와 hash 8/8 일치를 확인했다.
+- HTTPS 5174 root·health live·health ready·Teams Activity page는 모두 200이고 HTTP 5174는 비활성이다. 익명 새 브라우저 projection은 login layout, primary button 1, secondary button 0, checkbox 1, image 5/5, viewport coverage true, overflow 0, console/request failure 0이다.
 
 ## 2. 해결한 문제와 구현 경계
 
@@ -219,7 +220,7 @@ Screenshot과 비교 artifact는 `/tmp`에서만 사용했고 tracked/staged 산
 - 사용자 검수 listener: `http://127.0.0.1:5176/` ACTIVE. task-owned screen, bounded worktree cwd, strict port, synthetic Entra 설정과 HTTP 200을 재확인했다.
 - 기존 history P2: 범위 밖이며 상태를 변경하지 않았다.
 
-Change 009 자동·독립 검증을 통과했고 2026-07-15 Git 게시·5174 Frontend 반영·merge가 승인되어 게시 절차를 실행한다.
+Change 009 자동·독립 검증과 5174 Frontend-only 반영을 통과했고 Ready PR #49를 게시했다. squash merge는 승인됐으며 필수 CI 통과 확인만 남았다.
 
 ## 11. 승인 계약 대비 차이
 
@@ -269,9 +270,9 @@ Change 009 자동·독립 검증을 통과했고 2026-07-15 Git 게시·5174 Fro
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
 | Implementation report | 이 문서 | 작성 완료 |
-| SOP | `docs/development/design-screen-promotion.md`와 이 문서 12장 | 작성 완료 / runtime 적용 없음 |
+| SOP | `docs/development/design-screen-promotion.md`와 이 문서 12장 | 작성 완료 / 5174 Frontend-only 적용 완료 |
 | User manual | 이 문서 13장 | 작성 완료 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 009 최신 main 선택 이식·자동·독립 검증 완료 / 게시·5174 반영 승인·실행 상태 반영 |
-| Validation checklist | `tasks/design-login-001.md` 8장 | 사용자 전체 확인·Change 009 이식·자동·독립 검증 완료 / 게시·5174 반영 승인 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 009 최신 main 선택 이식·자동·독립 검증·5174 Frontend-only 반영 / PR #49 진행 상태 반영 |
+| Validation checklist | `tasks/design-login-001.md` 8장 | 사용자 전체 확인·Change 009 이식·자동·독립 검증·5174 반영 완료 / PR #49 merge 승인 |
 
-Change 008 구현·자동·독립 검증과 사용자 검수, Change 009 이식·자동·독립 검증은 완료됐다. Git 게시·5174 Frontend 반영·merge는 2026-07-15 승인되어 실행 중이다.
+Change 008 구현·자동·독립 검증과 사용자 검수, Change 009 이식·자동·독립 검증·5174 Frontend-only 반영·Ready PR #49 게시를 완료했다. 승인된 squash merge는 필수 CI 통과 후 실행한다.

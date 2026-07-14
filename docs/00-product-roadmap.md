@@ -976,7 +976,7 @@ Excel 출력 대상 후보:
 | 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | P2 Blocked | Scope Review Required | TASK-GOV-002 정책·risk owner | Maintenance, visibility, secure backup, all-ref force push와 re-clone 승인 | No | 별도 planning → 독립 검증 → 실행 승인 |
 | 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Completed | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | PR #44 squash merge 승인 → 0.5 Finding gate 재평가 |
 | 0.4A | TASK-BACKEND-FORMAT-001 — import-order baseline 정리 | HOUSEKEEPING | Completed | Planning Approved | 사용자의 P3 우선 처리·권장안 A 구현·검수 승인 | 없음. History Support 회신과 독립 수행 | No | 사용자 merge 승인 → PR CI 확인·squash merge |
-| 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | APPROVED_FEATURE_IMPLEMENTATION | Publishing In Progress | Implementation Approved | Change 001~008 사용자 검수 완료. Change 009 최신 main fixed allowlist 이식·전체 Frontend 자동·독립 검증 완료 | Figma Code Connect seat 제한은 비차단. History P2와 독립 수행 | No | 게시·CI, 5174 Frontend-only 반영·검증, squash merge |
+| 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | APPROVED_FEATURE_IMPLEMENTATION | PR #49 Ready / Merge Approved | Implementation Approved | Change 001~008 사용자 검수, Change 009 최신 main 이식·전체 Frontend 자동·독립 검증·5174 Frontend-only 반영 완료 | Figma Code Connect seat 제한은 비차단. History P2와 독립 수행 | No | PR #49 필수 CI 통과 → squash merge |
 | 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.4A 판정 완료 | 없음 | No | 기존 canonical Task 재사용·Finding gate 재검증 |
 | 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | P2 Blocked | Deferred | 0.5 통과 | 사용자 승인 | No | Phase 1 개별 planning 시작 승인 |
 | 1.1 | TASK-007A Pending List | NEW_FEATURE | P2 Blocked | Scope Review Required | Phase 0 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Fable 5 deep-interview → 사용자 요약 확인 → Fable 5 planning → Codex review → 사용자 승인 |
@@ -1103,7 +1103,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-DESIGN-LOGIN-001: Entra 로그인 공통 디자인 shell
 
-- 상태: Change 008 구현·자동·독립 검증·사용자 전체 검수 완료 / Change 009 최신 main fixed allowlist 이식·전체 Frontend 자동·독립 검증 완료 / 게시·5174 반영 승인, 실행 중
+- 상태: Change 008 구현·자동·독립 검증·사용자 전체 검수 완료 / Change 009 최신 main fixed allowlist 이식·전체 Frontend 자동·독립 검증·5174 Frontend-only 반영 완료 / Ready PR #49·merge 승인
 - 순서 승인: 사용자가 History Support 대기 중 이 Frontend-only Task의 병렬 진행과 bounded worktree 사용을 명시 승인했다. 기존 history P2와 신규 기능 `NO_GO` 상태는 변경하지 않는다.
 - 목적: 기존 Entra 인증 정책과 request/cache 동작을 보존하면서 승인된 Figma 디자인을 인증 공통 shell과 Desktop 로그인 화면에 구현한다. Change 001에 따라 Mobile은 제외하고 로그인 화면에는 Figma에 존재하는 요소만 표시한다.
 - Figma 기준: node `1:175`, 1440×810 design context·screenshot·metadata·assets 재확인, variable definition 0. 로그인 상태 유지 `1:187`은 component set `1:160`의 `속성 1=베리언트2`; 기본은 white·`#737373`·icon 0, Variant 2는 `#DA2127`·white Done icon·`#282828`이다. Code Connect는 Organization/Enterprise Dev 또는 Full seat 제한으로 조회되지 않았고 Repository에 기존 mapping도 없다.
@@ -1115,7 +1115,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 시각 비교: 승인 안내 포함 MAE 1.2497, exact pixel 69.3100%, channel당 차이 8 이하 97.7912%. Figma에 없는 승인 안내 영역 제외 시 MAE 1.1303, channel당 차이 8 이하 97.9200%. 렌더러 차이와 승인 추가 영역을 raw pixel 100% 동일성으로 과장하지 않는다.
 - 인증 action audit: Frontend 전용 account-switch request·`select_account` prompt·handler·prop·button은 모두 제거됐다. Microsoft provider의 `다른 계정 사용`만 일반 login redirect 뒤에 남는다. 기본 로그인·상태 유지·재인증·로그아웃은 정상 또는 조건부 접근 가능하고 cached restore·silent token은 자동 기능이다. 설정 누락은 redirect 불가 fail-safe이며 orphan authentication action은 0이다.
 - 독립 검증: Change 008·Change 009 PASS. Change 009는 allowlist 26/26, source hash 12/12, 최신 main Roadmap baseline, 인증 불변조건, runtime·privacy·Finding gate를 재검증해 현재 P0/P1/P2/P3 `0/0/0/0`, 해결된 P2 1로 판정했다.
-- 잔여 Gate: 게시·CI 확인, 5174 Frontend-only 반영·검증, squash merge 실행
+- 잔여 Gate: PR #49 필수 CI 통과 확인 후 squash merge 실행
 - 산출물: [Task와 검수 checklist](../tasks/design-login-001.md), [Implementation report·User manual](../tasks/design-login-001-implementation-report.md), [화면 단위 승격 SOP](development/design-screen-promotion.md), 이 Roadmap update
 
 ### TASK-GOV-CODEX-002: Fable 5 신규 기능·Codex-only 작업 라우터
@@ -1622,7 +1622,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 78 | Task instruction chain·완료 보고 형식 | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 모든 Task 시작 전 filesystem 지침 재확인과 종료 시 고정 10개 항목을 강제. 적용 대상 없음도 `N/A`와 이유 기록 |
 | 79 | Full-Stack E2E 구매정보 동적 행 timing | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발/품질 | TASK-E2E-RELIABILITY-001 | 최신 load만 edit state에 반영하고 행 추가 1회·정확한 row/input 준비를 검증. 대상 E2E 20/20, 전체 16/16 통과 |
 | 80 | Backend import-order format debt | 구현·자동·독립 검증·사용자 검수 완료 / merge 승인 | 개발/품질 | TASK-BACKEND-FORMAT-001 | 정확한 Backend C# 9개 파일의 `IMPORTS=9`를 diagnostic 0으로 정리. 실행 코드·API·DB·runtime 변경 0 |
-| 82 | Entra 로그인 공통 디자인 shell | Change 008 사용자 전체 검수·Change 009 fixed allowlist 이식·전체 Frontend 자동·독립 검증 완료 / 게시·5174 반영 승인, 실행 중 | 사용자/개발/품질 | TASK-DESIGN-LOGIN-001 | 승인된 Figma node 기반 공통 auth shell, checkbox Variant 2와 Loading 빨간 회전 indicator. 최신 main에 선택 이식하고 auth browser 12/12·mock 1/1·독립 검증을 통과했다. 5174 Frontend-only 반영·검증과 squash merge를 실행하며 5176와 Backend·DB runtime, History P2 상태를 보존한다. Mobile 제외, 인증 정책·Backend·DB 변경 0 |
+| 82 | Entra 로그인 공통 디자인 shell | Change 008 사용자 전체 검수·Change 009 fixed allowlist 이식·전체 Frontend 자동·독립 검증·5174 Frontend-only 반영 완료 / PR #49 Ready·merge 승인 | 사용자/개발/품질 | TASK-DESIGN-LOGIN-001 | 승인된 Figma node 기반 공통 auth shell, checkbox Variant 2와 Loading 빨간 회전 indicator. 최신 main 선택 이식과 auth browser 12/12·mock 1/1·독립 검증, HTTPS 5174 익명 browser projection을 통과했다. 필수 CI 후 squash merge하며 5176와 Backend·DB runtime, History P2 상태를 보존한다. Mobile 제외, 인증 정책·Backend·DB 변경 0 |
 
 ## 25. 결정 이력 (Decision Log)
 

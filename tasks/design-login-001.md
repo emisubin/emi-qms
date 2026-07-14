@@ -9,9 +9,9 @@
 - 자동 검증: Change 008 완료 — Variant 2 Done icon `50% 50%` 중앙 정렬과 기존 회귀 검증 통과
 - 독립 Codex 검증: Change 008·Change 009 완료 — 분리된 read-only session PASS, 현재 P0/P1/P2/P3 `0/0/0/0`, 해결된 P2 1
 - 사용자 검수: 완료 — 전체 체크리스트 확인 완료
-- 화면 단위 승격: Change 009 fixed allowlist 이식·자동·독립 검증 완료 / 게시·5174 반영 승인, 실행 중
-- Commit·Push·PR·Merge: 2026-07-15 사용자 승인, 실행 중
-- Development·Review-safe·Persistent UAT: 변경 없음
+- 화면 단위 승격: Change 009 fixed allowlist 이식·자동·독립 검증·5174 Frontend-only 반영 완료 / PR #49 CI·squash merge 진행 중
+- Commit·Push·PR·Merge: commit·push·Ready PR #49 완료 / squash merge 승인, CI 통과 후 실행
+- Development·Review-safe·Persistent UAT: 5174 Frontend 제품 파일 8개만 HMR 반영 / 5176·Backend·Review-safe·PostgreSQL runtime 보존
 - 사용자 검수 preview: `http://127.0.0.1:5176/` ACTIVE — task-owned synthetic Entra Desktop 시각 검수 전용
 
 ## 2. Task Identity Gate

@@ -1148,7 +1148,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-UAT-001: HTTPS Development UAT 안정화
 
-- 상태/다음 순서: 최초 Task 구현·검수·PR #23 merge 완료 / Change 001 HTTPS-only runtime·Microsoft 365 로그인·Delivery worker handover·Teams Activity Graph actual·Teams client 수신 검수 완료 / 잔여 사용자 검수 2건 대기 / merge 승인 / 미게시
+- 상태/다음 순서: 최초 Task 구현·검수·PR #23 merge 완료 / Change 001 HTTPS-only runtime·로그인 유지·재인증·기존 알림 조회·Teams Activity Graph actual·Teams client 수신 사용자 검수 완료 / PR #48 squash merge 승인
 - 목적: Teams Activity 검수를 위한 HTTPS Development UAT의 frontend strict port, process ownership, protocol readiness, notification env와 master-data transaction을 안정화하고 Change 001에서 로그인·일반 기능·알림을 HTTPS 5174 하나로 통일한다.
 - 포함 범위: 5174 strict port/ownership/PID, repo 경로 boundary, protocol mismatch 판정, literal notify dotenv loading, worker/provider Development 설정, master-data transaction, HTTPS UAT health와 화면 검수, E2E isolation 연계
 - 제외 범위: read-only Review mode, dependency security, notification claim/lease, escalation starvation, 마지막 관리자 동시성
@@ -1578,7 +1578,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 52 | 사용자별 알림 설정 | 계획 | 사용자/운영 | TASK-NOTIFY-005 | NOTIFY-004 완료와 필수 알림 opt-out/channel taxonomy 결정이 선행 |
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
 | 54 | Full-Stack E2E PostgreSQL 물리 격리 | 완료 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 squash merge `45fd61c` |
-| 55 | HTTPS Development UAT 안정화 | 최초 Task 완료 / Change 001 자동 검증·로그인·Graph actual·Teams client 검수 완료 / 잔여 사용자 검수 2건 대기 / merge 승인 | 개발/운영 | TASK-UAT-001 | HTTPS-only 5174, strict port/ownership, same-origin 5081 proxy, Delivery Worker 단독 활성, Teams Activity 신규 ManualTest 1건 Sent·client 표시 확인, Review-safe·5176·persistent UAT 보존. PR #23 + Change 001 미게시 |
+| 55 | HTTPS Development UAT 안정화 | 최초 Task 완료 / Change 001 자동 검증·사용자 검수 완료 / PR #48 squash merge 승인 | 개발/운영 | TASK-UAT-001 | HTTPS-only 5174, strict port/ownership, same-origin 5081 proxy, 로그인 유지·재인증·기존 알림 조회, Delivery Worker 단독 활성, Teams Activity 신규 ManualTest 1건 Sent·client 표시 확인, Review-safe·5176·persistent UAT 보존. PR #23 + PR #48 |
 | 56 | Frontend dependency security | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/보안 | TASK-FRONTEND-SEC-001 | Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0. Audit 전체 0, frontend/backend/E2E와 5174/5185 비교 검수 통과. PR #24 |
 | 57 | Review-safe UAT | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-002 | 5092/5190, startup·worker·provider·HTTP mutation 차단, DB session read-only, schema readiness, Development UAT 분리. PR #26 |
 | 58 | UAT 통합 사용자 검수 | 자동 검증·사용자 검수 완료 / merge 승인 | 사용자/개발 | UAT-VERIFY-001 | 최신 main runtime·ledger/schema/data/권한/dashboard/Review-safe/UI 기준선과 개인정보 안전 merge projection 통과. UAT 기준선 Go, 신규 기능 No-Go 유지, PR #29 병합 승인 |
@@ -1721,6 +1721,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-14 | History Support 대기 중 `TASK-UAT-001` Change 001 병렬 실행을 승인하고 Development UAT를 HTTPS 5174 하나로 통일 | 로그인·일반 기능·알림·Teams Activity를 한 origin에서 검수하고 HTTP protocol drift와 불필요한 격리 DB port를 제거하면서 5081·5432·5190/5092·5176을 보존하기 위함 | 21장~25장, TASK-UAT-001 Change 001 |
 | 2026-07-14 | `TASK-UAT-001` Change 001에서 5081 Teams Activity actual channel과 신규 ManualTest 1건 Graph 발송을 승인 | 기존 `TeamsActivityDisabled` terminal 2건은 audit로 보존하고 Delivery Worker만 활성인 상태에서 신규 delivery 1건의 retry lineage와 최종 `Sent`를 검수하면서 Escalation·Purge·다른 runtime·Persistent UAT DB/volume을 보존하기 위함 | 21장~25장, TASK-UAT-001 Change 001 |
 | 2026-07-14 | `TASK-UAT-001` Change 001의 Teams client 실제 알림 수신 검수를 완료하고 merge까지 승인 | Microsoft Graph `Sent`와 사용자의 Activity Feed 실제 표시 확인을 분리해 모두 닫고 기존 terminal audit·다른 runtime·Persistent UAT 자원 보존 결과를 게시하기 위함 | 21장~25장, TASK-UAT-001 Change 001 |
+| 2026-07-14 | `TASK-UAT-001` Change 001의 로그인 상태 유지·재인증과 기존 알림·Teams Activity 조회 검수를 완료하고 PR #48 squash merge 실행을 승인 | 남아 있던 사용자 검수 2건을 모두 닫고 자동 검증·actual provider·Teams client 수신·runtime 보존과 게시 gate를 하나의 완료 상태로 확정하기 위함 | 21장~25장, TASK-UAT-001 Change 001 |
 
 ## 26. 용어 사전
 

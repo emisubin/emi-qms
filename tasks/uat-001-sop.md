@@ -210,4 +210,4 @@ corepack pnpm --filter emi-qms-frontend run e2e:full-stack
 - 2026-07-10: 최신 main `45fd61c` 통합, E2E isolation 연계와 당시 사용자 검수 대기 상태 반영(역사적 기록)
 - 2026-07-10: 사용자 검수 완료와 PR #23 squash merge 승인 반영
 - 2026-07-14: Change 001에서 Development UAT를 HTTPS 5174 하나로 통일하고 HTTP 시작 절차를 폐기. 자동 검증 완료 / 사용자 검수 대기
-- 2026-07-14: Backend 5081 Delivery Worker만 활성 유지, Teams Activity actual channel 활성화, 기존 terminal 2건 보존과 신규 ManualTest 1건 Graph `Sent`·Teams client 표시 검수 완료. 잔여 사용자 검수 2건 대기, merge 승인
+- 2026-07-14: Backend 5081 Delivery Worker만 활성 유지, Teams Activity actual channel 활성화, 기존 terminal 2건 보존과 신규 ManualTest 1건 Graph `Sent`·Teams client 표시, 로그인 상태 유지·재인증과 기존 알림 조회 사용자 검수 완료. PR #48 squash merge 승인

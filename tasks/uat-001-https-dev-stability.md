@@ -1,6 +1,6 @@
 # TASK-UAT-001 HTTPS Development UAT 안정화
 
-> 현재 운영 계약: [Change 001](uat-001-change-001.md)에 따라 Development UAT는 HTTPS 5174 하나로 통일했다. 아래 HTTP/HTTPS 교체 설명은 최초 Task의 역사적 계약이며 HTTP 시작 절차는 더 이상 현재 운영 절차가 아니다. Change 001은 자동 검증, Microsoft 365 로그인, Microsoft Graph actual 발송과 Teams client 수신 검수를 완료했고 사용자가 merge까지 승인했다. 로그인 상태 유지·재인증과 기존 알림·Teams Activity 항목 조회는 사용자 검수 대기다.
+> 현재 운영 계약: [Change 001](uat-001-change-001.md)에 따라 Development UAT는 HTTPS 5174 하나로 통일했다. 아래 HTTP/HTTPS 교체 설명은 최초 Task의 역사적 계약이며 HTTP 시작 절차는 더 이상 현재 운영 절차가 아니다. Change 001은 자동 검증, Microsoft 365 로그인, 로그인 상태 유지·재인증, 기존 알림·Teams Activity 조회, Microsoft Graph actual 발송과 Teams client 수신 사용자 검수를 완료했고 PR #48 squash merge가 승인됐다.
 
 ## 1. 목적
 

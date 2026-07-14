@@ -79,11 +79,11 @@ Port가 source를 동기화하지 않는다. 5176은 별도 worktree이므로 ma
 
 ## 7. 사용자 검수와 게시 상태
 
-상태: `자동 검증 완료`, `Microsoft 365 로그인 검수 완료`, `Microsoft Graph actual 발송 검수 완료`, `Teams client 수신 검수 완료`, `잔여 사용자 검수 2건 대기`, `merge 승인`, `미게시`.
+상태: `자동 검증 완료`, `사용자 검수 완료`, `Microsoft Graph actual 발송 검수 완료`, `Teams client 수신 검수 완료`, `PR #48 squash merge 승인`.
 
 - [x] `https://localhost:5174`에서 실제 Microsoft 365 로그인
-- [ ] 로그인 상태 유지와 재인증
-- [ ] 알림 목록과 Teams Activity 기존 항목 조회
+- [x] 로그인 상태 유지와 재인증
+- [x] 알림 목록과 Teams Activity 기존 항목 조회
 - [x] Backend 5081 Notification Delivery Worker 활성 handover
 - [x] 기존 `TeamsActivityDisabled` terminal 2건 audit 보존
 - [x] Teams Activity channel actual 활성화와 신규 ManualTest 1건 생성
@@ -92,7 +92,7 @@ Port가 source를 동기화하지 않는다. 5176은 별도 worktree이므로 ma
 - [x] `http://127.0.0.1:5176` 디자인 preview 보존
 - [x] `https://localhost:5190` Review-safe 보존
 
-구현·검수 단계에서는 Git 게시를 수행하지 않았다. 이후 사용자 승인에 따라 승인된 문서 6개만 commit·push하고 Draft PR #48을 생성했다. 이 문서 갱신 시점의 Ready 전환과 merge는 잔여 사용자 검수 2건과 독립 gate 때문에 미실행이며, 최종 게시 상태는 PR을 source of truth로 확인한다.
+구현·검수 단계에서는 Git 게시를 수행하지 않았다. 이후 사용자 승인에 따라 승인된 문서 6개만 commit·push하고 Draft PR #48을 생성했다. 사용자가 잔여 검수 2건을 모두 확인하고 squash merge를 승인했으며, 최종 게시 상태는 PR을 source of truth로 확인한다.
 
 ## 8. 게시 격리
 

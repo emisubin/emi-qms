@@ -930,7 +930,7 @@ Excel 출력 대상 후보:
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
 | 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 원본 구조, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed provider actual, text topic + Teams deep link, `/teams/activity` 탭과 상세, 관리자 수동 개인/업무 배정 Activity Feed, 설정 선택형 L0~L2 Activity Feed, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, Pending→Processing claim/lease, fencing, automatic retry, provider 오류 분류, attempt lineage, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, fair candidate ordering과 후보 오류 격리, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송 3모드, 수동 업무 배정 work_item 생성, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외와 Pending 재시도 | Activity Feed 자동 event coverage 확대, 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, terminal Failed 수동 재처리 신규 기능(Deferred), 기존 업무 화면 action feedback UX 확대 |
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
-| 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지와 Figma 기본/Variant 2, dev auth/E2E 보존, PostgreSQL transaction 기반 마지막 active System Administrator 보호, purge 전용 malformed lifecycle defense-in-depth, latest-main Development controlled runtime 적용, 승인된 Figma 기반 인증 공통 shell, Desktop exact geometry와 PC viewport 등비 canvas, Loading control 제거·빨간 회전 indicator | Auth break-glass 계정·복구 rehearsal, 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수, TASK-DESIGN-LOGIN-001 Change 009 승격 검증·게시 승인 |
+| 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지와 Figma 기본/Variant 2, dev auth/E2E 보존, PostgreSQL transaction 기반 마지막 active System Administrator 보호, purge 전용 malformed lifecycle defense-in-depth, latest-main Development controlled runtime 적용, 승인된 Figma 기반 인증 공통 shell, Desktop exact geometry와 PC viewport 등비 canvas, Loading control 제거·빨간 회전 indicator | Auth break-glass 계정·복구 rehearsal, 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수. 로그인 디자인은 Change 009·PR #49로 main 승격 완료 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
 | 관리자 | 시스템 관리 중심 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림/에스컬레이션 조회, 발송 실패/대기 상세 추적, active escalation L0~L3 breakdown, 삭제 예정 + 7일 후 완전 삭제 시도, 복구, 일괄 삭제/복구, 삭제 보류, 부서 field-level validation | Item/포장방식/생산계획 단계/구매 필수 항목 관리자 통합 여부, role/permission 편집 UI, 삭제 예정 데이터 purge 운영 정책, 전체 field-level audit 확장 |
 | UAT | 고정 Persistent UAT DB, HTTPS-only Development 5174/5081, read-only Review-safe 5190/5092, canonical/live/approved legacy ledger 28/29/1, notification claim/lease·escalation fair-ordering·last-administrator controlled UAT | TASK-UAT-001 Change 001 자동 검증·로그인·Graph actual·Teams client 수신 검수 완료, Persistent live auth mutation은 break-glass 증명 전 No-Go |
@@ -973,28 +973,28 @@ Excel 출력 대상 후보:
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0.1 | TASK-UAT-AUTH-HARDEN-001 | UAT_RUNTIME | Completed | Planning Approved | Phase A~D 자동 검증·runtime 적용·사용자 검수 완료 | break-glass 미증명으로 live mutation 금지 | Yes | PR #40 squash merge 승인 → TASK-GOV-002 |
 | 0.2 | TASK-GOV-002 | POLICY_DECISION | Completed | Planning Approved | current checkout 비식별화·public history 조사·사용자 검수 완료 | PR #41 Ready·squash merge 승인 | No | PR #41 merge → TASK-GOV-HISTORY-REWRITE-001 |
-| 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | P2 Blocked | Scope Review Required | TASK-GOV-002 정책·risk owner | Maintenance, visibility, secure backup, all-ref force push와 re-clone 승인 | No | 별도 planning → 독립 검증 → 실행 승인 |
-| 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Completed | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | PR #44 squash merge 승인 → 0.5 Finding gate 재평가 |
-| 0.4A | TASK-BACKEND-FORMAT-001 — import-order baseline 정리 | HOUSEKEEPING | Completed | Planning Approved | 사용자의 P3 우선 처리·권장안 A 구현·검수 승인 | 없음. History Support 회신과 독립 수행 | No | 사용자 merge 승인 → PR CI 확인·squash merge |
-| 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | APPROVED_FEATURE_IMPLEMENTATION | PR #49 Ready / Merge Approved | Implementation Approved | Change 001~008 사용자 검수, Change 009 최신 main 이식·전체 Frontend 자동·독립 검증·5174 Frontend-only 반영 완료 | Figma Code Connect seat 제한은 비차단. History P2와 독립 수행 | No | PR #49 필수 CI 통과 → squash merge |
-| 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.4A 판정 완료 | 없음 | No | 기존 canonical Task 재사용·Finding gate 재검증 |
-| 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | P2 Blocked | Deferred | 0.5 통과 | 사용자 승인 | No | Phase 1 개별 planning 시작 승인 |
-| 1.1 | TASK-007A Pending List | NEW_FEATURE | P2 Blocked | Scope Review Required | Phase 0 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Fable 5 deep-interview → 사용자 요약 확인 → Fable 5 planning → Codex review → 사용자 승인 |
-| 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A | Pending 차단·상태 matrix 확정 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
-| 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A·007B | 사진 storage·압축·재시도 정책 | Yes | 동일 URL·390px/Teams narrow planning |
-| 1.4 | TASK-HOME-001 Home MVP | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007B·MOBILE-001 기반 | 활성화 가능한 widget 데이터 확인 | Yes | widget-slot planning과 MVP 범위 승인 |
-| 2.1 | TASK-008A 자재 도착·분할 입고 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A | 기존 데이터 migration·rollback 결정 | Yes | Fable 5 planning과 migration 별도 승인 |
-| 2.2 | TASK-008B 사급 자재 추적 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-008A data model | 사급 업무 정책 | Yes | TASK-008A 검수 후 planning |
-| 2.3 | TASK-009A IQC·사진·PDF | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A·008A | IQC 양식·필수 사진 위치 | Yes | 검사 계약과 PDF snapshot planning |
-| 2.4 | TASK-010A 패널별 키팅 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-008A·009A | 패널별 키팅·중복 방지 정책 | Yes | 독립 planning·구현·rollback 승인 |
-| 3.1 | TASK-011A 제조 체크리스트 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-010A·007A | 제조 표시·입력 항목 회신 | Yes | 제조 시작·종료·중단 planning |
-| 3.2 | TASK-012A 후속 품질 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-009A·011A | LQC/OQC/FAT 양식과 사진 기준 | Yes | 품질 단계별 planning |
-| 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | P2 Blocked | Deferred | TASK-009A·011A 실제 template model | 실제 운영 template 안정화 | Yes | data structure 확정 후 planning |
-| 3.4 | Pending 유형 관리자 화면 (ID 미정) | NEW_FEATURE | P2 Blocked | Deferred | TASK-007A 안정화 | 유형·권한 정책 | Yes | 별도 소형 Task ID와 planning 승인 |
-| 4.1 | TASK-013A 물류 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-012A | 포장 구성·사진·서명본 기준 | Yes | 물류 planning |
-| 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007B·013A | 세금계산서·완료 권한 정책 | Yes | 완료 조건 planning |
-| 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | P2 Blocked | Deferred | 주요 data model 안정화 | 개인정보·권한별 export 정책 | Yes | 공통 export planning |
-| 4.4 | QR 스캔 랜딩 (ID 미정) | NEW_FEATURE | P2 Blocked | Deferred | MOBILE-001·제조 흐름 | 공개/인증 landing 정책 | Yes | 별도 신규 기능 Task 승인 |
+| 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | Completed / Merge Approved | Planning·Implementation Approved | 영향 ref `16/16`, fresh clone, old clone quarantine, Support cleanup, 독립 검증·사용자 검수 완료 | Public 재개·backup 삭제는 각각 별도 승인 | No | 승인된 5종 산출물 squash merge |
+| 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Completed / PR #44 Merged | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | Finding gate에서 Resolved 확인 |
+| 0.4A | TASK-BACKEND-FORMAT-001 — import-order baseline 정리 | HOUSEKEEPING | Completed / Merged | Planning Approved | import-order 9건 정규화·검증·사용자 검수 완료 | 없음 | No | Finding gate에서 Resolved 확인 |
+| 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | APPROVED_FEATURE_IMPLEMENTATION | Completed / PR #49 Merged | Implementation Approved | Change 001~009 사용자 검수·최신 main 승격·전체 Frontend 자동·독립 검증·5174 반영 완료 | 없음. Code Connect는 향후 필수 Gate에서 제외 | No | Promotion·5176 experiment worktree 정리는 사용자 Deferred 결정 추적 |
+| 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | Completed / Merge Approved | Planning Approved | Open P0/P1/P2 `0/0/0`, 독립 검증·사용자 검수 완료 | 문서 merge 실행 중 | No | squash merge → 0.6 사용자 결정 |
+| 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | Ready for User Decision | Deferred | Open P0/P1/P2 `0/0/0` | 사용자 승인 | No | 신규 기능 Go/No-Go 명시 결정 |
+| 1.1 | TASK-007A Pending List | NEW_FEATURE | User Go Pending | Scope Review Required | Phase 0 사용자 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Go 승인 후 Fable 5 deep-interview → 사용자 요약 확인 → Fable 5 planning → Codex review → 사용자 승인 |
+| 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A | Pending 차단·상태 matrix 확정 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
+| 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A·007B | 사진 storage·압축·재시도 정책 | Yes | 동일 URL·390px/Teams narrow planning |
+| 1.4 | TASK-HOME-001 Home MVP | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007B·MOBILE-001 기반 | 활성화 가능한 widget 데이터 확인 | Yes | widget-slot planning과 MVP 범위 승인 |
+| 2.1 | TASK-008A 자재 도착·분할 입고 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A | 기존 데이터 migration·rollback 결정 | Yes | Fable 5 planning과 migration 별도 승인 |
+| 2.2 | TASK-008B 사급 자재 추적 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-008A data model | 사급 업무 정책 | Yes | TASK-008A 검수 후 planning |
+| 2.3 | TASK-009A IQC·사진·PDF | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A·008A | IQC 양식·필수 사진 위치 | Yes | 검사 계약과 PDF snapshot planning |
+| 2.4 | TASK-010A 패널별 키팅 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-008A·009A | 패널별 키팅·중복 방지 정책 | Yes | 독립 planning·구현·rollback 승인 |
+| 3.1 | TASK-011A 제조 체크리스트 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-010A·007A | 제조 표시·입력 항목 회신 | Yes | 제조 시작·종료·중단 planning |
+| 3.2 | TASK-012A 후속 품질 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-009A·011A | LQC/OQC/FAT 양식과 사진 기준 | Yes | 품질 단계별 planning |
+| 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Deferred | Deferred | TASK-009A·011A 실제 template model | 실제 운영 template 안정화 | Yes | data structure 확정 후 planning |
+| 3.4 | Pending 유형 관리자 화면 (ID 미정) | NEW_FEATURE | Deferred | Deferred | TASK-007A 안정화 | 유형·권한 정책 | Yes | 별도 소형 Task ID와 planning 승인 |
+| 4.1 | TASK-013A 물류 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-012A | 포장 구성·사진·서명본 기준 | Yes | 물류 planning |
+| 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007B·013A | 세금계산서·완료 권한 정책 | Yes | 완료 조건 planning |
+| 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | Deferred | Deferred | 주요 data model 안정화 | 개인정보·권한별 export 정책 | Yes | 공통 export planning |
+| 4.4 | QR 스캔 랜딩 (ID 미정) | NEW_FEATURE | Deferred | Deferred | MOBILE-001·제조 흐름 | 공개/인증 landing 정책 | Yes | 별도 신규 기능 Task 승인 |
 | 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Deferred | Scope Review Required | 기능 흐름 안정화 | Figma Variables·CSS token 기준 | Yes | 기능 변경 없는 component/token 범위 승인 |
 | 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Deferred | Scope Review Required | DESIGN-000 | 홈→내 업무→현장→관리자 순서 | Yes | 화면별 planning과 사용자 승인 |
 | 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Deferred | Scope Review Required | 공통 feedback contract | 화면별 범위 팽창 방지 | Yes | A1 planning 후 A2 분리 |
@@ -1101,12 +1101,37 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 주요 위험: descendant SHA 변경, old clone 재유입, partial ref rewrite, GitHub cache 잔존. Rewrite 완료 전 `GIT_HISTORY_PERSONAL_DATA_REMAINS` P2는 Open
 - 산출물: [Planning](../tasks/gov-002-planning.md), [Task와 검수 checklist](../tasks/gov-002.md), [Implementation report](../tasks/gov-002-implementation-report.md), [SOP](../tasks/gov-002-sop.md), [User manual](../tasks/gov-002-user-manual.md), 이 Roadmap update
 
+### TASK-GOV-HISTORY-REWRITE-001: Coordinated Git history rewrite
+
+- 상태: 영향 published ref rewrite·fresh clone·old common repository push quarantine·Support cleanup·독립 검증·사용자 검수 완료 / Repository `PRIVATE` / cached reference `REMOVED` / squash merge 승인
+- 목적: current checkout에서 제거된 과거 개인정보를 모든 영향 published ref에서 제거하고 cache·old clone 재유입·backup 경계를 분리해 검증한다.
+- 실행 결과: 영향 ref `16/16`, 예상 밖 ref 이동 0, tip tree mismatch 0, fresh-clone history exact match 0, fsck error 0
+- Support 결과: completion/follow-up/closed fixed projection `1/1/1`, old cached reference `REMOVED`, page-not-found `true`
+- 안전 경계: encrypted pre-rewrite backup 제한 보존, restore·삭제 별도 승인, old common repository push quarantine와 dirty worktree 보존
+- 잔여 Gate: 승인된 문서 squash merge. Public 재개·backup 삭제는 각각 별도 결정
+- 제품 영향: Backend·Frontend·API·DB·migration·runtime·provider 변경 0
+- P2: `GIT_HISTORY_PERSONAL_DATA_REMAINS` Resolved. 외부 clone·archive 완전 회수는 증명하지 않으며 public 재개를 자동 승인하지 않는다.
+- CI Finding: `FULL_STACK_E2E_PROCUREMENT_EDIT_ROW_RACE`는 `TASK-E2E-RELIABILITY-001` 보정·검증과 PR #43 병합으로 Resolved다.
+- 절차 Finding: Support closure raw page snapshot 재발 1건은 tracked leak·external write 0을 확인하고 fixed projection으로 처음부터 재검증해 Resolved다.
+- 산출물: [Planning](../tasks/gov-history-rewrite-001-planning.md), [Task와 검수 checklist](../tasks/gov-history-rewrite-001.md), [Implementation report](../tasks/gov-history-rewrite-001-implementation-report.md), [SOP](../tasks/gov-history-rewrite-001-sop.md), [User manual](../tasks/gov-history-rewrite-001-user-manual.md), 이 Roadmap update
+
+### TASK-GOV-FINDING-GATE-001: 전체 P0/P1/P2 재평가
+
+- 상태: read-only closure matrix 재평가·독립 검증·사용자 검수 완료 / Open P0/P1/P2 `0/0/0` / squash merge 승인
+- 목적: 실제 main·최근 merge·운영 read-only 기준선과 외부 blocker를 closure matrix로 대조한다.
+- 선행 해소: E2E row race PR #43, Failed retry 문서 drift PR #44, Git history internal reference 제거와 GC 완료
+- Task 이름: canonical ID는 `TASK-GOV-FINDING-GATE-001`이다. `TASK-GOV-P2-GATE-001`은 동일 목적의 non-canonical shorthand이며 별도 Task가 아니다.
+- 결과: History·E2E row race·Failed retry·privacy-safe evidence 절차 P2는 모두 Resolved. Runtime·Persistent aggregate 정상, source TODO/FIXME/validation bypass 0
+- 권고: `GO_FOR_USER_DECISION`. 신규 기능 시작 승인이 아니며 0.6의 사용자 정책 결정을 기다린다.
+- 다음 Gate: 승인된 문서 squash merge → 신규 기능 Go/No-Go 별도 결정
+- 산출물: [Planning](../tasks/gov-finding-gate-001-planning.md), [Task와 검수 checklist](../tasks/gov-finding-gate-001.md), [Implementation report](../tasks/gov-finding-gate-001-implementation-report.md), [SOP](../tasks/gov-finding-gate-001-sop.md), [User manual](../tasks/gov-finding-gate-001-user-manual.md), 이 Roadmap update
+
 ### TASK-DESIGN-LOGIN-001: Entra 로그인 공통 디자인 shell
 
-- 상태: Change 008 구현·자동·독립 검증·사용자 전체 검수 완료 / Change 009 최신 main fixed allowlist 이식·전체 Frontend 자동·독립 검증·5174 Frontend-only 반영 완료 / Ready PR #49·merge 승인
-- 순서 승인: 사용자가 History Support 대기 중 이 Frontend-only Task의 병렬 진행과 bounded worktree 사용을 명시 승인했다. 기존 history P2와 신규 기능 `NO_GO` 상태는 변경하지 않는다.
+- 상태: Change 001~009 구현·자동·독립 검증·사용자 전체 검수·5174 반영 완료 / PR #49 squash merge 완료
+- 순서 승인: 사용자가 History Support 대기 중 이 Frontend-only Task의 병렬 진행과 bounded worktree 사용을 명시 승인했다. 당시 history P2와 신규 기능 `NO_GO` 상태는 변경하지 않았다.
 - 목적: 기존 Entra 인증 정책과 request/cache 동작을 보존하면서 승인된 Figma 디자인을 인증 공통 shell과 Desktop 로그인 화면에 구현한다. Change 001에 따라 Mobile은 제외하고 로그인 화면에는 Figma에 존재하는 요소만 표시한다.
-- Figma 기준: node `1:175`, 1440×810 design context·screenshot·metadata·assets 재확인, variable definition 0. 로그인 상태 유지 `1:187`은 component set `1:160`의 `속성 1=베리언트2`; 기본은 white·`#737373`·icon 0, Variant 2는 `#DA2127`·white Done icon·`#282828`이다. Code Connect는 Organization/Enterprise Dev 또는 Full seat 제한으로 조회되지 않았고 Repository에 기존 mapping도 없다.
+- Figma 기준: node `1:175`, 1440×810 design context·screenshot·metadata·assets 재확인, variable definition 0. 로그인 상태 유지 `1:187`은 component set `1:160`의 `속성 1=베리언트2`; 기본은 white·`#737373`·icon 0, Variant 2는 `#DA2127`·white Done icon·`#282828`이다. Code Connect는 사용자 결정에 따라 향후 필수 구현·검수 Gate에서 제외한다.
 - 구현: Figma 원본 장식·EMI/Microsoft asset과 공통 인증 state shell을 적용했다. 로그인 상태 유지는 클릭 시 Variant 2의 red fill·Figma Done icon·dark text로 전환하고 기존 preference/cache 의미를 유지한다. Change 008은 icon asset·크기와 나머지 style을 바꾸지 않고 Done icon만 checkbox `50% 50%`에 중앙 정렬한다. Desktop Loading은 기본 로그인과 같은 logo/title/Microsoft logo/안내/배경 canvas를 유지하되 `LOGIN`·checkbox를 제거하고 그 영역에 `#DA2127` 회전 indicator 1개를 표시한다. 다른 계정 선택은 Microsoft 로그인 화면의 provider UX에 위임하며 우리 Frontend의 중복 action·전용 request는 제거했다. Ellipse 68은 실제 pattern fill의 `-538.5/-468/876×876`, opacity 0.33으로 보정했다.
 - Figma 배경·연결부: frame base `#DA2127`, `-6/0/1446×810` white 10% glass, `776/0/664.5×810` white shape, left radius 51과 shadow `-5.25/-1.5/43.05`를 재확인했다. White shape 뒤를 red frame으로 유지해 rounded corner 밖과 shadow 뒤에 red가 이어진다.
 - PC 반응형: red/white flexible panel이 viewport 전체를 채우고 각 panel 내부 reference content만 등비 축소·확대한다. 1920×1080, 1440×810, 1280×720, 1024×768, 1440×600, 651×708와 live resize에서 panel coverage 100%, inner content fully visible, normalized geometry 유지, horizontal/vertical overflow 0을 확인했다.
@@ -1115,7 +1140,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 시각 비교: 승인 안내 포함 MAE 1.2497, exact pixel 69.3100%, channel당 차이 8 이하 97.7912%. Figma에 없는 승인 안내 영역 제외 시 MAE 1.1303, channel당 차이 8 이하 97.9200%. 렌더러 차이와 승인 추가 영역을 raw pixel 100% 동일성으로 과장하지 않는다.
 - 인증 action audit: Frontend 전용 account-switch request·`select_account` prompt·handler·prop·button은 모두 제거됐다. Microsoft provider의 `다른 계정 사용`만 일반 login redirect 뒤에 남는다. 기본 로그인·상태 유지·재인증·로그아웃은 정상 또는 조건부 접근 가능하고 cached restore·silent token은 자동 기능이다. 설정 누락은 redirect 불가 fail-safe이며 orphan authentication action은 0이다.
 - 독립 검증: Change 008·Change 009 PASS. Change 009는 allowlist 26/26, source hash 12/12, 최신 main Roadmap baseline, 인증 불변조건, runtime·privacy·Finding gate를 재검증해 현재 P0/P1/P2/P3 `0/0/0/0`, 해결된 P2 1로 판정했다.
-- 잔여 Gate: PR #49 필수 CI 통과 확인 후 squash merge 실행
+- 잔여 Gate: Promotion·5176 experiment worktree 정리는 사용자 요청으로 Deferred이며 후속 HOUSEKEEPING 승인에서 수행
 - 산출물: [Task와 검수 checklist](../tasks/design-login-001.md), [Implementation report·User manual](../tasks/design-login-001-implementation-report.md), [화면 단위 승격 SOP](development/design-screen-promotion.md), 이 Roadmap update
 
 ### TASK-GOV-CODEX-002: Fable 5 신규 기능·Codex-only 작업 라우터
@@ -1417,7 +1442,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 핵심 검수 기준: 필수 알림 해제 차단, 기본값 호환, event/channel별 저장과 재로그인 유지, 인앱 원본 보존, preference 변경 audit, 외부 delivery 생성 여부 검증
 - 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
 
-현재 canonical 순서는 이 장 시작의 실행 큐를 따른다. TASK-NOTIFY-REL-001과 TASK-NOTIFY-ESC-001 완료 범위는 TASK-NOTIFY-004에서 재구현하지 않는다. TASK-UX-001과 TASK-NOTIFY-005는 큐에서 Deferred로 유지하며, 전체 신규 기능은 Phase 0 Finding gate와 사용자 Go 승인 전까지 `P2 Blocked`다.
+현재 canonical 순서는 이 장 시작의 실행 큐를 따른다. TASK-NOTIFY-REL-001과 TASK-NOTIFY-ESC-001 완료 범위는 TASK-NOTIFY-004에서 재구현하지 않는다. TASK-UX-001과 TASK-NOTIFY-005는 큐에서 Deferred로 유지한다. Phase 0 Finding gate는 Open P0/P1/P2 `0/0/0`을 확인했으며, 전체 신규 기능은 사용자의 0.6 Go 승인 전까지 시작하지 않는다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1603,7 +1628,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 59 | Notification delivery claim/lease | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-REL-001 | Processing·SKIP LOCKED·lease/fencing·attempt audit, 정상 경쟁 provider call 1회, isolated candidate 5094/5192. Persistent UAT 0028 미적용, actual provider 호출 0, at-least-once이며 exactly-once 미보장. PR #30 |
 | 60 | Escalation starvation | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-ESC-001 | 기존 evaluation timestamp fair ordering, 후보 오류 격리, 101/200/201 유한 poll, 중복 0. Persistent UAT worker는 disabled 유지 |
 | 61 | 마지막 System Administrator 동시성 보호 | controlled UAT Phase A~D·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-AUTH-HARDEN-001 | Privacy-safe evidence·isolated HTTP·temporary ReviewSafe·latest-main Development handover 완료. Persistent live mutation은 break-glass 증명 전 No-Go |
-| 62 | Git history 개인정보 | 정책·사용자 검수 완료 / PR #41 merge 승인 / coordinated rewrite 실행 대기 | 사용자/보안 | TASK-GOV-002 | Public history 영향 1 commit/2 files, remote ref 15/18. Risk owner는 Repository owner/security owner이며 실제 rewrite는 후속 Task에서 별도 승인 |
+| 62 | Git history 개인정보 | 정책·rewrite·Support server-side cleanup 완료 / history P2 Resolved | 사용자/보안 | TASK-GOV-002 / TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone 검증, internal reference 제거·repository GC와 cached reference `REMOVED`. Repository는 별도 승인 전 `PRIVATE`, backup 삭제 미승인 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
 | 65 | Privacy-safe Review-safe runtime handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-002 | merged main 5190/5092, Compatible 27/28/1, redacted browser matrix, DB read-only·423, Candidate/Persistent UAT 보존. PR #28 |
@@ -1618,11 +1643,13 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 74 | terminal Failed delivery 수동 재처리 범위 | 정책 결정 완료 / Deferred | 사용자/개발/운영 | TASK-NOTIFY-004 | 현재 P2 필수 보정 아님. Retry generation·append-only audit·duplicate-risk 확인이 필요한 별도 NEW_FEATURE 후보 |
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
-| 77 | Git history coordinated rewrite 실행 | P2 planning 필요 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | Maintenance, private containment 선택, secure backup, all-ref force push, cache 처리와 contributor re-clone을 별도 승인. 실행 완료 전 P2 Open |
+| 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수 완료 / merge 승인 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. Public 재개와 backup 삭제는 별도 결정 |
 | 78 | Task instruction chain·완료 보고 형식 | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 모든 Task 시작 전 filesystem 지침 재확인과 종료 시 고정 10개 항목을 강제. 적용 대상 없음도 `N/A`와 이유 기록 |
 | 79 | Full-Stack E2E 구매정보 동적 행 timing | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발/품질 | TASK-E2E-RELIABILITY-001 | 최신 load만 edit state에 반영하고 행 추가 1회·정확한 row/input 준비를 검증. 대상 E2E 20/20, 전체 16/16 통과 |
-| 80 | Backend import-order format debt | 구현·자동·독립 검증·사용자 검수 완료 / merge 승인 | 개발/품질 | TASK-BACKEND-FORMAT-001 | 정확한 Backend C# 9개 파일의 `IMPORTS=9`를 diagnostic 0으로 정리. 실행 코드·API·DB·runtime 변경 0 |
-| 82 | Entra 로그인 공통 디자인 shell | Change 008 사용자 전체 검수·Change 009 fixed allowlist 이식·전체 Frontend 자동·독립 검증·5174 Frontend-only 반영 완료 / PR #49 Ready·merge 승인 | 사용자/개발/품질 | TASK-DESIGN-LOGIN-001 | 승인된 Figma node 기반 공통 auth shell, checkbox Variant 2와 Loading 빨간 회전 indicator. 최신 main 선택 이식과 auth browser 12/12·mock 1/1·독립 검증, HTTPS 5174 익명 browser projection을 통과했다. 필수 CI 후 squash merge하며 5176와 Backend·DB runtime, History P2 상태를 보존한다. Mobile 제외, 인증 정책·Backend·DB 변경 0 |
+| 80 | Backend import-order format debt | 구현·자동·독립 검증·사용자 검수·merge 완료 | 개발/품질 | TASK-BACKEND-FORMAT-001 | 정확한 Backend C# 9개 파일의 `IMPORTS=9`를 diagnostic 0으로 정리. 실행 코드·API·DB·runtime 변경 0 |
+| 82 | Entra 로그인 공통 디자인 shell | 사용자 검수·승격·5174 반영·PR #49 merge 완료 | 사용자/개발/품질 | TASK-DESIGN-LOGIN-001 | 승인된 Figma 기반 auth shell과 Loading·checkbox 반영. Code Connect는 향후 필수 Gate가 아니며 5176 실험 runtime은 보존 |
+| 83 | 로그인 디자인 promotion·experiment worktree 정리 | Deferred — 사용자 요청으로 현 상태 보존 | 사용자/개발 | 후속 HOUSEKEEPING Gate | Promotion worktree와 5176 experiment worktree는 실행 source·dirty state·commit reachability를 다시 확인한 뒤 별도 정리 승인을 받아 제거 |
+| 84 | 전체 Finding Gate | Open P0/P1/P2 `0/0/0` / 독립 검증·사용자 검수 완료 / merge 승인 | 사용자/개발/보안 | TASK-GOV-FINDING-GATE-001 | History·E2E·Failed retry·privacy 절차 P2 Resolved. 신규 기능은 `GO_FOR_USER_DECISION`, 자동 시작 아님 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1753,6 +1780,11 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-14 | `TASK-DESIGN-LOGIN-001` Change 008에서 로그인 상태 유지 Done icon만 checkbox 중앙 정렬 | 사용자 시각 검수에서 확인된 icon 오프셋을 보정하되 checkbox의 크기·색상·문구·기능과 나머지 화면을 보존하기 위함 | 20장~25장, TASK-DESIGN-LOGIN-001 Change 008 |
 | 2026-07-14 | `TASK-DESIGN-LOGIN-001` 사용자 전체 검수를 완료하고 Change 009 최신 main 화면 단위 승격을 승인 | 5176 실험본 전체를 병합하지 않고 검수 완료 로그인 화면 fixed allowlist만 clean promotion branch에 이식·전체 검증하며, 5174·5176와 Backend·DB runtime 및 별도 게시 승인 경계를 보존하기 위함 | 20장~25장, TASK-DESIGN-LOGIN-001 Change 009, 디자인 화면 단위 승격 운영 기준 |
 | 2026-07-15 | `TASK-DESIGN-LOGIN-001` 5174 Frontend 반영과 게시·merge를 일괄 승인 | 검증된 로그인 화면 fixed allowlist를 기능 source of truth에 승격하고 기존 Entra·Backend·DB·5176 runtime을 보존한 상태에서 HTTPS 5174 사용자 환경에 적용하기 위함 | 20장~25장, TASK-DESIGN-LOGIN-001 Change 009, 디자인 화면 단위 승격 운영 기준 |
+| 2026-07-15 | `TASK-DESIGN-LOGIN-001` PR #49 squash merge 완료, Code Connect는 향후 디자인 구현 필수 Gate에서 제외 | 검수 완료 로그인 화면은 main에 승격됐고 이후 Figma 화면도 화면 단위 승격을 사용하되 seat 제한인 Code Connect 확인을 완료 조건으로 요구하지 않기 위함 | 23장~25장, TASK-DESIGN-LOGIN-001 |
+| 2026-07-15 | 로그인 promotion·5176 experiment worktree 정리를 Deferred로 추적 | 현재는 그대로 보존하고 이후 runtime 소유·dirty 변경·commit reachability 확인과 별도 사용자 승인 뒤 HOUSEKEEPING으로 정리하기 위함 | 23장~25장, 추적 항목 83 |
+| 2026-07-15 | GitHub Support의 internal reference 제거·repository GC 완료와 old cached reference `REMOVED`를 확인해 history P2를 Resolved로 전환 | Published ref rewrite와 fresh clone 검증에 server-side cleanup·direct-view fixed projection까지 충족됐으므로 전체 Finding Gate를 재개할 수 있기 때문. Public 재개·backup 삭제·문서 게시는 별도 결정으로 유지 | 23장~25장, TASK-GOV-HISTORY-REWRITE-001 |
+| 2026-07-15 | TASK-GOV-FINDING-GATE-001 재평가에서 Open P0/P1/P2 `0/0/0`, 신규 기능 `GO_FOR_USER_DECISION`을 권고 | History·E2E·Failed retry·privacy 절차 P2의 closure 근거와 현재 runtime·Persistent aggregate를 재검증했기 때문. 사용자 Go 승인, 독립 검증과 문서 게시를 자동 수행하지 않음 | 23장~25장, TASK-GOV-FINDING-GATE-001 |
+| 2026-07-15 | TASK-GOV-HISTORY-REWRITE-001과 TASK-GOV-FINDING-GATE-001의 독립 검증·사용자 검수를 완료하고 문서 commit·push·PR·squash merge를 승인 | 11/11 allowlist, product diff 0, P0/P1/P2/P3 `0/0/0/0`, runtime·Persistent UAT 보존과 merge Gate GO를 확인했기 때문. Public 재개·backup 삭제·worktree cleanup·신규 기능 Go는 포함하지 않음 | 23장~25장, 두 governance Task |
 
 ## 26. 용어 사전
 

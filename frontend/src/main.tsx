@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MsalProvider } from '@azure/msal-react';
-import { App } from './App';
+import { App, AuthInitializationScreen } from './App';
 import {
   createMsalInstance,
   getRememberSessionPreference,
@@ -37,7 +37,7 @@ function EntraRoot() {
   };
 
   if (initializedInstance !== instance) {
-    return null;
+    return <AuthInitializationScreen rememberSession={rememberSession} />;
   }
 
   return (

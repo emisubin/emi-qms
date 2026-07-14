@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MsalProvider } from '@azure/msal-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -96,6 +96,50 @@ describe('authentication modes', () => {
     const { App } = await import('../src/App');
     const { msalInstance } = await import('../src/auth');
     await msalInstance.initialize();
+    const onRememberSessionChange = vi.fn();
+
+    render(
+      <MsalProvider instance={msalInstance}>
+        <App onRememberSessionChange={onRememberSessionChange} />
+      </MsalProvider>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'EMI 프로젝트 통합관리시스템' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'login'));
+    expect(screen.getByAltText('EMI Electric Modular Innovation')).toBeInTheDocument();
+    expect(screen.getByAltText('Microsoft')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'LOGIN' })).toBeInTheDocument();
+    expect(screen.getByText('회사 Microsoft 365 계정으로 로그인해 주세요.')).toBeInTheDocument();
+    expect(screen.queryByText('회사 계정이 아닌 경우 로그인할 수 없습니다.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '다른 계정으로 로그인' })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '로그인 상태 유지' })).toBeChecked();
+    expect(screen.queryByLabelText('개발 사용자')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '로그인 상태 유지' }));
+    expect(onRememberSessionChange).toHaveBeenCalledWith(false);
+  });
+
+  it('renders the common branded shell while MSAL is initializing', async () => {
+    const { AuthInitializationScreen } = await import('../src/App');
+
+    render(<AuthInitializationScreen rememberSession={false} />);
+
+    expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'loading');
+    expect(screen.getByRole('main')).toHaveAttribute('data-auth-layout', 'login');
+    expect(screen.getByRole('heading', { name: 'EMI 프로젝트 통합관리시스템' })).toBeInTheDocument();
+    expect(screen.getByAltText('EMI Electric Modular Innovation')).toBeInTheDocument();
+    expect(screen.getByAltText('Microsoft')).toBeInTheDocument();
+    expect(screen.getByText('Microsoft 365 로그인 정보를 확인하고 있습니다.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'LOGIN' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: '로그인 상태 유지' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: '로그인 확인 중' })).toHaveClass('auth-loading-indicator');
+  });
+
+  it('renders the common branded shell when Microsoft configuration is missing', async () => {
+    vi.stubEnv('VITE_AUTH_MODE', 'EntraId');
+    const { App } = await import('../src/App');
+    const { msalInstance } = await import('../src/auth');
+    await msalInstance.initialize();
 
     render(
       <MsalProvider instance={msalInstance}>
@@ -103,26 +147,51 @@ describe('authentication modes', () => {
       </MsalProvider>
     );
 
-    expect(await screen.findByText('회사 Microsoft 365 계정으로 로그인해 주세요.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Microsoft 365 로그인' })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: '로그인 상태 유지' })).toBeChecked();
-    expect(screen.queryByLabelText('개발 사용자')).not.toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'configuration');
+    expect(screen.getByRole('heading', { name: 'Microsoft 로그인 설정이 필요합니다.' })).toBeInTheDocument();
+    expect(screen.getByAltText('EMI Electric Modular Innovation')).toBeInTheDocument();
+    expect(screen.getByAltText('Microsoft')).toBeInTheDocument();
   });
 
-  it('uses tenant-specific Microsoft authority and separates default login from account switching', async () => {
+  it('renders the common branded shell while an interactive login is in progress', async () => {
+    vi.stubEnv('VITE_AUTH_MODE', 'EntraId');
+    vi.stubEnv('VITE_AZURE_TENANT_ID', '11111111-1111-1111-1111-111111111111');
+    vi.stubEnv('VITE_AZURE_CLIENT_ID', '22222222-2222-2222-2222-222222222222');
+    vi.stubEnv('VITE_AZURE_API_SCOPE', 'api://33333333-3333-3333-3333-333333333333/access_as_user');
+    vi.doMock('@azure/msal-react', () => ({
+      MsalProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+      useMsal: () => ({
+        accounts: [],
+        inProgress: 'startup',
+        instance: {}
+      })
+    }));
+
+    const { App } = await import('../src/App');
+    render(<App />);
+
+    expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'loading');
+    expect(screen.getByRole('main')).toHaveAttribute('data-auth-layout', 'login');
+    expect(screen.getByRole('heading', { name: 'EMI 프로젝트 통합관리시스템' })).toBeInTheDocument();
+    expect(screen.getByText('Microsoft 365 로그인 정보를 확인하고 있습니다.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'LOGIN' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: '로그인 상태 유지' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: '로그인 확인 중' })).toHaveClass('auth-loading-indicator');
+  });
+
+  it('uses tenant-specific Microsoft authority and leaves account selection to the Microsoft login screen', async () => {
     vi.stubEnv('VITE_AUTH_MODE', 'EntraId');
     vi.stubEnv('VITE_AZURE_TENANT_ID', '11111111-1111-1111-1111-111111111111');
     vi.stubEnv('VITE_AZURE_CLIENT_ID', '22222222-2222-2222-2222-222222222222');
     vi.stubEnv('VITE_AZURE_API_SCOPE', 'api://33333333-3333-3333-3333-333333333333/access_as_user');
 
-    const { accountSwitchLoginRequest, loginRequest, msalAuthority, msalScopes } = await import('../src/auth');
+    const { loginRequest, msalAuthority, msalScopes } = await import('../src/auth');
 
     expect(msalAuthority).toBe('https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111');
     expect(msalAuthority).not.toContain('/common');
     expect(msalAuthority).not.toContain('/organizations');
     expect(msalScopes).toEqual(['api://33333333-3333-3333-3333-333333333333/access_as_user']);
     expect('prompt' in loginRequest).toBe(false);
-    expect(accountSwitchLoginRequest.prompt).toBe('select_account');
   });
 
   it('uses the remember-session preference for MSAL cacheLocation', async () => {
@@ -232,8 +301,47 @@ describe('authentication modes', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '다시 로그인이 필요합니다.' })).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'reauth');
     expect(screen.getByText('로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.')).toBeInTheDocument();
     expect(screen.queryByText('TASK-INFRA Project')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Microsoft 365로 다시 로그인' }));
+
+    expect(screen.queryByRole('button', { name: '다른 계정으로 로그인' })).not.toBeInTheDocument();
+    expect(fakeInstance.loginRedirect).toHaveBeenCalledTimes(1);
+    expect(fakeInstance.loginRedirect).toHaveBeenCalledWith(expect.not.objectContaining({ prompt: 'select_account' }));
+  });
+
+  it('renders the common branded error shell for a non-interaction token failure', async () => {
+    vi.stubEnv('VITE_AUTH_MODE', 'EntraId');
+    vi.stubEnv('VITE_AZURE_TENANT_ID', '11111111-1111-1111-1111-111111111111');
+    vi.stubEnv('VITE_AZURE_CLIENT_ID', '22222222-2222-2222-2222-222222222222');
+    vi.stubEnv('VITE_AZURE_API_SCOPE', 'api://33333333-3333-3333-3333-333333333333/access_as_user');
+
+    const fakeInstance = {
+      getActiveAccount: () => null,
+      getAllAccounts: () => [testAccount('cached-user')],
+      setActiveAccount: vi.fn(),
+      acquireTokenSilent: vi.fn().mockRejectedValue(new Error('synthetic token failure')),
+      loginRedirect: vi.fn(),
+      logoutRedirect: vi.fn()
+    };
+    vi.doMock('@azure/msal-react', () => ({
+      MsalProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+      useMsal: () => ({
+        accounts: [],
+        inProgress: 'none',
+        instance: fakeInstance
+      })
+    }));
+
+    const { App } = await import('../src/App');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '인증 정보를 확인할 수 없습니다.' })).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'error');
+    expect(screen.getByAltText('EMI Electric Modular Innovation')).toBeInTheDocument();
+    expect(screen.getByAltText('Microsoft')).toBeInTheDocument();
   });
 });
 

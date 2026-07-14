@@ -72,11 +72,6 @@ export const loginRequest = {
   scopes: msalScopes
 };
 
-export const accountSwitchLoginRequest = {
-  scopes: msalScopes,
-  prompt: 'select_account' as const
-};
-
 export type RestoredAccountResult =
   | { kind: 'none' }
   | { kind: 'single'; account: AccountInfo }

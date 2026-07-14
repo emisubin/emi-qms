@@ -8,7 +8,7 @@
 - publishingApproved: true
 - 자동 검증: 완료 — current main·runtime·Persistent aggregate
 - 독립 Codex 검증: PASS
-- 사용자 검수: 완료 / commit·push·PR·squash merge 승인
+- 사용자 검수: 완료 / PR #50 squash merge 승인
 - 신규 기능 Gate: `GO_FOR_USER_DECISION`
 
 ## 2. 목적
@@ -23,7 +23,7 @@
 
 - main/origin main: `197f1d0b02f0`
 - Repository visibility: `PRIVATE`
-- Open PR: 최근 직접 확인 0 / 이번 connector 재확인 unavailable
+- 게시 시점 Open PR: PR #50 단독
 - PR #34~#49: 필요한 remediation·UAT·design merge가 origin/main에 포함
 - PR #49 merge-time 표준 CI: `3/3` PASS
 - Development 5174/5081: live/ready 200, frontend 200
@@ -41,10 +41,10 @@
 | `GIT_HISTORY_PERSONAL_DATA_REMAINS` | P2 | RESOLVED | Published ref `16/16`, fresh clone, Support internal reference 제거·repository GC 완료, old cached reference `REMOVED` | No |
 | `FULL_STACK_E2E_PROCUREMENT_EDIT_ROW_RACE` | P2 | RESOLVED | PR #43 merge, targeted 20/20·Full-Stack E2E 16/16 | No |
 | `FAILED_RETRY_DOCUMENTATION_DRIFT` | P2 | RESOLVED | PR #44 `POLICY_CORRECTION_AND_DEFER` merge | No |
-| `PRIVACY_SAFE_EVIDENCE_OUTPUT_VIOLATION` | P2 | RESOLVED_PROCEDURAL | Closure 확인 재발 1건 포함 기록, fixed projection 재실행, tracked leak·external write 0 | No |
+| `PRIVACY_SAFE_EVIDENCE_OUTPUT_VIOLATION` | P2 | RESOLVED_PROCEDURAL | Closure·publication 재발 2건 포함 기록, Support/GitHub fixed projection 재실행, tracked leak·secret 0 | No |
 | 기존 import-order 9건 | P3 | RESOLVED | `style: normalize backend import order`가 origin/main에 포함 | No |
 | Auth break-glass 미증명 | 제한 | NOT_A_FINDING | Persistent live auth mutation `NO_GO` 운영 제한 유지 | No |
-| GitHub live connector 재조회 불가 | 제한 | VALIDATION_LIMITATION | origin/main·merge-time fixed projection으로 보완. 게시 직전 live metadata 재확인 필요 | No |
+| GitHub app connector 재조회 불가 | 제한 | VALIDATION_LIMITATION | origin/main과 인증된 CLI의 PR number·state·check fixed projection으로 보완 | No |
 
 ## 6. 판정
 

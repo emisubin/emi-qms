@@ -11,7 +11,7 @@
 - GitHub Support internal reference removal·repository GC: 완료
 - Public 재개: 미승인
 - Encrypted backup 삭제: 미승인
-- 문서 commit·push·PR·merge: 승인 완료
+- 문서 commit·push·PR #50·squash merge: 승인 완료
 - 사용자 검수: 완료
 - 기존 실행 독립 검증: PASS
 - Support closure 독립 검증: PASS
@@ -73,7 +73,7 @@ Current checkout에서 비식별화된 과거 개인정보가 published Git hist
 - History rewrite 무결성 신규 P2: 0
 - 해결된 P2 `GIT_HISTORY_PERSONAL_DATA_REMAINS`: 영향 published ref `16/16` rewrite, fresh-clone 검증, GitHub Support의 internal reference 제거·repository GC 완료 회신과 old cached reference `REMOVED` fixed projection으로 closure 조건을 충족했다.
 - 해결된 P2 `FULL_STACK_E2E_PROCUREMENT_EDIT_ROW_RACE`: `TASK-E2E-RELIABILITY-001`에서 보정·검증 후 PR #43으로 병합됐다.
-- 해결된 절차 P2 `PRIVACY_SAFE_EVIDENCE_OUTPUT_VIOLATION`: 기존 2건 보정 뒤 Support closure 확인에서 raw page snapshot 1건이 fixed-projection 경계를 다시 벗어났다. Tracked leak·external write·secret 노출은 0이다. 브라우저 수집을 즉시 중단하고 completion/follow-up/closed `1/1/1`, cached view `REMOVED` fixed projection으로 처음부터 재검증했다.
+- 해결된 절차 P2 `PRIVACY_SAFE_EVIDENCE_OUTPUT_VIOLATION`: 기존 2건 보정 뒤 Support closure raw page snapshot과 문서 publication push 원문이 각각 1회 fixed-projection 경계를 다시 벗어났다. Tracked leak·secret은 0이다. 브라우저 수집을 중단해 Support 결과를 `1/1/1`·`REMOVED`로 재검증했고, 이후 GitHub 결과는 PR 번호·state·check count만 투영하도록 보정했다.
 - External clone·download 완전 회수: 증명 불가
 - Support fixed-schema 재검증: privacy guard PASS, 오류 0, unresolved history P2 0
 - Support closure 문서의 분리된 Codex 독립 검증: PASS, P0/P1/P2/P3 `0/0/0/0`, merge Gate GO
@@ -91,7 +91,7 @@ Current checkout에서 비식별화된 과거 개인정보가 published Git hist
 
 ## 8. 다음 Gate
 
-1. 승인된 5종 산출물 commit·push·PR·squash merge
+1. 승인된 PR #50 필수 CI 확인과 squash merge
 2. 신규 기능 Go/No-Go 사용자 결정
 3. Risk owner의 public 재개 결정
 4. 보존 기간 경과 뒤 backup 삭제 별도 승인

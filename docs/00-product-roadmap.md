@@ -973,11 +973,11 @@ Excel 출력 대상 후보:
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0.1 | TASK-UAT-AUTH-HARDEN-001 | UAT_RUNTIME | Completed | Planning Approved | Phase A~D 자동 검증·runtime 적용·사용자 검수 완료 | break-glass 미증명으로 live mutation 금지 | Yes | PR #40 squash merge 승인 → TASK-GOV-002 |
 | 0.2 | TASK-GOV-002 | POLICY_DECISION | Completed | Planning Approved | current checkout 비식별화·public history 조사·사용자 검수 완료 | PR #41 Ready·squash merge 승인 | No | PR #41 merge → TASK-GOV-HISTORY-REWRITE-001 |
-| 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | Completed / Merge Approved | Planning·Implementation Approved | 영향 ref `16/16`, fresh clone, old clone quarantine, Support cleanup, 독립 검증·사용자 검수 완료 | Public 재개·backup 삭제는 각각 별도 승인 | No | 승인된 5종 산출물 squash merge |
+| 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | Completed / PR #50 Ready·Merge Approved | Planning·Implementation Approved | 영향 ref `16/16`, fresh clone, old clone quarantine, Support cleanup, 독립 검증·사용자 검수 완료 | Public 재개·backup 삭제는 각각 별도 승인 | No | PR #50 필수 CI → squash merge |
 | 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Completed / PR #44 Merged | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | Finding gate에서 Resolved 확인 |
 | 0.4A | TASK-BACKEND-FORMAT-001 — import-order baseline 정리 | HOUSEKEEPING | Completed / Merged | Planning Approved | import-order 9건 정규화·검증·사용자 검수 완료 | 없음 | No | Finding gate에서 Resolved 확인 |
 | 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | APPROVED_FEATURE_IMPLEMENTATION | Completed / PR #49 Merged | Implementation Approved | Change 001~009 사용자 검수·최신 main 승격·전체 Frontend 자동·독립 검증·5174 반영 완료 | 없음. Code Connect는 향후 필수 Gate에서 제외 | No | Promotion·5176 experiment worktree 정리는 사용자 Deferred 결정 추적 |
-| 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | Completed / Merge Approved | Planning Approved | Open P0/P1/P2 `0/0/0`, 독립 검증·사용자 검수 완료 | 문서 merge 실행 중 | No | squash merge → 0.6 사용자 결정 |
+| 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | Completed / PR #50 Ready·Merge Approved | Planning Approved | Open P0/P1/P2 `0/0/0`, 독립 검증·사용자 검수 완료 | 없음 | No | PR #50 필수 CI → squash merge → 0.6 사용자 결정 |
 | 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | Ready for User Decision | Deferred | Open P0/P1/P2 `0/0/0` | 사용자 승인 | No | 신규 기능 Go/No-Go 명시 결정 |
 | 1.1 | TASK-007A Pending List | NEW_FEATURE | User Go Pending | Scope Review Required | Phase 0 사용자 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Go 승인 후 Fable 5 deep-interview → 사용자 요약 확인 → Fable 5 planning → Codex review → 사용자 승인 |
 | 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A | Pending 차단·상태 matrix 확정 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
@@ -1103,7 +1103,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-GOV-HISTORY-REWRITE-001: Coordinated Git history rewrite
 
-- 상태: 영향 published ref rewrite·fresh clone·old common repository push quarantine·Support cleanup·독립 검증·사용자 검수 완료 / Repository `PRIVATE` / cached reference `REMOVED` / squash merge 승인
+- 상태: 영향 published ref rewrite·fresh clone·old common repository push quarantine·Support cleanup·독립 검증·사용자 검수 완료 / Repository `PRIVATE` / cached reference `REMOVED` / PR #50 Ready·squash merge 승인
 - 목적: current checkout에서 제거된 과거 개인정보를 모든 영향 published ref에서 제거하고 cache·old clone 재유입·backup 경계를 분리해 검증한다.
 - 실행 결과: 영향 ref `16/16`, 예상 밖 ref 이동 0, tip tree mismatch 0, fresh-clone history exact match 0, fsck error 0
 - Support 결과: completion/follow-up/closed fixed projection `1/1/1`, old cached reference `REMOVED`, page-not-found `true`
@@ -1112,12 +1112,12 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제품 영향: Backend·Frontend·API·DB·migration·runtime·provider 변경 0
 - P2: `GIT_HISTORY_PERSONAL_DATA_REMAINS` Resolved. 외부 clone·archive 완전 회수는 증명하지 않으며 public 재개를 자동 승인하지 않는다.
 - CI Finding: `FULL_STACK_E2E_PROCUREMENT_EDIT_ROW_RACE`는 `TASK-E2E-RELIABILITY-001` 보정·검증과 PR #43 병합으로 Resolved다.
-- 절차 Finding: Support closure raw page snapshot 재발 1건은 tracked leak·external write 0을 확인하고 fixed projection으로 처음부터 재검증해 Resolved다.
+- 절차 Finding: Support closure raw page snapshot과 publication push 원문 재발 각 1건은 tracked leak·secret 0을 확인하고 Support/GitHub fixed projection으로 재검증해 Resolved다.
 - 산출물: [Planning](../tasks/gov-history-rewrite-001-planning.md), [Task와 검수 checklist](../tasks/gov-history-rewrite-001.md), [Implementation report](../tasks/gov-history-rewrite-001-implementation-report.md), [SOP](../tasks/gov-history-rewrite-001-sop.md), [User manual](../tasks/gov-history-rewrite-001-user-manual.md), 이 Roadmap update
 
 ### TASK-GOV-FINDING-GATE-001: 전체 P0/P1/P2 재평가
 
-- 상태: read-only closure matrix 재평가·독립 검증·사용자 검수 완료 / Open P0/P1/P2 `0/0/0` / squash merge 승인
+- 상태: read-only closure matrix 재평가·독립 검증·사용자 검수 완료 / Open P0/P1/P2 `0/0/0` / PR #50 Ready·squash merge 승인
 - 목적: 실제 main·최근 merge·운영 read-only 기준선과 외부 blocker를 closure matrix로 대조한다.
 - 선행 해소: E2E row race PR #43, Failed retry 문서 drift PR #44, Git history internal reference 제거와 GC 완료
 - Task 이름: canonical ID는 `TASK-GOV-FINDING-GATE-001`이다. `TASK-GOV-P2-GATE-001`은 동일 목적의 non-canonical shorthand이며 별도 Task가 아니다.
@@ -1643,13 +1643,13 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 74 | terminal Failed delivery 수동 재처리 범위 | 정책 결정 완료 / Deferred | 사용자/개발/운영 | TASK-NOTIFY-004 | 현재 P2 필수 보정 아님. Retry generation·append-only audit·duplicate-risk 확인이 필요한 별도 NEW_FEATURE 후보 |
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
-| 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수 완료 / merge 승인 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. Public 재개와 backup 삭제는 별도 결정 |
+| 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수 완료 / PR #50 merge 승인 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. Public 재개와 backup 삭제는 별도 결정 |
 | 78 | Task instruction chain·완료 보고 형식 | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 모든 Task 시작 전 filesystem 지침 재확인과 종료 시 고정 10개 항목을 강제. 적용 대상 없음도 `N/A`와 이유 기록 |
 | 79 | Full-Stack E2E 구매정보 동적 행 timing | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발/품질 | TASK-E2E-RELIABILITY-001 | 최신 load만 edit state에 반영하고 행 추가 1회·정확한 row/input 준비를 검증. 대상 E2E 20/20, 전체 16/16 통과 |
 | 80 | Backend import-order format debt | 구현·자동·독립 검증·사용자 검수·merge 완료 | 개발/품질 | TASK-BACKEND-FORMAT-001 | 정확한 Backend C# 9개 파일의 `IMPORTS=9`를 diagnostic 0으로 정리. 실행 코드·API·DB·runtime 변경 0 |
 | 82 | Entra 로그인 공통 디자인 shell | 사용자 검수·승격·5174 반영·PR #49 merge 완료 | 사용자/개발/품질 | TASK-DESIGN-LOGIN-001 | 승인된 Figma 기반 auth shell과 Loading·checkbox 반영. Code Connect는 향후 필수 Gate가 아니며 5176 실험 runtime은 보존 |
 | 83 | 로그인 디자인 promotion·experiment worktree 정리 | Deferred — 사용자 요청으로 현 상태 보존 | 사용자/개발 | 후속 HOUSEKEEPING Gate | Promotion worktree와 5176 experiment worktree는 실행 source·dirty state·commit reachability를 다시 확인한 뒤 별도 정리 승인을 받아 제거 |
-| 84 | 전체 Finding Gate | Open P0/P1/P2 `0/0/0` / 독립 검증·사용자 검수 완료 / merge 승인 | 사용자/개발/보안 | TASK-GOV-FINDING-GATE-001 | History·E2E·Failed retry·privacy 절차 P2 Resolved. 신규 기능은 `GO_FOR_USER_DECISION`, 자동 시작 아님 |
+| 84 | 전체 Finding Gate | Open P0/P1/P2 `0/0/0` / 독립 검증·사용자 검수 완료 / PR #50 merge 승인 | 사용자/개발/보안 | TASK-GOV-FINDING-GATE-001 | History·E2E·Failed retry·privacy 절차 P2 Resolved. 신규 기능은 `GO_FOR_USER_DECISION`, 자동 시작 아님 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1784,7 +1784,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-15 | 로그인 promotion·5176 experiment worktree 정리를 Deferred로 추적 | 현재는 그대로 보존하고 이후 runtime 소유·dirty 변경·commit reachability 확인과 별도 사용자 승인 뒤 HOUSEKEEPING으로 정리하기 위함 | 23장~25장, 추적 항목 83 |
 | 2026-07-15 | GitHub Support의 internal reference 제거·repository GC 완료와 old cached reference `REMOVED`를 확인해 history P2를 Resolved로 전환 | Published ref rewrite와 fresh clone 검증에 server-side cleanup·direct-view fixed projection까지 충족됐으므로 전체 Finding Gate를 재개할 수 있기 때문. Public 재개·backup 삭제·문서 게시는 별도 결정으로 유지 | 23장~25장, TASK-GOV-HISTORY-REWRITE-001 |
 | 2026-07-15 | TASK-GOV-FINDING-GATE-001 재평가에서 Open P0/P1/P2 `0/0/0`, 신규 기능 `GO_FOR_USER_DECISION`을 권고 | History·E2E·Failed retry·privacy 절차 P2의 closure 근거와 현재 runtime·Persistent aggregate를 재검증했기 때문. 사용자 Go 승인, 독립 검증과 문서 게시를 자동 수행하지 않음 | 23장~25장, TASK-GOV-FINDING-GATE-001 |
-| 2026-07-15 | TASK-GOV-HISTORY-REWRITE-001과 TASK-GOV-FINDING-GATE-001의 독립 검증·사용자 검수를 완료하고 문서 commit·push·PR·squash merge를 승인 | 11/11 allowlist, product diff 0, P0/P1/P2/P3 `0/0/0/0`, runtime·Persistent UAT 보존과 merge Gate GO를 확인했기 때문. Public 재개·backup 삭제·worktree cleanup·신규 기능 Go는 포함하지 않음 | 23장~25장, 두 governance Task |
+| 2026-07-15 | TASK-GOV-HISTORY-REWRITE-001과 TASK-GOV-FINDING-GATE-001의 독립 검증·사용자 검수를 완료하고 PR #50 squash merge를 승인 | 11/11 allowlist, product diff 0, P0/P1/P2/P3 `0/0/0/0`, runtime·Persistent UAT 보존과 merge Gate GO를 확인했기 때문. Public 재개·backup 삭제·worktree cleanup·신규 기능 Go는 포함하지 않음 | 23장~25장, 두 governance Task |
 
 ## 26. 용어 사전
 

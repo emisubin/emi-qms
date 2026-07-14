@@ -13,7 +13,7 @@ Public Git history에 남아 있던 과거 개인정보를 16개 영향 publishe
 - History P2: Resolved
 - Public 재개: 미승인·미수행
 - Backup 삭제·restore: 미승인·미수행
-- 문서 게시: 사용자 commit·push·PR·squash merge 승인 / 실행 중
+- 문서 게시: PR #50 Ready / squash merge 승인·실행 중
 
 ## 2. 해결한 업무 문제
 
@@ -159,7 +159,7 @@ Fresh private mirror와 canonical working clone에서 다음을 확인했다.
 
 ## 12. 개인정보와 evidence
 
-Replacement mapping, backup, commit map, Support payload와 raw logs는 Repository 밖 mode 0600 private artifact로 유지하고 tracked/staged 상태는 0이다. 기존 Support browser 전체 DOM projection 1회와 독립 검증 GitHub 조회 실패 traceback 1회는 collector/projector 보정 뒤 처음부터 재검증했다. 이번 Support closure에서 raw page snapshot 1건이 fixed-projection 경계를 다시 벗어났으나 tracked leak·external write·secret 노출은 0이다. 즉시 raw 수집을 중단하고 completion/follow-up/closed `1/1/1`과 cached reference `REMOVED`만 출력하는 fixed projection으로 재실행했다. 절차 Finding은 재발 기록과 보정 재검증을 완료해 Resolved로 유지한다.
+Replacement mapping, backup, commit map, Support payload와 raw logs는 Repository 밖 mode 0600 private artifact로 유지하고 tracked/staged 상태는 0이다. 기존 Support browser 전체 DOM projection 1회와 독립 검증 GitHub 조회 실패 traceback 1회는 collector/projector 보정 뒤 처음부터 재검증했다. 이번 Support closure에서 raw page snapshot 1건, publication push 결과에서 원격 account path가 포함된 원문 1건이 fixed-projection 경계를 다시 벗어났다. Tracked leak·secret은 0이다. Support는 completion/follow-up/closed `1/1/1`과 cached reference `REMOVED`, GitHub publication은 PR number·state·check count만 반환하도록 보정했다. 절차 Finding은 재발 기록과 fixed projection 재검증을 완료한 뒤 Resolved로 유지한다.
 
 ## 13. 영향
 
@@ -174,7 +174,7 @@ Replacement mapping, backup, commit map, Support payload와 raw logs는 Reposito
 
 - P0/P1: 0
 - 해결된 P2 `FULL_STACK_E2E_PROCUREMENT_EDIT_ROW_RACE`: `TASK-E2E-RELIABILITY-001` 보정·자동 검증·PR #43 병합 완료
-- 해결된 절차 P2 `PRIVACY_SAFE_EVIDENCE_OUTPUT_VIOLATION`: 기존 2건과 closure 재발 1건을 기록하고 fixed projector로 gate 재실행. Tracked leak·external write 0
+- 해결된 절차 P2 `PRIVACY_SAFE_EVIDENCE_OUTPUT_VIOLATION`: 기존 2건과 closure·publication 재발 2건을 기록하고 fixed projector로 gate 재실행. Tracked leak·secret 0
 - 해결된 P2 `GIT_HISTORY_PERSONAL_DATA_REMAINS`: published ref `16/16`, Support internal reference 제거·GC 완료, cached view `REMOVED`
 - GitHub cached view removal: 완료
 - External clone/archive 완전 inventory: 불가능

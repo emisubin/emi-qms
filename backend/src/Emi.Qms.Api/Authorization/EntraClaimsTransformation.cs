@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Identity;
-using Microsoft.AspNetCore.Authentication;
 using Emi.Qms.Api.ReviewSafe;
+using Microsoft.AspNetCore.Authentication;
 
 namespace Emi.Qms.Api.Authorization;
 

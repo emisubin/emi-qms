@@ -1,9 +1,9 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.ProductionPlanning;
 using Npgsql;
 using NpgsqlTypes;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace Emi.Qms.Api.Notifications;
 

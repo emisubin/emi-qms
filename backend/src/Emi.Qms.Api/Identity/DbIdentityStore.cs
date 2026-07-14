@@ -1,6 +1,6 @@
+using Emi.Qms.Api.Authorization;
 using Npgsql;
 using NpgsqlTypes;
-using Emi.Qms.Api.Authorization;
 
 namespace Emi.Qms.Api.Identity;
 

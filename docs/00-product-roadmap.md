@@ -975,7 +975,8 @@ Excel 출력 대상 후보:
 | 0.2 | TASK-GOV-002 | POLICY_DECISION | Completed | Planning Approved | current checkout 비식별화·public history 조사·사용자 검수 완료 | PR #41 Ready·squash merge 승인 | No | PR #41 merge → TASK-GOV-HISTORY-REWRITE-001 |
 | 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | P2 Blocked | Scope Review Required | TASK-GOV-002 정책·risk owner | Maintenance, visibility, secure backup, all-ref force push와 re-clone 승인 | No | 별도 planning → 독립 검증 → 실행 승인 |
 | 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Completed | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | PR #44 squash merge 승인 → 0.5 Finding gate 재평가 |
-| 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.4 판정 완료 | 없음 | No | 기존 canonical Task 재사용·Finding gate 재검증 |
+| 0.4A | TASK-BACKEND-FORMAT-001 — import-order baseline 정리 | HOUSEKEEPING | Completed | Planning Approved | 사용자의 P3 우선 처리·권장안 A 구현·검수 승인 | 없음. History Support 회신과 독립 수행 | No | 사용자 merge 승인 → PR CI 확인·squash merge |
+| 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.4A 판정 완료 | 없음 | No | 기존 canonical Task 재사용·Finding gate 재검증 |
 | 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | P2 Blocked | Deferred | 0.5 통과 | 사용자 승인 | No | Phase 1 개별 planning 시작 승인 |
 | 1.1 | TASK-007A Pending List | NEW_FEATURE | P2 Blocked | Scope Review Required | Phase 0 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Fable 5 deep-interview → 사용자 요약 확인 → Fable 5 planning → Codex review → 사용자 승인 |
 | 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A | Pending 차단·상태 matrix 확정 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
@@ -1600,6 +1601,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 77 | Git history coordinated rewrite 실행 | P2 planning 필요 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | Maintenance, private containment 선택, secure backup, all-ref force push, cache 처리와 contributor re-clone을 별도 승인. 실행 완료 전 P2 Open |
 | 78 | Task instruction chain·완료 보고 형식 | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 모든 Task 시작 전 filesystem 지침 재확인과 종료 시 고정 10개 항목을 강제. 적용 대상 없음도 `N/A`와 이유 기록 |
 | 79 | Full-Stack E2E 구매정보 동적 행 timing | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발/품질 | TASK-E2E-RELIABILITY-001 | 최신 load만 edit state에 반영하고 행 추가 1회·정확한 row/input 준비를 검증. 대상 E2E 20/20, 전체 16/16 통과 |
+| 80 | Backend import-order format debt | 구현·자동·독립 검증·사용자 검수 완료 / merge 승인 | 개발/품질 | TASK-BACKEND-FORMAT-001 | 정확한 Backend C# 9개 파일의 `IMPORTS=9`를 diagnostic 0으로 정리. 실행 코드·API·DB·runtime 변경 0 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1711,6 +1713,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-14 | 신규 기능은 Fable 5가 사용자 deep-interview와 요약을 완료한 뒤 Fable 5 planning을 시작하고 Codex는 안전한 relay·기록·review를 담당 | 업무 맥락과 blocking 정책 결정을 planning 전에 Fable 주도로 고정하면서 interview·planning·implementation 승인 Gate를 분리하기 위함 | AGENTS.md, CLAUDE.md, 23장, TASK-GOV-CODEX-002 Change 001 |
 | 2026-07-14 | 동일 목적 Task 방지안 B와 Roadmap Sequence Gate를 적용 | 새 Task 이름을 만들기 전에 목표·Finding·변경 경계·불변조건·산출물을 비교해 기존 canonical Task를 재사용하고, status·dependency·external blocker·Next Gate와 다른 작업은 명시적 재정렬 승인 전 시작하지 않기 위함 | AGENTS.md, 23장~25장, TASK-GOV-CODEX-002 Change 002 |
 | 2026-07-14 | TASK-GOV-CODEX-002 Change 001·002 사용자 검수와 merge를 승인 | Fable 5가 deep-interview와 planning을 담당하고 Codex는 안전한 relay·review를 수행하며, Task Identity와 Roadmap Sequence Gate가 새 채팅에서도 기존 instruction chain 전체에 추가 적용됨을 확인하기 위함 | AGENTS.md, CLAUDE.md, 23장~25장, TASK-GOV-CODEX-002 |
+| 2026-07-14 | GitHub Support의 history cache 처리 대기 중 기존 import-order 9건을 `TASK-BACKEND-FORMAT-001`로 먼저 계획 | 외부 blocker와 독립적인 P3 format debt를 정리하되 신규 기능 Gate와 history P2 상태는 변경하지 않기 위함 | 22장~25장, TASK-BACKEND-FORMAT-001 |
+| 2026-07-14 | TASK-BACKEND-FORMAT-001 사용자 검수와 squash merge를 승인 | Backend C# 9개 파일의 import 순서만 정규화하고 format diagnostic 9→0, Backend 361/361, Frontend 62/62, Full-Stack E2E 16/16과 독립 diff 검증을 통과했음을 확인하기 위함 | 23장~25장, TASK-BACKEND-FORMAT-001 |
 
 ## 26. 용어 사전
 

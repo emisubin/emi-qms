@@ -1,5 +1,7 @@
 # TASK-UAT-001 HTTPS Development UAT 안정화
 
+> 현재 운영 계약: [Change 001](uat-001-change-001.md)에 따라 Development UAT는 HTTPS 5174 하나로 통일했다. 아래 HTTP/HTTPS 교체 설명은 최초 Task의 역사적 계약이며 HTTP 시작 절차는 더 이상 현재 운영 절차가 아니다. Change 001은 자동 검증, Microsoft 365 로그인, 로그인 상태 유지·재인증, 기존 알림·Teams Activity 조회, Microsoft Graph actual 발송과 Teams client 수신 사용자 검수를 완료했고 PR #48 squash merge가 승인됐다.
+
 ## 1. 목적
 
 일반 HTTP Development UAT와 Teams 검수용 HTTPS Development UAT가 같은 frontend port `5174`를 안전하게 교체 사용하도록 startup 계약을 확립한다. Persistent UAT data와 실행 중인 HTTPS session을 보존하면서 strict port, process ownership, protocol readiness, notification dotenv loading과 master-data transaction의 P2를 해소한다.
@@ -56,6 +58,8 @@
 - UAT DB reset, data hard delete, container restart와 volume 삭제
 
 ## 7. HTTP/HTTPS 사용 정책
+
+이 절은 최초 Task의 역사적 정책이다. 현재는 Change 001이 우선하며 HTTPS Development UAT만 운영한다.
 
 | mode | 시작 script | frontend | readiness |
 | --- | --- | --- | --- |
@@ -188,3 +192,11 @@
 - User manual: [TASK-UAT-001 User Manual](uat-001-user-manual.md), 작성 완료
 - Roadmap update: [Product Roadmap TASK-UAT-001](../docs/00-product-roadmap.md#task-uat-001-https-development-uat-안정화), 작성 완료
 - User validation checklist: 이 문서 18장, 작성됨 / 자동 검증 완료 / 사용자 검수 완료
+
+Change 001 산출물:
+
+- Change contract와 checklist: [TASK-UAT-001 Change 001](uat-001-change-001.md), 자동 검증·실제 알림 사용자 검수 완료 / merge 승인
+- Implementation report: [TASK-UAT-001 Implementation Report 22장](uat-001-implementation-report.md#22-change-001--https-only-runtime-통합)
+- SOP: [TASK-UAT-001 SOP 0장](uat-001-sop.md#0-현재-운영-계약--change-001)
+- User manual: [TASK-UAT-001 User Manual 17장](uat-001-user-manual.md#17-change-001-사용자-검수)
+- Roadmap update: [Product Roadmap](../docs/00-product-roadmap.md#task-uat-001-https-development-uat-안정화)

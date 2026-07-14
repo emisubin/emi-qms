@@ -199,3 +199,62 @@ Rollback은 merge 전 branch commit을 되돌리는 방식이다. Startup 보호
 - User manual: [TASK-UAT-001 User Manual](uat-001-user-manual.md)
 - Roadmap update: [Product Roadmap](../docs/00-product-roadmap.md#task-uat-001-https-development-uat-안정화)
 - User validation checklist: [Task 정의 18장](uat-001-https-dev-stability.md#18-사용자-검수-체크리스트), 작성됨 / 자동 검증 완료 / 사용자 검수 완료
+
+## 22. Change 001 — HTTPS-only runtime 통합
+
+### 해결한 업무 문제
+
+HTTP 5174가 Development frontend를 점유해 Teams Activity와 HTTPS 알림 검수 주소가 사라진 protocol drift를 해소했다. 로그인과 알림을 별도 frontend로 나누지 않고 HTTPS 5174 하나로 통합했다. 과거 격리 검증이 남긴 비영구 DB port 세 개도 승인 범위에서 정리했다.
+
+### 기술적 결정과 대안
+
+- 선택: HTTPS 5174 하나에서 로그인·일반 기능·알림·Teams Activity 제공
+- 대안: HTTP/HTTPS를 서로 다른 port에 상시 유지 — 사용자 주소와 Entra/Teams origin이 늘어나 폐기
+- 선택: `VITE_API_BASE_URL`을 비우고 `/api`·`/health`를 Backend 5081로 same-origin proxy
+- 대안: HTTPS browser가 5081을 직접 호출 — 현재 Backend CORS origin을 바꾸려면 Backend restart가 필요해 승인 경계를 벗어나므로 폐기
+- 선택: HTTPS 5186 candidate 검증 후 frontend-only cutover
+- 대안: 5174 즉시 교체 — rollback 판단이 약해 폐기
+
+### 시행착오와 보정
+
+첫 candidate는 환경 인자가 실행 명령 뒤에 붙어 Vite가 이를 root 경로로 해석했고 HTTP 404로 기동됐다. 기존 runtime에는 영향이 없었으며 candidate만 종료했다. 환경 인자를 command 앞에 삽입하도록 orchestration을 보정한 두 번째 candidate에서 trusted HTTPS와 proxy 검증을 통과했다.
+
+### 실제 결과
+
+- HTTPS 5174: root, notifications, Teams Activity, live/ready, runtime API 200
+- HTTP 5174: 실패
+- Desktop/390px browser 6/6: HTTPS, root와 로그인 action 확인, console/request error 0, horizontal overflow 0
+- Backend 5081, Review-safe 5092/5190, design preview 5176 보존
+- 최초 Frontend handover의 Backend 5081은 Development/ready, mutation·external provider capability 허용, background worker 비활성이었다.
+- Persistent PostgreSQL running/healthy, restart count 0, named volume 보존
+- obsolete isolated container/network 3/3 제거, 동적 port 51061/51642/55433 해제
+- 제품 source, API, DB, migration, dependency와 lockfile 변경 0
+- 최초 자동 검증에서는 실제 Entra 로그인, 저장·수정과 외부 알림 신규 발송 미실행
+
+### 후속 Notification Delivery Worker handover
+
+- 사용자 검수에서 `https://localhost:5174` Microsoft 365 로그인 성공을 확인했다.
+- 승인 직전 privacy-safe aggregate는 Teams Activity Pending 1, due 1, attempt 0이며 다른 Pending channel은 0이었다.
+- Backend 5081만 재기동해 `Notifications:Dispatch:Enabled=true`, `Notifications:Escalation:Enabled=false`, `AdminDeletionPurge:Enabled=false`를 적용했다.
+- 재기동 후 runtime은 Development/ready, delivery worker enabled, Escalation·Purge disabled, external provider capability enabled다.
+- 대상 delivery는 attempt 1회 후 `TeamsActivityDisabled`로 `Disabled`가 됐다. Graph provider 호출 전 configuration guard에서 종료했으므로 실제 외부 알림은 발송되지 않았다.
+- 이후 같은 원인의 terminal 2건은 audit로 보존했고 상태를 변경하거나 재처리하지 않았다.
+- 추가 승인으로 Backend 5081만 재기동해 Teams Activity channel을 actual mode로 활성화했다. Local ignored dotenv의 Graph credential과 Teams app 설정은 값 출력 없이 runtime에 전달했고 파일은 변경하지 않았다.
+- 로그인된 HTTPS 5174 수동 발송 화면에서 Mail을 제외하고 Teams Activity 수신자 1명만 선택해 신규 ManualTest delivery 1건을 생성했다.
+- 최초 channel restart에서 Graph credential 전달이 빠져 동일 delivery의 시도 1·2가 `TeamsActivityGraphConfigMissing`으로 retry 예약됐다. 5081만 보정 재기동한 뒤 시도 3이 `Sent`로 완료됐으며 신규 delivery 추가 생성은 0건이다.
+- 최종 privacy-safe aggregate는 기존 `TeamsActivityDisabled` terminal 2건 보존, 신규 ManualTest `Sent` 1건, 전체 Pending/Processing 0/0이다. Provider `Sent`는 Microsoft Graph actual 요청 수락을 증명하고 사용자가 Teams client Activity Feed의 실제 표시까지 확인했다.
+- Frontend 5174/5176, Review-safe 5190/5092, Persistent PostgreSQL health·restart 0·mount 2를 보존했다.
+
+### 사용자 검수와 산출물
+
+- 자동 검증 완료
+- 사용자 검수 완료: 실제 Microsoft 365 로그인
+- 사용자 검수 완료: 로그인 상태 유지·재인증, 기존 알림·Teams Activity 조회
+- 실제 외부 delivery 검수 완료: 신규 ManualTest Teams Activity 1건이 Microsoft Graph provider `Sent`
+- 사용자 검수 완료: Teams client Activity Feed의 실제 표시 확인
+- 게시 승인: commit, push, PR과 merge까지 사용자 승인
+- Change contract/checklist: [Change 001](uat-001-change-001.md)
+- SOP: [이 Task SOP 0장](uat-001-sop.md#0-현재-운영-계약--change-001)
+- User manual: [이 Task User Manual 17장](uat-001-user-manual.md#17-change-001-사용자-검수)
+- Roadmap: [Product Roadmap](../docs/00-product-roadmap.md#task-uat-001-https-development-uat-안정화)
+- 게시 기록: 승인된 문서 6개만 commit·push하고 Draft PR #48을 생성했다. 사용자가 잔여 검수 2건을 모두 확인하고 squash merge를 승인했으며, 최종 게시 상태는 PR을 source of truth로 확인한다.

@@ -92,7 +92,7 @@ Port가 source를 동기화하지 않는다. 5176은 별도 worktree이므로 ma
 - [x] `http://127.0.0.1:5176` 디자인 preview 보존
 - [x] `https://localhost:5190` Review-safe 보존
 
-Commit, push, PR과 merge는 수행하지 않았다.
+구현·검수 단계에서는 Git 게시를 수행하지 않았다. 이후 사용자 승인에 따라 승인된 문서 6개만 commit·push하고 Draft PR #48을 생성했다. 이 문서 갱신 시점의 Ready 전환과 merge는 잔여 사용자 검수 2건과 독립 gate 때문에 미실행이며, 최종 게시 상태는 PR을 source of truth로 확인한다.
 
 ## 8. 게시 격리
 

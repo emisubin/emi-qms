@@ -935,7 +935,7 @@ Excel 출력 대상 후보:
 | 관리자 | 시스템 관리 중심 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림/에스컬레이션 조회, 발송 실패/대기 상세 추적, active escalation L0~L3 breakdown, 삭제 예정 + 7일 후 완전 삭제 시도, 복구, 일괄 삭제/복구, 삭제 보류, 부서 field-level validation | Item/포장방식/생산계획 단계/구매 필수 항목 관리자 통합 여부, role/permission 편집 UI, 삭제 예정 데이터 purge 운영 정책, 전체 field-level audit 확장 |
 | UAT | 고정 Persistent UAT DB, latest-main Development 5174/5081, read-only Review-safe 5190/5092, canonical/live/approved legacy ledger 28/29/1, notification claim/lease·escalation fair-ordering·last-administrator controlled UAT | TASK-UAT-AUTH-HARDEN-001 검수 완료, Persistent live auth mutation은 break-glass 증명 전 No-Go |
 | E2E | 전용 backend/frontend 포트, 전용 DB, cleanup | 신규 업무 단계마다 시나리오 추가 |
-| Repository workflow | `NEW_FEATURE` 전용 Fable 5 read-only planning, Codex review, 사용자 승인, 분리된 Codex 구현·독립 검증과 Codex-only 보강 작업 router | 각 신규 기능의 실제 planning/review 파일과 승인 상태를 Task별로 추적 |
+| Repository workflow | 모든 새 Task의 semantic identity·Roadmap Sequence Gate, `NEW_FEATURE` 전용 Fable 5 deep-interview·사용자 요약 확인·Fable 5 read-only planning, Codex review, 사용자 승인, 분리된 Codex 구현·독립 검증과 Codex-only 보강 작업 router | 같은 목적은 canonical Task를 재사용하고 현재 Next Gate와 다른 Task는 명시적 재정렬 승인 전 시작하지 않음. 각 신규 기능의 interview/planning/review 파일과 승인 상태를 Task별로 추적 |
 
 ## 22. 현재 기능에서 수정해야 할 방향
 
@@ -975,9 +975,9 @@ Excel 출력 대상 후보:
 | 0.2 | TASK-GOV-002 | POLICY_DECISION | Completed | Planning Approved | current checkout 비식별화·public history 조사·사용자 검수 완료 | PR #41 Ready·squash merge 승인 | No | PR #41 merge → TASK-GOV-HISTORY-REWRITE-001 |
 | 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | P2 Blocked | Scope Review Required | TASK-GOV-002 정책·risk owner | Maintenance, visibility, secure backup, all-ref force push와 re-clone 승인 | No | 별도 planning → 독립 검증 → 실행 승인 |
 | 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Completed | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | PR #44 squash merge 승인 → 0.5 Finding gate 재평가 |
-| 0.5 | 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.4 판정 완료 | 없음 | No | Finding gate 재검증 |
+| 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | P2 Blocked | Scope Review Required | 0.1~0.4 판정 완료 | 없음 | No | 기존 canonical Task 재사용·Finding gate 재검증 |
 | 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | P2 Blocked | Deferred | 0.5 통과 | 사용자 승인 | No | Phase 1 개별 planning 시작 승인 |
-| 1.1 | TASK-007A Pending List | NEW_FEATURE | P2 Blocked | Scope Review Required | Phase 0 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
+| 1.1 | TASK-007A Pending List | NEW_FEATURE | P2 Blocked | Scope Review Required | Phase 0 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Fable 5 deep-interview → 사용자 요약 확인 → Fable 5 planning → Codex review → 사용자 승인 |
 | 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A | Pending 차단·상태 matrix 확정 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
 | 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007A·007B | 사진 storage·압축·재시도 정책 | Yes | 동일 URL·390px/Teams narrow planning |
 | 1.4 | TASK-HOME-001 Home MVP | NEW_FEATURE | P2 Blocked | Scope Review Required | TASK-007B·MOBILE-001 기반 | 활성화 가능한 widget 데이터 확인 | Yes | widget-slot planning과 MVP 범위 승인 |
@@ -1109,6 +1109,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 산출물: [Task·SOP·User manual·검수 checklist](../tasks/gov-codex-002.md), [Implementation report](../tasks/gov-codex-002-implementation-report.md), 이 Roadmap update
 - 자동 검증: 새 Codex read-only session route 9/9, static router 11/11, Fable CLI read-only option 8/8, diff·actionlint·Markdown·secret/PII·allowlist 통과
 - 사용자 검수: 완료
+- Change 001: 신규 기능은 Fable 5 deep-interview, 사용자 요약 확인과 blocking decision 0을 먼저 통과한 뒤 Fable 5 planning을 시작한다. Codex는 안전한 relay·기록·review를 담당하며 interview 완료는 planning·implementation 승인과 분리한다.
+- Change 002: 새 Task 생성 전 목표·Finding·변경 경계·불변조건·산출물의 semantic identity와 Roadmap status·dependency·external blocker·Next Gate를 대조한다. 같은 목적은 기존 canonical Task를 재사용하고, 모호하거나 순서가 다르면 명시적 재정렬 승인 전 중단한다.
 
 ### TASK-GOV-REPORTING-001: Task 시작·완료 보고 표준화
 
@@ -1588,7 +1590,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / PR #32 merge 완료 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
-| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | 완료 / PR #38 squash merge | 개발 | TASK-GOV-CODEX-002 | NEW_FEATURE만 Fable 5 planning, 나머지 유형은 Codex-only 조사·승인·구현·독립 검증. `tasks/` convention과 기존 안전·종료 정책 유지 |
+| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | PR #38 완료 / Change 001·002 사용자 검수·merge 승인 | 개발 | TASK-GOV-CODEX-002 | 새 Task 전 semantic identity·Roadmap Sequence Gate. NEW_FEATURE만 Fable 5 deep-interview·사용자 요약 확인 뒤 Fable 5 planning, 나머지 유형은 Codex-only |
 | 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
 | 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
 | 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
@@ -1706,6 +1708,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-13 | TASK-GOV-REPORTING-001 사용자 검수와 squash merge를 승인 | instruction chain gate, 고정 10개 항목, `N/A` 사유, 검증·검수·게시 상태 분리를 Repository 표준으로 확정하기 위함 | AGENTS.md, 23장~25장, TASK-GOV-REPORTING-001 |
 | 2026-07-14 | TASK-NOTIFY-004에서 terminal Failed를 현재 상태 모델의 최종 상태로 유지하고 수동 재처리를 별도 신규 기능으로 Deferred하는 `POLICY_CORRECTION_AND_DEFER`를 승인 | Automatic retry·최종 실패 가시성 계약은 이미 충족됐고, 전체 수동 재처리에는 retry generation·append-only audit·provider 중복 확인이라는 신규 능력이 필요하며 기존 SOP의 retry 안내만 실제 구현보다 앞서갔기 때문 | 22장~25장, TASK-NOTIFY-004 |
 | 2026-07-14 | TASK-NOTIFY-004 사용자 검수와 PR #44 squash merge를 승인 | Terminal Failed 정책 정정, Pending retry·acknowledge·dismiss 유지, at-least-once 제한, 코드·runtime·Persistent UAT 변경 0과 별도 신규 기능 Deferred 경계를 확인하기 위함 | 22장~25장, TASK-NOTIFY-004 |
+| 2026-07-14 | 신규 기능은 Fable 5가 사용자 deep-interview와 요약을 완료한 뒤 Fable 5 planning을 시작하고 Codex는 안전한 relay·기록·review를 담당 | 업무 맥락과 blocking 정책 결정을 planning 전에 Fable 주도로 고정하면서 interview·planning·implementation 승인 Gate를 분리하기 위함 | AGENTS.md, CLAUDE.md, 23장, TASK-GOV-CODEX-002 Change 001 |
+| 2026-07-14 | 동일 목적 Task 방지안 B와 Roadmap Sequence Gate를 적용 | 새 Task 이름을 만들기 전에 목표·Finding·변경 경계·불변조건·산출물을 비교해 기존 canonical Task를 재사용하고, status·dependency·external blocker·Next Gate와 다른 작업은 명시적 재정렬 승인 전 시작하지 않기 위함 | AGENTS.md, 23장~25장, TASK-GOV-CODEX-002 Change 002 |
+| 2026-07-14 | TASK-GOV-CODEX-002 Change 001·002 사용자 검수와 merge를 승인 | Fable 5가 deep-interview와 planning을 담당하고 Codex는 안전한 relay·review를 수행하며, Task Identity와 Roadmap Sequence Gate가 새 채팅에서도 기존 instruction chain 전체에 추가 적용됨을 확인하기 위함 | AGENTS.md, CLAUDE.md, 23장~25장, TASK-GOV-CODEX-002 |
 
 ## 26. 용어 사전
 

@@ -8,6 +8,8 @@
 
 - Root `AGENTS.md`: Task 유형, Fable 5 신규 기능 흐름, Codex-only 흐름, 수정 요청, 문서 역할과 세션 분리 추가
 - `CLAUDE.md`: Fable 5의 신규 기능 기획 전용 역할, read-only 경계, source of truth와 출력 계약 추가
+- Root `AGENTS.md`: 새 Task 생성 전 semantic identity와 Roadmap Sequence Gate 추가
+- Task template: fixed projection과 `PASS_REUSE`·`PASS_CREATE`·blocked 상태 추가
 - Task·Implementation report와 Roadmap: 종료 산출물·상태 추적
 
 Backend, Frontend, migration, dependency, script, runtime과 Persistent UAT source diff는 없다.
@@ -76,6 +78,69 @@ Root Task router section, `CLAUDE.md`, Task 문서와 Roadmap entry를 함께 re
 - 사용자 검수: 완료
 - 게시·merge: PR #38 squash merge 승인
 - 기존 root WIP와 historical branch 정리: 별도 HOUSEKEEPING 승인 대상
+
+## 10.1 Change 001 — Deep Interview Gate
+
+사용자 정정에 따라 신규 기능 workflow 앞에 Fable 5 deep-interview를 추가했다. Fable 5가 질문을 1~3개씩 진행하고 선택지의 영향과 권장안을 설명한다. Codex는 질문·답변 relay와 privacy-safe 기록만 담당한다. 사용자 확인이 끝난 interview artifact와 blocking decision 0이 있을 때만 Fable 5가 planning을 시작한다.
+
+- Interview 위치: `tasks/<task-id>-interview.md`
+- Template: `tasks/_templates/new-feature-interview-template.md`
+- Fable interview 상태: `QUESTIONS_REQUIRED` → `SUMMARY_CONFIRMATION_REQUIRED` → `COMPLETED_CONFIRMED`
+- Session persistence 없이 interview 문서를 round별 source of truth로 재사용
+- Interview 완료 시에도 `planningApproved=false`, `implementationApproved=false`
+- 실제 신규 기능 interview와 Fable 호출: 0
+- 제품 코드·runtime·Persistent UAT 영향: 0
+- 사용자 검수: 완료
+- 게시·merge 승인: 완료
+
+Change 001 자동 검증 결과:
+
+- 변경 파일 8, allowlist 위반 0, staged 0
+- `git diff --check` 통과
+- Markdown missing link/anchor·duplicate heading `0/0/0`
+- Added secret/PII candidate `0/0`
+- Task type enum 9개 누락 0, `NEW_FEATURE` 전용 Fable rule 1
+- Fable interview-before-planning ordering: true
+- Fable interview state case 4/4 통과
+- Recursive workflow block 확인, `docs/tasks/` 생성 0
+- Backend·Frontend·migration·dependency·script·runtime diff 0
+- 실제 Fable 호출, runtime·Persistent UAT mutation 0
+- 독립 Codex 검증: 별도 세션 대기
+
+## 10.2 Change 002 — Task Identity와 Roadmap Sequence Gate
+
+동일 목적의 Task를 다른 이름으로 중복 생성하거나 Roadmap 순서를 건너뛰는 문제를 막기 위해 새 Task 자원 생성 전 fail-closed gate를 추가했다.
+
+- Purpose identity: 업무 목표, root Finding, 변경·검증 경계, 보존 불변조건과 예상 산출물
+- 검색 범위: Task 산출물, Roadmap·Decision Log·추적 항목, branch, worktree와 open/merged PR
+- 같은 목적 하나+Roadmap 일치 또는 승인된 override: 기존 canonical Task와 다음 `change-###` 재사용
+- 같은 목적 둘 이상: `BLOCKED_AMBIGUOUS`
+- 같은 ID·다른 목적: `BLOCKED_ID_COLLISION`
+- 같은 목적 없음+Roadmap 일치: `PASS_CREATE`
+- 재사용·신규 생성 모두 Roadmap 불일치: 명시적 재정렬 승인과 Roadmap 기록 전 `BLOCKED_SEQUENCE`
+- 일반 queue label에서 Task ID 합성 금지
+- Base·Roadmap·instruction·PR drift 시 gate 재실행
+
+이번 문제에서는 `TASK-GOV-P2-GATE-001`이 물리 Task로 생성되지는 않았고 기존 `TASK-GOV-FINDING-GATE-001`의 목적을 잘못 축약한 별칭이었다. 기존 canonical Task를 재사용하는 것으로 정정한다.
+
+Fable 5 질문 제한은 전체 질문 수 제한이 아니라 round당 1~3개 제한이다. 제한 해제는 왕복을 줄일 수 있으나 누락·모순·피로·과수집과 잘못된 완료 판정 위험이 커 현재 규칙을 유지했다. Adaptive 최대 5개는 별도 승인 후보로 남긴다.
+
+Change 002 자동 검증 결과:
+
+- Task Identity decision table: 8/8
+- Static contract: 9/9
+- `git diff --check`: 통과
+- Markdown 10개 파일 local link·anchor·duplicate heading: `0/0/0`
+- Secret/PII candidate: email·UUID·token `0/0/0`
+- Changed-file allowlist: 10개 일치 / 범위 밖 0 / staged 0
+- Backend·Frontend·migration·dependency·script·runtime 변경: 0
+- Noncanonical `TASK-GOV-P2-GATE-001` Task file·branch·worktree: `0/0/0`
+- Round당 Fable 질문 수 규칙: AGENTS·CLAUDE 각 1개 / adaptive 최대 5개 적용 0
+- 제품 코드·runtime·Persistent UAT 영향: 0
+- 실제 Fable 호출: 0
+- 사용자 승인: B안과 Roadmap Sequence Gate 승인
+- 사용자 검수: 완료
+- 게시·merge 승인: 완료
 
 ## 11. 5종 산출물
 

@@ -114,14 +114,18 @@ import {
 } from './api';
 import type { RuntimeMode } from './api';
 import {
-  accountSwitchLoginRequest,
   acquireAccessToken,
+  getRememberSessionPreference,
   hasMsalConfiguration,
   isEntraAuthMode,
   isInteractionRequiredAuthError,
   loginRequest,
   restoreActiveAccount
 } from './auth';
+import authEllipse66 from './assets/auth-ellipse-66.svg';
+import authEllipse67 from './assets/auth-ellipse-67.svg';
+import emiLogo from './assets/emi-logo.png';
+import microsoftLogo from './assets/microsoft-logo.png';
 import type { ReadyHealth } from './health';
 import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
@@ -736,14 +740,6 @@ function EntraAuthenticatedApp({
     });
   };
 
-  const loginWithDifferentAccount = () => {
-    clearTestUserSwitch();
-    void instance.loginRedirect({
-      ...accountSwitchLoginRequest,
-      redirectStartPage: typeof window === 'undefined' ? undefined : window.location.href
-    });
-  };
-
   const logout = () => {
     clearTestUserSwitch();
     instance.setActiveAccount(null);
@@ -831,6 +827,7 @@ function EntraAuthenticatedApp({
   if (!hasMsalConfiguration()) {
     return (
       <AuthGateMessage
+        state="configuration"
         title="Microsoft 로그인 설정이 필요합니다."
         message="운영 인증 모드에는 Tenant ID, Client ID, API Scope 설정이 필요합니다. 환경변수를 확인해 주세요."
       />
@@ -839,18 +836,18 @@ function EntraAuthenticatedApp({
 
   if (inProgress !== 'none') {
     return (
-      <AuthGateMessage
-        title="로그인 확인 중입니다."
-        message="Microsoft 365 인증 정보를 확인하고 있습니다."
+      <AuthLoginScreen
+        loading
+        rememberSession={rememberSession}
       />
     );
   }
 
   if (authGate.kind === 'loading') {
     return (
-      <AuthGateMessage
-        title="로그인 확인 중입니다."
-        message="Microsoft 365 인증 정보를 확인하고 있습니다."
+      <AuthLoginScreen
+        loading
+        rememberSession={rememberSession}
       />
     );
   }
@@ -858,41 +855,23 @@ function EntraAuthenticatedApp({
   if (authGate.kind === 'reauth-required' || authGate.kind === 'error') {
     return (
       <AuthGateMessage
+        state={authGate.kind === 'reauth-required' ? 'reauth' : 'error'}
         title={authGate.kind === 'reauth-required' ? '다시 로그인이 필요합니다.' : '인증 정보를 확인할 수 없습니다.'}
         message={authGate.message}
         actionLabel={inProgress === 'none' ? 'Microsoft 365로 다시 로그인' : '로그인 진행 중'}
         actionDisabled={inProgress !== 'none'}
         onAction={login}
-        secondaryActionLabel="다른 계정으로 로그인"
-        onSecondaryAction={loginWithDifferentAccount}
       />
     );
   }
 
   if (authGate.kind === 'login') {
     return (
-      <AuthGateMessage
-        title="EMI 프로젝트 통합관리시스템"
-        message="회사 Microsoft 365 계정으로 로그인해 주세요."
-        helperText="회사 계정이 아닌 경우 로그인할 수 없습니다."
-        actionLabel={inProgress === 'none' ? 'Microsoft 365 로그인' : '로그인 진행 중'}
-        actionDisabled={inProgress !== 'none'}
-        onAction={login}
-        secondaryActionLabel="다른 계정으로 로그인"
-        onSecondaryAction={loginWithDifferentAccount}
-      >
-        <label className="remember-session-option">
-          <input
-            type="checkbox"
-            checked={rememberSession}
-            onChange={(event) => onRememberSessionChange?.(event.target.checked)}
-          />
-          <span>로그인 상태 유지</span>
-        </label>
-        <p className="muted-text">
-          이 브라우저에서 로그인 상태를 유지합니다. 회사 보안 정책에 따라 추가 인증이 필요할 수 있습니다.
-        </p>
-      </AuthGateMessage>
+      <AuthLoginScreen
+        rememberSession={rememberSession}
+        onRememberSessionChange={onRememberSessionChange}
+        onLogin={login}
+      />
     );
   }
 
@@ -901,7 +880,6 @@ function EntraAuthenticatedApp({
       authMode="EntraId"
       onLogout={logout}
       onReauthenticate={login}
-      onAccountSwitch={loginWithDifferentAccount}
     />
   );
 }
@@ -968,13 +946,11 @@ function ReviewSafeControlGuard({ mutationAllowed }: { mutationAllowed: boolean 
 function QmsAppShell({
   authMode,
   onLogout,
-  onReauthenticate,
-  onAccountSwitch
+  onReauthenticate
 }: {
   authMode: 'Dev' | 'EntraId';
   onLogout?: () => void;
   onReauthenticate?: () => void;
-  onAccountSwitch?: () => void;
 }) {
   const isDevMode = authMode === 'Dev';
   const [developmentUserKey, setDevelopmentUserKey] = useState(() => {
@@ -1148,11 +1124,9 @@ function QmsAppShell({
 
   if (!isDevMode && currentUser.kind === 'loading') {
     return (
-      <AuthGateMessage
-        title="로그인 확인 중입니다."
-        message="Microsoft 365 인증 정보를 확인하고 있습니다."
-        actionLabel="로그아웃"
-        onAction={onLogout}
+      <AuthLoginScreen
+        loading
+        rememberSession={getRememberSessionPreference()}
       />
     );
   }
@@ -1161,12 +1135,11 @@ function QmsAppShell({
     if (isAuthenticationExpiredState(currentUser)) {
       return (
         <AuthGateMessage
+          state="reauth"
           title="다시 로그인이 필요합니다."
           message={loadStateMessage(currentUser) ?? '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.'}
           actionLabel="Microsoft 365로 다시 로그인"
           onAction={onReauthenticate}
-          secondaryActionLabel="다른 계정으로 로그인"
-          onSecondaryAction={onAccountSwitch}
         />
       );
     }
@@ -1665,7 +1638,83 @@ function AppMobileNavigation({ items, onNavigate }: { items: NavigationItem[]; o
   );
 }
 
+type AuthGateVisualState = 'login' | 'loading' | 'reauth' | 'error' | 'configuration' | 'access';
+
+const authLoginCanvasWidth = 1440;
+const authLoginCanvasHeight = 810;
+
+function authLoginCanvasScale() {
+  if (typeof window === 'undefined') {
+    return 1;
+  }
+
+  return Math.min(
+    window.innerWidth / authLoginCanvasWidth,
+    window.innerHeight / authLoginCanvasHeight
+  );
+}
+
+function useAuthLoginCanvasScale(enabled: boolean) {
+  const [scale, setScale] = useState(authLoginCanvasScale);
+
+  useEffect(() => {
+    if (!enabled) {
+      return undefined;
+    }
+
+    const updateScale = () => setScale(authLoginCanvasScale());
+    updateScale();
+    window.addEventListener('resize', updateScale);
+
+    return () => window.removeEventListener('resize', updateScale);
+  }, [enabled]);
+
+  return enabled ? scale : 1;
+}
+
+export function AuthInitializationScreen({ rememberSession = true }: { rememberSession?: boolean }) {
+  return <AuthLoginScreen loading rememberSession={rememberSession} />;
+}
+
+function AuthLoginScreen({
+  loading = false,
+  rememberSession,
+  onRememberSessionChange,
+  onLogin
+}: {
+  loading?: boolean;
+  rememberSession: boolean;
+  onRememberSessionChange?: (rememberSession: boolean) => void;
+  onLogin?: () => void;
+}) {
+  return (
+    <AuthGateMessage
+      state={loading ? 'loading' : 'login'}
+      title="EMI 프로젝트 통합관리시스템"
+      message={loading
+        ? 'Microsoft 365 로그인 정보를 확인하고 있습니다.'
+        : '회사 Microsoft 365 계정으로 로그인해 주세요.'}
+      actionLabel={loading ? undefined : 'LOGIN'}
+      onAction={onLogin}
+    >
+      {loading ? (
+        <span className="auth-loading-indicator" role="status" aria-label="로그인 확인 중" />
+      ) : (
+        <label className="remember-session-option">
+          <input
+            type="checkbox"
+            checked={rememberSession}
+            onChange={(event) => onRememberSessionChange?.(event.target.checked)}
+          />
+          <span>로그인 상태 유지</span>
+        </label>
+      )}
+    </AuthGateMessage>
+  );
+}
+
 function AuthGateMessage({
+  state,
   title,
   message,
   helperText,
@@ -1676,8 +1725,9 @@ function AuthGateMessage({
   onSecondaryAction,
   children
 }: {
+  state: AuthGateVisualState;
   title: string;
-  message: string;
+  message?: string;
   helperText?: string;
   actionLabel?: string;
   actionDisabled?: boolean;
@@ -1686,39 +1736,105 @@ function AuthGateMessage({
   onSecondaryAction?: () => void;
   children?: ReactNode;
 }) {
-  return (
-    <main className="auth-gate">
-      <section className="auth-gate-panel">
-        <p className="eyebrow">EMI 프로젝트 통합관리시스템</p>
-        <h1>{title}</h1>
-        <p>{message}</p>
-        {helperText ? <p className="muted-text">{helperText}</p> : null}
-        {children}
-        {actionLabel ? (
-          <button type="button" disabled={actionDisabled} onClick={onAction}>{actionLabel}</button>
-        ) : null}
-        {secondaryActionLabel ? (
-          <button type="button" className="secondary-button" onClick={onSecondaryAction}>{secondaryActionLabel}</button>
-        ) : null}
+  const showsProductTitle = title === 'EMI 프로젝트 통합관리시스템';
+  const usesLoginLayout = state === 'login' || state === 'loading';
+  const loginCanvasScale = useAuthLoginCanvasScale(usesLoginLayout);
+  const shell = (
+    <>
+      <section className="auth-brand-panel">
+        <div className="auth-brand-canvas">
+          <img className="auth-brand-effect auth-brand-effect-66" src={authEllipse66} alt="" aria-hidden="true" />
+          <img className="auth-brand-effect auth-brand-effect-69" src={authEllipse66} alt="" aria-hidden="true" />
+          <img className="auth-brand-effect auth-brand-effect-67" src={authEllipse67} alt="" aria-hidden="true" />
+        </div>
+        <span className="auth-brand-overlay" aria-hidden="true" />
+        <div className="auth-brand-logo-canvas">
+          <img className="auth-brand-logo" src={emiLogo} alt="EMI Electric Modular Innovation" />
+        </div>
+        <div className="auth-brand-pattern-canvas">
+          <span className="auth-brand-dots" data-figma-node-id="1:181" aria-hidden="true" />
+        </div>
       </section>
+      <section
+        className="auth-gate-panel"
+        aria-labelledby="auth-gate-title"
+        aria-busy={state === 'loading'}
+      >
+        <div className="auth-gate-canvas">
+          <div className="auth-gate-content">
+            {!showsProductTitle ? <p className="auth-product-name">EMI 프로젝트 통합관리시스템</p> : null}
+            <h1 id="auth-gate-title">
+              <span className="auth-gate-title-text">{title}</span>
+            </h1>
+            <div className="auth-microsoft-brand">
+              <img src={microsoftLogo} alt="Microsoft" />
+            </div>
+            {message ? (
+              <p className={usesLoginLayout ? 'auth-gate-message auth-login-guidance' : 'auth-gate-message'}>
+                {message}
+              </p>
+            ) : null}
+            {actionLabel ? (
+              <button
+                type="button"
+                className="auth-primary-button"
+                disabled={actionDisabled}
+                onClick={onAction}
+              >
+                {actionLabel}
+              </button>
+            ) : null}
+            {children ? <div className="auth-gate-extra">{children}</div> : null}
+            {helperText ? <p className="auth-helper-text">{helperText}</p> : null}
+            {secondaryActionLabel ? (
+              <button
+                type="button"
+                className="auth-secondary-button"
+                onClick={onSecondaryAction}
+              >
+                {secondaryActionLabel}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    </>
+  );
+
+  return (
+    <main className="auth-gate" data-auth-state={state} data-auth-layout={usesLoginLayout ? 'login' : 'default'}>
+      {usesLoginLayout ? (
+        <div
+          className="auth-login-canvas"
+          data-auth-canvas-scale={loginCanvasScale.toFixed(6)}
+          style={{
+            '--auth-login-content-scale': loginCanvasScale,
+            '--auth-login-background-offset': `${-6 * loginCanvasScale}px`,
+            '--auth-login-panel-radius': `${51 * loginCanvasScale}px`,
+            '--auth-login-panel-overflow': `${0.5 * loginCanvasScale}px`,
+            '--auth-login-shadow-x': `${-5.25 * loginCanvasScale}px`,
+            '--auth-login-shadow-y': `${-1.5 * loginCanvasScale}px`,
+            '--auth-login-shadow-blur': `${43.05 * loginCanvasScale}px`,
+            '--auth-login-glass-blur': `${23.25 * loginCanvasScale}px`
+          } as CSSProperties}
+        >
+          {shell}
+        </div>
+      ) : shell}
     </main>
   );
 }
 
 function AuthenticationRequiredPage({ user, message, onLogout }: { user?: CurrentUser | null; message?: string; onLogout?: () => void }) {
   return (
-    <main className="auth-gate">
-      <section className="auth-gate-panel">
-        <p className="eyebrow">EMI 프로젝트 통합관리시스템</p>
-        <h1>인증이 필요합니다.</h1>
-        <p>{message ?? '시스템 관리자에게 문의하세요.'}</p>
-        <p className="muted-text">
-          관리자가 부서와 역할을 지정하면 시스템을 사용할 수 있습니다.
-          {user ? ` 현재 계정: ${user.displayName}${user.email ? ` (${user.email})` : ''}` : ''}
-        </p>
-        {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
-      </section>
-    </main>
+    <AuthGateMessage
+      state="access"
+      title="인증이 필요합니다."
+      message={message ?? '시스템 관리자에게 문의하세요.'}
+      helperText={`관리자가 부서와 역할을 지정하면 시스템을 사용할 수 있습니다.${user ? ` 현재 계정: ${user.displayName}${user.email ? ` (${user.email})` : ''}` : ''}`}
+      actionLabel={onLogout ? '로그아웃' : undefined}
+      onAction={onLogout}
+    />
   );
 }
 

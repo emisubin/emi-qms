@@ -1112,6 +1112,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 사용자 검수: 완료
 - Change 001: 신규 기능은 Fable 5 deep-interview, 사용자 요약 확인과 blocking decision 0을 먼저 통과한 뒤 Fable 5 planning을 시작한다. Codex는 안전한 relay·기록·review를 담당하며 interview 완료는 planning·implementation 승인과 분리한다.
 - Change 002: 새 Task 생성 전 목표·Finding·변경 경계·불변조건·산출물의 semantic identity와 Roadmap status·dependency·external blocker·Next Gate를 대조한다. 같은 목적은 기존 canonical Task를 재사용하고, 모호하거나 순서가 다르면 명시적 재정렬 승인 전 중단한다.
+- Change 003: 일반 Task는 fresh canonical clone 하나에서 branch만 전환하고, 별도 worktree는 runtime·병렬 write·고위험 rehearsal에 한정한다. Clean·process 미사용·open PR 없음·commit reachable gate로 기존 worktree 30개 중 21개를 정리해 약 4.03GB를 회수했으며 dirty 3개와 process 사용 5개는 보존했다.
 
 ### TASK-GOV-REPORTING-001: Task 시작·완료 보고 표준화
 
@@ -1591,7 +1592,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / PR #32 merge 완료 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
-| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | PR #38 완료 / Change 001·002 사용자 검수·merge 승인 | 개발 | TASK-GOV-CODEX-002 | 새 Task 전 semantic identity·Roadmap Sequence Gate. NEW_FEATURE만 Fable 5 deep-interview·사용자 요약 확인 뒤 Fable 5 planning, 나머지 유형은 Codex-only |
+| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | PR #38 완료 / Change 001·002 merge / Change 003 구현·자동 검증·사용자 검수 완료·merge 승인 | 개발 | TASK-GOV-CODEX-002 | Task Identity·Roadmap Sequence Gate와 단일 canonical clone lifecycle. NEW_FEATURE만 Fable 5 deep-interview·planning, 나머지는 Codex-only |
 | 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
 | 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
 | 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
@@ -1715,6 +1716,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-14 | TASK-GOV-CODEX-002 Change 001·002 사용자 검수와 merge를 승인 | Fable 5가 deep-interview와 planning을 담당하고 Codex는 안전한 relay·review를 수행하며, Task Identity와 Roadmap Sequence Gate가 새 채팅에서도 기존 instruction chain 전체에 추가 적용됨을 확인하기 위함 | AGENTS.md, CLAUDE.md, 23장~25장, TASK-GOV-CODEX-002 |
 | 2026-07-14 | GitHub Support의 history cache 처리 대기 중 기존 import-order 9건을 `TASK-BACKEND-FORMAT-001`로 먼저 계획 | 외부 blocker와 독립적인 P3 format debt를 정리하되 신규 기능 Gate와 history P2 상태는 변경하지 않기 위함 | 22장~25장, TASK-BACKEND-FORMAT-001 |
 | 2026-07-14 | TASK-BACKEND-FORMAT-001 사용자 검수와 squash merge를 승인 | Backend C# 9개 파일의 import 순서만 정규화하고 format diagnostic 9→0, Backend 361/361, Frontend 62/62, Full-Stack E2E 16/16과 독립 diff 검증을 통과했음을 확인하기 위함 | 23장~25장, TASK-BACKEND-FORMAT-001 |
+| 2026-07-14 | 일반 Task는 단일 canonical clone을 재사용하고 별도 worktree는 runtime·병렬 write·고위험 rehearsal에만 생성 | Task 문서는 Repository와 Git history에 누적되지만 source checkout·`node_modules`·Backend build artifact가 Task마다 영구 중복되지 않게 하기 위함 | AGENTS.md, 23장~25장, TASK-GOV-CODEX-002 Change 003 |
 
 ## 26. 용어 사전
 

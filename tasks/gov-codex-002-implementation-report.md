@@ -78,6 +78,7 @@ Root Task router section, `CLAUDE.md`, Task 문서와 Roadmap entry를 함께 re
 - 사용자 검수: 완료
 - 게시·merge: PR #38 squash merge 승인
 - 기존 root WIP와 historical branch 정리: 별도 HOUSEKEEPING 승인 대상
+- Change 003 사용자 검수·게시·merge: 승인
 
 ## 10.1 Change 001 — Deep Interview Gate
 
@@ -141,6 +142,35 @@ Change 002 자동 검증 결과:
 - 사용자 승인: B안과 Roadmap Sequence Gate 승인
 - 사용자 검수: 완료
 - 게시·merge 승인: 완료
+
+## 10.3 Change 003 — 재사용 worktree lifecycle
+
+Task별 영구 worktree와 반복 dependency/build artifact 누적을 막기 위해 일반 작업 workspace를 fresh canonical clone 하나로 통합하는 lifecycle을 확정했다. 세션 분리는 유지하지만 동시 write가 없는 독립 검증은 같은 clean committed branch를 read-only로 사용할 수 있다.
+
+실제 local cleanup 결과:
+
+- linked worktree: 30 → 9
+- 제거: clean·process 미사용·open PR 0·commit reachable 21개
+- 보존: `current` 1개, dirty 3개, process 사용 runtime source 5개
+- worktree root: 약 6.04GB → 약 2.01GB
+- 회수: 약 4.03GB
+- branch 삭제, 강제 remove와 removal failure: 0
+- Development·Review-safe·Candidate process 종료·재시작: 0
+- Persistent UAT·provider·product source 변경: 0
+
+남은 9개는 사용자 WIP 또는 실행 중 process ownership 때문에 자동 정리하지 않았다. History rewrite의 raw artifact·backup·Support 상태와 dirty patch 이전 승인 경계도 변경하지 않았다.
+
+Change 003 검증 결과:
+
+- cleanup 대상 safety gate: 21/21
+- removal failure: 0
+- dirty/runtime 보존 위반: 0
+- cleanup·게시용 임시 `current`와 latest-main branch 기준: PASS
+- 문서·diff·secret/PII 검증: PASS
+- 승인 파일 외 변경, 삭제, staged 파일과 stale worktree 등록: 0
+- Markdown duplicate heading, missing local link·anchor와 secret/PII 후보: 0
+- 단일 canonical clone 전환: merge 후 fresh clone 검증 단계에서 수행
+- 사용자 검수·게시·merge: 승인
 
 ## 11. 5종 산출물
 

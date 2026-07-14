@@ -4,7 +4,25 @@
 > 작성 단계: Codex 구현 프롬프트 작성 전
 > 목적: 사용자와 기능 방향을 확정하기 위한 기획 문서
 
+- interviewStatus: `COMPLETED_CONFIRMED`
+- interviewSource: `tasks/<task-id>-interview.md`
+- interviewUserConfirmed: true
+- openBlockingDecisionCount: 0
+- planningApproved: false
+- implementationApproved: false
+
 공통 개발·안전·검증 규칙은 Root/하위 `AGENTS.md`, `docs/12-task-completion-policy.md`와 `docs/development/` 문서를 참조하며 이 문서에 복사하지 않는다.
+
+## 0. 확인된 deep-interview 기준선
+
+- 사용자가 확인한 업무 문제:
+- 대상 사용자·역할:
+- 정상 흐름:
+- 예외·복구 흐름:
+- 확정한 정책과 명시적 제외:
+- planning으로 넘긴 비차단 미결정 사항:
+
+Interview 문서에 없는 사용자 답변을 추측하지 않는다. Interview 완료는 이 planning이나 구현 승인이 아니다.
 
 ## 1. 한 줄 목표
 

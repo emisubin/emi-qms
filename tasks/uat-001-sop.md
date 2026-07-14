@@ -1,5 +1,15 @@
 # TASK-UAT-001 SOP
 
+## 0. 현재 운영 계약 — Change 001
+
+- Development UAT frontend는 `https://localhost:5174` 하나만 사용한다.
+- HTTP 5174 시작은 폐기됐으며 `scripts/dev-uat-start.sh`를 일반 검수 주소 복구에 사용하지 않는다.
+- 시작·복구는 `scripts/dev-uat-start-teams-https.sh`의 HTTPS certificate, strict port와 Backend 5081 proxy 계약을 따른다.
+- Frontend-only handover에서는 Backend 5081과 Persistent PostgreSQL을 재시작하지 않는다. 실제 delivery 검수는 별도 승인된 Backend-only handover로 분리한다.
+- 현재 Backend 5081은 Notification Delivery Worker만 활성이고 Escalation·Purge worker는 비활성이다. Teams Activity channel은 actual mode로 활성화돼 있으므로 신규 actual 발송은 수신자·채널·건수를 명시한 승인 후에만 수행한다.
+- Design preview 5176과 Review-safe 5190/5092는 별도 runtime으로 보존한다.
+- Change 001의 실제 결과와 cleanup 범위는 [Change 문서](uat-001-change-001.md)를 따른다.
+
 ## 1. 문서 목적
 
 EMI Development UAT를 HTTP 또는 HTTPS mode로 안전하게 시작·전환·진단하고 persistent UAT data와 외부 provider 설정을 보호하기 위한 운영 절차다. Task 종료 상태는 canonical [Task 종료 및 산출물 정책](../docs/12-task-completion-policy.md)을 따른다.
@@ -15,28 +25,19 @@ Review-safe mode와 운영 배포에는 적용하지 않는다.
 
 ## 3. HTTP와 HTTPS Development UAT 차이
 
-| 구분 | HTTP | HTTPS |
+| 구분 | 폐기된 HTTP | 현재 HTTPS |
 | --- | --- | --- |
-| 용도 | 일반 기능 개발 | Teams Activity/Teams tab 검수 |
-| 시작 script | `scripts/dev-uat-start.sh` | `scripts/dev-uat-start-teams-https.sh` |
-| URL | `http://localhost:5174` | `https://localhost:5174` |
-| 저장/수정 | 가능 | 가능 |
-| worker/provider | Development 설정 | `.env.notify-local` Development 설정 포함 |
+| 용도 | 운영하지 않음 | 로그인·일반 기능·알림·Teams Activity 검수 |
+| 시작 script | 사용 금지 | `scripts/dev-uat-start-teams-https.sh` |
+| URL | N/A | `https://localhost:5174` |
+| 저장/수정 | N/A | 가능 |
+| worker/provider | N/A | Delivery worker 활성, Escalation·Purge 비활성, Teams Activity actual channel 활성 |
 
-두 mode는 5174를 공유하므로 동시에 실행하지 않는다.
+Change 001 이후 HTTPS만 운영한다.
 
 ## 4. HTTP 서버 시작 절차
 
-1. Repository root와 branch/status를 확인한다.
-2. PostgreSQL persistent volume이 존재하는지 확인한다.
-3. HTTPS Teams 검수가 진행 중이 아닌지 확인한다.
-4. 다음을 실행한다.
-
-```bash
-scripts/dev-uat-start.sh
-```
-
-5. `http://localhost:5174`, backend live/ready와 `/api/me`를 확인한다.
+Change 001 이후 HTTP 5174는 시작하지 않는다. 일반 기능, 로그인과 알림 검수를 모두 HTTPS 5174에서 수행한다. HTTP listener가 있으면 소유권을 확인한 frontend-only HTTPS handover로 복구한다.
 
 ## 5. HTTPS 서버 시작 절차
 
@@ -51,13 +52,13 @@ scripts/dev-uat-start-teams-https.sh
 4. 값 없이 notification key의 `configured`/`missing` 상태를 확인한다.
 5. `https://localhost:5174`, `/teams/activity`, health proxy와 backend live/ready를 확인한다.
 
-## 6. Mode 전환 절차
+## 6. HTTPS-only 복구 절차
 
-1. 현재 mode와 검수 중인 사용자가 없는지 확인한다.
+1. 현재 protocol과 검수 중인 사용자가 없는지 확인한다.
 2. Persistent UAT DB snapshot과 PostgreSQL restart count를 기록한다.
-3. 목적 mode의 startup script를 한 번 실행한다.
+3. HTTPS startup 또는 승인된 frontend-only handover를 한 번 실행한다.
 4. Script가 기존 listener와 screen session의 repository ownership을 확인하도록 둔다.
-5. Startup 완료 후 기대 protocol은 200, 반대 protocol은 실패하는지 확인한다.
+5. HTTPS는 200, HTTP는 실패하는지 확인한다.
 6. 저장·수정·실제 알림이 필요한 검수는 사용자 승인 범위를 다시 확인한다.
 
 Unexpected process 오류가 나오면 해당 process를 임의 종료하지 않는다.
@@ -135,6 +136,8 @@ Backend process는 다음 hosted service를 등록한다.
 
 Daily Digest는 delivery dispatcher 흐름에 포함된다. Pending/Failed 상태는 read-only query로 관찰하고 새 smoke row를 만들지 않는다. Actual 발송 검수는 수신자·채널·data 변경에 대한 사용자 승인을 별도로 확인한다.
 
+2026-07-14 승인 smoke에서는 기존 `TeamsActivityDisabled` terminal 2건을 audit로 보존하고 HTTPS 5174에서 신규 ManualTest Teams Activity 1건만 생성했다. 동일 delivery의 retry lineage는 `RetryScheduled`, `RetryScheduled`, `Sent`이며 신규 delivery를 반복 생성하지 않았다. Provider `Sent`와 Teams client 실제 표시를 각각 확인했다.
+
 ## 14. DB 보존 원칙
 
 - UAT DB drop/truncate/reset 금지
@@ -193,6 +196,8 @@ corepack pnpm --filter emi-qms-frontend run e2e:full-stack
 - [x] HTTPS Teams Activity와 관리자 화면 정상
 - [x] 저장·수정 가능한 Development mode 확인
 - [x] 실제 알림은 별도 승인 범위에서만 검수하는 원칙 확인
+- [x] 승인된 신규 ManualTest Teams Activity 1건의 Microsoft Graph actual `Sent` 확인
+- [x] Teams client Activity Feed 표시 확인
 - [x] UAT DB/schema/data와 persistent volume 유지
 - [x] E2E가 UAT 자원을 사용하지 않음
 - [x] 오류 대응과 금지사항을 이해함
@@ -204,3 +209,5 @@ corepack pnpm --filter emi-qms-frontend run e2e:full-stack
 - 2026-07-10: TASK-UAT-001 최초 작성 — strict port/ownership/readiness/dotenv/transaction 도입
 - 2026-07-10: 최신 main `45fd61c` 통합, E2E isolation 연계와 당시 사용자 검수 대기 상태 반영(역사적 기록)
 - 2026-07-10: 사용자 검수 완료와 PR #23 squash merge 승인 반영
+- 2026-07-14: Change 001에서 Development UAT를 HTTPS 5174 하나로 통일하고 HTTP 시작 절차를 폐기. 자동 검증 완료 / 사용자 검수 대기
+- 2026-07-14: Backend 5081 Delivery Worker만 활성 유지, Teams Activity actual channel 활성화, 기존 terminal 2건 보존과 신규 ManualTest 1건 Graph `Sent`·Teams client 표시 검수 완료. 잔여 사용자 검수 2건 대기, merge 승인

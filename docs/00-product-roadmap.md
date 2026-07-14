@@ -933,7 +933,7 @@ Excel 출력 대상 후보:
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지, dev auth/E2E 보존, PostgreSQL transaction 기반 마지막 active System Administrator 보호, purge 전용 malformed lifecycle defense-in-depth, latest-main Development controlled runtime 적용 | Auth break-glass 계정·복구 rehearsal, 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
 | 관리자 | 시스템 관리 중심 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림/에스컬레이션 조회, 발송 실패/대기 상세 추적, active escalation L0~L3 breakdown, 삭제 예정 + 7일 후 완전 삭제 시도, 복구, 일괄 삭제/복구, 삭제 보류, 부서 field-level validation | Item/포장방식/생산계획 단계/구매 필수 항목 관리자 통합 여부, role/permission 편집 UI, 삭제 예정 데이터 purge 운영 정책, 전체 field-level audit 확장 |
-| UAT | 고정 Persistent UAT DB, latest-main Development 5174/5081, read-only Review-safe 5190/5092, canonical/live/approved legacy ledger 28/29/1, notification claim/lease·escalation fair-ordering·last-administrator controlled UAT | TASK-UAT-AUTH-HARDEN-001 검수 완료, Persistent live auth mutation은 break-glass 증명 전 No-Go |
+| UAT | 고정 Persistent UAT DB, HTTPS-only Development 5174/5081, read-only Review-safe 5190/5092, canonical/live/approved legacy ledger 28/29/1, notification claim/lease·escalation fair-ordering·last-administrator controlled UAT | TASK-UAT-001 Change 001 자동 검증·로그인·Graph actual·Teams client 수신 검수 완료, Persistent live auth mutation은 break-glass 증명 전 No-Go |
 | E2E | 전용 backend/frontend 포트, 전용 DB, cleanup | 신규 업무 단계마다 시나리오 추가 |
 | Repository workflow | 모든 새 Task의 semantic identity·Roadmap Sequence Gate, `NEW_FEATURE` 전용 Fable 5 deep-interview·사용자 요약 확인·Fable 5 read-only planning, Codex review, 사용자 승인, 분리된 Codex 구현·독립 검증과 Codex-only 보강 작업 router | 같은 목적은 canonical Task를 재사용하고 현재 Next Gate와 다른 Task는 명시적 재정렬 승인 전 시작하지 않음. 각 신규 기능의 interview/planning/review 파일과 승인 상태를 Task별로 추적 |
 
@@ -1148,13 +1148,14 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-UAT-001: HTTPS Development UAT 안정화
 
-- 상태/다음 순서: 구현·자동 검증·사용자 검수 완료 / PR #23 squash merge 승인
-- 목적: Teams Activity 검수를 위한 HTTPS Development UAT의 frontend strict port, process ownership, HTTP/HTTPS readiness, notification env와 master-data transaction을 안정화한다.
+- 상태/다음 순서: 최초 Task 구현·검수·PR #23 merge 완료 / Change 001 HTTPS-only runtime·Microsoft 365 로그인·Delivery worker handover·Teams Activity Graph actual·Teams client 수신 검수 완료 / 잔여 사용자 검수 2건 대기 / merge 승인 / 미게시
+- 목적: Teams Activity 검수를 위한 HTTPS Development UAT의 frontend strict port, process ownership, protocol readiness, notification env와 master-data transaction을 안정화하고 Change 001에서 로그인·일반 기능·알림을 HTTPS 5174 하나로 통일한다.
 - 포함 범위: 5174 strict port/ownership/PID, repo 경로 boundary, protocol mismatch 판정, literal notify dotenv loading, worker/provider Development 설정, master-data transaction, HTTPS UAT health와 화면 검수, E2E isolation 연계
 - 제외 범위: read-only Review mode, dependency security, notification claim/lease, escalation starvation, 마지막 관리자 동시성
 - 선행조건: TASK-E2E-ISOLATION-001 완료, persistent UAT와 HTTPS server 보존
 - 예상 migration: 없음
-- 핵심 검수 기준: HTTPS/Teams route 200, HTTP/HTTPS 전환, strict 5174, 다른 process 비종료, UAT DB 보존, isolated E2E, 사용자 저장·수정·알림 검수, 5종 산출물 확정
+- 핵심 검수 기준: HTTPS/Teams route 200, HTTP 5174 실패, strict 5174, Backend/Review-safe/design preview 비재시작, UAT DB 보존, 사용자 로그인·알림 검수와 5종 산출물 확정
+- Change 001 자동·사용자 검증: trusted HTTPS root/notification/Teams/API/health 200, desktop/390px 6/6, console/request/overflow 0, PostgreSQL·Review-safe·design runtime 보존, obsolete isolated container/network 3/3 정리. 5081 Delivery worker만 활성화하고 기존 `TeamsActivityDisabled` terminal 2건을 audit로 보존했으며 신규 ManualTest 1건은 retry lineage `RetryScheduled/RetryScheduled/Sent`와 Teams client 실제 표시를 확인했다.
 - 산출물: [Task 정의와 검수 체크리스트](../tasks/uat-001-https-dev-stability.md), [Implementation report](../tasks/uat-001-implementation-report.md), [SOP](../tasks/uat-001-sop.md), [User manual](../tasks/uat-001-user-manual.md), 이 Roadmap update
 - 주요 위험: Development actual provider 오발송, UAT worker 자연 변경과 E2E 영향 혼동, 사용자 검수 전 완료 오판. 자동 검증에서는 신규 실제 발송과 저장·수정을 수행하지 않음
 
@@ -1577,7 +1578,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 52 | 사용자별 알림 설정 | 계획 | 사용자/운영 | TASK-NOTIFY-005 | NOTIFY-004 완료와 필수 알림 opt-out/channel taxonomy 결정이 선행 |
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
 | 54 | Full-Stack E2E PostgreSQL 물리 격리 | 완료 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 squash merge `45fd61c` |
-| 55 | HTTPS Development UAT 안정화 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-001 | strict port/ownership, protocol readiness, notification env, master-data transaction, isolated E2E와 persistent UAT 보존. PR #23 |
+| 55 | HTTPS Development UAT 안정화 | 최초 Task 완료 / Change 001 자동 검증·로그인·Graph actual·Teams client 검수 완료 / 잔여 사용자 검수 2건 대기 / merge 승인 | 개발/운영 | TASK-UAT-001 | HTTPS-only 5174, strict port/ownership, same-origin 5081 proxy, Delivery Worker 단독 활성, Teams Activity 신규 ManualTest 1건 Sent·client 표시 확인, Review-safe·5176·persistent UAT 보존. PR #23 + Change 001 미게시 |
 | 56 | Frontend dependency security | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/보안 | TASK-FRONTEND-SEC-001 | Vite 7.3.6, esbuild 0.28.1, Vitest 4.1.0. Audit 전체 0, frontend/backend/E2E와 5174/5185 비교 검수 통과. PR #24 |
 | 57 | Review-safe UAT | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-002 | 5092/5190, startup·worker·provider·HTTP mutation 차단, DB session read-only, schema readiness, Development UAT 분리. PR #26 |
 | 58 | UAT 통합 사용자 검수 | 자동 검증·사용자 검수 완료 / merge 승인 | 사용자/개발 | UAT-VERIFY-001 | 최신 main runtime·ledger/schema/data/권한/dashboard/Review-safe/UI 기준선과 개인정보 안전 merge projection 통과. UAT 기준선 Go, 신규 기능 No-Go 유지, PR #29 병합 승인 |
@@ -1717,6 +1718,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-14 | GitHub Support의 history cache 처리 대기 중 기존 import-order 9건을 `TASK-BACKEND-FORMAT-001`로 먼저 계획 | 외부 blocker와 독립적인 P3 format debt를 정리하되 신규 기능 Gate와 history P2 상태는 변경하지 않기 위함 | 22장~25장, TASK-BACKEND-FORMAT-001 |
 | 2026-07-14 | TASK-BACKEND-FORMAT-001 사용자 검수와 squash merge를 승인 | Backend C# 9개 파일의 import 순서만 정규화하고 format diagnostic 9→0, Backend 361/361, Frontend 62/62, Full-Stack E2E 16/16과 독립 diff 검증을 통과했음을 확인하기 위함 | 23장~25장, TASK-BACKEND-FORMAT-001 |
 | 2026-07-14 | 일반 Task는 단일 canonical clone을 재사용하고 별도 worktree는 runtime·병렬 write·고위험 rehearsal에만 생성 | Task 문서는 Repository와 Git history에 누적되지만 source checkout·`node_modules`·Backend build artifact가 Task마다 영구 중복되지 않게 하기 위함 | AGENTS.md, 23장~25장, TASK-GOV-CODEX-002 Change 003 |
+| 2026-07-14 | History Support 대기 중 `TASK-UAT-001` Change 001 병렬 실행을 승인하고 Development UAT를 HTTPS 5174 하나로 통일 | 로그인·일반 기능·알림·Teams Activity를 한 origin에서 검수하고 HTTP protocol drift와 불필요한 격리 DB port를 제거하면서 5081·5432·5190/5092·5176을 보존하기 위함 | 21장~25장, TASK-UAT-001 Change 001 |
+| 2026-07-14 | `TASK-UAT-001` Change 001에서 5081 Teams Activity actual channel과 신규 ManualTest 1건 Graph 발송을 승인 | 기존 `TeamsActivityDisabled` terminal 2건은 audit로 보존하고 Delivery Worker만 활성인 상태에서 신규 delivery 1건의 retry lineage와 최종 `Sent`를 검수하면서 Escalation·Purge·다른 runtime·Persistent UAT DB/volume을 보존하기 위함 | 21장~25장, TASK-UAT-001 Change 001 |
+| 2026-07-14 | `TASK-UAT-001` Change 001의 Teams client 실제 알림 수신 검수를 완료하고 merge까지 승인 | Microsoft Graph `Sent`와 사용자의 Activity Feed 실제 표시 확인을 분리해 모두 닫고 기존 terminal audit·다른 runtime·Persistent UAT 자원 보존 결과를 게시하기 위함 | 21장~25장, TASK-UAT-001 Change 001 |
 
 ## 26. 용어 사전
 

@@ -10,6 +10,7 @@
 - Fable 5 호출: 없음
 - Change 001: Fable 5 deep-interview+planning Gate 보정·자동 검증·사용자 검수 완료 / merge 승인
 - Change 002: Task Identity+Roadmap Sequence Gate 보정·자동 검증·사용자 검수 완료 / merge 승인
+- Change 003: 단일 canonical clone lifecycle 구현·local clean worktree 정리·자동 검증·사용자 검수 완료 / merge 승인
 
 ## 2. 목표
 
@@ -42,19 +43,20 @@
 - 대표 instruction-chain dry run
 - 같은 목적 Task semantic identity와 Roadmap Sequence Gate
 - Fixed projection template과 기존 canonical Task 재사용
+- 단일 canonical clone 재사용, bounded runtime·temporary worktree와 cleanup gate
 
 ## 6. 제외 범위
 
 - Backend·Frontend·migration·script·runtime·Persistent UAT 변경
 - 실제 신규 기능 기획 또는 구현
 - 실제 Fable 5 기획 호출
-- 기존 dirty root worktree와 historical branch 정리
+- 기존 dirty root worktree, 실행 중 runtime worktree와 historical branch 정리
 - project-local Rules 변경
 - 사용자 승인 전 Ready 전환과 merge
 
 ## 7. 보존할 불변조건
 
-- main 직접 작업·push 금지와 Task worktree 격리
+- main 직접 작업·push 금지, Task별 branch와 필요한 runtime 격리
 - Persistent UAT, migration, provider와 runtime 승인 경계
 - P0/P1/P2 Finding gate
 - 개인정보·secret과 fixed projection
@@ -80,6 +82,9 @@
 14. 실질적 수정 요청은 `tasks/<task-id>-change-###.md`로 계약을 고정한다.
 15. 구현과 독립 검증은 별도 Codex 세션을 기본으로 한다.
 16. 사용자 검수와 게시·merge 승인을 분리한다.
+17. 일반 Task는 clean한 canonical clone 하나에서 최신 `origin/main` 기준 branch를 만들고 Task별 영구 source 폴더를 추가하지 않는다.
+18. 별도 worktree가 필요하면 purpose·process ownership·종료 시점·cleanup 경계를 먼저 기록한다.
+19. merge 뒤 clean·process 미사용·open PR 없음·commit reachable을 확인한 임시 worktree만 승인 범위에서 정리한다.
 
 ## 9. 사용자 안내
 
@@ -90,6 +95,7 @@
 - 조사·기획 결과를 승인하기 전에는 source 구현이 시작되지 않는다.
 - 구현 뒤에도 독립 검증과 사용자 검수·merge 승인이 별도로 필요하다.
 - 새 Task를 시작하기 전 기존 같은 목적의 Task와 Roadmap의 현재 순서를 대조한다. 같은 목적이면 기존 Task를 이어가고, 순서가 다르면 이유와 선택지를 먼저 안내한다.
+- 일반 Task는 하나의 canonical clone을 재사용하므로 Task가 늘어도 source 폴더가 계속 늘어나지 않는다. Runtime 격리용 폴더는 실제 process가 사용하는 동안만 유지한다.
 
 ## 10. Rollback
 
@@ -100,6 +106,7 @@
 - 신규 P0/P1/P2: 없음
 - 기존 root 장문 초안: 경쟁 WIP로 보존하며 본 Task에 포함하지 않음
 - `docs/task-close-process-guidelines`: remote에는 있으나 PR 없는 historical branch이며 별도 cleanup 승인 전 유지
+- Change 003 cleanup: worktree 30→9, 약 4.03GB 회수. Dirty 3개와 process 사용 5개는 보존했다.
 
 ## 12. 5종 산출물 상태
 
@@ -124,3 +131,6 @@
 - [x] 같은 목적의 다른 Task 이름이 제안돼도 기존 canonical Task를 재사용하는지 확인
 - [x] Roadmap의 현재 Next Gate와 다른 Task가 사용자 재정렬 승인 없이 시작되지 않는지 확인
 - [x] 새 채팅에서도 instruction chain과 Task Identity Gate가 첫 변경 전에 다시 실행되는지 확인
+- [x] 일반 Task를 단일 canonical clone에서 수행하고 Task별 영구 worktree를 만들지 않는 운영 모델 승인
+- [x] Dirty·runtime worktree가 보존되고 clean inactive worktree만 정리됐는지 확인
+- [x] Change 003 게시·merge 승인

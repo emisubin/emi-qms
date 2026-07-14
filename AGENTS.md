@@ -49,7 +49,13 @@ Roadmap 순서는 단순 번호가 아니라 status, dependencies, external bloc
 ## 작업 격리와 범위
 
 - `main`에서 직접 개발하거나 push하지 않는다.
-- Task별 branch와 전용 worktree를 사용한다.
+- Task별 branch는 유지하되, 일반적인 순차 작업은 하나의 canonical local clone에서 branch만 전환한다. Task마다 영구 worktree나 전체 checkout을 새로 만들지 않는다.
+- 대표 local 구조는 일반 Task workspace를 겸하는 canonical clone 하나와 실제 실행에 필요한 bounded runtime worktree로 제한한다. Task 문서와 결과는 별도 폴더 복제가 아니라 Repository의 `tasks/`, Git commit과 PR에 누적한다.
+- canonical clone은 새 Task 시작 전에 clean이어야 하며 최신 `origin/main`에서 승인된 Task branch를 만든다. dirty 상태, open PR, 실행 중 process 소유 또는 보존되지 않은 detached commit이 있으면 branch를 전환하거나 worktree를 정리하지 않는다.
+- 병렬 구현, runtime source 고정, 위험한 history/migration rehearsal처럼 물리 격리가 필요한 경우에만 임시 worktree를 추가한다. 생성 전에 purpose, owner, 기준 SHA, 예상 종료 시점과 cleanup 승인 경계를 기록한다.
+- 구현·독립 검증의 Codex session 분리는 논리적 책임 분리이며 영구 worktree를 하나씩 추가해야 한다는 의미가 아니다. 동시 write가 없으면 독립 검증은 canonical clone의 같은 clean committed branch를 read-only로 사용한다.
+- 임시 worktree는 Task 종료 시 clean, process 미사용, open PR 없음과 commit reachable을 확인한 뒤 승인 범위에서 `git worktree remove`로 정리한다. `rm -rf`, dirty worktree 강제 제거와 branch 자동 삭제를 사용하지 않는다.
+- 임시 worktree의 `node_modules`, Backend `bin/obj`, browser report와 E2E artifact는 ownership을 확인하고 Task cleanup 범위에서 제거한다. runtime이 사용 중이거나 소유가 불명확하면 보존한다.
 - 기능 개발은 `feat/<task-id>-<short-name>`, 버그 수정은 `fix/<task-id>-<short-name>`, 디자인 실험은 `experiment/<purpose>` 형식을 사용한다.
 - 기존 dirty worktree, stash, branch, runtime과 사용자가 만든 WIP를 임의 수정·정리·재시작하지 않는다.
 - 시작 전 동일 목적 branch/worktree/PR과 현재 diff를 확인한다.

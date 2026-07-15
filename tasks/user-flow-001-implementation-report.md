@@ -1,0 +1,80 @@
+# TASK-USER-FLOW-001 — 개인 유저플로우 기획 산출물 Report
+
+## 1. 범위와 작성 책임
+
+- taskType: `NEW_FEATURE`
+- phase: `PERSONAL_PLANNING_CONTENT_REVIEW_COMPLETE`
+- sourceArtifact: `docs/13-user-flow-baseline.md`
+- sourceAuthor: `FABLE_5`
+- contentReviewer: `GPT-5.6-SOL`
+- sourceModificationByCodex: `false`
+- productSourceModification: `false`
+
+Fable 5가 preview Markdown 전문을 작성하고 runner가 stdout과 byte-identical한 파일을 기록했다. Codex는 이 원문을 편집하지 않았다. 이후 Change 002에 따라 GPT-5.6 SOL이 코드 정합성보다 개발 방향·기능 가치·누락·우선순위를 중심으로 내용 review를 한 번 작성했고 이번 기획 작성 흐름을 종료했다.
+
+## 2. 실제 산출물
+
+| 산출물 | 위치 | 상태 |
+| --- | --- | --- |
+| Interview | `tasks/user-flow-001-interview.md` | 사용자 요약 확인 완료 |
+| Planning | `tasks/user-flow-001-planning.md` | 승인 완료 |
+| Codex 기술 대조 review | `tasks/user-flow-001-review.md` | 내용 review의 보조 자료로 재분류 |
+| Fable preview 원문 | `docs/13-user-flow-baseline.md` | 원문 보존 / 개인 참고 자료 |
+| GPT-5.6 SOL 내용 review | `tasks/user-flow-001-preview-review.md` | `CONTENT_REVIEW_COMPLETE` |
+| Change 001 | `tasks/user-flow-001-change-001.md` | 과거 원문 작성·질문 무편집 계약과 실행 이력 |
+| Change 002 | `tasks/user-flow-001-change-002.md` | 단일 초안·단일 내용 review·개인 참고 목적 확정 |
+| Roadmap | `docs/00-product-roadmap.md` | 내용 review 완료·자동 Phase B 보류로 갱신 |
+| User validation | 이 Task의 사용자 검수 응답 | 내용 review 확인 대기 |
+
+## 3. 과거 실행 이력과 최신 절차
+
+1. Fable 5가 첫 preview 전문을 작성했다.
+2. GPT-5.6 SOL review에서 기존 문서 정렬 Phase B gate와 현재 route·stage·회귀·복구 계약의 보정 항목을 분리했다.
+3. Fable 5가 review를 읽고 전문 전체를 재작성했다.
+4. 두 번째 review에서 출력 프롤로그, 구매 예정일 에스컬레이션의 현재/예정 구분, 삭제 보관함 조회와 관리자 복구 권한 구분을 확인했다.
+5. Runner에 첫 비공백 행 H1 contract를 추가한 뒤 Fable 5가 전문 전체를 다시 작성했다.
+6. 세 번째 GPT-5.6 SOL review에서 신규 P0/P1/P2가 없고 기존 P2-001·P2-003~008과 P3-001이 해소됐음을 확인했다.
+
+각 반복에서 Codex는 `docs/13-user-flow-baseline.md`를 수정하지 않았다. 이 반복은 Change 002 이전에 이미 수행된 이력이며 향후 기본 절차가 아니다.
+Review 저장 후 Codex는 privacy-safe 규칙에 맞지 않는 로컬 절대 링크 2개만 Repository 상대 링크로 정규화했다. Review의 판정·Finding·검증 결과와 Fable 원문은 변경하지 않았다.
+
+최신 기본 절차는 `Fable primary draft 1회 → Codex 내용·제품 방향 review 1회 → 종료`다. Codex review가 Fable revise나 추가 review를 자동 실행하지 않는다. 새 전문은 사용자가 명시적으로 요청한 경우에만 별도 change로 실행한다.
+
+## 4. 구현 결정
+
+- Fable 질문은 round artifact 원문을 그대로 사용자에게 전달한다. Codex는 순서·표현·선택지·권장안을 바꾸지 않는다.
+- Contract·privacy guard는 저장을 거부할 수 있지만 내용을 교정하지 않는다.
+- Preview `draft`는 atomic exclusive create로 기존 target이나 symlink를 덮어쓰지 않는다.
+- Preview `revise`는 사용자의 명시적 redraft 승인 marker와 기존 target·review가 있을 때만 Fable이 완전한 대체 전문을 출력한다. Approval change identity·digest는 one-time private receipt로 소비해 같은 승인을 재사용하지 않는다.
+- `docs/02-business-flow.md`와 `docs/04-permission-matrix.md`는 개인 참고 목적에서는 변경하지 않는다. 향후 canonical 게시를 별도로 선택할 때만 재검토한다.
+- Frontend·Backend·API·DB·migration·runtime·provider는 변경하지 않는다.
+
+## 5. 검증
+
+- Fable 최종 원문의 첫 비공백 행과 단일 H1 확인
+- 승인 결정 `1A/2C/3A`, 18개 stage, 13개 journey, 공통 예외 `E1~E4` 확인
+- Mermaid 2개 블록의 정의·참조·중복·괄호 균형 정적 검사
+- 상대 Markdown link 9개 대상 존재 확인
+- Frontend route, Backend workflow·handoff·fallback·permission 계약 정적 대조
+- privacy-safe email·UUID·절대 경로·credential 패턴 0 확인
+- Frontend·Backend·database·infrastructure 제품 source diff 0 확인
+- 실제 Markdown/Mermaid renderer: `NOT_RUN` — 현재 환경에서 renderer를 확인하지 못함
+
+## 6. Finding
+
+- Open P0/P1: `0/0`
+- Open P2: `0` — 기존 문서 drift는 개인 참고 사용을 막지 않으며 canonical 게시를 선택할 때 별도 governance 범위로 재평가한다.
+- Open P3: `0`
+- Content review status: `CONTENT_REVIEW_COMPLETE`
+- Task publish gate: `N/A_PERSONAL_REFERENCE_NOT_FOR_PUBLICATION`
+
+## 7. 미실행·남은 승인
+
+- 내용 review 사용자 확인
+- 실제 Markdown/Mermaid 렌더링 검수
+- 향후 canonical 게시를 선택할 경우에만 별도 문서 정렬 판단
+- Governance Change 010 독립 검증 완료(P0/P1/P2/P3 `0/0/0/0`), 사용자 검수와 commit·push·PR·merge 승인 대기
+
+## 8. Rollback
+
+Phase A는 문서와 runner 계약만 변경한다. 게시 전에는 작업 branch의 변경 파일을 보존하고 승인된 경로만 후속 수정한다. 게시 뒤 rollback이 필요하면 제품 runtime이나 DB를 건드리지 않고 해당 문서 commit을 Git revert한다.

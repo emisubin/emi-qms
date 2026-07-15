@@ -20,6 +20,7 @@
 - Change 010: Fable primary draft 1회·Codex 내용 review 1회·자동 revise 금지 계약 / USER-FLOW 내용 review·자동·독립 검증·대표 branch 통합 완료 / 사용자 검수·게시 대기
 - Change 011: 대표 5174 branch-following 운영 보정 / 구현·자동 검증·대표 branch 통합 완료 / 독립 검증·사용자 검수·게시 대기
 - Change 012: Fable 정책·USER-FLOW WIP 선별 이식과 대표·디자인 2-worktree 정규화 / 로컬 보존·결과 커밋·일반 worktree 제거·자동 검증 완료 / 독립 검증·사용자 검수·게시 대기
+- Change 013: Generic primary draft와 USER-FLOW compatibility redraft 분리·exact target 승인 gate·Reporting 상태 충돌 보정 / 구현·자동 검증·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
 
 ## 2. 목표
 
@@ -91,9 +92,9 @@
 9. 사용자가 Fable 요약을 확인하고 blocking decision이 0일 때만 Fable 5 planning을 시작한다.
 10. Fable 호출은 `bash scripts/run-fable-readonly.sh`만 사용한다. Script가 `fable` Fable 5 alias, read-only option, fixed Task path, 승인 상태, Task session 소유권·drift, private output과 상태 contract를 보장할 수 없으면 중단한다.
 11. Runner가 interview 질문 원문을 round artifact에 byte-for-byte로 기록하고 Codex는 이를 변경 없이 사용자에게 전달한다.
-12. Fable은 사용자 확인이 끝난 interview를 바탕으로 primary draft 전문을 한 번 작성한다. 기본 target은 Task planning이며 사용자가 별도 개인·사용자-facing 문서를 primary draft로 승인하면 그 target 하나만 사용한다.
+12. Fable은 사용자 확인이 끝난 interview를 바탕으로 primary draft 전문을 한 번 작성한다. 기본 target은 Task planning이며 사용자가 별도 개인·사용자-facing 문서를 primary draft로 승인하면 최신 change에 사용자 요청과 exact target을 기록하고 그 target 하나만 사용한다. 이 경로는 planning·preview를 중복 생성하지 않는다.
 13. Codex는 별도 파일에서 개발 방향·사용자 가치·기능 필요성·누락·우선순위·과도한 범위와 trade-off를 중심으로 내용 review를 한 번 작성한다. Code 대조는 구현 가능성과 기존 계약 충돌을 확인하는 보조 근거다.
-14. Codex review로 Fable revise나 추가 review를 자동 실행하지 않는다. 사용자가 새 전문을 명시적으로 요청한 경우에만 별도 change의 승인 marker를 확인하고 Fable `revise`로 전문 전체를 교체한다. Runner는 approval change digest를 private receipt로 한 번만 소비하고 Task session cleanup 뒤에도 같은 승인 재사용을 차단한다.
+14. Codex review로 Fable revise나 추가 review를 자동 실행하지 않는다. 사용자가 새 전문을 명시적으로 요청한 경우에만 별도 change의 승인 marker와 exact target을 확인하고 Fable `revise`로 전문 전체를 교체한다. Runner는 approval change digest를 private receipt로 한 번만 소비하고 Task session cleanup 뒤에도 같은 승인 재사용을 차단한다. Generic 문서에는 업무별 H1·section·diagram·journey를 하드코딩하지 않는다.
 15. 사용자 승인 전에 제품 구현으로 넘어가지 않는다.
 16. 승인된 기능 구현과 모든 비신규 작업은 Codex-only 흐름을 사용한다.
 17. 실질적 수정 요청은 `tasks/<task-id>-change-###.md`로 계약을 고정한다.
@@ -145,16 +146,18 @@
 - Change 011 P3 `USER_FLOW_P3_001_IDENTITY_TRACE_GAP`: `RESOLVED`. USER-FLOW Change 003·Implementation report·Roadmap에서 과거 문서 작성 승인과 제품 구현·Fable redraft·게시 미승인을 stable identity로 분리했다.
 - Change 012 Finding `WORKTREE_PROCESS_HANDLE_ACTIVE`: `RESOLVED`. USER-FLOW worktree의 terminal/Fable handle 때문에 첫 제거를 중단했고 사용자 terminal 종료 뒤 handle 0을 재확인한 후 일반 제거했다.
 - Change 012: Governance preservation/result `4058849`/`a6232b2`, USER-FLOW preservation/result `1cc66fe`/`c4b2858`. 최종 worktree는 대표·디자인 `2/2`이며 강제 제거·runtime restart·branch 삭제·push·PR·merge는 실행하지 않았다.
+- Change 013 P2 `FABLE_PRIMARY_DRAFT_MODE_CONTRACT_CONFLICT`: Generic `docs/` primary draft를 planning·review 구현 승인과 분리하고 latest change의 사용자 요청·exact target으로 gate한다. USER-FLOW 전용 H1·metadata·review path는 exact historical redraft 조합으로 한정하고 generic 계약에서 업무별 구조를 제거했다. 독립 재검증 대기다.
+- Change 013 P2 `REPORTING_CHANGE001_COMPLETION_STATE_CONFLICT`: Reporting Implementation report의 최초 Task 완료와 Change 001 현재 상태를 분리하고 사용자 검수·조건부 merge 승인 상태를 Task·Roadmap과 정렬했다. 독립 재검증 대기다.
 
 ## 12. 5종 산출물 상태
 
 | 산출물 | Canonical 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/gov-codex-002-implementation-report.md` | Change 007~012 선별 통합·자동 검증 완료 / 독립 검증·사용자 검수 대기 |
+| Implementation report | `tasks/gov-codex-002-implementation-report.md` | Change 007~013 통합·P2 보정·자동 검증 완료 / 독립 재검증 대기 |
 | SOP | 이 문서 8장 | 작성됨 |
 | User manual | 이 문서 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 007~012와 대표·디자인 2-worktree 운영 반영 완료 / 게시 대기 |
-| User validation checklist | 이 문서 13장 | Change 001~006 완료 / Change 007~012 독립 검증·사용자 검수 대기 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 007~013와 대표·디자인 2-worktree 운영 반영 완료 / 독립 재검증 뒤 게시 승인 |
+| User validation checklist | 이 문서 13장 | Change 001~013 사용자 검수·merge 승인 / Change 013 독립 재검증 대기 |
 
 ## 13. 사용자 검수 체크리스트
 
@@ -209,4 +212,7 @@
 - [x] Change 012 대표·디자인 2-worktree exact projection 확인
 - [x] Change 012 자동 검증
 - [ ] Change 012 분리된 Codex 독립 검증
-- [ ] Change 012 사용자 검수와 별도 Git 게시 승인
+- [x] Change 012 사용자 검수와 별도 Git 게시 승인
+- [x] Change 013 generic primary draft·USER-FLOW compatibility 분리와 exact target gate 확인
+- [x] Change 013 Governance 독립 재검증 뒤 merge 승인
+- [ ] Change 013 분리된 Codex 독립 재검증

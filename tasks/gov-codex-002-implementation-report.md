@@ -407,12 +407,49 @@ Finding 상태:
 - `WORKTREE_PROCESS_HANDLE_ACTIVE`: `RESOLVED`
 - 분리된 Codex 독립 검증·사용자 검수·push·PR·merge: 대기
 
+## 10.13 Change 013 — 독립 검증 P2 보정
+
+첫 분리 검증은 Governance 게시 gate를 `NO_GO`로 판정하고 P2 두 건을 확인했다.
+
+- `FABLE_PRIMARY_DRAFT_MODE_CONTRACT_CONFLICT`: Root 정책은 승인된 `docs/` target을 planning 대신 primary draft로 사용하지만 runner는 planning·review 양쪽의 구현 승인을 요구했다. Generic prompt와 postflight에도 USER-FLOW H1·18단계·13개 journey가 하드코딩돼 다른 신규 Task에 잘못 적용될 수 있었다.
+- `REPORTING_CHANGE001_COMPLETION_STATE_CONFLICT`: Reporting Implementation report의 최초 Task 완료 상태와 Change 001의 현재 검수·게시 상태가 구분되지 않아 같은 문서 안에서 완료와 대기가 충돌했다.
+
+Change 013은 generic primary-doc 계약을 다음처럼 보정했다.
+
+- `planning`은 기본 Task planning primary draft로 유지한다.
+- `draft`는 planning·review 구현 승인 대신 최신 change의 `fablePrimaryDraftApproved`, `USER_EXPLICIT_REQUEST`, exact `fablePrimaryDraftTarget`을 확인한다.
+- `revise`도 최신 change의 explicit redraft와 exact target을 확인하고 기존 target·Codex review·one-time receipt를 유지한다.
+- Generic `draft|revise`는 하나의 H1과 작성 상태·source Task·작성 모델만 기계적으로 검사한다. 특정 단계 수·journey·diagram·section을 요구하지 않는다.
+- 기존 USER-FLOW H1·`previewStatus`·preview review path는 `TASK-USER-FLOW-001`과 `docs/13-user-flow-baseline.md`의 exact historical redraft에만 한정했다.
+- Draft 기록 직전에도 latest approval file과 digest를 재검증해 승인 변경 경쟁을 fail-closed로 차단한다.
+
+Reporting 문서는 최초 Task의 과거 완료 증빙과 Change 001의 현재 상태를 별도 행·문장으로 분리했다. 사용자의 현재 요청은 Change 001을 포함한 Governance 정책 검수와 독립 검증 PASS 뒤 merge 승인으로 기록하되, 독립 재검증 전에는 게시 gate를 닫지 않는다.
+
+자동 검증 결과는 다음과 같다.
+
+- Bash syntax·ShellCheck warning 이상: `PASS/PASS`
+- Stable failure negative: invalid mode·traversal target·missing interview·invalid argument `4/4`
+- Generic draft approval marker: `3/3`; generic redraft marker: `3/3`
+- Generic runner의 planning/review 구현 승인·18-stage·13 journey·P2-001 하드코딩: `0/0/0/0`
+- USER-FLOW compatibility selector: exact mode·Task·target 조건 1개, generic 분기와 분리
+- Execpolicy: runner allow `1`, generic bash/zsh wrapper prompt `2`
+- Markdown file/local link/missing/duplicate heading: `18/127/0/0`
+- Email/UUID/private key/credential assignment/absolute user path 후보: `0/0/0/0/0`
+- `git diff --check`: PASS
+- Product source/config/dependency/migration diff: `0`
+- Runtime URL: Development·Design·Review-safe Frontend와 Development·Review-safe Backend `7/7` HTTP 200
+- Worktree registry: 대표·디자인 `2`
+- PostgreSQL: 첫 독립 검증에서 `running/healthy/restart 0`; 보정은 docs·runner-only이며 DB mutation 0
+- 첫 독립 검증 P2: `2` / 보정 구현 완료 / 독립 재검증 대기
+- 사용자 검수: 완료
+- Push·PR·merge: 독립 재검증 PASS 뒤 승인
+
 ## 11. 5종 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | 이 문서 | Change 007~012 선별 통합·자동 검증 완료 / 독립 검증·사용자 검수 대기 |
+| Implementation report | 이 문서 | Change 007~013 통합·P2 보정 완료 / 독립 재검증 대기 |
 | SOP | `tasks/gov-codex-002.md` 8장 | 작성됨 |
 | User manual | `tasks/gov-codex-002.md` 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 007~012와 대표·디자인 2-worktree 운영 반영 완료 / 게시 대기 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~006 완료 / Change 007~012 독립 검증·사용자 검수 대기 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 007~013와 대표·디자인 2-worktree 운영 반영 완료 / 독립 재검증 뒤 게시 승인 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~013 사용자 검수·merge 승인 / Change 013 독립 재검증 대기 |

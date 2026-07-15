@@ -21,6 +21,12 @@ redraft_claim_path=""
 redraft_claim_token=""
 redraft_claim_consumed="false"
 revision_target_digest=""
+primary_approval_digest=""
+primary_approval_file=""
+approval_path=""
+redraft_review_path=""
+redraft_review_file=""
+legacy_user_flow_revision="false"
 
 # shellcheck disable=SC2329
 cleanup_direct_write_tmp() {
@@ -213,6 +219,9 @@ git_common_dir="$(cd "$git_common_dir" && pwd -P)"
 repo_key="$(printf '%s' "$git_common_dir" | shasum -a 256 | awk '{print substr($1,1,16)}')"
 task_key="$(basename "$interview_path" -interview.md)"
 task_id="TASK-$(printf '%s' "$task_key" | tr '[:lower:]' '[:upper:]')"
+if [[ "$mode" == "revise" && "$task_key" == "user-flow-001" && "$artifact_path" == "docs/13-user-flow-baseline.md" ]]; then
+  legacy_user_flow_revision="true"
+fi
 state_parent="${XDG_STATE_HOME:-$HOME/.local/state}"
 if [[ "$state_parent" != /* ]]; then
   fail "FABLE_SESSION_STATE_ROOT_INVALID" 68
@@ -324,28 +333,49 @@ if [[ "$mode" == "planning" ]]; then
 fi
 
 if [[ "$mode" == "draft" || "$mode" == "revise" ]]; then
-  if [[ ! -f "$planning_file" || ! -f "$review_file" ]]; then
-    fail "FABLE_READONLY_DRAFT_CONTRACT_MISSING" 67
-  fi
   if ! grep -Fqx -- '- interviewStatus: `COMPLETED_CONFIRMED`' "$interview_file" ||
      ! grep -Fqx -- '- userConfirmed: true' "$interview_file" ||
-     ! grep -Fqx -- '- openBlockingDecisionCount: 0' "$interview_file" ||
-     ! grep -Fqx -- '- planningApproved: true' "$planning_file" ||
-     ! grep -Fqx -- '- implementationApproved: true' "$planning_file" ||
-     ! grep -Fqx -- '- planningApproved: true' "$review_file" ||
-     ! grep -Fqx -- '- implementationApproved: true' "$review_file"; then
+     ! grep -Fqx -- '- openBlockingDecisionCount: 0' "$interview_file"; then
     fail "FABLE_READONLY_DRAFT_GATE_INCOMPLETE" 67
   fi
-  if [[ "$mode" == "draft" && ( -e "$repo_root/$artifact_path" || -L "$repo_root/$artifact_path" ) ]]; then
-    fail "FABLE_READONLY_DRAFT_TARGET_EXISTS" 67
+
+  shopt -s nullglob
+  approval_change_files=("$repo_root/${task_stem}-change-"*.md)
+  shopt -u nullglob
+  if [[ "${#approval_change_files[@]}" -eq 0 ]]; then
+    if [[ "$mode" == "draft" ]]; then
+      fail "FABLE_READONLY_PRIMARY_DRAFT_USER_APPROVAL_MISSING" 67
+    fi
+    fail "FABLE_READONLY_REVISION_USER_APPROVAL_MISSING" 67
   fi
-  if [[ "$mode" == "revise" && ( ! -f "$repo_root/$artifact_path" || -L "$repo_root/$artifact_path" ) ]]; then
-    fail "FABLE_READONLY_REVISION_TARGET_MISSING" 67
-  fi
-  if [[ "$mode" == "revise" && ! -f "$preview_review_file" ]]; then
-    fail "FABLE_READONLY_REVISION_REVIEW_MISSING" 67
-  fi
-  if [[ "$mode" == "revise" ]]; then
+
+  if [[ "$mode" == "draft" ]]; then
+    primary_approval_file="${approval_change_files[${#approval_change_files[@]}-1]}"
+    approval_path="${primary_approval_file#"$repo_root/"}"
+    if [[ ! -f "$primary_approval_file" || -L "$primary_approval_file" ]] ||
+       ! grep -Fqx -- '- fablePrimaryDraftApproved: true' "$primary_approval_file" ||
+       ! grep -Fqx -- '- fablePrimaryDraftSource: `USER_EXPLICIT_REQUEST`' "$primary_approval_file" ||
+       ! grep -Fqx -- "- fablePrimaryDraftTarget: \`$artifact_path\`" "$primary_approval_file"; then
+      fail "FABLE_READONLY_PRIMARY_DRAFT_USER_APPROVAL_MISSING" 67
+    fi
+    primary_approval_digest="$(shasum -a 256 "$primary_approval_file" | awk '{print $1}')"
+    if [[ -e "$repo_root/$artifact_path" || -L "$repo_root/$artifact_path" ]]; then
+      fail "FABLE_READONLY_DRAFT_TARGET_EXISTS" 67
+    fi
+  else
+    if [[ ! -f "$repo_root/$artifact_path" || -L "$repo_root/$artifact_path" ]]; then
+      fail "FABLE_READONLY_REVISION_TARGET_MISSING" 67
+    fi
+    if [[ "$legacy_user_flow_revision" == "true" ]]; then
+      redraft_review_path="$preview_review_path"
+      redraft_review_file="$preview_review_file"
+    else
+      redraft_review_path="$review_path"
+      redraft_review_file="$review_file"
+    fi
+    if [[ ! -f "$redraft_review_file" || -L "$redraft_review_file" ]]; then
+      fail "FABLE_READONLY_REVISION_REVIEW_MISSING" 67
+    fi
     shopt -s nullglob
     redraft_change_files=("$repo_root/${task_stem}-change-"*.md)
     shopt -u nullglob
@@ -353,9 +383,11 @@ if [[ "$mode" == "draft" || "$mode" == "revise" ]]; then
       fail "FABLE_READONLY_REVISION_USER_APPROVAL_MISSING" 67
     fi
     redraft_approval_file="${redraft_change_files[${#redraft_change_files[@]}-1]}"
+    approval_path="${redraft_approval_file#"$repo_root/"}"
     if [[ ! -f "$redraft_approval_file" || -L "$redraft_approval_file" ]] ||
        ! grep -Fqx -- '- fableRedraftApproved: true' "$redraft_approval_file" ||
-       ! grep -Fqx -- '- fableRedraftSource: `USER_EXPLICIT_REQUEST`' "$redraft_approval_file"; then
+       ! grep -Fqx -- '- fableRedraftSource: `USER_EXPLICIT_REQUEST`' "$redraft_approval_file" ||
+       ! grep -Fqx -- "- fableRedraftTarget: \`$artifact_path\`" "$redraft_approval_file"; then
       fail "FABLE_READONLY_REVISION_USER_APPROVAL_MISSING" 67
     fi
     redraft_approval_digest="$(shasum -a 256 "$redraft_approval_file" | awk '{print $1}')"
@@ -444,7 +476,7 @@ while IFS= read -r status_line; do
   fi
   dirty_path="${status_line:3}"
   case "$dirty_path" in
-    "$interview_path"|"$planning_path"|"$review_path"|"$preview_review_path"|"$artifact_path"|"docs/00-product-roadmap.md"|"AGENTS.md"|"CLAUDE.md") ;;
+    "$interview_path"|"$planning_path"|"$review_path"|"$preview_review_path"|"$artifact_path"|"$approval_path"|"docs/00-product-roadmap.md"|"AGENTS.md"|"CLAUDE.md") ;;
     *) unexpected_dirty_count="$((unexpected_dirty_count + 1))" ;;
   esac
 done < <(git status --porcelain=v1 --untracked-files=all)
@@ -522,9 +554,11 @@ if [[ "$mode" == "interview" ]]; then
 elif [[ "$mode" == "planning" ]]; then
   operation_contract="The confirmed interview gate was verified by the caller. Revalidate the current Roadmap, relevant implementation and tests before writing one complete primary planning draft. This is the single Fable draft that Codex will review once; do not assume a later Fable rewrite. End with planningStatus: DRAFT, implementationApproved: false, and userDecisionRequiredCount: followed by a nonnegative integer."
 elif [[ "$mode" == "draft" ]]; then
-  operation_contract="The user approved the planning, review resolution and a Fable-authored preview. Read ${planning_path} and ${review_path}, then write the complete Markdown body intended for ${artifact_path}. This is the full user-facing artifact, not a plan, outline or review. The first output byte must be '#' in the exact H1 '# EMI 프로젝트 통합관리시스템 전체 유저플로우'; do not add reasoning, a preface, a review summary or any text before that H1. Include the exact metadata lines '- previewStatus: \`DRAFT_FOR_USER_REVIEW\`', '- sourceTask: \`${task_id}\`', and '- authoringModel: \`FABLE_5\`'. Include a master 18-stage Mermaid flow, a target navigation Mermaid flow, current-versus-planned status, all 13 user journeys, common exception and recovery flows, downstream Task mapping and maintenance rules. Apply the approved P2-001 correction that new project creation starts only from the project list creation action. Preserve the Phase A boundary: do not claim docs/02 or docs/04 were corrected, and do not claim the preview is published or final. Output only the complete Markdown artifact."
+  operation_contract="The user explicitly approved ${artifact_path} as this Task's one primary draft target in ${approval_path}. Read the confirmed interview, that approval and current Repository sources, then write the complete Markdown body intended for the approved target. This is the full artifact, not a plan, outline or review. The first output byte must be '#' and the document must have one nonempty H1; do not add reasoning, a preface or any text before that H1. Include the exact metadata lines '- primaryDraftStatus: \`DRAFT_FOR_USER_REVIEW\`', '- sourceTask: \`${task_id}\`', and '- authoringModel: \`FABLE_5\`'. Do not assume a duplicate planning document exists, do not invent domain-specific sections, and do not claim publication or implementation approval. Output only the complete Markdown artifact."
+elif [[ "$legacy_user_flow_revision" == "true" ]]; then
+  operation_contract="The user explicitly requested one new Fable-authored redraft of the historical USER-FLOW artifact after reading the Codex content review. Read the current ${artifact_path}, the recorded user redraft instruction at ${approval_path} and the review at ${redraft_review_path}, then write one complete replacement Markdown artifact. The review alone never authorizes this call. Preserve accepted content, apply only the user's requested direction, and do not invent user decisions. The first output byte must be '#' in the exact H1 '# EMI 프로젝트 통합관리시스템 전체 유저플로우'; do not add reasoning, a preface, a review summary or any text before that H1. Retain the exact metadata lines '- previewStatus: \`DRAFT_FOR_USER_REVIEW\`', '- sourceTask: \`${task_id}\`', and '- authoringModel: \`FABLE_5\`'. Output only the complete replacement Markdown artifact."
 else
-  operation_contract="The user explicitly requested one new Fable-authored redraft after reading the Codex content review. Read the current ${artifact_path}, the recorded user redraft instruction and the review at ${preview_review_path}, then write one complete replacement Markdown artifact. The review alone never authorizes this call. Preserve accepted content, apply only the user's requested direction, and do not invent user decisions. The first output byte must be '#' in the exact H1 '# EMI 프로젝트 통합관리시스템 전체 유저플로우'; do not add reasoning, a preface, a review summary or any text before that H1. Retain the exact metadata lines '- previewStatus: \`DRAFT_FOR_USER_REVIEW\`', '- sourceTask: \`${task_id}\`', and '- authoringModel: \`FABLE_5\`'. Output only the complete replacement Markdown artifact."
+  operation_contract="The user explicitly requested one new Fable-authored redraft after reading the Codex content review. Read the current ${artifact_path}, the recorded user redraft instruction at ${approval_path} and the review at ${redraft_review_path}, then write one complete replacement Markdown artifact. The review alone never authorizes this call. Preserve accepted content, apply only the user's requested direction, and do not invent user decisions. The first output byte must be '#' and the document must have one nonempty H1; do not add reasoning, a preface, a review summary or any text before that H1. Retain the exact metadata lines '- primaryDraftStatus: \`DRAFT_FOR_USER_REVIEW\`', '- sourceTask: \`${task_id}\`', and '- authoringModel: \`FABLE_5\`'. Do not invent domain-specific sections or claim publication or implementation approval. Output only the complete replacement Markdown artifact."
 fi
 
 case "$session_mode" in
@@ -541,7 +575,11 @@ case "$session_mode" in
     baseline_contract="Resume the existing Task baseline, then perform a planning preflight by rereading the latest interview, current Roadmap sections and directly relevant code and tests. Session memory accelerates discovery but does not replace current Repository verification for planning."
     ;;
   RESUMED_ARTIFACT_PREFLIGHT)
-    baseline_contract="Resume the existing Task baseline, then reread the latest interview, approved planning, approved review, current Roadmap sections and directly relevant code and tests. If this is a revision, also read the current artifact and independent preview review. Session memory accelerates discovery but does not replace current Repository verification."
+    if [[ "$mode" == "draft" ]]; then
+      baseline_contract="Resume the existing Task baseline, then reread the latest interview, the latest change that explicitly approves the exact primary target, current Roadmap sections and directly relevant code and tests. Do not expect or create a duplicate planning or preview document. Session memory accelerates discovery but does not replace current Repository verification."
+    else
+      baseline_contract="Resume the existing Task baseline, then reread the latest interview, the current artifact, the latest change that explicitly approves the exact redraft target, the Codex content review, current Roadmap sections and directly relevant code and tests. Session memory accelerates discovery but does not replace current Repository verification."
+    fi
     ;;
   *) fail "FABLE_SESSION_MODE_INVALID" 68 ;;
 esac
@@ -617,7 +655,7 @@ elif [[ "$mode" == "planning" ]]; then
      ! grep -Eq 'userDecisionRequiredCount:[[:space:]]*`?[0-9]+`?' "$stdout_file"; then
     emit_artifact_result "FAILED" "FABLE_READONLY_PLANNING_CONTRACT_INVALID" 72
   fi
-else
+elif [[ "$legacy_user_flow_revision" == "true" ]]; then
   mermaid_count="$(grep -Ec '^```mermaid$' "$stdout_file" || true)"
   first_nonblank_line="$(awk 'NF { sub(/\r$/, ""); print; exit }' "$stdout_file")"
   if [[ "$first_nonblank_line" != '# EMI 프로젝트 통합관리시스템 전체 유저플로우' ]] ||
@@ -626,6 +664,16 @@ else
      ! grep -Fqx -- "- sourceTask: \`${task_id}\`" "$stdout_file" ||
      ! grep -Fqx -- '- authoringModel: `FABLE_5`' "$stdout_file" ||
      [[ "$mermaid_count" -lt 2 ]]; then
+    emit_artifact_result "FAILED" "FABLE_READONLY_ARTIFACT_CONTRACT_INVALID" 72
+  fi
+else
+  first_byte="$(LC_ALL=C head -c 1 "$stdout_file")"
+  h1_count="$(grep -Ec '^# [^#[:space:]].*$' "$stdout_file" || true)"
+  if [[ "$first_byte" != '#' ]] ||
+     [[ "$h1_count" -ne 1 ]] ||
+     ! grep -Fqx -- '- primaryDraftStatus: `DRAFT_FOR_USER_REVIEW`' "$stdout_file" ||
+     ! grep -Fqx -- "- sourceTask: \`${task_id}\`" "$stdout_file" ||
+     ! grep -Fqx -- '- authoringModel: `FABLE_5`' "$stdout_file"; then
     emit_artifact_result "FAILED" "FABLE_READONLY_ARTIFACT_CONTRACT_INVALID" 72
   fi
 fi
@@ -684,6 +732,17 @@ if [[ "$mode" == "interview" || "$mode" == "planning" || "$mode" == "draft" || "
     direct_write_tmp=""
     write_private_state "$redraft_claim_path" "CONSUMED"
   else
+    if [[ "$mode" == "draft" ]]; then
+      shopt -s nullglob
+      current_primary_change_files=("$repo_root/${task_stem}-change-"*.md)
+      shopt -u nullglob
+      if [[ "${#current_primary_change_files[@]}" -eq 0 ]] ||
+         [[ "${current_primary_change_files[${#current_primary_change_files[@]}-1]}" != "$primary_approval_file" ]] ||
+         [[ ! -f "$primary_approval_file" || -L "$primary_approval_file" ]] ||
+         [[ "$(shasum -a 256 "$primary_approval_file" | awk '{print $1}')" != "$primary_approval_digest" ]]; then
+        emit_artifact_result "FAILED" "FABLE_READONLY_PRIMARY_DRAFT_APPROVAL_CHANGED" 76
+      fi
+    fi
     if ! ln "$direct_write_tmp" "$artifact_target" 2>/dev/null; then
       case "$mode" in
         interview) emit_artifact_result "FAILED" "FABLE_READONLY_INTERVIEW_ARTIFACT_EXISTS" 67 ;;

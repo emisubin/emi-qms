@@ -70,7 +70,9 @@
 - 제품 source·runtime·dependency·migration diff 0
 - 사용자 검수와 별도 Git 게시 승인
 
-## 7. 승인 상태
+## 7. Change 작성 당시 승인 상태
+
+다음 값은 Change 001 계약을 처음 작성한 시점의 snapshot이며 현재 closure 상태가 아니다.
 
 - reportingPolicyApproved: `true`
 - implementationApproved: `true`
@@ -78,7 +80,9 @@
 - publishingApproved: `false`
 - mergeApproved: `false`
 
-## 8. 검증 결과
+## 8. Change 작성 당시 검증 결과
+
+다음 값은 구현 직후 자동 검증 snapshot이며 이후 사용자 결정과 독립 재검증 상태는 9장을 따른다.
 
 - `작업 현황 요약` + 고정 10개 항목 static contract: `2/2`
 - docs-only·runtime·blocked·all-complete dry run: `4/4`
@@ -92,3 +96,14 @@
 - independentVerificationComplete: `false`
 - userValidationComplete: `false`
 - publishGate: `NO_GO_INDEPENDENT_VERIFICATION_AND_USER_VALIDATION_PENDING`
+
+## 9. 현재 Closure 상태
+
+- automaticValidationComplete: `true`
+- userValidationComplete: `true`
+- publishingApproved: `true`
+- mergeApprovedAfterIndependentPass: `true`
+- independentVerificationComplete: `false`
+- publishGate: `NO_GO_INDEPENDENT_REVERIFICATION_PENDING`
+
+사용자는 Governance 정책 전체를 독립 재검증 뒤 merge하도록 승인했다. 최초 Change snapshot의 `false` 값은 당시 승인 이력을 보존하며, 현재 상태를 덮어쓰거나 현재 merge gate로 해석하지 않는다.

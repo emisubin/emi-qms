@@ -423,7 +423,7 @@ Change 013은 generic primary-doc 계약을 다음처럼 보정했다.
 - 기존 USER-FLOW H1·`previewStatus`·preview review path는 `TASK-USER-FLOW-001`과 `docs/13-user-flow-baseline.md`의 exact historical redraft에만 한정했다.
 - Draft 기록 직전에도 latest approval file과 digest를 재검증해 승인 변경 경쟁을 fail-closed로 차단한다.
 
-Reporting 문서는 최초 Task의 과거 완료 증빙과 Change 001의 현재 상태를 별도 행·문장으로 분리했다. 사용자의 현재 요청은 Change 001을 포함한 Governance 정책 검수와 독립 검증 PASS 뒤 merge 승인으로 기록하되, 독립 재검증 전에는 게시 gate를 닫지 않는다.
+Reporting 문서는 최초 Task의 과거 완료 증빙과 Change 001의 현재 상태를 별도 행·문장으로 분리했다. Change 001 원문의 초기 `false` 값도 작성 당시 snapshot으로 명시하고 현재 closure 상태를 별도 절에 기록했다. 사용자의 현재 요청은 Change 001을 포함한 Governance 정책 검수와 독립 검증 PASS 뒤 merge 승인으로 기록하되, 독립 재검증 전에는 게시 gate를 닫지 않는다.
 
 자동 검증 결과는 다음과 같다.
 

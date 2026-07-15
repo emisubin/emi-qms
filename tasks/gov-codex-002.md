@@ -13,7 +13,7 @@
 - Change 003: 단일 canonical clone lifecycle 구현·local clean worktree 정리·자동 검증·사용자 검수 완료 / merge 승인
 - Change 004: merged temporary worktree `5→2` 정리·canonical root 정규화·5174 Entra frontend-only handover·자동·독립 재검증·사용자 검수 완료 / 게시·merge 승인
 - Change 005: public main required-PR 최소 ruleset 적용·운영 문서 P2 보정·독립 검증·사용자 검수 완료 / P2·P3 Resolved / 게시·merge 승인
-- Change 006: GitHub 최상위 폴더 `6→3→2` 보존 통합·exact audit·controlled maintenance·최종 삭제·자동·독립 검증 완료 / 사용자 검수 대기
+- Change 006: GitHub 최상위 폴더 `6→3→2` 보존 통합·exact audit·controlled maintenance·최종 삭제·자동·독립 검증·사용자 검수 완료 / PR #52 squash merge 완료
 
 ## 2. 목표
 
@@ -114,7 +114,7 @@
 - Change 004 cleanup: PR #48·#49·#50의 clean inactive worktree를 제거해 `5→2`로 정리했다. Canonical root와 5176 디자인 실험 worktree만 보존하고 local·remote branch와 이름 있는 WIP stash는 삭제하지 않았다.
 - Change 005 P3: Public default branch `main`에 active required-pull-request ruleset을 적용했다. 승인·CI·최신화·review 해결을 강제하지 않아 기존 1인 개발 속도를 유지하면서 direct main push 금지만 서버 측에서 강제한다.
 - Change 005 P2: 독립 검증에서 발견한 History Rewrite SOP·User manual의 과거 private 상태 표기를 실제 public·required-PR 상태로 동기화해 Resolved했다.
-- Change 006 cleanup: 먼저 GitHub 최상위 폴더를 대표·디자인·보존 3개로 통합하고 linked worktree 3개를 repair했다. 이후 dirty checkout 6개·local branch 32개·local 설정·artifact를 exact audit해 canonical 자료가 없음을 확인했다. Docker/PostgreSQL controlled maintenance로 stale handle `4→0`을 만든 뒤 보존 폴더를 영구 삭제해 최종 `6→3→2`로 정리했다. 동일 PostgreSQL container·persistent volume과 DB aggregate, 대표·디자인 runtime은 보존했다.
+- Change 006 cleanup: 먼저 GitHub 최상위 폴더를 대표·디자인·보존 3개로 통합하고 linked worktree 3개를 repair했다. 이후 dirty checkout 6개·local branch 32개·local 설정·artifact를 exact audit해 canonical 자료가 없음을 확인했다. Docker/PostgreSQL controlled maintenance로 stale handle `4→0`을 만든 뒤 보존 폴더를 영구 삭제해 최종 `6→3→2`로 정리했다. 동일 PostgreSQL container·persistent volume과 DB aggregate, 대표·디자인 runtime은 보존했고 사용자 검수와 PR #52 squash merge를 완료했다.
 
 ## 12. 5종 산출물 상태
 
@@ -124,7 +124,7 @@
 | SOP | 이 문서 8장 | 작성됨 |
 | User manual | 이 문서 9장 | 작성됨 |
 | Roadmap update | `docs/00-product-roadmap.md` | Change 006 최종 local 구조 반영 |
-| User validation checklist | 이 문서 13장 | Change 001~005 완료 / Change 006 사용자 검수 대기 |
+| User validation checklist | 이 문서 13장 | Change 001~006 완료 / Change 006 PR #52 squash merge 완료 |
 
 ## 13. 사용자 검수 체크리스트
 
@@ -155,5 +155,5 @@
 - [x] Change 006 Docker/PostgreSQL controlled maintenance와 stale handle 해제 승인
 - [x] Change 006 최상위 폴더 `6→3→2`, 동일 persistent volume·DB aggregate·runtime 자동 검증
 - [x] Change 006 독립 검증
-- [ ] Change 006 사용자 검수
-- [ ] Change 006 commit·push·PR·merge 승인
+- [x] Change 006 사용자 검수
+- [x] Change 006 commit·push·PR·merge 승인·PR #52 squash merge

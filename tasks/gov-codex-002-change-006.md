@@ -142,15 +142,17 @@ DB aggregate는 schema migration, 사용자, 역할, 업무, 알림, 알림 deli
 - runtimeMutationApproved: true
 - historyBackupDeletionApproved: false
 - remoteBranchDeletionApproved: false
-- publishingApproved: false
-- mergeApproved: false
+- publishingApproved: true
+- mergeApproved: true
 - independentVerificationComplete: true
-- userValidationComplete: false
+- userValidationComplete: true
+- publicationComplete: true
 
 ## 11. Finding과 후속 경계
 
 - P0/P1/P2/P3: 0/0/0/0
-- publishGate: `NO_GO_USER_VALIDATION_PENDING`
+- publishGate: `MERGED_PR_52`
+- publicationResult: commit `3476112` → PR #52 → squash merge `e5507a8`
 - Repository 밖 encrypted history backup은 이번 작업과 분리해 보존한다.
 - 5176 디자인 experiment worktree는 사용자의 장기 디자인 source·runtime이므로 계속 유지한다.
 - Roadmap의 다음 제품 Gate는 계속 `0.6 신규 기능 Go/No-Go`다.

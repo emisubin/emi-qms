@@ -1656,7 +1656,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / PR #32 merge 완료 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
-| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | Change 001~006 merge 완료 / Change 007~012 대표 clone 선별 통합·자동 검증 진행 | 개발 | TASK-GOV-CODEX-002 | Fable runner·Task session·원문 direct write·단일 내용 review와 5174 branch-following을 통합하고 임시 worktree를 정리 |
+| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | Change 001~006 merge 완료 / Change 007~012 대표 clone 선별 통합·자동 검증 완료 / 독립 검증·사용자 검수·게시 대기 | 개발 | TASK-GOV-CODEX-002 | Fable runner·Task session·원문 direct write·단일 내용 review와 5174 branch-following 통합. 임시 worktree 제거 완료 |
 | 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
 | 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
 | 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
@@ -1673,7 +1673,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 85 | Public main 서버 측 PR 강제 | Resolved — active required PR 적용·운영 문서 동기화 | 사용자/운영/보안 | TASK-GOV-CODEX-002 Change 005 | Repository `PUBLIC`, default branch `main`, effective `pull_request` rule 1. 승인·required status check·최신화·review 해결은 강제하지 않으며 History SOP·User manual current state도 동기화 |
 | 86 | Local GitHub 폴더 최종 정리 | 최종 삭제·자동·독립 검증·사용자 검수·PR #52 merge 완료 | 사용자/개발 | TASK-GOV-CODEX-002 Change 006 | 최상위 폴더 `6→3→2`. Dirty checkout 6개·local branch 32개 exact audit 뒤 보존 폴더를 영구 삭제. Docker stale handle `4→0`, 동일 PostgreSQL volume·DB aggregate·대표·디자인 runtime 보존 |
 | 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | Fable 전문·GPT-5.6 SOL 내용 review 완료 / 사용자 내용 확인 대기 / public 게시 미승인 | 사용자/기획/개발 | TASK-USER-FLOW-001 | 개인 개발 판단 자료로 local branch에 보존. 제품 구현·자동 redraft·Phase B·public 게시 없음 |
-| 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 순서 변경·로컬 보존·결과 커밋·일반 worktree 제거 승인 / 구현 중 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 2-worktree 구조 복구. Push·PR·merge·branch 삭제 제외 |
+| 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동 검증 완료 / 독립 검증·사용자 검수·게시 대기 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Push·PR·merge·branch 삭제 미수행 |
 
 ## 25. 결정 이력 (Decision Log)
 

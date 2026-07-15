@@ -14,12 +14,12 @@
 - Change 004: merged temporary worktree `5→2` 정리·canonical root 정규화·5174 Entra frontend-only handover·자동·독립 재검증·사용자 검수 완료 / 게시·merge 승인
 - Change 005: public main required-PR 최소 ruleset 적용·운영 문서 P2 보정·독립 검증·사용자 검수 완료 / P2·P3 Resolved / 게시·merge 승인
 - Change 006: GitHub 최상위 폴더 `6→3→2` 보존 통합·exact audit·controlled maintenance·최종 삭제·자동·독립 검증·사용자 검수 완료 / PR #52 squash merge 완료
-- Change 007: Fable 5 `fable` CLI alias·읽기 전용 runner·runner 전용 project rule 구현 / 자동 검증·실제 USER-FLOW Round 1·2 완료 / 독립 검증·사용자 검수·게시 대기
-- Change 008: Task-scoped private session·drift guard·질문 최대 5개·exact cleanup 구현 / USER-FLOW Round 3와 planning true-resume 성능 검증 / 종료 cleanup·사용자 검수·게시 대기
-- Change 009: Fable interview 원문·승인된 기획 전문 direct write와 GPT-5.6 SOL 사후 review 계약 / USER-FLOW 전문·review 실제 검증 완료 / 사용자 검수·게시 대기
-- Change 010: Fable primary draft 1회·Codex 내용 review 1회·자동 revise 금지 계약 / USER-FLOW 내용 review·자동·독립 검증 완료 / 사용자 검수·게시 대기
-- Change 011: 대표 5174 branch-following 운영 보정 / 구현·자동 검증 완료 / 독립 검증·사용자 검수·게시 대기
-- Change 012: Fable 정책·USER-FLOW WIP 선별 이식과 대표·디자인 2-worktree 정규화 / 순서 변경·로컬 보존·결과 커밋·일반 worktree 제거 승인 / 구현 중
+- Change 007: Fable 5 `fable` CLI alias·읽기 전용 runner·runner 전용 project rule 구현 / 대표 branch 선별 통합·자동 검증 완료 / 사용자 검수·게시 대기
+- Change 008: Task-scoped private session·drift guard·질문 최대 5개·exact cleanup 구현 / USER-FLOW Round 3와 planning true-resume 성능 검증·대표 branch 통합 완료 / 사용자 검수·게시 대기
+- Change 009: Fable interview 원문·승인된 기획 전문 direct write와 GPT-5.6 SOL 사후 review 계약 / USER-FLOW 전문·review 실제 검증·대표 branch 통합 완료 / 사용자 검수·게시 대기
+- Change 010: Fable primary draft 1회·Codex 내용 review 1회·자동 revise 금지 계약 / USER-FLOW 내용 review·자동·독립 검증·대표 branch 통합 완료 / 사용자 검수·게시 대기
+- Change 011: 대표 5174 branch-following 운영 보정 / 구현·자동 검증·대표 branch 통합 완료 / 독립 검증·사용자 검수·게시 대기
+- Change 012: Fable 정책·USER-FLOW WIP 선별 이식과 대표·디자인 2-worktree 정규화 / 로컬 보존·결과 커밋·일반 worktree 제거·자동 검증 완료 / 독립 검증·사용자 검수·게시 대기
 
 ## 2. 목표
 
@@ -141,19 +141,20 @@
 - Change 009 authorship Finding: Fable stdout을 Codex가 검증·반영하는 기존 계약은 Fable이 질문과 전문의 실제 작성자여야 한다는 사용자 의도와 달랐다. Runner는 contract 위반 시 거부하거나 stdout을 그대로 운반할 뿐이며 Codex는 원문을 편집하지 않는다.
 - Change 010 content-review Finding: 자동 review·revise 반복을 Fable primary draft 1회와 Codex 내용 review 1회로 종료하도록 바꾸고, revise는 별도 사용자 명시 요청이 있을 때만 허용한다.
 - Change 011 P3 `CANONICAL_VITE_PROCESS_BRANCH_SWITCH_CONFLICT`: 대표 clone 재사용과 실행 중 5174 process 소유 금지 규칙의 충돌을 5174 branch-following·조건부 재시작 정책으로 해소했다.
-- Change 011 P3 `PAUSED_WORKTREE_INTEGRATION_PENDING`: Change 012에서 사용자가 순서 변경, 선별 이식, 로컬 커밋과 일반 worktree 제거를 승인해 해소 중이다.
-- Change 011 P3 `USER_FLOW_P3_001_IDENTITY_TRACE_GAP`: Change 012의 USER-FLOW 상태 정정에서 과거 count-only 표기를 제품 구현 미승인·개인 참고·게시 미승인 상태와 함께 stable identity로 보정한다.
-- Change 012: Governance와 USER-FLOW dirty WIP를 각각 local preservation commit으로 고정하고 대표 clone에서 정책과 개인 기획 산출물을 분리 보존한다. 강제 worktree 제거와 branch 삭제는 하지 않는다.
+- Change 011 P3 `PAUSED_WORKTREE_INTEGRATION_PENDING`: `RESOLVED`. Governance·USER-FLOW source WIP를 local preservation commit으로 고정하고 각각 결과 commit을 만든 뒤 두 임시 worktree를 force 없이 제거했다.
+- Change 011 P3 `USER_FLOW_P3_001_IDENTITY_TRACE_GAP`: `RESOLVED`. USER-FLOW Change 003·Implementation report·Roadmap에서 과거 문서 작성 승인과 제품 구현·Fable redraft·게시 미승인을 stable identity로 분리했다.
+- Change 012 Finding `WORKTREE_PROCESS_HANDLE_ACTIVE`: `RESOLVED`. USER-FLOW worktree의 terminal/Fable handle 때문에 첫 제거를 중단했고 사용자 terminal 종료 뒤 handle 0을 재확인한 후 일반 제거했다.
+- Change 012: Governance preservation/result `4058849`/`a6232b2`, USER-FLOW preservation/result `1cc66fe`/`c4b2858`. 최종 worktree는 대표·디자인 `2/2`이며 강제 제거·runtime restart·branch 삭제·push·PR·merge는 실행하지 않았다.
 
 ## 12. 5종 산출물 상태
 
 | 산출물 | Canonical 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/gov-codex-002-implementation-report.md` | Change 007~012 선별 통합 / 구현·자동 검증 진행 중 |
+| Implementation report | `tasks/gov-codex-002-implementation-report.md` | Change 007~012 선별 통합·자동 검증 완료 / 독립 검증·사용자 검수 대기 |
 | SOP | 이 문서 8장 | 작성됨 |
 | User manual | 이 문서 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 007~012와 대표·디자인 2-worktree 운영 반영 중 |
-| User validation checklist | 이 문서 13장 | Change 001~006 완료 / Change 007~012 통합 검수 대기 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 007~012와 대표·디자인 2-worktree 운영 반영 완료 / 게시 대기 |
+| User validation checklist | 이 문서 13장 | Change 001~006 완료 / Change 007~012 독립 검증·사용자 검수 대기 |
 
 ## 13. 사용자 검수 체크리스트
 
@@ -205,6 +206,7 @@
 - [x] Change 012 Roadmap 순서 변경과 기존 canonical Task 재사용 승인
 - [x] Change 012 Fable 정책·USER-FLOW 선별 이식과 로컬 보존·결과 커밋 승인
 - [x] Change 012 5174·5176·Backend·DB 보존과 push·PR·merge·branch 삭제 제외 승인
-- [ ] Change 012 대표·디자인 2-worktree exact projection 확인
-- [ ] Change 012 자동 검증과 분리된 Codex 독립 검증
+- [x] Change 012 대표·디자인 2-worktree exact projection 확인
+- [x] Change 012 자동 검증
+- [ ] Change 012 분리된 Codex 독립 검증
 - [ ] Change 012 사용자 검수와 별도 Git 게시 승인

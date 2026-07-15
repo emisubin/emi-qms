@@ -383,14 +383,36 @@ Finding은 다음과 같다.
 - 5174·5176·Backend·DB·migration·runtime configuration은 보존한다.
 - Push·PR·merge·branch 삭제와 강제 worktree 제거는 수행하지 않는다.
 
-자동 검증, 일반 worktree 제거와 최종 Finding은 이 Change 완료 시 갱신한다.
+실제 결과는 다음과 같다.
+
+- Governance preservation/result commit: `4058849` / `a6232b2`
+- USER-FLOW preservation/result commit: `1cc66fe` / `c4b2858`
+- USER-FLOW Fable 원문 blob: preservation과 result가 동일
+- USER-FLOW final diff: 유저플로우 문서 10개, 중복 정책·runner·제품 source 0
+- 일반 제거 worktree: Governance source 1, USER-FLOW source 1
+- 최종 worktree registry: 대표·디자인 `2/2`
+- 강제 제거·`rm -rf`·branch 삭제·runtime restart: 0
+
+USER-FLOW worktree의 첫 제거 시 terminal과 Fable process handle이 남아 있어 cleanup을 중단했다. 사용자가 terminal 종료를 확인한 뒤 handle 0을 재검증하고 `git worktree remove`로 정상 제거했다. Governance source worktree도 같은 일반 방식으로 제거했다.
+
+자동 검증은 Governance runner의 Bash syntax·ShellCheck `PASS/PASS`, safe negative `4/4`, execpolicy runner allow 1·generic wrapper prompt 2를 확인했다. Governance 변경 Markdown 17개의 local link `127/127`, duplicate heading 0, privacy candidate 0을 확인했다. USER-FLOW는 원문 blob equality, 변경 문서 10개의 local link target 누락 0, duplicate heading 0, Mermaid block/fence `2/0`, privacy candidate 0과 제품 source·중복 정책·runner diff 0을 확인했다.
+
+Runtime 보존 확인은 5174 root·Teams Activity, 5176 root, 5081 live·ready `5/5` HTTP 200, 5174·5176·5081·5432 listener `4/4`, PostgreSQL `running/healthy/restart 0`이다. 최종 worktree registry와 물리 폴더는 대표·디자인 `2/2`, preservation/result commit named-branch reachability `4/4`, 관련 open PR 0이다. 5174·5176·Backend·DB는 재시작하거나 mutation하지 않았다.
+
+Finding 상태:
+
+- P0/P1/P2: `0/0/0`
+- P3 `PAUSED_WORKTREE_INTEGRATION_PENDING`: `RESOLVED`
+- P3 `USER_FLOW_P3_001_IDENTITY_TRACE_GAP`: `RESOLVED`
+- `WORKTREE_PROCESS_HANDLE_ACTIVE`: `RESOLVED`
+- 분리된 Codex 독립 검증·사용자 검수·push·PR·merge: 대기
 
 ## 11. 5종 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | 이 문서 | Change 007~012 선별 통합 / 구현·자동 검증 진행 중 |
+| Implementation report | 이 문서 | Change 007~012 선별 통합·자동 검증 완료 / 독립 검증·사용자 검수 대기 |
 | SOP | `tasks/gov-codex-002.md` 8장 | 작성됨 |
 | User manual | `tasks/gov-codex-002.md` 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 007~012와 대표·디자인 2-worktree 운영 반영 중 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~006 완료 / Change 007~012 통합 검수 대기 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 007~012와 대표·디자인 2-worktree 운영 반영 완료 / 게시 대기 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~006 완료 / Change 007~012 독립 검증·사용자 검수 대기 |

@@ -1158,6 +1158,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - Change 003: 일반 Task는 fresh canonical clone 하나에서 branch만 전환하고, 별도 worktree는 runtime·병렬 write·고위험 rehearsal에 한정한다. Clean·process 미사용·open PR 없음·commit reachable gate로 기존 worktree 30개 중 21개를 정리해 약 4.03GB를 회수했으며 dirty 3개와 process 사용 5개는 보존했다.
 - Change 004: PR #48·#49·#50의 clean inactive worktree 3개를 제거해 linked worktree를 `5→2`로 정리했다. Canonical root와 5176 디자인 실험만 보존하고 root WIP는 stash로 보존한 뒤 최신 main 기반 cleanup branch로 정규화했다.
 - Change 005: Public default branch `main`에 active required-pull-request ruleset을 적용해 direct main push 금지를 서버 측에서 강제했다. 1인 개발 속도를 위해 승인·CI·최신화·review 해결은 강제하지 않는다.
+- Change 006: GitHub 최상위 과거 checkout을 먼저 mode `0700` 보존 폴더로 통합해 `6→3`으로 정리했다. 후속 exact audit에서 dirty checkout 6개와 local branch 32개의 canonical 보존 필요성이 없음을 확인하고, 승인된 Docker/PostgreSQL controlled maintenance로 stale handle `4→0`을 만든 뒤 보존 폴더를 영구 삭제해 최종 `6→3→2`로 정리했다. 동일 PostgreSQL container·persistent volume·DB aggregate와 대표·디자인 runtime은 보존했다.
 
 ### TASK-GOV-REPORTING-001: Task 시작·완료 보고 표준화
 
@@ -1638,7 +1639,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / PR #32 merge 완료 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
-| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | PR #38 완료 / Change 001~003 merge / Change 004·005 사용자 검수·게시·merge 승인 / P2·P3 Resolved·독립 검증 완료 | 개발 | TASK-GOV-CODEX-002 | Task Identity·Roadmap Sequence Gate와 단일 canonical clone lifecycle. Worktree `5→2`, 5174 HTTPS-only 복구, public main required PR 적용 |
+| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | PR #38 완료 / Change 001~005 merge / Change 006 최종 삭제·자동·독립 검증 완료·사용자 검수 대기 | 개발 | TASK-GOV-CODEX-002 | Task Identity·Roadmap Sequence Gate와 단일 canonical clone lifecycle. Worktree `5→2`, GitHub 최상위 폴더 `6→3→2`, 5174 HTTPS-only 복구, public main required PR 적용 |
 | 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
 | 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
 | 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
@@ -1653,6 +1654,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 83 | 로그인 디자인 promotion·experiment worktree 정리 | Promotion 정리 완료 / 5176 experiment 보존 | 사용자/개발 | TASK-GOV-CODEX-002 Change 004 | Clean·process 미사용·PR #49 merge 확인 뒤 promotion worktree 제거. 5176 experiment는 runtime·미게시 디자인 source로 계속 보존 |
 | 84 | 전체 Finding Gate | Open P0/P1/P2 `0/0/0` / 독립 검증·사용자 검수 완료 / PR #50 merge 승인 | 사용자/개발/보안 | TASK-GOV-FINDING-GATE-001 | History·E2E·Failed retry·privacy 절차 P2 Resolved. 신규 기능은 `GO_FOR_USER_DECISION`, 자동 시작 아님 |
 | 85 | Public main 서버 측 PR 강제 | Resolved — active required PR 적용·운영 문서 동기화 | 사용자/운영/보안 | TASK-GOV-CODEX-002 Change 005 | Repository `PUBLIC`, default branch `main`, effective `pull_request` rule 1. 승인·required status check·최신화·review 해결은 강제하지 않으며 History SOP·User manual current state도 동기화 |
+| 86 | Local GitHub 폴더 최종 정리 | 최종 삭제·자동·독립 검증 완료 / 사용자 검수 대기 | 사용자/개발 | TASK-GOV-CODEX-002 Change 006 | 최상위 폴더 `6→3→2`. Dirty checkout 6개·local branch 32개 exact audit 뒤 보존 폴더를 영구 삭제. Docker stale handle `4→0`, 동일 PostgreSQL volume·DB aggregate·대표·디자인 runtime 보존 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1793,6 +1795,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-15 | History closure와 PR #50 merge 뒤 Repository를 public으로 재개하고 clean inactive worktree 3개를 제거해 canonical root와 5176 디자인 실험만 유지 | History P2와 GitHub cached reference가 해소된 상태에서 공개 전환을 완료하고, merge된 publish·promotion·closure checkout이 계속 누적되지 않게 single canonical clone lifecycle을 회복하기 위함 | 23장~25장, TASK-GOV-HISTORY-REWRITE-001, TASK-GOV-CODEX-002 Change 004 |
 | 2026-07-15 | Public default branch `main`에 required pull request만 강제하는 active Repository ruleset을 적용 | 기존 Repository 지침의 direct main push 금지를 서버 측에서 보장하되 1인 개발 속도를 위해 승인·CI·최신화·review 해결은 강제하지 않고 P3 `PUBLIC_MAIN_SERVER_SIDE_PROTECTION_ABSENT`를 해소하기 위함 | 23장~25장, TASK-GOV-CODEX-002 Change 005 |
 | 2026-07-15 | TASK-GOV-CODEX-002 Change 004·005 사용자 검수를 완료하고 문서 commit·push·PR·merge를 승인 | Canonical root 정규화·5174 복구·public main required PR 적용, 운영 문서 P2 보정과 Open P0/P1/P2/P3 `0/0/0/0` 독립 검증을 모두 확인했기 때문 | 23장~25장, TASK-GOV-CODEX-002 Change 004·005 |
+| 2026-07-15 | GitHub 최상위 폴더는 대표·5176 디자인·보존 컨테이너 3개로 제한 | 미커밋 또는 history 보존 사유가 있는 과거 checkout은 삭제하지 않고 한곳에 격리하고, 일반 Task는 대표 clone을 재사용해 폴더 누적을 막기 위함 | 23장~25장, TASK-GOV-CODEX-002 Change 006 |
+| 2026-07-15 | 보존 컨테이너 exact audit 뒤 GitHub 최상위 폴더를 대표·5176 디자인 2개로 최종 정리 | Dirty checkout 6개·local branch 32개·local 설정·artifact가 main 또는 현재 종료 문서에 반영·대체됐거나 재생성 가능함을 확인했고, 승인된 Docker/PostgreSQL controlled maintenance로 stale handle을 해제하면서 동일 persistent volume·DB aggregate·runtime을 보존했기 때문. Repository 밖 encrypted history backup은 삭제하지 않음 | 23장~25장, TASK-GOV-CODEX-002 Change 006 |
 
 ## 26. 용어 사전
 

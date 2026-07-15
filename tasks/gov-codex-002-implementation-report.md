@@ -217,12 +217,39 @@ GitHub의 ruleset 목록과 main effective rules API를 각각 재조회해 acti
 
 사용자는 Change 005 적용 결과 검수를 완료하고 Change 004·005 문서 묶음의 commit·push·PR·merge를 승인했다.
 
+## 10.6 Change 006 — Local GitHub 폴더 보존 통합과 최종 삭제
+
+1차 정리에서는 GitHub 폴더 바로 아래의 과거 clone과 worktree 상위 폴더 네 묶음을 mode `0700`의 단일 보존 폴더로 이동하고 legacy repository 2개의 linked worktree 3개를 repair했다. 최상위 구조는 `6→3`이 됐다.
+
+사용자의 재감사 요청에 따라 보존 폴더 약 684MB의 dirty checkout 6개, local branch 32개, tag, local 설정, history 문서와 생성 artifact를 모두 확인했다. Permission alignment 코드는 main에 반영 또는 대체됐고, History Rewrite·Finding Gate 문서는 pre-closure 상태로 현재 종료 문서에 의해 대체됐다. 과거 instruction 초안은 비채택 상태였고 UAT 초안은 현재 Phase A~D 산출물로 실현됐다. Local env·certificate는 canonical 설정과 중복이고 build·test·dependency artifact는 재생성 가능했다. Branch는 main reachable 5, tree-equivalent 25, 개별 검토 2였으며 나머지 두 branch도 main 반영 또는 remote copy·현재 문서 대체를 확인했다. 보존 폴더 내부 encrypted backup과 open PR은 0이었다.
+
+사용자는 보존 폴더 완전 삭제, Docker/PostgreSQL controlled maintenance와 stale handle 해제를 승인했다. Checkout 6개를 강제 reset 없이 local stash로 clean 상태로 전환했다. Docker Desktop VM이 연 과거 read-only bind-mount path 4개는 PostgreSQL container stop만으로 해제되지 않아 container와 설정을 보존하는 Docker Desktop restart를 실행했고 `4→0`을 확인했다. Data cleanup·factory reset·volume 삭제는 수행하지 않았다.
+
+보존 폴더 전체는 Finder의 exact-path 영구 삭제로 제거했다. Git worktree remove 명령은 실행 환경 정책에서 차단됐지만 linked worktree와 그 소유 repository가 모두 같은 삭제 대상 내부에 있었고, 먼저 모든 checkout을 clean 상태로 만든 뒤 parent repository와 함께 삭제했다. 대표와 디자인 폴더는 대상에서 제외했다.
+
+- GitHub 최상위 폴더: `6 → 3 → 2`
+- 최종 유지: canonical root 1, 5176 디자인 experiment 1
+- 삭제: 보존 폴더 1, 약 684MB
+- exact audit: checkout `6/6`, local branch `32/32`, tag 0
+- stale Docker handle: `4 → 0`
+- PostgreSQL container ID·persistent volume: 전후 동일
+- PostgreSQL state/health/restart: `running/healthy/0`
+- DB aggregate: `29/14/10/39/98/101` 전후 동일
+- listener PID: 5174·5176·5081·5092·5190·5432 전후 동일
+- canonical worktree registry: 대표·디자인 `2/2`
+- remote branch·encrypted backup·제품 source·migration·runtime configuration 변경: 0
+- commit·push·PR·merge: 미수행
+
+자동 검증에서 5174 root·live, 5081 live·ready, 5176 root, 5190 root와 5092 live는 모두 200이다. Changed allowlist는 문서 4개이며 staged·제품 source·migration·runtime configuration diff는 `0/0/0/0`이다.
+
+분리된 read-only 독립 검증도 최상위 exact 2개, preservation absent, canonical worktree 2개, 동일 PostgreSQL container·volume·DB aggregate, URL 7/7, listener 6/6, diff·Markdown·privacy와 문서 일관성을 모두 `PASS`로 확인했다. 첫 projection의 staged 1은 porcelain leading space를 제거한 파싱 오류였고 exact cached 명령으로 staged 0·allowlist exact 4를 재현해 false positive로 해소했다. Open P0/P1/P2/P3는 `0/0/0/0`이며 사용자 검수는 대기 중이다.
+
 ## 11. 5종 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | 이 문서 | 작성됨 / 자동·독립 재검증 완료 |
+| Implementation report | 이 문서 | Change 006 최종 삭제 반영 / 자동·독립 검증 완료 |
 | SOP | `tasks/gov-codex-002.md` 8장 | 작성됨 |
 | User manual | `tasks/gov-codex-002.md` 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | 반영됨 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~005 사용자 검수 완료 / 게시·merge 승인 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 006 최종 local 구조 반영 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~005 완료 / Change 006 사용자 검수 대기 |

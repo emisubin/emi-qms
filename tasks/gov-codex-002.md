@@ -14,12 +14,12 @@
 - Change 004: merged temporary worktree `5→2` 정리·canonical root 정규화·5174 Entra frontend-only handover·자동·독립 재검증·사용자 검수 완료 / 게시·merge 승인
 - Change 005: public main required-PR 최소 ruleset 적용·운영 문서 P2 보정·독립 검증·사용자 검수 완료 / P2·P3 Resolved / 게시·merge 승인
 - Change 006: GitHub 최상위 폴더 `6→3→2` 보존 통합·exact audit·controlled maintenance·최종 삭제·자동·독립 검증·사용자 검수 완료 / PR #52 squash merge 완료
-- Change 007: Fable 5 `fable` CLI alias·읽기 전용 runner·runner 전용 project rule 구현 / 대표 branch 선별 통합·자동 검증 완료 / 사용자 검수·게시 대기
-- Change 008: Task-scoped private session·drift guard·질문 최대 5개·exact cleanup 구현 / USER-FLOW Round 3와 planning true-resume 성능 검증·대표 branch 통합 완료 / 사용자 검수·게시 대기
-- Change 009: Fable interview 원문·승인된 기획 전문 direct write와 GPT-5.6 SOL 사후 review 계약 / USER-FLOW 전문·review 실제 검증·대표 branch 통합 완료 / 사용자 검수·게시 대기
-- Change 010: Fable primary draft 1회·Codex 내용 review 1회·자동 revise 금지 계약 / USER-FLOW 내용 review·자동·독립 검증·대표 branch 통합 완료 / 사용자 검수·게시 대기
-- Change 011: 대표 5174 branch-following 운영 보정 / 구현·자동 검증·대표 branch 통합 완료 / 독립 검증·사용자 검수·게시 대기
-- Change 012: Fable 정책·USER-FLOW WIP 선별 이식과 대표·디자인 2-worktree 정규화 / 로컬 보존·결과 커밋·일반 worktree 제거·자동 검증 완료 / 독립 검증·사용자 검수·게시 대기
+- Change 007: Fable 5 `fable` CLI alias·읽기 전용 runner·runner 전용 project rule 구현 / 대표 branch 선별 통합·자동 검증·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
+- Change 008: Task-scoped private session·drift guard·질문 최대 5개·exact cleanup 구현 / USER-FLOW Round 3와 planning true-resume 성능 검증·대표 branch 통합·사용자 검수 완료 / session cleanup은 USER-FLOW closure로 이관
+- Change 009: Fable interview 원문·승인된 기획 전문 direct write와 GPT-5.6 SOL 사후 review 계약 / USER-FLOW 전문·review 실제 검증·대표 branch 통합·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
+- Change 010: Fable primary draft 1회·Codex 내용 review 1회·자동 revise 금지 계약 / USER-FLOW 내용 review·자동·독립 검증·대표 branch 통합·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
+- Change 011: 대표 5174 branch-following 운영 보정 / 구현·자동 검증·대표 branch 통합·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
+- Change 012: Fable 정책·USER-FLOW WIP 선별 이식과 대표·디자인 2-worktree 정규화 / 로컬 보존·결과 커밋·일반 worktree 제거·자동 검증·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
 - Change 013: Generic primary draft와 USER-FLOW compatibility redraft 분리·exact target 승인 gate·Reporting 상태 충돌 보정 / 구현·자동 검증·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
 
 ## 2. 목표
@@ -191,10 +191,10 @@
 - [x] Change 006 사용자 검수
 - [x] Change 006 commit·push·PR·merge 승인·PR #52 squash merge
 - [x] Change 007 `fable`이 CLI에서 Fable 5로 표시되는지 사용자 확인
-- [ ] Change 007 전용 runner로 사용자 terminal 실행 없이 Fable interview가 생성되는지 확인
-- [ ] Change 007 일반 shell wrapper 보호가 유지되는지 확인
-- [ ] Change 008 Task-scoped session·drift guard·질문 최대 5개 정책 확인
-- [ ] Change 008 exact Task session cleanup 확인
+- [x] Change 007 전용 runner로 사용자 terminal 실행 없이 Fable interview가 생성되는지 확인
+- [x] Change 007 일반 shell wrapper 보호가 유지되는지 확인
+- [x] Change 008 Task-scoped session·drift guard·질문 최대 5개 정책 확인
+- [x] Change 008 session cleanup은 남은 USER-FLOW redraft·merge 뒤 그 Task closure에서 실행하도록 이관
 - [x] Change 009 Fable 원문 직접 작성·Codex 사후 review 정책 승인
 - [x] Change 009 preview direct-write byte equality와 GPT-5.6 SOL review 확인
 - [x] Change 010 Fable primary draft 1회·Codex 내용 review 1회 정책 승인
@@ -202,10 +202,10 @@
 - [x] Change 011에서 5174가 대표 폴더의 현재 branch를 따르도록 운영 정책 승인
 - [x] Branch 전환마다 5174를 중단하지 않고 조건부 재시작만 허용하는 정책 승인
 - [x] Change 011 branch 전환 중 5174 유지와 root·Teams Activity·live·ready route 확인
-- [ ] 첫 Frontend source branch 전환에서 HMR 또는 full reload 시각 확인
+- [x] Change 011 대표 branch 전환 뒤 5174 현재 branch 반영과 필수 route 확인
 - [ ] Change 011 분리된 Codex 독립 검증
-- [ ] Change 011 작업 현황·Finding·게시 경계 사용자 검수
-- [ ] Change 011 commit·push·PR·merge 승인
+- [x] Change 011 작업 현황·Finding·게시 경계 사용자 검수
+- [x] Change 011 독립 재검증 PASS 뒤 commit·push·PR·merge 승인
 - [x] Change 012 Roadmap 순서 변경과 기존 canonical Task 재사용 승인
 - [x] Change 012 Fable 정책·USER-FLOW 선별 이식과 로컬 보존·결과 커밋 승인
 - [x] Change 012 5174·5176·Backend·DB 보존과 push·PR·merge·branch 삭제 제외 승인

@@ -242,7 +242,9 @@ GitHub의 ruleset 목록과 main effective rules API를 각각 재조회해 acti
 
 자동 검증에서 5174 root·live, 5081 live·ready, 5176 root, 5190 root와 5092 live는 모두 200이다. Changed allowlist는 문서 4개이며 staged·제품 source·migration·runtime configuration diff는 `0/0/0/0`이다.
 
-분리된 read-only 독립 검증도 최상위 exact 2개, preservation absent, canonical worktree 2개, 동일 PostgreSQL container·volume·DB aggregate, URL 7/7, listener 6/6, diff·Markdown·privacy와 문서 일관성을 모두 `PASS`로 확인했다. 첫 projection의 staged 1은 porcelain leading space를 제거한 파싱 오류였고 exact cached 명령으로 staged 0·allowlist exact 4를 재현해 false positive로 해소했다. Open P0/P1/P2/P3는 `0/0/0/0`이며 사용자 검수는 대기 중이다.
+분리된 read-only 독립 검증도 최상위 exact 2개, preservation absent, canonical worktree 2개, 동일 PostgreSQL container·volume·DB aggregate, URL 7/7, listener 6/6, diff·Markdown·privacy와 문서 일관성을 모두 `PASS`로 확인했다. 첫 projection의 staged 1은 porcelain leading space를 제거한 파싱 오류였고 exact cached 명령으로 staged 0·allowlist exact 4를 재현해 false positive로 해소했다. Open P0/P1/P2/P3는 `0/0/0/0`이다.
+
+사용자는 최종 삭제 결과 검수와 merge까지 승인했다. Commit `3476112`를 push해 Ready PR #52를 만들었고 Backend·Frontend·Full-Stack E2E 3개 CI가 모두 성공한 뒤 squash merge `e5507a8`로 main에 반영했다. Local·remote branch 삭제와 worktree cleanup은 수행하지 않았다.
 
 ## 11. 5종 산출물
 
@@ -252,4 +254,4 @@ GitHub의 ruleset 목록과 main effective rules API를 각각 재조회해 acti
 | SOP | `tasks/gov-codex-002.md` 8장 | 작성됨 |
 | User manual | `tasks/gov-codex-002.md` 9장 | 작성됨 |
 | Roadmap update | `docs/00-product-roadmap.md` | Change 006 최종 local 구조 반영 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~005 완료 / Change 006 사용자 검수 대기 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~006 완료 / Change 006 PR #52 squash merge 완료 |

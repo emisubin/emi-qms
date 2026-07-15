@@ -7,13 +7,19 @@
 - 자동 검증: 완료
 - 사용자 검수: 완료
 - 게시·merge: PR #38 squash merge 승인
-- Fable 5 호출: 없음
+- Fable 5 호출: 초기 Task 0 / Change 007 USER-FLOW interview Round 1·2 실제 호출 2 / Change 008 Round 3 검증 호출 2
 - Change 001: Fable 5 deep-interview+planning Gate 보정·자동 검증·사용자 검수 완료 / merge 승인
 - Change 002: Task Identity+Roadmap Sequence Gate 보정·자동 검증·사용자 검수 완료 / merge 승인
 - Change 003: 단일 canonical clone lifecycle 구현·local clean worktree 정리·자동 검증·사용자 검수 완료 / merge 승인
 - Change 004: merged temporary worktree `5→2` 정리·canonical root 정규화·5174 Entra frontend-only handover·자동·독립 재검증·사용자 검수 완료 / 게시·merge 승인
 - Change 005: public main required-PR 최소 ruleset 적용·운영 문서 P2 보정·독립 검증·사용자 검수 완료 / P2·P3 Resolved / 게시·merge 승인
 - Change 006: GitHub 최상위 폴더 `6→3→2` 보존 통합·exact audit·controlled maintenance·최종 삭제·자동·독립 검증·사용자 검수 완료 / PR #52 squash merge 완료
+- Change 007: Fable 5 `fable` CLI alias·읽기 전용 runner·runner 전용 project rule 구현 / 자동 검증·실제 USER-FLOW Round 1·2 완료 / 독립 검증·사용자 검수·게시 대기
+- Change 008: Task-scoped private session·drift guard·질문 최대 5개·exact cleanup 구현 / USER-FLOW Round 3와 planning true-resume 성능 검증 / 종료 cleanup·사용자 검수·게시 대기
+- Change 009: Fable interview 원문·승인된 기획 전문 direct write와 GPT-5.6 SOL 사후 review 계약 / USER-FLOW 전문·review 실제 검증 완료 / 사용자 검수·게시 대기
+- Change 010: Fable primary draft 1회·Codex 내용 review 1회·자동 revise 금지 계약 / USER-FLOW 내용 review·자동·독립 검증 완료 / 사용자 검수·게시 대기
+- Change 011: 대표 5174 branch-following 운영 보정 / 구현·자동 검증 완료 / 독립 검증·사용자 검수·게시 대기
+- Change 012: Fable 정책·USER-FLOW WIP 선별 이식과 대표·디자인 2-worktree 정규화 / 순서 변경·로컬 보존·결과 커밋·일반 worktree 제거 승인 / 구현 중
 
 ## 2. 목표
 
@@ -28,7 +34,7 @@
 
 ## 4. 확정 라우팅
 
-- `NEW_FEATURE`: Fable 5 deep-interview → 사용자 요약 확인 → Fable 5 read-only planning → Codex review → 사용자 승인 → 새 Codex 구현 → 분리된 Codex 검증 → 사용자 게시·merge 승인
+- `NEW_FEATURE`: Fable 5 deep-interview → 사용자 요약 확인 → Fable 5 primary draft 전문 1회 → Codex 내용·제품 방향 review 1회 → 사용자 승인 → 새 Codex 구현 → 분리된 Codex 검증 → 사용자 게시·merge 승인
 - `APPROVED_FEATURE_IMPLEMENTATION`: Fable 재호출 없이 Codex-only 구현
 - `BUGFIX`, `P2_REMEDIATION`, `SECURITY_HARDENING`, `UAT_RUNTIME`, `DOCS_GOVERNANCE`, `HOUSEKEEPING`, `POLICY_DECISION`: Codex 조사 → 사용자 승인 → 새 Codex 구현 → 분리된 Codex 검증 → 사용자 게시·merge 승인
 - Codex-only 조사에서 신규 제품 능력이 필요해지면 `NEW_FEATURE`, 기존 범위의 정책 선택이면 `POLICY_DECISION`으로 재분류하고 중단한다.
@@ -48,14 +54,18 @@
 - Fixed projection template과 기존 canonical Task 재사용
 - 단일 canonical clone 재사용, bounded runtime·temporary worktree와 cleanup gate
 - 대표·디자인 두 폴더의 local 최상위 구조와 불명확한 checkout의 선감사·후삭제 경계
+- Fable 5 전용 fail-closed runner와 runner prefix만 허용하는 project-local Rule
+- Fable 질문 원문 artifact, 승인된 전문 `draft|revise`와 Codex 사후 review 책임 분리
+- Codex review 뒤 자동 Fable revise를 금지하고 사용자 명시적 redraft 요청만 허용하는 단일-pass 계약
+- 대표 clone 현재 branch를 따르는 HTTPS 5174 Vite 유지·조건부 재시작 경계
 
 ## 6. 제외 범위
 
-- Backend·Frontend·migration·script·runtime·Persistent UAT 변경
+- Backend·Frontend·migration·dependency·runtime·Persistent UAT 변경
 - 실제 신규 기능 기획 또는 구현
-- 실제 Fable 5 기획 호출
+- Change 008 Round 3 검증을 넘는 실제 Fable 5 기획 호출
 - 기존 dirty root worktree, 실행 중 runtime worktree와 historical branch 정리
-- project-local Rules 변경
+- Fable runner 전용 allow 이외 project-local Rules 완화
 - 사용자 승인 전 Ready 전환과 merge
 
 ## 7. 보존할 불변조건
@@ -75,20 +85,25 @@
 3. Task Identity Gate가 `PASS_REUSE`면 기존 Task의 다음 change를 사용하고, `PASS_CREATE`일 때만 새 Task ID와 자원을 만든다.
 4. Roadmap 순서가 다르거나 같은 목적 후보가 모호하면 사용자 재정렬 결정 전 중단한다.
 5. 요청의 실제 의미와 Repository 상태를 읽고 `taskType`을 선택한다.
-6. `NEW_FEATURE`면 Fable 5가 관련 질문을 1~3개씩 작성하고 선택지·영향·권장안을 설명한다.
+6. `NEW_FEATURE`면 Fable 5가 서로 관련된 질문을 1~5개씩 작성하고 선택지·영향·권장안을 설명한다. 질문 수를 채우기 위한 비차단·무관 질문은 추가하지 않는다.
 7. Codex는 질문을 사용자에게 전달하고 답변을 `tasks/<task-id>-interview.md`에 의미 변경 없이 기록한다.
 8. Fable 5가 누적 답변을 읽어 추가 질문 또는 확인용 요약을 작성한다.
 9. 사용자가 Fable 요약을 확인하고 blocking decision이 0일 때만 Fable 5 planning을 시작한다.
-10. Fable 실행 경계를 보장할 수 없으면 호출하지 않고 중단한다.
-11. Codex가 planning을 실제 코드·Roadmap·Decision Log·interview와 대조해 review한다.
-12. 사용자 승인 전에 구현으로 넘어가지 않는다.
-13. 승인된 기능 구현과 모든 비신규 작업은 Codex-only 흐름을 사용한다.
-14. 실질적 수정 요청은 `tasks/<task-id>-change-###.md`로 계약을 고정한다.
-15. 구현과 독립 검증은 별도 Codex 세션을 기본으로 한다.
-16. 사용자 검수와 게시·merge 승인을 분리한다.
-17. 일반 Task는 clean한 canonical clone 하나에서 최신 `origin/main` 기준 branch를 만들고 Task별 영구 source 폴더를 추가하지 않는다.
-18. 별도 worktree가 필요하면 purpose·process ownership·종료 시점·cleanup 경계를 먼저 기록한다.
-19. merge 뒤 clean·process 미사용·open PR 없음·commit reachable을 확인한 임시 worktree만 승인 범위에서 정리한다.
+10. Fable 호출은 `bash scripts/run-fable-readonly.sh`만 사용한다. Script가 `fable` Fable 5 alias, read-only option, fixed Task path, 승인 상태, Task session 소유권·drift, private output과 상태 contract를 보장할 수 없으면 중단한다.
+11. Runner가 interview 질문 원문을 round artifact에 byte-for-byte로 기록하고 Codex는 이를 변경 없이 사용자에게 전달한다.
+12. Fable은 사용자 확인이 끝난 interview를 바탕으로 primary draft 전문을 한 번 작성한다. 기본 target은 Task planning이며 사용자가 별도 개인·사용자-facing 문서를 primary draft로 승인하면 그 target 하나만 사용한다.
+13. Codex는 별도 파일에서 개발 방향·사용자 가치·기능 필요성·누락·우선순위·과도한 범위와 trade-off를 중심으로 내용 review를 한 번 작성한다. Code 대조는 구현 가능성과 기존 계약 충돌을 확인하는 보조 근거다.
+14. Codex review로 Fable revise나 추가 review를 자동 실행하지 않는다. 사용자가 새 전문을 명시적으로 요청한 경우에만 별도 change의 승인 marker를 확인하고 Fable `revise`로 전문 전체를 교체한다. Runner는 approval change digest를 private receipt로 한 번만 소비하고 Task session cleanup 뒤에도 같은 승인 재사용을 차단한다.
+15. 사용자 승인 전에 제품 구현으로 넘어가지 않는다.
+16. 승인된 기능 구현과 모든 비신규 작업은 Codex-only 흐름을 사용한다.
+17. 실질적 수정 요청은 `tasks/<task-id>-change-###.md`로 계약을 고정한다.
+18. 구현과 독립 검증은 별도 Codex 세션을 기본으로 한다.
+19. 사용자 검수와 게시·merge 승인을 분리한다.
+20. 일반 Task는 clean한 canonical clone 하나에서 최신 `origin/main` 기준 branch를 만들고 Task별 영구 source 폴더를 추가하지 않는다. Open PR 또는 게시 승인 대기는 clean·reachable branch라면 전환을 막지 않고 중단·보류 상태로 추적한다.
+21. HTTPS 5174는 canonical clone의 현재 branch를 따르게 두고 clean branch 전환 중 Vite를 유지한다. 전환 뒤 HMR 또는 full reload와 필수 route를 확인한다.
+22. Env·dependency·Vite startup 설정 변경이나 자동 갱신 실패가 있을 때만 5174를 재시작한다.
+23. 별도 worktree가 필요하면 purpose·process ownership·종료 시점·cleanup 경계를 먼저 기록한다. 5174가 실행 중이라는 사실만으로는 추가하지 않는다.
+24. merge 뒤 clean·process 미사용·open PR 없음·commit reachable을 확인한 임시 worktree만 승인 범위에서 정리한다.
 
 ## 9. 사용자 안내
 
@@ -100,10 +115,16 @@
 - 구현 뒤에도 독립 검증과 사용자 검수·merge 승인이 별도로 필요하다.
 - 새 Task를 시작하기 전 기존 같은 목적의 Task와 Roadmap의 현재 순서를 대조한다. 같은 목적이면 기존 Task를 이어가고, 순서가 다르면 이유와 선택지를 먼저 안내한다.
 - 일반 Task는 하나의 canonical clone을 재사용하므로 Task가 늘어도 source 폴더가 계속 늘어나지 않는다. Runtime 격리용 폴더는 실제 process가 사용하는 동안만 유지한다.
+- Fable 5 질문은 Codex가 전용 읽기 전용 runner로 실행하므로 사용자가 round마다 terminal 명령을 대신 실행할 필요가 없다. Runner가 지원되지 않으면 안전 옵션을 완화하지 않고 stable failure를 보고한다.
+- 같은 신규 기능 Task의 첫 Fable 호출은 전체 기준선을 읽고 후속 round는 변경이 없음을 runner가 확인한 private Task session을 재개한다. 질문·답변의 기준은 계속 interview 문서이며, Task가 끝나면 해당 Task session만 cleanup한다.
+- Fable 질문은 원문 artifact 그대로 전달한다. Codex가 이해를 돕는 설명을 붙일 때도 원문과 분리하며 질문·선택지·권장안을 고쳐 쓰지 않는다.
+- 승인된 Fable primary draft는 Fable stdout과 파일이 byte-identical한 원문이다. Runner는 existing target·symlink를 atomic no-overwrite로 보존한다. Codex는 원문을 고치지 않고 내용 review를 별도 작성하며 그 review로 기본 기획 작성 흐름을 끝낸다. 새 전문은 사용자가 명시적으로 요청한 경우에만 Fable이 한 번 다시 작성한다.
+- 5174는 대표 폴더의 현재 branch 화면을 자동 반영한다. 일반 코드·문서 branch 전환마다 중단하지 않으며 env·dependency·Vite 기동 계약 변경 또는 자동 갱신 실패 때만 재시작한다.
+- 미커밋 WIP는 자동 stash하거나 덮어쓰지 않는다. 다른 Task로 전환하려면 먼저 승인된 commit·push 또는 이름 있는 보존 경계와 재개 조건을 확정한다.
 
 ## 10. Rollback
 
-`AGENTS.md`의 Task 라우터 section과 `CLAUDE.md`를 함께 revert한다. Code, DB, migration와 runtime rollback은 없다. 기존 PR #32 지침 구조는 변경하지 않는다.
+`AGENTS.md`의 Task 라우터 section, `CLAUDE.md`, Fable runner와 runner 전용 project rule을 함께 revert한다. Code, DB, migration와 runtime rollback은 없다. 기존 PR #32 지침 구조는 변경하지 않는다.
 
 ## 11. Findings
 
@@ -115,16 +136,24 @@
 - Change 005 P3: Public default branch `main`에 active required-pull-request ruleset을 적용했다. 승인·CI·최신화·review 해결을 강제하지 않아 기존 1인 개발 속도를 유지하면서 direct main push 금지만 서버 측에서 강제한다.
 - Change 005 P2: 독립 검증에서 발견한 History Rewrite SOP·User manual의 과거 private 상태 표기를 실제 public·required-PR 상태로 동기화해 Resolved했다.
 - Change 006 cleanup: 먼저 GitHub 최상위 폴더를 대표·디자인·보존 3개로 통합하고 linked worktree 3개를 repair했다. 이후 dirty checkout 6개·local branch 32개·local 설정·artifact를 exact audit해 canonical 자료가 없음을 확인했다. Docker/PostgreSQL controlled maintenance로 stale handle `4→0`을 만든 뒤 보존 폴더를 영구 삭제해 최종 `6→3→2`로 정리했다. 동일 PostgreSQL container·persistent volume과 DB aggregate, 대표·디자인 runtime은 보존했고 사용자 검수와 PR #52 squash merge를 완료했다.
+- Change 007 root Finding: private stdout/stderr redirect를 포함한 compound command가 generic shell-wrapper prompt와 일치했고 `never` approval policy에서 실행 전 거절됐다. Broad shell allow 없이 fail-closed runner prefix만 허용해 해소했다.
+- Change 008 performance Finding: Round마다 전체 Repository 기준선을 다시 읽는 비영구 호출을 Task-scoped session·drift guard로 대체했다. Round 3 bootstrap·contract refresh model 시간은 129초·135초였고 첫 true-resume planning은 264초였다. Session 재개와 preflight 1초는 입증했지만 장문 planning 생성 때문에 총시간 단축은 입증하지 못했다.
+- Change 009 authorship Finding: Fable stdout을 Codex가 검증·반영하는 기존 계약은 Fable이 질문과 전문의 실제 작성자여야 한다는 사용자 의도와 달랐다. Runner는 contract 위반 시 거부하거나 stdout을 그대로 운반할 뿐이며 Codex는 원문을 편집하지 않는다.
+- Change 010 content-review Finding: 자동 review·revise 반복을 Fable primary draft 1회와 Codex 내용 review 1회로 종료하도록 바꾸고, revise는 별도 사용자 명시 요청이 있을 때만 허용한다.
+- Change 011 P3 `CANONICAL_VITE_PROCESS_BRANCH_SWITCH_CONFLICT`: 대표 clone 재사용과 실행 중 5174 process 소유 금지 규칙의 충돌을 5174 branch-following·조건부 재시작 정책으로 해소했다.
+- Change 011 P3 `PAUSED_WORKTREE_INTEGRATION_PENDING`: Change 012에서 사용자가 순서 변경, 선별 이식, 로컬 커밋과 일반 worktree 제거를 승인해 해소 중이다.
+- Change 011 P3 `USER_FLOW_P3_001_IDENTITY_TRACE_GAP`: Change 012의 USER-FLOW 상태 정정에서 과거 count-only 표기를 제품 구현 미승인·개인 참고·게시 미승인 상태와 함께 stable identity로 보정한다.
+- Change 012: Governance와 USER-FLOW dirty WIP를 각각 local preservation commit으로 고정하고 대표 clone에서 정책과 개인 기획 산출물을 분리 보존한다. 강제 worktree 제거와 branch 삭제는 하지 않는다.
 
 ## 12. 5종 산출물 상태
 
 | 산출물 | Canonical 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/gov-codex-002-implementation-report.md` | Change 006 최종 삭제 반영 / 자동·독립 검증 완료 |
+| Implementation report | `tasks/gov-codex-002-implementation-report.md` | Change 007~012 선별 통합 / 구현·자동 검증 진행 중 |
 | SOP | 이 문서 8장 | 작성됨 |
 | User manual | 이 문서 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 006 최종 local 구조 반영 |
-| User validation checklist | 이 문서 13장 | Change 001~006 완료 / Change 006 PR #52 squash merge 완료 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 007~012와 대표·디자인 2-worktree 운영 반영 중 |
+| User validation checklist | 이 문서 13장 | Change 001~006 완료 / Change 007~012 통합 검수 대기 |
 
 ## 13. 사용자 검수 체크리스트
 
@@ -157,3 +186,25 @@
 - [x] Change 006 독립 검증
 - [x] Change 006 사용자 검수
 - [x] Change 006 commit·push·PR·merge 승인·PR #52 squash merge
+- [x] Change 007 `fable`이 CLI에서 Fable 5로 표시되는지 사용자 확인
+- [ ] Change 007 전용 runner로 사용자 terminal 실행 없이 Fable interview가 생성되는지 확인
+- [ ] Change 007 일반 shell wrapper 보호가 유지되는지 확인
+- [ ] Change 008 Task-scoped session·drift guard·질문 최대 5개 정책 확인
+- [ ] Change 008 exact Task session cleanup 확인
+- [x] Change 009 Fable 원문 직접 작성·Codex 사후 review 정책 승인
+- [x] Change 009 preview direct-write byte equality와 GPT-5.6 SOL review 확인
+- [x] Change 010 Fable primary draft 1회·Codex 내용 review 1회 정책 승인
+- [x] Change 010 USER-FLOW 내용·제품 방향 review 작성과 governance 독립 검증
+- [x] Change 011에서 5174가 대표 폴더의 현재 branch를 따르도록 운영 정책 승인
+- [x] Branch 전환마다 5174를 중단하지 않고 조건부 재시작만 허용하는 정책 승인
+- [x] Change 011 branch 전환 중 5174 유지와 root·Teams Activity·live·ready route 확인
+- [ ] 첫 Frontend source branch 전환에서 HMR 또는 full reload 시각 확인
+- [ ] Change 011 분리된 Codex 독립 검증
+- [ ] Change 011 작업 현황·Finding·게시 경계 사용자 검수
+- [ ] Change 011 commit·push·PR·merge 승인
+- [x] Change 012 Roadmap 순서 변경과 기존 canonical Task 재사용 승인
+- [x] Change 012 Fable 정책·USER-FLOW 선별 이식과 로컬 보존·결과 커밋 승인
+- [x] Change 012 5174·5176·Backend·DB 보존과 push·PR·merge·branch 삭제 제외 승인
+- [ ] Change 012 대표·디자인 2-worktree exact projection 확인
+- [ ] Change 012 자동 검증과 분리된 Codex 독립 검증
+- [ ] Change 012 사용자 검수와 별도 Git 게시 승인

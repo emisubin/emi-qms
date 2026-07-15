@@ -81,8 +81,18 @@ Root에만 규칙을 두는 대안은 canonical 종료 정책과 drift가 생길
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | 이 문서 | 자동 검증 완료 |
-| SOP | `tasks/gov-reporting-001-sop.md` | 자동 검증 완료 |
-| User manual | `tasks/gov-reporting-001-user-manual.md` | 자동 검증 완료 |
-| Roadmap update | `docs/00-product-roadmap.md` | 자동 검증 완료 |
-| User validation checklist | `tasks/gov-reporting-001.md` 6장 | 사용자 검수 완료 |
+| Implementation report | 이 문서 | Change 001 반영 / 자동 검증 완료 |
+| SOP | `tasks/gov-reporting-001-sop.md` | Change 001 반영 / 자동 검증 완료 |
+| User manual | `tasks/gov-reporting-001-user-manual.md` | Change 001 반영 / 사용자 검수 대기 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 001 반영 / 자동 검증 완료 |
+| User validation checklist | `tasks/gov-reporting-001.md` 6장 | Change 001 사용자 검수 대기 |
+
+## 13. Change 001 — 남은 작업과 Roadmap 다음 Gate 보고
+
+사용자가 현재 Task 결과뿐 아니라 전체 진행 상태를 한눈에 파악할 수 있도록 기존 10개 제목 앞에 고정 `작업 현황 요약`을 추가했다. 기존 10개 제목과 순서는 유지한다.
+
+요약은 현재 Task·단계·남은 일, Commit·Push·PR·Merge 각각의 상태, 중단·보류 Task의 중단 단계·사유·재개 조건, 재개 우선순위와 모든 작업 종료 뒤 Roadmap 다음 Task·`Next Gate`를 표시한다.
+
+`8. 미커밋 변경사항`에는 Git 게시 네 단계와 남은 승인까지 기록한다. `9. 남은 문제`에는 현재 Task 잔여 단계, 중단·보류 Task, Finding, 미검증, external blocker와 Roadmap next를 기록한다. Finding은 count만 남기지 않고 stable identity, severity, 상태, 원인·영향과 해소 또는 backlog 위치를 보존한다.
+
+제품 source, runtime, Persistent UAT, dependency와 migration은 변경하지 않았다. Static contract 2/2, docs-only·runtime·blocked·all-complete dry run 4/4, missing-field negative 1/1, Markdown 11개·local link 127개·missing 0, duplicate heading 0과 privacy candidate 5종 0을 확인했다. Change 001은 독립 검증·사용자 검수와 별도 Git 게시 승인을 분리한다.

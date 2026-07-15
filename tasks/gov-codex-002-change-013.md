@@ -21,6 +21,12 @@
 - severity: `P2`
 - 원인: Root 정책은 승인된 `docs/` 전문을 planning 대신 단일 primary draft로 허용하지만 runner는 planning·review 양쪽의 구현 승인값을 요구했다. Generic `draft|revise` prompt와 postflight에도 USER-FLOW 전용 H1·18단계·13개 journey가 하드코딩돼 다른 신규 기능 문서에 잘못 적용될 수 있었다.
 - 영향: 일반 신규 기능에서 합법적인 `docs/` primary draft gate를 충족하기 어렵고, 충족하더라도 대상과 무관한 USER-FLOW 구조가 생성될 수 있다.
+- secondStableFindingId: `REPORTING_CHANGE001_COMPLETION_STATE_CONFLICT`
+- secondFindingSeverity: `P2`
+- 추가 원인·영향: 최초 Reporting Task 완료와 Change 001 현재 상태가 report·Task·Change에서 현재형으로 혼재해 검수·게시 gate를 조기에 닫을 수 있었다.
+- thirdStableFindingId: `ROADMAP_CURRENT_STATE_CONFLICT`
+- thirdFindingSeverity: `P2`
+- 추가 원인·영향: Roadmap 실행 큐·Decision Log는 USER-FLOW redraft·별도 merge 승인을 기록했지만 뒤쪽 Task 상세와 추적표는 이전 미승인 상태를 current state로 유지해 다음 실행 Gate가 양쪽으로 갈렸다.
 
 ## 3. 사용자 결정과 승인 경계
 
@@ -77,4 +83,5 @@
 
 - `FABLE_PRIMARY_DRAFT_MODE_CONTRACT_CONFLICT`: 구현·자동 검증 완료 / 독립 재검증 대기
 - `REPORTING_CHANGE001_COMPLETION_STATE_CONFLICT`: 구현·자동 검증 완료 / 독립 재검증 대기
+- `ROADMAP_CURRENT_STATE_CONFLICT`: 구현·자동 검증 완료 / 독립 재검증 대기
 - P0/P1: `0/0`

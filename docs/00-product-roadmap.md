@@ -1458,12 +1458,12 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-USER-FLOW-001: 웹사이트 전체 유저플로우 설계
 
-- 상태: Interview 완료 / Fable 5 개인 참고용 전문 작성 / GPT-5.6 SOL 내용·제품 방향 review 1회 완료 / 사용자 내용 확인 대기
+- 상태: Interview·기존 Fable 전문·GPT-5.6 SOL 내용 review 완료 / 사용자 방향 확인·Fable redraft·문서 별도 merge 승인 / Governance merge 선행 대기
 - 목적: 현재 구현과 향후 Roadmap 기능을 하나의 역할별 웹사이트 흐름으로 연결해 신규 기능별 화면·내비게이션·업무 인수인계가 서로 충돌하지 않는 개인 기획 기준선을 만든다.
 - 산출물 위치: local `feat/task-user-flow-001-website-flow` branch의 Fable 원문, interview·planning·review·change·implementation report. Fable 원문은 Codex가 수정하지 않는다.
 - 최신 review 결론: 전체 흐름 지도는 개인 개발 판단 자료로 유지한다. Canonical 선언·Phase B·전수 갱신은 보류하고, `Pending → 병목 집계 → 자재 도착 → IQC → 키팅 → 제조 handoff`를 우선 검증할 제품 slice로 권고한다.
-- 승인 상태: 문서 작성 실행 승인 / 제품 구현·Fable redraft·public 게시·merge 미승인
-- 다음 Gate: 사용자 내용 review 확인. 실제 Roadmap 순서 변경과 개별 기능 구현은 별도 승인 대상이다.
+- 승인 상태: 개인 참고 문서 Fable redraft와 별도 push·PR·merge 승인 / 제품 구현·Phase B 미승인
+- 다음 Gate: Governance 독립 재검증·merge 뒤 USER-FLOW branch를 최신 main에 정렬하고 Fable redraft → Codex 내용 review → 독립 검증 → 별도 merge를 수행한다. 개별 기능 구현은 별도 승인 대상이다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1673,8 +1673,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 84 | 전체 Finding Gate | Open P0/P1/P2 `0/0/0` / 독립 검증·사용자 검수 완료 / PR #50 merge 승인 | 사용자/개발/보안 | TASK-GOV-FINDING-GATE-001 | History·E2E·Failed retry·privacy 절차 P2 Resolved. 신규 기능은 `GO_FOR_USER_DECISION`, 자동 시작 아님 |
 | 85 | Public main 서버 측 PR 강제 | Resolved — active required PR 적용·운영 문서 동기화 | 사용자/운영/보안 | TASK-GOV-CODEX-002 Change 005 | Repository `PUBLIC`, default branch `main`, effective `pull_request` rule 1. 승인·required status check·최신화·review 해결은 강제하지 않으며 History SOP·User manual current state도 동기화 |
 | 86 | Local GitHub 폴더 최종 정리 | 최종 삭제·자동·독립 검증·사용자 검수·PR #52 merge 완료 | 사용자/개발 | TASK-GOV-CODEX-002 Change 006 | 최상위 폴더 `6→3→2`. Dirty checkout 6개·local branch 32개 exact audit 뒤 보존 폴더를 영구 삭제. Docker stale handle `4→0`, 동일 PostgreSQL volume·DB aggregate·대표·디자인 runtime 보존 |
-| 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | Fable 전문·GPT-5.6 SOL 내용 review 완료 / 사용자 내용 확인 대기 / public 게시 미승인 | 사용자/기획/개발 | TASK-USER-FLOW-001 | 개인 개발 판단 자료로 local branch에 보존. 제품 구현·자동 redraft·Phase B·public 게시 없음 |
-| 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동 검증 완료 / 독립 검증·사용자 검수·게시 대기 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Push·PR·merge·branch 삭제 미수행 |
+| 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | 기존 Fable 전문·내용 review 완료 / 사용자 방향 확인·redraft·별도 merge 승인 / Governance merge 선행 대기 | 사용자/기획/개발 | TASK-USER-FLOW-001 | 개인 개발 판단 자료. 최신 main에서 Fable redraft·Codex 내용 review·독립 검증 뒤 별도 게시하며 제품 구현·Phase B는 미승인 |
+| 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동 검증·사용자 검수 완료 / 독립 재검증 뒤 Governance merge 승인 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Governance merge 뒤 USER-FLOW를 최신 main에서 별도 처리 |
 
 ## 25. 결정 이력 (Decision Log)
 

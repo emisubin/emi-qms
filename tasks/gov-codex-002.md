@@ -148,6 +148,7 @@
 - Change 012: Governance preservation/result `4058849`/`a6232b2`, USER-FLOW preservation/result `1cc66fe`/`c4b2858`. 최종 worktree는 대표·디자인 `2/2`이며 강제 제거·runtime restart·branch 삭제·push·PR·merge는 실행하지 않았다.
 - Change 013 P2 `FABLE_PRIMARY_DRAFT_MODE_CONTRACT_CONFLICT`: Generic `docs/` primary draft를 planning·review 구현 승인과 분리하고 latest change의 사용자 요청·exact target으로 gate한다. USER-FLOW 전용 H1·metadata·review path는 exact historical redraft 조합으로 한정하고 generic 계약에서 업무별 구조를 제거했다. 독립 재검증 대기다.
 - Change 013 P2 `REPORTING_CHANGE001_COMPLETION_STATE_CONFLICT`: Reporting Implementation report의 최초 Task 완료와 Change 001 현재 상태를 분리하고 사용자 검수·조건부 merge 승인 상태를 Task·Roadmap과 정렬했다. 독립 재검증 대기다.
+- Change 013 P2 `ROADMAP_CURRENT_STATE_CONFLICT`: 실행 큐·Decision Log와 충돌하던 USER-FLOW 상세·추적 87·88의 과거 미승인 current state를 Governance merge 선행·redraft/문서 merge 승인·제품 구현 미승인으로 정렬했다. 독립 재검증 대기다.
 
 ## 12. 5종 산출물 상태
 

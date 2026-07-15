@@ -425,6 +425,8 @@ Change 013은 generic primary-doc 계약을 다음처럼 보정했다.
 
 Reporting 문서는 최초 Task의 과거 완료 증빙과 Change 001의 현재 상태를 별도 행·문장으로 분리했다. Change 001 원문의 초기 `false` 값도 작성 당시 snapshot으로 명시하고 현재 closure 상태를 별도 절에 기록했다. 사용자의 현재 요청은 Change 001을 포함한 Governance 정책 검수와 독립 검증 PASS 뒤 merge 승인으로 기록하되, 독립 재검증 전에는 게시 gate를 닫지 않는다.
 
+두 P2 보정 뒤 새 독립 검증은 `ROADMAP_CURRENT_STATE_CONFLICT` P2를 추가로 확인했다. 실행 큐와 Decision Log의 최신 승인과 달리 USER-FLOW 상세·추적 87·88이 과거 미승인·검수 대기를 current state로 반복했다. 세 위치를 Governance merge 선행, Fable redraft·문서 별도 merge 승인, 제품 구현·Phase B 미승인으로 정렬했다.
+
 자동 검증 결과는 다음과 같다.
 
 - Bash syntax·ShellCheck warning 이상: `PASS/PASS`
@@ -440,7 +442,7 @@ Reporting 문서는 최초 Task의 과거 완료 증빙과 Change 001의 현재 
 - Runtime URL: Development·Design·Review-safe Frontend와 Development·Review-safe Backend `7/7` HTTP 200
 - Worktree registry: 대표·디자인 `2`
 - PostgreSQL: 첫 독립 검증에서 `running/healthy/restart 0`; 보정은 docs·runner-only이며 DB mutation 0
-- 첫 독립 검증 P2: `2` / 보정 구현 완료 / 독립 재검증 대기
+- 독립 검증 누적 P2: `3` / 보정 구현 완료 / 독립 재검증 대기
 - 사용자 검수: 완료
 - Push·PR·merge: 독립 재검증 PASS 뒤 승인
 

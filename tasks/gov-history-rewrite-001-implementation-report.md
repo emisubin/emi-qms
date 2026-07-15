@@ -2,7 +2,7 @@
 
 ## 1. 결과
 
-Public Git history에 남아 있던 과거 개인정보를 16개 영향 published ref에서 coordinated rewrite했다. Fresh clone의 published branch·tag history scan, tip tree identity와 object connectivity는 통과했다. GitHub Support가 internal reference 제거와 repository GC 완료를 회신했고 old cached reference는 web fixed projection에서 `REMOVED`로 확인됐다. Repository는 별도 public 재개 결정 전까지 `PRIVATE`로 유지한다.
+Public Git history에 남아 있던 과거 개인정보를 16개 영향 published ref에서 coordinated rewrite했다. Fresh clone의 published branch·tag history scan, tip tree identity와 object connectivity는 통과했다. GitHub Support가 internal reference 제거와 repository GC 완료를 회신했고 old cached reference는 web fixed projection에서 `REMOVED`로 확인됐다. Closure와 PR #50 merge 뒤 사용자가 public 재개를 수행했고 인증된 fixed projection에서 Repository `PUBLIC`을 확인했다.
 
 - History rewrite: 완료
 - Production ref update: `16/16`
@@ -11,9 +11,9 @@ Public Git history에 남아 있던 과거 개인정보를 16개 영향 publishe
 - Independent privacy-safe docs rerun: PASS
 - GitHub Support cache cleanup: `REMOVED`
 - History P2: Resolved
-- Public 재개: 미승인·미수행
+- Public 재개: 사용자 수행 완료 / `PUBLIC` 확인
 - Backup 삭제·restore: 미승인·미수행
-- 문서 게시: PR #50 Ready / squash merge 승인·실행 중
+- 문서 게시: PR #50 squash merge 완료
 
 ## 2. 해결한 업무 문제
 
@@ -113,7 +113,7 @@ Production 직전 remote ref snapshot 이동, 추가와 누락은 모두 0이었
 - Unaffected ref moved: 0
 - Tag changed: 0
 - Remote ref total: 19
-- Repository visibility: `PRIVATE`
+- Repository visibility at rewrite execution: `PRIVATE`
 
 ## 9. Fresh clone과 cache
 
@@ -178,8 +178,9 @@ Replacement mapping, backup, commit map, Support payload와 raw logs는 Reposito
 - 해결된 P2 `GIT_HISTORY_PERSONAL_DATA_REMAINS`: published ref `16/16`, Support internal reference 제거·GC 완료, cached view `REMOVED`
 - GitHub cached view removal: 완료
 - External clone/archive 완전 inventory: 불가능
-- Private 전환 뒤 branch protection rule은 0이며 repository ruleset API는 현재 plan에서 재판정할 수 없었다. Rewrite를 위해 protection 설정을 변경하지 않았고 public 재개 전 settings를 다시 확인한다.
-- Public 재개: risk owner 결정 대기
+- Public 재개 뒤 발견한 P3 `PUBLIC_MAIN_SERVER_SIDE_PROTECTION_ABSENT`는 `TASK-GOV-CODEX-002` Change 005에서 public default branch `main`에 active required-pull-request ruleset을 적용해 Resolved했다. 승인 review와 required status check는 1인 개발 속도 정책에 따라 강제하지 않는다.
+- 독립 검증에서 발견한 P2 `HISTORY_REWRITE_OPERATIONAL_DOC_STATE_DRIFT`는 SOP와 User manual의 과거 `PRIVATE`·public 재개 대기 표기를 실제 `PUBLIC`·required-PR 상태로 동기화해 Resolved했다.
+- Public 재개: closure·PR #50 merge 뒤 사용자 수행 완료
 - Backup 삭제: 7일 보존 뒤 별도 승인 대기
 - PostgreSQL restart counter: 후속 Finding Gate read-only 재확인에서 0
 - Support closure fixed-projection 집계: privacy guard PASS, validation error 0, unresolved history P2 0
@@ -187,7 +188,7 @@ Replacement mapping, backup, commit map, Support payload와 raw logs는 Reposito
 
 ## 15. 사용자 검수 결과와 남은 항목
 
-사용자 검수와 문서 commit·push·PR·squash merge 승인을 완료했다. Public 재개와 backup 삭제는 현재 승인에 포함되지 않았다. History·E2E P2는 해소됐고 `TASK-GOV-FINDING-GATE-001` 재평가 결과 Open P0/P1/P2는 `0/0/0`, 신규 기능은 `GO_FOR_USER_DECISION`이다.
+사용자 검수와 문서 commit·push·PR·squash merge를 완료했다. 이후 사용자가 Repository public 재개를 수행했으며 backup 삭제는 별도 승인 대상으로 남는다. History·E2E P2는 해소됐고 `TASK-GOV-FINDING-GATE-001` 재평가 결과 Open P0/P1/P2는 `0/0/0`, 신규 기능은 `GO_FOR_USER_DECISION`이다.
 
 ## 16. 5종 산출물
 

@@ -6,12 +6,12 @@
 - Planning: 승인 완료
 - 승인된 실행 묶음: 완료
 - Published branch·tag rewrite: 완료
-- Repository visibility: `PRIVATE`
+- Repository visibility: `PUBLIC` — history closure 뒤 사용자 전환, fixed projection 확인
 - GitHub cached pull-request reference: `REMOVED`
 - GitHub Support internal reference removal·repository GC: 완료
-- Public 재개: 미승인
+- Public 재개: 사용자 수행 완료
 - Encrypted backup 삭제: 미승인
-- 문서 commit·push·PR #50·squash merge: 승인 완료
+- 문서 commit·push·PR #50·squash merge: 완료
 - 사용자 검수: 완료
 - 기존 실행 독립 검증: PASS
 - Support closure 독립 검증: PASS
@@ -88,11 +88,10 @@ Current checkout에서 비식별화된 과거 개인정보가 published Git hist
 - [x] Support 회신과 old cached reference fixed projection이 `REMOVED`이며 history P2가 해소됐는지 확인
 - [x] Runtime·Persistent UAT·product source 변경 0 확인
 - [x] Public 재개·backup 삭제는 별도 승인으로 유지하고 문서 commit·push·PR·merge는 승인했음을 확인
+- [x] History closure와 PR #50 merge 뒤 사용자가 Repository public 재개를 수행했으며 현재 visibility가 `PUBLIC`임을 확인
 
 ## 8. 다음 Gate
 
-1. 승인된 PR #50 필수 CI 확인과 squash merge
-2. 신규 기능 Go/No-Go 사용자 결정
-3. Risk owner의 public 재개 결정
-4. 보존 기간 경과 뒤 backup 삭제 별도 승인
-5. Deferred worktree cleanup 별도 승인
+1. 신규 기능 Go/No-Go 사용자 결정
+2. 보존 기간 경과 뒤 backup 삭제 별도 승인
+3. 5176 디자인 실험 worktree는 runtime 소유 동안 보존

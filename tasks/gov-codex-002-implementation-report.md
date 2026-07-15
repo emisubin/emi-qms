@@ -172,12 +172,57 @@ Change 003 검증 결과:
 - 단일 canonical clone 전환: merge 후 fresh clone 검증 단계에서 수행
 - 사용자 검수·게시·merge: 승인
 
+## 10.4 Change 004 — Repository worktree cleanup과 canonical root 정규화
+
+PR #48·#49·#50 게시를 위해 남아 있던 clean inactive worktree 3개를 safety gate 뒤 정상 제거했다. Linked worktree는 5개에서 canonical root와 5176 디자인 실험용 2개로 줄었고 local·remote branch는 모두 보존했다.
+
+원본 root는 5174 runtime과 수정 9·미추적 2 상태 때문에 최신 main으로 전환되지 못하고 있었다. 14개 WIP path 중 13개는 최신 `origin/main`과 byte-identical이었고 Roadmap에는 main에 없는 과거 승인 Decision Log 2행이 있었다. 5174 frontend만 승인된 범위에서 중단하고 전체 WIP를 이름 있는 stash로 보존한 뒤, root를 `origin/main` 기반 cleanup branch로 전환했다. 고유 Decision Log, 실제 `PUBLIC` visibility와 cleanup 결과만 문서화한다.
+
+- worktree: `5 → 2`
+- 제거 대상 clean/process/Open PR: `3/3`, `0`, `0`
+- local·remote branch 삭제: 0
+- root WIP stash: 1, 삭제 0
+- 5174 frontend restart: 완료, Entra login shell·HTTPS root·health·Teams Activity 정상, HTTP 실패
+- Backend·Review-safe·PostgreSQL restart: 0
+- product source·migration·dependency·Persistent UAT 변경: 0
+- 문서 게시: 미승인
+
+자동 검증에서 5081 live/ready, 5176, 5190과 5092는 모두 200이고 PostgreSQL은 healthy/restart 0을 유지했다. 문서 6개 link·anchor·duplicate heading은 `0/0/0`, `git diff --check`와 privacy/secret 5종은 통과했다. Stash 14개 path 중 13개는 최신 main과 동일하고 Roadmap의 고유 Decision Log 2행은 현재 문서에 보존했다. Stash는 사용자 검수 전 삭제하지 않는다.
+
+분리된 Codex 독립 검증은 allowlist, worktree·stash·branch 보존, 5174 HTTPS-only와 다른 runtime 보존을 다시 확인해 `PASS`로 판정했다. Open P0/P1/P2는 `0/0/0`이며 Change 004 사용자 검수는 완료됐다. 당시 추적한 P3 1건은 Change 005에서 해소했다.
+
+첫 handoff 뒤 사용자가 5174의 server·runtime mode 연결 실패를 보고했다. Root cause는 frontend-only 재시작 명령이 HTTPS와 proxy만 설정하고 same-origin API 값과 Repository root의 기존 Entra local 설정 로드를 누락한 것이었다. 5174 frontend만 다시 정규화해 기존 local Entra 설정을 privacy-safe하게 로드하고 `EntraId`, `https://localhost:5174` redirect와 same-origin API를 명시했다. Browser에서 승인된 로그인 shell을 확인했고 5174 runtime API·health, 5081·5176·5190·5092와 PostgreSQL 보존 검증을 다시 통과했다.
+
+분리된 Codex 독립 재검증도 root cause, Entra runtime 계약, runtime 보존, 문서 일관성과 allowlist를 모두 `PASS`로 판정했다. Open P0/P1/P2는 `0/0/0`이고 사용자 검수를 완료했다.
+
+Public Repository 설정의 최초 read-only fixed projection에서 default branch main, classic branch protection 0, Repository ruleset 0을 확인해 P3 `PUBLIC_MAIN_SERVER_SIDE_PROTECTION_ABSENT`로 추적했다. Change 005에서 사용자가 승인한 required-PR 최소 ruleset을 적용해 해소했다.
+
+## 10.5 Change 005 — Public main 최소 PR 강제
+
+1인 개발 속도를 유지하기 위해 Repository 지침의 direct main push 금지만 GitHub 서버 측 ruleset으로 강제했다. Public default branch `main`에 active `pull_request` rule 1개를 적용했으며 approving review, required status check, strict base update, review thread resolution, code owner와 last-push approval은 강제하지 않는다. 기존 merge·squash·rebase 방식도 제한하지 않았다.
+
+- Repository ruleset: `0 → 1`
+- main effective rule: `pull_request` 1
+- required approving review/status check: `0/0`
+- optional review·latest-base gate: 전부 false
+- bypass actor: 0
+- Backend·Frontend·DB·migration·runtime·provider 변경: 0
+- commit·push·PR·merge: 미수행
+
+GitHub의 ruleset 목록과 main effective rules API를 각각 재조회해 active/default-branch와 required pull request를 확인했다. Direct push 차단을 검증하기 위한 실제 원격 mutation은 수행하지 않았다. P3 `PUBLIC_MAIN_SERVER_SIDE_PROTECTION_ABSENT`는 Resolved다.
+
+첫 독립 검증은 GitHub effective rules read-only 조회가 실행 정책에 막혀 `INCOMPLETE`로 종료했다. 다른 독립 검증 세션이 public/default main, active required-PR 1, required status check·approving review·bypass actor 0과 optional review gate false를 확인했다. 이 과정에서 History Rewrite SOP·User manual이 과거 `PRIVATE`·public 재개 대기 상태를 유지하는 P2 `HISTORY_REWRITE_OPERATIONAL_DOC_STATE_DRIFT`를 발견했다. 두 운영 문서를 실제 `PUBLIC`·required-PR 상태로 동기화해 P2를 해소했다.
+
+최종 독립 재검증은 GitHub rules, 정확한 9개 문서 allowlist, staged·deleted·제품 source·runtime configuration diff 0, diff check, added local link·anchor 0, duplicate heading 0과 Roadmap 85·P3 closure 일관성을 확인했다. 별도 privacy aggregate 세션도 9개 파일의 email·UUID·credential assignment 후보를 `0/0/0`으로 확인했다. 최종 Open P0/P1/P2/P3는 `0/0/0/0`이고 품질 게시 gate는 GO지만 commit·push·PR·merge 승인을 대신하지 않는다.
+
+사용자는 Change 005 적용 결과 검수를 완료하고 Change 004·005 문서 묶음의 commit·push·PR·merge를 승인했다.
+
 ## 11. 5종 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | 이 문서 | 작성됨 / 자동 검증 완료 |
+| Implementation report | 이 문서 | 작성됨 / 자동·독립 재검증 완료 |
 | SOP | `tasks/gov-codex-002.md` 8장 | 작성됨 |
 | User manual | `tasks/gov-codex-002.md` 9장 | 작성됨 |
 | Roadmap update | `docs/00-product-roadmap.md` | 반영됨 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | 사용자 검수 완료 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~005 사용자 검수 완료 / 게시·merge 승인 |

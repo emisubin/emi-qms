@@ -11,6 +11,8 @@
 - Change 001: Fable 5 deep-interview+planning Gate 보정·자동 검증·사용자 검수 완료 / merge 승인
 - Change 002: Task Identity+Roadmap Sequence Gate 보정·자동 검증·사용자 검수 완료 / merge 승인
 - Change 003: 단일 canonical clone lifecycle 구현·local clean worktree 정리·자동 검증·사용자 검수 완료 / merge 승인
+- Change 004: merged temporary worktree `5→2` 정리·canonical root 정규화·5174 Entra frontend-only handover·자동·독립 재검증·사용자 검수 완료 / 게시·merge 승인
+- Change 005: public main required-PR 최소 ruleset 적용·운영 문서 P2 보정·독립 검증·사용자 검수 완료 / P2·P3 Resolved / 게시·merge 승인
 
 ## 2. 목표
 
@@ -107,16 +109,19 @@
 - 기존 root 장문 초안: 경쟁 WIP로 보존하며 본 Task에 포함하지 않음
 - `docs/task-close-process-guidelines`: remote에는 있으나 PR 없는 historical branch이며 별도 cleanup 승인 전 유지
 - Change 003 cleanup: worktree 30→9, 약 4.03GB 회수. Dirty 3개와 process 사용 5개는 보존했다.
+- Change 004 cleanup: PR #48·#49·#50의 clean inactive worktree를 제거해 `5→2`로 정리했다. Canonical root와 5176 디자인 실험 worktree만 보존하고 local·remote branch와 이름 있는 WIP stash는 삭제하지 않았다.
+- Change 005 P3: Public default branch `main`에 active required-pull-request ruleset을 적용했다. 승인·CI·최신화·review 해결을 강제하지 않아 기존 1인 개발 속도를 유지하면서 direct main push 금지만 서버 측에서 강제한다.
+- Change 005 P2: 독립 검증에서 발견한 History Rewrite SOP·User manual의 과거 private 상태 표기를 실제 public·required-PR 상태로 동기화해 Resolved했다.
 
 ## 12. 5종 산출물 상태
 
 | 산출물 | Canonical 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/gov-codex-002-implementation-report.md` | 작성됨 / 자동 검증 완료 |
+| Implementation report | `tasks/gov-codex-002-implementation-report.md` | 작성됨 / 자동·독립 재검증 완료 |
 | SOP | 이 문서 8장 | 작성됨 |
 | User manual | 이 문서 9장 | 작성됨 |
 | Roadmap update | `docs/00-product-roadmap.md` | 반영됨 |
-| User validation checklist | 이 문서 13장 | 사용자 검수 완료 |
+| User validation checklist | 이 문서 13장 | Change 001~005 사용자 검수 완료 / 게시·merge 승인 |
 
 ## 13. 사용자 검수 체크리스트
 
@@ -134,3 +139,10 @@
 - [x] 일반 Task를 단일 canonical clone에서 수행하고 Task별 영구 worktree를 만들지 않는 운영 모델 승인
 - [x] Dirty·runtime worktree가 보존되고 clean inactive worktree만 정리됐는지 확인
 - [x] Change 003 게시·merge 승인
+- [x] Change 004 worktree cleanup과 5174 중단·재시작·root 정규화 승인
+- [x] Change 004 자동·독립 재검증
+- [x] Change 004 사용자 검수
+- [x] Change 005 required-PR 최소 ruleset 정책·적용 승인
+- [x] Change 005 active main effective rule 확인
+- [x] Change 005 사용자 검수
+- [x] Change 004·005 commit·push·PR·merge 승인

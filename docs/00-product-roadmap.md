@@ -962,7 +962,7 @@ Excel 출력 대상 후보:
 - role/permission 편집 UI, Pending 유형 관리와 검사/제조 체크리스트 템플릿은 ADMIN-001 범위에서 제외되어 후속으로 검토한다. Terminal Failed 수동 재처리는 TASK-NOTIFY-004 정책 결정에 따라 별도 신규 기능 후보로 Deferred한다.
 - Notification claim/lease, automatic retry, attempt lineage, provider 오류 분류와 escalation starvation 보정은 완료됐다. `TASK-NOTIFY-004`는 terminal `Failed`를 현재 상태 모델의 최종 상태로 유지하고 Pending retry·acknowledge·dismiss만 지원하는 `POLICY_CORRECTION_AND_DEFER`를 승인했다. Failed 수동 재처리가 필요하면 retry generation·append-only audit·provider 중복 확인을 포함한 별도 NEW_FEATURE planning을 거친다.
 - TASK-AUTH-HARDEN-001의 `PURGE_GUARD_PREDICATE_UNREACHABLE`은 Change 001 REDESIGN으로 해결됐고 TASK-UAT-AUTH-HARDEN-001 Phase A~D, privacy-safe evidence, isolated HTTP, Persistent mutation-free runtime handover와 사용자 검수를 통과했다. Persistent live auth mutation은 break-glass 증명 전 No-Go다.
-- Git history 개인정보는 `TASK-GOV-002`에서 `COORDINATED_HISTORY_REWRITE`로 정책을 확정했다. 실제 rewrite·filter-repo·force push·visibility 변경은 별도 `TASK-GOV-HISTORY-REWRITE-001` planning과 maintenance 승인 전 수행하지 않는다.
+- Git history 개인정보는 `TASK-GOV-HISTORY-REWRITE-001`의 영향 ref `16/16` rewrite, fresh clone과 GitHub Support internal reference 제거·GC를 거쳐 P2를 해소했다. PR #50 merge 뒤 사용자가 Repository를 public으로 재개했으며 encrypted backup 삭제는 별도 승인 대상이다.
 - 기존 import-order 위반 9건은 범위 밖 format debt/P3 후보이며 현재 P2 Gate에 포함하지 않는다.
 
 ## 23. 향후 개발 로드맵
@@ -973,11 +973,11 @@ Excel 출력 대상 후보:
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0.1 | TASK-UAT-AUTH-HARDEN-001 | UAT_RUNTIME | Completed | Planning Approved | Phase A~D 자동 검증·runtime 적용·사용자 검수 완료 | break-glass 미증명으로 live mutation 금지 | Yes | PR #40 squash merge 승인 → TASK-GOV-002 |
 | 0.2 | TASK-GOV-002 | POLICY_DECISION | Completed | Planning Approved | current checkout 비식별화·public history 조사·사용자 검수 완료 | PR #41 Ready·squash merge 승인 | No | PR #41 merge → TASK-GOV-HISTORY-REWRITE-001 |
-| 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | Completed / PR #50 Ready·Merge Approved | Planning·Implementation Approved | 영향 ref `16/16`, fresh clone, old clone quarantine, Support cleanup, 독립 검증·사용자 검수 완료 | Public 재개·backup 삭제는 각각 별도 승인 | No | PR #50 필수 CI → squash merge |
+| 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | Completed / PR #50 Merged / Repository Public | Planning·Implementation Approved | 영향 ref `16/16`, fresh clone, old clone quarantine, Support cleanup, 독립 검증·사용자 검수 완료 | Encrypted backup 삭제는 별도 승인 | No | 0.6 신규 기능 Go/No-Go 사용자 결정 |
 | 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Completed / PR #44 Merged | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | Finding gate에서 Resolved 확인 |
 | 0.4A | TASK-BACKEND-FORMAT-001 — import-order baseline 정리 | HOUSEKEEPING | Completed / Merged | Planning Approved | import-order 9건 정규화·검증·사용자 검수 완료 | 없음 | No | Finding gate에서 Resolved 확인 |
 | 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | APPROVED_FEATURE_IMPLEMENTATION | Completed / PR #49 Merged | Implementation Approved | Change 001~009 사용자 검수·최신 main 승격·전체 Frontend 자동·독립 검증·5174 반영 완료 | 없음. Code Connect는 향후 필수 Gate에서 제외 | No | Promotion·5176 experiment worktree 정리는 사용자 Deferred 결정 추적 |
-| 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | Completed / PR #50 Ready·Merge Approved | Planning Approved | Open P0/P1/P2 `0/0/0`, 독립 검증·사용자 검수 완료 | 없음 | No | PR #50 필수 CI → squash merge → 0.6 사용자 결정 |
+| 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | Completed / PR #50 Merged | Planning Approved | Open P0/P1/P2 `0/0/0`, 독립 검증·사용자 검수 완료 | 없음 | No | 0.6 신규 기능 Go/No-Go 사용자 결정 |
 | 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | Ready for User Decision | Deferred | Open P0/P1/P2 `0/0/0` | 사용자 승인 | No | 신규 기능 Go/No-Go 명시 결정 |
 | 1.1 | TASK-007A Pending List | NEW_FEATURE | User Go Pending | Scope Review Required | Phase 0 사용자 Go, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | Go 승인 후 Fable 5 deep-interview → 사용자 요약 확인 → Fable 5 planning → Codex review → 사용자 승인 |
 | 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A | Pending 차단·상태 matrix 확정 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
@@ -1103,12 +1103,12 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-GOV-HISTORY-REWRITE-001: Coordinated Git history rewrite
 
-- 상태: 영향 published ref rewrite·fresh clone·old common repository push quarantine·Support cleanup·독립 검증·사용자 검수 완료 / Repository `PRIVATE` / cached reference `REMOVED` / PR #50 Ready·squash merge 승인
+- 상태: 영향 published ref rewrite·fresh clone·old common repository push quarantine·Support cleanup·독립 검증·사용자 검수 완료 / Repository `PUBLIC` / cached reference `REMOVED` / PR #50 Merged
 - 목적: current checkout에서 제거된 과거 개인정보를 모든 영향 published ref에서 제거하고 cache·old clone 재유입·backup 경계를 분리해 검증한다.
 - 실행 결과: 영향 ref `16/16`, 예상 밖 ref 이동 0, tip tree mismatch 0, fresh-clone history exact match 0, fsck error 0
 - Support 결과: completion/follow-up/closed fixed projection `1/1/1`, old cached reference `REMOVED`, page-not-found `true`
 - 안전 경계: encrypted pre-rewrite backup 제한 보존, restore·삭제 별도 승인, old common repository push quarantine와 dirty worktree 보존
-- 잔여 Gate: 승인된 문서 squash merge. Public 재개·backup 삭제는 각각 별도 결정
+- 잔여 Gate: encrypted backup 삭제는 보존 경계와 별도 승인 뒤 수행
 - 제품 영향: Backend·Frontend·API·DB·migration·runtime·provider 변경 0
 - P2: `GIT_HISTORY_PERSONAL_DATA_REMAINS` Resolved. 외부 clone·archive 완전 회수는 증명하지 않으며 public 재개를 자동 승인하지 않는다.
 - CI Finding: `FULL_STACK_E2E_PROCUREMENT_EDIT_ROW_RACE`는 `TASK-E2E-RELIABILITY-001` 보정·검증과 PR #43 병합으로 Resolved다.
@@ -1117,7 +1117,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-GOV-FINDING-GATE-001: 전체 P0/P1/P2 재평가
 
-- 상태: read-only closure matrix 재평가·독립 검증·사용자 검수 완료 / Open P0/P1/P2 `0/0/0` / PR #50 Ready·squash merge 승인
+- 상태: read-only closure matrix 재평가·독립 검증·사용자 검수 완료 / Open P0/P1/P2 `0/0/0` / PR #50 Merged
 - 목적: 실제 main·최근 merge·운영 read-only 기준선과 외부 blocker를 closure matrix로 대조한다.
 - 선행 해소: E2E row race PR #43, Failed retry 문서 drift PR #44, Git history internal reference 제거와 GC 완료
 - Task 이름: canonical ID는 `TASK-GOV-FINDING-GATE-001`이다. `TASK-GOV-P2-GATE-001`은 동일 목적의 non-canonical shorthand이며 별도 Task가 아니다.
@@ -1156,6 +1156,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - Change 001: 신규 기능은 Fable 5 deep-interview, 사용자 요약 확인과 blocking decision 0을 먼저 통과한 뒤 Fable 5 planning을 시작한다. Codex는 안전한 relay·기록·review를 담당하며 interview 완료는 planning·implementation 승인과 분리한다.
 - Change 002: 새 Task 생성 전 목표·Finding·변경 경계·불변조건·산출물의 semantic identity와 Roadmap status·dependency·external blocker·Next Gate를 대조한다. 같은 목적은 기존 canonical Task를 재사용하고, 모호하거나 순서가 다르면 명시적 재정렬 승인 전 중단한다.
 - Change 003: 일반 Task는 fresh canonical clone 하나에서 branch만 전환하고, 별도 worktree는 runtime·병렬 write·고위험 rehearsal에 한정한다. Clean·process 미사용·open PR 없음·commit reachable gate로 기존 worktree 30개 중 21개를 정리해 약 4.03GB를 회수했으며 dirty 3개와 process 사용 5개는 보존했다.
+- Change 004: PR #48·#49·#50의 clean inactive worktree 3개를 제거해 linked worktree를 `5→2`로 정리했다. Canonical root와 5176 디자인 실험만 보존하고 root WIP는 stash로 보존한 뒤 최신 main 기반 cleanup branch로 정규화했다.
+- Change 005: Public default branch `main`에 active required-pull-request ruleset을 적용해 direct main push 금지를 서버 측에서 강제했다. 1인 개발 속도를 위해 승인·CI·최신화·review 해결은 강제하지 않는다.
 
 ### TASK-GOV-REPORTING-001: Task 시작·완료 보고 표준화
 
@@ -1628,7 +1630,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 59 | Notification delivery claim/lease | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-REL-001 | Processing·SKIP LOCKED·lease/fencing·attempt audit, 정상 경쟁 provider call 1회, isolated candidate 5094/5192. Persistent UAT 0028 미적용, actual provider 호출 0, at-least-once이며 exactly-once 미보장. PR #30 |
 | 60 | Escalation starvation | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-ESC-001 | 기존 evaluation timestamp fair ordering, 후보 오류 격리, 101/200/201 유한 poll, 중복 0. Persistent UAT worker는 disabled 유지 |
 | 61 | 마지막 System Administrator 동시성 보호 | controlled UAT Phase A~D·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-AUTH-HARDEN-001 | Privacy-safe evidence·isolated HTTP·temporary ReviewSafe·latest-main Development handover 완료. Persistent live mutation은 break-glass 증명 전 No-Go |
-| 62 | Git history 개인정보 | 정책·rewrite·Support server-side cleanup 완료 / history P2 Resolved | 사용자/보안 | TASK-GOV-002 / TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone 검증, internal reference 제거·repository GC와 cached reference `REMOVED`. Repository는 별도 승인 전 `PRIVATE`, backup 삭제 미승인 |
+| 62 | Git history 개인정보 | 정책·rewrite·Support cleanup·public 재개 완료 / history P2 Resolved | 사용자/보안 | TASK-GOV-002 / TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone 검증, internal reference 제거·repository GC와 cached reference `REMOVED`. Repository `PUBLIC`, backup 삭제 미승인 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
 | 65 | Privacy-safe Review-safe runtime handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-002 | merged main 5190/5092, Compatible 27/28/1, redacted browser matrix, DB read-only·423, Candidate/Persistent UAT 보존. PR #28 |
@@ -1636,20 +1638,21 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / PR #32 merge 완료 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
-| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | PR #38 완료 / Change 001·002 merge / Change 003 구현·자동 검증·사용자 검수 완료·merge 승인 | 개발 | TASK-GOV-CODEX-002 | Task Identity·Roadmap Sequence Gate와 단일 canonical clone lifecycle. NEW_FEATURE만 Fable 5 deep-interview·planning, 나머지는 Codex-only |
+| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | PR #38 완료 / Change 001~003 merge / Change 004·005 사용자 검수·게시·merge 승인 / P2·P3 Resolved·독립 검증 완료 | 개발 | TASK-GOV-CODEX-002 | Task Identity·Roadmap Sequence Gate와 단일 canonical clone lifecycle. Worktree `5→2`, 5174 HTTPS-only 복구, public main required PR 적용 |
 | 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
 | 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
 | 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
 | 74 | terminal Failed delivery 수동 재처리 범위 | 정책 결정 완료 / Deferred | 사용자/개발/운영 | TASK-NOTIFY-004 | 현재 P2 필수 보정 아님. Retry generation·append-only audit·duplicate-risk 확인이 필요한 별도 NEW_FEATURE 후보 |
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
-| 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수 완료 / PR #50 merge 승인 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. Public 재개와 backup 삭제는 별도 결정 |
+| 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수·PR #50 merge·public 재개 완료 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. Backup 삭제는 별도 결정 |
 | 78 | Task instruction chain·완료 보고 형식 | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 모든 Task 시작 전 filesystem 지침 재확인과 종료 시 고정 10개 항목을 강제. 적용 대상 없음도 `N/A`와 이유 기록 |
 | 79 | Full-Stack E2E 구매정보 동적 행 timing | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발/품질 | TASK-E2E-RELIABILITY-001 | 최신 load만 edit state에 반영하고 행 추가 1회·정확한 row/input 준비를 검증. 대상 E2E 20/20, 전체 16/16 통과 |
 | 80 | Backend import-order format debt | 구현·자동·독립 검증·사용자 검수·merge 완료 | 개발/품질 | TASK-BACKEND-FORMAT-001 | 정확한 Backend C# 9개 파일의 `IMPORTS=9`를 diagnostic 0으로 정리. 실행 코드·API·DB·runtime 변경 0 |
 | 82 | Entra 로그인 공통 디자인 shell | 사용자 검수·승격·5174 반영·PR #49 merge 완료 | 사용자/개발/품질 | TASK-DESIGN-LOGIN-001 | 승인된 Figma 기반 auth shell과 Loading·checkbox 반영. Code Connect는 향후 필수 Gate가 아니며 5176 실험 runtime은 보존 |
-| 83 | 로그인 디자인 promotion·experiment worktree 정리 | Deferred — 사용자 요청으로 현 상태 보존 | 사용자/개발 | 후속 HOUSEKEEPING Gate | Promotion worktree와 5176 experiment worktree는 실행 source·dirty state·commit reachability를 다시 확인한 뒤 별도 정리 승인을 받아 제거 |
+| 83 | 로그인 디자인 promotion·experiment worktree 정리 | Promotion 정리 완료 / 5176 experiment 보존 | 사용자/개발 | TASK-GOV-CODEX-002 Change 004 | Clean·process 미사용·PR #49 merge 확인 뒤 promotion worktree 제거. 5176 experiment는 runtime·미게시 디자인 source로 계속 보존 |
 | 84 | 전체 Finding Gate | Open P0/P1/P2 `0/0/0` / 독립 검증·사용자 검수 완료 / PR #50 merge 승인 | 사용자/개발/보안 | TASK-GOV-FINDING-GATE-001 | History·E2E·Failed retry·privacy 절차 P2 Resolved. 신규 기능은 `GO_FOR_USER_DECISION`, 자동 시작 아님 |
+| 85 | Public main 서버 측 PR 강제 | Resolved — active required PR 적용·운영 문서 동기화 | 사용자/운영/보안 | TASK-GOV-CODEX-002 Change 005 | Repository `PUBLIC`, default branch `main`, effective `pull_request` rule 1. 승인·required status check·최신화·review 해결은 강제하지 않으며 History SOP·User manual current state도 동기화 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1764,6 +1767,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-14 | GitHub Support의 history cache 처리 대기 중 기존 import-order 9건을 `TASK-BACKEND-FORMAT-001`로 먼저 계획 | 외부 blocker와 독립적인 P3 format debt를 정리하되 신규 기능 Gate와 history P2 상태는 변경하지 않기 위함 | 22장~25장, TASK-BACKEND-FORMAT-001 |
 | 2026-07-14 | TASK-BACKEND-FORMAT-001 사용자 검수와 squash merge를 승인 | Backend C# 9개 파일의 import 순서만 정규화하고 format diagnostic 9→0, Backend 361/361, Frontend 62/62, Full-Stack E2E 16/16과 독립 diff 검증을 통과했음을 확인하기 위함 | 23장~25장, TASK-BACKEND-FORMAT-001 |
 | 2026-07-14 | 일반 Task는 단일 canonical clone을 재사용하고 별도 worktree는 runtime·병렬 write·고위험 rehearsal에만 생성 | Task 문서는 Repository와 Git history에 누적되지만 source checkout·`node_modules`·Backend build artifact가 Task마다 영구 중복되지 않게 하기 위함 | AGENTS.md, 23장~25장, TASK-GOV-CODEX-002 Change 003 |
+| 2026-07-13 | TASK-GOV-HISTORY-REWRITE-001 권장 묶음으로 temporary private, encrypted backup 7일 보존, 영향 ref explicit lease rewrite, Support 요청과 fresh-clone quarantine을 승인 | Published ref와 cache·외부 clone 경계를 분리해 개인정보 재노출과 old-history 재유입을 막고, Support 처리 전 public 재개를 자동화하지 않기 위함 | 22장~25장, TASK-GOV-HISTORY-REWRITE-001 |
+| 2026-07-14 | 전체 P0/P1/P2 재평가의 canonical ID를 `TASK-GOV-FINDING-GATE-001`로 유지하고 Support 대기 중 provisional audit만 수행 | 중복 Task 생성을 방지하고 history P2가 Open인 동안 신규 기능 `NO_GO`를 유지하기 위함 | 23장~25장, TASK-GOV-FINDING-GATE-001 |
 | 2026-07-14 | History Support 대기 중 `TASK-UAT-001` Change 001 병렬 실행을 승인하고 Development UAT를 HTTPS 5174 하나로 통일 | 로그인·일반 기능·알림·Teams Activity를 한 origin에서 검수하고 HTTP protocol drift와 불필요한 격리 DB port를 제거하면서 5081·5432·5190/5092·5176을 보존하기 위함 | 21장~25장, TASK-UAT-001 Change 001 |
 | 2026-07-14 | `TASK-UAT-001` Change 001에서 5081 Teams Activity actual channel과 신규 ManualTest 1건 Graph 발송을 승인 | 기존 `TeamsActivityDisabled` terminal 2건은 audit로 보존하고 Delivery Worker만 활성인 상태에서 신규 delivery 1건의 retry lineage와 최종 `Sent`를 검수하면서 Escalation·Purge·다른 runtime·Persistent UAT DB/volume을 보존하기 위함 | 21장~25장, TASK-UAT-001 Change 001 |
 | 2026-07-14 | `TASK-UAT-001` Change 001의 Teams client 실제 알림 수신 검수를 완료하고 merge까지 승인 | Microsoft Graph `Sent`와 사용자의 Activity Feed 실제 표시 확인을 분리해 모두 닫고 기존 terminal audit·다른 runtime·Persistent UAT 자원 보존 결과를 게시하기 위함 | 21장~25장, TASK-UAT-001 Change 001 |
@@ -1785,6 +1790,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-15 | GitHub Support의 internal reference 제거·repository GC 완료와 old cached reference `REMOVED`를 확인해 history P2를 Resolved로 전환 | Published ref rewrite와 fresh clone 검증에 server-side cleanup·direct-view fixed projection까지 충족됐으므로 전체 Finding Gate를 재개할 수 있기 때문. Public 재개·backup 삭제·문서 게시는 별도 결정으로 유지 | 23장~25장, TASK-GOV-HISTORY-REWRITE-001 |
 | 2026-07-15 | TASK-GOV-FINDING-GATE-001 재평가에서 Open P0/P1/P2 `0/0/0`, 신규 기능 `GO_FOR_USER_DECISION`을 권고 | History·E2E·Failed retry·privacy 절차 P2의 closure 근거와 현재 runtime·Persistent aggregate를 재검증했기 때문. 사용자 Go 승인, 독립 검증과 문서 게시를 자동 수행하지 않음 | 23장~25장, TASK-GOV-FINDING-GATE-001 |
 | 2026-07-15 | TASK-GOV-HISTORY-REWRITE-001과 TASK-GOV-FINDING-GATE-001의 독립 검증·사용자 검수를 완료하고 PR #50 squash merge를 승인 | 11/11 allowlist, product diff 0, P0/P1/P2/P3 `0/0/0/0`, runtime·Persistent UAT 보존과 merge Gate GO를 확인했기 때문. Public 재개·backup 삭제·worktree cleanup·신규 기능 Go는 포함하지 않음 | 23장~25장, 두 governance Task |
+| 2026-07-15 | History closure와 PR #50 merge 뒤 Repository를 public으로 재개하고 clean inactive worktree 3개를 제거해 canonical root와 5176 디자인 실험만 유지 | History P2와 GitHub cached reference가 해소된 상태에서 공개 전환을 완료하고, merge된 publish·promotion·closure checkout이 계속 누적되지 않게 single canonical clone lifecycle을 회복하기 위함 | 23장~25장, TASK-GOV-HISTORY-REWRITE-001, TASK-GOV-CODEX-002 Change 004 |
+| 2026-07-15 | Public default branch `main`에 required pull request만 강제하는 active Repository ruleset을 적용 | 기존 Repository 지침의 direct main push 금지를 서버 측에서 보장하되 1인 개발 속도를 위해 승인·CI·최신화·review 해결은 강제하지 않고 P3 `PUBLIC_MAIN_SERVER_SIDE_PROTECTION_ABSENT`를 해소하기 위함 | 23장~25장, TASK-GOV-CODEX-002 Change 005 |
+| 2026-07-15 | TASK-GOV-CODEX-002 Change 004·005 사용자 검수를 완료하고 문서 commit·push·PR·merge를 승인 | Canonical root 정규화·5174 복구·public main required PR 적용, 운영 문서 P2 보정과 Open P0/P1/P2/P3 `0/0/0/0` 독립 검증을 모두 확인했기 때문 | 23장~25장, TASK-GOV-CODEX-002 Change 004·005 |
 
 ## 26. 용어 사전
 

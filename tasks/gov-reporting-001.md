@@ -6,9 +6,10 @@
 - Fable 5: 미사용
 - instructionChainRead: true
 - 자동 검증: 완료
-- 독립 Codex 검증: PASS
-- 사용자 검수: 완료
-- Commit·Push·PR·Merge: 승인
+- 독립 Codex 검증: 최초 Task·Change 001 PASS
+- 사용자 검수: 최초 Task·Change 001 완료
+- Commit·Push·PR·Merge: 최초 Task 완료 / Change 001 merge 승인
+- Change 001: 작업 현황 요약·남은 Git 게시·중단 Task·Roadmap next 보강 / 구현·자동·독립 검증·사용자 검수 완료 / 상태 충돌 P2 Resolved / merge 승인
 
 ## 2. 목적
 
@@ -18,6 +19,7 @@
 
 - Root `AGENTS.md`의 Task 시작 instruction chain gate
 - Root `AGENTS.md`의 고정 10개 항목 완료 보고
+- 고정 10개 항목 앞의 `작업 현황 요약`
 - `docs/12-task-completion-policy.md`의 동일 canonical 규칙
 - Roadmap 추적 항목과 Decision Log
 - 본 Task의 5종 종료 산출물
@@ -30,6 +32,16 @@
 - Commit·Push·PR·Merge
 
 ## 5. 고정 완료 보고 형식
+
+먼저 다음 필드의 `작업 현황 요약`을 표시한다.
+
+- 현재 Task·현재 단계·남은 일
+- Commit·Push·PR·Merge 각각의 상태
+- 중단·보류 Task와 중단 단계·사유·재개 조건
+- 재개 우선순위
+- 모든 작업 종료 후 Roadmap 다음 Task와 `Next Gate`
+
+그 뒤 기존 10개 제목을 유지한다.
 
 1. 수정 요약
 2. 수정한 파일
@@ -53,3 +65,8 @@
 - [x] 테스트 실행과 결과, 자동 검증과 사용자 검수가 분리되는지 확인
 - [x] 미커밋 변경과 게시 가능 여부가 별도 항목으로 보고되는지 확인
 - [x] 고정 10개 항목이 Implementation report와 5종 산출물을 대체하지 않는지 확인
+- [x] Change 001의 작업 현황 요약과 남은 작업 보고 정책 승인
+- [x] Git 게시 네 단계·중단 Task·재개 조건·Roadmap next dry run 확인
+- [x] Change 001 분리된 Codex 독립 검증
+- [x] Change 001 사용자 검수
+- [x] Change 001 독립 검증 PASS 뒤 Commit·Push·PR·Merge 승인

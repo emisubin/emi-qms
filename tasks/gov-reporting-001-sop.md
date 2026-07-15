@@ -25,7 +25,18 @@
 
 ## 3. 완료 보고 작성 절차
 
-최종 응답은 아래 제목과 순서를 그대로 사용한다.
+최종 응답은 먼저 `작업 현황 요약`을 작성한다.
+
+| 필드 | 기록 내용 |
+| --- | --- |
+| 현재 Task | Task ID와 조사·기획·구현·자동 검증·사용자 검수·게시·완료·중단 중 현재 단계 |
+| 현재 Task에 남은 일 | 다음 실행 또는 승인 항목 |
+| Git 게시 | Commit·Push·PR·Merge 각각의 상태 |
+| 중단·보류 Task | Task ID, 중단 단계, 사유와 재개 조건 |
+| 재개 우선순위 | 중단·보류 Task가 있으면 먼저 재개할 순서 |
+| Roadmap next | 모든 작업 종료 뒤 다음 canonical Task와 `Next Gate` |
+
+그 뒤 아래 제목과 순서를 그대로 사용한다.
 
 1. 수정 요약
 2. 수정한 파일
@@ -48,9 +59,11 @@
 - 테스트 결과: 성공·실패·미실행을 구분한다.
 - Frontend/Backend URL: 실제 확인한 URL만 기록한다.
 - 수동 검수 체크리스트: 미체크 항목을 완료로 표시하지 않는다.
-- 미커밋 변경사항: changed/staged, commit·push·PR 상태를 기록한다.
-- 남은 문제: Finding, blocker, 미검증과 별도 승인 항목을 기록한다.
+- 미커밋 변경사항: changed/staged, Commit·Push·PR·Merge 각각의 상태, 다음 Git action과 필요한 승인을 기록한다.
+- 남은 문제: 현재 Task 잔여 단계, 중단·보류 Task와 재개 조건, Finding, blocker, 미검증, 별도 승인과 Roadmap next를 기록한다.
 - 게시 가능 여부: `GO`, `NO_GO`, `N/A`와 근거를 쓴다.
+
+Finding은 count만 쓰지 않고 ID 또는 stable label, severity, 상태, 원인·영향과 해소 또는 backlog 위치를 기록한다.
 
 ## 5. 금지 사항
 
@@ -60,3 +73,6 @@
 - 사용자 검수 대기를 완료로 표현
 - 게시 가능 `GO`를 commit·push·merge 승인으로 해석
 - 10개 항목으로 Implementation report나 5종 산출물 대체
+- 중단·보류 Task 또는 남은 Git 게시를 누락
+- 현재 Task가 끝났다는 이유로 Roadmap 다음 Task·Next Gate를 생략
+- 해소된 Finding을 count로만 남겨 무엇이 발생했는지 추적할 수 없게 함

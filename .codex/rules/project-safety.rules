@@ -3,6 +3,23 @@
 # rather than replace, AGENTS.md judgment and task-specific user approval.
 
 prefix_rule(
+    pattern = ["bash", "scripts/run-fable-readonly.sh"],
+    decision = "allow",
+    justification = "Allow only the fail-closed Fable 5 runner that fixes read-only tools, Task-scoped private session ownership, drift checks, cleanup, exact interview artifacts, one primary draft and explicit-user-request-only redraft.",
+    match = [
+        "bash scripts/run-fable-readonly.sh interview tasks/user-flow-001-interview.md 1",
+        "bash scripts/run-fable-readonly.sh planning tasks/user-flow-001-interview.md",
+        "bash scripts/run-fable-readonly.sh draft tasks/user-flow-001-interview.md docs/13-user-flow-baseline.md",
+        "bash scripts/run-fable-readonly.sh revise tasks/user-flow-001-interview.md docs/13-user-flow-baseline.md",
+        "bash scripts/run-fable-readonly.sh cleanup tasks/user-flow-001-interview.md",
+    ],
+    not_match = [
+        "bash scripts/e2e-full-stack.sh",
+        "zsh -c claude --print prompt",
+    ],
+)
+
+prefix_rule(
     pattern = [["bash", "zsh", "sh"], ["-lc", "-c"]],
     decision = "prompt",
     justification = "Shell wrappers can hide multiple operations; inspect the full script and apply AGENTS.md scope before approval.",

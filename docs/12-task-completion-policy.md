@@ -136,7 +136,16 @@ Roadmap 갱신 후보는 현재 구현 기능, 수정 방향, 향후 Task 상태
 
 ### 고정 10개 항목 완료 보고
 
-Task를 완료·중단하거나 사용자 검수 handoff로 종료할 때 최종 응답은 다음 제목과 순서를 고정한다.
+Task를 완료·중단하거나 사용자 검수 handoff로 종료할 때 최종 응답은 먼저 다음 고정 필드의 `작업 현황 요약` 표를 표시한다.
+
+- 현재 Task와 현재 단계
+- 현재 Task에 남은 일
+- Git 게시 상태: Commit·Push·PR·Merge 각각 `완료`, `미완료`, `승인 대기` 또는 `적용 없음`
+- 중단·보류 Task의 Task ID, 중단 단계, 사유와 재개 조건
+- 재개 우선순위
+- 모든 활성·중단·보류 작업이 끝난 뒤 Product Roadmap 기준 다음 canonical Task와 `Next Gate`
+
+중단·보류 Task가 없으면 `없음`으로 쓰되 다음 Roadmap Task는 생략하지 않는다. 요약 표 뒤에는 다음 제목과 순서를 고정한다.
 
 1. 수정 요약
 2. 수정한 파일
@@ -149,7 +158,9 @@ Task를 완료·중단하거나 사용자 검수 handoff로 종료할 때 최종
 9. 남은 문제
 10. 게시 가능 여부
 
-모든 항목은 필수다. 적용 대상이 없으면 `N/A`와 구체적인 이유를 쓰고 생략하지 않는다. 미실행 검증은 테스트 성공으로 기록하지 않으며, URL은 실제 확인한 환경만 쓴다. 미커밋 변경사항에는 changed/staged와 commit·push·PR 상태를, 남은 문제에는 Finding·외부 blocker·별도 승인 항목을 포함한다. 게시 가능 여부의 `GO`는 품질 gate 판정일 뿐 Git 게시 승인이 아니다.
+모든 항목은 필수다. 적용 대상이 없으면 `N/A`와 구체적인 이유를 쓰고 생략하지 않는다. 미실행 검증은 테스트 성공으로 기록하지 않으며, URL은 실제 확인한 환경만 쓴다. 미커밋 변경사항에는 changed/staged와 Commit·Push·PR·Merge 각각의 상태, 남은 Git 작업과 필요한 승인을 기록한다. 남은 문제에는 현재 Task의 잔여 단계, 중단·보류 Task·재개 조건, Finding, 외부 blocker, 별도 승인 항목과 Roadmap 다음 Gate를 포함한다. 게시 가능 여부의 `GO`는 품질 gate 판정일 뿐 Git 게시 승인이 아니다.
+
+Finding은 count만으로 축약하지 않는다. 각 Finding의 ID 또는 stable label, severity, 상태(`OPEN`, `RESOLVED`, `RISK_ACCEPTED`, `BACKLOG`), 원인·영향과 해소 또는 후속 위치를 남긴다. 해소된 Finding도 무엇이 발생했는지 추적 가능해야 한다. 현재 Task와 Git 게시가 끝난 경우에도 중단·보류 Task가 없다는 사실과 Product Roadmap 기준 다음 canonical Task·`Next Gate`를 명시한다.
 
 고정 10개 항목은 대화 완료 보고를 일관되게 만드는 형식이며 Implementation report, SOP, User manual, Roadmap update와 user validation checklist를 대체하지 않는다.
 

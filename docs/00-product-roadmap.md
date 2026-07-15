@@ -1166,11 +1166,11 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - Change 010: 기본 흐름을 Fable primary draft 1회·Codex 내용 review 1회로 종료하고 사용자 명시 요청 없는 자동 revise를 차단한다.
 - Change 011: HTTPS 5174 Vite는 대표 clone의 현재 branch를 따르고 clean branch 전환 중 server를 유지한다. Env·dependency·Vite startup 계약 변경이나 자동 갱신 실패 때만 재시작하며, 5174 실행이나 clean·reachable branch의 open PR 자체는 추가 worktree 생성 사유가 아니다. Dirty WIP는 계속 전환을 차단한다.
 - Change 012: 사용자가 기존 검수·게시 선행 순서를 재정렬하고 Fable·USER-FLOW WIP의 local preservation commit, 대표 clone 선별 이식과 일반 worktree 제거를 승인했다. Push·PR·merge·branch 삭제는 제외한다.
-- Change 013: 첫 독립 검증의 P2에 따라 generic `docs/` primary draft를 planning·review 구현 승인과 분리하고 latest change의 사용자 요청·exact target으로 gate한다. USER-FLOW 전용 H1·metadata·review path는 exact historical redraft 조합으로만 유지하고, Reporting Change 001의 최초 Task 완료와 현재 Change 상태를 분리했다. 구현·자동 검증 뒤 독립 재검증을 통과하면 Governance merge를 수행한다.
+- Change 013: 독립 검증의 P2에 따라 generic `docs/` primary draft를 planning·review 구현 승인과 분리하고 latest change의 사용자 요청·exact target으로 gate한다. USER-FLOW 전용 형식은 exact historical redraft 조합으로 한정하고 Reporting·Roadmap 상태 충돌을 해소했다. P2 `3/3` Resolved, 독립 재검증 PASS, merge 승인 상태다.
 
 ### TASK-GOV-REPORTING-001: Task 시작·완료 보고 표준화
 
-- 상태: 최초 Task 구현·검증·PR merge 완료 / Change 001 구현·자동 검증·사용자 검수·상태 충돌 P2 보정 완료 / 독립 재검증 뒤 merge 승인
+- 상태: 최초 Task 구현·검증·PR merge 완료 / Change 001 구현·자동·독립 검증·사용자 검수 완료 / 상태 충돌 P2 Resolved / merge 승인
 - 목적: 모든 새 Task와 분리 Codex session이 변경 전에 실제 Repository instruction chain을 읽고, Task 종료 시 고정 10개 항목으로 완료 보고하도록 표준화한다.
 - 포함 범위: Root `AGENTS.md`, Task 종료 정책, 실행 SOP, 사용자 확인 방법과 Decision Log
 - 완료 보고: 수정 요약, 수정 파일, 실행 테스트, 테스트 결과, Frontend URL, Backend URL, 수동 검수 checklist, 미커밋 변경, 남은 문제, 게시 가능 여부
@@ -1657,7 +1657,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / PR #32 merge 완료 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
-| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | Change 001~006 merge 완료 / Change 007~013 통합·P2 보정·사용자 검수 완료 / 독립 재검증 뒤 merge 승인 | 개발 | TASK-GOV-CODEX-002 | Generic primary draft exact-target gate와 USER-FLOW historical compatibility 분리. 임시 worktree 제거 완료 |
+| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | Change 001~006 merge 완료 / Change 007~013 통합·P2 `3/3` Resolved·자동·독립 검증·사용자 검수 완료 / merge 승인 | 개발 | TASK-GOV-CODEX-002 | Generic primary draft exact-target gate와 USER-FLOW historical compatibility 분리. 임시 worktree 제거 완료 |
 | 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
 | 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
 | 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
@@ -1665,7 +1665,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
 | 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수·PR #50 merge·public 재개 완료 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. Backup 삭제는 별도 결정 |
-| 78 | Task instruction chain·완료 보고 형식 | 최초 Task merge 완료 / Change 001 자동 검증·사용자 검수 완료·상태 충돌 P2 보정 / 독립 재검증 뒤 merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 최초 Task 완료와 현재 Change 상태를 분리하고 작업 현황·Git 게시·중단 Task·Roadmap next·Finding identity를 보존 |
+| 78 | Task instruction chain·완료 보고 형식 | 최초 Task merge 완료 / Change 001 상태 충돌 P2 Resolved·자동·독립 검증·사용자 검수 완료 / merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 최초 Task 완료와 현재 Change 상태를 분리하고 작업 현황·Git 게시·중단 Task·Roadmap next·Finding identity를 보존 |
 | 79 | Full-Stack E2E 구매정보 동적 행 timing | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발/품질 | TASK-E2E-RELIABILITY-001 | 최신 load만 edit state에 반영하고 행 추가 1회·정확한 row/input 준비를 검증. 대상 E2E 20/20, 전체 16/16 통과 |
 | 80 | Backend import-order format debt | 구현·자동·독립 검증·사용자 검수·merge 완료 | 개발/품질 | TASK-BACKEND-FORMAT-001 | 정확한 Backend C# 9개 파일의 `IMPORTS=9`를 diagnostic 0으로 정리. 실행 코드·API·DB·runtime 변경 0 |
 | 82 | Entra 로그인 공통 디자인 shell | 사용자 검수·승격·5174 반영·PR #49 merge 완료 | 사용자/개발/품질 | TASK-DESIGN-LOGIN-001 | 승인된 Figma 기반 auth shell과 Loading·checkbox 반영. Code Connect는 향후 필수 Gate가 아니며 5176 실험 runtime은 보존 |
@@ -1674,7 +1674,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 85 | Public main 서버 측 PR 강제 | Resolved — active required PR 적용·운영 문서 동기화 | 사용자/운영/보안 | TASK-GOV-CODEX-002 Change 005 | Repository `PUBLIC`, default branch `main`, effective `pull_request` rule 1. 승인·required status check·최신화·review 해결은 강제하지 않으며 History SOP·User manual current state도 동기화 |
 | 86 | Local GitHub 폴더 최종 정리 | 최종 삭제·자동·독립 검증·사용자 검수·PR #52 merge 완료 | 사용자/개발 | TASK-GOV-CODEX-002 Change 006 | 최상위 폴더 `6→3→2`. Dirty checkout 6개·local branch 32개 exact audit 뒤 보존 폴더를 영구 삭제. Docker stale handle `4→0`, 동일 PostgreSQL volume·DB aggregate·대표·디자인 runtime 보존 |
 | 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | 기존 Fable 전문·내용 review 완료 / 사용자 방향 확인·redraft·별도 merge 승인 / Governance merge 선행 대기 | 사용자/기획/개발 | TASK-USER-FLOW-001 | 개인 개발 판단 자료. 최신 main에서 Fable redraft·Codex 내용 review·독립 검증 뒤 별도 게시하며 제품 구현·Phase B는 미승인 |
-| 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동 검증·사용자 검수 완료 / 독립 재검증 뒤 Governance merge 승인 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Governance merge 뒤 USER-FLOW를 최신 main에서 별도 처리 |
+| 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / Governance merge 승인 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Governance merge 뒤 USER-FLOW를 최신 main에서 별도 처리 |
 
 ## 25. 결정 이력 (Decision Log)
 

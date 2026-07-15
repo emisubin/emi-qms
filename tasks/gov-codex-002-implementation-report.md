@@ -442,7 +442,8 @@ Reporting 문서는 최초 Task의 과거 완료 증빙과 Change 001의 현재 
 - Runtime URL: Development·Design·Review-safe Frontend와 Development·Review-safe Backend `7/7` HTTP 200
 - Worktree registry: 대표·디자인 `2`
 - PostgreSQL: 첫 독립 검증에서 `running/healthy/restart 0`; 보정은 docs·runner-only이며 DB mutation 0
-- 독립 검증 누적 P2: `3` / 보정 구현 완료 / 독립 재검증 대기
+- 독립 검증 누적 P2: `3` / `3/3 RESOLVED`
+- 최종 독립 재검증: PASS / Open P0/P1/P2/P3 `0/0/0/0` / publication gate `GO`
 - 사용자 검수: 완료
 - Push·PR·merge: 독립 재검증 PASS 뒤 승인
 
@@ -450,8 +451,8 @@ Reporting 문서는 최초 Task의 과거 완료 증빙과 Change 001의 현재 
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | 이 문서 | Change 007~013 통합·P2 보정 완료 / 독립 재검증 대기 |
+| Implementation report | 이 문서 | Change 007~013 통합·P2 보정·자동·독립 검증 완료 / merge 승인 |
 | SOP | `tasks/gov-codex-002.md` 8장 | 작성됨 |
 | User manual | `tasks/gov-codex-002.md` 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 007~013와 대표·디자인 2-worktree 운영 반영 완료 / 독립 재검증 뒤 게시 승인 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~013 사용자 검수·merge 승인 / Change 013 독립 재검증 대기 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 007~013와 대표·디자인 2-worktree 운영 반영·독립 검증 완료 / merge 승인 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~013 자동·독립 검증·사용자 검수·merge 승인 완료 |

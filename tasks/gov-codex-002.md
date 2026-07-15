@@ -18,9 +18,9 @@
 - Change 008: Task-scoped private session·drift guard·질문 최대 5개·exact cleanup 구현 / USER-FLOW Round 3와 planning true-resume 성능 검증·대표 branch 통합·사용자 검수 완료 / session cleanup은 USER-FLOW closure로 이관
 - Change 009: Fable interview 원문·승인된 기획 전문 direct write와 GPT-5.6 SOL 사후 review 계약 / USER-FLOW 전문·review 실제 검증·대표 branch 통합·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
 - Change 010: Fable primary draft 1회·Codex 내용 review 1회·자동 revise 금지 계약 / USER-FLOW 내용 review·자동·독립 검증·대표 branch 통합·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
-- Change 011: 대표 5174 branch-following 운영 보정 / 구현·자동 검증·대표 branch 통합·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
-- Change 012: Fable 정책·USER-FLOW WIP 선별 이식과 대표·디자인 2-worktree 정규화 / 로컬 보존·결과 커밋·일반 worktree 제거·자동 검증·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
-- Change 013: Generic primary draft와 USER-FLOW compatibility redraft 분리·exact target 승인 gate·Reporting 상태 충돌 보정 / 구현·자동 검증·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
+- Change 011: 대표 5174 branch-following 운영 보정 / 구현·자동·독립 검증·대표 branch 통합·사용자 검수 완료 / merge 승인
+- Change 012: Fable 정책·USER-FLOW WIP 선별 이식과 대표·디자인 2-worktree 정규화 / 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / merge 승인
+- Change 013: Generic primary draft와 USER-FLOW compatibility redraft 분리·exact target 승인 gate·상태 충돌 P2 보정 / 구현·자동·독립 검증·사용자 검수 완료 / P2 `3/3` Resolved / merge 승인
 
 ## 2. 목표
 
@@ -146,19 +146,19 @@
 - Change 011 P3 `USER_FLOW_P3_001_IDENTITY_TRACE_GAP`: `RESOLVED`. USER-FLOW Change 003·Implementation report·Roadmap에서 과거 문서 작성 승인과 제품 구현·Fable redraft·게시 미승인을 stable identity로 분리했다.
 - Change 012 Finding `WORKTREE_PROCESS_HANDLE_ACTIVE`: `RESOLVED`. USER-FLOW worktree의 terminal/Fable handle 때문에 첫 제거를 중단했고 사용자 terminal 종료 뒤 handle 0을 재확인한 후 일반 제거했다.
 - Change 012: Governance preservation/result `4058849`/`a6232b2`, USER-FLOW preservation/result `1cc66fe`/`c4b2858`. 최종 worktree는 대표·디자인 `2/2`이며 강제 제거·runtime restart·branch 삭제·push·PR·merge는 실행하지 않았다.
-- Change 013 P2 `FABLE_PRIMARY_DRAFT_MODE_CONTRACT_CONFLICT`: Generic `docs/` primary draft를 planning·review 구현 승인과 분리하고 latest change의 사용자 요청·exact target으로 gate한다. USER-FLOW 전용 H1·metadata·review path는 exact historical redraft 조합으로 한정하고 generic 계약에서 업무별 구조를 제거했다. 독립 재검증 대기다.
-- Change 013 P2 `REPORTING_CHANGE001_COMPLETION_STATE_CONFLICT`: Reporting Implementation report의 최초 Task 완료와 Change 001 현재 상태를 분리하고 사용자 검수·조건부 merge 승인 상태를 Task·Roadmap과 정렬했다. 독립 재검증 대기다.
-- Change 013 P2 `ROADMAP_CURRENT_STATE_CONFLICT`: 실행 큐·Decision Log와 충돌하던 USER-FLOW 상세·추적 87·88의 과거 미승인 current state를 Governance merge 선행·redraft/문서 merge 승인·제품 구현 미승인으로 정렬했다. 독립 재검증 대기다.
+- Change 013 P2 `FABLE_PRIMARY_DRAFT_MODE_CONTRACT_CONFLICT`: `RESOLVED`. Generic `docs/` primary draft를 planning·review 구현 승인과 분리하고 latest change의 사용자 요청·exact target으로 gate했다. USER-FLOW 전용 형식은 exact historical redraft 조합으로 한정했다.
+- Change 013 P2 `REPORTING_CHANGE001_COMPLETION_STATE_CONFLICT`: `RESOLVED`. 최초 Task 완료·Change 작성 당시 snapshot·현재 closure를 분리하고 Task·Roadmap과 정렬했다.
+- Change 013 P2 `ROADMAP_CURRENT_STATE_CONFLICT`: `RESOLVED`. 실행 큐·USER-FLOW 상세·추적 87·88·Decision Log를 Governance merge 선행·redraft/문서 merge 승인·제품 구현 미승인으로 정렬했다.
 
 ## 12. 5종 산출물 상태
 
 | 산출물 | Canonical 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/gov-codex-002-implementation-report.md` | Change 007~013 통합·P2 보정·자동 검증 완료 / 독립 재검증 대기 |
+| Implementation report | `tasks/gov-codex-002-implementation-report.md` | Change 007~013 통합·P2 보정·자동·독립 검증 완료 / merge 승인 |
 | SOP | 이 문서 8장 | 작성됨 |
 | User manual | 이 문서 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 007~013와 대표·디자인 2-worktree 운영 반영 완료 / 독립 재검증 뒤 게시 승인 |
-| User validation checklist | 이 문서 13장 | Change 001~013 사용자 검수·merge 승인 / Change 013 독립 재검증 대기 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 007~013와 대표·디자인 2-worktree 운영 반영·독립 검증 완료 / merge 승인 |
+| User validation checklist | 이 문서 13장 | Change 001~013 자동·독립 검증·사용자 검수·merge 승인 완료 |
 
 ## 13. 사용자 검수 체크리스트
 
@@ -204,7 +204,7 @@
 - [x] Branch 전환마다 5174를 중단하지 않고 조건부 재시작만 허용하는 정책 승인
 - [x] Change 011 branch 전환 중 5174 유지와 root·Teams Activity·live·ready route 확인
 - [x] Change 011 대표 branch 전환 뒤 5174 현재 branch 반영과 필수 route 확인
-- [ ] Change 011 분리된 Codex 독립 검증
+- [x] Change 011 분리된 Codex 독립 검증
 - [x] Change 011 작업 현황·Finding·게시 경계 사용자 검수
 - [x] Change 011 독립 재검증 PASS 뒤 commit·push·PR·merge 승인
 - [x] Change 012 Roadmap 순서 변경과 기존 canonical Task 재사용 승인
@@ -212,8 +212,8 @@
 - [x] Change 012 5174·5176·Backend·DB 보존과 push·PR·merge·branch 삭제 제외 승인
 - [x] Change 012 대표·디자인 2-worktree exact projection 확인
 - [x] Change 012 자동 검증
-- [ ] Change 012 분리된 Codex 독립 검증
+- [x] Change 012 분리된 Codex 독립 검증
 - [x] Change 012 사용자 검수와 별도 Git 게시 승인
 - [x] Change 013 generic primary draft·USER-FLOW compatibility 분리와 exact target gate 확인
 - [x] Change 013 Governance 독립 재검증 뒤 merge 승인
-- [ ] Change 013 분리된 Codex 독립 재검증
+- [x] Change 013 분리된 Codex 독립 재검증

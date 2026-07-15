@@ -6,10 +6,10 @@
 - Fable 5: 미사용
 - instructionChainRead: true
 - 자동 검증: 완료
-- 독립 Codex 검증: 최초 Task PASS / Change 001 보정본 재검증 대기
+- 독립 Codex 검증: 최초 Task·Change 001 PASS
 - 사용자 검수: 최초 Task·Change 001 완료
-- Commit·Push·PR·Merge: 최초 Task 완료 / Change 001 독립 재검증 PASS 뒤 승인
-- Change 001: 작업 현황 요약·남은 Git 게시·중단 Task·Roadmap next 보강 / 구현·자동 검증·사용자 검수 완료 / 상태 충돌 P2 보정·독립 재검증 뒤 merge 승인
+- Commit·Push·PR·Merge: 최초 Task 완료 / Change 001 merge 승인
+- Change 001: 작업 현황 요약·남은 Git 게시·중단 Task·Roadmap next 보강 / 구현·자동·독립 검증·사용자 검수 완료 / 상태 충돌 P2 Resolved / merge 승인
 
 ## 2. 목적
 
@@ -67,6 +67,6 @@
 - [x] 고정 10개 항목이 Implementation report와 5종 산출물을 대체하지 않는지 확인
 - [x] Change 001의 작업 현황 요약과 남은 작업 보고 정책 승인
 - [x] Git 게시 네 단계·중단 Task·재개 조건·Roadmap next dry run 확인
-- [ ] Change 001 분리된 Codex 독립 검증
+- [x] Change 001 분리된 Codex 독립 검증
 - [x] Change 001 사용자 검수
 - [x] Change 001 독립 검증 PASS 뒤 Commit·Push·PR·Merge 승인

@@ -103,7 +103,7 @@
 - userValidationComplete: `true`
 - publishingApproved: `true`
 - mergeApprovedAfterIndependentPass: `true`
-- independentVerificationComplete: `false`
-- publishGate: `NO_GO_INDEPENDENT_REVERIFICATION_PENDING`
+- independentVerificationComplete: `true`
+- publishGate: `GO`
 
 사용자는 Governance 정책 전체를 독립 재검증 뒤 merge하도록 승인했다. 최초 Change snapshot의 `false` 값은 당시 승인 이력을 보존하며, 현재 상태를 덮어쓰거나 현재 merge gate로 해석하지 않는다.

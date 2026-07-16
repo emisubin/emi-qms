@@ -28,4 +28,6 @@ public static class QmsPermissions
     public const string LogisticsShip = "logistics.ship";
     public const string UsersManage = "users.manage";
     public const string AdminHistoryRead = "admin-history.read";
+    public const string PendingRead = "Pending.Read";
+    public const string PendingManage = "Pending.Manage";
 }

@@ -127,6 +127,7 @@ import authEllipse67 from './assets/auth-ellipse-67.svg';
 import emiLogo from './assets/emi-logo.png';
 import microsoftLogo from './assets/microsoft-logo.png';
 import type { ReadyHealth } from './health';
+import { PendingPage } from './PendingPage';
 import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
 import type {
@@ -219,6 +220,8 @@ type View =
   | { kind: 'procurement-settings' }
   | { kind: 'materials-receipts' }
   | { kind: 'notifications' }
+  | { kind: 'pending' }
+  | { kind: 'pending-detail'; pendingId: string }
   | { kind: 'admin-dashboard' }
   | { kind: 'admin-users' }
   | { kind: 'admin-departments' }
@@ -346,6 +349,15 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/notifications') {
     return { kind: 'notifications' };
+  }
+
+  if (window.location.pathname === '/pending') {
+    return { kind: 'pending' };
+  }
+
+  const pendingMatch = window.location.pathname.match(/^\/pending\/([^/]+)$/);
+  if (pendingMatch?.[1]) {
+    return { kind: 'pending-detail', pendingId: pendingMatch[1] };
   }
 
   if (window.location.pathname === '/admin') {
@@ -580,6 +592,11 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
       return { kind: 'detail', projectId, section: 'workflow' };
     }
 
+    const pendingMatch = url.pathname.match(/^\/pending\/([^/]+)$/);
+    if (pendingMatch?.[1]) {
+      return { kind: 'pending-detail', pendingId: pendingMatch[1] };
+    }
+
     const productionPlanningEditMatch = url.pathname.match(/^\/projects\/([^/]+)\/production-planning\/edit$/);
     if (productionPlanningEditMatch?.[1]) {
       return { kind: 'production-planning-edit', projectId: productionPlanningEditMatch[1] };
@@ -640,6 +657,10 @@ function pathForView(view: View) {
       return '/procurement/settings';
     case 'notifications':
       return '/notifications';
+    case 'pending':
+      return '/pending';
+    case 'pending-detail':
+      return `/pending/${view.pendingId}`;
     case 'admin-dashboard':
       return '/admin';
     case 'admin-users':
@@ -1178,12 +1199,15 @@ function QmsAppShell({
   const canUpdateProductionPlanning = permissions.includes('ProductionPlan.Update');
   const canManageUsers = permissions.includes('users.manage');
   const canReadAdminHistory = permissions.includes('admin-history.read');
+  const canReadPending = permissions.includes('Pending.Read');
+  const canManagePending = permissions.includes('Pending.Manage');
   const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
   const canAccessMaterialReceipts = canUpdateMaterialReceipt || isSystemAdministrator;
   const navigationItems: NavigationItem[] = [
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount },
     { label: '프로젝트', view: { kind: 'list' }, active: isProjectWorkspace(view) },
+    ...(canReadPending ? [{ label: 'Pending', view: { kind: 'pending' } as View, active: view.kind === 'pending' || view.kind === 'pending-detail' }] : []),
     { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     ...(canAccessMaterialReceipts ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : []),
@@ -1201,8 +1225,8 @@ function QmsAppShell({
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
         <header className="topbar">
           <div>
-            <p className="eyebrow">EMI</p>
-            <h1>프로젝트·패널 관리</h1>
+            <p className="eyebrow">PROJECT OPERATIONS</p>
+            <h1>EMI 프로젝트 통합관리시스템</h1>
           </div>
           <div className="topbar-actions">
             {canAccessMaterialReceipts ? <button type="button" onClick={() => setView({ kind: 'materials-receipts' })}>자재</button> : null}
@@ -1337,6 +1361,18 @@ function QmsAppShell({
             onCreate={() => setView({ kind: 'create' })}
           onOpen={(projectId) => setView({ kind: 'detail', projectId })}
           onOpenDeleted={(projectId) => setView({ kind: 'deleted-detail', projectId })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && (view.kind === 'pending' || view.kind === 'pending-detail') ? (
+        <PendingPage
+          developmentUserKey={developmentUserKey}
+          pendingId={view.kind === 'pending-detail' ? view.pendingId : undefined}
+          canManage={canManagePending}
+          onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
+          onBackToList={() => setView({ kind: 'pending' })}
+          onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
+          onBadgeRefresh={refreshShellBadges}
         />
       ) : null}
 
@@ -1597,8 +1633,12 @@ type NavigationItem = {
 function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavigate: (view: View) => void }) {
   return (
     <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">
-      <div>
-        <p className="eyebrow">업무 메뉴</p>
+      <div className="app-brand-lockup">
+        <img src={emiLogo} alt="EMI Electric Modular Innovation" />
+        <span>PROJECT OPERATIONS</span>
+      </div>
+      <div className="app-sidebar-heading">
+        <p className="eyebrow">WORKSPACE</p>
         <strong>업무 메뉴</strong>
       </div>
       <div className="app-nav">
@@ -4846,6 +4886,11 @@ function MyWorkPage({
 
   async function openWorkItem(item: MyWorkItem) {
     setMessage('');
+    if (isPendingLinkedWorkItem(item)) {
+      onOpenProject(item.projectId, item.linkUrl);
+      return;
+    }
+
     if (item.status === 'Requested') {
       setMovingWorkItemId(item.workItemId);
       try {
@@ -4956,9 +5001,9 @@ function MyWorkPage({
                           <p>{item.description ?? '처리할 업무가 있습니다.'}</p>
                           <div className="button-row">
                             <button type="button" disabled={movingWorkItemId === item.workItemId} onClick={() => void openWorkItem(item)}>
-                              {movingWorkItemId === item.workItemId ? '이동 중' : '이동'}
+                              {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : '이동'}
                             </button>
-                            {item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
+                            {!isPendingLinkedWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
                           </div>
                         </article>
                       ))}
@@ -4985,9 +5030,9 @@ function MyWorkPage({
                               <td>
                                 <div className="button-row">
                                   <button type="button" disabled={movingWorkItemId === item.workItemId} onClick={() => void openWorkItem(item)}>
-                                    {movingWorkItemId === item.workItemId ? '이동 중' : '이동'}
+                                    {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : '이동'}
                                   </button>
-                                  {item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
+                                  {!isPendingLinkedWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
                                 </div>
                               </td>
                             </tr>
@@ -5004,6 +5049,10 @@ function MyWorkPage({
       )}
     </section>
   );
+}
+
+function isPendingLinkedWorkItem(item: Pick<MyWorkItem, 'linkUrl'>) {
+  return /^\/pending\/[^/?#]+(?:[?#].*)?$/u.test(item.linkUrl);
 }
 
 type TeamsActivitySummary = {

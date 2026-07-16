@@ -1,5 +1,14 @@
 import type { ReadyHealth } from './health';
 import type { AdminUsersResponse, CurrentUser, UpdateAdminUserRequest } from './identity';
+import type {
+  CreatePendingRequest,
+  PendingAssignee,
+  PendingDetail,
+  PendingIssueType,
+  PendingListResponse,
+  PendingPriority,
+  PendingStatus
+} from './pending';
 import { isInteractionRequiredAuthError } from './auth';
 import type {
   AuditHistoryResponse,
@@ -478,6 +487,84 @@ export async function getProjectWorkflow(
   projectId: string
 ): Promise<ProjectWorkflowResponse> {
   return fetchJson<ProjectWorkflowResponse>(`/api/projects/${projectId}/workflow`, developmentUserKey);
+}
+
+export async function listPendingIssues(
+  developmentUserKey: string | undefined,
+  filters: {
+    status?: PendingStatus;
+    issueType?: PendingIssueType;
+    priority?: PendingPriority;
+    assigneeUserId?: string;
+  } = {}
+): Promise<PendingListResponse> {
+  const params = new URLSearchParams();
+  if (filters.status) params.set('status', filters.status);
+  if (filters.issueType) params.set('issueType', filters.issueType);
+  if (filters.priority) params.set('priority', filters.priority);
+  if (filters.assigneeUserId) params.set('assigneeUserId', filters.assigneeUserId);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<PendingListResponse>(`/api/pending${query}`, developmentUserKey);
+}
+
+export async function getPendingIssue(
+  developmentUserKey: string | undefined,
+  pendingId: string
+): Promise<PendingDetail> {
+  return fetchJson<PendingDetail>(`/api/pending/${pendingId}`, developmentUserKey);
+}
+
+export async function listPendingAssignees(
+  developmentUserKey: string | undefined
+): Promise<PendingAssignee[]> {
+  return fetchJson<PendingAssignee[]>('/api/pending/assignees', developmentUserKey);
+}
+
+export async function createPendingIssue(
+  developmentUserKey: string | undefined,
+  request: CreatePendingRequest
+): Promise<PendingDetail> {
+  return fetchJson<PendingDetail>('/api/pending', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function transitionPendingIssue(
+  developmentUserKey: string | undefined,
+  pendingId: string,
+  toStatus: PendingStatus,
+  expectedVersion: number,
+  reason: string
+): Promise<PendingDetail> {
+  return fetchJson<PendingDetail>(`/api/pending/${pendingId}/transition`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ toStatus, expectedVersion, reason })
+  });
+}
+
+export async function assignPendingIssue(
+  developmentUserKey: string | undefined,
+  pendingId: string,
+  assigneeUserId: string,
+  expectedVersion: number,
+  reason: string
+): Promise<PendingDetail> {
+  return fetchJson<PendingDetail>(`/api/pending/${pendingId}/assign`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ assigneeUserId, expectedVersion, reason })
+  });
+}
+
+export async function addPendingComment(
+  developmentUserKey: string | undefined,
+  pendingId: string,
+  body: string
+): Promise<PendingDetail> {
+  return fetchJson<PendingDetail>(`/api/pending/${pendingId}/comments`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ body })
+  });
 }
 
 export async function getMyWorkSummary(

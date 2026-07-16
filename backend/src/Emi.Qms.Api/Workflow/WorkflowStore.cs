@@ -441,7 +441,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 wi.due_date,
                 wi.created_at_utc,
                 wi.started_at_utc,
-                wi.completed_at_utc
+                wi.completed_at_utc,
+                wi.target_type,
+                wi.target_id
             from work_items wi
             join projects p on p.id = wi.project_id
             join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
@@ -947,6 +949,32 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
 
+        await using (var guard = connection.CreateCommand())
+        {
+            guard.CommandText = """
+                select assigned_user_id, target_type
+                from work_items
+                where id = @id;
+                """;
+            guard.Parameters.AddWithValue("id", workItemId);
+
+            await using var reader = await guard.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return WorkflowMutationResult<MyWorkItemResponse>.NotFound();
+            }
+
+            if (reader.IsDBNull(0) || reader.GetGuid(0) != userId)
+            {
+                return WorkflowMutationResult<MyWorkItemResponse>.Forbidden();
+            }
+
+            if (string.Equals(reader.GetString(1), "Pending", StringComparison.Ordinal))
+            {
+                return WorkflowMutationResult<MyWorkItemResponse>.Conflict("Pending 상세에서 상태를 변경해 주세요.");
+            }
+        }
+
         await using (var command = connection.CreateCommand())
         {
             command.CommandText = action switch
@@ -1028,7 +1056,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 wi.due_date,
                 wi.created_at_utc,
                 wi.started_at_utc,
-                wi.completed_at_utc
+                wi.completed_at_utc,
+                wi.target_type,
+                wi.target_id
             from work_items wi
             join projects p on p.id = wi.project_id
             join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
@@ -1709,7 +1739,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetFieldValue<DateTimeOffset>(14),
             reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
             reader.IsDBNull(16) ? null : reader.GetFieldValue<DateTimeOffset>(16),
-            LinkUrlForStage(projectId, reader.GetString(6)));
+            reader.GetString(17) == "Pending" && !reader.IsDBNull(18)
+                ? $"/pending/{reader.GetGuid(18)}"
+                : LinkUrlForStage(projectId, reader.GetString(6)));
     }
 
     private static NotificationResponse ReadNotification(NpgsqlDataReader reader)
@@ -2053,6 +2085,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             "QualityOQCSecondary" => "OQC 부",
             "QualityCustomerInspection" => "전진검수/FAT 정",
             "QualityCustomerInspectionSecondary" => "전진검수/FAT 부",
+            "PendingAction" => "Pending 조치",
             _ => responsibilityType
         };
     }

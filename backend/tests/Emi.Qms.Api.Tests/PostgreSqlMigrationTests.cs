@@ -234,7 +234,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(10, counts.Roles);
-        Assert.Equal(24, counts.Permissions);
+        Assert.Equal(26, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
@@ -260,11 +260,11 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(28L, await ReadScalarAsync<long>(
+        Assert.Equal(29L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0028_notification_delivery_claim_lease", await ReadScalarAsync<string>(
+        Assert.Equal("0029_pending_list_foundation", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -348,6 +348,67 @@ public sealed class PostgreSqlMigrationTests
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
         await AssertPermissionScopeAlignmentAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task PendingListFoundationMigration_AddsSchemaAndLeastPrivilegePermissions()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+
+        await CreateMigrationRunner(database.RepositoryRoot, connectionStringProvider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in ('pending_issues', 'pending_comments', 'pending_history');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(10L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'Pending.Read';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(8L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'Pending.Manage';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'Pending.Manage'
+              and roles.code in ('system-administrator', 'read-only');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_indexes
+            where schemaname = 'public'
+              and indexname in ('ix_pending_issues_open_priority', 'ix_pending_issues_project', 'ix_pending_issues_assignee');
+            """,
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]

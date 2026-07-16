@@ -193,6 +193,59 @@ describe('App', () => {
     expect(screen.getAllByText('읽지 않음').length).toBeGreaterThan(0);
   });
 
+  it('uses a mobile bottom tab bar with an accessible permission-derived more sheet', async () => {
+    mockMobileViewport(true);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/me') {
+        const user = currentUser(readDevUser(init));
+        return json({ ...user, permissions: [...user.permissions, 'Pending.Read'] });
+      }
+      return mockFetch(input, init);
+    }));
+    render(<App />);
+
+    const mobileNavigation = await screen.findByRole('navigation', { name: '모바일 공통 메뉴' });
+    expect(within(mobileNavigation).getByRole('button', { name: /^내 업무/ })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '프로젝트' })).toHaveAttribute('aria-current', 'page');
+    expect(within(mobileNavigation).getByRole('button', { name: 'Pending' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: /^알림/ })).toBeInTheDocument();
+    expect(within(mobileNavigation).queryByRole('button', { name: '생산관리' })).not.toBeInTheDocument();
+
+    await waitFor(() => expect(within(mobileNavigation).getAllByText('1건').every((badge) => badge.classList.contains('sr-only'))).toBe(true));
+
+    const moreButton = within(mobileNavigation).getByRole('button', { name: '더보기' });
+    fireEvent.click(moreButton);
+
+    const moreSheet = await screen.findByRole('dialog', { name: '더 많은 업무 메뉴' });
+    expect(moreButton).toHaveAttribute('aria-expanded', 'true');
+    expect(within(moreSheet).getByRole('button', { name: '생산관리' })).toBeInTheDocument();
+    expect(within(moreSheet).getByRole('button', { name: '구매' })).toBeInTheDocument();
+    expect(within(moreSheet).queryByRole('button', { name: '프로젝트' })).not.toBeInTheDocument();
+    await waitFor(() => expect(within(moreSheet).getByRole('button', { name: '생산관리' })).toHaveFocus());
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '더 많은 업무 메뉴' })).not.toBeInTheDocument());
+    await waitFor(() => expect(moreButton).toHaveFocus());
+    expect(moreButton).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(moreButton);
+    const reopenedSheet = await screen.findByRole('dialog', { name: '더 많은 업무 메뉴' });
+    fireEvent.click(within(reopenedSheet).getByRole('button', { name: '생산관리' }));
+    expect(await screen.findByRole('heading', { name: '생산계획' })).toBeInTheDocument();
+    expect(moreButton).toHaveAttribute('aria-current', 'page');
+    expect(window.location.pathname).toBe('/production-planning');
+  });
+
+  it('omits the Pending mobile tab when the current permission-filtered navigation omits it', async () => {
+    mockMobileViewport(true);
+    render(<App />);
+
+    const mobileNavigation = await screen.findByRole('navigation', { name: '모바일 공통 메뉴' });
+    expect(within(mobileNavigation).queryByRole('button', { name: 'Pending' })).not.toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '더보기' })).toBeInTheDocument();
+  });
+
   it('renders the Teams Activity tab route with recent notifications and work summary', async () => {
     window.history.pushState(null, '', '/teams/activity');
     render(<App />);

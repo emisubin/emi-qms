@@ -5086,3 +5086,268 @@ body {
     transition: none;
   }
 }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.app-mobile-more-backdrop {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  }
+
+  .app-shell button,
+  .app-shell input:not([type='checkbox']):not([type='radio']),
+  .app-shell select {
+    min-height: 44px;
+  }
+
+  .app-shell button {
+    min-width: 44px;
+  }
+
+  .app-shell .pending-detail-header .link-button {
+    display: inline-flex;
+    width: fit-content;
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .app-mobile-nav {
+    position: fixed;
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: max(10px, env(safe-area-inset-left));
+    z-index: calc(var(--z-modal-overlay) - 20);
+    display: grid;
+    width: auto;
+    max-width: 560px;
+    margin: 0 auto;
+    gap: 5px;
+    overflow: visible;
+    border: 1px solid rgb(218 33 39 / 16%);
+    border-radius: 22px;
+    background: rgb(255 255 255 / 96%);
+    padding: 7px;
+    box-shadow: 0 18px 48px rgb(66 17 20 / 21%);
+    backdrop-filter: blur(18px);
+  }
+
+  .app-mobile-nav .app-mobile-tab {
+    display: grid;
+    min-width: 0;
+    min-height: 56px;
+    place-items: center;
+    align-content: center;
+    gap: 3px;
+    overflow: hidden;
+    border: 1px solid transparent;
+    border-radius: 16px;
+    background: transparent;
+    color: #685a5d;
+    padding: 6px 4px;
+    box-shadow: none;
+    text-align: center;
+  }
+
+  .app-mobile-nav .app-mobile-tab:hover:not(:disabled) {
+    border-color: rgb(218 33 39 / 16%);
+    background: var(--brand-red-wash);
+    color: var(--brand-red-strong);
+    box-shadow: none;
+    transform: none;
+  }
+
+  .app-mobile-nav .app-mobile-tab.active,
+  .app-mobile-nav .app-mobile-tab[aria-current='page'] {
+    border-color: var(--brand-red);
+    background: linear-gradient(150deg, #eb3b41, var(--brand-red-strong));
+    color: #ffffff;
+    box-shadow: 0 8px 18px rgb(142 15 20 / 22%);
+  }
+
+  .app-mobile-nav .app-mobile-tab.active::before,
+  .app-mobile-nav .app-mobile-tab[aria-current='page']::before {
+    top: auto;
+    bottom: 4px;
+    left: 50%;
+    width: 18px;
+    height: 3px;
+    background: #ffffff;
+    transform: translateX(-50%);
+  }
+
+  .app-mobile-tab-label {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-mobile-nav .nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 5px;
+    min-width: 18px;
+    height: 18px;
+    background: var(--brand-red);
+    color: #ffffff;
+    font-size: 0.64rem;
+    padding: 0 5px;
+    box-shadow: 0 3px 8px rgb(142 15 20 / 20%);
+  }
+
+  .app-mobile-nav .app-mobile-tab.active .nav-badge,
+  .app-mobile-nav .app-mobile-tab[aria-current='page'] .nav-badge {
+    background: #ffffff;
+    color: var(--brand-red-strong);
+  }
+
+  .app-mobile-more-dots {
+    color: currentcolor;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    line-height: 0.8;
+  }
+
+  .app-mobile-more-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal-overlay);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    background: rgb(30 18 20 / 44%);
+    padding: 14px 14px calc(86px + env(safe-area-inset-bottom));
+    backdrop-filter: blur(4px);
+  }
+
+  .app-mobile-more-sheet {
+    display: grid;
+    width: min(520px, 100%);
+    max-height: min(66vh, 560px);
+    gap: 16px;
+    overflow: auto;
+    border: 1px solid rgb(255 255 255 / 80%);
+    border-radius: 26px;
+    background:
+      radial-gradient(circle at 100% 0%, rgb(218 33 39 / 10%), transparent 15rem),
+      #ffffff;
+    padding: 20px;
+    box-shadow: 0 26px 70px rgb(62 11 14 / 28%);
+  }
+
+  .app-mobile-more-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .app-mobile-more-header p,
+  .app-mobile-more-header h2 {
+    margin: 0;
+  }
+
+  .app-mobile-more-header h2 {
+    margin-top: 3px;
+    color: var(--ink);
+    font-size: 1.25rem;
+    letter-spacing: -0.035em;
+  }
+
+  .app-shell .app-mobile-more-close {
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    border-color: rgb(218 33 39 / 14%);
+    border-radius: 50%;
+    background: var(--brand-red-soft);
+    color: var(--brand-red-strong);
+    font-size: 1.45rem;
+    line-height: 1;
+    padding: 0;
+  }
+
+  .app-mobile-more-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .app-shell .app-mobile-more-item {
+    display: flex;
+    min-height: 52px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border-color: var(--line);
+    border-radius: 15px;
+    background: var(--surface-subtle);
+    color: var(--ink);
+    padding: 10px 14px;
+    text-align: left;
+    box-shadow: none;
+  }
+
+  .app-shell .app-mobile-more-item:hover:not(:disabled) {
+    border-color: rgb(218 33 39 / 28%);
+    background: var(--brand-red-wash);
+    color: var(--brand-red-strong);
+    box-shadow: none;
+    transform: none;
+  }
+
+  .app-shell .app-mobile-more-item.active,
+  .app-shell .app-mobile-more-item[aria-current='page'] {
+    border-color: rgb(218 33 39 / 35%);
+    background: var(--brand-red-soft);
+    color: var(--brand-red-strong);
+    box-shadow: inset 4px 0 0 var(--brand-red);
+  }
+}
+
+@media (max-width: 430px) {
+  .app-shell {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
+  }
+
+  .app-mobile-nav {
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(6px, env(safe-area-inset-bottom));
+    left: max(8px, env(safe-area-inset-left));
+    border-radius: 20px;
+    padding: 6px;
+  }
+
+  .app-mobile-nav .app-mobile-tab {
+    min-height: 56px;
+    padding-inline: 3px;
+  }
+
+  .app-mobile-tab-label {
+    font-size: 0.68rem;
+  }
+
+  .app-mobile-more-backdrop {
+    padding: 10px 10px calc(82px + env(safe-area-inset-bottom));
+  }
+
+  .app-mobile-more-sheet {
+    gap: 14px;
+    border-radius: 22px;
+    padding: 17px;
+  }
+}

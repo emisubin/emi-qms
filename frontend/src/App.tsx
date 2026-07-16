@@ -1633,6 +1633,8 @@ type NavigationItem = {
   badge?: number;
 };
 
+const mobilePrimaryNavigationLabels = new Set(['내 업무', '프로젝트', 'Pending', '알림']);
+
 function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavigate: (view: View) => void }) {
   return (
     <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">
@@ -1663,21 +1665,175 @@ function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavig
 }
 
 function AppMobileNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavigate: (view: View) => void }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLElement>(null);
+  const firstMoreItemRef = useRef<HTMLButtonElement>(null);
+  const primaryItems = items.filter((item) => mobilePrimaryNavigationLabels.has(item.label));
+  const moreItems = items.filter((item) => !mobilePrimaryNavigationLabels.has(item.label));
+  const moreIsActive = moreItems.some((item) => item.active);
+
+  const closeMore = useCallback((restoreFocus = true) => {
+    setMoreOpen(false);
+    if (restoreFocus) {
+      window.setTimeout(() => moreTriggerRef.current?.focus(), 0);
+    }
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.('(max-width: 860px)');
+    if (!mediaQuery) {
+      return;
+    }
+
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (!event.matches) {
+        setMoreOpen(false);
+      }
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (!moreOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusTimer = window.setTimeout(() => firstMoreItemRef.current?.focus(), 0);
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMore();
+        return;
+      }
+
+      if (event.key !== 'Tab' || !sheetRef.current) {
+        return;
+      }
+
+      const focusable = Array.from(sheetRef.current.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+      ));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [closeMore, moreOpen]);
+
+  function navigate(item: NavigationItem) {
+    onNavigate(item.view);
+    if (moreOpen) {
+      closeMore();
+    }
+  }
+
   return (
-    <nav className="app-mobile-nav" aria-label="공통 메뉴">
-      {items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          className={item.active ? 'app-nav-button active' : 'app-nav-button'}
-          aria-current={item.active ? 'page' : undefined}
-          onClick={() => onNavigate(item.view)}
+    <>
+      <nav
+        className="app-mobile-nav"
+        aria-label="모바일 공통 메뉴"
+        style={{ gridTemplateColumns: `repeat(${primaryItems.length + (moreItems.length > 0 ? 1 : 0)}, minmax(0, 1fr))` }}
+      >
+        {primaryItems.map((item) => (
+          <button
+            key={item.label}
+            type="button"
+            className={item.active ? 'app-nav-button app-mobile-tab active' : 'app-nav-button app-mobile-tab'}
+            aria-current={item.active ? 'page' : undefined}
+            onClick={() => navigate(item)}
+          >
+            <span className="app-mobile-tab-label">{item.label}</span>
+            {item.badge && item.badge > 0 ? (
+              <>
+                <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span>
+                <span className="sr-only">{item.badge}건</span>
+              </>
+            ) : null}
+          </button>
+        ))}
+        {moreItems.length > 0 ? (
+          <button
+            ref={moreTriggerRef}
+            type="button"
+            className={moreIsActive ? 'app-nav-button app-mobile-tab app-mobile-more-trigger active' : 'app-nav-button app-mobile-tab app-mobile-more-trigger'}
+            aria-current={moreIsActive ? 'page' : undefined}
+            aria-expanded={moreOpen}
+            aria-controls="app-mobile-more-sheet"
+            onClick={() => setMoreOpen(true)}
+          >
+            <span className="app-mobile-tab-label">더보기</span>
+            <span className="app-mobile-more-dots" aria-hidden="true">•••</span>
+          </button>
+        ) : null}
+      </nav>
+
+      {moreOpen ? (
+        <div
+          className="app-mobile-more-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeMore();
+            }
+          }}
         >
-          <span>{item.label}</span>
-          {item.badge && item.badge > 0 ? <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span> : null}
-        </button>
-      ))}
-    </nav>
+          <section
+            ref={sheetRef}
+            id="app-mobile-more-sheet"
+            className="app-mobile-more-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="app-mobile-more-title"
+          >
+            <header className="app-mobile-more-header">
+              <div>
+                <p className="eyebrow">WORKSPACE</p>
+                <h2 id="app-mobile-more-title">더 많은 업무 메뉴</h2>
+              </div>
+              <button type="button" className="app-mobile-more-close" aria-label="더보기 닫기" onClick={() => closeMore()}>
+                ×
+              </button>
+            </header>
+            <div className="app-mobile-more-list">
+              {moreItems.map((item, index) => (
+                <button
+                  key={item.label}
+                  ref={index === 0 ? firstMoreItemRef : undefined}
+                  type="button"
+                  className={item.active ? 'app-mobile-more-item active' : 'app-mobile-more-item'}
+                  aria-current={item.active ? 'page' : undefined}
+                  onClick={() => navigate(item)}
+                >
+                  <span>{item.label}</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }
 

@@ -15,12 +15,13 @@ public static class PendingEndpointExtensions
             string? issueType,
             string? priority,
             Guid? assigneeUserId,
+            Guid? projectId,
             PendingStore store,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             return HasPermission(user, QmsPermissions.PendingRead)
-                ? Results.Ok(await store.ListAsync(status, issueType, priority, assigneeUserId, cancellationToken))
+                ? Results.Ok(await store.ListAsync(status, issueType, priority, assigneeUserId, projectId, cancellationToken))
                 : Results.Forbid();
         })
         .WithName("ListPendingIssues");

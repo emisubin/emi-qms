@@ -25,6 +25,7 @@ import type {
 type PendingPageProps = {
   developmentUserKey: string | undefined;
   pendingId?: string;
+  initialProjectId?: string;
   canManage: boolean;
   onOpenPending: (pendingId: string) => void;
   onBackToList: () => void;
@@ -80,6 +81,7 @@ export function PendingPage(props: PendingPageProps) {
 
 function PendingListView({
   developmentUserKey,
+  initialProjectId,
   canManage,
   onOpenPending,
   onOpenProject,
@@ -89,6 +91,8 @@ function PendingListView({
   const [status, setStatus] = useState<PendingStatus | ''>('');
   const [issueType, setIssueType] = useState<PendingIssueType | ''>('');
   const [priority, setPriority] = useState<PendingPriority | ''>('');
+  const [projectId, setProjectId] = useState(initialProjectId ?? '');
+  const [projectOptions, setProjectOptions] = useState<ProjectListItem[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -98,27 +102,41 @@ function PendingListView({
       const data = await listPendingIssues(developmentUserKey, {
         status: status || undefined,
         issueType: issueType || undefined,
-        priority: priority || undefined
+        priority: priority || undefined,
+        projectId: projectId || undefined
       });
       setState({ kind: 'ready', data });
     } catch (error) {
       setState({ kind: 'error', message: messageForError(error) });
     }
-  }, [developmentUserKey, issueType, priority, status]);
+  }, [developmentUserKey, issueType, priority, projectId, status]);
+
+  useEffect(() => {
+    let active = true;
+    void listProjects(developmentUserKey, '', 'All', { pageSize: 100 })
+      .then((response) => {
+        if (active) setProjectOptions(response.items);
+      })
+      .catch(() => {
+        if (active) setProjectOptions([]);
+      });
+    return () => { active = false; };
+  }, [developmentUserKey]);
 
   useEffect(() => {
     let active = true;
     void listPendingIssues(developmentUserKey, {
       status: status || undefined,
       issueType: issueType || undefined,
-      priority: priority || undefined
+      priority: priority || undefined,
+      projectId: projectId || undefined
     }).then((data) => {
       if (active) setState({ kind: 'ready', data });
     }).catch((error) => {
       if (active) setState({ kind: 'error', message: messageForError(error) });
     });
     return () => { active = false; };
-  }, [developmentUserKey, issueType, priority, status]);
+  }, [developmentUserKey, issueType, priority, projectId, status]);
 
   const items = state.kind === 'ready' ? state.data.items : [];
   return (
@@ -135,10 +153,11 @@ function PendingListView({
       {state.kind === 'ready' ? <PendingSummaryCards data={state.data} /> : null}
 
       <div className="pending-filter-bar" aria-label="Pending 필터">
+        <label><span>프로젝트</span><select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">전체 프로젝트</option>{projectOptions.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
         <label><span>상태</span><select value={status} onChange={(event) => setStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label><span>유형</span><select value={issueType} onChange={(event) => setIssueType(event.target.value as PendingIssueType | '')}>{typeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label><span>긴급도</span><select value={priority} onChange={(event) => setPriority(event.target.value as PendingPriority | '')}><option value="">전체 긴급도</option><option value="Urgent">긴급</option><option value="Normal">일반</option></select></label>
-        <button type="button" onClick={() => { setStatus(''); setIssueType(''); setPriority(''); }}>필터 초기화</button>
+        <button type="button" onClick={() => { setProjectId(''); setStatus(''); setIssueType(''); setPriority(''); }}>필터 초기화</button>
       </div>
 
       {feedback ? <p className="action-feedback" data-tone="success" role="status">{feedback}</p> : null}

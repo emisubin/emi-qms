@@ -220,7 +220,7 @@ type View =
   | { kind: 'procurement-settings' }
   | { kind: 'materials-receipts' }
   | { kind: 'notifications' }
-  | { kind: 'pending' }
+  | { kind: 'pending'; projectId?: string }
   | { kind: 'pending-detail'; pendingId: string }
   | { kind: 'admin-dashboard' }
   | { kind: 'admin-users' }
@@ -352,7 +352,7 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/pending') {
-    return { kind: 'pending' };
+    return { kind: 'pending', projectId: new URLSearchParams(window.location.search).get('projectId') ?? undefined };
   }
 
   const pendingMatch = window.location.pathname.match(/^\/pending\/([^/]+)$/);
@@ -658,7 +658,7 @@ function pathForView(view: View) {
     case 'notifications':
       return '/notifications';
     case 'pending':
-      return '/pending';
+      return `/pending${view.projectId ? `?projectId=${encodeURIComponent(view.projectId)}` : ''}`;
     case 'pending-detail':
       return `/pending/${view.pendingId}`;
     case 'admin-dashboard':
@@ -1360,6 +1360,7 @@ function QmsAppShell({
             canPurgeDeletedProjects={canPurgeDeletedProjects}
             onCreate={() => setView({ kind: 'create' })}
           onOpen={(projectId) => setView({ kind: 'detail', projectId })}
+          onOpenPending={(projectId) => setView({ kind: 'pending', projectId })}
           onOpenDeleted={(projectId) => setView({ kind: 'deleted-detail', projectId })}
         />
       ) : null}
@@ -1368,6 +1369,7 @@ function QmsAppShell({
         <PendingPage
           developmentUserKey={developmentUserKey}
           pendingId={view.kind === 'pending-detail' ? view.pendingId : undefined}
+          initialProjectId={view.kind === 'pending' ? view.projectId : undefined}
           canManage={canManagePending}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
           onBackToList={() => setView({ kind: 'pending' })}
@@ -1404,6 +1406,7 @@ function QmsAppShell({
           onEditProductionPlanning={() => setView({ kind: 'production-planning-edit', projectId: view.projectId })}
           onEditProcurement={() => setView({ kind: 'procurement-edit', projectId: view.projectId })}
           onOpenPanel={(panelId) => setView({ kind: 'panel', projectId: view.projectId, panelId })}
+          onOpenPending={() => setView({ kind: 'pending', projectId: view.projectId })}
         />
       ) : null}
 
@@ -5887,6 +5890,7 @@ function ProjectListPage({
   canPurgeDeletedProjects,
   onCreate,
   onOpen,
+  onOpenPending,
   onOpenDeleted
 }: {
   developmentUserKey: string;
@@ -5896,6 +5900,7 @@ function ProjectListPage({
   canPurgeDeletedProjects: boolean;
   onCreate: () => void;
   onOpen: (projectId: string) => void;
+  onOpenPending: (projectId: string) => void;
   onOpenDeleted: (projectId: string) => void;
 }) {
   const [search, setSearch] = useState('');
@@ -6106,6 +6111,7 @@ function ProjectListPage({
           developmentUserKey={developmentUserKey}
           onPurged={load}
           onOpen={(projectId) => tab === 'Deleted' ? onOpenDeleted(projectId) : onOpen(projectId)}
+          onOpenPending={onOpenPending}
         />
       ) : null}
       {projectExcelMessage ? <p role="alert" className={successMessage(projectExcelMessage) ? 'success-text' : 'error-text'}>{projectExcelMessage}</p> : null}
@@ -6131,7 +6137,8 @@ function ProjectListView({
   canPurgeDeletedProjects,
   developmentUserKey,
   onPurged,
-  onOpen
+  onOpen,
+  onOpenPending
 }: {
   projects: Array<ProjectListItem | DeletedProjectListItem>;
   canReadSalesAmount: boolean;
@@ -6139,14 +6146,15 @@ function ProjectListView({
   developmentUserKey: string;
   onPurged: () => void;
   onOpen: (projectId: string) => void;
+  onOpenPending: (projectId: string) => void;
 }) {
   const isMobile = useIsMobileViewport();
 
   return (
     <div className="project-list">
       {isMobile
-        ? <ProjectListMobile projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} />
-        : <ProjectListDesktop projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} />}
+        ? <ProjectListMobile projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} />
+        : <ProjectListDesktop projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} />}
     </div>
   );
 }
@@ -6488,13 +6496,50 @@ function ProjectKpiGrid({ summary }: { summary: ProjectDashboardSummary }) {
   );
 }
 
+function ProjectBottleneckBadge({
+  project,
+  onOpenPending
+}: {
+  project: ProjectListItem | DeletedProjectListItem;
+  onOpenPending: (projectId: string) => void;
+}) {
+  const bottleneck = project.bottleneck;
+  if (!bottleneck) {
+    return null;
+  }
+
+  return (
+    <span className="project-bottleneck-inline" data-kind={bottleneck.kind}>
+      <span className="project-bottleneck-label">병목 구간 · {bottleneck.label}</span>
+      {bottleneck.openPendingCount !== undefined ? (
+        <span className="project-bottleneck-counts">
+          open {bottleneck.openPendingCount} · 재검사 {bottleneck.reinspectionPendingCount ?? 0} · 긴급 {bottleneck.urgentPendingCount ?? 0}
+        </span>
+      ) : null}
+      {bottleneck.openPendingCount ? (
+        <button
+          type="button"
+          className="bottleneck-pending-link"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenPending(project.projectId);
+          }}
+        >
+          Pending 확인
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
 function ProjectListDesktop({
   projects,
   canReadSalesAmount,
   canPurgeDeletedProjects,
   developmentUserKey,
   onPurged,
-  onOpen
+  onOpen,
+  onOpenPending
 }: {
   projects: Array<ProjectListItem | DeletedProjectListItem>;
   canReadSalesAmount: boolean;
@@ -6502,6 +6547,7 @@ function ProjectListDesktop({
   developmentUserKey: string;
   onPurged: () => void;
   onOpen: (projectId: string) => void;
+  onOpenPending: (projectId: string) => void;
 }) {
   return (
     <div className="project-list-table project-list-desktop" role="table" aria-label="프로젝트 목록" data-testid="project-list-desktop">
@@ -6517,11 +6563,17 @@ function ProjectListDesktop({
       </div>
       {projects.map((project) => (
         <Fragment key={project.projectId}>
-          <button
+          <div
             className="project-list-row"
-            type="button"
             role="row"
+            tabIndex={0}
             onClick={() => onOpen(project.projectId)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onOpen(project.projectId);
+              }
+            }}
           >
             <span className="align-left">
               <strong>{project.projectTitle}</strong>
@@ -6529,6 +6581,7 @@ function ProjectListDesktop({
               {canReadSalesAmount && project.salesAmount !== undefined ? (
                 <small><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></small>
               ) : null}
+              <ProjectBottleneckBadge project={project} onOpenPending={onOpenPending} />
             </span>
             <span className="align-left">{project.customerName}</span>
             <span className="align-center">{project.projectCode}</span>
@@ -6537,7 +6590,7 @@ function ProjectListDesktop({
             <span className="align-center">{formatDate(project.deliveryDate)}</span>
             <span className="align-center">{formatProjectWorkStatus(project.projectWorkStatus)}</span>
             <span className="align-center">{formatProjectProgress(project.projectProgressPercent)}</span>
-          </button>
+          </div>
           {canPurgeDeletedProjects && 'deletedAtUtc' in project ? (
             <div className="deleted-project-actions">
               <DeletedProjectRestoreControl projectId={project.projectId} developmentUserKey={developmentUserKey} onRestored={onPurged} />
@@ -6556,7 +6609,8 @@ function ProjectListMobile({
   canPurgeDeletedProjects,
   developmentUserKey,
   onPurged,
-  onOpen
+  onOpen,
+  onOpenPending
 }: {
   projects: Array<ProjectListItem | DeletedProjectListItem>;
   canReadSalesAmount: boolean;
@@ -6564,6 +6618,7 @@ function ProjectListMobile({
   developmentUserKey: string;
   onPurged: () => void;
   onOpen: (projectId: string) => void;
+  onOpenPending: (projectId: string) => void;
 }) {
   return (
     <div className="project-list-cards project-list-mobile" data-testid="project-list-mobile">
@@ -6581,11 +6636,14 @@ function ProjectListMobile({
             <div><dt>납기일</dt><dd>{formatDate(project.deliveryDate)}</dd></div>
             <div><dt>상태</dt><dd>{formatProjectWorkStatus(project.projectWorkStatus)}</dd></div>
             <div><dt>진행률</dt><dd>{formatProjectProgress(project.projectProgressPercent)}</dd></div>
+            <div><dt>대표 병목</dt><dd>{project.bottleneck?.label ?? '-'}</dd></div>
+            {project.bottleneck?.openPendingCount !== undefined ? <div><dt>Pending</dt><dd>open {project.bottleneck.openPendingCount}건 · 재검사 {project.bottleneck.reinspectionPendingCount ?? 0}건 · 긴급 {project.bottleneck.urgentPendingCount ?? 0}건</dd></div> : null}
             {'deletedAtUtc' in project ? <div><dt>삭제일시</dt><dd>{formatDateTime(project.deletedAtUtc)}</dd></div> : null}
             {canReadSalesAmount && project.salesAmount !== undefined ? (
               <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
             ) : null}
           </dl>
+          {project.bottleneck?.openPendingCount ? <button type="button" className="bottleneck-pending-link" onClick={() => onOpenPending(project.projectId)}>open Pending 확인</button> : null}
           {canPurgeDeletedProjects && 'deletedAtUtc' in project ? (
             <div className="deleted-project-actions">
               <DeletedProjectRestoreControl projectId={project.projectId} developmentUserKey={developmentUserKey} onRestored={onPurged} />
@@ -6777,7 +6835,8 @@ function ProjectDetailPage({
   onEditPanelInformation,
   onEditProductionPlanning,
   onEditProcurement,
-  onOpenPanel
+  onOpenPanel,
+  onOpenPending
 }: {
   developmentUserKey: string;
   projectId: string;
@@ -6797,6 +6856,7 @@ function ProjectDetailPage({
   onEditProductionPlanning: () => void;
   onEditProcurement: () => void;
   onOpenPanel: (panelId: string) => void;
+  onOpenPending: () => void;
 }) {
   const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
   const [panelInfoState, setPanelInfoState] = useState<LoadState<PanelInformationResponse>>({ kind: 'loading' });
@@ -6957,6 +7017,13 @@ function ProjectDetailPage({
       </div>
 
       <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
+
+      <ProjectBottleneckOverview
+        project={project}
+        onOpenPending={onOpenPending}
+        onOpenPanels={() => selectDetailSection('panels')}
+        onOpenWorkflow={() => selectDetailSection('workflow')}
+      />
 
       <ProjectWorkflowSummary state={workflowState} />
 
@@ -11199,6 +11266,69 @@ function useIsMobileViewport() {
   }, []);
 
   return isMobile;
+}
+
+function ProjectBottleneckOverview({
+  project,
+  onOpenPending,
+  onOpenPanels,
+  onOpenWorkflow
+}: {
+  project: ProjectListItem;
+  onOpenPending: () => void;
+  onOpenPanels: () => void;
+  onOpenWorkflow: () => void;
+}) {
+  const bottleneck = project.bottleneck;
+  if (!bottleneck) {
+    return null;
+  }
+
+  const action = bottleneck.nextAction === 'Pending'
+    ? { label: '프로젝트 Pending 열기', run: onOpenPending }
+    : bottleneck.nextAction === 'Panels'
+      ? { label: '병목 패널 보기', run: onOpenPanels }
+      : bottleneck.nextAction === 'Workflow'
+        ? { label: 'Workflow 보기', run: onOpenWorkflow }
+        : null;
+
+  return (
+    <section className="project-bottleneck-overview" aria-label="프로젝트 병목 현황" data-kind={bottleneck.kind}>
+      <div className="project-bottleneck-hero">
+        <div>
+          <p className="eyebrow">NEXT ATTENTION</p>
+          <h3>다음 확인 대상</h3>
+          <strong>{bottleneck.label}</strong>
+          <p>{bottleneck.nextActionLabel}</p>
+          <small>{bottleneck.sortReason === 'open-pending' ? 'open Pending 차단을 우선해 정렬했습니다.' : '가장 뒤처진 필수 구간을 기준으로 표시했습니다.'}</small>
+        </div>
+        {action ? <button type="button" className="primary-button" onClick={action.run}>{action.label}</button> : null}
+      </div>
+
+      {bottleneck.openPendingCount !== undefined ? (
+        <div className="project-bottleneck-pending" aria-label="Pending 차단 집계">
+          <StatusChip label="open Pending" value={`${bottleneck.openPendingCount}`} />
+          <StatusChip label="재검사 대기" value={`${bottleneck.reinspectionPendingCount ?? 0}`} />
+          <StatusChip label="긴급" value={`${bottleneck.urgentPendingCount ?? 0}`} />
+        </div>
+      ) : null}
+
+      <div className="project-bottleneck-matrix" aria-label="패널 병목 구간 matrix">
+        {bottleneck.panelDistribution.map((item) => (
+          <button
+            key={item.stageCode}
+            type="button"
+            data-active={item.isBottleneck}
+            onClick={onOpenPanels}
+            aria-label={`${item.stageLabel} 패널 ${item.panelCount}면`}
+          >
+            <span>{item.stageLabel}</span>
+            <strong>{item.panelCount}면</strong>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function ProjectSummary({ project, canReadSalesAmount }: { project: ProjectListItem; canReadSalesAmount: boolean }) {

@@ -440,7 +440,7 @@ export async function listProjects(
   developmentUserKey: string | undefined,
   search = '',
   status: ProjectListTab = 'All',
-  options: { signal?: AbortSignal; deliveryDateFrom?: string; deliveryDateTo?: string } = {}
+  options: { signal?: AbortSignal; deliveryDateFrom?: string; deliveryDateTo?: string; pageSize?: number } = {}
 ): Promise<ProjectListResponse> {
   const params = new URLSearchParams();
   if (search.trim()) {
@@ -454,6 +454,9 @@ export async function listProjects(
   }
   if (options.deliveryDateTo) {
     params.set('deliveryDateTo', options.deliveryDateTo);
+  }
+  if (options.pageSize) {
+    params.set('pageSize', String(options.pageSize));
   }
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<ProjectListResponse>(`/api/projects${query}`, developmentUserKey, { signal: options.signal });
@@ -496,6 +499,7 @@ export async function listPendingIssues(
     issueType?: PendingIssueType;
     priority?: PendingPriority;
     assigneeUserId?: string;
+    projectId?: string;
   } = {}
 ): Promise<PendingListResponse> {
   const params = new URLSearchParams();
@@ -503,6 +507,7 @@ export async function listPendingIssues(
   if (filters.issueType) params.set('issueType', filters.issueType);
   if (filters.priority) params.set('priority', filters.priority);
   if (filters.assigneeUserId) params.set('assigneeUserId', filters.assigneeUserId);
+  if (filters.projectId) params.set('projectId', filters.projectId);
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<PendingListResponse>(`/api/pending${query}`, developmentUserKey);
 }

@@ -18,6 +18,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         string? issueType,
         string? priority,
         Guid? assigneeUserId,
+        Guid? projectId,
         CancellationToken cancellationToken)
     {
         var normalizedStatus = PendingStatuses.All.Contains(status ?? "") ? status : null;
@@ -53,6 +54,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
               and (@issue_type is null or pi.issue_type = @issue_type)
               and (@priority is null or pi.priority = @priority)
               and (@assignee_user_id is null or pi.assignee_user_id = @assignee_user_id)
+              and (@project_id is null or pi.project_id = @project_id)
             order by
                 case when pi.status = 'Closed' then 1 else 0 end,
                 case pi.priority when 'Urgent' then 0 else 1 end,
@@ -63,6 +65,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         AddNullableText(command, "issue_type", normalizedType);
         AddNullableText(command, "priority", normalizedPriority);
         AddNullableUuid(command, "assignee_user_id", assigneeUserId);
+        AddNullableUuid(command, "project_id", projectId);
 
         var items = new List<PendingListItemResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -72,7 +75,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         }
 
         await reader.DisposeAsync();
-        var summary = await ReadSummaryAsync(dataSource, cancellationToken);
+        var summary = await ReadSummaryAsync(dataSource, projectId, cancellationToken);
         return new PendingListResponse(summary, items);
     }
 
@@ -524,6 +527,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
 
     private static async Task<PendingSummaryResponse> ReadSummaryAsync(
         NpgsqlDataSource dataSource,
+        Guid? projectId,
         CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand("""
@@ -533,8 +537,10 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 count(*) filter (where status <> 'Closed' and due_date < current_date)::int,
                 count(*) filter (where status = 'ReinspectionRequested')::int,
                 count(*) filter (where status = 'Closed')::int
-            from pending_issues;
+            from pending_issues
+            where (@project_id is null or project_id = @project_id);
             """);
+        AddNullableUuid(command, "project_id", projectId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
             ? new PendingSummaryResponse(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3), reader.GetInt32(4))

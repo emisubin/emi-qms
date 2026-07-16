@@ -69,10 +69,20 @@ public sealed class ProjectStore(
         return owners;
     }
 
+    public Task<ProjectListResponse> ListProjectsAsync(
+        ProjectListQuery query,
+        ProjectAccessScope accessScope,
+        bool includeSalesAmount,
+        CancellationToken cancellationToken)
+    {
+        return ListProjectsAsync(query, accessScope, includeSalesAmount, false, cancellationToken);
+    }
+
     public async Task<ProjectListResponse> ListProjectsAsync(
         ProjectListQuery query,
         ProjectAccessScope accessScope,
         bool includeSalesAmount,
+        bool includePendingInsights,
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
@@ -145,7 +155,18 @@ public sealed class ProjectStore(
                 project_workflow.project_work_status,
                 project_workflow.project_progress_percent,
                 projects.fat_required,
-                count(*) over() as total_count
+                count(*) over() as total_count,
+                coalesce(active_panels.before_manufacturing_count, 0),
+                coalesce(active_panels.manufacturing_in_progress_count, 0),
+                coalesce(active_panels.manufacturing_completed_count, 0),
+                coalesce(active_panels.inspection_in_progress_count, 0),
+                coalesce(active_panels.inspection_completed_count, 0),
+                coalesce(active_panels.packing_completed_count, 0),
+                coalesce(active_panels.shipment_completed_count, 0),
+                coalesce(active_panels.unknown_workflow_stage_count, 0),
+                coalesce(pending_summary.open_count, 0),
+                coalesce(pending_summary.reinspection_count, 0),
+                coalesce(pending_summary.urgent_count, 0)
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
@@ -157,11 +178,44 @@ public sealed class ProjectStore(
                               or width_mm is not null
                               or height_mm is not null
                               or depth_mm is not null
-                       )::integer as panel_info_touched_count
+                       )::integer as panel_info_touched_count,
+                       count(*) filter (where workflow_stage = 'BeforeManufacturing')::integer as before_manufacturing_count,
+                       count(*) filter (where workflow_stage = 'ManufacturingInProgress')::integer as manufacturing_in_progress_count,
+                       count(*) filter (where workflow_stage = 'ManufacturingCompleted')::integer as manufacturing_completed_count,
+                       count(*) filter (where workflow_stage = 'InspectionInProgress')::integer as inspection_in_progress_count,
+                       count(*) filter (where workflow_stage = 'InspectionCompleted')::integer as inspection_completed_count,
+                       count(*) filter (where workflow_stage = 'PackingCompleted')::integer as packing_completed_count,
+                       count(*) filter (where workflow_stage = 'ShipmentCompleted')::integer as shipment_completed_count,
+                       count(*) filter (where workflow_stage not in (
+                           'BeforeManufacturing',
+                           'ManufacturingInProgress',
+                           'ManufacturingCompleted',
+                           'InspectionInProgress',
+                           'InspectionCompleted',
+                           'PackingCompleted',
+                           'ShipmentCompleted'
+                       ))::integer as unknown_workflow_stage_count,
+                       min(case workflow_stage
+                           when 'BeforeManufacturing' then 0
+                           when 'ManufacturingInProgress' then 1
+                           when 'ManufacturingCompleted' then 2
+                           when 'InspectionInProgress' then 3
+                           when 'InspectionCompleted' then 4
+                           when 'PackingCompleted' then 5
+                           when 'ShipmentCompleted' then 6
+                           else 99
+                       end)::integer as minimum_workflow_rank
                 from panel_placeholders
                 where panel_placeholders.project_id = projects.id
                   and panel_placeholders.status = 'Active'
             ) active_panels on true
+            left join lateral (
+                select count(*) filter (where status <> 'Closed')::integer as open_count,
+                       count(*) filter (where status = 'ReinspectionRequested')::integer as reinspection_count,
+                       count(*) filter (where status <> 'Closed' and priority = 'Urgent')::integer as urgent_count
+                from pending_issues
+                where pending_issues.project_id = projects.id
+            ) pending_summary on true
             left join lateral (
                 select count(items.id)::integer as item_count,
                        count(items.id) filter (where items.is_required = true)::integer as required_item_count,
@@ -278,6 +332,14 @@ public sealed class ProjectStore(
                     when 'Cancelled' then 3
                     else 4
                 end,
+                case when @include_pending_insights and coalesce(pending_summary.open_count, 0) > 0 then 0 else 1 end,
+                case project_workflow.project_work_status
+                    when 'SalesProjectCreated' then 1
+                    when 'ProductionPlanning' then 2
+                    when 'DesignPanelInfo' then 3
+                    when 'ProcurementInfo' then 4
+                    else 5 + coalesce(active_panels.minimum_workflow_rank, 90)
+                end,
                 projects.delivery_date asc nulls last,
                 projects.created_at_utc desc
             limit @limit offset @offset;
@@ -290,6 +352,7 @@ public sealed class ProjectStore(
 
         command.Parameters.AddWithValue("limit", pageSize);
         command.Parameters.AddWithValue("offset", offset);
+        command.Parameters.AddWithValue("include_pending_insights", includePendingInsights);
 
         var items = new List<ProjectListItemResponse>();
         long totalCount = 0;
@@ -297,7 +360,7 @@ public sealed class ProjectStore(
         while (await reader.ReadAsync(cancellationToken))
         {
             totalCount = reader.GetInt64(19);
-            items.Add(ReadProjectListItem(reader, includeSalesAmount));
+            items.Add(ReadProjectListItem(reader, includeSalesAmount, 20, includePendingInsights));
         }
 
         return new ProjectListResponse(items, page, pageSize, totalCount);
@@ -391,9 +454,18 @@ public sealed class ProjectStore(
             reader.GetInt32(9));
     }
 
+    public Task<ProjectDetailResponse?> GetProjectAsync(
+        Guid projectId,
+        bool includeSalesAmount,
+        CancellationToken cancellationToken)
+    {
+        return GetProjectAsync(projectId, includeSalesAmount, false, cancellationToken);
+    }
+
     public async Task<ProjectDetailResponse?> GetProjectAsync(
         Guid projectId,
         bool includeSalesAmount,
+        bool includePendingInsights,
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
@@ -418,7 +490,18 @@ public sealed class ProjectStore(
                 project_workflow.project_work_status,
                 project_workflow.project_progress_percent,
                 projects.fat_required,
-                projects.status_reason
+                projects.status_reason,
+                coalesce(active_panels.before_manufacturing_count, 0),
+                coalesce(active_panels.manufacturing_in_progress_count, 0),
+                coalesce(active_panels.manufacturing_completed_count, 0),
+                coalesce(active_panels.inspection_in_progress_count, 0),
+                coalesce(active_panels.inspection_completed_count, 0),
+                coalesce(active_panels.packing_completed_count, 0),
+                coalesce(active_panels.shipment_completed_count, 0),
+                coalesce(active_panels.unknown_workflow_stage_count, 0),
+                coalesce(pending_summary.open_count, 0),
+                coalesce(pending_summary.reinspection_count, 0),
+                coalesce(pending_summary.urgent_count, 0)
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
@@ -430,11 +513,34 @@ public sealed class ProjectStore(
                               or width_mm is not null
                               or height_mm is not null
                               or depth_mm is not null
-                       )::integer as panel_info_touched_count
+                       )::integer as panel_info_touched_count,
+                       count(*) filter (where workflow_stage = 'BeforeManufacturing')::integer as before_manufacturing_count,
+                       count(*) filter (where workflow_stage = 'ManufacturingInProgress')::integer as manufacturing_in_progress_count,
+                       count(*) filter (where workflow_stage = 'ManufacturingCompleted')::integer as manufacturing_completed_count,
+                       count(*) filter (where workflow_stage = 'InspectionInProgress')::integer as inspection_in_progress_count,
+                       count(*) filter (where workflow_stage = 'InspectionCompleted')::integer as inspection_completed_count,
+                       count(*) filter (where workflow_stage = 'PackingCompleted')::integer as packing_completed_count,
+                       count(*) filter (where workflow_stage = 'ShipmentCompleted')::integer as shipment_completed_count,
+                       count(*) filter (where workflow_stage not in (
+                           'BeforeManufacturing',
+                           'ManufacturingInProgress',
+                           'ManufacturingCompleted',
+                           'InspectionInProgress',
+                           'InspectionCompleted',
+                           'PackingCompleted',
+                           'ShipmentCompleted'
+                       ))::integer as unknown_workflow_stage_count
                 from panel_placeholders
                 where panel_placeholders.project_id = projects.id
                   and panel_placeholders.status = 'Active'
             ) active_panels on true
+            left join lateral (
+                select count(*) filter (where status <> 'Closed')::integer as open_count,
+                       count(*) filter (where status = 'ReinspectionRequested')::integer as reinspection_count,
+                       count(*) filter (where status <> 'Closed' and priority = 'Urgent')::integer as urgent_count
+                from pending_issues
+                where pending_issues.project_id = projects.id
+            ) pending_summary on true
             left join lateral (
                 select count(items.id)::integer as item_count,
                        count(items.id) filter (where items.is_required = true)::integer as required_item_count,
@@ -553,7 +659,7 @@ public sealed class ProjectStore(
             return null;
         }
 
-        var baseItem = ReadProjectListItem(reader, includeSalesAmount);
+        var baseItem = ReadProjectListItem(reader, includeSalesAmount, 20, includePendingInsights);
         var statusReason = reader.IsDBNull(19) ? null : reader.GetString(19);
         await reader.DisposeAsync();
         var panelInfoSummary = await ReadPanelInformationSummaryAsync(dataSource, projectId, cancellationToken);
@@ -574,6 +680,7 @@ public sealed class ProjectStore(
             Status = baseItem.Status,
             ProjectWorkStatus = baseItem.ProjectWorkStatus,
             ProjectProgressPercent = baseItem.ProjectProgressPercent,
+            Bottleneck = baseItem.Bottleneck,
             CreatedAt = baseItem.CreatedAt,
             UpdatedAt = baseItem.UpdatedAt,
             SalesAmount = baseItem.SalesAmount,
@@ -2396,8 +2503,26 @@ public sealed class ProjectStore(
         parameters.Add(new NpgsqlParameter<string[]>("project_keys", accessScope.ProjectKeys.ToArray()));
     }
 
-    private static ProjectListItemResponse ReadProjectListItem(NpgsqlDataReader reader, bool includeSalesAmount)
+    private static ProjectListItemResponse ReadProjectListItem(
+        NpgsqlDataReader reader,
+        bool includeSalesAmount,
+        int? bottleneckStartIndex = null,
+        bool includePendingInsights = false)
     {
+        var bottleneck = bottleneckStartIndex is null
+            ? null
+            : ProjectBottleneckDomain.Build(
+                reader.GetString(11),
+                reader.GetString(16),
+                Enumerable.Range(bottleneckStartIndex.Value, 7).Select(reader.GetInt32).ToList(),
+                reader.GetInt32(bottleneckStartIndex.Value + 7),
+                includePendingInsights
+                    ? new PendingBottleneckCounts(
+                        reader.GetInt32(bottleneckStartIndex.Value + 8),
+                        reader.GetInt32(bottleneckStartIndex.Value + 9),
+                        reader.GetInt32(bottleneckStartIndex.Value + 10))
+                    : null);
+
         return new ProjectListItemResponse
         {
             ProjectId = reader.GetGuid(0),
@@ -2414,6 +2539,7 @@ public sealed class ProjectStore(
             Status = reader.GetString(11),
             ProjectWorkStatus = reader.GetString(16),
             ProjectProgressPercent = reader.IsDBNull(17) ? null : reader.GetInt32(17),
+            Bottleneck = bottleneck,
             FatRequired = !reader.IsDBNull(18) && reader.GetBoolean(18),
             CreatedAt = reader.GetFieldValue<DateTimeOffset>(12),
             UpdatedAt = reader.GetFieldValue<DateTimeOffset>(13),

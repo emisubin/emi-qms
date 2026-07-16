@@ -72,6 +72,7 @@ public static class ProjectEndpointExtensions
                 query,
                 GetProjectAccessScope(user),
                 CanReadSalesAmount(user),
+                HasPermission(user, QmsPermissions.PendingRead),
                 cancellationToken);
 
             return Results.Ok(result);
@@ -307,7 +308,11 @@ public static class ProjectEndpointExtensions
                 return access;
             }
 
-            var project = await projectStore.GetProjectAsync(projectId, CanReadSalesAmount(user), cancellationToken);
+            var project = await projectStore.GetProjectAsync(
+                projectId,
+                CanReadSalesAmount(user),
+                HasPermission(user, QmsPermissions.PendingRead),
+                cancellationToken);
             return project is null ? Results.NotFound() : Results.Ok(project);
         })
         .RequireAuthorization()

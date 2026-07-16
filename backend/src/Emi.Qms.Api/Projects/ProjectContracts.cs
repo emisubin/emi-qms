@@ -112,6 +112,7 @@ public class ProjectListItemResponse
     public string Status { get; init; } = "";
     public string ProjectWorkStatus { get; init; } = "";
     public int? ProjectProgressPercent { get; init; }
+    public ProjectBottleneckResponse? Bottleneck { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
 
@@ -121,6 +122,28 @@ public class ProjectListItemResponse
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? CurrencyCode { get; init; }
 }
+
+public sealed record ProjectBottleneckResponse(
+    string Kind,
+    string Label,
+    string? StageCode,
+    string? StageLabel,
+    int? PanelCount,
+    int StageRank,
+    string NextAction,
+    string NextActionLabel,
+    string SortReason,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? OpenPendingCount,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ReinspectionPendingCount,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? UrgentPendingCount,
+    IReadOnlyList<PanelStageDistributionResponse> PanelDistribution);
+
+public sealed record PanelStageDistributionResponse(
+    string StageCode,
+    string StageLabel,
+    int StageRank,
+    int PanelCount,
+    bool IsBottleneck);
 
 public sealed class ProjectDetailResponse : ProjectListItemResponse
 {

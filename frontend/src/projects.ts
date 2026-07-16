@@ -70,10 +70,38 @@ export interface ProjectListItem {
   status: ProjectStatus;
   projectWorkStatus: ProjectWorkStatus;
   projectProgressPercent: number | null;
+  bottleneck: ProjectBottleneck | null;
   createdAt: string;
   updatedAt: string;
   salesAmount?: number;
   currencyCode?: string;
+}
+
+export type ProjectBottleneckKind = 'ProjectStage' | 'PanelStage' | 'Completed' | 'NoData' | 'Uncertain' | 'Inactive';
+export type ProjectBottleneckNextAction = 'Pending' | 'Panels' | 'Workflow' | 'None';
+
+export interface ProjectBottleneck {
+  kind: ProjectBottleneckKind;
+  label: string;
+  stageCode: string | null;
+  stageLabel: string | null;
+  panelCount: number | null;
+  stageRank: number;
+  nextAction: ProjectBottleneckNextAction;
+  nextActionLabel: string;
+  sortReason: string;
+  openPendingCount?: number;
+  reinspectionPendingCount?: number;
+  urgentPendingCount?: number;
+  panelDistribution: PanelStageDistribution[];
+}
+
+export interface PanelStageDistribution {
+  stageCode: ProductWorkflowStage;
+  stageLabel: string;
+  stageRank: number;
+  panelCount: number;
+  isBottleneck: boolean;
 }
 
 export interface ProjectDetail extends ProjectListItem {

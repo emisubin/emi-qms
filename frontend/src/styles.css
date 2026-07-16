@@ -4934,6 +4934,153 @@ body {
   }
 }
 
+.project-list-row {
+  cursor: pointer;
+}
+
+.project-bottleneck-inline {
+  display: grid;
+  width: fit-content;
+  gap: 3px;
+  margin-top: 7px;
+  border: 1px solid rgb(218 33 39 / 18%);
+  border-radius: 11px;
+  background: var(--brand-red-soft);
+  padding: 7px 9px;
+  color: var(--brand-red-deep);
+}
+
+.project-bottleneck-label {
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+
+.project-bottleneck-counts {
+  font-size: 0.67rem;
+  font-weight: 700;
+  color: #746064;
+}
+
+.bottleneck-pending-link {
+  width: fit-content;
+  margin-top: 2px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--brand-red-strong);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.project-bottleneck-overview {
+  display: grid;
+  gap: 16px;
+  margin: 18px 0;
+  border: 1px solid rgb(218 33 39 / 20%);
+  border-left: 5px solid var(--brand-red);
+  border-radius: 20px;
+  background: linear-gradient(135deg, #ffffff 0%, var(--brand-red-wash) 100%);
+  padding: 20px;
+  box-shadow: 0 14px 34px rgb(142 15 20 / 8%);
+}
+
+.project-bottleneck-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.project-bottleneck-hero > div {
+  display: grid;
+  gap: 4px;
+}
+
+.project-bottleneck-hero h3,
+.project-bottleneck-hero p {
+  margin: 0;
+}
+
+.project-bottleneck-hero strong {
+  color: var(--brand-red-deep);
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+}
+
+.project-bottleneck-hero small {
+  color: #746064;
+  font-weight: 700;
+}
+
+.project-bottleneck-pending {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.project-bottleneck-matrix {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(92px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+
+.project-bottleneck-matrix button {
+  display: grid;
+  min-height: 76px;
+  align-content: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 12px 10px;
+  color: #6b5e60;
+  text-align: left;
+}
+
+.project-bottleneck-matrix button strong {
+  color: #31292a;
+  font-size: 1.05rem;
+}
+
+.project-bottleneck-matrix button[data-active='true'] {
+  border-color: var(--brand-red);
+  background: var(--brand-red-soft);
+  color: var(--brand-red-deep);
+  box-shadow: inset 0 0 0 1px rgb(218 33 39 / 10%);
+}
+
+.project-bottleneck-matrix button[data-active='true'] strong {
+  color: var(--brand-red-deep);
+}
+
+@media (max-width: 860px) {
+  .project-bottleneck-overview {
+    border-radius: 17px;
+    padding: 16px;
+  }
+
+  .project-bottleneck-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project-bottleneck-hero .primary-button {
+    width: 100%;
+  }
+
+  .project-bottleneck-pending {
+    grid-template-columns: 1fr;
+  }
+
+  .project-bottleneck-matrix {
+    grid-template-columns: repeat(7, minmax(106px, 1fr));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .app-shell button {
     transition: none;

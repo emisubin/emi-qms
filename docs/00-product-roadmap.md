@@ -967,7 +967,7 @@ Excel 출력 대상 후보:
 
 ## 23. 향후 개발 로드맵
 
-실행 순서는 고정 날짜가 아니라 현재 상태, 선행 의존성, 외부 blocker와 사용자 승인 Gate를 따른다. Repository에는 아래 신규 기능의 `tasks/<task-id>-planning.md`와 Codex review가 아직 없으므로 planning 승인과 implementation 승인은 모두 `false`다. 큐의 순서 승인은 개별 기능 범위·정책·구현 승인을 대신하지 않는다.
+실행 순서는 고정 날짜가 아니라 현재 상태, 선행 의존성, 외부 blocker와 사용자 승인 Gate를 따른다. `TASK-USER-FLOW-001`은 tracked interview·planning·review·Change 004에 따라 개인 참고 문서 redraft와 게시만 승인됐고 제품 implementation 승인은 `false`다. 그 밖의 아래 후속 신규 기능에는 아직 `tasks/<task-id>-planning.md`와 Codex review가 없으므로 planning 승인과 implementation 승인은 모두 `false`다. 큐의 순서 승인과 USER-FLOW의 개인 참고 문서 승인은 개별 제품 기능 범위·정책·구현 승인을 대신하지 않는다.
 
 | Priority | Task | Task Type | Status | Planning Status | Dependencies | External Blocker | UAT Required | Next Gate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

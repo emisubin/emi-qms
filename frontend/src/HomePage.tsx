@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, getMyWorkSummary, getNotificationSummary, listPendingIssues, listProjects } from './api';
+import { useAdaptiveLayout } from './adaptive-layout';
 import type { PendingListResponse } from './pending';
 import type { MyWorkSummary, NotificationSummary, ProjectListResponse } from './projects';
 
@@ -31,6 +32,7 @@ export function HomePage({
   onOpenPending,
   onOpenNotifications
 }: HomePageProps) {
+  const { isMobile } = useAdaptiveLayout();
   const [myWorkState, setMyWorkState] = useState<WidgetState<MyWorkSummary>>({ kind: 'loading' });
   const [projectsState, setProjectsState] = useState<WidgetState<ProjectListResponse>>({ kind: 'loading' });
   const [pendingState, setPendingState] = useState<WidgetState<PendingListResponse>>(
@@ -138,17 +140,45 @@ export function HomePage({
 
   const visibleWidgetCount = [myWorkState, projectsState, pendingState, notificationsState]
     .filter((state) => state.kind !== 'hidden').length;
+  const pendingSummary = pendingState.kind === 'ready' || pendingState.kind === 'empty' ? pendingState.data.summary : null;
+  const notificationSummary = notificationsState.kind === 'ready' || notificationsState.kind === 'empty' ? notificationsState.data : null;
 
   return (
-    <section className="page-surface home-page" aria-labelledby="home-page-title">
-      <header className="home-hero">
+    <section className="page-surface home-page" aria-labelledby="home-page-title" data-mobile-experience={isMobile || undefined}>
+      <header className={isMobile ? 'home-hero home-hero--mobile' : 'home-hero'}>
         <div>
-          <p className="eyebrow">TODAY AT A GLANCE</p>
-          <h2 id="home-page-title">업무 홈</h2>
-          <p>지금 확인할 업무와 프로젝트 흐름을 한눈에 보고 원본 화면으로 바로 이동하세요.</p>
+          <p className="eyebrow">{isMobile ? 'MOBILE FIELD HOME' : 'TODAY AT A GLANCE'}</p>
+          <h2 id="home-page-title">{isMobile ? '오늘의 현장 업무' : '업무 홈'}</h2>
+          <p>{isMobile ? '급한 문제부터 확인하고 바로 처리할 업무로 이동하세요.' : '지금 확인할 업무와 프로젝트 흐름을 한눈에 보고 원본 화면으로 바로 이동하세요.'}</p>
         </div>
-        <button type="button" className="primary-button" onClick={onOpenMyWork}>내 업무 시작하기</button>
+        <button type="button" className="primary-button" onClick={onOpenMyWork}>{isMobile ? '오늘 업무 열기' : '내 업무 시작하기'}</button>
       </header>
+
+      {isMobile ? (
+        <section className="home-mobile-priority" aria-label="긴급·차단 우선 확인">
+          <header>
+            <div>
+              <p className="eyebrow">FIRST ATTENTION</p>
+              <h3>지금 먼저 확인하세요</h3>
+            </div>
+            <span className="home-mobile-live" aria-label="실시간 업무 요약">LIVE</span>
+          </header>
+          <div className="home-mobile-priority-metrics">
+            {canReadPending ? (
+              <button type="button" data-source-status={pendingState.kind} onClick={onOpenPending}>
+                <span>긴급 Pending</span>
+                <strong>{pendingSummary?.urgentCount ?? '-'}</strong>
+                <small>{pendingState.kind === 'error' ? 'Pending 요약 오류 · 아래에서 재시도' : '조치 화면 열기 →'}</small>
+              </button>
+            ) : null}
+            <button type="button" data-source-status={notificationsState.kind} onClick={onOpenNotifications}>
+              <span>긴급·차단 알림</span>
+              <strong>{notificationSummary?.blockingCount ?? '-'}</strong>
+              <small>{notificationsState.kind === 'error' ? '알림 요약 오류 · 아래에서 재시도' : '알림 확인하기 →'}</small>
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {visibleWidgetCount === 0 ? (
         <section className="home-empty" role="status">

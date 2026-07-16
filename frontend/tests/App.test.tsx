@@ -244,6 +244,22 @@ describe('App', () => {
     expect(notificationAttempts).toBe(2);
   });
 
+  it('shows a failed mobile priority source next to its summary value', async () => {
+    window.history.pushState(null, '', '/');
+    mockMobileViewport(true);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/notifications/summary') {
+        return json({ title: 'temporarily unavailable' }, 503);
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    const priority = await screen.findByLabelText('긴급·차단 우선 확인');
+    expect(await within(priority).findByText('알림 요약 오류 · 아래에서 재시도')).toBeInTheDocument();
+  });
+
   afterEach(() => {
     window.history.pushState(null, '', '/');
     Object.defineProperty(window, 'matchMedia', { writable: true, value: undefined });
@@ -402,6 +418,7 @@ describe('App', () => {
     render(<App />);
 
     const mobileNavigation = await screen.findByRole('navigation', { name: '모바일 공통 메뉴' });
+    expect(within(mobileNavigation).getByRole('button', { name: '홈' })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: /^내 업무/ })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '프로젝트' })).toHaveAttribute('aria-current', 'page');
     expect(within(mobileNavigation).getByRole('button', { name: 'Pending' })).toBeInTheDocument();
@@ -409,6 +426,16 @@ describe('App', () => {
     expect(within(mobileNavigation).queryByRole('button', { name: '생산관리' })).not.toBeInTheDocument();
 
     await waitFor(() => expect(within(mobileNavigation).getAllByText('1건').every((badge) => badge.classList.contains('sr-only'))).toBe(true));
+
+    const statusButton = screen.getByRole('button', { name: '상태' });
+    fireEvent.click(statusButton);
+    const statusSheet = await screen.findByRole('dialog', { name: '앱 상태와 계정' });
+    expect(statusButton).toHaveAttribute('aria-expanded', 'true');
+    expect(within(statusSheet).getByLabelText('모바일 시스템 상태')).toBeInTheDocument();
+    expect(within(statusSheet).getByLabelText('개발 사용자')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '앱 상태와 계정' })).not.toBeInTheDocument());
+    await waitFor(() => expect(statusButton).toHaveFocus());
 
     const moreButton = within(mobileNavigation).getByRole('button', { name: '더보기' });
     fireEvent.click(moreButton);
@@ -604,6 +631,38 @@ describe('App', () => {
     expect(firstCard).toHaveTextContent('상태생산관리');
     expect(firstCard).toHaveTextContent('진행률6%');
     expect(firstCard).not.toHaveTextContent('BeforeManufacturing');
+
+    const filterTrigger = screen.getByRole('button', { name: /검색·필터/ });
+    fireEvent.click(filterTrigger);
+    const filterSheet = await screen.findByRole('dialog', { name: '프로젝트 검색·필터' });
+    const searchInput = within(filterSheet).getByPlaceholderText('고객사, Item, Code, Title');
+    fireEvent.change(searchInput, { target: { value: 'TASK' } });
+    const dateFromInput = within(filterSheet).getByLabelText('납기 시작일');
+    dateFromInput.focus();
+    fireEvent.change(dateFromInput, { target: { value: '2026-01-01' } });
+    await waitFor(() => expect(dateFromInput).toHaveFocus());
+    fireEvent.click(within(filterSheet).getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '프로젝트 검색·필터' })).not.toBeInTheDocument());
+    expect(filterTrigger).toHaveTextContent('전체 프로젝트 표시 중');
+
+    fireEvent.click(filterTrigger);
+    const reopenedFilterSheet = await screen.findByRole('dialog', { name: '프로젝트 검색·필터' });
+    fireEvent.change(within(reopenedFilterSheet).getByPlaceholderText('고객사, Item, Code, Title'), { target: { value: 'TASK' } });
+    fireEvent.click(within(reopenedFilterSheet).getByRole('button', { name: '조건 적용' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '프로젝트 검색·필터' })).not.toBeInTheDocument());
+    expect(filterTrigger).toHaveTextContent('1개 조건 적용 중');
+    await waitFor(() => expect(filterTrigger).toHaveFocus());
+
+    const filteredMobileList = await screen.findByTestId('project-list-mobile');
+    fireEvent.click(within(filteredMobileList).getAllByRole('button', { name: '상세 보기' })[0]);
+    expect(await screen.findByRole('heading', { name: 'TASK-003A Demo' })).toBeInTheDocument();
+    const mobileActions = screen.getByText('프로젝트 작업').closest('details');
+    expect(mobileActions).not.toBeNull();
+    fireEvent.click(screen.getByText('프로젝트 작업'));
+    expect(within(mobileActions as HTMLElement).getByRole('button', { name: '수정' })).toBeInTheDocument();
+    expect(within(mobileActions as HTMLElement).getByRole('button', { name: '보류' })).toBeInTheDocument();
+    expect(within(mobileActions as HTMLElement).getByRole('button', { name: '취소' })).toBeInTheDocument();
+    expect(within(mobileActions as HTMLElement).getByRole('button', { name: '삭제' })).toBeInTheDocument();
   });
 
   it('hides business action buttons from System Administrator while showing sales amount', async () => {

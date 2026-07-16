@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiError,
   addPendingComment,
@@ -10,6 +10,8 @@ import {
   listProjects,
   transitionPendingIssue
 } from './api';
+import { useAdaptiveLayout } from './adaptive-layout';
+import { MobileSheet } from './MobileSheet';
 import type { ProjectListItem } from './projects';
 import type {
   CreatePendingRequest,
@@ -87,6 +89,7 @@ function PendingListView({
   onOpenProject,
   onBadgeRefresh
 }: PendingPageProps) {
+  const { isMobile } = useAdaptiveLayout();
   const [state, setState] = useState<AsyncState<PendingListResponse>>({ kind: 'loading' });
   const [status, setStatus] = useState<PendingStatus | ''>('');
   const [issueType, setIssueType] = useState<PendingIssueType | ''>('');
@@ -95,6 +98,12 @@ function PendingListView({
   const [projectOptions, setProjectOptions] = useState<ProjectListItem[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [draftProjectId, setDraftProjectId] = useState(initialProjectId ?? '');
+  const [draftStatus, setDraftStatus] = useState<PendingStatus | ''>('');
+  const [draftIssueType, setDraftIssueType] = useState<PendingIssueType | ''>('');
+  const [draftPriority, setDraftPriority] = useState<PendingPriority | ''>('');
+  const mobileFilterTriggerRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -139,26 +148,83 @@ function PendingListView({
   }, [developmentUserKey, issueType, priority, projectId, status]);
 
   const items = state.kind === 'ready' ? state.data.items : [];
+  const activeFilterCount = [projectId, status, issueType, priority].filter(Boolean).length;
   return (
-    <section className="page-surface pending-page" aria-labelledby="pending-title">
-      <header className="page-header pending-header">
+    <section className={isMobile ? 'page-surface pending-page mobile-first-page' : 'page-surface pending-page'} aria-labelledby="pending-title">
+      <header className={isMobile ? 'page-header pending-header mobile-page-header' : 'page-header pending-header'}>
         <div>
-          <p className="eyebrow">COMMON ISSUE CONTROL</p>
-          <h2 id="pending-title">Pending List</h2>
-          <p className="muted-text">부적합·PUNCH·제조 중단을 등록하고 담당 조치부터 재검사·종결까지 추적합니다.</p>
+          <p className="eyebrow">{isMobile ? 'URGENT ISSUE CONTROL' : 'COMMON ISSUE CONTROL'}</p>
+          <h2 id="pending-title">{isMobile ? '현장 Pending' : 'Pending List'}</h2>
+          <p className="muted-text">{isMobile ? '긴급·기한 초과 이슈부터 확인하고 바로 조치하세요.' : '부적합·PUNCH·제조 중단을 등록하고 담당 조치부터 재검사·종결까지 추적합니다.'}</p>
         </div>
         {canManage ? <button className="primary-button" type="button" onClick={() => setShowCreate(true)}>+ Pending 등록</button> : null}
       </header>
 
       {state.kind === 'ready' ? <PendingSummaryCards data={state.data} /> : null}
 
-      <div className="pending-filter-bar" aria-label="Pending 필터">
-        <label><span>프로젝트</span><select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">전체 프로젝트</option>{projectOptions.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
-        <label><span>상태</span><select value={status} onChange={(event) => setStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <label><span>유형</span><select value={issueType} onChange={(event) => setIssueType(event.target.value as PendingIssueType | '')}>{typeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <label><span>긴급도</span><select value={priority} onChange={(event) => setPriority(event.target.value as PendingPriority | '')}><option value="">전체 긴급도</option><option value="Urgent">긴급</option><option value="Normal">일반</option></select></label>
-        <button type="button" onClick={() => { setProjectId(''); setStatus(''); setIssueType(''); setPriority(''); }}>필터 초기화</button>
-      </div>
+      {isMobile ? (
+        <>
+          <button
+            ref={mobileFilterTriggerRef}
+            type="button"
+            className="mobile-filter-trigger"
+            aria-expanded={mobileFiltersOpen}
+            onClick={() => {
+              setDraftProjectId(projectId);
+              setDraftStatus(status);
+              setDraftIssueType(issueType);
+              setDraftPriority(priority);
+              setMobileFiltersOpen(true);
+            }}
+          >
+            <span><strong>Pending 필터</strong><small>{activeFilterCount ? `${activeFilterCount}개 조건 적용 중` : '긴급도·상태·프로젝트로 찾기'}</small></span>
+            <span aria-hidden="true">⌕</span>
+          </button>
+          <MobileSheet
+            open={mobileFiltersOpen}
+            title="Pending 필터"
+            eyebrow="ISSUE FILTER"
+            description="조건을 고른 뒤 적용하세요. 취소하면 현재 목록 조건이 유지됩니다."
+            onClose={() => setMobileFiltersOpen(false)}
+            triggerRef={mobileFilterTriggerRef}
+            fullScreen
+            footer={(
+              <>
+                <button type="button" onClick={() => { setDraftProjectId(''); setDraftStatus(''); setDraftIssueType(''); setDraftPriority(''); }}>초기화</button>
+                <button type="button" onClick={() => setMobileFiltersOpen(false)}>취소</button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    setProjectId(draftProjectId);
+                    setStatus(draftStatus);
+                    setIssueType(draftIssueType);
+                    setPriority(draftPriority);
+                    setMobileFiltersOpen(false);
+                  }}
+                >
+                  조건 적용
+                </button>
+              </>
+            )}
+          >
+            <div className="mobile-filter-form">
+              <label><span>프로젝트</span><select data-autofocus value={draftProjectId} onChange={(event) => setDraftProjectId(event.target.value)}><option value="">전체 프로젝트</option>{projectOptions.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
+              <label><span>상태</span><select value={draftStatus} onChange={(event) => setDraftStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              <label><span>유형</span><select value={draftIssueType} onChange={(event) => setDraftIssueType(event.target.value as PendingIssueType | '')}>{typeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              <label><span>긴급도</span><select value={draftPriority} onChange={(event) => setDraftPriority(event.target.value as PendingPriority | '')}><option value="">전체 긴급도</option><option value="Urgent">긴급</option><option value="Normal">일반</option></select></label>
+            </div>
+          </MobileSheet>
+        </>
+      ) : (
+        <div className="pending-filter-bar" aria-label="Pending 필터">
+          <label><span>프로젝트</span><select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">전체 프로젝트</option>{projectOptions.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
+          <label><span>상태</span><select value={status} onChange={(event) => setStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label><span>유형</span><select value={issueType} onChange={(event) => setIssueType(event.target.value as PendingIssueType | '')}>{typeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label><span>긴급도</span><select value={priority} onChange={(event) => setPriority(event.target.value as PendingPriority | '')}><option value="">전체 긴급도</option><option value="Urgent">긴급</option><option value="Normal">일반</option></select></label>
+          <button type="button" onClick={() => { setProjectId(''); setStatus(''); setIssueType(''); setPriority(''); }}>필터 초기화</button>
+        </div>
+      )}
 
       {feedback ? <p className="action-feedback" data-tone="success" role="status">{feedback}</p> : null}
       {state.kind === 'loading' ? <PendingLoading /> : null}
@@ -321,6 +387,7 @@ function PendingDetailView({
   onOpenProject,
   onBadgeRefresh
 }: PendingPageProps & { pendingId: string }) {
+  const { isMobile } = useAdaptiveLayout();
   const [state, setState] = useState<AsyncState<PendingDetail>>({ kind: 'loading' });
   const [assignees, setAssignees] = useState<PendingAssignee[]>([]);
   const [reason, setReason] = useState('');
@@ -377,10 +444,10 @@ function PendingDetailView({
   const issue = detail.issue;
 
   return (
-    <section className="page-surface pending-page" aria-labelledby="pending-detail-title">
-      <header className="page-header pending-detail-header">
+    <section className={isMobile ? 'page-surface pending-page mobile-first-page mobile-pending-detail-page' : 'page-surface pending-page'} aria-labelledby="pending-detail-title">
+      <header className={isMobile ? 'pending-detail-header mobile-detail-hero' : 'page-header pending-detail-header'}>
         <div>
-          <button className="link-button" type="button" onClick={onBackToList}>← Pending List</button>
+          <button className={isMobile ? 'mobile-back-button' : 'link-button'} type="button" onClick={onBackToList}>← Pending List</button>
           <div className="pending-card-badges"><span className="pending-number">P-{padIssueNumber(issue.issueNumber)}</span><span className="status-badge" data-tone={pendingStatusTone(issue.status)}>{issue.statusLabel}</span><span className="status-badge" data-tone={issue.priority === 'Urgent' ? 'danger' : 'neutral'}>{issue.priorityLabel}</span><span className="status-badge" data-tone="info">{issue.issueTypeLabel}</span></div>
           <h2 id="pending-detail-title">{issue.title}</h2>
           <button className="link-button" type="button" onClick={() => onOpenProject(issue.projectId)}>{issue.projectCode} · {issue.projectTitle}</button>

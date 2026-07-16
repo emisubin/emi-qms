@@ -1,6 +1,8 @@
 import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { app as teamsApp } from '@microsoft/teams-js';
+import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
+import { MobileSheet } from './MobileSheet';
 import {
   ApiError,
   applyAdminCalendarHolidayExcel,
@@ -978,15 +980,26 @@ function ReviewSafeControlGuard({ mutationAllowed }: { mutationAllowed: boolean 
   return null;
 }
 
-function QmsAppShell({
-  authMode,
-  onLogout,
-  onReauthenticate
-}: {
+type QmsAppShellProps = {
   authMode: 'Dev' | 'EntraId';
   onLogout?: () => void;
   onReauthenticate?: () => void;
-}) {
+};
+
+function QmsAppShell(props: QmsAppShellProps) {
+  return (
+    <AdaptiveLayoutProvider>
+      <QmsAppShellContent {...props} />
+    </AdaptiveLayoutProvider>
+  );
+}
+
+function QmsAppShellContent({
+  authMode,
+  onLogout,
+  onReauthenticate
+}: QmsAppShellProps) {
+  const layout = useAdaptiveLayout();
   const isDevMode = authMode === 'Dev';
   const [developmentUserKey, setDevelopmentUserKey] = useState(() => {
     if (!isDevMode) {
@@ -1008,6 +1021,8 @@ function QmsAppShell({
   const [currentUser, setCurrentUser] = useState<LoadState<CurrentUser>>({ kind: 'loading' });
   const [shellBadges, setShellBadges] = useState<ShellBadgeState>({ requestedWorkCount: 0, unreadNotificationCount: 0 });
   const [adminTestUserKey, setAdminTestUserKeyState] = useState('');
+  const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
+  const mobileStatusTriggerRef = useRef<HTMLButtonElement>(null);
   const restoredAdminTestUser = useRef(false);
   const user = currentUser.kind === 'ready' ? currentUser.data : null;
   const isAccessBlocked = isOperationalAccessBlocked(user);
@@ -1020,6 +1035,12 @@ function QmsAppShell({
   useEffect(() => {
     setAdminTestUserKey(isDevMode ? null : adminTestUserKey);
   }, [adminTestUserKey, isDevMode]);
+
+  useEffect(() => {
+    if (!layout.isMobile) {
+      queueMicrotask(() => setMobileStatusOpen(false));
+    }
+  }, [layout.isMobile]);
 
   const setView = useCallback((nextView: View) => {
     setViewState(nextView);
@@ -1232,12 +1253,114 @@ function QmsAppShell({
     ] : [])
   ];
 
+  const activeNavigationLabel = navigationItems.find((item) => item.active)?.label ?? '업무';
+
   return (
-    <main className="app-shell">
+    <main
+      className="app-shell"
+      data-layout-mode={layout.mode}
+      data-touch-optimized={layout.touchOptimized}
+    >
       <AppNavigation items={navigationItems} onNavigate={setView} />
 
       <div className="app-content">
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
+        <header className="mobile-app-bar">
+          <div className="mobile-app-brand">
+            <img src={emiLogo} alt="" aria-hidden="true" />
+            <span>
+              <small>EMI PROJECT</small>
+              <strong>{activeNavigationLabel}</strong>
+            </span>
+          </div>
+          <button
+            ref={mobileStatusTriggerRef}
+            type="button"
+            className="mobile-status-trigger"
+            aria-expanded={mobileStatusOpen}
+            onClick={() => setMobileStatusOpen(true)}
+          >
+            <span aria-hidden="true">●</span>
+            상태
+          </button>
+        </header>
+
+        <MobileSheet
+          open={mobileStatusOpen}
+          title="앱 상태와 계정"
+          eyebrow="MOBILE STATUS"
+          description="현재 연결 상태와 계정을 확인하고 필요한 계정 동작을 실행합니다."
+          onClose={() => setMobileStatusOpen(false)}
+          triggerRef={mobileStatusTriggerRef}
+        >
+          <div className="mobile-status-grid" aria-label="모바일 시스템 상태">
+            <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
+            <StatusChip label="Database" value={health.kind === 'ready' ? health.data.database.reason : '-'} />
+            <StatusChip label="User" value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind} />
+          </div>
+          {runtimeMode.kind === 'ready' && runtimeMode.data.reviewSafe ? (
+            <div className="mobile-status-note" data-tone="warning">
+              <strong>검수 전용 읽기 모드</strong>
+              <span>조회·검색·필터만 가능하며 변경 action은 차단됩니다.</span>
+            </div>
+          ) : null}
+          {!isDevMode && user?.isTestUserSwitch ? (
+            <div className="mobile-status-note">
+              <strong>검수 계정으로 보는 중</strong>
+              <button
+                type="button"
+                onClick={() => {
+                  window.localStorage.removeItem(adminTestUserStorageKey);
+                  setAdminTestUserKeyState('');
+                  setView({ kind: 'home' });
+                  setMobileStatusOpen(false);
+                }}
+              >
+                실제 계정으로 보기
+              </button>
+            </div>
+          ) : null}
+          {canUseAdminTestUserSwitch ? (
+            <label className="mobile-status-field">
+              <span>검수 사용자 전환</span>
+              <select
+                value={adminTestUserKey}
+                onChange={(event) => {
+                  const nextUserKey = event.target.value;
+                  if (nextUserKey) {
+                    window.localStorage.setItem(adminTestUserStorageKey, nextUserKey);
+                  } else {
+                    window.localStorage.removeItem(adminTestUserStorageKey);
+                  }
+                  setAdminTestUserKeyState(nextUserKey);
+                  setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
+                }}
+              >
+                <option value="">실제 계정으로 보기</option>
+                {adminTestUsers.map((userKey) => <option key={userKey} value={userKey}>{labelForDevelopmentUser(userKey)}</option>)}
+              </select>
+            </label>
+          ) : null}
+          {isDevMode ? (
+            <label className="mobile-status-field">
+              <span>개발 사용자</span>
+              <select
+                value={developmentUserKey}
+                onChange={(event) => {
+                  const nextUserKey = event.target.value;
+                  window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
+                  setDevelopmentUserKey(nextUserKey);
+                  setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
+                }}
+              >
+                {developmentUsers.map((userKey) => <option key={userKey} value={userKey}>{userKey}</option>)}
+              </select>
+            </label>
+          ) : (
+            <button type="button" className="mobile-logout-button" onClick={onLogout}>로그아웃</button>
+          )}
+        </MobileSheet>
+
         <header className="topbar">
           <div>
             <p className="eyebrow">PROJECT OPERATIONS</p>
@@ -1693,6 +1816,7 @@ function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavig
 }
 
 function AppMobileNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavigate: (view: View) => void }) {
+  const { isMobile } = useAdaptiveLayout();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
@@ -1709,19 +1833,10 @@ function AppMobileNavigation({ items, onNavigate }: { items: NavigationItem[]; o
   }, []);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia?.('(max-width: 860px)');
-    if (!mediaQuery) {
-      return;
+    if (!isMobile) {
+      queueMicrotask(() => setMoreOpen(false));
     }
-
-    const handleChange = (event: MediaQueryListEvent) => {
-      if (!event.matches) {
-        setMoreOpen(false);
-      }
-    };
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     if (!moreOpen) {
@@ -5098,22 +5213,34 @@ function MyWorkPage({
   const summary = summaryState.kind === 'ready' ? summaryState.data : null;
 
   return (
-    <section className="page-surface workflow-page">
-      <div className="page-header">
+    <section className={isMobile ? 'page-surface workflow-page mobile-first-page' : 'page-surface workflow-page'}>
+      <div className={isMobile ? 'page-header mobile-page-header' : 'page-header'}>
         <div>
-          <p className="eyebrow">My Work</p>
-          <h2>내 업무</h2>
+          <p className="eyebrow">{isMobile ? 'TODAY ACTIONS' : 'My Work'}</p>
+          <h2>{isMobile ? '오늘 처리할 업무' : '내 업무'}</h2>
+          {isMobile ? <p>긴급 업무부터 확인하고 카드 안에서 바로 처리하세요.</p> : null}
         </div>
         <button type="button" onClick={load}>새로고침</button>
       </div>
 
-      <div className="dashboard-kpi-grid workflow-kpi-grid">
-        <KpiCard label="시작 전" value={summary ? String(summary.requestedCount) : '-'} />
-        <KpiCard label="진행 중" value={summary ? String(summary.inProgressCount) : '-'} />
-        <KpiCard label="완료" value={summary ? String(summary.completedCount) : '-'} />
-        <KpiCard label="차단/긴급" value={summary ? String(summary.blockingCount) : '-'} tone="danger" />
-        <KpiCard label="담당 프로젝트" value={summary ? String(summary.assignedProjectCount) : '-'} />
-      </div>
+      {isMobile ? (
+        <section className="mobile-focus-summary" aria-label="오늘 업무 요약">
+          <header><span>우선순위</span><strong>{summary?.blockingCount ? `긴급 ${summary.blockingCount}건` : '정상 진행'}</strong></header>
+          <div>
+            <button type="button" onClick={() => setActiveTab('Requested')}><span>시작 전</span><strong>{summary ? summary.requestedCount : '-'}</strong></button>
+            <button type="button" onClick={() => setActiveTab('InProgress')}><span>진행 중</span><strong>{summary ? summary.inProgressCount : '-'}</strong></button>
+            <button type="button" data-tone="danger" onClick={() => setActiveTab('All')}><span>차단·긴급</span><strong>{summary ? summary.blockingCount : '-'}</strong></button>
+          </div>
+        </section>
+      ) : (
+        <div className="dashboard-kpi-grid workflow-kpi-grid">
+          <KpiCard label="시작 전" value={summary ? String(summary.requestedCount) : '-'} />
+          <KpiCard label="진행 중" value={summary ? String(summary.inProgressCount) : '-'} />
+          <KpiCard label="완료" value={summary ? String(summary.completedCount) : '-'} />
+          <KpiCard label="차단/긴급" value={summary ? String(summary.blockingCount) : '-'} tone="danger" />
+          <KpiCard label="담당 프로젝트" value={summary ? String(summary.assignedProjectCount) : '-'} />
+        </div>
+      )}
 
       <div className="workflow-tabs" role="tablist" aria-label="내 업무 상태">
         {myWorkTabs.map((tab) => (
@@ -5727,11 +5854,12 @@ function NotificationsPage({
   const summary = summaryState.kind === 'ready' ? summaryState.data : null;
 
   return (
-    <section className="page-surface workflow-page">
-      <div className="page-header">
+    <section className={isMobile ? 'page-surface workflow-page mobile-first-page' : 'page-surface workflow-page'}>
+      <div className={isMobile ? 'page-header mobile-page-header' : 'page-header'}>
         <div>
-          <p className="eyebrow">Notifications</p>
-          <h2>알림</h2>
+          <p className="eyebrow">{isMobile ? 'FIELD SIGNALS' : 'Notifications'}</p>
+          <h2>{isMobile ? '업무 알림' : '알림'}</h2>
+          {isMobile ? <p>읽지 않은 긴급 신호를 먼저 확인하세요.</p> : null}
         </div>
         <div className="button-row">
           <button type="button" onClick={readAll}>전체 읽음</button>
@@ -5739,10 +5867,20 @@ function NotificationsPage({
         </div>
       </div>
 
-      <div className="dashboard-kpi-grid workflow-kpi-grid">
-        <KpiCard label="읽지 않음" value={summary ? String(summary.unreadCount) : '-'} />
-        <KpiCard label="긴급/차단" value={summary ? String(summary.blockingCount) : '-'} tone="danger" />
-      </div>
+      {isMobile ? (
+        <section className="mobile-focus-summary mobile-focus-summary--notifications" aria-label="알림 우선순위">
+          <header><span>확인 필요</span><strong>{summary?.blockingCount ? `긴급 ${summary.blockingCount}건` : '긴급 알림 없음'}</strong></header>
+          <div>
+            <button type="button" onClick={() => setActiveTab('unread')}><span>읽지 않음</span><strong>{summary ? summary.unreadCount : '-'}</strong></button>
+            <button type="button" data-tone="danger" onClick={() => setActiveTab('All')}><span>긴급·차단</span><strong>{summary ? summary.blockingCount : '-'}</strong></button>
+          </div>
+        </section>
+      ) : (
+        <div className="dashboard-kpi-grid workflow-kpi-grid">
+          <KpiCard label="읽지 않음" value={summary ? String(summary.unreadCount) : '-'} />
+          <KpiCard label="긴급/차단" value={summary ? String(summary.blockingCount) : '-'} tone="danger" />
+        </div>
+      )}
 
       <div className="workflow-tabs" role="tablist" aria-label="알림 읽음 상태">
         {notificationTabs.map((tab) => (
@@ -6099,8 +6237,14 @@ function ProjectListPage({
   const [purgeAllConfirmText, setPurgeAllConfirmText] = useState('');
   const [isPurgingAll, setIsPurgingAll] = useState(false);
   const [isDownloadingProjectTemplate, setIsDownloadingProjectTemplate] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [draftSearch, setDraftSearch] = useState('');
+  const [draftDateFrom, setDraftDateFrom] = useState('');
+  const [draftDateTo, setDraftDateTo] = useState('');
+  const mobileFilterTriggerRef = useRef<HTMLButtonElement>(null);
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const isMobile = useIsMobileViewport();
 
   const load = useCallback(() => {
     const requestId = requestIdRef.current + 1;
@@ -6208,46 +6352,113 @@ function ProjectListPage({
   }
 
   return (
-    <section className="page-surface">
-      <div className="page-header">
+    <section className={isMobile ? 'page-surface mobile-first-page mobile-project-list-page' : 'page-surface'}>
+      <div className={isMobile ? 'page-header mobile-page-header' : 'page-header'}>
         <div>
-          <p className="eyebrow">Projects</p>
-          <h2>프로젝트 목록</h2>
+          <p className="eyebrow">{isMobile ? 'FIELD PROJECTS' : 'Projects'}</p>
+          <h2>{isMobile ? '현장 프로젝트' : '프로젝트 목록'}</h2>
+          {isMobile ? <p>병목과 납기를 먼저 보고 필요한 프로젝트를 선택하세요.</p> : null}
         </div>
         {canCreate ? (
-          <div className="button-row">
-            <button type="button" onClick={downloadProjectTemplate} disabled={isDownloadingProjectTemplate}>
-              {isDownloadingProjectTemplate ? '다운로드 중' : '프로젝트 Excel 양식'}
-            </button>
-            <button type="button" onClick={() => setShowProjectExcel(true)}>프로젝트 Excel 업로드</button>
-            <button type="button" className="primary-button" onClick={onCreate}>신규 프로젝트</button>
-          </div>
+          isMobile ? (
+            <div className="mobile-page-actions">
+              <button type="button" className="primary-button" onClick={onCreate}>+ 프로젝트</button>
+              <details className="mobile-secondary-actions">
+                <summary>기타 작업</summary>
+                <button type="button" onClick={downloadProjectTemplate} disabled={isDownloadingProjectTemplate}>
+                  {isDownloadingProjectTemplate ? '다운로드 중' : 'Excel 양식'}
+                </button>
+                <button type="button" onClick={() => setShowProjectExcel(true)}>Excel 업로드</button>
+              </details>
+            </div>
+          ) : (
+            <div className="button-row">
+              <button type="button" onClick={downloadProjectTemplate} disabled={isDownloadingProjectTemplate}>
+                {isDownloadingProjectTemplate ? '다운로드 중' : '프로젝트 Excel 양식'}
+              </button>
+              <button type="button" onClick={() => setShowProjectExcel(true)}>프로젝트 Excel 업로드</button>
+              <button type="button" className="primary-button" onClick={onCreate}>신규 프로젝트</button>
+            </div>
+          )
         ) : null}
       </div>
 
-      <form
-        className="toolbar"
-        onSubmit={(event) => {
-          event.preventDefault();
-          load();
-        }}
-      >
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="고객사, Item, PJT Code, PJT Title 검색"
-        />
-        <label className="date-filter-field">
-          <span>시작일</span>
-          <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
-        </label>
-        <label className="date-filter-field">
-          <span>종료일</span>
-          <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
-        </label>
-        <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }}>필터 초기화</button>
-        <button type="submit">검색</button>
-      </form>
+      {isMobile ? (
+        <>
+          <button
+            ref={mobileFilterTriggerRef}
+            type="button"
+            className="mobile-filter-trigger"
+            aria-expanded={mobileFiltersOpen}
+            onClick={() => {
+              setDraftSearch(search);
+              setDraftDateFrom(dateFrom);
+              setDraftDateTo(dateTo);
+              setMobileFiltersOpen(true);
+            }}
+          >
+            <span><strong>검색·필터</strong><small>{[search, dateFrom, dateTo].filter(Boolean).length > 0 ? `${[search, dateFrom, dateTo].filter(Boolean).length}개 조건 적용 중` : '전체 프로젝트 표시 중'}</small></span>
+            <span aria-hidden="true">⌕</span>
+          </button>
+          <MobileSheet
+            open={mobileFiltersOpen}
+            title="프로젝트 검색·필터"
+            eyebrow="PROJECT FILTER"
+            description="조건을 고른 뒤 적용하면 목록이 갱신됩니다. 취소하면 기존 조건을 유지합니다."
+            onClose={() => setMobileFiltersOpen(false)}
+            triggerRef={mobileFilterTriggerRef}
+            fullScreen
+            footer={(
+              <>
+                <button type="button" onClick={() => { setDraftSearch(''); setDraftDateFrom(''); setDraftDateTo(''); }}>초기화</button>
+                <button type="button" onClick={() => setMobileFiltersOpen(false)}>취소</button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    setSearch(draftSearch);
+                    setDateFrom(draftDateFrom);
+                    setDateTo(draftDateTo);
+                    setMobileFiltersOpen(false);
+                  }}
+                >
+                  조건 적용
+                </button>
+              </>
+            )}
+          >
+            <div className="mobile-filter-form">
+              <label><span>검색어</span><input data-autofocus value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder="고객사, Item, Code, Title" /></label>
+              <label><span>납기 시작일</span><input type="date" value={draftDateFrom} onChange={(event) => setDraftDateFrom(event.target.value)} /></label>
+              <label><span>납기 종료일</span><input type="date" value={draftDateTo} onChange={(event) => setDraftDateTo(event.target.value)} /></label>
+            </div>
+          </MobileSheet>
+        </>
+      ) : (
+        <form
+          className="toolbar"
+          onSubmit={(event) => {
+            event.preventDefault();
+            load();
+          }}
+        >
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="고객사, Item, PJT Code, PJT Title 검색"
+          />
+          <label className="date-filter-field">
+            <span>시작일</span>
+            <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+          </label>
+          <label className="date-filter-field">
+            <span>종료일</span>
+            <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+          </label>
+          <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }}>필터 초기화</button>
+          <button type="submit">검색</button>
+        </form>
+      )}
 
       {summaryState.kind === 'ready' ? <ProjectKpiGrid summary={summaryState.data} /> : null}
       {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' && summaryState.kind !== 'empty' ? <StateMessage state={summaryState} /> : null}
@@ -7056,6 +7267,7 @@ function ProjectDetailPage({
   const [confirmProjectTitle, setConfirmProjectTitle] = useState('');
   const [dialogError, setDialogError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const isMobile = useIsMobileViewport();
 
   const load = useCallback(() => {
     setProjectState({ kind: 'loading' });
@@ -7181,33 +7393,60 @@ function ProjectDetailPage({
   const canShowEdit = canUpdate;
   const isOnHold = project.status === 'OnHold';
   const isCancelled = project.status === 'Cancelled';
+  const projectActions = (
+    <>
+      {canShowEdit ? <button type="button" onClick={onEdit}>수정</button> : null}
+      {canHold && project.status === 'Active' ? <button type="button" onClick={() => setDialog('hold')}>보류</button> : null}
+      {canUpdate && isOnHold ? <button type="button" onClick={() => setDialog('resume')}>보류 해제</button> : null}
+      {canCancel && (project.status === 'Active' || isOnHold) ? <button type="button" onClick={() => setDialog('cancel')}>취소</button> : null}
+      {canUpdate && isCancelled ? <button type="button" onClick={() => setDialog('reactivate')}>재활성</button> : null}
+      {canDelete && project.status !== 'Completed' ? <button type="button" className="danger-button" onClick={() => setDialog('delete')}>삭제</button> : null}
+    </>
+  );
 
   return (
-    <section className="page-surface">
-      <div className="page-header">
+    <section className={isMobile ? 'page-surface mobile-first-page mobile-project-detail-page' : 'page-surface'}>
+      <div className={isMobile ? 'mobile-detail-hero' : 'page-header'}>
         <div>
-          <p className="eyebrow">Project Detail</p>
+          {isMobile ? <button type="button" className="mobile-back-button" onClick={onBack}>← 프로젝트</button> : null}
+          <p className="eyebrow">{isMobile ? project.projectCode : 'Project Detail'}</p>
           <h2>{project.projectTitle}</h2>
+          {isMobile ? <div className="mobile-detail-hero-meta"><ProjectStatusBadge status={project.status} /><span>{formatProjectProgress(project.projectProgressPercent)} 진행</span></div> : null}
         </div>
-        <div className="button-row">
-          <button type="button" onClick={onBack}>목록</button>
-          {canShowEdit ? <button type="button" onClick={onEdit}>수정</button> : null}
-          {canHold && project.status === 'Active' ? <button type="button" onClick={() => setDialog('hold')}>보류</button> : null}
-          {canUpdate && isOnHold ? <button type="button" onClick={() => setDialog('resume')}>보류 해제</button> : null}
-          {canCancel && (project.status === 'Active' || isOnHold) ? <button type="button" onClick={() => setDialog('cancel')}>취소</button> : null}
-          {canUpdate && isCancelled ? <button type="button" onClick={() => setDialog('reactivate')}>재활성</button> : null}
-          {canDelete && project.status !== 'Completed' ? <button type="button" className="danger-button" onClick={() => setDialog('delete')}>삭제</button> : null}
-        </div>
+        {isMobile ? (
+          <details className="mobile-secondary-actions mobile-project-actions">
+            <summary>프로젝트 작업</summary>
+            {projectActions}
+          </details>
+        ) : (
+          <div className="button-row">
+            <button type="button" onClick={onBack}>목록</button>
+            {projectActions}
+          </div>
+        )}
       </div>
 
-      <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
-
-      <ProjectBottleneckOverview
-        project={project}
-        onOpenPending={onOpenPending}
-        onOpenPanels={() => selectDetailSection('panels')}
-        onOpenWorkflow={() => selectDetailSection('workflow')}
-      />
+      {isMobile ? (
+        <>
+          <ProjectBottleneckOverview
+            project={project}
+            onOpenPending={onOpenPending}
+            onOpenPanels={() => selectDetailSection('panels')}
+            onOpenWorkflow={() => selectDetailSection('workflow')}
+          />
+          <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
+        </>
+      ) : (
+        <>
+          <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
+          <ProjectBottleneckOverview
+            project={project}
+            onOpenPending={onOpenPending}
+            onOpenPanels={() => selectDetailSection('panels')}
+            onOpenWorkflow={() => selectDetailSection('workflow')}
+          />
+        </>
+      )}
 
       <ProjectWorkflowSummary state={workflowState} />
 
@@ -11435,21 +11674,7 @@ function focusField(field: string) {
 }
 
 function useIsMobileViewport() {
-  const query = '(max-width: 860px)';
-  const [isMobile, setIsMobile] = useState(() => window.matchMedia?.(query).matches ?? false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia?.(query);
-    if (!mediaQuery) {
-      return;
-    }
-
-    const update = (event: MediaQueryListEvent) => setIsMobile(event.matches);
-    mediaQuery.addEventListener('change', update);
-    return () => mediaQuery.removeEventListener('change', update);
-  }, []);
-
-  return isMobile;
+  return useAdaptiveLayout().isMobile;
 }
 
 function ProjectBottleneckOverview({

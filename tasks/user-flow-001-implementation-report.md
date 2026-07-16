@@ -112,7 +112,7 @@ Phase A는 문서와 runner 계약만 변경한다. 게시 전에는 작업 bran
 | --- | --- | --- |
 | Implementation report | 이 문서 | Redraft·내용 review·독립 재검증·CI·PR #55 merge·private session cleanup 완료 |
 | SOP | N/A | 제품·runtime 운영 절차를 만들지 않은 개인 기획 문서 Task라 적용 대상 아님 |
-| User manual | N/A | 현재 산출물은 사용자 교육용 게시본이 아니라 개인 개발 판단용 미게시 참고 자료 |
+| User manual | N/A | 현재 산출물은 사용자 교육용 문서가 아니라 개인 개발 판단용 참고 자료 |
 | Roadmap update | `docs/00-product-roadmap.md` 23~25장 | 문서 작성 승인과 제품 구현 미승인을 분리해 추적 |
 | User validation checklist | `tasks/user-flow-001-change-004.md`와 사용자 실행 지시 | Redraft 방향·게시 승인 완료 / 제품 구현·Phase B 미승인 |
 

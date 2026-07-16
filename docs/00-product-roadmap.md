@@ -979,7 +979,7 @@ Excel 출력 대상 후보:
 | 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | APPROVED_FEATURE_IMPLEMENTATION | Completed / PR #49 Merged | Implementation Approved | Change 001~009 사용자 검수·최신 main 승격·전체 Frontend 자동·독립 검증·5174 반영 완료 | 없음. Code Connect는 향후 필수 Gate에서 제외 | No | Promotion·5176 experiment worktree 정리는 사용자 Deferred 결정 추적 |
 | 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | Completed / PR #50 Merged | Planning Approved | Open P0/P1/P2 `0/0/0`, 독립 검증·사용자 검수 완료 | 없음 | No | 0.6 신규 기능 Go/No-Go 사용자 결정 |
 | 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | Completed — User GO | N/A | Open P0/P1/P2 `0/0/0` | 없음 | No | 사용자 GO와 다음 행의 명시적 재정렬 승인 완료 |
-| 0.7 | TASK-USER-FLOW-001 — 웹사이트 전체 유저플로우 설계 | NEW_FEATURE | Fable Redraft Approved / Governance Merge Predecessor | Planning redraft approved / product implementation not approved | Governance 독립 재검증·merge | 없음 | No | Governance merge → Fable redraft → Codex 내용 review·독립 검증 → 별도 merge |
+| 0.7 | TASK-USER-FLOW-001 — 웹사이트 전체 유저플로우 설계 | NEW_FEATURE | Fable Redraft·Content Review Complete / Independent Verification Pending | 개인 참고 문서 redraft·게시 승인 / 제품 구현 미승인 | Governance PR #54 merge 완료, Change 004 | 없음 | No | 독립 검증 → 별도 PR·CI·merge |
 | 1.1 | TASK-007A Pending List | NEW_FEATURE | Reordered Pending | Scope Review Required | TASK-USER-FLOW-001 사용자 내용 확인, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | TASK-USER-FLOW-001 확인 뒤 별도 Fable 5 deep-interview → planning → Codex review → 사용자 승인 |
 | 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A | Pending 차단·상태 matrix 확정 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
 | 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A·007B | 사진 storage·압축·재시도 정책 | Yes | 동일 URL·390px/Teams narrow planning |
@@ -1458,12 +1458,12 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-USER-FLOW-001: 웹사이트 전체 유저플로우 설계
 
-- 상태: Interview·기존 Fable 전문·GPT-5.6 SOL 내용 review 완료 / 사용자 방향 확인·Fable redraft·문서 별도 merge 승인 / Governance merge 선행 대기
+- 상태: Interview·사용자 방향 확인·Fable redraft·Codex 내용 review 완료 / 독립 검증·별도 merge 대기
 - 목적: 현재 구현과 향후 Roadmap 기능을 하나의 역할별 웹사이트 흐름으로 연결해 신규 기능별 화면·내비게이션·업무 인수인계가 서로 충돌하지 않는 개인 기획 기준선을 만든다.
-- 산출물 위치: local `feat/task-user-flow-001-website-flow` branch의 Fable 원문, interview·planning·review·change·implementation report. Fable 원문은 Codex가 수정하지 않는다.
+- 산출물 위치: `docs/13-user-flow-baseline.md`, interview·planning·review·Change 001~004·implementation report. Redraft 원문은 Fable stdout과 byte-identical하며 Codex가 수정하지 않았다.
 - 최신 review 결론: 전체 흐름 지도는 개인 개발 판단 자료로 유지한다. Canonical 선언·Phase B·전수 갱신은 보류하고, `Pending → 병목 집계 → 자재 도착 → IQC → 키팅 → 제조 handoff`를 우선 검증할 제품 slice로 권고한다.
 - 승인 상태: 개인 참고 문서 Fable redraft와 별도 push·PR·merge 승인 / 제품 구현·Phase B 미승인
-- 다음 Gate: Governance 독립 재검증·merge 뒤 USER-FLOW branch를 최신 main에 정렬하고 Fable redraft → Codex 내용 review → 독립 검증 → 별도 merge를 수행한다. 개별 기능 구현은 별도 승인 대상이다.
+- 다음 Gate: 최신 main 기준 독립 검증에서 Open P0/P1/P2 0을 확인한 뒤 별도 PR·CI·merge를 수행한다. 개별 기능 구현은 별도 승인 대상이다.
 
 ### TASK-007A: Pending List 공통 모듈
 
@@ -1673,7 +1673,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 84 | 전체 Finding Gate | Open P0/P1/P2 `0/0/0` / 독립 검증·사용자 검수 완료 / PR #50 merge 승인 | 사용자/개발/보안 | TASK-GOV-FINDING-GATE-001 | History·E2E·Failed retry·privacy 절차 P2 Resolved. 신규 기능은 `GO_FOR_USER_DECISION`, 자동 시작 아님 |
 | 85 | Public main 서버 측 PR 강제 | Resolved — active required PR 적용·운영 문서 동기화 | 사용자/운영/보안 | TASK-GOV-CODEX-002 Change 005 | Repository `PUBLIC`, default branch `main`, effective `pull_request` rule 1. 승인·required status check·최신화·review 해결은 강제하지 않으며 History SOP·User manual current state도 동기화 |
 | 86 | Local GitHub 폴더 최종 정리 | 최종 삭제·자동·독립 검증·사용자 검수·PR #52 merge 완료 | 사용자/개발 | TASK-GOV-CODEX-002 Change 006 | 최상위 폴더 `6→3→2`. Dirty checkout 6개·local branch 32개 exact audit 뒤 보존 폴더를 영구 삭제. Docker stale handle `4→0`, 동일 PostgreSQL volume·DB aggregate·대표·디자인 runtime 보존 |
-| 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | 기존 Fable 전문·내용 review 완료 / 사용자 방향 확인·redraft·별도 merge 승인 / Governance merge 선행 대기 | 사용자/기획/개발 | TASK-USER-FLOW-001 | 개인 개발 판단 자료. 최신 main에서 Fable redraft·Codex 내용 review·독립 검증 뒤 별도 게시하며 제품 구현·Phase B는 미승인 |
+| 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | Fable redraft·Codex 내용 review 완료 / 독립 검증·별도 merge 대기 | 사용자/기획/개발 | TASK-USER-FLOW-001 Change 004 | 개인 개발 판단 자료. Fable direct-write 원문·확정/권고/미확정 경계·병렬 dependency map·vertical slice를 반영했으며 제품 구현·Phase B는 미승인 |
 | 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / Governance merge 승인 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Governance merge 뒤 USER-FLOW를 최신 main에서 별도 처리 |
 
 ## 25. 결정 이력 (Decision Log)
@@ -1829,6 +1829,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-16 | TASK-USER-FLOW-001은 개인 개발 판단 자료이며 제품 구현·Fable redraft·public 게시 승인을 포함하지 않음 | 사용자 목적과 승인 경계를 분리하고 과거 `implementationApproved: true` 표기가 제품 구현 승인으로 오해되지 않게 하기 위함 | 23장~25장, TASK-USER-FLOW-001 Change 003 |
 | 2026-07-16 | Fable 정책과 USER-FLOW 결과를 대표 clone에 branch별로 선별 보존하고 두 임시 worktree를 일반 제거 | 앞으로 일반 작업은 대표 폴더 한 곳에서 branch만 전환하고 디자인 5176 폴더만 별도로 유지하기 위함. Local commit은 허용하되 push·PR·merge·branch 삭제는 제외 | AGENTS.md, 23장~25장, TASK-GOV-CODEX-002 Change 012 |
 | 2026-07-16 | Governance 정책은 P2 보정본 독립 재검증 뒤 먼저 merge하고 USER-FLOW는 최신 main에서 Fable redraft·내용 review·독립 검증 뒤 별도 merge | Generic Fable 계약을 먼저 canonical main에 고정한 뒤 기존 USER-FLOW 전문을 사용자 결정과 일치하게 Fable이 직접 다시 작성하고 두 게시 단위를 분리하기 위함 | AGENTS.md, CLAUDE.md, 23장~25장, TASK-GOV-CODEX-002 Change 013, TASK-USER-FLOW-001 |
+| 2026-07-16 | TASK-USER-FLOW-001 Change 004의 Fable redraft를 실행하고 개인 개발 판단 자료로 내용 review | Canonical·온보딩·Phase B·전수 갱신 의무를 제거하고 병렬 업무 단위·최소 vertical slice·복구 질문·성공 신호를 보강하되 권고를 제품 구현 승인과 분리하기 위함 | 23장~25장, TASK-USER-FLOW-001 Change 004 |
 
 ## 26. 용어 사전
 

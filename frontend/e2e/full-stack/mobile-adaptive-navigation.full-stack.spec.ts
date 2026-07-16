@@ -3,8 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
-const screenshotDirectory = process.env.MOBILE_SCREENSHOT_DIR?.trim()
-  || path.resolve(process.cwd(), '../tasks/mobile-001-screenshots');
+const screenshotDirectory = process.env.MOBILE_SCREENSHOT_DIR?.trim() || null;
 
 test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navigation', async ({ page, request }) => {
   const unique = Date.now();
@@ -13,7 +12,7 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
   const pending = await createPending(request, projectId, `현장 치수 재확인 ${unique}`);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
 
   await page.goto('/my-work');
@@ -22,7 +21,7 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
   await assertMobileNavigation(page, '내 업무');
   await capture(page, '01-my-work-mobile-390.png');
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByPlaceholder('고객사, Item, PJT Code, PJT Title 검색').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
   await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
@@ -68,7 +67,7 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
   await expect(moreTrigger).toBeFocused();
 
   await page.setViewportSize({ width: 480, height: 800 });
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByPlaceholder('고객사, Item, PJT Code, PJT Title 검색').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
   await expect(page.getByText(projectTitle, { exact: true })).toBeVisible();
@@ -102,6 +101,10 @@ async function assertTouchTarget(target: Locator) {
 }
 
 async function capture(page: Page, filename: string) {
+  if (!screenshotDirectory) {
+    return;
+  }
+
   await fs.mkdir(screenshotDirectory, { recursive: true });
   await page.evaluate(async () => {
     await document.fonts.ready;

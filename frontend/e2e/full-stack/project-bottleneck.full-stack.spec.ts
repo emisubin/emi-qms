@@ -39,7 +39,7 @@ test('TASK-007B: server sorting, Pending drill-down, and project bottleneck deta
   });
   expect(projects.items[0].bottleneck.panelDistribution).toHaveLength(7);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
   await page.getByPlaceholder('고객사, Item, PJT Code, PJT Title 검색').fill(commonPrefix);
   await page.getByRole('button', { name: '검색' }).click();
@@ -59,7 +59,7 @@ test('TASK-007B: server sorting, Pending drill-down, and project bottleneck deta
   await expect(page.getByLabel('Pending 필터').getByLabel('프로젝트')).toHaveValue(blockedProjectId);
   await expect(page.getByRole('button', { name: `Urgent blocker ${unique}` })).toBeVisible();
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
   await page.getByPlaceholder('고객사, Item, PJT Code, PJT Title 검색').fill(blockedTitle);
   await page.getByRole('button', { name: '검색' }).click();

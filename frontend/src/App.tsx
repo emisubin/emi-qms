@@ -127,6 +127,7 @@ import authEllipse67 from './assets/auth-ellipse-67.svg';
 import emiLogo from './assets/emi-logo.png';
 import microsoftLogo from './assets/microsoft-logo.png';
 import type { ReadyHealth } from './health';
+import { HomePage } from './HomePage';
 import { PendingPage } from './PendingPage';
 import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
@@ -202,6 +203,7 @@ import type {
 } from './projects';
 
 type View =
+  | { kind: 'home' }
   | { kind: 'my-work' }
   | { kind: 'teams-activity' }
   | { kind: 'teams-activity-detail'; deliveryId: string }
@@ -317,11 +319,19 @@ const packagingMethodOptions: Array<{ value: PackagingMethod; label: string }> =
 
 function initialViewFromLocation(): View {
   if (typeof window === 'undefined') {
-    return { kind: 'list' };
+    return { kind: 'home' };
   }
 
   if (window.location.pathname === '/' && isLikelyTeamsContext()) {
     return { kind: 'teams-activity' };
+  }
+
+  if (window.location.pathname === '/' || window.location.pathname === '/home') {
+    return { kind: 'home' };
+  }
+
+  if (window.location.pathname === '/projects') {
+    return { kind: 'list' };
   }
 
   if (window.location.pathname === '/my-work') {
@@ -465,7 +475,7 @@ function initialViewFromLocation(): View {
     };
   }
 
-  return { kind: 'list' };
+  return { kind: 'home' };
 }
 
 function isLikelyTeamsContext() {
@@ -629,6 +639,8 @@ function sectionFromQuery(value: string | null): ProjectDetailSection | undefine
 
 function pathForView(view: View) {
   switch (view.kind) {
+    case 'home':
+      return '/';
     case 'my-work':
       return '/my-work';
     case 'teams-activity':
@@ -693,6 +705,8 @@ function pathForView(view: View) {
       })}`;
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}`;
+    case 'list':
+      return '/projects';
     default:
       return '/';
   }
@@ -1205,6 +1219,7 @@ function QmsAppShell({
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
   const canAccessMaterialReceipts = canUpdateMaterialReceipt || isSystemAdministrator;
   const navigationItems: NavigationItem[] = [
+    { label: '홈', view: { kind: 'home' }, active: view.kind === 'home' },
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount },
     { label: '프로젝트', view: { kind: 'list' }, active: isProjectWorkspace(view) },
     ...(canReadPending ? [{ label: 'Pending', view: { kind: 'pending' } as View, active: view.kind === 'pending' || view.kind === 'pending-detail' }] : []),
@@ -1243,7 +1258,7 @@ function QmsAppShell({
                       window.localStorage.removeItem(adminTestUserStorageKey);
                     }
                     setAdminTestUserKeyState(nextUserKey);
-                    setView({ kind: 'list' });
+                    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
                   }}
                 >
                   <option value="">실제 계정으로 보기</option>
@@ -1262,7 +1277,7 @@ function QmsAppShell({
                     const nextUserKey = event.target.value;
                     window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
                     setDevelopmentUserKey(nextUserKey);
-                    setView({ kind: 'list' });
+                    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
                   }}
                 >
                   {developmentUsers.map((userKey) => (
@@ -1313,7 +1328,7 @@ function QmsAppShell({
               onClick={() => {
                 window.localStorage.removeItem(adminTestUserStorageKey);
                 setAdminTestUserKeyState('');
-                setView({ kind: 'list' });
+                setView({ kind: 'home' });
               }}
             >
               실제 계정으로 보기
@@ -1341,6 +1356,19 @@ function QmsAppShell({
 
       {currentUser.kind === 'ready' && currentUser.data.approvalPending ? (
         <ApprovalPendingPage user={currentUser.data} onLogout={onLogout} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'home' ? (
+        <HomePage
+          developmentUserKey={developmentUserKey}
+          requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
+          canReadPending={canReadPending}
+          onOpenMyWork={() => setView({ kind: 'my-work' })}
+          onOpenProjects={() => setView({ kind: 'list' })}
+          onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
+          onOpenPending={() => setView({ kind: 'pending' })}
+          onOpenNotifications={() => setView({ kind: 'notifications' })}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'my-work' ? (
@@ -1518,7 +1546,7 @@ function QmsAppShell({
           onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
           onOpenNotification={(notificationId) => setView({ kind: 'teams-notification-detail', notificationId })}
           onOpenMyWork={() => setView({ kind: 'my-work' })}
-          onOpenHome={() => setView({ kind: 'list' })}
+          onOpenHome={() => setView({ kind: 'home' })}
         />
       ) : null}
 
@@ -1633,7 +1661,7 @@ type NavigationItem = {
   badge?: number;
 };
 
-const mobilePrimaryNavigationLabels = new Set(['내 업무', '프로젝트', 'Pending', '알림']);
+const mobilePrimaryNavigationLabels = new Set(['홈', '내 업무', '프로젝트', 'Pending', '알림']);
 
 function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavigate: (view: View) => void }) {
   return (

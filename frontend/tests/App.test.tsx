@@ -16,6 +16,7 @@ vi.mock('@microsoft/teams-js', () => ({
 }));
 
 import { App } from '../src/App';
+import { HomePage } from '../src/HomePage';
 
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
 const projectId = '71000000-0000-0000-0000-000000000010';
@@ -42,10 +43,205 @@ describe('App', () => {
     teamsJsMock.initialize.mockResolvedValue(undefined);
     teamsJsMock.getContext.mockImplementation(async () => teamsJsMock.context ?? {});
     window.localStorage.clear();
+    window.history.pushState(null, '', '/projects');
     Object.defineProperty(document, 'referrer', { value: '', configurable: true });
     vi.stubGlobal('fetch', vi.fn(mockFetch));
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:panel-template');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  });
+
+  it('uses Home for / and /home while keeping the project list at /projects', async () => {
+    window.history.pushState(null, '', '/');
+    const { unmount } = render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '내 업무' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '프로젝트 병목' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '알림' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Pending' })).not.toBeInTheDocument();
+
+    const navigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    expect(within(navigation).getByRole('button', { name: '홈' })).toHaveClass('active');
+    fireEvent.click(within(navigation).getByRole('button', { name: '프로젝트' }));
+    expect(await screen.findByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/projects');
+    fireEvent.click(within(navigation).getByRole('button', { name: '홈' }));
+    expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+
+    act(() => {
+      window.history.pushState(null, '', '/projects');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(await screen.findByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
+    act(() => {
+      window.history.pushState(null, '', '/home');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
+
+    unmount();
+    window.history.pushState(null, '', '/home');
+    render(<App />);
+    expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
+  });
+
+  it('omits Pending data and the Pending widget when the effective user lacks Pending.Read', async () => {
+    window.history.pushState(null, '', '/');
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const requestUrl = new URL(String(input));
+      calls.push(requestUrl.pathname);
+      if (requestUrl.pathname === '/api/projects') {
+        const response = await mockFetch(input, init);
+        const body = await response.json() as { items: Array<Record<string, unknown>> };
+        body.items[0].bottleneck = {
+          kind: 'ProjectStage',
+          label: '생산관리 단계',
+          stageCode: 'ProductionPlanning',
+          stageLabel: '생산관리',
+          panelCount: null,
+          stageRank: 2,
+          nextAction: 'Pending',
+          nextActionLabel: 'open Pending 4건을 먼저 확인하세요.',
+          sortReason: 'open-pending',
+          openPendingCount: 4,
+          reinspectionPendingCount: 1,
+          urgentPendingCount: 2,
+          panelDistribution: []
+        };
+        return json(body);
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    const projectsWidget = await screen.findByLabelText('프로젝트 병목 요약');
+    expect(projectsWidget).not.toHaveTextContent('Pending');
+    expect(screen.queryByRole('heading', { name: 'Pending' })).not.toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain('/api/projects'));
+    expect(calls).not.toContain('/api/pending');
+  });
+
+  it('keeps an attempted forbidden widget visible as an error instead of hiding it', async () => {
+    window.history.pushState(null, '', '/');
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/my-work/summary') {
+        return json({ title: 'forbidden' }, 403);
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    const widget = await screen.findByLabelText('내 업무 요약');
+    expect(await within(widget).findByRole('alert')).toHaveTextContent('현재 권한으로 이 요약을 확인할 수 없습니다.');
+    expect(within(widget).getByRole('button', { name: '다시 시도' })).toBeInTheDocument();
+  });
+
+  it('ignores a delayed Home response after the effective request context changes', async () => {
+    let myWorkCallCount = 0;
+    let resolveOldResponse: ((response: Response) => void) | undefined;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/my-work/summary') {
+        myWorkCallCount += 1;
+        if (myWorkCallCount === 1) {
+          return new Promise<Response>((resolve) => {
+            resolveOldResponse = resolve;
+          });
+        }
+        return Promise.resolve(json({
+          requestedCount: 8,
+          inProgressCount: 0,
+          completedCount: 0,
+          blockingCount: 0,
+          assignedProjectCount: 0,
+          assignedProjectBreakdown: []
+        }));
+      }
+      return mockFetch(input, init);
+    }));
+
+    const callbacks = {
+      onOpenMyWork: vi.fn(),
+      onOpenProjects: vi.fn(),
+      onOpenProject: vi.fn(),
+      onOpenPending: vi.fn(),
+      onOpenNotifications: vi.fn()
+    };
+    const { rerender } = render(
+      <HomePage
+        developmentUserKey="dev-sales"
+        requestContextKey="effective-user-one"
+        canReadPending={false}
+        {...callbacks}
+      />
+    );
+    await waitFor(() => expect(resolveOldResponse).toBeDefined());
+
+    rerender(
+      <HomePage
+        developmentUserKey="dev-sales"
+        requestContextKey="effective-user-two"
+        canReadPending={false}
+        {...callbacks}
+      />
+    );
+    const widget = await screen.findByLabelText('내 업무 요약');
+    expect(await within(widget).findByText('8')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveOldResponse?.(json({
+        requestedCount: 99,
+        inProgressCount: 0,
+        completedCount: 0,
+        blockingCount: 0,
+        assignedProjectCount: 0,
+        assignedProjectBreakdown: []
+      }));
+      await Promise.resolve();
+    });
+    expect(within(widget).getByText('8')).toBeInTheDocument();
+    expect(within(widget).queryByText('99')).not.toBeInTheDocument();
+  });
+
+  it('keeps healthy Home widgets usable while one widget fails and retries independently', async () => {
+    let notificationAttempts = 0;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/notifications/summary') {
+        notificationAttempts += 1;
+        return Promise.resolve(notificationAttempts === 1
+          ? json({ title: 'temporarily unavailable' }, 503)
+          : json({ unreadCount: 3, blockingCount: 1 }));
+      }
+      return mockFetch(input, init);
+    }));
+    const callbacks = {
+      onOpenMyWork: vi.fn(),
+      onOpenProjects: vi.fn(),
+      onOpenProject: vi.fn(),
+      onOpenPending: vi.fn(),
+      onOpenNotifications: vi.fn()
+    };
+
+    render(
+      <HomePage
+        developmentUserKey="dev-sales"
+        requestContextKey="effective-user"
+        canReadPending={false}
+        {...callbacks}
+      />
+    );
+
+    const myWorkWidget = await screen.findByLabelText('내 업무 요약');
+    expect((await within(myWorkWidget).findAllByText('1')).length).toBeGreaterThan(0);
+    const notificationWidget = await screen.findByLabelText('알림 요약');
+    expect(await within(notificationWidget).findByRole('alert')).toHaveTextContent('알림 요약을 불러올 수 없습니다.');
+    fireEvent.click(within(notificationWidget).getByRole('button', { name: '다시 시도' }));
+    expect(await within(notificationWidget).findByText('3')).toBeInTheDocument();
+    expect(within(notificationWidget).getByText('1')).toBeInTheDocument();
+    expect(notificationAttempts).toBe(2);
   });
 
   afterEach(() => {

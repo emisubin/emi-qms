@@ -53,7 +53,7 @@ test('TASK-003B-1 A: read/detail split keeps detail fixed and edit page accepts 
   const projectTitle = `TASK 003B Direct ${unique}`;
   const projectId = await createProjectByApi(request, `FS-3B-A-${unique}`, projectTitle, 'StretchWrap', 2);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await openProject(page, projectTitle);
   await expect(page.getByRole('heading', { name: '설계' })).toBeVisible();
@@ -112,7 +112,7 @@ test('TASK-003B B: WoodenCrate name-only is QR eligible and unit switch does not
   });
   expect(complete.ok()).toBeTruthy();
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await openProject(page, projectTitle);
   await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
@@ -149,7 +149,7 @@ test('TASK-003B-1 B: project detail summarizes QR, manufacturing, and inspection
     select 'ok';
   `);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await openProject(page, projectTitle);
 
@@ -170,7 +170,7 @@ test('TASK-003B-1 UX: product panel and edit grid headers stay sticky on long li
   const projectTitle = `TASK 003B Sticky Header ${unique}`;
   await createProjectByApi(request, `FS-3B-STICKY-${unique}`, projectTitle, 'WoodenCrate', 30);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await openProject(page, projectTitle);
 
@@ -281,7 +281,7 @@ test('TASK-003B-1 UX: mobile layouts use cards for detail, edit, and Excel previ
   expect(seed.ok()).toBeTruthy();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await openProject(page, projectTitle);
 
@@ -375,7 +375,7 @@ test('TASK-003B-1 UX: project list has all tab, sticky header, workflow status, 
   })).ok()).toBeTruthy();
 
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   const desktopNavigation = page.getByRole('navigation', { name: '공통 메뉴' });
   await expect(desktopNavigation.getByRole('button', { name: '프로젝트' })).toHaveClass(/active/);
@@ -455,7 +455,7 @@ test('TASK-004A project Excel import creates projects and panels', async ({ page
     ['TEST CUSTOMER', 'UL67', `FS-4A-PROJ-${unique}`, projectTitle, '3', '2026-10-10', '목포장', '아니오', 'dev-sales', '', '', 'TEST LOCATION']
   ]);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await expect(page.getByRole('button', { name: '프로젝트 Excel 양식' })).toBeVisible();
   await page.getByRole('button', { name: '프로젝트 Excel 업로드' }).click();
@@ -478,7 +478,7 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   const projectTitle = `TASK 004A Direct ${unique}`;
   const projectId = await createProjectByApi(request, `FS-4A-DIRECT-${unique}`, projectTitle, 'StretchWrap', 1);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-procurement');
   await openProject(page, projectTitle);
   await page.getByRole('tab', { name: '구매' }).click();
@@ -553,7 +553,7 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   expect(salesProcurementWrite.status()).toBe(403);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-procurement');
   await openProject(page, projectTitle);
   await page.getByRole('tab', { name: '구매' }).click();
@@ -574,7 +574,7 @@ test('TASK-004A B/C/E: procurement Excel matching, apply, reupload changed previ
     ['', '', '5W', 'Cable', '', 'Owner B', '2026-07-02', '2026-07-11', '', '']
   ]);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-procurement');
   await openProject(page, projectTitle);
   await page.getByRole('tab', { name: '구매' }).click();
@@ -642,7 +642,7 @@ test('TASK-004A deleted archive restore returns a project to the normal list', a
   });
   expect(deleteResponse.ok()).toBeTruthy();
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await page.getByRole('tab', { name: '삭제 보관함' }).click();
   await openProject(page, projectTitle);
@@ -677,7 +677,7 @@ test('TASK-005A production planning page, project section, edit, permissions, an
     select count(*)::text from upserted;
   `)).toBe('1');
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-production');
   const navigation = page.getByRole('navigation', { name: '공통 메뉴' }).first();
   await expect(navigation.getByRole('button', { name: '생산관리' })).toBeVisible();
@@ -820,7 +820,7 @@ test('TASK-005A production planning page, project section, edit, permissions, an
   await expect(page.getByLabel('생산계획 요약')).toContainText('생산계획 미등록');
   await expect(page.getByRole('button', { name: 'Excel 업로드' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toHaveCount(0);
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-admin');
   await openProject(page, projectTitle);
   await page.getByRole('tab', { name: '생산관리' }).click();
@@ -852,7 +852,7 @@ test('TASK-006A UAT regression: my-work data, procurement settings route, and wo
     select 'ok';
   `);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '내 업무' }).click();
   await expect(page.getByRole('heading', { name: '내 업무' })).toBeVisible();
@@ -938,7 +938,7 @@ test('TASK-006A UAT regression: my-work data, procurement settings route, and wo
   await saveAssignees();
   expect(await queryDatabaseValue(`select count(*)::text from work_items where project_id = '${projectId}' and workflow_stage_code in ('DesignPanelInfo','ProcurementInfo');`)).toBe(workCountAfterFirstSave);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '내 업무' }).click();
   await expect(page.locator('.workflow-project-group').filter({ hasText: projectTitle })).toContainText('패널명, 사이즈 입력');
@@ -947,7 +947,7 @@ test('TASK-006A UAT regression: my-work data, procurement settings route, and wo
   await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '내 업무' }).click();
   await expect(page.locator('.workflow-project-group').filter({ hasText: projectTitle })).toContainText('구매정보 입력');
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-procurement');
   await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '구매' }).click();
   await expect(page.getByRole('heading', { name: '구매' })).toBeVisible();
@@ -958,7 +958,7 @@ test('TASK-006A UAT regression: my-work data, procurement settings route, and wo
   await expect(page.getByRole('tab', { name: 'TEST-TYPE' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '행 추가' })).toBeVisible();
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await page.getByRole('button', { name: '신규 프로젝트' }).click();
   await expect(page.getByLabel('Item*').locator('option')).toHaveText(['Item 선택', 'UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RPP']);
@@ -975,7 +975,7 @@ test('TASK-003B D: unauthorized and held projects block panel information writes
   const projectId = await createProjectByApi(request, `FS-3B-D-${unique}`, projectTitle, 'StretchWrap', 1);
   const panel = await readPanelInformation(request, projectId);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
   await openProject(page, projectTitle);
   await expect(page.getByRole('heading', { name: '설계' })).toBeVisible();
@@ -1016,7 +1016,7 @@ test('TASK-003B-1 D: admin grouped history summarizes one direct bulk save', asy
   const projectTitle = `TASK 003B Grouped History ${unique}`;
   await createProjectByApi(request, `FS-3B-G-${unique}`, projectTitle, 'WoodenCrate', 2);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await openProject(page, projectTitle);
   await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
@@ -1054,7 +1054,7 @@ test('TASK-003B-1 C: partial Excel preview/apply skips blank rows and admin sees
     ['3', '10003', 'PNL-3', '', '', '']
   ]);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await openProject(page, projectTitle);
   await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
@@ -1096,7 +1096,7 @@ test('full-stack: project registration, permissions, status, and panel count use
   const unique = Date.now();
   const projectTitle = `TASK 003A Full Stack ${unique}`;
 
-  await page.goto('/');
+  await page.goto('/projects');
   await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
 
   await page.getByRole('button', { name: '신규 프로젝트' }).click();

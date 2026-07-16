@@ -49,7 +49,7 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
   const store = createStore();
   await routeApi(page, store);
 
-  await page.goto('/');
+  await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
 
   await page.getByRole('button', { name: '신규 프로젝트' }).click();

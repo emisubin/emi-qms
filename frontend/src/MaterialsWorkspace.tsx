@@ -37,12 +37,14 @@ export function MaterialReceivingPage({
   canUpdate,
   onBack,
   onOpenIqc,
+  onOpenKitting,
   onOpenPending
 }: {
   developmentUserKey: string;
   canUpdate: boolean;
   onBack: () => void;
   onOpenIqc: () => void;
+  onOpenKitting: () => void;
   onOpenPending: (pendingId: string) => void;
 }) {
   const layout = useAdaptiveLayout();
@@ -133,6 +135,7 @@ export function MaterialReceivingPage({
         </div>
         <div className="material-hero-actions">
           <button type="button" onClick={onBack}>프로젝트</button>
+          <button type="button" onClick={onOpenKitting}>패널 키팅</button>
           <button type="button" className="primary-button" onClick={onOpenIqc}>IQC 검사함</button>
         </div>
       </header>

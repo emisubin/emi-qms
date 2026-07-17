@@ -1536,6 +1536,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 선행조건: 자재 입고 확정
 - 주요 테스트: 키팅 완료, 제조 업무 생성, 중복 방지
 - 2026-07-17 실험 상태: `experiment/task-010a-panel-kitting`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0033`은 backend test의 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. canonical 실행 큐의 `Dependency Pending`과 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-17 실험 Change 002: 전역 `키팅` 메뉴를 제거하고 전역 `자재` 메뉴를 입고·키팅의 공통 진입점으로 유지한다. 입고 화면 내부 `패널 키팅` action과 내 업무 deep link로 키팅 화면에 진입하며, 키팅 화면에서도 전역 `자재`가 active다.
 
 ### TASK-011A: 제조 체크리스트 / 작업 시작·종료 / 제조 중단
 

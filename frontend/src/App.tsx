@@ -1277,6 +1277,10 @@ function QmsAppShellContent({
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
   const canAccessMaterialReceipts = canUpdateMaterialReceipt || isSystemAdministrator;
   const canAccessPanelKitting = permissions.includes('projects.read');
+  const canAccessMaterials = canAccessMaterialReceipts || canAccessPanelKitting;
+  const materialsHomeView: View = canAccessMaterialReceipts
+    ? { kind: 'materials-receipts' }
+    : { kind: 'materials-kitting' };
   const navigationItems: NavigationItem[] = [
     { label: '홈', view: { kind: 'home' }, active: view.kind === 'home' },
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount },
@@ -1284,8 +1288,7 @@ function QmsAppShellContent({
     ...(canReadPending ? [{ label: 'Pending', view: { kind: 'pending' } as View, active: view.kind === 'pending' || view.kind === 'pending-detail' }] : []),
     { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
-    ...(canAccessMaterialReceipts ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : []),
-    ...(canAccessPanelKitting ? [{ label: '키팅', view: { kind: 'materials-kitting' } as View, active: view.kind === 'materials-kitting' }] : []),
+    ...(canAccessMaterials ? [{ label: '자재', view: materialsHomeView, active: view.kind === 'materials-receipts' || view.kind === 'materials-kitting' }] : []),
     ...(canInspectQuality ? [{ label: 'IQC', view: { kind: 'quality-iqc' } as View, active: view.kind === 'quality-iqc' }] : []),
     { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: displayedShellBadges.unreadNotificationCount },
     ...(canUseAdminPages ? [
@@ -1408,8 +1411,7 @@ function QmsAppShellContent({
             <h1>EMI 프로젝트 통합관리시스템</h1>
           </div>
           <div className="topbar-actions">
-            {canAccessMaterialReceipts ? <button type="button" onClick={() => setView({ kind: 'materials-receipts' })}>자재</button> : null}
-            {canAccessPanelKitting ? <button type="button" onClick={() => setView({ kind: 'materials-kitting' })}>키팅</button> : null}
+            {canAccessMaterials ? <button type="button" onClick={() => setView(materialsHomeView)}>자재</button> : null}
             {canUseAdminTestUserSwitch ? (
               <label className="test-user-select">
                 <span>검수 사용자 전환</span>
@@ -1691,6 +1693,7 @@ function QmsAppShellContent({
           canUpdate={canUpdateMaterialReceipt}
           onBack={() => setView({ kind: 'list' })}
           onOpenIqc={() => setView({ kind: 'quality-iqc' })}
+          onOpenKitting={() => setView({ kind: 'materials-kitting' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
@@ -1853,7 +1856,6 @@ const mobileNavigationHints: Record<string, string> = {
   '생산관리': '생산계획과 일정',
   '구매': '발주와 입고예정',
   '자재': '입고와 IQC 요청',
-  '키팅': '패널을 제조로 인계',
   'IQC': '수입검사 대기',
   '알림': '업무 소식',
   '관리자': '시스템 운영'

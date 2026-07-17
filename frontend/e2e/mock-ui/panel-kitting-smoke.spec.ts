@@ -44,7 +44,8 @@ test('TASK-010A mock visual: adaptive panel kitting page and mobile drawer', asy
   await page.getByRole('button', { name: '메뉴 열기' }).click();
   const menu = page.getByRole('dialog', { name: '전체 업무 메뉴' });
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole('button', { name: '키팅' })).toHaveAttribute('aria-current', 'page');
+  await expect(menu.getByRole('button', { name: '자재' })).toHaveAttribute('aria-current', 'page');
+  await expect(menu.getByRole('button', { name: '키팅' })).toHaveCount(0);
   await capture(page, '04-panel-kitting-menu-mobile-390.jpg');
 });
 

@@ -49,7 +49,7 @@ Authoritative implementation contract는 Fable 2차 기획 [docs/17-panel-kittin
 ### Frontend·적응형 UX
 
 - 대형 자재 workspace에 키팅 상태를 누적하지 않고 `PanelKittingPage.tsx`, `panelKitting.ts`, 전용 API helper로 분리했다.
-- `/materials/kitting?project=...` route, 좌상단 숨김 global menu와 업무 deep link를 연결했다. 모바일 bottom navigation은 추가하지 않았다.
+- `/materials/kitting?project=...` route와 업무 deep link는 유지하되, Change 002에서 독립 전역 `키팅` 메뉴를 제거하고 전역 `자재` 메뉴와 입고 화면 내부 `패널 키팅` action으로 통합했다. 키팅 화면에서도 `자재`가 active이며 모바일 bottom navigation은 추가하지 않았다.
 - desktop은 프로젝트 rail·readiness summary·panel grid를, 모바일은 가로 project queue·핵심 readiness·2열 compact panel card·선택 action을 사용한다. PC 화면을 축소한 표 구조를 사용하지 않는다.
 - 각진 직사각형·둥근 직사각형·정사각형·soft shape, 원형 count/progress와 타원형 상태를 함께 사용했다. 390px에서 page horizontal overflow는 0이고 menu trigger는 45×45px다.
 - 선택 내용이 바뀌기 전 실패 재시도에는 같은 operationId를 유지하고, 선택이 바뀌면 새 operationId를 생성한다.
@@ -72,7 +72,7 @@ Authoritative implementation contract는 Fable 2차 기획 [docs/17-panel-kittin
 
 - DB: `database/migrations/0033_panel_kitting_handoff.sql`
 - Backend: `PanelKittingContracts.cs`, `PanelKittingEndpointExtensions.cs`, `PanelKittingStore.cs`, Materials readiness hook, Project purge/cancel lifecycle, Workflow link·stage 연결, DI
-- Frontend: `PanelKittingPage.tsx`, `panelKitting.ts`, API·route/menu·adaptive CSS
+- Frontend: `PanelKittingPage.tsx`, `panelKitting.ts`, API·route, 자재 통합 navigation과 adaptive CSS
 - Tests: migration/API integration, frontend unit, mock visual·isolated full-stack Playwright spec
 - 기획·검토: interview, Fable 1차 planning, Codex review, Change 001, Fable 2차 planning
 - 증빙: `tasks/010a-screenshots/*.jpg`, 이 보고서와 user validation checklist
@@ -86,7 +86,7 @@ Authoritative implementation contract는 Fable 2차 기획 [docs/17-panel-kittin
 - Frontend 전체 unit: `77/77 PASS`
 - Frontend lint: `PASS`(error 0, 기존 `main.tsx` Fast Refresh warning 1)
 - Frontend typecheck + production build: `PASS`(기존 대형 chunk warning만 존재)
-- Browser visual QA: desktop·390px 4장, 모바일 horizontal overflow 0, bottom navigation 0, 4종 card shape와 좌상단 menu active 상태 확인
+- Browser visual QA: desktop·390px 5장, desktop·모바일 horizontal overflow 0, bottom navigation 0, 독립 `키팅` 메뉴 0건, 자재 내부 진입점과 `자재` menu active 상태 확인
 
 미실행:
 
@@ -134,7 +134,7 @@ Claude `/usage` 정수 반올림 기준이다.
 
 1. 이 branch를 isolated DB와 external provider disabled 상태에서 실행한다.
 2. 자재 도착·IQC를 처리해 프로젝트의 모든 활성 구매품목을 입고 완료한다.
-3. 자재 담당은 좌상단 menu 또는 내 업무에서 `키팅`을 열고 준비 완료 프로젝트를 선택한다.
+3. 자재 담당은 좌상단 `자재` → 입고 화면의 `패널 키팅`, 또는 내 업무 deep link에서 준비 완료 프로젝트를 선택한다.
 4. panel 정보와 상태를 확인한 뒤 제조로 넘길 활성 panel을 선택하고 키팅 완료한다.
 5. 성공 요약의 완료 panel 수와 생성 제조 업무 수를 확인한다. 통신 오류 후 선택이 같으면 그대로 재시도한다.
 6. 마지막 panel 완료 뒤 키팅 업무 종료와 stage 완료 여부를 확인한다. panel 취소가 필요하면 열린 제조 업무가 Cancelled인지 함께 확인한다.
@@ -142,8 +142,8 @@ Claude `/usage` 정수 반올림 기준이다.
 
 ## User manual — 역할별 사용법
 
-- 자재 담당 Desktop: `키팅` → 왼쪽 project → readiness 확인 → panel 선택 → `N면 키팅 완료` → 결과 확인.
-- 자재 담당 Mobile: 좌상단 메뉴 → `키팅` → 위쪽 project card → panel card 선택 → 화면 안쪽 완료 action.
+- 자재 담당 Desktop: `자재` → `패널 키팅` → 왼쪽 project → readiness 확인 → panel 선택 → `N면 키팅 완료` → 결과 확인.
+- 자재 담당 Mobile: 좌상단 메뉴 → `자재` → `패널 키팅` → 위쪽 project card → panel card 선택 → 화면 안쪽 완료 action.
 - 제조 담당: 키팅 완료된 panel마다 생성된 `제조 작업` 내 업무를 확인한다. 제조 입력은 후속 TASK-011A 범위다.
 - 읽기 역할: 접근 가능한 프로젝트의 readiness·완료 상태만 조회하며 완료 action은 표시·허용되지 않는다.
 - 오류 복구: 입고 미완료·panel 정보 미완료·담당자 미지정 문구에 따라 선행정보를 보완한다. 이미 다른 요청이 완료한 경우 최신 목록을 다시 불러온다.

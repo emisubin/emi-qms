@@ -57,6 +57,8 @@ builder.Services.AddSingleton<PendingStore>();
 builder.Services.AddSingleton<ProcurementExcelParser>();
 builder.Services.AddSingleton<ProcurementStore>();
 builder.Services.AddSingleton<MaterialsStore>();
+builder.Services.AddSingleton<IqcPdfRenderer>();
+builder.Services.AddSingleton<IqcReportStore>();
 builder.Services.AddSingleton<ProductionPlanningStore>();
 builder.Services.AddSingleton<SystemHolidayStore>();
 builder.Services.AddSingleton<BusinessCalendarStore>();

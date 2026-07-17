@@ -12,6 +12,12 @@ public static class MaterialReceiptStatuses
     public const string Cancelled = "Cancelled";
 }
 
+public static class IqcDecisionModes
+{
+    public const string Legacy = "Legacy";
+    public const string Detailed = "Detailed";
+}
+
 public sealed record MaterialReceiptSummaryResponse(
     int PendingArrivalCount,
     int WaitingIqcCount,
@@ -69,10 +75,14 @@ public sealed record MaterialIqcAttemptResponse(
     Guid AttemptId,
     int AttemptNumber,
     string Status,
+    string DecisionMode,
     string? Reason,
     Guid? PendingIssueId,
     DateTimeOffset RequestedAtUtc,
-    DateTimeOffset? DecidedAtUtc);
+    DateTimeOffset? DecidedAtUtc,
+    Guid? ReportId,
+    string? ReportStatus,
+    string? PdfStatus);
 
 public sealed record MaterialIqcQueueResponse(
     IReadOnlyList<MaterialIqcQueueItemResponse> Items);
@@ -91,8 +101,14 @@ public sealed record MaterialIqcQueueItemResponse(
     int ReceiptVersion,
     string SupplyType,
     string Status,
+    string DecisionMode,
     DateTimeOffset RequestedAtUtc,
-    Guid? PendingIssueId);
+    DateTimeOffset? DecidedAtUtc,
+    Guid? PendingIssueId,
+    string? Reason,
+    Guid? ReportId,
+    string? ReportStatus,
+    string? PdfStatus);
 
 public sealed record RegisterMaterialArrivalRequest(
     decimal? Quantity,

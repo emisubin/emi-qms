@@ -294,13 +294,50 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(31L, await ReadScalarAsync<long>(
+        Assert.Equal(32L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0031_customer_supplied_materials", await ReadScalarAsync<string>(
+        Assert.Equal("0032_iqc_digital_reports", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(6L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from iqc_report_template_items;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'material_iqc_attempts'
+              and column_name = 'decision_mode'
+              and is_nullable = 'NO'
+              and column_default like '%Detailed%';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(7L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'iqc_report_templates', 'iqc_report_template_versions', 'iqc_report_template_items',
+                  'iqc_reports', 'iqc_report_responses', 'iqc_report_photos', 'iqc_report_pdf_artifacts'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_trigger
+            where tgname = 'trg_guard_iqc_report_pdf_artifact_immutable'
+              and not tgisinternal;
+            """,
             TestContext.Current.CancellationToken));
 
         Assert.Equal(1L, await ReadScalarAsync<long>(

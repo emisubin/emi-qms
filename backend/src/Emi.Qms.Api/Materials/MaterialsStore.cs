@@ -1,5 +1,6 @@
 using Emi.Qms.Api.Pending;
 using Emi.Qms.Api.Procurement;
+using Emi.Qms.Api.Projects;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -93,23 +94,32 @@ public sealed class MaterialsStore(
             responseItems);
     }
 
-    public async Task<MaterialIqcQueueResponse> ListIqcAsync(bool includeDecided, CancellationToken cancellationToken)
+    public async Task<MaterialIqcQueueResponse> ListIqcAsync(
+        bool includeDecided,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
             select
                 attempt.id, receipt.id, item.id, project.id, project.project_title, project.project_code,
                 item.order_item, receipt.quantity, receipt.unit, attempt.attempt_number, receipt.version,
-                attempt.status, attempt.requested_at_utc, attempt.pending_issue_id, item.supply_type
+                attempt.status, attempt.decision_mode, attempt.requested_at_utc, attempt.decided_at_utc,
+                attempt.pending_issue_id, item.supply_type, attempt.reason,
+                report.id, report.status, report.pdf_status
             from material_iqc_attempts attempt
             join material_receipts receipt on receipt.id = attempt.material_receipt_id
             join project_procurement_items item on item.id = receipt.procurement_item_id
             join projects project on project.id = item.project_id and project.deleted_at_utc is null
+            left join iqc_reports report on report.attempt_id = attempt.id
             where (@include_decided or attempt.status = 'Requested')
+              and (@has_read_all or project.project_key = any(@project_keys))
             order by case when attempt.status = 'Requested' then 0 else 1 end,
                      attempt.requested_at_utc desc;
             """);
         command.Parameters.AddWithValue("include_decided", includeDecided);
+        command.Parameters.AddWithValue("has_read_all", accessScope.HasProjectReadAll);
+        command.Parameters.AddWithValue("project_keys", accessScope.ProjectKeys.ToArray());
         var items = new List<MaterialIqcQueueItemResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -126,10 +136,16 @@ public sealed class MaterialsStore(
                 reader.IsDBNull(8) ? null : reader.GetString(8),
                 reader.GetInt32(9),
                 reader.GetInt32(10),
-                reader.GetString(14),
+                reader.GetString(16),
                 reader.GetString(11),
-                reader.GetFieldValue<DateTimeOffset>(12),
-                reader.IsDBNull(13) ? null : reader.GetGuid(13)));
+                reader.GetString(12),
+                reader.GetFieldValue<DateTimeOffset>(13),
+                reader.IsDBNull(14) ? null : reader.GetFieldValue<DateTimeOffset>(14),
+                reader.IsDBNull(15) ? null : reader.GetGuid(15),
+                reader.IsDBNull(17) ? null : reader.GetString(17),
+                reader.IsDBNull(18) ? null : reader.GetGuid(18),
+                reader.IsDBNull(19) ? null : reader.GetString(19),
+                reader.IsDBNull(20) ? null : reader.GetString(20)));
         }
         return new MaterialIqcQueueResponse(items);
     }
@@ -326,6 +342,13 @@ public sealed class MaterialsStore(
         {
             return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("이미 판정되었거나 IQC 요청 상태가 아닙니다.");
         }
+        if (attempt.DecisionMode != IqcDecisionModes.Legacy)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
+            {
+                [nameof(request.Result)] = ["상세 검사성적서를 작성하고 최종화해 주세요."]
+            });
+        }
         if (attempt.ReceiptVersion != request.ExpectedReceiptVersion)
         {
             return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
@@ -461,6 +484,161 @@ public sealed class MaterialsStore(
         await transaction.CommitAsync(cancellationToken);
         return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
             new MaterialReceiptActionResponse(receipt.ItemId, receiptId, attemptId, pendingId, MaterialReceiptStatuses.IqcRequested, false));
+    }
+
+    internal async Task<MaterialsMutationResult<MaterialReceiptActionResponse>> FinalizeDetailedIqcAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid attemptId,
+        Guid reportId,
+        FinalizeIqcReportRequest request,
+        string snapshotText,
+        string snapshotSha256,
+        DateTimeOffset finalizedAtUtc,
+        Guid actorUserId,
+        string? correlationId,
+        CancellationToken cancellationToken)
+    {
+        var attempt = await ReadAttemptForUpdateAsync(connection, transaction, attemptId, cancellationToken);
+        if (attempt is null)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.NotFound();
+        }
+        if (attempt.DecisionMode != IqcDecisionModes.Detailed)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("기존 간편 판정 건에는 상세 성적서를 최종화할 수 없습니다.");
+        }
+        if (attempt.Status != "Requested" || attempt.ReceiptStatus != MaterialReceiptStatuses.IqcRequested)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("이미 판정되었거나 IQC 요청 상태가 아닙니다.");
+        }
+        if (attempt.ReceiptVersion != request.ExpectedReceiptVersion)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+        }
+
+        var result = request.Result!;
+        var reason = request.Reason!.Trim();
+        Guid? pendingId;
+        if (result == "Failed")
+        {
+            pendingId = await pendingStore.CreateOrReuseMaterialNonconformanceAsync(
+                connection,
+                transaction,
+                attempt.ProjectId,
+                attempt.ItemId,
+                attempt.ReceiptId,
+                $"IQC 부적합 · {attempt.OrderItem ?? "발주품목"}",
+                $"도착분 IQC {attempt.AttemptNumber}차 검사에서 부적합 판정되었습니다. 사유: {reason}",
+                actorUserId,
+                correlationId,
+                cancellationToken);
+        }
+        else
+        {
+            pendingId = await ReadLatestPendingIdAsync(connection, transaction, attempt.ReceiptId, cancellationToken);
+            if (pendingId is not null)
+            {
+                try
+                {
+                    await pendingStore.CloseMaterialNonconformanceAsync(
+                        connection,
+                        transaction,
+                        pendingId.Value,
+                        actorUserId,
+                        $"IQC {attempt.AttemptNumber}차 재검사 합격: {reason}",
+                        correlationId,
+                        cancellationToken);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict(exception.Message);
+                }
+            }
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                update iqc_reports
+                set status = 'Finalized',
+                    version = version + 1,
+                    result = @result,
+                    reason = @reason,
+                    finalized_by_user_id = @actor_id,
+                    finalized_at_utc = @finalized_at,
+                    snapshot_text = @snapshot_text,
+                    snapshot_sha256 = @snapshot_sha256,
+                    pdf_status = 'Pending',
+                    updated_by_user_id = @actor_id,
+                    updated_at_utc = @finalized_at
+                where id = @report_id
+                  and attempt_id = @attempt_id
+                  and status = 'Draft'
+                  and version = @expected_report_version;
+
+                update material_iqc_attempts
+                set status = @attempt_status,
+                    reason = @reason,
+                    pending_issue_id = @pending_id,
+                    decided_by_user_id = @actor_id,
+                    decided_at_utc = @finalized_at
+                where id = @attempt_id and status = 'Requested' and decision_mode = 'Detailed';
+
+                update material_receipts
+                set status = @receipt_status,
+                    version = version + 1,
+                    updated_by_user_id = @actor_id,
+                    updated_at_utc = @finalized_at
+                where id = @receipt_id and version = @expected_receipt_version;
+                """;
+            command.Parameters.AddWithValue("result", result);
+            command.Parameters.AddWithValue("attempt_status", result);
+            command.Parameters.AddWithValue("receipt_status", result == "Passed" ? MaterialReceiptStatuses.Passed : MaterialReceiptStatuses.FailedBlocked);
+            command.Parameters.AddWithValue("reason", reason);
+            AddNullableUuid(command, "pending_id", pendingId);
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("finalized_at", finalizedAtUtc);
+            command.Parameters.AddWithValue("snapshot_text", snapshotText);
+            command.Parameters.AddWithValue("snapshot_sha256", snapshotSha256);
+            command.Parameters.AddWithValue("report_id", reportId);
+            command.Parameters.AddWithValue("attempt_id", attemptId);
+            command.Parameters.AddWithValue("receipt_id", attempt.ReceiptId);
+            command.Parameters.AddWithValue("expected_report_version", request.ExpectedReportVersion!.Value);
+            command.Parameters.AddWithValue("expected_receipt_version", request.ExpectedReceiptVersion!.Value);
+            var affected = await command.ExecuteNonQueryAsync(cancellationToken);
+            if (affected != 3)
+            {
+                return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+            }
+        }
+
+        await CompleteWorkItemAsync(connection, transaction, $"materials:iqc:{attemptId}", cancellationToken);
+        if (result == "Passed")
+        {
+            await CreateConfirmationWorkItemAsync(connection, transaction, attempt.ProjectId, attempt.ItemId, attempt.ReceiptId, attempt.OrderItem, actorUserId, cancellationToken);
+        }
+        await InsertEventAsync(
+            connection,
+            transaction,
+            attempt.ItemId,
+            attempt.ReceiptId,
+            result == "Passed" ? "IqcPassed" : "IqcFailed",
+            MaterialReceiptStatuses.IqcRequested,
+            result == "Passed" ? MaterialReceiptStatuses.Passed : MaterialReceiptStatuses.FailedBlocked,
+            reason,
+            actorUserId,
+            cancellationToken);
+
+        return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
+            new MaterialReceiptActionResponse(
+                attempt.ItemId,
+                attempt.ReceiptId,
+                attemptId,
+                pendingId,
+                result == "Passed" ? MaterialReceiptStatuses.Passed : MaterialReceiptStatuses.FailedBlocked,
+                false));
     }
 
     public async Task<MaterialsMutationResult<MaterialReceiptActionResponse>> ConfirmAsync(
@@ -739,11 +917,14 @@ public sealed class MaterialsStore(
         }
         await using var attemptCommand = connection.CreateCommand();
         attemptCommand.CommandText = """
-            select id, material_receipt_id, attempt_number, status, reason, pending_issue_id,
-                   requested_at_utc, decided_at_utc
-            from material_iqc_attempts
-            where material_receipt_id = any(@receipt_ids)
-            order by attempt_number;
+            select attempt.id, attempt.material_receipt_id, attempt.attempt_number, attempt.status,
+                   attempt.decision_mode, attempt.reason, attempt.pending_issue_id,
+                   attempt.requested_at_utc, attempt.decided_at_utc,
+                   report.id, report.status, report.pdf_status
+            from material_iqc_attempts attempt
+            left join iqc_reports report on report.attempt_id = attempt.id
+            where attempt.material_receipt_id = any(@receipt_ids)
+            order by attempt.attempt_number;
             """;
         attemptCommand.Parameters.AddWithValue("receipt_ids", receiptsById.Keys.ToArray());
         await using var attemptReader = await attemptCommand.ExecuteReaderAsync(cancellationToken);
@@ -753,10 +934,14 @@ public sealed class MaterialsStore(
                 attemptReader.GetGuid(0),
                 attemptReader.GetInt32(2),
                 attemptReader.GetString(3),
-                attemptReader.IsDBNull(4) ? null : attemptReader.GetString(4),
-                attemptReader.IsDBNull(5) ? null : attemptReader.GetGuid(5),
-                attemptReader.GetFieldValue<DateTimeOffset>(6),
-                attemptReader.IsDBNull(7) ? null : attemptReader.GetFieldValue<DateTimeOffset>(7)));
+                attemptReader.GetString(4),
+                attemptReader.IsDBNull(5) ? null : attemptReader.GetString(5),
+                attemptReader.IsDBNull(6) ? null : attemptReader.GetGuid(6),
+                attemptReader.GetFieldValue<DateTimeOffset>(7),
+                attemptReader.IsDBNull(8) ? null : attemptReader.GetFieldValue<DateTimeOffset>(8),
+                attemptReader.IsDBNull(9) ? null : attemptReader.GetGuid(9),
+                attemptReader.IsDBNull(10) ? null : attemptReader.GetString(10),
+                attemptReader.IsDBNull(11) ? null : attemptReader.GetString(11)));
         }
     }
 
@@ -813,7 +998,7 @@ public sealed class MaterialsStore(
         command.CommandText = """
             select attempt.id, attempt.material_receipt_id, attempt.attempt_number, attempt.status,
                    receipt.procurement_item_id, receipt.status, receipt.version,
-                   item.project_id, item.order_item
+                   item.project_id, item.order_item, attempt.decision_mode
             from material_iqc_attempts attempt
             join material_receipts receipt on receipt.id = attempt.material_receipt_id
             join project_procurement_items item on item.id = receipt.procurement_item_id and item.status = 'Active'
@@ -826,7 +1011,7 @@ public sealed class MaterialsStore(
             ? new AttemptSnapshot(
                 reader.GetGuid(0), reader.GetGuid(1), reader.GetInt32(2), reader.GetString(3),
                 reader.GetGuid(4), reader.GetString(5), reader.GetInt32(6), reader.GetGuid(7),
-                reader.IsDBNull(8) ? null : reader.GetString(8))
+                reader.IsDBNull(8) ? null : reader.GetString(8), reader.GetString(9))
             : null;
     }
 
@@ -855,9 +1040,9 @@ public sealed class MaterialsStore(
             command.Transaction = transaction;
             command.CommandText = """
                 insert into material_iqc_attempts (
-                    id, material_receipt_id, attempt_number, status, requested_by_user_id
+                    id, material_receipt_id, attempt_number, status, decision_mode, requested_by_user_id
                 )
-                values (@id, @receipt_id, @attempt_number, 'Requested', @actor_id);
+                values (@id, @receipt_id, @attempt_number, 'Requested', 'Detailed', @actor_id);
 
                 update material_receipts
                 set status = 'IqcRequested', version = version + 1,
@@ -1263,5 +1448,6 @@ public sealed class MaterialsStore(
         string ReceiptStatus,
         int ReceiptVersion,
         Guid ProjectId,
-        string? OrderItem);
+        string? OrderItem,
+        string DecisionMode);
 }

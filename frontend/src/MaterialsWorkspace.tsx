@@ -13,6 +13,7 @@ import {
   requestMaterialReinspection
 } from './api';
 import { MobileSheet } from './MobileSheet';
+import { IqcReportWorkspace } from './IqcReportWorkspace';
 import type {
   MaterialIqcQueueItem,
   MaterialReceipt,
@@ -275,7 +276,7 @@ export function MaterialIqcPage({
     }
   }
 
-  const inspector = selected ? (
+  const inspector = selected && selected.decisionMode === 'Legacy' && selected.status === 'Requested' ? (
     <IqcInspector
       item={selected}
       reason={reason}
@@ -285,6 +286,14 @@ export function MaterialIqcPage({
       onSubmit={submit}
       onClose={() => { setSelected(null); setMessage(''); setReason(''); }}
       onOpenPending={onOpenPending}
+    />
+  ) : selected ? (
+    <IqcReportWorkspace
+      attemptId={selected.attemptId}
+      developmentUserKey={developmentUserKey}
+      canInspect={canInspect}
+      onClose={() => { setSelected(null); setMessage(''); setReason(''); void load(); }}
+      onChanged={() => setIncludeDecided(true)}
     />
   ) : null;
 
@@ -310,8 +319,8 @@ export function MaterialIqcPage({
       {state.kind === 'ready' ? (
         <div className={layout.isMobile ? 'iqc-card-list iqc-card-list--mobile' : 'iqc-card-list'}>
           {state.data.map((item) => (
-            <button type="button" className="iqc-request-card" key={item.attemptId} data-status={item.status} onClick={() => setSelected(item)}>
-              <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
+            <button type="button" className="iqc-request-card" key={item.attemptId} data-status={item.status} data-report={item.reportStatus ?? item.decisionMode} onClick={() => { setSelected(item); setReason(item.reason ?? ''); }}>
+              <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.decisionMode === 'Legacy' ? <span className="iqc-report-badge" data-kind="legacy">LEGACY</span> : <span className="iqc-report-badge" data-kind={item.reportStatus ?? 'new'}>{item.reportStatus === 'Finalized' ? '성적서 완료' : item.reportStatus === 'Draft' ? '작성 중' : '신규 성적서'}</span>}{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
               <b>{item.orderItem ?? '발주품목 미입력'}</b>
               <small>{item.projectTitle}</small>
               <span>{formatQuantity(item.quantity, item.unit)} · {item.attemptNumber}차 검사</span>
@@ -322,10 +331,10 @@ export function MaterialIqcPage({
       ) : null}
 
       {layout.isMobile ? (
-        <MobileSheet open={selected !== null} title="IQC 판정" eyebrow="QUALITY CHECK" description="도착분과 검사 차수를 확인한 뒤 판정합니다." onClose={() => setSelected(null)} fullScreen>
+        <MobileSheet open={selected !== null} title={selected?.decisionMode === 'Detailed' ? '디지털 검사성적서' : 'IQC 판정'} eyebrow="QUALITY CHECK" description={selected?.decisionMode === 'Detailed' ? '항목·사진·판정을 한 흐름으로 기록합니다.' : '도착분과 검사 차수를 확인한 뒤 판정합니다.'} onClose={() => { setSelected(null); setReason(''); void load(); }} fullScreen>
           {inspector}
         </MobileSheet>
-      ) : inspector ? <aside className="material-action-drawer">{inspector}</aside> : null}
+      ) : inspector ? <aside className={`material-action-drawer${selected?.decisionMode === 'Detailed' ? ' material-action-drawer--iqc-report' : ''}`}>{inspector}</aside> : null}
     </section>
   );
 }

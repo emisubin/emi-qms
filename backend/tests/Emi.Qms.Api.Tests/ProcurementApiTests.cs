@@ -6,7 +6,10 @@ using System.Text.Json;
 using ClosedXML.Excel;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Materials;
+using Emi.Qms.Api.Projects;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Xunit;
 
@@ -15,6 +18,164 @@ namespace Emi.Qms.Api.Tests;
 public sealed class ProcurementApiTests
 {
     private static readonly Guid SalesOwnerUserId = new("50000000-0000-0000-0000-000000000002");
+
+    [Fact]
+    public async Task DetailedIqcReport_RequiresChecklistPhotoAndReturnsStoredPdfBytes()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        using var qualityClient = context.CreateClient("dev-quality");
+        var projectId = await CreateProjectAsync(salesClient, "PROC-IQC-REPORT", "IQC Report Flow");
+        Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "Synthetic Enclosure" } } },
+            TestContext.Current.CancellationToken)).StatusCode);
+        var item = (await ReadProcurementAsync(procurementClient, projectId)).RootElement.GetProperty("items")[0];
+        var itemId = item.GetProperty("itemId").GetGuid();
+        var arrival = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{itemId}/receipts",
+            new { quantity = 1, unit = "EA", orderQuantity = 1, orderUnit = "EA", arrivalDate = "2026-07-17" },
+            TestContext.Current.CancellationToken);
+        using var arrivalJson = await ReadJsonAsync(arrival);
+        var receiptId = arrivalJson.RootElement.GetProperty("receiptId").GetGuid();
+        var iqcRequest = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/receipts/{receiptId}/iqc-requests",
+            new { expectedVersion = 1 },
+            TestContext.Current.CancellationToken);
+        using var iqcRequestJson = await ReadJsonAsync(iqcRequest);
+        var attemptId = iqcRequestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+
+        var bypass = await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/{attemptId}/result",
+            new { expectedReceiptVersion = 2, result = "Passed", reason = "사진 없는 우회 판정" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, bypass.StatusCode);
+
+        var preview = await qualityClient.GetAsync($"/api/quality/iqc/{attemptId}/report", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
+        using var previewJson = await ReadJsonAsync(preview);
+        Assert.Equal("Detailed", previewJson.RootElement.GetProperty("decisionMode").GetString());
+        Assert.Equal(JsonValueKind.Null, previewJson.RootElement.GetProperty("reportId").ValueKind);
+
+        Assert.True(await context.IsIqcReportHiddenFromScopeAsync(attemptId, ["demo-project-alpha"]));
+        using var readOnlyViewer = context.CreateClient("dev-viewer");
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            (await readOnlyViewer.PostAsync($"/api/quality/iqc/{attemptId}/reports", null, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await readOnlyViewer.GetAsync($"/api/quality/iqc/{attemptId}/report", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await materialsClient.GetAsync($"/api/quality/iqc/{attemptId}/report", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            (await materialsClient.PostAsync($"/api/quality/iqc/{attemptId}/reports", null, TestContext.Current.CancellationToken)).StatusCode);
+
+        var initialize = await qualityClient.PostAsync($"/api/quality/iqc/{attemptId}/reports", null, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, initialize.StatusCode);
+        using var initializedJson = await ReadJsonAsync(initialize);
+        var reportId = initializedJson.RootElement.GetProperty("reportId").GetGuid();
+        var reportVersion = initializedJson.RootElement.GetProperty("reportVersion").GetInt32();
+        var reinitialize = await qualityClient.PostAsync($"/api/quality/iqc/{attemptId}/reports", null, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, reinitialize.StatusCode);
+        using var reinitializedJson = await ReadJsonAsync(reinitialize);
+        Assert.Equal(reportId, reinitializedJson.RootElement.GetProperty("reportId").GetGuid());
+        Assert.Equal(reportVersion, reinitializedJson.RootElement.GetProperty("reportVersion").GetInt32());
+        var templateItems = initializedJson.RootElement.GetProperty("items").EnumerateArray().ToList();
+        var enclosureItemId = templateItems.Single(candidate => candidate.GetProperty("itemCode").GetString() == "ENCLOSURE").GetProperty("itemId").GetGuid();
+        var responses = templateItems.Select(candidate => new
+        {
+            templateItemId = candidate.GetProperty("itemId").GetGuid(),
+            checkResult = candidate.GetProperty("responseType").GetString() == "Check" ? "Pass" : null,
+            textValue = candidate.GetProperty("responseType").GetString() == "Text" ? "합성 측정값 정상" : null,
+            note = (string?)null
+        }).ToArray();
+        var save = await qualityClient.PutAsJsonAsync(
+            $"/api/quality/iqc/reports/{reportId}/responses",
+            new { expectedReportVersion = reportVersion, responses },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, save.StatusCode);
+        using var saveJson = await ReadJsonAsync(save);
+        reportVersion = saveJson.RootElement.GetProperty("reportVersion").GetInt32();
+
+        var missingPhoto = await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/reports/{reportId}/finalize",
+            new { expectedReportVersion = reportVersion, expectedReceiptVersion = 2, result = "Passed", reason = "필수 사진 누락 확인" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, missingPhoto.StatusCode);
+
+        using (var invalidPhotoForm = new MultipartFormDataContent())
+        {
+            invalidPhotoForm.Add(new StringContent(enclosureItemId.ToString("D")), "templateItemId");
+            invalidPhotoForm.Add(new StringContent(reportVersion.ToString(CultureInfo.InvariantCulture)), "expectedReportVersion");
+            invalidPhotoForm.Add(new StringContent("잘못된 이미지 확인"), "altText");
+            var invalidContent = new ByteArrayContent("not-a-png"u8.ToArray());
+            invalidContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            invalidPhotoForm.Add(invalidContent, "photo", "ignored.png");
+            Assert.Equal(
+                HttpStatusCode.BadRequest,
+                (await qualityClient.PostAsync(
+                    $"/api/quality/iqc/reports/{reportId}/photos",
+                    invalidPhotoForm,
+                    TestContext.Current.CancellationToken)).StatusCode);
+        }
+
+        var png = await File.ReadAllBytesAsync(
+            Path.Combine(context.RepositoryRoot, "..", "frontend", "src", "assets", "emi-logo.png"),
+            TestContext.Current.CancellationToken);
+        using var photoForm = new MultipartFormDataContent();
+        photoForm.Add(new StringContent(enclosureItemId.ToString("D")), "templateItemId");
+        photoForm.Add(new StringContent(reportVersion.ToString(CultureInfo.InvariantCulture)), "expectedReportVersion");
+        photoForm.Add(new StringContent("합성 외함 전체 상태"), "altText");
+        var photoContent = new ByteArrayContent(png);
+        photoContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+        photoForm.Add(photoContent, "photo", "ignored-original-name.png");
+        var upload = await qualityClient.PostAsync(
+            $"/api/quality/iqc/reports/{reportId}/photos",
+            photoForm,
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            upload.StatusCode == HttpStatusCode.OK,
+            string.Join(Environment.NewLine, context.Logs.Where(entry => entry.Exception is not null).Select(entry => entry.Exception)));
+        using var uploadJson = await ReadJsonAsync(upload);
+        reportVersion = uploadJson.RootElement.GetProperty("reportVersion").GetInt32();
+        Assert.Equal("photo-1.png", uploadJson.RootElement.GetProperty("photos")[0].GetProperty("displayName").GetString());
+
+        var finalize = await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/reports/{reportId}/finalize",
+            new { expectedReportVersion = reportVersion, expectedReceiptVersion = 2, result = "Passed", reason = "모든 필수 항목과 외함 사진 확인" },
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            finalize.StatusCode == HttpStatusCode.OK,
+            string.Join(Environment.NewLine, context.Logs.Where(entry => entry.Exception is not null).Select(entry => entry.Exception)));
+        using var finalizeJson = await ReadJsonAsync(finalize);
+        Assert.Equal("Finalized", finalizeJson.RootElement.GetProperty("reportStatus").GetString());
+        Assert.Equal("Ready", finalizeJson.RootElement.GetProperty("pdfStatus").GetString());
+        reportVersion = finalizeJson.RootElement.GetProperty("reportVersion").GetInt32();
+
+        var immutable = await qualityClient.PutAsJsonAsync(
+            $"/api/quality/iqc/reports/{reportId}/responses",
+            new { expectedReportVersion = reportVersion, responses },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, immutable.StatusCode);
+
+        var firstPdfResponse = await qualityClient.GetAsync($"/api/quality/iqc/reports/{reportId}/pdf", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, firstPdfResponse.StatusCode);
+        var cacheControl = firstPdfResponse.Headers.CacheControl?.ToString() ?? "";
+        Assert.Contains("private", cacheControl, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no-store", cacheControl, StringComparison.OrdinalIgnoreCase);
+        var firstPdf = await firstPdfResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
+        Assert.True(await context.IsIqcPdfHiddenFromScopeAsync(reportId, ["demo-project-alpha"]));
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await materialsClient.GetAsync($"/api/quality/iqc/reports/{reportId}/pdf", TestContext.Current.CancellationToken)).StatusCode);
+        var secondPdf = await qualityClient.GetByteArrayAsync($"/api/quality/iqc/reports/{reportId}/pdf", TestContext.Current.CancellationToken);
+        Assert.True(firstPdf.AsSpan().StartsWith("%PDF"u8));
+        Assert.Equal(firstPdf, secondPdf);
+    }
 
     [Fact]
     public async Task ProcurementAuthorization_EnforcesReadUpdateReceiptAndHistoryPolicies()
@@ -257,6 +418,7 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.OK, iqcRequest.StatusCode);
         using var iqcRequestJson = await ReadJsonAsync(iqcRequest);
         var attemptId = iqcRequestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        await context.MarkAttemptLegacyAsync(attemptId);
 
         var iqcPass = await qualityClient.PostAsJsonAsync(
             $"/api/quality/iqc/{attemptId}/result",
@@ -446,6 +608,7 @@ public sealed class ProcurementApiTests
             TestContext.Current.CancellationToken);
         using var iqcRequestJson = await ReadJsonAsync(iqcRequest);
         var attemptId = iqcRequestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        await context.MarkAttemptLegacyAsync(attemptId);
         Assert.Equal(HttpStatusCode.OK, (await qualityClient.PostAsJsonAsync(
             $"/api/quality/iqc/{attemptId}/result",
             new { expectedReceiptVersion = 2, result = "Passed", reason = "고객 제공품 검사 합격" },
@@ -595,6 +758,7 @@ public sealed class ProcurementApiTests
             TestContext.Current.CancellationToken);
         using var requestJson = await ReadJsonAsync(request);
         var firstAttemptId = requestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        await context.MarkAttemptLegacyAsync(firstAttemptId);
 
         var failed = await qualityClient.PostAsJsonAsync(
             $"/api/quality/iqc/{firstAttemptId}/result",
@@ -629,6 +793,7 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.OK, reinspection.StatusCode);
         using var reinspectionJson = await ReadJsonAsync(reinspection);
         var secondAttemptId = reinspectionJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        await context.MarkAttemptLegacyAsync(secondAttemptId);
         var passed = await qualityClient.PostAsJsonAsync(
             $"/api/quality/iqc/{secondAttemptId}/result",
             new { expectedReceiptVersion = 4, result = "Passed", reason = "재검사 외관 정상 확인" },
@@ -928,6 +1093,7 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.OK, iqcRequest.StatusCode);
         using var iqcRequestJson = await ReadJsonAsync(iqcRequest);
         var attemptId = iqcRequestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        await context.MarkAttemptLegacyAsync(attemptId);
         Assert.Equal(HttpStatusCode.OK, (await qualityClient.PostAsJsonAsync(
             $"/api/quality/iqc/{attemptId}/result",
             new { expectedReceiptVersion = 2, result = "Passed", reason = "검사 합격" },
@@ -1253,6 +1419,41 @@ public sealed class ProcurementApiTests
             return client;
         }
 
+        public IReadOnlyList<TestLogEntry> Logs => Factory.Logs.Entries;
+        public string RepositoryRoot => Database.RepositoryRoot;
+
+        public async Task MarkAttemptLegacyAsync(Guid attemptId)
+        {
+            var provider = new DatabaseConnectionStringProvider(Database.CreateConfiguration());
+            var connectionString = provider.GetConnectionString();
+            Assert.False(string.IsNullOrWhiteSpace(connectionString));
+            await using var dataSource = NpgsqlDataSource.Create(connectionString!);
+            await using var command = dataSource.CreateCommand("update material_iqc_attempts set decision_mode = 'Legacy' where id = @id;");
+            command.Parameters.AddWithValue("id", attemptId);
+            Assert.Equal(1, await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+        }
+
+        public async Task<bool> IsIqcReportHiddenFromScopeAsync(Guid attemptId, IReadOnlyList<string> projectKeys)
+        {
+            using var scope = Factory.Services.CreateScope();
+            var store = scope.ServiceProvider.GetRequiredService<IqcReportStore>();
+            return await store.GetAsync(
+                attemptId,
+                new ProjectAccessScope(false, projectKeys),
+                TestContext.Current.CancellationToken) is null;
+        }
+
+        public async Task<bool> IsIqcPdfHiddenFromScopeAsync(Guid reportId, IReadOnlyList<string> projectKeys)
+        {
+            using var scope = Factory.Services.CreateScope();
+            var store = scope.ServiceProvider.GetRequiredService<IqcReportStore>();
+            var result = await store.GetPdfAsync(
+                reportId,
+                new ProjectAccessScope(false, projectKeys),
+                TestContext.Current.CancellationToken);
+            return result.Status == MaterialsMutationStatus.NotFound;
+        }
+
         public async ValueTask DisposeAsync()
         {
             Factory.Dispose();
@@ -1262,14 +1463,16 @@ public sealed class ProcurementApiTests
 
     private sealed class PostgreSqlTestDatabase : IAsyncDisposable
     {
-        private PostgreSqlTestDatabase(string databaseName, IConfiguration baseConfiguration)
+        private PostgreSqlTestDatabase(string databaseName, IConfiguration baseConfiguration, string repositoryRoot)
         {
             DatabaseName = databaseName;
             BaseConfiguration = baseConfiguration;
+            RepositoryRoot = repositoryRoot;
         }
 
         private string DatabaseName { get; }
         private IConfiguration BaseConfiguration { get; }
+        public string RepositoryRoot { get; }
 
         public static async Task<PostgreSqlTestDatabase> CreateAsync(CancellationToken cancellationToken)
         {
@@ -1282,7 +1485,7 @@ public sealed class ProcurementApiTests
             await using var command = dataSource.CreateCommand($"create database {QuoteIdentifier(databaseName)};");
             await command.ExecuteNonQueryAsync(cancellationToken);
 
-            return new PostgreSqlTestDatabase(databaseName, baseConfiguration);
+            return new PostgreSqlTestDatabase(databaseName, baseConfiguration, repositoryRoot);
         }
 
         public IConfiguration CreateConfiguration(IReadOnlyDictionary<string, string?>? overrides = null)

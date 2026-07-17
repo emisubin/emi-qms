@@ -1526,6 +1526,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제외 범위: LQC/OQC/FAT 전체
 - 선행조건: 첨부파일 정책, Pending List
 - 주요 테스트: 필수 사진, 값 입력, PDF 생성, 부적합 Pending
+- 2026-07-17 실험 상태: `experiment/task-009a-iqc-digital-report`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0032`는 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. canonical 실행 큐의 `Dependency Pending`과 다음 `TASK-007A` Gate는 변경하지 않는다.
 
 ### TASK-010A: 키팅 완료 / 제조 내 업무 생성
 

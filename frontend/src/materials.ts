@@ -10,10 +10,14 @@ export type MaterialIqcAttempt = {
   attemptId: string;
   attemptNumber: number;
   status: 'Requested' | 'Passed' | 'Failed';
+  decisionMode: 'Legacy' | 'Detailed';
   reason: string | null;
   pendingIssueId: string | null;
   requestedAtUtc: string;
   decidedAtUtc: string | null;
+  reportId: string | null;
+  reportStatus: 'Draft' | 'Finalized' | null;
+  pdfStatus: 'Pending' | 'Ready' | 'Failed' | null;
 };
 
 export type MaterialReceipt = {
@@ -81,8 +85,14 @@ export type MaterialIqcQueueItem = {
   receiptVersion: number;
   supplyType: 'Purchased' | 'CustomerSupplied';
   status: 'Requested' | 'Passed' | 'Failed';
+  decisionMode: 'Legacy' | 'Detailed';
   requestedAtUtc: string;
+  decidedAtUtc: string | null;
   pendingIssueId: string | null;
+  reason: string | null;
+  reportId: string | null;
+  reportStatus: 'Draft' | 'Finalized' | null;
+  pdfStatus: 'Pending' | 'Ready' | 'Failed' | null;
 };
 
 export type MaterialIqcQueueResponse = { items: MaterialIqcQueueItem[] };

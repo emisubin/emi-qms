@@ -2,6 +2,8 @@ using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Procurement;
+using Emi.Qms.Api.Projects;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Emi.Qms.Api.Materials;
 
@@ -136,10 +138,198 @@ public static class MaterialsEndpointExtensions
         .WithName("CloseMaterialArrivals");
 
         var quality = app.MapGroup("/api/quality/iqc");
-        quality.MapGet("/", async (bool? includeDecided, MaterialsStore store, CancellationToken cancellationToken) =>
-            Results.Ok(await store.ListIqcAsync(includeDecided == true, cancellationToken)))
+        quality.MapGet("/", async (
+            bool? includeDecided,
+            MaterialsStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+            Results.Ok(await store.ListIqcAsync(includeDecided == true, GetProjectAccessScope(user), cancellationToken)))
         .RequireAuthorization(QmsPolicies.QualityInspect)
         .WithName("ListMaterialIqcRequests");
+
+        quality.MapGet("/{attemptId:guid}/report", async (
+            Guid attemptId,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var response = await store.GetAsync(attemptId, GetProjectAccessScope(user), cancellationToken);
+            return response is null ? Results.NotFound() : Results.Ok(response);
+        })
+        .RequireAuthorization(policy => policy
+            .RequireAuthenticatedUser()
+            .AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
+        .WithName("GetMaterialIqcReport");
+
+        quality.MapPost("/{attemptId:guid}/reports", async (
+            Guid attemptId,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            return userId is null
+                ? Results.Unauthorized()
+                : ToResult(await store.InitializeAsync(attemptId, userId.Value, GetProjectAccessScope(user), cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("InitializeMaterialIqcReport");
+
+        quality.MapPut("/reports/{reportId:guid}/responses", async (
+            Guid reportId,
+            SaveIqcResponsesRequest request,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            return userId is null
+                ? Results.Unauthorized()
+                : ToResult(await store.SaveResponsesAsync(reportId, request, userId.Value, GetProjectAccessScope(user), cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("SaveMaterialIqcReportResponses");
+
+        quality.MapPost("/reports/{reportId:guid}/photos", async (
+            Guid reportId,
+            [FromForm] Guid templateItemId,
+            [FromForm] int expectedReportVersion,
+            [FromForm] string altText,
+            [FromForm] IFormFile photo,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+            if (photo.Length is < 1 or > 5 * 1024 * 1024)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["photo"] = ["사진은 5MB 이하 JPEG 또는 PNG 파일이어야 합니다."]
+                });
+            }
+            await using var stream = photo.OpenReadStream();
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory, cancellationToken);
+            return ToResult(await store.AddPhotoAsync(
+                reportId,
+                templateItemId,
+                expectedReportVersion,
+                altText,
+                memory.ToArray(),
+                userId.Value,
+                GetProjectAccessScope(user),
+                cancellationToken));
+        })
+        .WithMetadata(new RequestSizeLimitAttribute(6 * 1024 * 1024))
+        .DisableAntiforgery()
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("UploadMaterialIqcReportPhoto");
+
+        quality.MapDelete("/reports/{reportId:guid}/photos/{photoId:guid}", async (
+            Guid reportId,
+            Guid photoId,
+            int? expectedReportVersion,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            return userId is null
+                ? Results.Unauthorized()
+                : ToResult(await store.DeletePhotoAsync(
+                    reportId,
+                    photoId,
+                    expectedReportVersion,
+                    userId.Value,
+                    GetProjectAccessScope(user),
+                    cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("DeleteMaterialIqcReportPhoto");
+
+        quality.MapPost("/reports/{reportId:guid}/finalize", async (
+            Guid reportId,
+            FinalizeIqcReportRequest request,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            HttpContext context,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            return userId is null
+                ? Results.Unauthorized()
+                : ToResult(await store.FinalizeAsync(
+                    reportId,
+                    request,
+                    userId.Value,
+                    context.TraceIdentifier,
+                    GetProjectAccessScope(user),
+                    cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("FinalizeMaterialIqcReport");
+
+        quality.MapGet("/reports/{reportId:guid}/photos/{photoId:guid}/content", async (
+            Guid reportId,
+            Guid photoId,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            HttpContext context,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await store.GetPhotoContentAsync(reportId, photoId, GetProjectAccessScope(user), cancellationToken);
+            if (result.Status == MaterialsMutationStatus.NotFound || result.Value is null)
+            {
+                return Results.NotFound();
+            }
+            context.Response.Headers.CacheControl = "private, no-store";
+            return Results.File(result.Value.Content, result.Value.NormalizedMime, result.Value.DisplayName);
+        })
+        .RequireAuthorization(policy => policy
+            .RequireAuthenticatedUser()
+            .AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
+        .WithName("DownloadMaterialIqcReportPhoto");
+
+        quality.MapGet("/reports/{reportId:guid}/pdf", async (
+            Guid reportId,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            HttpContext context,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await store.GetPdfAsync(reportId, GetProjectAccessScope(user), cancellationToken);
+            if (result.Status == MaterialsMutationStatus.NotFound || result.Value is null)
+            {
+                return Results.NotFound();
+            }
+            context.Response.Headers.CacheControl = "private, no-store";
+            return result.Value.Status switch
+            {
+                IqcPdfStatuses.Ready when result.Value.Content is not null
+                    => Results.File(result.Value.Content, "application/pdf", "iqc-report.pdf"),
+                IqcPdfStatuses.Pending
+                    => Results.Json(new { status = IqcPdfStatuses.Pending }, statusCode: StatusCodes.Status202Accepted),
+                _ => Results.Problem(title: "PDF를 생성하지 못했습니다. 재시도해 주세요.", statusCode: StatusCodes.Status409Conflict)
+            };
+        })
+        .RequireAuthorization(policy => policy
+            .RequireAuthenticatedUser()
+            .AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
+        .WithName("DownloadMaterialIqcReportPdf");
+
+        quality.MapPost("/reports/{reportId:guid}/pdf/retry", async (
+            Guid reportId,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+            ToResult(await store.RetryPdfAsync(reportId, GetProjectAccessScope(user), cancellationToken)))
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("RetryMaterialIqcReportPdf");
 
         quality.MapPost("/{attemptId:guid}/result", async (
             Guid attemptId,
@@ -166,6 +356,13 @@ public static class MaterialsEndpointExtensions
         return Guid.TryParse(value, out var userId) ? userId : null;
     }
 
+    private static ProjectAccessScope GetProjectAccessScope(ClaimsPrincipal user)
+    {
+        return new ProjectAccessScope(
+            user.HasClaim(QmsClaimTypes.Permission, QmsPermissions.ProjectReadAll),
+            user.FindAll(QmsClaimTypes.Project).Select(claim => claim.Value).ToList());
+    }
+
     private static string? NormalizeSupplyType(string? value)
     {
         if (string.Equals(value, ProcurementSupplyTypes.Purchased, StringComparison.OrdinalIgnoreCase))
@@ -180,6 +377,20 @@ public static class MaterialsEndpointExtensions
     }
 
     private static IResult ToResult(MaterialsMutationResult<MaterialReceiptActionResponse> result)
+    {
+        return result.Status switch
+        {
+            MaterialsMutationStatus.Success when result.Value is not null => Results.Ok(result.Value),
+            MaterialsMutationStatus.NotFound => Results.NotFound(),
+            MaterialsMutationStatus.Validation => Results.ValidationProblem(result.Errors),
+            MaterialsMutationStatus.Conflict => Results.Problem(
+                title: result.Message ?? "요청한 작업을 수행할 수 없습니다.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
+        };
+    }
+
+    private static IResult ToResult(MaterialsMutationResult<IqcReportResponse> result)
     {
         return result.Status switch
         {

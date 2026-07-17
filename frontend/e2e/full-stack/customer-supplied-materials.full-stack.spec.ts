@@ -1,4 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
@@ -51,11 +53,7 @@ test('TASK-008B: customer-supplied material keeps one quantity truth across proc
   await expect(iqcCard).toContainText('사급 · 고객 제공');
   await expect(iqcCard).toContainText('4 EA');
 
-  await postJson(request, 'dev-quality', `/api/quality/iqc/${iqcRequest.iqcAttemptId}/result`, {
-    expectedReceiptVersion: 2,
-    result: 'Passed',
-    reason: '고객 제공품 검사 합격'
-  });
+  await finalizeDetailedIqc(request, iqcRequest.iqcAttemptId, 2, '고객 제공품 검사 합격');
   await postJson(request, 'dev-materials', `/api/materials/receipts/${arrival.receiptId}/confirm`, {
     expectedVersion: 3
   });
@@ -146,6 +144,51 @@ async function postJson<T>(request: APIRequestContext, userKey: string, path: st
   expect(response.ok()).toBeTruthy();
   return await response.json() as T;
 }
+
+async function finalizeDetailedIqc(request: APIRequestContext, attemptId: string, receiptVersion: number, reason: string) {
+  const initialized = await postJson<IqcReport>(request, 'dev-quality', `/api/quality/iqc/${attemptId}/reports`, {});
+  const responses = initialized.items.map((item) => ({
+    templateItemId: item.itemId,
+    checkResult: item.responseType === 'Check' ? 'Pass' : null,
+    textValue: item.responseType === 'Text' ? '합성 검사값 정상' : null,
+    note: null
+  }));
+  const saved = await request.put(`${apiBaseUrl}/api/quality/iqc/reports/${initialized.reportId}/responses`, {
+    headers: devHeaders('dev-quality'),
+    data: { expectedReportVersion: initialized.reportVersion, responses }
+  });
+  expect(saved.ok()).toBeTruthy();
+  const savedReport = await saved.json() as IqcReport;
+  const enclosure = savedReport.items.find((item) => item.itemCode === 'ENCLOSURE')!;
+  const photo = await fs.readFile(path.resolve('src/assets/emi-logo.png'));
+  const uploaded = await request.post(`${apiBaseUrl}/api/quality/iqc/reports/${savedReport.reportId}/photos`, {
+    headers: devHeaders('dev-quality'),
+    multipart: {
+      templateItemId: enclosure.itemId,
+      expectedReportVersion: String(savedReport.reportVersion),
+      altText: '합성 외함 전체 상태',
+      photo: { name: 'synthetic-enclosure.png', mimeType: 'image/png', buffer: photo }
+    }
+  });
+  expect(uploaded.ok()).toBeTruthy();
+  const uploadedReport = await uploaded.json() as IqcReport;
+  const finalized = await request.post(`${apiBaseUrl}/api/quality/iqc/reports/${uploadedReport.reportId}/finalize`, {
+    headers: devHeaders('dev-quality'),
+    data: {
+      expectedReportVersion: uploadedReport.reportVersion,
+      expectedReceiptVersion: receiptVersion,
+      result: 'Passed',
+      reason
+    }
+  });
+  expect(finalized.ok()).toBeTruthy();
+}
+
+type IqcReport = {
+  reportId: string;
+  reportVersion: number;
+  items: Array<{ itemId: string; itemCode: string; responseType: 'Check' | 'Text' }>;
+};
 
 async function materialItem(request: APIRequestContext, itemId: string) {
   const response = await request.get(`${apiBaseUrl}/api/materials/receipts?includeCompleted=true`, {

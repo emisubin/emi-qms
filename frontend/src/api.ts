@@ -16,6 +16,7 @@ import type {
   MaterialReceiptListResponse,
   RegisterMaterialArrivalRequest
 } from './materials';
+import type { IqcReport, SaveIqcItemResponse } from './iqc-report';
 import type {
   AuditHistoryResponse,
   AdminDashboardResponse,
@@ -1149,6 +1150,107 @@ export async function recordMaterialIqcResult(
     method: 'POST',
     body: JSON.stringify({ expectedReceiptVersion, result, reason })
   });
+}
+
+export async function getIqcReport(developmentUserKey: string | undefined, attemptId: string) {
+  return fetchJson<IqcReport>(`/api/quality/iqc/${attemptId}/report`, developmentUserKey);
+}
+
+export async function initializeIqcReport(developmentUserKey: string | undefined, attemptId: string) {
+  return fetchJson<IqcReport>(`/api/quality/iqc/${attemptId}/reports`, developmentUserKey, { method: 'POST' });
+}
+
+export async function saveIqcResponses(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  expectedReportVersion: number,
+  responses: SaveIqcItemResponse[]
+) {
+  return fetchJson<IqcReport>(`/api/quality/iqc/reports/${reportId}/responses`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify({ expectedReportVersion, responses })
+  });
+}
+
+export async function uploadIqcPhoto(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  templateItemId: string,
+  expectedReportVersion: number,
+  altText: string,
+  photo: File
+) {
+  const form = new FormData();
+  form.set('templateItemId', templateItemId);
+  form.set('expectedReportVersion', String(expectedReportVersion));
+  form.set('altText', altText);
+  form.set('photo', photo);
+  return fetchJson<IqcReport>(`/api/quality/iqc/reports/${reportId}/photos`, developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function deleteIqcPhoto(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  photoId: string,
+  expectedReportVersion: number
+) {
+  return fetchJson<IqcReport>(
+    `/api/quality/iqc/reports/${reportId}/photos/${photoId}?expectedReportVersion=${expectedReportVersion}`,
+    developmentUserKey,
+    { method: 'DELETE' }
+  );
+}
+
+export async function finalizeIqcReport(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  expectedReportVersion: number,
+  expectedReceiptVersion: number,
+  result: 'Passed' | 'Failed',
+  reason: string
+) {
+  return fetchJson<IqcReport>(`/api/quality/iqc/reports/${reportId}/finalize`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ expectedReportVersion, expectedReceiptVersion, result, reason })
+  });
+}
+
+export async function retryIqcPdf(developmentUserKey: string | undefined, reportId: string) {
+  return fetchJson<IqcReport>(`/api/quality/iqc/reports/${reportId}/pdf/retry`, developmentUserKey, { method: 'POST' });
+}
+
+export async function downloadIqcPdf(developmentUserKey: string | undefined, reportId: string) {
+  const response = await fetchWithAuth(`/api/quality/iqc/reports/${reportId}/pdf`, developmentUserKey);
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  if (!response.headers.get('Content-Type')?.includes('application/pdf')) {
+    throw new ApiError(response.status, 'PDF 생성이 아직 완료되지 않았습니다.');
+  }
+  return {
+    blob: await response.blob(),
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? 'iqc-report.pdf'
+  };
+}
+
+export async function getIqcPhotoBlob(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  photoId: string
+) {
+  const response = await fetchWithAuth(
+    `/api/quality/iqc/reports/${reportId}/photos/${photoId}/content`,
+    developmentUserKey
+  );
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  return response.blob();
 }
 
 export async function getProductionPlanningSummary(

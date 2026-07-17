@@ -405,7 +405,7 @@ describe('App', () => {
     expect(screen.getAllByText('읽지 않음').length).toBeGreaterThan(0);
   });
 
-  it('uses a mobile bottom tab bar with an accessible permission-derived more sheet', async () => {
+  it('uses a top-left trigger with an accessible permission-derived mobile drawer', async () => {
     mockMobileViewport(true);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
@@ -417,15 +417,9 @@ describe('App', () => {
     }));
     render(<App />);
 
-    const mobileNavigation = await screen.findByRole('navigation', { name: '모바일 공통 메뉴' });
-    expect(within(mobileNavigation).getByRole('button', { name: '홈' })).toBeInTheDocument();
-    expect(within(mobileNavigation).getByRole('button', { name: /^내 업무/ })).toBeInTheDocument();
-    expect(within(mobileNavigation).getByRole('button', { name: '프로젝트' })).toHaveAttribute('aria-current', 'page');
-    expect(within(mobileNavigation).getByRole('button', { name: 'Pending' })).toBeInTheDocument();
-    expect(within(mobileNavigation).getByRole('button', { name: /^알림/ })).toBeInTheDocument();
-    expect(within(mobileNavigation).queryByRole('button', { name: '생산관리' })).not.toBeInTheDocument();
-
-    await waitFor(() => expect(within(mobileNavigation).getAllByText('1건').every((badge) => badge.classList.contains('sr-only'))).toBe(true));
+    const menuButton = await screen.findByRole('button', { name: '메뉴 열기' });
+    expect(screen.queryByRole('navigation', { name: '모바일 공통 메뉴' })).not.toBeInTheDocument();
+    expect(document.querySelector('.app-mobile-nav')).not.toBeInTheDocument();
 
     const statusButton = screen.getByRole('button', { name: '상태' });
     fireEvent.click(statusButton);
@@ -437,36 +431,44 @@ describe('App', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '앱 상태와 계정' })).not.toBeInTheDocument());
     await waitFor(() => expect(statusButton).toHaveFocus());
 
-    const moreButton = within(mobileNavigation).getByRole('button', { name: '더보기' });
-    fireEvent.click(moreButton);
+    fireEvent.click(menuButton);
 
-    const moreSheet = await screen.findByRole('dialog', { name: '더 많은 업무 메뉴' });
-    expect(moreButton).toHaveAttribute('aria-expanded', 'true');
-    expect(within(moreSheet).getByRole('button', { name: '생산관리' })).toBeInTheDocument();
-    expect(within(moreSheet).getByRole('button', { name: '구매' })).toBeInTheDocument();
-    expect(within(moreSheet).queryByRole('button', { name: '프로젝트' })).not.toBeInTheDocument();
-    await waitFor(() => expect(within(moreSheet).getByRole('button', { name: '생산관리' })).toHaveFocus());
+    const menuDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
+    const mobileNavigation = within(menuDrawer).getByRole('navigation', { name: '모바일 공통 메뉴' });
+    expect(menuButton).toHaveAttribute('aria-expanded', 'true');
+    expect(within(mobileNavigation).getByRole('button', { name: '홈' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '내 업무 1건' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '프로젝트' })).toHaveAttribute('aria-current', 'page');
+    expect(within(mobileNavigation).getByRole('button', { name: 'Pending' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '생산관리' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '구매' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '알림 1건' })).toBeInTheDocument();
+    expect(Array.from(menuDrawer.querySelectorAll('.mobile-menu-item-shape')).map((shape) => shape.getAttribute('data-shape')))
+      .toEqual(expect.arrayContaining(['circle', 'square', 'oval', 'rounded', 'angular']));
+    await waitFor(() => expect(within(mobileNavigation).getByRole('button', { name: '홈' })).toHaveFocus());
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '더 많은 업무 메뉴' })).not.toBeInTheDocument());
-    await waitFor(() => expect(moreButton).toHaveFocus());
-    expect(moreButton).toHaveAttribute('aria-expanded', 'false');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '전체 업무 메뉴' })).not.toBeInTheDocument());
+    await waitFor(() => expect(menuButton).toHaveFocus());
+    expect(menuButton).toHaveAttribute('aria-expanded', 'false');
 
-    fireEvent.click(moreButton);
-    const reopenedSheet = await screen.findByRole('dialog', { name: '더 많은 업무 메뉴' });
-    fireEvent.click(within(reopenedSheet).getByRole('button', { name: '생산관리' }));
+    fireEvent.click(menuButton);
+    const reopenedDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
+    fireEvent.click(within(reopenedDrawer).getByRole('button', { name: '생산관리' }));
     expect(await screen.findByRole('heading', { name: '생산계획' })).toBeInTheDocument();
-    expect(moreButton).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByRole('dialog', { name: '전체 업무 메뉴' })).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/production-planning');
   });
 
-  it('omits the Pending mobile tab when the current permission-filtered navigation omits it', async () => {
+  it('omits Pending from the mobile drawer when the permission-filtered navigation omits it', async () => {
     mockMobileViewport(true);
     render(<App />);
 
-    const mobileNavigation = await screen.findByRole('navigation', { name: '모바일 공통 메뉴' });
+    fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }));
+    const menuDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
+    const mobileNavigation = within(menuDrawer).getByRole('navigation', { name: '모바일 공통 메뉴' });
     expect(within(mobileNavigation).queryByRole('button', { name: 'Pending' })).not.toBeInTheDocument();
-    expect(within(mobileNavigation).getByRole('button', { name: '더보기' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '생산관리' })).toBeInTheDocument();
   });
 
   it('renders the Teams Activity tab route with recent notifications and work summary', async () => {

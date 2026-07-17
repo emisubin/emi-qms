@@ -55,15 +55,15 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
   await assertMobileNavigation(page, '알림');
   await capture(page, '06-notifications-mobile-390.png');
 
-  const moreTrigger = page.getByRole('button', { name: '더보기' });
-  await moreTrigger.click();
-  const moreDialog = page.getByRole('dialog', { name: '더 많은 업무 메뉴' });
-  await expect(moreDialog).toBeVisible();
-  await expect(moreDialog.locator('.app-mobile-more-item').first()).toBeFocused();
-  await capture(page, '07-more-sheet-mobile-390.png');
+  const menuTrigger = page.getByRole('button', { name: '메뉴 열기' });
+  await menuTrigger.click();
+  const menuDialog = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  await expect(menuDialog).toBeVisible();
+  await expect(menuDialog.locator('.mobile-menu-item').first()).toBeFocused();
+  await capture(page, '07-left-menu-drawer-mobile-390.png');
   await page.keyboard.press('Escape');
-  await expect(moreDialog).toBeHidden();
-  await expect(moreTrigger).toBeFocused();
+  await expect(menuDialog).toBeHidden();
+  await expect(menuTrigger).toBeFocused();
 
   await page.setViewportSize({ width: 480, height: 800 });
   await page.goto('/projects');
@@ -74,9 +74,16 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
 });
 
 async function assertMobileNavigation(page: Page, activeLabel: string) {
-  const navigation = page.getByRole('navigation', { name: '모바일 공통 메뉴' });
-  await expect(navigation).toBeVisible();
-  await expect(navigation.getByRole('button', { name: activeLabel })).toHaveAttribute('aria-current', 'page');
+  const trigger = page.getByRole('button', { name: '메뉴 열기' });
+  await expect(trigger).toBeVisible();
+  await expect(page.locator('.app-mobile-nav')).toHaveCount(0);
+  await assertTouchTarget(trigger);
+
+  await trigger.click();
+  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const navigation = drawer.getByRole('navigation', { name: '모바일 공통 메뉴' });
+  await expect(drawer).toBeVisible();
+  await expect(navigation.locator('[aria-current="page"]')).toContainText(activeLabel);
   await expect(navigation.getByRole('button', { name: 'Pending' })).toBeVisible();
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -89,6 +96,9 @@ async function assertMobileNavigation(page: Page, activeLabel: string) {
     })
   );
   expect(targets.every((target) => target.width >= 44 && target.height >= 44)).toBeTruthy();
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+  await expect(trigger).toBeFocused();
 }
 
 async function selectMobileDevelopmentUser(page: Page, userKey: string) {

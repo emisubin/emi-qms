@@ -50,7 +50,7 @@ test('TASK-MOBILE-002: mobile-first composition covers the seven core field rout
   await expect(page.getByLabel('프로젝트 병목 현황')).toBeVisible();
   await expect(page.getByText('프로젝트 작업')).toBeVisible();
   await assertMobileShell(page, '프로젝트');
-  await assertStickyActionAboveBottomNavigation(page, page.locator('.project-bottleneck-hero .primary-button'));
+  await assertStickyActionInsideViewport(page, page.locator('.project-bottleneck-hero .primary-button'));
   await capture(page, '05-project-detail-mobile-390.png');
 
   await page.goto('/pending');
@@ -144,18 +144,28 @@ async function selectDevelopmentUserFromMobileStatus(page: Page, userKey: string
 }
 
 async function assertMobileShell(page: Page, activeLabel: string) {
-  const navigation = page.getByRole('navigation', { name: '모바일 공통 메뉴' });
+  const menuTrigger = page.getByRole('button', { name: '메뉴 열기' });
   await expect(page.locator('.mobile-app-bar')).toBeVisible();
   await expect(page.locator('.topbar')).toBeHidden();
-  await expect(navigation).toBeVisible();
-  await expect(navigation.getByRole('button', { name: activeLabel })).toHaveAttribute('aria-current', 'page');
+  await expect(menuTrigger).toBeVisible();
+  await expect(page.locator('.app-mobile-nav')).toHaveCount(0);
   const appBarBounds = await page.locator('.mobile-app-bar').evaluate((element) => {
     const rect = element.getBoundingClientRect();
     return { left: rect.left, right: rect.right, viewportWidth: window.innerWidth };
   });
   expect(appBarBounds.left).toBeGreaterThanOrEqual(0);
   expect(appBarBounds.right).toBeLessThanOrEqual(appBarBounds.viewportWidth);
+  await assertTouchTarget(menuTrigger);
+
+  await menuTrigger.click();
+  const menuDrawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const navigation = menuDrawer.getByRole('navigation', { name: '모바일 공통 메뉴' });
+  await expect(menuDrawer).toBeVisible();
+  await expect(navigation.locator('[aria-current="page"]')).toContainText(activeLabel);
   await assertTouchTargets(navigation.getByRole('button'));
+  await page.keyboard.press('Escape');
+  await expect(menuDrawer).toBeHidden();
+  await expect(menuTrigger).toBeFocused();
   await assertNoHorizontalOverflow(page);
 }
 
@@ -172,13 +182,14 @@ async function assertTouchTargets(buttons: Locator) {
   expect(targets.every((target) => target.width >= 44 && target.height >= 44)).toBeTruthy();
 }
 
-async function assertStickyActionAboveBottomNavigation(page: Page, action: Locator) {
+async function assertStickyActionInsideViewport(page: Page, action: Locator) {
   await action.evaluate((element) => element.scrollIntoView({ block: 'end' }));
-  const actionBox = await action.boundingBox();
-  const navigationBox = await page.locator('.app-mobile-nav').boundingBox();
-  expect(actionBox).not.toBeNull();
-  expect(navigationBox).not.toBeNull();
-  expect(actionBox!.y + actionBox!.height).toBeLessThanOrEqual(navigationBox!.y);
+  const geometry = await action.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { bottom: rect.bottom, viewportHeight: window.innerHeight };
+  });
+  expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight);
+  await expect(page.locator('.app-mobile-nav')).toHaveCount(0);
 }
 
 async function assertTouchTarget(target: Locator) {

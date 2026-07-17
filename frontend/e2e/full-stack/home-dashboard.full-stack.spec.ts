@@ -32,11 +32,16 @@ test('TASK-HOME-001: Home widgets stay responsive, permission-aware, and linked 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '오늘의 현장 업무' })).toBeVisible();
-  const mobileNavigation = page.getByRole('navigation', { name: '모바일 공통 메뉴' });
+  const menuTrigger = page.getByRole('button', { name: '메뉴 열기' });
+  await menuTrigger.click();
+  const menuDrawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const mobileNavigation = menuDrawer.getByRole('navigation', { name: '모바일 공통 메뉴' });
   await expect(mobileNavigation.getByRole('button', { name: '홈' })).toHaveAttribute('aria-current', 'page');
   await expect(mobileNavigation.getByRole('button', { name: 'Pending' })).toBeVisible();
   await assertNoHorizontalOverflow(page);
   await assertTouchTargets(mobileNavigation.getByRole('button'));
+  await page.keyboard.press('Escape');
+  await expect(menuDrawer).toBeHidden();
   await capture(page, '02-home-mobile-390.png');
 
   await page.goto('/projects');

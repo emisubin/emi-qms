@@ -1,4 +1,5 @@
 import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
 import { app as teamsApp } from '@microsoft/teams-js';
 import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
@@ -1277,6 +1278,7 @@ function QmsAppShellContent({
       <div className="app-content">
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
         <header className="mobile-app-bar">
+          <AppMobileNavigation items={navigationItems} onNavigate={setView} />
           <div className="mobile-app-brand">
             <img src={emiLogo} alt="" aria-hidden="true" />
             <span>
@@ -1469,8 +1471,6 @@ function QmsAppShellContent({
             </button>
           </div>
         ) : null}
-
-        <AppMobileNavigation items={navigationItems} onNavigate={setView} />
 
         <section className="system-strip" aria-label="시스템 상태">
           <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
@@ -1805,7 +1805,20 @@ type NavigationItem = {
   badge?: number;
 };
 
-const mobilePrimaryNavigationLabels = new Set(['홈', '내 업무', '프로젝트', 'Pending', '알림']);
+const mobileNavigationHints: Record<string, string> = {
+  '홈': '오늘의 우선 업무',
+  '내 업무': '내 처리 항목',
+  '프로젝트': '진행 현황과 병목',
+  'Pending': '차단·조치 이슈',
+  '생산관리': '생산계획과 일정',
+  '구매': '발주와 입고예정',
+  '자재': '입고와 IQC 요청',
+  'IQC': '수입검사 대기',
+  '알림': '업무 소식',
+  '관리자': '시스템 운영'
+};
+
+const mobileNavigationShapeNames = ['circle', 'square', 'oval', 'rounded', 'angular'] as const;
 
 function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavigate: (view: View) => void }) {
   return (
@@ -1838,48 +1851,45 @@ function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavig
 
 function AppMobileNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavigate: (view: View) => void }) {
   const { isMobile } = useAdaptiveLayout();
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreTriggerRef = useRef<HTMLButtonElement>(null);
-  const sheetRef = useRef<HTMLElement>(null);
-  const firstMoreItemRef = useRef<HTMLButtonElement>(null);
-  const primaryItems = items.filter((item) => mobilePrimaryNavigationLabels.has(item.label));
-  const moreItems = items.filter((item) => !mobilePrimaryNavigationLabels.has(item.label));
-  const moreIsActive = moreItems.some((item) => item.active);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const firstMenuItemRef = useRef<HTMLButtonElement>(null);
 
-  const closeMore = useCallback((restoreFocus = true) => {
-    setMoreOpen(false);
+  const closeMenu = useCallback((restoreFocus = true) => {
+    setMenuOpen(false);
     if (restoreFocus) {
-      window.setTimeout(() => moreTriggerRef.current?.focus(), 0);
+      window.setTimeout(() => menuTriggerRef.current?.focus(), 0);
     }
   }, []);
 
   useEffect(() => {
     if (!isMobile) {
-      queueMicrotask(() => setMoreOpen(false));
+      queueMicrotask(() => setMenuOpen(false));
     }
   }, [isMobile]);
 
   useEffect(() => {
-    if (!moreOpen) {
+    if (!menuOpen) {
       return undefined;
     }
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const focusTimer = window.setTimeout(() => firstMoreItemRef.current?.focus(), 0);
+    const focusTimer = window.setTimeout(() => firstMenuItemRef.current?.focus(), 0);
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.preventDefault();
-        closeMore();
+        closeMenu();
         return;
       }
 
-      if (event.key !== 'Tab' || !sheetRef.current) {
+      if (event.key !== 'Tab' || !drawerRef.current) {
         return;
       }
 
-      const focusable = Array.from(sheetRef.current.querySelectorAll<HTMLElement>(
+      const focusable = Array.from(drawerRef.current.querySelectorAll<HTMLElement>(
         'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
       ));
       if (focusable.length === 0) {
@@ -1904,98 +1914,94 @@ function AppMobileNavigation({ items, onNavigate }: { items: NavigationItem[]; o
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [closeMore, moreOpen]);
+  }, [closeMenu, menuOpen]);
 
   function navigate(item: NavigationItem) {
     onNavigate(item.view);
-    if (moreOpen) {
-      closeMore();
-    }
+    closeMenu();
   }
 
   return (
     <>
-      <nav
-        className="app-mobile-nav"
-        aria-label="모바일 공통 메뉴"
-        style={{ gridTemplateColumns: `repeat(${primaryItems.length + (moreItems.length > 0 ? 1 : 0)}, minmax(0, 1fr))` }}
+      <button
+        ref={menuTriggerRef}
+        type="button"
+        className="mobile-menu-trigger"
+        aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'}
+        aria-expanded={menuOpen}
+        aria-controls="app-mobile-menu-drawer"
+        onClick={() => setMenuOpen((open) => !open)}
       >
-        {primaryItems.map((item) => (
-          <button
-            key={item.label}
-            type="button"
-            className={item.active ? 'app-nav-button app-mobile-tab active' : 'app-nav-button app-mobile-tab'}
-            aria-current={item.active ? 'page' : undefined}
-            onClick={() => navigate(item)}
-          >
-            <span className="app-mobile-tab-label">{item.label}</span>
-            {item.badge && item.badge > 0 ? (
-              <>
-                <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span>
-                <span className="sr-only">{item.badge}건</span>
-              </>
-            ) : null}
-          </button>
-        ))}
-        {moreItems.length > 0 ? (
-          <button
-            ref={moreTriggerRef}
-            type="button"
-            className={moreIsActive ? 'app-nav-button app-mobile-tab app-mobile-more-trigger active' : 'app-nav-button app-mobile-tab app-mobile-more-trigger'}
-            aria-current={moreIsActive ? 'page' : undefined}
-            aria-expanded={moreOpen}
-            aria-controls="app-mobile-more-sheet"
-            onClick={() => setMoreOpen(true)}
-          >
-            <span className="app-mobile-tab-label">더보기</span>
-            <span className="app-mobile-more-dots" aria-hidden="true">•••</span>
-          </button>
-        ) : null}
-      </nav>
+        <span className="mobile-menu-trigger-lines" aria-hidden="true"><i /><i /><i /></span>
+      </button>
 
-      {moreOpen ? (
+      {menuOpen ? createPortal(
         <div
-          className="app-mobile-more-backdrop"
+          className="mobile-menu-backdrop"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
-              closeMore();
+              closeMenu();
             }
           }}
         >
-          <section
-            ref={sheetRef}
-            id="app-mobile-more-sheet"
-            className="app-mobile-more-sheet"
+          <aside
+            ref={drawerRef}
+            id="app-mobile-menu-drawer"
+            className="mobile-menu-drawer"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="app-mobile-more-title"
+            aria-labelledby="app-mobile-menu-title"
           >
-            <header className="app-mobile-more-header">
-              <div>
-                <p className="eyebrow">WORKSPACE</p>
-                <h2 id="app-mobile-more-title">더 많은 업무 메뉴</h2>
+            <header className="mobile-menu-header">
+              <div className="mobile-menu-shape-lockup" aria-hidden="true">
+                <span data-shape="circle" />
+                <span data-shape="square" />
+                <span data-shape="oval" />
               </div>
-              <button type="button" className="app-mobile-more-close" aria-label="더보기 닫기" onClick={() => closeMore()}>
+              <div>
+                <p className="eyebrow">EMI WORKSPACE</p>
+                <h2 id="app-mobile-menu-title">전체 업무 메뉴</h2>
+              </div>
+              <button type="button" className="mobile-menu-close" aria-label="메뉴 닫기" onClick={() => closeMenu()}>
                 ×
               </button>
             </header>
-            <div className="app-mobile-more-list">
-              {moreItems.map((item, index) => (
+            <nav className="mobile-menu-list" aria-label="모바일 공통 메뉴">
+              {items.map((item, index) => (
                 <button
                   key={item.label}
-                  ref={index === 0 ? firstMoreItemRef : undefined}
+                  ref={index === 0 ? firstMenuItemRef : undefined}
                   type="button"
-                  className={item.active ? 'app-mobile-more-item active' : 'app-mobile-more-item'}
+                  className={item.active ? 'mobile-menu-item active' : 'mobile-menu-item'}
+                  aria-label={item.badge && item.badge > 0 ? `${item.label} ${item.badge}건` : item.label}
                   aria-current={item.active ? 'page' : undefined}
                   onClick={() => navigate(item)}
                 >
-                  <span>{item.label}</span>
-                  <span aria-hidden="true">→</span>
+                  <span
+                    className="mobile-menu-item-shape"
+                    data-shape={mobileNavigationShapeNames[index % mobileNavigationShapeNames.length]}
+                    aria-hidden="true"
+                  />
+                  <span className="mobile-menu-item-copy">
+                    <strong>{item.label}</strong>
+                    <small>{mobileNavigationHints[item.label] ?? '업무 화면'}</small>
+                  </span>
+                  {item.badge && item.badge > 0 ? (
+                    <>
+                      <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span>
+                      <span className="sr-only">{item.badge}건</span>
+                    </>
+                  ) : <span className="mobile-menu-arrow" aria-hidden="true">→</span>}
                 </button>
               ))}
-            </div>
-          </section>
-        </div>
+            </nav>
+            <footer className="mobile-menu-footer">
+              <span aria-hidden="true" />
+              <p>필요한 화면을 선택하면 메뉴가 자동으로 닫힙니다.</p>
+            </footer>
+          </aside>
+        </div>,
+        document.body
       ) : null}
     </>
   );

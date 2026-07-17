@@ -3,10 +3,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
-const screenshotDirectory = path.resolve(process.cwd(), '../tasks/mobile-002-change-002-screenshots');
+const screenshotDirectory = process.env.MOBILE_SCREENSHOT_DIR?.trim()
+  ? path.resolve(process.env.MOBILE_SCREENSHOT_DIR)
+  : path.resolve(process.cwd(), '../tasks/mobile-002-change-003-screenshots');
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
 
-test('TASK-MOBILE-002 Change 002: major workspaces use compact task-first mobile composition', async ({ page, request }) => {
+test('TASK-MOBILE-002 Change 003: major mobile workspaces use the top drawer and shape system', async ({ page, request }) => {
   test.setTimeout(150_000);
   const unique = Date.now();
   const projectTitle = `모바일 전면 개편 검수 ${unique}`;
@@ -32,6 +34,20 @@ test('TASK-MOBILE-002 Change 002: major workspaces use compact task-first mobile
   await assertCompactMobilePage(page);
   await capture(page, '01-home-mobile-390.png');
 
+  const menuTrigger = page.getByRole('button', { name: '메뉴 열기' });
+  await menuTrigger.click();
+  const menuDrawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  await expect(menuDrawer).toBeVisible();
+  await expect(menuDrawer.locator('.mobile-menu-item').first()).toBeFocused();
+  const menuShapeNames = await menuDrawer.locator('.mobile-menu-item-shape').evaluateAll((elements) =>
+    Array.from(new Set(elements.map((element) => element.getAttribute('data-shape'))))
+  );
+  expect(menuShapeNames).toEqual(expect.arrayContaining(['circle', 'square', 'oval', 'rounded', 'angular']));
+  await capture(page, '01b-left-menu-drawer-mobile-390.png');
+  await page.keyboard.press('Escape');
+  await expect(menuDrawer).toBeHidden();
+  await expect(menuTrigger).toBeFocused();
+
   await page.goto('/projects');
   await expect(page.getByRole('heading', { name: '현장 프로젝트' })).toBeVisible();
   await assertCompactMobilePage(page);
@@ -43,6 +59,10 @@ test('TASK-MOBILE-002 Change 002: major workspaces use compact task-first mobile
   await page.getByRole('button', { name: '검색', exact: true }).click();
   await expect(page.locator('.production-planning-mobile .procurement-project-card').filter({ hasText: projectTitle })).toBeVisible();
   await expect(page.locator('.production-planning-mobile .mobile-priority-grid')).toBeVisible();
+  const kpiShapeCount = await page.locator('.dashboard-kpi-card').evaluateAll((elements) =>
+    new Set(elements.map((element) => getComputedStyle(element).borderRadius)).size
+  );
+  expect(kpiShapeCount).toBeGreaterThanOrEqual(3);
   await assertCompactMobilePage(page);
   await capture(page, '03-production-planning-mobile-390.png');
 
@@ -100,6 +120,8 @@ test('TASK-MOBILE-002 Change 002: major workspaces use compact task-first mobile
   await expect(page.getByRole('heading', { name: '사용자 관리' })).toBeVisible();
   const fieldToggle = page.locator('.mobile-admin-field-toggle');
   await expect(fieldToggle).toBeVisible();
+  await expect(page.getByText('사용자 목록을 불러오는 중입니다.')).toBeHidden();
+  await expect(page.locator('.admin-mobile-page table')).toBeVisible();
   await expect(page.locator('.admin-mobile-page')).not.toHaveClass(/admin-mobile-page--all-fields/);
   await assertCompactMobilePage(page);
   await capture(page, '11-admin-users-priority-mobile-390.png');
@@ -194,13 +216,19 @@ async function assertCompactMobilePage(page: Page) {
         return rect.width >= 44 && rect.height >= 44;
       }),
       appBarHeight: document.querySelector('.mobile-app-bar')?.getBoundingClientRect().height ?? 0,
-      navTop: document.querySelector('.app-mobile-nav')?.getBoundingClientRect().top ?? 0
+      menuTriggerSize: (() => {
+        const rect = document.querySelector('.mobile-menu-trigger')?.getBoundingClientRect();
+        return rect ? { width: rect.width, height: rect.height } : { width: 0, height: 0 };
+      })(),
+      bottomNavigationCount: document.querySelectorAll('.app-mobile-nav').length
     };
   });
   expect(metrics.overflow).toBe(0);
   expect(metrics.touchTargetsSafe).toBeTruthy();
   expect(metrics.appBarHeight).toBeLessThanOrEqual(64);
-  expect(metrics.navTop).toBeGreaterThan(700);
+  expect(metrics.menuTriggerSize.width).toBeGreaterThanOrEqual(44);
+  expect(metrics.menuTriggerSize.height).toBeGreaterThanOrEqual(44);
+  expect(metrics.bottomNavigationCount).toBe(0);
 }
 
 async function capture(page: Page, filename: string) {

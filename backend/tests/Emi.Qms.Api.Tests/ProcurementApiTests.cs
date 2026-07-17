@@ -1245,7 +1245,181 @@ public sealed class ProcurementApiTests
         Assert.Equal("Completed", completedProcurementStage.GetProperty("status").GetString());
     }
 
-    private static async Task<Guid> CreateProjectAsync(HttpClient client, string projectCode, string projectTitle)
+    [Fact]
+    public async Task PanelKitting_CompletesSelectedPanelsExactlyOnceAndClosesProjectOnLastPanel()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        using var adminClient = context.CreateClient("dev-admin");
+        var projectId = await CreateProjectAsync(salesClient, "KIT-010A", "Panel Kitting", 2);
+
+        Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "Kitting Material" } } },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        using (var blockedQueue = await ReadJsonAsync(await materialsClient.GetAsync(
+                   $"/api/materials/kitting?projectId={projectId}",
+                   TestContext.Current.CancellationToken)))
+        {
+            var blockedProject = Assert.Single(blockedQueue.RootElement.GetProperty("projects").EnumerateArray());
+            Assert.False(blockedProject.GetProperty("ready").GetBoolean());
+            Assert.All(blockedProject.GetProperty("panels").EnumerateArray(), panel =>
+                Assert.False(panel.GetProperty("selectable").GetBoolean()));
+        }
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.PostAsJsonAsync(
+            "/api/materials/kitting/complete",
+            new { operationId = Guid.NewGuid(), projectId, panelIds = new[] { Guid.NewGuid() } },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        await context.PreparePanelKittingAsync(projectId);
+        using var readyQueue = await ReadJsonAsync(await materialsClient.GetAsync(
+            $"/api/materials/kitting?projectId={projectId}",
+            TestContext.Current.CancellationToken));
+        var readyProject = Assert.Single(readyQueue.RootElement.GetProperty("projects").EnumerateArray());
+        Assert.True(readyProject.GetProperty("ready").GetBoolean());
+        var panels = readyProject.GetProperty("panels").EnumerateArray().ToList();
+        Assert.Equal(2, panels.Count);
+        Assert.All(panels, panel => Assert.True(panel.GetProperty("selectable").GetBoolean()));
+
+        var firstPanelId = panels[0].GetProperty("panelId").GetGuid();
+        var firstOperationId = Guid.NewGuid();
+        var first = await materialsClient.PostAsJsonAsync(
+            "/api/materials/kitting/complete",
+            new { operationId = firstOperationId, projectId, panelIds = new[] { firstPanelId } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        using (var firstJson = await ReadJsonAsync(first))
+        {
+            Assert.Equal(1, firstJson.RootElement.GetProperty("completedPanelCount").GetInt32());
+            Assert.Equal(1, firstJson.RootElement.GetProperty("generatedWorkItemCount").GetInt32());
+            Assert.False(firstJson.RootElement.GetProperty("projectKittingCompleted").GetBoolean());
+            Assert.False(firstJson.RootElement.GetProperty("replayed").GetBoolean());
+        }
+
+        var replay = await materialsClient.PostAsJsonAsync(
+            "/api/materials/kitting/complete",
+            new { operationId = firstOperationId, projectId, panelIds = new[] { firstPanelId } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        using (var replayJson = await ReadJsonAsync(replay))
+        {
+            Assert.Equal(1, replayJson.RootElement.GetProperty("generatedWorkItemCount").GetInt32());
+            Assert.True(replayJson.RootElement.GetProperty("replayed").GetBoolean());
+        }
+
+        Assert.Equal(HttpStatusCode.Conflict, (await materialsClient.PostAsJsonAsync(
+            "/api/materials/kitting/complete",
+            new { operationId = Guid.NewGuid(), projectId, panelIds = new[] { firstPanelId } },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var secondPanelId = panels[1].GetProperty("panelId").GetGuid();
+        Assert.Equal(HttpStatusCode.Conflict, (await materialsClient.PostAsJsonAsync(
+            "/api/materials/kitting/complete",
+            new { operationId = firstOperationId, projectId, panelIds = new[] { secondPanelId } },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var cancelFirstPanel = await salesClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/change-panel-count",
+            new
+            {
+                panelCount = 1,
+                expectedActivePanelCount = 2,
+                cancelPanelIds = new[] { firstPanelId },
+                reason = "완료 패널 제조 업무 취소 회귀"
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, cancelFirstPanel.StatusCode);
+        Assert.Equal(1L, await context.ReadCountAsync(
+            $"select count(*) from work_items where project_id = @project_id and target_id = '{firstPanelId}' and workflow_stage_code = 'ManufacturingWork' and status = 'Cancelled';",
+            projectId));
+        Assert.Equal(1L, await context.ReadCountAsync(
+            "select count(*) from panel_kitting_completions where project_id = @project_id;",
+            projectId));
+
+        var last = await materialsClient.PostAsJsonAsync(
+            "/api/materials/kitting/complete",
+            new { operationId = Guid.NewGuid(), projectId, panelIds = new[] { secondPanelId } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, last.StatusCode);
+        using (var lastJson = await ReadJsonAsync(last))
+        {
+            Assert.True(lastJson.RootElement.GetProperty("projectKittingCompleted").GetBoolean());
+            Assert.Equal(1, lastJson.RootElement.GetProperty("generatedWorkItemCount").GetInt32());
+        }
+
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from panel_kitting_completions where project_id = @project_id;",
+            projectId));
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id = @project_id and workflow_stage_code = 'ManufacturingWork';",
+            projectId));
+        Assert.Equal(1L, await context.ReadCountAsync(
+            "select count(*) from project_workflow_events where project_id = @project_id and stage_code = 'KittingCompleted' and event_status = 'Succeeded';",
+            projectId));
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from notifications where project_id = @project_id and idempotency_key like 'kitting:operation:%:reference';",
+            projectId));
+    }
+
+    [Fact]
+    public async Task PanelKitting_RollsBackWhenNoManufacturingAssigneeExists()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        var projectId = await CreateProjectAsync(salesClient, "KIT-NO-OWNER", "Panel Kitting No Owner", 1);
+
+        Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "Kitting Material" } } },
+            TestContext.Current.CancellationToken)).StatusCode);
+        await context.PreparePanelKittingAsync(projectId);
+        await context.ExecuteSqlAsync("""
+            update qms_users
+            set is_active = false
+            where id in (
+                select user_role.user_id
+                from user_roles user_role
+                join role_permissions role_permission on role_permission.role_id = user_role.role_id
+                join permissions permission on permission.id = role_permission.permission_id
+                where permission.code = 'manufacturing.update'
+            );
+            """);
+
+        using var queue = await ReadJsonAsync(await materialsClient.GetAsync(
+            $"/api/materials/kitting?projectId={projectId}",
+            TestContext.Current.CancellationToken));
+        var panelId = Assert.Single(
+            Assert.Single(queue.RootElement.GetProperty("projects").EnumerateArray())
+                .GetProperty("panels").EnumerateArray()).GetProperty("panelId").GetGuid();
+        var response = await materialsClient.PostAsJsonAsync(
+            "/api/materials/kitting/complete",
+            new { operationId = Guid.NewGuid(), projectId, panelIds = new[] { panelId } },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("제조 담당자를 지정", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Equal(0L, await context.ReadCountAsync(
+            "select count(*) from panel_kitting_batches where project_id = @project_id;",
+            projectId));
+        Assert.Equal(0L, await context.ReadCountAsync(
+            "select count(*) from panel_kitting_completions where project_id = @project_id;",
+            projectId));
+        Assert.Equal(0L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id = @project_id and workflow_stage_code = 'ManufacturingWork';",
+            projectId));
+    }
+
+    private static async Task<Guid> CreateProjectAsync(
+        HttpClient client,
+        string projectCode,
+        string projectTitle,
+        int panelCount = 1)
     {
         var response = await client.PostAsJsonAsync(
             "/api/projects",
@@ -1255,7 +1429,7 @@ public sealed class ProcurementApiTests
                 Item = "UL67",
                 ProjectCode = projectCode,
                 ProjectTitle = projectTitle,
-                PanelCount = 1,
+                PanelCount = panelCount,
                 DeliveryDate = "2026-10-10",
                 SalesOwnerUserId,
                 PackagingMethod = "StretchWrap",
@@ -1452,6 +1626,68 @@ public sealed class ProcurementApiTests
                 new ProjectAccessScope(false, projectKeys),
                 TestContext.Current.CancellationToken);
             return result.Status == MaterialsMutationStatus.NotFound;
+        }
+
+        public async Task PreparePanelKittingAsync(Guid projectId)
+        {
+            var provider = new DatabaseConnectionStringProvider(Database.CreateConfiguration());
+            var connectionString = provider.GetConnectionString();
+            Assert.False(string.IsNullOrWhiteSpace(connectionString));
+            await using var dataSource = NpgsqlDataSource.Create(connectionString!);
+            await using var connection = await dataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
+            await using var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = "select set_config('emi_qms.material_receipt_write', 'allowed', true);";
+                await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            }
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    update project_procurement_items
+                    set receipt_completed = true,
+                        receipt_completed_at_utc = now(),
+                        receipt_completed_by_user_id = '50000000-0000-0000-0000-000000000012'
+                    where project_id = @project_id and status = 'Active';
+
+                    update panel_placeholders
+                    set panel_info_completed = true,
+                        panel_name = coalesce(panel_name, display_code),
+                        width_mm = coalesce(width_mm, 600),
+                        height_mm = coalesce(height_mm, 1800),
+                        depth_mm = coalesce(depth_mm, 400)
+                    where project_id = @project_id and status = 'Active';
+                    """;
+                command.Parameters.AddWithValue("project_id", projectId);
+                await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            }
+
+            await transaction.CommitAsync(TestContext.Current.CancellationToken);
+        }
+
+        public async Task<long> ReadCountAsync(string sql, Guid projectId)
+        {
+            var provider = new DatabaseConnectionStringProvider(Database.CreateConfiguration());
+            var connectionString = provider.GetConnectionString();
+            Assert.False(string.IsNullOrWhiteSpace(connectionString));
+            await using var dataSource = NpgsqlDataSource.Create(connectionString!);
+            await using var command = dataSource.CreateCommand(sql);
+            command.Parameters.AddWithValue("project_id", projectId);
+            return (long)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken) ?? 0L);
+        }
+
+        public async Task ExecuteSqlAsync(string sql)
+        {
+            var provider = new DatabaseConnectionStringProvider(Database.CreateConfiguration());
+            var connectionString = provider.GetConnectionString();
+            Assert.False(string.IsNullOrWhiteSpace(connectionString));
+            await using var dataSource = NpgsqlDataSource.Create(connectionString!);
+            await using var command = dataSource.CreateCommand(sql);
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
         }
 
         public async ValueTask DisposeAsync()

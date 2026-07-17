@@ -5,6 +5,7 @@ import { app as teamsApp } from '@microsoft/teams-js';
 import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
 import { MobileSheet } from './MobileSheet';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
+import { PanelKittingPage } from './PanelKittingPage';
 import {
   ApiError,
   applyAdminCalendarHolidayExcel,
@@ -226,6 +227,7 @@ type View =
   | { kind: 'procurement-dashboard' }
   | { kind: 'procurement-settings' }
   | { kind: 'materials-receipts' }
+  | { kind: 'materials-kitting'; projectId?: string; panelId?: string }
   | { kind: 'quality-iqc' }
   | { kind: 'notifications' }
   | { kind: 'pending'; projectId?: string }
@@ -450,6 +452,15 @@ function initialViewFromLocation(): View {
     return { kind: 'materials-receipts' };
   }
 
+  if (window.location.pathname === '/materials/kitting') {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      kind: 'materials-kitting',
+      projectId: params.get('project') ?? undefined,
+      panelId: params.get('panel') ?? undefined
+    };
+  }
+
   if (window.location.pathname === '/quality/iqc') {
     return { kind: 'quality-iqc' };
   }
@@ -612,6 +623,14 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
       return { kind: 'detail', projectId, section: 'workflow' };
     }
 
+    if (url.pathname === '/materials/kitting') {
+      return {
+        kind: 'materials-kitting',
+        projectId: url.searchParams.get('project') ?? projectId,
+        panelId: url.searchParams.get('panel') ?? undefined
+      };
+    }
+
     const pendingMatch = url.pathname.match(/^\/pending\/([^/]+)$/);
     if (pendingMatch?.[1]) {
       return { kind: 'pending-detail', pendingId: pendingMatch[1] };
@@ -673,6 +692,13 @@ function pathForView(view: View) {
       return '/production-planning/settings';
     case 'materials-receipts':
       return '/materials/receipts';
+    case 'materials-kitting': {
+      const params = new URLSearchParams();
+      if (view.projectId) params.set('project', view.projectId);
+      if (view.panelId) params.set('panel', view.panelId);
+      const query = params.toString();
+      return `/materials/kitting${query ? `?${query}` : ''}`;
+    }
     case 'quality-iqc':
       return '/quality/iqc';
     case 'procurement-dashboard':
@@ -1250,6 +1276,7 @@ function QmsAppShellContent({
   const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
   const canAccessMaterialReceipts = canUpdateMaterialReceipt || isSystemAdministrator;
+  const canAccessPanelKitting = permissions.includes('projects.read');
   const navigationItems: NavigationItem[] = [
     { label: '홈', view: { kind: 'home' }, active: view.kind === 'home' },
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount },
@@ -1258,6 +1285,7 @@ function QmsAppShellContent({
     { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     ...(canAccessMaterialReceipts ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : []),
+    ...(canAccessPanelKitting ? [{ label: '키팅', view: { kind: 'materials-kitting' } as View, active: view.kind === 'materials-kitting' }] : []),
     ...(canInspectQuality ? [{ label: 'IQC', view: { kind: 'quality-iqc' } as View, active: view.kind === 'quality-iqc' }] : []),
     { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: displayedShellBadges.unreadNotificationCount },
     ...(canUseAdminPages ? [
@@ -1381,6 +1409,7 @@ function QmsAppShellContent({
           </div>
           <div className="topbar-actions">
             {canAccessMaterialReceipts ? <button type="button" onClick={() => setView({ kind: 'materials-receipts' })}>자재</button> : null}
+            {canAccessPanelKitting ? <button type="button" onClick={() => setView({ kind: 'materials-kitting' })}>키팅</button> : null}
             {canUseAdminTestUserSwitch ? (
               <label className="test-user-select">
                 <span>검수 사용자 전환</span>
@@ -1666,6 +1695,17 @@ function QmsAppShellContent({
         />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'materials-kitting' ? (
+        <PanelKittingPage
+          developmentUserKey={developmentUserKey}
+          canComplete={canUpdateMaterialReceipt}
+          initialProjectId={view.projectId}
+          initialPanelId={view.panelId}
+          onBack={() => setView({ kind: 'list' })}
+          onOpenReceipts={() => setView({ kind: 'materials-receipts' })}
+        />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'quality-iqc' ? (
         <MaterialIqcPage
           developmentUserKey={developmentUserKey}
@@ -1813,6 +1853,7 @@ const mobileNavigationHints: Record<string, string> = {
   '생산관리': '생산계획과 일정',
   '구매': '발주와 입고예정',
   '자재': '입고와 IQC 요청',
+  '키팅': '패널을 제조로 인계',
   'IQC': '수입검사 대기',
   '알림': '업무 소식',
   '관리자': '시스템 운영'

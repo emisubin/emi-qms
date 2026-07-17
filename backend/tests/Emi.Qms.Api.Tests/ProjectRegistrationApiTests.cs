@@ -1670,6 +1670,32 @@ public sealed class ProjectRegistrationApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, procurement.StatusCode);
 
+        var kittingBatchId = Guid.NewGuid();
+        var kittingOperationId = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into panel_kitting_batches (
+                id, project_id, operation_id, requested_by_user_id, panel_set_fingerprint,
+                completed_panel_count, generated_work_item_count, project_kitting_completed,
+                readiness_active_item_count, readiness_completed_item_count,
+                readiness_predicate_version, readiness_verified_at_utc
+            )
+            values (
+                '{kittingBatchId}', '{projectId}', '{kittingOperationId}', '{SalesOwnerUserId}', repeat('a', 64),
+                1, 1, false, 1, 1, 1, now()
+            );
+
+            insert into panel_kitting_completions (
+                batch_id, project_id, panel_id, completed_by_user_id
+            )
+            select '{kittingBatchId}', '{projectId}', panel.id, '{SalesOwnerUserId}'
+            from panel_placeholders panel
+            where panel.project_id = '{projectId}'
+            order by panel.sequence_number
+            limit 1;
+            """);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from panel_kitting_batches where project_id = '{projectId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from panel_kitting_completions where project_id = '{projectId}';"));
+
         var activePurge = await SendJsonAsync(
             adminClient,
             HttpMethod.Delete,
@@ -1721,6 +1747,8 @@ public sealed class ProjectRegistrationApiTests
         Assert.Equal(0, await context.CountRowsAsync("panel_placeholders", projectId));
         Assert.Equal(0, await context.CountRowsAsync("project_procurement_items", projectId));
         Assert.Equal(0, await context.CountRowsAsync("project_audit_events", projectId));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from panel_kitting_batches;"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from panel_kitting_completions;"));
     }
 
     [Fact]

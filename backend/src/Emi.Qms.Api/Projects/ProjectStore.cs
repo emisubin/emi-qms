@@ -1057,6 +1057,22 @@ public sealed class ProjectStore(
                     command.Parameters.AddWithValue("panel_id", panel.PanelId);
                     await command.ExecuteNonQueryAsync(cancellationToken);
 
+                    await using (var workItemCommand = connection.CreateCommand())
+                    {
+                        workItemCommand.Transaction = transaction;
+                        workItemCommand.CommandText = """
+                            update work_items
+                            set status = 'Cancelled',
+                                cancelled_at_utc = coalesce(cancelled_at_utc, now())
+                            where target_type = 'Panel'
+                              and target_id = @panel_id
+                              and workflow_stage_code = 'ManufacturingWork'
+                              and status in ('Requested', 'InProgress');
+                            """;
+                        workItemCommand.Parameters.AddWithValue("panel_id", panel.PanelId);
+                        await workItemCommand.ExecuteNonQueryAsync(cancellationToken);
+                    }
+
                     await InsertAuditEventAsync(
                         connection,
                         transaction,
@@ -3414,6 +3430,8 @@ public sealed class ProjectStore(
         await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batch_projects where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batches where cardinality(@project_ids) >= 0 and not exists (select 1 from procurement_excel_import_batch_projects bp where bp.import_batch_id = procurement_excel_import_batches.id) and not exists (select 1 from project_audit_events a where a.procurement_import_batch_id = procurement_excel_import_batches.id);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_information_excel_import_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_kitting_completions where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_kitting_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from project_assignees where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from project_production_plans where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from project_procurement_items where project_id = any(@project_ids);", projectIds, cancellationToken);

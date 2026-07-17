@@ -686,6 +686,15 @@ public sealed class MaterialsStore(
         await CompleteWorkItemAsync(connection, transaction, $"materials:receipt:{receiptId}:confirm", cancellationToken);
         await InsertEventAsync(connection, transaction, receipt.ItemId, receiptId, "Confirmed", MaterialReceiptStatuses.Passed, MaterialReceiptStatuses.Confirmed, "IQC 합격 도착분 입고 확정", actorUserId, cancellationToken);
         var completed = await RefreshDerivedProjectionAsync(connection, transaction, receipt.ItemId, actorUserId, cancellationToken);
+        if (completed)
+        {
+            await PanelKittingStore.EnsureKittingWorkItemIfReadyAsync(
+                connection,
+                transaction,
+                receipt.ProjectId,
+                actorUserId,
+                cancellationToken);
+        }
         await transaction.CommitAsync(cancellationToken);
         return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
             new MaterialReceiptActionResponse(receipt.ItemId, receiptId, null, null, MaterialReceiptStatuses.Confirmed, completed));
@@ -826,6 +835,15 @@ public sealed class MaterialsStore(
         }
         await InsertEventAsync(connection, transaction, itemId, null, "ArrivalsClosed", null, null, reason, actorUserId, cancellationToken);
         var completed = await RefreshDerivedProjectionAsync(connection, transaction, itemId, actorUserId, cancellationToken);
+        if (completed)
+        {
+            await PanelKittingStore.EnsureKittingWorkItemIfReadyAsync(
+                connection,
+                transaction,
+                item.ProjectId,
+                actorUserId,
+                cancellationToken);
+        }
         await transaction.CommitAsync(cancellationToken);
         return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
             new MaterialReceiptActionResponse(itemId, null, null, null, "ArrivalsClosed", completed));

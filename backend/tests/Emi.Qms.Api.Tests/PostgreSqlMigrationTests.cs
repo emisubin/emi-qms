@@ -294,11 +294,11 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(32L, await ReadScalarAsync<long>(
+        Assert.Equal(33L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0032_iqc_digital_reports", await ReadScalarAsync<string>(
+        Assert.Equal("0033_panel_kitting_handoff", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

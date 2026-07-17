@@ -1739,9 +1739,11 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetFieldValue<DateTimeOffset>(14),
             reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
             reader.IsDBNull(16) ? null : reader.GetFieldValue<DateTimeOffset>(16),
-            reader.GetString(17) == "Pending" && !reader.IsDBNull(18)
-                ? $"/pending/{reader.GetGuid(18)}"
-                : LinkUrlForStage(projectId, reader.GetString(6)));
+            LinkUrlForWorkItem(
+                projectId,
+                reader.GetString(6),
+                reader.GetString(17),
+                reader.IsDBNull(18) ? null : reader.GetGuid(18)));
     }
 
     private static NotificationResponse ReadNotification(NpgsqlDataReader reader)
@@ -1940,8 +1942,26 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.ProductionPlanning => $"/projects/{projectId}/production-planning/edit",
             WorkflowStageCodes.DesignPanelInfo => $"/projects/{projectId}/panel-information/edit",
             WorkflowStageCodes.ProcurementInfo => $"/projects/{projectId}/procurement/edit",
+            WorkflowStageCodes.KittingCompleted => $"/materials/kitting?project={projectId}",
             _ => $"/projects/{projectId}?section=workflow"
         };
+    }
+
+    private static string LinkUrlForWorkItem(Guid projectId, string stageCode, string targetType, Guid? targetId)
+    {
+        if (string.Equals(targetType, "Pending", StringComparison.Ordinal) && targetId is not null)
+        {
+            return $"/pending/{targetId.Value}";
+        }
+
+        if (string.Equals(stageCode, WorkflowStageCodes.ManufacturingWork, StringComparison.Ordinal)
+            && string.Equals(targetType, "Panel", StringComparison.Ordinal)
+            && targetId is not null)
+        {
+            return $"/materials/kitting?project={projectId}&panel={targetId.Value}";
+        }
+
+        return LinkUrlForStage(projectId, stageCode);
     }
 
     private static string WorkItemStatusLabel(string status)

@@ -18,6 +18,11 @@ import type {
 } from './materials';
 import type { IqcReport, SaveIqcItemResponse } from './iqc-report';
 import type {
+  CompletePanelKittingRequest,
+  PanelKittingCompletionResponse,
+  PanelKittingQueueResponse
+} from './panelKitting';
+import type {
   AuditHistoryResponse,
   AdminDashboardResponse,
   AdminCalendarHoliday,
@@ -1065,6 +1070,24 @@ export async function getMaterialReceipts(
 
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<MaterialReceiptListResponse>(`/api/materials/receipts${query}`, developmentUserKey);
+}
+
+export async function getPanelKittingQueue(
+  developmentUserKey: string | undefined,
+  projectId?: string
+): Promise<PanelKittingQueueResponse> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+  return fetchJson<PanelKittingQueueResponse>(`/api/materials/kitting${query}`, developmentUserKey);
+}
+
+export async function completePanelKitting(
+  developmentUserKey: string | undefined,
+  request: CompletePanelKittingRequest
+): Promise<PanelKittingCompletionResponse> {
+  return fetchJson<PanelKittingCompletionResponse>('/api/materials/kitting/complete', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
 }
 
 export async function registerMaterialArrival(

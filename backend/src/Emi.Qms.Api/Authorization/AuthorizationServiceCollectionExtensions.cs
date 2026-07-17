@@ -192,6 +192,12 @@ public static class AuthorizationServiceCollectionExtensions
                 policy.AddRequirements(new PermissionRequirement(QmsPermissions.ManufacturingUpdate));
             });
 
+            options.AddPolicy(QmsPolicies.LogisticsShip, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.LogisticsShip));
+            });
+
             options.AddPolicy(QmsPolicies.ProjectSalesAmountRead, policy =>
             {
                 policy.RequireAuthenticatedUser();

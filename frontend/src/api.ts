@@ -40,6 +40,14 @@ import type {
   StartQualityInspectionRequest
 } from './qualityInspections';
 import type {
+  CreateLogisticsBatchRequest,
+  CreatePackingUnitRequest,
+  LogisticsDraftResponse,
+  LogisticsMutationResponse,
+  LogisticsQueueResponse,
+  LogisticsStage
+} from './logistics';
+import type {
   AuditHistoryResponse,
   AdminDashboardResponse,
   AdminCalendarHoliday,
@@ -1192,6 +1200,91 @@ export async function getQualityInspectionQueue(
   if (projectId) params.set('projectId', projectId);
   const query = params.size ? `?${params.toString()}` : '';
   return fetchJson<QualityInspectionQueueResponse>(`/api/quality/inspections/queue${query}`, developmentUserKey);
+}
+
+export async function getLogisticsQueue(
+  developmentUserKey: string | undefined,
+  stage: LogisticsStage,
+  projectId?: string
+): Promise<LogisticsQueueResponse> {
+  const params = new URLSearchParams({ stage });
+  if (projectId) params.set('projectId', projectId);
+  return fetchJson<LogisticsQueueResponse>(`/api/logistics/queue?${params.toString()}`, developmentUserKey);
+}
+
+export async function getLogisticsDraft(
+  developmentUserKey: string | undefined,
+  stage: LogisticsStage,
+  targetId: string
+): Promise<LogisticsDraftResponse> {
+  return fetchJson<LogisticsDraftResponse>(`/api/logistics/${stage}/${targetId}`, developmentUserKey);
+}
+
+export async function createPackingUnit(
+  developmentUserKey: string | undefined,
+  request: CreatePackingUnitRequest
+): Promise<LogisticsMutationResponse> {
+  return fetchJson<LogisticsMutationResponse>('/api/logistics/packing-units', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function createLogisticsBatch(
+  developmentUserKey: string | undefined,
+  stage: Exclude<LogisticsStage, 'packing'>,
+  request: CreateLogisticsBatchRequest
+): Promise<LogisticsMutationResponse> {
+  return fetchJson<LogisticsMutationResponse>(`/api/logistics/${stage}-batches`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function uploadLogisticsEvidence(
+  developmentUserKey: string | undefined,
+  stage: LogisticsStage,
+  targetId: string,
+  operationId: string,
+  expectedVersion: number,
+  altText: string,
+  file: File
+): Promise<LogisticsMutationResponse> {
+  const form = new FormData();
+  form.set('operationId', operationId);
+  form.set('expectedVersion', String(expectedVersion));
+  form.set('altText', altText);
+  form.set('file', file);
+  return fetchJson<LogisticsMutationResponse>(`/api/logistics/${stage}/${targetId}/evidence`, developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function finalizeLogisticsOperation(
+  developmentUserKey: string | undefined,
+  stage: LogisticsStage,
+  targetId: string,
+  operationId: string,
+  expectedVersion: number
+): Promise<LogisticsMutationResponse> {
+  return fetchJson<LogisticsMutationResponse>(`/api/logistics/${stage}/${targetId}/finalize`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ operationId, expectedVersion })
+  });
+}
+
+export async function cancelLogisticsDraft(
+  developmentUserKey: string | undefined,
+  stage: LogisticsStage,
+  targetId: string,
+  operationId: string,
+  expectedVersion: number
+): Promise<LogisticsMutationResponse> {
+  return fetchJson<LogisticsMutationResponse>(`/api/logistics/${stage}/${targetId}/cancel`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ operationId, expectedVersion })
+  });
 }
 
 export async function getManufacturingCompletionQueue(

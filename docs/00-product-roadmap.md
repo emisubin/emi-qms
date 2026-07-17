@@ -1573,6 +1573,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제외 범위: 영업 정산
 - 선행조건: 품질 완료 기준
 - 주요 테스트: 포장 구성, 사진 필수, 출발, 납품 완료
+- 2026-07-17 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 “다음 작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-013A` 기획·구현을 진행한다. 포장 구성 상세·서명본 형식의 미확정 정책은 Fable의 최소 MVP 권장안과 Deferred 경계로 분리하며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
+- 2026-07-18 실험 상태: `experiment/task-013a-logistics`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. additive `0036`은 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, 포장 단위 → 출발 묶음 → 납품 묶음의 필수 증빙·원자 확정·영업 정산 skeleton 인계와 모바일 물류 workspace를 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 canonical 실행 큐의 다음 `TASK-007A` Gate는 변경하지 않는다.
 
 ### TASK-014A: 영업 정산 / 세금계산서 / 프로젝트 완료
 

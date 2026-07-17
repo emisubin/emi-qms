@@ -6,9 +6,11 @@ import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
 import { MobileSheet } from './MobileSheet';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
+import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
 import { QualityInspectionsPage } from './QualityInspectionsPage';
 import type { QualityInspectionStage } from './qualityInspections';
+import type { LogisticsStage } from './logistics';
 import {
   ApiError,
   applyAdminCalendarHolidayExcel,
@@ -232,6 +234,7 @@ type View =
   | { kind: 'materials-receipts' }
   | { kind: 'materials-kitting'; projectId?: string; panelId?: string }
   | { kind: 'manufacturing-work'; projectId?: string; panelId?: string }
+  | { kind: 'logistics'; stage?: LogisticsStage; projectId?: string; panelId?: string; unitId?: string; draftId?: string }
   | { kind: 'quality-iqc' }
   | { kind: 'quality-inspections'; stage?: QualityInspectionStage; projectId?: string; panelId?: string }
   | { kind: 'notifications' }
@@ -475,6 +478,18 @@ function initialViewFromLocation(): View {
     };
   }
 
+  if (window.location.pathname === '/logistics') {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      kind: 'logistics',
+      stage: logisticsStageFromQuery(params.get('stage')),
+      projectId: params.get('project') ?? undefined,
+      panelId: params.get('panel') ?? undefined,
+      unitId: params.get('unit') ?? undefined,
+      draftId: params.get('draft') ?? undefined
+    };
+  }
+
   if (window.location.pathname === '/quality/iqc') {
     return { kind: 'quality-iqc' };
   }
@@ -672,6 +687,17 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
       };
     }
 
+    if (url.pathname === '/logistics') {
+      return {
+        kind: 'logistics',
+        stage: logisticsStageFromQuery(url.searchParams.get('stage')),
+        projectId: url.searchParams.get('project') ?? projectId,
+        panelId: url.searchParams.get('panel') ?? undefined,
+        unitId: url.searchParams.get('unit') ?? undefined,
+        draftId: url.searchParams.get('draft') ?? undefined
+      };
+    }
+
     const pendingMatch = url.pathname.match(/^\/pending\/([^/]+)$/);
     if (pendingMatch?.[1]) {
       return { kind: 'pending-detail', pendingId: pendingMatch[1] };
@@ -713,6 +739,10 @@ function qualityStageFromQuery(value: string | null): QualityInspectionStage | u
     : undefined;
 }
 
+function logisticsStageFromQuery(value: string | null): LogisticsStage | undefined {
+  return value === 'packing' || value === 'departure' || value === 'delivery' ? value : undefined;
+}
+
 function pathForView(view: View) {
   switch (view.kind) {
     case 'home':
@@ -752,6 +782,16 @@ function pathForView(view: View) {
       if (view.panelId) params.set('panel', view.panelId);
       const query = params.toString();
       return `/manufacturing/work${query ? `?${query}` : ''}`;
+    }
+    case 'logistics': {
+      const params = new URLSearchParams();
+      if (view.stage) params.set('stage', view.stage);
+      if (view.projectId) params.set('project', view.projectId);
+      if (view.panelId) params.set('panel', view.panelId);
+      if (view.unitId) params.set('unit', view.unitId);
+      if (view.draftId) params.set('draft', view.draftId);
+      const query = params.toString();
+      return `/logistics${query ? `?${query}` : ''}`;
     }
     case 'quality-iqc':
       return '/quality/iqc';
@@ -1330,6 +1370,7 @@ function QmsAppShellContent({
   const canUpdateProcurement = permissions.includes('ProcurementPlan.Update');
   const canUpdateMaterialReceipt = permissions.includes('MaterialReceipt.Update');
   const canUpdateManufacturing = permissions.includes('manufacturing.update');
+  const canShipLogistics = permissions.includes('logistics.ship');
   const canInspectQuality = permissions.includes('quality.inspect');
   const canUpdateProductionPlanning = permissions.includes('ProductionPlan.Update');
   const canManageUsers = permissions.includes('users.manage');
@@ -1342,6 +1383,7 @@ function QmsAppShellContent({
   const canAccessPanelKitting = permissions.includes('projects.read');
   const canAccessMaterials = canAccessMaterialReceipts || canAccessPanelKitting;
   const canAccessManufacturing = permissions.includes('projects.read');
+  const canAccessLogistics = permissions.includes('projects.read');
   const materialsHomeView: View = canAccessMaterialReceipts
     ? { kind: 'materials-receipts' }
     : { kind: 'materials-kitting' };
@@ -1355,6 +1397,7 @@ function QmsAppShellContent({
     ...(canAccessMaterials ? [{ label: '자재', view: materialsHomeView, active: view.kind === 'materials-receipts' || view.kind === 'materials-kitting' }] : []),
     ...(canAccessManufacturing ? [{ label: '제조', view: { kind: 'manufacturing-work' } as View, active: view.kind === 'manufacturing-work' }] : []),
     ...(canInspectQuality ? [{ label: '품질', view: { kind: 'quality-inspections', stage: 'LQC' } as View, active: view.kind === 'quality-iqc' || view.kind === 'quality-inspections' }] : []),
+    ...(canAccessLogistics ? [{ label: '물류', view: { kind: 'logistics', stage: 'packing' } as View, active: view.kind === 'logistics' }] : []),
     { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: displayedShellBadges.unreadNotificationCount },
     ...(canUseAdminPages ? [
       { label: '관리자', view: { kind: 'admin-dashboard' } as View, active: isAdminWorkspace(view) }
@@ -1804,6 +1847,25 @@ function QmsAppShellContent({
           onOpenIqc={() => setView({ kind: 'quality-iqc' })}
           onBack={() => setView({ kind: 'list' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'logistics' ? (
+        <LogisticsPage
+          developmentUserKey={developmentUserKey}
+          canMutate={canShipLogistics}
+          initialStage={view.stage}
+          initialProjectId={view.projectId}
+          initialPanelId={view.panelId}
+          initialUnitId={view.unitId}
+          initialDraftId={view.draftId}
+          onLocationChange={(stage, draftId) => setView({
+            kind: 'logistics',
+            stage,
+            projectId: view.projectId,
+            draftId
+          })}
+          onBack={() => setView({ kind: 'list' })}
         />
       ) : null}
 

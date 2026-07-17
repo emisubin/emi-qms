@@ -981,11 +981,16 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                     or WorkflowStageCodes.ManufacturingCompleted
                     or WorkflowStageCodes.OQC
                     or WorkflowStageCodes.CustomerInspection
-                    or WorkflowStageCodes.FAT)
+                    or WorkflowStageCodes.FAT
+                    or WorkflowStageCodes.PackingCompleted
+                    or WorkflowStageCodes.DepartureProcessed
+                    or WorkflowStageCodes.DeliveryCompleted)
             {
                 var destination = stageCode is WorkflowStageCodes.ManufacturingWork or WorkflowStageCodes.ManufacturingCompleted
                     ? "/manufacturing/work"
-                    : "/quality/inspections";
+                    : stageCode is WorkflowStageCodes.PackingCompleted or WorkflowStageCodes.DepartureProcessed or WorkflowStageCodes.DeliveryCompleted
+                        ? "/logistics"
+                        : "/quality/inspections";
                 return WorkflowMutationResult<MyWorkItemResponse>.Conflict($"전용 화면에서 작업을 진행해 주세요. {destination}");
             }
         }
@@ -1982,6 +1987,19 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             && targetId is not null)
         {
             return $"/quality/inspections?stage={stageCode}&project={projectId}&panel={targetId.Value}";
+        }
+
+        if (stageCode is WorkflowStageCodes.PackingCompleted or WorkflowStageCodes.DepartureProcessed or WorkflowStageCodes.DeliveryCompleted
+            && string.Equals(targetType, "Panel", StringComparison.Ordinal)
+            && targetId is not null)
+        {
+            var logisticsStage = stageCode switch
+            {
+                WorkflowStageCodes.PackingCompleted => "packing",
+                WorkflowStageCodes.DepartureProcessed => "departure",
+                _ => "delivery"
+            };
+            return $"/logistics?stage={logisticsStage}&project={projectId}&panel={targetId.Value}";
         }
 
         return LinkUrlForStage(projectId, stageCode);

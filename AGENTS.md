@@ -106,10 +106,10 @@ Codex-only 조사 중 신규 제품 능력이나 기존 확정 정책을 바꾸�
 사용자가 실험 branch의 반복 개발에 대해 인터뷰·중간 승인 생략과 권장안 자동 채택을 명시하고, 대표 repo·`main`·Persistent UAT·실제 provider를 제외한 경우에만 다음 예외를 적용한다.
 
 1. 사용자-facing deep-interview를 진행하지 않는다. Codex는 사용자의 standing instruction, Roadmap의 확정 정책과 직접 관련된 기존 계약만 `tasks/<task-id>-interview.md`에 기록한다. 미확정 정책은 임의 확정하지 않고 Fable 1차 기획의 권장안 대상으로 남긴다. Repository 충돌이나 안전상 blocking decision은 fast-track으로 우회하지 않는다.
-2. Fable 1차 기획 직전·직후 Claude `/usage`의 전체 모델과 Fable 사용·잔여 비율을 측정해 change와 Implementation report에 기록한다.
+2. Fable 1차 기획 직전·직후 Claude `/usage`의 5시간 현재 세션과 주간 전체 모델·Fable 사용·잔여 비율 및 초기화 시각을 측정해 change와 Implementation report에 기록한다.
 3. `bash scripts/run-fable-readonly.sh planning tasks/<task-id>-interview.md`로 Fable 1차 기획 원문을 `tasks/<task-id>-planning.md`에 기록한다.
 4. Codex가 1차 기획을 내용·제품 방향·실제 Repository 경계 관점에서 한 번 review하고 `tasks/<task-id>-review.md`에 유지·추가·보류·제거와 resolution을 기록한다.
-5. Fable 2차 기획 직전·직후 같은 사용량을 측정한다. 최신 change에 사용자 standing rule, exact target과 아래 marker를 기록한 뒤 `bash scripts/run-fable-readonly.sh second-planning tasks/<task-id>-interview.md docs/<approved-target>.md`를 호출한다.
+5. Fable 2차 기획 직전·직후 같은 5시간 현재 세션·주간 전체 모델·Fable 사용량을 측정한다. 최신 change에 사용자 standing rule, exact target과 아래 marker를 기록한 뒤 `bash scripts/run-fable-readonly.sh second-planning tasks/<task-id>-interview.md docs/<approved-target>.md`를 호출한다.
    - `fableSecondPlanningApproved: true`
    - `fableSecondPlanningSource: USER_EXPLICIT_EXPERIMENT_RULE`
    - `fableSecondPlanningTarget: docs/<approved-target>.md`

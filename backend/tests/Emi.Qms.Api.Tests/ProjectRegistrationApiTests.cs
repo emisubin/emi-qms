@@ -21,6 +21,207 @@ public sealed class ProjectRegistrationApiTests
     private static readonly Guid SalesOwnerUserId = new("50000000-0000-0000-0000-000000000002");
 
     [Fact]
+    public async Task LogisticsExecution_CompletesPackingDepartureDeliveryAndCreatesSalesHandoff()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        var projectId = await CreateProjectAndReadIdAsync(salesClient, "LOGISTICS-013A", "Logistics Execution", 2);
+        using var panelsResponse = await salesClient.GetAsync($"/api/projects/{projectId}/panels", TestContext.Current.CancellationToken);
+        using var panelsJson = await ReadJsonAsync(panelsResponse);
+        var panelIds = panelsJson.RootElement.EnumerateArray().Select(panel => panel.GetProperty("panelId").GetGuid()).ToArray();
+        var logisticsUserId = Guid.Parse("50000000-0000-0000-0000-000000000006");
+        var salesUserId = Guid.Parse("50000000-0000-0000-0000-000000000002");
+
+        await context.ExecuteSqlAsync($"""
+            insert into user_project_access (user_id, project_id) values ('{logisticsUserId}', '{projectId}') on conflict do nothing;
+            insert into project_assignees (project_id,responsibility_type,assigned_user_id,assigned_by_user_id,assigned_at_utc)
+            values ('{projectId}','LogisticsPrimary','{logisticsUserId}','{salesUserId}',now()),
+                   ('{projectId}','SalesPrimary','{salesUserId}','{salesUserId}',now())
+            on conflict (project_id,responsibility_type) do update set assigned_user_id=excluded.assigned_user_id;
+            insert into work_items (project_id,target_type,target_id,workflow_stage_code,responsibility_type,assigned_user_id,assigned_role_code,title,description,status,priority,idempotency_key,created_by_user_id)
+            select '{projectId}','Panel',panel.id,'PackingCompleted','LogisticsPrimary','{logisticsUserId}','logistics','포장 완료 · ' || panel.display_code,'포장 증빙 등록','Requested','Normal','test:logistics:' || panel.id || ':packing','{salesUserId}'
+            from panel_placeholders panel where panel.id=any(array['{panelIds[0]}'::uuid,'{panelIds[1]}'::uuid]);
+            """);
+
+        using var logisticsClient = context.CreateClient("dev-logistics");
+        var packingWorkId = await context.ReadScalarAsync<Guid>($"select id from work_items where project_id='{projectId}' and target_id='{panelIds[0]}' and workflow_stage_code='PackingCompleted';");
+        using var genericComplete = await logisticsClient.PostAsync($"/api/my-work/{packingWorkId}/complete", null, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, genericComplete.StatusCode);
+        using var queue = await logisticsClient.GetAsync($"/api/logistics/queue?stage=packing&projectId={projectId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, queue.StatusCode);
+        using var queueJson = await ReadJsonAsync(queue);
+        Assert.Equal(2, queueJson.RootElement.GetProperty("todayCount").GetInt32());
+
+        var packingOperationId = Guid.NewGuid();
+        var createPackingRequest = new
+        {
+            operationId = packingOperationId, projectId, panelIds, note = "Synthetic package", specification = "S", weightText = "10kg"
+        };
+        using var unitResponse = await logisticsClient.PostAsJsonAsync("/api/logistics/packing-units", createPackingRequest, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, unitResponse.StatusCode);
+        using var unitJson = await ReadJsonAsync(unitResponse);
+        var unitId = unitJson.RootElement.GetProperty("targetId").GetGuid();
+        var version = unitJson.RootElement.GetProperty("version").GetInt32();
+        using var replayResponse = await logisticsClient.PostAsJsonAsync("/api/logistics/packing-units", createPackingRequest, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, replayResponse.StatusCode);
+        using var replayJson = await ReadJsonAsync(replayResponse);
+        Assert.True(replayJson.RootElement.GetProperty("replayed").GetBoolean());
+        Assert.Equal(unitId, replayJson.RootElement.GetProperty("targetId").GetGuid());
+        using var draftResponse = await logisticsClient.GetAsync($"/api/logistics/packing/{unitId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, draftResponse.StatusCode);
+        using var draftJson = await ReadJsonAsync(draftResponse);
+        Assert.Equal("Draft", draftJson.RootElement.GetProperty("status").GetString());
+        Assert.Equal(2, draftJson.RootElement.GetProperty("panelIds").GetArrayLength());
+        using var fingerprintConflict = await logisticsClient.PostAsJsonAsync("/api/logistics/packing-units", new
+        {
+            operationId = packingOperationId, projectId, panelIds, note = "Different payload", specification = "S", weightText = "10kg"
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, fingerprintConflict.StatusCode);
+        using var invalidEvidence = await UploadEvidenceRawAsync(logisticsClient, "packing", unitId, version, new byte[] { 0x01, 0x02, 0x03 });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidEvidence.StatusCode);
+        version = await UploadEvidenceAsync(logisticsClient, "packing", unitId, version, new byte[] { 0xff, 0xd8, 0xff, 0x01 });
+        await AssertFinalizeAsync(logisticsClient, "packing", unitId, version);
+        var immutableMembership = await Assert.ThrowsAsync<PostgresException>(() => context.ExecuteSqlAsync($"update logistics_packing_unit_panels set active=false where packing_unit_id='{unitId}';"));
+        Assert.Equal(PostgresErrorCodes.RaiseException, immutableMembership.SqlState);
+        using var departureQueue = await logisticsClient.GetAsync($"/api/logistics/queue?stage=departure&projectId={projectId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, departureQueue.StatusCode);
+
+        using var departureResponse = await logisticsClient.PostAsJsonAsync("/api/logistics/departure-batches", new
+        {
+            operationId = Guid.NewGuid(), projectId, unitIds = new[] { unitId }, departureDate = DateOnly.FromDateTime(DateTime.UtcNow)
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, departureResponse.StatusCode);
+        using var departureJson = await ReadJsonAsync(departureResponse);
+        var departureId = departureJson.RootElement.GetProperty("targetId").GetGuid();
+        version = departureJson.RootElement.GetProperty("version").GetInt32();
+        version = await UploadEvidenceAsync(logisticsClient, "departure", departureId, version, new byte[] { 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a });
+        await AssertFinalizeAsync(logisticsClient, "departure", departureId, version);
+        using var deliveryQueue = await logisticsClient.GetAsync($"/api/logistics/queue?stage=delivery&projectId={projectId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, deliveryQueue.StatusCode);
+
+        using var deliveryResponse = await logisticsClient.PostAsJsonAsync("/api/logistics/delivery-batches", new
+        {
+            operationId = Guid.NewGuid(), projectId, unitIds = new[] { unitId }, departureDate = (DateOnly?)null
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, deliveryResponse.StatusCode);
+        using var deliveryJson = await ReadJsonAsync(deliveryResponse);
+        var deliveryId = deliveryJson.RootElement.GetProperty("targetId").GetGuid();
+        version = deliveryJson.RootElement.GetProperty("version").GetInt32();
+        version = await UploadEvidenceAsync(logisticsClient, "delivery", deliveryId, version, "%PDF-1.4 synthetic"u8.ToArray());
+        await AssertFinalizeAsync(logisticsClient, "delivery", deliveryId, version);
+
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from work_items where project_id='{projectId}' and workflow_stage_code='SalesSettlementCompleted' and target_type='Project';"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>($"select count(*) from panel_placeholders where project_id='{projectId}' and workflow_stage='ShipmentCompleted';"));
+        Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from project_workflow_events where project_id='{projectId}' and stage_code in ('PackingCompleted','DepartureProcessed','DeliveryCompleted') and event_type='StageCompleted';"));
+    }
+
+    [Fact]
+    public async Task LogisticsPackingUnit_RejectsConcurrentDuplicateMembership()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        var projectId = await CreateProjectAndReadIdAsync(salesClient, "LOGISTICS-RACE-013A", "Logistics Race", 1);
+        var panelId = await context.ReadScalarAsync<Guid>($"select id from panel_placeholders where project_id='{projectId}' and status='Active';");
+        var logisticsUserId = Guid.Parse("50000000-0000-0000-0000-000000000006");
+
+        await context.ExecuteSqlAsync($"""
+            insert into user_project_access (user_id, project_id) values ('{logisticsUserId}', '{projectId}') on conflict do nothing;
+            insert into project_assignees (project_id,responsibility_type,assigned_user_id,assigned_by_user_id,assigned_at_utc)
+            values ('{projectId}','LogisticsPrimary','{logisticsUserId}','{SalesOwnerUserId}',now())
+            on conflict (project_id,responsibility_type) do update set assigned_user_id=excluded.assigned_user_id;
+            insert into work_items (project_id,target_type,target_id,workflow_stage_code,responsibility_type,assigned_user_id,assigned_role_code,title,description,status,priority,idempotency_key,created_by_user_id)
+            values ('{projectId}','Panel','{panelId}','PackingCompleted','LogisticsPrimary','{logisticsUserId}','logistics','포장 완료','합성 경쟁 검증','Requested','Normal','test:logistics:{panelId}:race','{SalesOwnerUserId}');
+            """);
+
+        using var firstClient = context.CreateClient("dev-logistics");
+        using var secondClient = context.CreateClient("dev-logistics");
+        var first = firstClient.PostAsJsonAsync("/api/logistics/packing-units", new
+        {
+            operationId = Guid.NewGuid(), projectId, panelIds = new[] { panelId }, note = "Race A", specification = (string?)null, weightText = (string?)null
+        }, TestContext.Current.CancellationToken);
+        var second = secondClient.PostAsJsonAsync("/api/logistics/packing-units", new
+        {
+            operationId = Guid.NewGuid(), projectId, panelIds = new[] { panelId }, note = "Race B", specification = (string?)null, weightText = (string?)null
+        }, TestContext.Current.CancellationToken);
+
+        var responses = await Task.WhenAll(first, second);
+
+        Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.OK));
+        Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.Conflict));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from logistics_packing_unit_panels where panel_id='{panelId}' and active;"));
+
+        using var successfulCreate = responses.Single(response => response.StatusCode == HttpStatusCode.OK);
+        using var conflictCreate = responses.Single(response => response.StatusCode == HttpStatusCode.Conflict);
+        using var createJson = await ReadJsonAsync(successfulCreate);
+        var unitId = createJson.RootElement.GetProperty("targetId").GetGuid();
+        var version = createJson.RootElement.GetProperty("version").GetInt32();
+        version = await UploadEvidenceAsync(firstClient, "packing", unitId, version, new byte[] { 0xff, 0xd8, 0xff, 0x01 });
+        var finalize = firstClient.PostAsJsonAsync($"/api/logistics/packing/{unitId}/finalize", new
+        {
+            operationId = Guid.NewGuid(), expectedVersion = version
+        }, TestContext.Current.CancellationToken);
+        var cancelProject = salesClient.PostAsJsonAsync($"/api/projects/{projectId}/cancel", new
+        {
+            Reason = "합성 동시 취소"
+        }, TestContext.Current.CancellationToken);
+
+        var competingResponses = await Task.WhenAll(finalize, cancelProject);
+
+        Assert.DoesNotContain(competingResponses, response => response.StatusCode == HttpStatusCode.InternalServerError);
+        Assert.Equal(HttpStatusCode.OK, competingResponses[1].StatusCode);
+        Assert.Contains(competingResponses[0].StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict });
+    }
+
+    [Fact]
+    public async Task LogisticsPackingUnit_RequiresPermissionAndEverySelectedWorkAssignment()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        var projectId = await CreateProjectAndReadIdAsync(salesClient, "LOGISTICS-AUTH-013A", "Logistics Authorization", 2);
+        using var panelsResponse = await salesClient.GetAsync($"/api/projects/{projectId}/panels", TestContext.Current.CancellationToken);
+        using var panelsJson = await ReadJsonAsync(panelsResponse);
+        var panelIds = panelsJson.RootElement.EnumerateArray().Select(panel => panel.GetProperty("panelId").GetGuid()).ToArray();
+        var logisticsUserId = Guid.Parse("50000000-0000-0000-0000-000000000006");
+
+        await context.ExecuteSqlAsync($"""
+            insert into user_project_access (user_id, project_id) values ('{logisticsUserId}', '{projectId}') on conflict do nothing;
+            insert into work_items (project_id,target_type,target_id,workflow_stage_code,responsibility_type,assigned_user_id,assigned_role_code,title,description,status,priority,idempotency_key,created_by_user_id)
+            values ('{projectId}','Panel','{panelIds[0]}','PackingCompleted','LogisticsPrimary','{logisticsUserId}','logistics','포장 완료 A','합성 권한 검증','Requested','Normal','test:logistics:{panelIds[0]}:auth','{SalesOwnerUserId}'),
+                   ('{projectId}','Panel','{panelIds[1]}','PackingCompleted','LogisticsPrimary','{SalesOwnerUserId}','sales','포장 완료 B','합성 권한 검증','Requested','Normal','test:logistics:{panelIds[1]}:auth','{SalesOwnerUserId}');
+            """);
+
+        var request = new
+        {
+            operationId = Guid.NewGuid(), projectId, panelIds, note = "Authorization", specification = (string?)null, weightText = (string?)null
+        };
+        using var designClient = context.CreateClient("dev-design");
+        using var permissionDenied = await designClient.PostAsJsonAsync("/api/logistics/packing-units", request, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, permissionDenied.StatusCode);
+
+        using var logisticsClient = context.CreateClient("dev-logistics");
+        using var assignmentDenied = await logisticsClient.PostAsJsonAsync("/api/logistics/packing-units", request with
+        {
+            operationId = Guid.NewGuid()
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, assignmentDenied.StatusCode);
+
+        using var assignedTargetAccepted = await logisticsClient.PostAsJsonAsync("/api/logistics/packing-units", request with
+        {
+            operationId = Guid.NewGuid(), panelIds = new[] { panelIds[0] }
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, assignedTargetAccepted.StatusCode);
+        using var acceptedJson = await ReadJsonAsync(assignedTargetAccepted);
+        var acceptedUnitId = acceptedJson.RootElement.GetProperty("targetId").GetGuid();
+        var acceptedVersion = acceptedJson.RootElement.GetProperty("version").GetInt32();
+        using var cancelled = await logisticsClient.PostAsJsonAsync($"/api/logistics/packing/{acceptedUnitId}/cancel", new
+        {
+            operationId = Guid.NewGuid(), expectedVersion = acceptedVersion
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from logistics_packing_unit_panels where packing_unit_id='{acceptedUnitId}' and active;"));
+    }
+
+    [Fact]
     public async Task SalesUser_CreatesProjectAndPanelPlaceholders()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
@@ -2108,6 +2309,33 @@ public sealed class ProjectRegistrationApiTests
             "/api/projects",
             NewProjectRequest(projectCode, projectTitle) with { PanelCount = panelCount },
             TestContext.Current.CancellationToken);
+    }
+
+    private static async Task<int> UploadEvidenceAsync(HttpClient client, string stage, Guid targetId, int expectedVersion, byte[] content)
+    {
+        using var response = await UploadEvidenceRawAsync(client, stage, targetId, expectedVersion, content);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = await ReadJsonAsync(response);
+        return json.RootElement.GetProperty("version").GetInt32();
+    }
+
+    private static async Task<HttpResponseMessage> UploadEvidenceRawAsync(HttpClient client, string stage, Guid targetId, int expectedVersion, byte[] content)
+    {
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(Guid.NewGuid().ToString("D")), "operationId");
+        form.Add(new StringContent(expectedVersion.ToString()), "expectedVersion");
+        form.Add(new StringContent("Synthetic evidence"), "altText");
+        form.Add(new ByteArrayContent(content), "file", "evidence.bin");
+        return await client.PostAsync($"/api/logistics/{stage}/{targetId}/evidence", form, TestContext.Current.CancellationToken);
+    }
+
+    private static async Task AssertFinalizeAsync(HttpClient client, string stage, Guid targetId, int expectedVersion)
+    {
+        using var response = await client.PostAsJsonAsync($"/api/logistics/{stage}/{targetId}/finalize", new
+        {
+            operationId = Guid.NewGuid(), expectedVersion
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     private static async Task<Guid> CreateProjectAndReadIdAsync(

@@ -294,11 +294,11 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(35L, await ReadScalarAsync<long>(
+        Assert.Equal(36L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0035_panel_quality_inspections", await ReadScalarAsync<string>(
+        Assert.Equal("0036_logistics_execution", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -526,6 +526,34 @@ public sealed class PostgreSqlMigrationTests
             where dedupe_key = 'migration-0028-preserved-row';
             """,
             TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task LogisticsMigration_AddsExecutionEvidenceConcurrencyAndImmutabilitySchema()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var runner = CreateMigrationRunner(database.RepositoryRoot, provider);
+
+        await runner.ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(7L, await ReadScalarAsync<long>(provider, """
+            select count(*) from information_schema.tables
+            where table_schema='public' and table_name in (
+              'logistics_packing_units','logistics_packing_unit_panels','logistics_batches',
+              'logistics_batch_units','logistics_evidence','logistics_delivery_results','logistics_operations'
+            );
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(provider, """
+            select count(*) from pg_indexes where schemaname='public'
+              and indexname in ('ux_logistics_packing_unit_panels_active_panel','ux_logistics_batch_units_active_stage');
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(5L, await ReadScalarAsync<long>(provider, """
+            select count(*) from pg_trigger where not tgisinternal and tgname in (
+              'trg_guard_finalized_logistics_packing_unit','trg_guard_finalized_logistics_batch',
+              'trg_guard_logistics_packing_unit_panel','trg_guard_logistics_batch_unit','trg_guard_logistics_evidence'
+            );
+            """, TestContext.Current.CancellationToken));
     }
 
     [Fact]

@@ -21,6 +21,7 @@
 - Change 011: 대표 5174 branch-following 운영 보정 / 구현·자동·독립 검증·대표 branch 통합·사용자 검수 완료 / merge 승인
 - Change 012: Fable 정책·USER-FLOW WIP 선별 이식과 대표·디자인 2-worktree 정규화 / 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / merge 승인
 - Change 013: Generic primary draft와 USER-FLOW compatibility redraft 분리·exact target 승인 gate·상태 충돌 P2 보정 / 구현·자동·독립 검증·사용자 검수 완료 / P2 `3/3` Resolved / merge 승인
+- Change 014: `experiment/*` 전용 Fable 1차 기획·Codex review·Fable 2차 기획·Codex 구현 fast-track과 `second-planning` runner 계약 / 사용자 정책·구현 승인 / 자동 검증·local commit 완료 / push·PR·merge 미승인
 
 ## 2. 목표
 
@@ -36,6 +37,7 @@
 ## 4. 확정 라우팅
 
 - `NEW_FEATURE`: Fable 5 deep-interview → 사용자 요약 확인 → Fable 5 primary draft 전문 1회 → Codex 내용·제품 방향 review 1회 → 사용자 승인 → 새 Codex 구현 → 분리된 Codex 검증 → 사용자 게시·merge 승인
+- `NEW_FEATURE` + 명시적 `experiment/*` fast-track: 사용자 standing instruction·Roadmap 확정 정책 기록 → Fable 1차 planning → Codex 내용 review → review를 직접 읽는 Fable 2차 planning → 2차 planning 기준 Codex 구현·검증·screenshot·local commit. 사용자-facing interview와 중간 승인은 생략하지만 blocking conflict, 대표 repo·`main`·Persistent UAT·provider·게시 경계는 우회하지 않는다.
 - `APPROVED_FEATURE_IMPLEMENTATION`: Fable 재호출 없이 Codex-only 구현
 - `BUGFIX`, `P2_REMEDIATION`, `SECURITY_HARDENING`, `UAT_RUNTIME`, `DOCS_GOVERNANCE`, `HOUSEKEEPING`, `POLICY_DECISION`: Codex 조사 → 사용자 승인 → 새 Codex 구현 → 분리된 Codex 검증 → 사용자 게시·merge 승인
 - Codex-only 조사에서 신규 제품 능력이 필요해지면 `NEW_FEATURE`, 기존 범위의 정책 선택이면 `POLICY_DECISION`으로 재분류하고 중단한다.
@@ -59,6 +61,7 @@
 - Fable 질문 원문 artifact, 승인된 전문 `draft|revise`와 Codex 사후 review 책임 분리
 - Codex review 뒤 자동 Fable revise를 금지하고 사용자 명시적 redraft 요청만 허용하는 단일-pass 계약
 - 대표 clone 현재 branch를 따르는 HTTPS 5174 Vite 유지·조건부 재시작 경계
+- `experiment/*`에서만 허용되는 Fable `second-planning`, planning·review·approval·exact-target gate와 사용량 기록
 
 ## 6. 제외 범위
 
@@ -105,10 +108,14 @@
 22. Env·dependency·Vite startup 설정 변경이나 자동 갱신 실패가 있을 때만 5174를 재시작한다.
 23. 별도 worktree가 필요하면 purpose·process ownership·종료 시점·cleanup 경계를 먼저 기록한다. 5174가 실행 중이라는 사실만으로는 추가하지 않는다.
 24. merge 뒤 clean·process 미사용·open PR 없음·commit reachable을 확인한 임시 worktree만 승인 범위에서 정리한다.
+25. 사용자가 `experiment/*` fast-track을 명시한 경우에는 사용자-facing interview를 생략하고 standing instruction과 Roadmap 확정 정책을 confirmed interview source에 기록한다. 첫 Fable planning 전후의 전체/Fable 사용·잔여 비율을 기록한다.
+26. Codex review 뒤 최신 change에 `fableSecondPlanningApproved`, `USER_EXPLICIT_EXPERIMENT_RULE`, exact `fableSecondPlanningTarget`을 기록하고 `second-planning`을 한 번 호출한다. Runner는 experiment branch, 1차 planning과 review를 직접 확인하고 별도 target에 원문을 exclusive create한다.
+27. 2차 planning의 blocking decision이 0이면 별도 중간 승인 없이 Codex 구현·검증·desktop/mobile screenshot·Implementation report·local commit까지 진행한다. 일반 branch flow와 push·PR·merge·Persistent UAT·provider 승인은 그대로 분리한다.
 
 ## 9. 사용자 안내
 
 - 새 업무 흐름·화면·데이터 개념·외부 연동·권한 능력을 요청하면 Fable 5가 업무 맥락을 먼저 interview한다. 선택 사항은 쉬운 비교와 권장안을 제공한다.
+- 실험 branch에서 fast-track을 미리 요청했다면 Fable 권장안을 기본으로 1차 기획하고, Codex가 문제를 검토한 뒤 Fable이 2차 기획을 한 번 다시 작성한다. 사용자는 중간 승인 대신 구현 결과와 페이지별 screenshot을 받는다.
 - Codex는 질문·답변을 전달·기록하며 사용자가 interview 요약을 확인한 뒤 Fable planning과 Codex 검토 결과를 받는다.
 - 버그, P2, 보안 보강, UAT, 문서, 정리와 기존 정책 선택은 Fable 없이 Codex가 조사한다.
 - “승인된 기능을 구현하라”는 요청은 다시 기획하지 않는다.
@@ -120,6 +127,7 @@
 - 같은 신규 기능 Task의 첫 Fable 호출은 전체 기준선을 읽고 후속 round는 변경이 없음을 runner가 확인한 private Task session을 재개한다. 질문·답변의 기준은 계속 interview 문서이며, Task가 끝나면 해당 Task session만 cleanup한다.
 - Fable 질문은 원문 artifact 그대로 전달한다. Codex가 이해를 돕는 설명을 붙일 때도 원문과 분리하며 질문·선택지·권장안을 고쳐 쓰지 않는다.
 - 승인된 Fable primary draft는 Fable stdout과 파일이 byte-identical한 원문이다. Runner는 existing target·symlink를 atomic no-overwrite로 보존한다. Codex는 원문을 고치지 않고 내용 review를 별도 작성하며 그 review로 기본 기획 작성 흐름을 끝낸다. 새 전문은 사용자가 명시적으로 요청한 경우에만 Fable이 한 번 다시 작성한다.
+- 실험 2차 기획도 Fable stdout과 byte-identical한 별도 원문이다. 1차 planning과 Codex review를 보존하고, 2차 기획만 해당 실험 구현의 최종 source of truth로 사용한다.
 - 5174는 대표 폴더의 현재 branch 화면을 자동 반영한다. 일반 코드·문서 branch 전환마다 중단하지 않으며 env·dependency·Vite 기동 계약 변경 또는 자동 갱신 실패 때만 재시작한다.
 - 미커밋 WIP는 자동 stash하거나 덮어쓰지 않는다. 다른 Task로 전환하려면 먼저 승인된 commit·push 또는 이름 있는 보존 경계와 재개 조건을 확정한다.
 
@@ -149,6 +157,7 @@
 - Change 013 P2 `FABLE_PRIMARY_DRAFT_MODE_CONTRACT_CONFLICT`: `RESOLVED`. Generic `docs/` primary draft를 planning·review 구현 승인과 분리하고 latest change의 사용자 요청·exact target으로 gate했다. USER-FLOW 전용 형식은 exact historical redraft 조합으로 한정했다.
 - Change 013 P2 `REPORTING_CHANGE001_COMPLETION_STATE_CONFLICT`: `RESOLVED`. 최초 Task 완료·Change 작성 당시 snapshot·현재 closure를 분리하고 Task·Roadmap과 정렬했다.
 - Change 013 P2 `ROADMAP_CURRENT_STATE_CONFLICT`: `RESOLVED`. 실행 큐·USER-FLOW 상세·추적 87·88·Decision Log를 Governance merge 선행·redraft/문서 merge 승인·제품 구현 미승인으로 정렬했다.
+- Change 014 `EXPERIMENT_SECOND_PLANNING_NOT_ENFORCED`: `RESOLVED_IN_CHANGE_014`. 기존 `draft`가 Codex review를 필수 source로 확인하지 않던 공백을 experiment-only `second-planning` mode와 planning·review·approval·target fail-closed gate로 해소했다.
 
 ## 12. 5종 산출물 상태
 
@@ -217,3 +226,6 @@
 - [x] Change 013 generic primary draft·USER-FLOW compatibility 분리와 exact target gate 확인
 - [x] Change 013 Governance 독립 재검증 뒤 merge 승인
 - [x] Change 013 분리된 Codex 독립 재검증
+- [x] Change 014 experiment-only Fable 2-pass 정책·구현·local commit 승인
+- [x] Change 014 runner·Markdown·privacy·제품 diff 자동 검증
+- [x] Change 014 local governance commit

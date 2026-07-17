@@ -17,6 +17,7 @@
 - Change 010: Fable primary draft 1회·Codex 내용 review 1회·명시적 사용자 요청 없는 revise 차단
 - Change 011: 대표 clone의 5174 branch-following·조건부 재시작과 작업 현황 보고 경계 추가
 - Change 012: Fable 정책·USER-FLOW WIP를 로컬 보존 커밋으로 고정한 뒤 대표 clone에 선별 이식하고 임시 worktree를 정리
+- Change 014: `experiment/*` 전용 Fable 2-pass fast-track과 review 직접 참조 `second-planning` runner 추가
 
 Backend, Frontend, migration, dependency, runtime과 Persistent UAT source diff는 없다. Change 007~012는 governance shell script 1개와 관련 governance·기획 문서·Git worktree만 변경한다.
 
@@ -447,12 +448,40 @@ Reporting 문서는 최초 Task의 과거 완료 증빙과 Change 001의 현재 
 - 사용자 검수: 완료
 - Push·PR·merge: 독립 재검증 PASS 뒤 승인
 
+## 10.14 Change 014 — 실험 branch Fable 2-pass fast-track
+
+사용자는 이 실험 worktree의 신규 기능에서 중간 interview·승인 왕복 없이 `Fable 1차 기획 → Codex review → review 기반 Fable 2차 기획 → 2차 기획 기준 Codex 구현`을 기본 규칙으로 사용하도록 요청했다. 기존 일반 계약은 Fable draft 1회와 Codex review에서 종료하며, `draft` mode는 review를 필수 source로 확인하지 않아 이 흐름을 영구적으로 보장하지 못했다.
+
+변경 계약은 다음과 같다.
+
+- Root 지침에 `experiment/*`에서만 적용하는 fast-track을 추가하고 일반 branch의 deep-interview·단일 draft·사용자 승인 계약을 보존했다.
+- 각 Fable planning 직전·직후 Claude `/usage`의 전체 모델과 Fable 사용·잔여 비율을 Task change와 report에 기록한다.
+- Runner에 `second-planning` mode를 추가했다. 현재 branch가 `experiment/*`인지, confirmed interview·1차 planning·Codex review·최신 change marker·exact target이 모두 있는지 확인한다.
+- Fable prompt는 1차 planning과 Codex review를 직접 완전히 읽고 review resolution을 별도 2차 기획에 통합하도록 고정했다. 기존 target과 symlink는 atomic exclusive create로 덮어쓰지 않는다.
+- 2차 기획이 blocking decision 0이면 Codex 구현·검증·desktop/mobile screenshot·Implementation report·local commit까지 이어간다.
+- 대표 repo·`main`·push·PR·merge·Persistent UAT·실제 provider는 제외하며 main merge 승인 `0/3`을 유지한다.
+
+자동 검증 결과:
+
+- Bash syntax·ShellCheck: `PASS/PASS`
+- `second-planning` static contract: `9/9 PASS`
+- fail-closed: 일반 `main` branch 차단, experiment approval marker 누락 차단, invalid mode 차단 `3/3 PASS`
+- 기존 mode 회귀: planning existing target, draft existing target, revise approval missing `3/3 PASS`
+- Markdown file/local link/missing/duplicate heading: `6/124/0/0`
+- 전체 파일의 credential-like 기존 서술 후보 1건은 과거 report 본문이며 추가 diff 후보는 `0`; 추가 diff의 email/UUID/private key/absolute user path도 `0/0/0/0`
+- `git diff --check`: `PASS`
+- 제품 Backend·Frontend·database diff: `0`
+
+제품 Backend·Frontend·API·DB·migration·dependency·runtime 변경은 없다.
+
+Git 결과: Change 014 allowlist 7개 파일을 local experiment commit으로 기록했다. push·PR·merge는 실행하지 않았고 대표 repo와 `main`은 그대로다.
+
 ## 11. 5종 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | 이 문서 | Change 007~013 통합·P2 보정·자동·독립 검증 완료 / merge 승인 |
-| SOP | `tasks/gov-codex-002.md` 8장 | 작성됨 |
-| User manual | `tasks/gov-codex-002.md` 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 007~013와 대표·디자인 2-worktree 운영 반영·독립 검증 완료 / merge 승인 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~013 자동·독립 검증·사용자 검수·merge 승인 완료 |
+| Implementation report | 이 문서 | Change 007~013 merge 완료 / Change 014 정책·runner 구현·자동 검증·local commit 완료 |
+| SOP | `tasks/gov-codex-002.md` 8장 | Change 014 fast-track 절차 추가 |
+| User manual | `tasks/gov-codex-002.md` 9장 | 실험 2-pass 안내 추가 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 007~013 merge 완료 / Change 014 Decision Log 갱신 예정 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 014 사용자 정책·구현 승인 / 자동 검증 완료 |

@@ -23,6 +23,8 @@ redraft_claim_consumed="false"
 revision_target_digest=""
 primary_approval_digest=""
 primary_approval_file=""
+second_planning_approval_digest=""
+second_planning_approval_file=""
 approval_path=""
 redraft_review_path=""
 redraft_review_file=""
@@ -144,7 +146,7 @@ interview_path="$2"
 third_argument="${3:-}"
 round=""
 
-if [[ "$mode" != "interview" && "$mode" != "planning" && "$mode" != "draft" && "$mode" != "revise" && "$mode" != "cleanup" ]]; then
+if [[ "$mode" != "interview" && "$mode" != "planning" && "$mode" != "second-planning" && "$mode" != "draft" && "$mode" != "revise" && "$mode" != "cleanup" ]]; then
   fail "FABLE_READONLY_MODE_INVALID" 64
 fi
 
@@ -157,7 +159,7 @@ if [[ "$mode" == "interview" ]]; then
   if [[ $# -ne 3 || ! "$round" =~ ^[1-9][0-9]*$ ]]; then
     fail "FABLE_READONLY_ROUND_INVALID" 64
   fi
-elif [[ "$mode" == "draft" || "$mode" == "revise" ]]; then
+elif [[ "$mode" == "second-planning" || "$mode" == "draft" || "$mode" == "revise" ]]; then
   artifact_path="$third_argument"
   if [[ $# -ne 3 || ! "$artifact_path" =~ ^docs/[0-9][0-9]-[a-z0-9][a-z0-9-]*\.md$ ]]; then
     fail "FABLE_READONLY_ARTIFACT_PATH_INVALID" 64
@@ -332,7 +334,42 @@ if [[ "$mode" == "planning" ]]; then
   fi
 fi
 
-if [[ "$mode" == "draft" || "$mode" == "revise" ]]; then
+if [[ "$mode" == "second-planning" ]]; then
+  current_branch="$(git branch --show-current)"
+  if [[ ! "$current_branch" =~ ^experiment/ ]]; then
+    fail "FABLE_READONLY_SECOND_PLANNING_EXPERIMENT_BRANCH_REQUIRED" 67
+  fi
+  if ! grep -Fqx -- '- interviewStatus: `COMPLETED_CONFIRMED`' "$interview_file" ||
+     ! grep -Fqx -- '- userConfirmed: true' "$interview_file" ||
+     ! grep -Fqx -- '- openBlockingDecisionCount: 0' "$interview_file"; then
+    fail "FABLE_READONLY_SECOND_PLANNING_GATE_INCOMPLETE" 67
+  fi
+  if [[ ! -f "$planning_file" || -L "$planning_file" ]]; then
+    fail "FABLE_READONLY_SECOND_PLANNING_FIRST_PLAN_MISSING" 67
+  fi
+  if [[ ! -f "$review_file" || -L "$review_file" ]]; then
+    fail "FABLE_READONLY_SECOND_PLANNING_REVIEW_MISSING" 67
+  fi
+
+  shopt -s nullglob
+  second_planning_change_files=("$repo_root/${task_stem}-change-"*.md)
+  shopt -u nullglob
+  if [[ "${#second_planning_change_files[@]}" -eq 0 ]]; then
+    fail "FABLE_READONLY_SECOND_PLANNING_USER_APPROVAL_MISSING" 67
+  fi
+  second_planning_approval_file="${second_planning_change_files[${#second_planning_change_files[@]}-1]}"
+  approval_path="${second_planning_approval_file#"$repo_root/"}"
+  if [[ ! -f "$second_planning_approval_file" || -L "$second_planning_approval_file" ]] ||
+     ! grep -Fqx -- '- fableSecondPlanningApproved: true' "$second_planning_approval_file" ||
+     ! grep -Fqx -- '- fableSecondPlanningSource: `USER_EXPLICIT_EXPERIMENT_RULE`' "$second_planning_approval_file" ||
+     ! grep -Fqx -- "- fableSecondPlanningTarget: \`$artifact_path\`" "$second_planning_approval_file"; then
+    fail "FABLE_READONLY_SECOND_PLANNING_USER_APPROVAL_MISSING" 67
+  fi
+  second_planning_approval_digest="$(shasum -a 256 "$second_planning_approval_file" | awk '{print $1}')"
+  if [[ -e "$repo_root/$artifact_path" || -L "$repo_root/$artifact_path" ]]; then
+    fail "FABLE_READONLY_SECOND_PLANNING_TARGET_EXISTS" 67
+  fi
+elif [[ "$mode" == "draft" || "$mode" == "revise" ]]; then
   if ! grep -Fqx -- '- interviewStatus: `COMPLETED_CONFIRMED`' "$interview_file" ||
      ! grep -Fqx -- '- userConfirmed: true' "$interview_file" ||
      ! grep -Fqx -- '- openBlockingDecisionCount: 0' "$interview_file"; then
@@ -522,7 +559,7 @@ elif [[ "$mode" == "planning" && "$session_valid" == "true" ]]; then
   session_mode="RESUMED_PLANNING_PREFLIGHT"
   baseline_reused="true"
   drift_status="UNCHANGED"
-elif [[ ( "$mode" == "draft" || "$mode" == "revise" ) && "$session_valid" == "true" ]]; then
+elif [[ ( "$mode" == "second-planning" || "$mode" == "draft" || "$mode" == "revise" ) && "$session_valid" == "true" ]]; then
   session_id="$current_session_id"
   session_mode="RESUMED_ARTIFACT_PREFLIGHT"
   baseline_reused="true"
@@ -552,7 +589,9 @@ fi
 if [[ "$mode" == "interview" ]]; then
   operation_contract="Generate deep-interview round ${round} only. Return 1-5 closely related questions, or a confirmation summary when no blocking question remains. Do not add filler questions and do not write a planning draft. Format every question heading exactly as ### 질문 N — 제목. End with interviewStatus: QUESTIONS_REQUIRED or interviewStatus: SUMMARY_CONFIRMATION_REQUIRED, planningStatus: NOT_STARTED, and implementationApproved: false."
 elif [[ "$mode" == "planning" ]]; then
-  operation_contract="The confirmed interview gate was verified by the caller. Revalidate the current Roadmap, relevant implementation and tests before writing one complete primary planning draft. This is the single Fable draft that Codex will review once; do not assume a later Fable rewrite. End with planningStatus: DRAFT, implementationApproved: false, and userDecisionRequiredCount: followed by a nonnegative integer."
+  operation_contract="The confirmed interview gate was verified by the caller. Revalidate the current Roadmap, relevant implementation and tests before writing one complete first planning draft. Outside an explicit experiment two-pass workflow this remains the single Fable draft; in an experiment workflow Codex may review it once before a separately approved second-planning call. End with planningStatus: DRAFT, implementationApproved: false, and userDecisionRequiredCount: followed by a nonnegative integer."
+elif [[ "$mode" == "second-planning" ]]; then
+  operation_contract="The user explicitly approved an experiment-only second Fable planning draft at ${artifact_path} in ${approval_path}. Read the confirmed interview, the complete first plan at ${planning_path}, the complete Codex content review at ${review_path}, the approval change and current Repository sources. Preserve accepted first-plan content, resolve every review item within the approved scope, and make this second plan the authoritative implementation contract. Do not merely summarize the review. The first output byte must be '#' and the document must have one nonempty H1; do not add reasoning, a preface or text before the H1. Include the exact metadata lines '- secondPlanningStatus: \`DRAFT_FOR_IMPLEMENTATION\`', '- sourceTask: \`${task_id}\`', and '- authoringModel: \`FABLE_5\`'. End with openBlockingDecisionCount: followed by a nonnegative integer. Do not claim publication, main merge or Persistent UAT approval. Output only the complete Markdown artifact."
 elif [[ "$mode" == "draft" ]]; then
   operation_contract="The user explicitly approved ${artifact_path} as this Task's one primary draft target in ${approval_path}. Read the confirmed interview, that approval and current Repository sources, then write the complete Markdown body intended for the approved target. This is the full artifact, not a plan, outline or review. The first output byte must be '#' and the document must have one nonempty H1; do not add reasoning, a preface or any text before that H1. Include the exact metadata lines '- primaryDraftStatus: \`DRAFT_FOR_USER_REVIEW\`', '- sourceTask: \`${task_id}\`', and '- authoringModel: \`FABLE_5\`'. Do not assume a duplicate planning document exists, do not invent domain-specific sections, and do not claim publication or implementation approval. Output only the complete Markdown artifact."
 elif [[ "$legacy_user_flow_revision" == "true" ]]; then
@@ -575,7 +614,9 @@ case "$session_mode" in
     baseline_contract="Resume the existing Task baseline, then perform a planning preflight by rereading the latest interview, current Roadmap sections and directly relevant code and tests. Session memory accelerates discovery but does not replace current Repository verification for planning."
     ;;
   RESUMED_ARTIFACT_PREFLIGHT)
-    if [[ "$mode" == "draft" ]]; then
+    if [[ "$mode" == "second-planning" ]]; then
+      baseline_contract="Resume the existing Task baseline, then reread the latest interview, the complete first planning draft, the complete Codex content review, the latest change that approves the exact second-planning target, current Roadmap sections and directly relevant code and tests. The review is a required source, not optional context. Session memory accelerates discovery but does not replace current Repository verification."
+    elif [[ "$mode" == "draft" ]]; then
       baseline_contract="Resume the existing Task baseline, then reread the latest interview, the latest change that explicitly approves the exact primary target, current Roadmap sections and directly relevant code and tests. Do not expect or create a duplicate planning or preview document. Session memory accelerates discovery but does not replace current Repository verification."
     else
       baseline_contract="Resume the existing Task baseline, then reread the latest interview, the current artifact, the latest change that explicitly approves the exact redraft target, the Codex content review, current Roadmap sections and directly relevant code and tests. Session memory accelerates discovery but does not replace current Repository verification."
@@ -655,6 +696,17 @@ elif [[ "$mode" == "planning" ]]; then
      ! grep -Eq 'userDecisionRequiredCount:[[:space:]]*`?[0-9]+`?' "$stdout_file"; then
     emit_artifact_result "FAILED" "FABLE_READONLY_PLANNING_CONTRACT_INVALID" 72
   fi
+elif [[ "$mode" == "second-planning" ]]; then
+  first_byte="$(LC_ALL=C head -c 1 "$stdout_file")"
+  h1_count="$(grep -Ec '^# [^#[:space:]].*$' "$stdout_file" || true)"
+  if [[ "$first_byte" != '#' ]] ||
+     [[ "$h1_count" -ne 1 ]] ||
+     ! grep -Fqx -- '- secondPlanningStatus: `DRAFT_FOR_IMPLEMENTATION`' "$stdout_file" ||
+     ! grep -Fqx -- "- sourceTask: \`${task_id}\`" "$stdout_file" ||
+     ! grep -Fqx -- '- authoringModel: `FABLE_5`' "$stdout_file" ||
+     ! grep -Eq 'openBlockingDecisionCount:[[:space:]]*`?[0-9]+`?' "$stdout_file"; then
+    emit_artifact_result "FAILED" "FABLE_READONLY_SECOND_PLANNING_CONTRACT_INVALID" 72
+  fi
 elif [[ "$legacy_user_flow_revision" == "true" ]]; then
   mermaid_count="$(grep -Ec '^```mermaid$' "$stdout_file" || true)"
   first_nonblank_line="$(awk 'NF { sub(/\r$/, ""); print; exit }' "$stdout_file")"
@@ -703,7 +755,7 @@ if [[ "$mode" == "interview" ]]; then
   write_private_state "$state_dir/last-round" "$round"
 fi
 
-if [[ "$mode" == "interview" || "$mode" == "planning" || "$mode" == "draft" || "$mode" == "revise" ]]; then
+if [[ "$mode" == "interview" || "$mode" == "planning" || "$mode" == "second-planning" || "$mode" == "draft" || "$mode" == "revise" ]]; then
   artifact_target="$repo_root/$artifact_path"
   artifact_directory="$(dirname "$artifact_target")"
   direct_write_tmp="$(mktemp "$artifact_directory/.fable-direct.XXXXXX")" || emit_artifact_result "FAILED" "FABLE_DIRECT_WRITE_TEMP_CREATE_FAILED" 76
@@ -732,7 +784,19 @@ if [[ "$mode" == "interview" || "$mode" == "planning" || "$mode" == "draft" || "
     direct_write_tmp=""
     write_private_state "$redraft_claim_path" "CONSUMED"
   else
-    if [[ "$mode" == "draft" ]]; then
+    if [[ "$mode" == "second-planning" ]]; then
+      shopt -s nullglob
+      current_second_planning_change_files=("$repo_root/${task_stem}-change-"*.md)
+      shopt -u nullglob
+      if [[ "${#current_second_planning_change_files[@]}" -eq 0 ]] ||
+         [[ "${current_second_planning_change_files[${#current_second_planning_change_files[@]}-1]}" != "$second_planning_approval_file" ]] ||
+         [[ ! -f "$second_planning_approval_file" || -L "$second_planning_approval_file" ]] ||
+         [[ "$(shasum -a 256 "$second_planning_approval_file" | awk '{print $1}')" != "$second_planning_approval_digest" ]] ||
+         [[ ! -f "$planning_file" || -L "$planning_file" ]] ||
+         [[ ! -f "$review_file" || -L "$review_file" ]]; then
+        emit_artifact_result "FAILED" "FABLE_READONLY_SECOND_PLANNING_APPROVAL_CHANGED" 76
+      fi
+    elif [[ "$mode" == "draft" ]]; then
       shopt -s nullglob
       current_primary_change_files=("$repo_root/${task_stem}-change-"*.md)
       shopt -u nullglob
@@ -747,6 +811,7 @@ if [[ "$mode" == "interview" || "$mode" == "planning" || "$mode" == "draft" || "
       case "$mode" in
         interview) emit_artifact_result "FAILED" "FABLE_READONLY_INTERVIEW_ARTIFACT_EXISTS" 67 ;;
         planning) emit_artifact_result "FAILED" "FABLE_READONLY_PLANNING_TARGET_EXISTS" 67 ;;
+        second-planning) emit_artifact_result "FAILED" "FABLE_READONLY_SECOND_PLANNING_TARGET_EXISTS" 67 ;;
         draft) emit_artifact_result "FAILED" "FABLE_READONLY_DRAFT_TARGET_EXISTS" 67 ;;
         *) emit_artifact_result "FAILED" "FABLE_DIRECT_WRITE_TARGET_EXISTS" 67 ;;
       esac

@@ -1415,6 +1415,196 @@ public sealed class ProcurementApiTests
             projectId));
     }
 
+    [Fact]
+    public async Task ManufacturingExecution_EnforcesChecklistStopPendingResumeAndLqcHandoff()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        using var manufacturingClient = context.CreateClient("dev-manufacturing");
+        using var productionClient = context.CreateClient("dev-production");
+        using var qualityClient = context.CreateClient("dev-quality");
+        using var viewerClient = context.CreateClient("dev-viewer");
+        var projectId = await CreateProjectAsync(salesClient, "MFG-011A", "Manufacturing Execution", 1);
+
+        Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "Manufacturing Material" } } },
+            TestContext.Current.CancellationToken)).StatusCode);
+        await context.PreparePanelKittingAsync(projectId);
+
+        using var kittingQueue = await ReadJsonAsync(await materialsClient.GetAsync(
+            $"/api/materials/kitting?projectId={projectId}",
+            TestContext.Current.CancellationToken));
+        var panelId = Assert.Single(
+            Assert.Single(kittingQueue.RootElement.GetProperty("projects").EnumerateArray())
+                .GetProperty("panels").EnumerateArray()).GetProperty("panelId").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await materialsClient.PostAsJsonAsync(
+            "/api/materials/kitting/complete",
+            new { operationId = Guid.NewGuid(), projectId, panelIds = new[] { panelId } },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        using var readyQueue = await ReadJsonAsync(await manufacturingClient.GetAsync(
+            $"/api/manufacturing/queue?projectId={projectId}",
+            TestContext.Current.CancellationToken));
+        var readyPanel = Assert.Single(
+            Assert.Single(readyQueue.RootElement.GetProperty("projects").EnumerateArray())
+                .GetProperty("panels").EnumerateArray());
+        Assert.Equal("Ready", readyPanel.GetProperty("status").GetString());
+        Assert.True(readyPanel.GetProperty("canMutate").GetBoolean());
+        var workItemId = readyPanel.GetProperty("workItemId").GetGuid();
+
+        using var viewerQueue = await ReadJsonAsync(await viewerClient.GetAsync(
+            $"/api/manufacturing/queue?projectId={projectId}",
+            TestContext.Current.CancellationToken));
+        Assert.False(Assert.Single(
+            Assert.Single(viewerQueue.RootElement.GetProperty("projects").EnumerateArray())
+                .GetProperty("panels").EnumerateArray()).GetProperty("canMutate").GetBoolean());
+        Assert.Equal(HttpStatusCode.Forbidden, (await qualityClient.PostAsJsonAsync(
+            "/api/manufacturing/executions/start",
+            new { operationId = Guid.NewGuid(), projectId, panelId },
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await manufacturingClient.PostAsync(
+            $"/api/my-work/{workItemId}/start",
+            null,
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var startOperationId = Guid.NewGuid();
+        var started = await manufacturingClient.PostAsJsonAsync(
+            "/api/manufacturing/executions/start",
+            new { operationId = startOperationId, projectId, panelId },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        using var startedJson = await ReadJsonAsync(started);
+        var executionId = startedJson.RootElement.GetProperty("executionId").GetGuid();
+        Assert.Equal(1, startedJson.RootElement.GetProperty("version").GetInt32());
+
+        var replay = await manufacturingClient.PostAsJsonAsync(
+            "/api/manufacturing/executions/start",
+            new { operationId = startOperationId, projectId, panelId },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        using (var replayJson = await ReadJsonAsync(replay))
+        {
+            Assert.True(replayJson.RootElement.GetProperty("replayed").GetBoolean());
+        }
+
+        using var startedDetail = await ReadJsonAsync(await manufacturingClient.GetAsync(
+            $"/api/manufacturing/panels/{panelId}",
+            TestContext.Current.CancellationToken));
+        var steps = startedDetail.RootElement.GetProperty("steps").EnumerateArray().ToList();
+        Assert.Equal(
+            ["작업지시·도면 확인", "자재·부품 확인", "제조 작업 수행", "자체 확인"],
+            steps.Select(step => step.GetProperty("stepName").GetString()!).ToArray());
+
+        Assert.Equal(HttpStatusCode.Conflict, (await manufacturingClient.PostAsJsonAsync(
+            $"/api/manufacturing/executions/{executionId}/check-step",
+            new { operationId = Guid.NewGuid(), stepId = steps[1].GetProperty("stepId").GetGuid(), expectedVersion = 1 },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var version = 1;
+        foreach (var step in steps)
+        {
+            var checkedResponse = await manufacturingClient.PostAsJsonAsync(
+                $"/api/manufacturing/executions/{executionId}/check-step",
+                new { operationId = Guid.NewGuid(), stepId = step.GetProperty("stepId").GetGuid(), expectedVersion = version },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, checkedResponse.StatusCode);
+            using var checkedJson = await ReadJsonAsync(checkedResponse);
+            version = checkedJson.RootElement.GetProperty("version").GetInt32();
+        }
+        Assert.Equal(5, version);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await manufacturingClient.PostAsJsonAsync(
+            $"/api/manufacturing/executions/{executionId}/stop",
+            new
+            {
+                operationId = Guid.NewGuid(),
+                reasonCode = "Material",
+                description = "필수 부서가 없는 제조 중단 요청입니다.",
+                actionDepartmentCode = "",
+                assigneeUserId = (Guid?)null,
+                expectedVersion = version
+            },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        using var actionDepartments = await ReadJsonAsync(await manufacturingClient.GetAsync(
+            "/api/manufacturing/action-departments",
+            TestContext.Current.CancellationToken));
+        var actionDepartment = actionDepartments.RootElement.EnumerateArray()
+            .First(department => department.GetProperty("assignees").GetArrayLength() > 0);
+        var actionDepartmentCode = actionDepartment.GetProperty("departmentCode").GetString()!;
+        var assigneeUserId = actionDepartment.GetProperty("assignees").EnumerateArray().First()
+            .GetProperty("userId").GetGuid();
+
+        var stopped = await manufacturingClient.PostAsJsonAsync(
+            $"/api/manufacturing/executions/{executionId}/stop",
+            new
+            {
+                operationId = Guid.NewGuid(),
+                reasonCode = "Material",
+                description = "제조 자재 규격을 다시 확인해야 작업을 계속할 수 있습니다.",
+                actionDepartmentCode,
+                assigneeUserId,
+                expectedVersion = version
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, stopped.StatusCode);
+        using var stoppedJson = await ReadJsonAsync(stopped);
+        var pendingId = stoppedJson.RootElement.GetProperty("pendingId").GetGuid();
+        version = stoppedJson.RootElement.GetProperty("version").GetInt32();
+        Assert.Equal("Blocked", stoppedJson.RootElement.GetProperty("status").GetString());
+        Assert.Equal(1L, await context.ReadCountAsync(
+            "select count(*) from pending_issues where project_id = @project_id and target_type = 'Panel' and issue_type = 'ManufacturingStop' and priority = 'Urgent';",
+            projectId));
+
+        Assert.Equal(HttpStatusCode.Conflict, (await manufacturingClient.PostAsJsonAsync(
+            $"/api/manufacturing/executions/{executionId}/resume",
+            new { operationId = Guid.NewGuid(), expectedVersion = version },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var pendingVersion = 1;
+        foreach (var nextStatus in new[] { "InProgress", "ReinspectionRequested", "Closed" })
+        {
+            var transition = await productionClient.PostAsJsonAsync(
+                $"/api/pending/{pendingId}/transition",
+                new { toStatus = nextStatus, expectedVersion = pendingVersion, reason = $"제조 중단 조치 {nextStatus} 확인" },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, transition.StatusCode);
+            using var transitionJson = await ReadJsonAsync(transition);
+            pendingVersion = transitionJson.RootElement.GetProperty("issue").GetProperty("version").GetInt32();
+        }
+
+        var resumed = await manufacturingClient.PostAsJsonAsync(
+            $"/api/manufacturing/executions/{executionId}/resume",
+            new { operationId = Guid.NewGuid(), expectedVersion = version },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, resumed.StatusCode);
+        using (var resumedJson = await ReadJsonAsync(resumed))
+        {
+            version = resumedJson.RootElement.GetProperty("version").GetInt32();
+            Assert.Equal("InProgress", resumedJson.RootElement.GetProperty("status").GetString());
+        }
+
+        var completed = await manufacturingClient.PostAsJsonAsync(
+            $"/api/manufacturing/executions/{executionId}/complete",
+            new { operationId = Guid.NewGuid(), expectedVersion = version },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        using (var completedJson = await ReadJsonAsync(completed))
+        {
+            Assert.True(completedJson.RootElement.GetProperty("panelLqcWorkCreated").GetBoolean());
+            Assert.True(completedJson.RootElement.GetProperty("projectManufacturingCompleted").GetBoolean());
+        }
+        Assert.Equal(1L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id = @project_id and workflow_stage_code = 'LQC' and responsibility_type = 'QualityLQC';",
+            projectId));
+        Assert.Equal(1L, await context.ReadCountAsync(
+            "select count(*) from project_workflow_events where project_id = @project_id and stage_code = 'ManufacturingWork' and event_type = 'StageCompleted' and event_status = 'Succeeded';",
+            projectId));
+    }
+
     private static async Task<Guid> CreateProjectAsync(
         HttpClient client,
         string projectCode,

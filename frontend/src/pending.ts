@@ -21,6 +21,9 @@ export interface PendingIssue {
   projectId: string;
   projectCode: string;
   projectTitle: string;
+  targetType: string;
+  targetId: string;
+  targetLabel: string | null;
   issueType: PendingIssueType;
   issueTypeLabel: string;
   title: string;
@@ -29,6 +32,7 @@ export interface PendingIssue {
   statusLabel: string;
   priority: PendingPriority;
   priorityLabel: string;
+  actionDepartmentCode: string | null;
   assigneeUserId: string | null;
   assigneeDisplayName: string | null;
   dueDate: string | null;
@@ -87,4 +91,5 @@ export interface CreatePendingRequest {
   priority: PendingPriority;
   assigneeUserId: string | null;
   dueDate: string | null;
+  actionDepartmentCode?: string | null;
 }

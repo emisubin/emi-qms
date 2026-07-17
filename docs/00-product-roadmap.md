@@ -1545,6 +1545,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제외 범위: 품질 검사 상세
 - 선행조건: 제조 단계 목록 확정
 - 주요 테스트: 모바일 입력, 중단 등록, 권한, 이력
+- 2026-07-17 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 “다음 작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-011A` 기획·구현을 진행한다. 상세 제조 표시·입력 항목과 LQC 기준은 Fable 권장안의 최소 MVP·Deferred로 분리하며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
+- 2026-07-17 실험 상태: `experiment/task-011a-manufacturing-work`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0034`는 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, 시작·4단계·중단 Pending·재개·panel LQC handoff를 완료했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 canonical 실행 큐의 다음 `TASK-007A` Gate는 변경하지 않는다.
 
 ### TASK-012A: LQC / OQC / 전진검수 / FAT
 

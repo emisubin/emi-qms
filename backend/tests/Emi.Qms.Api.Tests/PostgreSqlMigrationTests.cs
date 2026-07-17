@@ -294,13 +294,37 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(33L, await ReadScalarAsync<long>(
+        Assert.Equal(34L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0033_panel_kitting_handoff", await ReadScalarAsync<string>(
+        Assert.Equal("0034_manufacturing_execution", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'panel_manufacturing_executions',
+                  'panel_manufacturing_execution_steps',
+                  'panel_manufacturing_events',
+                  'panel_manufacturing_operations'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'pending_issues'
+              and column_name = 'action_department_code';
+            """,
             TestContext.Current.CancellationToken));
         Assert.Equal(6L, await ReadScalarAsync<long>(
             connectionStringProvider,

@@ -23,6 +23,13 @@ import type {
   PanelKittingQueueResponse
 } from './panelKitting';
 import type {
+  ManufacturingActionDepartment,
+  ManufacturingExecutionDetail,
+  ManufacturingMutationResponse,
+  ManufacturingQueueResponse,
+  StopManufacturingRequest
+} from './manufacturing';
+import type {
   AuditHistoryResponse,
   AdminDashboardResponse,
   AdminCalendarHoliday,
@@ -1085,6 +1092,81 @@ export async function completePanelKitting(
   request: CompletePanelKittingRequest
 ): Promise<PanelKittingCompletionResponse> {
   return fetchJson<PanelKittingCompletionResponse>('/api/materials/kitting/complete', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getManufacturingQueue(
+  developmentUserKey: string | undefined,
+  projectId?: string
+): Promise<ManufacturingQueueResponse> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+  return fetchJson<ManufacturingQueueResponse>(`/api/manufacturing/queue${query}`, developmentUserKey);
+}
+
+export async function getManufacturingPanel(
+  developmentUserKey: string | undefined,
+  panelId: string
+): Promise<ManufacturingExecutionDetail> {
+  return fetchJson<ManufacturingExecutionDetail>(`/api/manufacturing/panels/${panelId}`, developmentUserKey);
+}
+
+export async function listManufacturingActionDepartments(
+  developmentUserKey: string | undefined
+): Promise<ManufacturingActionDepartment[]> {
+  return fetchJson<ManufacturingActionDepartment[]>('/api/manufacturing/action-departments', developmentUserKey);
+}
+
+export async function startManufacturingExecution(
+  developmentUserKey: string | undefined,
+  request: { operationId: string; projectId: string; panelId: string }
+): Promise<ManufacturingMutationResponse> {
+  return fetchJson<ManufacturingMutationResponse>('/api/manufacturing/executions/start', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function checkManufacturingStep(
+  developmentUserKey: string | undefined,
+  executionId: string,
+  request: { operationId: string; stepId: string; expectedVersion: number }
+): Promise<ManufacturingMutationResponse> {
+  return fetchJson<ManufacturingMutationResponse>(`/api/manufacturing/executions/${executionId}/check-step`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function stopManufacturingExecution(
+  developmentUserKey: string | undefined,
+  executionId: string,
+  request: StopManufacturingRequest
+): Promise<ManufacturingMutationResponse> {
+  return fetchJson<ManufacturingMutationResponse>(`/api/manufacturing/executions/${executionId}/stop`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function resumeManufacturingExecution(
+  developmentUserKey: string | undefined,
+  executionId: string,
+  request: { operationId: string; expectedVersion: number }
+): Promise<ManufacturingMutationResponse> {
+  return fetchJson<ManufacturingMutationResponse>(`/api/manufacturing/executions/${executionId}/resume`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function completeManufacturingExecution(
+  developmentUserKey: string | undefined,
+  executionId: string,
+  request: { operationId: string; expectedVersion: number }
+): Promise<ManufacturingMutationResponse> {
+  return fetchJson<ManufacturingMutationResponse>(`/api/manufacturing/executions/${executionId}/complete`, developmentUserKey, {
     method: 'POST',
     body: JSON.stringify(request)
   });

@@ -730,7 +730,7 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
         command.Parameters.AddWithValue("assignee_id", assignee.UserId);
         AddNullableText(command, "role_code", assignee.RoleCode);
         command.Parameters.AddWithValue("title", $"제조 작업 · {panel.DisplayCode}");
-        command.Parameters.AddWithValue("description", $"키팅 완료 패널의 제조 작업을 확인해 주세요. /materials/kitting?project={projectId}&panel={panel.PanelId}");
+        command.Parameters.AddWithValue("description", $"키팅 완료 패널의 제조 작업을 진행해 주세요. /manufacturing/work?project={projectId}&panel={panel.PanelId}");
         command.Parameters.AddWithValue("idempotency_key", $"kitting:panel:{panel.PanelId}:manufacturing");
         command.Parameters.AddWithValue("actor_id", actorUserId);
         return await command.ExecuteNonQueryAsync(cancellationToken);

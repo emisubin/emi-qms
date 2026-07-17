@@ -47,7 +47,8 @@ const emptyCreate: CreatePendingRequest = {
   description: '',
   priority: 'Normal',
   assigneeUserId: null,
-  dueDate: null
+  dueDate: null,
+  actionDepartmentCode: null
 };
 
 const statusOptions: Array<{ value: PendingStatus | ''; label: string }> = [
@@ -290,6 +291,8 @@ function PendingCard({ item, onOpen, onOpenProject }: { item: PendingIssue; onOp
         <div className="pending-card-meta">
           <button className="link-button" type="button" onClick={onOpenProject}>{item.projectCode} · {item.projectTitle}</button>
           <span>담당 {item.assigneeDisplayName ?? '미지정'}</span>
+          {item.targetType === 'Panel' && item.targetLabel ? <span>패널 {item.targetLabel}</span> : null}
+          {item.actionDepartmentCode ? <span>조치 부서 {departmentLabel(item.actionDepartmentCode)}</span> : null}
           <span className={item.isOverdue ? 'negative-text' : ''}>기한 {item.dueDate ? formatDate(item.dueDate) : '미정'}{item.isOverdue ? ' · 초과' : ''}</span>
         </div>
       </div>
@@ -313,6 +316,10 @@ function PendingCreateDialog({
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const departmentCodes = useMemo(
+    () => Array.from(new Set(assignees.map((assignee) => assignee.departmentCode))),
+    [assignees]
+  );
 
   useEffect(() => {
     let active = true;
@@ -349,6 +356,10 @@ function PendingCreateDialog({
       setError('프로젝트, 3자 이상의 제목, 10자 이상의 상세 내용을 입력해 주세요.');
       return;
     }
+    if (form.issueType === 'ManufacturingStop' && !form.actionDepartmentCode) {
+      setError('제조 중단 Pending은 조치 담당 부서를 선택해 주세요.');
+      return;
+    }
     setSubmitting(true);
     try {
       onCreated(await createPendingIssue(developmentUserKey, form));
@@ -364,9 +375,10 @@ function PendingCreateDialog({
         <header className="page-header"><div><p className="eyebrow">NEW ISSUE</p><h2 id="pending-create-title">Pending 등록</h2></div><button type="button" onClick={onClose}>닫기</button></header>
         <form className="pending-create-form" onSubmit={submit}>
           <label className="form-field"><span>프로젝트 *</span><select disabled={loadingOptions} value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value })}><option value="">프로젝트 선택</option>{projects.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
-          <label className="form-field"><span>유형 *</span><select value={form.issueType} onChange={(event) => setForm({ ...form, issueType: event.target.value as PendingIssueType })}>{typeOptions.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label className="form-field"><span>유형 *</span><select value={form.issueType} onChange={(event) => setForm({ ...form, issueType: event.target.value as PendingIssueType, actionDepartmentCode: event.target.value === 'ManufacturingStop' ? form.actionDepartmentCode : null })}>{typeOptions.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <label className="form-field"><span>긴급도 *</span><select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value as PendingPriority })}><option value="Normal">일반</option><option value="Urgent">긴급 · 업무 차단</option></select></label>
-          <label className="form-field"><span>조치 담당</span><select disabled={loadingOptions} value={form.assigneeUserId ?? ''} onChange={(event) => setForm({ ...form, assigneeUserId: event.target.value || null })}><option value="">나중에 지정</option>{assignees.map((assignee) => <option key={assignee.userId} value={assignee.userId}>{assignee.displayName} · {departmentLabel(assignee.departmentCode)}</option>)}</select></label>
+          {form.issueType === 'ManufacturingStop' ? <label className="form-field"><span>조치 담당 부서 *</span><select disabled={loadingOptions} value={form.actionDepartmentCode ?? ''} onChange={(event) => setForm({ ...form, actionDepartmentCode: event.target.value || null, assigneeUserId: null })}><option value="">부서 선택</option>{departmentCodes.map((code) => <option key={code} value={code}>{departmentLabel(code)}</option>)}</select></label> : null}
+          <label className="form-field"><span>조치 담당</span><select disabled={loadingOptions} value={form.assigneeUserId ?? ''} onChange={(event) => { const assignee = assignees.find((item) => item.userId === event.target.value); setForm({ ...form, assigneeUserId: event.target.value || null, actionDepartmentCode: form.issueType === 'ManufacturingStop' ? assignee?.departmentCode ?? form.actionDepartmentCode : form.actionDepartmentCode }); }}><option value="">나중에 지정</option>{assignees.filter((assignee) => form.issueType !== 'ManufacturingStop' || !form.actionDepartmentCode || assignee.departmentCode === form.actionDepartmentCode).map((assignee) => <option key={assignee.userId} value={assignee.userId}>{assignee.displayName} · {departmentLabel(assignee.departmentCode)}</option>)}</select></label>
           <label className="form-field"><span>조치 기한</span><input type="date" value={form.dueDate ?? ''} onChange={(event) => setForm({ ...form, dueDate: event.target.value || null })} /></label>
           <label className="form-field pending-full-field"><span>제목 *</span><input maxLength={160} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="무엇이 업무를 막고 있는지 한 줄로 입력" /></label>
           <label className="form-field pending-full-field"><span>상세 내용 *</span><textarea maxLength={2000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="발생 위치, 현상, 영향, 필요한 조치를 입력해 주세요." /></label>
@@ -459,7 +471,7 @@ function PendingDetailView({
 
       <div className="pending-detail-layout">
         <div className="pending-detail-main">
-          <section className="pending-section"><h3>발생 내용</h3><p className="pending-description">{issue.description}</p><dl className="pending-facts"><div><dt>등록자</dt><dd>{issue.createdByDisplayName}</dd></div><div><dt>조치 담당</dt><dd>{issue.assigneeDisplayName ?? '미지정'}</dd></div><div><dt>등록일</dt><dd>{formatDateTime(issue.createdAtUtc)}</dd></div><div><dt>최근 변경</dt><dd>{formatDateTime(issue.updatedAtUtc)}</dd></div></dl></section>
+          <section className="pending-section"><h3>발생 내용</h3><p className="pending-description">{issue.description}</p><dl className="pending-facts"><div><dt>등록자</dt><dd>{issue.createdByDisplayName}</dd></div><div><dt>조치 담당</dt><dd>{issue.assigneeDisplayName ?? '미지정'}</dd></div>{issue.targetType === 'Panel' ? <div><dt>대상 패널</dt><dd>{issue.targetLabel ?? '패널'}</dd></div> : null}{issue.actionDepartmentCode ? <div><dt>조치 부서</dt><dd>{departmentLabel(issue.actionDepartmentCode)}</dd></div> : null}<div><dt>등록일</dt><dd>{formatDateTime(issue.createdAtUtc)}</dd></div><div><dt>최근 변경</dt><dd>{formatDateTime(issue.updatedAtUtc)}</dd></div></dl></section>
 
           {canManage && detail.canAssign ? <section className="pending-section"><h3>담당 변경</h3><div className="pending-inline-action"><select aria-label="새 조치 담당" value={nextAssignee} onChange={(event) => setNextAssignee(event.target.value)}><option value="">새 담당자 선택</option>{assignees.filter((item) => item.userId !== issue.assigneeUserId).map((item) => <option key={item.userId} value={item.userId}>{item.displayName} · {departmentLabel(item.departmentCode)}</option>)}</select><input aria-label="담당 변경 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="변경 사유 (3자 이상)" /><button disabled={busy || !nextAssignee || reason.trim().length < 3} type="button" onClick={() => void runMutation(() => assignPendingIssue(developmentUserKey, pendingId, nextAssignee, issue.version, reason), '조치 담당자가 변경되었습니다.', () => { setReason(''); setNextAssignee(''); })}>담당 변경</button></div></section> : null}
 

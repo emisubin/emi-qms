@@ -33,11 +33,15 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 pi.project_id,
                 p.project_code,
                 p.project_title,
+                pi.target_type,
+                pi.target_id,
+                case when pi.target_type = 'Panel' then panel.display_code else null end,
                 pi.issue_type,
                 pi.title,
                 pi.description,
                 pi.status,
                 pi.priority,
+                pi.action_department_code,
                 pi.assignee_user_id,
                 assignee.display_name,
                 pi.due_date,
@@ -50,6 +54,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             join projects p on p.id = pi.project_id and p.deleted_at_utc is null
             join qms_users creator on creator.id = pi.created_by_user_id
             left join qms_users assignee on assignee.id = pi.assignee_user_id
+            left join panel_placeholders panel on panel.id = pi.target_id and pi.target_type = 'Panel'
             where (@status is null or pi.status = @status)
               and (@issue_type is null or pi.issue_type = @issue_type)
               and (@priority is null or pi.priority = @priority)
@@ -140,6 +145,9 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         var title = request.Title!.Trim();
         var description = request.Description!.Trim();
         var priority = request.Priority!.Trim();
+        var actionDepartmentCode = string.IsNullOrWhiteSpace(request.ActionDepartmentCode)
+            ? null
+            : request.ActionDepartmentCode.Trim();
         var status = request.AssigneeUserId is null ? PendingStatuses.Registered : PendingStatuses.ActionRequested;
 
         await using var dataSource = CreateDataSource();
@@ -163,6 +171,30 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             });
         }
 
+        if (actionDepartmentCode is not null
+            && !await IsActiveDepartmentAsync(connection, transaction, actionDepartmentCode, cancellationToken))
+        {
+            return PendingMutationResult<PendingDetailResponse>.Validation(new Dictionary<string, string[]>
+            {
+                [nameof(request.ActionDepartmentCode)] = ["활성 조치 담당 부서를 선택해 주세요."]
+            });
+        }
+
+        if (actionDepartmentCode is not null
+            && request.AssigneeUserId is not null
+            && !await IsValidAssigneeInDepartmentAsync(
+                connection,
+                transaction,
+                request.AssigneeUserId.Value,
+                actionDepartmentCode,
+                cancellationToken))
+        {
+            return PendingMutationResult<PendingDetailResponse>.Validation(new Dictionary<string, string[]>
+            {
+                [nameof(request.AssigneeUserId)] = ["선택한 부서에서 Pending 조치 권한이 있는 활성 담당자를 선택해 주세요."]
+            });
+        }
+
         var pendingId = Guid.NewGuid();
         await using (var command = connection.CreateCommand())
         {
@@ -170,12 +202,12 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             command.CommandText = """
                 insert into pending_issues (
                     id, project_id, target_type, target_id, issue_type, title, description,
-                    status, priority, assignee_user_id, due_date, created_by_user_id,
+                    status, priority, action_department_code, assignee_user_id, due_date, created_by_user_id,
                     updated_by_user_id
                 )
                 values (
                     @id, @project_id, 'Project', @project_id, @issue_type, @title, @description,
-                    @status, @priority, @assignee_user_id, @due_date, @actor_id,
+                    @status, @priority, @action_department_code, @assignee_user_id, @due_date, @actor_id,
                     @actor_id
                 );
                 """;
@@ -186,6 +218,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             command.Parameters.AddWithValue("description", description);
             command.Parameters.AddWithValue("status", status);
             command.Parameters.AddWithValue("priority", priority);
+            AddNullableText(command, "action_department_code", actionDepartmentCode);
             AddNullableUuid(command, "assignee_user_id", request.AssigneeUserId);
             AddNullableDate(command, "due_date", request.DueDate);
             command.Parameters.AddWithValue("actor_id", actor.UserId);
@@ -570,6 +603,87 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         return pendingId;
     }
 
+    public async Task<ManufacturingStopPendingResult> CreateManufacturingStopAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid panelId,
+        string panelDisplayCode,
+        string reasonCode,
+        string description,
+        string actionDepartmentCode,
+        Guid? assigneeUserId,
+        Guid actorUserId,
+        string? correlationId,
+        CancellationToken cancellationToken)
+    {
+        var pendingId = Guid.NewGuid();
+        var status = assigneeUserId is null ? PendingStatuses.Registered : PendingStatuses.ActionRequested;
+        var title = $"제조 중단 · {panelDisplayCode}";
+        var pendingDescription = $"{StopReasonLabel(reasonCode)} · {description.Trim()}";
+        long issueNumber;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into pending_issues (
+                    id, project_id, target_type, target_id, issue_type, title, description,
+                    status, priority, action_department_code, assignee_user_id, due_date,
+                    created_by_user_id, updated_by_user_id
+                )
+                values (
+                    @id, @project_id, 'Panel', @panel_id, 'ManufacturingStop', @title, @description,
+                    @status, 'Urgent', @action_department_code, @assignee_user_id, null,
+                    @actor_id, @actor_id
+                )
+                returning issue_number;
+                """;
+            command.Parameters.AddWithValue("id", pendingId);
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("panel_id", panelId);
+            command.Parameters.AddWithValue("title", title);
+            command.Parameters.AddWithValue("description", pendingDescription);
+            command.Parameters.AddWithValue("status", status);
+            command.Parameters.AddWithValue("action_department_code", actionDepartmentCode);
+            AddNullableUuid(command, "assignee_user_id", assigneeUserId);
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            issueNumber = (long)(await command.ExecuteScalarAsync(cancellationToken) ?? 0L);
+        }
+
+        await InsertHistoryAsync(
+            connection,
+            transaction,
+            pendingId,
+            "Created",
+            null,
+            status,
+            null,
+            assigneeUserId,
+            "제조 중단 자동 등록",
+            actorUserId,
+            correlationId,
+            cancellationToken);
+
+        if (assigneeUserId is not null)
+        {
+            await CreateAssignmentArtifactsAsync(
+                connection,
+                transaction,
+                pendingId,
+                projectId,
+                title,
+                pendingDescription,
+                PendingPriorities.Urgent,
+                null,
+                assigneeUserId.Value,
+                actorUserId,
+                1,
+                cancellationToken);
+        }
+
+        return new ManufacturingStopPendingResult(pendingId, issueNumber);
+    }
+
     public static async Task<string?> ReadMaterialNonconformanceStatusAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -658,6 +772,11 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         {
             errors[nameof(request.Priority)] = ["긴급도를 선택해 주세요."];
         }
+        if (string.Equals(request.IssueType?.Trim(), PendingIssueTypes.ManufacturingStop, StringComparison.Ordinal)
+            && string.IsNullOrWhiteSpace(request.ActionDepartmentCode))
+        {
+            errors[nameof(request.ActionDepartmentCode)] = ["제조 중단의 조치 담당 부서를 선택해 주세요."];
+        }
         return errors;
     }
 
@@ -696,11 +815,15 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 pi.project_id,
                 p.project_code,
                 p.project_title,
+                pi.target_type,
+                pi.target_id,
+                case when pi.target_type = 'Panel' then panel.display_code else null end,
                 pi.issue_type,
                 pi.title,
                 pi.description,
                 pi.status,
                 pi.priority,
+                pi.action_department_code,
                 pi.assignee_user_id,
                 assignee.display_name,
                 pi.due_date,
@@ -713,6 +836,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             join projects p on p.id = pi.project_id and p.deleted_at_utc is null
             join qms_users creator on creator.id = pi.created_by_user_id
             left join qms_users assignee on assignee.id = pi.assignee_user_id
+            left join panel_placeholders panel on panel.id = pi.target_id and pi.target_type = 'Panel'
             where pi.id = @id;
             """;
         command.Parameters.AddWithValue("id", pendingId);
@@ -722,9 +846,9 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
 
     private static PendingListItemResponse ReadIssue(NpgsqlDataReader reader)
     {
-        var status = reader.GetString(8);
-        var priority = reader.GetString(9);
-        var dueDate = reader.IsDBNull(12) ? (DateOnly?)null : reader.GetFieldValue<DateOnly>(12);
+        var status = reader.GetString(11);
+        var priority = reader.GetString(12);
+        var dueDate = reader.IsDBNull(16) ? (DateOnly?)null : reader.GetFieldValue<DateOnly>(16);
         return new PendingListItemResponse(
             reader.GetGuid(0),
             reader.GetInt64(1),
@@ -732,22 +856,26 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             reader.GetString(3),
             reader.GetString(4),
             reader.GetString(5),
-            IssueTypeLabel(reader.GetString(5)),
-            reader.GetString(6),
-            reader.GetString(7),
+            reader.GetGuid(6),
+            reader.IsDBNull(7) ? null : reader.GetString(7),
+            reader.GetString(8),
+            IssueTypeLabel(reader.GetString(8)),
+            reader.GetString(9),
+            reader.GetString(10),
             status,
             StatusLabel(status),
             priority,
             PriorityLabel(priority),
-            reader.IsDBNull(10) ? null : reader.GetGuid(10),
-            reader.IsDBNull(11) ? null : reader.GetString(11),
+            reader.IsDBNull(13) ? null : reader.GetString(13),
+            reader.IsDBNull(14) ? null : reader.GetGuid(14),
+            reader.IsDBNull(15) ? null : reader.GetString(15),
             dueDate,
             status != PendingStatuses.Closed && dueDate is not null && dueDate.Value < DateOnly.FromDateTime(DateTime.UtcNow),
-            reader.GetInt32(13),
-            reader.GetGuid(14),
-            reader.GetString(15),
-            reader.GetFieldValue<DateTimeOffset>(16),
-            reader.GetFieldValue<DateTimeOffset>(17));
+            reader.GetInt32(17),
+            reader.GetGuid(18),
+            reader.GetString(19),
+            reader.GetFieldValue<DateTimeOffset>(20),
+            reader.GetFieldValue<DateTimeOffset>(21));
     }
 
     private static async Task<IReadOnlyList<PendingCommentResponse>> ReadCommentsAsync(
@@ -885,11 +1013,15 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 pi.project_id,
                 p.project_code,
                 p.project_title,
+                pi.target_type,
+                pi.target_id,
+                case when pi.target_type = 'Panel' then panel.display_code else null end,
                 pi.issue_type,
                 pi.title,
                 pi.description,
                 pi.status,
                 pi.priority,
+                pi.action_department_code,
                 pi.assignee_user_id,
                 assignee.display_name,
                 pi.due_date,
@@ -902,6 +1034,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             join projects p on p.id = pi.project_id and p.deleted_at_utc is null
             join qms_users creator on creator.id = pi.created_by_user_id
             left join qms_users assignee on assignee.id = pi.assignee_user_id
+            left join panel_placeholders panel on panel.id = pi.target_id and pi.target_type = 'Panel'
             where pi.id = @id
             for update of pi;
             """;
@@ -944,6 +1077,47 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             );
             """;
         command.Parameters.AddWithValue("id", userId);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
+    }
+
+    private static async Task<bool> IsActiveDepartmentAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string departmentCode,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select exists (select 1 from departments where code = @code and is_active = true);";
+        command.Parameters.AddWithValue("code", departmentCode);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
+    }
+
+    private static async Task<bool> IsValidAssigneeInDepartmentAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid userId,
+        string departmentCode,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select exists (
+                select 1
+                from qms_users users
+                join departments department on department.id = users.department_id
+                join user_roles user_role on user_role.user_id = users.id
+                join role_permissions role_permission on role_permission.role_id = user_role.role_id
+                join permissions permission on permission.id = role_permission.permission_id
+                where users.id = @user_id
+                  and users.is_active = true
+                  and department.code = @department_code
+                  and permission.code = 'Pending.Manage'
+            );
+            """;
+        command.Parameters.AddWithValue("user_id", userId);
+        command.Parameters.AddWithValue("department_code", departmentCode);
         return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 
@@ -1193,6 +1367,14 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
     };
 
     private static string PriorityLabel(string value) => value == PendingPriorities.Urgent ? "긴급" : "일반";
+
+    private static string StopReasonLabel(string value) => value switch
+    {
+        "Material" => "자재 문제",
+        "Staffing" => "인원 문제",
+        "WorkUnavailable" => "작업 불가",
+        _ => "기타"
+    };
 
     private static string EventLabel(string value) => value switch
     {

@@ -5,6 +5,7 @@ import { app as teamsApp } from '@microsoft/teams-js';
 import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
 import { MobileSheet } from './MobileSheet';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
+import { ManufacturingPage } from './ManufacturingPage';
 import { PanelKittingPage } from './PanelKittingPage';
 import {
   ApiError,
@@ -228,6 +229,7 @@ type View =
   | { kind: 'procurement-settings' }
   | { kind: 'materials-receipts' }
   | { kind: 'materials-kitting'; projectId?: string; panelId?: string }
+  | { kind: 'manufacturing-work'; projectId?: string; panelId?: string }
   | { kind: 'quality-iqc' }
   | { kind: 'notifications' }
   | { kind: 'pending'; projectId?: string }
@@ -461,6 +463,15 @@ function initialViewFromLocation(): View {
     };
   }
 
+  if (window.location.pathname === '/manufacturing/work') {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      kind: 'manufacturing-work',
+      projectId: params.get('project') ?? undefined,
+      panelId: params.get('panel') ?? undefined
+    };
+  }
+
   if (window.location.pathname === '/quality/iqc') {
     return { kind: 'quality-iqc' };
   }
@@ -631,6 +642,14 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
       };
     }
 
+    if (url.pathname === '/manufacturing/work') {
+      return {
+        kind: 'manufacturing-work',
+        projectId: url.searchParams.get('project') ?? projectId,
+        panelId: url.searchParams.get('panel') ?? undefined
+      };
+    }
+
     const pendingMatch = url.pathname.match(/^\/pending\/([^/]+)$/);
     if (pendingMatch?.[1]) {
       return { kind: 'pending-detail', pendingId: pendingMatch[1] };
@@ -698,6 +717,13 @@ function pathForView(view: View) {
       if (view.panelId) params.set('panel', view.panelId);
       const query = params.toString();
       return `/materials/kitting${query ? `?${query}` : ''}`;
+    }
+    case 'manufacturing-work': {
+      const params = new URLSearchParams();
+      if (view.projectId) params.set('project', view.projectId);
+      if (view.panelId) params.set('panel', view.panelId);
+      const query = params.toString();
+      return `/manufacturing/work${query ? `?${query}` : ''}`;
     }
     case 'quality-iqc':
       return '/quality/iqc';
@@ -1267,6 +1293,7 @@ function QmsAppShellContent({
   const canPurgeDeletedProjects = canReadAuditAll;
   const canUpdateProcurement = permissions.includes('ProcurementPlan.Update');
   const canUpdateMaterialReceipt = permissions.includes('MaterialReceipt.Update');
+  const canUpdateManufacturing = permissions.includes('manufacturing.update');
   const canInspectQuality = permissions.includes('quality.inspect');
   const canUpdateProductionPlanning = permissions.includes('ProductionPlan.Update');
   const canManageUsers = permissions.includes('users.manage');
@@ -1278,6 +1305,7 @@ function QmsAppShellContent({
   const canAccessMaterialReceipts = canUpdateMaterialReceipt || isSystemAdministrator;
   const canAccessPanelKitting = permissions.includes('projects.read');
   const canAccessMaterials = canAccessMaterialReceipts || canAccessPanelKitting;
+  const canAccessManufacturing = permissions.includes('projects.read');
   const materialsHomeView: View = canAccessMaterialReceipts
     ? { kind: 'materials-receipts' }
     : { kind: 'materials-kitting' };
@@ -1289,6 +1317,7 @@ function QmsAppShellContent({
     { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     ...(canAccessMaterials ? [{ label: '자재', view: materialsHomeView, active: view.kind === 'materials-receipts' || view.kind === 'materials-kitting' }] : []),
+    ...(canAccessManufacturing ? [{ label: '제조', view: { kind: 'manufacturing-work' } as View, active: view.kind === 'manufacturing-work' }] : []),
     ...(canInspectQuality ? [{ label: 'IQC', view: { kind: 'quality-iqc' } as View, active: view.kind === 'quality-iqc' }] : []),
     { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: displayedShellBadges.unreadNotificationCount },
     ...(canUseAdminPages ? [
@@ -1709,6 +1738,17 @@ function QmsAppShellContent({
         />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'manufacturing-work' ? (
+        <ManufacturingPage
+          developmentUserKey={developmentUserKey}
+          canMutate={canUpdateManufacturing}
+          initialProjectId={view.projectId}
+          initialPanelId={view.panelId}
+          onBack={() => setView({ kind: 'list' })}
+          onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
+        />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'quality-iqc' ? (
         <MaterialIqcPage
           developmentUserKey={developmentUserKey}
@@ -1856,6 +1896,7 @@ const mobileNavigationHints: Record<string, string> = {
   '생산관리': '생산계획과 일정',
   '구매': '발주와 입고예정',
   '자재': '입고와 IQC 요청',
+  '제조': '패널 시작·체크·완료',
   'IQC': '수입검사 대기',
   '알림': '업무 소식',
   '관리자': '시스템 운영'
@@ -5285,7 +5326,7 @@ function MyWorkPage({
 
   async function openWorkItem(item: MyWorkItem) {
     setMessage('');
-    if (isPendingLinkedWorkItem(item)) {
+    if (isPendingLinkedWorkItem(item) || isManufacturingWorkItem(item)) {
       onOpenProject(item.projectId, item.linkUrl);
       return;
     }
@@ -5412,9 +5453,9 @@ function MyWorkPage({
                           <p>{item.description ?? '처리할 업무가 있습니다.'}</p>
                           <div className="button-row">
                             <button type="button" disabled={movingWorkItemId === item.workItemId} onClick={() => void openWorkItem(item)}>
-                              {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : '이동'}
+                              {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : isManufacturingWorkItem(item) ? '제조 화면에서 진행' : '이동'}
                             </button>
-                            {!isPendingLinkedWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
+                            {!isPendingLinkedWorkItem(item) && !isManufacturingWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
                           </div>
                         </article>
                       ))}
@@ -5441,9 +5482,9 @@ function MyWorkPage({
                               <td>
                                 <div className="button-row">
                                   <button type="button" disabled={movingWorkItemId === item.workItemId} onClick={() => void openWorkItem(item)}>
-                                    {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : '이동'}
+                                    {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : isManufacturingWorkItem(item) ? '제조 화면에서 진행' : '이동'}
                                   </button>
-                                  {!isPendingLinkedWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
+                                  {!isPendingLinkedWorkItem(item) && !isManufacturingWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
                                 </div>
                               </td>
                             </tr>
@@ -5464,6 +5505,10 @@ function MyWorkPage({
 
 function isPendingLinkedWorkItem(item: Pick<MyWorkItem, 'linkUrl'>) {
   return /^\/pending\/[^/?#]+(?:[?#].*)?$/u.test(item.linkUrl);
+}
+
+function isManufacturingWorkItem(item: Pick<MyWorkItem, 'workflowStageCode'>) {
+  return item.workflowStageCode === 'ManufacturingWork';
 }
 
 type TeamsActivitySummary = {

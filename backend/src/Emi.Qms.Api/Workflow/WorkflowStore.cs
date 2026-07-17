@@ -952,7 +952,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         await using (var guard = connection.CreateCommand())
         {
             guard.CommandText = """
-                select assigned_user_id, target_type
+                select assigned_user_id, target_type, workflow_stage_code
                 from work_items
                 where id = @id;
                 """;
@@ -972,6 +972,12 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             if (string.Equals(reader.GetString(1), "Pending", StringComparison.Ordinal))
             {
                 return WorkflowMutationResult<MyWorkItemResponse>.Conflict("Pending 상세에서 상태를 변경해 주세요.");
+            }
+
+            if (string.Equals(reader.GetString(1), "Panel", StringComparison.Ordinal)
+                && string.Equals(reader.GetString(2), WorkflowStageCodes.ManufacturingWork, StringComparison.Ordinal))
+            {
+                return WorkflowMutationResult<MyWorkItemResponse>.Conflict("제조 화면에서 작업 시작·체크·종료를 진행해 주세요. /manufacturing/work");
             }
         }
 
@@ -1958,7 +1964,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             && string.Equals(targetType, "Panel", StringComparison.Ordinal)
             && targetId is not null)
         {
-            return $"/materials/kitting?project={projectId}&panel={targetId.Value}";
+            return $"/manufacturing/work?project={projectId}&panel={targetId.Value}";
         }
 
         return LinkUrlForStage(projectId, stageCode);

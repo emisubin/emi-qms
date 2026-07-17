@@ -53,7 +53,8 @@ public sealed record CreatePendingRequest(
     string? Description,
     string? Priority,
     Guid? AssigneeUserId,
-    DateOnly? DueDate);
+    DateOnly? DueDate,
+    string? ActionDepartmentCode = null);
 
 public sealed record TransitionPendingRequest(string? ToStatus, int? ExpectedVersion, string? Reason);
 
@@ -78,6 +79,9 @@ public record PendingListItemResponse(
     Guid ProjectId,
     string ProjectCode,
     string ProjectTitle,
+    string TargetType,
+    Guid TargetId,
+    string? TargetLabel,
     string IssueType,
     string IssueTypeLabel,
     string Title,
@@ -86,6 +90,7 @@ public record PendingListItemResponse(
     string StatusLabel,
     string Priority,
     string PriorityLabel,
+    string? ActionDepartmentCode,
     Guid? AssigneeUserId,
     string? AssigneeDisplayName,
     DateOnly? DueDate,
@@ -127,6 +132,8 @@ public sealed record PendingHistoryResponse(
     DateTimeOffset CreatedAtUtc);
 
 public sealed record PendingAssigneeResponse(Guid UserId, string DisplayName, string DepartmentCode);
+
+public sealed record ManufacturingStopPendingResult(Guid PendingId, long IssueNumber);
 
 public sealed record PendingActor(Guid UserId, bool IsCoordinator);
 

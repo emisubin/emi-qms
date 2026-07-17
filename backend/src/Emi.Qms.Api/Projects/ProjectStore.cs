@@ -1,4 +1,5 @@
 using System.Data;
+using Emi.Qms.Api.Manufacturing;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
 using Npgsql;
@@ -1041,6 +1042,13 @@ public sealed class ProjectStore(
 
                 foreach (var panel in selectedPanels)
                 {
+                    await ManufacturingStore.CancelActiveExecutionAsync(
+                        connection,
+                        transaction,
+                        panel.PanelId,
+                        changedByUserId,
+                        cancellationToken);
+
                     await using var command = connection.CreateCommand();
                     command.Transaction = transaction;
                     command.CommandText = """
@@ -1159,6 +1167,16 @@ public sealed class ProjectStore(
         {
             await transaction.RollbackAsync(cancellationToken);
             return ProjectMutationResult<ProjectDetailResponse>.Conflict("현재 상태에서는 요청한 상태 전이를 수행할 수 없습니다.");
+        }
+
+        if (string.Equals(targetStatus, "Cancelled", StringComparison.Ordinal))
+        {
+            await ManufacturingStore.CancelProjectExecutionsAsync(
+                connection,
+                transaction,
+                projectId,
+                changedByUserId,
+                cancellationToken);
         }
 
         await using (var command = connection.CreateCommand())
@@ -3430,6 +3448,10 @@ public sealed class ProjectStore(
         await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batch_projects where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batches where cardinality(@project_ids) >= 0 and not exists (select 1 from procurement_excel_import_batch_projects bp where bp.import_batch_id = procurement_excel_import_batches.id) and not exists (select 1 from project_audit_events a where a.procurement_import_batch_id = procurement_excel_import_batches.id);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_information_excel_import_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_events where execution_id in (select id from panel_manufacturing_executions where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_execution_steps where execution_id in (select id from panel_manufacturing_executions where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_executions where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_kitting_completions where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_kitting_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from project_assignees where project_id = any(@project_ids);", projectIds, cancellationToken);

@@ -49,6 +49,7 @@ export function MaterialReceivingPage({
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [includeCompleted, setIncludeCompleted] = useState(false);
+  const [supplyFilter, setSupplyFilter] = useState<'All' | 'Purchased' | 'CustomerSupplied'>('All');
   const [activeFilter, setActiveFilter] = useState<'all' | 'iqc' | 'blocked' | 'confirm'>('all');
   const [action, setAction] = useState<MaterialAction | null>(null);
   const [message, setMessage] = useState('');
@@ -56,12 +57,12 @@ export function MaterialReceivingPage({
   const load = useCallback(async () => {
     setState({ kind: 'loading' });
     try {
-      const data = await getMaterialReceipts(developmentUserKey, appliedSearch, includeCompleted);
+      const data = await getMaterialReceipts(developmentUserKey, appliedSearch, includeCompleted, '', '', supplyFilter);
       setState({ kind: 'ready', data });
     } catch (error) {
       setState({ kind: 'error', message: errorMessage(error, '자재 입고 현황을 불러오지 못했습니다.') });
     }
-  }, [appliedSearch, developmentUserKey, includeCompleted]);
+  }, [appliedSearch, developmentUserKey, includeCompleted, supplyFilter]);
 
   useEffect(() => {
     queueMicrotask(() => void load());
@@ -163,6 +164,17 @@ export function MaterialReceivingPage({
         </label>
         <button type="submit">검색</button>
       </form>
+
+      <div className="material-supply-filter" role="group" aria-label="공급 방식 필터">
+        {([
+          ['All', '전체'],
+          ['Purchased', '일반 구매'],
+          ['CustomerSupplied', '사급']
+        ] as const).map(([value, label]) => (
+          <button type="button" key={value} data-active={supplyFilter === value} onClick={() => setSupplyFilter(value)}>{label}</button>
+        ))}
+        {state.kind === 'ready' ? <span>사급 {state.data.summary.customerSuppliedItemCount} · 제공 지연 {state.data.summary.customerSupplyOverdueCount}</span> : null}
+      </div>
 
       {state.kind === 'loading' ? <MaterialLoading /> : null}
       {state.kind === 'error' ? <p className="error-text" role="alert">{state.message}</p> : null}
@@ -299,7 +311,7 @@ export function MaterialIqcPage({
         <div className={layout.isMobile ? 'iqc-card-list iqc-card-list--mobile' : 'iqc-card-list'}>
           {state.data.map((item) => (
             <button type="button" className="iqc-request-card" key={item.attemptId} data-status={item.status} onClick={() => setSelected(item)}>
-              <span className="iqc-request-top"><strong>{item.projectCode}</strong><StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span>
+              <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
               <b>{item.orderItem ?? '발주품목 미입력'}</b>
               <small>{item.projectTitle}</small>
               <span>{formatQuantity(item.quantity, item.unit)} · {item.attemptNumber}차 검사</span>
@@ -324,20 +336,18 @@ function MaterialItemCard({ item, canUpdate, mobile, onAction }: {
   mobile: boolean;
   onAction: (action: MaterialAction) => void;
 }) {
-  const totalReceived = item.receipts
-    .filter((receipt) => receipt.status !== 'Cancelled')
-    .reduce((sum, receipt) => sum + (receipt.quantity ?? 0), 0);
   return (
     <article className="material-item-card" data-completed={item.receiptCompleted}>
       <header>
         <div><span>{item.projectCode}</span><strong>{item.orderItem ?? '발주품목 미입력'}</strong><small>{item.projectTitle}</small></div>
-        <StatusBadge status={item.receiptCompleted ? 'Confirmed' : item.arrivalsClosed ? 'Passed' : item.receipts.at(0)?.status ?? 'Arrived'} />
+        <div className="material-card-badges">{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={item.customerSupplyOverdue} /> : null}<StatusBadge status={item.receiptCompleted ? 'Confirmed' : item.arrivalsClosed ? 'Passed' : item.receipts.at(0)?.status ?? 'Arrived'} /></div>
       </header>
       <dl className="material-item-meta">
-        <div><dt>업체</dt><dd>{item.supplierName ?? '-'}</dd></div>
+        <div><dt>{item.supplyType === 'CustomerSupplied' ? '공급 책임' : '업체'}</dt><dd>{item.supplyType === 'CustomerSupplied' ? '고객 제공' : item.supplierName ?? '-'}</dd></div>
         <div><dt>입고예정</dt><dd>{item.expectedReceiptDate ?? '-'}</dd></div>
-        <div><dt>발주</dt><dd>{formatQuantity(item.orderQuantity, item.orderUnit)}</dd></div>
-        <div><dt>누적 도착</dt><dd>{formatQuantity(totalReceived || null, item.orderUnit)}</dd></div>
+        <div><dt>{item.supplyType === 'CustomerSupplied' ? '제공 예정' : '발주'}</dt><dd>{formatQuantity(item.orderQuantity, item.orderUnit)}</dd></div>
+        <div><dt>누적 도착</dt><dd>{formatQuantity(item.arrivedQuantity, item.orderUnit)}</dd></div>
+        {item.supplyType === 'CustomerSupplied' ? <><div><dt>입고 확정</dt><dd>{formatQuantity(item.confirmedQuantity, item.orderUnit)}</dd></div><div><dt>미도착 잔량</dt><dd>{formatQuantity(item.remainingQuantity, item.orderUnit)}</dd></div><div><dt>처리 대기량</dt><dd>{formatQuantity(item.processingQuantity, item.orderUnit)}</dd></div><div><dt>업체 참고</dt><dd>{item.supplierName ?? '-'}</dd></div></> : null}
       </dl>
       {item.receipts.length === 0 ? <p className="material-no-receipts">아직 등록된 도착분이 없습니다.</p> : (
         <div className="material-receipt-stack">
@@ -396,7 +406,7 @@ function MaterialActionPanel({ action, canUpdate, message, onClose, onOpenIqc, o
     return (
       <form className="material-action-form" onSubmit={submit}>
         <ActionContext item={action.item} />
-        {action.item.orderQuantity === null ? <label><span>발주 수량</span><input inputMode="decimal" value={orderQuantity} onChange={(event) => setOrderQuantity(event.target.value)} required /></label> : null}
+        {action.item.orderQuantity === null && action.item.supplyType === 'Purchased' ? <label><span>발주 수량</span><input inputMode="decimal" value={orderQuantity} onChange={(event) => setOrderQuantity(event.target.value)} required /></label> : null}
         <div className="material-form-pair">
           <label><span>도착 수량</span><input data-autofocus inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /></label>
           <label><span>단위</span><input value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={20} required disabled={action.item.orderUnit !== null} /></label>
@@ -413,7 +423,7 @@ function MaterialActionPanel({ action, canUpdate, message, onClose, onOpenIqc, o
     return (
       <form className="material-action-form" onSubmit={(event) => { event.preventDefault(); void guarded(() => closeMaterialArrivals(developmentUserKey, action.item.itemId, action.item.rowVersion, reason), '입고를 마감하고 완료값을 계산했습니다.'); }}>
         <ActionContext item={action.item} />
-        <div className="material-action-notice"><strong>되돌릴 수 없는 마감입니다.</strong><span>모든 유효 도착분이 확정된 경우 발주품목 입고가 완료됩니다.</span></div>
+        <div className="material-action-notice"><strong>되돌릴 수 없는 마감입니다.</strong><span>{action.item.supplyType === 'CustomerSupplied' ? `미도착 잔량 0, 모든 도착분 확정이 필요합니다. 현재 잔량 ${formatQuantity(action.item.remainingQuantity, action.item.orderUnit)}` : '모든 유효 도착분이 확정된 경우 발주품목 입고가 완료됩니다.'}</span></div>
         <label><span>마감 사유</span><textarea data-autofocus value={reason} onChange={(event) => setReason(event.target.value)} required minLength={3} /></label>
         {message ? <p role="alert" className="error-text">{message}</p> : null}
         <div className="material-action-buttons"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={!canUpdate || saving}>입고 마감</button></div>
@@ -455,7 +465,7 @@ function IqcInspector({ item, reason, message, disabled, onReason, onSubmit, onC
 }) {
   return (
     <div className="material-action-form iqc-inspector">
-      <div className="iqc-inspector-context"><span>{item.projectCode}</span><h3>{item.orderItem ?? '발주품목 미입력'}</h3><p>{item.projectTitle}</p></div>
+      <div className="iqc-inspector-context"><span>{item.projectCode}</span><h3>{item.orderItem ?? '발주품목 미입력'}</h3>{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<p>{item.projectTitle}</p></div>
       <dl className="material-item-meta"><div><dt>검사 차수</dt><dd>{item.attemptNumber}차</dd></div><div><dt>도착 수량</dt><dd>{formatQuantity(item.quantity, item.unit)}</dd></div></dl>
       <div className="iqc-check-guide"><strong>기본 확인</strong><span>품명·수량·외관·식별 정보를 확인한 뒤 판정하세요.</span></div>
       {item.pendingIssueId ? <button type="button" onClick={() => onOpenPending(item.pendingIssueId!)}>연결된 Pending 보기</button> : null}
@@ -486,8 +496,12 @@ function StatusBadge({ status }: { status: MaterialReceiptStatus }) {
   return <span className="material-status-badge" data-status={status}>{receiptStatusLabel(status)}</span>;
 }
 
+function SupplyBadge({ overdue }: { overdue: boolean }) {
+  return <span className="customer-supply-badge" data-overdue={overdue}>{overdue ? '사급 · 제공 지연' : '사급 · 고객 제공'}</span>;
+}
+
 function ActionContext({ item, receipt }: { item: MaterialReceivingItem; receipt?: MaterialReceipt }) {
-  return <div className="material-action-context"><span>{item.projectCode}</span><h3>{item.orderItem ?? '발주품목 미입력'}</h3><p>{item.projectTitle} · {item.supplierName ?? '업체 미입력'}</p>{receipt ? <strong>{formatQuantity(receipt.quantity, receipt.unit)} · {receipt.arrivalDate}</strong> : null}</div>;
+  return <div className="material-action-context"><span>{item.projectCode}</span><h3>{item.orderItem ?? '발주품목 미입력'}</h3>{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={item.customerSupplyOverdue} /> : null}<p>{item.projectTitle} · {item.supplyType === 'CustomerSupplied' ? '고객 제공' : item.supplierName ?? '업체 미입력'}</p>{receipt ? <strong>{formatQuantity(receipt.quantity, receipt.unit)} · {receipt.arrivalDate}</strong> : null}</div>;
 }
 
 function MaterialLoading() {
@@ -505,8 +519,8 @@ function receiptStatusLabel(status: MaterialReceiptStatus) {
   return ({ Arrived: '도착 등록', IqcRequested: 'IQC 대기', Passed: 'IQC 합격', FailedBlocked: '부적합 차단', Confirmed: '입고 확정', Cancelled: '취소' } as const)[status];
 }
 
-function formatQuantity(quantity: number | null, unit: string | null) {
-  return quantity === null ? '-' : `${quantity.toLocaleString('ko-KR', { maximumFractionDigits: 3 })} ${unit ?? ''}`.trim();
+function formatQuantity(quantity: number | null | undefined, unit: string | null | undefined) {
+  return quantity == null ? '-' : `${quantity.toLocaleString('ko-KR', { maximumFractionDigits: 3 })} ${unit ?? ''}`.trim();
 }
 
 function formatDateTime(value: string | null) {
@@ -515,7 +529,8 @@ function formatDateTime(value: string | null) {
 }
 
 function canCloseItem(item: MaterialReceivingItem) {
-  return item.receipts.some((receipt) => receipt.status !== 'Cancelled')
+  return (item.supplyType !== 'CustomerSupplied' || item.remainingQuantity === 0)
+    && item.receipts.some((receipt) => receipt.status !== 'Cancelled')
     && item.receipts.every((receipt) => receipt.status === 'Confirmed' || receipt.status === 'Cancelled');
 }
 

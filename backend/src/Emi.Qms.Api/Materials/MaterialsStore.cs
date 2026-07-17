@@ -1,4 +1,5 @@
 using Emi.Qms.Api.Pending;
+using Emi.Qms.Api.Procurement;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -6,11 +7,13 @@ namespace Emi.Qms.Api.Materials;
 
 public sealed class MaterialsStore(
     DatabaseConnectionStringProvider connectionStringProvider,
-    PendingStore pendingStore)
+    PendingStore pendingStore,
+    TimeProvider timeProvider)
 {
     public async Task<MaterialReceiptListResponse> ListAsync(
         string? search,
         bool includeCompleted,
+        string? supplyType,
         DateOnly? expectedReceiptDateFrom,
         DateOnly? expectedReceiptDateTo,
         CancellationToken cancellationToken)
@@ -23,11 +26,12 @@ public sealed class MaterialsStore(
                 item.id, item.project_id, project.project_title, project.project_code,
                 item.order_item, item.supplier_name, item.expected_receipt_date,
                 item.order_quantity, item.order_unit, item.material_arrivals_closed_at_utc,
-                item.receipt_completed, item.row_version
+                item.receipt_completed, item.row_version, item.supply_type
             from project_procurement_items item
             join projects project on project.id = item.project_id and project.deleted_at_utc is null
             where item.status = 'Active'
               and (@include_completed or not item.receipt_completed)
+              and (@supply_type is null or item.supply_type = @supply_type)
               and (@date_from is null or item.expected_receipt_date >= @date_from)
               and (@date_to is null or item.expected_receipt_date <= @date_to)
               and (
@@ -41,6 +45,7 @@ public sealed class MaterialsStore(
             """;
         AddNullableText(command, "search", string.IsNullOrWhiteSpace(search) ? null : search.Trim());
         command.Parameters.AddWithValue("include_completed", includeCompleted);
+        AddNullableText(command, "supply_type", supplyType);
         AddNullableDate(command, "date_from", expectedReceiptDateFrom);
         AddNullableDate(command, "date_to", expectedReceiptDateTo);
 
@@ -62,7 +67,8 @@ public sealed class MaterialsStore(
                     OrderUnit = reader.IsDBNull(8) ? null : reader.GetString(8),
                     ArrivalsClosedAtUtc = reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9),
                     ReceiptCompleted = reader.GetBoolean(10),
-                    RowVersion = reader.GetInt32(11)
+                    RowVersion = reader.GetInt32(11),
+                    SupplyType = reader.GetString(12)
                 });
             }
         }
@@ -72,7 +78,8 @@ public sealed class MaterialsStore(
             await LoadReceiptsAsync(connection, items, cancellationToken);
         }
 
-        var responseItems = items.Select(item => item.ToResponse()).ToList();
+        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var responseItems = items.Select(item => item.ToResponse(today)).ToList();
         var receipts = responseItems.SelectMany(item => item.Receipts).ToList();
         return new MaterialReceiptListResponse(
             new MaterialReceiptSummaryResponse(
@@ -80,7 +87,9 @@ public sealed class MaterialsStore(
                 receipts.Count(receipt => receipt.Status == MaterialReceiptStatuses.IqcRequested),
                 receipts.Count(receipt => receipt.Status == MaterialReceiptStatuses.FailedBlocked),
                 receipts.Count(receipt => receipt.Status == MaterialReceiptStatuses.Passed),
-                responseItems.Count(item => item.ReceiptCompleted)),
+                responseItems.Count(item => item.ReceiptCompleted),
+                responseItems.Count(item => item.SupplyType == ProcurementSupplyTypes.CustomerSupplied),
+                responseItems.Count(item => item.CustomerSupplyOverdue)),
             responseItems);
     }
 
@@ -91,7 +100,7 @@ public sealed class MaterialsStore(
             select
                 attempt.id, receipt.id, item.id, project.id, project.project_title, project.project_code,
                 item.order_item, receipt.quantity, receipt.unit, attempt.attempt_number, receipt.version,
-                attempt.status, attempt.requested_at_utc, attempt.pending_issue_id
+                attempt.status, attempt.requested_at_utc, attempt.pending_issue_id, item.supply_type
             from material_iqc_attempts attempt
             join material_receipts receipt on receipt.id = attempt.material_receipt_id
             join project_procurement_items item on item.id = receipt.procurement_item_id
@@ -117,6 +126,7 @@ public sealed class MaterialsStore(
                 reader.IsDBNull(8) ? null : reader.GetString(8),
                 reader.GetInt32(9),
                 reader.GetInt32(10),
+                reader.GetString(14),
                 reader.GetString(11),
                 reader.GetFieldValue<DateTimeOffset>(12),
                 reader.IsDBNull(13) ? null : reader.GetGuid(13)));
@@ -147,7 +157,7 @@ public sealed class MaterialsStore(
         }
         if (item.ArrivalsClosedAtUtc is not null)
         {
-            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("입고 마감된 발주품목에는 도착분을 추가할 수 없습니다.");
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("입고 마감된 품목에는 도착분을 추가할 수 없습니다.");
         }
 
         var unit = request.Unit!.Trim();
@@ -155,12 +165,16 @@ public sealed class MaterialsStore(
         {
             return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
             {
-                [nameof(request.Unit)] = [$"발주 단위({item.OrderUnit})와 같은 단위를 입력해 주세요."]
+                [nameof(request.Unit)] = [$"{MeasurementLabel(item.SupplyType)} 단위({item.OrderUnit})와 같은 단위를 입력해 주세요."]
             });
         }
 
         if (item.OrderQuantity is null)
         {
+            if (item.SupplyType == ProcurementSupplyTypes.CustomerSupplied)
+            {
+                return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("사급 품목의 제공 예정 수량과 단위를 구매정보에서 먼저 입력해 주세요.");
+            }
             if (request.OrderQuantity is null or <= 0 || string.IsNullOrWhiteSpace(request.OrderUnit))
             {
                 return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
@@ -209,7 +223,7 @@ public sealed class MaterialsStore(
             {
                 return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
                 {
-                    [nameof(request.Quantity)] = [$"누적 도착 수량은 발주 수량({effectiveOrderQuantity:0.###} {unit})을 초과할 수 없습니다."]
+                    [nameof(request.Quantity)] = [$"누적 도착 수량은 {MeasurementLabel(item.SupplyType)}({effectiveOrderQuantity:0.###} {unit})을 초과할 수 없습니다."]
                 });
             }
         }
@@ -589,7 +603,8 @@ public sealed class MaterialsStore(
             checkCommand.CommandText = """
                 select
                     count(*) filter (where status <> 'Cancelled')::int,
-                    count(*) filter (where status not in ('Confirmed', 'Cancelled'))::int
+                    count(*) filter (where status not in ('Confirmed', 'Cancelled'))::int,
+                    coalesce(sum(quantity) filter (where status <> 'Cancelled'), 0)
                 from material_receipts
                 where procurement_item_id = @item_id;
                 """;
@@ -603,6 +618,15 @@ public sealed class MaterialsStore(
             if (reader.GetInt32(1) > 0)
             {
                 return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("모든 도착분을 확정하거나 취소한 뒤 입고를 마감해 주세요.");
+            }
+            var arrivedQuantity = reader.GetDecimal(2);
+            if (item.SupplyType == ProcurementSupplyTypes.CustomerSupplied
+                && item.OrderQuantity is not null
+                && arrivedQuantity != item.OrderQuantity.Value)
+            {
+                var remaining = item.OrderQuantity.Value - arrivedQuantity;
+                return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict(
+                    $"사급 제공 예정량을 모두 도착 등록한 뒤 마감해 주세요. 미도착 잔량 {remaining:0.###} {item.OrderUnit}");
             }
         }
         await using (var command = connection.CreateCommand())
@@ -742,7 +766,7 @@ public sealed class MaterialsStore(
         command.Transaction = transaction;
         command.CommandText = """
             select id, project_id, order_quantity, order_unit, material_arrivals_closed_at_utc,
-                   receipt_completed, row_version, order_item
+                   receipt_completed, row_version, order_item, supply_type
             from project_procurement_items
             where id = @id and status = 'Active'
             for update;
@@ -758,7 +782,8 @@ public sealed class MaterialsStore(
                 reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
                 reader.GetBoolean(5),
                 reader.GetInt32(6),
-                reader.IsDBNull(7) ? null : reader.GetString(7))
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.GetString(8))
             : null;
     }
 
@@ -1109,6 +1134,9 @@ public sealed class MaterialsStore(
 
     private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    private static string MeasurementLabel(string supplyType)
+        => supplyType == ProcurementSupplyTypes.CustomerSupplied ? "제공 예정량" : "발주 수량";
+
     private static void AddNullableText(NpgsqlCommand command, string name, string? value)
         => command.Parameters.Add(name, NpgsqlDbType.Text).Value = value ?? (object)DBNull.Value;
 
@@ -1126,6 +1154,7 @@ public sealed class MaterialsStore(
         public string ProjectCode { get; init; } = "";
         public string? OrderItem { get; init; }
         public string? SupplierName { get; init; }
+        public string SupplyType { get; init; } = ProcurementSupplyTypes.Purchased;
         public DateOnly? ExpectedReceiptDate { get; init; }
         public decimal? OrderQuantity { get; init; }
         public string? OrderUnit { get; init; }
@@ -1134,23 +1163,43 @@ public sealed class MaterialsStore(
         public int RowVersion { get; init; }
         public List<MutableMaterialReceipt> Receipts { get; } = [];
 
-        public MaterialReceivingItemResponse ToResponse() => new()
+        public MaterialReceivingItemResponse ToResponse(DateOnly today)
         {
-            ItemId = ItemId,
-            ProjectId = ProjectId,
-            ProjectTitle = ProjectTitle,
-            ProjectCode = ProjectCode,
-            OrderItem = OrderItem,
-            SupplierName = SupplierName,
-            ExpectedReceiptDate = ExpectedReceiptDate,
-            OrderQuantity = OrderQuantity,
-            OrderUnit = OrderUnit,
-            ArrivalsClosed = ArrivalsClosedAtUtc is not null,
-            ArrivalsClosedAtUtc = ArrivalsClosedAtUtc,
-            ReceiptCompleted = ReceiptCompleted,
-            RowVersion = RowVersion,
-            Receipts = Receipts.Select(receipt => receipt.ToResponse()).ToList()
-        };
+            var arrivedQuantity = Receipts
+                .Where(receipt => receipt.Status != MaterialReceiptStatuses.Cancelled)
+                .Sum(receipt => receipt.Quantity ?? 0);
+            var confirmedQuantity = Receipts
+                .Where(receipt => receipt.Status == MaterialReceiptStatuses.Confirmed)
+                .Sum(receipt => receipt.Quantity ?? 0);
+            decimal? remainingQuantity = OrderQuantity is null ? null : Math.Max(0, OrderQuantity.Value - arrivedQuantity);
+            var processingQuantity = Math.Max(0, arrivedQuantity - confirmedQuantity);
+            return new MaterialReceivingItemResponse
+            {
+                ItemId = ItemId,
+                ProjectId = ProjectId,
+                ProjectTitle = ProjectTitle,
+                ProjectCode = ProjectCode,
+                OrderItem = OrderItem,
+                SupplierName = SupplierName,
+                SupplyType = SupplyType,
+                ExpectedReceiptDate = ExpectedReceiptDate,
+                OrderQuantity = OrderQuantity,
+                OrderUnit = OrderUnit,
+                ArrivalsClosed = ArrivalsClosedAtUtc is not null,
+                ArrivalsClosedAtUtc = ArrivalsClosedAtUtc,
+                ReceiptCompleted = ReceiptCompleted,
+                ArrivedQuantity = OrderQuantity is null ? null : arrivedQuantity,
+                ConfirmedQuantity = OrderQuantity is null ? null : confirmedQuantity,
+                RemainingQuantity = remainingQuantity,
+                ProcessingQuantity = OrderQuantity is null ? null : processingQuantity,
+                CustomerSupplyOverdue = SupplyType == ProcurementSupplyTypes.CustomerSupplied
+                    && ExpectedReceiptDate is not null
+                    && ExpectedReceiptDate.Value < today
+                    && remainingQuantity > 0,
+                RowVersion = RowVersion,
+                Receipts = Receipts.Select(receipt => receipt.ToResponse()).ToList()
+            };
+        }
     }
 
     private sealed class MutableMaterialReceipt
@@ -1193,7 +1242,8 @@ public sealed class MaterialsStore(
         DateTimeOffset? ArrivalsClosedAtUtc,
         bool ReceiptCompleted,
         int RowVersion,
-        string? OrderItem);
+        string? OrderItem,
+        string SupplyType);
 
     private sealed record ReceiptSnapshot(
         Guid ReceiptId,

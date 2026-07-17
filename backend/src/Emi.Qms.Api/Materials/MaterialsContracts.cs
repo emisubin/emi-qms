@@ -1,3 +1,5 @@
+using Emi.Qms.Api.Procurement;
+
 namespace Emi.Qms.Api.Materials;
 
 public static class MaterialReceiptStatuses
@@ -15,7 +17,9 @@ public sealed record MaterialReceiptSummaryResponse(
     int WaitingIqcCount,
     int FailedBlockedCount,
     int ReadyToConfirmCount,
-    int CompletedItemCount);
+    int CompletedItemCount,
+    int CustomerSuppliedItemCount,
+    int CustomerSupplyOverdueCount);
 
 public sealed record MaterialReceiptListResponse(
     MaterialReceiptSummaryResponse Summary,
@@ -29,12 +33,18 @@ public sealed class MaterialReceivingItemResponse
     public string ProjectCode { get; init; } = "";
     public string? OrderItem { get; init; }
     public string? SupplierName { get; init; }
+    public string SupplyType { get; init; } = ProcurementSupplyTypes.Purchased;
     public DateOnly? ExpectedReceiptDate { get; init; }
     public decimal? OrderQuantity { get; init; }
     public string? OrderUnit { get; init; }
     public bool ArrivalsClosed { get; init; }
     public DateTimeOffset? ArrivalsClosedAtUtc { get; init; }
     public bool ReceiptCompleted { get; init; }
+    public decimal? ArrivedQuantity { get; init; }
+    public decimal? ConfirmedQuantity { get; init; }
+    public decimal? RemainingQuantity { get; init; }
+    public decimal? ProcessingQuantity { get; init; }
+    public bool CustomerSupplyOverdue { get; init; }
     public int RowVersion { get; init; }
     public IReadOnlyList<MaterialReceiptResponse> Receipts { get; init; } = [];
 }
@@ -79,6 +89,7 @@ public sealed record MaterialIqcQueueItemResponse(
     string? Unit,
     int AttemptNumber,
     int ReceiptVersion,
+    string SupplyType,
     string Status,
     DateTimeOffset RequestedAtUtc,
     Guid? PendingIssueId);

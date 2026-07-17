@@ -216,6 +216,32 @@ public sealed class ProcurementApiTests
         using var arrivalJson = await ReadJsonAsync(arrival);
         var receiptId = arrivalJson.RootElement.GetProperty("receiptId").GetGuid();
 
+        using (var afterMeasurement = await ReadProcurementAsync(procurementClient, projectId))
+        {
+            var measuredItem = afterMeasurement.RootElement.GetProperty("items")[0];
+            var ordinaryEdit = await procurementClient.PatchAsJsonAsync(
+                $"/api/projects/{projectId}/procurement",
+                new
+                {
+                    items = new[]
+                    {
+                        new
+                        {
+                            itemId,
+                            expectedRowVersion = measuredItem.GetProperty("rowVersion").GetInt32(),
+                            standardLeadTime = "5W"
+                        }
+                    }
+                },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, ordinaryEdit.StatusCode);
+            using var ordinaryEditJson = await ReadJsonAsync(ordinaryEdit);
+            var preservedItem = ordinaryEditJson.RootElement.GetProperty("items")[0];
+            Assert.Equal("Purchased", preservedItem.GetProperty("supplyType").GetString());
+            Assert.Equal(10.5m, preservedItem.GetProperty("orderQuantity").GetDecimal());
+            Assert.Equal("EA", preservedItem.GetProperty("orderUnit").GetString());
+        }
+
         var overReceipt = await materialsClient.PostAsJsonAsync(
             $"/api/materials/items/{itemId}/receipts",
             new { quantity = 0.1m, unit = "EA", arrivalDate = "2026-07-15" },
@@ -266,6 +292,194 @@ public sealed class ProcurementApiTests
     }
 
     [Fact]
+    public async Task CustomerSuppliedMaterial_TracksExpectedRemainingAndBlocksUnsafeChangesAndEarlyClose()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        using var qualityClient = context.CreateClient("dev-quality");
+        using var adminClient = context.CreateClient("dev-admin");
+        var projectId = await CreateProjectAsync(salesClient, "PROC-CUSTOMER-SUPPLY", "Customer Supply");
+        const string pastDate = "2020-01-01";
+
+        var missingPair = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "Invalid Customer Supply", supplyType = "CustomerSupplied" } } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, missingPair.StatusCode);
+
+        var create = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                items = new[]
+                {
+                    new
+                    {
+                        orderItem = "Customer Busbar",
+                        supplierName = "Reference Vendor",
+                        supplyType = "CustomerSupplied",
+                        orderQuantity = 10m,
+                        orderUnit = "EA",
+                        expectedReceiptDate = pastDate
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        using var created = await ReadJsonAsync(create);
+        var createdItem = created.RootElement.GetProperty("items")[0];
+        var itemId = createdItem.GetProperty("itemId").GetGuid();
+        Assert.Equal("CustomerSupplied", createdItem.GetProperty("supplyType").GetString());
+        Assert.Equal(10m, createdItem.GetProperty("orderQuantity").GetDecimal());
+        Assert.Equal("EA", createdItem.GetProperty("orderUnit").GetString());
+        Assert.Equal(pastDate, createdItem.GetProperty("expectedReceiptDate").GetString());
+
+        var missingReason = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                items = new[]
+                {
+                    new
+                    {
+                        itemId,
+                        expectedRowVersion = createdItem.GetProperty("rowVersion").GetInt32(),
+                        orderQuantity = 12m,
+                        expectedReceiptDate = pastDate
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, missingReason.StatusCode);
+
+        var measuredUpdate = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                reason = "고객 제공 수량 변경",
+                items = new[]
+                {
+                    new
+                    {
+                        itemId,
+                        expectedRowVersion = createdItem.GetProperty("rowVersion").GetInt32(),
+                        orderQuantity = 12m,
+                        expectedReceiptDate = pastDate
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, measuredUpdate.StatusCode);
+        using (var measuredJson = await ReadJsonAsync(measuredUpdate))
+        {
+            var measuredItem = measuredJson.RootElement.GetProperty("items").EnumerateArray()
+                .Single(item => item.GetProperty("itemId").GetGuid() == itemId);
+            Assert.Equal("CustomerSupplied", measuredItem.GetProperty("supplyType").GetString());
+            Assert.Equal(12m, measuredItem.GetProperty("orderQuantity").GetDecimal());
+        }
+        using (var history = await ReadJsonAsync(await adminClient.GetAsync(
+            $"/api/projects/{projectId}/procurement/history",
+            TestContext.Current.CancellationToken)))
+        {
+            var latest = history.RootElement.GetProperty("groups")[0];
+            Assert.Equal("고객 제공 수량 변경", latest.GetProperty("reason").GetString());
+            Assert.Contains(latest.GetProperty("changes").EnumerateArray(), change =>
+                change.GetProperty("fieldName").GetString() == "OrderQuantity"
+                && change.GetProperty("oldValue").GetString() == "10"
+                && change.GetProperty("newValue").GetString() == "12");
+        }
+
+        using (var filtered = await ReadJsonAsync(await materialsClient.GetAsync(
+            "/api/materials/receipts?supplyType=CustomerSupplied",
+            TestContext.Current.CancellationToken)))
+        {
+            var material = Assert.Single(filtered.RootElement.GetProperty("items").EnumerateArray());
+            Assert.Equal(itemId, material.GetProperty("itemId").GetGuid());
+            Assert.Equal(0m, material.GetProperty("arrivedQuantity").GetDecimal());
+            Assert.Equal(12m, material.GetProperty("remainingQuantity").GetDecimal());
+            Assert.Equal(0m, material.GetProperty("processingQuantity").GetDecimal());
+            Assert.Equal(pastDate, material.GetProperty("expectedReceiptDate").GetString());
+            Assert.True(material.GetProperty("customerSupplyOverdue").GetBoolean());
+            Assert.Equal(1, filtered.RootElement.GetProperty("summary").GetProperty("customerSuppliedItemCount").GetInt32());
+            Assert.Equal(1, filtered.RootElement.GetProperty("summary").GetProperty("customerSupplyOverdueCount").GetInt32());
+        }
+        Assert.Equal(HttpStatusCode.BadRequest, (await materialsClient.GetAsync(
+            "/api/materials/receipts?supplyType=Untrusted",
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var arrival = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{itemId}/receipts",
+            new { quantity = 4m, unit = "EA", arrivalDate = pastDate },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, arrival.StatusCode);
+        using var arrivalJson = await ReadJsonAsync(arrival);
+        var receiptId = arrivalJson.RootElement.GetProperty("receiptId").GetGuid();
+
+        var afterArrivalItem = await FindMaterialItemAsync(materialsClient, itemId);
+        Assert.Equal(4m, afterArrivalItem.GetProperty("arrivedQuantity").GetDecimal());
+        Assert.Equal(8m, afterArrivalItem.GetProperty("remainingQuantity").GetDecimal());
+        Assert.Equal(4m, afterArrivalItem.GetProperty("processingQuantity").GetDecimal());
+
+        var unsafeSupplyChange = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                reason = "공급 방식 재분류",
+                items = new[]
+                {
+                    new
+                    {
+                        itemId,
+                        expectedRowVersion = afterArrivalItem.GetProperty("rowVersion").GetInt32(),
+                        supplyType = "Purchased"
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, unsafeSupplyChange.StatusCode);
+
+        var iqcRequest = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/receipts/{receiptId}/iqc-requests",
+            new { expectedVersion = 1 },
+            TestContext.Current.CancellationToken);
+        using var iqcRequestJson = await ReadJsonAsync(iqcRequest);
+        var attemptId = iqcRequestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/{attemptId}/result",
+            new { expectedReceiptVersion = 2, result = "Passed", reason = "고객 제공품 검사 합격" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await materialsClient.PostAsJsonAsync(
+            $"/api/materials/receipts/{receiptId}/confirm",
+            new { expectedVersion = 3 },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var beforeEarlyClose = await FindMaterialItemAsync(materialsClient, itemId);
+        Assert.Equal(4m, beforeEarlyClose.GetProperty("confirmedQuantity").GetDecimal());
+        Assert.Equal(0m, beforeEarlyClose.GetProperty("processingQuantity").GetDecimal());
+        var earlyClose = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{itemId}/close-arrivals",
+            new
+            {
+                expectedRowVersion = beforeEarlyClose.GetProperty("rowVersion").GetInt32(),
+                reason = "부분 제공 상태 마감 시도"
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, earlyClose.StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{itemId}/receipts",
+            new { quantity = 8m, unit = "EA", arrivalDate = pastDate },
+            TestContext.Current.CancellationToken)).StatusCode);
+        var fullyArrived = await FindMaterialItemAsync(materialsClient, itemId);
+        Assert.Equal(12m, fullyArrived.GetProperty("arrivedQuantity").GetDecimal());
+        Assert.Equal(0m, fullyArrived.GetProperty("remainingQuantity").GetDecimal());
+        Assert.Equal(8m, fullyArrived.GetProperty("processingQuantity").GetDecimal());
+        Assert.False(fullyArrived.GetProperty("customerSupplyOverdue").GetBoolean());
+    }
+
+    [Fact]
     public async Task MaterialReceipt_ConcurrentArrivalsCannotExceedOrderQuantity()
     {
         await using var context = await ProcurementApiTestContext.CreateAsync();
@@ -291,6 +505,65 @@ public sealed class ProcurementApiTests
         var materialItem = await FindMaterialItemAsync(firstMaterialsClient, itemId);
         Assert.Single(materialItem.GetProperty("receipts").EnumerateArray());
         Assert.Equal(6m, materialItem.GetProperty("receipts")[0].GetProperty("quantity").GetDecimal());
+    }
+
+    [Fact]
+    public async Task CustomerSupplyChangeAndFirstArrival_SerializeOnTheProcurementItemLock()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        var projectId = await CreateProjectAsync(salesClient, "PROC-CUSTOMER-SUPPLY-RACE", "Customer Supply Race");
+        var create = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "Race Item" } } },
+            TestContext.Current.CancellationToken);
+        using var createJson = await ReadJsonAsync(create);
+        var item = createJson.RootElement.GetProperty("items")[0];
+        var itemId = item.GetProperty("itemId").GetGuid();
+
+        var responses = await Task.WhenAll(
+            procurementClient.PatchAsJsonAsync(
+                $"/api/projects/{projectId}/procurement",
+                new
+                {
+                    reason = "고객 제공 방식 지정",
+                    items = new[]
+                    {
+                        new
+                        {
+                            itemId,
+                            expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
+                            supplyType = "CustomerSupplied",
+                            orderQuantity = 10m,
+                            orderUnit = "EA"
+                        }
+                    }
+                },
+                TestContext.Current.CancellationToken),
+            materialsClient.PostAsJsonAsync(
+                $"/api/materials/items/{itemId}/receipts",
+                new { quantity = 6m, unit = "EA", orderQuantity = 10m, orderUnit = "EA", arrivalDate = "2026-07-15" },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(HttpStatusCode.OK, responses[1].StatusCode);
+        Assert.Contains(responses[0].StatusCode, new[]
+        {
+            HttpStatusCode.OK,
+            HttpStatusCode.BadRequest,
+            HttpStatusCode.Conflict
+        });
+
+        using var finalProcurement = await ReadProcurementAsync(procurementClient, projectId);
+        var finalItem = finalProcurement.RootElement.GetProperty("items")[0];
+        Assert.Contains(finalItem.GetProperty("supplyType").GetString(), new[] { "Purchased", "CustomerSupplied" });
+        Assert.Equal(10m, finalItem.GetProperty("orderQuantity").GetDecimal());
+        Assert.Equal("EA", finalItem.GetProperty("orderUnit").GetString());
+        var materialItem = await FindMaterialItemAsync(materialsClient, itemId);
+        Assert.Single(materialItem.GetProperty("receipts").EnumerateArray());
+        Assert.Equal(6m, materialItem.GetProperty("arrivedQuantity").GetDecimal());
+        Assert.Equal(4m, materialItem.GetProperty("remainingQuantity").GetDecimal());
     }
 
     [Fact]

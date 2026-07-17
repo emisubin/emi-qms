@@ -38,12 +38,18 @@ export type MaterialReceivingItem = {
   projectCode: string;
   orderItem: string | null;
   supplierName: string | null;
+  supplyType: 'Purchased' | 'CustomerSupplied';
   expectedReceiptDate: string | null;
   orderQuantity: number | null;
   orderUnit: string | null;
   arrivalsClosed: boolean;
   arrivalsClosedAtUtc: string | null;
   receiptCompleted: boolean;
+  arrivedQuantity: number | null;
+  confirmedQuantity: number | null;
+  remainingQuantity: number | null;
+  processingQuantity: number | null;
+  customerSupplyOverdue: boolean;
   rowVersion: number;
   receipts: MaterialReceipt[];
 };
@@ -55,6 +61,8 @@ export type MaterialReceiptListResponse = {
     failedBlockedCount: number;
     readyToConfirmCount: number;
     completedItemCount: number;
+    customerSuppliedItemCount: number;
+    customerSupplyOverdueCount: number;
   };
   items: MaterialReceivingItem[];
 };
@@ -71,6 +79,7 @@ export type MaterialIqcQueueItem = {
   unit: string | null;
   attemptNumber: number;
   receiptVersion: number;
+  supplyType: 'Purchased' | 'CustomerSupplied';
   status: 'Requested' | 'Passed' | 'Failed';
   requestedAtUtc: string;
   pendingIssueId: string | null;

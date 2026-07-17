@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Procurement;
 
 namespace Emi.Qms.Api.Materials;
 
@@ -14,6 +15,7 @@ public static class MaterialsEndpointExtensions
             HttpRequest request,
             string? search,
             bool? includeCompleted,
+            string? supplyType,
             MaterialsStore store,
             CancellationToken cancellationToken) =>
         {
@@ -22,7 +24,15 @@ public static class MaterialsEndpointExtensions
             {
                 return Results.ValidationProblem(dateRange.Errors);
             }
-            return Results.Ok(await store.ListAsync(search, includeCompleted == true, dateRange.From, dateRange.To, cancellationToken));
+            var normalizedSupplyType = NormalizeSupplyType(supplyType);
+            if (supplyType is not null && normalizedSupplyType is null && !string.Equals(supplyType, "All", StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["supplyType"] = ["공급 유형은 전체, 일반 구매 또는 사급이어야 합니다."]
+                });
+            }
+            return Results.Ok(await store.ListAsync(search, includeCompleted == true, normalizedSupplyType, dateRange.From, dateRange.To, cancellationToken));
         })
         .RequireAuthorization(QmsPolicies.MaterialReceiptUpdate)
         .WithName("ListMaterialReceivingItems");
@@ -154,6 +164,19 @@ public static class MaterialsEndpointExtensions
     {
         var value = user.FindFirst(QmsClaimTypes.UserId)?.Value;
         return Guid.TryParse(value, out var userId) ? userId : null;
+    }
+
+    private static string? NormalizeSupplyType(string? value)
+    {
+        if (string.Equals(value, ProcurementSupplyTypes.Purchased, StringComparison.OrdinalIgnoreCase))
+        {
+            return ProcurementSupplyTypes.Purchased;
+        }
+        if (string.Equals(value, ProcurementSupplyTypes.CustomerSupplied, StringComparison.OrdinalIgnoreCase))
+        {
+            return ProcurementSupplyTypes.CustomerSupplied;
+        }
+        return null;
     }
 
     private static IResult ToResult(MaterialsMutationResult<MaterialReceiptActionResponse> result)

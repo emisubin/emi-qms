@@ -1517,6 +1517,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제외 범위: TASK-008A 데이터 모델 재구현과 외부 공급망 연동
 - 선행조건: TASK-008A 구현·검수 완료, 사급 업무 정책 확정
 - 주요 테스트: 분할 입고, 잔량, 권한, 중복·수량 무결성
+- 2026-07-17 실험 상태: `experiment/task-008b-customer-supplied-materials`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0031`은 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. canonical 실행 큐의 `Dependency Pending`과 다음 `TASK-007A` Gate는 변경하지 않는다.
 
 ### TASK-009A: 검사 체크리스트 템플릿 / IQC 디지털 성적서 / PDF 출력 기반
 

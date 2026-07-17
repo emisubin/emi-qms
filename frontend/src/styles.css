@@ -159,6 +159,36 @@
   font-weight: 800;
 }
 
+.material-supply-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.material-supply-filter button {
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.material-supply-filter button[data-active='true'] {
+  border-color: var(--brand-red);
+  background: var(--brand-red-soft);
+  color: var(--brand-red-deep);
+}
+
+.material-supply-filter > span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .material-item-list {
   display: grid;
   gap: 14px;
@@ -220,6 +250,38 @@
   color: var(--muted);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.material-card-badges {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.customer-supply-badge,
+.supply-type-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #fff2cf;
+  color: #7a5600;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.customer-supply-badge[data-overdue='true'] {
+  background: var(--brand-red-soft);
+  color: var(--brand-red-deep);
+}
+
+.supply-type-badge[data-supply-type='Purchased'] {
+  background: #edf3ef;
+  color: #43554a;
 }
 
 .material-status-badge {
@@ -660,6 +722,27 @@
     min-height: 44px;
   }
 
+  .material-supply-filter {
+    margin: 0;
+    padding: 0 14px 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .material-supply-filter::-webkit-scrollbar { display: none; }
+
+  .material-supply-filter button {
+    flex: 0 0 auto;
+    min-height: 42px;
+    padding: 9px 15px;
+  }
+
+  .material-supply-filter > span {
+    flex: 0 0 auto;
+    margin-left: 4px;
+    padding-right: 4px;
+  }
+
   .material-item-list,
   .iqc-card-list {
     grid-template-columns: 1fr;
@@ -673,12 +756,24 @@
     box-shadow: 0 8px 24px rgb(67 28 30 / 6%);
   }
 
+  .material-item-card > header {
+    align-items: flex-start;
+  }
+
+  .material-card-badges {
+    max-width: 48%;
+  }
+
   .material-item-meta {
     grid-template-columns: 1fr 1fr;
   }
 
   .material-item-meta div {
     min-height: 54px;
+  }
+
+  .mobile-supply-measurement {
+    grid-template-columns: minmax(0, 1fr) minmax(90px, 0.45fr);
   }
 
   .material-receipt-chip {
@@ -2959,7 +3054,7 @@ h3 {
 .procurement-table-head,
 .procurement-table-row {
   display: grid;
-  grid-template-columns: minmax(95px, 0.8fr) minmax(150px, 1.5fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(110px, 0.9fr) minmax(120px, 1fr) minmax(160px, 1.3fr) minmax(86px, 0.7fr);
+  grid-template-columns: minmax(95px, 0.8fr) minmax(150px, 1.5fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(110px, 0.9fr) minmax(120px, 1fr) minmax(160px, 1.3fr) minmax(150px, 1.1fr) minmax(86px, 0.7fr);
   min-width: 0;
   align-items: center;
   gap: 8px;
@@ -2986,8 +3081,33 @@ h3 {
 
 .procurement-table-head.editable,
 .procurement-table-row.editable {
-  grid-template-columns: minmax(90px, 0.8fr) minmax(170px, 1.5fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(120px, 0.9fr) minmax(120px, 0.9fr) minmax(170px, 1.3fr) 82px;
+  grid-template-columns: minmax(90px, 0.8fr) minmax(170px, 1.5fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(120px, 0.9fr) minmax(120px, 0.9fr) minmax(170px, 1.3fr) minmax(190px, 1.35fr) 112px;
   min-width: 0;
+}
+
+.procurement-supply-cell,
+.procurement-supply-editor {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.procurement-supply-cell small,
+.procurement-supply-editor small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.procurement-supply-editor select {
+  min-width: 0;
+}
+
+.procurement-supply-measurement,
+.mobile-supply-measurement {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(56px, 0.8fr);
+  gap: 6px;
 }
 
 .procurement-table-head.receipt,
@@ -3016,22 +3136,22 @@ h3 {
 }
 
 .procurement-readonly-table {
-  overflow-x: visible;
+  overflow-x: auto;
 }
 
 .procurement-readonly-table .procurement-table-head,
 .procurement-readonly-table .procurement-table-row {
-  grid-template-columns: minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(105px, 1fr) minmax(105px, 1fr) minmax(100px, 0.9fr) minmax(110px, 1fr) minmax(130px, 1.2fr) minmax(70px, 0.7fr);
+  grid-template-columns: minmax(62px, 0.6fr) minmax(120px, 1.3fr) minmax(78px, 0.9fr) minmax(82px, 0.9fr) minmax(88px, 0.8fr) minmax(90px, 0.9fr) minmax(96px, 1fr) minmax(116px, 1fr) minmax(68px, 0.7fr);
   min-width: 0;
 }
 
 .procurement-project-expanded .procurement-table {
-  overflow-x: visible;
+  overflow-x: auto;
 }
 
 .procurement-project-expanded .procurement-table-head,
 .procurement-project-expanded .procurement-table-row {
-  grid-template-columns: minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(105px, 1fr) minmax(105px, 1fr) minmax(100px, 0.9fr) minmax(110px, 1fr) minmax(130px, 1.2fr) minmax(70px, 0.7fr);
+  grid-template-columns: minmax(62px, 0.6fr) minmax(120px, 1.3fr) minmax(78px, 0.9fr) minmax(82px, 0.9fr) minmax(88px, 0.8fr) minmax(90px, 0.9fr) minmax(96px, 1fr) minmax(116px, 1fr) minmax(68px, 0.7fr);
 }
 
 .procurement-cards,

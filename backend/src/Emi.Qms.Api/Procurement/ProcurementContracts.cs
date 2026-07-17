@@ -2,6 +2,14 @@ using System.Text.Json.Serialization;
 
 namespace Emi.Qms.Api.Procurement;
 
+public static class ProcurementSupplyTypes
+{
+    public const string Purchased = "Purchased";
+    public const string CustomerSupplied = "CustomerSupplied";
+
+    public static bool IsValid(string? value) => value is Purchased or CustomerSupplied;
+}
+
 public sealed record ProcurementBulkUpdateRequest(
     string? Reason,
     IReadOnlyList<ProcurementItemUpdateRequest>? Items);
@@ -16,6 +24,9 @@ public sealed record ProcurementItemUpdateRequest(
     DateOnly? OrderDate,
     DateOnly? ExpectedReceiptDate,
     string? IssueNote,
+    string? SupplyType,
+    decimal? OrderQuantity,
+    string? OrderUnit,
     bool? ReceiptCompleted,
     DateTimeOffset? ReceiptCompletedAtUtc,
     string? ReceiptCompletionNote);
@@ -64,6 +75,9 @@ public sealed class ProcurementItemResponse
     public DateOnly? OrderDate { get; init; }
     public DateOnly? ExpectedReceiptDate { get; init; }
     public string? IssueNote { get; init; }
+    public string SupplyType { get; init; } = ProcurementSupplyTypes.Purchased;
+    public decimal? OrderQuantity { get; init; }
+    public string? OrderUnit { get; init; }
     public bool ReceiptCompleted { get; init; }
     public DateTimeOffset? ReceiptCompletedAtUtc { get; init; }
     public Guid? ReceiptCompletedByUserId { get; init; }

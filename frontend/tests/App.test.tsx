@@ -1382,6 +1382,8 @@ describe('App', () => {
     expect(procurementSection).not.toBeNull();
     expect(within(procurementSection as HTMLElement).getByText('Relay')).toBeInTheDocument();
     expect(within(procurementSection as HTMLElement).getAllByText('Vendor A').length).toBeGreaterThan(0);
+    expect(within(procurementSection as HTMLElement).getByText('사급 · 고객 제공')).toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).getByText('100 EA')).toBeInTheDocument();
     expect(within(procurementSection as HTMLElement).getByText('완료(6/7 12:30)')).toBeInTheDocument();
     expect(within(procurementSection as HTMLElement).queryByText('출하일')).not.toBeInTheDocument();
     expect(within(procurementSection as HTMLElement).queryByText('예정일까지')).not.toBeInTheDocument();
@@ -1413,6 +1415,8 @@ describe('App', () => {
     expect(procurementMobile).toHaveTextContent('업체Vendor A');
     expect(procurementMobile).toHaveTextContent('기술 담당자Owner A');
     expect(procurementMobile).toHaveTextContent('입고예정일2026-06-29');
+    expect(procurementMobile).toHaveTextContent('사급 · 고객 제공');
+    expect(procurementMobile).toHaveTextContent('제공 예정100 EA');
     expect(procurementMobile).not.toHaveTextContent('예정일까지');
     expect(procurementMobile).not.toHaveTextContent('D-3');
     expect(procurementMobile).not.toHaveTextContent('입고지연');
@@ -1449,6 +1453,9 @@ describe('App', () => {
     expect(contextSummary).not.toHaveTextContent('Active');
     expect(await screen.findByRole('table', { name: '구매정보 수정' })).toBeInTheDocument();
     const editTable = screen.getByRole('table', { name: '구매정보 수정' });
+    expect(within(editTable).getAllByLabelText('공급 방식')[0]).toHaveValue('CustomerSupplied');
+    expect(within(editTable).getByLabelText('제공 예정 수량')).toHaveValue('100');
+    expect(within(editTable).getByLabelText('제공 예정 단위')).toHaveValue('EA');
     expect(editTable).not.toHaveTextContent('PJT Code');
     expect(editTable).not.toHaveTextContent('예정일까지');
     expect(screen.getByRole('button', { name: 'Excel 양식 다운로드' })).toBeInTheDocument();
@@ -3277,6 +3284,9 @@ function procurementResponse() {
         orderDate: '2026-06-20',
         expectedReceiptDate: '2026-06-29',
         issueNote: '확인 필요',
+        supplyType: 'CustomerSupplied',
+        orderQuantity: 100,
+        orderUnit: 'EA',
         receiptCompleted: false,
         receiptCompletedAtUtc: null,
         receiptCompletedByUserId: null,
@@ -3302,6 +3312,9 @@ function procurementResponse() {
         orderDate: '2026-06-20',
         expectedReceiptDate: '2026-06-29',
         issueNote: null,
+        supplyType: 'Purchased',
+        orderQuantity: null,
+        orderUnit: null,
         receiptCompleted: true,
         receiptCompletedAtUtc: '2026-06-07T12:30:00',
         receiptCompletedByUserId: '50000000-0000-0000-0000-000000000012',
@@ -3753,9 +3766,15 @@ function materialReceiptResponse(includeCompleted: boolean) {
     projectCode: 'PJT-003A',
     orderItem: 'Relay',
     supplierName: 'Vendor A',
+    supplyType: 'Purchased',
     expectedReceiptDate: '2026-06-29',
     orderQuantity: 100,
     orderUnit: 'EA',
+    arrivedQuantity: 24,
+    confirmedQuantity: 0,
+    remainingQuantity: 76,
+    processingQuantity: 24,
+    customerSupplyOverdue: false,
     arrivalsClosed: false,
     arrivalsClosedAtUtc: null,
     receiptCompleted: false,
@@ -3801,7 +3820,9 @@ function materialReceiptResponse(includeCompleted: boolean) {
       waitingIqcCount: 0,
       failedBlockedCount: 0,
       readyToConfirmCount: 0,
-      completedItemCount: includeCompleted ? 1 : 0
+      completedItemCount: includeCompleted ? 1 : 0,
+      customerSuppliedItemCount: 0,
+      customerSupplyOverdueCount: 0
     },
     items: includeCompleted ? [pending, completed] : [pending]
   };

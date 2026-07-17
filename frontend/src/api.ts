@@ -1041,7 +1041,8 @@ export async function getMaterialReceipts(
   search = '',
   includeCompleted = false,
   expectedReceiptDateFrom = '',
-  expectedReceiptDateTo = ''
+  expectedReceiptDateTo = '',
+  supplyType: 'All' | 'Purchased' | 'CustomerSupplied' = 'All'
 ): Promise<MaterialReceiptListResponse> {
   const params = new URLSearchParams();
   if (search.trim()) {
@@ -1056,6 +1057,9 @@ export async function getMaterialReceipts(
   }
   if (expectedReceiptDateTo) {
     params.set('expectedReceiptDateTo', expectedReceiptDateTo);
+  }
+  if (supplyType !== 'All') {
+    params.set('supplyType', supplyType);
   }
 
   const query = params.toString() ? `?${params.toString()}` : '';

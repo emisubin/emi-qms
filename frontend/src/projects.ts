@@ -768,6 +768,8 @@ export interface ProcurementResponse {
   items: ProcurementItem[];
 }
 
+export type ProcurementSupplyType = 'Purchased' | 'CustomerSupplied';
+
 export interface ProcurementItem {
   itemId: string;
   projectId: string;
@@ -785,6 +787,9 @@ export interface ProcurementItem {
   orderDate: string | null;
   expectedReceiptDate: string | null;
   issueNote: string | null;
+  supplyType: ProcurementSupplyType;
+  orderQuantity: number | null;
+  orderUnit: string | null;
   receiptCompleted: boolean;
   receiptCompletedAtUtc: string | null;
   receiptCompletedByUserId: string | null;
@@ -809,6 +814,9 @@ export interface ProcurementItemUpdateRequest {
   orderDate: string | null;
   expectedReceiptDate: string | null;
   issueNote: string | null;
+  supplyType?: ProcurementSupplyType | null;
+  orderQuantity?: number | null;
+  orderUnit?: string | null;
   receiptCompleted?: boolean | null;
   receiptCompletedAtUtc?: string | null;
   receiptCompletionNote?: string | null;

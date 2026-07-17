@@ -294,13 +294,79 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(30L, await ReadScalarAsync<long>(
+        Assert.Equal(31L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0030_material_receiving_iqc", await ReadScalarAsync<string>(
+        Assert.Equal("0031_customer_supplied_materials", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'project_procurement_items'
+              and column_name = 'supply_type'
+              and is_nullable = 'NO'
+              and column_default like '%Purchased%';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_constraint
+            where conrelid = 'public.project_procurement_items'::regclass
+              and conname in (
+                  'ck_project_procurement_items_supply_type',
+                  'ck_project_procurement_items_customer_supply_measurement'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_indexes
+            where schemaname = 'public'
+              and indexname = 'ix_project_procurement_items_supply_type';
+            """,
+            TestContext.Current.CancellationToken));
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into projects (id, project_key, project_number, name)
+            values ('88000000-0000-0000-0000-000000000031', 'migration-0031', 'migration-0031', 'Migration 0031');
+            """,
+            TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into project_procurement_items (project_id, sequence_number, supply_type)
+            values ('88000000-0000-0000-0000-000000000031', 1, 'CustomerSupplied');
+            """,
+            TestContext.Current.CancellationToken));
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into project_procurement_items (
+                project_id, sequence_number, supply_type, order_quantity, order_unit)
+            values (
+                '88000000-0000-0000-0000-000000000031', 1, 'CustomerSupplied', 5, 'EA');
+            """,
+            TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            update project_procurement_items
+            set order_unit = null
+            where project_id = '88000000-0000-0000-0000-000000000031';
+            """,
             TestContext.Current.CancellationToken));
 
         await ExecuteSqlAsync(

@@ -170,6 +170,7 @@ import type {
   ProcurementRequiredItemSettings,
   ProcurementRequiredItemSettingsRow,
   ProcurementResponse,
+  ProcurementSupplyType,
   ProductionPlanningHistoryResponse,
   ProductionPlanningExcelPreviewResponse,
   ProductionPlanningProjectListResponse,
@@ -7711,6 +7712,9 @@ type ProcurementRowForm = {
   expectedReceiptDate: string;
   shipmentDisplayDate: string | null;
   issueNote: string;
+  supplyType: ProcurementSupplyType;
+  orderQuantity: string;
+  orderUnit: string;
   receiptCompleted: boolean;
   receiptCompletedAtUtc: string;
   receiptCompletionNote: string;
@@ -9671,6 +9675,7 @@ function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
           <span>발주일</span>
           <span>입고예정일</span>
           <span>이슈사항</span>
+          <span>공급 방식</span>
           <span>입고 상태</span>
         </div>
         {items.map((item) => (
@@ -9682,6 +9687,10 @@ function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
             <span>{emptyDash(item.orderDate)}</span>
             <span>{emptyDash(item.expectedReceiptDate)}</span>
             <span>{emptyDash(item.issueNote)}</span>
+            <div className="procurement-supply-cell">
+              <SupplyTypeBadge supplyType={item.supplyType} />
+              {item.supplyType === 'CustomerSupplied' ? <small>{formatSupplyQuantity(item.orderQuantity, item.orderUnit)}</small> : null}
+            </div>
             <ReceiptCompletionBadge completed={item.receiptCompleted} completedAtUtc={item.receiptCompletedAtUtc} />
           </div>
         ))}
@@ -9695,6 +9704,10 @@ function ReceiptCompletionBadge({ completed, completedAtUtc }: { completed: bool
       {formatReceiptCompleted(completed, completedAtUtc)}
     </span>
   );
+}
+
+function SupplyTypeBadge({ supplyType }: { supplyType: ProcurementSupplyType }) {
+  return <span className="supply-type-badge" data-supply-type={supplyType}>{supplyType === 'CustomerSupplied' ? '사급 · 고객 제공' : '일반 구매'}</span>;
 }
 
 function ProcurementEditPage({
@@ -9764,6 +9777,12 @@ function ProcurementEditPage({
   }
 
   async function save() {
+    const invalidCustomerSupply = rows.find((row) => row.supplyType === 'CustomerSupplied'
+      && (!(Number(row.orderQuantity) > 0) || row.orderUnit.trim().length < 1 || row.orderUnit.trim().length > 20));
+    if (invalidCustomerSupply) {
+      setMessage('사급 품목은 제공 예정 수량과 1~20자 단위를 함께 입력해 주세요.');
+      return;
+    }
     setIsSaving(true);
     setMessage('');
     try {
@@ -9867,6 +9886,7 @@ function ProcurementEditableList({
           <span>발주일</span>
           <span>입고예정일</span>
           <span>이슈사항</span>
+          <span>공급 방식</span>
           <span>입고 완료</span>
         </div>
         {rows.map((row, index) => (
@@ -9878,6 +9898,18 @@ function ProcurementEditableList({
             <input type="date" value={row.orderDate} onChange={(event) => onChange(index, { orderDate: event.target.value })} />
             <input type="date" value={row.expectedReceiptDate} onChange={(event) => onChange(index, { expectedReceiptDate: event.target.value })} />
             <input value={row.issueNote} onChange={(event) => onChange(index, { issueNote: event.target.value })} />
+            <div className="procurement-supply-editor">
+              <select aria-label="공급 방식" value={row.supplyType} onChange={(event) => onChange(index, { supplyType: event.target.value as ProcurementSupplyType })}>
+                <option value="Purchased">일반 구매</option>
+                <option value="CustomerSupplied">사급 · 고객 제공</option>
+              </select>
+              {row.supplyType === 'CustomerSupplied' ? (
+                <div className="procurement-supply-measurement">
+                  <input aria-label="제공 예정 수량" inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} placeholder="예정 수량" />
+                  <input aria-label="제공 예정 단위" value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} placeholder="단위" maxLength={20} />
+                </div>
+              ) : <small>도착 등록 시 수량 입력</small>}
+            </div>
             <div className="receipt-input-cell receipt-input-cell--derived">
               <ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} />
               <small>자재 입고에서 자동 계산</small>
@@ -9913,6 +9945,18 @@ function ProcurementCards({
                 <FormField label="입고예정일"><input type="date" value={row.expectedReceiptDate} onChange={(event) => onChange(index, { expectedReceiptDate: event.target.value })} /></FormField>
                 <div className="readonly-field"><span>프로젝트 납품예정일</span><strong>{emptyDash(row.shipmentDisplayDate)}</strong></div>
                 <FormField label="이슈사항"><input value={row.issueNote} onChange={(event) => onChange(index, { issueNote: event.target.value })} /></FormField>
+                <FormField label="공급 방식">
+                  <select value={row.supplyType} onChange={(event) => onChange(index, { supplyType: event.target.value as ProcurementSupplyType })}>
+                    <option value="Purchased">일반 구매</option>
+                    <option value="CustomerSupplied">사급 · 고객 제공</option>
+                  </select>
+                </FormField>
+                {row.supplyType === 'CustomerSupplied' ? (
+                  <div className="mobile-supply-measurement">
+                    <FormField label="제공 예정 수량"><input inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} /></FormField>
+                    <FormField label="단위"><input value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} maxLength={20} /></FormField>
+                  </div>
+                ) : null}
                 <div className="receipt-input-cell receipt-input-cell--derived">
                   <ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} />
                   <small>자재 입고 흐름에서 자동 계산</small>
@@ -9921,6 +9965,7 @@ function ProcurementCards({
             ) : (
               <>
                 <h3 className="order-item-badge">{emptyDash(row.orderItem)}</h3>
+                <SupplyTypeBadge supplyType={row.supplyType} />
                 <dl className="mobile-detail-list">
                   <div><dt>기술 담당자</dt><dd>{emptyDash(row.technicalOwner)}</dd></div>
                   <div><dt>업체</dt><dd>{emptyDash(row.supplierName)}</dd></div>
@@ -9928,6 +9973,7 @@ function ProcurementCards({
                   <div><dt>발주일</dt><dd>{emptyDash(row.orderDate)}</dd></div>
                   <div><dt>입고예정일</dt><dd>{emptyDash(row.expectedReceiptDate)}</dd></div>
                   <div><dt>이슈사항</dt><dd>{emptyDash(row.issueNote)}</dd></div>
+                  {row.supplyType === 'CustomerSupplied' ? <div><dt>제공 예정</dt><dd>{formatSupplyQuantity(Number(row.orderQuantity) || null, row.orderUnit || null)}</dd></div> : null}
                   <div><dt>입고 완료</dt><dd><ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} /></dd></div>
                 </dl>
               </>
@@ -10247,6 +10293,10 @@ function formatReceiptCompletedAt(value?: string | null) {
   }
 
   return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function formatSupplyQuantity(quantity: number | null, unit: string | null) {
+  return quantity === null ? '예정량 미입력' : `${quantity.toLocaleString('ko-KR', { maximumFractionDigits: 3 })} ${unit ?? ''}`.trim();
 }
 
 function procurementResultLabel(resultType: string) {
@@ -12325,6 +12375,12 @@ function formatProcurementFieldName(fieldName: string | null) {
       return '납품예정일';
     case 'IssueNote':
       return '이슈사항';
+    case 'SupplyType':
+      return '공급 방식';
+    case 'OrderQuantity':
+      return '제공 예정 수량';
+    case 'OrderUnit':
+      return '제공 예정 단위';
     case 'ReceiptCompleted':
       return '입고 완료';
     case 'ReceiptCompletedAtUtc':
@@ -13468,6 +13524,9 @@ function procurementItemToForm(item: ProcurementItem): ProcurementRowForm {
     expectedReceiptDate: item.expectedReceiptDate ?? '',
     shipmentDisplayDate: formatShipmentDisplayDate(item),
     issueNote: item.issueNote ?? '',
+    supplyType: item.supplyType,
+    orderQuantity: item.orderQuantity?.toString() ?? '',
+    orderUnit: item.orderUnit ?? '',
     receiptCompleted: item.receiptCompleted,
     receiptCompletedAtUtc: item.receiptCompletedAtUtc ?? '',
     receiptCompletionNote: item.receiptCompletionNote ?? '',
@@ -13489,6 +13548,9 @@ function emptyProcurementRow(projectDeliveryDate: string | null = null): Procure
     expectedReceiptDate: '',
     shipmentDisplayDate: projectDeliveryDate,
     issueNote: '',
+    supplyType: 'Purchased',
+    orderQuantity: '',
+    orderUnit: '',
     receiptCompleted: false,
     receiptCompletedAtUtc: '',
     receiptCompletionNote: '',
@@ -13506,7 +13568,10 @@ function procurementFormToRequest(row: ProcurementRowForm) {
     technicalOwner: row.technicalOwner.trim() || null,
     orderDate: row.orderDate || null,
     expectedReceiptDate: row.expectedReceiptDate || null,
-    issueNote: row.issueNote.trim() || null
+    issueNote: row.issueNote.trim() || null,
+    supplyType: row.supplyType,
+    orderQuantity: row.supplyType === 'CustomerSupplied' && row.orderQuantity.trim() ? Number(row.orderQuantity) : null,
+    orderUnit: row.supplyType === 'CustomerSupplied' ? row.orderUnit.trim() || null : null
   };
 }
 

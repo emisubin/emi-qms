@@ -87,7 +87,7 @@ public sealed class ProcurementApiTests
                     }
                 },
                 TestContext.Current.CancellationToken);
-            Assert.Equal(HttpStatusCode.OK, receipt.StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, receipt.StatusCode);
         }
 
         foreach (var userKey in new[] { "dev-sales", "dev-design", "dev-manufacturing", "dev-quality", "dev-viewer", "dev-admin" })
@@ -132,7 +132,6 @@ public sealed class ProcurementApiTests
                     new { orderDate = "2026-07-01" },
                     new { expectedReceiptDate = "2026-07-05" },
                     new { issueNote = "확인 필요" },
-                    new { receiptCompleted = true },
                     new { }
                 }
             },
@@ -141,7 +140,7 @@ public sealed class ProcurementApiTests
 
         var procurement = await ReadProcurementAsync(procurementClient, projectId);
         var items = procurement.RootElement.GetProperty("items").EnumerateArray().ToList();
-        Assert.Equal(8, items.Count);
+        Assert.Equal(7, items.Count);
         Assert.Equal("2026-10-10", procurement.RootElement.GetProperty("projectDeliveryDate").GetString());
         Assert.Equal("4W", items[0].GetProperty("standardLeadTime").GetString());
         Assert.Equal("Cable", items[1].GetProperty("orderItem").GetString());
@@ -151,7 +150,6 @@ public sealed class ProcurementApiTests
         Assert.Equal("2026-07-05", items[5].GetProperty("expectedReceiptDate").GetString());
         Assert.Equal("2026-10-10", items[5].GetProperty("shipmentDisplayDate").GetString());
         Assert.Equal("확인 필요", items[6].GetProperty("issueNote").GetString());
-        Assert.True(items[7].GetProperty("receiptCompleted").GetBoolean());
 
         var first = items[0];
         var edit = await procurementClient.PatchAsJsonAsync(
@@ -180,119 +178,194 @@ public sealed class ProcurementApiTests
     }
 
     [Fact]
-    public async Task MaterialReceipt_CheckManualDateKeepsCompletedAndBlocksUncheck()
+    public async Task MaterialReceipt_FollowsArrivalIqcConfirmationAndDerivedCompletion()
     {
         await using var context = await ProcurementApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
+        using var qualityClient = context.CreateClient("dev-quality");
         var projectId = await CreateProjectAsync(salesClient, "PROC-RECEIPT", "Proc Receipt");
-        await procurementClient.PatchAsJsonAsync(
+        var procurementSave = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
             new { items = new[] { new { orderItem = "Terminal Block" } } },
             TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, procurementSave.StatusCode);
         var item = (await ReadProcurementAsync(procurementClient, projectId)).RootElement.GetProperty("items")[0];
         var itemId = item.GetProperty("itemId").GetGuid();
 
-        var manualCompletedAt = new DateTimeOffset(2026, 7, 15, 3, 0, 0, TimeSpan.Zero);
-        var receipt = await materialsClient.PatchAsJsonAsync(
+        var legacyWrite = await materialsClient.PatchAsJsonAsync(
             "/api/materials/receipts",
-            new
-            {
-                reason = "materials receipt",
-                items = new[]
-                {
-                    new
-                    {
-                        itemId,
-                        expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
-                        receiptCompleted = true,
-                        receiptCompletedAtUtc = manualCompletedAt,
-                        receiptCompletionNote = "dock A"
-                    }
-                }
-            },
+            new { items = new[] { new { itemId, receiptCompleted = true } } },
             TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, receipt.StatusCode);
-        var receivedItem = await FindMaterialItemAsync(materialsClient, itemId);
-        Assert.True(receivedItem.GetProperty("receiptCompleted").GetBoolean());
-        Assert.Equal(manualCompletedAt, receivedItem.GetProperty("receiptCompletedAtUtc").GetDateTimeOffset());
-        Assert.Equal("Dev Materials User", receivedItem.GetProperty("receiptCompletedByUserName").GetString());
-        Assert.Equal("dock A", receivedItem.GetProperty("receiptCompletionNote").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, legacyWrite.StatusCode);
 
-        var localOffsetCompletedAt = new DateTimeOffset(2026, 7, 16, 9, 30, 0, TimeSpan.FromHours(9));
-        var editCompleted = await materialsClient.PatchAsJsonAsync(
-            "/api/materials/receipts",
+        var arrival = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{itemId}/receipts",
             new
             {
-                items = new[]
-                {
-                    new
-                    {
-                        itemId,
-                        expectedRowVersion = receivedItem.GetProperty("rowVersion").GetInt32(),
-                        receiptCompleted = true,
-                        receiptCompletedAtUtc = localOffsetCompletedAt,
-                        receiptCompletionNote = "dock B"
-                    }
-                }
+                quantity = 10.5m,
+                unit = "EA",
+                orderQuantity = 10.5m,
+                orderUnit = "EA",
+                arrivalDate = "2026-07-15",
+                note = "dock A"
             },
             TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, editCompleted.StatusCode);
-        var editedCompletedItem = await FindMaterialItemAsync(materialsClient, itemId);
-        Assert.True(editedCompletedItem.GetProperty("receiptCompleted").GetBoolean());
-        Assert.Equal(localOffsetCompletedAt.ToUniversalTime(), editedCompletedItem.GetProperty("receiptCompletedAtUtc").GetDateTimeOffset());
-        Assert.Equal("dock B", editedCompletedItem.GetProperty("receiptCompletionNote").GetString());
+        Assert.Equal(HttpStatusCode.OK, arrival.StatusCode);
+        using var arrivalJson = await ReadJsonAsync(arrival);
+        var receiptId = arrivalJson.RootElement.GetProperty("receiptId").GetGuid();
 
-        var uncheckWithoutReason = await materialsClient.PatchAsJsonAsync(
-            "/api/materials/receipts",
-            new
-            {
-                items = new[]
-                {
-                    new
-                    {
-                        itemId,
-                        expectedRowVersion = editedCompletedItem.GetProperty("rowVersion").GetInt32(),
-                        receiptCompleted = false
-                    }
-                }
-            },
+        var overReceipt = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{itemId}/receipts",
+            new { quantity = 0.1m, unit = "EA", arrivalDate = "2026-07-15" },
             TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, uncheckWithoutReason.StatusCode);
-        var uncheckedItem = await FindMaterialItemAsync(materialsClient, itemId);
-        Assert.False(uncheckedItem.GetProperty("receiptCompleted").GetBoolean());
-        Assert.Equal(JsonValueKind.Null, uncheckedItem.GetProperty("receiptCompletedAtUtc").ValueKind);
-        Assert.Equal(JsonValueKind.Null, uncheckedItem.GetProperty("receiptCompletedByUserId").ValueKind);
-        Assert.Equal("dock B", uncheckedItem.GetProperty("receiptCompletionNote").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, overReceipt.StatusCode);
+        using var overReceiptJson = await ReadJsonAsync(overReceipt);
+        Assert.True(overReceiptJson.RootElement.GetProperty("errors").TryGetProperty("Quantity", out _));
 
-        var uncheckWithReason = await materialsClient.PatchAsJsonAsync(
-            "/api/materials/receipts",
-            new
-            {
-                reason = "received again",
-                items = new[]
-                {
-                    new
-                    {
-                        itemId,
-                        expectedRowVersion = uncheckedItem.GetProperty("rowVersion").GetInt32(),
-                        receiptCompleted = true,
-                        receiptCompletionNote = "dock C"
-                    }
-                }
-            },
+        var iqcRequest = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/receipts/{receiptId}/iqc-requests",
+            new { expectedVersion = 1 },
             TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, uncheckWithReason.StatusCode);
-        var completedAgainItem = await FindMaterialItemAsync(materialsClient, itemId);
-        Assert.True(completedAgainItem.GetProperty("receiptCompleted").GetBoolean());
-        Assert.Equal("dock C", completedAgainItem.GetProperty("receiptCompletionNote").GetString());
+        Assert.Equal(HttpStatusCode.OK, iqcRequest.StatusCode);
+        using var iqcRequestJson = await ReadJsonAsync(iqcRequest);
+        var attemptId = iqcRequestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+
+        var iqcPass = await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/{attemptId}/result",
+            new { expectedReceiptVersion = 2, result = "Passed", reason = "외관과 수량 확인 완료" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, iqcPass.StatusCode);
+
+        var confirm = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/receipts/{receiptId}/confirm",
+            new { expectedVersion = 3 },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, confirm.StatusCode);
+        using var beforeClose = await ReadJsonAsync(await materialsClient.GetAsync("/api/materials/receipts?includeCompleted=true", TestContext.Current.CancellationToken));
+        var beforeCloseItem = beforeClose.RootElement.GetProperty("items").EnumerateArray().Single(candidate => candidate.GetProperty("itemId").GetGuid() == itemId);
+        Assert.False(beforeCloseItem.GetProperty("receiptCompleted").GetBoolean());
+
+        var close = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{itemId}/close-arrivals",
+            new { expectedRowVersion = beforeCloseItem.GetProperty("rowVersion").GetInt32(), reason = "발주 수량 전량 도착" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, close.StatusCode);
+        using var closeJson = await ReadJsonAsync(close);
+        Assert.True(closeJson.RootElement.GetProperty("receiptCompleted").GetBoolean());
+
+        var procurementProjection = await ReadProcurementAsync(procurementClient, projectId);
+        Assert.True(procurementProjection.RootElement.GetProperty("items")[0].GetProperty("receiptCompleted").GetBoolean());
 
         var bodyEdit = await materialsClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
             new { items = new[] { new { itemId, standardLeadTime = "SHOULD-NOT" } } },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Forbidden, bodyEdit.StatusCode);
+    }
+
+    [Fact]
+    public async Task MaterialReceipt_ConcurrentArrivalsCannotExceedOrderQuantity()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var firstMaterialsClient = context.CreateClient("dev-materials");
+        using var secondMaterialsClient = context.CreateClient("dev-materials");
+        var projectId = await CreateProjectAsync(salesClient, "PROC-RECEIPT-RACE", "Proc Receipt Race");
+        Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "Busbar Support" } } },
+            TestContext.Current.CancellationToken)).StatusCode);
+        var itemId = (await ReadProcurementAsync(procurementClient, projectId)).RootElement
+            .GetProperty("items")[0].GetProperty("itemId").GetGuid();
+        var payload = new { quantity = 6m, unit = "EA", orderQuantity = 10m, orderUnit = "EA", arrivalDate = "2026-07-15" };
+
+        var responses = await Task.WhenAll(
+            firstMaterialsClient.PostAsJsonAsync($"/api/materials/items/{itemId}/receipts", payload, TestContext.Current.CancellationToken),
+            secondMaterialsClient.PostAsJsonAsync($"/api/materials/items/{itemId}/receipts", payload, TestContext.Current.CancellationToken));
+
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.BadRequest);
+        var materialItem = await FindMaterialItemAsync(firstMaterialsClient, itemId);
+        Assert.Single(materialItem.GetProperty("receipts").EnumerateArray());
+        Assert.Equal(6m, materialItem.GetProperty("receipts")[0].GetProperty("quantity").GetDecimal());
+    }
+
+    [Fact]
+    public async Task MaterialReceipt_IqcFailureCreatesPendingAndReinspectionPassClosesIt()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        using var qualityClient = context.CreateClient("dev-quality");
+        using var coordinatorClient = context.CreateClient("dev-production");
+        var projectId = await CreateProjectAsync(salesClient, "PROC-IQC-FAIL", "Proc IQC Failure");
+        Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "Contactor" } } },
+            TestContext.Current.CancellationToken)).StatusCode);
+        var item = (await ReadProcurementAsync(procurementClient, projectId)).RootElement.GetProperty("items")[0];
+        var itemId = item.GetProperty("itemId").GetGuid();
+
+        var arrival = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{itemId}/receipts",
+            new { quantity = 4, unit = "EA", orderQuantity = 4, orderUnit = "EA", arrivalDate = "2026-07-15" },
+            TestContext.Current.CancellationToken);
+        using var arrivalJson = await ReadJsonAsync(arrival);
+        var receiptId = arrivalJson.RootElement.GetProperty("receiptId").GetGuid();
+        var request = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/receipts/{receiptId}/iqc-requests",
+            new { expectedVersion = 1 },
+            TestContext.Current.CancellationToken);
+        using var requestJson = await ReadJsonAsync(request);
+        var firstAttemptId = requestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+
+        var failed = await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/{firstAttemptId}/result",
+            new { expectedReceiptVersion = 2, result = "Failed", reason = "단자 외관 손상 확인" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, failed.StatusCode);
+        using var failedJson = await ReadJsonAsync(failed);
+        var pendingId = failedJson.RootElement.GetProperty("pendingIssueId").GetGuid();
+
+        using var pending = await ReadJsonAsync(await coordinatorClient.GetAsync($"/api/pending/{pendingId}", TestContext.Current.CancellationToken));
+        Assert.Equal("Registered", pending.RootElement.GetProperty("issue").GetProperty("status").GetString());
+        Assert.Equal("Urgent", pending.RootElement.GetProperty("issue").GetProperty("priority").GetString());
+        using var assignees = await ReadJsonAsync(await coordinatorClient.GetAsync("/api/pending/assignees", TestContext.Current.CancellationToken));
+        var assigneeId = assignees.RootElement[0].GetProperty("userId").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await coordinatorClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/assign",
+            new { assigneeUserId = assigneeId, expectedVersion = 1, reason = "부적합 조치 담당 지정" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await coordinatorClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/transition",
+            new { toStatus = "InProgress", expectedVersion = 2, reason = "부적합 조치 시작" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await coordinatorClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/transition",
+            new { toStatus = "ReinspectionRequested", expectedVersion = 3, reason = "조치 완료 후 재검사 요청" },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var reinspection = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/receipts/{receiptId}/reinspection",
+            new { expectedVersion = 3 },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, reinspection.StatusCode);
+        using var reinspectionJson = await ReadJsonAsync(reinspection);
+        var secondAttemptId = reinspectionJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        var passed = await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/{secondAttemptId}/result",
+            new { expectedReceiptVersion = 4, result = "Passed", reason = "재검사 외관 정상 확인" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, passed.StatusCode);
+
+        using var closedPending = await ReadJsonAsync(await coordinatorClient.GetAsync($"/api/pending/{pendingId}", TestContext.Current.CancellationToken));
+        Assert.Equal("Closed", closedPending.RootElement.GetProperty("issue").GetProperty("status").GetString());
+        Assert.Contains(closedPending.RootElement.GetProperty("history").EnumerateArray(), history =>
+            history.GetProperty("toStatus").GetString() == "Closed");
     }
 
     [Fact]
@@ -338,7 +411,7 @@ public sealed class ProcurementApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         var projectId = await CreateProjectAsync(salesClient, "PROC-EXCEL", "Proc Excel");
         var firstFile = CreateProcurementExcel("Proc Excel", "PROC-EXCEL",
-            ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Vendor X", "Owner A", "2026-07-01", "2026-07-10", "First", "Y"],
+            ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Vendor X", "Owner A", "2026-07-01", "2026-07-10", "First", ""],
             ["", "", "5W", "Cable", "", "Owner B", "2026.07.02", "2026.07.11", "", ""],
             [" ", "", "", "", "", "", "", "", "", ""]);
 
@@ -362,7 +435,7 @@ public sealed class ProcurementApiTests
         Assert.Equal(0, duplicatePreview.RootElement.GetProperty("newCount").GetInt32() + duplicatePreview.RootElement.GetProperty("changedCount").GetInt32());
 
         var secondFile = CreateProcurementExcel("Proc Excel", "PROC-EXCEL",
-            ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Vendor X", "Owner A", "2026-07-01", "2026-07-10", "First changed", "Y"],
+            ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Vendor X", "Owner A", "2026-07-01", "2026-07-10", "First changed", ""],
             ["", "", "6W", "New item", "", "Owner C", "2026/07/03", "2026/07/12", "New", "N"]);
         var reuploadPreview = await PreviewExcelAsync(procurementClient, secondFile, "procurement-updated.xlsx");
         Assert.Equal(1, reuploadPreview.RootElement.GetProperty("changedCount").GetInt32());
@@ -492,8 +565,7 @@ public sealed class ProcurementApiTests
                         technicalOwner = "Owner",
                         orderDate = "2026-07-01",
                         expectedReceiptDate = "2026-07-10",
-                        issueNote = "none",
-                        receiptCompleted = true
+                        issueNote = "none"
                     }
                 }
             },
@@ -525,7 +597,7 @@ public sealed class ProcurementApiTests
         Assert.Equal("Proc Template", worksheet.Cell(4, 1).GetString());
         Assert.Equal("Relay", worksheet.Cell(4, 4).GetString());
         Assert.Equal("none", worksheet.Cell(4, 9).GetString());
-        Assert.Equal("Y", worksheet.Cell(4, 10).GetString());
+        Assert.Equal("", worksheet.Cell(4, 10).GetString());
         Assert.True(worksheet.SheetView.SplitRow >= 3);
         Assert.True(worksheet.AutoFilter.IsEnabled);
         Assert.True(worksheet.Column(4).Width >= 18);
@@ -547,6 +619,7 @@ public sealed class ProcurementApiTests
         using var salesClient = context.CreateClient("dev-sales");
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
+        using var qualityClient = context.CreateClient("dev-quality");
         var projectId = await CreateProjectAsync(salesClient, "PROC-DASH", "Proc Dashboard");
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var futureReceiptDate = today.AddDays(30).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
@@ -570,23 +643,32 @@ public sealed class ProcurementApiTests
         using var procurement = await ReadProcurementAsync(procurementClient, projectId);
         var items = procurement.RootElement.GetProperty("items").EnumerateArray().ToList();
         var completedItem = items.Single(item => item.GetProperty("orderItem").GetString() == "Completed Item");
-        var receipt = await materialsClient.PatchAsJsonAsync(
-            "/api/materials/receipts",
-            new
-            {
-                reason = "received",
-                items = new[]
-                {
-                    new
-                    {
-                        itemId = completedItem.GetProperty("itemId").GetGuid(),
-                        expectedRowVersion = completedItem.GetProperty("rowVersion").GetInt32(),
-                        receiptCompleted = true
-                    }
-                }
-            },
+        var completedItemId = completedItem.GetProperty("itemId").GetGuid();
+        var arrival = await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{completedItemId}/receipts",
+            new { quantity = 1, unit = "EA", orderQuantity = 1, orderUnit = "EA", arrivalDate = today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) },
             TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, receipt.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, arrival.StatusCode);
+        using var arrivalJson = await ReadJsonAsync(arrival);
+        var receiptId = arrivalJson.RootElement.GetProperty("receiptId").GetGuid();
+        var iqcRequest = await materialsClient.PostAsJsonAsync($"/api/materials/receipts/{receiptId}/iqc-requests", new { expectedVersion = 1 }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, iqcRequest.StatusCode);
+        using var iqcRequestJson = await ReadJsonAsync(iqcRequest);
+        var attemptId = iqcRequestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/{attemptId}/result",
+            new { expectedReceiptVersion = 2, result = "Passed", reason = "검사 합격" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await materialsClient.PostAsJsonAsync(
+            $"/api/materials/receipts/{receiptId}/confirm",
+            new { expectedVersion = 3 },
+            TestContext.Current.CancellationToken)).StatusCode);
+        using var materialBeforeClose = await ReadJsonAsync(await materialsClient.GetAsync("/api/materials/receipts?includeCompleted=true", TestContext.Current.CancellationToken));
+        var materialItem = materialBeforeClose.RootElement.GetProperty("items").EnumerateArray().Single(candidate => candidate.GetProperty("itemId").GetGuid() == completedItemId);
+        Assert.Equal(HttpStatusCode.OK, (await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{completedItemId}/close-arrivals",
+            new { expectedRowVersion = materialItem.GetProperty("rowVersion").GetInt32(), reason = "전량 입고 완료" },
+            TestContext.Current.CancellationToken)).StatusCode);
 
         using var defaultList = await ReadJsonAsync(await materialsClient.GetAsync("/api/materials/receipts?search=Proc%20Dashboard", TestContext.Current.CancellationToken));
         var defaultItems = defaultList.RootElement.GetProperty("items").EnumerateArray().ToList();

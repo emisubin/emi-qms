@@ -566,7 +566,6 @@ public sealed class ProcurementStore(
             return ProcurementMutationResult<ProcurementExcelPreviewResponse>.Validation(
                 new Dictionary<string, string[]> { ["File"] = parsed.FileErrors.ToArray() });
         }
-
         await using var dataSource = CreateDataSource();
         var projects = await ReadProjectsForMatchingAsync(dataSource, cancellationToken);
         var selected = selections.ToDictionary(item => item.SourceGroupSequence, item => item.ProjectId);
@@ -595,7 +594,6 @@ public sealed class ProcurementStore(
             return ProcurementMutationResult<ProcurementListResponse>.Validation(
                 new Dictionary<string, string[]> { ["File"] = parsed.FileErrors.ToArray() });
         }
-
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
@@ -814,6 +812,12 @@ public sealed class ProcurementStore(
         {
             if (update.ItemId is null)
             {
+                if (update.ReceiptCompleted == true
+                    || update.ReceiptCompletedAtUtc is not null
+                    || !string.IsNullOrWhiteSpace(update.ReceiptCompletionNote))
+                {
+                    return DerivedReceiptProjectionValidation<ProcurementResponse>();
+                }
                 if (IsEmptyNewDirectRow(update))
                 {
                     continue;
@@ -833,6 +837,13 @@ public sealed class ProcurementStore(
             {
                 return ProcurementMutationResult<ProcurementResponse>.Validation(
                     new Dictionary<string, string[]> { ["Items"] = ["대상 구매 항목은 해당 프로젝트에 속해야 합니다."] });
+            }
+
+            if ((update.ReceiptCompleted is not null && update.ReceiptCompleted != current.ReceiptCompleted)
+                || (update.ReceiptCompletedAtUtc is not null && NormalizeUtc(update.ReceiptCompletedAtUtc) != NormalizeUtc(current.ReceiptCompletedAtUtc))
+                || (update.ReceiptCompletionNote is not null && !string.Equals(update.ReceiptCompletionNote.Trim(), current.ReceiptCompletionNote?.Trim(), StringComparison.Ordinal)))
+            {
+                return DerivedReceiptProjectionValidation<ProcurementResponse>();
             }
 
             if (update.ExpectedRowVersion is not null && current.RowVersion != update.ExpectedRowVersion)
@@ -952,12 +963,19 @@ public sealed class ProcurementStore(
 
             if (current is null)
             {
-                rows.Add(ToPreviewRow(row, "New", match.MatchedProjectId, null, []));
+                rows.Add(row.ReceiptCompleted == true
+                    ? ToPreviewRow(row, "Error", match.MatchedProjectId, null, ["입고 완료값은 자재 입고 흐름에서만 자동 계산됩니다."])
+                    : ToPreviewRow(row, "New", match.MatchedProjectId, null, []));
                 continue;
             }
 
             touchedItemIds.Add(current.ItemId);
             var changes = CollectExcelChanges(current, row);
+            if (changes.Any(change => change.FieldName == "ReceiptCompleted"))
+            {
+                rows.Add(ToPreviewRow(row, "Error", match.MatchedProjectId, current, ["Excel에서는 입고 완료값을 변경할 수 없습니다."]));
+                continue;
+            }
             if (changes.Count > 0 && !IsReceiptCompletedUncheckOnly(changes))
             {
                 reasonRequired = true;
@@ -1158,6 +1176,14 @@ public sealed class ProcurementStore(
         }
 
         return NpgsqlDataSource.Create(connectionString);
+    }
+
+    private static ProcurementMutationResult<T> DerivedReceiptProjectionValidation<T>()
+    {
+        return ProcurementMutationResult<T>.Validation(new Dictionary<string, string[]>
+        {
+            ["ReceiptCompleted"] = ["입고 완료값은 자재 도착, IQC 판정, 입고 확정 흐름에서만 자동 변경됩니다."]
+        });
     }
 
     private static ProcurementResponse BuildProjectResponse(ProcurementProjectSnapshot project, IReadOnlyList<ProcurementItemSnapshot> items)

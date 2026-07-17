@@ -11,6 +11,12 @@ import type {
 } from './pending';
 import { isInteractionRequiredAuthError } from './auth';
 import type {
+  MaterialIqcQueueResponse,
+  MaterialReceiptActionResponse,
+  MaterialReceiptListResponse,
+  RegisterMaterialArrivalRequest
+} from './materials';
+import type {
   AuditHistoryResponse,
   AdminDashboardResponse,
   AdminCalendarHoliday,
@@ -1036,7 +1042,7 @@ export async function getMaterialReceipts(
   includeCompleted = false,
   expectedReceiptDateFrom = '',
   expectedReceiptDateTo = ''
-): Promise<ProcurementListResponse> {
+): Promise<MaterialReceiptListResponse> {
   const params = new URLSearchParams();
   if (search.trim()) {
     params.set('search', search.trim());
@@ -1053,9 +1059,21 @@ export async function getMaterialReceipts(
   }
 
   const query = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson<ProcurementListResponse>(`/api/materials/receipts${query}`, developmentUserKey);
+  return fetchJson<MaterialReceiptListResponse>(`/api/materials/receipts${query}`, developmentUserKey);
 }
 
+export async function registerMaterialArrival(
+  developmentUserKey: string | undefined,
+  itemId: string,
+  request: RegisterMaterialArrivalRequest
+): Promise<MaterialReceiptActionResponse> {
+  return fetchJson<MaterialReceiptActionResponse>(`/api/materials/items/${itemId}/receipts`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+/** @deprecated 입고 완료는 상태 흐름에서 파생됩니다. 이전 화면의 컴파일 호환만 유지합니다. */
 export async function updateMaterialReceipts(
   developmentUserKey: string | undefined,
   request: ProcurementReceiptBulkUpdateRequest
@@ -1063,6 +1081,69 @@ export async function updateMaterialReceipts(
   return fetchJson<ProcurementListResponse>('/api/materials/receipts', developmentUserKey, {
     method: 'PATCH',
     body: JSON.stringify(request)
+  });
+}
+
+export async function requestMaterialIqc(developmentUserKey: string | undefined, receiptId: string, expectedVersion: number) {
+  return fetchJson<MaterialReceiptActionResponse>(`/api/materials/receipts/${receiptId}/iqc-requests`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion })
+  });
+}
+
+export async function requestMaterialReinspection(developmentUserKey: string | undefined, receiptId: string, expectedVersion: number) {
+  return fetchJson<MaterialReceiptActionResponse>(`/api/materials/receipts/${receiptId}/reinspection`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion })
+  });
+}
+
+export async function confirmMaterialReceipt(developmentUserKey: string | undefined, receiptId: string, expectedVersion: number) {
+  return fetchJson<MaterialReceiptActionResponse>(`/api/materials/receipts/${receiptId}/confirm`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion })
+  });
+}
+
+export async function cancelMaterialReceipt(
+  developmentUserKey: string | undefined,
+  receiptId: string,
+  expectedVersion: number,
+  reason: string
+) {
+  return fetchJson<MaterialReceiptActionResponse>(`/api/materials/receipts/${receiptId}/cancel`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, reason })
+  });
+}
+
+export async function closeMaterialArrivals(
+  developmentUserKey: string | undefined,
+  itemId: string,
+  expectedRowVersion: number,
+  reason: string
+) {
+  return fetchJson<MaterialReceiptActionResponse>(`/api/materials/items/${itemId}/close-arrivals`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ expectedRowVersion, reason })
+  });
+}
+
+export async function getMaterialIqcQueue(developmentUserKey: string | undefined, includeDecided = false) {
+  const query = includeDecided ? '?includeDecided=true' : '';
+  return fetchJson<MaterialIqcQueueResponse>(`/api/quality/iqc${query}`, developmentUserKey);
+}
+
+export async function recordMaterialIqcResult(
+  developmentUserKey: string | undefined,
+  attemptId: string,
+  expectedReceiptVersion: number,
+  result: 'Passed' | 'Failed',
+  reason: string
+) {
+  return fetchJson<MaterialReceiptActionResponse>(`/api/quality/iqc/${attemptId}/result`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ expectedReceiptVersion, result, reason })
   });
 }
 

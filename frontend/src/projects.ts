@@ -809,9 +809,9 @@ export interface ProcurementItemUpdateRequest {
   orderDate: string | null;
   expectedReceiptDate: string | null;
   issueNote: string | null;
-  receiptCompleted: boolean | null;
-  receiptCompletedAtUtc: string | null;
-  receiptCompletionNote: string | null;
+  receiptCompleted?: boolean | null;
+  receiptCompletedAtUtc?: string | null;
+  receiptCompletionNote?: string | null;
 }
 
 export interface ProcurementReceiptBulkUpdateRequest {

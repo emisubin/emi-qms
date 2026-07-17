@@ -248,6 +248,40 @@ public sealed class PostgreSqlMigrationTests
         await AssertWorkflowAlignmentSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertMicrosoft365IdentitySchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertAdminMasterDataSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_class
+            where oid in (
+                to_regclass('public.material_receipts'),
+                to_regclass('public.material_iqc_attempts'),
+                to_regclass('public.material_receipt_events')
+            );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'project_procurement_items'
+              and column_name in (
+                  'order_quantity', 'order_unit',
+                  'material_arrivals_closed_at_utc', 'material_arrivals_closed_by_user_id'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_trigger
+            where tgname = 'trg_guard_material_receipt_projection_write'
+              and not tgisinternal;
+            """,
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -260,11 +294,11 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(29L, await ReadScalarAsync<long>(
+        Assert.Equal(30L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0029_pending_list_foundation", await ReadScalarAsync<string>(
+        Assert.Equal("0030_material_receiving_iqc", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

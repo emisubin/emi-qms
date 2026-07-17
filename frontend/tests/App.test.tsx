@@ -1758,32 +1758,21 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Excel 양식 다운로드' })).not.toBeInTheDocument();
   });
 
-  it('allows Materials to use only the receipt completion page', async () => {
-    render(<App />);
-
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
-    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
-    fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
-
-    expect(await screen.findByRole('table', { name: 'TASK-003A Demo 자재 입고 처리' })).toBeInTheDocument();
-    expect(screen.queryByText('통상납기')).not.toBeInTheDocument();
-    const receiptTable = screen.getByRole('table', { name: 'TASK-003A Demo 자재 입고 처리' });
-    const checkbox = within(receiptTable).getByRole('checkbox');
-    fireEvent.click(checkbox);
-    fireEvent.change(screen.getByLabelText('수정사유'), { target: { value: '입고 확인' } });
-    fireEvent.click(screen.getByRole('button', { name: '저장' }));
-    expect(await screen.findByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
-  });
-
-  it('filters completed material receipt rows by default and shows them with the include toggle', async () => {
-    const savedRequests: unknown[] = [];
+  it('gives Materials the staged receiving workspace instead of a completion checkbox', async () => {
+    const requests: string[] = [];
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/materials/receipts' && init?.method === 'PATCH') {
-        savedRequests.push(JSON.parse(String(init.body)));
-        return Promise.resolve(json({ items: materialReceiptItems(url.searchParams.get('includeCompleted') === 'true') }));
+      if (url.pathname.endsWith('/iqc-requests') && init?.method === 'POST') {
+        requests.push(url.pathname);
+        return Promise.resolve(json({
+          procurementItemId: '76000000-0000-0000-0000-000000000001',
+          receiptId: '77000000-0000-0000-0000-000000000001',
+          iqcAttemptId: '78000000-0000-0000-0000-000000000001',
+          pendingIssueId: null,
+          status: 'IqcRequested',
+          receiptCompleted: false
+        }));
       }
-
       return mockFetch(input, init);
     }));
 
@@ -1793,25 +1782,32 @@ describe('App', () => {
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
 
-    expect(await screen.findByText('현재 구매품목 입고 처리 대상만 표시됩니다. 완료된 항목은 저장 후 기본 목록에서 사라집니다.')).toBeInTheDocument();
-    expect(screen.getByRole('table', { name: 'TASK-003A Demo 자재 입고 처리' })).toHaveTextContent('Relay');
+    expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
+    expect(screen.getByText('도착부터 IQC, 입고 확정까지 한 흐름으로 관리합니다.')).toBeInTheDocument();
+    expect(screen.getByText('Relay')).toBeInTheDocument();
+    expect(screen.queryByText('통상납기')).not.toBeInTheDocument();
+    expect(screen.queryByText('입고 완료')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /24 EA/ }));
+    expect(await screen.findByText('도착 등록', { selector: '.material-status-badge' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'IQC 요청' }));
+    await waitFor(() => expect(requests).toContain('/api/materials/receipts/77000000-0000-0000-0000-000000000001/iqc-requests'));
+  });
+
+  it('filters completed material receipt cards by default and shows the derived completion when requested', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
+
+    expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
+    expect(screen.getByText('Relay')).toBeInTheDocument();
     expect(screen.queryByText('Completed Relay')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('완료 항목 포함'));
+    fireEvent.click(screen.getByLabelText('완료 포함'));
     expect(await screen.findByText('Completed Relay')).toBeInTheDocument();
-    const receiptTable = screen.getByRole('table', { name: 'TASK-003A Demo 자재 입고 처리' });
-    expect(within(receiptTable).getByText('완료(6/7 12:30)')).toBeInTheDocument();
-    expect(within(receiptTable).getAllByRole('checkbox')).toHaveLength(2);
-    const completedCheckbox = within(receiptTable).getAllByRole('checkbox')[1];
-    expect(completedCheckbox).toBeEnabled();
-    fireEvent.click(completedCheckbox);
-    const noteInputs = within(receiptTable).getAllByRole('textbox');
-    fireEvent.change(noteInputs[noteInputs.length - 1], { target: { value: '완료 비고 수정' } });
-    fireEvent.click(screen.getByRole('button', { name: '저장' }));
-    await screen.findByRole('heading', { name: '프로젝트 목록' });
-    expect(JSON.stringify(savedRequests[0])).toContain('완료 비고 수정');
-    expect(JSON.stringify(savedRequests[0])).toContain('"receiptCompleted":false');
-    expect(screen.queryByText('One or more validation errors occurred')).not.toBeInTheDocument();
+    expect(screen.getByText('입고 확정')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: '입고 완료' })).not.toBeInTheDocument();
   });
 });
 
@@ -2844,11 +2840,15 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
   if (path === '/api/materials/receipts' && init?.method === 'PATCH') {
-    return json({ items: materialReceiptItems(false) }, userKey === 'dev-procurement' || userKey === 'dev-materials' ? 200 : 403);
+    return json({ title: 'validation', errors: { ReceiptCompleted: ['입고 완료값은 상태 흐름에서 자동 계산됩니다.'] } }, 400);
   }
 
   if (path === '/api/materials/receipts') {
-    return json({ items: materialReceiptItems(url.searchParams.get('includeCompleted') === 'true') }, userKey === 'dev-procurement' || userKey === 'dev-materials' ? 200 : 403);
+    return json(materialReceiptResponse(url.searchParams.get('includeCompleted') === 'true'), userKey === 'dev-procurement' || userKey === 'dev-materials' ? 200 : 403);
+  }
+
+  if (path === '/api/quality/iqc') {
+    return json({ items: [] }, userKey === 'dev-quality' ? 200 : 403);
   }
 
   if (path === '/api/procurement/dashboard') {
@@ -2901,6 +2901,10 @@ function currentUser(userKey: string) {
 
   if (userKey === 'dev-materials') {
     permissions.push('MaterialReceipt.Update');
+  }
+
+  if (userKey === 'dev-quality') {
+    permissions.push('quality.inspect');
   }
 
   return {
@@ -3741,17 +3745,66 @@ function procurementExcelPreviewResponse() {
   };
 }
 
-function materialReceiptItems(includeCompleted: boolean) {
-  const pending = procurementResponse().items[0];
+function materialReceiptResponse(includeCompleted: boolean) {
+  const pending = {
+    itemId: '76000000-0000-0000-0000-000000000001',
+    projectId,
+    projectTitle: 'TASK-003A Demo',
+    projectCode: 'PJT-003A',
+    orderItem: 'Relay',
+    supplierName: 'Vendor A',
+    expectedReceiptDate: '2026-06-29',
+    orderQuantity: 100,
+    orderUnit: 'EA',
+    arrivalsClosed: false,
+    arrivalsClosedAtUtc: null,
+    receiptCompleted: false,
+    rowVersion: 2,
+    receipts: [{
+      receiptId: '77000000-0000-0000-0000-000000000001',
+      quantity: 24,
+      unit: 'EA',
+      arrivalDate: '2026-06-27',
+      note: '1차 도착',
+      status: 'Arrived',
+      isLegacy: false,
+      version: 1,
+      createdAtUtc: '2026-06-27T01:00:00Z',
+      confirmedAtUtc: null,
+      cancellationReason: null,
+      iqcAttempts: []
+    }]
+  };
   const completed = {
     ...pending,
     itemId: '76000000-0000-0000-0000-000000000002',
     orderItem: 'Completed Relay',
+    arrivalsClosed: true,
+    arrivalsClosedAtUtc: '2026-06-07T12:30:00Z',
     receiptCompleted: true,
-    receiptCompletedAtUtc: '2026-06-07T12:30:00',
-    rowVersion: 2
+    rowVersion: 4,
+    receipts: [{
+      ...pending.receipts[0],
+      receiptId: '77000000-0000-0000-0000-000000000002',
+      quantity: null,
+      unit: null,
+      arrivalDate: '2026-06-07',
+      status: 'Confirmed',
+      isLegacy: true,
+      version: 1,
+      confirmedAtUtc: '2026-06-07T12:30:00Z'
+    }]
   };
-  return includeCompleted ? [pending, completed] : [pending];
+  return {
+    summary: {
+      pendingArrivalCount: 0,
+      waitingIqcCount: 0,
+      failedBlockedCount: 0,
+      readyToConfirmCount: 0,
+      completedItemCount: includeCompleted ? 1 : 0
+    },
+    items: includeCompleted ? [pending, completed] : [pending]
+  };
 }
 
 function procurementHistory() {

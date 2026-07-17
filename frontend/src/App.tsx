@@ -3,6 +3,7 @@ import { useMsal } from '@azure/msal-react';
 import { app as teamsApp } from '@microsoft/teams-js';
 import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
 import { MobileSheet } from './MobileSheet';
+import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import {
   ApiError,
   applyAdminCalendarHolidayExcel,
@@ -223,6 +224,7 @@ type View =
   | { kind: 'procurement-dashboard' }
   | { kind: 'procurement-settings' }
   | { kind: 'materials-receipts' }
+  | { kind: 'quality-iqc' }
   | { kind: 'notifications' }
   | { kind: 'pending'; projectId?: string }
   | { kind: 'pending-detail'; pendingId: string }
@@ -446,6 +448,10 @@ function initialViewFromLocation(): View {
     return { kind: 'materials-receipts' };
   }
 
+  if (window.location.pathname === '/quality/iqc') {
+    return { kind: 'quality-iqc' };
+  }
+
   if (window.location.pathname === '/production-planning') {
     return { kind: 'production-planning-dashboard' };
   }
@@ -665,6 +671,8 @@ function pathForView(view: View) {
       return '/production-planning/settings';
     case 'materials-receipts':
       return '/materials/receipts';
+    case 'quality-iqc':
+      return '/quality/iqc';
     case 'procurement-dashboard':
       return '/procurement';
     case 'procurement-settings':
@@ -1231,6 +1239,7 @@ function QmsAppShellContent({
   const canPurgeDeletedProjects = canReadAuditAll;
   const canUpdateProcurement = permissions.includes('ProcurementPlan.Update');
   const canUpdateMaterialReceipt = permissions.includes('MaterialReceipt.Update');
+  const canInspectQuality = permissions.includes('quality.inspect');
   const canUpdateProductionPlanning = permissions.includes('ProductionPlan.Update');
   const canManageUsers = permissions.includes('users.manage');
   const canReadAdminHistory = permissions.includes('admin-history.read');
@@ -1247,6 +1256,7 @@ function QmsAppShellContent({
     { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     ...(canAccessMaterialReceipts ? [{ label: '자재', view: { kind: 'materials-receipts' } as View, active: view.kind === 'materials-receipts' }] : []),
+    ...(canInspectQuality ? [{ label: 'IQC', view: { kind: 'quality-iqc' } as View, active: view.kind === 'quality-iqc' }] : []),
     { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: displayedShellBadges.unreadNotificationCount },
     ...(canUseAdminPages ? [
       { label: '관리자', view: { kind: 'admin-dashboard' } as View, active: isAdminWorkspace(view) }
@@ -1646,11 +1656,21 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'materials-receipts' ? (
-        <MaterialReceiptsPage
+        <MaterialReceivingPage
           developmentUserKey={developmentUserKey}
-          canAccessMaterialReceipt={canAccessMaterialReceipts}
-          canUpdateMaterialReceipt={canUpdateMaterialReceipt}
+          canUpdate={canUpdateMaterialReceipt}
           onBack={() => setView({ kind: 'list' })}
+          onOpenIqc={() => setView({ kind: 'quality-iqc' })}
+          onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'quality-iqc' ? (
+        <MaterialIqcPage
+          developmentUserKey={developmentUserKey}
+          canInspect={canInspectQuality}
+          onBack={() => setView({ kind: 'materials-receipts' })}
+          onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
 
@@ -9651,7 +9671,7 @@ function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
           <span>발주일</span>
           <span>입고예정일</span>
           <span>이슈사항</span>
-          <span>입고 완료</span>
+          <span>입고 상태</span>
         </div>
         {items.map((item) => (
           <div className="procurement-table-row" role="row" key={item.itemId}>
@@ -9858,12 +9878,9 @@ function ProcurementEditableList({
             <input type="date" value={row.orderDate} onChange={(event) => onChange(index, { orderDate: event.target.value })} />
             <input type="date" value={row.expectedReceiptDate} onChange={(event) => onChange(index, { expectedReceiptDate: event.target.value })} />
             <input value={row.issueNote} onChange={(event) => onChange(index, { issueNote: event.target.value })} />
-            <div className="receipt-input-cell">
-              <label className="checkbox-field">
-                <input type="checkbox" checked={row.receiptCompleted} onChange={(event) => onChange(index, { receiptCompleted: event.target.checked })} />
-                입고 완료
-              </label>
+            <div className="receipt-input-cell receipt-input-cell--derived">
               <ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} />
+              <small>자재 입고에서 자동 계산</small>
             </div>
           </div>
         ))}
@@ -9896,9 +9913,9 @@ function ProcurementCards({
                 <FormField label="입고예정일"><input type="date" value={row.expectedReceiptDate} onChange={(event) => onChange(index, { expectedReceiptDate: event.target.value })} /></FormField>
                 <div className="readonly-field"><span>프로젝트 납품예정일</span><strong>{emptyDash(row.shipmentDisplayDate)}</strong></div>
                 <FormField label="이슈사항"><input value={row.issueNote} onChange={(event) => onChange(index, { issueNote: event.target.value })} /></FormField>
-                <div className="receipt-input-cell">
-                  <label className="checkbox-field"><input type="checkbox" checked={row.receiptCompleted} onChange={(event) => onChange(index, { receiptCompleted: event.target.checked })} /> 입고 완료</label>
+                <div className="receipt-input-cell receipt-input-cell--derived">
                   <ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} />
+                  <small>자재 입고 흐름에서 자동 계산</small>
                 </div>
               </>
             ) : (
@@ -10255,6 +10272,8 @@ function procurementMatchStatusLabel(status: string) {
   }
 }
 
+// Legacy pre-TASK-008A renderer retained temporarily for isolated fixture compatibility.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function MaterialReceiptsPage({
   developmentUserKey,
   canAccessMaterialReceipt,
@@ -10285,8 +10304,9 @@ function MaterialReceiptsPage({
     setState({ kind: 'loading' });
     getMaterialReceipts(developmentUserKey, search, includeCompleted, dateFrom, dateTo)
       .then((response) => {
-        setItems(response.items);
-        setState(response.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: response.items });
+        const legacyItems = response.items as unknown as ProcurementItem[];
+        setItems(legacyItems);
+        setState(legacyItems.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: legacyItems });
       })
       .catch((error: unknown) => setState(toLoadError(error, '자재 입고 처리 항목을 불러올 수 없습니다.')));
   }, [canAccessMaterialReceipt, dateFrom, dateTo, developmentUserKey, includeCompleted, search]);
@@ -13486,10 +13506,7 @@ function procurementFormToRequest(row: ProcurementRowForm) {
     technicalOwner: row.technicalOwner.trim() || null,
     orderDate: row.orderDate || null,
     expectedReceiptDate: row.expectedReceiptDate || null,
-    issueNote: row.issueNote.trim() || null,
-    receiptCompleted: row.receiptCompleted,
-    receiptCompletedAtUtc: row.receiptCompletedAtUtc || null,
-    receiptCompletionNote: row.receiptCompletionNote.trim() || null
+    issueNote: row.issueNote.trim() || null
   };
 }
 

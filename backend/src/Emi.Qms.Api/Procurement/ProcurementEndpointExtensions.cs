@@ -239,53 +239,6 @@ public static class ProcurementEndpointExtensions
         .RequireAuthorization()
         .WithName("GetProcurementDashboard");
 
-        var materialApi = app.MapGroup("/api/materials/receipts");
-        materialApi.MapGet("/", async (
-            HttpRequest request,
-            string? search,
-            bool? includeCompleted,
-            ProcurementStore procurementStore,
-            CancellationToken cancellationToken) =>
-        {
-            var dateRange = ParseDateRange(request, "expectedReceiptDateFrom", "expectedReceiptDateTo");
-            if (dateRange.Errors.Count > 0)
-            {
-                return Results.ValidationProblem(dateRange.Errors);
-            }
-
-            return Results.Ok(await procurementStore.GetMaterialReceiptsAsync(
-                search,
-                includeCompleted == true,
-                dateRange.From,
-                dateRange.To,
-                cancellationToken));
-        })
-        .RequireAuthorization(QmsPolicies.MaterialReceiptUpdate)
-        .WithName("GetMaterialReceipts");
-
-        materialApi.MapPatch("/", async (
-            ProcurementReceiptBulkUpdateRequest request,
-            ProcurementStore procurementStore,
-            ClaimsPrincipal user,
-            HttpContext httpContext,
-            CancellationToken cancellationToken) =>
-        {
-            var userId = GetCurrentUserId(user);
-            if (userId is null)
-            {
-                return Results.Unauthorized();
-            }
-
-            var result = await procurementStore.UpdateMaterialReceiptsAsync(
-                request,
-                userId.Value,
-                httpContext.TraceIdentifier,
-                cancellationToken);
-            return ToResult(result, Results.Ok);
-        })
-        .RequireAuthorization(QmsPolicies.MaterialReceiptUpdate)
-        .WithName("UpdateMaterialReceipts");
-
         return app;
     }
 

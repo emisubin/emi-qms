@@ -96,12 +96,19 @@ test('TASK-007A Pending: create, assign, act, reinspect, close, and audit', asyn
 test('TASK-007A Pending: 390px workspace has no page overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await page.getByLabel('개발 사용자').selectOption('dev-quality');
+  await selectMobileDevelopmentUser(page, 'dev-quality');
   await page.goto('/pending');
-  await expect(page.getByRole('heading', { name: 'Pending List' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '현장 Pending' })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBe(0);
 });
+
+async function selectMobileDevelopmentUser(page: Page, userKey: string) {
+  await page.getByRole('button', { name: '상태' }).click();
+  const statusSheet = page.getByRole('dialog', { name: '앱 상태와 계정' });
+  await statusSheet.getByLabel('개발 사용자').selectOption(userKey);
+  await statusSheet.getByRole('button', { name: '앱 상태와 계정 닫기' }).click();
+}
 
 async function createProject(request: APIRequestContext, projectCode: string, projectTitle: string) {
   const response = await request.post(`${apiBaseUrl}/api/projects`, {

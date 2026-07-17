@@ -1507,6 +1507,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 선행조건: 구매정보, Pending List 기반
 - 주요 테스트: 도착·분할 입고, IQC 요청, 부적합 차단, 입고 확정
 - 변경 경계: 기존 데이터 migration 필요성과 rollback은 planning에서 확인하고 별도 승인한다.
+- 2026-07-17 실험 상태: `experiment/task-008a-material-receiving`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0030`은 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. canonical 실행 큐의 `Dependency Pending`과 다음 `TASK-007A` Gate는 변경하지 않는다.
 
 ### TASK-008B: 사급 자재 추적
 

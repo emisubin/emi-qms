@@ -13,18 +13,17 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/projects');
-  await page.getByLabel('개발 사용자').selectOption('dev-quality');
+  await selectMobileDevelopmentUser(page, 'dev-quality');
 
   await page.goto('/my-work');
-  await expect(page.getByRole('heading', { name: '내 업무' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '오늘 처리할 업무' })).toBeVisible();
   await assertTouchTarget(page.getByRole('button', { name: '새로고침' }));
   await assertMobileNavigation(page, '내 업무');
   await capture(page, '01-my-work-mobile-390.png');
 
   await page.goto('/projects');
-  await page.getByPlaceholder('고객사, Item, PJT Code, PJT Title 검색').fill(projectTitle);
-  await page.getByRole('button', { name: '검색' }).click();
-  await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
+  await applyMobileProjectSearch(page, projectTitle);
+  await expect(page.getByRole('heading', { name: '현장 프로젝트' })).toBeVisible();
   await expect(page.getByText(projectTitle, { exact: true })).toBeVisible();
   await assertTouchTarget(page.getByRole('button', { name: '검색' }));
   await assertMobileNavigation(page, '프로젝트');
@@ -33,12 +32,12 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
   await page.goto(`/projects/${projectId}`);
   await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
   await expect(page.getByLabel('프로젝트 병목 현황')).toBeVisible();
-  await assertTouchTarget(page.getByRole('button', { name: '목록' }));
+  await assertTouchTarget(page.getByRole('button', { name: '← 프로젝트' }));
   await assertMobileNavigation(page, '프로젝트');
   await capture(page, '03-project-detail-mobile-390.png');
 
   await page.goto('/pending');
-  await expect(page.getByRole('heading', { name: 'Pending List' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '현장 Pending' })).toBeVisible();
   await expect(page.getByRole('button', { name: pending.title })).toBeVisible();
   await assertTouchTarget(page.getByRole('button', { name: '+ Pending 등록' }));
   await assertMobileNavigation(page, 'Pending');
@@ -68,8 +67,7 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
 
   await page.setViewportSize({ width: 480, height: 800 });
   await page.goto('/projects');
-  await page.getByPlaceholder('고객사, Item, PJT Code, PJT Title 검색').fill(projectTitle);
-  await page.getByRole('button', { name: '검색' }).click();
+  await applyMobileProjectSearch(page, projectTitle);
   await expect(page.getByText(projectTitle, { exact: true })).toBeVisible();
   await assertMobileNavigation(page, '프로젝트');
   await capture(page, '08-project-list-narrow-480.png');
@@ -91,6 +89,20 @@ async function assertMobileNavigation(page: Page, activeLabel: string) {
     })
   );
   expect(targets.every((target) => target.width >= 44 && target.height >= 44)).toBeTruthy();
+}
+
+async function selectMobileDevelopmentUser(page: Page, userKey: string) {
+  await page.getByRole('button', { name: '상태' }).click();
+  const statusSheet = page.getByRole('dialog', { name: '앱 상태와 계정' });
+  await statusSheet.getByLabel('개발 사용자').selectOption(userKey);
+  await statusSheet.getByRole('button', { name: '앱 상태와 계정 닫기' }).click();
+}
+
+async function applyMobileProjectSearch(page: Page, projectTitle: string) {
+  await page.getByRole('button', { name: /검색·필터/ }).click();
+  const filterSheet = page.getByRole('dialog', { name: '프로젝트 검색·필터' });
+  await filterSheet.getByPlaceholder('고객사, Item, Code, Title').fill(projectTitle);
+  await filterSheet.getByRole('button', { name: '조건 적용' }).click();
 }
 
 async function assertTouchTarget(target: Locator) {

@@ -1,0 +1,1217 @@
+using Emi.Qms.Api.Pending;
+using Npgsql;
+using NpgsqlTypes;
+
+namespace Emi.Qms.Api.Materials;
+
+public sealed class MaterialsStore(
+    DatabaseConnectionStringProvider connectionStringProvider,
+    PendingStore pendingStore)
+{
+    public async Task<MaterialReceiptListResponse> ListAsync(
+        string? search,
+        bool includeCompleted,
+        DateOnly? expectedReceiptDateFrom,
+        DateOnly? expectedReceiptDateTo,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select
+                item.id, item.project_id, project.project_title, project.project_code,
+                item.order_item, item.supplier_name, item.expected_receipt_date,
+                item.order_quantity, item.order_unit, item.material_arrivals_closed_at_utc,
+                item.receipt_completed, item.row_version
+            from project_procurement_items item
+            join projects project on project.id = item.project_id and project.deleted_at_utc is null
+            where item.status = 'Active'
+              and (@include_completed or not item.receipt_completed)
+              and (@date_from is null or item.expected_receipt_date >= @date_from)
+              and (@date_to is null or item.expected_receipt_date <= @date_to)
+              and (
+                  @search is null
+                  or project.project_title ilike '%' || @search || '%'
+                  or project.project_code ilike '%' || @search || '%'
+                  or coalesce(item.order_item, '') ilike '%' || @search || '%'
+                  or coalesce(item.supplier_name, '') ilike '%' || @search || '%'
+              )
+            order by project.project_code, item.sequence_number;
+            """;
+        AddNullableText(command, "search", string.IsNullOrWhiteSpace(search) ? null : search.Trim());
+        command.Parameters.AddWithValue("include_completed", includeCompleted);
+        AddNullableDate(command, "date_from", expectedReceiptDateFrom);
+        AddNullableDate(command, "date_to", expectedReceiptDateTo);
+
+        var items = new List<MutableMaterialItem>();
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                items.Add(new MutableMaterialItem
+                {
+                    ItemId = reader.GetGuid(0),
+                    ProjectId = reader.GetGuid(1),
+                    ProjectTitle = reader.GetString(2),
+                    ProjectCode = reader.GetString(3),
+                    OrderItem = reader.IsDBNull(4) ? null : reader.GetString(4),
+                    SupplierName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    ExpectedReceiptDate = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateOnly>(6),
+                    OrderQuantity = reader.IsDBNull(7) ? null : reader.GetDecimal(7),
+                    OrderUnit = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    ArrivalsClosedAtUtc = reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9),
+                    ReceiptCompleted = reader.GetBoolean(10),
+                    RowVersion = reader.GetInt32(11)
+                });
+            }
+        }
+
+        if (items.Count > 0)
+        {
+            await LoadReceiptsAsync(connection, items, cancellationToken);
+        }
+
+        var responseItems = items.Select(item => item.ToResponse()).ToList();
+        var receipts = responseItems.SelectMany(item => item.Receipts).ToList();
+        return new MaterialReceiptListResponse(
+            new MaterialReceiptSummaryResponse(
+                responseItems.Count(item => !item.ArrivalsClosed && item.Receipts.Count == 0),
+                receipts.Count(receipt => receipt.Status == MaterialReceiptStatuses.IqcRequested),
+                receipts.Count(receipt => receipt.Status == MaterialReceiptStatuses.FailedBlocked),
+                receipts.Count(receipt => receipt.Status == MaterialReceiptStatuses.Passed),
+                responseItems.Count(item => item.ReceiptCompleted)),
+            responseItems);
+    }
+
+    public async Task<MaterialIqcQueueResponse> ListIqcAsync(bool includeDecided, CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            select
+                attempt.id, receipt.id, item.id, project.id, project.project_title, project.project_code,
+                item.order_item, receipt.quantity, receipt.unit, attempt.attempt_number, receipt.version,
+                attempt.status, attempt.requested_at_utc, attempt.pending_issue_id
+            from material_iqc_attempts attempt
+            join material_receipts receipt on receipt.id = attempt.material_receipt_id
+            join project_procurement_items item on item.id = receipt.procurement_item_id
+            join projects project on project.id = item.project_id and project.deleted_at_utc is null
+            where (@include_decided or attempt.status = 'Requested')
+            order by case when attempt.status = 'Requested' then 0 else 1 end,
+                     attempt.requested_at_utc desc;
+            """);
+        command.Parameters.AddWithValue("include_decided", includeDecided);
+        var items = new List<MaterialIqcQueueItemResponse>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(new MaterialIqcQueueItemResponse(
+                reader.GetGuid(0),
+                reader.GetGuid(1),
+                reader.GetGuid(2),
+                reader.GetGuid(3),
+                reader.GetString(4),
+                reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetDecimal(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.GetInt32(9),
+                reader.GetInt32(10),
+                reader.GetString(11),
+                reader.GetFieldValue<DateTimeOffset>(12),
+                reader.IsDBNull(13) ? null : reader.GetGuid(13)));
+        }
+        return new MaterialIqcQueueResponse(items);
+    }
+
+    public async Task<MaterialsMutationResult<MaterialReceiptActionResponse>> RegisterArrivalAsync(
+        Guid itemId,
+        RegisterMaterialArrivalRequest request,
+        Guid actorUserId,
+        string? correlationId,
+        CancellationToken cancellationToken)
+    {
+        var errors = ValidateArrival(request);
+        if (errors.Count > 0)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(errors);
+        }
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var item = await ReadItemForUpdateAsync(connection, transaction, itemId, cancellationToken);
+        if (item is null)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.NotFound();
+        }
+        if (item.ArrivalsClosedAtUtc is not null)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("입고 마감된 발주품목에는 도착분을 추가할 수 없습니다.");
+        }
+
+        var unit = request.Unit!.Trim();
+        if (item.OrderUnit is not null && !string.Equals(item.OrderUnit, unit, StringComparison.OrdinalIgnoreCase))
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
+            {
+                [nameof(request.Unit)] = [$"발주 단위({item.OrderUnit})와 같은 단위를 입력해 주세요."]
+            });
+        }
+
+        if (item.OrderQuantity is null)
+        {
+            if (request.OrderQuantity is null or <= 0 || string.IsNullOrWhiteSpace(request.OrderUnit))
+            {
+                return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
+                {
+                    [nameof(request.OrderQuantity)] = ["첫 도착 등록 시 발주 수량과 단위를 함께 입력해 주세요."]
+                });
+            }
+            if (!string.Equals(request.OrderUnit.Trim(), unit, StringComparison.OrdinalIgnoreCase))
+            {
+                return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
+                {
+                    [nameof(request.OrderUnit)] = ["발주 단위와 도착 단위를 같게 입력해 주세요."]
+                });
+            }
+
+            await using var measurementCommand = connection.CreateCommand();
+            measurementCommand.Transaction = transaction;
+            measurementCommand.CommandText = """
+                update project_procurement_items
+                set order_quantity = @quantity,
+                    order_unit = @unit,
+                    row_version = row_version + 1,
+                    updated_by_user_id = @actor_id,
+                    updated_at_utc = now()
+                where id = @id;
+                """;
+            measurementCommand.Parameters.AddWithValue("quantity", request.OrderQuantity.Value);
+            measurementCommand.Parameters.AddWithValue("unit", request.OrderUnit.Trim());
+            measurementCommand.Parameters.AddWithValue("actor_id", actorUserId);
+            measurementCommand.Parameters.AddWithValue("id", itemId);
+            await measurementCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var effectiveOrderQuantity = item.OrderQuantity ?? request.OrderQuantity!.Value;
+        await using (var quantityCommand = connection.CreateCommand())
+        {
+            quantityCommand.Transaction = transaction;
+            quantityCommand.CommandText = """
+                select coalesce(sum(quantity) filter (where status <> 'Cancelled'), 0)
+                from material_receipts
+                where procurement_item_id = @item_id;
+                """;
+            quantityCommand.Parameters.AddWithValue("item_id", itemId);
+            var arrivedQuantity = Convert.ToDecimal(await quantityCommand.ExecuteScalarAsync(cancellationToken));
+            if (arrivedQuantity + request.Quantity!.Value > effectiveOrderQuantity)
+            {
+                return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
+                {
+                    [nameof(request.Quantity)] = [$"누적 도착 수량은 발주 수량({effectiveOrderQuantity:0.###} {unit})을 초과할 수 없습니다."]
+                });
+            }
+        }
+
+        var receiptId = Guid.NewGuid();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into material_receipts (
+                    id, procurement_item_id, quantity, unit, arrival_date, note, status,
+                    created_by_user_id, updated_by_user_id
+                )
+                values (
+                    @id, @item_id, @quantity, @unit, @arrival_date, @note, 'Arrived',
+                    @actor_id, @actor_id
+                );
+                """;
+            command.Parameters.AddWithValue("id", receiptId);
+            command.Parameters.AddWithValue("item_id", itemId);
+            command.Parameters.AddWithValue("quantity", request.Quantity!.Value);
+            command.Parameters.AddWithValue("unit", unit);
+            command.Parameters.AddWithValue("arrival_date", request.ArrivalDate!.Value);
+            AddNullableText(command, "note", NormalizeOptional(request.Note));
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await InsertEventAsync(connection, transaction, itemId, receiptId, "Arrived", null, MaterialReceiptStatuses.Arrived, request.Note, actorUserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
+            new MaterialReceiptActionResponse(itemId, receiptId, null, null, MaterialReceiptStatuses.Arrived, false));
+    }
+
+    public async Task<MaterialsMutationResult<MaterialReceiptActionResponse>> RequestIqcAsync(
+        Guid receiptId,
+        MaterialReceiptVersionRequest request,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var receipt = await ReadReceiptForUpdateAsync(connection, transaction, receiptId, cancellationToken);
+        if (receipt is null)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.NotFound();
+        }
+        var versionError = ValidateExpectedVersion(request.ExpectedVersion, receipt.Version);
+        if (versionError is not null)
+        {
+            return versionError;
+        }
+        if (receipt.Status != MaterialReceiptStatuses.Arrived)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("도착 등록 상태에서만 IQC를 요청할 수 있습니다.");
+        }
+
+        var attemptId = await CreateIqcAttemptAsync(connection, transaction, receipt, actorUserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
+            new MaterialReceiptActionResponse(receipt.ItemId, receiptId, attemptId, null, MaterialReceiptStatuses.IqcRequested, receipt.ReceiptCompleted));
+    }
+
+    public async Task<MaterialsMutationResult<MaterialReceiptActionResponse>> RecordIqcResultAsync(
+        Guid attemptId,
+        MaterialIqcResultRequest request,
+        Guid actorUserId,
+        string? correlationId,
+        CancellationToken cancellationToken)
+    {
+        var result = request.Result?.Trim();
+        var reason = NormalizeOptional(request.Reason);
+        var errors = new Dictionary<string, string[]>();
+        if (result is not ("Passed" or "Failed"))
+        {
+            errors[nameof(request.Result)] = ["합격 또는 부적합을 선택해 주세요."];
+        }
+        if (reason is null || reason.Length is < 3 or > 1000)
+        {
+            errors[nameof(request.Reason)] = ["판정 사유를 3~1,000자로 입력해 주세요."];
+        }
+        if (request.ExpectedReceiptVersion is null or < 1)
+        {
+            errors[nameof(request.ExpectedReceiptVersion)] = ["최신 입고 version이 필요합니다."];
+        }
+        if (errors.Count > 0)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(errors);
+        }
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var attempt = await ReadAttemptForUpdateAsync(connection, transaction, attemptId, cancellationToken);
+        if (attempt is null)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.NotFound();
+        }
+        if (attempt.Status != "Requested" || attempt.ReceiptStatus != MaterialReceiptStatuses.IqcRequested)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("이미 판정되었거나 IQC 요청 상태가 아닙니다.");
+        }
+        if (attempt.ReceiptVersion != request.ExpectedReceiptVersion)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+        }
+
+        Guid? pendingId = null;
+        if (result == "Failed")
+        {
+            pendingId = await pendingStore.CreateOrReuseMaterialNonconformanceAsync(
+                connection,
+                transaction,
+                attempt.ProjectId,
+                attempt.ItemId,
+                attempt.ReceiptId,
+                $"IQC 부적합 · {attempt.OrderItem ?? "발주품목"}",
+                $"도착분 IQC {attempt.AttemptNumber}차 검사에서 부적합 판정되었습니다. 사유: {reason}",
+                actorUserId,
+                correlationId,
+                cancellationToken);
+        }
+        else
+        {
+            pendingId = await ReadLatestPendingIdAsync(connection, transaction, attempt.ReceiptId, cancellationToken);
+            if (pendingId is not null)
+            {
+                try
+                {
+                    await pendingStore.CloseMaterialNonconformanceAsync(
+                        connection,
+                        transaction,
+                        pendingId.Value,
+                        actorUserId,
+                        $"IQC {attempt.AttemptNumber}차 재검사 합격: {reason}",
+                        correlationId,
+                        cancellationToken);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict(exception.Message);
+                }
+            }
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                update material_iqc_attempts
+                set status = @attempt_status,
+                    reason = @reason,
+                    pending_issue_id = @pending_id,
+                    decided_by_user_id = @actor_id,
+                    decided_at_utc = now()
+                where id = @attempt_id and status = 'Requested';
+
+                update material_receipts
+                set status = @receipt_status,
+                    version = version + 1,
+                    updated_by_user_id = @actor_id,
+                    updated_at_utc = now()
+                where id = @receipt_id and version = @expected_version;
+                """;
+            command.Parameters.AddWithValue("attempt_status", result!);
+            command.Parameters.AddWithValue("reason", reason!);
+            AddNullableUuid(command, "pending_id", pendingId);
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("attempt_id", attemptId);
+            command.Parameters.AddWithValue("receipt_status", result == "Passed" ? MaterialReceiptStatuses.Passed : MaterialReceiptStatuses.FailedBlocked);
+            command.Parameters.AddWithValue("receipt_id", attempt.ReceiptId);
+            command.Parameters.AddWithValue("expected_version", request.ExpectedReceiptVersion!.Value);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await CompleteWorkItemAsync(connection, transaction, $"materials:iqc:{attemptId}", cancellationToken);
+        if (result == "Passed")
+        {
+            await CreateConfirmationWorkItemAsync(connection, transaction, attempt.ProjectId, attempt.ItemId, attempt.ReceiptId, attempt.OrderItem, actorUserId, cancellationToken);
+        }
+        await InsertEventAsync(
+            connection,
+            transaction,
+            attempt.ItemId,
+            attempt.ReceiptId,
+            result == "Passed" ? "IqcPassed" : "IqcFailed",
+            MaterialReceiptStatuses.IqcRequested,
+            result == "Passed" ? MaterialReceiptStatuses.Passed : MaterialReceiptStatuses.FailedBlocked,
+            reason,
+            actorUserId,
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
+            new MaterialReceiptActionResponse(
+                attempt.ItemId,
+                attempt.ReceiptId,
+                attemptId,
+                pendingId,
+                result == "Passed" ? MaterialReceiptStatuses.Passed : MaterialReceiptStatuses.FailedBlocked,
+                false));
+    }
+
+    public async Task<MaterialsMutationResult<MaterialReceiptActionResponse>> RequestReinspectionAsync(
+        Guid receiptId,
+        MaterialReceiptVersionRequest request,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var receipt = await ReadReceiptForUpdateAsync(connection, transaction, receiptId, cancellationToken);
+        if (receipt is null)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.NotFound();
+        }
+        var versionError = ValidateExpectedVersion(request.ExpectedVersion, receipt.Version);
+        if (versionError is not null)
+        {
+            return versionError;
+        }
+        if (receipt.Status != MaterialReceiptStatuses.FailedBlocked)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("부적합 차단 상태에서만 재검사를 요청할 수 있습니다.");
+        }
+        var pendingId = await ReadLatestPendingIdAsync(connection, transaction, receiptId, cancellationToken);
+        if (pendingId is null
+            || await PendingStore.ReadMaterialNonconformanceStatusAsync(connection, transaction, pendingId.Value, cancellationToken) != PendingStatuses.ReinspectionRequested)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("연결된 Pending을 재검사 요청 상태로 전환한 뒤 진행해 주세요.");
+        }
+
+        var attemptId = await CreateIqcAttemptAsync(connection, transaction, receipt, actorUserId, cancellationToken);
+        await InsertEventAsync(connection, transaction, receipt.ItemId, receiptId, "ReinspectionRequested", MaterialReceiptStatuses.FailedBlocked, MaterialReceiptStatuses.IqcRequested, "Pending 조치 후 재검사 요청", actorUserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
+            new MaterialReceiptActionResponse(receipt.ItemId, receiptId, attemptId, pendingId, MaterialReceiptStatuses.IqcRequested, false));
+    }
+
+    public async Task<MaterialsMutationResult<MaterialReceiptActionResponse>> ConfirmAsync(
+        Guid receiptId,
+        MaterialReceiptVersionRequest request,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var receipt = await ReadReceiptForUpdateAsync(connection, transaction, receiptId, cancellationToken);
+        if (receipt is null)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.NotFound();
+        }
+        var versionError = ValidateExpectedVersion(request.ExpectedVersion, receipt.Version);
+        if (versionError is not null)
+        {
+            return versionError;
+        }
+        if (receipt.Status != MaterialReceiptStatuses.Passed)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("IQC 합격 상태에서만 입고를 확정할 수 있습니다.");
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                update material_receipts
+                set status = 'Confirmed',
+                    version = version + 1,
+                    confirmed_by_user_id = @actor_id,
+                    confirmed_at_utc = now(),
+                    updated_by_user_id = @actor_id,
+                    updated_at_utc = now()
+                where id = @id and version = @expected_version;
+                """;
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("id", receiptId);
+            command.Parameters.AddWithValue("expected_version", request.ExpectedVersion!.Value);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await CompleteWorkItemAsync(connection, transaction, $"materials:receipt:{receiptId}:confirm", cancellationToken);
+        await InsertEventAsync(connection, transaction, receipt.ItemId, receiptId, "Confirmed", MaterialReceiptStatuses.Passed, MaterialReceiptStatuses.Confirmed, "IQC 합격 도착분 입고 확정", actorUserId, cancellationToken);
+        var completed = await RefreshDerivedProjectionAsync(connection, transaction, receipt.ItemId, actorUserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
+            new MaterialReceiptActionResponse(receipt.ItemId, receiptId, null, null, MaterialReceiptStatuses.Confirmed, completed));
+    }
+
+    public async Task<MaterialsMutationResult<MaterialReceiptActionResponse>> CancelAsync(
+        Guid receiptId,
+        CancelMaterialReceiptRequest request,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var reason = NormalizeOptional(request.Reason);
+        if (reason is null || reason.Length is < 3 or > 500)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
+            {
+                [nameof(request.Reason)] = ["취소 사유를 3~500자로 입력해 주세요."]
+            });
+        }
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var receipt = await ReadReceiptForUpdateAsync(connection, transaction, receiptId, cancellationToken);
+        if (receipt is null)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.NotFound();
+        }
+        var versionError = ValidateExpectedVersion(request.ExpectedVersion, receipt.Version);
+        if (versionError is not null)
+        {
+            return versionError;
+        }
+        if (receipt.Status != MaterialReceiptStatuses.Arrived)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("IQC 요청 전 도착 등록만 취소할 수 있습니다.");
+        }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                update material_receipts
+                set status = 'Cancelled', version = version + 1,
+                    cancelled_by_user_id = @actor_id, cancelled_at_utc = now(), cancellation_reason = @reason,
+                    updated_by_user_id = @actor_id, updated_at_utc = now()
+                where id = @id and version = @expected_version;
+                """;
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("reason", reason);
+            command.Parameters.AddWithValue("id", receiptId);
+            command.Parameters.AddWithValue("expected_version", request.ExpectedVersion!.Value);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await InsertEventAsync(connection, transaction, receipt.ItemId, receiptId, "Cancelled", MaterialReceiptStatuses.Arrived, MaterialReceiptStatuses.Cancelled, reason, actorUserId, cancellationToken);
+        var completed = await RefreshDerivedProjectionAsync(connection, transaction, receipt.ItemId, actorUserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
+            new MaterialReceiptActionResponse(receipt.ItemId, receiptId, null, null, MaterialReceiptStatuses.Cancelled, completed));
+    }
+
+    public async Task<MaterialsMutationResult<MaterialReceiptActionResponse>> CloseArrivalsAsync(
+        Guid itemId,
+        CloseMaterialArrivalsRequest request,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var reason = NormalizeOptional(request.Reason);
+        if (reason is null || reason.Length is < 3 or > 500)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
+            {
+                [nameof(request.Reason)] = ["입고 마감 사유를 3~500자로 입력해 주세요."]
+            });
+        }
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var item = await ReadItemForUpdateAsync(connection, transaction, itemId, cancellationToken);
+        if (item is null)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.NotFound();
+        }
+        if (request.ExpectedRowVersion != item.RowVersion)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+        }
+        if (item.ArrivalsClosedAtUtc is not null)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("이미 입고 마감된 발주품목입니다.");
+        }
+        await using (var checkCommand = connection.CreateCommand())
+        {
+            checkCommand.Transaction = transaction;
+            checkCommand.CommandText = """
+                select
+                    count(*) filter (where status <> 'Cancelled')::int,
+                    count(*) filter (where status not in ('Confirmed', 'Cancelled'))::int
+                from material_receipts
+                where procurement_item_id = @item_id;
+                """;
+            checkCommand.Parameters.AddWithValue("item_id", itemId);
+            await using var reader = await checkCommand.ExecuteReaderAsync(cancellationToken);
+            await reader.ReadAsync(cancellationToken);
+            if (reader.GetInt32(0) == 0)
+            {
+                return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("유효한 도착분이 하나 이상 있어야 입고를 마감할 수 있습니다.");
+            }
+            if (reader.GetInt32(1) > 0)
+            {
+                return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("모든 도착분을 확정하거나 취소한 뒤 입고를 마감해 주세요.");
+            }
+        }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                update project_procurement_items
+                set material_arrivals_closed_at_utc = now(),
+                    material_arrivals_closed_by_user_id = @actor_id,
+                    row_version = row_version + 1,
+                    updated_by_user_id = @actor_id,
+                    updated_at_utc = now()
+                where id = @id and row_version = @expected_version;
+                """;
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("id", itemId);
+            command.Parameters.AddWithValue("expected_version", request.ExpectedRowVersion!.Value);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await InsertEventAsync(connection, transaction, itemId, null, "ArrivalsClosed", null, null, reason, actorUserId, cancellationToken);
+        var completed = await RefreshDerivedProjectionAsync(connection, transaction, itemId, actorUserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
+            new MaterialReceiptActionResponse(itemId, null, null, null, "ArrivalsClosed", completed));
+    }
+
+    private static Dictionary<string, string[]> ValidateArrival(RegisterMaterialArrivalRequest request)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (request.Quantity is null or <= 0)
+        {
+            errors[nameof(request.Quantity)] = ["도착 수량은 0보다 커야 합니다."];
+        }
+        var unit = request.Unit?.Trim() ?? "";
+        if (unit.Length is < 1 or > 20)
+        {
+            errors[nameof(request.Unit)] = ["단위를 1~20자로 입력해 주세요."];
+        }
+        if (request.ArrivalDate is null)
+        {
+            errors[nameof(request.ArrivalDate)] = ["도착일을 입력해 주세요."];
+        }
+        if (request.Note?.Trim().Length > 1000)
+        {
+            errors[nameof(request.Note)] = ["비고는 1,000자 이하여야 합니다."];
+        }
+        if (request.OrderQuantity is not null && request.OrderQuantity <= 0)
+        {
+            errors[nameof(request.OrderQuantity)] = ["발주 수량은 0보다 커야 합니다."];
+        }
+        if (request.OrderUnit is not null && request.OrderUnit.Trim().Length is < 1 or > 20)
+        {
+            errors[nameof(request.OrderUnit)] = ["발주 단위를 1~20자로 입력해 주세요."];
+        }
+        return errors;
+    }
+
+    private static MaterialsMutationResult<MaterialReceiptActionResponse>? ValidateExpectedVersion(int? expected, int actual)
+    {
+        if (expected is null or < 1)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
+            {
+                ["ExpectedVersion"] = ["최신 version이 필요합니다."]
+            });
+        }
+        return expected == actual
+            ? null
+            : MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+    }
+
+    private static async Task LoadReceiptsAsync(NpgsqlConnection connection, IReadOnlyList<MutableMaterialItem> items, CancellationToken cancellationToken)
+    {
+        var byId = items.ToDictionary(item => item.ItemId);
+        var receiptsById = new Dictionary<Guid, MutableMaterialReceipt>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                select id, procurement_item_id, quantity, unit, arrival_date, note, status, is_legacy,
+                       version, created_at_utc, confirmed_at_utc, cancellation_reason
+                from material_receipts
+                where procurement_item_id = any(@item_ids)
+                order by arrival_date desc, created_at_utc desc;
+                """;
+            command.Parameters.AddWithValue("item_ids", items.Select(item => item.ItemId).ToArray());
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var receipt = new MutableMaterialReceipt
+                {
+                    ReceiptId = reader.GetGuid(0),
+                    Quantity = reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                    Unit = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    ArrivalDate = reader.GetFieldValue<DateOnly>(4),
+                    Note = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    Status = reader.GetString(6),
+                    IsLegacy = reader.GetBoolean(7),
+                    Version = reader.GetInt32(8),
+                    CreatedAtUtc = reader.GetFieldValue<DateTimeOffset>(9),
+                    ConfirmedAtUtc = reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10),
+                    CancellationReason = reader.IsDBNull(11) ? null : reader.GetString(11)
+                };
+                byId[reader.GetGuid(1)].Receipts.Add(receipt);
+                receiptsById[receipt.ReceiptId] = receipt;
+            }
+        }
+        if (receiptsById.Count == 0)
+        {
+            return;
+        }
+        await using var attemptCommand = connection.CreateCommand();
+        attemptCommand.CommandText = """
+            select id, material_receipt_id, attempt_number, status, reason, pending_issue_id,
+                   requested_at_utc, decided_at_utc
+            from material_iqc_attempts
+            where material_receipt_id = any(@receipt_ids)
+            order by attempt_number;
+            """;
+        attemptCommand.Parameters.AddWithValue("receipt_ids", receiptsById.Keys.ToArray());
+        await using var attemptReader = await attemptCommand.ExecuteReaderAsync(cancellationToken);
+        while (await attemptReader.ReadAsync(cancellationToken))
+        {
+            receiptsById[attemptReader.GetGuid(1)].Attempts.Add(new MaterialIqcAttemptResponse(
+                attemptReader.GetGuid(0),
+                attemptReader.GetInt32(2),
+                attemptReader.GetString(3),
+                attemptReader.IsDBNull(4) ? null : attemptReader.GetString(4),
+                attemptReader.IsDBNull(5) ? null : attemptReader.GetGuid(5),
+                attemptReader.GetFieldValue<DateTimeOffset>(6),
+                attemptReader.IsDBNull(7) ? null : attemptReader.GetFieldValue<DateTimeOffset>(7)));
+        }
+    }
+
+    private static async Task<ItemSnapshot?> ReadItemForUpdateAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid itemId, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select id, project_id, order_quantity, order_unit, material_arrivals_closed_at_utc,
+                   receipt_completed, row_version, order_item
+            from project_procurement_items
+            where id = @id and status = 'Active'
+            for update;
+            """;
+        command.Parameters.AddWithValue("id", itemId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? new ItemSnapshot(
+                reader.GetGuid(0),
+                reader.GetGuid(1),
+                reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
+                reader.GetBoolean(5),
+                reader.GetInt32(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7))
+            : null;
+    }
+
+    private static async Task<ReceiptSnapshot?> ReadReceiptForUpdateAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid receiptId, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select receipt.id, receipt.procurement_item_id, item.project_id, receipt.status, receipt.version,
+                   item.receipt_completed, item.order_item
+            from material_receipts receipt
+            join project_procurement_items item on item.id = receipt.procurement_item_id and item.status = 'Active'
+            where receipt.id = @id
+            for update of receipt, item;
+            """;
+        command.Parameters.AddWithValue("id", receiptId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? new ReceiptSnapshot(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetString(3), reader.GetInt32(4), reader.GetBoolean(5), reader.IsDBNull(6) ? null : reader.GetString(6))
+            : null;
+    }
+
+    private static async Task<AttemptSnapshot?> ReadAttemptForUpdateAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid attemptId, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select attempt.id, attempt.material_receipt_id, attempt.attempt_number, attempt.status,
+                   receipt.procurement_item_id, receipt.status, receipt.version,
+                   item.project_id, item.order_item
+            from material_iqc_attempts attempt
+            join material_receipts receipt on receipt.id = attempt.material_receipt_id
+            join project_procurement_items item on item.id = receipt.procurement_item_id and item.status = 'Active'
+            where attempt.id = @id
+            for update of attempt, receipt, item;
+            """;
+        command.Parameters.AddWithValue("id", attemptId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? new AttemptSnapshot(
+                reader.GetGuid(0), reader.GetGuid(1), reader.GetInt32(2), reader.GetString(3),
+                reader.GetGuid(4), reader.GetString(5), reader.GetInt32(6), reader.GetGuid(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8))
+            : null;
+    }
+
+    private static async Task<Guid> CreateIqcAttemptAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ReceiptSnapshot receipt,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var attemptId = Guid.NewGuid();
+        int attemptNumber;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select coalesce(max(attempt_number), 0) + 1
+                from material_iqc_attempts
+                where material_receipt_id = @receipt_id;
+                """;
+            command.Parameters.AddWithValue("receipt_id", receipt.ReceiptId);
+            attemptNumber = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into material_iqc_attempts (
+                    id, material_receipt_id, attempt_number, status, requested_by_user_id
+                )
+                values (@id, @receipt_id, @attempt_number, 'Requested', @actor_id);
+
+                update material_receipts
+                set status = 'IqcRequested', version = version + 1,
+                    updated_by_user_id = @actor_id, updated_at_utc = now()
+                where id = @receipt_id and version = @expected_version;
+                """;
+            command.Parameters.AddWithValue("id", attemptId);
+            command.Parameters.AddWithValue("receipt_id", receipt.ReceiptId);
+            command.Parameters.AddWithValue("attempt_number", attemptNumber);
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("expected_version", receipt.Version);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await CreateIqcWorkItemAsync(connection, transaction, receipt.ProjectId, receipt.ItemId, receipt.ReceiptId, attemptId, receipt.OrderItem, actorUserId, cancellationToken);
+        await InsertEventAsync(connection, transaction, receipt.ItemId, receipt.ReceiptId, "IqcRequested", receipt.Status, MaterialReceiptStatuses.IqcRequested, $"IQC {attemptNumber}차 요청", actorUserId, cancellationToken);
+        return attemptId;
+    }
+
+    private static async Task CreateIqcWorkItemAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid itemId,
+        Guid receiptId,
+        Guid attemptId,
+        string? orderItem,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var assignee = await ResolveAssigneeAsync(connection, transaction, projectId, "QualityIQC", "quality.inspect", cancellationToken);
+        if (assignee is null)
+        {
+            return;
+        }
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into work_items (
+                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                assigned_user_id, assigned_role_code, title, description, status, priority,
+                idempotency_key, created_by_user_id
+            )
+            values (
+                @project_id, 'Inspection', @attempt_id, 'IQC', 'QualityIQC',
+                @assignee_id, @role_code, @title, @description, 'Requested', 'Blocking',
+                @idempotency_key, @actor_id
+            )
+            on conflict (idempotency_key) do nothing;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("attempt_id", attemptId);
+        command.Parameters.AddWithValue("assignee_id", assignee.Value.UserId);
+        AddNullableText(command, "role_code", assignee.Value.RoleCode);
+        command.Parameters.AddWithValue("title", $"IQC 판정 · {orderItem ?? "발주품목"}");
+        command.Parameters.AddWithValue("description", $"도착분 {receiptId}의 수입검사를 판정해 주세요. /quality/iqc?request={attemptId}");
+        command.Parameters.AddWithValue("idempotency_key", $"materials:iqc:{attemptId}");
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task CreateConfirmationWorkItemAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid itemId,
+        Guid receiptId,
+        string? orderItem,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var assignee = await ResolveAssigneeAsync(connection, transaction, projectId, "MaterialsPrimary", "MaterialReceipt.Update", cancellationToken);
+        if (assignee is null)
+        {
+            return;
+        }
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into work_items (
+                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                assigned_user_id, assigned_role_code, title, description, status, priority,
+                idempotency_key, created_by_user_id
+            )
+            values (
+                @project_id, 'ProcurementItem', @item_id, 'ReceiptConfirmed', 'MaterialsPrimary',
+                @assignee_id, @role_code, @title, @description, 'Requested', 'Normal',
+                @idempotency_key, @actor_id
+            )
+            on conflict (idempotency_key) do nothing;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("item_id", itemId);
+        command.Parameters.AddWithValue("assignee_id", assignee.Value.UserId);
+        AddNullableText(command, "role_code", assignee.Value.RoleCode);
+        command.Parameters.AddWithValue("title", $"입고 확정 · {orderItem ?? "발주품목"}");
+        command.Parameters.AddWithValue("description", $"IQC 합격 도착분을 확인해 주세요. /materials/receipts?receipt={receiptId}");
+        command.Parameters.AddWithValue("idempotency_key", $"materials:receipt:{receiptId}:confirm");
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<(Guid UserId, string? RoleCode)?> ResolveAssigneeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string responsibilityType,
+        string permissionCode,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select candidate.user_id, candidate.role_code
+            from (
+                select pa.assigned_user_id as user_id, role.code as role_code, 0 as priority
+                from project_assignees pa
+                join qms_users users on users.id = pa.assigned_user_id and users.is_active = true
+                left join user_roles user_role on user_role.user_id = users.id
+                left join roles role on role.id = user_role.role_id
+                where pa.project_id = @project_id and pa.responsibility_type = @responsibility_type
+                union all
+                select users.id, role.code, 1
+                from qms_users users
+                join user_roles user_role on user_role.user_id = users.id
+                join roles role on role.id = user_role.role_id
+                join role_permissions role_permission on role_permission.role_id = role.id
+                join permissions permission on permission.id = role_permission.permission_id
+                where users.is_active = true and permission.code = @permission_code
+            ) candidate
+            order by candidate.priority, candidate.role_code nulls last, candidate.user_id
+            limit 1;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("responsibility_type", responsibilityType);
+        command.Parameters.AddWithValue("permission_code", permissionCode);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? (reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1))
+            : null;
+    }
+
+    private static async Task CompleteWorkItemAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string idempotencyKey, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            update work_items
+            set status = 'Completed', completed_at_utc = coalesce(completed_at_utc, now())
+            where idempotency_key = @key and status in ('Requested', 'InProgress');
+            """;
+        command.Parameters.AddWithValue("key", idempotencyKey);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<Guid?> ReadLatestPendingIdAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid receiptId, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select pending_issue_id
+            from material_iqc_attempts
+            where material_receipt_id = @receipt_id and pending_issue_id is not null
+            order by attempt_number desc
+            limit 1;
+            """;
+        command.Parameters.AddWithValue("receipt_id", receiptId);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is Guid pendingId ? pendingId : null;
+    }
+
+    private static async Task<bool> RefreshDerivedProjectionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid itemId,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        bool previous;
+        bool completed;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select
+                    item.receipt_completed,
+                    item.material_arrivals_closed_at_utc is not null
+                    and exists (
+                        select 1 from material_receipts receipt
+                        where receipt.procurement_item_id = item.id and receipt.status <> 'Cancelled'
+                    )
+                    and not exists (
+                        select 1 from material_receipts receipt
+                        where receipt.procurement_item_id = item.id
+                          and receipt.status not in ('Confirmed', 'Cancelled')
+                    ) as derived_completed
+                from project_procurement_items item
+                where item.id = @id
+                for update;
+                """;
+            command.Parameters.AddWithValue("id", itemId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await reader.ReadAsync(cancellationToken);
+            previous = reader.GetBoolean(0);
+            completed = reader.GetBoolean(1);
+        }
+        if (previous == completed)
+        {
+            return completed;
+        }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select set_config('emi_qms.material_receipt_write', 'allowed', true);
+                update project_procurement_items
+                set receipt_completed = @completed,
+                    receipt_completed_at_utc = case when @completed then now() else null end,
+                    receipt_completed_by_user_id = case when @completed then @actor_id else null end,
+                    receipt_completion_note = case when @completed then '도착분 IQC 및 입고 확정 완료' else null end,
+                    row_version = row_version + 1,
+                    updated_by_user_id = @actor_id,
+                    updated_at_utc = now()
+                where id = @id;
+                """;
+            command.Parameters.AddWithValue("completed", completed);
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("id", itemId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await InsertEventAsync(connection, transaction, itemId, null, "DerivedCompletionChanged", previous.ToString(), completed.ToString(), "상태 흐름 기반 완료값 재계산", actorUserId, cancellationToken);
+        return completed;
+    }
+
+    private static async Task InsertEventAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid itemId,
+        Guid? receiptId,
+        string eventType,
+        string? fromStatus,
+        string? toStatus,
+        string? reason,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into material_receipt_events (
+                procurement_item_id, material_receipt_id, event_type, from_status, to_status,
+                reason, changed_by_user_id
+            )
+            values (@item_id, @receipt_id, @event_type, @from_status, @to_status, @reason, @actor_id);
+            """;
+        command.Parameters.AddWithValue("item_id", itemId);
+        AddNullableUuid(command, "receipt_id", receiptId);
+        command.Parameters.AddWithValue("event_type", eventType);
+        AddNullableText(command, "from_status", fromStatus);
+        AddNullableText(command, "to_status", toStatus);
+        AddNullableText(command, "reason", NormalizeOptional(reason));
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private NpgsqlDataSource CreateDataSource()
+    {
+        var connectionString = connectionStringProvider.GetConnectionString();
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("QMS database connection string is not configured.");
+        }
+        return NpgsqlDataSource.Create(connectionString);
+    }
+
+    private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static void AddNullableText(NpgsqlCommand command, string name, string? value)
+        => command.Parameters.Add(name, NpgsqlDbType.Text).Value = value ?? (object)DBNull.Value;
+
+    private static void AddNullableUuid(NpgsqlCommand command, string name, Guid? value)
+        => command.Parameters.Add(name, NpgsqlDbType.Uuid).Value = value ?? (object)DBNull.Value;
+
+    private static void AddNullableDate(NpgsqlCommand command, string name, DateOnly? value)
+        => command.Parameters.Add(name, NpgsqlDbType.Date).Value = value ?? (object)DBNull.Value;
+
+    private sealed class MutableMaterialItem
+    {
+        public Guid ItemId { get; init; }
+        public Guid ProjectId { get; init; }
+        public string ProjectTitle { get; init; } = "";
+        public string ProjectCode { get; init; } = "";
+        public string? OrderItem { get; init; }
+        public string? SupplierName { get; init; }
+        public DateOnly? ExpectedReceiptDate { get; init; }
+        public decimal? OrderQuantity { get; init; }
+        public string? OrderUnit { get; init; }
+        public DateTimeOffset? ArrivalsClosedAtUtc { get; init; }
+        public bool ReceiptCompleted { get; init; }
+        public int RowVersion { get; init; }
+        public List<MutableMaterialReceipt> Receipts { get; } = [];
+
+        public MaterialReceivingItemResponse ToResponse() => new()
+        {
+            ItemId = ItemId,
+            ProjectId = ProjectId,
+            ProjectTitle = ProjectTitle,
+            ProjectCode = ProjectCode,
+            OrderItem = OrderItem,
+            SupplierName = SupplierName,
+            ExpectedReceiptDate = ExpectedReceiptDate,
+            OrderQuantity = OrderQuantity,
+            OrderUnit = OrderUnit,
+            ArrivalsClosed = ArrivalsClosedAtUtc is not null,
+            ArrivalsClosedAtUtc = ArrivalsClosedAtUtc,
+            ReceiptCompleted = ReceiptCompleted,
+            RowVersion = RowVersion,
+            Receipts = Receipts.Select(receipt => receipt.ToResponse()).ToList()
+        };
+    }
+
+    private sealed class MutableMaterialReceipt
+    {
+        public Guid ReceiptId { get; init; }
+        public decimal? Quantity { get; init; }
+        public string? Unit { get; init; }
+        public DateOnly ArrivalDate { get; init; }
+        public string? Note { get; init; }
+        public string Status { get; init; } = "";
+        public bool IsLegacy { get; init; }
+        public int Version { get; init; }
+        public DateTimeOffset CreatedAtUtc { get; init; }
+        public DateTimeOffset? ConfirmedAtUtc { get; init; }
+        public string? CancellationReason { get; init; }
+        public List<MaterialIqcAttemptResponse> Attempts { get; } = [];
+
+        public MaterialReceiptResponse ToResponse() => new()
+        {
+            ReceiptId = ReceiptId,
+            Quantity = Quantity,
+            Unit = Unit,
+            ArrivalDate = ArrivalDate,
+            Note = Note,
+            Status = Status,
+            IsLegacy = IsLegacy,
+            Version = Version,
+            CreatedAtUtc = CreatedAtUtc,
+            ConfirmedAtUtc = ConfirmedAtUtc,
+            CancellationReason = CancellationReason,
+            IqcAttempts = Attempts
+        };
+    }
+
+    private sealed record ItemSnapshot(
+        Guid ItemId,
+        Guid ProjectId,
+        decimal? OrderQuantity,
+        string? OrderUnit,
+        DateTimeOffset? ArrivalsClosedAtUtc,
+        bool ReceiptCompleted,
+        int RowVersion,
+        string? OrderItem);
+
+    private sealed record ReceiptSnapshot(
+        Guid ReceiptId,
+        Guid ItemId,
+        Guid ProjectId,
+        string Status,
+        int Version,
+        bool ReceiptCompleted,
+        string? OrderItem);
+
+    private sealed record AttemptSnapshot(
+        Guid AttemptId,
+        Guid ReceiptId,
+        int AttemptNumber,
+        string Status,
+        Guid ItemId,
+        string ReceiptStatus,
+        int ReceiptVersion,
+        Guid ProjectId,
+        string? OrderItem);
+}

@@ -497,6 +497,142 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             : PendingMutationResult<PendingDetailResponse>.Success(detail);
     }
 
+    public async Task<Guid> CreateOrReuseMaterialNonconformanceAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid procurementItemId,
+        Guid materialReceiptId,
+        string title,
+        string description,
+        Guid actorUserId,
+        string? correlationId,
+        CancellationToken cancellationToken)
+    {
+        await using (var existingCommand = connection.CreateCommand())
+        {
+            existingCommand.Transaction = transaction;
+            existingCommand.CommandText = """
+                select pi.id
+                from pending_issues pi
+                join material_iqc_attempts attempt on attempt.pending_issue_id = pi.id
+                where attempt.material_receipt_id = @receipt_id
+                  and pi.status <> 'Closed'
+                order by pi.created_at_utc desc
+                limit 1
+                for update of pi;
+                """;
+            existingCommand.Parameters.AddWithValue("receipt_id", materialReceiptId);
+            var existing = await existingCommand.ExecuteScalarAsync(cancellationToken);
+            if (existing is Guid existingId)
+            {
+                return existingId;
+            }
+        }
+
+        var pendingId = Guid.NewGuid();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into pending_issues (
+                    id, project_id, target_type, target_id, issue_type, title, description,
+                    status, priority, assignee_user_id, due_date, created_by_user_id,
+                    updated_by_user_id
+                )
+                values (
+                    @id, @project_id, 'ProcurementItem', @target_id, 'Nonconformance', @title, @description,
+                    'Registered', 'Urgent', null, null, @actor_id, @actor_id
+                );
+                """;
+            command.Parameters.AddWithValue("id", pendingId);
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("target_id", procurementItemId);
+            command.Parameters.AddWithValue("title", title.Trim());
+            command.Parameters.AddWithValue("description", description.Trim());
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await InsertHistoryAsync(
+            connection,
+            transaction,
+            pendingId,
+            "Created",
+            null,
+            PendingStatuses.Registered,
+            null,
+            null,
+            "IQC 부적합 자동 등록",
+            actorUserId,
+            correlationId,
+            cancellationToken);
+        return pendingId;
+    }
+
+    public static async Task<string?> ReadMaterialNonconformanceStatusAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select status from pending_issues where id = @id for update;";
+        command.Parameters.AddWithValue("id", pendingId);
+        return (string?)await command.ExecuteScalarAsync(cancellationToken);
+    }
+
+    public async Task CloseMaterialNonconformanceAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        Guid actorUserId,
+        string reason,
+        string? correlationId,
+        CancellationToken cancellationToken)
+    {
+        var issue = await ReadIssueForUpdateAsync(connection, transaction, pendingId, cancellationToken)
+            ?? throw new InvalidOperationException("연결된 Pending을 찾을 수 없습니다.");
+        if (!string.Equals(issue.Status, PendingStatuses.ReinspectionRequested, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("재검사 요청 상태의 Pending만 IQC 합격으로 종결할 수 있습니다.");
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                update pending_issues
+                set status = 'Closed',
+                    version = version + 1,
+                    updated_by_user_id = @actor_id,
+                    updated_at_utc = now(),
+                    closed_by_user_id = @actor_id,
+                    closed_at_utc = now()
+                where id = @id;
+                """;
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("id", pendingId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await SyncWorkItemStatusAsync(connection, transaction, pendingId, PendingStatuses.Closed, cancellationToken);
+        await InsertHistoryAsync(
+            connection,
+            transaction,
+            pendingId,
+            "StatusChanged",
+            issue.Status,
+            PendingStatuses.Closed,
+            issue.AssigneeUserId,
+            issue.AssigneeUserId,
+            reason.Trim(),
+            actorUserId,
+            correlationId,
+            cancellationToken);
+    }
+
     private static Dictionary<string, string[]> ValidateCreate(CreatePendingRequest request)
     {
         var errors = new Dictionary<string, string[]>();

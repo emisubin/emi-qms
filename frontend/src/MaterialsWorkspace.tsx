@@ -342,13 +342,32 @@ function MaterialItemCard({ item, canUpdate, mobile, onAction }: {
         <div><span>{item.projectCode}</span><strong>{item.orderItem ?? '발주품목 미입력'}</strong><small>{item.projectTitle}</small></div>
         <div className="material-card-badges">{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={item.customerSupplyOverdue} /> : null}<StatusBadge status={item.receiptCompleted ? 'Confirmed' : item.arrivalsClosed ? 'Passed' : item.receipts.at(0)?.status ?? 'Arrived'} /></div>
       </header>
-      <dl className="material-item-meta">
-        <div><dt>{item.supplyType === 'CustomerSupplied' ? '공급 책임' : '업체'}</dt><dd>{item.supplyType === 'CustomerSupplied' ? '고객 제공' : item.supplierName ?? '-'}</dd></div>
-        <div><dt>입고예정</dt><dd>{item.expectedReceiptDate ?? '-'}</dd></div>
-        <div><dt>{item.supplyType === 'CustomerSupplied' ? '제공 예정' : '발주'}</dt><dd>{formatQuantity(item.orderQuantity, item.orderUnit)}</dd></div>
-        <div><dt>누적 도착</dt><dd>{formatQuantity(item.arrivedQuantity, item.orderUnit)}</dd></div>
-        {item.supplyType === 'CustomerSupplied' ? <><div><dt>입고 확정</dt><dd>{formatQuantity(item.confirmedQuantity, item.orderUnit)}</dd></div><div><dt>미도착 잔량</dt><dd>{formatQuantity(item.remainingQuantity, item.orderUnit)}</dd></div><div><dt>처리 대기량</dt><dd>{formatQuantity(item.processingQuantity, item.orderUnit)}</dd></div><div><dt>업체 참고</dt><dd>{item.supplierName ?? '-'}</dd></div></> : null}
-      </dl>
+      {mobile ? (
+        <dl className="material-item-meta material-item-meta--priority">
+          <div><dt>입고예정</dt><dd>{item.expectedReceiptDate ?? '-'}</dd></div>
+          <div><dt>{item.supplyType === 'CustomerSupplied' ? '미도착' : '누적 도착'}</dt><dd>{formatQuantity(item.supplyType === 'CustomerSupplied' ? item.remainingQuantity : item.arrivedQuantity, item.orderUnit)}</dd></div>
+          <div><dt>{item.supplyType === 'CustomerSupplied' ? '처리 대기' : '발주 수량'}</dt><dd>{formatQuantity(item.supplyType === 'CustomerSupplied' ? item.processingQuantity : item.orderQuantity, item.orderUnit)}</dd></div>
+        </dl>
+      ) : (
+        <dl className="material-item-meta">
+          <div><dt>{item.supplyType === 'CustomerSupplied' ? '공급 책임' : '업체'}</dt><dd>{item.supplyType === 'CustomerSupplied' ? '고객 제공' : item.supplierName ?? '-'}</dd></div>
+          <div><dt>입고예정</dt><dd>{item.expectedReceiptDate ?? '-'}</dd></div>
+          <div><dt>{item.supplyType === 'CustomerSupplied' ? '제공 예정' : '발주'}</dt><dd>{formatQuantity(item.orderQuantity, item.orderUnit)}</dd></div>
+          <div><dt>누적 도착</dt><dd>{formatQuantity(item.arrivedQuantity, item.orderUnit)}</dd></div>
+          {item.supplyType === 'CustomerSupplied' ? <><div><dt>입고 확정</dt><dd>{formatQuantity(item.confirmedQuantity, item.orderUnit)}</dd></div><div><dt>미도착 잔량</dt><dd>{formatQuantity(item.remainingQuantity, item.orderUnit)}</dd></div><div><dt>처리 대기량</dt><dd>{formatQuantity(item.processingQuantity, item.orderUnit)}</dd></div><div><dt>업체 참고</dt><dd>{item.supplierName ?? '-'}</dd></div></> : null}
+        </dl>
+      )}
+      {mobile ? (
+        <details className="mobile-card-details material-card-details">
+          <summary>입고 상세</summary>
+          <dl className="material-item-meta">
+            <div><dt>{item.supplyType === 'CustomerSupplied' ? '공급 책임' : '업체'}</dt><dd>{item.supplyType === 'CustomerSupplied' ? '고객 제공' : item.supplierName ?? '-'}</dd></div>
+            <div><dt>{item.supplyType === 'CustomerSupplied' ? '제공 예정' : '발주'}</dt><dd>{formatQuantity(item.orderQuantity, item.orderUnit)}</dd></div>
+            <div><dt>누적 도착</dt><dd>{formatQuantity(item.arrivedQuantity, item.orderUnit)}</dd></div>
+            {item.supplyType === 'CustomerSupplied' ? <><div><dt>입고 확정</dt><dd>{formatQuantity(item.confirmedQuantity, item.orderUnit)}</dd></div><div><dt>업체 참고</dt><dd>{item.supplierName ?? '-'}</dd></div></> : null}
+          </dl>
+        </details>
+      ) : null}
       {item.receipts.length === 0 ? <p className="material-no-receipts">아직 등록된 도착분이 없습니다.</p> : (
         <div className="material-receipt-stack">
           {item.receipts.map((receipt) => (

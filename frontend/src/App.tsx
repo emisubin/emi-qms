@@ -2339,6 +2339,8 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
   const [draftIsActive, setDraftIsActive] = useState(true);
   const [message, setMessage] = useState('');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const isMobile = useIsMobileViewport();
+  const [showAllMobileFields, setShowAllMobileFields] = useState(false);
 
   const load = useCallback(() => {
     setState({ kind: 'loading' });
@@ -2494,7 +2496,7 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
   const allUsersSelected = selectableUserIds.length > 0 && selectableUserIds.every((id) => selectedUserIds.includes(id));
 
   return (
-    <section className="panel-section">
+    <section className={`panel-section admin-mobile-page${showAllMobileFields ? ' admin-mobile-page--all-fields' : ''}`}>
       <div className="page-header">
         <div>
           <p className="eyebrow">System Administrator</p>
@@ -2503,6 +2505,17 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
         <button type="button" onClick={load}>새로고침</button>
       </div>
       <p className="muted-text">EntraId 사용자의 부서, 역할, 활성 상태만 수정할 수 있습니다. Dev 사용자는 읽기 전용입니다.</p>
+      {isMobile ? (
+        <button
+          type="button"
+          className="mobile-admin-field-toggle"
+          aria-pressed={showAllMobileFields}
+          onClick={() => setShowAllMobileFields((current) => !current)}
+        >
+          <span>{showAllMobileFields ? '핵심 열로 보기' : '모든 관리 필드 보기'}</span>
+          <small>{showAllMobileFields ? '모바일 우선 정보만 다시 표시' : '상태·부서·역할 열까지 가로로 확인'}</small>
+        </button>
+      ) : null}
       <ActionFeedback message={message} tone={message.includes('없습니다') || message.includes('수 없습니다') ? 'error' : message ? 'success' : 'neutral'} />
       {state.kind === 'ready' ? (
         <div className="bulk-action-bar">
@@ -4978,8 +4991,11 @@ function AdminPageShell({
   message: string;
   children: ReactNode;
 }) {
+  const isMobile = useIsMobileViewport();
+  const [showAllMobileFields, setShowAllMobileFields] = useState(false);
+
   return (
-    <section className="panel-section">
+    <section className={`panel-section admin-mobile-page${showAllMobileFields ? ' admin-mobile-page--all-fields' : ''}`}>
       <div className="page-header">
         <div>
           <p className="eyebrow">{eyebrow}</p>
@@ -4988,6 +5004,17 @@ function AdminPageShell({
         {onRefresh ? <button type="button" onClick={onRefresh}>새로고침</button> : null}
       </div>
       {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+      {isMobile ? (
+        <button
+          type="button"
+          className="mobile-admin-field-toggle"
+          aria-pressed={showAllMobileFields}
+          onClick={() => setShowAllMobileFields((current) => !current)}
+        >
+          <span>{showAllMobileFields ? '핵심 열로 보기' : '모든 관리 필드 보기'}</span>
+          <small>{showAllMobileFields ? '모바일 우선 정보만 다시 표시' : '감사·기술 열까지 가로로 확인'}</small>
+        </button>
+      ) : null}
       {children}
     </section>
   );
@@ -5458,6 +5485,7 @@ function TeamsActivityPage({
   onOpenHome: () => void;
 }) {
   const [state, setState] = useState<LoadState<TeamsActivitySummary>>({ kind: 'loading' });
+  const isMobile = useIsMobileViewport();
 
   const load = useCallback(() => {
     setState({ kind: 'loading' });
@@ -5491,11 +5519,12 @@ function TeamsActivityPage({
   const data = state.kind === 'ready' ? state.data : null;
 
   return (
-    <section className="page-surface workflow-page teams-activity-page">
-      <div className="page-header">
+    <section className={isMobile ? 'page-surface workflow-page teams-activity-page mobile-operations-page' : 'page-surface workflow-page teams-activity-page'}>
+      <div className={isMobile ? 'page-header mobile-operations-header' : 'page-header'}>
         <div>
-          <p className="eyebrow">Teams</p>
-          <h2>EMI 프로젝트 통합관리시스템 알림</h2>
+          <p className="eyebrow">{isMobile ? 'QUICK FEED' : 'Teams'}</p>
+          <h2>{isMobile ? '업무 피드' : 'EMI 프로젝트 통합관리시스템 알림'}</h2>
+          {isMobile ? <p>읽지 않은 알림과 미완료 업무를 한 번에 확인하세요.</p> : null}
         </div>
         <div className="button-row">
           <button type="button" onClick={onOpenHome}>시스템 홈</button>
@@ -7858,11 +7887,12 @@ function ProductionPlanningDashboardPage({
   }
 
   return (
-    <section className="page-surface">
-      <div className="page-header">
+    <section className={isMobile ? 'page-surface mobile-operations-page production-mobile-page' : 'page-surface'}>
+      <div className={isMobile ? 'page-header mobile-operations-header' : 'page-header'}>
         <div>
-          <p className="eyebrow">Production Planning</p>
+          <p className="eyebrow">{isMobile ? 'TODAY PLAN' : 'Production Planning'}</p>
           <h2>생산계획</h2>
+          {isMobile ? <p>미등록·지연 프로젝트를 먼저 확인하세요.</p> : null}
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>프로젝트 목록</button>
@@ -7907,19 +7937,21 @@ function ProductionPlanningDashboardPage({
             {state.data.projects.map((project) => (
               <article key={project.projectId} className={project.projectId === expandedProjectId ? 'procurement-project-card active' : 'procurement-project-card'}>
                 <div className="subsection-header">
-                  <h3>{project.projectTitle}</h3>
-                  <button type="button" onClick={() => onOpenProject(project.projectId)}>상세 보기</button>
+                  <div>
+                    <small>{project.projectCode} · {project.item}</small>
+                    <h3>{project.projectTitle}</h3>
+                  </div>
+                  <ProductionPlanStatusBadge status={project.planStatus} label={project.planStatusLabel} />
                 </div>
-                <dl className="mobile-detail-list">
-                  <div><dt>Code</dt><dd>{project.projectCode}</dd></div>
-                  <div><dt>Item</dt><dd>{project.item}</dd></div>
-                  <div><dt>면수</dt><dd>{project.activePanelCount}</dd></div>
+                <dl className="mobile-priority-grid">
                   <div><dt>납기일</dt><dd>{emptyDash(project.deliveryDate)}</dd></div>
-                  <div><dt>생산계획 상태</dt><dd>{project.planStatusLabel}</dd></div>
+                  <div><dt>설계 면수</dt><dd>{project.activePanelCount}면</dd></div>
+                  <div><dt>계획</dt><dd>{project.planStatusLabel}</dd></div>
                 </dl>
-                <div className="button-row">
-                  <button type="button" className="secondary-button" onClick={() => setExpandedProjectId((current) => current === project.projectId ? null : project.projectId)}>
-                    {project.projectId === expandedProjectId ? '접기' : '생산계획 보기'}
+                <div className="mobile-card-actions">
+                  <button type="button" onClick={() => onOpenProject(project.projectId)}>프로젝트</button>
+                  <button type="button" className="primary-button" onClick={() => setExpandedProjectId((current) => current === project.projectId ? null : project.projectId)}>
+                    {project.projectId === expandedProjectId ? '접기' : '계획 보기'}
                   </button>
                 </div>
                 {project.projectId === expandedProjectId ? (
@@ -9367,11 +9399,12 @@ function ProcurementDashboardPage({
   }
 
   return (
-    <section className="page-surface procurement-section">
-      <div className="page-header">
+    <section className={isMobile ? 'page-surface procurement-section mobile-operations-page procurement-mobile-page' : 'page-surface procurement-section'}>
+      <div className={isMobile ? 'page-header mobile-operations-header' : 'page-header'}>
         <div>
-          <p className="eyebrow">Procurement</p>
+          <p className="eyebrow">{isMobile ? 'SUPPLY WATCH' : 'Procurement'}</p>
           <h2>구매</h2>
+          {isMobile ? <p>입고 지연과 미완료 품목을 먼저 확인하세요.</p> : null}
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>프로젝트 목록</button>
@@ -9559,26 +9592,36 @@ function ProcurementProjectCards({
       {projects.map((project) => (
         <article key={project.projectId} className={project.projectId === expandedProjectId ? 'procurement-project-card active' : 'procurement-project-card'}>
           <div className="subsection-header">
-            <h3>{project.projectTitle}</h3>
-            <button type="button" onClick={() => onOpenProject(project.projectId)}>상세 보기</button>
+            <div>
+              <small>{project.projectCode} · {project.item}</small>
+              <h3>{project.projectTitle}</h3>
+            </div>
+            <span className="mobile-project-dday" data-overdue={project.dDayText.includes('경과')}>{project.dDayText}</span>
           </div>
-          <dl className="mobile-detail-list">
-            <div><dt>고객사</dt><dd>{project.customerName}</dd></div>
-            <div><dt>Code</dt><dd>{project.projectCode}</dd></div>
-            <div><dt>Item</dt><dd>{project.item}</dd></div>
-            <div><dt>구매품목</dt><dd>{project.procurementItemCount}건</dd></div>
-            <div><dt>입고완료</dt><dd>{project.receiptCompletedCount}건</dd></div>
-            <div><dt>최근 입고예정일</dt><dd>{emptyDash(project.nearestExpectedReceiptDate)}</dd></div>
-            <div><dt>예정일까지</dt><dd>{project.dDayText}</dd></div>
+          <dl className="mobile-priority-grid">
+            <div><dt>미완료</dt><dd>{Math.max(project.procurementItemCount - project.receiptCompletedCount, 0)}건</dd></div>
+            <div><dt>완료</dt><dd>{project.receiptCompletedCount}/{project.procurementItemCount}</dd></div>
+            <div><dt>최근 입고</dt><dd>{emptyDash(project.nearestExpectedReceiptDate)}</dd></div>
           </dl>
-          <button
-            type="button"
-            className="secondary-button"
-            aria-expanded={project.projectId === expandedProjectId}
-            onClick={() => onSelect(project.projectId)}
-          >
-            {project.projectId === expandedProjectId ? '구매정보 접기' : '구매정보 보기'}
-          </button>
+          <details className="mobile-card-details">
+            <summary>프로젝트 정보</summary>
+            <dl className="mobile-detail-list">
+              <div><dt>고객사</dt><dd>{project.customerName}</dd></div>
+              <div><dt>Code</dt><dd>{project.projectCode}</dd></div>
+              <div><dt>Item</dt><dd>{project.item}</dd></div>
+            </dl>
+          </details>
+          <div className="mobile-card-actions">
+            <button type="button" onClick={() => onOpenProject(project.projectId)}>프로젝트</button>
+            <button
+              type="button"
+              className="primary-button"
+              aria-expanded={project.projectId === expandedProjectId}
+              onClick={() => onSelect(project.projectId)}
+            >
+              {project.projectId === expandedProjectId ? '접기' : '구매정보'}
+            </button>
+          </div>
           {project.projectId === expandedProjectId ? (
             <ProcurementProjectExpanded
               project={project}
@@ -9964,18 +10007,26 @@ function ProcurementCards({
               </>
             ) : (
               <>
-                <h3 className="order-item-badge">{emptyDash(row.orderItem)}</h3>
-                <SupplyTypeBadge supplyType={row.supplyType} />
-                <dl className="mobile-detail-list">
-                  <div><dt>기술 담당자</dt><dd>{emptyDash(row.technicalOwner)}</dd></div>
-                  <div><dt>업체</dt><dd>{emptyDash(row.supplierName)}</dd></div>
-                  <div><dt>통상납기</dt><dd>{emptyDash(row.standardLeadTime)}</dd></div>
-                  <div><dt>발주일</dt><dd>{emptyDash(row.orderDate)}</dd></div>
-                  <div><dt>입고예정일</dt><dd>{emptyDash(row.expectedReceiptDate)}</dd></div>
-                  <div><dt>이슈사항</dt><dd>{emptyDash(row.issueNote)}</dd></div>
-                  {row.supplyType === 'CustomerSupplied' ? <div><dt>제공 예정</dt><dd>{formatSupplyQuantity(Number(row.orderQuantity) || null, row.orderUnit || null)}</dd></div> : null}
-                  <div><dt>입고 완료</dt><dd><ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} /></dd></div>
+                <div className="mobile-card-title-row">
+                  <h3 className="order-item-badge">{emptyDash(row.orderItem)}</h3>
+                  <SupplyTypeBadge supplyType={row.supplyType} />
+                </div>
+                <dl className="mobile-priority-grid mobile-priority-grid--procurement">
+                  <div><dt>입고예정</dt><dd>{emptyDash(row.expectedReceiptDate)}</dd></div>
+                  <div><dt>입고 상태</dt><dd><ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} /></dd></div>
+                  <div><dt>{row.supplyType === 'CustomerSupplied' ? '제공 예정' : '업체'}</dt><dd>{row.supplyType === 'CustomerSupplied' ? formatSupplyQuantity(Number(row.orderQuantity) || null, row.orderUnit || null) : emptyDash(row.supplierName)}</dd></div>
                 </dl>
+                {row.issueNote ? <p className="mobile-card-alert">{row.issueNote}</p> : null}
+                <details className="mobile-card-details">
+                  <summary>발주 상세</summary>
+                  <dl className="mobile-detail-list">
+                    <div><dt>기술 담당자</dt><dd>{emptyDash(row.technicalOwner)}</dd></div>
+                    <div><dt>업체</dt><dd>{emptyDash(row.supplierName)}</dd></div>
+                    <div><dt>통상납기</dt><dd>{emptyDash(row.standardLeadTime)}</dd></div>
+                    <div><dt>발주일</dt><dd>{emptyDash(row.orderDate)}</dd></div>
+                    {row.issueNote ? <div><dt>이슈사항</dt><dd>{row.issueNote}</dd></div> : null}
+                  </dl>
+                </details>
               </>
             )}
           </article>

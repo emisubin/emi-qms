@@ -1,5 +1,7 @@
 # TASK-MOBILE-002 구현 보고서 — 모바일 우선 적응형 화면 1차 Vertical Slice
 
+> 최신 후속 구현: [TASK-MOBILE-002 Change 002 전체 모바일 화면 전면 개편](mobile-002-change-002-implementation-report.md). 1차 7개 route 범위를 생산·구매·자재·IQC·Teams·관리 화면까지 확장했으며, 아래 본문은 최초 vertical slice 당시의 기록으로 보존한다.
+
 ## 1. 상태와 안전 경계
 
 - Task: `TASK-MOBILE-002`

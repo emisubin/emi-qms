@@ -96,7 +96,7 @@ test('TASK-MOBILE-002: mobile-first composition covers the seven core field rout
 
   await page.setViewportSize({ width: 480, height: 800 });
   await page.goto('/teams/activity');
-  await expect(page.getByRole('heading', { name: 'EMI 프로젝트 통합관리시스템 알림' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '업무 피드' })).toBeVisible();
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
   await assertNoHorizontalOverflow(page);
   await capture(page, '11-teams-activity-mobile-480.png');

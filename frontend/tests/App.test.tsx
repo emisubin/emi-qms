@@ -1414,7 +1414,7 @@ describe('App', () => {
     expect(procurementMobile).toHaveTextContent('Relay');
     expect(procurementMobile).toHaveTextContent('업체Vendor A');
     expect(procurementMobile).toHaveTextContent('기술 담당자Owner A');
-    expect(procurementMobile).toHaveTextContent('입고예정일2026-06-29');
+    expect(procurementMobile).toHaveTextContent('입고예정2026-06-29');
     expect(procurementMobile).toHaveTextContent('사급 · 고객 제공');
     expect(procurementMobile).toHaveTextContent('제공 예정100 EA');
     expect(procurementMobile).not.toHaveTextContent('예정일까지');

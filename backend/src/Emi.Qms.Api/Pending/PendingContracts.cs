@@ -135,6 +135,8 @@ public sealed record PendingAssigneeResponse(Guid UserId, string DisplayName, st
 
 public sealed record ManufacturingStopPendingResult(Guid PendingId, long IssueNumber);
 
+public sealed record PanelQualityPendingResult(Guid PendingId, long IssueNumber);
+
 public sealed record PendingActor(Guid UserId, bool IsCoordinator);
 
 public sealed record PendingMutationResult<T>(

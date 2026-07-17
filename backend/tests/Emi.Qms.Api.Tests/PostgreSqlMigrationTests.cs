@@ -294,11 +294,11 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(34L, await ReadScalarAsync<long>(
+        Assert.Equal(35L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0034_manufacturing_execution", await ReadScalarAsync<string>(
+        Assert.Equal("0035_panel_quality_inspections", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -324,6 +324,36 @@ public sealed class PostgreSqlMigrationTests
             where table_schema = 'public'
               and table_name = 'pending_issues'
               and column_name = 'action_department_code';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(18L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from panel_quality_template_items;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(9L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'panel_quality_template_versions', 'panel_quality_template_items',
+                  'panel_quality_inspection_attempts', 'panel_quality_reports',
+                  'panel_quality_report_responses', 'panel_quality_report_photos',
+                  'panel_quality_report_pdf_artifacts',
+                  'panel_manufacturing_completion_confirmations', 'panel_quality_operations'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from pg_trigger
+            where tgname in (
+                'trg_guard_panel_quality_pdf_artifact_immutable',
+                'trg_guard_finalized_panel_quality_responses',
+                'trg_guard_finalized_panel_quality_photos'
+            ) and not tgisinternal;
             """,
             TestContext.Current.CancellationToken));
         Assert.Equal(6L, await ReadScalarAsync<long>(

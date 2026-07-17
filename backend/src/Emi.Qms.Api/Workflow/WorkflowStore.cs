@@ -974,10 +974,19 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 return WorkflowMutationResult<MyWorkItemResponse>.Conflict("Pending 상세에서 상태를 변경해 주세요.");
             }
 
+            var stageCode = reader.GetString(2);
             if (string.Equals(reader.GetString(1), "Panel", StringComparison.Ordinal)
-                && string.Equals(reader.GetString(2), WorkflowStageCodes.ManufacturingWork, StringComparison.Ordinal))
+                && stageCode is WorkflowStageCodes.ManufacturingWork
+                    or WorkflowStageCodes.LQC
+                    or WorkflowStageCodes.ManufacturingCompleted
+                    or WorkflowStageCodes.OQC
+                    or WorkflowStageCodes.CustomerInspection
+                    or WorkflowStageCodes.FAT)
             {
-                return WorkflowMutationResult<MyWorkItemResponse>.Conflict("제조 화면에서 작업 시작·체크·종료를 진행해 주세요. /manufacturing/work");
+                var destination = stageCode is WorkflowStageCodes.ManufacturingWork or WorkflowStageCodes.ManufacturingCompleted
+                    ? "/manufacturing/work"
+                    : "/quality/inspections";
+                return WorkflowMutationResult<MyWorkItemResponse>.Conflict($"전용 화면에서 작업을 진행해 주세요. {destination}");
             }
         }
 
@@ -1960,11 +1969,19 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             return $"/pending/{targetId.Value}";
         }
 
-        if (string.Equals(stageCode, WorkflowStageCodes.ManufacturingWork, StringComparison.Ordinal)
+        if (stageCode is WorkflowStageCodes.ManufacturingWork or WorkflowStageCodes.ManufacturingCompleted
             && string.Equals(targetType, "Panel", StringComparison.Ordinal)
             && targetId is not null)
         {
             return $"/manufacturing/work?project={projectId}&panel={targetId.Value}";
+        }
+
+        if (stageCode is WorkflowStageCodes.LQC or WorkflowStageCodes.OQC
+                or WorkflowStageCodes.CustomerInspection or WorkflowStageCodes.FAT
+            && string.Equals(targetType, "Panel", StringComparison.Ordinal)
+            && targetId is not null)
+        {
+            return $"/quality/inspections?stage={stageCode}&project={projectId}&panel={targetId.Value}";
         }
 
         return LinkUrlForStage(projectId, stageCode);

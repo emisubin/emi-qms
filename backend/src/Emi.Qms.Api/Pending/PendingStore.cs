@@ -307,6 +307,11 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         {
             return PendingMutationResult<PendingDetailResponse>.Conflict("현재 상태에서 요청한 상태로 변경할 수 없습니다.");
         }
+        if (string.Equals(toStatus, PendingStatuses.Closed, StringComparison.Ordinal)
+            && await IsQualityInspectionPendingAsync(connection, transaction, pendingId, cancellationToken))
+        {
+            return PendingMutationResult<PendingDetailResponse>.Conflict("품질검사 Pending은 재검사 합격 처리에서만 종결할 수 있습니다.");
+        }
         if (toStatus != PendingStatuses.Registered && issue.AssigneeUserId is null)
         {
             return PendingMutationResult<PendingDetailResponse>.Conflict("먼저 조치 담당자를 지정해 주세요.");
@@ -684,6 +689,94 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         return new ManufacturingStopPendingResult(pendingId, issueNumber);
     }
 
+    public async Task<PanelQualityPendingResult> CreatePanelQualityIssueAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid panelId,
+        string panelDisplayCode,
+        string stageLabel,
+        string issueType,
+        string description,
+        string actionDepartmentCode,
+        Guid? assigneeUserId,
+        Guid actorUserId,
+        string? correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (issueType is not (PendingIssueTypes.Nonconformance or PendingIssueTypes.Punch))
+        {
+            throw new InvalidOperationException("지원하지 않는 품질 Pending 유형입니다.");
+        }
+
+        var pendingId = Guid.NewGuid();
+        var status = assigneeUserId is null ? PendingStatuses.Registered : PendingStatuses.ActionRequested;
+        var title = $"{stageLabel} {(issueType == PendingIssueTypes.Punch ? "PUNCH" : "부적합")} · {panelDisplayCode}";
+        var pendingDescription = $"{stageLabel} 검사 결과 · {description.Trim()}";
+        long issueNumber;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into pending_issues (
+                    id, project_id, target_type, target_id, issue_type, title, description,
+                    status, priority, action_department_code, assignee_user_id, due_date,
+                    created_by_user_id, updated_by_user_id
+                )
+                values (
+                    @id, @project_id, 'Panel', @panel_id, @issue_type, @title, @description,
+                    @status, 'Urgent', @action_department_code, @assignee_user_id, null,
+                    @actor_id, @actor_id
+                )
+                returning issue_number;
+                """;
+            command.Parameters.AddWithValue("id", pendingId);
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("panel_id", panelId);
+            command.Parameters.AddWithValue("issue_type", issueType);
+            command.Parameters.AddWithValue("title", title);
+            command.Parameters.AddWithValue("description", pendingDescription);
+            command.Parameters.AddWithValue("status", status);
+            command.Parameters.AddWithValue("action_department_code", actionDepartmentCode);
+            AddNullableUuid(command, "assignee_user_id", assigneeUserId);
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            issueNumber = (long)(await command.ExecuteScalarAsync(cancellationToken) ?? 0L);
+        }
+
+        await InsertHistoryAsync(
+            connection,
+            transaction,
+            pendingId,
+            "Created",
+            null,
+            status,
+            null,
+            assigneeUserId,
+            $"{stageLabel} 판정 자동 등록",
+            actorUserId,
+            correlationId,
+            cancellationToken);
+
+        if (assigneeUserId is not null)
+        {
+            await CreateAssignmentArtifactsAsync(
+                connection,
+                transaction,
+                pendingId,
+                projectId,
+                title,
+                pendingDescription,
+                PendingPriorities.Urgent,
+                null,
+                assigneeUserId.Value,
+                actorUserId,
+                1,
+                cancellationToken);
+        }
+
+        return new PanelQualityPendingResult(pendingId, issueNumber);
+    }
+
     public static async Task<string?> ReadMaterialNonconformanceStatusAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -711,6 +804,56 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         if (!string.Equals(issue.Status, PendingStatuses.ReinspectionRequested, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("재검사 요청 상태의 Pending만 IQC 합격으로 종결할 수 있습니다.");
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                update pending_issues
+                set status = 'Closed',
+                    version = version + 1,
+                    updated_by_user_id = @actor_id,
+                    updated_at_utc = now(),
+                    closed_by_user_id = @actor_id,
+                    closed_at_utc = now()
+                where id = @id;
+                """;
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("id", pendingId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await SyncWorkItemStatusAsync(connection, transaction, pendingId, PendingStatuses.Closed, cancellationToken);
+        await InsertHistoryAsync(
+            connection,
+            transaction,
+            pendingId,
+            "StatusChanged",
+            issue.Status,
+            PendingStatuses.Closed,
+            issue.AssigneeUserId,
+            issue.AssigneeUserId,
+            reason.Trim(),
+            actorUserId,
+            correlationId,
+            cancellationToken);
+    }
+
+    public async Task ClosePanelQualityIssueAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        Guid actorUserId,
+        string reason,
+        string? correlationId,
+        CancellationToken cancellationToken)
+    {
+        var issue = await ReadIssueForUpdateAsync(connection, transaction, pendingId, cancellationToken)
+            ?? throw new InvalidOperationException("연결된 Pending을 찾을 수 없습니다.");
+        if (!string.Equals(issue.Status, PendingStatuses.ReinspectionRequested, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("재검사 요청 상태의 Pending만 품질검사 합격으로 종결할 수 있습니다.");
         }
 
         await using (var command = connection.CreateCommand())
@@ -1090,6 +1233,26 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         command.Transaction = transaction;
         command.CommandText = "select exists (select 1 from departments where code = @code and is_active = true);";
         command.Parameters.AddWithValue("code", departmentCode);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
+    }
+
+    private static async Task<bool> IsQualityInspectionPendingAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select exists (
+                select 1
+                from panel_quality_inspection_attempts
+                where linked_pending_issue_id = @pending_id
+                  and status = 'Failed'
+            );
+            """;
+        command.Parameters.AddWithValue("pending_id", pendingId);
         return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 

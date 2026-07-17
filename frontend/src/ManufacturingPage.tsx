@@ -3,7 +3,9 @@ import {
   ApiError,
   checkManufacturingStep,
   completeManufacturingExecution,
+  confirmPanelManufacturingCompleted,
   getManufacturingPanel,
+  getManufacturingCompletionQueue,
   getManufacturingQueue,
   listManufacturingActionDepartments,
   resumeManufacturingExecution,
@@ -21,6 +23,7 @@ import type {
   ManufacturingStatus,
   StopManufacturingRequest
 } from './manufacturing';
+import type { QualityInspectionPanel } from './qualityInspections';
 
 type QueueState =
   | { kind: 'loading' }
@@ -65,6 +68,7 @@ export function ManufacturingPage({
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId ?? '');
   const [selectedPanelId, setSelectedPanelId] = useState(initialPanelId ?? '');
   const [departments, setDepartments] = useState<ManufacturingActionDepartment[]>([]);
+  const [completionPanels, setCompletionPanels] = useState<QualityInspectionPanel[]>([]);
   const [savingAction, setSavingAction] = useState('');
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [stopOpen, setStopOpen] = useState(false);
@@ -88,6 +92,9 @@ export function ManufacturingPage({
     try {
       const data = await getManufacturingQueue(developmentUserKey);
       setQueueState({ kind: 'ready', data });
+      void getManufacturingCompletionQueue(developmentUserKey)
+        .then((response) => setCompletionPanels(response.projects.flatMap((project) => project.panels)))
+        .catch(() => setCompletionPanels([]));
       const requestedProject = preferredProjectId ?? selectedProjectId ?? initialProjectId;
       const project = data.projects.find((item) => item.projectId === requestedProject)
         ?? data.projects.find((item) => item.blockedCount > 0 || item.inProgressCount > 0 || item.readyCount > 0)
@@ -139,6 +146,7 @@ export function ManufacturingPage({
   const selectedPanel = selectedProject?.panels.find((panel) => panel.panelId === selectedPanelId) ?? null;
   const detail = detailState.kind === 'ready' ? detailState.data : null;
   const panel = detail?.panel ?? selectedPanel;
+  const completionTask = completionPanels.find((item) => item.panelId === panel?.panelId) ?? null;
   const selectedDepartment = departments.find((item) => item.departmentCode === stopDepartment) ?? null;
   const allStepsChecked = Boolean(detail?.steps.length) && detail!.steps.every((step) => step.checked);
   const nextStep = detail?.steps.find((step) => !step.checked) ?? null;
@@ -161,6 +169,9 @@ export function ManufacturingPage({
     setDetailState({ kind: 'ready', data: panelDetail });
     setSelectedProjectId(projectId);
     setSelectedPanelId(panelId);
+    void getManufacturingCompletionQueue(developmentUserKey)
+      .then((response) => setCompletionPanels(response.projects.flatMap((project) => project.panels)))
+      .catch(() => setCompletionPanels([]));
   }
 
   async function mutate(
@@ -252,6 +263,20 @@ export function ManufacturingPage({
         expectedVersion: panel.version
       }),
       `${panel.displayCode} 제조를 완료하고 LQC 업무를 생성했습니다.`
+    );
+  }
+
+  async function confirmCompletion() {
+    if (!selectedProject || !panel || !completionTask || !canMutate) return;
+    await mutate(
+      'confirm-completion',
+      `${selectedProject.projectId}|${panel.panelId}`,
+      (id) => confirmPanelManufacturingCompleted(developmentUserKey, {
+        operationId: id,
+        projectId: selectedProject.projectId,
+        panelId: panel.panelId
+      }),
+      `${panel.displayCode} 제조 완료를 확인하고 OQC로 넘겼습니다.`
     );
   }
 
@@ -454,6 +479,21 @@ export function ManufacturingPage({
                         <span>긴급 Pending #{panel.activePendingNumber}</span>
                         <strong>{departmentName(panel.actionDepartmentCode, departments)} 조치 확인 →</strong>
                       </button>
+                    ) : null}
+                    {panel.status === 'Completed' && completionTask ? (
+                      <section className="manufacturing-confirmation-card" data-status={completionTask.status.toLowerCase()}>
+                        <span className="manufacturing-confirmation-mark" aria-hidden="true">11</span>
+                        <div>
+                          <small>LQC PASS · NEXT GATE</small>
+                          <strong>{completionTask.status === 'Confirmed' ? '제조 완료 확인됨' : '제조 완료 확인 대기'}</strong>
+                          <p>{completionTask.status === 'Confirmed' ? 'OQC 업무가 생성되었습니다.' : 'LQC 합격 내용을 확인하면 OQC 담당자에게 즉시 인계됩니다.'}</p>
+                        </div>
+                        {completionTask.status !== 'Confirmed' ? (
+                          <button type="button" disabled={!canMutate || Boolean(savingAction)} onClick={() => void confirmCompletion()}>
+                            {savingAction === 'confirm-completion' ? '확인 중' : '제조 완료 확인'}
+                          </button>
+                        ) : <span className="manufacturing-confirmed-disc">✓</span>}
+                      </section>
                     ) : null}
                   </section>
 

@@ -2,6 +2,7 @@ using System.Data;
 using Emi.Qms.Api.Manufacturing;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
+using Emi.Qms.Api.QualityInspections;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -1048,6 +1049,12 @@ public sealed class ProjectStore(
                         panel.PanelId,
                         changedByUserId,
                         cancellationToken);
+                    await QualityInspectionStore.CancelPanelInspectionsAsync(
+                        connection,
+                        transaction,
+                        panel.PanelId,
+                        changedByUserId,
+                        cancellationToken);
 
                     await using var command = connection.CreateCommand();
                     command.Transaction = transaction;
@@ -1172,6 +1179,12 @@ public sealed class ProjectStore(
         if (string.Equals(targetStatus, "Cancelled", StringComparison.Ordinal))
         {
             await ManufacturingStore.CancelProjectExecutionsAsync(
+                connection,
+                transaction,
+                projectId,
+                changedByUserId,
+                cancellationToken);
+            await QualityInspectionStore.CancelProjectInspectionsAsync(
                 connection,
                 transaction,
                 projectId,
@@ -3444,10 +3457,18 @@ public sealed class ProjectStore(
             return;
         }
 
+        await ExecutePurgeCommandAsync(connection, transaction, "select set_config('emi_qms.project_purge', 'on', true) where cardinality(@project_ids) >= 0;", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from project_audit_events where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batch_projects where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batches where cardinality(@project_ids) >= 0 and not exists (select 1 from procurement_excel_import_batch_projects bp where bp.import_batch_id = procurement_excel_import_batches.id) and not exists (select 1 from project_audit_events a where a.procurement_import_batch_id = procurement_excel_import_batches.id);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_information_excel_import_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_completion_confirmations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_report_pdf_artifacts where report_id in (select report.id from panel_quality_reports report join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id where attempt.project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_report_photos where report_id in (select report.id from panel_quality_reports report join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id where attempt.project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_report_responses where report_id in (select report.id from panel_quality_reports report join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id where attempt.project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_reports where attempt_id in (select id from panel_quality_inspection_attempts where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_inspection_attempts where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_events where execution_id in (select id from panel_manufacturing_executions where project_id = any(@project_ids));", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_execution_steps where execution_id in (select id from panel_manufacturing_executions where project_id = any(@project_ids));", projectIds, cancellationToken);

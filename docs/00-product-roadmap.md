@@ -1555,6 +1555,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제외 범위: 물류 상세
 - 선행조건: 검사성적서 양식, 사진 필수 위치 회신
 - 주요 테스트: 검사 결과, PUNCH, 재검사, FAT optional 처리
+- 2026-07-17 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 “다음 작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-012A` 기획·구현을 진행한다. 실제 고객 양식·필수 사진 위치·template 관리의 미확정 정책은 일반 v1 seed·optional 사진·후속 Task로 경계를 두며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
+- 2026-07-17 실험 상태: `experiment/task-012a-quality-inspections`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0035`는 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, panel LQC → 제조완료확인 → OQC → 고객검수 → 선택 FAT/포장 skeleton, 사진·불변 성적서·PDF, 불합격/PUNCH Pending·재검사 계약을 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 canonical 실행 큐의 다음 `TASK-007A` Gate는 변경하지 않는다.
 
 ### TASK-ADMIN-002: 검사·제조 Template 관리
 

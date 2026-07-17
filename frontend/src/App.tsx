@@ -7,6 +7,8 @@ import { MobileSheet } from './MobileSheet';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
 import { PanelKittingPage } from './PanelKittingPage';
+import { QualityInspectionsPage } from './QualityInspectionsPage';
+import type { QualityInspectionStage } from './qualityInspections';
 import {
   ApiError,
   applyAdminCalendarHolidayExcel,
@@ -231,6 +233,7 @@ type View =
   | { kind: 'materials-kitting'; projectId?: string; panelId?: string }
   | { kind: 'manufacturing-work'; projectId?: string; panelId?: string }
   | { kind: 'quality-iqc' }
+  | { kind: 'quality-inspections'; stage?: QualityInspectionStage; projectId?: string; panelId?: string }
   | { kind: 'notifications' }
   | { kind: 'pending'; projectId?: string }
   | { kind: 'pending-detail'; pendingId: string }
@@ -476,6 +479,16 @@ function initialViewFromLocation(): View {
     return { kind: 'quality-iqc' };
   }
 
+  if (window.location.pathname === '/quality/inspections') {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      kind: 'quality-inspections',
+      stage: qualityStageFromQuery(params.get('stage')),
+      projectId: params.get('project') ?? undefined,
+      panelId: params.get('panel') ?? undefined
+    };
+  }
+
   if (window.location.pathname === '/production-planning') {
     return { kind: 'production-planning-dashboard' };
   }
@@ -650,6 +663,15 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
       };
     }
 
+    if (url.pathname === '/quality/inspections') {
+      return {
+        kind: 'quality-inspections',
+        stage: qualityStageFromQuery(url.searchParams.get('stage')),
+        projectId: url.searchParams.get('project') ?? projectId,
+        panelId: url.searchParams.get('panel') ?? undefined
+      };
+    }
+
     const pendingMatch = url.pathname.match(/^\/pending\/([^/]+)$/);
     if (pendingMatch?.[1]) {
       return { kind: 'pending-detail', pendingId: pendingMatch[1] };
@@ -683,6 +705,12 @@ function sectionFromQuery(value: string | null): ProjectDetailSection | undefine
   }
 
   return undefined;
+}
+
+function qualityStageFromQuery(value: string | null): QualityInspectionStage | undefined {
+  return value === 'LQC' || value === 'OQC' || value === 'CustomerInspection' || value === 'FAT'
+    ? value
+    : undefined;
 }
 
 function pathForView(view: View) {
@@ -727,6 +755,14 @@ function pathForView(view: View) {
     }
     case 'quality-iqc':
       return '/quality/iqc';
+    case 'quality-inspections': {
+      const params = new URLSearchParams();
+      if (view.stage) params.set('stage', view.stage);
+      if (view.projectId) params.set('project', view.projectId);
+      if (view.panelId) params.set('panel', view.panelId);
+      const query = params.toString();
+      return `/quality/inspections${query ? `?${query}` : ''}`;
+    }
     case 'procurement-dashboard':
       return '/procurement';
     case 'procurement-settings':
@@ -1318,7 +1354,7 @@ function QmsAppShellContent({
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     ...(canAccessMaterials ? [{ label: '자재', view: materialsHomeView, active: view.kind === 'materials-receipts' || view.kind === 'materials-kitting' }] : []),
     ...(canAccessManufacturing ? [{ label: '제조', view: { kind: 'manufacturing-work' } as View, active: view.kind === 'manufacturing-work' }] : []),
-    ...(canInspectQuality ? [{ label: 'IQC', view: { kind: 'quality-iqc' } as View, active: view.kind === 'quality-iqc' }] : []),
+    ...(canInspectQuality ? [{ label: '품질', view: { kind: 'quality-inspections', stage: 'LQC' } as View, active: view.kind === 'quality-iqc' || view.kind === 'quality-inspections' }] : []),
     { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: displayedShellBadges.unreadNotificationCount },
     ...(canUseAdminPages ? [
       { label: '관리자', view: { kind: 'admin-dashboard' } as View, active: isAdminWorkspace(view) }
@@ -1754,6 +1790,19 @@ function QmsAppShellContent({
           developmentUserKey={developmentUserKey}
           canInspect={canInspectQuality}
           onBack={() => setView({ kind: 'materials-receipts' })}
+          onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'quality-inspections' ? (
+        <QualityInspectionsPage
+          developmentUserKey={developmentUserKey}
+          canInspect={canInspectQuality}
+          initialStage={view.stage}
+          initialProjectId={view.projectId}
+          initialPanelId={view.panelId}
+          onOpenIqc={() => setView({ kind: 'quality-iqc' })}
+          onBack={() => setView({ kind: 'list' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
@@ -5326,7 +5375,7 @@ function MyWorkPage({
 
   async function openWorkItem(item: MyWorkItem) {
     setMessage('');
-    if (isPendingLinkedWorkItem(item) || isManufacturingWorkItem(item)) {
+    if (isPendingLinkedWorkItem(item) || isDomainControlledWorkItem(item)) {
       onOpenProject(item.projectId, item.linkUrl);
       return;
     }
@@ -5453,9 +5502,9 @@ function MyWorkPage({
                           <p>{item.description ?? '처리할 업무가 있습니다.'}</p>
                           <div className="button-row">
                             <button type="button" disabled={movingWorkItemId === item.workItemId} onClick={() => void openWorkItem(item)}>
-                              {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : isManufacturingWorkItem(item) ? '제조 화면에서 진행' : '이동'}
+                              {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : isDomainControlledWorkItem(item) ? domainWorkItemActionLabel(item) : '이동'}
                             </button>
-                            {!isPendingLinkedWorkItem(item) && !isManufacturingWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
+                            {!isPendingLinkedWorkItem(item) && !isDomainControlledWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
                           </div>
                         </article>
                       ))}
@@ -5482,9 +5531,9 @@ function MyWorkPage({
                               <td>
                                 <div className="button-row">
                                   <button type="button" disabled={movingWorkItemId === item.workItemId} onClick={() => void openWorkItem(item)}>
-                                    {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : isManufacturingWorkItem(item) ? '제조 화면에서 진행' : '이동'}
+                                    {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : isDomainControlledWorkItem(item) ? domainWorkItemActionLabel(item) : '이동'}
                                   </button>
-                                  {!isPendingLinkedWorkItem(item) && !isManufacturingWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
+                                  {!isPendingLinkedWorkItem(item) && !isDomainControlledWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
                                 </div>
                               </td>
                             </tr>
@@ -5507,8 +5556,14 @@ function isPendingLinkedWorkItem(item: Pick<MyWorkItem, 'linkUrl'>) {
   return /^\/pending\/[^/?#]+(?:[?#].*)?$/u.test(item.linkUrl);
 }
 
-function isManufacturingWorkItem(item: Pick<MyWorkItem, 'workflowStageCode'>) {
-  return item.workflowStageCode === 'ManufacturingWork';
+function isDomainControlledWorkItem(item: Pick<MyWorkItem, 'workflowStageCode'>) {
+  return ['ManufacturingWork', 'LQC', 'ManufacturingCompleted', 'OQC', 'CustomerInspection', 'FAT'].includes(item.workflowStageCode);
+}
+
+function domainWorkItemActionLabel(item: Pick<MyWorkItem, 'workflowStageCode'>) {
+  return item.workflowStageCode === 'ManufacturingWork' || item.workflowStageCode === 'ManufacturingCompleted'
+    ? '제조 화면에서 진행'
+    : '품질 화면에서 진행';
 }
 
 type TeamsActivitySummary = {

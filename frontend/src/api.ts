@@ -30,6 +30,16 @@ import type {
   StopManufacturingRequest
 } from './manufacturing';
 import type {
+  FinalizeQualityInspectionRequest,
+  QualityActionDepartment,
+  QualityInspectionDetail,
+  QualityInspectionMutationResponse,
+  QualityInspectionQueueResponse,
+  QualityInspectionStage,
+  SaveQualityInspectionResponsesRequest,
+  StartQualityInspectionRequest
+} from './qualityInspections';
+import type {
   AuditHistoryResponse,
   AdminDashboardResponse,
   AdminCalendarHoliday,
@@ -1167,6 +1177,171 @@ export async function completeManufacturingExecution(
   request: { operationId: string; expectedVersion: number }
 ): Promise<ManufacturingMutationResponse> {
   return fetchJson<ManufacturingMutationResponse>(`/api/manufacturing/executions/${executionId}/complete`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getQualityInspectionQueue(
+  developmentUserKey: string | undefined,
+  stage?: QualityInspectionStage,
+  projectId?: string
+): Promise<QualityInspectionQueueResponse> {
+  const params = new URLSearchParams();
+  if (stage) params.set('stage', stage);
+  if (projectId) params.set('projectId', projectId);
+  const query = params.size ? `?${params.toString()}` : '';
+  return fetchJson<QualityInspectionQueueResponse>(`/api/quality/inspections/queue${query}`, developmentUserKey);
+}
+
+export async function getManufacturingCompletionQueue(
+  developmentUserKey: string | undefined
+): Promise<QualityInspectionQueueResponse> {
+  return fetchJson<QualityInspectionQueueResponse>('/api/quality/inspections/queue?stage=ManufacturingCompleted', developmentUserKey);
+}
+
+export async function getQualityInspectionPanel(
+  developmentUserKey: string | undefined,
+  panelId: string,
+  stage: QualityInspectionStage
+): Promise<QualityInspectionDetail> {
+  return fetchJson<QualityInspectionDetail>(
+    `/api/quality/inspections/panels/${panelId}?stage=${encodeURIComponent(stage)}`,
+    developmentUserKey
+  );
+}
+
+export async function listQualityActionDepartments(
+  developmentUserKey: string | undefined
+): Promise<QualityActionDepartment[]> {
+  return fetchJson<QualityActionDepartment[]>('/api/quality/inspections/action-departments', developmentUserKey);
+}
+
+export async function startQualityInspection(
+  developmentUserKey: string | undefined,
+  request: StartQualityInspectionRequest
+): Promise<QualityInspectionMutationResponse> {
+  return fetchJson<QualityInspectionMutationResponse>('/api/quality/inspections/start', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function saveQualityInspectionResponses(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  request: SaveQualityInspectionResponsesRequest
+): Promise<QualityInspectionMutationResponse> {
+  return fetchJson<QualityInspectionMutationResponse>(`/api/quality/inspections/reports/${reportId}/responses`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function uploadQualityInspectionPhoto(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  operationId: string,
+  templateItemId: string,
+  expectedReportVersion: number,
+  altText: string,
+  photo: File
+): Promise<QualityInspectionMutationResponse> {
+  const form = new FormData();
+  form.set('operationId', operationId);
+  form.set('templateItemId', templateItemId);
+  form.set('expectedReportVersion', String(expectedReportVersion));
+  form.set('altText', altText);
+  form.set('photo', photo);
+  return fetchJson<QualityInspectionMutationResponse>(`/api/quality/inspections/reports/${reportId}/photos`, developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function removeQualityInspectionPhoto(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  photoId: string,
+  operationId: string,
+  expectedReportVersion: number
+): Promise<QualityInspectionMutationResponse> {
+  const params = new URLSearchParams({ operationId, expectedReportVersion: String(expectedReportVersion) });
+  return fetchJson<QualityInspectionMutationResponse>(
+    `/api/quality/inspections/reports/${reportId}/photos/${photoId}?${params.toString()}`,
+    developmentUserKey,
+    { method: 'DELETE' }
+  );
+}
+
+export async function getQualityInspectionPhotoBlob(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  photoId: string
+): Promise<Blob> {
+  const response = await fetchWithAuth(
+    `/api/quality/inspections/reports/${reportId}/photos/${photoId}/content`,
+    developmentUserKey
+  );
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  return response.blob();
+}
+
+export async function finalizeQualityInspection(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  request: FinalizeQualityInspectionRequest
+): Promise<QualityInspectionMutationResponse> {
+  return fetchJson<QualityInspectionMutationResponse>(`/api/quality/inspections/reports/${reportId}/finalize`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function retryQualityInspectionPdf(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  operationId: string
+): Promise<QualityInspectionMutationResponse> {
+  return fetchJson<QualityInspectionMutationResponse>(`/api/quality/inspections/reports/${reportId}/pdf/retry`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ operationId })
+  });
+}
+
+export async function downloadQualityInspectionPdf(
+  developmentUserKey: string | undefined,
+  reportId: string
+): Promise<Blob> {
+  const response = await fetchWithAuth(`/api/quality/inspections/reports/${reportId}/pdf`, developmentUserKey);
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  if (!response.headers.get('Content-Type')?.includes('application/pdf')) {
+    throw new ApiError(response.status, 'PDF 생성이 아직 완료되지 않았습니다.');
+  }
+  return response.blob();
+}
+
+export async function requestQualityReinspection(
+  developmentUserKey: string | undefined,
+  request: { operationId: string; pendingId: string; expectedPendingVersion: number }
+): Promise<QualityInspectionMutationResponse> {
+  return fetchJson<QualityInspectionMutationResponse>('/api/quality/inspections/reinspection', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function confirmPanelManufacturingCompleted(
+  developmentUserKey: string | undefined,
+  request: { operationId: string; projectId: string; panelId: string }
+): Promise<QualityInspectionMutationResponse> {
+  return fetchJson<QualityInspectionMutationResponse>('/api/quality/inspections/manufacturing-completed/confirm', developmentUserKey, {
     method: 'POST',
     body: JSON.stringify(request)
   });

@@ -12,6 +12,7 @@ import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
 import { QualityInspectionsPage } from './QualityInspectionsPage';
 import { SalesSettlementPage } from './SalesSettlementPage';
+import { NotificationPreferencesPage } from './NotificationPreferencesPage';
 import { useActionFeedback, type ActionFeedbackTone } from './useActionFeedback';
 import type { QualityInspectionStage } from './qualityInspections';
 import type { LogisticsStage } from './logistics';
@@ -244,10 +245,12 @@ type View =
   | { kind: 'quality-iqc' }
   | { kind: 'quality-inspections'; stage?: QualityInspectionStage; projectId?: string; panelId?: string }
   | { kind: 'notifications' }
+  | { kind: 'notification-preferences' }
   | { kind: 'pending'; projectId?: string }
   | { kind: 'pending-detail'; pendingId: string }
   | { kind: 'admin-dashboard' }
   | { kind: 'admin-users' }
+  | { kind: 'admin-user-notification-preferences'; userId: string }
   | { kind: 'admin-departments' }
   | { kind: 'admin-calendar-holidays' }
   | { kind: 'admin-permission-matrix' }
@@ -383,6 +386,10 @@ function initialViewFromLocation(): View {
     return { kind: 'notifications' };
   }
 
+  if (window.location.pathname === '/notification-settings') {
+    return { kind: 'notification-preferences' };
+  }
+
   if (window.location.pathname === '/pending') {
     return { kind: 'pending', projectId: new URLSearchParams(window.location.search).get('projectId') ?? undefined };
   }
@@ -398,6 +405,11 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/admin/users') {
     return { kind: 'admin-users' };
+  }
+
+  const adminNotificationPreferencesMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/notification-settings$/);
+  if (adminNotificationPreferencesMatch?.[1]) {
+    return { kind: 'admin-user-notification-preferences', userId: adminNotificationPreferencesMatch[1] };
   }
 
   if (window.location.pathname === '/admin/departments' || window.location.pathname === '/admin/master-data/departments') {
@@ -827,6 +839,8 @@ function pathForView(view: View) {
       return '/procurement/settings';
     case 'notifications':
       return '/notifications';
+    case 'notification-preferences':
+      return '/notification-settings';
     case 'pending':
       return `/pending${view.projectId ? `?projectId=${encodeURIComponent(view.projectId)}` : ''}`;
     case 'pending-detail':
@@ -835,6 +849,8 @@ function pathForView(view: View) {
       return '/admin';
     case 'admin-users':
       return '/admin/users';
+    case 'admin-user-notification-preferences':
+      return `/admin/users/${view.userId}/notification-settings`;
     case 'admin-departments':
       return '/admin/departments';
     case 'admin-calendar-holidays':
@@ -1417,7 +1433,12 @@ function QmsAppShellContent({
     ...(canAccessManufacturing ? [{ label: '제조', view: { kind: 'manufacturing-work' } as View, active: view.kind === 'manufacturing-work' }] : []),
     ...(canInspectQuality ? [{ label: '품질', view: { kind: 'quality-inspections', stage: 'LQC' } as View, active: view.kind === 'quality-iqc' || view.kind === 'quality-inspections' }] : []),
     ...(canAccessLogistics ? [{ label: '물류', view: { kind: 'logistics', stage: 'packing' } as View, active: view.kind === 'logistics' }] : []),
-    { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications', badge: displayedShellBadges.unreadNotificationCount },
+    {
+      label: '알림',
+      view: { kind: 'notifications' },
+      active: view.kind === 'notifications' || view.kind === 'notification-preferences',
+      badge: displayedShellBadges.unreadNotificationCount
+    },
     ...(canUseAdminPages ? [
       { label: '관리자', view: { kind: 'admin-dashboard' } as View, active: isAdminWorkspace(view) }
     ] : [])
@@ -1474,6 +1495,19 @@ function QmsAppShellContent({
               <strong>검수 전용 읽기 모드</strong>
               <span>조회·검색·필터만 가능하며 변경 action은 차단됩니다.</span>
             </div>
+          ) : null}
+          {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
+            <button
+              type="button"
+              className="mobile-status-action"
+              onClick={() => {
+                setView({ kind: 'notification-preferences' });
+                setMobileStatusOpen(false);
+              }}
+            >
+              <span>알림 설정</span>
+              <small>Teams 개인 알림과 일일 요약 받기 선택</small>
+            </button>
           ) : null}
           {!isDevMode && user?.isTestUserSwitch ? (
             <div className="mobile-status-note">
@@ -1902,9 +1936,17 @@ function QmsAppShellContent({
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notifications' ? (
         <NotificationsPage
           developmentUserKey={developmentUserKey}
+          onOpenPreferences={() => setView({ kind: 'notification-preferences' })}
           onOpenNotification={(notificationId) => setView({ kind: 'teams-notification-detail', notificationId })}
           onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
           onBadgeRefresh={refreshShellBadges}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notification-preferences' ? (
+        <NotificationPreferencesPage
+          developmentUserKey={developmentUserKey}
+          onBack={() => setView({ kind: 'notifications' })}
         />
       ) : null}
 
@@ -1945,7 +1987,18 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-users' ? (
-        <AdminUsersPage developmentUserKey={developmentUserKey} />
+        <AdminUsersPage
+          developmentUserKey={developmentUserKey}
+          onOpenNotificationSettings={(userId) => setView({ kind: 'admin-user-notification-preferences', userId })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-user-notification-preferences' ? (
+        <NotificationPreferencesPage
+          developmentUserKey={developmentUserKey}
+          targetUserId={view.userId}
+          onBack={() => setView({ kind: 'admin-users' })}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-departments' ? (
@@ -2562,7 +2615,13 @@ function summarizeBulkAction(result: AdminBulkActionResponse, fallback: string) 
   return `${prefix}${suffix}`;
 }
 
-function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) {
+function AdminUsersPage({
+  developmentUserKey,
+  onOpenNotificationSettings
+}: {
+  developmentUserKey: string;
+  onOpenNotificationSettings: (userId: string) => void;
+}) {
   const [state, setState] = useState<LoadState<AdminUsersResponse>>({ kind: 'loading' });
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [draftDepartmentId, setDraftDepartmentId] = useState<string>('');
@@ -2871,6 +2930,15 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
                       )}
                     </td>
                     <td>
+                      {user.isActive ? (
+                        <button
+                          type="button"
+                          className="compact-link-button"
+                          onClick={() => onOpenNotificationSettings(user.userId)}
+                        >
+                          알림 설정
+                        </button>
+                      ) : null}
                       {user.isReadOnly ? (
                         <span className="muted-text">개발 사용자는 삭제할 수 없습니다.</span>
                       ) : editing ? (
@@ -5496,6 +5564,7 @@ function isProcurementWorkspace(view: View) {
 function isAdminWorkspace(view: View) {
   return view.kind === 'admin-dashboard'
     || view.kind === 'admin-users'
+    || view.kind === 'admin-user-notification-preferences'
     || view.kind === 'admin-departments'
     || view.kind === 'admin-calendar-holidays'
     || view.kind === 'admin-permission-matrix'
@@ -6276,11 +6345,13 @@ const notificationTabs: Array<{ key: NotificationTab; label: string }> = [
 
 function NotificationsPage({
   developmentUserKey,
+  onOpenPreferences,
   onOpenNotification,
   onOpenProject,
   onBadgeRefresh
 }: {
   developmentUserKey: string;
+  onOpenPreferences: () => void;
   onOpenNotification: (notificationId: string) => void;
   onOpenProject: (projectId: string, linkUrl?: string | null) => void;
   onBadgeRefresh: () => void;
@@ -6393,6 +6464,7 @@ function NotificationsPage({
         </div>
         <div className="page-action-cluster">
           <div className="button-row">
+            <button type="button" className="secondary-button" onClick={onOpenPreferences}>알림 설정</button>
             <button type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>
               {allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}
             </button>

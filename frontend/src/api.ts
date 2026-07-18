@@ -7,6 +7,10 @@ import type {
 } from './salesSettlement';
 import type { AdminUsersResponse, CurrentUser, UpdateAdminUserRequest } from './identity';
 import type {
+  NotificationPreferenceResponse,
+  UpdateNotificationPreferencesRequest
+} from './notificationPreferences';
+import type {
   CreatePendingRequest,
   PendingAssignee,
   PendingDetail,
@@ -223,6 +227,44 @@ export async function getCurrentUser(developmentUserKey?: string): Promise<Curre
 
 export async function getAdminUsers(developmentUserKey?: string): Promise<AdminUsersResponse> {
   return fetchJson<AdminUsersResponse>('/api/admin/users', developmentUserKey);
+}
+
+export async function getNotificationPreferences(
+  developmentUserKey: string | undefined,
+  targetUserId?: string
+): Promise<NotificationPreferenceResponse> {
+  const path = targetUserId
+    ? `/api/admin/users/${targetUserId}/notification-preferences`
+    : '/api/my/notification-preferences';
+  return fetchJson<NotificationPreferenceResponse>(path, developmentUserKey);
+}
+
+export async function saveNotificationPreferences(
+  developmentUserKey: string | undefined,
+  targetUserId: string | undefined,
+  request: UpdateNotificationPreferencesRequest
+): Promise<NotificationPreferenceResponse> {
+  const path = targetUserId
+    ? `/api/admin/users/${targetUserId}/notification-preferences`
+    : '/api/my/notification-preferences';
+  return fetchJson<NotificationPreferenceResponse>(path, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function resetNotificationPreferences(
+  developmentUserKey: string | undefined,
+  targetUserId: string | undefined,
+  expectedVersion: number
+): Promise<NotificationPreferenceResponse> {
+  const path = targetUserId
+    ? `/api/admin/users/${targetUserId}/notification-preferences/reset`
+    : '/api/my/notification-preferences/reset';
+  return fetchJson<NotificationPreferenceResponse>(path, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion })
+  });
 }
 
 export async function updateAdminUser(

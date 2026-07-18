@@ -94,6 +94,7 @@ builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<Noti
 builder.Services.AddOptions<NotificationOptions>().ValidateOnStart();
 builder.Services.AddSingleton<NotificationWorkerIdentity>();
 builder.Services.AddSingleton<NotificationDeliveryStore>();
+builder.Services.AddSingleton<NotificationPreferenceStore>();
 builder.Services.AddSingleton<NotificationDispatcher>();
 builder.Services.AddSingleton<WorkItemEscalationStore>();
 builder.Services.AddSingleton<NotificationEscalationService>();
@@ -242,6 +243,7 @@ app.MapWorkflowEndpoints();
 app.MapDataExportEndpoints();
 app.MapNotificationDeliveryEndpoints();
 app.MapNotificationEscalationEndpoints();
+app.MapNotificationPreferenceEndpoints();
 
 app.Run();
 

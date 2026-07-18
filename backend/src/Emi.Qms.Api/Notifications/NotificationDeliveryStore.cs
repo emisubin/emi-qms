@@ -57,6 +57,14 @@ public sealed class NotificationDeliveryStore(
                 select u.id as user_id,
                        u.email,
                        u.display_name,
+                       exists (
+                           select 1
+                           from user_notification_preferences preference
+                           where preference.user_id = u.id
+                             and preference.delivery_type = 'DailyDigest'
+                             and preference.channel = 'Mail'
+                             and preference.is_enabled = false
+                       ) as preference_disabled,
                        concat('daily-digest:', @digest_date, ':', u.id::text, ':mail') as dedupe_key
                 from qms_users u
                 where u.is_active = true
@@ -102,13 +110,21 @@ public sealed class NotificationDeliveryStore(
                 user_id,
                 'Mail',
                 'DailyDigest',
-                case when email is null or btrim(email) = '' then 'Suppressed' else 'Pending' end,
-                case when email is null or btrim(email) = '' then @now else null end,
-                case when email is null or btrim(email) = '' then 'RecipientEmailMissing' else null end,
-                case when email is null or btrim(email) = '' then '사용자 이메일이 없어 일일 요약 메일을 보내지 않았습니다.' else null end,
+                case when preference_disabled or email is null or btrim(email) = '' then 'Suppressed' else 'Pending' end,
+                case when preference_disabled or email is null or btrim(email) = '' then @now else null end,
+                case
+                    when preference_disabled then 'SuppressedByUserPreference'
+                    when email is null or btrim(email) = '' then 'RecipientEmailMissing'
+                    else null
+                end,
+                case
+                    when preference_disabled then '사용자 알림 설정에 따라 일일 업무 요약을 보내지 않았습니다.'
+                    when email is null or btrim(email) = '' then '사용자 이메일이 없어 일일 요약 메일을 보내지 않았습니다.'
+                    else null
+                end,
                 dedupe_key,
                 concat('daily-digest:', @digest_date),
-                @now,
+                case when preference_disabled or email is null or btrim(email) = '' then null else @now end,
                 concat(@digest_date, ' 업무 요약'),
                 '일일 업무 요약 알림입니다.',
                 '여러 프로젝트',
@@ -1781,7 +1797,8 @@ public sealed class NotificationDeliveryStore(
         command.CommandText = """
             insert into notification_deliveries (
                 notification_id, notification_recipient_id, recipient_user_id, project_id,
-                channel, delivery_type, dedupe_key, group_key, next_attempt_at_utc,
+                channel, delivery_type, status, suppressed_at_utc, error_code, error_message,
+                dedupe_key, group_key, next_attempt_at_utc,
                 display_title, display_message, display_project_name,
                 display_recipient_name, display_recipient_email, display_recipient_kind
             )
@@ -1792,9 +1809,13 @@ public sealed class NotificationDeliveryStore(
                 n.project_id,
                 'TeamsDirectMessage',
                 'WorkItemCreated',
+                case when preference.disabled then 'Suppressed' else 'Pending' end,
+                case when preference.disabled then @now else null end,
+                case when preference.disabled then 'SuppressedByUserPreference' else null end,
+                case when preference.disabled then '사용자 알림 설정에 따라 자동 단계 업무 생성 알림을 보내지 않았습니다.' else null end,
                 concat('notification:', n.id::text, ':teams-dm:', nr.user_id::text, ':work-item-created'),
                 concat('work-item:', coalesce(n.project_id::text, n.id::text), ':', floor(extract(epoch from n.created_at_utc) / @batch_window_seconds)::bigint),
-                @now,
+                case when preference.disabled then null else @now end,
                 n.title,
                 n.message,
                 p.project_title,
@@ -1805,6 +1826,16 @@ public sealed class NotificationDeliveryStore(
             join notification_recipients nr on nr.notification_id = n.id
             join qms_users u on u.id = nr.user_id
             left join projects p on p.id = n.project_id
+            cross join lateral (
+                select exists (
+                    select 1
+                    from user_notification_preferences setting
+                    where setting.user_id = nr.user_id
+                      and setting.delivery_type = 'WorkItemCreated'
+                      and setting.channel = 'TeamsDirectMessage'
+                      and setting.is_enabled = false
+                ) as disabled
+            ) preference
             where n.title like '%업무%생성%'
               and not exists (
                   select 1

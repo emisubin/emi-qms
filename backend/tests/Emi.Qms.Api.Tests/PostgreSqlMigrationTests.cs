@@ -294,13 +294,34 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(40L, await ReadScalarAsync<long>(
+        Assert.Equal(41L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0040_all_pages_selected_export_audit", await ReadScalarAsync<string>(
+        Assert.Equal("0041_user_notification_preferences", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'user_notification_preference_profiles',
+                  'user_notification_preferences',
+                  'user_notification_preference_audit_events'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_constraint
+            where conname = 'ck_user_notification_preferences_sparse_opt_out';
+            """,
             TestContext.Current.CancellationToken));
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,

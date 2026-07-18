@@ -23,6 +23,7 @@ public sealed class AdminScheduledDeletionService(
         "recipient_user_id",
         "actual_user_id",
         "effective_user_id",
+        "target_user_id",
         "receipt_completed_by_user_id",
         "actor_user_id"
     ];

@@ -34,6 +34,13 @@ test('TASK-UX-001: my work keeps context through loading and partial refresh fai
   await expect(page.getByText('생산계획 확인', { exact: true })).toBeVisible();
   await capture(page, '01-my-work-desktop-normal.png');
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('heading', { name: '오늘 처리할 업무' })).toBeVisible();
+  await assertNoHorizontalOverflow(page);
+  await capture(page, '08-my-work-mobile-normal.png');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByRole('heading', { name: '내 업무' })).toBeVisible();
+
   const completionButton = page.getByRole('button', { name: '작업 완료' });
   await completionButton.click();
   await expect(page.getByRole('button', { name: '완료 처리 중' })).toBeDisabled();
@@ -51,6 +58,10 @@ test('TASK-UX-001: my work keeps context through loading and partial refresh fai
   expect(browserSignals.pageErrors).toEqual([]);
   expect(browserSignals.consoleErrorCount).toBe(1);
   await capture(page, '03-my-work-desktop-partial.png');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('heading', { name: '오늘 처리할 업무' })).toBeVisible();
+  await assertNoHorizontalOverflow(page);
+  await capture(page, '09-my-work-mobile-partial.png');
 });
 
 test('TASK-UX-001: mobile notification error stays beside its row and receives focus', async ({ page }) => {

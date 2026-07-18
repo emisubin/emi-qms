@@ -77,7 +77,7 @@ error와 partial은 `tabIndex=-1`의 안정된 feedback anchor로 focus를 옮�
 | adaptive style | `frontend/src/styles.css` |
 | Unit·integration | `frontend/tests/useActionFeedback.test.tsx`, `frontend/tests/App.test.tsx` |
 | Isolated browser E2E | `frontend/e2e/full-stack/action-feedback.full-stack.spec.ts` |
-| Visual evidence | `tasks/ux-001-screenshots/*.png` 7개 |
+| Visual evidence | `tasks/ux-001-screenshots/*.png` 9개 |
 | Roadmap·종료 원장 | `docs/00-product-roadmap.md`, 이 보고서 |
 
 ## 7. 실행한 검증과 결과
@@ -90,7 +90,7 @@ error와 partial은 `tabIndex=-1`의 안정된 feedback anchor로 focus를 옮�
 | Frontend production build | PASS — 기존 500kB chunk warning 유지 | `pnpm build` |
 | TASK-UX-001 Full-Stack E2E | PASS — `3/3` | 전용 PostgreSQL container/network/tmpfs, 임의 backend/frontend port, provider 전부 disabled |
 | 영향 Full-Stack E2E | PASS — `3/3` | `mobile-first-experience` 2건 + `all-pages-selected-export` 1건; 기존 모바일 screenshot 14개 backup/byte-equality 복원 |
-| Visual QA | PASS | desktop 정상·loading·partial, mobile 정상·loading·error, desktop row 제거 뒤 success |
+| Visual QA | PASS | 내 업무 desktop·mobile 정상/partial과 loading, 알림 mobile 정상/loading/error·desktop row 제거 뒤 success |
 | Mobile overflow | PASS — 390px page-level overflow 0 | E2E assertion |
 | Error/partial focus | PASS | E2E `toBeFocused` |
 | Browser error signal | PASS | 합성 500·409는 request console error 각 1건, page error 0; success console/page error 0 |

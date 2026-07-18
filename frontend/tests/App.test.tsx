@@ -392,7 +392,8 @@ describe('App', () => {
     expect(screen.getByText('2개 선택')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
     expect(exportButton).not.toBeDisabled();
-    expect(within(table).getByRole('checkbox', { name: '현재 목록 전체 선택' })).toBePartiallyChecked();
+    const selectionTray = screen.getByLabelText('선택 프로젝트 내보내기');
+    expect(within(selectionTray).getByRole('checkbox', { name: '현재 목록 전체 선택' })).toBePartiallyChecked();
 
     fireEvent.click(exportButton);
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(

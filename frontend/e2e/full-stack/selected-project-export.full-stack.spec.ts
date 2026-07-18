@@ -8,6 +8,7 @@ const screenshotDirectory = path.resolve(process.cwd(), '../tasks/export-002-scr
 const workbookPath = path.join(screenshotDirectory, 'selected-projects.xlsx');
 
 test('TASK-EXPORT-002: selected projects alone are exported on desktop and mobile', async ({ page, request }) => {
+  const auditCountBefore = Number(await queryDatabaseValue("select count(*)::text from data_export_events where export_kind = 'ProjectsSelected';"));
   const unique = Date.now();
   const first = { code: `SEL-A-${unique}`, title: `합성 선택 프로젝트 A ${unique}` };
   const second = { code: `SEL-B-${unique}`, title: `합성 선택 프로젝트 B ${unique}` };
@@ -25,7 +26,9 @@ test('TASK-EXPORT-002: selected projects alone are exported on desktop and mobil
   await selectProject(page, first);
   await selectProject(page, second);
   await expect(page.getByText('2개 선택')).toBeVisible();
-  expect(await page.getByRole('checkbox', { name: '현재 목록 전체 선택' })
+  const selectionTray = page.getByRole('region', { name: '선택 프로젝트 내보내기' });
+  await expect(page.getByRole('checkbox', { name: '현재 목록 전체 선택' })).toHaveCount(1);
+  expect(await selectionTray.getByRole('checkbox', { name: '현재 목록 전체 선택' })
     .evaluate((element: HTMLInputElement) => element.indeterminate)).toBe(true);
   await capture(page, '01-selected-projects-desktop-1440.png');
 
@@ -51,7 +54,7 @@ test('TASK-EXPORT-002: selected projects alone are exported on desktop and mobil
   await assertNoHorizontalOverflow(page);
   await capture(page, '02-selected-projects-mobile-390.png');
 
-  expect(await queryDatabaseValue("select count(*)::text from data_export_events where export_kind = 'ProjectsSelected';")).toBe('1');
+  expect(Number(await queryDatabaseValue("select count(*)::text from data_export_events where export_kind = 'ProjectsSelected';"))).toBe(auditCountBefore + 1);
   expect(await queryDatabaseValue("select row_count::text from data_export_events where export_kind = 'ProjectsSelected' order by succeeded_at_utc desc limit 1;")).toBe('2');
 });
 

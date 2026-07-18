@@ -16,7 +16,9 @@ test('TASK-007A Pending: create, assign, act, reinspect, close, and audit', asyn
   await page.getByLabel('프로젝트 *').selectOption(projectId);
   await page.getByLabel('유형 *').selectOption('ManufacturingStop');
   await page.getByLabel('긴급도 *').selectOption('Urgent');
-  await page.getByLabel('조치 담당').selectOption(productionUserId);
+  const createDialog = page.getByRole('dialog', { name: 'Pending 등록' });
+  await createDialog.getByRole('combobox', { name: /조치 담당 부서/ }).selectOption('production-planning');
+  await createDialog.getByRole('combobox', { name: '조치 담당', exact: true }).selectOption(productionUserId);
   await page.getByLabel('조치 기한').fill('2026-12-31');
   await page.getByLabel('제목 *').fill('제조 치수 확인 전 작업 중단');
   await page.getByLabel('상세 내용 *').fill('도면 기준과 현장 측정값 차이를 확인할 때까지 제조 작업을 중단합니다.');

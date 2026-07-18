@@ -249,6 +249,7 @@ async function createPending(request: APIRequestContext, projectId: string, titl
       title,
       description: '격리된 TASK-MOBILE-002 모바일 화면 검수용 synthetic Pending입니다.',
       priority: 'Urgent',
+      actionDepartmentCode: 'production-planning',
       assigneeUserId: null,
       dueDate: null
     }

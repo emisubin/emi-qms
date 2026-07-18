@@ -131,10 +131,9 @@ async function createPending(request: APIRequestContext, projectId: string, titl
       issueType: 'ManufacturingStop',
       title,
       description: 'Synthetic Home dashboard verification item.',
-      occurrenceStage: 'Manufacturing',
       priority: 'Urgent',
-      actionPlan: 'Synthetic validation only.',
-      ownerUserId: '50000000-0000-0000-0000-000000000005'
+      actionDepartmentCode: 'production-planning',
+      assigneeUserId: '50000000-0000-0000-0000-000000000003'
     }
   });
   expect(response.ok()).toBeTruthy();

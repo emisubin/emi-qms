@@ -89,9 +89,7 @@ async function createKittingProject(
       reason: 'synthetic kitting evidence',
       items: [{
         orderItem: 'Synthetic Kitting Material',
-        supplierName: 'Synthetic Vendor',
-        orderQuantity: 1,
-        orderUnit: 'EA'
+        supplierName: 'Synthetic Vendor'
       }]
     }
   });

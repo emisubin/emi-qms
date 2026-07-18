@@ -43,7 +43,7 @@ Reporter가 동일 주간 구간에서 1차 직후 16%와 2차 직전 6%를 반�
 
 ### Frontend·UI/UX
 
-- Desktop 프로젝트 목록 첫 열과 header에 checkbox를 추가하고 visible list 전체 선택·indeterminate를 제공한다.
+- Desktop 프로젝트 목록 첫 열에 개별 checkbox를 추가하고 공통 선택 tray의 `전체선택` 하나로 visible list 전체 선택·indeterminate를 제공한다.
 - Mobile은 desktop table 축소판이 아닌 카드별 checkbox와 목록 위 compact inline tray를 사용한다. fixed bottom action은 만들지 않았다.
 - 선택 수, `선택 Excel`, `선택 해제`를 표시하며 0건이면 내보내기를 비활성화한다.
 - 검색·상태 tab·납기 조건·새 목록 response에서 선택을 초기화하고 export 성공·실패 때는 재시도를 위해 선택을 유지한다.
@@ -146,9 +146,9 @@ Full suite의 나머지 실패는 Home/Pending 생성, IQC menu, mobile navigati
 | Desktop 선택 화면 | 1440×1541 | `tasks/export-002-screenshots/01-selected-projects-desktop-1440.png` |
 | Mobile 선택 화면 | 390×1745 | `tasks/export-002-screenshots/02-selected-projects-mobile-390.png` |
 | 실제 Excel 화면 | 1393×768 | `tasks/export-002-screenshots/03-selected-projects-excel.png` |
-| 실제 `.xlsx` | 7.6KB, ZIP 무결성 PASS | `/tmp/emi-qms-task-export-002/outputs/task-export-002/selected-projects.xlsx` |
+| 실제 `.xlsx` | 7,779 bytes, ZIP 무결성 PASS | `tasks/export-002-screenshots/selected-projects.xlsx` |
 
-Excel screenshot을 생성한 뒤 `Cmd+W`로 workbook을 닫고 Microsoft Excel이 최근 파일 시작 화면만 표시하는 상태를 확인했다. screenshot은 저장소에 보존하고 실제 `.xlsx`는 추적 파일이 아닌 `/tmp` handoff artifact로 유지한다.
+Excel screenshot을 생성한 뒤 `Cmd+W`로 workbook을 닫고 Microsoft Excel이 최근 파일 시작 화면만 표시하는 상태를 확인했다. screenshot과 synthetic `.xlsx`는 사용자 검수 증빙으로 저장소에 함께 보존한다.
 
 ## 8. 개인정보·secret 검토
 
@@ -170,7 +170,7 @@ Excel screenshot을 생성한 뒤 `Cmd+W`로 workbook을 닫고 Microsoft Excel�
 | `SELECTED-EXPORT-SELECTION-LIFECYCLE` | P2 | `RESOLVED` | filter 변경 뒤 보이지 않는 ID가 남을 수 있음 | 새 response·filter/tab/date/reload에서 clear, export 후 유지 |
 | `SELECTED-EXPORT-MOBILE-ACTION-POSITION` | P3 | `RESOLVED` | fixed bottom action이 mobile 내용을 가릴 수 있음 | 카드 목록 위 compact inline tray |
 | `SELECTED-EXPORT-EXISTING-ACTION-REGRESSION` | P3 | `RESOLVED` | POST 지원이 기존 GET export를 깨뜨릴 수 있음 | optional backward-compatible 확장과 기존 E2E 재통과 |
-| `FULL-STACK-BASELINE-UNRELATED-FAILURES` | P3 | `BACKLOG` | 전체 34개 중 다른 업무 영역 10개 시나리오가 현재 기준선과 불일치 | `BACKLOG-E2E-FULL-SUITE-EXISTING-FAILURES`; 선택 export 관련 3개는 모두 PASS, 별도 baseline 정비 Task에서 처리 |
+| `FULL-STACK-BASELINE-UNRELATED-FAILURES` | P3 | `RESOLVED` | 이 Task 당시 전체 34개 중 다른 업무 영역 10개 시나리오가 현재 기준선과 불일치 | 후속 `TASK-E2E-FULL-SUITE-001`에서 최신 계약으로 보정하고 현재 suite `35/35` 통과 |
 
 Open P0/P1/P2는 `0/0/0`이다.
 
@@ -187,7 +187,7 @@ Open P0/P1/P2는 `0/0/0`이다.
 ## 11. SOP
 
 1. 프로젝트 목록에서 2개 이상의 non-deleted 프로젝트를 선택한다.
-2. 선택 tray의 count와 header 전체 선택·indeterminate 상태를 확인한다.
+2. 선택 tray의 count와 tray `전체선택`·indeterminate 상태를 확인하고 같은 의미의 checkbox가 한 개뿐인지 확인한다.
 3. `선택 Excel`을 실행하고 download 중 checkbox·선택 해제가 잠기는지 확인한다.
 4. workbook의 프로젝트 sheet가 선택한 row만 포함하고 요약이 `선택 프로젝트 N건`인지 확인한다.
 5. 매출 권한이 없는 역할에서는 매출 컬럼 자체가 없는지 확인한다.
@@ -200,7 +200,7 @@ Open P0/P1/P2는 `0/0/0`이다.
 ## 12. User manual
 
 - 프로젝트 목록에서 필요한 행 또는 모바일 카드의 checkbox를 누른다.
-- 현재 화면에 표시된 항목을 모두 고르려면 desktop header의 전체 선택 checkbox를 사용한다.
+- 현재 화면에 표시된 항목을 모두 고르려면 목록 위 선택 영역의 `전체선택` checkbox를 사용한다.
 - 목록 위 `N개 선택` 영역에서 `선택 Excel`을 누르면 고른 프로젝트만 한 파일에 담긴다.
 - 선택을 처음부터 다시 하려면 `선택 해제`를 누른다.
 - 내보내기 성공·실패 후에도 선택은 유지되므로 같은 파일을 다시 받거나 오류를 복구할 수 있다.

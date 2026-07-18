@@ -7,9 +7,11 @@ const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = path.resolve(process.cwd(), '../tasks/export-001-screenshots');
 
 test('TASK-EXPORT-001: three screens export formula-safe workbooks on desktop and mobile', async ({ page, request }) => {
+  const auditCountBefore = Number(await queryDatabaseValue("select count(*)::text from data_export_events where export_kind in ('ProjectsSelected','ProcurementDashboardSelected','MyWorkSelected');"));
   const unique = Date.now();
   const projectTitle = `Excel 내보내기 검수 ${unique}`;
-  await createProject(request, `EXPORT-${unique}`, projectTitle);
+  const projectId = await createProject(request, `EXPORT-${unique}`, projectTitle);
+  await createPending(request, projectId, `내 업무 선택 내보내기 ${unique}`);
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/projects');
@@ -28,11 +30,13 @@ test('TASK-EXPORT-001: three screens export formula-safe workbooks on desktop an
   await capture(page, '02-procurement-desktop-1440.png');
 
   await page.goto('/my-work');
+  await selectDevelopmentUser(page, 'dev-production');
   await expect(page.getByRole('heading', { name: '내 업무' })).toBeVisible();
   await exportAndVerify(page);
   await capture(page, '03-my-work-desktop-1440.png');
 
   await page.setViewportSize({ width: 390, height: 844 });
+  await selectDevelopmentUser(page, 'dev-sales');
   await page.goto('/projects');
   const filterTrigger = page.getByRole('button', { name: /검색·필터/ });
   await filterTrigger.click();
@@ -51,17 +55,24 @@ test('TASK-EXPORT-001: three screens export formula-safe workbooks on desktop an
   await capture(page, '05-procurement-mobile-390.png');
 
   await page.goto('/my-work');
+  await selectDevelopmentUser(page, 'dev-production');
   await expect(page.getByRole('heading', { name: '오늘 처리할 업무' })).toBeVisible();
   await exportAndVerify(page);
   await assertNoHorizontalOverflow(page);
   await capture(page, '06-my-work-mobile-390.png');
 
-  expect(await queryDatabaseValue("select count(*)::text from data_export_events where export_kind in ('Projects','ProcurementDashboard','MyWork');")).toBe('6');
+  expect(Number(await queryDatabaseValue("select count(*)::text from data_export_events where export_kind in ('ProjectsSelected','ProcurementDashboardSelected','MyWorkSelected');"))).toBe(auditCountBefore + 6);
   expect(await queryDatabaseValue("select count(*)::text from data_export_events where row_count < 0 or row_count > 10000;")).toBe('0');
 });
 
 async function exportAndVerify(page: Page) {
-  const action = page.getByRole('button', { name: 'Excel 내보내기', exact: true });
+  const tray = page.locator('.selected-export-tray').first();
+  await expect(tray).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Excel 내보내기', exact: true })).toHaveCount(0);
+  const selectAll = tray.getByRole('checkbox', { name: '현재 목록 전체 선택', exact: true });
+  await expect(selectAll).toBeEnabled();
+  await selectAll.check();
+  const action = tray.getByRole('button', { name: '선택 Excel 내보내기', exact: true });
   await expect(action).toBeVisible();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
@@ -72,6 +83,13 @@ async function exportAndVerify(page: Page) {
   expect(downloadPath).not.toBeNull();
   const sheetXml = execFileSync('unzip', ['-p', downloadPath!, 'xl/worksheets/sheet1.xml'], { encoding: 'utf8' });
   expect(sheetXml).not.toMatch(/<f(?:\s|>)/);
+}
+
+async function selectDevelopmentUser(page: Page, userKey: string) {
+  await page.evaluate((nextUserKey) => {
+    window.localStorage.setItem('emi-qms-development-user-key', nextUserKey);
+  }, userKey);
+  await page.reload();
 }
 
 async function capture(page: Page, fileName: string) {
@@ -105,6 +123,23 @@ async function createProject(request: APIRequestContext, projectCode: string, pr
       currencyCode: 'KRW',
       deliveryLocation: 'Synthetic Site',
       fatRequired: false
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json() as { projectId: string }).projectId;
+}
+
+async function createPending(request: APIRequestContext, projectId: string, title: string) {
+  const response = await request.post(`${apiBaseUrl}/api/pending`, {
+    headers: { 'X-Dev-User': 'dev-quality' },
+    data: {
+      projectId,
+      issueType: 'ManufacturingStop',
+      title,
+      description: '선택 내보내기 검증을 위한 격리된 합성 내 업무 항목입니다.',
+      priority: 'Urgent',
+      actionDepartmentCode: 'production-planning',
+      assigneeUserId: '50000000-0000-0000-0000-000000000003'
     }
   });
   expect(response.ok()).toBeTruthy();

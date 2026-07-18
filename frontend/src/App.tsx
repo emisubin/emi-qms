@@ -7015,7 +7015,6 @@ function ProjectListPage({
           selectedProjectIds={selectedProjectIds}
           selectionDisabled={isSelectedExportBusy}
           onProjectSelectionChange={setProjectSelected}
-          onAllVisibleSelectionChange={setAllVisibleProjectsSelected}
         />
       ) : null}
       {projectExcelMessage ? <p role="alert" className={successMessage(projectExcelMessage) ? 'success-text' : 'error-text'}>{projectExcelMessage}</p> : null}
@@ -7046,8 +7045,7 @@ function ProjectListView({
   selectionEnabled,
   selectedProjectIds,
   selectionDisabled,
-  onProjectSelectionChange,
-  onAllVisibleSelectionChange
+  onProjectSelectionChange
 }: {
   projects: Array<ProjectListItem | DeletedProjectListItem>;
   canReadSalesAmount: boolean;
@@ -7060,7 +7058,6 @@ function ProjectListView({
   selectedProjectIds: ReadonlySet<string>;
   selectionDisabled: boolean;
   onProjectSelectionChange: (projectId: string, selected: boolean) => void;
-  onAllVisibleSelectionChange: (selected: boolean) => void;
 }) {
   const isMobile = useIsMobileViewport();
 
@@ -7068,7 +7065,7 @@ function ProjectListView({
     <div className="project-list">
       {isMobile
         ? <ProjectListMobile projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} selectionEnabled={selectionEnabled} selectedProjectIds={selectedProjectIds} selectionDisabled={selectionDisabled} onProjectSelectionChange={onProjectSelectionChange} />
-        : <ProjectListDesktop projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} selectionEnabled={selectionEnabled} selectedProjectIds={selectedProjectIds} selectionDisabled={selectionDisabled} onProjectSelectionChange={onProjectSelectionChange} onAllVisibleSelectionChange={onAllVisibleSelectionChange} />}
+        : <ProjectListDesktop projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} selectionEnabled={selectionEnabled} selectedProjectIds={selectedProjectIds} selectionDisabled={selectionDisabled} onProjectSelectionChange={onProjectSelectionChange} />}
     </div>
   );
 }
@@ -7497,8 +7494,7 @@ function ProjectListDesktop({
   selectionEnabled,
   selectedProjectIds,
   selectionDisabled,
-  onProjectSelectionChange,
-  onAllVisibleSelectionChange
+  onProjectSelectionChange
 }: {
   projects: Array<ProjectListItem | DeletedProjectListItem>;
   canReadSalesAmount: boolean;
@@ -7511,24 +7507,12 @@ function ProjectListDesktop({
   selectedProjectIds: ReadonlySet<string>;
   selectionDisabled: boolean;
   onProjectSelectionChange: (projectId: string, selected: boolean) => void;
-  onAllVisibleSelectionChange: (selected: boolean) => void;
 }) {
-  const selectedVisibleCount = projects.filter((project) => selectedProjectIds.has(project.projectId)).length;
-  const allVisibleSelected = projects.length > 0 && selectedVisibleCount === projects.length;
-
   return (
     <div className={selectionEnabled ? 'project-list-table project-list-desktop selectable' : 'project-list-table project-list-desktop'} role="table" aria-label="프로젝트 목록" data-testid="project-list-desktop">
       <div className="project-list-head" role="row">
         {selectionEnabled ? (
-          <span className="project-selection-cell align-center">
-            <ProjectSelectionCheckbox
-              checked={allVisibleSelected}
-              indeterminate={selectedVisibleCount > 0 && !allVisibleSelected}
-              disabled={selectionDisabled}
-              label="현재 목록 전체 선택"
-              onChange={onAllVisibleSelectionChange}
-            />
-          </span>
+          <span className="project-selection-cell align-center" aria-hidden="true" />
         ) : null}
         <span className="align-left">프로젝트명</span>
         <span className="align-left">고객사</span>

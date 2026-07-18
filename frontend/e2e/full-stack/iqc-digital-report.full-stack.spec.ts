@@ -65,7 +65,8 @@ test('TASK-009A: mobile-first IQC report captures checklist, photo, immutable re
   await ensureMobileUser(page, 'dev-quality');
   await page.getByRole('button', { name: '메뉴 열기' }).click();
   const mobileMenu = page.getByRole('dialog', { name: '전체 업무 메뉴' });
-  await mobileMenu.getByRole('button', { name: 'IQC' }).click();
+  await mobileMenu.getByRole('button', { name: '품질' }).click();
+  await page.getByRole('navigation', { name: '품질 검사 단계' }).getByRole('button', { name: /IQC/ }).click();
   await expect(page.getByRole('heading', { name: 'IQC 검사함' })).toBeVisible();
   await expect(page.locator('.iqc-request-card').filter({ hasText: 'Mobile Control Unit' })).toBeVisible();
   await assertNoHorizontalOverflow(page);

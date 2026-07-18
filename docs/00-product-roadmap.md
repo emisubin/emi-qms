@@ -1609,6 +1609,13 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 2026-07-18 실험 상태: 프로젝트 목록 desktop 행·mobile 카드에서 현재 표시된 프로젝트를 최대 100건까지 선택하고 기존 프로젝트 workbook 형식으로 내보내는 기능을 구현했다. `POST /api/projects/export/selected`는 권한·scope·soft-delete를 한 번에 재검증하고 요청 수와 조회 수가 다르면 generic 422와 file/audit 0건으로 차단한다. additive migration `0039`로 `ProjectsSelected` audit kind를 추가했으며 desktop·390px·실제 Excel screenshot, Backend 385 tests, Frontend 90 tests와 관련 isolated Full-Stack E2E를 완료했다. 사용자 screenshot·파일 검수 대기이며 대표 repo·`main`·push·PR·merge·Persistent UAT·provider와 canonical `TASK-007A` Gate는 변경하지 않는다.
 - 2026-07-18 후속 관계: 이 Task의 프로젝트 vertical slice는 유지하고, 당시 제외했던 다른 조회 화면의 다중 선택은 `TASK-EXPORT-001 Change 002` 공통 20개 화면 registry로 확장 완료했다. 복합 multi-sheet 보고서와 column picker는 계속 제외한다.
 
+### TASK-E2E-FULL-SUITE-001: 실험 계보 전체 Full-Stack 회귀 안정화
+
+- 목적: `TASK-EXPORT-002`에서 `BACKLOG`로 남긴 `FULL-STACK-BASELINE-UNRELATED-FAILURES`를 현재 experiment HEAD의 제품 계약에 맞춰 해소한다.
+- 포함 범위: Home·Pending·IQC·mobile navigation·kitting·project bottleneck·project registration·selected export fixture/selector와 프로젝트 목록 중복 전체선택 UI.
+- 제외 범위: Backend 제품 계약·API·DB·migration·dependency, 대표 repo·`main`, Persistent UAT, 실제 provider, push·PR·merge.
+- 2026-07-18 실험 상태: 현재 HEAD에서 전체 `25/35`와 10개 실패를 재현하고 최신 Pending 부서·구매 수량·통합 IQC·디지털 성적서·audit 증가분 계약으로 보정했다. 프로젝트 desktop header의 중복 전체선택을 제거해 선택 tray 한 개만 남겼다. Backend Release build와 `388/388`, Frontend lint(error 0)·typecheck·`92/92`·build, disposable PostgreSQL Full-Stack E2E `35/35`와 cleanup을 완료했다. 사용자 검수 대기이며 대표 repo·`main`·push·PR·merge·Persistent UAT·provider와 canonical 다음 `TASK-007A` Gate는 변경하지 않는다.
+
 ### DESIGN-000 이후: 시각 토큰과 화면 통일
 
 - DESIGN-000은 Figma Variables, CSS token과 공통 component kit만 다루며 기능 변경을 포함하지 않는다.
@@ -1707,6 +1714,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | 완료 / 독립 재검증·CI 3/3·PR #55 squash merge / Open P0/P1/P2/P3 `0/0/0/0` | 사용자/기획/개발 | TASK-USER-FLOW-001 Change 004 | 개인 개발 판단 자료. Fable direct-write 원문·확정/권고/미확정 경계·병렬 dependency map·vertical slice를 반영했으며 제품 구현·Phase B는 미승인 |
 | 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / Governance merge 승인 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Governance merge 뒤 USER-FLOW를 최신 main에서 별도 처리 |
 | 89 | 선택 프로젝트 Excel 내보내기 | Experiment 구현·자동 검증 완료 / 사용자 검수 대기 | 사용자/개발 | TASK-EXPORT-002 | 선택 subset·전부-or-전무 scope 검증·`ProjectsSelected` audit·desktop/mobile/Excel screenshot 완료. 대표 repo·main·Persistent UAT·게시 제외 |
+| 90 | 실험 계보 Full-Stack 전체 회귀 | Experiment 구현·자동 검증 완료 / 사용자 검수 대기 | 개발/품질 | TASK-E2E-FULL-SUITE-001 | `FULL-STACK-BASELINE-UNRELATED-FAILURES` Resolved, 프로젝트 중복 전체선택 제거, Backend 388·Frontend 92·Full-Stack 35/35. 대표 repo·main·게시 제외 |
 
 ## 25. 결정 이력 (Decision Log)
 

@@ -166,7 +166,8 @@ async function createPending(request: APIRequestContext, projectId: string, titl
       issueType: 'ManufacturingStop',
       title,
       description: '격리된 TASK-MOBILE-001 시각 검수용 synthetic Pending입니다.',
-      priority: 'Urgent'
+      priority: 'Urgent',
+      actionDepartmentCode: 'production-planning'
     }
   });
   expect(response.ok()).toBeTruthy();

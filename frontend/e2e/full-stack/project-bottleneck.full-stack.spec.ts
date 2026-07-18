@@ -114,7 +114,8 @@ async function createPending(request: APIRequestContext, projectId: string, titl
       issueType: 'ManufacturingStop',
       title,
       description: 'Synthetic TASK-007B blocker for isolated E2E validation.',
-      priority: 'Urgent'
+      priority: 'Urgent',
+      actionDepartmentCode: 'production-planning'
     }
   });
   expect(response.ok()).toBeTruthy();

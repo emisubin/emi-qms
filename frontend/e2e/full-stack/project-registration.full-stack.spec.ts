@@ -4,6 +4,24 @@ import { expect, type APIRequestContext, type Locator, type Page, test } from '@
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 
+async function completeDetailedIqc(scope: Locator) {
+  await scope.getByRole('button', { name: '검사 시작' }).click();
+  await expect(scope.getByRole('heading', { name: '검사항목' })).toBeVisible();
+  const cards = scope.locator('.iqc-item-card');
+  for (let index = 0; index < await cards.count(); index += 1) {
+    const pass = cards.nth(index).getByRole('button', { name: '적합', exact: true });
+    if (await pass.count()) await pass.click();
+  }
+  const notes = scope.getByLabel('측정값·특이사항');
+  if (await notes.count()) await notes.fill('합성 측정값 정상');
+  await scope.getByRole('button', { name: '저장하고 사진 등록' }).click();
+  await scope.locator('input[type="file"]').setInputFiles('src/assets/emi-logo.png');
+  await scope.getByRole('button', { name: '사진 등록' }).click();
+  await scope.getByRole('button', { name: '최종확인으로' }).click();
+  await scope.getByLabel('종합 판정 사유').fill('검사항목과 외함 사진을 모두 확인했습니다.');
+  await scope.getByRole('button', { name: '합격 · 성적서 확정' }).click();
+}
+
 type ProductionPlanItemResponse = {
   itemId: string;
   templateStepId: string | null;
@@ -524,13 +542,15 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await page.getByRole('button', { name: 'IQC 요청' }).click();
 
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
-  await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: 'IQC' }).click();
+  await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '품질' }).click();
+  await page.getByRole('navigation', { name: '품질 검사 단계' }).getByRole('button', { name: /IQC/ }).click();
   const iqcCard = page.locator('.iqc-request-card').filter({ hasText: projectTitle });
   await expect(iqcCard).toContainText('MCCB');
   await iqcCard.click();
-  await page.getByLabel('판정 사유').fill('외관과 수량 확인 완료');
-  await page.getByRole('button', { name: '합격', exact: true }).click();
-  await expect(iqcCard).toHaveCount(0);
+  const iqcDrawer = page.locator('.material-action-drawer--iqc-report');
+  await completeDetailedIqc(iqcDrawer);
+  await expect(iqcDrawer.getByText('IQC 합격', { exact: true })).toBeVisible();
+  await iqcDrawer.getByRole('button', { name: '검사함으로 돌아가기' }).click();
 
   await page.getByLabel('개발 사용자').selectOption('dev-materials');
   await page.goto('/materials/receipts');

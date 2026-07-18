@@ -4,6 +4,7 @@ using Emi.Qms.Api.Logistics;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
 using Emi.Qms.Api.QualityInspections;
+using Emi.Qms.Api.Sales;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -872,6 +873,12 @@ public sealed class ProjectStore(
                 return ProjectMutationResult<ProjectDetailResponse>.NotFound();
             }
 
+            if (existing.Status == "Completed")
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ProjectMutationResult<ProjectDetailResponse>.Conflict("완료된 프로젝트는 수정할 수 없습니다.");
+            }
+
             if (!await IsActiveSalesUserAsync(connection, transaction, input.SalesOwnerUserId, cancellationToken))
             {
                 await transaction.RollbackAsync(cancellationToken);
@@ -980,10 +987,10 @@ public sealed class ProjectStore(
                 return ProjectMutationResult<ProjectDetailResponse>.Conflict(ProjectDomainRules.PanelCountConcurrencyMessage);
             }
 
-            if (snapshot.Status == "Cancelled")
+            if (snapshot.Status is "Cancelled" or "Completed")
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return ProjectMutationResult<ProjectDetailResponse>.Conflict("취소된 프로젝트의 면수는 변경할 수 없습니다.");
+                return ProjectMutationResult<ProjectDetailResponse>.Conflict("취소되거나 완료된 프로젝트의 면수는 변경할 수 없습니다.");
             }
 
             if (snapshot.ActivePanelCount == input.PanelCount)
@@ -1198,6 +1205,12 @@ public sealed class ProjectStore(
                 changedByUserId,
                 cancellationToken);
             await LogisticsStore.CancelProjectDraftsAsync(
+                connection,
+                transaction,
+                projectId,
+                changedByUserId,
+                cancellationToken);
+            await SalesSettlementStore.CancelProjectDraftAsync(
                 connection,
                 transaction,
                 projectId,
@@ -3155,7 +3168,8 @@ public sealed class ProjectStore(
                    sales_amount,
                    currency_code,
                    delivery_location,
-                   fat_required
+                   fat_required,
+                   status
             from projects
             where id = @project_id
               and deleted_at_utc is null
@@ -3188,7 +3202,8 @@ public sealed class ProjectStore(
             reader.IsDBNull(10) ? null : reader.GetDecimal(10),
             reader.IsDBNull(11) ? null : reader.GetString(11),
             reader.IsDBNull(12) ? null : reader.GetString(12),
-            !reader.IsDBNull(13) && reader.GetBoolean(13));
+            !reader.IsDBNull(13) && reader.GetBoolean(13),
+            reader.GetString(14));
     }
 
     private static async Task<ProjectLockSnapshot?> LockProjectForUpdateAsync(
@@ -3316,7 +3331,8 @@ public sealed class ProjectStore(
         decimal? SalesAmount,
         string? CurrencyCode,
         string? DeliveryLocation,
-        bool FatRequired)
+        bool FatRequired,
+        string Status)
     {
         public IReadOnlyList<ProjectFieldChange> CollectChanges(NormalizedUpdateProjectInput input)
         {
@@ -3482,6 +3498,8 @@ public sealed class ProjectStore(
         await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_packing_unit_panels where packing_unit_id in (select id from logistics_packing_units where project_id = any(@project_ids));", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_packing_units where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from sales_settlement_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from sales_settlements where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_completion_confirmations where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_report_pdf_artifacts where report_id in (select report.id from panel_quality_reports report join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id where attempt.project_id = any(@project_ids));", projectIds, cancellationToken);

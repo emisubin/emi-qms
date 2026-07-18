@@ -234,7 +234,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(10, counts.Roles);
-        Assert.Equal(26, counts.Permissions);
+        Assert.Equal(27, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
@@ -294,11 +294,11 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(36L, await ReadScalarAsync<long>(
+        Assert.Equal(37L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0036_logistics_execution", await ReadScalarAsync<string>(
+        Assert.Equal("0037_sales_settlement_completion", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -553,6 +553,41 @@ public sealed class PostgreSqlMigrationTests
               'trg_guard_finalized_logistics_packing_unit','trg_guard_finalized_logistics_batch',
               'trg_guard_logistics_packing_unit_panel','trg_guard_logistics_batch_unit','trg_guard_logistics_evidence'
             );
+            """, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SalesSettlementMigration_AddsLeastPrivilegeLifecycleAndRaceFences()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2L, await ReadScalarAsync<long>(provider, """
+            select count(*) from information_schema.tables
+            where table_schema='public' and table_name in ('sales_settlements','sales_settlement_operations');
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(provider, """
+            select count(*) from information_schema.columns
+            where table_schema='public' and table_name='projects'
+              and column_name in ('completed_by_user_id','completed_at_utc');
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(provider, """
+            select count(*) from pg_trigger where not tgisinternal and tgname in (
+              'trg_guard_completed_sales_settlement','trg_guard_sales_settlement_operation','trg_guard_pending_project_lifecycle');
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(provider, """
+            select count(*) from roles role
+            join role_permissions assignment on assignment.role_id=role.id
+            join permissions permission on permission.id=assignment.permission_id
+            where permission.code='sales.settle' and role.code='sales';
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(provider, """
+            select count(*) from roles role
+            join role_permissions assignment on assignment.role_id=role.id
+            join permissions permission on permission.id=assignment.permission_id
+            where permission.code='sales.settle' and role.code<>'sales';
             """, TestContext.Current.CancellationToken));
     }
 

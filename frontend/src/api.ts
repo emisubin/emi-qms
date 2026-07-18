@@ -1,4 +1,10 @@
 import type { ReadyHealth } from './health';
+import type {
+  CompleteSalesSettlementRequest,
+  SaveSalesSettlementDraftRequest,
+  SalesSettlementDetail,
+  SalesSettlementMutationResponse
+} from './salesSettlement';
 import type { AdminUsersResponse, CurrentUser, UpdateAdminUserRequest } from './identity';
 import type {
   CreatePendingRequest,
@@ -527,6 +533,35 @@ export async function getProjectWorkflow(
   projectId: string
 ): Promise<ProjectWorkflowResponse> {
   return fetchJson<ProjectWorkflowResponse>(`/api/projects/${projectId}/workflow`, developmentUserKey);
+}
+
+export async function getSalesSettlement(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<SalesSettlementDetail> {
+  return fetchJson<SalesSettlementDetail>(`/api/projects/${projectId}/settlement`, developmentUserKey);
+}
+
+export async function saveSalesSettlementDraft(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  request: SaveSalesSettlementDraftRequest
+): Promise<SalesSettlementMutationResponse> {
+  return fetchJson<SalesSettlementMutationResponse>(`/api/projects/${projectId}/settlement/draft`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function completeSalesSettlement(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  request: CompleteSalesSettlementRequest
+): Promise<SalesSettlementMutationResponse> {
+  return fetchJson<SalesSettlementMutationResponse>(`/api/projects/${projectId}/settlement/complete`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
 }
 
 export async function listPendingIssues(

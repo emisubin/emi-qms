@@ -1583,6 +1583,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제외 범위: 외부 회계 연동
 - 선행조건: 납품 완료
 - 주요 테스트: 완료 조건, 미납품 차단, 권한, 이력
+- 2026-07-18 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 `TASK-013A` 완료 뒤 “다음작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-014A` 기획·구현을 진행한다. 세금계산서 최소 입력·정산 권한·완료 뒤 정정의 미확정 정책은 Fable의 최소 MVP 권장안과 Deferred 경계로 분리하며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
+- 2026-07-18 실험 상태: `experiment/task-014a-sales-settlement`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. additive `0037`은 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, project-context 세금계산서 draft → 모든 active panel 납품·open Pending 0건 재검증 → 정산·내 업무·workflow·project·audit·인앱 알림 원자 완료와 완료 후 lifecycle fence를 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 canonical 실행 큐의 다음 `TASK-007A` Gate는 변경하지 않는다.
 
 ### TASK-EXPORT-001: 모든 페이지 Excel 출력 공통 기능
 

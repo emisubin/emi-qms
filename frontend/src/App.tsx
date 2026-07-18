@@ -9,6 +9,7 @@ import { ManufacturingPage } from './ManufacturingPage';
 import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
 import { QualityInspectionsPage } from './QualityInspectionsPage';
+import { SalesSettlementPage } from './SalesSettlementPage';
 import type { QualityInspectionStage } from './qualityInspections';
 import type { LogisticsStage } from './logistics';
 import {
@@ -222,6 +223,7 @@ type View =
   | { kind: 'list' }
   | { kind: 'create' }
   | { kind: 'detail'; projectId: string; section?: ProjectDetailSection }
+  | { kind: 'sales-settlement'; projectId: string }
   | { kind: 'deleted-detail'; projectId: string }
   | { kind: 'edit'; projectId: string }
   | { kind: 'panel-info-edit'; projectId: string }
@@ -525,6 +527,11 @@ function initialViewFromLocation(): View {
     return { kind: 'panel', projectId: panelMatch[1], panelId: panelMatch[2] };
   }
 
+  const settlementMatch = window.location.pathname.match(/^\/projects\/([^/]+)\/settlement$/);
+  if (settlementMatch?.[1]) {
+    return { kind: 'sales-settlement', projectId: settlementMatch[1] };
+  }
+
   const detailMatch = window.location.pathname.match(/^\/projects\/([^/]+)$/);
   if (detailMatch?.[1]) {
     const section = new URLSearchParams(window.location.search).get('section');
@@ -718,6 +725,11 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
       return { kind: 'procurement-edit', projectId: procurementEditMatch[1] };
     }
 
+    const settlementMatch = url.pathname.match(/^\/projects\/([^/]+)\/settlement$/);
+    if (settlementMatch?.[1]) {
+      return { kind: 'sales-settlement', projectId: settlementMatch[1] };
+    }
+
     const section = sectionFromQuery(url.searchParams.get('section'));
     return { kind: 'detail', projectId, section };
   } catch {
@@ -757,6 +769,8 @@ function pathForView(view: View) {
       return `/teams/activity/notifications/${view.notificationId}`;
     case 'detail':
       return `/projects/${view.projectId}${view.section && view.section !== 'panels' ? `?section=${view.section}` : ''}`;
+    case 'sales-settlement':
+      return `/projects/${view.projectId}/settlement`;
     case 'panel-info-edit':
       return `/projects/${view.projectId}/panel-information/edit`;
     case 'procurement-edit':
@@ -1377,6 +1391,7 @@ function QmsAppShellContent({
   const canReadAdminHistory = permissions.includes('admin-history.read');
   const canReadPending = permissions.includes('Pending.Read');
   const canManagePending = permissions.includes('Pending.Manage');
+  const canSettleSales = permissions.includes('sales.settle');
   const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
   const canAccessMaterialReceipts = canUpdateMaterialReceipt || isSystemAdministrator;
@@ -1707,6 +1722,17 @@ function QmsAppShellContent({
           onEditProductionPlanning={() => setView({ kind: 'production-planning-edit', projectId: view.projectId })}
           onEditProcurement={() => setView({ kind: 'procurement-edit', projectId: view.projectId })}
           onOpenPanel={(panelId) => setView({ kind: 'panel', projectId: view.projectId, panelId })}
+          onOpenPending={() => setView({ kind: 'pending', projectId: view.projectId })}
+          onOpenSettlement={() => setView({ kind: 'sales-settlement', projectId: view.projectId })}
+          canSettleSales={canSettleSales}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'sales-settlement' ? (
+        <SalesSettlementPage
+          developmentUserKey={developmentUserKey}
+          projectId={view.projectId}
+          onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'workflow' })}
           onOpenPending={() => setView({ kind: 'pending', projectId: view.projectId })}
         />
       ) : null}
@@ -5327,6 +5353,7 @@ function isProjectWorkspace(view: View) {
   return view.kind === 'list'
     || view.kind === 'create'
     || view.kind === 'detail'
+    || view.kind === 'sales-settlement'
     || view.kind === 'deleted-detail'
     || view.kind === 'edit'
     || view.kind === 'panel-info-edit'
@@ -5619,10 +5646,11 @@ function isPendingLinkedWorkItem(item: Pick<MyWorkItem, 'linkUrl'>) {
 }
 
 function isDomainControlledWorkItem(item: Pick<MyWorkItem, 'workflowStageCode'>) {
-  return ['ManufacturingWork', 'LQC', 'ManufacturingCompleted', 'OQC', 'CustomerInspection', 'FAT'].includes(item.workflowStageCode);
+  return ['ManufacturingWork', 'LQC', 'ManufacturingCompleted', 'OQC', 'CustomerInspection', 'FAT', 'SalesSettlementCompleted'].includes(item.workflowStageCode);
 }
 
 function domainWorkItemActionLabel(item: Pick<MyWorkItem, 'workflowStageCode'>) {
+  if (item.workflowStageCode === 'SalesSettlementCompleted') return '정산 화면에서 진행';
   return item.workflowStageCode === 'ManufacturingWork' || item.workflowStageCode === 'ManufacturingCompleted'
     ? '제조 화면에서 진행'
     : '품질 화면에서 진행';
@@ -7492,7 +7520,9 @@ function ProjectDetailPage({
   onEditProductionPlanning,
   onEditProcurement,
   onOpenPanel,
-  onOpenPending
+  onOpenPending,
+  onOpenSettlement,
+  canSettleSales
 }: {
   developmentUserKey: string;
   projectId: string;
@@ -7513,6 +7543,8 @@ function ProjectDetailPage({
   onEditProcurement: () => void;
   onOpenPanel: (panelId: string) => void;
   onOpenPending: () => void;
+  onOpenSettlement: () => void;
+  canSettleSales: boolean;
 }) {
   const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
   const [panelInfoState, setPanelInfoState] = useState<LoadState<PanelInformationResponse>>({ kind: 'loading' });
@@ -7661,6 +7693,7 @@ function ProjectDetailPage({
       {canUpdate && isOnHold ? <button type="button" onClick={() => setDialog('resume')}>보류 해제</button> : null}
       {canCancel && (project.status === 'Active' || isOnHold) ? <button type="button" onClick={() => setDialog('cancel')}>취소</button> : null}
       {canUpdate && isCancelled ? <button type="button" onClick={() => setDialog('reactivate')}>재활성</button> : null}
+      {project.status === 'Active' || project.status === 'Completed' ? <button type="button" className={canSettleSales && project.status === 'Active' ? 'primary-button' : undefined} onClick={onOpenSettlement}>{project.status === 'Completed' ? '완료 내역' : '정산·완료'}</button> : null}
       {canDelete && project.status !== 'Completed' ? <button type="button" className="danger-button" onClick={() => setDialog('delete')}>삭제</button> : null}
     </>
   );

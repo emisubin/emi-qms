@@ -952,7 +952,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         await using (var guard = connection.CreateCommand())
         {
             guard.CommandText = """
-                select assigned_user_id, target_type, workflow_stage_code
+                select assigned_user_id, target_type, workflow_stage_code, project_id
                 from work_items
                 where id = @id;
                 """;
@@ -975,6 +975,12 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             }
 
             var stageCode = reader.GetString(2);
+            if (string.Equals(reader.GetString(1), "Project", StringComparison.Ordinal)
+                && stageCode == WorkflowStageCodes.SalesSettlementCompleted)
+            {
+                return WorkflowMutationResult<MyWorkItemResponse>.Conflict($"프로젝트 정산 화면에서 작업을 진행해 주세요. /projects/{reader.GetGuid(3)}/settlement");
+            }
+
             if (string.Equals(reader.GetString(1), "Panel", StringComparison.Ordinal)
                 && stageCode is WorkflowStageCodes.ManufacturingWork
                     or WorkflowStageCodes.LQC
@@ -1969,6 +1975,12 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     private static string LinkUrlForWorkItem(Guid projectId, string stageCode, string targetType, Guid? targetId)
     {
+        if (stageCode == WorkflowStageCodes.SalesSettlementCompleted
+            && string.Equals(targetType, "Project", StringComparison.Ordinal))
+        {
+            return $"/projects/{projectId}/settlement";
+        }
+
         if (string.Equals(targetType, "Pending", StringComparison.Ordinal) && targetId is not null)
         {
             return $"/pending/{targetId.Value}";

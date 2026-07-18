@@ -154,12 +154,19 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        if (!await ProjectExistsAsync(connection, transaction, projectId, cancellationToken))
+        var projectStatus = await LockProjectForPendingCreationAsync(connection, transaction, projectId, cancellationToken);
+        if (projectStatus is null)
         {
+            await transaction.RollbackAsync(cancellationToken);
             return PendingMutationResult<PendingDetailResponse>.Validation(new Dictionary<string, string[]>
             {
                 [nameof(request.ProjectId)] = ["진행 중인 프로젝트를 선택해 주세요."]
             });
+        }
+        if (projectStatus is not ("Active" or "OnHold"))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return PendingMutationResult<PendingDetailResponse>.Conflict("완료·취소된 프로젝트에는 Pending을 등록할 수 없습니다.");
         }
 
         if (request.AssigneeUserId is not null
@@ -222,7 +229,17 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             AddNullableUuid(command, "assignee_user_id", request.AssigneeUserId);
             AddNullableDate(command, "due_date", request.DueDate);
             command.Parameters.AddWithValue("actor_id", actor.UserId);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            try
+            {
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (PostgresException exception) when (
+                exception.SqlState == PostgresErrorCodes.CheckViolation
+                && exception.ConstraintName == "ck_pending_issues_project_lifecycle")
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return PendingMutationResult<PendingDetailResponse>.Conflict("완료·취소된 프로젝트에는 Pending을 등록할 수 없습니다.");
+            }
         }
 
         await InsertHistoryAsync(
@@ -1186,7 +1203,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         return await reader.ReadAsync(cancellationToken) ? ReadIssue(reader) : null;
     }
 
-    private static async Task<bool> ProjectExistsAsync(
+    private static async Task<string?> LockProjectForPendingCreationAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid projectId,
@@ -1194,9 +1211,9 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "select exists (select 1 from projects where id = @id and deleted_at_utc is null and status in ('Active', 'OnHold'));";
+        command.CommandText = "select status from projects where id = @id and deleted_at_utc is null for update;";
         command.Parameters.AddWithValue("id", projectId);
-        return await command.ExecuteScalarAsync(cancellationToken) is true;
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
     }
 
     private static async Task<bool> IsValidAssigneeAsync(

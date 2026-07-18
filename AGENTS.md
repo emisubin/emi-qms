@@ -10,9 +10,10 @@
 
 1. 현재 경로에 적용되는 `AGENTS.md` 계층
 2. [Product Roadmap](docs/00-product-roadmap.md)의 제품 방향, Task 상태와 선행 의존성
-3. [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)의 Finding·검수·게시 gate
-4. 실제 코드, migration, 설정과 tests
-5. 현재 branch, worktree, runtime과 DB 상태
+3. `experiment/*`에서는 [실험 브랜치 Task 완료 원장](docs/27-experiment-task-ledger.md)의 완료 scope·남은 scope와 중복 실행 방지 상태
+4. [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)의 Finding·검수·게시 gate
+5. 실제 코드, migration, 설정과 tests
+6. 현재 branch, worktree, runtime과 DB 상태
 
 대화 기록이나 기억을 canonical source로 사용하지 않는다. 문서끼리 또는 문서와 구현 사이에 의미 있는 충돌이 있으면 한쪽을 임의 선택하거나 수정하지 말고 위치, 영향과 선택지를 보고한 뒤 중단한다.
 
@@ -45,6 +46,16 @@ Roadmap 순서는 단순 번호가 아니라 status, dependencies, external bloc
 일반적인 Roadmap 단계명, 상태명 또는 “P2 Gate” 같은 설명을 Task ID로 합성하지 않는다. Base branch, Roadmap, instruction file 또는 관련 PR 상태가 바뀌면 이 gate를 다시 실행한다. `roadmapSequenceMatch=true` 또는 `explicitRoadmapOverrideApproved=true`가 아니면 `PASS_REUSE`와 `PASS_CREATE`로 판정하지 않는다. Gate 결과가 두 PASS 상태 중 하나가 아니면 Fable 호출, 조사용 mutation, branch/worktree 생성과 파일 작성을 시작하지 않는다.
 
 이 gate는 instruction chain, Task 유형 라우터, Finding·검수·게시 gate와 영역별 `AGENTS.md`를 대체하지 않고 추가한다. 새 Codex 채팅과 분리된 session도 현재 Repository 안에서 이 모든 지침을 다시 읽은 뒤 동일한 gate를 수행한다.
+
+### `experiment/*` 완료 원장 gate
+
+- `experiment/*`에서 새 Task·다음 Task·Fable 기획·구현을 선택하기 전에 [실험 브랜치 Task 완료 원장](docs/27-experiment-task-ledger.md)을 반드시 읽는다.
+- 원장의 `EXPERIMENT_COMPLETE` scope와 같은 목적이면 사용자 검수 대기, 대표 repo 미반영, UAT 미적용 또는 P3 backlog를 이유로 Fable planning·새 Task·재구현을 시작하지 않는다. 새 기능 요청이 아니라면 `BLOCKED_ALREADY_COMPLETED`로 먼저 보고한다.
+- 사용자가 완료 기능의 수정을 요청하면 새 Task ID를 만들지 않고 기존 canonical Task의 다음 `change-###` 또는 확인된 결함의 `BUGFIX`를 사용한다. 신규 사용자 능력·상태·권한·외부 연동이면 별도 `NEW_FEATURE`로 분류한다.
+- `EXPERIMENT_SLICE_COMPLETE`는 완료 slice를 다시 열지 않는다. purpose identity와 변경 allowlist는 원장에 이름이 적힌 후속 slice만 포함해야 한다.
+- `BATCHED_FINAL`은 사용자 검수 완료를 뜻하지 않는다. 실험 개발의 다음 Task 선택에서만 완료로 취급하며 checklist에는 `사용자 검수 대기 — 마지막 일괄 검수`를 유지한다. 사용자 검수 실패가 기록된 경우에만 기존 Task를 재개한다.
+- 실험 완료, 사용자 검수 완료, 대표 repo·`main` 반영, Persistent UAT 적용과 게시·merge 상태를 서로 대체하지 않는다. 승격이 필요하면 기능 재구현이 아니라 별도 통합·UAT Task로 처리하며 `main` merge 승인 3회 경계를 유지한다.
+- Product Roadmap과 완료 원장이 충돌하면 완료된 experiment scope를 자동 재선택하지 않는다. 제품 source와 implementation report를 대조해 `DOCS_GOVERNANCE`로 상태를 동기화한 뒤 다음 Task를 선택한다.
 
 ## 작업 격리와 범위
 

@@ -18,6 +18,7 @@
 - Change 011: 대표 clone의 5174 branch-following·조건부 재시작과 작업 현황 보고 경계 추가
 - Change 012: Fable 정책·USER-FLOW WIP를 로컬 보존 커밋으로 고정한 뒤 대표 clone에 선별 이식하고 임시 worktree를 정리
 - Change 014: `experiment/*` 전용 Fable 2-pass fast-track과 review 직접 참조 `second-planning` runner 추가
+- Change 015: experiment 완료 원장, 마지막 일괄 사용자 검수 상태와 완료 scope 재선택 방지 gate 추가
 
 Backend, Frontend, migration, dependency, runtime과 Persistent UAT source diff는 없다. Change 007~012는 governance shell script 1개와 관련 governance·기획 문서·Git worktree만 변경한다.
 
@@ -476,12 +477,28 @@ Reporting 문서는 최초 Task의 과거 완료 증빙과 Change 001의 현재 
 
 Git 결과: Change 014 allowlist 7개 파일을 local experiment commit으로 기록했다. push·PR·merge는 실행하지 않았고 대표 repo와 `main`은 그대로다.
 
+## 10.15 Change 015 — 실험 Task 완료 원장과 중복 실행 방지
+
+사용자는 현재 experiment에서 사용자 직접 검수를 마지막에 몰아서 수행하되, 구현·자동 검증이 끝난 Task를 완료로 인정하고 다시 만들지 않도록 요청했다. 실제 감사에서는 Roadmap 실행 큐가 대표 repo 기준 `TASK-007A Reordered Pending`을 유지하는 반면 `TASK-007A`부터 `TASK-NOTIFY-005`까지의 implementation report가 experiment 구현·자동 검증 완료를 기록해 두 상태가 Task selection에서 충돌했다.
+
+변경 결과는 다음과 같다.
+
+- `docs/27-experiment-task-ledger.md`에 19개 완료 scope, 별도 남은 제품 Task, 조건부 P3 backlog와 승격 경계를 기록했다. `TASK-UX-001 A1`은 완료 slice, A2는 후속으로 분리했다.
+- `EXPERIMENT_COMPLETE / BATCHED_FINAL`은 다음 개발 Task 선택에서는 완료지만 user validation checklist는 마지막 일괄 검수 대기임을 고정했다.
+- Root instruction chain과 Task Identity Gate가 experiment 완료 원장을 먼저 읽고, 같은 purpose의 Fable planning·새 Task·재구현을 차단하도록 보강했다.
+- Roadmap 실행 큐에서 대표 repo 기준 Pending과 experiment Complete를 한 상태 문자열에 함께 표시하고, 과거 `canonical TASK-007A Gate` 문구가 experiment 재구현 지시가 아님을 명시했다.
+- `TASK-010A`의 당시 미실행 Full-Stack 항목은 후속 `TASK-E2E-FULL-SUITE-001`의 panel-kitting 포함 `35/35 PASS`로 보완된 것을 확인했다.
+- 최신 누적 기준선은 Backend `391/391`, Frontend `101/101`, fresh migration `0041`이며 제품 source를 변경하지 않았다.
+- 문서 검증은 완료 scope `19`, 남은 named 범위 `10`, local link missing `0`, duplicate heading `0`, privacy/secret 후보 `0`, `git diff --check` PASS와 제품 source·migration·dependency·runtime diff `0`을 확인했다.
+
+Open P0/P1/P2는 `0/0/0`이다. `EXPERIMENT_COMPLETED_TASK_RESELECTED`는 완료 원장과 재선택 gate로 `RESOLVED`했다. 사용자 최종 일괄 검수, 대표 repo·`main`, Persistent UAT, provider, push·PR·merge는 실행하지 않았고 main merge 승인 `0/3`을 유지했다.
+
 ## 11. 5종 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | 이 문서 | Change 007~013 merge 완료 / Change 014 정책·runner 구현·자동 검증·local commit 완료 |
-| SOP | `tasks/gov-codex-002.md` 8장 | Change 014 fast-track 절차 추가 |
-| User manual | `tasks/gov-codex-002.md` 9장 | 실험 2-pass 안내 추가 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 007~013 merge 완료 / Change 014 Decision Log 갱신 예정 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 014 사용자 정책·구현 승인 / 자동 검증 완료 |
+| Implementation report | 이 문서 | Change 007~014 기록 / Change 015 완료 원장·중복 방지 구현·검증 |
+| SOP | `tasks/gov-codex-002.md` 8장, Root `AGENTS.md` | fast-track과 완료 원장 조회·재개 절차 |
+| User manual | `tasks/gov-codex-002.md` 9장, `docs/27-experiment-task-ledger.md` | 완료·남은·검수·승격 상태 안내 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 015 experiment 상태·남은 queue·Decision Log 동기화 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 015 정책 승인·문서 검증 완료 / 제품 화면 검수는 마지막 일괄 대기 |

@@ -967,7 +967,9 @@ Excel 출력 대상 후보:
 
 ## 23. 향후 개발 로드맵
 
-실행 순서는 고정 날짜가 아니라 현재 상태, 선행 의존성, 외부 blocker와 사용자 승인 Gate를 따른다. `TASK-USER-FLOW-001`은 tracked interview·planning·review·Change 004에 따라 개인 참고 문서 redraft와 게시만 승인됐고 제품 implementation 승인은 `false`다. 그 밖의 아래 후속 신규 기능에는 아직 `tasks/<task-id>-planning.md`와 Codex review가 없으므로 planning 승인과 implementation 승인은 모두 `false`다. 큐의 순서 승인과 USER-FLOW의 개인 참고 문서 승인은 개별 제품 기능 범위·정책·구현 승인을 대신하지 않는다.
+실행 순서는 고정 날짜가 아니라 현재 상태, 선행 의존성, 외부 blocker와 사용자 승인 Gate를 따른다. `TASK-USER-FLOW-001`은 tracked interview·planning·review·Change 004에 따라 개인 참고 문서 redraft와 게시만 승인됐고 제품 implementation 승인은 `false`다. 큐의 순서 승인과 USER-FLOW의 개인 참고 문서 승인은 개별 제품 기능 범위·정책·구현 승인을 대신하지 않는다.
+
+현재 `experiment/*` 계보에서는 사용자의 2026-07-18 완료 판정에 따라 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 이 큐와 함께 사용한다. 아래의 `Canonical Pending / Experiment Complete`는 대표 repo·`main` 승격은 대기 중이지만 현재 experiment scope는 다시 기획·구현하지 않는다는 뜻이다. 사용자 직접 검수는 `BATCHED_FINAL`로 마지막에 일괄 수행하며 완료로 가장하지 않는다. canonical 승격이 필요하면 기능 재개발이 아니라 별도 통합·UAT Gate를 사용한다.
 
 | Priority | Task | Task Type | Status | Planning Status | Dependencies | External Blocker | UAT Required | Next Gate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -979,28 +981,29 @@ Excel 출력 대상 후보:
 | 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | APPROVED_FEATURE_IMPLEMENTATION | Completed / PR #49 Merged | Implementation Approved | Change 001~009 사용자 검수·최신 main 승격·전체 Frontend 자동·독립 검증·5174 반영 완료 | 없음. Code Connect는 향후 필수 Gate에서 제외 | No | Promotion·5176 experiment worktree 정리는 사용자 Deferred 결정 추적 |
 | 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | Completed / PR #50 Merged | Planning Approved | Open P0/P1/P2 `0/0/0`, 독립 검증·사용자 검수 완료 | 없음 | No | 0.6 신규 기능 Go/No-Go 사용자 결정 |
 | 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | Completed — User GO | N/A | Open P0/P1/P2 `0/0/0` | 없음 | No | 사용자 GO와 다음 행의 명시적 재정렬 승인 완료 |
-| 0.7 | TASK-USER-FLOW-001 — 웹사이트 전체 유저플로우 설계 | NEW_FEATURE | Completed / PR #55 Merged | 개인 참고 문서 redraft·게시 완료 / 제품 구현 미승인 | Governance PR #54, USER-FLOW PR #55, Change 004, Open P0/P1/P2/P3 `0/0/0/0` | 없음 | No | TASK-007A Fable deep-interview → planning → Codex review → 사용자 승인 |
-| 1.1 | TASK-007A Pending List | NEW_FEATURE | Reordered Pending | Scope Review Required | TASK-USER-FLOW-001 사용자 내용 확인, 내 업무·알림 기반 | 첨부 저장·업로드 보안 정책 | Yes | TASK-USER-FLOW-001 확인 뒤 별도 Fable 5 deep-interview → planning → Codex review → 사용자 승인 |
-| 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A | Pending 차단·상태 matrix 확정 | Yes | Fable 5 planning → Codex review → 사용자 승인 |
-| 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A·007B | 사진 storage·압축·재시도 정책 | Yes | 동일 URL·390px/Teams narrow planning |
-| 1.4 | TASK-HOME-001 Home MVP | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007B·MOBILE-001 기반 | 활성화 가능한 widget 데이터 확인 | Yes | widget-slot planning과 MVP 범위 승인 |
-| 2.1 | TASK-008A 자재 도착·분할 입고 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A | 기존 데이터 migration·rollback 결정 | Yes | Fable 5 planning과 migration 별도 승인 |
-| 2.2 | TASK-008B 사급 자재 추적 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-008A data model | 사급 업무 정책 | Yes | TASK-008A 검수 후 planning |
-| 2.3 | TASK-009A IQC·사진·PDF | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007A·008A | IQC 양식·필수 사진 위치 | Yes | 검사 계약과 PDF snapshot planning |
-| 2.4 | TASK-010A 패널별 키팅 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-008A·009A | 패널별 키팅·중복 방지 정책 | Yes | 독립 planning·구현·rollback 승인 |
-| 3.1 | TASK-011A 제조 체크리스트 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-010A·007A | 제조 표시·입력 항목 회신 | Yes | 제조 시작·종료·중단 planning |
-| 3.2 | TASK-012A 후속 품질 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-009A·011A | LQC/OQC/FAT 양식과 사진 기준 | Yes | 품질 단계별 planning |
+| 0.7 | TASK-USER-FLOW-001 — 웹사이트 전체 유저플로우 설계 | NEW_FEATURE | Completed / PR #55 Merged | 개인 참고 문서 redraft·게시 완료 / 제품 구현 미승인 | Governance PR #54, USER-FLOW PR #55, Change 004, Open P0/P1/P2/P3 `0/0/0/0` | 없음 | No | 대표 repo 승격 history는 TASK-007A; experiment에서는 완료 원장에 따라 재구현 금지 |
+| 1.1 | TASK-007A Pending List | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-USER-FLOW-001 사용자 내용 확인, 내 업무·알림 기반 | binary 첨부 storage 정책은 별도 후속 | Yes | experiment 재구현 금지; canonical 승격 시 별도 통합·UAT Gate |
+| 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A experiment scope 완료 | 없음. 정렬 toggle은 optional P3 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
+| 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A·007B experiment scope 완료 | 사진 binary 정책은 별도 후속 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
+| 1.3A | TASK-MOBILE-002 모바일 우선 전면 개편 | APPROVED_FEATURE_IMPLEMENTATION | Experiment Complete | Change 001~003 automated validation complete / `BATCHED_FINAL` | MOBILE-001·로그인 shell·DESIGN-001 계보 | `App.tsx` 분할은 optional housekeeping | Yes | 완료 scope 재구현 금지; 최종 일괄 검수 |
+| 1.4 | TASK-HOME-001 Home MVP | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·MOBILE-001 experiment scope 완료 | query/cache 최적화는 실측 시 P3 후속 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
+| 2.1 | TASK-008A 자재 도착·분할 입고 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A experiment scope 완료 | 운영 migration handover 미승인 | Yes | experiment 재구현 금지; canonical 승격은 별도 UAT |
+| 2.2 | TASK-008B 사급 자재 추적 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-008A experiment scope 완료 | 운영 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
+| 2.3 | TASK-009A IQC·사진·PDF | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A·008A experiment scope 완료 | 실제 IQC 양식·필수 사진 위치는 template 후속 | Yes | experiment 재구현 금지; 양식 변경은 기존 Task change |
+| 2.4 | TASK-010A 패널별 키팅 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation와 후속 Full-Stack `35/35` complete / `BATCHED_FINAL` | TASK-008A·009A experiment scope 완료 | 마지막 panel 취소 stage 정책은 P3 후속 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
+| 3.1 | TASK-011A 제조 체크리스트 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-010A·007A experiment scope 완료 | 실제 제조 상세 항목은 template 후속 | Yes | experiment 재구현 금지; 양식 변경은 기존 Task change |
+| 3.2 | TASK-012A 후속 품질 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-009A·011A experiment scope 완료 | 실제 LQC/OQC/FAT 양식은 template 후속 | Yes | experiment 재구현 금지; 양식 변경은 기존 Task change |
 | 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Deferred | Deferred | TASK-009A·011A 실제 template model | 실제 운영 template 안정화 | Yes | data structure 확정 후 planning |
 | 3.4 | Pending 유형 관리자 화면 (ID 미정) | NEW_FEATURE | Deferred | Deferred | TASK-007A 안정화 | 유형·권한 정책 | Yes | 별도 소형 Task ID와 planning 승인 |
-| 4.1 | TASK-013A 물류 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-012A | 포장 구성·사진·서명본 기준 | Yes | 물류 planning |
-| 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007B·013A | 세금계산서·완료 권한 정책 | Yes | 완료 조건 planning |
-| 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | Deferred | Deferred | 주요 data model 안정화 | 개인정보·권한별 export 정책 | Yes | 공통 export planning |
-| 4.3A | TASK-EXPORT-002 선택 프로젝트 Excel export | NEW_FEATURE | Experiment Fast-track Implemented | Automated Validation Complete / User Validation Pending | TASK-EXPORT-001 Phase 1 | 선택 범위·stale 처리·request 상한 | Yes | 사용자 screenshot·파일 검수; 대표 repo·main·게시 제외 |
+| 4.1 | TASK-013A 물류 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-012A experiment scope 완료 | 실제 포장·서명본 양식은 후속 change | Yes | experiment 재구현 금지; 최종 일괄 검수 |
+| 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·013A experiment scope 완료 | 운영 정산 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
+| 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | Experiment Complete / Optional Follow-up | 20개 화면 선택 export automated validation complete / `BATCHED_FINAL` | 주요 data model experiment 구현 완료 | column picker·multi-sheet는 별도 optional 후속 | Yes | 현재 선택 export 재구현 금지; 원하면 column picker change |
+| 4.3A | TASK-EXPORT-002 선택 프로젝트 Excel export | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-EXPORT-001 Phase 1 | 없음 | Yes | 재구현 금지; 최종 screenshot·파일 일괄 검수 |
 | 4.4 | QR 스캔 랜딩 (ID 미정) | NEW_FEATURE | Deferred | Deferred | MOBILE-001·제조 흐름 | 공개/인증 landing 정책 | Yes | 별도 신규 기능 Task 승인 |
 | 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Deferred | Scope Review Required | 기능 흐름 안정화 | Figma Variables·CSS token 기준 | Yes | 기능 변경 없는 component/token 범위 승인 |
-| 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Deferred | Scope Review Required | DESIGN-000 | 홈→내 업무→현장→관리자 순서 | Yes | 화면별 planning과 사용자 승인 |
-| 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment A1 Implemented | Automated Validation Complete / User Validation Pending | A1 공통 contract·내 업무·알림 구현, A2 분리 | 대표 repo·main·Persistent UAT 미반영 | Yes | A1 screenshot 사용자 검수 후 A2 별도 planning; 게시·main 반영 제외 |
-| 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Experiment Implemented | Automated Validation Complete / User Validation Pending | TASK-NOTIFY-004·TASK-UX-001 A1 experiment | 대표 repo·main·Persistent UAT 미반영 | Yes | screenshot 사용자 검수; 게시·main 반영 제외 |
+| 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Experiment Complete | Automated validation·페이지 screenshot complete / `BATCHED_FINAL` | 로그인 shell, 후속 MOBILE-002가 shape/navigation 보완 | DESIGN-000 token foundation은 별도 housekeeping | Yes | 완료 화면 통일 재구현 금지; 최종 일괄 검수 |
+| 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment A1 Slice Complete / A2 Deferred | A1 automated validation complete / `BATCHED_FINAL`; A2 not started | A1 공통 contract·내 업무·알림 완료 | 대표 repo·main·Persistent UAT 미반영 | Yes | 권장 experiment 다음 범위: A2만 Fable 2-pass planning |
+| 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004·TASK-UX-001 A1 experiment | 관리자 감사 조회 UI는 별도 후속 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | 운영 전환 (Task ID 미정) | UAT_RUNTIME | Deferred | Scope Review Required | 기능·P2·design gate 완료 | hosting/domain, redirect URI, Teams catalog, provider, 교육 | Yes | 운영 전환 Task와 rollback 승인 |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
@@ -1169,6 +1172,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - Change 012: 사용자가 기존 검수·게시 선행 순서를 재정렬하고 Fable·USER-FLOW WIP의 local preservation commit, 대표 clone 선별 이식과 일반 worktree 제거를 승인했다. Push·PR·merge·branch 삭제는 제외한다.
 - Change 013: 독립 검증의 P2에 따라 generic `docs/` primary draft를 planning·review 구현 승인과 분리하고 latest change의 사용자 요청·exact target으로 gate한다. USER-FLOW 전용 형식은 exact historical redraft 조합으로 한정하고 Reporting·Roadmap 상태 충돌을 해소했다. P2 `3/3` Resolved, 독립 재검증 PASS, merge 승인 상태다.
 - Change 014: 사용자의 실험 개발 기본 규칙에 따라 `experiment/*`에서만 Fable 1차 planning·Codex review·review를 직접 읽는 Fable 2차 planning·Codex 구현·screenshot·local commit을 중간 승인 없이 수행한다. Runner `second-planning`은 experiment branch, 기존 planning·review, 최신 approval marker와 exact target을 fail-closed로 확인한다. 일반 branch 계약과 대표 repo·`main`·Persistent UAT·provider·push·PR·merge는 변경하지 않으며 main merge 승인은 `0/3`이다.
+- Change 015: `experiment/*`의 구현·자동 검증 완료 scope를 `EXPERIMENT_COMPLETE / BATCHED_FINAL` 원장으로 고정한다. 사용자 최종 검수 대기·대표 repo 미반영·P3 후속만을 이유로 완료 Task를 Fable·새 planning·재구현에 다시 보내지 않으며, 실패 시 기존 Task의 change/bugfix로 재개한다.
 
 ### TASK-GOV-REPORTING-001: Task 시작·완료 보고 표준화
 
@@ -1434,7 +1438,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-UX-001: 기존 업무 화면 Action Feedback UX 확대
 
-- 상태/권장 순서: A1 experiment 구현·자동 검증 완료 / 사용자 검수 대기 / A2 Deferred
+- 상태/권장 순서: A1 `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` / A2 Deferred·권장 다음 범위
 - 목적: 저장·삭제·복구·발송 결과와 validation 오류를 사용자의 action 위치에서 즉시 이해하고 다음 행동으로 이어지게 한다.
 - A1 구현 범위: 공통 `useActionFeedback`, 내 업무 완료·이동/시작, 알림 개별·전체 읽음의 구조화 loading/success/error/partial, scope 잠금, post-mutation refresh·generation guard, row/contextual placement, error/partial focus와 `aria-live`
 - A2 Deferred 범위: 생산계획/구매/자재/패널/Excel 화면의 inline feedback·field error·focus·`aria-live` 확대
@@ -1448,7 +1452,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-NOTIFY-005: 사용자별 알림 설정
 
-- 상태/권장 순서: experiment 구현·자동 검증 완료 / 사용자 검수 대기 / canonical queue는 TASK-007A 유지
+- 상태/권장 순서: `EXPERIMENT_COMPLETE / BATCHED_FINAL`; 현재 experiment에서 재구현 금지
 - 목적: 사용자가 허용된 범위에서 event별 외부 채널 수신 방식을 조정하되 필수 업무 알림과 인앱 원본을 보존한다.
 - 포함 범위: channel taxonomy, 사용자별 event/channel preference 저장·조회·수정, dispatcher 적용, 관리자/사용자 설정 UI, 기본값과 audit
 - 제외 범위: 인앱 notification 원본 opt-out, 법적·업무상 필수 알림 해제, provider 신뢰성 재구현, 신규 외부 채널 추가
@@ -1460,7 +1464,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 검증: Backend 391/391, Frontend 101/101·build, migration 41개 fresh apply, 격리 desktop/390 save·reset·overflow 0, actual provider 0.
 - 산출물: [Fable 2차 기획](26-notification-preferences-plan.md), [Implementation report](../tasks/notify-005-implementation-report.md), [SOP](../tasks/notify-005-sop.md), [User manual](../tasks/notify-005-user-manual.md), [Checklist/Screenshots](../tasks/notify-005.md)
 
-현재 canonical 순서는 이 장 시작의 실행 큐를 따른다. TASK-NOTIFY-REL-001과 TASK-NOTIFY-ESC-001 완료 범위는 TASK-NOTIFY-004에서 재구현하지 않는다. TASK-UX-001 A1과 TASK-NOTIFY-005는 명시적 experiment 재정렬로 local 구현됐지만 대표 repo·`main`에는 반영되지 않았고 사용자 검수가 대기 중이다. UX-001 A2는 Deferred다. Phase 0 Finding gate는 Open P0/P1/P2 `0/0/0`을 확인했고 사용자가 0.6 신규 기능 GO를 승인했다. Canonical 다음 Gate는 계속 TASK-007A Fable deep-interview이며, experiment 구현은 개별 게시·main 반영 승인을 대신하지 않는다.
+현재 experiment Task 선택은 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 따른다. TASK-007A~014A, MOBILE-001/002, HOME-001, DESIGN-001, 현재 선택 export, E2E 기준선과 NOTIFY-005는 `EXPERIMENT_COMPLETE`, UX-001 A1은 `EXPERIMENT_SLICE_COMPLETE`이므로 사용자 검수 대기만을 이유로 다시 기획·구현하지 않는다. UX-001 A2는 첫 번째 권장 후속 범위다. 아래 과거 실험 기록의 “canonical TASK-007A Gate 유지” 문구는 대표 repo·`main` 승격 당시의 gate를 보존한 역사적 snapshot이지 현재 experiment에서 TASK-007A를 재개발하라는 지시가 아니다. 대표 repo·`main` 승격, Persistent UAT와 게시·merge는 여전히 별도이며 main merge 승인 `0/3`이다.
 
 ### TASK-USER-FLOW-001: 웹사이트 전체 유저플로우 설계
 
@@ -1471,10 +1475,11 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 승인 상태: 개인 참고 문서 Fable redraft와 별도 push·PR·merge 승인 / 제품 구현·Phase B 미승인
 - 독립 검증: 1차에서 Roadmap 23절 공통 서문의 상태 충돌 P2 `USER_FLOW_ROADMAP_PLANNING_PREAMBLE_STALE`를 발견해 최소 보정했고, 재검증에서 `RESOLVED`, Open P0/P1/P2/P3 `0/0/0/0`, publication `GO`를 확인했다.
 - 게시 결과: Ready PR #55, Frontend·Backend·Full-Stack E2E CI `3/3` 성공, squash merge 완료. 제품 코드·runtime·DB 변경은 없다.
-- 다음 Gate: `TASK-007A`의 별도 Fable deep-interview → planning → Codex review → 사용자 승인이다. USER-FLOW 권고는 TASK-007A의 제품 정책이나 구현 승인을 대신하지 않는다.
+- 당시 대표 repo 다음 Gate는 `TASK-007A`의 별도 Fable deep-interview → planning → Codex review → 사용자 승인으로 기록됐다. 현재 experiment에서는 `TASK-007A`가 `EXPERIMENT_COMPLETE`이므로 재구현하지 않으며, 향후 대표 repo 승격은 별도 통합·UAT Task로 다룬다.
 
 ### TASK-007A: Pending List 공통 모듈
 
+- 실험 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL`. 현재 experiment 계보에서 다시 Fable planning하거나 재구현하지 않는다. binary 첨부는 별도 신규 기능 범위다.
 - 목적: 부적합, PUNCH, 제조 중단, 기타 이슈를 공통 모듈로 관리
 - 포함 범위: Pending 생성, 상태, 조치 담당, 코멘트, 첨부, 긴급 알림
 - 제외 범위: 검사별 상세 체크리스트 전체
@@ -1483,6 +1488,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-007B: 패널·프로젝트 병목 상태 집계
 
+- 실험 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL`. 정렬 toggle P3는 완료 범위를 다시 여는 조건이 아니다.
 - 목적: Pending 차단 상태와 필수 workflow 진행률을 이용해 패널·프로젝트의 대표 병목 상태를 계산한다.
 - 포함 범위: 상태 matrix, Pending 차단, 패널·프로젝트 aggregate, 기존 진행률 공식 재사용
 - 제외 범위: HOME widget과 관리자용 Pending 유형 편집
@@ -1491,6 +1497,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-MOBILE-001: 동일 URL 적응형 현장 UX
 
+- 실험 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL`. 후속 MOBILE-002 Change 003까지 좌상단 drawer와 모바일 shape 체계를 반영했다.
 - 목적: 기존 URL과 인증 흐름을 유지하면서 모바일 내비게이션과 현장 입력·사진 업로드 기반을 제공한다.
 - 포함 범위: responsive navigation, 390px/Teams narrow, 사진 압축·재시도, 접근성·overflow 기준
 - 제외 범위: 공용 태블릿·공용 기기 mode, 별도 session 정책, sessionStorage 강제 정책
@@ -1499,6 +1506,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-HOME-001: PC·모바일 Home MVP
 
+- 실험 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL`. query/cache P3 최적화는 실측 문제가 있을 때만 별도 change로 연다.
 - 목적: 현재 데이터로 제공 가능한 요약을 widget-slot 구조로 단계적으로 활성화한다.
 - 포함 범위: PC·모바일 Home, widget slot, TASK-007B aggregate 재사용, loading·empty·error 상태
 - 제외 범위: 아직 source data가 없는 예측 widget과 시각 브랜드 전면 개편
@@ -1513,7 +1521,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 선행조건: 구매정보, Pending List 기반
 - 주요 테스트: 도착·분할 입고, IQC 요청, 부적합 차단, 입고 확정
 - 변경 경계: 기존 데이터 migration 필요성과 rollback은 planning에서 확인하고 별도 승인한다.
-- 2026-07-17 실험 상태: `experiment/task-008a-material-receiving`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0030`은 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. canonical 실행 큐의 `Dependency Pending`과 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-17 실험 상태: `experiment/task-008a-material-receiving`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. `0030`은 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. 현재 experiment에서 재구현하지 않는다.
 
 ### TASK-008B: 사급 자재 추적
 
@@ -1522,7 +1530,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제외 범위: TASK-008A 데이터 모델 재구현과 외부 공급망 연동
 - 선행조건: TASK-008A 구현·검수 완료, 사급 업무 정책 확정
 - 주요 테스트: 분할 입고, 잔량, 권한, 중복·수량 무결성
-- 2026-07-17 실험 상태: `experiment/task-008b-customer-supplied-materials`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0031`은 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. canonical 실행 큐의 `Dependency Pending`과 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-17 실험 상태: `experiment/task-008b-customer-supplied-materials`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. `0031`은 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. 현재 experiment에서 재구현하지 않는다.
 
 ### TASK-009A: 검사 체크리스트 템플릿 / IQC 디지털 성적서 / PDF 출력 기반
 
@@ -1531,7 +1539,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제외 범위: LQC/OQC/FAT 전체
 - 선행조건: 첨부파일 정책, Pending List
 - 주요 테스트: 필수 사진, 값 입력, PDF 생성, 부적합 Pending
-- 2026-07-17 실험 상태: `experiment/task-009a-iqc-digital-report`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0032`는 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. canonical 실행 큐의 `Dependency Pending`과 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-17 실험 상태: `experiment/task-009a-iqc-digital-report`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. `0032`는 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. 현재 experiment에서 재구현하지 않는다.
 
 ### TASK-010A: 키팅 완료 / 제조 내 업무 생성
 
@@ -1540,7 +1548,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제외 범위: 제조 작업 체크리스트
 - 선행조건: 자재 입고 확정
 - 주요 테스트: 키팅 완료, 제조 업무 생성, 중복 방지
-- 2026-07-17 실험 상태: `experiment/task-010a-panel-kitting`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0033`은 backend test의 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. canonical 실행 큐의 `Dependency Pending`과 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-17 실험 상태: `experiment/task-010a-panel-kitting`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 당시 미실행 Full-Stack은 후속 전체 suite의 panel-kitting 포함 `35/35`로 보완했고 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. `0033`은 isolated DB에서만 검증했으며 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았다. 현재 experiment에서 재구현하지 않는다.
 - 2026-07-17 실험 Change 002: 전역 `키팅` 메뉴를 제거하고 전역 `자재` 메뉴를 입고·키팅의 공통 진입점으로 유지한다. 입고 화면 내부 `패널 키팅` action과 내 업무 deep link로 키팅 화면에 진입하며, 키팅 화면에서도 전역 `자재`가 active다.
 
 ### TASK-011A: 제조 체크리스트 / 작업 시작·종료 / 제조 중단
@@ -1551,7 +1559,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 선행조건: 제조 단계 목록 확정
 - 주요 테스트: 모바일 입력, 중단 등록, 권한, 이력
 - 2026-07-17 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 “다음 작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-011A` 기획·구현을 진행한다. 상세 제조 표시·입력 항목과 LQC 기준은 Fable 권장안의 최소 MVP·Deferred로 분리하며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
-- 2026-07-17 실험 상태: `experiment/task-011a-manufacturing-work`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0034`는 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, 시작·4단계·중단 Pending·재개·panel LQC handoff를 완료했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 canonical 실행 큐의 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-17 실험 상태: `experiment/task-011a-manufacturing-work`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. `0034`는 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, 시작·4단계·중단 Pending·재개·panel LQC handoff를 완료했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 현재 experiment에서 재구현하지 않는다.
 
 ### TASK-012A: LQC / OQC / 전진검수 / FAT
 
@@ -1561,7 +1569,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 선행조건: 검사성적서 양식, 사진 필수 위치 회신
 - 주요 테스트: 검사 결과, PUNCH, 재검사, FAT optional 처리
 - 2026-07-17 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 “다음 작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-012A` 기획·구현을 진행한다. 실제 고객 양식·필수 사진 위치·template 관리의 미확정 정책은 일반 v1 seed·optional 사진·후속 Task로 경계를 두며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
-- 2026-07-17 실험 상태: `experiment/task-012a-quality-inspections`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. `0035`는 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, panel LQC → 제조완료확인 → OQC → 고객검수 → 선택 FAT/포장 skeleton, 사진·불변 성적서·PDF, 불합격/PUNCH Pending·재검사 계약을 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 canonical 실행 큐의 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-17 실험 상태: `experiment/task-012a-quality-inspections`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. `0035`는 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, panel LQC → 제조완료확인 → OQC → 고객검수 → 선택 FAT/포장 skeleton, 사진·불변 성적서·PDF, 불합격/PUNCH Pending·재검사 계약을 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 현재 experiment에서 재구현하지 않는다.
 
 ### TASK-ADMIN-002: 검사·제조 Template 관리
 
@@ -1579,7 +1587,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 선행조건: 품질 완료 기준
 - 주요 테스트: 포장 구성, 사진 필수, 출발, 납품 완료
 - 2026-07-17 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 “다음 작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-013A` 기획·구현을 진행한다. 포장 구성 상세·서명본 형식의 미확정 정책은 Fable의 최소 MVP 권장안과 Deferred 경계로 분리하며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
-- 2026-07-18 실험 상태: `experiment/task-013a-logistics`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. additive `0036`은 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, 포장 단위 → 출발 묶음 → 납품 묶음의 필수 증빙·원자 확정·영업 정산 skeleton 인계와 모바일 물류 workspace를 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 canonical 실행 큐의 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-18 실험 상태: `experiment/task-013a-logistics`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. additive `0036`은 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, 포장 단위 → 출발 묶음 → 납품 묶음의 필수 증빙·원자 확정·영업 정산 skeleton 인계와 모바일 물류 workspace를 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 현재 experiment에서 재구현하지 않는다.
 
 ### TASK-014A: 영업 정산 / 세금계산서 / 프로젝트 완료
 
@@ -1589,7 +1597,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 선행조건: 납품 완료
 - 주요 테스트: 완료 조건, 미납품 차단, 권한, 이력
 - 2026-07-18 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 `TASK-013A` 완료 뒤 “다음작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-014A` 기획·구현을 진행한다. 세금계산서 최소 입력·정산 권한·완료 뒤 정정의 미확정 정책은 Fable의 최소 MVP 권장안과 Deferred 경계로 분리하며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
-- 2026-07-18 실험 상태: `experiment/task-014a-sales-settlement`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. additive `0037`은 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, project-context 세금계산서 draft → 모든 active panel 납품·open Pending 0건 재검증 → 정산·내 업무·workflow·project·audit·인앱 알림 원자 완료와 완료 후 lifecycle fence를 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 canonical 실행 큐의 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-18 실험 상태: `experiment/task-014a-sales-settlement`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. additive `0037`은 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, project-context 세금계산서 draft → 모든 active panel 납품·open Pending 0건 재검증 → 정산·내 업무·workflow·project·audit·인앱 알림 원자 완료와 완료 후 lifecycle fence를 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 현재 experiment에서 재구현하지 않는다.
 
 ### TASK-EXPORT-001: 모든 페이지 Excel 출력 공통 기능
 
@@ -1599,8 +1607,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 선행조건: 주요 화면 데이터 모델 안정화
 - 주요 테스트: 권한, 필터, 파일 타입, 개인정보 노출 방지
 - 2026-07-18 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 `TASK-014A` 완료 뒤 “다음작업 시작하라”는 요청에 따라 canonical 다음 `TASK-007A` Gate 및 `Deferred` 상태와 무관하게 현재 실험 계보에서 `TASK-EXPORT-001` 기획·구현을 진행한다. 모든 화면을 한 번에 완료로 가장하지 않고 Fable이 권장하는 서로 다른 우선 화면 vertical slice로 공통 export 구조를 증명하며, 대상 화면·컬럼 선택·row 제한·audit의 미확정 정책은 권장안과 Deferred 경계로 분리한다. canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
-- 2026-07-18 실험 상태: `experiment/task-export-001-excel-export`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 `Phase 1 partial` 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. 프로젝트 목록·구매 dashboard·내 업무 3개 화면에 server-side `.xlsx`, 동일 filter/scope query, 매출 권한 column omission, 10,000행 cap, formula-safe text, 2-slot resource fence와 append-only `0038_data_export_events`를 적용했다. desktop·390px screenshot과 isolated Full-Stack E2E를 완료했으며 나머지 화면·삭제 보관함·담당 프로젝트·column picker는 잔여 범위다. 대표 repo·`main`·Persistent UAT·provider·canonical 다음 `TASK-007A` Gate는 변경하지 않는다.
-- 2026-07-18 Change 002 실험 상태: `experiment/task-export-001-all-pages-selected-export`에서 업무 12개·관리자 8개 총 20개 조회 화면을 공통 선택 export registry로 고정했다. 모든 대상 화면은 row/card checkbox, 현재 목록 `전체선택` checkbox와 `선택 Excel 내보내기` action 하나만 사용하고 기존 전체 export UI와 중복 전체 선택 button은 제거했다. 공통 POST endpoint가 최대 1,000개 선택 ID의 권한·scope·현재 존재 여부를 전부 재검증하며 additive `0040` audit kind, formula-safe workbook, desktop 20·390px 20 screenshot, Backend 388·Frontend 92 test와 isolated Full-Stack E2E를 완료했다. 사용자 검수 대기이며 대표 repo·`main`·push·PR·merge·Persistent UAT·provider와 canonical 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-18 Phase 1 당시 상태: `experiment/task-export-001-excel-export`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 3개 화면 vertical slice 구현·자동 검증을 완료했다. 프로젝트 목록·구매 dashboard·내 업무에 server-side `.xlsx`, 동일 filter/scope query, 매출 권한 column omission, 10,000행 cap, formula-safe text, 2-slot resource fence와 append-only `0038_data_export_events`를 적용했다. 당시 남은 다른 조회 화면은 아래 Change 002에서 20개 화면 선택 export로 완료했고, column picker만 optional 후속이다. 대표 repo·`main`·Persistent UAT·provider는 미반영이다.
+- 2026-07-18 Change 002 실험 상태: `experiment/task-export-001-all-pages-selected-export`에서 업무 12개·관리자 8개 총 20개 조회 화면을 공통 선택 export registry로 고정했다. 모든 대상 화면은 row/card checkbox, 현재 목록 `전체선택` checkbox와 `선택 Excel 내보내기` action 하나만 사용하고 기존 전체 export UI와 중복 전체 선택 button은 제거했다. 공통 POST endpoint가 최대 1,000개 선택 ID의 권한·scope·현재 존재 여부를 전부 재검증하며 additive `0040` audit kind, formula-safe workbook, desktop 20·390px 20 screenshot, Backend 388·Frontend 92 test와 isolated Full-Stack E2E를 완료했다. 사용자 검수는 `BATCHED_FINAL`이고 현재 선택 export는 재구현하지 않는다. 대표 repo·`main`·push·PR·merge·Persistent UAT·provider는 미반영이다.
 
 ### TASK-EXPORT-002: 선택 프로젝트 Excel 내보내기
 
@@ -1618,12 +1626,13 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 목적: `TASK-EXPORT-002`에서 `BACKLOG`로 남긴 `FULL-STACK-BASELINE-UNRELATED-FAILURES`를 현재 experiment HEAD의 제품 계약에 맞춰 해소한다.
 - 포함 범위: Home·Pending·IQC·mobile navigation·kitting·project bottleneck·project registration·selected export fixture/selector와 프로젝트 목록 중복 전체선택 UI.
 - 제외 범위: Backend 제품 계약·API·DB·migration·dependency, 대표 repo·`main`, Persistent UAT, 실제 provider, push·PR·merge.
-- 2026-07-18 실험 상태: 현재 HEAD에서 전체 `25/35`와 10개 실패를 재현하고 최신 Pending 부서·구매 수량·통합 IQC·디지털 성적서·audit 증가분 계약으로 보정했다. 프로젝트 desktop header의 중복 전체선택을 제거해 선택 tray 한 개만 남겼다. Backend Release build와 `388/388`, Frontend lint(error 0)·typecheck·`92/92`·build, disposable PostgreSQL Full-Stack E2E `35/35`와 cleanup을 완료했다. 사용자 검수 대기이며 대표 repo·`main`·push·PR·merge·Persistent UAT·provider와 canonical 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-18 실험 상태: 현재 HEAD에서 전체 `25/35`와 10개 실패를 재현하고 최신 Pending 부서·구매 수량·통합 IQC·디지털 성적서·audit 증가분 계약으로 보정했다. 프로젝트 desktop header의 중복 전체선택을 제거해 선택 tray 한 개만 남겼다. Backend Release build와 `388/388`, Frontend lint(error 0)·typecheck·`92/92`·build, disposable PostgreSQL Full-Stack E2E `35/35`와 cleanup을 완료했다. 사용자 검수는 `BATCHED_FINAL`이고 현재 회귀 기준선은 완료다. 대표 repo·`main`·push·PR·merge·Persistent UAT·provider는 미반영이다.
 
 ### DESIGN-000 이후: 시각 토큰과 화면 통일
 
 - DESIGN-000은 Figma Variables, CSS token과 공통 component kit만 다루며 기능 변경을 포함하지 않는다.
-- DESIGN-001 이후는 Home, 내 업무, 현장 화면, 관리자 화면 순으로 별도 planning·검수한다.
+- DESIGN-001 화면 통일 실험은 구현·자동 검증·페이지별 screenshot을 완료해 `EXPERIMENT_COMPLETE / BATCHED_FINAL`이다. 같은 전체 화면 통일을 다시 기획하지 않는다.
+- DESIGN-000 token foundation은 별도 `DEFERRED` housekeeping으로 남는다.
 - 기능 Task에서도 loading·empty·error·success feedback, 접근성, 한글 안내와 390px/Teams narrow 기준은 선행 적용한다.
 
 ## 24. 추적 대상 리스트
@@ -1651,7 +1660,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 19 | 부적합 조치 유형 상세 | 부분 확정 | 사용자 논의 | TASK-007A/008A/012A | 반송/현장 수리 흐름 |
 | 20 | 포장 구성 입력 필드 | 미확정 | 물류 회신 | TASK-013A | 포장번호, 규격, 중량 등 |
 | 21 | 영업 정산 항목 | 부분 확정 | 사용자 논의 | TASK-014A | 세금계산서 완료는 확정 |
-| 22 | 모든 페이지 Excel 출력 범위 | 20개 화면 선택 export 실험 구현 / 사용자 검수 대기 | 사용자 요청 | TASK-EXPORT-001 | 업무 12·관리자 8 화면의 checkbox 전체선택·단일 선택 export 완료, column picker 잔여 |
+| 22 | 모든 페이지 Excel 출력 범위 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자 요청 | TASK-EXPORT-001 | 업무 12·관리자 8 화면의 checkbox 전체선택·단일 선택 export 완료. column picker는 optional 후속이며 현재 scope를 다시 열지 않음 |
 | 23 | Microsoft 365 로그인 적용 시점 | 완료 | 인프라/운영 결정 | TASK-INFRA-001 | 인증 기반 구현 완료. 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 필요 |
 | 24 | 관리자 페이지 범위 | 완료 | 사용자 요청 | TASK-ADMIN-001 | 시스템 관리 중심으로 구현 완료. 업무 부서 입력 기준정보는 후속 결정 |
 | 25 | 프로젝트 대표 상태 방식 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 병목 기준 + 진행률 |
@@ -1680,8 +1689,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 48 | 전체 field-level audit 확장 | 미확정 | 사용자/운영 | Audit 후속 | ADMIN-001은 관리자 변경 이력 중심 |
 | 49 | 관리자 모바일 UX 고도화 | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001은 page-level overflow 방지 기준으로 검수 |
 | 50 | 외부 알림 delivery 동시성·실패 재처리 | 정책 결정·사용자 검수 완료 / PR #44 squash merge 승인 | 개발/운영 | TASK-NOTIFY-004 | claim/lease·automatic retry·attempt lineage·provider 오류 분류·starvation은 완료. Terminal Failed는 최종 상태로 유지하고 수동 재처리는 별도 신규 기능으로 Deferred |
-| 51 | 기존 업무 화면 Action Feedback UX | A1 experiment 구현·자동 검증 완료 / 사용자 검수 대기 | 사용자/개발 | TASK-UX-001 | A1 공통 hook·내 업무·알림 screenshot 검수 후 A2를 별도 planning; 대표 repo·main 미반영 |
-| 52 | 사용자별 알림 설정 | Experiment 구현·자동 검증 완료 / 사용자 검수 대기 | 사용자/운영 | TASK-NOTIFY-005 | 선택 3종 sparse opt-out·필수 잠금·audit·Suppressed gate·desktop/390 구현. 대표 repo·main·Persistent UAT 미반영 |
+| 51 | 기존 업무 화면 Action Feedback UX | A1 `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL`, A2 Deferred | 사용자/개발 | TASK-UX-001 | A1 공통 hook·내 업무·알림은 재구현하지 않음. 권장 다음 범위는 A2 생산계획·구매·자재·패널·Excel |
+| 52 | 사용자별 알림 설정 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/운영 | TASK-NOTIFY-005 | 선택 3종 sparse opt-out·필수 잠금·audit·Suppressed gate·desktop/390 완료. 대표 repo·main·Persistent UAT 미반영 |
 | 91 | 사용자별 알림 설정 감사 조회 UI | Backlog | 사용자/운영 | TASK-NOTIFY-005 후속 | fixed-field 감사 원장은 구현. 관리자 조회·필터·요약 UI는 별도 신규 기능 planning 필요 |
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
 | 54 | Full-Stack E2E PostgreSQL 물리 격리 | 완료 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 squash merge `45fd61c` |
@@ -1700,7 +1709,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 67 | Repository 지침·Rules 이관 | 구현·자동 검증·사용자 검수 완료 / PR #32 merge 완료 | 개발 | TASK-GOV-CODEX-001 | 전역·영역별 지침, 종료 정책, 검증 matrix, privacy-safe evidence와 command rules의 역할을 분리하고 신규 기능 기획 템플릿에서 공통 장문 규칙을 제거. Shell wrapper는 prompt하되 내부 semantic 완전 차단은 미보장 |
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
-| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | Change 001~013 merge 완료 / Change 014 experiment 2-pass 정책·runner 구현·사용자 승인·자동 검증·local commit 완료 | 개발 | TASK-GOV-CODEX-002 | 일반 branch single-pass 보존. `experiment/*`만 planning→review→second-planning→구현, 대표 repo·main·게시 제외 |
+| 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | Change 001~013 merge 완료 / Change 014 fast-track·Change 015 완료 원장 local 구현 | 개발 | TASK-GOV-CODEX-002 | 일반 branch single-pass 보존. experiment 완료 scope 재선택 금지, `BATCHED_FINAL` 검수 분리, 대표 repo·main·게시 제외 |
 | 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
 | 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
 | 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
@@ -1718,8 +1727,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 86 | Local GitHub 폴더 최종 정리 | 최종 삭제·자동·독립 검증·사용자 검수·PR #52 merge 완료 | 사용자/개발 | TASK-GOV-CODEX-002 Change 006 | 최상위 폴더 `6→3→2`. Dirty checkout 6개·local branch 32개 exact audit 뒤 보존 폴더를 영구 삭제. Docker stale handle `4→0`, 동일 PostgreSQL volume·DB aggregate·대표·디자인 runtime 보존 |
 | 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | 완료 / 독립 재검증·CI 3/3·PR #55 squash merge / Open P0/P1/P2/P3 `0/0/0/0` | 사용자/기획/개발 | TASK-USER-FLOW-001 Change 004 | 개인 개발 판단 자료. Fable direct-write 원문·확정/권고/미확정 경계·병렬 dependency map·vertical slice를 반영했으며 제품 구현·Phase B는 미승인 |
 | 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / Governance merge 승인 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Governance merge 뒤 USER-FLOW를 최신 main에서 별도 처리 |
-| 89 | 선택 프로젝트 Excel 내보내기 | Experiment 구현·자동 검증 완료 / 사용자 검수 대기 | 사용자/개발 | TASK-EXPORT-002 | 선택 subset·전부-or-전무 scope 검증·`ProjectsSelected` audit·desktop/mobile/Excel screenshot 완료. 대표 repo·main·Persistent UAT·게시 제외 |
-| 90 | 실험 계보 Full-Stack 전체 회귀 | Experiment 구현·자동 검증 완료 / 사용자 검수 대기 | 개발/품질 | TASK-E2E-FULL-SUITE-001 | `FULL-STACK-BASELINE-UNRELATED-FAILURES` Resolved, 프로젝트 중복 전체선택 제거, Backend 388·Frontend 92·Full-Stack 35/35. 대표 repo·main·게시 제외 |
+| 89 | 선택 프로젝트 Excel 내보내기 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/개발 | TASK-EXPORT-002 | 선택 subset·전부-or-전무 scope 검증·`ProjectsSelected` audit·desktop/mobile/Excel screenshot 완료. 대표 repo·main·Persistent UAT·게시 제외 |
+| 90 | 실험 계보 Full-Stack 전체 회귀 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 개발/품질 | TASK-E2E-FULL-SUITE-001 | `FULL-STACK-BASELINE-UNRELATED-FAILURES` Resolved, 프로젝트 중복 전체선택 제거, Backend 388·Frontend 92·Full-Stack 35/35. 대표 repo·main·게시 제외 |
+| 92 | 실험 Task 완료 원장과 중복 실행 방지 | 완료 원장 작성·Task selection gate 적용 | 사용자/개발 | TASK-GOV-CODEX-002 Change 015 | 완료 18 Task·A1 slice·남은 Task·P3 backlog를 분리. `BATCHED_FINAL`은 사용자 검수 완료가 아니며 완료 scope 재구현을 금지 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1874,6 +1884,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-16 | Fable은 Task 기준선을 private session으로 재사용하고 한 round에 관련 질문을 최대 5개까지 제시 | 질문·답변 품질은 유지하면서 반복 Repository 기준선 조사와 불필요한 왕복 시간을 줄이기 위함. Interview 문서와 현재 Repository는 계속 canonical source | AGENTS.md, CLAUDE.md, TASK-GOV-CODEX-002 Change 008 |
 | 2026-07-16 | Fable이 질문·primary draft 전문을 직접 작성하고 Codex는 원문을 변경하지 않은 채 내용·제품 방향 review 1회로 종료 | Codex가 질문이나 전문을 다시 쓰지 않고 개발 방향 충돌·기능 가치·누락·우선순위를 검토하며 자동 draft-review-revise 반복을 없애기 위함 | AGENTS.md, CLAUDE.md, TASK-GOV-CODEX-002 Change 009·010 |
 | 2026-07-17 | 명시된 `experiment/*` fast-track은 Fable 1차 기획 → Codex 내용 review → review 기반 Fable 2차 기획 → 2차 기획 기준 Codex 구현·검증·screenshot·local commit 순서로 수행 | 실험 개발 속도를 유지하면서도 Codex review가 실제 최종 기획에 반영되도록 하고, 일반 branch와 대표 repo·main·Persistent UAT·provider·게시 경계를 보존하기 위함 | AGENTS.md, CLAUDE.md, TASK-GOV-CODEX-002 Change 014 |
+| 2026-07-18 | experiment에서 구현·필수 자동 검증·종료 산출물이 끝나고 사용자 직접 검수만 마지막에 남은 scope는 `EXPERIMENT_COMPLETE / BATCHED_FINAL`로 선택 종료 | canonical main queue의 Pending 상태 때문에 이미 구현한 TASK-007A가 다시 선택된 문제를 막고, 검수 대기·대표 repo 미반영·P3 후속을 기능 재구현 사유로 오인하지 않기 위함. 검수 완료·UAT·게시·merge 상태는 계속 분리 | AGENTS.md, 12장, 23장~25장, 27-experiment-task-ledger, TASK-GOV-CODEX-002 Change 015 |
 | 2026-07-16 | TASK-USER-FLOW-001은 개인 개발 판단 자료이며 제품 구현·Fable redraft·public 게시 승인을 포함하지 않음 | 사용자 목적과 승인 경계를 분리하고 과거 `implementationApproved: true` 표기가 제품 구현 승인으로 오해되지 않게 하기 위함 | 23장~25장, TASK-USER-FLOW-001 Change 003 |
 | 2026-07-16 | Fable 정책과 USER-FLOW 결과를 대표 clone에 branch별로 선별 보존하고 두 임시 worktree를 일반 제거 | 앞으로 일반 작업은 대표 폴더 한 곳에서 branch만 전환하고 디자인 5176 폴더만 별도로 유지하기 위함. Local commit은 허용하되 push·PR·merge·branch 삭제는 제외 | AGENTS.md, 23장~25장, TASK-GOV-CODEX-002 Change 012 |
 | 2026-07-16 | Governance 정책은 P2 보정본 독립 재검증 뒤 먼저 merge하고 USER-FLOW는 최신 main에서 Fable redraft·내용 review·독립 검증 뒤 별도 merge | Generic Fable 계약을 먼저 canonical main에 고정한 뒤 기존 USER-FLOW 전문을 사용자 결정과 일치하게 Fable이 직접 다시 작성하고 두 게시 단위를 분리하기 위함 | AGENTS.md, CLAUDE.md, 23장~25장, TASK-GOV-CODEX-002 Change 013, TASK-USER-FLOW-001 |

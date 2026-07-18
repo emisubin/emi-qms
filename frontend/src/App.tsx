@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
 import { app as teamsApp } from '@microsoft/teams-js';
 import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
+import { ExcelExportAction } from './ExcelExportAction';
 import { MobileSheet } from './MobileSheet';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
@@ -44,6 +45,9 @@ import {
   downloadProjectExcelTemplate,
   downloadProcurementDashboardTemplate,
   downloadProcurementTemplate,
+  exportMyWorkExcel,
+  exportProcurementDashboardExcel,
+  exportProjectsExcel,
   getAdminDashboard,
   getAdminCalendarHolidays,
   getAdminDepartments,
@@ -5496,7 +5500,18 @@ function MyWorkPage({
           <h2>{isMobile ? '오늘 처리할 업무' : '내 업무'}</h2>
           {isMobile ? <p>긴급 업무부터 확인하고 카드 안에서 바로 처리하세요.</p> : null}
         </div>
-        <button type="button" onClick={load}>새로고침</button>
+        <div className="button-row page-export-actions">
+          {activeTab !== 'AssignedProjects' ? (
+            <ExcelExportAction
+              exportFile={() => exportMyWorkExcel(
+                developmentUserKey,
+                activeTab === 'All' ? undefined : activeTab
+              )}
+              scopeLabel={`${myWorkTabs.find((tab) => tab.key === activeTab)?.label ?? '전체'} 업무`}
+            />
+          ) : null}
+          <button type="button" onClick={load}>새로고침</button>
+        </div>
       </div>
 
       {isMobile ? (
@@ -6534,6 +6549,7 @@ function ProjectListPage({
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMobile = useIsMobileViewport();
+  const exportableProjectTab: Exclude<ProjectListTab, 'Deleted'> = tab === 'Deleted' ? 'All' : tab;
 
   const load = useCallback(() => {
     const requestId = requestIdRef.current + 1;
@@ -6648,28 +6664,42 @@ function ProjectListPage({
           <h2>{isMobile ? '현장 프로젝트' : '프로젝트 목록'}</h2>
           {isMobile ? <p>병목과 납기를 먼저 보고 필요한 프로젝트를 선택하세요.</p> : null}
         </div>
-        {canCreate ? (
-          isMobile ? (
-            <div className="mobile-page-actions">
-              <button type="button" className="primary-button" onClick={onCreate}>+ 프로젝트</button>
-              <details className="mobile-secondary-actions">
-                <summary>기타 작업</summary>
-                <button type="button" onClick={downloadProjectTemplate} disabled={isDownloadingProjectTemplate}>
-                  {isDownloadingProjectTemplate ? '다운로드 중' : 'Excel 양식'}
-                </button>
-                <button type="button" onClick={() => setShowProjectExcel(true)}>Excel 업로드</button>
-              </details>
-            </div>
-          ) : (
-            <div className="button-row">
+        <div className={isMobile ? 'mobile-page-actions page-export-actions' : 'button-row page-export-actions'}>
+          {tab !== 'Deleted' ? (
+            <ExcelExportAction
+              exportFile={() => exportProjectsExcel(
+                developmentUserKey,
+                search,
+                exportableProjectTab,
+                dateFrom,
+                dateTo
+              )}
+              scopeLabel={`${projectTabs(false).find((item) => item.value === tab)?.label ?? '전체'} · 현재 필터`}
+            />
+          ) : null}
+          {canCreate ? (
+            isMobile ? (
+              <>
+                <button type="button" className="primary-button" onClick={onCreate}>+ 프로젝트</button>
+                <details className="mobile-secondary-actions">
+                  <summary>기타 작업</summary>
+                  <button type="button" onClick={downloadProjectTemplate} disabled={isDownloadingProjectTemplate}>
+                    {isDownloadingProjectTemplate ? '다운로드 중' : 'Excel 양식'}
+                  </button>
+                  <button type="button" onClick={() => setShowProjectExcel(true)}>Excel 업로드</button>
+                </details>
+              </>
+            ) : (
+              <>
               <button type="button" onClick={downloadProjectTemplate} disabled={isDownloadingProjectTemplate}>
                 {isDownloadingProjectTemplate ? '다운로드 중' : '프로젝트 Excel 양식'}
               </button>
               <button type="button" onClick={() => setShowProjectExcel(true)}>프로젝트 Excel 업로드</button>
               <button type="button" className="primary-button" onClick={onCreate}>신규 프로젝트</button>
-            </div>
-          )
-        ) : null}
+              </>
+            )
+          ) : null}
+        </div>
       </div>
 
       {isMobile ? (
@@ -9652,6 +9682,15 @@ function ProcurementDashboardPage({
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>프로젝트 목록</button>
+          <ExcelExportAction
+            exportFile={() => exportProcurementDashboardExcel(
+              developmentUserKey,
+              search,
+              dateFrom,
+              dateTo
+            )}
+            scopeLabel="프로젝트 요약 · 현재 필터"
+          />
           {canUpdateProcurement ? (
             <>
               <button type="button" onClick={onOpenSettings}>구매 필수 항목 설정</button>
@@ -9664,6 +9703,9 @@ function ProcurementDashboardPage({
         </div>
       </div>
       {downloadMessage ? <p className="form-message">{downloadMessage}</p> : null}
+      {state.kind === 'ready' && state.data.truncated ? (
+        <p className="warning-text" role="status">화면에는 앞선 500개 프로젝트만 표시됩니다. 검색 조건을 좁혀 주세요.</p>
+      ) : null}
 
       {state.kind === 'ready' ? <DashboardKpiGrid summary={state.data.summary} /> : null}
       {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}

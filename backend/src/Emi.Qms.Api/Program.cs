@@ -2,6 +2,7 @@ using Emi.Qms.Api;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Calendar;
+using Emi.Qms.Api.DataExports;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Materials;
 using Emi.Qms.Api.Manufacturing;
@@ -40,7 +41,7 @@ builder.Services.AddCors(options =>
             .WithOrigins(frontendOrigins.Length == 0 ? ["http://localhost:5173"] : frontendOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .WithExposedHeaders("Content-Disposition");
+            .WithExposedHeaders("Content-Disposition", "X-Export-Row-Count");
     });
 });
 
@@ -55,6 +56,10 @@ builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
 builder.Services.AddSingleton<IProjectDeletionGuard, ProjectDeletionGuard>();
 builder.Services.AddSingleton<ProjectExcelParser>();
 builder.Services.AddSingleton<ProjectStore>();
+builder.Services.AddSingleton<ExcelWorkbookBuilder>();
+builder.Services.AddSingleton<ExcelExportConcurrencyGate>();
+builder.Services.AddSingleton<DataExportAuditStore>();
+builder.Services.AddSingleton<ExcelExportService>();
 builder.Services.AddSingleton<PanelInformationExcelParser>();
 builder.Services.AddSingleton<PanelInformationStore>();
 builder.Services.AddSingleton<PendingStore>();
@@ -233,6 +238,7 @@ app.MapBusinessCalendarEndpoints();
 app.MapAdminCalendarHolidayEndpoints();
 app.MapAdminMasterDataEndpoints();
 app.MapWorkflowEndpoints();
+app.MapDataExportEndpoints();
 app.MapNotificationDeliveryEndpoints();
 app.MapNotificationEscalationEndpoints();
 

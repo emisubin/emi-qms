@@ -951,6 +951,7 @@ export interface ProcurementListResponse {
 export interface ProcurementDashboardResponse {
   summary: ProcurementDashboardSummary;
   projects: ProcurementProjectSummary[];
+  truncated: boolean;
 }
 
 export interface ProcurementDashboardSummary {

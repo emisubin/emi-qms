@@ -222,8 +222,14 @@ public static class ProcurementEndpointExtensions
             HttpRequest request,
             string? search,
             ProcurementStore procurementStore,
+            ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
+            if (!HasPermission(user, QmsPermissions.ProjectRead))
+            {
+                return Results.Forbid();
+            }
+
             var dateRange = ParseDateRange(request, "expectedReceiptDateFrom", "expectedReceiptDateTo");
             if (dateRange.Errors.Count > 0)
             {
@@ -234,6 +240,8 @@ public static class ProcurementEndpointExtensions
                 search,
                 dateRange.From,
                 dateRange.To,
+                GetProjectAccessScope(user),
+                500,
                 cancellationToken));
         })
         .RequireAuthorization()
@@ -306,6 +314,13 @@ public static class ProcurementEndpointExtensions
         return Guid.TryParse(value, out var userId) ? userId : null;
     }
 
+    private static ProjectAccessScope GetProjectAccessScope(ClaimsPrincipal user)
+    {
+        return new ProjectAccessScope(
+            HasPermission(user, QmsPermissions.ProjectReadAll),
+            user.FindAll(QmsClaimTypes.Project).Select(claim => claim.Value).ToList());
+    }
+
     private static IResult ToResult<T>(ProcurementMutationResult<T> result, Func<T, IResult> success)
     {
         return result.Status switch
@@ -321,7 +336,7 @@ public static class ProcurementEndpointExtensions
         };
     }
 
-    private static ProcurementDateRange ParseDateRange(HttpRequest request, string fromKey, string toKey)
+    internal static ProcurementDateRange ParseDateRange(HttpRequest request, string fromKey, string toKey)
     {
         var errors = new Dictionary<string, string[]>();
         var fromRaw = request.Query[fromKey].ToString();
@@ -369,7 +384,7 @@ public static class ProcurementEndpointExtensions
         string? ExpectedVersions,
         IReadOnlyList<string> Errors);
 
-    private sealed record ProcurementDateRange(
+    internal sealed record ProcurementDateRange(
         DateOnly? From,
         DateOnly? To,
         IReadOnlyDictionary<string, string[]> Errors);

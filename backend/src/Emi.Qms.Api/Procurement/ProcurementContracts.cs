@@ -92,7 +92,8 @@ public sealed record ProcurementListResponse(
 
 public sealed record ProcurementDashboardResponse(
     ProcurementDashboardSummaryResponse Summary,
-    IReadOnlyList<ProcurementProjectSummaryResponse> Projects);
+    IReadOnlyList<ProcurementProjectSummaryResponse> Projects,
+    bool Truncated);
 
 public sealed record ProcurementDashboardSummaryResponse(
     int PendingReceiptCount,

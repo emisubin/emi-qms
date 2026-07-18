@@ -294,13 +294,31 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(37L, await ReadScalarAsync<long>(
+        Assert.Equal(38L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0037_sales_settlement_completion", await ReadScalarAsync<string>(
+        Assert.Equal("0038_data_export_events", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name = 'data_export_events';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_trigger
+            where tgname = 'trg_guard_data_export_event'
+              and not tgisinternal;
+            """,
             TestContext.Current.CancellationToken));
         Assert.Equal(4L, await ReadScalarAsync<long>(
             connectionStringProvider,

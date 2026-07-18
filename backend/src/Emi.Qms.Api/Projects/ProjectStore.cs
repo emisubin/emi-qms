@@ -89,6 +89,42 @@ public sealed class ProjectStore(
         bool includePendingInsights,
         CancellationToken cancellationToken)
     {
+        return await ListProjectsAsync(
+            query,
+            accessScope,
+            includeSalesAmount,
+            includePendingInsights,
+            100,
+            cancellationToken);
+    }
+
+    public Task<ProjectListResponse> ListProjectsForExportAsync(
+        ProjectListQuery query,
+        ProjectAccessScope accessScope,
+        bool includeSalesAmount,
+        int rowLimit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(rowLimit, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(rowLimit, 10_001);
+
+        return ListProjectsAsync(
+            query with { Page = 1, PageSize = rowLimit },
+            accessScope,
+            includeSalesAmount,
+            false,
+            rowLimit,
+            cancellationToken);
+    }
+
+    private async Task<ProjectListResponse> ListProjectsAsync(
+        ProjectListQuery query,
+        ProjectAccessScope accessScope,
+        bool includeSalesAmount,
+        bool includePendingInsights,
+        int maximumPageSize,
+        CancellationToken cancellationToken)
+    {
         await using var dataSource = CreateDataSource();
         var where = new List<string>();
         var parameters = new List<NpgsqlParameter>();
@@ -135,7 +171,7 @@ public sealed class ProjectStore(
 
         var whereSql = where.Count == 0 ? "" : $"where {string.Join(" and ", where)}";
         var page = Math.Max(1, query.Page);
-        var pageSize = Math.Clamp(query.PageSize, 1, 100);
+        var pageSize = Math.Clamp(query.PageSize, 1, maximumPageSize);
         var offset = (page - 1) * pageSize;
 
         await using var command = dataSource.CreateCommand($"""

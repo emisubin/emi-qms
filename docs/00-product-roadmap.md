@@ -1593,6 +1593,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 제외 범위: 복잡한 보고서 PDF
 - 선행조건: 주요 화면 데이터 모델 안정화
 - 주요 테스트: 권한, 필터, 파일 타입, 개인정보 노출 방지
+- 2026-07-18 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 `TASK-014A` 완료 뒤 “다음작업 시작하라”는 요청에 따라 canonical 다음 `TASK-007A` Gate 및 `Deferred` 상태와 무관하게 현재 실험 계보에서 `TASK-EXPORT-001` 기획·구현을 진행한다. 모든 화면을 한 번에 완료로 가장하지 않고 Fable이 권장하는 서로 다른 우선 화면 vertical slice로 공통 export 구조를 증명하며, 대상 화면·컬럼 선택·row 제한·audit의 미확정 정책은 권장안과 Deferred 경계로 분리한다. canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
+- 2026-07-18 실험 상태: `experiment/task-export-001-excel-export`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 `Phase 1 partial` 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. 프로젝트 목록·구매 dashboard·내 업무 3개 화면에 server-side `.xlsx`, 동일 filter/scope query, 매출 권한 column omission, 10,000행 cap, formula-safe text, 2-slot resource fence와 append-only `0038_data_export_events`를 적용했다. desktop·390px screenshot과 isolated Full-Stack E2E를 완료했으며 나머지 화면·삭제 보관함·담당 프로젝트·column picker는 잔여 범위다. 대표 repo·`main`·Persistent UAT·provider·canonical 다음 `TASK-007A` Gate는 변경하지 않는다.
 
 ### DESIGN-000 이후: 시각 토큰과 화면 통일
 
@@ -1625,7 +1627,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 19 | 부적합 조치 유형 상세 | 부분 확정 | 사용자 논의 | TASK-007A/008A/012A | 반송/현장 수리 흐름 |
 | 20 | 포장 구성 입력 필드 | 미확정 | 물류 회신 | TASK-013A | 포장번호, 규격, 중량 등 |
 | 21 | 영업 정산 항목 | 부분 확정 | 사용자 논의 | TASK-014A | 세금계산서 완료는 확정 |
-| 22 | 모든 페이지 Excel 출력 범위 | 초안 | 사용자 요청 | TASK-EXPORT-001 | 공통 export 권장 |
+| 22 | 모든 페이지 Excel 출력 범위 | Phase 1 partial 실험 구현 / 사용자 검수 대기 | 사용자 요청 | TASK-EXPORT-001 | 프로젝트·구매 dashboard·내 업무 우선 적용, 나머지 화면·column picker 잔여 |
 | 23 | Microsoft 365 로그인 적용 시점 | 완료 | 인프라/운영 결정 | TASK-INFRA-001 | 인증 기반 구현 완료. 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 필요 |
 | 24 | 관리자 페이지 범위 | 완료 | 사용자 요청 | TASK-ADMIN-001 | 시스템 관리 중심으로 구현 완료. 업무 부서 입력 기준정보는 후속 결정 |
 | 25 | 프로젝트 대표 상태 방식 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 병목 기준 + 진행률 |

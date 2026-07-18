@@ -505,6 +505,30 @@ export async function listProjects(
   return fetchJson<ProjectListResponse>(`/api/projects${query}`, developmentUserKey, { signal: options.signal });
 }
 
+export async function exportProjectsExcel(
+  developmentUserKey: string | undefined,
+  search = '',
+  status: Exclude<ProjectListTab, 'Deleted'> = 'All',
+  deliveryDateFrom = '',
+  deliveryDateTo = ''
+): Promise<ExcelExportDownload> {
+  const params = new URLSearchParams();
+  if (search.trim()) {
+    params.set('search', search.trim());
+  }
+  if (status !== 'All') {
+    params.set('status', status);
+  }
+  if (deliveryDateFrom) {
+    params.set('deliveryDateFrom', deliveryDateFrom);
+  }
+  if (deliveryDateTo) {
+    params.set('deliveryDateTo', deliveryDateTo);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return downloadExcelExport(`/api/projects/export${query}`, developmentUserKey, 'EMI_프로젝트.xlsx');
+}
+
 export async function getProjectSummary(
   developmentUserKey: string | undefined,
   options: { signal?: AbortSignal } = {}
@@ -656,6 +680,14 @@ export async function listMyWorkItems(
 ): Promise<MyWorkListResponse> {
   const query = status ? `?status=${encodeURIComponent(status)}` : '';
   return fetchJson<MyWorkListResponse>(`/api/my-work${query}`, developmentUserKey);
+}
+
+export async function exportMyWorkExcel(
+  developmentUserKey: string | undefined,
+  status?: 'Requested' | 'InProgress' | 'Completed'
+): Promise<ExcelExportDownload> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return downloadExcelExport(`/api/my-work/export${query}`, developmentUserKey, 'EMI_내업무.xlsx');
 }
 
 export async function listMyAssignedProjects(
@@ -1083,6 +1115,26 @@ export async function getProcurementDashboard(
   }
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<ProcurementDashboardResponse>(`/api/procurement/dashboard${query}`, developmentUserKey);
+}
+
+export async function exportProcurementDashboardExcel(
+  developmentUserKey: string | undefined,
+  search = '',
+  expectedReceiptDateFrom = '',
+  expectedReceiptDateTo = ''
+): Promise<ExcelExportDownload> {
+  const params = new URLSearchParams();
+  if (search.trim()) {
+    params.set('search', search.trim());
+  }
+  if (expectedReceiptDateFrom) {
+    params.set('expectedReceiptDateFrom', expectedReceiptDateFrom);
+  }
+  if (expectedReceiptDateTo) {
+    params.set('expectedReceiptDateTo', expectedReceiptDateTo);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return downloadExcelExport(`/api/procurement/dashboard/export${query}`, developmentUserKey, 'EMI_구매.xlsx');
 }
 
 export async function listProcurementRequiredItemSettings(
@@ -1982,6 +2034,40 @@ export async function applyProjectProductionPlanningExcel(
     method: 'POST',
     body: form
   });
+}
+
+export type ExcelExportDownload = {
+  blob: Blob;
+  fileName: string;
+  rowCount: number;
+};
+
+async function downloadExcelExport(
+  path: string,
+  developmentUserKey: string | undefined,
+  fallbackFileName: string
+): Promise<ExcelExportDownload> {
+  let response: Response;
+  try {
+    response = await fetchWithAuth(path, developmentUserKey);
+  } catch (error: unknown) {
+    if (isInteractionRequiredAuthError(error)) {
+      throw new ApiError(401, '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.');
+    }
+    throw new ApiError(0, '서버에 연결할 수 없습니다. 서버 실행 상태를 확인해 주세요.');
+  }
+
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+
+  const rowCount = Number(response.headers.get('X-Export-Row-Count'));
+  return {
+    blob: await response.blob(),
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? fallbackFileName,
+    rowCount: Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : -1
+  };
 }
 
 async function fetchWithAuth(path: string, developmentUserKey?: string, init?: RequestInit): Promise<Response> {

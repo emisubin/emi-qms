@@ -421,6 +421,26 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     public async Task<MyWorkListResponse> GetMyWorkItemsAsync(Guid userId, string? status, CancellationToken cancellationToken)
     {
+        return await GetMyWorkItemsAsync(userId, status, null, cancellationToken);
+    }
+
+    public Task<MyWorkListResponse> GetMyWorkItemsForExportAsync(
+        Guid userId,
+        string? status,
+        int rowLimit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(rowLimit, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(rowLimit, 10_001);
+        return GetMyWorkItemsAsync(userId, status, rowLimit, cancellationToken);
+    }
+
+    private async Task<MyWorkListResponse> GetMyWorkItemsAsync(
+        Guid userId,
+        string? status,
+        int? rowLimit,
+        CancellationToken cancellationToken)
+    {
         await using var dataSource = CreateDataSource();
         var statusFilter = NormalizeWorkStatusFilter(status);
         await using var command = dataSource.CreateCommand($"""
@@ -452,12 +472,17 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
               {(statusFilter is null ? "" : "and wi.status = @status")}
             order by
                 case wi.status when 'Requested' then 0 when 'InProgress' then 1 when 'Completed' then 2 else 3 end,
-                wi.created_at_utc desc;
+                wi.created_at_utc desc
+            {(rowLimit is null ? ";" : "limit @row_limit;")}
             """);
         command.Parameters.AddWithValue("user_id", userId);
         if (statusFilter is not null)
         {
             command.Parameters.AddWithValue("status", statusFilter);
+        }
+        if (rowLimit is not null)
+        {
+            command.Parameters.AddWithValue("row_limit", rowLimit.Value);
         }
 
         var items = new List<MyWorkItemResponse>();

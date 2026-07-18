@@ -4,6 +4,7 @@ using System.Text.Json;
 using ClosedXML.Excel;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
+using Emi.Qms.Api.Projects;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -111,14 +112,31 @@ public sealed class ProcurementStore(
         string? search,
         DateOnly? expectedReceiptDateFrom,
         DateOnly? expectedReceiptDateTo,
+        ProjectAccessScope accessScope,
+        int maximumRows,
         CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumRows, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(maximumRows, 10_000);
+
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
         command.Parameters.AddWithValue("today", today);
         var where = "where p.deleted_at_utc is null and p.status <> 'Completed'";
+        if (!accessScope.HasProjectReadAll)
+        {
+            if (accessScope.ProjectKeys.Count == 0)
+            {
+                where += " and false";
+            }
+            else
+            {
+                where += " and p.project_key = any(@project_keys)";
+                command.Parameters.AddWithValue("project_keys", accessScope.ProjectKeys.ToArray());
+            }
+        }
         if (!string.IsNullOrWhiteSpace(search))
         {
             where += " and (p.project_title ilike @search or p.customer_name ilike @search or p.project_code ilike @search or p.item ilike @search or exists (select 1 from project_procurement_items si where si.project_id = p.id and si.status = 'Active' and (si.order_item ilike @search or si.supplier_name ilike @search or si.technical_owner ilike @search)))";
@@ -165,8 +183,9 @@ public sealed class ProcurementStore(
             left join procurement_by_project pb on pb.project_id = p.id
             {where}
             order by p.project_title, p.id
-            limit 500;
+            limit @row_limit;
             """;
+        command.Parameters.AddWithValue("row_limit", maximumRows + 1);
 
         var projects = new List<ProcurementProjectSummaryResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -192,12 +211,14 @@ public sealed class ProcurementStore(
 
         await reader.DisposeAsync();
 
+        var truncated = projects.Count > maximumRows;
+        var visibleProjects = truncated ? projects.Take(maximumRows).ToList() : projects;
         var summary = new ProcurementDashboardSummaryResponse(
-            projects.Sum(project => project.ProcurementItemCount - project.ReceiptCompletedCount),
-            projects.Sum(project => project.ReceiptCompletedCount),
-            projects.Sum(project => project.PastExpectedReceiptDateCount));
+            visibleProjects.Sum(project => project.ProcurementItemCount - project.ReceiptCompletedCount),
+            visibleProjects.Sum(project => project.ReceiptCompletedCount),
+            visibleProjects.Sum(project => project.PastExpectedReceiptDateCount));
 
-        return new ProcurementDashboardResponse(summary, projects);
+        return new ProcurementDashboardResponse(summary, visibleProjects, truncated);
     }
 
     public async Task<ProcurementListResponse> GetMaterialReceiptsAsync(

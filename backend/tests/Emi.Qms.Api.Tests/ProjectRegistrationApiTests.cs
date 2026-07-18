@@ -5,6 +5,7 @@ using System.Text.Json;
 using ClosedXML.Excel;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.DataExports;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Projects;
 using Microsoft.AspNetCore.Hosting;
@@ -1794,6 +1795,112 @@ public sealed class ProjectRegistrationApiTests
 
         var reuse = await CreateProjectAsync(salesClient, "DELETE-REUSE", "Delete Reusable Title", 1);
         Assert.Equal(HttpStatusCode.Created, reuse.StatusCode);
+    }
+
+    [Fact]
+    public async Task ExcelExports_ReuseScreenScopeCreateSafeWorkbooksAndAppendAuditEvents()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var noRoleClient = context.CreateClient("dev-no-role");
+        var unique = Guid.NewGuid().ToString("N")[..8];
+        var projectTitle = $"Export Project {unique}";
+        var projectId = await CreateProjectAndReadIdAsync(salesClient, $"EXPORT-{unique}", projectTitle, 1);
+        await context.ExecuteSqlAsync($"update projects set customer_name = '=1+1' where id = '{projectId}';");
+
+        using var denied = await noRoleClient.GetAsync("/api/projects/export", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        using var invalidDate = await salesClient.GetAsync("/api/projects/export?deliveryDateFrom=not-a-date", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, invalidDate.StatusCode);
+
+        var concurrencyGate = context.Services.GetRequiredService<ExcelExportConcurrencyGate>();
+        Assert.True(concurrencyGate.TryAcquire(out var firstLease));
+        Assert.True(concurrencyGate.TryAcquire(out var secondLease));
+        using (firstLease)
+        using (secondLease)
+        using (var busy = await salesClient.GetAsync("/api/projects/export", TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.TooManyRequests, busy.StatusCode);
+        }
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from data_export_events;"));
+
+        using var projectExport = await salesClient.GetAsync(
+            $"/api/projects/export?search={Uri.EscapeDataString(projectTitle)}",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, projectExport.StatusCode);
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", projectExport.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("1", projectExport.Headers.GetValues("X-Export-Row-Count").Single());
+        Assert.Contains("EMI_", projectExport.Content.Headers.ContentDisposition?.FileNameStar, StringComparison.Ordinal);
+        using (var workbook = new XLWorkbook(new MemoryStream(await projectExport.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken))))
+        {
+            var worksheet = workbook.Worksheet("프로젝트");
+            var headers = worksheet.Row(5).CellsUsed().Select(cell => cell.GetString()).ToList();
+            Assert.Contains("매출액", headers);
+            Assert.Equal("=1+1", worksheet.Cell(6, 3).GetString());
+            Assert.DoesNotContain(worksheet.CellsUsed(), cell => cell.HasFormula);
+        }
+
+        using var nonSensitiveProjectExport = await procurementClient.GetAsync(
+            $"/api/projects/export?search={Uri.EscapeDataString(projectTitle)}",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, nonSensitiveProjectExport.StatusCode);
+        using (var workbook = new XLWorkbook(new MemoryStream(await nonSensitiveProjectExport.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken))))
+        {
+            var headers = workbook.Worksheet("프로젝트").Row(5).CellsUsed().Select(cell => cell.GetString()).ToList();
+            Assert.DoesNotContain("매출액", headers);
+            Assert.DoesNotContain("통화", headers);
+        }
+
+        using var procurementExport = await salesClient.GetAsync(
+            $"/api/procurement/dashboard/export?search={Uri.EscapeDataString(projectTitle)}",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, procurementExport.StatusCode);
+        Assert.Equal("1", procurementExport.Headers.GetValues("X-Export-Row-Count").Single());
+        using (var workbook = new XLWorkbook(new MemoryStream(await procurementExport.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken))))
+        {
+            Assert.DoesNotContain(workbook.Worksheet("구매").CellsUsed(), cell => cell.HasFormula);
+        }
+
+        using var myWorkExport = await salesClient.GetAsync("/api/my-work/export?status=Requested", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, myWorkExport.StatusCode);
+        using (var workbook = new XLWorkbook(new MemoryStream(await myWorkExport.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken))))
+        {
+            var headers = workbook.Worksheet("내 업무").Row(5).CellsUsed().Select(cell => cell.GetString()).ToList();
+            Assert.DoesNotContain("설명", headers);
+            Assert.DoesNotContain("링크", headers);
+            Assert.DoesNotContain("업무 ID", headers);
+        }
+
+        Assert.Equal(4L, await context.ReadScalarAsync<long>("select count(*) from data_export_events;"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from data_export_events where row_count < 0 or row_count > 10000;"));
+        var updateAudit = await Assert.ThrowsAsync<PostgresException>(() => context.ExecuteSqlAsync("update data_export_events set filters_applied = false;"));
+        Assert.Equal(PostgresErrorCodes.RaiseException, updateAudit.SqlState);
+        var deleteAudit = await Assert.ThrowsAsync<PostgresException>(() => context.ExecuteSqlAsync("delete from data_export_events;"));
+        Assert.Equal(PostgresErrorCodes.RaiseException, deleteAudit.SqlState);
+
+        var auditOnlyUserId = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider,
+                deletion_requested_at_utc, scheduled_hard_delete_at_utc
+            ) values (
+                '{auditOnlyUserId}', 'export-audit-{unique}', 'Synthetic Export Audit User',
+                '10000000-0000-0000-0000-000000000007', false, 'Dev', now(), now()
+            );
+            insert into data_export_events (
+                id, actor_user_id, export_kind, row_count, filters_applied, sensitive_sales_amount_included
+            ) values (
+                gen_random_uuid(), '{auditOnlyUserId}', 'MyWork', 0, false, false
+            );
+            """);
+        var deletionService = context.Services.GetRequiredService<AdminScheduledDeletionService>();
+        var purgeResult = await deletionService.PurgeUserNowAsync(
+            auditOnlyUserId,
+            new Guid("50000000-0000-0000-0000-000000000001"),
+            TestContext.Current.CancellationToken);
+        Assert.Equal("PurgeBlocked", purgeResult.Status);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id = '{auditOnlyUserId}';"));
     }
 
     [Fact]

@@ -1,6 +1,8 @@
 using System.Net;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.Home;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.ReviewSafe;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -273,6 +275,27 @@ public sealed class PostgreSqlMigrationTests
               );
             """,
             TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'user_profile_photos',
+                  'user_profile_photo_audit_events'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_trigger
+            where tgname = 'trg_guard_user_profile_photo_audit'
+              and not tgisinternal;
+            """,
+            TestContext.Current.CancellationToken));
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
             """
@@ -285,6 +308,82 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task ProfilePhotoStoreAndDepartmentHomeQueries_RunAgainstFreshSchema()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot, connectionStringProvider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+        var userId = new Guid("76000000-0000-0000-0000-000000000042");
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            $"""
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '{userId}',
+                'profile-home-query-test',
+                'Profile Home Query Test',
+                (select id from departments where code='sales'),
+                true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+
+        var profileStore = new UserProfilePhotoStore(connectionStringProvider);
+        var firstPhoto = CreateStructurallyValidPng(64, 32);
+        var secondPhoto = CreateStructurallyValidPng(96, 48);
+        var first = await profileStore.SaveAsync(userId, firstPhoto, TestContext.Current.CancellationToken);
+        var second = await profileStore.SaveAsync(userId, secondPhoto, TestContext.Current.CancellationToken);
+        var stored = await profileStore.GetAsync(userId, TestContext.Current.CancellationToken);
+
+        Assert.Equal("image/png", first.NormalizedMime);
+        Assert.NotEqual(first.ProfilePhotoVersion, second.ProfilePhotoVersion);
+        Assert.NotNull(stored);
+        Assert.Equal(secondPhoto, stored.Content);
+        Assert.True(await profileStore.RemoveAsync(userId, TestContext.Current.CancellationToken));
+        Assert.Null(await profileStore.GetAsync(userId, TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from user_profile_photo_audit_events where profile_user_id='76000000-0000-0000-0000-000000000042';",
+            TestContext.Current.CancellationToken));
+
+        var permissions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            QmsPermissions.ProjectRead,
+            QmsPermissions.PanelInfoUpdate,
+            QmsPermissions.ProductionPlanUpdate,
+            QmsPermissions.ProcurementPlanUpdate,
+            QmsPermissions.MaterialReceiptUpdate,
+            QmsPermissions.ManufacturingUpdate,
+            QmsPermissions.QualityInspect,
+            QmsPermissions.LogisticsShip
+        };
+        var metricsStore = new HomeMetricsStore(connectionStringProvider);
+        var scope = new ProjectAccessScope(true, []);
+        string[] departments =
+        [
+            "administration", "sales", "design", "production-planning", "procurement",
+            "materials", "manufacturing", "quality", "logistics"
+        ];
+
+        foreach (var department in departments)
+        {
+            var response = await metricsStore.GetAsync(
+                department,
+                department,
+                userId,
+                permissions,
+                department == "administration",
+                scope,
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(3, response.Metrics.Count);
+            Assert.All(response.Metrics, metric => Assert.True(metric.Count >= 0));
+        }
+    }
+
+    [Fact]
     public async Task NotificationDeliveryClaimLeaseMigration_AddsProcessingClaimsAttemptsAndIndexes()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -294,11 +393,11 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(41L, await ReadScalarAsync<long>(
+        Assert.Equal(42L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0041_user_notification_preferences", await ReadScalarAsync<string>(
+        Assert.Equal("0042_user_profile_photos", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2209,6 +2308,19 @@ public sealed class PostgreSqlMigrationTests
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var command = dataSource.CreateCommand(await File.ReadAllTextAsync(migrationFile, cancellationToken));
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static byte[] CreateStructurallyValidPng(byte width, byte height)
+    {
+        var content = new byte[45];
+        byte[] signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        signature.CopyTo(content, 0);
+        content[11] = 13;
+        "IHDR"u8.CopyTo(content.AsSpan(12, 4));
+        content[19] = width;
+        content[23] = height;
+        "IEND"u8.CopyTo(content.AsSpan(content.Length - 8, 4));
+        return content;
     }
 
     private static async Task ExecuteSqlAsync(

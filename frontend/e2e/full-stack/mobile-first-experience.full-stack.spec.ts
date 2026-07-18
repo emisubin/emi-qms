@@ -17,7 +17,7 @@ test('TASK-MOBILE-002: mobile-first composition covers the seven core field rout
   await selectDevelopmentUserFromMobileStatus(page, 'dev-quality');
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '오늘의 현장 업무' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '업무 홈' })).toBeVisible();
   await expect(page.getByLabel('긴급·차단 우선 확인')).toBeVisible();
   await assertMobileShell(page, '홈');
   await capture(page, '01-home-mobile-390.png');
@@ -86,13 +86,14 @@ test('TASK-MOBILE-002: mobile-first composition covers the seven core field rout
   await assertMobileShell(page, '알림');
   await capture(page, '09-notifications-mobile-390.png');
 
-  await page.getByRole('button', { name: '상태' }).click();
-  const statusSheet = page.getByRole('dialog', { name: '앱 상태와 계정' });
-  await expect(statusSheet).toBeVisible();
-  await expect(statusSheet.getByLabel('모바일 시스템 상태')).toBeVisible();
-  await capture(page, '10-status-sheet-mobile-390.png');
+  await page.getByRole('button', { name: '내 계정 열기' }).click();
+  const accountSheet = page.getByRole('dialog', { name: '내 계정' });
+  await expect(accountSheet).toBeVisible();
+  await accountSheet.getByText('연결 상태', { exact: true }).click();
+  await expect(accountSheet.getByLabel('모바일 시스템 상태')).toBeVisible();
+  await capture(page, '10-account-sheet-mobile-390.png');
   await page.keyboard.press('Escape');
-  await expect(statusSheet).toBeHidden();
+  await expect(accountSheet).toBeHidden();
 
   await page.setViewportSize({ width: 480, height: 800 });
   await page.goto('/teams/activity');
@@ -134,12 +135,12 @@ test.describe('TASK-MOBILE-002 coarse pointer desktop', () => {
 });
 
 async function selectDevelopmentUserFromMobileStatus(page: Page, userKey: string) {
-  const trigger = page.getByRole('button', { name: '상태' });
+  const trigger = page.getByRole('button', { name: '메뉴 열기' });
   await trigger.click();
-  const statusSheet = page.getByRole('dialog', { name: '앱 상태와 계정' });
-  await statusSheet.getByLabel('개발 사용자').selectOption(userKey);
-  await statusSheet.getByRole('button', { name: '앱 상태와 계정 닫기' }).click();
-  await expect(statusSheet).toBeHidden();
+  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  await drawer.getByLabel('개발 사용자').selectOption(userKey);
+  await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+  await expect(drawer).toBeHidden();
   await expect(trigger).toBeFocused();
 }
 

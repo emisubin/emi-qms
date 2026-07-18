@@ -4,6 +4,12 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const salesUserId = '50000000-0000-0000-0000-000000000002';
 const adminUserId = '50000000-0000-0000-0000-000000000001';
+const currentSeoulDate = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Seoul',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+}).format(new Date());
 
 test('TASK-014A: project settlement atomically completes the project and remains read-only', async ({ page, request }) => {
   test.setTimeout(180_000);
@@ -25,7 +31,7 @@ test('TASK-014A: project settlement atomically completes the project and remains
 
   const adminMutation = await request.put(`${apiBaseUrl}/api/projects/${projectId}/settlement/draft`, {
     headers: devHeaders('dev-admin'),
-    data: { expectedVersion: 0, invoiceIssuedDate: '2026-07-18', invoiceNumber: null, note: null }
+    data: { expectedVersion: 0, invoiceIssuedDate: currentSeoulDate, invoiceNumber: null, note: null }
   });
   expect(adminMutation.status()).toBe(403);
 
@@ -41,13 +47,13 @@ test('TASK-014A: project settlement atomically completes the project and remains
   `);
   const pendingBlocked = await request.post(`${apiBaseUrl}/api/projects/${projectId}/settlement/complete`, {
     headers: devHeaders('dev-sales'),
-    data: { operationId: crypto.randomUUID(), expectedVersion: 0, invoiceIssuedDate: '2026-07-18', invoiceNumber: 'SYNTH-014A', note: '합성 정산' }
+    data: { operationId: crypto.randomUUID(), expectedVersion: 0, invoiceIssuedDate: currentSeoulDate, invoiceNumber: 'SYNTH-014A', note: '합성 정산' }
   });
   expect(pendingBlocked.status()).toBe(409);
   queryDatabase(`update pending_issues set status='Closed',assignee_user_id='${salesUserId}',closed_by_user_id='${salesUserId}',closed_at_utc=now(),version=version+1 where project_id='${projectId}';`);
 
   const draft = await putJson(request, `/api/projects/${projectId}/settlement/draft`, 'dev-sales', {
-    expectedVersion: 0, invoiceIssuedDate: '2026-07-18', invoiceNumber: 'SYNTH-014A', note: '합성 정산'
+    expectedVersion: 0, invoiceIssuedDate: currentSeoulDate, invoiceNumber: 'SYNTH-014A', note: '합성 정산'
   }) as Mutation;
   expect(draft.version).toBe(1);
 
@@ -68,7 +74,7 @@ test('TASK-014A: project settlement atomically completes the project and remains
   await page.screenshot({ path: '/tmp/task-014a-sales-settlement-mobile.png', fullPage: true });
 
   const operationId = crypto.randomUUID();
-  const completionRequest = { operationId, expectedVersion: 1, invoiceIssuedDate: '2026-07-18', invoiceNumber: 'SYNTH-014A', note: '합성 정산' };
+  const completionRequest = { operationId, expectedVersion: 1, invoiceIssuedDate: currentSeoulDate, invoiceNumber: 'SYNTH-014A', note: '합성 정산' };
   const completed = await postJson(request, `/api/projects/${projectId}/settlement/complete`, 'dev-sales', completionRequest) as Mutation;
   const replay = await postJson(request, `/api/projects/${projectId}/settlement/complete`, 'dev-sales', completionRequest) as Mutation;
   expect(completed.status).toBe('Completed');
@@ -120,11 +126,11 @@ test('TASK-014A: concurrent completion has one winner and zero-panel completion 
   const attempts = await Promise.all([
     request.post(`${apiBaseUrl}/api/projects/${concurrentProject.projectId}/settlement/complete`, {
       headers: devHeaders('dev-sales'),
-      data: { operationId: crypto.randomUUID(), expectedVersion: 0, invoiceIssuedDate: '2026-07-18', invoiceNumber: 'RACE-A', note: null }
+      data: { operationId: crypto.randomUUID(), expectedVersion: 0, invoiceIssuedDate: currentSeoulDate, invoiceNumber: 'RACE-A', note: null }
     }),
     request.post(`${apiBaseUrl}/api/projects/${concurrentProject.projectId}/settlement/complete`, {
       headers: devHeaders('dev-sales'),
-      data: { operationId: crypto.randomUUID(), expectedVersion: 0, invoiceIssuedDate: '2026-07-18', invoiceNumber: 'RACE-B', note: null }
+      data: { operationId: crypto.randomUUID(), expectedVersion: 0, invoiceIssuedDate: currentSeoulDate, invoiceNumber: 'RACE-B', note: null }
     })
   ]);
   expect(attempts.map((response) => response.status()).sort()).toEqual([200, 409]);
@@ -141,7 +147,7 @@ test('TASK-014A: concurrent completion has one winner and zero-panel completion 
   expect(zeroDetail.deliveredPanelCount).toBe(0);
   const zeroCompletion = await request.post(`${apiBaseUrl}/api/projects/${zeroProject.projectId}/settlement/complete`, {
     headers: devHeaders('dev-sales'),
-    data: { operationId: crypto.randomUUID(), expectedVersion: 0, invoiceIssuedDate: '2026-07-18', invoiceNumber: null, note: null }
+    data: { operationId: crypto.randomUUID(), expectedVersion: 0, invoiceIssuedDate: currentSeoulDate, invoiceNumber: null, note: null }
   });
   expect(zeroCompletion.status()).toBe(409);
 });

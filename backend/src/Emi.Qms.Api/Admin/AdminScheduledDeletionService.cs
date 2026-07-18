@@ -180,7 +180,13 @@ public sealed class AdminScheduledDeletionService(
         Guid? changedByUserId,
         CancellationToken cancellationToken)
     {
-        if (await HasColumnReferenceAsync(connection, transaction, user.Id, "qms_users", UserReferenceColumns, cancellationToken))
+        if (await HasColumnReferenceAsync(
+            connection,
+            transaction,
+            user.Id,
+            ["qms_users", "user_profile_photos", "user_profile_photo_audit_events"],
+            UserReferenceColumns,
+            cancellationToken))
         {
             const string reason = "업무, 알림 또는 이력에서 참조 중인 사용자라 완전 삭제가 보류되었습니다.";
             await MarkPurgeBlockedAsync(connection, transaction, "qms_users", user.Id, reason, now, cancellationToken);
@@ -188,6 +194,12 @@ public sealed class AdminScheduledDeletionService(
             return new AdminPurgeActionResult("PurgeBlocked", reason);
         }
 
+        await using (var purgeScope = connection.CreateCommand())
+        {
+            purgeScope.Transaction = transaction;
+            purgeScope.CommandText = "set local emi_qms.user_profile_purge = 'on';";
+            await purgeScope.ExecuteNonQueryAsync(cancellationToken);
+        }
         await ExecuteDeleteAsync(connection, transaction, "qms_users", user.Id, cancellationToken);
         await InsertPurgeLogAsync(connection, transaction, "User", user.Id, user.Payload, now, changedByUserId, cancellationToken);
         return new AdminPurgeActionResult("Purged", "완전 삭제했습니다.");
@@ -201,7 +213,7 @@ public sealed class AdminScheduledDeletionService(
         Guid? changedByUserId,
         CancellationToken cancellationToken)
     {
-        if (await HasColumnReferenceAsync(connection, transaction, department.Id, "departments", ["department_id"], cancellationToken))
+        if (await HasColumnReferenceAsync(connection, transaction, department.Id, ["departments"], ["department_id"], cancellationToken))
         {
             const string reason = "해당 부서를 사용하는 사용자가 있어 완전 삭제할 수 없습니다.";
             await MarkPurgeBlockedAsync(connection, transaction, "departments", department.Id, reason, now, cancellationToken);
@@ -283,7 +295,7 @@ public sealed class AdminScheduledDeletionService(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid id,
-        string excludedTableName,
+        IReadOnlyList<string> excludedTableNames,
         IReadOnlyList<string> columnNames,
         CancellationToken cancellationToken)
     {
@@ -293,10 +305,10 @@ public sealed class AdminScheduledDeletionService(
             select table_schema, table_name, column_name
             from information_schema.columns
             where table_schema = 'public'
-              and table_name <> @excluded_table_name
+              and not (table_name = any(@excluded_table_names))
               and column_name = any(@column_names);
             """;
-        columnsCommand.Parameters.AddWithValue("excluded_table_name", excludedTableName);
+        columnsCommand.Parameters.AddWithValue("excluded_table_names", excludedTableNames.ToArray());
         columnsCommand.Parameters.AddWithValue("column_names", columnNames.ToArray());
 
         var candidates = new List<(string Schema, string Table, string Column)>();

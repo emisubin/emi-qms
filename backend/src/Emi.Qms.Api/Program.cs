@@ -4,6 +4,7 @@ using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Calendar;
 using Emi.Qms.Api.DataExports;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Home;
 using Emi.Qms.Api.Materials;
 using Emi.Qms.Api.Manufacturing;
 using Emi.Qms.Api.Logistics;
@@ -53,6 +54,8 @@ builder.Services.AddSingleton<MigrationLedgerInspector>();
 builder.Services.AddSingleton<DatabaseMigrationRunner>();
 builder.Services.AddSingleton<ReviewSafeStatusService>();
 builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
+builder.Services.AddSingleton<UserProfilePhotoStore>();
+builder.Services.AddSingleton<HomeMetricsStore>();
 builder.Services.AddSingleton<IProjectDeletionGuard, ProjectDeletionGuard>();
 builder.Services.AddSingleton<ProjectExcelParser>();
 builder.Services.AddSingleton<ProjectStore>();
@@ -225,6 +228,7 @@ app.MapGet("/api/runtime-mode", async (ReviewSafeStatusService statusService, Ca
 .WithName("RuntimeMode");
 
 app.MapIdentityEndpoints();
+app.MapHomeMetricsEndpoints();
 app.MapProjectEndpoints();
 app.MapPanelInformationEndpoints();
 app.MapPendingEndpoints();

@@ -595,10 +595,10 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/projects');
-  await page.getByRole('button', { name: '상태' }).click();
-  const mobileStatus = page.getByRole('dialog', { name: '앱 상태와 계정' });
-  await mobileStatus.getByLabel('개발 사용자').selectOption('dev-procurement');
-  await mobileStatus.getByRole('button', { name: '앱 상태와 계정 닫기' }).click();
+  await page.getByRole('button', { name: '메뉴 열기' }).click();
+  const mobileMenu = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  await mobileMenu.getByLabel('개발 사용자').selectOption('dev-procurement');
+  await mobileMenu.getByRole('button', { name: '메뉴 닫기' }).click();
   const mobileProjectCard = page.locator('.project-list-card').filter({ hasText: projectTitle });
   await expect(mobileProjectCard).toBeVisible();
   await mobileProjectCard.getByRole('button', { name: '상세 보기' }).click();
@@ -1384,10 +1384,10 @@ async function openProject(page: Page, projectTitle: string) {
 }
 
 async function selectMobileDevelopmentUser(page: Page, userKey: string) {
-  await page.getByRole('button', { name: '상태' }).click();
-  const statusSheet = page.getByRole('dialog', { name: '앱 상태와 계정' });
-  await statusSheet.getByLabel('개발 사용자').selectOption(userKey);
-  await statusSheet.getByRole('button', { name: '앱 상태와 계정 닫기' }).click();
+  await page.getByRole('button', { name: '메뉴 열기' }).click();
+  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  await drawer.getByLabel('개발 사용자').selectOption(userKey);
+  await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
 }
 
 async function findProjectId(projectTitle: string) {

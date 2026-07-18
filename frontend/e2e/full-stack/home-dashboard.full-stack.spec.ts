@@ -31,7 +31,7 @@ test('TASK-HOME-001: Home widgets stay responsive, permission-aware, and linked 
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '오늘의 현장 업무' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '업무 홈' })).toBeVisible();
   const menuTrigger = page.getByRole('button', { name: '메뉴 열기' });
   await menuTrigger.click();
   const menuDrawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
@@ -65,7 +65,7 @@ test('TASK-HOME-001: Home widgets stay responsive, permission-aware, and linked 
   page.on('request', pendingRequestListener);
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: '오늘의 현장 업무' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '업무 홈' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Pending' })).toHaveCount(0);
   await expect(page.getByLabel('프로젝트 병목 요약')).not.toContainText('Pending');
   expect(pendingRequestCount).toBe(0);

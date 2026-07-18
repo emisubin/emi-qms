@@ -5,8 +5,8 @@
 이 문서는 현재 `experiment/*` 계보에서 이미 구현한 Task와 남은 Task를 구분하는 선택 기준이다. 새 대화나 새 Task를 시작할 때 Product Roadmap과 함께 이 원장을 먼저 읽어, 완료된 기능을 다시 기획하거나 다시 구현하지 않는다.
 
 - 감사 기준일: `2026-07-18`
-- 감사 branch: `experiment/task-notify-005-preferences`
-- 감사 HEAD: `79e10911b165e75f70a512fa252dcf63663508d3`
+- 감사 branch: `experiment/task-home-002-personalized-shell`
+- 감사 HEAD: TASK-HOME-002 최종 local commit 계보(Git history와 구현 보고서가 source of truth)
 - 대표 repository·GitHub `main`: 이 원장의 완료 판정 대상이 아니며 현재 실험 결과가 반영되지 않음
 - Git 게시 경계: 실험 local commit만 완료. push·PR·merge 미승인, `main` merge 승인 `0/3`
 - 운영 경계: Persistent UAT migration·runtime handover와 실제 provider 미적용
@@ -32,6 +32,7 @@
 | `TASK-007B` | 패널·프로젝트 병목 단계, open Pending 결합 집계와 목록·상세 표시 | [구현 보고서](../tasks/007b-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-MOBILE-001` | 동일 URL 적응형 현장 UX와 좁은 화면 navigation 기준 | [구현 보고서](../tasks/mobile-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-HOME-001` | 내 업무·병목·Pending·알림 Home widget dashboard | [구현 보고서](../tasks/home-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-HOME-002` | actual 사용자 프로필 shell·본인 사진·9개 부서 Home 핵심 지표·desktop/mobile navigation 재구성 | [구현 보고서](../tasks/home-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-MOBILE-002` | 모바일 우선 정보 재배치, 전체 화면 개편, 좌상단 drawer, 모바일 shape·타이포 체계 | [1차](../tasks/mobile-002-implementation-report.md), [Change 002](../tasks/mobile-002-change-002-implementation-report.md), [Change 003](../tasks/mobile-002-change-003-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `DESIGN-001` | 로그인 shell을 기준으로 전체 업무 화면 시각 통일 | [구현 보고서](../tasks/design-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-008A` | 자재 도착·분할 입고·IQC 요청·입고 확정 | [구현 보고서](../tasks/008a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
@@ -48,7 +49,7 @@
 | `TASK-UX-001 A1` | 공통 action feedback, 내 업무와 알림의 처리 중·성공·부분 성공·실패 UX | [구현 보고서](../tasks/ux-001-implementation-report.md) | `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` |
 | `TASK-NOTIFY-005` | 사용자별 알림 preference, 필수 잠금, sparse opt-out, audit와 suppression gate | [구현 보고서](../tasks/notify-005-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 `TASK-NOTIFY-005`의 Backend `391/391`, Frontend `101/101`과 migration `0041` fresh 적용이다. 전체 브라우저 회귀 기준선은 `TASK-E2E-FULL-SUITE-001`의 `35/35`이며, 그 뒤 변경한 UX A1·알림 설정은 각각 별도 unit·isolated UI 검증을 완료했다.
+현재 계보의 최신 누적 자동 기준선은 `TASK-HOME-002`의 Backend `395/395`, Frontend `102/102`, migration `0042` fresh 적용과 Full-Stack `38/38`다. 개인화 Home·프로필은 추가로 사진 lifecycle·9부서 SQL 통합 검증과 desktop/mobile 6개 synthetic screenshot을 완료했다.
 
 ## 4. 남은 제품 개발 Task
 
@@ -109,7 +110,7 @@
 3. 신규 상태·권한·외부 연동이 필요하면 별도 `NEW_FEATURE`로 분류한다.
 4. 다른 완료 Task를 함께 재기획하지 않는다.
 
-대표 repo·`main`으로 옮기려면 별도 승격 Task에서 현재 experiment commit 계보, migration `0030`~`0041`, 전체 자동 회귀, Persistent UAT handover와 rollback을 다시 검증한다. 이는 완료 기능의 재개발이 아니다. `main` merge는 사용자가 merge를 요청하더라도 서로 분리된 승인 3회가 기록되기 전까지 수행하지 않는다.
+대표 repo·`main`으로 옮기려면 별도 승격 Task에서 현재 experiment commit 계보, migration `0030`~`0042`, 전체 자동 회귀, Persistent UAT handover와 rollback을 다시 검증한다. 이는 완료 기능의 재개발이 아니다. `main` merge는 사용자가 merge를 요청하더라도 서로 분리된 승인 3회가 기록되기 전까지 수행하지 않는다.
 
 ## 7. 중복 실행 방지 체크리스트
 

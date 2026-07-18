@@ -86,6 +86,35 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
   });
 
+  it('shows the actual user account in the shell and department metrics on Home', async () => {
+    window.history.pushState(null, '', '/');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '영업 핵심 지표' })).toBeInTheDocument();
+    expect(await screen.findByText('핵심 대기')).toBeInTheDocument();
+
+    const accountTrigger = document.querySelector<HTMLButtonElement>('.account-identity-trigger');
+    expect(accountTrigger).not.toBeNull();
+    expect(accountTrigger).toHaveTextContent('영업');
+    expect(accountTrigger).toHaveTextContent('dev-sales');
+    fireEvent.click(accountTrigger!);
+
+    const accountDialog = await screen.findByRole('dialog', { name: '내 계정' });
+    expect(within(accountDialog).getByLabelText('프로필 사진 업로드')).toBeInTheDocument();
+    expect(within(accountDialog).getByRole('button', { name: '사진 변경' })).toBeInTheDocument();
+    expect(within(accountDialog).getByRole('button', { name: '사진 제거' })).toBeDisabled();
+    expect(within(accountDialog).getByRole('button', { name: '로그아웃' })).toBeInTheDocument();
+
+    const commonNavigation = screen.getByRole('navigation', { name: '공통 메뉴' });
+    const sidebarFooter = commonNavigation.querySelector('.app-sidebar-footer');
+    expect(sidebarFooter).not.toBeNull();
+    expect(within(sidebarFooter as HTMLElement).getByLabelText('개발 사용자')).toBeInTheDocument();
+
+    const topbarActions = document.querySelector('.topbar-actions');
+    expect(topbarActions).not.toBeNull();
+    expect(within(topbarActions as HTMLElement).queryByRole('button', { name: '자재' })).not.toBeInTheDocument();
+  });
+
   it('omits Pending data and the Pending widget when the effective user lacks Pending.Read', async () => {
     window.history.pushState(null, '', '/');
     const calls: string[] = [];
@@ -512,21 +541,22 @@ describe('App', () => {
     expect(screen.queryByRole('navigation', { name: '모바일 공통 메뉴' })).not.toBeInTheDocument();
     expect(document.querySelector('.app-mobile-nav')).not.toBeInTheDocument();
 
-    const statusButton = screen.getByRole('button', { name: '상태' });
-    fireEvent.click(statusButton);
-    const statusSheet = await screen.findByRole('dialog', { name: '앱 상태와 계정' });
-    expect(statusButton).toHaveAttribute('aria-expanded', 'true');
-    expect(within(statusSheet).getByLabelText('모바일 시스템 상태')).toBeInTheDocument();
-    expect(within(statusSheet).getByLabelText('개발 사용자')).toBeInTheDocument();
+    const accountButton = screen.getByRole('button', { name: '내 계정 열기' });
+    fireEvent.click(accountButton);
+    const accountSheet = await screen.findByRole('dialog', { name: '내 계정' });
+    expect(accountButton).toHaveAttribute('aria-expanded', 'true');
+    expect(within(accountSheet).getByLabelText('프로필 사진 업로드')).toBeInTheDocument();
+    expect(within(accountSheet).getByLabelText('모바일 시스템 상태')).toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '앱 상태와 계정' })).not.toBeInTheDocument());
-    await waitFor(() => expect(statusButton).toHaveFocus());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '내 계정' })).not.toBeInTheDocument());
+    await waitFor(() => expect(accountButton).toHaveFocus());
 
     fireEvent.click(menuButton);
 
     const menuDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
     const mobileNavigation = within(menuDrawer).getByRole('navigation', { name: '모바일 공통 메뉴' });
     expect(menuButton).toHaveAttribute('aria-expanded', 'true');
+    expect(within(menuDrawer).getByLabelText('개발 사용자')).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '홈' })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '내 업무 1건' })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '프로젝트' })).toHaveAttribute('aria-current', 'page');
@@ -1971,6 +2001,29 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(currentUser(userKey));
   }
 
+  if (path === '/api/me/profile-photo') {
+    if (init?.method === 'PUT') {
+      return json({ profilePhotoVersion: 'test-photo-1', normalizedMime: 'image/png', byteSize: 128 });
+    }
+    if (init?.method === 'DELETE') {
+      return new Response(null, { status: 204 });
+    }
+    return json({ title: 'not found' }, 404);
+  }
+
+  if (path === '/api/home/department-metrics') {
+    const user = currentUser(userKey);
+    return json({
+      departmentCode: user.department,
+      departmentName: user.departmentName,
+      metrics: [
+        { id: 'focus-one', label: '핵심 대기', count: 3, tone: 'warning', destinationKey: 'my-work', actionLabel: '업무 열기' },
+        { id: 'focus-two', label: '진행 중', count: 2, tone: 'neutral', destinationKey: 'projects', actionLabel: '프로젝트 열기' },
+        { id: 'focus-three', label: '차단', count: 1, tone: 'danger', destinationKey: 'pending', actionLabel: '조치 확인' }
+      ]
+    });
+  }
+
   if (path.startsWith('/api/admin/users')) {
     const updated = init?.method === 'PATCH';
     if (path.endsWith('/schedule-deletion')) {
@@ -3024,13 +3077,51 @@ function currentUser(userKey: string) {
     permissions.push('quality.inspect');
   }
 
-  return {
+  const departmentByUser: Record<string, [string, string]> = {
+    'dev-admin': ['administration', '관리'],
+    'dev-sales': ['sales', '영업'],
+    'dev-design': ['design', '설계'],
+    'dev-production': ['production-planning', '생산관리'],
+    'dev-procurement': ['procurement', '구매'],
+    'dev-materials': ['materials', '자재'],
+    'dev-manufacturing': ['manufacturing', '제조'],
+    'dev-quality': ['quality', '품질'],
+    'dev-logistics': ['logistics', '물류']
+  };
+  const [department, departmentName] = departmentByUser[userKey] ?? ['readonly', '조회'];
+  const roles = [userKey === 'dev-admin' ? 'system-administrator' : userKey.replace('dev-', '')];
+  const principal = {
+    userId: `50000000-0000-0000-0000-${userKey === 'dev-admin' ? '000000000001' : '000000000002'}`,
     developmentUserKey: userKey,
     displayName: userKey,
-    department: 'test',
-    roles: [userKey.replace('dev-', '')],
+    email: null,
+    authProvider: 'Dev',
+    isActive: true,
+    approvalPending: false,
+    department,
+    departmentName,
+    profilePhotoVersion: null,
+    roles
+  };
+  return {
+    userId: principal.userId,
+    developmentUserKey: userKey,
+    displayName: userKey,
+    email: null,
+    authProvider: 'Dev',
+    isActive: true,
+    approvalPending: false,
+    department,
+    departmentName,
+    profilePhotoVersion: null,
+    roles,
     permissions,
-    projectAccess: []
+    projectAccess: [],
+    isTestUserSwitch: false,
+    testUserKey: null,
+    canUseAdminTestUserSwitch: false,
+    actualUser: principal,
+    effectiveUser: principal
   };
 }
 

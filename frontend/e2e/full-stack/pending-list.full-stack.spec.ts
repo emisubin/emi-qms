@@ -106,10 +106,10 @@ test('TASK-007A Pending: 390px workspace has no page overflow', async ({ page })
 });
 
 async function selectMobileDevelopmentUser(page: Page, userKey: string) {
-  await page.getByRole('button', { name: '상태' }).click();
-  const statusSheet = page.getByRole('dialog', { name: '앱 상태와 계정' });
-  await statusSheet.getByLabel('개발 사용자').selectOption(userKey);
-  await statusSheet.getByRole('button', { name: '앱 상태와 계정 닫기' }).click();
+  await page.getByRole('button', { name: '메뉴 열기' }).click();
+  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  await drawer.getByLabel('개발 사용자').selectOption(userKey);
+  await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
 }
 
 async function createProject(request: APIRequestContext, projectCode: string, projectTitle: string) {

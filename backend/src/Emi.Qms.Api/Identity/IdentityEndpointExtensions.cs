@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Emi.Qms.Api.Identity;
 
@@ -13,6 +14,7 @@ public static class IdentityEndpointExtensions
         api.MapGet("/me", async (
             ClaimsPrincipal principal,
             IIdentityStore identityStore,
+            UserProfilePhotoStore profilePhotoStore,
             IConfiguration configuration,
             IHostEnvironment environment,
             CancellationToken cancellationToken) =>
@@ -28,13 +30,102 @@ public static class IdentityEndpointExtensions
             var adminUserSwitchEnabled = DevelopmentFeaturePolicy
                 .EvaluateAdminUserSwitch(environment, configuration)
                 .IsEnabled;
+            var effectivePhotoVersion = await profilePhotoStore.GetVersionAsync(effectiveProfile.User.Id, cancellationToken);
+            var actualPhotoVersion = actualProfile.User.Id == effectiveProfile.User.Id
+                ? effectivePhotoVersion
+                : await profilePhotoStore.GetVersionAsync(actualProfile.User.Id, cancellationToken);
 
-            return effectiveProfile is null
-                ? Results.Unauthorized()
-                : Results.Ok(CurrentUserResponse.From(effectiveProfile, actualProfile, principal, adminUserSwitchEnabled));
+            return Results.Ok(CurrentUserResponse.From(
+                effectiveProfile,
+                actualProfile,
+                principal,
+                adminUserSwitchEnabled,
+                effectivePhotoVersion,
+                actualPhotoVersion));
         })
         .RequireAuthorization("AuthenticatedIdentity")
         .WithName("GetCurrentUser");
+
+        api.MapGet("/me/profile-photo", async (
+            HttpContext context,
+            ClaimsPrincipal principal,
+            UserProfilePhotoStore profilePhotoStore,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetActualUserId(principal);
+            if (userId is null) return Results.Unauthorized();
+            var photo = await profilePhotoStore.GetAsync(userId.Value, cancellationToken);
+            if (photo is null) return Results.NotFound();
+            var etag = $"\"{photo.ContentHash}-{photo.Version}\"";
+            if (context.Request.Headers.IfNoneMatch.Any(value => string.Equals(value, etag, StringComparison.Ordinal)))
+            {
+                return Results.StatusCode(StatusCodes.Status304NotModified);
+            }
+            context.Response.Headers.ETag = etag;
+            context.Response.Headers.CacheControl = "private, max-age=300";
+            return Results.File(photo.Content, photo.NormalizedMime);
+        })
+        .RequireAuthorization("AuthenticatedIdentity")
+        .WithName("GetOwnProfilePhoto");
+
+        api.MapPut("/me/profile-photo", async (
+            [FromForm] IFormFile photo,
+            ClaimsPrincipal principal,
+            IIdentityStore identityStore,
+            UserProfilePhotoStore profilePhotoStore,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetActualUserId(principal);
+            if (userId is null) return Results.Unauthorized();
+            var profile = await identityStore.GetProfileByUserIdAsync(userId.Value, cancellationToken);
+            if (profile is null || !profile.User.IsActive) return Results.Unauthorized();
+            if (IsApprovalPending(profile))
+            {
+                return Results.Problem(title: "승인 대기 중에는 프로필 사진을 변경할 수 없습니다.", statusCode: StatusCodes.Status403Forbidden);
+            }
+            if (photo.Length is < 1 or > ProfileImageValidator.MaxBytes)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["photo"] = ["프로필 사진은 5MB 이하 JPEG 또는 PNG 파일이어야 합니다."]
+                });
+            }
+            await using var stream = photo.OpenReadStream();
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory, cancellationToken);
+            try
+            {
+                return Results.Ok(await profilePhotoStore.SaveAsync(userId.Value, memory.ToArray(), cancellationToken));
+            }
+            catch (ProfileImageValidationException exception)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["photo"] = [exception.Message] });
+            }
+        })
+        .WithMetadata(new RequestSizeLimitAttribute(6 * 1024 * 1024))
+        .DisableAntiforgery()
+        .RequireAuthorization("AuthenticatedIdentity")
+        .WithName("SaveOwnProfilePhoto");
+
+        api.MapDelete("/me/profile-photo", async (
+            ClaimsPrincipal principal,
+            IIdentityStore identityStore,
+            UserProfilePhotoStore profilePhotoStore,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetActualUserId(principal);
+            if (userId is null) return Results.Unauthorized();
+            var profile = await identityStore.GetProfileByUserIdAsync(userId.Value, cancellationToken);
+            if (profile is null || !profile.User.IsActive) return Results.Unauthorized();
+            if (IsApprovalPending(profile))
+            {
+                return Results.Problem(title: "승인 대기 중에는 프로필 사진을 변경할 수 없습니다.", statusCode: StatusCodes.Status403Forbidden);
+            }
+            await profilePhotoStore.RemoveAsync(userId.Value, cancellationToken);
+            return Results.NoContent();
+        })
+        .RequireAuthorization("AuthenticatedIdentity")
+        .WithName("RemoveOwnProfilePhoto");
 
         api.MapGet("/projects/{projectId}/overview", async (
             string projectId,
@@ -217,6 +308,18 @@ public static class IdentityEndpointExtensions
         return Guid.TryParse(value, out var userId) ? userId : null;
     }
 
+    private static Guid? GetActualUserId(ClaimsPrincipal principal)
+    {
+        var value = principal.FindFirst(QmsClaimTypes.ActualUserId)?.Value
+            ?? principal.FindFirst(QmsClaimTypes.UserId)?.Value;
+        return Guid.TryParse(value, out var userId) ? userId : null;
+    }
+
+    private static bool IsApprovalPending(UserAuthorizationProfile profile)
+        => profile.User.AuthProvider == QmsAuthProviders.EntraId
+            && profile.User.IsActive
+            && profile.Roles.Count == 0;
+
     private static AdminBulkActionResponse ToSingleBulkActionResponse(Guid id, AdminPurgeActionResult result)
     {
         return new AdminBulkActionResponse(
@@ -237,6 +340,8 @@ public sealed record CurrentUserResponse(
     bool IsActive,
     bool ApprovalPending,
     string? Department,
+    string? DepartmentName,
+    string? ProfilePhotoVersion,
     IReadOnlyList<string> Roles,
     IReadOnlyList<string> Permissions,
     IReadOnlyList<ProjectAccessResponse> ProjectAccess,
@@ -250,7 +355,9 @@ public sealed record CurrentUserResponse(
         UserAuthorizationProfile effectiveProfile,
         UserAuthorizationProfile actualProfile,
         ClaimsPrincipal principal,
-        bool adminUserSwitchEnabled)
+        bool adminUserSwitchEnabled,
+        string? effectivePhotoVersion,
+        string? actualPhotoVersion)
     {
         var effectiveApprovalPending = IsApprovalPending(effectiveProfile);
         var actualApprovalPending = IsApprovalPending(actualProfile);
@@ -268,6 +375,8 @@ public sealed record CurrentUserResponse(
             effectiveProfile.User.IsActive,
             effectiveApprovalPending,
             effectiveProfile.Department?.Code,
+            effectiveProfile.Department?.Name,
+            effectivePhotoVersion,
             effectiveProfile.Roles.Select(role => role.Code).OrderBy(code => code, StringComparer.Ordinal).ToList(),
             effectiveProfile.User.IsActive && !effectiveApprovalPending
                 ? effectiveProfile.Permissions.Select(permission => permission.Code).OrderBy(code => code, StringComparer.Ordinal).ToList()
@@ -276,8 +385,8 @@ public sealed record CurrentUserResponse(
             principal.HasClaim(QmsClaimTypes.IsTestUserSwitch, bool.TrueString),
             principal.FindFirst(QmsClaimTypes.TestUserKey)?.Value,
             canUseAdminTestUserSwitch,
-            CurrentUserPrincipalResponse.From(actualProfile, actualApprovalPending),
-            CurrentUserPrincipalResponse.From(effectiveProfile, effectiveApprovalPending));
+            CurrentUserPrincipalResponse.From(actualProfile, actualApprovalPending, actualPhotoVersion),
+            CurrentUserPrincipalResponse.From(effectiveProfile, effectiveApprovalPending, effectivePhotoVersion));
     }
 
     private static bool IsApprovalPending(UserAuthorizationProfile profile)
@@ -297,9 +406,14 @@ public sealed record CurrentUserPrincipalResponse(
     bool IsActive,
     bool ApprovalPending,
     string? Department,
+    string? DepartmentName,
+    string? ProfilePhotoVersion,
     IReadOnlyList<string> Roles)
 {
-    public static CurrentUserPrincipalResponse From(UserAuthorizationProfile profile, bool approvalPending)
+    public static CurrentUserPrincipalResponse From(
+        UserAuthorizationProfile profile,
+        bool approvalPending,
+        string? profilePhotoVersion)
     {
         return new CurrentUserPrincipalResponse(
             profile.User.Id,
@@ -310,6 +424,8 @@ public sealed record CurrentUserPrincipalResponse(
             profile.User.IsActive,
             approvalPending,
             profile.Department?.Code,
+            profile.Department?.Name,
+            profilePhotoVersion,
             profile.Roles.Select(role => role.Code).OrderBy(code => code, StringComparer.Ordinal).ToList());
     }
 }

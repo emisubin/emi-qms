@@ -5,7 +5,8 @@ import type {
   SalesSettlementDetail,
   SalesSettlementMutationResponse
 } from './salesSettlement';
-import type { AdminUsersResponse, CurrentUser, UpdateAdminUserRequest } from './identity';
+import type { AdminUsersResponse, CurrentUser, ProfilePhotoMetadata, UpdateAdminUserRequest } from './identity';
+import type { HomeMetricsResponse } from './home';
 import type {
   NotificationPreferenceResponse,
   UpdateNotificationPreferencesRequest
@@ -223,6 +224,45 @@ export async function getRuntimeMode(): Promise<RuntimeMode> {
 
 export async function getCurrentUser(developmentUserKey?: string): Promise<CurrentUser> {
   return fetchJson<CurrentUser>('/api/me', developmentUserKey);
+}
+
+export async function getOwnProfilePhoto(developmentUserKey?: string): Promise<Blob | null> {
+  const response = await fetchWithAuth('/api/me/profile-photo', developmentUserKey);
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  return response.blob();
+}
+
+export async function saveOwnProfilePhoto(
+  developmentUserKey: string | undefined,
+  photo: File
+): Promise<ProfilePhotoMetadata> {
+  const form = new FormData();
+  form.append('photo', photo);
+  return fetchJson<ProfilePhotoMetadata>('/api/me/profile-photo', developmentUserKey, {
+    method: 'PUT',
+    body: form
+  });
+}
+
+export async function removeOwnProfilePhoto(developmentUserKey?: string): Promise<void> {
+  if (!mutationAllowed) {
+    throw new ApiError(423, '현재 UAT는 검수 전용 읽기 모드입니다. 프로필 사진을 변경할 수 없습니다.');
+  }
+  const response = await fetchWithAuth('/api/me/profile-photo', developmentUserKey, { method: 'DELETE' });
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+}
+
+export async function getHomeDepartmentMetrics(
+  developmentUserKey?: string
+): Promise<HomeMetricsResponse> {
+  return fetchJson<HomeMetricsResponse>('/api/home/department-metrics', developmentUserKey);
 }
 
 export async function getAdminUsers(developmentUserKey?: string): Promise<AdminUsersResponse> {

@@ -30,7 +30,7 @@ test('TASK-MOBILE-002 Change 003: major mobile workspaces use the top drawer and
   await selectMobileDevelopmentUser(page, 'dev-sales');
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '오늘의 현장 업무' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '업무 홈' })).toBeVisible();
   await assertCompactMobilePage(page);
   await capture(page, '01-home-mobile-390.png');
 
@@ -194,12 +194,12 @@ function devHeaders(userKey: string) {
 }
 
 async function selectMobileDevelopmentUser(page: Page, userKey: string) {
-  const trigger = page.getByRole('button', { name: '상태' });
+  const trigger = page.getByRole('button', { name: '메뉴 열기' });
   await trigger.click();
-  const sheet = page.getByRole('dialog', { name: '앱 상태와 계정' });
-  await sheet.getByLabel('개발 사용자').selectOption(userKey);
-  await sheet.getByRole('button', { name: '앱 상태와 계정 닫기' }).click();
-  await expect(sheet).toBeHidden();
+  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  await drawer.getByLabel('개발 사용자').selectOption(userKey);
+  await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+  await expect(drawer).toBeHidden();
 }
 
 async function assertCompactMobilePage(page: Page) {

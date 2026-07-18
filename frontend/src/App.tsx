@@ -58,6 +58,7 @@ import {
   getAdminWorkItemEscalations,
   getAdminWorkItemHistory,
   getCurrentUser,
+  getOwnProfilePhoto,
   getAdminUsers,
   getDeletedProject,
   getPanel,
@@ -76,6 +77,7 @@ import {
   getMyTeamsActivityDelivery,
   getMyWorkSummary,
   getNotificationSummary,
+  removeOwnProfilePhoto,
   getMaterialReceipts,
   getNotificationDetail,
   getReadyHealth,
@@ -113,6 +115,7 @@ import {
   restoreAdminUser,
   scheduleAdminUserDeletion,
   sendAdminManualNotification,
+  saveOwnProfilePhoto,
   startMyWorkItem,
   setAdminTestUserKey,
   setAccessTokenProvider,
@@ -771,6 +774,26 @@ function logisticsStageFromQuery(value: string | null): LogisticsStage | undefin
   return value === 'packing' || value === 'departure' || value === 'delivery' ? value : undefined;
 }
 
+function viewForHomeDestination(destinationKey: string): View {
+  switch (destinationKey) {
+    case 'my-work': return { kind: 'my-work' };
+    case 'production-planning': return { kind: 'production-planning-dashboard' };
+    case 'procurement': return { kind: 'procurement-dashboard' };
+    case 'materials-receipts': return { kind: 'materials-receipts' };
+    case 'materials-kitting': return { kind: 'materials-kitting' };
+    case 'manufacturing': return { kind: 'manufacturing-work' };
+    case 'quality': return { kind: 'quality-inspections', stage: 'LQC' };
+    case 'pending': return { kind: 'pending' };
+    case 'logistics-packing': return { kind: 'logistics', stage: 'packing' };
+    case 'logistics-departure': return { kind: 'logistics', stage: 'departure' };
+    case 'logistics-delivery': return { kind: 'logistics', stage: 'delivery' };
+    case 'admin-users': return { kind: 'admin-users' };
+    case 'admin-deliveries': return { kind: 'admin-notification-deliveries', status: 'Failed' };
+    case 'admin-dashboard': return { kind: 'admin-dashboard' };
+    default: return { kind: 'list' };
+  }
+}
+
 function pathForView(view: View) {
   switch (view.kind) {
     case 'home':
@@ -1194,7 +1217,10 @@ function QmsAppShellContent({
   const [shellBadges, setShellBadges] = useState<ShellBadgeState>({ requestedWorkCount: 0, unreadNotificationCount: 0 });
   const [adminTestUserKey, setAdminTestUserKeyState] = useState('');
   const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
+  const [profilePhotoState, setProfilePhotoState] = useState<{ key: string; url: string | null } | null>(null);
+  const [profilePhotoNonce, setProfilePhotoNonce] = useState(0);
   const mobileStatusTriggerRef = useRef<HTMLButtonElement>(null);
+  const profilePhotoGeneration = useRef(0);
   const restoredAdminTestUser = useRef(false);
   const user = currentUser.kind === 'ready' ? currentUser.data : null;
   const isAccessBlocked = isOperationalAccessBlocked(user);
@@ -1203,6 +1229,10 @@ function QmsAppShellContent({
     ? shellBadges
     : { requestedWorkCount: 0, unreadNotificationCount: 0 };
   const canUseAdminTestUserSwitch = !isDevMode && user?.canUseAdminTestUserSwitch === true;
+  const actualProfileUserId = user?.actualUser.userId ?? '';
+  const actualProfilePhotoVersion = user?.actualUser.profilePhotoVersion ?? '';
+  const profilePhotoKey = `${actualProfileUserId}:${actualProfilePhotoVersion}:${profilePhotoNonce}`;
+  const profilePhotoUrl = profilePhotoState?.key === profilePhotoKey ? profilePhotoState.url : null;
 
   useEffect(() => {
     setAdminTestUserKey(isDevMode ? null : adminTestUserKey);
@@ -1275,6 +1305,33 @@ function QmsAppShellContent({
   useEffect(() => {
     loadShell();
   }, [loadShell]);
+
+  useEffect(() => {
+    const generation = ++profilePhotoGeneration.current;
+    let createdUrl: string | null = null;
+    if (!actualProfileUserId || !actualProfilePhotoVersion) return undefined;
+
+    void getOwnProfilePhoto(developmentUserKey)
+      .then((blob) => {
+        if (generation !== profilePhotoGeneration.current) return;
+        createdUrl = blob ? URL.createObjectURL(blob) : null;
+        setProfilePhotoState((current) => {
+          if (current?.url) URL.revokeObjectURL(current.url);
+          return { key: profilePhotoKey, url: createdUrl };
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      profilePhotoGeneration.current += 1;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [
+    actualProfileUserId,
+    actualProfilePhotoVersion,
+    developmentUserKey,
+    profilePhotoKey
+  ]);
 
   useEffect(() => {
     if (!canLoadBusinessData) {
@@ -1422,6 +1479,25 @@ function QmsAppShellContent({
   const materialsHomeView: View = canAccessMaterialReceipts
     ? { kind: 'materials-receipts' }
     : { kind: 'materials-kitting' };
+  const switchDevelopmentUser = (nextUserKey: string) => {
+    window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
+    setDevelopmentUserKey(nextUserKey);
+    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
+  };
+  const switchAdminTestUser = (nextUserKey: string) => {
+    if (nextUserKey) {
+      window.localStorage.setItem(adminTestUserStorageKey, nextUserKey);
+    } else {
+      window.localStorage.removeItem(adminTestUserStorageKey);
+    }
+    setAdminTestUserKeyState(nextUserKey);
+    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
+  };
+  const resetAdminTestUser = () => {
+    window.localStorage.removeItem(adminTestUserStorageKey);
+    setAdminTestUserKeyState('');
+    setView({ kind: 'home' });
+  };
   const navigationItems: NavigationItem[] = [
     { label: '홈', view: { kind: 'home' }, active: view.kind === 'home' },
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount },
@@ -1445,6 +1521,18 @@ function QmsAppShellContent({
   ];
 
   const activeNavigationLabel = navigationItems.find((item) => item.active)?.label ?? '업무';
+  const shellSwitchControls = (
+    <ShellSwitchControls
+      isDevMode={isDevMode}
+      canUseAdminTestUserSwitch={canUseAdminTestUserSwitch}
+      isTestUserSwitch={user?.isTestUserSwitch === true}
+      developmentUserKey={developmentUserKey}
+      adminTestUserKey={adminTestUserKey}
+      onDevelopmentUserChange={switchDevelopmentUser}
+      onAdminTestUserChange={switchAdminTestUser}
+      onResetAdminTestUser={resetAdminTestUser}
+    />
+  );
 
   return (
     <main
@@ -1452,12 +1540,12 @@ function QmsAppShellContent({
       data-layout-mode={layout.mode}
       data-touch-optimized={layout.touchOptimized}
     >
-      <AppNavigation items={navigationItems} onNavigate={setView} />
+      <AppNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
 
       <div className="app-content">
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
         <header className="mobile-app-bar">
-          <AppMobileNavigation items={navigationItems} onNavigate={setView} />
+          <AppMobileNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
           <div className="mobile-app-brand">
             <img src={emiLogo} alt="" aria-hidden="true" />
             <span>
@@ -1468,28 +1556,42 @@ function QmsAppShellContent({
           <button
             ref={mobileStatusTriggerRef}
             type="button"
-            className="mobile-status-trigger"
+            className="mobile-account-trigger"
+            aria-label="내 계정 열기"
             aria-expanded={mobileStatusOpen}
             onClick={() => setMobileStatusOpen(true)}
           >
-            <span aria-hidden="true">●</span>
-            상태
+            <ProfileAvatar displayName={user?.actualUser.displayName ?? '사용자'} photoUrl={profilePhotoUrl} compact />
           </button>
         </header>
 
         <MobileSheet
           open={mobileStatusOpen}
-          title="앱 상태와 계정"
-          eyebrow="MOBILE STATUS"
-          description="현재 연결 상태와 계정을 확인하고 필요한 계정 동작을 실행합니다."
+          title="내 계정"
+          eyebrow="ACCOUNT"
+          description="로그인 정보와 프로필 사진을 확인하고 계정 작업을 실행합니다."
           onClose={() => setMobileStatusOpen(false)}
           triggerRef={mobileStatusTriggerRef}
         >
-          <div className="mobile-status-grid" aria-label="모바일 시스템 상태">
+          {user ? (
+            <AccountProfilePanel
+              user={user}
+              developmentUserKey={developmentUserKey}
+              profilePhotoUrl={profilePhotoUrl}
+              mutationAllowed={mutationEnabled}
+              onPhotoChanged={() => setProfilePhotoNonce((value) => value + 1)}
+              onLogout={onLogout}
+              mobile
+            />
+          ) : null}
+          <details className="mobile-system-details">
+            <summary>연결 상태</summary>
+            <div className="mobile-status-grid" aria-label="모바일 시스템 상태">
             <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
             <StatusChip label="Database" value={health.kind === 'ready' ? health.data.database.reason : '-'} />
             <StatusChip label="User" value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind} />
-          </div>
+            </div>
+          </details>
           {runtimeMode.kind === 'ready' && runtimeMode.data.reviewSafe ? (
             <div className="mobile-status-note" data-tone="warning">
               <strong>검수 전용 읽기 모드</strong>
@@ -1509,61 +1611,6 @@ function QmsAppShellContent({
               <small>Teams 개인 알림과 일일 요약 받기 선택</small>
             </button>
           ) : null}
-          {!isDevMode && user?.isTestUserSwitch ? (
-            <div className="mobile-status-note">
-              <strong>검수 계정으로 보는 중</strong>
-              <button
-                type="button"
-                onClick={() => {
-                  window.localStorage.removeItem(adminTestUserStorageKey);
-                  setAdminTestUserKeyState('');
-                  setView({ kind: 'home' });
-                  setMobileStatusOpen(false);
-                }}
-              >
-                실제 계정으로 보기
-              </button>
-            </div>
-          ) : null}
-          {canUseAdminTestUserSwitch ? (
-            <label className="mobile-status-field">
-              <span>검수 사용자 전환</span>
-              <select
-                value={adminTestUserKey}
-                onChange={(event) => {
-                  const nextUserKey = event.target.value;
-                  if (nextUserKey) {
-                    window.localStorage.setItem(adminTestUserStorageKey, nextUserKey);
-                  } else {
-                    window.localStorage.removeItem(adminTestUserStorageKey);
-                  }
-                  setAdminTestUserKeyState(nextUserKey);
-                  setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
-                }}
-              >
-                <option value="">실제 계정으로 보기</option>
-                {adminTestUsers.map((userKey) => <option key={userKey} value={userKey}>{labelForDevelopmentUser(userKey)}</option>)}
-              </select>
-            </label>
-          ) : null}
-          {isDevMode ? (
-            <label className="mobile-status-field">
-              <span>개발 사용자</span>
-              <select
-                value={developmentUserKey}
-                onChange={(event) => {
-                  const nextUserKey = event.target.value;
-                  window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
-                  setDevelopmentUserKey(nextUserKey);
-                  setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
-                }}
-              >
-                {developmentUsers.map((userKey) => <option key={userKey} value={userKey}>{userKey}</option>)}
-              </select>
-            </label>
-          ) : (
-            <button type="button" className="mobile-logout-button" onClick={onLogout}>로그아웃</button>
-          )}
         </MobileSheet>
 
         <header className="topbar">
@@ -1572,50 +1619,16 @@ function QmsAppShellContent({
             <h1>EMI 프로젝트 통합관리시스템</h1>
           </div>
           <div className="topbar-actions">
-            {canAccessMaterials ? <button type="button" onClick={() => setView(materialsHomeView)}>자재</button> : null}
-            {canUseAdminTestUserSwitch ? (
-              <label className="test-user-select">
-                <span>검수 사용자 전환</span>
-                <select
-                  value={adminTestUserKey}
-                  onChange={(event) => {
-                    const nextUserKey = event.target.value;
-                    if (nextUserKey) {
-                      window.localStorage.setItem(adminTestUserStorageKey, nextUserKey);
-                    } else {
-                      window.localStorage.removeItem(adminTestUserStorageKey);
-                    }
-                    setAdminTestUserKeyState(nextUserKey);
-                    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
-                  }}
-                >
-                  <option value="">실제 계정으로 보기</option>
-                  {adminTestUsers.map((userKey) => (
-                    <option key={userKey} value={userKey}>{labelForDevelopmentUser(userKey)}</option>
-                  ))}
-                </select>
-              </label>
+            {user ? (
+              <DesktopAccountMenu
+                user={user}
+                developmentUserKey={developmentUserKey}
+                profilePhotoUrl={profilePhotoUrl}
+                mutationAllowed={mutationEnabled}
+                onPhotoChanged={() => setProfilePhotoNonce((value) => value + 1)}
+                onLogout={onLogout}
+              />
             ) : null}
-            {isDevMode ? (
-              <label className="dev-user-select">
-                <span>개발 사용자</span>
-                <select
-                  value={developmentUserKey}
-                  onChange={(event) => {
-                    const nextUserKey = event.target.value;
-                    window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
-                    setDevelopmentUserKey(nextUserKey);
-                    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
-                  }}
-                >
-                  {developmentUsers.map((userKey) => (
-                    <option key={userKey} value={userKey}>{userKey}</option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <button type="button" onClick={onLogout}>로그아웃</button>
-            )}
           </div>
         </header>
 
@@ -1688,12 +1701,15 @@ function QmsAppShellContent({
         <HomePage
           developmentUserKey={developmentUserKey}
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
+          effectiveDisplayName={currentUser.data.effectiveUser.displayName}
+          effectiveDepartmentName={currentUser.data.effectiveUser.departmentName}
           canReadPending={canReadPending}
           onOpenMyWork={() => setView({ kind: 'my-work' })}
           onOpenProjects={() => setView({ kind: 'list' })}
           onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
           onOpenPending={() => setView({ kind: 'pending' })}
           onOpenNotifications={() => setView({ kind: 'notifications' })}
+          onOpenDepartmentMetric={(destinationKey) => setView(viewForHomeDestination(destinationKey))}
         />
       ) : null}
 
@@ -2098,7 +2114,15 @@ const mobileNavigationHints: Record<string, string> = {
 
 const mobileNavigationShapeNames = ['circle', 'square', 'oval', 'rounded', 'angular'] as const;
 
-function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavigate: (view: View) => void }) {
+function AppNavigation({
+  items,
+  onNavigate,
+  footer
+}: {
+  items: NavigationItem[];
+  onNavigate: (view: View) => void;
+  footer?: ReactNode;
+}) {
   return (
     <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">
       <div className="app-brand-lockup">
@@ -2123,11 +2147,20 @@ function AppNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavig
           </button>
         ))}
       </div>
+      {footer ? <footer className="app-sidebar-footer">{footer}</footer> : null}
     </aside>
   );
 }
 
-function AppMobileNavigation({ items, onNavigate }: { items: NavigationItem[]; onNavigate: (view: View) => void }) {
+function AppMobileNavigation({
+  items,
+  onNavigate,
+  footer
+}: {
+  items: NavigationItem[];
+  onNavigate: (view: View) => void;
+  footer?: ReactNode;
+}) {
   const { isMobile } = useAdaptiveLayout();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
@@ -2274,14 +2307,236 @@ function AppMobileNavigation({ items, onNavigate }: { items: NavigationItem[]; o
               ))}
             </nav>
             <footer className="mobile-menu-footer">
-              <span aria-hidden="true" />
-              <p>필요한 화면을 선택하면 메뉴가 자동으로 닫힙니다.</p>
+              {footer ?? <p>필요한 화면을 선택하면 메뉴가 자동으로 닫힙니다.</p>}
             </footer>
           </aside>
         </div>,
         document.body
       ) : null}
     </>
+  );
+}
+
+function ShellSwitchControls({
+  isDevMode,
+  canUseAdminTestUserSwitch,
+  isTestUserSwitch,
+  developmentUserKey,
+  adminTestUserKey,
+  onDevelopmentUserChange,
+  onAdminTestUserChange,
+  onResetAdminTestUser
+}: {
+  isDevMode: boolean;
+  canUseAdminTestUserSwitch: boolean;
+  isTestUserSwitch: boolean;
+  developmentUserKey: string;
+  adminTestUserKey: string;
+  onDevelopmentUserChange: (value: string) => void;
+  onAdminTestUserChange: (value: string) => void;
+  onResetAdminTestUser: () => void;
+}) {
+  if (!isDevMode && !canUseAdminTestUserSwitch && !isTestUserSwitch) return null;
+  return (
+    <div className="shell-switch-controls">
+      <header><span aria-hidden="true">◇</span><strong>개발·검수 도구</strong></header>
+      {isTestUserSwitch ? (
+        <button type="button" className="shell-switch-reset" onClick={onResetAdminTestUser}>실제 계정으로 보기</button>
+      ) : null}
+      {canUseAdminTestUserSwitch ? (
+        <label>
+          <span>검수 사용자</span>
+          <select value={adminTestUserKey} onChange={(event) => onAdminTestUserChange(event.target.value)}>
+            <option value="">실제 계정</option>
+            {adminTestUsers.map((userKey) => (
+              <option key={userKey} value={userKey}>{labelForDevelopmentUser(userKey)}</option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {isDevMode ? (
+        <label>
+          <span>개발 사용자</span>
+          <select value={developmentUserKey} onChange={(event) => onDevelopmentUserChange(event.target.value)}>
+            {developmentUsers.map((userKey) => <option key={userKey} value={userKey}>{userKey}</option>)}
+          </select>
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
+function DesktopAccountMenu({
+  user,
+  developmentUserKey,
+  profilePhotoUrl,
+  mutationAllowed,
+  onPhotoChanged,
+  onLogout
+}: {
+  user: CurrentUser;
+  developmentUserKey: string;
+  profilePhotoUrl: string | null;
+  mutationAllowed: boolean;
+  onPhotoChanged: () => void;
+  onLogout?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const close = useCallback((restoreFocus = true) => {
+    setOpen(false);
+    if (restoreFocus) window.setTimeout(() => triggerRef.current?.focus(), 0);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) close(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [close, open]);
+
+  return (
+    <div className="desktop-account-menu" ref={wrapperRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="account-identity-trigger"
+        aria-expanded={open}
+        aria-controls="desktop-account-popover"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <ProfileAvatar displayName={user.actualUser.displayName} photoUrl={profilePhotoUrl} compact />
+        <span><small>{user.actualUser.departmentName ?? '부서 미지정'}</small><strong>{user.actualUser.displayName}</strong></span>
+        <i aria-hidden="true">⌄</i>
+      </button>
+      {open ? (
+        <div id="desktop-account-popover" className="account-popover" role="dialog" aria-label="내 계정">
+          <AccountProfilePanel
+            user={user}
+            developmentUserKey={developmentUserKey}
+            profilePhotoUrl={profilePhotoUrl}
+            mutationAllowed={mutationAllowed}
+            onPhotoChanged={onPhotoChanged}
+            onLogout={onLogout}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AccountProfilePanel({
+  user,
+  developmentUserKey,
+  profilePhotoUrl,
+  mutationAllowed,
+  onPhotoChanged,
+  onLogout,
+  mobile = false
+}: {
+  user: CurrentUser;
+  developmentUserKey: string;
+  profilePhotoUrl: string | null;
+  mutationAllowed: boolean;
+  onPhotoChanged: () => void;
+  onLogout?: () => void;
+  mobile?: boolean;
+}) {
+  const actions = useActionFeedback();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const feedback = actions.feedbackFor('profile-photo');
+  const busy = actions.isBusy('profile-photo');
+
+  async function upload(file: File | null) {
+    if (!file) return;
+    const result = await actions.run('profile-photo', async () => {
+      if (!['image/jpeg', 'image/png'].includes(file.type) || file.size < 1 || file.size > 5 * 1024 * 1024) {
+        throw new ApiError(400, '5MB 이하 JPEG 또는 PNG 파일을 선택해 주세요.');
+      }
+      await saveOwnProfilePhoto(developmentUserKey, file);
+    }, {
+      loadingMessage: '프로필 사진을 올리는 중입니다.',
+      successMessage: '프로필 사진을 변경했습니다.',
+      errorFallback: '프로필 사진을 변경하지 못했습니다.'
+    });
+    if (inputRef.current) inputRef.current.value = '';
+    if (result === 'success' || result === 'partial') onPhotoChanged();
+  }
+
+  async function remove() {
+    const result = await actions.run('profile-photo', () => removeOwnProfilePhoto(developmentUserKey), {
+      loadingMessage: '프로필 사진을 제거하는 중입니다.',
+      successMessage: '기본 이니셜 사진으로 변경했습니다.',
+      errorFallback: '프로필 사진을 제거하지 못했습니다.'
+    });
+    if (result === 'success' || result === 'partial') onPhotoChanged();
+  }
+
+  return (
+    <section className={mobile ? 'account-profile-panel account-profile-panel--mobile' : 'account-profile-panel'}>
+      <div className="account-photo-block">
+        <label className="account-photo-editor" aria-label="프로필 사진 업로드">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png"
+            disabled={!mutationAllowed || busy}
+            onChange={(event) => void upload(event.target.files?.[0] ?? null)}
+          />
+          <ProfileAvatar displayName={user.actualUser.displayName} photoUrl={profilePhotoUrl} />
+          <span aria-hidden="true">＋</span>
+        </label>
+        <div>
+          <strong>{user.actualUser.displayName}</strong>
+          <span>{user.actualUser.departmentName ?? '부서 미지정'}</span>
+          {user.actualUser.email ? <small>{user.actualUser.email}</small> : null}
+        </div>
+      </div>
+      {user.isTestUserSwitch ? (
+        <div className="account-effective-context">
+          <span>현재 검수 화면</span>
+          <strong>{user.effectiveUser.departmentName ?? '부서 미지정'} · {user.effectiveUser.displayName}</strong>
+        </div>
+      ) : null}
+      <div className="account-photo-actions">
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={!mutationAllowed || busy}>사진 변경</button>
+        <button type="button" onClick={() => void remove()} disabled={!mutationAllowed || busy || !profilePhotoUrl}>사진 제거</button>
+      </div>
+      {!mutationAllowed ? <p className="account-review-safe-note">검수 전용 읽기 모드에서는 사진을 변경할 수 없습니다.</p> : null}
+      {feedback ? <p className="account-action-feedback" data-tone={feedback.tone} aria-live="polite">{feedback.message}</p> : null}
+      <button type="button" className="account-logout-button" onClick={onLogout} disabled={!onLogout}>로그아웃</button>
+    </section>
+  );
+}
+
+function ProfileAvatar({
+  displayName,
+  photoUrl,
+  compact = false
+}: {
+  displayName: string;
+  photoUrl: string | null;
+  compact?: boolean;
+}) {
+  const initial = displayName.trim().slice(0, 1).toUpperCase() || 'U';
+  return (
+    <span className={compact ? 'profile-avatar profile-avatar--compact' : 'profile-avatar'} role="img" aria-label={`${displayName} 프로필 사진`}>
+      {photoUrl ? <img src={photoUrl} alt="" /> : <span aria-hidden="true">{initial}</span>}
+    </span>
   );
 }
 

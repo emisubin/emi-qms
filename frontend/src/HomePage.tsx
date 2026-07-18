@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ApiError, getMyWorkSummary, getNotificationSummary, listPendingIssues, listProjects } from './api';
+import { ApiError, getHomeDepartmentMetrics, getMyWorkSummary, getNotificationSummary, listPendingIssues, listProjects } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
+import type { HomeMetricsResponse } from './home';
 import type { PendingListResponse } from './pending';
 import type { MyWorkSummary, NotificationSummary, ProjectListResponse } from './projects';
 
@@ -14,23 +15,29 @@ type WidgetState<T> =
 type HomePageProps = {
   developmentUserKey: string | undefined;
   requestContextKey: string;
+  effectiveDisplayName?: string;
+  effectiveDepartmentName?: string | null;
   canReadPending: boolean;
   onOpenMyWork: () => void;
   onOpenProjects: () => void;
   onOpenProject: (projectId: string) => void;
   onOpenPending: () => void;
   onOpenNotifications: () => void;
+  onOpenDepartmentMetric?: (destinationKey: string) => void;
 };
 
 export function HomePage({
   developmentUserKey,
   requestContextKey,
+  effectiveDisplayName = '사용자',
+  effectiveDepartmentName = null,
   canReadPending,
   onOpenMyWork,
   onOpenProjects,
   onOpenProject,
   onOpenPending,
-  onOpenNotifications
+  onOpenNotifications,
+  onOpenDepartmentMetric = () => undefined
 }: HomePageProps) {
   const { isMobile } = useAdaptiveLayout();
   const [myWorkState, setMyWorkState] = useState<WidgetState<MyWorkSummary>>({ kind: 'loading' });
@@ -39,10 +46,25 @@ export function HomePage({
     canReadPending ? { kind: 'loading' } : { kind: 'hidden' }
   );
   const [notificationsState, setNotificationsState] = useState<WidgetState<NotificationSummary>>({ kind: 'loading' });
+  const [departmentState, setDepartmentState] = useState<WidgetState<HomeMetricsResponse>>({ kind: 'loading' });
   const myWorkGeneration = useRef(0);
   const projectsGeneration = useRef(0);
   const pendingGeneration = useRef(0);
   const notificationsGeneration = useRef(0);
+  const departmentGeneration = useRef(0);
+
+  const loadDepartmentMetrics = useCallback(async () => {
+    const generation = ++departmentGeneration.current;
+    setDepartmentState({ kind: 'loading' });
+    try {
+      const data = await getHomeDepartmentMetrics(developmentUserKey);
+      if (generation !== departmentGeneration.current) return;
+      setDepartmentState({ kind: data.metrics.length === 0 ? 'empty' : 'ready', data });
+    } catch (error) {
+      if (generation !== departmentGeneration.current) return;
+      setDepartmentState(widgetError(error, '부서 핵심 지표를 불러올 수 없습니다.'));
+    }
+  }, [developmentUserKey]);
 
   const loadMyWork = useCallback(async () => {
     const generation = ++myWorkGeneration.current;
@@ -104,6 +126,15 @@ export function HomePage({
 
   useEffect(() => {
     let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadDepartmentMetrics(); });
+    return () => {
+      cancelled = true;
+      departmentGeneration.current += 1;
+    };
+  }, [loadDepartmentMetrics, requestContextKey]);
+
+  useEffect(() => {
+    let cancelled = false;
     queueMicrotask(() => { if (!cancelled) void loadMyWork(); });
     return () => {
       cancelled = true;
@@ -147,12 +178,47 @@ export function HomePage({
     <section className="page-surface home-page" aria-labelledby="home-page-title" data-mobile-experience={isMobile || undefined}>
       <header className={isMobile ? 'home-hero home-hero--mobile' : 'home-hero'}>
         <div>
-          <p className="eyebrow">{isMobile ? 'MOBILE FIELD HOME' : 'TODAY AT A GLANCE'}</p>
-          <h2 id="home-page-title">{isMobile ? '오늘의 현장 업무' : '업무 홈'}</h2>
-          <p>{isMobile ? '급한 문제부터 확인하고 바로 처리할 업무로 이동하세요.' : '지금 확인할 업무와 프로젝트 흐름을 한눈에 보고 원본 화면으로 바로 이동하세요.'}</p>
+          <p className="eyebrow">{effectiveDepartmentName ?? 'EMI WORKSPACE'}</p>
+          <h2 id="home-page-title">업무 홈</h2>
+          <p>{isMobile ? `${effectiveDisplayName}님, 부서 핵심 수치와 급한 업무를 한 화면에서 확인하세요.` : `${effectiveDisplayName}님, 부서 핵심 지표와 지금 처리할 업무를 빠르게 확인하세요.`}</p>
         </div>
         <button type="button" className="primary-button" onClick={onOpenMyWork}>{isMobile ? '오늘 업무 열기' : '내 업무 시작하기'}</button>
       </header>
+
+      {departmentState.kind !== 'empty' ? (
+        <section className="home-department-panel" aria-label="내 부서 핵심 지표" data-state={departmentState.kind}>
+          <header>
+            <div>
+              <p className="eyebrow">DEPARTMENT FOCUS</p>
+              <h3>{effectiveDepartmentName ? `${effectiveDepartmentName} 핵심 지표` : '부서 핵심 지표'}</h3>
+            </div>
+            <span>현재 업무 기준</span>
+          </header>
+          {departmentState.kind === 'loading' ? <p className="home-department-status" role="status">부서 지표를 불러오는 중입니다.</p> : null}
+          {departmentState.kind === 'error' ? (
+            <div className="home-department-status" role="alert">
+              <span>{departmentState.message}</span>
+              <button type="button" onClick={() => void loadDepartmentMetrics()}>다시 시도</button>
+            </div>
+          ) : null}
+          {departmentState.kind === 'ready' ? (
+            <div className="home-department-metrics">
+              {departmentState.data.metrics.map((metric) => (
+                <button
+                  type="button"
+                  key={metric.id}
+                  data-tone={metric.tone}
+                  onClick={() => onOpenDepartmentMetric(metric.destinationKey)}
+                >
+                  <span>{metric.label}</span>
+                  <strong>{metric.count}</strong>
+                  <small>{metric.actionLabel} →</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {isMobile ? (
         <section className="home-mobile-priority" aria-label="긴급·차단 우선 확인">

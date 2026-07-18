@@ -140,7 +140,7 @@ test('TASK-012A: LQC evidence, immutable report, manufacturing confirmation and 
   await page.goto(`/quality/inspections?stage=OQC&project=${projectId}&panel=${panelId}`);
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
   await expect(page.getByRole('heading', { name: '품질 검사' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /OQC 자체검수/u })).toHaveClass(/active/u);
+  await expect(page.getByRole('button', { name: 'OQC 자체검수 패널' })).toHaveClass(/active/u);
   await expect(page.getByRole('button', { name: 'OQC 자체검수 시작' })).toBeVisible();
   await assertNoHorizontalOverflow(page);
 

@@ -8,6 +8,7 @@ PostgreSQL 스키마, 마이그레이션, 개발용 가짜 시드 데이터를 �
 - `migrations/0002_permission_scope_alignment.sql`: TASK-002A 전체 프로젝트 조회권한과 민감정보 조회권한 기준을 정렬합니다.
 - `migrations/0003_project_panel_foundation.sql`: TASK-003A 프로젝트 등록, 패널 Placeholder, 프로젝트 감사이력, 영업 쓰기 권한을 추가합니다. 적용 전에 legacy `projects.name`을 정규화했을 때 중복 Project Title이 있으면 명확한 오류로 중단하며 이름을 자동 변경하지 않습니다.
 - `migrations/0004_project_packaging_soft_delete.sql`: TASK-003A-1 포장방식, 프로젝트 논리삭제, 삭제 보관함 권한을 추가하고 Project Title unique index를 삭제되지 않은 프로젝트 대상 partial unique index로 교체합니다.
+- `migrations/0042_user_profile_photos.sql`: TASK-HOME-002 사용자당 현재 프로필 사진 1개와 hash·크기·MIME 기반 append-only 감사 원장을 추가합니다. 사진 원문은 5MB로 제한하며 사용자 purge 때만 transaction-local scope로 감사 cascade를 허용합니다.
 
 Development 환경에서 백엔드가 시작될 때 `Database:ApplyMigrationsOnStartup` 설정이 켜져 있으면 마이그레이션을 적용합니다. 개발용 가짜 사용자와 프로젝트는 schema migration에 포함하지 않고, Development/Testing 환경에서 `DevelopmentData:SeedEnabled` 또는 `DEV_DATA_SEED_ENABLED`가 명시적으로 `true`일 때만 seeder가 생성합니다. 자동 테스트도 같은 마이그레이션과 seeder를 실제 PostgreSQL에 적용해 검증합니다.
 

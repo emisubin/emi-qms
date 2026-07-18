@@ -450,6 +450,10 @@
 .settlement-completed-record p { margin: 0; color: #bfcac5; font-size: 0.66rem; }
 
 @media (max-width: 860px) {
+  .app-shell[data-layout-mode='mobile'] button {
+    min-height: 44px;
+  }
+
   .app-shell[data-layout-mode='mobile'] .page-surface.sales-settlement-page {
     gap: 9px;
     padding: 0 0 12px;
@@ -13330,6 +13334,23 @@ body {
   box-shadow: 0 5px 16px rgb(46 27 28 / 6%);
 }
 
+.route-action-feedback {
+  align-items: center;
+  gap: 8px;
+}
+
+.route-action-feedback > button {
+  min-height: 34px;
+  border-color: #ddd3d5;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #625456;
+  padding: 6px 12px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  box-shadow: 0 4px 12px rgb(67 28 30 / 5%);
+}
+
 .workflow-card > .action-feedback,
 td > .action-feedback {
   margin-top: 8px;
@@ -13361,6 +13382,17 @@ td > .action-feedback {
   .app-shell[data-layout-mode='mobile'] .page-action-feedback {
     justify-content: stretch;
     margin: -3px 0 0;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .route-action-feedback {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .route-action-feedback > button {
+    min-height: 32px;
+    padding: 5px 10px;
+    font-size: 0.62rem;
   }
 
   .app-shell[data-layout-mode='mobile'] .mobile-page-header .page-action-cluster .button-row > button {
@@ -14327,7 +14359,7 @@ body {
   }
 
   .app-shell .home-widget-link {
-    min-height: 32px;
+    min-height: 44px;
     border-radius: 8px;
     padding: 6px 9px;
     font-size: 0.66rem;

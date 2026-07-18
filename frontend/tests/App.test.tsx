@@ -1562,11 +1562,17 @@ describe('App', () => {
 
   it('keeps procurement Excel controls on the edit page and saves partial rows', async () => {
     const savedRequests: unknown[] = [];
+    let failProcurementRefresh = false;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       if (url.pathname === `/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
         savedRequests.push(JSON.parse(String(init.body)));
+        failProcurementRefresh = true;
         return Promise.resolve(json(procurementResponse()));
+      }
+      if (url.pathname === `/api/projects/${projectId}/procurement` && failProcurementRefresh && !init?.method) {
+        failProcurementRefresh = false;
+        return Promise.resolve(json({ title: '최신 구매정보를 불러오지 못했습니다.' }, 503));
       }
 
       return mockFetch(input, init);
@@ -1604,6 +1610,8 @@ describe('App', () => {
 
     await screen.findByRole('heading', { name: 'TASK-003A Demo' });
     expect(screen.getByRole('tab', { name: '구매' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('최근 저장 결과')).toHaveTextContent('구매정보를 저장했습니다. 최신 화면을 불러오지 못했습니다. 새로고침해 주세요.');
+    expect(screen.getByLabelText('최근 저장 결과').querySelector('[data-tone="partial"]')).not.toBeNull();
     expect(JSON.stringify(savedRequests[0])).toContain('8W');
   });
 
@@ -1883,6 +1891,7 @@ describe('App', () => {
     expect(assigneeEditSection!).not.toHaveTextContent('알림 기준');
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
     expect(await screen.findByText('프로젝트 단위 계획과 담당자 지정')).toBeInTheDocument();
+    expect(screen.getByLabelText('최근 저장 결과')).toHaveTextContent('생산계획을 저장했습니다.');
 
     fireEvent.change(screen.getByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));

@@ -987,7 +987,7 @@ Excel 출력 대상 후보:
 | 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A·007B experiment scope 완료 | 사진 binary 정책은 별도 후속 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 1.3A | TASK-MOBILE-002 모바일 우선 전면 개편 | APPROVED_FEATURE_IMPLEMENTATION | Experiment Complete | Change 001~003 automated validation complete / `BATCHED_FINAL` | MOBILE-001·로그인 shell·DESIGN-001 계보 | `App.tsx` 분할은 optional housekeeping | Yes | 완료 scope 재구현 금지; 최종 일괄 검수 |
 | 1.4 | TASK-HOME-001 Home MVP | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·MOBILE-001 experiment scope 완료 | query/cache 최적화는 실측 시 P3 후속 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
-| 1.4A | TASK-HOME-002 개인화 Home·프로필 shell | NEW_FEATURE | Experiment Complete | 본체와 Change 002 전 부서 조회 메뉴·compact design implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-HOME-001·MOBILE-002·DESIGN-001 experiment scope | 대표 repo·main·Persistent UAT 미반영; Change 002 Full-Stack 재실행은 promotion 전 P3 | Yes | 재구현 금지; 최종 일괄 검수. 다음 experiment 범위는 TASK-UX-001 A2 |
+| 1.4A | TASK-HOME-002 개인화 Home·프로필 shell | NEW_FEATURE | Experiment Complete | 본체와 Change 002 전 부서 조회 메뉴·compact design implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-HOME-001·MOBILE-002·DESIGN-001 experiment scope | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수. 후속 UX-001 A2 Full-Stack에서 HOME 회귀까지 재검증 |
 | 2.1 | TASK-008A 자재 도착·분할 입고 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A experiment scope 완료 | 운영 migration handover 미승인 | Yes | experiment 재구현 금지; canonical 승격은 별도 UAT |
 | 2.2 | TASK-008B 사급 자재 추적 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-008A experiment scope 완료 | 운영 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 2.3 | TASK-009A IQC·사진·PDF | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A·008A experiment scope 완료 | 실제 IQC 양식·필수 사진 위치는 template 후속 | Yes | experiment 재구현 금지; 양식 변경은 기존 Task change |
@@ -1003,7 +1003,7 @@ Excel 출력 대상 후보:
 | 4.4 | QR 스캔 랜딩 (ID 미정) | NEW_FEATURE | Deferred | Deferred | MOBILE-001·제조 흐름 | 공개/인증 landing 정책 | Yes | 별도 신규 기능 Task 승인 |
 | 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Deferred | Scope Review Required | 기능 흐름 안정화 | Figma Variables·CSS token 기준 | Yes | 기능 변경 없는 component/token 범위 승인 |
 | 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Experiment Complete | Automated validation·페이지 screenshot complete / `BATCHED_FINAL` | 로그인 shell, 후속 MOBILE-002가 shape/navigation 보완 | DESIGN-000 token foundation은 별도 housekeeping | Yes | 완료 화면 통일 재구현 금지; 최종 일괄 검수 |
-| 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment A1 Slice Complete / A2 Deferred | A1 automated validation complete / `BATCHED_FINAL`; A2 not started | A1 공통 contract·내 업무·알림 완료 | 대표 repo·main·Persistent UAT 미반영 | Yes | 권장 experiment 다음 범위: A2만 Fable 2-pass planning |
+| 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment Complete | A1·A2 implementation, automated·isolated browser validation complete / `BATCHED_FINAL` | A1 공통 contract·내 업무·알림, A2 생산·구매·자재·IQC·키팅·패널·Excel 완료 | 대표 repo·main·Persistent UAT 미반영; 전역 toast/store·A2 밖 문자열 tone 정리는 제외 | Yes | 재구현 금지; 최종 일괄 검수. 다음 optional 범위는 EXPORT-001 column picker |
 | 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004·TASK-UX-001 A1 experiment | 관리자 감사 조회 UI는 별도 후속 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | 운영 전환 (Task ID 미정) | UAT_RUNTIME | Deferred | Scope Review Required | 기능·P2·design gate 완료 | hosting/domain, redirect URI, Teams catalog, provider, 교육 | Yes | 운영 전환 Task와 rollback 승인 |
 
@@ -1439,17 +1439,17 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-UX-001: 기존 업무 화면 Action Feedback UX 확대
 
-- 상태/권장 순서: A1 `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` / A2 Deferred·권장 다음 범위
+- 상태/권장 순서: A1·A2 `EXPERIMENT_COMPLETE / BATCHED_FINAL`; 현재 experiment에서 재구현 금지
 - 목적: 저장·삭제·복구·발송 결과와 validation 오류를 사용자의 action 위치에서 즉시 이해하고 다음 행동으로 이어지게 한다.
 - A1 구현 범위: 공통 `useActionFeedback`, 내 업무 완료·이동/시작, 알림 개별·전체 읽음의 구조화 loading/success/error/partial, scope 잠금, post-mutation refresh·generation guard, row/contextual placement, error/partial focus와 `aria-live`
-- A2 Deferred 범위: 생산계획/구매/자재/패널/Excel 화면의 inline feedback·field error·focus·`aria-live` 확대
+- A2 구현 범위: 생산계획/구매/자재 도착·입고·IQC·키팅/패널/선택 Excel의 구조화 loading·success·partial·error, action scope 잠금, preserve refresh·generation guard, 편집기 복귀 후 결과 보존, field 오류 focus·`aria-describedby`·`aria-live`
 - 제외 범위: 업무 규칙 변경, API 계약의 기능 확장, 알림 delivery 재처리 로직, 사용자 preference
-- 선행조건: A1 screenshot 사용자 검수 후 A2를 별도 신규 기능 planning으로 진행한다. A1은 experiment local commit이며 대표 repo·`main`·Persistent UAT에는 반영하지 않는다.
+- 선행조건: A1을 기반으로 A2 Fable 2-pass planning·구현·자동 검증을 완료했다. A1/A2는 experiment local commit이며 대표 repo·`main`·Persistent UAT에는 반영하지 않는다.
 - 예상 migration: 없음 예상. API 오류 계약 보정이 필요하면 runtime 범위를 Task 안에서 별도 명시한다.
-- backend/frontend 영향: A1은 Frontend 공통 hook·기존 component·두 화면만 변경했고 Backend/API/DB/migration은 변경하지 않았다.
+- backend/frontend 영향: Frontend 공통 hook·기존 component와 A1/A2 화면만 변경했고 Backend/API/DB/migration은 변경하지 않았다.
 - 핵심 검수 기준: action 인접 loading/error, 행 제거 뒤 contextual success/partial, 첫 오류·partial focus, screen reader 안내, 중복 submit과 bulk/row 충돌 방지, 기존 목록·선택 보존, 모바일 overflow 0
 - 주요 위험: 화면별 임시 구현으로 contract가 분산되는 문제, 상단 banner와 inline feedback 중복, focus 이동 회귀, A1/A2 범위 팽창
-- 산출물: [Fable 2차 기획](25-action-feedback-a1-plan.md), [Implementation report](../tasks/ux-001-implementation-report.md), [Screenshots](../tasks/ux-001-screenshots)
+- 산출물: [A1 Fable 2차 기획](25-action-feedback-a1-plan.md), [A1 Implementation report](../tasks/ux-001-implementation-report.md), [A2 Fable 2차 기획](31-action-feedback-a2-plan.md), [A2 Implementation report](../tasks/ux-001-a2-implementation-report.md), [A2 Screenshots](../tasks/ux-001-a2-screenshots)
 
 ### TASK-NOTIFY-005: 사용자별 알림 설정
 
@@ -1465,7 +1465,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 검증: Backend 391/391, Frontend 101/101·build, migration 41개 fresh apply, 격리 desktop/390 save·reset·overflow 0, actual provider 0.
 - 산출물: [Fable 2차 기획](26-notification-preferences-plan.md), [Implementation report](../tasks/notify-005-implementation-report.md), [SOP](../tasks/notify-005-sop.md), [User manual](../tasks/notify-005-user-manual.md), [Checklist/Screenshots](../tasks/notify-005.md)
 
-현재 experiment Task 선택은 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 따른다. TASK-007A~014A, MOBILE-001/002, HOME-001/002, DESIGN-001, 현재 선택 export, E2E 기준선과 NOTIFY-005는 `EXPERIMENT_COMPLETE`, UX-001 A1은 `EXPERIMENT_SLICE_COMPLETE`이므로 사용자 검수 대기만을 이유로 다시 기획·구현하지 않는다. UX-001 A2는 첫 번째 권장 후속 범위다. 아래 과거 실험 기록의 “canonical TASK-007A Gate 유지” 문구는 대표 repo·`main` 승격 당시의 gate를 보존한 역사적 snapshot이지 현재 experiment에서 TASK-007A를 재개발하라는 지시가 아니다. 대표 repo·`main` 승격, Persistent UAT와 게시·merge는 여전히 별도이며 main merge 승인 `0/3`이다.
+현재 experiment Task 선택은 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 따른다. TASK-007A~014A, MOBILE-001/002, HOME-001/002, DESIGN-001, 현재 선택 export, E2E 기준선, UX-001 A1/A2와 NOTIFY-005는 `EXPERIMENT_COMPLETE`이므로 사용자 검수 대기만을 이유로 다시 기획·구현하지 않는다. 다음 optional 범위는 사용자가 원할 때만 시작하는 `TASK-EXPORT-001` column picker다. 아래 과거 실험 기록의 “canonical TASK-007A Gate 유지” 문구는 대표 repo·`main` 승격 당시의 gate를 보존한 역사적 snapshot이지 현재 experiment에서 TASK-007A를 재개발하라는 지시가 아니다. 대표 repo·`main` 승격, Persistent UAT와 게시·merge는 여전히 별도이며 main merge 승인 `0/3`이다.
 
 ### TASK-USER-FLOW-001: 웹사이트 전체 유저플로우 설계
 
@@ -1699,7 +1699,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 48 | 전체 field-level audit 확장 | 미확정 | 사용자/운영 | Audit 후속 | ADMIN-001은 관리자 변경 이력 중심 |
 | 49 | 관리자 모바일 UX 고도화 | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001은 page-level overflow 방지 기준으로 검수 |
 | 50 | 외부 알림 delivery 동시성·실패 재처리 | 정책 결정·사용자 검수 완료 / PR #44 squash merge 승인 | 개발/운영 | TASK-NOTIFY-004 | claim/lease·automatic retry·attempt lineage·provider 오류 분류·starvation은 완료. Terminal Failed는 최종 상태로 유지하고 수동 재처리는 별도 신규 기능으로 Deferred |
-| 51 | 기존 업무 화면 Action Feedback UX | A1 `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL`, A2 Deferred | 사용자/개발 | TASK-UX-001 | A1 공통 hook·내 업무·알림은 재구현하지 않음. 권장 다음 범위는 A2 생산계획·구매·자재·패널·Excel |
+| 51 | 기존 업무 화면 Action Feedback UX | A1·A2 `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/개발 | TASK-UX-001 | 공통 hook·내 업무·알림·생산계획·구매·자재·IQC·키팅·패널·Excel 완료. 대표 repo·main·Persistent UAT 미반영 |
 | 52 | 사용자별 알림 설정 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/운영 | TASK-NOTIFY-005 | 선택 3종 sparse opt-out·필수 잠금·audit·Suppressed gate·desktop/390 완료. 대표 repo·main·Persistent UAT 미반영 |
 | 92 | 개인화 Home·프로필 shell | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/개발 | TASK-HOME-002 | actual 사용자 계정 shell·본인 사진·9개 부서 핵심 지표·full-height sidebar·모바일 계정 sheet/drawer 완료. migration `0042`, 대표 repo·main·Persistent UAT 미반영 |
 | 91 | 사용자별 알림 설정 감사 조회 UI | Backlog | 사용자/운영 | TASK-NOTIFY-005 후속 | fixed-field 감사 원장은 구현. 관리자 조회·필터·요약 UI는 별도 신규 기능 planning 필요 |
@@ -1798,6 +1798,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-10 | Teams Activity Feed provider/capability 완료와 개별 자동 event coverage를 별도 상태로 관리 | provider가 activity type을 처리할 수 있다는 사실만으로 event delivery 연결까지 완료 처리하지 않기 위함 | 6장, 21장, 23장 |
 | 2026-07-10 | 후속 기능 후보 B/A/C의 상대 순서는 TASK-NOTIFY-004 → TASK-UX-001 → TASK-NOTIFY-005 | delivery 신뢰성을 먼저 확립하고 공통 feedback을 분리 검수한 뒤 preference를 적용하기 위함. 전역 No-Go remediation 선행 순서는 별도 행을 따른다 | 23장, 24장 |
 | 2026-07-18 | TASK-UX-001은 experiment fast-track에서 A1 공통 feedback과 내 업무·알림만 먼저 구현하고 A2 화면 확대를 별도 planning으로 유지 | 행이 active tab에서 사라져도 결과를 보존하면서 화면별 임시 구현과 범위 팽창을 막고, 대표 repo·main 반영 전 모바일·데스크톱 사용성을 먼저 검수하기 위함 | 23장, TASK-UX-001 |
+| 2026-07-19 | TASK-UX-001 A2를 기존 A1 contract 위에 구현하고 production·procurement·materials·IQC·kitting·panel·Excel까지 experiment 완료로 닫음 | mutation 성공과 refresh/download trigger 실패를 분리하고, 편집 화면 이탈 뒤 결과·field focus·screen reader 안내를 보존하기 위함 | TASK-UX-001, `docs/31-action-feedback-a2-plan.md` |
 | 2026-07-18 | TASK-NOTIFY-005 experiment는 자동 단계 업무 생성·D-1·일일 요약 3개만 sparse opt-out으로 허용하고 긴급·L1~L3·인앱·통합 채널·수동 발송은 잠근다 | 사용자 소음을 줄이면서 필수 업무 알림 누락과 dead control을 방지하고 기존 사용자 기본 delivery를 보존하기 위함 | 6장, 23장, TASK-NOTIFY-005 |
 | 2026-07-18 | TASK-HOME-002는 shell의 계정 표시·사진을 actual 사용자에 고정하고 Home 부서 지표만 effective 사용자로 전환 | 관리자 검수 전환이나 Dev 사용자 전환 중 타인의 프로필 사진을 읽거나 계정 주체를 오인하지 않으면서 부서별 화면 검수를 가능하게 하기 위함 | 23장, TASK-HOME-002 |
 | 2026-07-19 | TASK-HOME-002 Change 002는 운영 메뉴 11개를 모든 내부 부서에 공개하되 조회는 project scope, 입력은 기존 담당 mutation permission으로 분리하고 관리자 개인정보 메뉴는 기존 역할로 제한 | 메뉴 숨김을 입력 권한 표현으로 사용하지 않고 부서 간 진행 현황을 공유하면서 상태 변경과 민감 정보 범위를 확대하지 않기 위함 | 23장, TASK-HOME-002 Change 002 |

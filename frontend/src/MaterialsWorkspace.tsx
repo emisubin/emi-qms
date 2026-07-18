@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAdaptiveLayout } from './adaptive-layout';
 import {
   ApiError,
@@ -16,6 +16,7 @@ import { MobileSheet } from './MobileSheet';
 import { IqcReportWorkspace } from './IqcReportWorkspace';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useSelectedRows } from './useSelectedRows';
+import { useActionFeedback, type ActionFeedbackState } from './useActionFeedback';
 import type {
   MaterialIqcQueueItem,
   MaterialReceipt,
@@ -57,15 +58,22 @@ export function MaterialReceivingPage({
   const [supplyFilter, setSupplyFilter] = useState<'All' | 'Purchased' | 'CustomerSupplied'>('All');
   const [activeFilter, setActiveFilter] = useState<'all' | 'iqc' | 'blocked' | 'confirm'>('all');
   const [action, setAction] = useState<MaterialAction | null>(null);
-  const [message, setMessage] = useState('');
+  const actions = useActionFeedback();
+  const loadGenerationRef = useRef(0);
 
-  const load = useCallback(async () => {
-    setState({ kind: 'loading' });
+  const load = useCallback(async (preserve = false) => {
+    const generation = loadGenerationRef.current + 1;
+    loadGenerationRef.current = generation;
+    if (!preserve) setState({ kind: 'loading' });
     try {
       const data = await getMaterialReceipts(developmentUserKey, appliedSearch, includeCompleted, '', '', supplyFilter);
+      if (generation !== loadGenerationRef.current) return false;
       setState({ kind: 'ready', data });
+      return true;
     } catch (error) {
-      setState({ kind: 'error', message: errorMessage(error, '자재 입고 현황을 불러오지 못했습니다.') });
+      if (generation !== loadGenerationRef.current) return false;
+      if (!preserve) setState({ kind: 'error', message: errorMessage(error, '자재 입고 현황을 불러오지 못했습니다.') });
+      return false;
     }
   }, [appliedSearch, developmentUserKey, includeCompleted, supplyFilter]);
 
@@ -103,15 +111,15 @@ export function MaterialReceivingPage({
   }, [activeFilter, state]);
   const receiptSelection = useSelectedRows(visibleItems.map((item) => item.itemId));
 
-  async function runAction(operation: () => Promise<unknown>, success: string) {
-    setMessage('');
-    try {
-      await operation();
-      setMessage(success);
+  async function runAction(scope: string, operation: () => Promise<unknown>, success: string) {
+    const result = await actions.run(scope, operation, {
+      loadingMessage: '처리 중입니다.',
+      successMessage: success,
+      errorFallback: '자재 작업을 완료하지 못했습니다.',
+      refresh: () => load(true)
+    });
+    if (result === 'success' || result === 'partial') {
       setAction(null);
-      await load();
-    } catch (error) {
-      setMessage(errorMessage(error, '작업을 완료하지 못했습니다.'));
     }
   }
 
@@ -119,8 +127,8 @@ export function MaterialReceivingPage({
     <MaterialActionPanel
       action={action}
       canUpdate={canUpdate}
-      message={message}
-      onClose={() => { setAction(null); setMessage(''); }}
+      feedback={actions.latestFeedback}
+      onClose={() => { setAction(null); actions.reset(); }}
       onOpenIqc={onOpenIqc}
       onOpenPending={onOpenPending}
       onRun={runAction}
@@ -144,6 +152,8 @@ export function MaterialReceivingPage({
       </header>
 
       {!canUpdate ? <p className="workspace-readonly-banner" role="note">조회 전용입니다. 도착 등록·IQC 요청·입고 확정은 자재 담당 권한이 필요합니다.</p> : null}
+
+      {actions.latestFeedback && action === null ? <InlineActionFeedback feedback={actions.latestFeedback} /> : null}
 
       {state.kind === 'ready' ? (
         <div className="material-summary-strip" aria-label="자재 입고 요약">
@@ -229,7 +239,7 @@ export function MaterialReceivingPage({
           title={actionTitle(action)}
           eyebrow="MATERIAL ACTION"
           description="현재 단계에서 허용된 작업만 표시합니다."
-          onClose={() => { setAction(null); setMessage(''); }}
+          onClose={() => { setAction(null); actions.reset(); }}
         >
           {actionPanel}
         </MobileSheet>
@@ -254,22 +264,28 @@ export function MaterialIqcPage({
   const [includeDecided, setIncludeDecided] = useState(false);
   const [selected, setSelected] = useState<MaterialIqcQueueItem | null>(null);
   const [reason, setReason] = useState('');
-  const [message, setMessage] = useState('');
-  const [saving, setSaving] = useState(false);
+  const actions = useActionFeedback();
+  const loadGenerationRef = useRef(0);
   const iqcVisibleIds = state.kind === 'ready' ? state.data.map((item) => item.attemptId) : [];
   const iqcSelection = useSelectedRows(iqcVisibleIds);
 
-  const load = useCallback(async () => {
-    setState({ kind: 'loading' });
+  const load = useCallback(async (preserve = false) => {
+    const generation = loadGenerationRef.current + 1;
+    loadGenerationRef.current = generation;
+    if (!preserve) setState({ kind: 'loading' });
     try {
       const response = await getMaterialIqcQueue(developmentUserKey, includeDecided);
+      if (generation !== loadGenerationRef.current) return false;
       setState({ kind: 'ready', data: response.items });
       const requestedId = new URLSearchParams(window.location.search).get('request');
       setSelected((current) => response.items.find((item) => item.attemptId === requestedId)
         ?? response.items.find((item) => item.attemptId === current?.attemptId)
         ?? null);
+      return true;
     } catch (error) {
-      setState({ kind: 'error', message: errorMessage(error, 'IQC 검사함을 불러오지 못했습니다.') });
+      if (generation !== loadGenerationRef.current) return false;
+      if (!preserve) setState({ kind: 'error', message: errorMessage(error, 'IQC 검사함을 불러오지 못했습니다.') });
+      return false;
     }
   }, [developmentUserKey, includeDecided]);
 
@@ -277,12 +293,12 @@ export function MaterialIqcPage({
 
   async function submit(result: 'Passed' | 'Failed') {
     if (!selected || reason.trim().length < 3) {
-      setMessage('판정 사유를 3자 이상 입력해 주세요.');
+      actions.setFeedback('iqc:decision', { tone: 'error', message: '판정 사유를 3자 이상 입력해 주세요.' });
+      queueMicrotask(() => document.querySelector<HTMLElement>('[data-field="iqcReason"]')?.focus());
       return;
     }
-    setSaving(true);
-    setMessage('');
-    try {
+    let pendingIssueId: string | null = null;
+    const actionResult = await actions.run(`iqc:${selected.attemptId}:decision`, async () => {
       const response = await recordMaterialIqcResult(
         developmentUserKey,
         selected.attemptId,
@@ -290,17 +306,19 @@ export function MaterialIqcPage({
         result,
         reason.trim()
       );
-      setMessage(result === 'Passed' ? 'IQC 합격으로 판정했습니다.' : '부적합 Pending을 등록하고 입고를 차단했습니다.');
+      pendingIssueId = response.pendingIssueId;
+    }, {
+      loadingMessage: 'IQC 판정을 저장하는 중입니다.',
+      successMessage: result === 'Passed' ? 'IQC 합격으로 판정했습니다.' : '부적합 Pending을 등록하고 입고를 차단했습니다.',
+      errorFallback: 'IQC 판정을 저장하지 못했습니다.',
+      refresh: () => load(true)
+    });
+    if (actionResult === 'success' || actionResult === 'partial') {
       setReason('');
       setSelected(null);
-      await load();
-      if (result === 'Failed' && response.pendingIssueId) {
-        window.setTimeout(() => onOpenPending(response.pendingIssueId!), 450);
+      if (result === 'Failed' && pendingIssueId) {
+        window.setTimeout(() => onOpenPending(pendingIssueId!), 450);
       }
-    } catch (error) {
-      setMessage(errorMessage(error, 'IQC 판정을 저장하지 못했습니다.'));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -308,11 +326,11 @@ export function MaterialIqcPage({
     <IqcInspector
       item={selected}
       reason={reason}
-      message={message}
-      disabled={!canInspect || saving || selected.status !== 'Requested'}
+      feedback={actions.latestFeedback}
+      disabled={!canInspect || actions.hasBusyPrefix('iqc:') || selected.status !== 'Requested'}
       onReason={setReason}
       onSubmit={submit}
-      onClose={() => { setSelected(null); setMessage(''); setReason(''); }}
+      onClose={() => { setSelected(null); actions.reset(); setReason(''); }}
       onOpenPending={onOpenPending}
     />
   ) : selected ? (
@@ -320,7 +338,7 @@ export function MaterialIqcPage({
       attemptId={selected.attemptId}
       developmentUserKey={developmentUserKey}
       canInspect={canInspect}
-      onClose={() => { setSelected(null); setMessage(''); setReason(''); void load(); }}
+      onClose={() => { setSelected(null); actions.reset(); setReason(''); void load(); }}
       onChanged={() => setIncludeDecided(true)}
     />
   ) : null;
@@ -337,6 +355,8 @@ export function MaterialIqcPage({
       </header>
 
       {!canInspect ? <p className="workspace-readonly-banner" role="note">조회 전용입니다. 검사성적서 작성과 합격·부적합 판정은 품질 담당 권한이 필요합니다.</p> : null}
+
+      {actions.latestFeedback && selected === null ? <InlineActionFeedback feedback={actions.latestFeedback} /> : null}
 
       <div className="iqc-toolbar">
         <div><strong>{state.kind === 'ready' ? state.data.filter((item) => item.status === 'Requested').length : '-'}건</strong><span>검사 대기</span></div>
@@ -379,7 +399,7 @@ export function MaterialIqcPage({
       ) : null}
 
       {layout.isMobile ? (
-        <MobileSheet open={selected !== null} title={selected?.decisionMode === 'Detailed' ? '디지털 검사성적서' : 'IQC 판정'} eyebrow="QUALITY CHECK" description={selected?.decisionMode === 'Detailed' ? '항목·사진·판정을 한 흐름으로 기록합니다.' : '도착분과 검사 차수를 확인한 뒤 판정합니다.'} onClose={() => { setSelected(null); setReason(''); void load(); }} fullScreen>
+        <MobileSheet open={selected !== null} title={selected?.decisionMode === 'Detailed' ? '디지털 검사성적서' : 'IQC 판정'} eyebrow="QUALITY CHECK" description={selected?.decisionMode === 'Detailed' ? '항목·사진·판정을 한 흐름으로 기록합니다.' : '도착분과 검사 차수를 확인한 뒤 판정합니다.'} onClose={() => { setSelected(null); actions.reset(); setReason(''); void load(); }} fullScreen>
           {inspector}
         </MobileSheet>
       ) : inspector ? <aside className={`material-action-drawer${selected?.decisionMode === 'Detailed' ? ' material-action-drawer--iqc-report' : ''}`}>{inspector}</aside> : null}
@@ -448,14 +468,14 @@ function MaterialItemCard({ item, canUpdate, mobile, onAction, selected, selecti
   );
 }
 
-function MaterialActionPanel({ action, canUpdate, message, onClose, onOpenIqc, onOpenPending, onRun, developmentUserKey }: {
+function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, onOpenPending, onRun, developmentUserKey }: {
   action: MaterialAction;
   canUpdate: boolean;
-  message: string;
+  feedback: ActionFeedbackState | null;
   onClose: () => void;
   onOpenIqc: () => void;
   onOpenPending: (pendingId: string) => void;
-  onRun: (operation: () => Promise<unknown>, success: string) => Promise<void>;
+  onRun: (scope: string, operation: () => Promise<unknown>, success: string) => Promise<void>;
   developmentUserKey: string;
 }) {
   const [quantity, setQuantity] = useState('');
@@ -466,15 +486,15 @@ function MaterialActionPanel({ action, canUpdate, message, onClose, onOpenIqc, o
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
 
-  async function guarded(operation: () => Promise<unknown>, success: string) {
+  async function guarded(scope: string, operation: () => Promise<unknown>, success: string) {
     setSaving(true);
-    try { await onRun(operation, success); } finally { setSaving(false); }
+    try { await onRun(scope, operation, success); } finally { setSaving(false); }
   }
 
   if (action.kind === 'arrival') {
     async function submit(event: FormEvent) {
       event.preventDefault();
-      await guarded(() => registerMaterialArrival(developmentUserKey, action.item.itemId, {
+      await guarded(`material:${action.item.itemId}:arrival`, () => registerMaterialArrival(developmentUserKey, action.item.itemId, {
         quantity: Number(quantity),
         unit,
         orderQuantity: action.item.orderQuantity === null ? Number(orderQuantity) : null,
@@ -493,7 +513,7 @@ function MaterialActionPanel({ action, canUpdate, message, onClose, onOpenIqc, o
         </div>
         <label><span>도착일</span><input type="date" value={arrivalDate} onChange={(event) => setArrivalDate(event.target.value)} required /></label>
         <label><span>비고</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="운송 상태나 확인 메모" /></label>
-        {message ? <p role="alert" className="error-text">{message}</p> : null}
+        {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
         <div className="material-action-buttons"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={!canUpdate || saving}>도착 등록</button></div>
       </form>
     );
@@ -501,11 +521,11 @@ function MaterialActionPanel({ action, canUpdate, message, onClose, onOpenIqc, o
 
   if (action.kind === 'close') {
     return (
-      <form className="material-action-form" onSubmit={(event) => { event.preventDefault(); void guarded(() => closeMaterialArrivals(developmentUserKey, action.item.itemId, action.item.rowVersion, reason), '입고를 마감하고 완료값을 계산했습니다.'); }}>
+      <form className="material-action-form" onSubmit={(event) => { event.preventDefault(); void guarded(`material:${action.item.itemId}:close`, () => closeMaterialArrivals(developmentUserKey, action.item.itemId, action.item.rowVersion, reason), '입고를 마감하고 완료값을 계산했습니다.'); }}>
         <ActionContext item={action.item} />
         <div className="material-action-notice"><strong>되돌릴 수 없는 마감입니다.</strong><span>{action.item.supplyType === 'CustomerSupplied' ? `미도착 잔량 0, 모든 도착분 확정이 필요합니다. 현재 잔량 ${formatQuantity(action.item.remainingQuantity, action.item.orderUnit)}` : '모든 유효 도착분이 확정된 경우 발주품목 입고가 완료됩니다.'}</span></div>
         <label><span>마감 사유</span><textarea data-autofocus value={reason} onChange={(event) => setReason(event.target.value)} required minLength={3} /></label>
-        {message ? <p role="alert" className="error-text">{message}</p> : null}
+        {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
         <div className="material-action-buttons"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={!canUpdate || saving}>입고 마감</button></div>
       </form>
     );
@@ -518,14 +538,14 @@ function MaterialActionPanel({ action, canUpdate, message, onClose, onOpenIqc, o
       <ActionContext item={action.item} receipt={receipt} />
       <ReceiptSteps status={receipt.status} />
       {receipt.note ? <div className="material-action-notice"><strong>도착 메모</strong><span>{receipt.note}</span></div> : null}
-      {message ? <p role="alert" className="error-text">{message}</p> : null}
+      {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
       <div className="material-action-buttons material-action-buttons--stack">
-        {receipt.status === 'Arrived' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(() => requestMaterialIqc(developmentUserKey, receipt.receiptId, receipt.version), 'IQC 검사를 요청했습니다.')}>IQC 요청</button> : null}
-        {receipt.status === 'Arrived' ? <><textarea aria-label="취소 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="취소 사유 3자 이상" /><button type="button" disabled={!canUpdate || saving || reason.trim().length < 3} onClick={() => void guarded(() => cancelMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version, reason), '도착 등록을 취소했습니다.')}>도착 취소</button></> : null}
+        {receipt.status === 'Arrived' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(`material:${receipt.receiptId}:iqc-request`, () => requestMaterialIqc(developmentUserKey, receipt.receiptId, receipt.version), 'IQC 검사를 요청했습니다.')}>IQC 요청</button> : null}
+        {receipt.status === 'Arrived' ? <><textarea aria-label="취소 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="취소 사유 3자 이상" /><button type="button" disabled={!canUpdate || saving || reason.trim().length < 3} onClick={() => void guarded(`material:${receipt.receiptId}:cancel`, () => cancelMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version, reason), '도착 등록을 취소했습니다.')}>도착 취소</button></> : null}
         {receipt.status === 'IqcRequested' ? <button type="button" className="primary-button" onClick={onOpenIqc}>IQC 검사함 열기</button> : null}
         {receipt.status === 'FailedBlocked' && pendingId ? <button type="button" onClick={() => onOpenPending(pendingId)}>연결된 Pending 열기</button> : null}
-        {receipt.status === 'FailedBlocked' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(() => requestMaterialReinspection(developmentUserKey, receipt.receiptId, receipt.version), '재검사를 요청했습니다.')}>Pending 조치 후 재검사 요청</button> : null}
-        {receipt.status === 'Passed' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(() => confirmMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version), '입고를 확정했습니다.')}>입고 확정</button> : null}
+        {receipt.status === 'FailedBlocked' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(`material:${receipt.receiptId}:reinspect`, () => requestMaterialReinspection(developmentUserKey, receipt.receiptId, receipt.version), '재검사를 요청했습니다.')}>Pending 조치 후 재검사 요청</button> : null}
+        {receipt.status === 'Passed' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(`material:${receipt.receiptId}:confirm`, () => confirmMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version), '입고를 확정했습니다.')}>입고 확정</button> : null}
         {receipt.status === 'Confirmed' ? <div className="material-success-panel"><strong>입고 확정 완료</strong><span>{formatDateTime(receipt.confirmedAtUtc)}</span></div> : null}
         {receipt.status === 'Cancelled' ? <div className="material-action-notice"><strong>취소된 도착분</strong><span>{receipt.cancellationReason}</span></div> : null}
       </div>
@@ -533,10 +553,10 @@ function MaterialActionPanel({ action, canUpdate, message, onClose, onOpenIqc, o
   );
 }
 
-function IqcInspector({ item, reason, message, disabled, onReason, onSubmit, onClose, onOpenPending }: {
+function IqcInspector({ item, reason, feedback, disabled, onReason, onSubmit, onClose, onOpenPending }: {
   item: MaterialIqcQueueItem;
   reason: string;
-  message: string;
+  feedback: ActionFeedbackState | null;
   disabled: boolean;
   onReason: (value: string) => void;
   onSubmit: (result: 'Passed' | 'Failed') => Promise<void>;
@@ -549,8 +569,8 @@ function IqcInspector({ item, reason, message, disabled, onReason, onSubmit, onC
       <dl className="material-item-meta"><div><dt>검사 차수</dt><dd>{item.attemptNumber}차</dd></div><div><dt>도착 수량</dt><dd>{formatQuantity(item.quantity, item.unit)}</dd></div></dl>
       <div className="iqc-check-guide"><strong>기본 확인</strong><span>품명·수량·외관·식별 정보를 확인한 뒤 판정하세요.</span></div>
       {item.pendingIssueId ? <button type="button" onClick={() => onOpenPending(item.pendingIssueId!)}>연결된 Pending 보기</button> : null}
-      <label><span>판정 사유</span><textarea data-autofocus value={reason} onChange={(event) => onReason(event.target.value)} placeholder="확인 결과를 3자 이상 기록" disabled={disabled} /></label>
-      {message ? <p role="alert" className={message.includes('했습니다') ? 'success-text' : 'error-text'}>{message}</p> : null}
+      <label><span>판정 사유</span><textarea data-autofocus data-field="iqcReason" aria-invalid={feedback?.tone === 'error'} value={reason} onChange={(event) => onReason(event.target.value)} placeholder="확인 결과를 3자 이상 기록" disabled={disabled} /></label>
+      {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
       <div className="iqc-decision-grid"><button type="button" className="iqc-fail-button" disabled={disabled} onClick={() => void onSubmit('Failed')}>부적합 · 입고 차단</button><button type="button" className="primary-button" disabled={disabled} onClick={() => void onSubmit('Passed')}>합격</button></div>
       <button type="button" onClick={onClose}>닫기</button>
     </div>
@@ -586,6 +606,20 @@ function ActionContext({ item, receipt }: { item: MaterialReceivingItem; receipt
 
 function MaterialLoading() {
   return <div className="material-loading" aria-label="불러오는 중"><i /><i /><i /></div>;
+}
+
+function InlineActionFeedback({ feedback }: { feedback: ActionFeedbackState }) {
+  return (
+    <p
+      className="action-feedback material-inline-feedback"
+      data-tone={feedback.tone}
+      role={feedback.tone === 'error' ? 'alert' : 'status'}
+      aria-live={feedback.tone === 'error' ? 'assertive' : 'polite'}
+      tabIndex={feedback.tone === 'error' || feedback.tone === 'partial' ? -1 : undefined}
+    >
+      {feedback.message}
+    </p>
+  );
 }
 
 function actionTitle(action: MaterialAction | null) {

@@ -111,10 +111,10 @@ describe('PanelKittingPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /PANEL-01.*MCC-A/u }));
     const completeButton = screen.getByRole('button', { name: '1면 키팅 완료' });
     fireEvent.click(completeButton);
-    expect(await screen.findByText('잠시 연결할 수 없습니다.')).toBeInTheDocument();
+    expect(await screen.findByText(/잠시 연결할 수 없습니다.*잠시 후 다시 시도해 주세요/u)).toHaveAttribute('data-tone', 'error');
 
     fireEvent.click(screen.getByRole('button', { name: '1면 키팅 완료' }));
-    expect(await screen.findByText('1면을 완료하고 제조 업무 1건을 넘겼습니다.')).toBeInTheDocument();
+    expect(await screen.findByText('1면을 완료하고 제조 업무 1건을 넘겼습니다.')).toHaveAttribute('data-tone', 'success');
     await waitFor(() => expect(operationIds).toHaveLength(2));
     expect(operationIds[0]).toMatch(/^[0-9a-f-]{36}$/u);
     expect(operationIds[1]).toBe(operationIds[0]);

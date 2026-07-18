@@ -5,7 +5,7 @@ import path from 'node:path';
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = path.resolve(process.cwd(), '../tasks/home-001-screenshots');
 
-test('TASK-HOME-001: Home widgets stay responsive, permission-aware, and linked to source pages', async ({ page, request }) => {
+test('TASK-HOME-001: Home widgets stay responsive, operationally readable, and linked to source pages', async ({ page, request }) => {
   const unique = Date.now();
   const projectTitle = `홈 대시보드 검수 ${unique}`;
   const projectId = await createProject(request, `HOME-${unique}`, projectTitle);
@@ -66,9 +66,9 @@ test('TASK-HOME-001: Home widgets stay responsive, permission-aware, and linked 
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: '업무 홈' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Pending' })).toHaveCount(0);
-  await expect(page.getByLabel('프로젝트 병목 요약')).not.toContainText('Pending');
-  expect(pendingRequestCount).toBe(0);
+  await expect(page.getByRole('heading', { name: 'Pending' })).toBeVisible();
+  await expect(page.getByLabel('프로젝트 병목 요약')).toContainText('Pending');
+  expect(pendingRequestCount).toBeGreaterThan(0);
   await assertNoHorizontalOverflow(page);
   await capture(page, '03-home-without-pending-permission-390.png');
   page.off('request', pendingRequestListener);

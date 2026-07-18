@@ -13,7 +13,7 @@ import { PanelKittingPage } from './PanelKittingPage';
 import { QualityInspectionsPage } from './QualityInspectionsPage';
 import { SalesSettlementPage } from './SalesSettlementPage';
 import { NotificationPreferencesPage } from './NotificationPreferencesPage';
-import { useActionFeedback, type ActionFeedbackTone } from './useActionFeedback';
+import { useActionFeedback, type ActionFeedbackState, type ActionFeedbackTone } from './useActionFeedback';
 import type { QualityInspectionStage } from './qualityInspections';
 import type { LogisticsStage } from './logistics';
 import {
@@ -1219,6 +1219,10 @@ function QmsAppShellContent({
   const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
   const [profilePhotoState, setProfilePhotoState] = useState<{ key: string; url: string | null } | null>(null);
   const [profilePhotoNonce, setProfilePhotoNonce] = useState(0);
+  const [projectActionFeedback, setProjectActionFeedback] = useState<{
+    projectId: string;
+    feedback: ActionFeedbackState;
+  } | null>(null);
   const mobileStatusTriggerRef = useRef<HTMLButtonElement>(null);
   const profilePhotoGeneration = useRef(0);
   const restoredAdminTestUser = useRef(false);
@@ -1255,6 +1259,15 @@ function QmsAppShellContent({
       window.history.pushState(null, '', nextPath);
     }
   }, []);
+
+  const returnToProjectWithFeedback = useCallback((
+    projectId: string,
+    section: ProjectDetailSection,
+    feedback: ActionFeedbackState
+  ) => {
+    setProjectActionFeedback({ projectId, feedback });
+    setView({ kind: 'detail', projectId, section });
+  }, [setView]);
 
   const loadShell = useCallback(() => {
     setRuntimeMutationAllowed(false);
@@ -1758,7 +1771,18 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'detail' ? (
-        <ProjectDetailPage
+        <>
+          {projectActionFeedback?.projectId === view.projectId ? (
+            <section className="page-action-feedback route-action-feedback" aria-label="최근 저장 결과">
+              <ActionFeedback
+                message={projectActionFeedback.feedback.message}
+                tone={projectActionFeedback.feedback.tone}
+                focusOnAttention={projectActionFeedback.feedback.tone === 'partial' || projectActionFeedback.feedback.tone === 'error'}
+              />
+              <button type="button" onClick={() => setProjectActionFeedback(null)}>확인</button>
+            </section>
+          ) : null}
+          <ProjectDetailPage
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
           canUpdate={canUpdate}
@@ -1779,8 +1803,21 @@ function QmsAppShellContent({
           onOpenPanel={(panelId) => setView({ kind: 'panel', projectId: view.projectId, panelId })}
           onOpenPending={() => setView({ kind: 'pending', projectId: view.projectId })}
           onOpenSettlement={() => setView({ kind: 'sales-settlement', projectId: view.projectId })}
+          onLoadOutcome={(loaded) => {
+            if (loaded) return;
+            setProjectActionFeedback((current) => current?.projectId === view.projectId && current.feedback.tone === 'success'
+              ? {
+                  ...current,
+                  feedback: {
+                    tone: 'partial',
+                    message: `${current.feedback.message} 최신 화면을 불러오지 못했습니다. 새로고침해 주세요.`
+                  }
+                }
+              : current);
+          }}
           canSettleSales={canSettleSales}
-        />
+          />
+        </>
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'sales-settlement' ? (
@@ -1817,6 +1854,7 @@ function QmsAppShellContent({
           projectId={view.projectId}
           canUpdatePanelInfo={canUpdatePanelInfo}
           onBack={() => setView({ kind: 'detail', projectId: view.projectId })}
+          onSaved={(feedback) => returnToProjectWithFeedback(view.projectId, 'panels', feedback)}
         />
       ) : null}
 
@@ -1826,6 +1864,7 @@ function QmsAppShellContent({
           projectId={view.projectId}
           canUpdateProcurement={canUpdateProcurement}
           onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'procurement' })}
+          onSaved={(feedback) => returnToProjectWithFeedback(view.projectId, 'procurement', feedback)}
         />
       ) : null}
 
@@ -1835,6 +1874,7 @@ function QmsAppShellContent({
           projectId={view.projectId}
           canUpdateProductionPlanning={canUpdateProductionPlanning}
           onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'production-planning' })}
+          onSaved={(feedback) => returnToProjectWithFeedback(view.projectId, 'production-planning', feedback)}
         />
       ) : null}
 
@@ -8345,6 +8385,7 @@ function ProjectDetailPage({
   onOpenPanel,
   onOpenPending,
   onOpenSettlement,
+  onLoadOutcome,
   canSettleSales
 }: {
   developmentUserKey: string;
@@ -8367,6 +8408,7 @@ function ProjectDetailPage({
   onOpenPanel: (panelId: string) => void;
   onOpenPending: () => void;
   onOpenSettlement: () => void;
+  onLoadOutcome?: (loaded: boolean) => void;
   canSettleSales: boolean;
 }) {
   const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
@@ -8384,6 +8426,11 @@ function ProjectDetailPage({
   const [dialogError, setDialogError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const isMobile = useIsMobileViewport();
+  const loadOutcomeRef = useRef(onLoadOutcome);
+
+  useEffect(() => {
+    loadOutcomeRef.current = onLoadOutcome;
+  }, [onLoadOutcome]);
 
   const load = useCallback(() => {
     setProjectState({ kind: 'loading' });
@@ -8414,6 +8461,12 @@ function ProjectDetailPage({
         setHistoryState(history ? { kind: 'ready', data: history } : { kind: 'empty' });
         setProductionPlanningHistoryState(productionPlanningHistory ? { kind: 'ready', data: productionPlanningHistory } : { kind: 'empty' });
         setProcurementHistoryState(procurementHistory ? { kind: 'ready', data: procurementHistory } : { kind: 'empty' });
+        const selectedSectionLoaded = initialSection === 'production-planning'
+          ? productionPlanning !== null
+          : initialSection === 'procurement'
+            ? procurement !== null
+            : true;
+        loadOutcomeRef.current?.(selectedSectionLoaded);
       })
       .catch((error: unknown) => {
         const state = toLoadError<ProjectDetail>(error, '프로젝트 상세를 불러올 수 없습니다.');
@@ -8425,8 +8478,9 @@ function ProjectDetailPage({
         setHistoryState(toLoadError(error, '전체 이력을 불러올 수 없습니다.'));
         setProductionPlanningHistoryState(toLoadError(error, '전체 이력을 불러올 수 없습니다.'));
         setProcurementHistoryState(toLoadError(error, '전체 이력을 불러올 수 없습니다.'));
+        loadOutcomeRef.current?.(false);
       });
-  }, [canReadAuditAll, developmentUserKey, projectId]);
+  }, [canReadAuditAll, developmentUserKey, initialSection, projectId]);
 
   useEffect(() => {
     queueMicrotask(load);
@@ -9293,7 +9347,7 @@ function ProductionPlanningSettingsPage({
                         className={fieldError(errors, `steps[${index}].sequenceNumber`) ? 'field-invalid' : undefined}
                         onChange={(event) => updateStep(index, { sequenceNumber: Number(event.target.value) })}
                       />
-                      <FieldErrorMessage message={fieldError(errors, `steps[${index}].sequenceNumber`)} />
+                      <FieldErrorMessage field={`steps[${index}].sequenceNumber`} message={fieldError(errors, `steps[${index}].sequenceNumber`)} />
                     </div>
                     <div className="grid-field">
                       <input
@@ -9303,7 +9357,7 @@ function ProductionPlanningSettingsPage({
                         className={fieldError(errors, `steps[${index}].stepName`) ? 'field-invalid' : undefined}
                         onChange={(event) => updateStep(index, { stepName: event.target.value })}
                       />
-                      <FieldErrorMessage message={fieldError(errors, `steps[${index}].stepName`)} />
+                      <FieldErrorMessage field={`steps[${index}].stepName`} message={fieldError(errors, `steps[${index}].stepName`)} />
                     </div>
                     <label className="inline-check">
                       <input type="checkbox" checked={step.isRequired} onChange={(event) => updateStep(index, { isRequired: event.target.checked })} />
@@ -9483,7 +9537,7 @@ function ProcurementRequiredItemSettingsPage({
                         onChange={(event) => updateRow(index, { sequenceNumber: Number(event.target.value) })}
                         disabled={!canUpdateProcurement}
                       />
-                      <FieldErrorMessage message={fieldError(errors, `rows[${index}].sequenceNumber`)} />
+                      <FieldErrorMessage field={`rows[${index}].sequenceNumber`} message={fieldError(errors, `rows[${index}].sequenceNumber`)} />
                     </div>
                     <div className="grid-field">
                       <input
@@ -9494,7 +9548,7 @@ function ProcurementRequiredItemSettingsPage({
                         onChange={(event) => updateRow(index, { itemName: event.target.value })}
                         disabled={!canUpdateProcurement}
                       />
-                      <FieldErrorMessage message={fieldError(errors, `rows[${index}].itemName`)} />
+                      <FieldErrorMessage field={`rows[${index}].itemName`} message={fieldError(errors, `rows[${index}].itemName`)} />
                     </div>
                     <label className="inline-check">
                       <input type="checkbox" checked={row.isRequired} onChange={(event) => updateRow(index, { isRequired: event.target.checked })} disabled={!canUpdateProcurement} />
@@ -9547,21 +9601,27 @@ function ProductionPlanningExcelDialog({
   const [preview, setPreview] = useState<ProductionPlanningExcelPreviewResponse | null>(null);
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<ActionFeedbackTone>('neutral');
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
 
   async function runPreview() {
     if (!file) {
+      setMessageTone('error');
       setMessage('선택한 파일이 없습니다.');
       return;
     }
     setIsPreviewing(true);
-    setMessage('');
+    setMessageTone('loading');
+    setMessage('Excel 내용을 확인하는 중입니다.');
     try {
       setPreview(projectContext
         ? await previewProjectProductionPlanningExcel(developmentUserKey, projectContext.projectId, file)
         : await previewProductionPlanningExcel(developmentUserKey, file));
+      setMessageTone('success');
+      setMessage('미리보기를 완료했습니다. 저장 가능한 항목을 확인해 주세요.');
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsPreviewing(false);
@@ -9570,18 +9630,22 @@ function ProductionPlanningExcelDialog({
 
   async function apply() {
     if (!file || !preview) {
+      setMessageTone('error');
       setMessage('먼저 미리보기를 실행해 주세요.');
       return;
     }
     setIsApplying(true);
-    setMessage('');
+    setMessageTone('loading');
+    setMessage('저장 가능한 항목을 적용하는 중입니다.');
     try {
       const result = projectContext
         ? await applyProjectProductionPlanningExcel(developmentUserKey, projectContext.projectId, file, preview.fileSha256, reason.trim() || null)
         : await applyProductionPlanningExcel(developmentUserKey, file, preview.fileSha256, reason.trim() || null);
       setMessage(`저장 가능한 항목 ${result.appliedRowCount}건을 반영했습니다.`);
+      setMessageTone('success');
       onApplied();
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsApplying(false);
@@ -9605,8 +9669,9 @@ function ProductionPlanningExcelDialog({
             setFile(event.target.files?.[0] ?? null);
             setPreview(null);
             setMessage('');
+            setMessageTone('neutral');
           }} />
-          <button type="button" disabled={isPreviewing} onClick={runPreview}>{isPreviewing ? '미리보기 중' : 'Preview'}</button>
+          <button type="button" disabled={isPreviewing || isApplying} onClick={runPreview}>{isPreviewing ? '미리보기 중' : 'Preview'}</button>
         </div>
         {preview ? (
           <>
@@ -9622,7 +9687,7 @@ function ProductionPlanningExcelDialog({
             <ProductionPlanningExcelPreview preview={preview} />
           </>
         ) : null}
-        {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+        {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
       </div>
     </DialogBackdrop>
   );
@@ -9960,12 +10025,14 @@ function ProductionPlanningEditPage({
   developmentUserKey,
   projectId,
   canUpdateProductionPlanning,
-  onBack
+  onBack,
+  onSaved
 }: {
   developmentUserKey: string;
   projectId: string;
   canUpdateProductionPlanning: boolean;
   onBack: () => void;
+  onSaved: (feedback: ActionFeedbackState) => void;
 }) {
   const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
   const [state, setState] = useState<LoadState<ProductionPlanningResponse>>({ kind: 'loading' });
@@ -9977,6 +10044,7 @@ function ProductionPlanningEditPage({
   const [reason, setReason] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<ActionFeedbackTone>('neutral');
   const [showExcelDialog, setShowExcelDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -9987,6 +10055,7 @@ function ProductionPlanningEditPage({
     setTypesState({ kind: 'loading' });
     setErrors({});
     setMessage('');
+    setMessageTone('neutral');
     Promise.all([
       getProject(developmentUserKey, projectId),
       getProjectProductionPlanning(developmentUserKey, projectId),
@@ -10079,7 +10148,10 @@ function ProductionPlanningEditPage({
     const validation = validateProductionPlanningForm(selectedProductTypeId, rows);
     setErrors(validation);
     setMessage('');
+    setMessageTone('neutral');
     if (Object.keys(validation).length > 0) {
+      setMessageTone('error');
+      setMessage('입력값을 확인하고 첫 번째 오류 항목을 수정해 주세요.');
       return;
     }
     setIsSaving(true);
@@ -10108,8 +10180,9 @@ function ProductionPlanningEditPage({
           note: assignee.note.trim() || null
         }))
       });
-      onBack();
+      onSaved({ tone: 'success', message: '생산계획을 저장했습니다.' });
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, setErrors, setMessage);
     } finally {
       setIsSaving(false);
@@ -10118,23 +10191,22 @@ function ProductionPlanningEditPage({
 
   async function downloadTemplate() {
     if (!selectedProductTypeId) {
+      setMessageTone('error');
       setMessage('Item을 먼저 확인해 주세요.');
       return;
     }
     setIsDownloading(true);
-    setMessage('');
+    setMessageTone('loading');
+    setMessage('Excel 양식을 생성하는 중입니다.');
     try {
       const template = await downloadProductionPlanningTemplate(developmentUserKey, projectId, selectedProductTypeId);
-      const url = URL.createObjectURL(template.blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = template.fileName;
-      document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      setMessage('Excel 양식을 다운로드했습니다.');
+      const triggered = triggerExcelDownload(template);
+      setMessageTone(triggered ? 'success' : 'partial');
+      setMessage(triggered
+        ? 'Excel 양식을 다운로드했습니다.'
+        : 'Excel 양식 생성은 완료됐지만 다운로드를 시작하지 못했습니다. 다시 시도해 주세요.');
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsDownloading(false);
@@ -10186,7 +10258,7 @@ function ProductionPlanningEditPage({
               <span>Item</span>
               <strong>{selectedProductType?.code ?? project?.item ?? '-'}</strong>
               {hasInvalidProjectItem ? <small role="alert" className="field-error-message">현재 프로젝트의 Item이 등록된 Item 기준값과 일치하지 않습니다. 프로젝트 정보를 수정한 후 생산계획을 입력해 주세요.</small> : null}
-              <FieldErrorMessage message={fieldError(errors, 'productTypeId')} />
+              <FieldErrorMessage field="productTypeId" message={fieldError(errors, 'productTypeId')} />
             </div>
             <label className="form-field">
               <span>비고</span>
@@ -10195,14 +10267,14 @@ function ProductionPlanningEditPage({
             <label className={fieldError(errors, 'reason') ? 'form-field panel-reason-field has-error' : 'form-field panel-reason-field'}>
               <span>수정사유</span>
               <textarea name="reason" value={reason} onChange={(event) => setReason(event.target.value)} />
-              <FieldErrorMessage message={fieldError(errors, 'reason')} />
+              <FieldErrorMessage field="reason" message={fieldError(errors, 'reason')} />
             </label>
           </div>
           <ProductionPlanningEditableList rows={rows} errors={errors} onChange={updateRow} onAddRow={addCustomRow} onDeleteRow={deleteCustomRow} />
           <ProductionAssigneeEditor plan={plan} assignees={assignees} errors={errors} onChange={updateAssignee} />
         </>
       ) : null}
-      {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+      {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
     </section>
   );
 }
@@ -10240,7 +10312,7 @@ function ProductionPlanningEditableList({
               <label className={fieldError(errors, `items[${index}].stepName`) ? 'form-field has-error' : 'form-field'}>
                 <span>계획 항목</span>
                 <input name={`items[${index}].stepName`} value={row.stepName} onChange={(event) => onChange(index, { stepName: event.target.value })} />
-                <FieldErrorMessage message={fieldError(errors, `items[${index}].stepName`)} />
+                <FieldErrorMessage field={`items[${index}].stepName`} message={fieldError(errors, `items[${index}].stepName`)} />
               </label>
               <label className="checkbox-row">
                 <input type="checkbox" checked={row.isRequired} onChange={(event) => onChange(index, { isRequired: event.target.checked })} />
@@ -10249,12 +10321,12 @@ function ProductionPlanningEditableList({
               <label className={fieldError(errors, `items[${index}].plannedDate`) ? 'form-field has-error' : 'form-field'}>
                 <span>예정일</span>
                 <input name={`items[${index}].plannedDate`} type="date" value={row.plannedDate} onChange={(event) => onChange(index, { plannedDate: event.target.value })} />
-                <FieldErrorMessage message={fieldError(errors, `items[${index}].plannedDate`)} />
+                <FieldErrorMessage field={`items[${index}].plannedDate`} message={fieldError(errors, `items[${index}].plannedDate`)} />
               </label>
               <label className={fieldError(errors, `items[${index}].note`) ? 'form-field has-error' : 'form-field'}>
                 <span>비고</span>
                 <textarea name={`items[${index}].note`} value={row.note} onChange={(event) => onChange(index, { note: event.target.value })} />
-                <FieldErrorMessage message={fieldError(errors, `items[${index}].note`)} />
+                <FieldErrorMessage field={`items[${index}].note`} message={fieldError(errors, `items[${index}].note`)} />
               </label>
               {row.isCustom ? <button type="button" className="secondary-button" onClick={() => onDeleteRow(index)}>삭제</button> : null}
             </article>
@@ -10290,7 +10362,7 @@ function ProductionPlanningEditableList({
                   value={row.stepName}
                   onChange={(event) => onChange(index, { stepName: event.target.value })}
                 />
-                <FieldErrorMessage message={fieldError(errors, `items[${index}].stepName`)} />
+                <FieldErrorMessage field={`items[${index}].stepName`} message={fieldError(errors, `items[${index}].stepName`)} />
               </div>
               <label className="checkbox-row">
                 <input type="checkbox" checked={row.isRequired} onChange={(event) => onChange(index, { isRequired: event.target.checked })} />
@@ -10304,7 +10376,7 @@ function ProductionPlanningEditableList({
                   value={row.plannedDate}
                   onChange={(event) => onChange(index, { plannedDate: event.target.value })}
                 />
-                <FieldErrorMessage message={fieldError(errors, `items[${index}].plannedDate`)} />
+                <FieldErrorMessage field={`items[${index}].plannedDate`} message={fieldError(errors, `items[${index}].plannedDate`)} />
               </div>
               <div className="grid-field">
                 <input
@@ -10313,7 +10385,7 @@ function ProductionPlanningEditableList({
                   value={row.note}
                   onChange={(event) => onChange(index, { note: event.target.value })}
                 />
-                <FieldErrorMessage message={fieldError(errors, `items[${index}].note`)} />
+                <FieldErrorMessage field={`items[${index}].note`} message={fieldError(errors, `items[${index}].note`)} />
               </div>
               <span>{row.isCustom ? <button type="button" className="secondary-button" onClick={() => onDeleteRow(index)}>삭제</button> : '-'}</span>
             </div>
@@ -10889,18 +10961,21 @@ function ProcurementEditPage({
   developmentUserKey,
   projectId,
   canUpdateProcurement,
-  onBack
+  onBack,
+  onSaved
 }: {
   developmentUserKey: string;
   projectId: string;
   canUpdateProcurement: boolean;
   onBack: () => void;
+  onSaved: (feedback: ActionFeedbackState) => void;
 }) {
   const [state, setState] = useState<LoadState<ProcurementResponse>>({ kind: 'loading' });
   const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
   const [rows, setRows] = useState<ProcurementRowForm[]>([]);
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<ActionFeedbackTone>('neutral');
   const [isSaving, setIsSaving] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [showExcel, setShowExcel] = useState(false);
@@ -10955,11 +11030,13 @@ function ProcurementEditPage({
     const invalidCustomerSupply = rows.find((row) => row.supplyType === 'CustomerSupplied'
       && (!(Number(row.orderQuantity) > 0) || row.orderUnit.trim().length < 1 || row.orderUnit.trim().length > 20));
     if (invalidCustomerSupply) {
+      setMessageTone('error');
       setMessage('사급 품목은 제공 예정 수량과 1~20자 단위를 함께 입력해 주세요.');
       return;
     }
     setIsSaving(true);
     setMessage('');
+    setMessageTone('loading');
     try {
       const response = await updateProjectProcurement(developmentUserKey, projectId, {
         reason: reason.trim() || null,
@@ -10968,8 +11045,9 @@ function ProcurementEditPage({
       setState({ kind: 'ready', data: response });
       setRows(response.items.map(procurementItemToForm));
       setReason('');
-      onBack();
+      onSaved({ tone: 'success', message: '구매정보를 저장했습니다.' });
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsSaving(false);
@@ -10978,19 +11056,17 @@ function ProcurementEditPage({
 
   async function downloadTemplate() {
     setIsDownloading(true);
-    setMessage('');
+    setMessageTone('loading');
+    setMessage('Excel 양식을 생성하는 중입니다.');
     try {
       const template = await downloadProcurementTemplate(developmentUserKey, projectId);
-      const url = URL.createObjectURL(template.blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = template.fileName;
-      document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      setMessage('Excel 양식을 다운로드했습니다.');
+      const triggered = triggerExcelDownload(template);
+      setMessageTone(triggered ? 'success' : 'partial');
+      setMessage(triggered
+        ? 'Excel 양식을 다운로드했습니다.'
+        : 'Excel 양식 생성은 완료됐지만 다운로드를 시작하지 못했습니다. 다시 시도해 주세요.');
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsDownloading(false);
@@ -11026,14 +11102,14 @@ function ProcurementEditPage({
           <ProcurementEditableList rows={rows} onChange={updateRow} />
         </>
       ) : null}
-      {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+      {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
       {showExcel ? (
         <ProcurementExcelDialog
           developmentUserKey={developmentUserKey}
           onClose={() => setShowExcel(false)}
           onApplied={() => {
             setShowExcel(false);
-            onBack();
+            onSaved({ tone: 'success', message: '구매 Excel 변경사항을 적용했습니다.' });
           }}
         />
       ) : null}
@@ -11181,6 +11257,7 @@ function ProcurementExcelDialog({
   const [preview, setPreview] = useState<ProcurementExcelPreviewResponse | null>(null);
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<ActionFeedbackTone>('neutral');
   const [selections, setSelections] = useState<Record<number, string>>({});
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
@@ -11193,15 +11270,20 @@ function ProcurementExcelDialog({
 
   async function runPreview() {
     if (!file) {
+      setMessageTone('error');
       setMessage('Excel 파일을 선택하세요.');
       return;
     }
 
     setIsPreviewing(true);
-    setMessage('');
+    setMessageTone('loading');
+    setMessage('Excel 내용을 확인하는 중입니다.');
     try {
       setPreview(await previewProcurementExcel(developmentUserKey, file, selectionArray));
+      setMessageTone('success');
+      setMessage('미리보기를 완료했습니다. 저장 가능한 항목을 확인해 주세요.');
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsPreviewing(false);
@@ -11214,7 +11296,8 @@ function ProcurementExcelDialog({
     }
 
     setIsApplying(true);
-    setMessage('');
+    setMessageTone('loading');
+    setMessage('저장 가능한 구매 항목을 적용하는 중입니다.');
     try {
       await applyProcurementExcel(
         developmentUserKey,
@@ -11223,8 +11306,10 @@ function ProcurementExcelDialog({
         reason.trim() || null,
         selectionArray,
         preview.expectedVersions);
+      setMessageTone('success');
       onApplied();
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsApplying(false);
@@ -11270,8 +11355,10 @@ function ProcurementExcelDialog({
           <input type="file" accept=".xlsx" onChange={(event) => {
             setFile(event.target.files?.[0] ?? null);
             setPreview(null);
+            setMessage('');
+            setMessageTone('neutral');
           }} />
-          <button type="button" disabled={isPreviewing} onClick={runPreview}>{isPreviewing ? '미리보기 중' : 'Preview'}</button>
+          <button type="button" disabled={isPreviewing || isApplying} onClick={runPreview}>{isPreviewing ? '미리보기 중' : 'Preview'}</button>
         </div>
         {preview ? (
           <>
@@ -11310,7 +11397,7 @@ function ProcurementExcelDialog({
             <ProcurementPreview rows={preview.rows} />
           </>
         ) : null}
-        {message ? <p role="alert" className="error-text">{message}</p> : null}
+        {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
       </div>
     </DialogBackdrop>
   );
@@ -11711,12 +11798,14 @@ function PanelInformationEditPage({
   developmentUserKey,
   projectId,
   canUpdatePanelInfo,
-  onBack
+  onBack,
+  onSaved
 }: {
   developmentUserKey: string;
   projectId: string;
   canUpdatePanelInfo: boolean;
   onBack: () => void;
+  onSaved: (feedback: ActionFeedbackState) => void;
 }) {
   const [projectState, setProjectState] = useState<LoadState<ProjectDetail>>({ kind: 'loading' });
   const [state, setState] = useState<LoadState<PanelInformationResponse>>({ kind: 'loading' });
@@ -11727,6 +11816,7 @@ function PanelInformationEditPage({
   const [search, setSearch] = useState('');
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<ActionFeedbackTone>('neutral');
   const [isSaving, setIsSaving] = useState(false);
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const [showExcel, setShowExcel] = useState(false);
@@ -11746,6 +11836,7 @@ function PanelInformationEditPage({
     setState({ kind: 'loading' });
     setProjectState({ kind: 'loading' });
     setMessage('');
+    setMessageTone('neutral');
     setDuplicateConfirm(null);
 
     Promise.all([
@@ -11820,6 +11911,7 @@ function PanelInformationEditPage({
 
   function changeEditInputUnit(nextUnit: PanelInputUnit) {
     if (rows.some((row) => row.sizeDirty)) {
+      setMessageTone('error');
       setMessage('저장되지 않은 사이즈 입력이 있습니다. 저장하거나 변경을 취소한 후 단위를 변경해 주세요.');
       return;
     }
@@ -11834,6 +11926,7 @@ function PanelInformationEditPage({
     }
 
     if (reasonRequired && !reason.trim()) {
+      setMessageTone('error');
       setMessage('기존 설계 정보를 변경하려면 수정사유가 필요합니다.');
       return;
     }
@@ -11846,6 +11939,7 @@ function PanelInformationEditPage({
 
     setIsSaving(true);
     setMessage('');
+    setMessageTone('loading');
     setDuplicateConfirm(null);
     try {
       const saved = await updatePanelInformation(developmentUserKey, projectId, {
@@ -11856,8 +11950,9 @@ function PanelInformationEditPage({
       setReason('');
       setState({ kind: 'ready', data: saved });
       setRows(saved.panels.map((panel) => panelToRowForm(panel, editInputUnit)));
-      onBack();
+      onSaved({ tone: 'success', message: '패널 설계 정보를 저장했습니다.' });
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsSaving(false);
@@ -11870,19 +11965,17 @@ function PanelInformationEditPage({
     }
 
     setIsDownloadingTemplate(true);
-    setMessage('');
+    setMessageTone('loading');
+    setMessage('Excel 양식을 생성하는 중입니다.');
     try {
       const template = await downloadPanelInformationTemplate(developmentUserKey, projectId, editInputUnit);
-      const url = URL.createObjectURL(template.blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = template.fileName;
-      document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      setMessage('Excel 양식을 다운로드했습니다.');
+      const triggered = triggerExcelDownload(template);
+      setMessageTone(triggered ? 'success' : 'partial');
+      setMessage(triggered
+        ? 'Excel 양식을 다운로드했습니다.'
+        : 'Excel 양식 생성은 완료됐지만 다운로드를 시작하지 못했습니다. 다시 시도해 주세요.');
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsDownloadingTemplate(false);
@@ -12012,7 +12105,7 @@ function PanelInformationEditPage({
             onSizeChange={setSizeInput}
           />
 
-          {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
+          {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
 
         </>
       ) : null}
@@ -12029,7 +12122,7 @@ function PanelInformationEditPage({
             setReason('');
             setState({ kind: 'ready', data: next });
             setRows(next.panels.map((panel) => panelToRowForm(panel, editInputUnit)));
-            onBack();
+            onSaved({ tone: 'success', message: '패널 Excel 변경사항을 적용했습니다.' });
           }}
         />
       ) : null}
@@ -12240,20 +12333,26 @@ function PanelInformationExcelDialog({
   const [preview, setPreview] = useState<PanelInformationExcelPreviewResponse | null>(null);
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<ActionFeedbackTone>('neutral');
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
 
   async function previewFile() {
     if (!file) {
+      setMessageTone('error');
       setMessage('Excel 파일을 선택하세요.');
       return;
     }
 
     setIsPreviewing(true);
-    setMessage('');
+    setMessageTone('loading');
+    setMessage('Excel 내용을 확인하는 중입니다.');
     try {
       setPreview(await previewPanelInformationExcel(developmentUserKey, projectId, file, inputUnit));
+      setMessageTone('success');
+      setMessage('미리보기를 완료했습니다. 저장 가능한 항목을 확인해 주세요.');
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsPreviewing(false);
@@ -12266,22 +12365,26 @@ function PanelInformationExcelDialog({
     }
 
     if (preview.errorCount > 0) {
+      setMessageTone('error');
       setMessage('오류가 있는 Excel은 적용할 수 없습니다.');
       return;
     }
 
     if (preview.reasonRequired && !reason.trim()) {
+      setMessageTone('error');
       setMessage('기존 설계 정보를 변경하려면 수정사유가 필요합니다.');
       return;
     }
 
     if (preview.newCount + preview.changedCount === 0) {
+      setMessageTone('error');
       setMessage('적용할 변경사항이 없습니다.');
       return;
     }
 
     setIsApplying(true);
-    setMessage('');
+    setMessageTone('loading');
+    setMessage('패널 변경사항을 적용하는 중입니다.');
     try {
       const expectedVersions = preview.rows
         .filter((row) => row.panelId && row.expectedPanelInfoVersion !== null)
@@ -12303,6 +12406,7 @@ function PanelInformationExcelDialog({
         previewExpectedVersions);
       onApplied(response);
     } catch (error) {
+      setMessageTone('error');
       handleFormError(error, () => undefined, setMessage);
     } finally {
       setIsApplying(false);
@@ -12330,6 +12434,7 @@ function PanelInformationExcelDialog({
               setFile(event.target.files?.[0] ?? null);
               setPreview(null);
               setMessage('');
+              setMessageTone('neutral');
             }} />
           </label>
           <label className="form-field">
@@ -12339,7 +12444,7 @@ function PanelInformationExcelDialog({
               <option value="Inch">inch</option>
             </select>
           </label>
-          <button type="button" onClick={previewFile} disabled={isPreviewing}>{isPreviewing ? '미리보기 중' : 'Preview'}</button>
+          <button type="button" onClick={previewFile} disabled={isPreviewing || isApplying}>{isPreviewing ? '미리보기 중' : 'Preview'}</button>
         </div>
 
         {preview ? (
@@ -12371,7 +12476,7 @@ function PanelInformationExcelDialog({
             <ExcelPreviewMobile rows={preview.rows} />
           </>
         ) : null}
-        {message ? <p role="alert" className="error-text">{message}</p> : null}
+        {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
       </div>
     </DialogBackdrop>
   );
@@ -12895,6 +13000,13 @@ function FormField({ label, error, children }: { label: string; error?: string; 
 
 function FormErrorSummary({ errors }: { errors: Record<string, string> }) {
   const entries = Object.entries(errors).filter(([, message]) => Boolean(message));
+  const errorKey = entries.map(([field]) => field).join('|');
+
+  useEffect(() => {
+    if (!errorKey) return;
+    queueMicrotask(() => focusFirstFieldError(errors));
+  }, [errorKey, errors]);
+
   if (entries.length === 0) {
     return null;
   }
@@ -12915,15 +13027,47 @@ function FormErrorSummary({ errors }: { errors: Record<string, string> }) {
   );
 }
 
-function FieldErrorMessage({ message }: { message?: string }) {
-  return message ? <small role="alert" className="field-error-message">{message}</small> : null;
+function FieldErrorMessage({ message, field }: { message?: string; field?: string }) {
+  const descriptionId = field ? fieldErrorId(field) : undefined;
+
+  useEffect(() => {
+    if (!message || !field || !descriptionId) return;
+    const target = fieldTarget(field);
+    if (!target) return;
+    target.setAttribute('aria-invalid', 'true');
+    const existing = target.getAttribute('aria-describedby')?.split(/\s+/).filter(Boolean) ?? [];
+    target.setAttribute('aria-describedby', [...new Set([...existing, descriptionId])].join(' '));
+    return () => {
+      target.removeAttribute('aria-invalid');
+      const remaining = (target.getAttribute('aria-describedby')?.split(/\s+/).filter(Boolean) ?? [])
+        .filter((id) => id !== descriptionId);
+      if (remaining.length > 0) target.setAttribute('aria-describedby', remaining.join(' '));
+      else target.removeAttribute('aria-describedby');
+    };
+  }, [descriptionId, field, message]);
+
+  return message ? <small id={descriptionId} role={field ? undefined : 'alert'} className="field-error-message">{message}</small> : null;
 }
 
 function focusField(field: string) {
-  const escaped = typeof CSS !== 'undefined' && 'escape' in CSS ? CSS.escape(field) : field.replace(/"/g, '\\"');
-  const target = document.querySelector<HTMLElement>(`[name="${escaped}"], [data-field="${escaped}"]`);
-  target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const target = fieldTarget(field);
+  target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   target?.focus();
+}
+
+function focusFirstFieldError(errors: Record<string, string>, orderedFields?: readonly string[]) {
+  const fields = orderedFields ?? Object.keys(errors);
+  const first = fields.find((field) => Boolean(errors[field]) && Boolean(fieldTarget(field)));
+  if (first) focusField(first);
+}
+
+function fieldTarget(field: string) {
+  const escaped = typeof CSS !== 'undefined' && 'escape' in CSS ? CSS.escape(field) : field.replace(/"/g, '\\"');
+  return document.querySelector<HTMLElement>(`[name="${escaped}"], [data-field="${escaped}"]`);
+}
+
+function fieldErrorId(field: string) {
+  return `field-error-${normalizeFieldPath(field).replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
 }
 
 function useIsMobileViewport() {
@@ -14781,6 +14925,24 @@ function fromDateTimeLocal(value: string) {
 
 function successMessage(message: string) {
   return message.includes('저장했습니다') || message.includes('다운로드했습니다');
+}
+
+function triggerExcelDownload(file: { blob: Blob; fileName: string }) {
+  let url: string | null = null;
+  try {
+    url = URL.createObjectURL(file.blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = file.fileName;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (url) URL.revokeObjectURL(url);
+  }
 }
 
 function formatPanelSizeInUnit(panel: PanelInformationPanel, unit: PanelInputUnit) {

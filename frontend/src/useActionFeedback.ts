@@ -151,6 +151,7 @@ export function useActionFeedback() {
     hasBusyPrefix,
     isBusy,
     reset,
+    setFeedback: publish,
     run
   };
 }

@@ -26,6 +26,7 @@ test('TASK-010A mock visual: adaptive panel kitting page and mobile drawer', asy
   await expect(page.getByRole('button', { name: '2면 키팅 완료' })).toBeEnabled();
   await page.getByRole('button', { name: '2면 키팅 완료' }).click();
   await expect(page.getByText('2면을 완료하고 제조 업무 2건을 넘겼습니다.')).toBeVisible();
+  await capture(page, '05-panel-kitting-success-desktop-1440.jpg', screenshotDirectory.replace('010a-screenshots', 'ux-001-a2-screenshots'));
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/materials/kitting?project=${readyProjectId}`);
@@ -232,12 +233,12 @@ async function assertNoHorizontalOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 }
 
-async function capture(page: Page, filename: string) {
-  await fs.mkdir(screenshotDirectory, { recursive: true });
+async function capture(page: Page, filename: string, targetDirectory = screenshotDirectory) {
+  await fs.mkdir(targetDirectory, { recursive: true });
   await page.evaluate(async () => {
     await document.fonts.ready;
     window.scrollTo(0, 0);
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   });
-  await page.screenshot({ path: path.join(screenshotDirectory, filename), animations: 'disabled' });
+  await page.screenshot({ path: path.join(targetDirectory, filename), animations: 'disabled' });
 }

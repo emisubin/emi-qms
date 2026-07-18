@@ -47,9 +47,10 @@
 | `TASK-EXPORT-002` | 여러 프로젝트 선택 Excel 내보내기 | [구현 보고서](../tasks/export-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-E2E-FULL-SUITE-001` | 현재 계약 기준 전체 Full-Stack 회귀 복구, Backend `388/388`, Frontend `92/92`, Full-Stack `35/35` | [구현 보고서](../tasks/e2e-full-suite-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-UX-001 A1` | 공통 action feedback, 내 업무와 알림의 처리 중·성공·부분 성공·실패 UX | [구현 보고서](../tasks/ux-001-implementation-report.md) | `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` |
+| `TASK-UX-001 A2` | 생산계획·구매·자재·IQC·키팅·패널·선택 Excel의 구조화 action feedback과 오류 focus | [구현 보고서](../tasks/ux-001-a2-implementation-report.md) | `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` |
 | `TASK-NOTIFY-005` | 사용자별 알림 preference, 필수 잠금, sparse opt-out, audit와 suppression gate | [구현 보고서](../tasks/notify-005-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 `TASK-HOME-002` Change 002의 Backend `395/395`, Frontend `103/103`, mock UI E2E `2/2`, migration `0042` fresh 적용과 직전 누적 Full-Stack `38/38`다. Change 002 Full-Stack 재실행은 container 실행 정책으로 차단되어 promotion 전 P3로 남겼고 대표 runtime으로 우회하지 않았다. 개인화 Home·프로필은 사진 lifecycle·9부서 SQL 통합 검증과 본체 6개, Change 002 4개 privacy-safe synthetic screenshot을 완료했다.
+현재 계보의 최신 누적 자동 기준선은 `TASK-UX-001 A2`의 Backend 기존 `395/395`, Frontend `104/104`, mock UI E2E `3/3`, migration `0042` 기존 fresh 적용과 Full-Stack `38/38`다. A2는 HOME Change 002의 전 부서 조회와 44px mobile touch target을 포함해 전체 isolated 회귀를 다시 통과했으며 대표 runtime으로 우회하지 않았다. A2 privacy-safe synthetic screenshot 5개와 기존 개인화 Home·프로필 증빙을 완료했다.
 
 ## 4. 남은 제품 개발 Task
 
@@ -57,16 +58,15 @@
 
 | 우선순위 | Task·후속 범위 | 현재 상태 | 시작 조건·주의 |
 | --- | --- | --- | --- |
-| 1 | `TASK-UX-001 A2` — 생산계획·구매·자재·패널·Excel 화면 action feedback 확대 | `DEFERRED / READY_FOR_PLANNING` | A1을 재구현하지 않고 A2 화면만 Fable 2-pass로 기획한다 |
-| 2 | `TASK-EXPORT-001` 후속 — 사용자 column picker | `DEFERRED / OPTIONAL` | 현재 20개 화면 선택 export는 완료 상태로 보존한다. 사용자가 컬럼 선택 기능을 원할 때만 다음 change로 시작한다 |
-| 3 | `DESIGN-000` — Figma Variables·CSS token·공통 component foundation | `DEFERRED` | 기능 동작을 바꾸지 않는 housekeeping 범위로 제한한다 |
-| 4 | `TASK-ADMIN-002` — 검사·제조 template 관리 | `DEFERRED / EXTERNAL_INPUT` | 실제 IQC/LQC/OQC/제조 양식과 운영 template이 안정된 뒤 시작한다 |
-| 5 | Pending 유형 관리자 화면 — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 유형·권한 정책을 확정한 뒤 새 canonical ID를 부여한다. `TASK-007A` 본체를 다시 만들지 않는다 |
-| 6 | QR 스캔 landing — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 공개 또는 인증 landing 정책과 QR 운영 경계를 먼저 확정한다 |
-| 7 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
-| 8 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
-| 9 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
-| 10 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
+| 1 | `TASK-EXPORT-001` 후속 — 사용자 column picker | `DEFERRED / OPTIONAL` | 현재 20개 화면 선택 export는 완료 상태로 보존한다. 사용자가 컬럼 선택 기능을 원할 때만 다음 change로 시작한다 |
+| 2 | `DESIGN-000` — Figma Variables·CSS token·공통 component foundation | `DEFERRED` | 기능 동작을 바꾸지 않는 housekeeping 범위로 제한한다 |
+| 3 | `TASK-ADMIN-002` — 검사·제조 template 관리 | `DEFERRED / EXTERNAL_INPUT` | 실제 IQC/LQC/OQC/제조 양식과 운영 template이 안정된 뒤 시작한다 |
+| 4 | Pending 유형 관리자 화면 — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 유형·권한 정책을 확정한 뒤 새 canonical ID를 부여한다. `TASK-007A` 본체를 다시 만들지 않는다 |
+| 5 | QR 스캔 landing — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 공개 또는 인증 landing 정책과 QR 운영 경계를 먼저 확정한다 |
+| 6 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
+| 7 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
+| 8 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
+| 9 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
 
 ### 4.1 아직 독립 Task로 승격되지 않은 Roadmap 입력
 

@@ -3,6 +3,7 @@ import { ApiError, completePanelKitting, getPanelKittingQueue } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
 import type { PanelKittingProject, PanelKittingQueueResponse } from './panelKitting';
 import { SelectedExportTray } from './SelectedExcelExport';
+import { useActionFeedback } from './useActionFeedback';
 
 type LoadState =
   | { kind: 'loading' }
@@ -34,16 +35,19 @@ export function PanelKittingPage({
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId ?? '');
   const [linkedPanelId, setLinkedPanelId] = useState(initialPanelId ?? '');
   const [selectedPanelIds, setSelectedPanelIds] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
-  const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const actions = useActionFeedback();
   const operationReceipt = useRef<OperationReceipt | null>(null);
   const linkedPanelRef = useRef<HTMLButtonElement | null>(null);
+  const loadGenerationRef = useRef(0);
 
-  const load = useCallback(async (preferredProjectId?: string) => {
-    setState({ kind: 'loading' });
+  const load = useCallback(async (preferredProjectId?: string, preserve = false) => {
+    const generation = loadGenerationRef.current + 1;
+    loadGenerationRef.current = generation;
+    if (!preserve) setState({ kind: 'loading' });
     try {
       const data = await getPanelKittingQueue(developmentUserKey);
+      if (generation !== loadGenerationRef.current) return false;
       setState({ kind: 'ready', data });
       setSelectedProjectId((current) => {
         const requested = preferredProjectId ?? current ?? initialProjectId;
@@ -54,8 +58,11 @@ export function PanelKittingPage({
           ?? data.projects[0]?.projectId
           ?? '';
       });
+      return true;
     } catch (error) {
-      setState({ kind: 'error', message: errorMessage(error, '키팅 작업 목록을 불러오지 못했습니다.') });
+      if (generation !== loadGenerationRef.current) return false;
+      if (!preserve) setState({ kind: 'error', message: errorMessage(error, '키팅 작업 목록을 불러오지 못했습니다.') });
+      return false;
     }
   }, [developmentUserKey, initialProjectId]);
 
@@ -64,7 +71,7 @@ export function PanelKittingPage({
   }, [initialProjectId, load]);
 
   useEffect(() => {
-    setLinkedPanelId(initialPanelId ?? '');
+    queueMicrotask(() => setLinkedPanelId(initialPanelId ?? ''));
   }, [initialPanelId]);
 
   useEffect(() => {
@@ -86,7 +93,7 @@ export function PanelKittingPage({
     setSelectedProjectId(projectId);
     setSelectedPanelIds([]);
     setLinkedPanelId('');
-    setNotice(null);
+    actions.reset();
     operationReceipt.current = null;
     const url = new URL(window.location.href);
     url.searchParams.set('project', projectId);
@@ -98,7 +105,7 @@ export function PanelKittingPage({
     setSelectedPanelIds((current) => current.includes(panelId)
       ? current.filter((candidate) => candidate !== panelId)
       : [...current, panelId]);
-    setNotice(null);
+    actions.reset();
     operationReceipt.current = null;
   }
 
@@ -111,28 +118,35 @@ export function PanelKittingPage({
     if (operationReceipt.current?.fingerprint !== fingerprint) {
       operationReceipt.current = { fingerprint, operationId: createOperationId() };
     }
+    const currentReceipt = operationReceipt.current;
+    if (!currentReceipt) return;
 
-    setSaving(true);
-    setNotice(null);
-    try {
+    let successMessage = '';
+    const actionResult = await actions.run('kitting:bulk', async () => {
       const result = await completePanelKitting(developmentUserKey, {
-        operationId: operationReceipt.current.operationId,
+        operationId: currentReceipt.operationId,
         projectId: selectedProject.projectId,
         panelIds: selectedPanelIds
       });
-      setNotice({
-        tone: 'success',
-        message: result.projectKittingCompleted
-          ? `마지막 패널까지 완료했습니다. 제조 업무 ${result.generatedWorkItemCount}건이 생성되었습니다.`
-          : `${result.completedPanelCount}면을 완료하고 제조 업무 ${result.generatedWorkItemCount}건을 넘겼습니다.`
+      successMessage = result.projectKittingCompleted
+        ? `마지막 패널까지 완료했습니다. 제조 업무 ${result.generatedWorkItemCount}건이 생성되었습니다.`
+        : `${result.completedPanelCount}면을 완료하고 제조 업무 ${result.generatedWorkItemCount}건을 넘겼습니다.`;
+    }, {
+      loadingMessage: '선택한 패널을 제조로 넘기는 중입니다.',
+      successMessage: '키팅 완료를 저장했습니다.',
+      errorFallback: '키팅 완료를 저장하지 못했습니다.',
+      refresh: () => load(selectedProject.projectId, true),
+      conflicts: { prefixes: ['kitting:'] }
+    });
+    if (actionResult === 'success' || actionResult === 'partial') {
+      actions.setFeedback('kitting:bulk', {
+        tone: actionResult,
+        message: actionResult === 'partial'
+          ? `${successMessage} 최신 패널 목록을 불러오지 못했습니다. 새로고침해 주세요.`
+          : successMessage
       });
       setSelectedPanelIds([]);
       operationReceipt.current = null;
-      await load(selectedProject.projectId);
-    } catch (error) {
-      setNotice({ tone: 'error', message: errorMessage(error, '키팅 완료를 저장하지 못했습니다.') });
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -206,10 +220,10 @@ export function PanelKittingPage({
                   <button
                     type="button"
                     className="primary-button kitting-complete-button"
-                    disabled={!canComplete || saving || selectedPanelIds.length === 0}
+                    disabled={!canComplete || actions.isBusy('kitting:bulk') || selectedPanelIds.length === 0}
                     onClick={() => void submit()}
                   >
-                    {saving ? '처리 중…' : `${selectedPanelIds.length}면 키팅 완료`}
+                    {actions.isBusy('kitting:bulk') ? '처리 중…' : `${selectedPanelIds.length}면 키팅 완료`}
                   </button>
                 </div>
               </div>
@@ -217,7 +231,7 @@ export function PanelKittingPage({
               {!canComplete ? (
                 <p className="kitting-permission-note">조회만 가능합니다. 키팅 완료는 자재 담당 권한이 필요합니다.</p>
               ) : null}
-              {notice ? <p className="kitting-notice" data-tone={notice.tone} role="status">{notice.message}</p> : null}
+              {actions.latestFeedback ? <p className="action-feedback kitting-notice" data-tone={actions.latestFeedback.tone} role={actions.latestFeedback.tone === 'error' ? 'alert' : 'status'}>{actions.latestFeedback.message}</p> : null}
 
               <div className="kitting-panel-grid" aria-label={`${selectedProject.projectTitle} 패널 목록`}>
                 {selectedProject.panels.map((panel, index) => {

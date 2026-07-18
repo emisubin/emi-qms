@@ -43,6 +43,20 @@ describe('ExcelExportAction', () => {
     expect(await screen.findByText('조건에 맞는 데이터가 없어 0건 파일을 생성했습니다')).toBeInTheDocument();
   });
 
+  it('reports partial success and always revokes the object URL when the browser download trigger fails', async () => {
+    vi.mocked(HTMLAnchorElement.prototype.click).mockImplementation(() => {
+      throw new Error('browser download blocked');
+    });
+    const exportFile = vi.fn().mockResolvedValue({ blob: new Blob(['xlsx']), fileName: 'export.xlsx', rowCount: 3 });
+    render(<ExcelExportAction exportFile={exportFile} scopeLabel="현재 필터" />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Excel 내보내기/ }));
+
+    const feedback = await screen.findByText('Excel 파일 생성은 완료됐지만 다운로드를 시작하지 못했습니다. 다시 시도해 주세요.');
+    expect(feedback).toHaveAttribute('data-tone', 'partial');
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:export');
+  });
+
   it.each([
     [422, '조건을 좁혀 다시 시도해 주세요'],
     [429, '잠시 후 다시 시도해 주세요']

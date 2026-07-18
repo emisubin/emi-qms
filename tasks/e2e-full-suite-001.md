@@ -2,7 +2,7 @@
 
 ## 현재 상태
 
-- 단계: 구현·자동 검증·local commit 준비 완료, 사용자 검수 handoff
+- 단계: 구현·자동 검증·local commit 완료, 사용자 검수 handoff
 - 자동 검증: Backend 388/388, Frontend 92/92, Full-Stack E2E 35/35
 - Fable: 적용 없음 — 기존 계약 회복 `BUGFIX`
 - 대표 repo·`main`·Persistent UAT·실제 provider: 변경 없음

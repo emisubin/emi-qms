@@ -23,6 +23,8 @@ import type {
   PendingPriority,
   PendingStatus
 } from './pending';
+import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
+import { useSelectedRows } from './useSelectedRows';
 
 type PendingPageProps = {
   developmentUserKey: string | undefined;
@@ -149,6 +151,8 @@ function PendingListView({
   }, [developmentUserKey, issueType, priority, projectId, status]);
 
   const items = state.kind === 'ready' ? state.data.items : [];
+  const pendingVisibleIds = items.map((item) => item.pendingId);
+  const pendingSelection = useSelectedRows(pendingVisibleIds);
   const activeFilterCount = [projectId, status, issueType, priority].filter(Boolean).length;
   return (
     <section className={isMobile ? 'page-surface pending-page mobile-first-page' : 'page-surface pending-page'} aria-labelledby="pending-title">
@@ -227,6 +231,21 @@ function PendingListView({
         </div>
       )}
 
+      {state.kind === 'ready' ? (
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="pending"
+          visibleIds={pendingVisibleIds}
+          selectedIds={pendingSelection.selectedIds}
+          allSelected={pendingSelection.allSelected}
+          busy={pendingSelection.busy}
+          filters={{ status: status || undefined, issueType: issueType || undefined, priority: priority || undefined, projectId: projectId || undefined }}
+          onBusyChange={pendingSelection.setBusy}
+          onToggleAll={pendingSelection.toggleAll}
+          onClear={pendingSelection.clear}
+        />
+      ) : null}
+
       {feedback ? <p className="action-feedback" data-tone="success" role="status">{feedback}</p> : null}
       {state.kind === 'loading' ? <PendingLoading /> : null}
       {state.kind === 'error' ? <PendingError message={state.message} onRetry={load} /> : null}
@@ -237,6 +256,9 @@ function PendingListView({
             <PendingCard
               key={item.pendingId}
               item={item}
+              selected={pendingSelection.selectedIds.has(item.pendingId)}
+              selectionBusy={pendingSelection.busy}
+              onSelectionChange={(checked) => pendingSelection.toggle(item.pendingId, checked)}
               onOpen={() => onOpenPending(item.pendingId)}
               onOpenProject={() => onOpenProject(item.projectId)}
             />
@@ -276,9 +298,10 @@ function PendingSummaryCards({ data }: { data: PendingListResponse }) {
   return <div className="pending-summary-grid">{cards.map(([label, value, tone]) => <div key={label} data-tone={tone}><span>{label}</span><strong>{value}</strong></div>)}</div>;
 }
 
-function PendingCard({ item, onOpen, onOpenProject }: { item: PendingIssue; onOpen: () => void; onOpenProject: () => void }) {
+function PendingCard({ item, selected, selectionBusy, onSelectionChange, onOpen, onOpenProject }: { item: PendingIssue; selected: boolean; selectionBusy: boolean; onSelectionChange: (selected: boolean) => void; onOpen: () => void; onOpenProject: () => void }) {
   return (
-    <article className="pending-card" data-priority={item.priority} data-overdue={item.isOverdue}>
+    <article className="pending-card selected-export-row" data-priority={item.priority} data-overdue={item.isOverdue}>
+      <SelectionCheckbox checked={selected} disabled={selectionBusy} label={`Pending ${item.issueNumber} 선택`} onChange={onSelectionChange} />
       <div className="pending-card-main">
         <div className="pending-card-badges">
           <span className="pending-number">P-{padIssueNumber(item.issueNumber)}</span>

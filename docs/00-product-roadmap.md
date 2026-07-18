@@ -1596,6 +1596,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 주요 테스트: 권한, 필터, 파일 타입, 개인정보 노출 방지
 - 2026-07-18 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 `TASK-014A` 완료 뒤 “다음작업 시작하라”는 요청에 따라 canonical 다음 `TASK-007A` Gate 및 `Deferred` 상태와 무관하게 현재 실험 계보에서 `TASK-EXPORT-001` 기획·구현을 진행한다. 모든 화면을 한 번에 완료로 가장하지 않고 Fable이 권장하는 서로 다른 우선 화면 vertical slice로 공통 export 구조를 증명하며, 대상 화면·컬럼 선택·row 제한·audit의 미확정 정책은 권장안과 Deferred 경계로 분리한다. canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
 - 2026-07-18 실험 상태: `experiment/task-export-001-excel-export`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 `Phase 1 partial` 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. 프로젝트 목록·구매 dashboard·내 업무 3개 화면에 server-side `.xlsx`, 동일 filter/scope query, 매출 권한 column omission, 10,000행 cap, formula-safe text, 2-slot resource fence와 append-only `0038_data_export_events`를 적용했다. desktop·390px screenshot과 isolated Full-Stack E2E를 완료했으며 나머지 화면·삭제 보관함·담당 프로젝트·column picker는 잔여 범위다. 대표 repo·`main`·Persistent UAT·provider·canonical 다음 `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-18 Change 002 실험 상태: `experiment/task-export-001-all-pages-selected-export`에서 업무 12개·관리자 8개 총 20개 조회 화면을 공통 선택 export registry로 고정했다. 모든 대상 화면은 row/card checkbox, 현재 목록 `전체선택` checkbox와 `선택 Excel 내보내기` action 하나만 사용하고 기존 전체 export UI와 중복 전체 선택 button은 제거했다. 공통 POST endpoint가 최대 1,000개 선택 ID의 권한·scope·현재 존재 여부를 전부 재검증하며 additive `0040` audit kind, formula-safe workbook, desktop 20·390px 20 screenshot, Backend 388·Frontend 92 test와 isolated Full-Stack E2E를 완료했다. 사용자 검수 대기이며 대표 repo·`main`·push·PR·merge·Persistent UAT·provider와 canonical 다음 `TASK-007A` Gate는 변경하지 않는다.
 
 ### TASK-EXPORT-002: 선택 프로젝트 Excel 내보내기
 
@@ -1606,6 +1607,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 주요 테스트: 선택 0/복수/전체, 중복·상한, scope 밖·stale 전체 차단, 선택 row만 포함, 권한별 컬럼, desktop·390px.
 - 2026-07-18 실험 재정렬 승인: 사용자의 명시적 요청과 standing experiment fast-track에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 `experiment/task-export-002-selected-project-export`에서 인터뷰 없이 Fable 1차 기획 → Codex review → Fable 2차 기획 → 구현·검증·screenshot·local commit을 진행한다. 대표 repo·`main`·push·PR·merge·Persistent UAT·provider와 canonical queue는 변경하지 않는다.
 - 2026-07-18 실험 상태: 프로젝트 목록 desktop 행·mobile 카드에서 현재 표시된 프로젝트를 최대 100건까지 선택하고 기존 프로젝트 workbook 형식으로 내보내는 기능을 구현했다. `POST /api/projects/export/selected`는 권한·scope·soft-delete를 한 번에 재검증하고 요청 수와 조회 수가 다르면 generic 422와 file/audit 0건으로 차단한다. additive migration `0039`로 `ProjectsSelected` audit kind를 추가했으며 desktop·390px·실제 Excel screenshot, Backend 385 tests, Frontend 90 tests와 관련 isolated Full-Stack E2E를 완료했다. 사용자 screenshot·파일 검수 대기이며 대표 repo·`main`·push·PR·merge·Persistent UAT·provider와 canonical `TASK-007A` Gate는 변경하지 않는다.
+- 2026-07-18 후속 관계: 이 Task의 프로젝트 vertical slice는 유지하고, 당시 제외했던 다른 조회 화면의 다중 선택은 `TASK-EXPORT-001 Change 002` 공통 20개 화면 registry로 확장 완료했다. 복합 multi-sheet 보고서와 column picker는 계속 제외한다.
 
 ### DESIGN-000 이후: 시각 토큰과 화면 통일
 
@@ -1638,7 +1640,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 19 | 부적합 조치 유형 상세 | 부분 확정 | 사용자 논의 | TASK-007A/008A/012A | 반송/현장 수리 흐름 |
 | 20 | 포장 구성 입력 필드 | 미확정 | 물류 회신 | TASK-013A | 포장번호, 규격, 중량 등 |
 | 21 | 영업 정산 항목 | 부분 확정 | 사용자 논의 | TASK-014A | 세금계산서 완료는 확정 |
-| 22 | 모든 페이지 Excel 출력 범위 | Phase 1 partial 실험 구현 / 사용자 검수 대기 | 사용자 요청 | TASK-EXPORT-001 | 프로젝트·구매 dashboard·내 업무 우선 적용, 나머지 화면·column picker 잔여 |
+| 22 | 모든 페이지 Excel 출력 범위 | 20개 화면 선택 export 실험 구현 / 사용자 검수 대기 | 사용자 요청 | TASK-EXPORT-001 | 업무 12·관리자 8 화면의 checkbox 전체선택·단일 선택 export 완료, column picker 잔여 |
 | 23 | Microsoft 365 로그인 적용 시점 | 완료 | 인프라/운영 결정 | TASK-INFRA-001 | 인증 기반 구현 완료. 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 필요 |
 | 24 | 관리자 페이지 범위 | 완료 | 사용자 요청 | TASK-ADMIN-001 | 시스템 관리 중심으로 구현 완료. 업무 부서 입력 기준정보는 후속 결정 |
 | 25 | 프로젝트 대표 상태 방식 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 병목 기준 + 진행률 |
@@ -1865,6 +1867,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-16 | TASK-USER-FLOW-001 Ready PR #55의 CI 3/3과 squash merge를 완료하고 closure 상태를 동기화 | 다음 Task가 이미 끝난 게시 Gate를 다시 대기 상태로 읽지 않게 하고 canonical Next Gate를 TASK-007A Fable deep-interview로 전환하기 위함. 제품 구현·Phase B·branch 삭제는 포함하지 않음 | 23장~25장, TASK-USER-FLOW-001 Change 004 |
 | 2026-07-18 | TASK-EXPORT-002 선택 프로젝트 Excel 내보내기를 experiment fast-track으로 진행 | 기존 TASK-EXPORT-001의 filter 결과 전체 export를 보존하면서 사용자가 명시적으로 선택한 프로젝트 subset만 파일로 만드는 신규 능력을 검증하고, canonical TASK-007A·대표 repo·main·Persistent UAT·게시 경계를 유지하기 위함 | 19장·23장~25장, TASK-EXPORT-002 |
 | 2026-07-18 | TASK-EXPORT-002를 experiment branch에 구현하고 자동 검증 완료·사용자 검수 대기로 전환 | 선택 3건 중 2건 workbook, 전부-or-전무 권한/scope 차단, additive audit migration, desktop·390px·실제 Excel screenshot을 확인했으며 canonical queue와 게시 경계를 그대로 유지하기 위함 | 19장·23장~25장, TASK-EXPORT-002 구현 보고서 |
+| 2026-07-18 | TASK-EXPORT-001 Change 002로 전 조회 화면의 Excel action을 선택 내보내기 하나로 통합 | 사용자가 같은 의미의 전체·선택 export button 두 개를 보지 않게 하고, 현재 목록 전체 선택도 별도 action이 아닌 checkbox로 제공하면서 업무 12개·관리자 8개 화면의 권한·scope·audit 계약을 공통화하기 위함 | 19장·23장~25장, TASK-EXPORT-001 Change 002 구현 보고서 |
 
 ## 26. 용어 사전
 

@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
 import { app as teamsApp } from '@microsoft/teams-js';
 import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
-import { ExcelExportAction } from './ExcelExportAction';
+import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
+import { useSelectedRows } from './useSelectedRows';
 import { MobileSheet } from './MobileSheet';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
@@ -45,9 +46,6 @@ import {
   downloadProjectExcelTemplate,
   downloadProcurementDashboardTemplate,
   downloadProcurementTemplate,
-  exportMyWorkExcel,
-  exportProcurementDashboardExcel,
-  exportProjectsExcel,
   exportSelectedProjectsExcel,
   getAdminDashboard,
   getAdminCalendarHolidays,
@@ -2571,6 +2569,7 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
   const [draftIsActive, setDraftIsActive] = useState(true);
   const [message, setMessage] = useState('');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [userExportBusy, setUserExportBusy] = useState(false);
   const isMobile = useIsMobileViewport();
   const [showAllMobileFields, setShowAllMobileFields] = useState(false);
 
@@ -2750,6 +2749,19 @@ function AdminUsersPage({ developmentUserKey }: { developmentUserKey: string }) 
       ) : null}
       <ActionFeedback message={message} tone={message.includes('없습니다') || message.includes('수 없습니다') ? 'error' : message ? 'success' : 'neutral'} />
       {state.kind === 'ready' ? (
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="admin-users"
+          visibleIds={selectableUserIds}
+          selectedIds={new Set(selectedUserIds)}
+          allSelected={allUsersSelected}
+          busy={userExportBusy}
+          onBusyChange={setUserExportBusy}
+          onToggleAll={(checked) => setSelectedUserIds(checked ? selectableUserIds : [])}
+          onClear={() => setSelectedUserIds([])}
+        />
+      ) : null}
+      {state.kind === 'ready' ? (
         <div className="bulk-action-bar">
           <span>선택 {selectedUserIds.length}건</span>
           <button type="button" onClick={() => void bulkDeleteUsers()} disabled={selectedUserIds.length === 0}>선택 삭제</button>
@@ -2912,6 +2924,7 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [selectedHolidayIds, setSelectedHolidayIds] = useState<string[]>([]);
+  const [holidayExportBusy, setHolidayExportBusy] = useState(false);
 
   const load = useCallback(() => {
     setState({ kind: 'loading' });
@@ -3223,6 +3236,18 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <div className="table-scroll">
+          <SelectedExportTray
+            developmentUserKey={developmentUserKey}
+            screen="admin-calendar-holidays"
+            visibleIds={visibleHolidayIds}
+            selectedIds={new Set(selectedHolidayIds)}
+            allSelected={allHolidaysSelected}
+            busy={holidayExportBusy}
+            filters={{ year: String(year) }}
+            onBusyChange={setHolidayExportBusy}
+            onToggleAll={(checked) => setSelectedHolidayIds(checked ? visibleHolidayIds : [])}
+            onClear={() => setSelectedHolidayIds([])}
+          />
           <div className="bulk-action-bar">
             <span>선택 {selectedHolidayIds.length}건</span>
             <button type="button" onClick={() => void bulkDeleteHolidays()} disabled={selectedHolidayIds.length === 0}>선택 삭제</button>
@@ -3514,6 +3539,7 @@ function AdminDepartmentsPage({ developmentUserKey }: { developmentUserKey: stri
   const [departmentFieldErrors, setDepartmentFieldErrors] = useState<Record<string, Record<string, string>>>({});
   const [message, setMessage] = useState('');
   const [selectedDepartmentIds, setSelectedDepartmentIds] = useState<string[]>([]);
+  const [departmentExportBusy, setDepartmentExportBusy] = useState(false);
 
   const load = useCallback(() => {
     setState({ kind: 'loading' });
@@ -3697,6 +3723,19 @@ function AdminDepartmentsPage({ developmentUserKey }: { developmentUserKey: stri
       </div>
       <ActionFeedback message={message} tone={message.includes('수 없습니다') || message.includes('선택해 주세요') ? 'error' : message ? 'success' : 'neutral'} />
       {state.kind === 'ready' ? (
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="admin-departments"
+          visibleIds={visibleDepartmentIds}
+          selectedIds={new Set(selectedDepartmentIds)}
+          allSelected={allDepartmentsSelected}
+          busy={departmentExportBusy}
+          onBusyChange={setDepartmentExportBusy}
+          onToggleAll={(checked) => setSelectedDepartmentIds(checked ? visibleDepartmentIds : [])}
+          onClear={() => setSelectedDepartmentIds([])}
+        />
+      ) : null}
+      {state.kind === 'ready' ? (
         <div className="bulk-action-bar">
           <span>선택 {selectedDepartmentIds.length}건</span>
           <button type="button" onClick={() => void bulkDeleteDepartments()} disabled={selectedDepartmentIds.length === 0}>선택 삭제</button>
@@ -3783,6 +3822,8 @@ function AdminDepartmentsPage({ developmentUserKey }: { developmentUserKey: stri
 
 function AdminPermissionMatrixPage({ developmentUserKey }: { developmentUserKey: string }) {
   const [state, setState] = useState<LoadState<PermissionMatrixResponse>>({ kind: 'loading' });
+  const permissionIds = state.kind === 'ready' ? state.data.permissions.map((permission) => permission.permissionId) : [];
+  const permissionSelection = useSelectedRows(permissionIds);
 
   useEffect(() => {
     getPermissionMatrix(developmentUserKey)
@@ -3797,9 +3838,21 @@ function AdminPermissionMatrixPage({ developmentUserKey }: { developmentUserKey:
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <div className="table-scroll">
+          <SelectedExportTray
+            developmentUserKey={developmentUserKey}
+            screen="admin-permissions"
+            visibleIds={permissionIds}
+            selectedIds={permissionSelection.selectedIds}
+            allSelected={permissionSelection.allSelected}
+            busy={permissionSelection.busy}
+            onBusyChange={permissionSelection.setBusy}
+            onToggleAll={permissionSelection.toggleAll}
+            onClear={permissionSelection.clear}
+          />
           <table className="permission-matrix-table">
             <thead>
               <tr>
+                <th>선택</th>
                 <th className="permission-matrix-label-cell">권한</th>
                 {state.data.roles.map((role) => <th key={role.roleId} className="permission-matrix-value-cell">{role.name}<br /><small>{role.code}</small></th>)}
               </tr>
@@ -3807,6 +3860,7 @@ function AdminPermissionMatrixPage({ developmentUserKey }: { developmentUserKey:
             <tbody>
               {state.data.permissions.map((permission) => (
                 <tr key={permission.permissionId}>
+                  <td><SelectionCheckbox checked={permissionSelection.selectedIds.has(permission.permissionId)} disabled={permissionSelection.busy} label={`${permission.name} 선택`} onChange={(checked) => permissionSelection.toggle(permission.permissionId, checked)} /></td>
                   <td className="permission-matrix-label-cell"><strong>{permission.name}</strong><br /><small>{permission.code}</small></td>
                   {state.data.roles.map((role) => (
                     <td key={role.roleId} className="permission-matrix-value-cell">{hasPermissionAssignment(state.data, role.roleId, permission.permissionId) ? '예' : '-'}</td>
@@ -3823,6 +3877,8 @@ function AdminPermissionMatrixPage({ developmentUserKey }: { developmentUserKey:
 
 function AdminMasterChangeLogsPage({ developmentUserKey }: { developmentUserKey: string }) {
   const [state, setState] = useState<LoadState<AdminMasterChangeLogListResponse>>({ kind: 'loading' });
+  const masterHistoryIds = state.kind === 'ready' ? state.data.items.map((item) => item.changeLogId) : [];
+  const masterHistorySelection = useSelectedRows(masterHistoryIds);
   const load = useCallback(() => {
     setState({ kind: 'loading' });
     getAdminMasterChangeLogs(developmentUserKey)
@@ -3854,11 +3910,23 @@ function AdminMasterChangeLogsPage({ developmentUserKey }: { developmentUserKey:
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <div className="table-scroll">
+          <SelectedExportTray
+            developmentUserKey={developmentUserKey}
+            screen="admin-master-history"
+            visibleIds={masterHistoryIds}
+            selectedIds={masterHistorySelection.selectedIds}
+            allSelected={masterHistorySelection.allSelected}
+            busy={masterHistorySelection.busy}
+            onBusyChange={masterHistorySelection.setBusy}
+            onToggleAll={masterHistorySelection.toggleAll}
+            onClear={masterHistorySelection.clear}
+          />
           <table>
-            <thead><tr><th>일시</th><th>대상</th><th>작업</th><th>변경자</th><th>사유</th><th>변경 요약</th></tr></thead>
+            <thead><tr><th>선택</th><th>일시</th><th>대상</th><th>작업</th><th>변경자</th><th>사유</th><th>변경 요약</th></tr></thead>
             <tbody>
               {state.data.items.map((item) => (
                 <tr key={item.changeLogId}>
+                  <td><SelectionCheckbox checked={masterHistorySelection.selectedIds.has(item.changeLogId)} disabled={masterHistorySelection.busy} label={`${item.entityType} 변경 이력 선택`} onChange={(checked) => masterHistorySelection.toggle(item.changeLogId, checked)} /></td>
                   <td>{formatDateTime(item.changedAtUtc)}</td>
                   <td>{item.entityType}<br /><small>{item.entityId ?? '-'}</small></td>
                   <td>{item.action}</td>
@@ -3878,6 +3946,8 @@ function AdminMasterChangeLogsPage({ developmentUserKey }: { developmentUserKey:
 
 function AdminWorkHistoryPage({ developmentUserKey }: { developmentUserKey: string }) {
   const [state, setState] = useState<LoadState<AdminWorkItemHistoryListResponse>>({ kind: 'loading' });
+  const workHistoryIds = state.kind === 'ready' ? state.data.items.map((item) => item.workItemId) : [];
+  const workHistorySelection = useSelectedRows(workHistoryIds);
   const load = useCallback(() => {
     setState({ kind: 'loading' });
     getAdminWorkItemHistory(developmentUserKey)
@@ -3910,11 +3980,23 @@ function AdminWorkHistoryPage({ developmentUserKey }: { developmentUserKey: stri
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <div className="table-scroll">
+          <SelectedExportTray
+            developmentUserKey={developmentUserKey}
+            screen="admin-work-history"
+            visibleIds={workHistoryIds}
+            selectedIds={workHistorySelection.selectedIds}
+            allSelected={workHistorySelection.allSelected}
+            busy={workHistorySelection.busy}
+            onBusyChange={workHistorySelection.setBusy}
+            onToggleAll={workHistorySelection.toggleAll}
+            onClear={workHistorySelection.clear}
+          />
           <table>
-            <thead><tr><th>프로젝트</th><th>업무</th><th>담당자</th><th>상태</th><th>시작</th><th>완료</th><th>취소</th></tr></thead>
+            <thead><tr><th>선택</th><th>프로젝트</th><th>업무</th><th>담당자</th><th>상태</th><th>시작</th><th>완료</th><th>취소</th></tr></thead>
             <tbody>
               {state.data.items.map((item) => (
                 <tr key={item.workItemId}>
+                  <td><SelectionCheckbox checked={workHistorySelection.selectedIds.has(item.workItemId)} disabled={workHistorySelection.busy} label={`${item.title} 업무 이력 선택`} onChange={(checked) => workHistorySelection.toggle(item.workItemId, checked)} /></td>
                   <td><strong>{item.projectTitle}</strong><br /><small>{item.projectCode}</small></td>
                   <td>{item.title}<br /><small>{item.workflowStageName}</small></td>
                   <td>{item.assignedDisplayName ?? '-'}</td>
@@ -4748,6 +4830,7 @@ function AdminNotificationDeliveriesPage({
   const [channel, setChannel] = useState(channelFilter ?? '');
   const [deliveryType, setDeliveryType] = useState(deliveryTypeFilter ?? '');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [deliveryExportBusy, setDeliveryExportBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [state, setState] = useState<LoadState<AdminNotificationDeliveryListResponse>>({ kind: 'loading' });
 
@@ -4885,6 +4968,23 @@ function AdminNotificationDeliveriesPage({
           </select>
         </label>
       </div>
+      <SelectedExportTray
+        developmentUserKey={developmentUserKey}
+        screen="admin-notification-deliveries"
+        visibleIds={visibleIds}
+        selectedIds={new Set(selectedIds)}
+        allSelected={allSelected}
+        busy={deliveryExportBusy}
+        filters={{
+          status: currentFilters.status ?? undefined,
+          handlingStatus: currentFilters.handlingStatus ?? undefined,
+          channel: channel || undefined,
+          deliveryType: deliveryType || undefined
+        }}
+        onBusyChange={setDeliveryExportBusy}
+        onToggleAll={(checked) => setSelectedIds(checked ? visibleIds : [])}
+        onClear={() => setSelectedIds([])}
+      />
       <div className="bulk-action-bar">
         <span>선택 {selectedIds.length}건</span>
         <button type="button" onClick={() => void runDeliveryAction('acknowledge')} disabled={selectedIds.length === 0}>선택 확인 처리</button>
@@ -5158,6 +5258,8 @@ function AdminWorkItemEscalationsPage({
   }, [currentFilters.level, currentFilters.status, developmentUserKey]);
 
   const filterText = escalationTabLabel(activeTab);
+  const escalationIds = state.kind === 'ready' ? state.data.items.map((item) => item.escalationId) : [];
+  const escalationSelection = useSelectedRows(escalationIds);
 
   return (
     <AdminPageShell eyebrow="System" title="에스컬레이션 상태" onRefresh={load} message="">
@@ -5183,11 +5285,24 @@ function AdminWorkItemEscalationsPage({
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <div className="table-scroll">
+          <SelectedExportTray
+            developmentUserKey={developmentUserKey}
+            screen="admin-work-item-escalations"
+            visibleIds={escalationIds}
+            selectedIds={escalationSelection.selectedIds}
+            allSelected={escalationSelection.allSelected}
+            busy={escalationSelection.busy}
+            filters={{ status: currentFilters.status ?? undefined, level: currentFilters.level ?? undefined }}
+            onBusyChange={escalationSelection.setBusy}
+            onToggleAll={escalationSelection.toggleAll}
+            onClear={escalationSelection.clear}
+          />
           <table className="admin-table">
-            <thead><tr><th className="admin-table__cell--text">프로젝트</th><th className="admin-table__cell--text">업무</th><th className="admin-table__cell--date">예정일</th><th className="admin-table__cell--status">상태</th><th className="admin-table__cell--status">현재 단계</th><th className="admin-table__cell--date">다음 확인</th><th className="admin-table__cell--text">Delivery/조치</th></tr></thead>
+            <thead><tr><th>선택</th><th className="admin-table__cell--text">프로젝트</th><th className="admin-table__cell--text">업무</th><th className="admin-table__cell--date">예정일</th><th className="admin-table__cell--status">상태</th><th className="admin-table__cell--status">현재 단계</th><th className="admin-table__cell--date">다음 확인</th><th className="admin-table__cell--text">Delivery/조치</th></tr></thead>
             <tbody>
               {state.data.items.map((item) => (
                 <tr key={item.escalationId}>
+                  <td><SelectionCheckbox checked={escalationSelection.selectedIds.has(item.escalationId)} disabled={escalationSelection.busy} label={`${item.workItemTitle} 에스컬레이션 선택`} onChange={(checked) => escalationSelection.toggle(item.escalationId, checked)} /></td>
                   <td className="admin-table__cell--text"><strong>{item.projectTitle}</strong><br /><small>{item.projectCode}</small></td>
                   <td className="admin-table__cell--text">{item.workItemTitle}<br /><small>{item.workflowStageName} · {item.assignedDisplayName ?? '-'}</small></td>
                   <td className="admin-table__cell--date">{formatDate(item.dueDate)}</td>
@@ -5492,6 +5607,8 @@ function MyWorkPage({
   }
 
   const summary = summaryState.kind === 'ready' ? summaryState.data : null;
+  const visibleWorkItemIds = itemsState.kind === 'ready' ? itemsState.data.items.map((item) => item.workItemId) : [];
+  const workSelection = useSelectedRows(visibleWorkItemIds);
 
   return (
     <section className={isMobile ? 'page-surface workflow-page mobile-first-page' : 'page-surface workflow-page'}>
@@ -5502,15 +5619,6 @@ function MyWorkPage({
           {isMobile ? <p>긴급 업무부터 확인하고 카드 안에서 바로 처리하세요.</p> : null}
         </div>
         <div className="button-row page-export-actions">
-          {activeTab !== 'AssignedProjects' ? (
-            <ExcelExportAction
-              exportFile={() => exportMyWorkExcel(
-                developmentUserKey,
-                activeTab === 'All' ? undefined : activeTab
-              )}
-              scopeLabel={`${myWorkTabs.find((tab) => tab.key === activeTab)?.label ?? '전체'} 업무`}
-            />
-          ) : null}
           <button type="button" onClick={load}>새로고침</button>
         </div>
       </div>
@@ -5550,6 +5658,21 @@ function MyWorkPage({
 
       {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' ? <StateMessage state={summaryState} /> : null}
       {message ? <p className={message.includes('실패') || message.includes('권한') ? 'error-text' : 'success-text'}>{message}</p> : null}
+
+      {activeTab !== 'AssignedProjects' && itemsState.kind === 'ready' ? (
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="my-work"
+          visibleIds={visibleWorkItemIds}
+          selectedIds={workSelection.selectedIds}
+          allSelected={workSelection.allSelected}
+          busy={workSelection.busy}
+          filters={{ status: activeTab === 'All' ? undefined : activeTab }}
+          onBusyChange={workSelection.setBusy}
+          onToggleAll={workSelection.toggleAll}
+          onClear={workSelection.clear}
+        />
+      ) : null}
 
       {activeTab === 'AssignedProjects' ? (
         <>
@@ -5596,8 +5719,9 @@ function MyWorkPage({
                   {isMobile ? (
                     <div className="workflow-card-list">
                       {group.items.map((item) => (
-                        <article className="workflow-card" key={item.workItemId}>
+                        <article className="workflow-card selected-export-row" key={item.workItemId}>
                           <div className="subsection-header">
+                            <SelectionCheckbox checked={workSelection.selectedIds.has(item.workItemId)} disabled={workSelection.busy} label={`${item.title} 선택`} onChange={(checked) => workSelection.toggle(item.workItemId, checked)} />
                             <div>
                               <strong>{item.title}</strong>
                               <small>{displayWorkflowStageName(item.workflowStageCode, item.workflowStageName)}</small>
@@ -5619,6 +5743,7 @@ function MyWorkPage({
                       <table>
                         <thead>
                           <tr>
+                            <th>선택</th>
                             <th>단계</th>
                             <th>업무 제목</th>
                             <th>상태</th>
@@ -5629,6 +5754,7 @@ function MyWorkPage({
                         <tbody>
                           {group.items.map((item) => (
                             <tr key={item.workItemId}>
+                              <td><SelectionCheckbox checked={workSelection.selectedIds.has(item.workItemId)} disabled={workSelection.busy} label={`${item.title} 선택`} onChange={(checked) => workSelection.toggle(item.workItemId, checked)} /></td>
                               <td><span className="workflow-stage-badge" data-department={departmentForStageCode(item.workflowStageCode)}>{displayWorkflowStageName(item.workflowStageCode, item.workflowStageName)}</span></td>
                               <td>{item.title}</td>
                               <td><StatusBadge label={item.priority === 'Blocking' ? '긴급' : item.statusLabel} tone={workItemStatusTone(item)} /></td>
@@ -6157,6 +6283,8 @@ function NotificationsPage({
   }
 
   const summary = summaryState.kind === 'ready' ? summaryState.data : null;
+  const visibleNotificationIds = itemsState.kind === 'ready' ? itemsState.data.items.map((item) => item.notificationId) : [];
+  const notificationSelection = useSelectedRows(visibleNotificationIds);
 
   return (
     <section className={isMobile ? 'page-surface workflow-page mobile-first-page' : 'page-surface workflow-page'}>
@@ -6204,6 +6332,21 @@ function NotificationsPage({
       {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' ? <StateMessage state={summaryState} /> : null}
       {message ? <p className={message.includes('실패') || message.includes('권한') ? 'error-text' : 'success-text'}>{message}</p> : null}
 
+      {itemsState.kind === 'ready' ? (
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="notifications"
+          visibleIds={visibleNotificationIds}
+          selectedIds={notificationSelection.selectedIds}
+          allSelected={notificationSelection.allSelected}
+          busy={notificationSelection.busy}
+          filters={{ readStatus: activeTab === 'All' ? undefined : activeTab }}
+          onBusyChange={notificationSelection.setBusy}
+          onToggleAll={notificationSelection.toggleAll}
+          onClear={notificationSelection.clear}
+        />
+      ) : null}
+
       {itemsState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
       {itemsState.kind === 'empty' ? <p className="empty-text">표시할 알림이 없습니다.</p> : null}
       {itemsState.kind !== 'ready' && itemsState.kind !== 'loading' && itemsState.kind !== 'empty' ? <StateMessage state={itemsState} /> : null}
@@ -6225,8 +6368,9 @@ function NotificationsPage({
               {isMobile ? (
                 <div className="workflow-card-list">
                   {group.items.map((item) => (
-                    <article className={item.readAtUtc ? 'workflow-card read' : 'workflow-card unread'} key={item.notificationId}>
+                    <article className={`${item.readAtUtc ? 'workflow-card read' : 'workflow-card unread'} selected-export-row`} key={item.notificationId}>
                       <div className="subsection-header">
+                        <SelectionCheckbox checked={notificationSelection.selectedIds.has(item.notificationId)} disabled={notificationSelection.busy} label={`${item.title} 선택`} onChange={(checked) => notificationSelection.toggle(item.notificationId, checked)} />
                         <div>
                           <strong>{item.title}</strong>
                           <small>{item.notificationTypeLabel} · {item.severityLabel}</small>
@@ -6247,6 +6391,7 @@ function NotificationsPage({
                   <table>
                     <thead>
                       <tr>
+                        <th>선택</th>
                         <th>알림</th>
                         <th>유형</th>
                         <th>상태</th>
@@ -6257,6 +6402,7 @@ function NotificationsPage({
                     <tbody>
                       {group.items.map((item) => (
                         <tr key={item.notificationId}>
+                          <td><SelectionCheckbox checked={notificationSelection.selectedIds.has(item.notificationId)} disabled={notificationSelection.busy} label={`${item.title} 선택`} onChange={(checked) => notificationSelection.toggle(item.notificationId, checked)} /></td>
                           <td><strong>{item.title}</strong><br /><small>{item.message}</small></td>
                           <td>{item.notificationTypeLabel} · {item.severityLabel}</td>
                           <td><NotificationStatusBadges item={item} /></td>
@@ -6552,7 +6698,6 @@ function ProjectListPage({
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMobile = useIsMobileViewport();
-  const exportableProjectTab: Exclude<ProjectListTab, 'Deleted'> = tab === 'Deleted' ? 'All' : tab;
 
   const load = useCallback(() => {
     const requestId = requestIdRef.current + 1;
@@ -6695,18 +6840,6 @@ function ProjectListPage({
           {isMobile ? <p>병목과 납기를 먼저 보고 필요한 프로젝트를 선택하세요.</p> : null}
         </div>
         <div className={isMobile ? 'mobile-page-actions page-export-actions' : 'button-row page-export-actions'}>
-          {tab !== 'Deleted' ? (
-            <ExcelExportAction
-              exportFile={() => exportProjectsExcel(
-                developmentUserKey,
-                search,
-                exportableProjectTab,
-                dateFrom,
-                dateTo
-              )}
-              scopeLabel={`${projectTabs(false).find((item) => item.value === tab)?.label ?? '전체'} · 현재 필터`}
-            />
-          ) : null}
           {canCreate ? (
             isMobile ? (
               <>
@@ -6852,31 +6985,21 @@ function ProjectListPage({
       {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
 
       {state.kind === 'ready' && tab !== 'Deleted' ? (
-        <section className="project-selection-tray" aria-label="선택 프로젝트 내보내기">
-          <div className="project-selection-summary" aria-live="polite">
-            <strong>{selectedProjectIds.size}개 선택</strong>
-            <small>현재 화면에서 고른 프로젝트만 한 파일로 만듭니다.</small>
-          </div>
-          <div className="project-selection-actions">
-            <ExcelExportAction
-              exportFile={() => exportSelectedProjectsExcel(developmentUserKey, [...selectedProjectIds])}
-              scopeLabel={selectedProjectIds.size === 0 ? '프로젝트를 먼저 선택해 주세요' : `선택 ${selectedProjectIds.size}건만 포함`}
-              label={isMobile ? '선택 Excel' : '선택 Excel 내보내기'}
-              disabled={selectedProjectIds.size === 0}
-              disabledReason="프로젝트를 한 건 이상 선택해 주세요."
-              unprocessableEntityHint="목록을 새로고침한 뒤 다시 선택해 주세요."
-              onBusyChange={setIsSelectedExportBusy}
-            />
-            <button
-              type="button"
-              className="project-selection-clear"
-              disabled={selectedProjectIds.size === 0 || isSelectedExportBusy}
-              onClick={() => setSelectedProjectIds(new Set())}
-            >
-              선택 해제
-            </button>
-          </div>
-        </section>
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="projects"
+          ariaLabel="선택 프로젝트 내보내기"
+          label="선택 Excel 내보내기"
+          exportFile={() => exportSelectedProjectsExcel(developmentUserKey, [...selectedProjectIds])}
+          visibleIds={state.data.map((project) => project.projectId)}
+          selectedIds={selectedProjectIds}
+          allSelected={state.data.length > 0 && state.data.every((project) => selectedProjectIds.has(project.projectId))}
+          busy={isSelectedExportBusy}
+          filters={{ search, status: tab === 'All' ? undefined : tab, deliveryDateFrom: dateFrom, deliveryDateTo: dateTo }}
+          onBusyChange={setIsSelectedExportBusy}
+          onToggleAll={setAllVisibleProjectsSelected}
+          onClear={() => setSelectedProjectIds(new Set())}
+        />
       ) : null}
 
       {state.kind === 'ready' ? (
@@ -8266,6 +8389,8 @@ function ProductionPlanningDashboardPage({
   const [showExcelDialog, setShowExcelDialog] = useState(false);
   const [excelMessage, setExcelMessage] = useState('');
   const isMobile = useIsMobileViewport();
+  const productionVisibleIds = state.kind === 'ready' ? state.data.projects.map((project) => project.projectId) : [];
+  const productionSelection = useSelectedRows(productionVisibleIds);
 
   const load = useCallback(() => {
     setSummaryState({ kind: 'loading' });
@@ -8375,6 +8500,21 @@ function ProductionPlanningDashboardPage({
         <button type="submit">검색</button>
       </form>
 
+      {state.kind === 'ready' ? (
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="production-planning"
+          visibleIds={productionVisibleIds}
+          selectedIds={productionSelection.selectedIds}
+          allSelected={productionSelection.allSelected}
+          busy={productionSelection.busy}
+          filters={{ search }}
+          onBusyChange={productionSelection.setBusy}
+          onToggleAll={productionSelection.toggleAll}
+          onClear={productionSelection.clear}
+        />
+      ) : null}
+
       {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
       {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' && state.data.projects.length === 0 ? <p className="empty-text">표시할 생산계획 프로젝트가 없습니다.</p> : null}
@@ -8382,8 +8522,9 @@ function ProductionPlanningDashboardPage({
         isMobile ? (
           <div className="procurement-project-cards production-planning-mobile">
             {state.data.projects.map((project) => (
-              <article key={project.projectId} className={project.projectId === expandedProjectId ? 'procurement-project-card active' : 'procurement-project-card'}>
+              <article key={project.projectId} className={`${project.projectId === expandedProjectId ? 'procurement-project-card active' : 'procurement-project-card'} selected-export-row`}>
                 <div className="subsection-header">
+                  <SelectionCheckbox checked={productionSelection.selectedIds.has(project.projectId)} disabled={productionSelection.busy} label={`${project.projectTitle} 선택`} onChange={(checked) => productionSelection.toggle(project.projectId, checked)} />
                   <div>
                     <small>{project.projectCode} · {project.item}</small>
                     <h3>{project.projectTitle}</h3>
@@ -8417,7 +8558,7 @@ function ProductionPlanningDashboardPage({
         ) : (
           <div className="production-project-table procurement-desktop" role="table" aria-label="생산계획 프로젝트 목록">
             <div className="production-project-head" role="row">
-              <span>프로젝트명</span><span>Code</span><span>Item</span><span>면수</span><span>납기일</span><span>생산계획 상태</span>
+              <span>선택</span><span>프로젝트명</span><span>Code</span><span>Item</span><span>면수</span><span>납기일</span><span>생산계획 상태</span>
             </div>
             {state.data.projects.map((project) => (
               <Fragment key={project.projectId}>
@@ -8434,6 +8575,7 @@ function ProductionPlanningDashboardPage({
                     }
                   }}
                 >
+                  <span><SelectionCheckbox checked={productionSelection.selectedIds.has(project.projectId)} disabled={productionSelection.busy} label={`${project.projectTitle} 선택`} onChange={(checked) => productionSelection.toggle(project.projectId, checked)} /></span>
                   <span>{project.projectTitle}</span>
                   <span>{project.projectCode}</span>
                   <span>{project.item}</span>
@@ -9783,6 +9925,8 @@ function ProcurementDashboardPage({
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const procurementRequestIdRef = useRef(0);
   const isMobile = useIsMobileViewport();
+  const procurementVisibleIds = state.kind === 'ready' ? state.data.projects.map((project) => project.projectId) : [];
+  const procurementSelection = useSelectedRows(procurementVisibleIds);
 
   const load = useCallback(() => {
     setState({ kind: 'loading' });
@@ -9855,15 +9999,6 @@ function ProcurementDashboardPage({
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>프로젝트 목록</button>
-          <ExcelExportAction
-            exportFile={() => exportProcurementDashboardExcel(
-              developmentUserKey,
-              search,
-              dateFrom,
-              dateTo
-            )}
-            scopeLabel="프로젝트 요약 · 현재 필터"
-          />
           {canUpdateProcurement ? (
             <>
               <button type="button" onClick={onOpenSettings}>구매 필수 항목 설정</button>
@@ -9898,6 +10033,21 @@ function ProcurementDashboardPage({
         <button type="submit">검색</button>
       </form>
 
+      {state.kind === 'ready' ? (
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="procurement"
+          visibleIds={procurementVisibleIds}
+          selectedIds={procurementSelection.selectedIds}
+          allSelected={procurementSelection.allSelected}
+          busy={procurementSelection.busy}
+          filters={{ search, expectedReceiptDateFrom: dateFrom, expectedReceiptDateTo: dateTo }}
+          onBusyChange={procurementSelection.setBusy}
+          onToggleAll={procurementSelection.toggleAll}
+          onClear={procurementSelection.clear}
+        />
+      ) : null}
+
       {state.kind === 'ready' && state.data.projects.length === 0 ? <p className="empty-text">표시할 구매 프로젝트가 없습니다.</p> : null}
       {state.kind === 'ready' && state.data.projects.length > 0 ? (
         <div className="procurement-dashboard-layout">
@@ -9910,6 +10060,9 @@ function ProcurementDashboardPage({
               onSelect={toggleExpandedProject}
               onOpenProject={onOpenProject}
               onEditProject={onEditProject}
+              selectedIds={procurementSelection.selectedIds}
+              selectionBusy={procurementSelection.busy}
+              onSelectionChange={procurementSelection.toggle}
             />
           ) : (
             <ProcurementProjectTable
@@ -9920,6 +10073,9 @@ function ProcurementDashboardPage({
               onSelect={toggleExpandedProject}
               onOpenProject={onOpenProject}
               onEditProject={onEditProject}
+              selectedIds={procurementSelection.selectedIds}
+              selectionBusy={procurementSelection.busy}
+              onSelectionChange={procurementSelection.toggle}
             />
           )}
         </div>
@@ -9981,7 +10137,10 @@ function ProcurementProjectTable({
   canUpdateProcurement,
   onSelect,
   onOpenProject,
-  onEditProject
+  onEditProject,
+  selectedIds,
+  selectionBusy,
+  onSelectionChange
 }: {
   projects: ProcurementProjectSummary[];
   expandedProjectId: string | null;
@@ -9990,22 +10149,32 @@ function ProcurementProjectTable({
   onSelect: (projectId: string) => void;
   onOpenProject: (projectId: string) => void;
   onEditProject: (projectId: string) => void;
+  selectedIds: ReadonlySet<string>;
+  selectionBusy: boolean;
+  onSelectionChange: (projectId: string, selected: boolean) => void;
 }) {
   return (
     <div className="procurement-project-table procurement-desktop" role="table" aria-label="구매 프로젝트 목록">
       <div className="procurement-project-head" role="row">
-        <span>프로젝트명</span><span>Code</span><span>Item</span><span>면수</span><span>납기일</span><span>구매품목</span><span>입고완료</span>
+        <span>선택</span><span>프로젝트명</span><span>Code</span><span>Item</span><span>면수</span><span>납기일</span><span>구매품목</span><span>입고완료</span>
       </div>
       {projects.map((project) => (
         <Fragment key={project.projectId}>
-          <button
-            type="button"
+          <div
             role="row"
+            tabIndex={0}
             className={project.projectId === expandedProjectId ? 'procurement-project-row active' : 'procurement-project-row'}
             aria-expanded={project.projectId === expandedProjectId}
             onClick={() => onSelect(project.projectId)}
             onDoubleClick={() => onOpenProject(project.projectId)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onSelect(project.projectId);
+              }
+            }}
           >
+            <span><SelectionCheckbox checked={selectedIds.has(project.projectId)} disabled={selectionBusy} label={`${project.projectTitle} 선택`} onChange={(checked) => onSelectionChange(project.projectId, checked)} /></span>
             <span>{project.projectTitle}</span>
             <span>{project.projectCode}</span>
             <span>{project.item}</span>
@@ -10013,7 +10182,7 @@ function ProcurementProjectTable({
             <span>{emptyDash(project.deliveryDate)}</span>
             <span>{project.procurementItemCount}건</span>
             <span>{project.receiptCompletedCount}건</span>
-          </button>
+          </div>
           {project.projectId === expandedProjectId ? (
             <ProcurementProjectExpanded
               project={project}
@@ -10036,7 +10205,10 @@ function ProcurementProjectCards({
   canUpdateProcurement,
   onSelect,
   onOpenProject,
-  onEditProject
+  onEditProject,
+  selectedIds,
+  selectionBusy,
+  onSelectionChange
 }: {
   projects: ProcurementProjectSummary[];
   expandedProjectId: string | null;
@@ -10045,12 +10217,16 @@ function ProcurementProjectCards({
   onSelect: (projectId: string) => void;
   onOpenProject: (projectId: string) => void;
   onEditProject: (projectId: string) => void;
+  selectedIds: ReadonlySet<string>;
+  selectionBusy: boolean;
+  onSelectionChange: (projectId: string, selected: boolean) => void;
 }) {
   return (
     <div className="procurement-project-cards procurement-mobile" data-testid="procurement-dashboard-mobile">
       {projects.map((project) => (
         <article key={project.projectId} className={project.projectId === expandedProjectId ? 'procurement-project-card active' : 'procurement-project-card'}>
           <div className="subsection-header">
+            <SelectionCheckbox checked={selectedIds.has(project.projectId)} disabled={selectionBusy} label={`${project.projectTitle} 선택`} onChange={(checked) => onSelectionChange(project.projectId, checked)} />
             <div>
               <small>{project.projectCode} · {project.item}</small>
               <h3>{project.projectTitle}</h3>

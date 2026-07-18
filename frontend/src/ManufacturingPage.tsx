@@ -24,6 +24,8 @@ import type {
   StopManufacturingRequest
 } from './manufacturing';
 import type { QualityInspectionPanel } from './qualityInspections';
+import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
+import { useSelectedRows } from './useSelectedRows';
 
 type QueueState =
   | { kind: 'loading' }
@@ -143,6 +145,8 @@ export function ManufacturingPage({
 
   const projects = queueState.kind === 'ready' ? queueState.data.projects : [];
   const selectedProject = projects.find((project) => project.projectId === selectedProjectId) ?? null;
+  const manufacturingVisibleIds = selectedProject?.panels.map((item) => item.panelId) ?? [];
+  const manufacturingSelection = useSelectedRows(manufacturingVisibleIds);
   const selectedPanel = selectedProject?.panels.find((panel) => panel.panelId === selectedPanelId) ?? null;
   const detail = detailState.kind === 'ready' ? detailState.data : null;
   const panel = detail?.panel ?? selectedPanel;
@@ -374,19 +378,34 @@ export function ManufacturingPage({
                 </div>
               </section>
 
+              <SelectedExportTray
+                developmentUserKey={developmentUserKey}
+                screen="manufacturing"
+                visibleIds={manufacturingVisibleIds}
+                selectedIds={manufacturingSelection.selectedIds}
+                allSelected={manufacturingSelection.allSelected}
+                busy={manufacturingSelection.busy}
+                filters={{ projectId: selectedProject.projectId }}
+                onBusyChange={manufacturingSelection.setBusy}
+                onToggleAll={manufacturingSelection.toggleAll}
+                onClear={manufacturingSelection.clear}
+              />
+
               <div className="manufacturing-panel-strip" aria-label="프로젝트 패널">
                 {selectedProject.panels.map((item) => (
-                  <button
-                    key={item.panelId}
-                    type="button"
-                    className="manufacturing-panel-chip"
-                    data-status={item.status.toLowerCase()}
-                    data-active={item.panelId === selectedPanelId}
-                    onClick={() => selectPanel(item)}
-                  >
-                    <span className="manufacturing-status-shape" aria-hidden="true">{item.status === 'Completed' ? '✓' : ''}</span>
-                    <span><strong>{item.displayCode}</strong><small>{statusLabel(item.status)}</small></span>
-                  </button>
+                  <div className="manufacturing-panel-selectable" key={item.panelId}>
+                    <SelectionCheckbox checked={manufacturingSelection.selectedIds.has(item.panelId)} disabled={manufacturingSelection.busy} label={`${item.displayCode} 선택`} onChange={(checked) => manufacturingSelection.toggle(item.panelId, checked)} />
+                    <button
+                      type="button"
+                      className="manufacturing-panel-chip"
+                      data-status={item.status.toLowerCase()}
+                      data-active={item.panelId === selectedPanelId}
+                      onClick={() => selectPanel(item)}
+                    >
+                      <span className="manufacturing-status-shape" aria-hidden="true">{item.status === 'Completed' ? '✓' : ''}</span>
+                      <span><strong>{item.displayCode}</strong><small>{statusLabel(item.status)}</small></span>
+                    </button>
+                  </div>
                 ))}
               </div>
 

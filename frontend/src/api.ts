@@ -2058,6 +2058,46 @@ export type ExcelExportDownload = {
   rowCount: number;
 };
 
+export type SelectedExportScreen =
+  | 'projects'
+  | 'my-work'
+  | 'production-planning'
+  | 'procurement'
+  | 'material-receipts'
+  | 'material-kitting'
+  | 'manufacturing'
+  | 'material-iqc'
+  | 'quality-inspections'
+  | 'logistics'
+  | 'pending'
+  | 'notifications'
+  | 'admin-users'
+  | 'admin-departments'
+  | 'admin-calendar-holidays'
+  | 'admin-permissions'
+  | 'admin-master-history'
+  | 'admin-work-history'
+  | 'admin-notification-deliveries'
+  | 'admin-work-item-escalations';
+
+export async function exportSelectedRowsExcel(
+  developmentUserKey: string | undefined,
+  screen: SelectedExportScreen,
+  ids: readonly string[],
+  filters: Record<string, string | undefined> = {}
+): Promise<ExcelExportDownload> {
+  return downloadExcelExport(
+    '/api/data-exports/selected',
+    developmentUserKey,
+    'EMI_선택.xlsx',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ screen, ids, filters })
+    }
+  );
+}
+
 async function downloadExcelExport(
   path: string,
   developmentUserKey: string | undefined,

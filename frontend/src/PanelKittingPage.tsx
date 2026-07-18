@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, completePanelKitting, getPanelKittingQueue } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
 import type { PanelKittingProject, PanelKittingQueueResponse } from './panelKitting';
+import { SelectedExportTray } from './SelectedExcelExport';
 
 type LoadState =
   | { kind: 'loading' }
@@ -34,6 +35,7 @@ export function PanelKittingPage({
   const [linkedPanelId, setLinkedPanelId] = useState(initialPanelId ?? '');
   const [selectedPanelIds, setSelectedPanelIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const operationReceipt = useRef<OperationReceipt | null>(null);
   const linkedPanelRef = useRef<HTMLButtonElement | null>(null);
@@ -181,6 +183,19 @@ export function PanelKittingPage({
             <main className="kitting-panel-workspace">
               <ProjectReadiness project={selectedProject} />
 
+              <SelectedExportTray
+                developmentUserKey={developmentUserKey}
+                screen="material-kitting"
+                visibleIds={selectablePanelIds}
+                selectedIds={new Set(selectedPanelIds)}
+                allSelected={allSelectableSelected}
+                busy={exportBusy}
+                filters={{ projectId: selectedProject.projectId }}
+                onBusyChange={setExportBusy}
+                onToggleAll={(checked) => setSelectedPanelIds(checked ? selectablePanelIds : [])}
+                onClear={() => setSelectedPanelIds([])}
+              />
+
               <div className="kitting-selection-bar">
                 <div>
                   <span className="kitting-selection-count">{selectedPanelIds.length}</span>
@@ -188,17 +203,6 @@ export function PanelKittingPage({
                   <small>준비 패널 {selectablePanelIds.length}면</small>
                 </div>
                 <div className="kitting-selection-actions">
-                  <button
-                    type="button"
-                    disabled={selectablePanelIds.length === 0}
-                    onClick={() => {
-                      setSelectedPanelIds(allSelectableSelected ? [] : selectablePanelIds);
-                      setNotice(null);
-                      operationReceipt.current = null;
-                    }}
-                  >
-                    {allSelectableSelected ? '선택 해제' : '준비 패널 전체'}
-                  </button>
                   <button
                     type="button"
                     className="primary-button kitting-complete-button"
@@ -229,7 +233,7 @@ export function PanelKittingPage({
                       data-selected={selected}
                       data-completed={panel.kittingCompleted}
                       data-linked={panel.panelId === linkedPanelId}
-                      disabled={!panel.selectable || !canComplete}
+                      disabled={!panel.selectable || exportBusy}
                       aria-pressed={selected}
                       onClick={() => togglePanel(panel.panelId)}
                     >

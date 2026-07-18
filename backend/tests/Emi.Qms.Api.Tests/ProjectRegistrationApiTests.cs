@@ -1855,7 +1855,7 @@ public sealed class ProjectRegistrationApiTests
         Assert.Equal(HttpStatusCode.UnprocessableEntity, duplicateSelected.StatusCode);
         using var oversizedSelected = await salesClient.PostAsJsonAsync(
             "/api/projects/export/selected",
-            new { projectIds = Enumerable.Range(0, 101).Select(_ => Guid.NewGuid().ToString()).ToArray() },
+            new { projectIds = Enumerable.Range(0, 1001).Select(_ => Guid.NewGuid().ToString()).ToArray() },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, oversizedSelected.StatusCode);
         using var unavailableSelected = await salesClient.PostAsJsonAsync(

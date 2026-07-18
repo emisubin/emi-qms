@@ -195,7 +195,104 @@ public static class DataExportEndpointExtensions
         .RequireAuthorization()
         .WithName("ExportMyWork");
 
+        app.MapPost("/api/data-exports/selected", async (
+            SelectedExportRequest request,
+            HttpContext httpContext,
+            SelectedExcelExportService exportService,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var actorUserId = ProjectEndpointExtensions.GetCurrentUserId(user);
+            if (actorUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var screen = request.Screen?.Trim();
+            if (screen is null || !SelectedExportScreens.All.Contains(screen))
+            {
+                return Results.ValidationProblem(
+                    new Dictionary<string, string[]> { ["screen"] = ["지원하지 않는 내보내기 화면입니다."] },
+                    statusCode: StatusCodes.Status422UnprocessableEntity,
+                    title: "선택 내보내기 요청을 확인해 주세요.");
+            }
+
+            if (!CanExportSelectedScreen(user, screen))
+            {
+                return Results.Forbid();
+            }
+
+            var validation = ValidateSelectedIds(request.Ids);
+            if (validation.Error is not null)
+            {
+                return validation.Error;
+            }
+
+            var result = await exportService.ExportAsync(
+                screen,
+                validation.Ids!,
+                request.Filters ?? new Dictionary<string, string?>(),
+                actorUserId.Value,
+                user,
+                cancellationToken);
+            return ToResult(result, httpContext);
+        })
+        .RequireAuthorization()
+        .WithName("ExportSelectedRows");
+
         return app;
+    }
+
+    private static bool CanExportSelectedScreen(ClaimsPrincipal user, string screen)
+    {
+        if (SelectedExportScreens.RequiresAdminUsersRead(screen))
+        {
+            return ProjectEndpointExtensions.HasPermission(user, QmsPermissions.UsersManage);
+        }
+
+        if (SelectedExportScreens.RequiresAdminHistoryRead(screen))
+        {
+            return ProjectEndpointExtensions.HasPermission(user, QmsPermissions.AdminHistoryRead);
+        }
+
+        return screen switch
+        {
+            SelectedExportScreens.MyWork or SelectedExportScreens.Notifications => true,
+            SelectedExportScreens.MaterialReceipts => ProjectEndpointExtensions.HasPermission(user, QmsPermissions.MaterialReceiptUpdate),
+            SelectedExportScreens.MaterialIqc => ProjectEndpointExtensions.HasPermission(user, QmsPermissions.QualityInspect),
+            SelectedExportScreens.Pending => ProjectEndpointExtensions.HasPermission(user, QmsPermissions.PendingRead),
+            _ => ProjectEndpointExtensions.HasPermission(user, QmsPermissions.ProjectRead)
+        };
+    }
+
+    private static SelectedIdsValidationResult ValidateSelectedIds(IReadOnlyList<Guid>? ids)
+    {
+        if (ids is null || ids.Count == 0)
+        {
+            return InvalidSelectedIds("내보낼 항목을 한 건 이상 선택해 주세요.");
+        }
+
+        if (ids.Count > SelectedExcelExportService.MaximumSelectedRows)
+        {
+            return InvalidSelectedIds($"한 번에 최대 {SelectedExcelExportService.MaximumSelectedRows:N0}건까지 선택할 수 있습니다.");
+        }
+
+        if (ids.Any(id => id == Guid.Empty) || ids.Distinct().Count() != ids.Count)
+        {
+            return InvalidSelectedIds("중복되지 않은 올바른 항목을 선택해 주세요.");
+        }
+
+        return new SelectedIdsValidationResult(ids, null);
+    }
+
+    private static SelectedIdsValidationResult InvalidSelectedIds(string message)
+    {
+        return new SelectedIdsValidationResult(
+            null,
+            Results.ValidationProblem(
+                new Dictionary<string, string[]> { ["ids"] = [message] },
+                statusCode: StatusCodes.Status422UnprocessableEntity,
+                title: "선택 항목을 확인해 주세요."));
     }
 
     private static IResult ToResult(ExcelExportResult result, HttpContext httpContext)
@@ -219,7 +316,7 @@ public static class DataExportEndpointExtensions
         if (result.Status == ExcelExportStatus.SelectionUnavailable)
         {
             return Results.Problem(
-                title: "선택한 프로젝트 중 내보낼 수 없는 항목이 있습니다.",
+                title: "선택한 항목 중 내보낼 수 없는 항목이 있습니다.",
                 detail: "목록을 새로고침한 뒤 다시 선택해 주세요.",
                 statusCode: StatusCodes.Status422UnprocessableEntity);
         }
@@ -274,9 +371,9 @@ public static class DataExportEndpointExtensions
                 }
 
                 projectIds.Add(projectId);
-                if (projectIds.Count > 100)
+                if (projectIds.Count > SelectedExcelExportService.MaximumSelectedRows)
                 {
-                    return InvalidSelectedProjectIds("프로젝트는 한 번에 최대 100건까지 선택할 수 있습니다.");
+                    return InvalidSelectedProjectIds($"프로젝트는 한 번에 최대 {SelectedExcelExportService.MaximumSelectedRows:N0}건까지 선택할 수 있습니다.");
                 }
             }
 
@@ -328,4 +425,11 @@ public static class DataExportEndpointExtensions
     }
 
     private sealed record SelectedProjectIdsParseResult(IReadOnlyList<Guid>? ProjectIds, IResult? Error);
+
+    private sealed record SelectedIdsValidationResult(IReadOnlyList<Guid>? Ids, IResult? Error);
 }
+
+public sealed record SelectedExportRequest(
+    string? Screen,
+    IReadOnlyList<Guid>? Ids,
+    IReadOnlyDictionary<string, string?>? Filters);

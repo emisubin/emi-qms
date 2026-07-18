@@ -14,6 +14,8 @@ import {
 } from './api';
 import { MobileSheet } from './MobileSheet';
 import { IqcReportWorkspace } from './IqcReportWorkspace';
+import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
+import { useSelectedRows } from './useSelectedRows';
 import type {
   MaterialIqcQueueItem,
   MaterialReceipt,
@@ -99,6 +101,7 @@ export function MaterialReceivingPage({
     };
     return state.data.items.filter((item) => item.receipts.some((receipt) => receipt.status === statusByFilter[activeFilter]));
   }, [activeFilter, state]);
+  const receiptSelection = useSelectedRows(visibleItems.map((item) => item.itemId));
 
   async function runAction(operation: () => Promise<unknown>, success: string) {
     setMessage('');
@@ -180,6 +183,21 @@ export function MaterialReceivingPage({
         {state.kind === 'ready' ? <span>사급 {state.data.summary.customerSuppliedItemCount} · 제공 지연 {state.data.summary.customerSupplyOverdueCount}</span> : null}
       </div>
 
+      {state.kind === 'ready' ? (
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="material-receipts"
+          visibleIds={visibleItems.map((item) => item.itemId)}
+          selectedIds={receiptSelection.selectedIds}
+          allSelected={receiptSelection.allSelected}
+          busy={receiptSelection.busy}
+          filters={{ search: appliedSearch, includeCompleted: String(includeCompleted), supplyType: supplyFilter === 'All' ? undefined : supplyFilter }}
+          onBusyChange={receiptSelection.setBusy}
+          onToggleAll={receiptSelection.toggleAll}
+          onClear={receiptSelection.clear}
+        />
+      ) : null}
+
       {state.kind === 'loading' ? <MaterialLoading /> : null}
       {state.kind === 'error' ? <p className="error-text" role="alert">{state.message}</p> : null}
       {state.kind === 'ready' && visibleItems.length === 0 ? (
@@ -195,6 +213,9 @@ export function MaterialReceivingPage({
               canUpdate={canUpdate}
               mobile={layout.isMobile}
               onAction={setAction}
+              selected={receiptSelection.selectedIds.has(item.itemId)}
+              selectionBusy={receiptSelection.busy}
+              onSelectionChange={(checked) => receiptSelection.toggle(item.itemId, checked)}
             />
           ))}
         </div>
@@ -233,6 +254,8 @@ export function MaterialIqcPage({
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
+  const iqcVisibleIds = state.kind === 'ready' ? state.data.map((item) => item.attemptId) : [];
+  const iqcSelection = useSelectedRows(iqcVisibleIds);
 
   const load = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -316,19 +339,37 @@ export function MaterialIqcPage({
         <label><input type="checkbox" checked={includeDecided} onChange={(event) => setIncludeDecided(event.target.checked)} /> 판정 완료 포함</label>
       </div>
 
+      {state.kind === 'ready' ? (
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="material-iqc"
+          visibleIds={iqcVisibleIds}
+          selectedIds={iqcSelection.selectedIds}
+          allSelected={iqcSelection.allSelected}
+          busy={iqcSelection.busy}
+          filters={{ includeDecided: String(includeDecided) }}
+          onBusyChange={iqcSelection.setBusy}
+          onToggleAll={iqcSelection.toggleAll}
+          onClear={iqcSelection.clear}
+        />
+      ) : null}
+
       {state.kind === 'loading' ? <MaterialLoading /> : null}
       {state.kind === 'error' ? <p className="error-text" role="alert">{state.message}</p> : null}
       {state.kind === 'ready' && state.data.length === 0 ? <div className="material-empty-state"><strong>검사 대기 항목이 없습니다.</strong><span>새 IQC 요청이 들어오면 여기에 표시됩니다.</span></div> : null}
       {state.kind === 'ready' ? (
         <div className={layout.isMobile ? 'iqc-card-list iqc-card-list--mobile' : 'iqc-card-list'}>
           {state.data.map((item) => (
-            <button type="button" className="iqc-request-card" key={item.attemptId} data-status={item.status} data-report={item.reportStatus ?? item.decisionMode} onClick={() => { setSelected(item); setReason(item.reason ?? ''); }}>
-              <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.decisionMode === 'Legacy' ? <span className="iqc-report-badge" data-kind="legacy">LEGACY</span> : <span className="iqc-report-badge" data-kind={item.reportStatus ?? 'new'}>{item.reportStatus === 'Finalized' ? '성적서 완료' : item.reportStatus === 'Draft' ? '작성 중' : '신규 성적서'}</span>}{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
-              <b>{item.orderItem ?? '발주품목 미입력'}</b>
-              <small>{item.projectTitle}</small>
-              <span>{formatQuantity(item.quantity, item.unit)} · {item.attemptNumber}차 검사</span>
-              <small>{formatDateTime(item.requestedAtUtc)} 요청</small>
-            </button>
+            <article className="iqc-request-card selected-export-row" key={item.attemptId} data-status={item.status} data-report={item.reportStatus ?? item.decisionMode}>
+              <SelectionCheckbox checked={iqcSelection.selectedIds.has(item.attemptId)} disabled={iqcSelection.busy} label={`${item.projectCode} ${item.orderItem ?? '품목'} 선택`} onChange={(checked) => iqcSelection.toggle(item.attemptId, checked)} />
+              <button type="button" className="iqc-request-open" onClick={() => { setSelected(item); setReason(item.reason ?? ''); }}>
+                <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.decisionMode === 'Legacy' ? <span className="iqc-report-badge" data-kind="legacy">LEGACY</span> : <span className="iqc-report-badge" data-kind={item.reportStatus ?? 'new'}>{item.reportStatus === 'Finalized' ? '성적서 완료' : item.reportStatus === 'Draft' ? '작성 중' : '신규 성적서'}</span>}{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
+                <b>{item.orderItem ?? '발주품목 미입력'}</b>
+                <small>{item.projectTitle}</small>
+                <span>{formatQuantity(item.quantity, item.unit)} · {item.attemptNumber}차 검사</span>
+                <small>{formatDateTime(item.requestedAtUtc)} 요청</small>
+              </button>
+            </article>
           ))}
         </div>
       ) : null}
@@ -342,15 +383,19 @@ export function MaterialIqcPage({
   );
 }
 
-function MaterialItemCard({ item, canUpdate, mobile, onAction }: {
+function MaterialItemCard({ item, canUpdate, mobile, onAction, selected, selectionBusy, onSelectionChange }: {
   item: MaterialReceivingItem;
   canUpdate: boolean;
   mobile: boolean;
   onAction: (action: MaterialAction) => void;
+  selected: boolean;
+  selectionBusy: boolean;
+  onSelectionChange: (selected: boolean) => void;
 }) {
   return (
-    <article className="material-item-card" data-completed={item.receiptCompleted}>
+    <article className="material-item-card selected-export-row" data-completed={item.receiptCompleted}>
       <header>
+        <SelectionCheckbox checked={selected} disabled={selectionBusy} label={`${item.projectCode} ${item.orderItem ?? '품목'} 선택`} onChange={onSelectionChange} />
         <div><span>{item.projectCode}</span><strong>{item.orderItem ?? '발주품목 미입력'}</strong><small>{item.projectTitle}</small></div>
         <div className="material-card-badges">{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={item.customerSupplyOverdue} /> : null}<StatusBadge status={item.receiptCompleted ? 'Confirmed' : item.arrivalsClosed ? 'Passed' : item.receipts.at(0)?.status ?? 'Arrived'} /></div>
       </header>

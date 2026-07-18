@@ -1629,6 +1629,8 @@
 
 .iqc-request-card {
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
   min-height: 164px;
   gap: 8px;
   padding: 16px;
@@ -1638,6 +1640,17 @@
   color: var(--ink);
   text-align: left;
   box-shadow: 0 10px 26px rgb(67 28 30 / 6%);
+}
+
+.iqc-request-open {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
 }
 
 .iqc-request-card[data-status='Requested'] {
@@ -5184,7 +5197,7 @@ h3 {
 .production-project-head,
 .production-project-row {
   display: grid;
-  grid-template-columns: minmax(170px, 1.4fr) minmax(90px, 0.75fr) minmax(90px, 0.7fr) minmax(64px, 0.45fr) minmax(110px, 0.75fr) minmax(120px, 0.8fr);
+  grid-template-columns: 48px minmax(170px, 1.4fr) minmax(90px, 0.75fr) minmax(90px, 0.7fr) minmax(64px, 0.45fr) minmax(110px, 0.75fr) minmax(120px, 0.8fr);
   gap: 8px;
   align-items: center;
 }
@@ -5691,10 +5704,25 @@ h3 {
 .procurement-project-head,
 .procurement-project-row {
   display: grid;
-  grid-template-columns: minmax(190px, 1.6fr) minmax(120px, 0.9fr) minmax(150px, 1.1fr) 80px 112px 96px 96px;
-  min-width: 880px;
+  grid-template-columns: 48px minmax(190px, 1.6fr) minmax(120px, 0.9fr) minmax(150px, 1.1fr) 80px 112px 96px 96px;
+  min-width: 940px;
   align-items: center;
   gap: 8px;
+}
+
+.manufacturing-panel-selectable,
+.quality-panel-selectable,
+.logistics-target-selectable {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.manufacturing-panel-selectable > button,
+.quality-panel-selectable > button,
+.logistics-target-selectable > button {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .procurement-project-head {
@@ -12505,5 +12533,83 @@ body {
   .app-shell[data-layout-mode='mobile'] .manufacturing-stop-form select,
   .app-shell[data-layout-mode='mobile'] .manufacturing-stop-form textarea {
     font-size: 0.72rem;
+  }
+}
+.selected-export-tray {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent, #2c6e73) 28%, transparent);
+  border-radius: 18px 4px 18px 4px;
+  background: color-mix(in srgb, var(--accent-soft, #e9f4f2) 74%, white);
+}
+
+.selected-export-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.selected-export-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent, #2c6e73);
+  cursor: pointer;
+}
+
+.selected-export-summary {
+  display: grid;
+  min-width: 120px;
+}
+
+.selected-export-summary small {
+  color: var(--muted, #65737e);
+}
+
+.selected-export-tray .excel-export-action {
+  margin-left: auto;
+}
+
+.selected-export-clear {
+  border-radius: 999px;
+}
+
+.selected-export-row {
+  position: relative;
+}
+
+.selected-export-row > .selected-export-checkbox,
+.selected-export-card-checkbox {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  .selected-export-tray {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px 10px;
+    padding: 9px 10px;
+    border-radius: 14px 3px 14px 3px;
+  }
+
+  .selected-export-summary {
+    min-width: 0;
+  }
+
+  .selected-export-tray .excel-export-action {
+    grid-column: 1 / -1;
+    margin-left: 0;
+  }
+
+  .selected-export-tray .excel-export-button {
+    width: 100%;
+  }
+
+  .selected-export-clear {
+    grid-column: 1 / -1;
   }
 }

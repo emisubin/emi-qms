@@ -26,6 +26,8 @@ import type {
   QualityInspectionQueueResponse,
   QualityInspectionStage
 } from './qualityInspections';
+import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
+import { useSelectedRows } from './useSelectedRows';
 
 type QueueState = { kind: 'loading' } | { kind: 'ready'; data: QualityInspectionQueueResponse } | { kind: 'error'; message: string };
 type DetailState = { kind: 'idle' } | { kind: 'loading' } | { kind: 'ready'; data: QualityInspectionDetail } | { kind: 'error'; message: string };
@@ -159,6 +161,8 @@ export function QualityInspectionsPage({
 
   const projects = queueState.kind === 'ready' ? queueState.data.projects : [];
   const selectedProject = projects.find((item) => item.projectId === selectedProjectId) ?? null;
+  const qualityVisibleIds = selectedProject?.panels.map((item) => item.panelId) ?? [];
+  const qualitySelection = useSelectedRows(qualityVisibleIds);
   const selectedPanel = selectedProject?.panels.find((item) => item.panelId === selectedPanelId) ?? null;
   const panel = detail?.panel ?? selectedPanel;
   const selectedDepartment = departments.find((item) => item.departmentCode === actionDepartment) ?? null;
@@ -466,18 +470,33 @@ export function QualityInspectionsPage({
                 </div>
               </header>
 
+              <SelectedExportTray
+                developmentUserKey={developmentUserKey}
+                screen="quality-inspections"
+                visibleIds={qualityVisibleIds}
+                selectedIds={qualitySelection.selectedIds}
+                allSelected={qualitySelection.allSelected}
+                busy={qualitySelection.busy}
+                filters={{ stage, projectId: selectedProject.projectId }}
+                onBusyChange={qualitySelection.setBusy}
+                onToggleAll={qualitySelection.toggleAll}
+                onClear={qualitySelection.clear}
+              />
+
               <div className="quality-panel-strip" aria-label="검사 패널 선택">
                 {selectedProject.panels.map((item) => (
-                  <button
-                    key={`${item.panelId}-${item.stageCode}`}
-                    type="button"
-                    className={selectedPanelId === item.panelId ? 'quality-panel-chip active' : 'quality-panel-chip'}
-                    data-status={statusKey(item.status)}
-                    onClick={() => selectPanel(item)}
-                  >
-                    <span className="quality-status-shape" aria-hidden="true" />
-                    <span><strong>{item.displayCode}</strong><small>{statusLabel(item.status)} · {item.attemptNumber ? `${item.attemptNumber}차` : '신규'}</small></span>
-                  </button>
+                  <div className="quality-panel-selectable" key={`${item.panelId}-${item.stageCode}`}>
+                    <SelectionCheckbox checked={qualitySelection.selectedIds.has(item.panelId)} disabled={qualitySelection.busy} label={`${item.displayCode} 선택`} onChange={(checked) => qualitySelection.toggle(item.panelId, checked)} />
+                    <button
+                      type="button"
+                      className={selectedPanelId === item.panelId ? 'quality-panel-chip active' : 'quality-panel-chip'}
+                      data-status={statusKey(item.status)}
+                      onClick={() => selectPanel(item)}
+                    >
+                      <span className="quality-status-shape" aria-hidden="true" />
+                      <span><strong>{item.displayCode}</strong><small>{statusLabel(item.status)} · {item.attemptNumber ? `${item.attemptNumber}차` : '신규'}</small></span>
+                    </button>
+                  </div>
                 ))}
               </div>
 

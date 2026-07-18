@@ -664,7 +664,7 @@ describe('App', () => {
     const mobileSelection = within(firstCard).getByRole('checkbox', { name: 'PJT-003A TASK-003A Demo 선택' });
     fireEvent.click(mobileSelection);
     expect(screen.getByText('1개 선택')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '선택 Excel' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: '선택 Excel 내보내기' })).not.toBeDisabled();
     expect(firstCard).toHaveTextContent('TASK-003A Demo');
     expect(firstCard).toHaveTextContent('고객사EMI Test Customer');
     expect(firstCard).toHaveTextContent('CodePJT-003A');

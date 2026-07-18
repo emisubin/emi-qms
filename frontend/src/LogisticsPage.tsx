@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, cancelLogisticsDraft, createLogisticsBatch, createPackingUnit, finalizeLogisticsOperation, getLogisticsDraft, getLogisticsQueue, uploadLogisticsEvidence } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
 import type { LogisticsDraftResponse, LogisticsMutationResponse, LogisticsQueueItem, LogisticsQueueResponse, LogisticsStage } from './logistics';
+import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
+import { useSelectedRows } from './useSelectedRows';
 
 interface LogisticsPageProps {
   developmentUserKey?: string;
@@ -110,6 +112,8 @@ export function LogisticsPage({
 
   const allItems = useMemo(() => queue?.projects.flatMap((project) =>
     project.items.map((item) => ({ project, item }))) ?? [], [queue]);
+  const logisticsVisibleIds = allItems.map(({ item }) => item.targetId);
+  const logisticsExportSelection = useSelectedRows(logisticsVisibleIds);
   const selectedEntries = allItems.filter(({ item }) => selected.has(item.targetId));
   const selectedProjectId = selectedEntries[0]?.project.projectId;
   const selectionCrossesProjects = selectedEntries.some(({ project }) => project.projectId !== selectedProjectId);
@@ -273,6 +277,21 @@ export function LogisticsPage({
       {!loading && !queue && !feedback ? <div className="logistics-state"><strong>목록을 불러오지 못했습니다.</strong><button onClick={() => void load()}>다시 시도</button></div> : null}
       {!loading && queue && allItems.length === 0 && !draft ? <div className="logistics-state logistics-empty"><span>✓</span><strong>현재 {stageMeta[stage].label} 대기 작업이 없습니다.</strong><p>새 업무가 생성되면 이곳에 표시됩니다.</p></div> : null}
 
+      {!loading && queue ? (
+        <SelectedExportTray
+          developmentUserKey={developmentUserKey}
+          screen="logistics"
+          visibleIds={logisticsVisibleIds}
+          selectedIds={logisticsExportSelection.selectedIds}
+          allSelected={logisticsExportSelection.allSelected}
+          busy={logisticsExportSelection.busy}
+          filters={{ stage, projectId: initialProjectId }}
+          onBusyChange={logisticsExportSelection.setBusy}
+          onToggleAll={logisticsExportSelection.toggleAll}
+          onClear={logisticsExportSelection.clear}
+        />
+      ) : null}
+
       {!loading && queue && (allItems.length > 0 || draft) ? (
         <div className="logistics-workspace">
           <section className="logistics-queue" aria-label={`${stageMeta[stage].label} 대상 선택`}>
@@ -285,12 +304,15 @@ export function LogisticsPage({
                   {project.items.map((item) => {
                     const active = selected.has(item.targetId);
                     return (
-                      <button type="button" key={item.targetId} className="logistics-target-card" data-selected={active}
-                        data-blocked={item.hasOpenPending} onClick={() => toggle(item)} aria-pressed={active} disabled={draft !== null || !item.canMutate}>
-                        <span className="logistics-target-shape">{item.targetType === 'Panel' ? 'P' : 'U'}</span>
-                        <span><small>{item.displayCode}</small><strong>{item.title}</strong><em>{item.supportingText}</em></span>
-                        <span className="logistics-target-status">{item.hasOpenPending ? 'Pending' : active ? '선택됨' : '대기'}</span>
-                      </button>
+                      <div className="logistics-target-selectable" key={item.targetId}>
+                        <SelectionCheckbox checked={logisticsExportSelection.selectedIds.has(item.targetId)} disabled={logisticsExportSelection.busy} label={`${item.displayCode} 내보내기 선택`} onChange={(checked) => logisticsExportSelection.toggle(item.targetId, checked)} />
+                        <button type="button" className="logistics-target-card" data-selected={active}
+                          data-blocked={item.hasOpenPending} onClick={() => toggle(item)} aria-pressed={active} disabled={draft !== null || !item.canMutate}>
+                          <span className="logistics-target-shape">{item.targetType === 'Panel' ? 'P' : 'U'}</span>
+                          <span><small>{item.displayCode}</small><strong>{item.title}</strong><em>{item.supportingText}</em></span>
+                          <span className="logistics-target-status">{item.hasOpenPending ? 'Pending' : active ? '선택됨' : '대기'}</span>
+                        </button>
+                      </div>
                     );
                   })}
                 </div>

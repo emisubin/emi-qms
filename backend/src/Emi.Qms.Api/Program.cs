@@ -60,6 +60,7 @@ builder.Services.AddSingleton<ExcelWorkbookBuilder>();
 builder.Services.AddSingleton<ExcelExportConcurrencyGate>();
 builder.Services.AddSingleton<DataExportAuditStore>();
 builder.Services.AddSingleton<ExcelExportService>();
+builder.Services.AddSingleton<SelectedExcelExportService>();
 builder.Services.AddSingleton<PanelInformationExcelParser>();
 builder.Services.AddSingleton<PanelInformationStore>();
 builder.Services.AddSingleton<PendingStore>();

@@ -1,4 +1,4 @@
-# TASK-EXPORT-001 Phase 1 partial 구현 보고서
+# TASK-EXPORT-001 구현 보고서
 
 ## 1. 상태
 
@@ -185,7 +185,7 @@ Open P0/P1/P2/P3 Finding은 0개다. Phase 2 잔여 범위는 미해결 Finding�
 
 - 사용자 직접 검수: 대기
 - 자동 screenshot 검수: 완료
-- Phase 2: 나머지 주요 조회 화면, 삭제 보관함, 담당 프로젝트, 사용자 컬럼 picker
+- Phase 2 조회 화면 선택 export: Change 002에서 업무 12개·관리자 8개 대상 완료. 사용자 column picker는 잔여
 - 운영 전: Persistent UAT migration/runtime handover와 실제 계정 권한 matrix 검수
 - 게시: push·PR·merge 미승인. main merge 승인 `0/3`
 
@@ -217,3 +217,114 @@ Open P0/P1/P2/P3 Finding은 0개다. Phase 2 잔여 범위는 미해결 Finding�
 | 구현 종료 | 54% / 46% | 4% / 96% | 8% / 92% |
 
 초기화 시각과 상세 runner 결과는 `tasks/export-001-change-001.md`에 기록했다. Fable private session/transcript는 runner cleanup으로 제거 완료했다.
+
+---
+
+## 17. Change 002 — 모든 페이지 선택 Excel 내보내기
+
+### 17.1 상태와 최종 계약
+
+- branch: `experiment/task-export-001-all-pages-selected-export`
+- 기준 commit: `917693bf1dffba1754765a4170247504bb6352b4`
+- taskType: `NEW_FEATURE`, Task Identity: `PASS_REUSE` / `TASK-EXPORT-001` / `change-002`
+- 구현 source: `docs/24-all-pages-selected-excel-export-plan.md`
+- 상태: 구현·자동 검증·페이지/Excel 증빙 완료, 사용자 검수 대기
+- Git 경계: local experiment commit만 승인. push·PR·merge 미승인, main merge 승인 `0/3`
+- 운영 경계: 대표 repo·`main`·Persistent UAT·실제 provider 변경 없음
+
+### 17.2 적용 화면과 사용자 계약
+
+업무 12개(`/projects`, `/my-work`, `/production-planning`, `/procurement`, `/materials/receipts`, `/materials/kitting`, `/manufacturing/work`, `/quality/iqc`, `/quality/inspections`, `/logistics`, `/pending`, `/notifications`)와 관리자 8개(`/admin/users`, `/admin/departments`, `/admin/calendar/holidays`, `/admin/permissions`, `/admin/history/master-data`, `/admin/history/work-items`, `/admin/system/notification-deliveries`, `/admin/system/work-item-escalations`)를 공통 registry로 고정했다.
+
+- desktop row와 mobile card마다 선택 checkbox를 표시한다.
+- 공통 tray에는 `전체선택` checkbox, 선택 건수, `선택 Excel 내보내기`, `선택 해제`만 둔다.
+- `전체선택`은 현재 화면 목록만 선택하고 일부 선택 상태는 indeterminate로 표시한다.
+- 기존 프로젝트·내 업무·구매의 filter 전체 export button과 키팅의 중복 전체 선택 button을 제거했다.
+- 선택 0건에서는 export를 비활성화하고, 선택 중에는 row·전체선택 변경을 잠근다.
+
+### 17.3 Backend·보안·audit
+
+- `POST /api/data-exports/selected` 하나가 `screen`, 선택 UUID 최대 1,000개와 allowlisted filter를 처리한다.
+- 각 screen의 기존 authoritative store 조회를 한 번 실행한 뒤 현재 사용자의 권한·project scope·soft-delete·현재 filter 안에서 선택 ID 전부가 존재하는지 확인한다. 일부라도 어긋나면 generic 422로 file/audit 없이 전체 차단한다.
+- workbook은 기존 명시적 column selector, formula-safe text writer, 2-slot no-wait resource fence와 append-only audit를 재사용한다.
+- 자유 서술·메시지·recipient 표시값 등 과다 노출 가능성이 있는 열은 내보내기 allowlist에서 제외했다.
+- migration `0040_all_pages_selected_export_audit.sql`은 기존 audit check constraint에 20개 선택 export kind를 additive하게 추가한다. 기존 migration은 수정하지 않았고 Persistent UAT에는 적용하지 않았다.
+
+### 17.4 검증 결과
+
+| 검증 | 결과 |
+| --- | --- |
+| Backend 전체 test Release | PASS, 388/388, skipped 0 |
+| Frontend unit | PASS, 10 files, 92/92 |
+| Frontend typecheck/build | PASS; 기존 약 993KB chunk warning만 존재 |
+| Frontend lint | error 0; 기존 `main.tsx` Fast Refresh warning 1 |
+| 전 화면 Full-Stack E2E | PASS, 1/1, 45.9초; disposable PostgreSQL 자동 정리 |
+| 화면 registry | PASS, 업무 12 + 관리자 8 = 20, 누락 0 |
+| 화면 증빙 | desktop 20 + 390px 20 = 40 PNG |
+| workbook | data-bearing route 11개 `.xlsx`; 선택 row만 포함, formula XML node 0 |
+| 실제 Excel | 품질 검사·관리자 사용자 workbook 직접 확인, 이후 workbook 2개 모두 닫음 |
+
+자동 검증은 사용자 검수를 대신하지 않는다. 테스트 data는 synthetic isolated data이며 raw DOM/API/DB response·credential·실제 사용자/업무 원문은 증빙에 기록하지 않았다.
+
+### 17.5 Finding gate
+
+| Finding | Severity | 상태 | Resolution |
+| --- | --- | --- | --- |
+| `ALL-EXPORT-AUDIT-KIND-DRIFT` | P2 | RESOLVED | Frontend/backend registry와 migration의 20개 canonical audit kind를 test로 고정 |
+| `ALL-EXPORT-PRIVACY-PROJECTION` | P2 | RESOLVED | 물류 보조문구, 알림 message, 휴일 note/source, 기준정보 reason, recipient 표시값을 column allowlist에서 제거 |
+| `ALL-EXPORT-DUPLICATE-ACTIONS` | P2 | RESOLVED | 전체 export button을 제거하고 전체선택 checkbox + 선택 export 1개로 통합 |
+| `ALL-EXPORT-STALE-RELEASE-BINARY` | P3 | RESOLVED | 최초 E2E 404의 stale Release binary를 재build하고 동일 isolated E2E 재실행 PASS |
+| `ALL-EXPORT-SCREENSHOT-LOADING` | P3 | RESOLVED | network idle과 tray rendering을 기다린 뒤 40개 screenshot 재생성 |
+
+Open P0/P1/P2/P3 Finding은 `0/0/0/0`이다.
+
+### 17.6 운영·검수 SOP
+
+1. 운영 적용 전 별도 UAT 승인 아래 additive `0040`과 이전 `0038`·`0039` ledger를 확인한다.
+2. 화면별 역할 권한으로 접속해 현재 목록의 일부를 선택하고 파일 row가 그 subset과 정확히 일치하는지 확인한다.
+3. `전체선택` 후 같은 `선택 Excel 내보내기` button으로 현재 목록 전체가 내려오는지 확인한다.
+4. scope 밖·삭제·stale ID 혼합 요청이 generic 422이고 file/audit가 0인지 확인한다.
+5. 1,000건 초과, 동시 요청 포화, audit 실패와 formula marker synthetic 값을 확인한다.
+6. 실패 시 runtime을 이전 commit으로 되돌리되 적용된 migration을 수정·삭제하지 않고 다음 번호의 additive forward-fix를 사용한다.
+
+### 17.7 사용자 매뉴얼
+
+1. 필요한 검색·상태·날짜 조건을 적용한다.
+2. 필요한 행/카드 checkbox를 선택하거나 `전체선택` checkbox로 현재 목록을 한 번에 선택한다.
+3. 선택 건수를 확인하고 `선택 Excel 내보내기`를 누른다.
+4. 선택을 다시 시작하려면 `선택 해제`를 누른다.
+5. 목록 변경 안내가 나오면 새로고침한 뒤 다시 선택한다.
+
+### 17.8 사용자 검수 체크리스트
+
+- [ ] 20개 화면에서 row/card checkbox와 `전체선택`이 보인다.
+- [ ] 각 화면에 Excel action이 `선택 Excel 내보내기` 하나만 보인다.
+- [ ] 일부 선택과 전체선택 파일이 각각 정확한 row만 포함한다.
+- [ ] 일부 선택일 때 전체선택 checkbox가 중간 상태로 보인다.
+- [ ] desktop과 390px에서 tray·checkbox·행 내용이 겹치지 않는다.
+- [ ] 품질·관리자 workbook의 한글, 날짜, 숫자와 header를 확인한다.
+
+### 17.9 Rollback·잔여 경계
+
+- local rollback은 Change 002 commit을 revert한다. 기존 Phase 1 GET API는 호환성을 위해 backend에 남아 있지만 UI에서는 노출하지 않는다.
+- migration `0040`은 Persistent UAT 미적용이다. 향후 적용 뒤에는 수정·삭제하지 않고 additive forward-fix만 사용한다.
+- 사용자 column picker, multi-sheet 보고서와 복잡 PDF는 이번 범위가 아니다.
+- push·PR·merge·대표 repo 반영과 Persistent UAT handover는 미승인이다.
+
+### 17.10 5종 종료 산출물과 Fable 사용량
+
+| 산출물 | 상태 | 위치 |
+| --- | --- | --- |
+| Implementation report | 작성 완료 | 이 문서 `17장` |
+| SOP | 작성 완료 | `17.6` |
+| User manual | 작성 완료 | `17.7` |
+| Roadmap update | Change 002 실험 구현·사용자 검수 대기 반영 | `docs/00-product-roadmap.md` |
+| User validation checklist | 작성·자동 검증 완료·사용자 검수 대기 | `17.8` |
+
+| 시점 | 5시간 세션 | 주간 전체 | 주간 Fable |
+| --- | --- | --- | --- |
+| Fable 1차 직전·직후 | 28% 사용 / 72% 잔여 | 7% / 93% | 13% / 87% |
+| Fable 2차 직전·직후 | 48% / 52% | 8% / 92% | 15% / 85% |
+| 구현·자동 검증 종료 | 64% / 36%, 17:40 KST 초기화 | 9% / 91%, 07-25 08:00 KST 초기화 | 18% / 82%, 초기화 parse 불가 |
+
+Fable 1차·2차 원문은 runner가 byte-for-byte 저장했으며, 종료 뒤 Task 소유 session 2개와 transcript 2개를 cleanup했다.

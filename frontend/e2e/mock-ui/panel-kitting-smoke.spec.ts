@@ -15,7 +15,8 @@ test('TASK-010A mock visual: adaptive panel kitting page and mobile drawer', asy
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/materials/kitting?project=${readyProjectId}`);
   await page.getByLabel('개발 사용자').selectOption('dev-materials');
-  await expect(page.getByRole('heading', { name: '패널 키팅' })).toBeVisible();
+  await page.goto(`/materials/kitting?project=${readyProjectId}`);
+  await expect(page.getByRole('heading', { name: '패널 키팅', exact: true })).toBeVisible();
   await expect(page.getByText('입고 조건 충족 · 패널을 선택해 제조로 넘기세요.')).toBeVisible();
   await expect(page.locator('.kitting-panel-card')).toHaveCount(4);
   await capture(page, '01-panel-kitting-desktop-1440.jpg');

@@ -32,7 +32,7 @@
 | `TASK-007B` | 패널·프로젝트 병목 단계, open Pending 결합 집계와 목록·상세 표시 | [구현 보고서](../tasks/007b-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-MOBILE-001` | 동일 URL 적응형 현장 UX와 좁은 화면 navigation 기준 | [구현 보고서](../tasks/mobile-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-HOME-001` | 내 업무·병목·Pending·알림 Home widget dashboard | [구현 보고서](../tasks/home-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
-| `TASK-HOME-002` | actual 사용자 프로필 shell·본인 사진·9개 부서 Home 핵심 지표·desktop/mobile navigation 재구성 | [구현 보고서](../tasks/home-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-HOME-002` | actual 사용자 프로필 shell·본인 사진·9개 부서 Home 핵심 지표·desktop/mobile navigation 재구성·Change 002 전 부서 운영 메뉴 조회와 compact reference design | [본체](../tasks/home-002-implementation-report.md), [Change 002](../tasks/home-002-change-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-MOBILE-002` | 모바일 우선 정보 재배치, 전체 화면 개편, 좌상단 drawer, 모바일 shape·타이포 체계 | [1차](../tasks/mobile-002-implementation-report.md), [Change 002](../tasks/mobile-002-change-002-implementation-report.md), [Change 003](../tasks/mobile-002-change-003-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `DESIGN-001` | 로그인 shell을 기준으로 전체 업무 화면 시각 통일 | [구현 보고서](../tasks/design-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-008A` | 자재 도착·분할 입고·IQC 요청·입고 확정 | [구현 보고서](../tasks/008a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
@@ -49,7 +49,7 @@
 | `TASK-UX-001 A1` | 공통 action feedback, 내 업무와 알림의 처리 중·성공·부분 성공·실패 UX | [구현 보고서](../tasks/ux-001-implementation-report.md) | `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` |
 | `TASK-NOTIFY-005` | 사용자별 알림 preference, 필수 잠금, sparse opt-out, audit와 suppression gate | [구현 보고서](../tasks/notify-005-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 `TASK-HOME-002`의 Backend `395/395`, Frontend `102/102`, migration `0042` fresh 적용과 Full-Stack `38/38`다. 개인화 Home·프로필은 추가로 사진 lifecycle·9부서 SQL 통합 검증과 desktop/mobile 6개 synthetic screenshot을 완료했다.
+현재 계보의 최신 누적 자동 기준선은 `TASK-HOME-002` Change 002의 Backend `395/395`, Frontend `103/103`, mock UI E2E `2/2`, migration `0042` fresh 적용과 직전 누적 Full-Stack `38/38`다. Change 002 Full-Stack 재실행은 container 실행 정책으로 차단되어 promotion 전 P3로 남겼고 대표 runtime으로 우회하지 않았다. 개인화 Home·프로필은 사진 lifecycle·9부서 SQL 통합 검증과 본체 6개, Change 002 4개 privacy-safe synthetic screenshot을 완료했다.
 
 ## 4. 남은 제품 개발 Task
 

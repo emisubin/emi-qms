@@ -19,6 +19,7 @@ public static class MaterialsEndpointExtensions
             bool? includeCompleted,
             string? supplyType,
             MaterialsStore store,
+            ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             var dateRange = ParseDateRange(request);
@@ -34,9 +35,18 @@ public static class MaterialsEndpointExtensions
                     ["supplyType"] = ["공급 유형은 전체, 일반 구매 또는 사급이어야 합니다."]
                 });
             }
-            return Results.Ok(await store.ListAsync(search, includeCompleted == true, normalizedSupplyType, dateRange.From, dateRange.To, cancellationToken));
+            return Results.Ok(await store.ListAsync(
+                search,
+                includeCompleted == true,
+                normalizedSupplyType,
+                dateRange.From,
+                dateRange.To,
+                GetProjectAccessScope(user),
+                cancellationToken));
         })
-        .RequireAuthorization(QmsPolicies.MaterialReceiptUpdate)
+        .RequireAuthorization(policy => policy
+            .RequireAuthenticatedUser()
+            .AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
         .WithName("ListMaterialReceivingItems");
 
         materials.MapPatch("/receipts", () => Results.ValidationProblem(new Dictionary<string, string[]>
@@ -144,7 +154,9 @@ public static class MaterialsEndpointExtensions
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
             Results.Ok(await store.ListIqcAsync(includeDecided == true, GetProjectAccessScope(user), cancellationToken)))
-        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .RequireAuthorization(policy => policy
+            .RequireAuthenticatedUser()
+            .AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
         .WithName("ListMaterialIqcRequests");
 
         quality.MapGet("/{attemptId:guid}/report", async (

@@ -987,7 +987,7 @@ Excel 출력 대상 후보:
 | 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A·007B experiment scope 완료 | 사진 binary 정책은 별도 후속 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 1.3A | TASK-MOBILE-002 모바일 우선 전면 개편 | APPROVED_FEATURE_IMPLEMENTATION | Experiment Complete | Change 001~003 automated validation complete / `BATCHED_FINAL` | MOBILE-001·로그인 shell·DESIGN-001 계보 | `App.tsx` 분할은 optional housekeeping | Yes | 완료 scope 재구현 금지; 최종 일괄 검수 |
 | 1.4 | TASK-HOME-001 Home MVP | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·MOBILE-001 experiment scope 완료 | query/cache 최적화는 실측 시 P3 후속 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
-| 1.4A | TASK-HOME-002 개인화 Home·프로필 shell | NEW_FEATURE | Experiment Complete | Fable 2-pass·Codex review·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-HOME-001·MOBILE-002·DESIGN-001 experiment scope | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수. 다음 권장 experiment 범위는 TASK-UX-001 A2 |
+| 1.4A | TASK-HOME-002 개인화 Home·프로필 shell | NEW_FEATURE | Experiment Complete | 본체와 Change 002 전 부서 조회 메뉴·compact design implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-HOME-001·MOBILE-002·DESIGN-001 experiment scope | 대표 repo·main·Persistent UAT 미반영; Change 002 Full-Stack 재실행은 promotion 전 P3 | Yes | 재구현 금지; 최종 일괄 검수. 다음 experiment 범위는 TASK-UX-001 A2 |
 | 2.1 | TASK-008A 자재 도착·분할 입고 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A experiment scope 완료 | 운영 migration handover 미승인 | Yes | experiment 재구현 금지; canonical 승격은 별도 UAT |
 | 2.2 | TASK-008B 사급 자재 추적 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-008A experiment scope 완료 | 운영 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 2.3 | TASK-009A IQC·사진·PDF | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A·008A experiment scope 완료 | 실제 IQC 양식·필수 사진 위치는 template 후속 | Yes | experiment 재구현 금지; 양식 변경은 기존 Task change |
@@ -1516,12 +1516,12 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-HOME-002: 개인화 Home·프로필 shell
 
-- 실험 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL`. 실제 사용자 프로필과 effective 사용자 부서 Home을 분리했으며 사용자 직접 검수는 마지막 일괄 대기다.
+- 실험 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL`. 실제 사용자 프로필과 effective 사용자 부서 Home을 분리했고 Change 002의 전 부서 운영 메뉴 조회·compact reference design까지 완료했으며 사용자 직접 검수는 마지막 일괄 대기다.
 - 목적: 모든 업무 페이지에서 로그인 사용자 사진·부서·이름을 확인하고, Home에서 부서별 핵심 지표를 최대 3개 우선 확인한다.
-- 포함 범위: actual-user profile popover/sheet와 본인 사진 upload/remove, full-height desktop sidebar, drawer 하단 개발·검수 전환, 중복 자재 shortcut 제거, 9개 부서 aggregate, 375px 모바일 재구성
+- 포함 범위: actual-user profile popover/sheet와 본인 사진 upload/remove, full-height desktop sidebar, drawer 하단 개발·검수 전환, 중복 자재 shortcut 제거, 9개 부서 aggregate, 375px 모바일 재구성, 운영 메뉴 11개 전 부서 조회와 담당별 mutation gate, 참고 이미지 기반 compact white workspace
 - 제외 범위: 대표 repo·main·Persistent UAT 적용, actual provider, 조직 directory 사진 sync, 범용 업무 attachment storage, 기존 업무 페이지 전면 재설계
 - migration: additive `0042_user_profile_photos`; 사용자당 1 current row와 fixed-field append-only audit
-- 주요 테스트: Backend `395/395`, Frontend `102/102`, Full-Stack `38/38`, fresh-schema 사진 lifecycle·9부서 SQL, desktop/mobile synthetic browser 증빙
+- 주요 테스트: Backend `395/395`, Frontend `103/103`, mock UI E2E `2/2`, 직전 Full-Stack `38/38`, fresh-schema 사진 lifecycle·9부서 SQL, 본체·Change 002 desktop/mobile synthetic browser 증빙. Change 002 Full-Stack 재실행은 container policy로 promotion 전 P3.
 
 ### TASK-008A: 자재 도착 / IQC 요청 / 입고 확정
 
@@ -1800,6 +1800,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-18 | TASK-UX-001은 experiment fast-track에서 A1 공통 feedback과 내 업무·알림만 먼저 구현하고 A2 화면 확대를 별도 planning으로 유지 | 행이 active tab에서 사라져도 결과를 보존하면서 화면별 임시 구현과 범위 팽창을 막고, 대표 repo·main 반영 전 모바일·데스크톱 사용성을 먼저 검수하기 위함 | 23장, TASK-UX-001 |
 | 2026-07-18 | TASK-NOTIFY-005 experiment는 자동 단계 업무 생성·D-1·일일 요약 3개만 sparse opt-out으로 허용하고 긴급·L1~L3·인앱·통합 채널·수동 발송은 잠근다 | 사용자 소음을 줄이면서 필수 업무 알림 누락과 dead control을 방지하고 기존 사용자 기본 delivery를 보존하기 위함 | 6장, 23장, TASK-NOTIFY-005 |
 | 2026-07-18 | TASK-HOME-002는 shell의 계정 표시·사진을 actual 사용자에 고정하고 Home 부서 지표만 effective 사용자로 전환 | 관리자 검수 전환이나 Dev 사용자 전환 중 타인의 프로필 사진을 읽거나 계정 주체를 오인하지 않으면서 부서별 화면 검수를 가능하게 하기 위함 | 23장, TASK-HOME-002 |
+| 2026-07-19 | TASK-HOME-002 Change 002는 운영 메뉴 11개를 모든 내부 부서에 공개하되 조회는 project scope, 입력은 기존 담당 mutation permission으로 분리하고 관리자 개인정보 메뉴는 기존 역할로 제한 | 메뉴 숨김을 입력 권한 표현으로 사용하지 않고 부서 간 진행 현황을 공유하면서 상태 변경과 민감 정보 범위를 확대하지 않기 위함 | 23장, TASK-HOME-002 Change 002 |
 | 2026-07-10 | 기존 `docs/task-close-process-guidelines`의 유효 규칙은 BASELINE-GOV-001 canonical 정책에 수동 통합하고 기존 branch는 대체 상태로 보존 | 오래된 branch를 merge/cherry-pick하지 않고 5종 산출물·검수 상태를 포함한 최신 정책으로 drift를 해소하기 위함 | 23장, [Task 종료 및 산출물 정책](12-task-completion-policy.md) |
 | 2026-07-10 | Git history 개인정보는 current checkout 비식별화와 분리해 risk decision으로 관리 | history rewrite는 commit hash와 협업 branch를 변경하는 별도 승인 작업이기 때문 | 24장 |
 | 2026-07-10 | 전역 No-Go remediation은 TASK-UAT-001 → TASK-SEC-001 → TASK-NOTIFY-004 → TASK-AUTH-001 순서로 수행(당시 결정, 다음 행의 현재 순서로 대체됨) | 안전한 검수 기반, dependency 보안, 외부 delivery 동시성, 마지막 관리자 경쟁 조건을 신규 기능보다 먼저 해소하기 위함 | 23장, 24장 |

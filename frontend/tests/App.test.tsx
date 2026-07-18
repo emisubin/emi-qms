@@ -58,7 +58,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: '내 업무' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '프로젝트 병목' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '알림' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Pending' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Pending' })).toBeInTheDocument();
 
     const navigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     expect(within(navigation).getByRole('button', { name: '홈' })).toHaveClass('active');
@@ -106,6 +106,10 @@ describe('App', () => {
     expect(within(accountDialog).getByRole('button', { name: '로그아웃' })).toBeInTheDocument();
 
     const commonNavigation = screen.getByRole('navigation', { name: '공통 메뉴' });
+    for (const label of ['홈', '내 업무', '프로젝트', 'Pending', '생산관리', '구매', '자재', '제조', '품질', '물류', '알림']) {
+      expect(within(commonNavigation).getByRole('button', { name: label })).toBeInTheDocument();
+    }
+    expect(within(commonNavigation).queryByRole('button', { name: '관리자' })).not.toBeInTheDocument();
     const sidebarFooter = commonNavigation.querySelector('.app-sidebar-footer');
     expect(sidebarFooter).not.toBeNull();
     expect(within(sidebarFooter as HTMLElement).getByLabelText('개발 사용자')).toBeInTheDocument();
@@ -115,7 +119,7 @@ describe('App', () => {
     expect(within(topbarActions as HTMLElement).queryByRole('button', { name: '자재' })).not.toBeInTheDocument();
   });
 
-  it('omits Pending data and the Pending widget when the effective user lacks Pending.Read', async () => {
+  it('keeps the Pending workspace discoverable through operational read access', async () => {
     window.history.pushState(null, '', '/');
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -146,11 +150,10 @@ describe('App', () => {
 
     render(<App />);
 
-    const projectsWidget = await screen.findByLabelText('프로젝트 병목 요약');
-    expect(projectsWidget).not.toHaveTextContent('Pending');
-    expect(screen.queryByRole('heading', { name: 'Pending' })).not.toBeInTheDocument();
+    await screen.findByLabelText('프로젝트 병목 요약');
+    expect(screen.getByRole('heading', { name: 'Pending' })).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain('/api/projects'));
-    expect(calls).not.toContain('/api/pending');
+    expect(calls).toContain('/api/pending');
   });
 
   it('keeps an attempted forbidden widget visible as an error instead of hiding it', async () => {
@@ -563,6 +566,10 @@ describe('App', () => {
     expect(within(mobileNavigation).getByRole('button', { name: 'Pending' })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '생산관리' })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '구매' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '자재' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '제조' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '품질' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '물류' })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '알림 1건' })).toBeInTheDocument();
     expect(Array.from(menuDrawer.querySelectorAll('.mobile-menu-item-shape')).map((shape) => shape.getAttribute('data-shape')))
       .toEqual(expect.arrayContaining(['circle', 'square', 'oval', 'rounded', 'angular']));
@@ -581,15 +588,17 @@ describe('App', () => {
     expect(window.location.pathname).toBe('/production-planning');
   });
 
-  it('omits Pending from the mobile drawer when the permission-filtered navigation omits it', async () => {
+  it('shows every operational menu in the mobile drawer for a sales user', async () => {
     mockMobileViewport(true);
     render(<App />);
 
     fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }));
     const menuDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
     const mobileNavigation = within(menuDrawer).getByRole('navigation', { name: '모바일 공통 메뉴' });
-    expect(within(mobileNavigation).queryByRole('button', { name: 'Pending' })).not.toBeInTheDocument();
-    expect(within(mobileNavigation).getByRole('button', { name: '생산관리' })).toBeInTheDocument();
+    for (const label of ['홈', '내 업무', '프로젝트', 'Pending', '생산관리', '구매', '자재', '제조', '품질', '물류', '알림']) {
+      expect(within(mobileNavigation).getByRole('button', { name: new RegExp(`^${label}(?:\\s|$)`) })).toBeInTheDocument();
+    }
+    expect(within(mobileNavigation).queryByRole('button', { name: '관리자' })).not.toBeInTheDocument();
   });
 
   it('renders the Teams Activity tab route with recent notifications and work summary', async () => {
@@ -1928,6 +1937,18 @@ describe('App', () => {
     await waitFor(() => expect(requests).toContain('/api/materials/receipts/77000000-0000-0000-0000-000000000001/iqc-requests'));
   });
 
+  it('opens the Materials workspace for Sales as read-only and keeps input unavailable', async () => {
+    render(<App />);
+
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
+
+    expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent('조회 전용입니다.');
+    expect(screen.getByRole('button', { name: '+ 도착 등록' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '입고 마감' })).toBeDisabled();
+  });
+
   it('filters completed material receipt cards by default and shows the derived completion when requested', async () => {
     render(<App />);
 
@@ -2021,6 +2042,21 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
         { id: 'focus-two', label: '진행 중', count: 2, tone: 'neutral', destinationKey: 'projects', actionLabel: '프로젝트 열기' },
         { id: 'focus-three', label: '차단', count: 1, tone: 'danger', destinationKey: 'pending', actionLabel: '조치 확인' }
       ]
+    });
+  }
+
+  if (path === '/api/pending') {
+    return json({
+      summary: {
+        openCount: 0,
+        urgentCount: 0,
+        overdueCount: 0,
+        reinspectionCount: 0,
+        registeredCount: 0,
+        actionRequestedCount: 0,
+        inProgressCount: 0
+      },
+      items: []
     });
   }
 
@@ -3014,11 +3050,11 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
   if (path === '/api/materials/receipts') {
-    return json(materialReceiptResponse(url.searchParams.get('includeCompleted') === 'true'), userKey === 'dev-procurement' || userKey === 'dev-materials' ? 200 : 403);
+    return json(materialReceiptResponse(url.searchParams.get('includeCompleted') === 'true'));
   }
 
   if (path === '/api/quality/iqc') {
-    return json({ items: [] }, userKey === 'dev-quality' ? 200 : 403);
+    return json({ items: [] });
   }
 
   if (path === '/api/procurement/dashboard') {

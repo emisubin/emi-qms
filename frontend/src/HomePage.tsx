@@ -273,36 +273,6 @@ export function HomePage({
             )}
           </HomeWidget>
 
-          <HomeWidget
-            eyebrow="NEXT ATTENTION"
-            title="프로젝트 병목"
-            state={projectsState}
-            onRetry={loadProjects}
-            onOpen={onOpenProjects}
-            openLabel="프로젝트 전체 보기"
-            emptyMessage="진행 중인 프로젝트가 없습니다."
-            wide
-          >
-            {(data) => (
-              <div className="home-project-list">
-                {data.items.map((project, index) => (
-                  <button type="button" key={project.projectId} className="home-project-item" onClick={() => onOpenProject(project.projectId)}>
-                    <span className="home-project-rank">{index + 1}</span>
-                    <span>
-                      <strong>{project.projectTitle}</strong>
-                      <small>{project.projectCode} · {project.bottleneck?.label ?? '병목 정보 확인 중'}</small>
-                    </span>
-                    <span className="home-project-action">
-                      {!canReadPending && project.bottleneck?.nextAction === 'Pending'
-                        ? '프로젝트 열기'
-                        : project.bottleneck?.nextActionLabel ?? '프로젝트 열기'} →
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </HomeWidget>
-
           {canReadPending ? (
             <HomeWidget
               eyebrow="ISSUE CONTROL"
@@ -337,6 +307,36 @@ export function HomePage({
               <div className="home-metric-grid home-metric-grid--two">
                 <HomeMetric label="읽지 않음" value={data.unreadCount} tone={data.unreadCount > 0 ? 'danger' : undefined} />
                 <HomeMetric label="긴급·차단" value={data.blockingCount} tone={data.blockingCount > 0 ? 'danger' : undefined} />
+              </div>
+            )}
+          </HomeWidget>
+
+          <HomeWidget
+            eyebrow="NEXT ATTENTION"
+            title="프로젝트 병목"
+            state={projectsState}
+            onRetry={loadProjects}
+            onOpen={onOpenProjects}
+            openLabel="프로젝트 전체 보기"
+            emptyMessage="진행 중인 프로젝트가 없습니다."
+            wide
+          >
+            {(data) => (
+              <div className="home-project-list">
+                {data.items.map((project, index) => (
+                  <button type="button" key={project.projectId} className="home-project-item" onClick={() => onOpenProject(project.projectId)}>
+                    <span className="home-project-rank">{index + 1}</span>
+                    <span>
+                      <strong>{project.projectTitle}</strong>
+                      <small>{project.projectCode} · {project.bottleneck?.label ?? '병목 정보 확인 중'}</small>
+                    </span>
+                    <span className="home-project-action">
+                      {!canReadPending && project.bottleneck?.nextAction === 'Pending'
+                        ? '프로젝트 열기'
+                        : project.bottleneck?.nextActionLabel ?? '프로젝트 열기'} →
+                    </span>
+                  </button>
+                ))}
               </div>
             )}
           </HomeWidget>

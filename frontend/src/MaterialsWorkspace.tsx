@@ -143,6 +143,8 @@ export function MaterialReceivingPage({
         </div>
       </header>
 
+      {!canUpdate ? <p className="workspace-readonly-banner" role="note">조회 전용입니다. 도착 등록·IQC 요청·입고 확정은 자재 담당 권한이 필요합니다.</p> : null}
+
       {state.kind === 'ready' ? (
         <div className="material-summary-strip" aria-label="자재 입고 요약">
           <SummaryButton label="도착 등록 대기" value={state.data.summary.pendingArrivalCount} active={activeFilter === 'all'} onClick={() => setActiveFilter('all')} />
@@ -333,6 +335,8 @@ export function MaterialIqcPage({
         </div>
         <button type="button" onClick={onBack}>자재 입고로</button>
       </header>
+
+      {!canInspect ? <p className="workspace-readonly-banner" role="note">조회 전용입니다. 검사성적서 작성과 합격·부적합 판정은 품질 담당 권한이 필요합니다.</p> : null}
 
       <div className="iqc-toolbar">
         <div><strong>{state.kind === 'ready' ? state.data.filter((item) => item.status === 'Requested').length : '-'}건</strong><span>검사 대기</span></div>

@@ -136,7 +136,7 @@ public sealed class SelectedExcelExportService(
                 actorUserId, ids, filters, "자재 입고", "자재입고", SelectedExportScreens.MaterialReceipts,
                 () => materialsStore.ListAsync(
                     Filter(filters, "search"), BoolFilter(filters, "includeCompleted"), Filter(filters, "supplyType"),
-                    DateFilter(filters, "expectedReceiptDateFrom"), DateFilter(filters, "expectedReceiptDateTo"), cancellationToken),
+                    DateFilter(filters, "expectedReceiptDateFrom"), DateFilter(filters, "expectedReceiptDateTo"), scope, cancellationToken),
                 response => response.Items, row => row.ItemId, MaterialReceiptColumns, cancellationToken),
             SelectedExportScreens.MaterialKitting => await ExportRowsAsync(
                 actorUserId, ids, filters, "키팅", "키팅", SelectedExportScreens.MaterialKitting,

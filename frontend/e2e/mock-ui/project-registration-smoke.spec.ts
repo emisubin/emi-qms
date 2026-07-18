@@ -50,7 +50,6 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
   await routeApi(page, store);
 
   await page.goto('/projects');
-  await page.getByLabel('개발 사용자').selectOption('dev-sales');
 
   await page.getByRole('button', { name: '신규 프로젝트' }).click();
   await fillProjectForm(page, 'PJT-003A', 'TASK-003A E2E', '4');
@@ -344,13 +343,31 @@ function currentUser(userKey: string) {
     permissions.push('Project.Deleted.Read', 'Project.SalesAmount.Read');
   }
 
-  return {
+  const principal = {
+    userId: userKey === 'dev-sales'
+      ? '50000000-0000-0000-0000-000000000002'
+      : '50000000-0000-0000-0000-000000000011',
     developmentUserKey: userKey,
     displayName: userKey,
+    email: null,
+    authProvider: 'Dev',
+    isActive: true,
+    approvalPending: false,
     department: 'test',
-    roles: [userKey.replace('dev-', '')],
+    departmentName: '합성 테스트',
+    profilePhotoVersion: null,
+    roles: [userKey.replace('dev-', '')]
+  };
+
+  return {
+    ...principal,
     permissions,
-    projectAccess: []
+    projectAccess: [],
+    isTestUserSwitch: false,
+    testUserKey: null,
+    canUseAdminTestUserSwitch: false,
+    actualUser: principal,
+    effectiveUser: principal
   };
 }
 

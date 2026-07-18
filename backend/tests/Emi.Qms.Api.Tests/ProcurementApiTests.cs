@@ -214,6 +214,35 @@ public sealed class ProcurementApiTests
 
         foreach (var userKey in new[]
         {
+            "dev-sales", "dev-design", "dev-procurement", "dev-materials", "dev-production",
+            "dev-manufacturing", "dev-quality", "dev-logistics", "dev-viewer", "dev-admin"
+        })
+        {
+            using var client = context.CreateClient(userKey);
+            Assert.Equal(
+                HttpStatusCode.OK,
+                (await client.GetAsync("/api/materials/receipts", TestContext.Current.CancellationToken)).StatusCode);
+            Assert.Equal(
+                HttpStatusCode.OK,
+                (await client.GetAsync("/api/quality/iqc", TestContext.Current.CancellationToken)).StatusCode);
+        }
+
+        foreach (var userKey in new[]
+        {
+            "dev-sales", "dev-design", "dev-production", "dev-manufacturing",
+            "dev-quality", "dev-logistics", "dev-viewer", "dev-admin"
+        })
+        {
+            using var client = context.CreateClient(userKey);
+            var denied = await client.PostAsJsonAsync(
+                $"/api/materials/items/{itemId}/receipts",
+                new { quantity = 1, unit = "EA", orderQuantity = 1, orderUnit = "EA", arrivalDate = "2026-07-19" },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        }
+
+        foreach (var userKey in new[]
+        {
             "dev-sales", "dev-design", "dev-materials", "dev-production",
             "dev-manufacturing", "dev-quality", "dev-logistics", "dev-viewer", "dev-admin"
         })

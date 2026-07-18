@@ -1471,14 +1471,9 @@ function QmsAppShellContent({
   const canSettleSales = permissions.includes('sales.settle');
   const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
-  const canAccessMaterialReceipts = canUpdateMaterialReceipt || isSystemAdministrator;
-  const canAccessPanelKitting = permissions.includes('projects.read');
-  const canAccessMaterials = canAccessMaterialReceipts || canAccessPanelKitting;
-  const canAccessManufacturing = permissions.includes('projects.read');
-  const canAccessLogistics = permissions.includes('projects.read');
-  const materialsHomeView: View = canAccessMaterialReceipts
-    ? { kind: 'materials-receipts' }
-    : { kind: 'materials-kitting' };
+  const canBrowseOperationalPages = permissions.includes('projects.read');
+  const canReadPendingWorkspace = canReadPending || canBrowseOperationalPages;
+  const materialsHomeView: View = { kind: 'materials-receipts' };
   const switchDevelopmentUser = (nextUserKey: string) => {
     window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
     setDevelopmentUserKey(nextUserKey);
@@ -1502,13 +1497,13 @@ function QmsAppShellContent({
     { label: '홈', view: { kind: 'home' }, active: view.kind === 'home' },
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount },
     { label: '프로젝트', view: { kind: 'list' }, active: isProjectWorkspace(view) },
-    ...(canReadPending ? [{ label: 'Pending', view: { kind: 'pending' } as View, active: view.kind === 'pending' || view.kind === 'pending-detail' }] : []),
+    { label: 'Pending', view: { kind: 'pending' }, active: view.kind === 'pending' || view.kind === 'pending-detail' },
     { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
-    ...(canAccessMaterials ? [{ label: '자재', view: materialsHomeView, active: view.kind === 'materials-receipts' || view.kind === 'materials-kitting' }] : []),
-    ...(canAccessManufacturing ? [{ label: '제조', view: { kind: 'manufacturing-work' } as View, active: view.kind === 'manufacturing-work' }] : []),
-    ...(canInspectQuality ? [{ label: '품질', view: { kind: 'quality-inspections', stage: 'LQC' } as View, active: view.kind === 'quality-iqc' || view.kind === 'quality-inspections' }] : []),
-    ...(canAccessLogistics ? [{ label: '물류', view: { kind: 'logistics', stage: 'packing' } as View, active: view.kind === 'logistics' }] : []),
+    { label: '자재', view: materialsHomeView, active: view.kind === 'materials-receipts' || view.kind === 'materials-kitting' },
+    { label: '제조', view: { kind: 'manufacturing-work' }, active: view.kind === 'manufacturing-work' },
+    { label: '품질', view: { kind: 'quality-inspections', stage: 'LQC' }, active: view.kind === 'quality-iqc' || view.kind === 'quality-inspections' },
+    { label: '물류', view: { kind: 'logistics', stage: 'packing' }, active: view.kind === 'logistics' },
     {
       label: '알림',
       view: { kind: 'notifications' },
@@ -1677,17 +1672,23 @@ function QmsAppShellContent({
           </div>
         ) : null}
 
-        <section className="system-strip" aria-label="시스템 상태">
-          <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
-          <StatusChip
-            label="Database"
-            value={health.kind === 'ready' ? health.data.database.reason : '-'}
-          />
-          <StatusChip
-            label="User"
-            value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind}
-          />
-        </section>
+        <details className="system-status-disclosure">
+          <summary>
+            <span aria-hidden="true" />
+            개발 연결 상태
+          </summary>
+          <section className="system-strip" aria-label="시스템 상태">
+            <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
+            <StatusChip
+              label="Database"
+              value={health.kind === 'ready' ? health.data.database.reason : '-'}
+            />
+            <StatusChip
+              label="User"
+              value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind}
+            />
+          </section>
+        </details>
 
       {currentUser.kind === 'forbidden' || currentUser.kind === 'not-found' || currentUser.kind === 'error' ? (
         <StateMessage state={currentUser} />
@@ -1703,7 +1704,7 @@ function QmsAppShellContent({
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
           effectiveDisplayName={currentUser.data.effectiveUser.displayName}
           effectiveDepartmentName={currentUser.data.effectiveUser.departmentName}
-          canReadPending={canReadPending}
+          canReadPending={canReadPendingWorkspace}
           onOpenMyWork={() => setView({ kind: 'my-work' })}
           onOpenProjects={() => setView({ kind: 'list' })}
           onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
@@ -2107,7 +2108,8 @@ const mobileNavigationHints: Record<string, string> = {
   '구매': '발주와 입고예정',
   '자재': '입고와 IQC 요청',
   '제조': '패널 시작·체크·완료',
-  'IQC': '수입검사 대기',
+  '품질': '검사·재검사 현황',
+  '물류': '포장·출발·납품',
   '알림': '업무 소식',
   '관리자': '시스템 운영'
 };
@@ -2142,7 +2144,7 @@ function AppNavigation({
             aria-current={item.active ? 'page' : undefined}
             onClick={() => onNavigate(item.view)}
           >
-            <span>{item.label}</span>
+            <span className="app-nav-label"><NavigationIcon label={item.label} /><span>{item.label}</span></span>
             {item.badge && item.badge > 0 ? <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span> : null}
           </button>
         ))}
@@ -2264,11 +2266,7 @@ function AppMobileNavigation({
             aria-labelledby="app-mobile-menu-title"
           >
             <header className="mobile-menu-header">
-              <div className="mobile-menu-shape-lockup" aria-hidden="true">
-                <span data-shape="circle" />
-                <span data-shape="square" />
-                <span data-shape="oval" />
-              </div>
+              <img className="mobile-menu-brand-logo" src={emiLogo} alt="" aria-hidden="true" />
               <div>
                 <p className="eyebrow">EMI WORKSPACE</p>
                 <h2 id="app-mobile-menu-title">전체 업무 메뉴</h2>
@@ -2292,7 +2290,7 @@ function AppMobileNavigation({
                     className="mobile-menu-item-shape"
                     data-shape={mobileNavigationShapeNames[index % mobileNavigationShapeNames.length]}
                     aria-hidden="true"
-                  />
+                  ><NavigationIcon label={item.label} /></span>
                   <span className="mobile-menu-item-copy">
                     <strong>{item.label}</strong>
                     <small>{mobileNavigationHints[item.label] ?? '업무 화면'}</small>
@@ -2315,6 +2313,47 @@ function AppMobileNavigation({
       ) : null}
     </>
   );
+}
+
+function NavigationIcon({ label }: { label: string }) {
+  const common = {
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true
+  };
+
+  switch (label) {
+    case '홈':
+      return <svg {...common}><path d="m3.5 10 8.5-7 8.5 7" /><path d="M5.5 9.5V21h13V9.5" /><path d="M9.5 21v-6h5v6" /></svg>;
+    case '내 업무':
+      return <svg {...common}><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 3.5h6v3H9zM9 11h6M9 15h4" /></svg>;
+    case '프로젝트':
+      return <svg {...common}><path d="M3 7.5h7l2 2h9v10.5H3z" /><path d="M3 7.5V5h7l2 2h7" /></svg>;
+    case 'Pending':
+      return <svg {...common}><path d="M12 3 2.8 20h18.4z" /><path d="M12 9v5M12 17.5h.01" /></svg>;
+    case '생산관리':
+      return <svg {...common}><path d="M4 19V8l5 3V8l5 3V5h6v14z" /><path d="M7 15h2M12 15h2M17 15h1" /></svg>;
+    case '구매':
+      return <svg {...common}><path d="M3 5h2l2 11h10l2-8H6" /><circle cx="9" cy="20" r="1" /><circle cx="17" cy="20" r="1" /></svg>;
+    case '자재':
+      return <svg {...common}><path d="m4 7 8-4 8 4-8 4z" /><path d="m4 7 8 4 8-4v10l-8 4-8-4zM12 11v10" /></svg>;
+    case '제조':
+      return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" /></svg>;
+    case '품질':
+      return <svg {...common}><path d="m12 3 7 3v5c0 4.6-2.8 8-7 10-4.2-2-7-5.4-7-10V6z" /><path d="m8.5 12 2.2 2.2 4.8-5" /></svg>;
+    case '물류':
+      return <svg {...common}><path d="M3 6h11v10H3zM14 9h4l3 3v4h-7z" /><circle cx="7" cy="18" r="2" /><circle cx="18" cy="18" r="2" /></svg>;
+    case '알림':
+      return <svg {...common}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></svg>;
+    case '관리자':
+      return <svg {...common}><circle cx="12" cy="8" r="4" /><path d="M4 21c.8-4.2 3.4-6.5 8-6.5s7.2 2.3 8 6.5" /><path d="m17.5 4.5 1 1 2-2" /></svg>;
+    default:
+      return <svg {...common}><circle cx="12" cy="12" r="8" /></svg>;
+  }
 }
 
 function ShellSwitchControls({

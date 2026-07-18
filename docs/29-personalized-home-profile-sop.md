@@ -40,3 +40,11 @@
 ## 6. 사용자 삭제와 보존
 
 관리자 사용자 purge 시 프로필 사진과 프로필 감사 이벤트는 같은 transaction에서 cascade 삭제된다. append-only audit trigger는 `AdminScheduledDeletionService`가 설정한 transaction-local purge scope에서만 삭제를 허용한다. 다른 업무 참조가 있으면 기존 정책대로 purge를 보류한다.
+
+## 7. Change 002 — 전 부서 운영 메뉴 조회
+
+- 모든 내부 부서에는 운영 메뉴 11개를 동일 순서로 표시한다. 메뉴를 숨겨 입력 권한을 표현하지 않는다.
+- 조회는 `projects.read`와 기존 project access scope를 사용한다. `Project.Read.All`, 판매금액·삭제·감사 조회 권한을 새로 부여하지 않는다.
+- 입력은 각 화면의 기존 mutation permission으로 통제한다. UI 비활성화만 신뢰하지 말고 API의 `POST/PUT/PATCH/DELETE` 403을 함께 확인한다.
+- `관리자` 메뉴는 사용자·권한·감사 개인정보를 포함하므로 기존 관리자 역할에만 표시한다.
+- 운영 점검 시 영업 등 비담당 역할로 자재·IQC 목록 GET이 200인지, 같은 역할의 도착 등록·검사 판정이 403인지 한 쌍으로 확인한다.

@@ -17,6 +17,7 @@ public sealed class MaterialsStore(
         string? supplyType,
         DateOnly? expectedReceiptDateFrom,
         DateOnly? expectedReceiptDateTo,
+        ProjectAccessScope accessScope,
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
@@ -31,6 +32,7 @@ public sealed class MaterialsStore(
             from project_procurement_items item
             join projects project on project.id = item.project_id and project.deleted_at_utc is null
             where item.status = 'Active'
+              and (@has_read_all or project.project_key = any(@project_keys))
               and (@include_completed or not item.receipt_completed)
               and (@supply_type is null or item.supply_type = @supply_type)
               and (@date_from is null or item.expected_receipt_date >= @date_from)
@@ -49,6 +51,8 @@ public sealed class MaterialsStore(
         AddNullableText(command, "supply_type", supplyType);
         AddNullableDate(command, "date_from", expectedReceiptDateFrom);
         AddNullableDate(command, "date_to", expectedReceiptDateTo);
+        command.Parameters.AddWithValue("has_read_all", accessScope.HasProjectReadAll);
+        command.Parameters.AddWithValue("project_keys", accessScope.ProjectKeys.ToArray());
 
         var items = new List<MutableMaterialItem>();
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))

@@ -215,6 +215,17 @@ async function assertCompactMobilePage(page: Page) {
         const rect = element.getBoundingClientRect();
         return rect.width >= 44 && rect.height >= 44;
       }),
+      unsafeButtons: visibleButtons
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            label: element.getAttribute('aria-label') ?? element.textContent?.trim() ?? '',
+            className: element.className,
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          };
+        })
+        .filter((button) => button.width < 44 || button.height < 44),
       appBarHeight: document.querySelector('.mobile-app-bar')?.getBoundingClientRect().height ?? 0,
       menuTriggerSize: (() => {
         const rect = document.querySelector('.mobile-menu-trigger')?.getBoundingClientRect();
@@ -224,7 +235,7 @@ async function assertCompactMobilePage(page: Page) {
     };
   });
   expect(metrics.overflow).toBe(0);
-  expect(metrics.touchTargetsSafe).toBeTruthy();
+  expect(metrics.unsafeButtons).toEqual([]);
   expect(metrics.appBarHeight).toBeLessThanOrEqual(64);
   expect(metrics.menuTriggerSize.width).toBeGreaterThanOrEqual(44);
   expect(metrics.menuTriggerSize.height).toBeGreaterThanOrEqual(44);

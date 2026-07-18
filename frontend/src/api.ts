@@ -529,6 +529,22 @@ export async function exportProjectsExcel(
   return downloadExcelExport(`/api/projects/export${query}`, developmentUserKey, 'EMI_프로젝트.xlsx');
 }
 
+export async function exportSelectedProjectsExcel(
+  developmentUserKey: string | undefined,
+  projectIds: readonly string[]
+): Promise<ExcelExportDownload> {
+  return downloadExcelExport(
+    '/api/projects/export/selected',
+    developmentUserKey,
+    'EMI_프로젝트선택.xlsx',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectIds })
+    }
+  );
+}
+
 export async function getProjectSummary(
   developmentUserKey: string | undefined,
   options: { signal?: AbortSignal } = {}
@@ -2045,11 +2061,12 @@ export type ExcelExportDownload = {
 async function downloadExcelExport(
   path: string,
   developmentUserKey: string | undefined,
-  fallbackFileName: string
+  fallbackFileName: string,
+  init?: RequestInit
 ): Promise<ExcelExportDownload> {
   let response: Response;
   try {
-    response = await fetchWithAuth(path, developmentUserKey);
+    response = await fetchWithAuth(path, developmentUserKey, init);
   } catch (error: unknown) {
     if (isInteractionRequiredAuthError(error)) {
       throw new ApiError(401, '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.');

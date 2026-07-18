@@ -8,7 +8,8 @@ public enum ExcelExportStatus
 {
     Success,
     TooManyRows,
-    Busy
+    Busy,
+    SelectionUnavailable
 }
 
 public sealed record ExcelExportFile(byte[] Content, string FileName, int RowCount);
@@ -73,6 +74,51 @@ public sealed class ExcelExportService(
                 cancellationToken);
 
             return Success(content, "프로젝트", response.Items.Count);
+        }
+    }
+
+    public async Task<ExcelExportResult> ExportSelectedProjectsAsync(
+        Guid actorUserId,
+        IReadOnlyList<Guid> projectIds,
+        ProjectAccessScope accessScope,
+        bool includeSalesAmount,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!concurrencyGate.TryAcquire(out var lease))
+        {
+            return new ExcelExportResult(ExcelExportStatus.Busy);
+        }
+
+        using (lease)
+        {
+            var response = await projectStore.ListSelectedProjectsForExportAsync(
+                projectIds,
+                accessScope,
+                includeSalesAmount,
+                cancellationToken);
+            if (response.TotalCount != projectIds.Count || response.Items.Count != projectIds.Count)
+            {
+                return new ExcelExportResult(ExcelExportStatus.SelectionUnavailable);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var content = workbookBuilder.Build(
+                "프로젝트 목록",
+                "프로젝트",
+                $"선택 프로젝트 {projectIds.Count}건",
+                response.Items,
+                ProjectColumns(includeSalesAmount));
+            cancellationToken.ThrowIfCancellationRequested();
+            await auditStore.AppendSuccessAsync(
+                actorUserId,
+                "ProjectsSelected",
+                response.Items.Count,
+                false,
+                includeSalesAmount,
+                cancellationToken);
+
+            return Success(content, "프로젝트선택", response.Items.Count);
         }
     }
 

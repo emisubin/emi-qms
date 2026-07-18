@@ -54,4 +54,35 @@ describe('ExcelExportAction', () => {
 
     expect(await screen.findByText(new RegExp(message))).toBeInTheDocument();
   });
+
+  it('supports a disabled selection state, custom 422 recovery, and busy notifications', async () => {
+    const onBusyChange = vi.fn();
+    const exportFile = vi.fn().mockRejectedValue(new ApiError(422, '선택한 프로젝트를 내보낼 수 없습니다.'));
+    const { rerender } = render(
+      <ExcelExportAction
+        exportFile={exportFile}
+        scopeLabel="0건 선택"
+        disabled
+        disabledReason="프로젝트를 선택해 주세요."
+      />
+    );
+
+    const button = screen.getByRole('button', { name: /Excel 내보내기/ });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', '프로젝트를 선택해 주세요.');
+
+    rerender(
+      <ExcelExportAction
+        exportFile={exportFile}
+        scopeLabel="2건 선택"
+        unprocessableEntityHint="목록을 새로고침한 뒤 다시 선택해 주세요."
+        onBusyChange={onBusyChange}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Excel 내보내기/ }));
+
+    expect(await screen.findByText(/목록을 새로고침한 뒤 다시 선택해 주세요/)).toBeInTheDocument();
+    expect(onBusyChange).toHaveBeenNthCalledWith(1, true);
+    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+  });
 });

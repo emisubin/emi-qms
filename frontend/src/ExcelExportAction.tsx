@@ -4,22 +4,31 @@ import { ApiError, type ExcelExportDownload } from './api';
 export function ExcelExportAction({
   exportFile,
   scopeLabel,
-  label = 'Excel 내보내기'
+  label = 'Excel 내보내기',
+  disabled = false,
+  disabledReason,
+  unprocessableEntityHint = '조건을 좁혀 다시 시도해 주세요.',
+  onBusyChange
 }: {
   exportFile: () => Promise<ExcelExportDownload>;
   scopeLabel: string;
   label?: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  unprocessableEntityHint?: string;
+  onBusyChange?: (isBusy: boolean) => void;
 }) {
   const [isExporting, setIsExporting] = useState(false);
   const [message, setMessage] = useState('');
   const [tone, setTone] = useState<'success' | 'error'>('success');
 
   async function runExport() {
-    if (isExporting) {
+    if (isExporting || disabled) {
       return;
     }
 
     setIsExporting(true);
+    onBusyChange?.(true);
     setMessage('');
     try {
       const file = await exportFile();
@@ -38,7 +47,9 @@ export function ExcelExportAction({
     } catch (error: unknown) {
       setTone('error');
       if (error instanceof ApiError && error.status === 422) {
-        setMessage(`${error.message} 조건을 좁혀 다시 시도해 주세요.`);
+        setMessage(error.message.includes(unprocessableEntityHint)
+          ? error.message
+          : `${error.message} ${unprocessableEntityHint}`);
       } else if (error instanceof ApiError && error.status === 429) {
         setMessage(`${error.message} 잠시 후 다시 시도해 주세요.`);
       } else {
@@ -46,12 +57,19 @@ export function ExcelExportAction({
       }
     } finally {
       setIsExporting(false);
+      onBusyChange?.(false);
     }
   }
 
   return (
     <div className="excel-export-action">
-      <button type="button" className="excel-export-button" disabled={isExporting} onClick={() => void runExport()}>
+      <button
+        type="button"
+        className="excel-export-button"
+        disabled={isExporting || disabled}
+        title={disabled ? disabledReason : undefined}
+        onClick={() => void runExport()}
+      >
         <span aria-hidden="true">↗</span>
         {isExporting ? '생성 중' : label}
       </button>

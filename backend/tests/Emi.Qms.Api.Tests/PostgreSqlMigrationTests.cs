@@ -294,11 +294,11 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(38L, await ReadScalarAsync<long>(
+        Assert.Equal(39L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0038_data_export_events", await ReadScalarAsync<string>(
+        Assert.Equal("0039_selected_project_export_audit", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -311,6 +311,14 @@ public sealed class PostgreSqlMigrationTests
               and table_name = 'data_export_events';
             """,
             TestContext.Current.CancellationToken));
+        Assert.Contains("ProjectsSelected", await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_data_export_events_kind';
+            """,
+            TestContext.Current.CancellationToken), StringComparison.Ordinal);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
             """

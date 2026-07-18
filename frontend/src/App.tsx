@@ -48,6 +48,7 @@ import {
   exportMyWorkExcel,
   exportProcurementDashboardExcel,
   exportProjectsExcel,
+  exportSelectedProjectsExcel,
   getAdminDashboard,
   getAdminCalendarHolidays,
   getAdminDepartments,
@@ -6545,6 +6546,8 @@ function ProjectListPage({
   const [draftSearch, setDraftSearch] = useState('');
   const [draftDateFrom, setDraftDateFrom] = useState('');
   const [draftDateTo, setDraftDateTo] = useState('');
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
+  const [isSelectedExportBusy, setIsSelectedExportBusy] = useState(false);
   const mobileFilterTriggerRef = useRef<HTMLButtonElement>(null);
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -6578,6 +6581,7 @@ function ProjectListPage({
           return;
         }
 
+        setSelectedProjectIds(new Set());
         setState(response.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: response.items });
       })
       .catch((error: unknown) => {
@@ -6656,6 +6660,32 @@ function ProjectListPage({
     }
   }
 
+  function setProjectSelected(projectId: string, selected: boolean) {
+    if (isSelectedExportBusy) {
+      return;
+    }
+
+    setSelectedProjectIds((current) => {
+      const next = new Set(current);
+      if (selected) {
+        next.add(projectId);
+      } else {
+        next.delete(projectId);
+      }
+      return next;
+    });
+  }
+
+  function setAllVisibleProjectsSelected(selected: boolean) {
+    if (isSelectedExportBusy || state.kind !== 'ready' || tab === 'Deleted') {
+      return;
+    }
+
+    setSelectedProjectIds(selected
+      ? new Set(state.data.map((project) => project.projectId))
+      : new Set());
+  }
+
   return (
     <section className={isMobile ? 'page-surface mobile-first-page mobile-project-list-page' : 'page-surface'}>
       <div className={isMobile ? 'page-header mobile-page-header' : 'page-header'}>
@@ -6709,6 +6739,7 @@ function ProjectListPage({
             type="button"
             className="mobile-filter-trigger"
             aria-expanded={mobileFiltersOpen}
+            disabled={isSelectedExportBusy}
             onClick={() => {
               setDraftSearch(search);
               setDraftDateFrom(dateFrom);
@@ -6729,11 +6760,12 @@ function ProjectListPage({
             fullScreen
             footer={(
               <>
-                <button type="button" onClick={() => { setDraftSearch(''); setDraftDateFrom(''); setDraftDateTo(''); }}>초기화</button>
-                <button type="button" onClick={() => setMobileFiltersOpen(false)}>취소</button>
+                <button type="button" disabled={isSelectedExportBusy} onClick={() => { setDraftSearch(''); setDraftDateFrom(''); setDraftDateTo(''); }}>초기화</button>
+                <button type="button" disabled={isSelectedExportBusy} onClick={() => setMobileFiltersOpen(false)}>취소</button>
                 <button
                   type="button"
                   className="primary-button"
+                  disabled={isSelectedExportBusy}
                   onClick={() => {
                     setSearch(draftSearch);
                     setDateFrom(draftDateFrom);
@@ -6763,19 +6795,20 @@ function ProjectListPage({
         >
           <input
             value={search}
+            disabled={isSelectedExportBusy}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="고객사, Item, PJT Code, PJT Title 검색"
           />
           <label className="date-filter-field">
             <span>시작일</span>
-            <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+            <input type="date" value={dateFrom} disabled={isSelectedExportBusy} onChange={(event) => setDateFrom(event.target.value)} />
           </label>
           <label className="date-filter-field">
             <span>종료일</span>
-            <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+            <input type="date" value={dateTo} disabled={isSelectedExportBusy} onChange={(event) => setDateTo(event.target.value)} />
           </label>
-          <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }}>필터 초기화</button>
-          <button type="submit">검색</button>
+          <button type="button" disabled={isSelectedExportBusy} onClick={() => { setSelectedProjectIds(new Set()); setDateFrom(''); setDateTo(''); }}>필터 초기화</button>
+          <button type="submit" disabled={isSelectedExportBusy}>검색</button>
         </form>
       )}
 
@@ -6790,6 +6823,7 @@ function ProjectListPage({
             role="tab"
             aria-selected={tab === item.value}
             className={tab === item.value ? 'tab-button active' : 'tab-button'}
+            disabled={isSelectedExportBusy}
             onClick={() => setTab(item.value)}
           >
             {item.label}
@@ -6817,6 +6851,34 @@ function ProjectListPage({
       {state.kind === 'empty' ? <p className="empty-text">등록된 프로젝트가 없습니다.</p> : null}
       {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
 
+      {state.kind === 'ready' && tab !== 'Deleted' ? (
+        <section className="project-selection-tray" aria-label="선택 프로젝트 내보내기">
+          <div className="project-selection-summary" aria-live="polite">
+            <strong>{selectedProjectIds.size}개 선택</strong>
+            <small>현재 화면에서 고른 프로젝트만 한 파일로 만듭니다.</small>
+          </div>
+          <div className="project-selection-actions">
+            <ExcelExportAction
+              exportFile={() => exportSelectedProjectsExcel(developmentUserKey, [...selectedProjectIds])}
+              scopeLabel={selectedProjectIds.size === 0 ? '프로젝트를 먼저 선택해 주세요' : `선택 ${selectedProjectIds.size}건만 포함`}
+              label={isMobile ? '선택 Excel' : '선택 Excel 내보내기'}
+              disabled={selectedProjectIds.size === 0}
+              disabledReason="프로젝트를 한 건 이상 선택해 주세요."
+              unprocessableEntityHint="목록을 새로고침한 뒤 다시 선택해 주세요."
+              onBusyChange={setIsSelectedExportBusy}
+            />
+            <button
+              type="button"
+              className="project-selection-clear"
+              disabled={selectedProjectIds.size === 0 || isSelectedExportBusy}
+              onClick={() => setSelectedProjectIds(new Set())}
+            >
+              선택 해제
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       {state.kind === 'ready' ? (
         <ProjectListView
           projects={state.data}
@@ -6826,6 +6888,11 @@ function ProjectListPage({
           onPurged={load}
           onOpen={(projectId) => tab === 'Deleted' ? onOpenDeleted(projectId) : onOpen(projectId)}
           onOpenPending={onOpenPending}
+          selectionEnabled={tab !== 'Deleted'}
+          selectedProjectIds={selectedProjectIds}
+          selectionDisabled={isSelectedExportBusy}
+          onProjectSelectionChange={setProjectSelected}
+          onAllVisibleSelectionChange={setAllVisibleProjectsSelected}
         />
       ) : null}
       {projectExcelMessage ? <p role="alert" className={successMessage(projectExcelMessage) ? 'success-text' : 'error-text'}>{projectExcelMessage}</p> : null}
@@ -6852,7 +6919,12 @@ function ProjectListView({
   developmentUserKey,
   onPurged,
   onOpen,
-  onOpenPending
+  onOpenPending,
+  selectionEnabled,
+  selectedProjectIds,
+  selectionDisabled,
+  onProjectSelectionChange,
+  onAllVisibleSelectionChange
 }: {
   projects: Array<ProjectListItem | DeletedProjectListItem>;
   canReadSalesAmount: boolean;
@@ -6861,14 +6933,19 @@ function ProjectListView({
   onPurged: () => void;
   onOpen: (projectId: string) => void;
   onOpenPending: (projectId: string) => void;
+  selectionEnabled: boolean;
+  selectedProjectIds: ReadonlySet<string>;
+  selectionDisabled: boolean;
+  onProjectSelectionChange: (projectId: string, selected: boolean) => void;
+  onAllVisibleSelectionChange: (selected: boolean) => void;
 }) {
   const isMobile = useIsMobileViewport();
 
   return (
     <div className="project-list">
       {isMobile
-        ? <ProjectListMobile projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} />
-        : <ProjectListDesktop projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} />}
+        ? <ProjectListMobile projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} selectionEnabled={selectionEnabled} selectedProjectIds={selectedProjectIds} selectionDisabled={selectionDisabled} onProjectSelectionChange={onProjectSelectionChange} />
+        : <ProjectListDesktop projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} selectionEnabled={selectionEnabled} selectedProjectIds={selectedProjectIds} selectionDisabled={selectionDisabled} onProjectSelectionChange={onProjectSelectionChange} onAllVisibleSelectionChange={onAllVisibleSelectionChange} />}
     </div>
   );
 }
@@ -7246,6 +7323,46 @@ function ProjectBottleneckBadge({
   );
 }
 
+function ProjectSelectionCheckbox({
+  checked,
+  indeterminate = false,
+  disabled,
+  label,
+  onChange
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  disabled: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+
+  return (
+    <input
+      ref={inputRef}
+      type="checkbox"
+      className="project-selection-checkbox"
+      checked={checked}
+      disabled={disabled}
+      aria-label={label}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+      onChange={(event) => onChange(event.target.checked)}
+    />
+  );
+}
+
+function isInteractiveProjectRowTarget(target: EventTarget | null) {
+  return target instanceof Element && target.closest('input, button, a, select, textarea, summary, [role="button"]') !== null;
+}
+
 function ProjectListDesktop({
   projects,
   canReadSalesAmount,
@@ -7253,7 +7370,12 @@ function ProjectListDesktop({
   developmentUserKey,
   onPurged,
   onOpen,
-  onOpenPending
+  onOpenPending,
+  selectionEnabled,
+  selectedProjectIds,
+  selectionDisabled,
+  onProjectSelectionChange,
+  onAllVisibleSelectionChange
 }: {
   projects: Array<ProjectListItem | DeletedProjectListItem>;
   canReadSalesAmount: boolean;
@@ -7262,10 +7384,29 @@ function ProjectListDesktop({
   onPurged: () => void;
   onOpen: (projectId: string) => void;
   onOpenPending: (projectId: string) => void;
+  selectionEnabled: boolean;
+  selectedProjectIds: ReadonlySet<string>;
+  selectionDisabled: boolean;
+  onProjectSelectionChange: (projectId: string, selected: boolean) => void;
+  onAllVisibleSelectionChange: (selected: boolean) => void;
 }) {
+  const selectedVisibleCount = projects.filter((project) => selectedProjectIds.has(project.projectId)).length;
+  const allVisibleSelected = projects.length > 0 && selectedVisibleCount === projects.length;
+
   return (
-    <div className="project-list-table project-list-desktop" role="table" aria-label="프로젝트 목록" data-testid="project-list-desktop">
+    <div className={selectionEnabled ? 'project-list-table project-list-desktop selectable' : 'project-list-table project-list-desktop'} role="table" aria-label="프로젝트 목록" data-testid="project-list-desktop">
       <div className="project-list-head" role="row">
+        {selectionEnabled ? (
+          <span className="project-selection-cell align-center">
+            <ProjectSelectionCheckbox
+              checked={allVisibleSelected}
+              indeterminate={selectedVisibleCount > 0 && !allVisibleSelected}
+              disabled={selectionDisabled}
+              label="현재 목록 전체 선택"
+              onChange={onAllVisibleSelectionChange}
+            />
+          </span>
+        ) : null}
         <span className="align-left">프로젝트명</span>
         <span className="align-left">고객사</span>
         <span className="align-center">Code</span>
@@ -7281,14 +7422,28 @@ function ProjectListDesktop({
             className="project-list-row"
             role="row"
             tabIndex={0}
-            onClick={() => onOpen(project.projectId)}
+            onClick={(event) => {
+              if (!isInteractiveProjectRowTarget(event.target)) {
+                onOpen(project.projectId);
+              }
+            }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
+              if (!isInteractiveProjectRowTarget(event.target) && (event.key === 'Enter' || event.key === ' ')) {
                 event.preventDefault();
                 onOpen(project.projectId);
               }
             }}
           >
+            {selectionEnabled ? (
+              <span className="project-selection-cell align-center">
+                <ProjectSelectionCheckbox
+                  checked={selectedProjectIds.has(project.projectId)}
+                  disabled={selectionDisabled}
+                  label={`${project.projectCode} ${project.projectTitle} 선택`}
+                  onChange={(selected) => onProjectSelectionChange(project.projectId, selected)}
+                />
+              </span>
+            ) : null}
             <span className="align-left">
               <strong>{project.projectTitle}</strong>
               {'deletedAtUtc' in project ? <small>삭제일시 {formatDateTime(project.deletedAtUtc)}</small> : null}
@@ -7324,7 +7479,11 @@ function ProjectListMobile({
   developmentUserKey,
   onPurged,
   onOpen,
-  onOpenPending
+  onOpenPending,
+  selectionEnabled,
+  selectedProjectIds,
+  selectionDisabled,
+  onProjectSelectionChange
 }: {
   projects: Array<ProjectListItem | DeletedProjectListItem>;
   canReadSalesAmount: boolean;
@@ -7333,14 +7492,28 @@ function ProjectListMobile({
   onPurged: () => void;
   onOpen: (projectId: string) => void;
   onOpenPending: (projectId: string) => void;
+  selectionEnabled: boolean;
+  selectedProjectIds: ReadonlySet<string>;
+  selectionDisabled: boolean;
+  onProjectSelectionChange: (projectId: string, selected: boolean) => void;
 }) {
   return (
     <div className="project-list-cards project-list-mobile" data-testid="project-list-mobile">
       {projects.map((project) => (
         <article key={project.projectId} className="project-list-card" data-testid="project-list-card">
           <div className="subsection-header">
-            <h3>{project.projectTitle}</h3>
-            <button type="button" onClick={() => onOpen(project.projectId)}>상세 보기</button>
+            <div className="project-card-title-row">
+              {selectionEnabled ? (
+                <ProjectSelectionCheckbox
+                  checked={selectedProjectIds.has(project.projectId)}
+                  disabled={selectionDisabled}
+                  label={`${project.projectCode} ${project.projectTitle} 선택`}
+                  onChange={(selected) => onProjectSelectionChange(project.projectId, selected)}
+                />
+              ) : null}
+              <h3>{project.projectTitle}</h3>
+            </div>
+            <button type="button" disabled={selectionDisabled} onClick={() => onOpen(project.projectId)}>상세 보기</button>
           </div>
           <dl className="mobile-detail-list">
             <div><dt>고객사</dt><dd>{project.customerName}</dd></div>

@@ -376,6 +376,42 @@ describe('App', () => {
     expect(screen.getByText('TASK-003A Demo')).toBeInTheDocument();
   });
 
+  it('selects visible projects without opening rows and exports only the selection snapshot', async () => {
+    render(<App />);
+
+    const table = await screen.findByRole('table', { name: '프로젝트 목록' });
+    const exportButton = screen.getByRole('button', { name: '선택 Excel 내보내기' });
+    expect(exportButton).toBeDisabled();
+    expect(screen.getByText('0개 선택')).toBeInTheDocument();
+
+    const firstSelection = within(table).getByRole('checkbox', { name: 'PJT-003A TASK-003A Demo 선택' });
+    const secondSelection = within(table).getByRole('checkbox', { name: 'PJT-003A OnHold Project 선택' });
+    fireEvent.click(firstSelection);
+    fireEvent.click(secondSelection);
+
+    expect(screen.getByText('2개 선택')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
+    expect(exportButton).not.toBeDisabled();
+    expect(within(table).getByRole('checkbox', { name: '현재 목록 전체 선택' })).toBePartiallyChecked();
+
+    fireEvent.click(exportButton);
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining('/api/projects/export/selected'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ projectIds: [projectId, onHoldProjectId] })
+      })
+    ));
+    expect(await screen.findByText('Excel 파일 생성을 완료했습니다')).toBeInTheDocument();
+    expect(screen.getByText('2개 선택')).toBeInTheDocument();
+    expect(firstSelection).toBeChecked();
+    expect(secondSelection).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: '선택 해제' }));
+    expect(screen.getByText('0개 선택')).toBeInTheDocument();
+    expect(exportButton).toBeDisabled();
+  });
+
   it('shows my work and notification pages from the common menu', async () => {
     render(<App />);
 
@@ -624,6 +660,11 @@ describe('App', () => {
 
     const mobileList = await screen.findByTestId('project-list-mobile');
     const firstCard = within(mobileList).getAllByTestId('project-list-card')[0];
+    expect(screen.getByLabelText('선택 프로젝트 내보내기')).toBeInTheDocument();
+    const mobileSelection = within(firstCard).getByRole('checkbox', { name: 'PJT-003A TASK-003A Demo 선택' });
+    fireEvent.click(mobileSelection);
+    expect(screen.getByText('1개 선택')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '선택 Excel' })).not.toBeDisabled();
     expect(firstCard).toHaveTextContent('TASK-003A Demo');
     expect(firstCard).toHaveTextContent('고객사EMI Test Customer');
     expect(firstCard).toHaveTextContent('CodePJT-003A');
@@ -2560,6 +2601,18 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
     await new Promise((resolve) => setTimeout(resolve, 50));
     return json(projectDetail(true, 'Active', body.projectTitle), 201);
+  }
+
+  if (path === '/api/projects/export/selected' && init?.method === 'POST') {
+    const body = JSON.parse(String(init.body)) as { projectIds: string[] };
+    return new Response(new Blob(['selected-xlsx']), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="EMI_selected.xlsx"',
+        'X-Export-Row-Count': String(body.projectIds.length)
+      }
+    });
   }
 
   if (path === '/api/projects') {

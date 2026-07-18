@@ -995,6 +995,7 @@ Excel 출력 대상 후보:
 | 4.1 | TASK-013A 물류 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-012A | 포장 구성·사진·서명본 기준 | Yes | 물류 planning |
 | 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Dependency Pending | Scope Review Required | TASK-007B·013A | 세금계산서·완료 권한 정책 | Yes | 완료 조건 planning |
 | 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | Deferred | Deferred | 주요 data model 안정화 | 개인정보·권한별 export 정책 | Yes | 공통 export planning |
+| 4.3A | TASK-EXPORT-002 선택 프로젝트 Excel export | NEW_FEATURE | Experiment Fast-track Implemented | Automated Validation Complete / User Validation Pending | TASK-EXPORT-001 Phase 1 | 선택 범위·stale 처리·request 상한 | Yes | 사용자 screenshot·파일 검수; 대표 repo·main·게시 제외 |
 | 4.4 | QR 스캔 랜딩 (ID 미정) | NEW_FEATURE | Deferred | Deferred | MOBILE-001·제조 흐름 | 공개/인증 landing 정책 | Yes | 별도 신규 기능 Task 승인 |
 | 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Deferred | Scope Review Required | 기능 흐름 안정화 | Figma Variables·CSS token 기준 | Yes | 기능 변경 없는 component/token 범위 승인 |
 | 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Deferred | Scope Review Required | DESIGN-000 | 홈→내 업무→현장→관리자 순서 | Yes | 화면별 planning과 사용자 승인 |
@@ -1596,6 +1597,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 2026-07-18 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 `TASK-014A` 완료 뒤 “다음작업 시작하라”는 요청에 따라 canonical 다음 `TASK-007A` Gate 및 `Deferred` 상태와 무관하게 현재 실험 계보에서 `TASK-EXPORT-001` 기획·구현을 진행한다. 모든 화면을 한 번에 완료로 가장하지 않고 Fable이 권장하는 서로 다른 우선 화면 vertical slice로 공통 export 구조를 증명하며, 대상 화면·컬럼 선택·row 제한·audit의 미확정 정책은 권장안과 Deferred 경계로 분리한다. canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
 - 2026-07-18 실험 상태: `experiment/task-export-001-excel-export`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 `Phase 1 partial` 구현·자동 검증을 완료하고 사용자 검수 대기로 전환했다. 프로젝트 목록·구매 dashboard·내 업무 3개 화면에 server-side `.xlsx`, 동일 filter/scope query, 매출 권한 column omission, 10,000행 cap, formula-safe text, 2-slot resource fence와 append-only `0038_data_export_events`를 적용했다. desktop·390px screenshot과 isolated Full-Stack E2E를 완료했으며 나머지 화면·삭제 보관함·담당 프로젝트·column picker는 잔여 범위다. 대표 repo·`main`·Persistent UAT·provider·canonical 다음 `TASK-007A` Gate는 변경하지 않는다.
 
+### TASK-EXPORT-002: 선택 프로젝트 Excel 내보내기
+
+- 목적: 프로젝트 목록에서 사용자가 여러 프로젝트를 명시적으로 선택하고 선택한 subset만 단일 Excel 파일로 내려받는다.
+- 포함 범위: desktop·390px selection UX, 선택 집합 permission·scope 재검증, 기존 safe workbook·매출 column gate·resource fence·audit 재사용, 페이지·Excel screenshot.
+- 제외 범위: 다른 화면의 다중 선택, 전체 filter 결과의 전 page 대량 선택, 복합 multi-sheet 보고서, column picker.
+- 선행조건: `TASK-EXPORT-001` Phase 1 공통 export 기반.
+- 주요 테스트: 선택 0/복수/전체, 중복·상한, scope 밖·stale 전체 차단, 선택 row만 포함, 권한별 컬럼, desktop·390px.
+- 2026-07-18 실험 재정렬 승인: 사용자의 명시적 요청과 standing experiment fast-track에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 `experiment/task-export-002-selected-project-export`에서 인터뷰 없이 Fable 1차 기획 → Codex review → Fable 2차 기획 → 구현·검증·screenshot·local commit을 진행한다. 대표 repo·`main`·push·PR·merge·Persistent UAT·provider와 canonical queue는 변경하지 않는다.
+- 2026-07-18 실험 상태: 프로젝트 목록 desktop 행·mobile 카드에서 현재 표시된 프로젝트를 최대 100건까지 선택하고 기존 프로젝트 workbook 형식으로 내보내는 기능을 구현했다. `POST /api/projects/export/selected`는 권한·scope·soft-delete를 한 번에 재검증하고 요청 수와 조회 수가 다르면 generic 422와 file/audit 0건으로 차단한다. additive migration `0039`로 `ProjectsSelected` audit kind를 추가했으며 desktop·390px·실제 Excel screenshot, Backend 385 tests, Frontend 90 tests와 관련 isolated Full-Stack E2E를 완료했다. 사용자 screenshot·파일 검수 대기이며 대표 repo·`main`·push·PR·merge·Persistent UAT·provider와 canonical `TASK-007A` Gate는 변경하지 않는다.
+
 ### DESIGN-000 이후: 시각 토큰과 화면 통일
 
 - DESIGN-000은 Figma Variables, CSS token과 공통 component kit만 다루며 기능 변경을 포함하지 않는다.
@@ -1693,6 +1704,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 86 | Local GitHub 폴더 최종 정리 | 최종 삭제·자동·독립 검증·사용자 검수·PR #52 merge 완료 | 사용자/개발 | TASK-GOV-CODEX-002 Change 006 | 최상위 폴더 `6→3→2`. Dirty checkout 6개·local branch 32개 exact audit 뒤 보존 폴더를 영구 삭제. Docker stale handle `4→0`, 동일 PostgreSQL volume·DB aggregate·대표·디자인 runtime 보존 |
 | 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | 완료 / 독립 재검증·CI 3/3·PR #55 squash merge / Open P0/P1/P2/P3 `0/0/0/0` | 사용자/기획/개발 | TASK-USER-FLOW-001 Change 004 | 개인 개발 판단 자료. Fable direct-write 원문·확정/권고/미확정 경계·병렬 dependency map·vertical slice를 반영했으며 제품 구현·Phase B는 미승인 |
 | 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / Governance merge 승인 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Governance merge 뒤 USER-FLOW를 최신 main에서 별도 처리 |
+| 89 | 선택 프로젝트 Excel 내보내기 | Experiment 구현·자동 검증 완료 / 사용자 검수 대기 | 사용자/개발 | TASK-EXPORT-002 | 선택 subset·전부-or-전무 scope 검증·`ProjectsSelected` audit·desktop/mobile/Excel screenshot 완료. 대표 repo·main·Persistent UAT·게시 제외 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -1851,6 +1863,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-16 | TASK-USER-FLOW-001 Change 004의 Fable redraft를 실행하고 개인 개발 판단 자료로 내용 review | Canonical·온보딩·Phase B·전수 갱신 의무를 제거하고 병렬 업무 단위·최소 vertical slice·복구 질문·성공 신호를 보강하되 권고를 제품 구현 승인과 분리하기 위함 | 23장~25장, TASK-USER-FLOW-001 Change 004 |
 | 2026-07-16 | TASK-USER-FLOW-001 독립 검증 P2를 보정하고 재검증·별도 merge 승인 완료 | Roadmap 23절의 오래된 공통 서문이 USER-FLOW planning·review·문서 승인과 충돌해 이를 후속 기능 미승인 상태와 분리했고, 재검증에서 Open P0/P1/P2/P3 `0/0/0/0`, publication `GO`를 확인했기 때문 | 23장~25장, TASK-USER-FLOW-001 Change 004 |
 | 2026-07-16 | TASK-USER-FLOW-001 Ready PR #55의 CI 3/3과 squash merge를 완료하고 closure 상태를 동기화 | 다음 Task가 이미 끝난 게시 Gate를 다시 대기 상태로 읽지 않게 하고 canonical Next Gate를 TASK-007A Fable deep-interview로 전환하기 위함. 제품 구현·Phase B·branch 삭제는 포함하지 않음 | 23장~25장, TASK-USER-FLOW-001 Change 004 |
+| 2026-07-18 | TASK-EXPORT-002 선택 프로젝트 Excel 내보내기를 experiment fast-track으로 진행 | 기존 TASK-EXPORT-001의 filter 결과 전체 export를 보존하면서 사용자가 명시적으로 선택한 프로젝트 subset만 파일로 만드는 신규 능력을 검증하고, canonical TASK-007A·대표 repo·main·Persistent UAT·게시 경계를 유지하기 위함 | 19장·23장~25장, TASK-EXPORT-002 |
+| 2026-07-18 | TASK-EXPORT-002를 experiment branch에 구현하고 자동 검증 완료·사용자 검수 대기로 전환 | 선택 3건 중 2건 workbook, 전부-or-전무 권한/scope 차단, additive audit migration, desktop·390px·실제 Excel screenshot을 확인했으며 canonical queue와 게시 경계를 그대로 유지하기 위함 | 19장·23장~25장, TASK-EXPORT-002 구현 보고서 |
 
 ## 26. 용어 사전
 

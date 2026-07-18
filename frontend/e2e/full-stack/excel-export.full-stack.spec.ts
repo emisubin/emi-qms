@@ -61,7 +61,7 @@ test('TASK-EXPORT-001: three screens export formula-safe workbooks on desktop an
 });
 
 async function exportAndVerify(page: Page) {
-  const action = page.getByRole('button', { name: /Excel 내보내기/ });
+  const action = page.getByRole('button', { name: 'Excel 내보내기', exact: true });
   await expect(action).toBeVisible();
   const [download] = await Promise.all([
     page.waitForEvent('download'),

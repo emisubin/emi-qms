@@ -95,6 +95,7 @@ public sealed class ProjectStore(
             includeSalesAmount,
             includePendingInsights,
             100,
+            null,
             cancellationToken);
     }
 
@@ -114,6 +115,26 @@ public sealed class ProjectStore(
             includeSalesAmount,
             false,
             rowLimit,
+            null,
+            cancellationToken);
+    }
+
+    public Task<ProjectListResponse> ListSelectedProjectsForExportAsync(
+        IReadOnlyList<Guid> projectIds,
+        ProjectAccessScope accessScope,
+        bool includeSalesAmount,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(projectIds.Count, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(projectIds.Count, 100);
+
+        return ListProjectsAsync(
+            new ProjectListQuery(null, "All", null, null, null, false, 1, projectIds.Count),
+            accessScope,
+            includeSalesAmount,
+            false,
+            projectIds.Count,
+            projectIds,
             cancellationToken);
     }
 
@@ -123,12 +144,22 @@ public sealed class ProjectStore(
         bool includeSalesAmount,
         bool includePendingInsights,
         int maximumPageSize,
+        IReadOnlyList<Guid>? projectIds,
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
         var where = new List<string>();
         var parameters = new List<NpgsqlParameter>();
         where.Add("projects.deleted_at_utc is null");
+
+        if (projectIds is not null)
+        {
+            where.Add("projects.id = any(@project_ids)");
+            parameters.Add(new NpgsqlParameter("project_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+            {
+                Value = projectIds.ToArray()
+            });
+        }
 
         if (!string.IsNullOrWhiteSpace(query.Status) && !string.Equals(query.Status, "All", StringComparison.OrdinalIgnoreCase))
         {

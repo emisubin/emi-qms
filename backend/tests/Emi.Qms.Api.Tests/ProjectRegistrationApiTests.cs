@@ -1807,6 +1807,10 @@ public sealed class ProjectRegistrationApiTests
         var unique = Guid.NewGuid().ToString("N")[..8];
         var projectTitle = $"Export Project {unique}";
         var projectId = await CreateProjectAndReadIdAsync(salesClient, $"EXPORT-{unique}", projectTitle, 1);
+        var selectedProjectTitle = $"Selection Candidate {unique}";
+        var selectedProjectId = await CreateProjectAndReadIdAsync(salesClient, $"SELECT-{unique}", selectedProjectTitle, 1);
+        var unselectedProjectTitle = $"Selection Excluded {unique}";
+        await CreateProjectAndReadIdAsync(salesClient, $"EXCLUDE-{unique}", unselectedProjectTitle, 1);
         await context.ExecuteSqlAsync($"update projects set customer_name = '=1+1' where id = '{projectId}';");
 
         using var denied = await noRoleClient.GetAsync("/api/projects/export", TestContext.Current.CancellationToken);
@@ -1824,6 +1828,77 @@ public sealed class ProjectRegistrationApiTests
             Assert.Equal(HttpStatusCode.TooManyRequests, busy.StatusCode);
         }
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from data_export_events;"));
+
+        using var deniedSelected = await noRoleClient.PostAsJsonAsync(
+            "/api/projects/export/selected",
+            new { projectIds = new[] { projectId.ToString() } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedSelected.StatusCode);
+        using var emptySelected = await salesClient.PostAsJsonAsync(
+            "/api/projects/export/selected",
+            new { projectIds = Array.Empty<string>() },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, emptySelected.StatusCode);
+        using var missingBodySelected = await salesClient.SendAsync(
+            new HttpRequestMessage(HttpMethod.Post, "/api/projects/export/selected"),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, missingBodySelected.StatusCode);
+        using var malformedSelected = await salesClient.PostAsJsonAsync(
+            "/api/projects/export/selected",
+            new { projectIds = new[] { "not-a-guid" } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, malformedSelected.StatusCode);
+        using var duplicateSelected = await salesClient.PostAsJsonAsync(
+            "/api/projects/export/selected",
+            new { projectIds = new[] { projectId.ToString(), projectId.ToString() } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, duplicateSelected.StatusCode);
+        using var oversizedSelected = await salesClient.PostAsJsonAsync(
+            "/api/projects/export/selected",
+            new { projectIds = Enumerable.Range(0, 101).Select(_ => Guid.NewGuid().ToString()).ToArray() },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, oversizedSelected.StatusCode);
+        using var unavailableSelected = await salesClient.PostAsJsonAsync(
+            "/api/projects/export/selected",
+            new { projectIds = new[] { projectId.ToString(), Guid.NewGuid().ToString() } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, unavailableSelected.StatusCode);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from data_export_events;"));
+
+        using var selectedExport = await salesClient.PostAsJsonAsync(
+            "/api/projects/export/selected",
+            new { projectIds = new[] { selectedProjectId.ToString(), projectId.ToString() } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, selectedExport.StatusCode);
+        Assert.Equal("2", selectedExport.Headers.GetValues("X-Export-Row-Count").Single());
+        using (var workbook = new XLWorkbook(new MemoryStream(await selectedExport.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken))))
+        {
+            var worksheet = workbook.Worksheet("프로젝트");
+            var exportedTitles = worksheet.Range(6, 2, worksheet.LastRowUsed()!.RowNumber(), 2)
+                .Cells()
+                .Select(cell => cell.GetString())
+                .ToList();
+            Assert.Contains(projectTitle, exportedTitles);
+            Assert.Contains(selectedProjectTitle, exportedTitles);
+            Assert.DoesNotContain(unselectedProjectTitle, exportedTitles);
+            Assert.Equal(2, exportedTitles.Count);
+            Assert.Equal("선택 프로젝트 2건", worksheet.Cell(3, 2).GetString());
+            Assert.DoesNotContain(worksheet.CellsUsed(), cell => cell.HasFormula);
+        }
+
+        using var nonSensitiveSelectedExport = await procurementClient.PostAsJsonAsync(
+            "/api/projects/export/selected",
+            new { projectIds = new[] { projectId.ToString() } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, nonSensitiveSelectedExport.StatusCode);
+        using (var workbook = new XLWorkbook(new MemoryStream(await nonSensitiveSelectedExport.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken))))
+        {
+            var headers = workbook.Worksheet("프로젝트").Row(5).CellsUsed().Select(cell => cell.GetString()).ToList();
+            Assert.DoesNotContain("매출액", headers);
+            Assert.DoesNotContain("통화", headers);
+        }
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("select count(*) from data_export_events where export_kind = 'ProjectsSelected';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from data_export_events where export_kind = 'ProjectsSelected' and sensitive_sales_amount_included;"));
 
         using var projectExport = await salesClient.GetAsync(
             $"/api/projects/export?search={Uri.EscapeDataString(projectTitle)}",
@@ -1872,7 +1947,7 @@ public sealed class ProjectRegistrationApiTests
             Assert.DoesNotContain("업무 ID", headers);
         }
 
-        Assert.Equal(4L, await context.ReadScalarAsync<long>("select count(*) from data_export_events;"));
+        Assert.Equal(6L, await context.ReadScalarAsync<long>("select count(*) from data_export_events;"));
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from data_export_events where row_count < 0 or row_count > 10000;"));
         var updateAudit = await Assert.ThrowsAsync<PostgresException>(() => context.ExecuteSqlAsync("update data_export_events set filters_applied = false;"));
         Assert.Equal(PostgresErrorCodes.RaiseException, updateAudit.SqlState);

@@ -140,7 +140,7 @@
 
 .app-shell[data-layout-mode='mobile'] .page-export-actions .excel-export-button {
   width: 100%;
-  min-height: 36px;
+  min-height: 44px;
   padding: 6px 9px;
   font-size: 0.7rem;
 }
@@ -4590,6 +4590,98 @@ h3 {
   min-width: 980px;
   align-items: center;
   gap: 10px;
+}
+
+.project-list-desktop.selectable .project-list-head,
+.project-list-desktop.selectable .project-list-row {
+  grid-template-columns: 42px minmax(180px, 1.45fr) minmax(130px, 1fr) minmax(100px, 0.75fr) minmax(130px, 1fr) 72px 108px 100px 86px;
+  min-width: 1028px;
+}
+
+.project-selection-cell {
+  display: grid;
+  min-width: 0;
+  place-items: center;
+}
+
+.project-selection-checkbox {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border-radius: 5px;
+  accent-color: var(--brand-red);
+  cursor: pointer;
+}
+
+.project-selection-checkbox:disabled {
+  cursor: wait;
+}
+
+.project-list-row:has(.project-selection-checkbox:checked),
+.project-list-card:has(.project-selection-checkbox:checked) {
+  border-color: rgb(218 33 39 / 45%);
+  background: linear-gradient(135deg, #ffffff, var(--brand-red-wash));
+  box-shadow: 0 10px 22px rgb(218 33 39 / 9%);
+}
+
+.project-selection-tray {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid #ded4d6;
+  border-left: 6px solid var(--brand-red);
+  border-radius: 6px 24px 24px 6px;
+  background: linear-gradient(100deg, #ffffff, #fff7f7);
+  padding: 10px 12px 10px 16px;
+  box-shadow: 0 9px 22px rgb(67 28 30 / 7%);
+}
+
+.project-selection-summary {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-selection-summary strong {
+  color: var(--brand-red-deep);
+  font-size: 0.94rem;
+}
+
+.project-selection-summary small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.project-selection-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.project-selection-actions .excel-export-action {
+  min-width: 190px;
+}
+
+.app-shell .project-selection-clear {
+  min-height: 38px;
+  border-radius: 4px;
+  background: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.project-card-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.project-card-title-row h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .project-list-head {
@@ -10855,6 +10947,76 @@ body {
 
   .app-shell[data-layout-mode='mobile'] .material-summary-strip button span {
     letter-spacing: -0.04em;
+  }
+}
+
+@media (max-width: 860px) {
+  .app-shell[data-layout-mode='mobile'] .excel-export-button {
+    min-height: 44px;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-selection-tray {
+    display: grid;
+    grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
+    gap: 8px;
+    border-left-width: 4px;
+    border-radius: 4px 18px 18px 4px;
+    padding: 8px 9px 8px 11px;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-selection-summary strong {
+    font-size: 0.78rem;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-selection-summary small {
+    font-size: 0.58rem;
+    line-height: 1.25;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-selection-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-selection-actions .excel-export-action {
+    min-width: 0;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-selection-actions .excel-export-button {
+    min-height: 44px;
+    padding: 5px 8px;
+    font-size: 0.66rem;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-selection-actions .excel-export-scope,
+  .app-shell[data-layout-mode='mobile'] .project-selection-actions .excel-export-feedback {
+    max-width: 100%;
+    padding-inline: 3px;
+    font-size: 0.54rem;
+    white-space: normal;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-selection-clear {
+    min-height: 44px;
+    padding-inline: 8px;
+    border-radius: 999px;
+    font-size: 0.62rem;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-selection-checkbox {
+    width: 22px;
+    height: 22px;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-list-card .subsection-header {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .project-card-title-row {
+    align-items: flex-start;
+    gap: 8px;
   }
 }
 

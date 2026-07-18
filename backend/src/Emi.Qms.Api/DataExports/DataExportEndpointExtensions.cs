@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Procurement;
@@ -78,6 +79,41 @@ public static class DataExportEndpointExtensions
         })
         .RequireAuthorization()
         .WithName("ExportProjects");
+
+        app.MapPost("/api/projects/export/selected", async (
+            HttpRequest request,
+            HttpContext httpContext,
+            ExcelExportService exportService,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            if (!ProjectEndpointExtensions.HasPermission(user, QmsPermissions.ProjectRead))
+            {
+                return Results.Forbid();
+            }
+
+            var actorUserId = ProjectEndpointExtensions.GetCurrentUserId(user);
+            if (actorUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var parsed = await ParseSelectedProjectIdsAsync(request, cancellationToken);
+            if (parsed.Error is not null)
+            {
+                return parsed.Error;
+            }
+
+            var result = await exportService.ExportSelectedProjectsAsync(
+                actorUserId.Value,
+                parsed.ProjectIds!,
+                ProjectEndpointExtensions.GetProjectAccessScope(user),
+                ProjectEndpointExtensions.CanReadSalesAmount(user),
+                cancellationToken);
+            return ToResult(result, httpContext);
+        })
+        .RequireAuthorization()
+        .WithName("ExportSelectedProjects");
 
         app.MapGet("/api/procurement/dashboard/export", async (
             HttpRequest request,
@@ -180,6 +216,14 @@ public static class DataExportEndpointExtensions
                 statusCode: StatusCodes.Status429TooManyRequests);
         }
 
+        if (result.Status == ExcelExportStatus.SelectionUnavailable)
+        {
+            return Results.Problem(
+                title: "선택한 프로젝트 중 내보낼 수 없는 항목이 있습니다.",
+                detail: "목록을 새로고침한 뒤 다시 선택해 주세요.",
+                statusCode: StatusCodes.Status422UnprocessableEntity);
+        }
+
         if (result.File is null)
         {
             return Results.Problem(statusCode: StatusCodes.Status500InternalServerError);
@@ -198,6 +242,62 @@ public static class DataExportEndpointExtensions
             new Dictionary<string, string[]> { [key] = ["지원하지 않는 필터 값입니다."] },
             statusCode: StatusCodes.Status422UnprocessableEntity,
             title: "조회 조건을 확인해 주세요.");
+    }
+
+    private static async Task<SelectedProjectIdsParseResult> ParseSelectedProjectIdsAsync(
+        HttpRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = await JsonDocument.ParseAsync(request.Body, cancellationToken: cancellationToken);
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("projectIds", out var projectIdsElement)
+                || projectIdsElement.ValueKind != JsonValueKind.Array)
+            {
+                return InvalidSelectedProjectIds("프로젝트 ID 목록을 배열로 입력해 주세요.");
+            }
+
+            var projectIds = new List<Guid>();
+            var uniqueProjectIds = new HashSet<Guid>();
+            foreach (var element in projectIdsElement.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.String
+                    || !Guid.TryParse(element.GetString()?.Trim(), out var projectId))
+                {
+                    return InvalidSelectedProjectIds("올바른 프로젝트 ID를 입력해 주세요.");
+                }
+
+                if (!uniqueProjectIds.Add(projectId))
+                {
+                    return InvalidSelectedProjectIds("중복되지 않은 프로젝트를 선택해 주세요.");
+                }
+
+                projectIds.Add(projectId);
+                if (projectIds.Count > 100)
+                {
+                    return InvalidSelectedProjectIds("프로젝트는 한 번에 최대 100건까지 선택할 수 있습니다.");
+                }
+            }
+
+            return projectIds.Count == 0
+                ? InvalidSelectedProjectIds("내보낼 프로젝트를 한 건 이상 선택해 주세요.")
+                : new SelectedProjectIdsParseResult(projectIds, null);
+        }
+        catch (JsonException)
+        {
+            return InvalidSelectedProjectIds("프로젝트 ID 목록을 확인해 주세요.");
+        }
+    }
+
+    private static SelectedProjectIdsParseResult InvalidSelectedProjectIds(string message)
+    {
+        return new SelectedProjectIdsParseResult(
+            null,
+            Results.ValidationProblem(
+                new Dictionary<string, string[]> { ["projectIds"] = [message] },
+                statusCode: StatusCodes.Status422UnprocessableEntity,
+                title: "선택 프로젝트를 확인해 주세요."));
     }
 
     private static string FilterValue(string? value)
@@ -226,4 +326,6 @@ public static class DataExportEndpointExtensions
             _ => status
         };
     }
+
+    private sealed record SelectedProjectIdsParseResult(IReadOnlyList<Guid>? ProjectIds, IResult? Error);
 }

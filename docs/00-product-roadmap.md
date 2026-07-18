@@ -999,7 +999,7 @@ Excel 출력 대상 후보:
 | 4.4 | QR 스캔 랜딩 (ID 미정) | NEW_FEATURE | Deferred | Deferred | MOBILE-001·제조 흐름 | 공개/인증 landing 정책 | Yes | 별도 신규 기능 Task 승인 |
 | 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Deferred | Scope Review Required | 기능 흐름 안정화 | Figma Variables·CSS token 기준 | Yes | 기능 변경 없는 component/token 범위 승인 |
 | 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Deferred | Scope Review Required | DESIGN-000 | 홈→내 업무→현장→관리자 순서 | Yes | 화면별 planning과 사용자 승인 |
-| 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Deferred | Scope Review Required | 공통 feedback contract | 화면별 범위 팽창 방지 | Yes | A1 planning 후 A2 분리 |
+| 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment A1 Implemented | Automated Validation Complete / User Validation Pending | A1 공통 contract·내 업무·알림 구현, A2 분리 | 대표 repo·main·Persistent UAT 미반영 | Yes | A1 screenshot 사용자 검수 후 A2 별도 planning; 게시·main 반영 제외 |
 | 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Deferred | Scope Review Required | TASK-NOTIFY-004 범위 확정 | 필수 알림 opt-out·taxonomy 정책 | Yes | 별도 planning·정책 승인 |
 | 6.1 | 운영 전환 (Task ID 미정) | UAT_RUNTIME | Deferred | Scope Review Required | 기능·P2·design gate 완료 | hosting/domain, redirect URI, Teams catalog, provider, 교육 | Yes | 운영 전환 Task와 rollback 승인 |
 
@@ -1434,15 +1434,17 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-UX-001: 기존 업무 화면 Action Feedback UX 확대
 
-- 상태/권장 순서: 계획 / 후속 기능 후보 A
+- 상태/권장 순서: A1 experiment 구현·자동 검증 완료 / 사용자 검수 대기 / A2 Deferred
 - 목적: 저장·삭제·복구·발송 결과와 validation 오류를 사용자의 action 위치에서 즉시 이해하고 다음 행동으로 이어지게 한다.
-- 포함 범위: A1 공통 feedback contract와 내 업무/알림, A2 생산계획/구매/자재/패널/Excel 화면의 inline feedback·field error·focus·`aria-live` 적용
+- A1 구현 범위: 공통 `useActionFeedback`, 내 업무 완료·이동/시작, 알림 개별·전체 읽음의 구조화 loading/success/error/partial, scope 잠금, post-mutation refresh·generation guard, row/contextual placement, error/partial focus와 `aria-live`
+- A2 Deferred 범위: 생산계획/구매/자재/패널/Excel 화면의 inline feedback·field error·focus·`aria-live` 확대
 - 제외 범위: 업무 규칙 변경, API 계약의 기능 확장, 알림 delivery 재처리 로직, 사용자 preference
-- 선행조건: 공통 feedback, field error, focus, `aria-live`, target-not-found 계약 확정. A1 검수 후 A2를 진행한다.
+- 선행조건: A1 screenshot 사용자 검수 후 A2를 별도 신규 기능 planning으로 진행한다. A1은 experiment local commit이며 대표 repo·`main`·Persistent UAT에는 반영하지 않는다.
 - 예상 migration: 없음 예상. API 오류 계약 보정이 필요하면 runtime 범위를 Task 안에서 별도 명시한다.
-- backend/frontend 영향: frontend 공통 component/hook와 각 업무 화면이 중심이며, backend는 일관된 field error 응답 확인 범위다.
-- 핵심 검수 기준: action 인접 성공/실패 표시, 첫 오류 focus, screen reader 안내, 중복 submit 방지, loading/error/empty/target-not-found 다음 행동 안내, 모바일 overflow 회귀 없음
+- backend/frontend 영향: A1은 Frontend 공통 hook·기존 component·두 화면만 변경했고 Backend/API/DB/migration은 변경하지 않았다.
+- 핵심 검수 기준: action 인접 loading/error, 행 제거 뒤 contextual success/partial, 첫 오류·partial focus, screen reader 안내, 중복 submit과 bulk/row 충돌 방지, 기존 목록·선택 보존, 모바일 overflow 0
 - 주요 위험: 화면별 임시 구현으로 contract가 분산되는 문제, 상단 banner와 inline feedback 중복, focus 이동 회귀, A1/A2 범위 팽창
+- 산출물: [Fable 2차 기획](25-action-feedback-a1-plan.md), [Implementation report](../tasks/ux-001-implementation-report.md), [Screenshots](../tasks/ux-001-screenshots)
 
 ### TASK-NOTIFY-005: 사용자별 알림 설정
 
@@ -1456,7 +1458,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 핵심 검수 기준: 필수 알림 해제 차단, 기본값 호환, event/channel별 저장과 재로그인 유지, 인앱 원본 보존, preference 변경 audit, 외부 delivery 생성 여부 검증
 - 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
 
-현재 canonical 순서는 이 장 시작의 실행 큐를 따른다. TASK-NOTIFY-REL-001과 TASK-NOTIFY-ESC-001 완료 범위는 TASK-NOTIFY-004에서 재구현하지 않는다. TASK-UX-001과 TASK-NOTIFY-005는 큐에서 Deferred로 유지한다. Phase 0 Finding gate는 Open P0/P1/P2 `0/0/0`을 확인했고 사용자가 0.6 신규 기능 GO를 승인했다. 명시적 재정렬에 따라 TASK-USER-FLOW-001의 기획·검토를 TASK-007A보다 먼저 수행하며, 이 순서 승인은 개별 기능의 planning·implementation 승인을 대신하지 않는다.
+현재 canonical 순서는 이 장 시작의 실행 큐를 따른다. TASK-NOTIFY-REL-001과 TASK-NOTIFY-ESC-001 완료 범위는 TASK-NOTIFY-004에서 재구현하지 않는다. TASK-UX-001 A1은 명시적 experiment 재정렬로 local 구현됐지만 대표 repo·`main`에는 반영되지 않았고 사용자 검수와 A2는 Deferred다. TASK-NOTIFY-005도 큐에서 Deferred로 유지한다. Phase 0 Finding gate는 Open P0/P1/P2 `0/0/0`을 확인했고 사용자가 0.6 신규 기능 GO를 승인했다. 명시적 재정렬에 따라 TASK-USER-FLOW-001의 기획·검토를 TASK-007A보다 먼저 수행하며, 이 순서 승인은 개별 기능의 planning·implementation 승인을 대신하지 않는다.
 
 ### TASK-USER-FLOW-001: 웹사이트 전체 유저플로우 설계
 
@@ -1676,7 +1678,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 48 | 전체 field-level audit 확장 | 미확정 | 사용자/운영 | Audit 후속 | ADMIN-001은 관리자 변경 이력 중심 |
 | 49 | 관리자 모바일 UX 고도화 | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001은 page-level overflow 방지 기준으로 검수 |
 | 50 | 외부 알림 delivery 동시성·실패 재처리 | 정책 결정·사용자 검수 완료 / PR #44 squash merge 승인 | 개발/운영 | TASK-NOTIFY-004 | claim/lease·automatic retry·attempt lineage·provider 오류 분류·starvation은 완료. Terminal Failed는 최종 상태로 유지하고 수동 재처리는 별도 신규 기능으로 Deferred |
-| 51 | 기존 업무 화면 Action Feedback UX | 계획 | 사용자/개발 | TASK-UX-001 | A1 공통 계약과 내 업무/알림을 먼저 검수한 뒤 A2 업무 화면으로 확대 |
+| 51 | 기존 업무 화면 Action Feedback UX | A1 experiment 구현·자동 검증 완료 / 사용자 검수 대기 | 사용자/개발 | TASK-UX-001 | A1 공통 hook·내 업무·알림 screenshot 검수 후 A2를 별도 planning; 대표 repo·main 미반영 |
 | 52 | 사용자별 알림 설정 | 계획 | 사용자/운영 | TASK-NOTIFY-005 | NOTIFY-004 완료와 필수 알림 opt-out/channel taxonomy 결정이 선행 |
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
 | 54 | Full-Stack E2E PostgreSQL 물리 격리 | 완료 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 squash merge `45fd61c` |
@@ -1771,6 +1773,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-10 | 사용자 검수 증빙은 역할명 또는 익명 사용자 A/B만 기록하고 실제 실명·회사 이메일·UPN은 기록하지 않는다 | tracked 문서의 개인정보 노출을 방지하면서 검수 흐름과 증빙 의미를 보존하기 위함 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) |
 | 2026-07-10 | Teams Activity Feed provider/capability 완료와 개별 자동 event coverage를 별도 상태로 관리 | provider가 activity type을 처리할 수 있다는 사실만으로 event delivery 연결까지 완료 처리하지 않기 위함 | 6장, 21장, 23장 |
 | 2026-07-10 | 후속 기능 후보 B/A/C의 상대 순서는 TASK-NOTIFY-004 → TASK-UX-001 → TASK-NOTIFY-005 | delivery 신뢰성을 먼저 확립하고 공통 feedback을 분리 검수한 뒤 preference를 적용하기 위함. 전역 No-Go remediation 선행 순서는 별도 행을 따른다 | 23장, 24장 |
+| 2026-07-18 | TASK-UX-001은 experiment fast-track에서 A1 공통 feedback과 내 업무·알림만 먼저 구현하고 A2 화면 확대를 별도 planning으로 유지 | 행이 active tab에서 사라져도 결과를 보존하면서 화면별 임시 구현과 범위 팽창을 막고, 대표 repo·main 반영 전 모바일·데스크톱 사용성을 먼저 검수하기 위함 | 23장, TASK-UX-001 |
 | 2026-07-10 | 기존 `docs/task-close-process-guidelines`의 유효 규칙은 BASELINE-GOV-001 canonical 정책에 수동 통합하고 기존 branch는 대체 상태로 보존 | 오래된 branch를 merge/cherry-pick하지 않고 5종 산출물·검수 상태를 포함한 최신 정책으로 drift를 해소하기 위함 | 23장, [Task 종료 및 산출물 정책](12-task-completion-policy.md) |
 | 2026-07-10 | Git history 개인정보는 current checkout 비식별화와 분리해 risk decision으로 관리 | history rewrite는 commit hash와 협업 branch를 변경하는 별도 승인 작업이기 때문 | 24장 |
 | 2026-07-10 | 전역 No-Go remediation은 TASK-UAT-001 → TASK-SEC-001 → TASK-NOTIFY-004 → TASK-AUTH-001 순서로 수행(당시 결정, 다음 행의 현재 순서로 대체됨) | 안전한 검수 기반, dependency 보안, 외부 delivery 동시성, 마지막 관리자 경쟁 조건을 신규 기능보다 먼저 해소하기 위함 | 23장, 24장 |

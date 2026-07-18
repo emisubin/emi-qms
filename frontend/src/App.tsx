@@ -12,6 +12,7 @@ import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
 import { QualityInspectionsPage } from './QualityInspectionsPage';
 import { SalesSettlementPage } from './SalesSettlementPage';
+import { useActionFeedback, type ActionFeedbackTone } from './useActionFeedback';
 import type { QualityInspectionStage } from './qualityInspections';
 import type { LogisticsStage } from './logistics';
 import {
@@ -5529,76 +5530,103 @@ function MyWorkPage({
   const [itemsState, setItemsState] = useState<LoadState<MyWorkListResponse>>({ kind: 'loading' });
   const [assignedProjectsState, setAssignedProjectsState] = useState<LoadState<MyAssignedProjectsResponse>>({ kind: 'loading' });
   const [activeTab, setActiveTab] = useState<MyWorkTab>('Requested');
-  const [message, setMessage] = useState('');
-  const [movingWorkItemId, setMovingWorkItemId] = useState<string | null>(null);
+  const activeTabRef = useRef<MyWorkTab>('Requested');
+  const loadGenerationRef = useRef(0);
+  const actions = useActionFeedback();
   const isMobile = useIsMobileViewport();
 
-  const load = useCallback(() => {
-    setSummaryState({ kind: 'loading' });
-    setItemsState({ kind: 'loading' });
-    const workPromise = activeTab === 'AssignedProjects'
+  const load = useCallback(async (mode: 'replace' | 'preserve' = 'replace'): Promise<boolean> => {
+    const generation = ++loadGenerationRef.current;
+    const tab = activeTabRef.current;
+    if (mode === 'replace') {
+      setSummaryState({ kind: 'loading' });
+      setItemsState({ kind: 'loading' });
+      setAssignedProjectsState({ kind: 'loading' });
+    }
+    const workPromise = tab === 'AssignedProjects'
       ? Promise.resolve<MyWorkListResponse>({ items: [] })
-      : listMyWorkItems(developmentUserKey, activeTab === 'All' ? undefined : activeTab);
-    const assignedProjectsPromise = activeTab === 'AssignedProjects'
+      : listMyWorkItems(developmentUserKey, tab === 'All' ? undefined : tab);
+    const assignedProjectsPromise = tab === 'AssignedProjects'
       ? listMyAssignedProjects(developmentUserKey)
       : Promise.resolve<MyAssignedProjectsResponse>({ items: [] });
 
-    Promise.all([
-      getMyWorkSummary(developmentUserKey),
-      workPromise,
-      assignedProjectsPromise
-    ])
-      .then(([summary, items, assignedProjects]) => {
-        setSummaryState({ kind: 'ready', data: summary });
-        setItemsState(items.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: items });
-        setAssignedProjectsState(assignedProjects.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: assignedProjects });
-        onBadgeRefresh();
-      })
-      .catch((error: unknown) => {
+    try {
+      const [summary, items, assignedProjects] = await Promise.all([
+        getMyWorkSummary(developmentUserKey),
+        workPromise,
+        assignedProjectsPromise
+      ]);
+      if (generation !== loadGenerationRef.current) {
+        return true;
+      }
+
+      setSummaryState({ kind: 'ready', data: summary });
+      setItemsState(items.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: items });
+      setAssignedProjectsState(assignedProjects.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: assignedProjects });
+      onBadgeRefresh();
+      return true;
+    } catch (error: unknown) {
+      if (generation !== loadGenerationRef.current) {
+        return true;
+      }
+
+      if (mode === 'replace') {
         setSummaryState(toLoadError(error, '내 업무 요약을 불러올 수 없습니다.'));
         setItemsState(toLoadError(error, '내 업무 목록을 불러올 수 없습니다.'));
         setAssignedProjectsState(toLoadError(error, '담당 프로젝트 목록을 불러올 수 없습니다.'));
-      });
-  }, [activeTab, developmentUserKey, onBadgeRefresh]);
+      }
+      return false;
+    }
+  }, [developmentUserKey, onBadgeRefresh]);
 
   useEffect(() => {
-    queueMicrotask(load);
+    queueMicrotask(() => void load('replace'));
   }, [load]);
 
-  async function runAction(workItemId: string, action: 'start' | 'complete') {
-    setMessage('');
-    try {
-      if (action === 'start') {
-        await startMyWorkItem(developmentUserKey, workItemId);
-        setMessage('업무를 진행 중으로 변경했습니다.');
-      } else {
-        await completeMyWorkItem(developmentUserKey, workItemId);
-        setMessage('업무를 완료했습니다.');
-      }
-      load();
+  function selectTab(tab: MyWorkTab) {
+    activeTabRef.current = tab;
+    actions.reset();
+    setActiveTab(tab);
+    void load('replace');
+  }
+
+  function refresh() {
+    actions.reset();
+    void load('replace');
+  }
+
+  async function completeWorkItem(item: MyWorkItem) {
+    await actions.run(`work:${item.workItemId}`, async () => {
+      await completeMyWorkItem(developmentUserKey, item.workItemId);
       onBadgeRefresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '업무 상태 변경에 실패했습니다.');
-    }
+    }, {
+      loadingMessage: `${item.title} 완료 처리 중입니다.`,
+      successMessage: `${item.title} 업무를 완료했습니다.`,
+      partialMessage: `${item.title} 업무는 완료했지만 최신 목록을 불러오지 못했습니다. 새로고침해 주세요.`,
+      errorFallback: '업무를 완료할 수 없습니다.',
+      subject: item.title,
+      refresh: () => load('preserve')
+    });
   }
 
   async function openWorkItem(item: MyWorkItem) {
-    setMessage('');
     if (isPendingLinkedWorkItem(item) || isDomainControlledWorkItem(item)) {
       onOpenProject(item.projectId, item.linkUrl);
       return;
     }
 
     if (item.status === 'Requested') {
-      setMovingWorkItemId(item.workItemId);
-      try {
+      const result = await actions.run(`work:${item.workItemId}`, async () => {
         await startMyWorkItem(developmentUserKey, item.workItemId);
         onBadgeRefresh();
+      }, {
+        loadingMessage: `${item.title} 업무를 시작하는 중입니다.`,
+        successMessage: `${item.title} 업무를 시작했습니다.`,
+        errorFallback: '업무 시작 기록에 실패했습니다.',
+        subject: item.title
+      });
+      if (result === 'success') {
         onOpenProject(item.projectId, item.linkUrl);
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : '업무 시작 기록에 실패했습니다.');
-      } finally {
-        setMovingWorkItemId(null);
       }
       return;
     }
@@ -5609,6 +5637,9 @@ function MyWorkPage({
   const summary = summaryState.kind === 'ready' ? summaryState.data : null;
   const visibleWorkItemIds = itemsState.kind === 'ready' ? itemsState.data.items.map((item) => item.workItemId) : [];
   const workSelection = useSelectedRows(visibleWorkItemIds);
+  const latestActionFeedback = actions.latestFeedback && (actions.latestFeedback.tone === 'success' || actions.latestFeedback.tone === 'partial')
+    ? actions.latestFeedback
+    : null;
 
   return (
     <section className={isMobile ? 'page-surface workflow-page mobile-first-page' : 'page-surface workflow-page'}>
@@ -5619,7 +5650,7 @@ function MyWorkPage({
           {isMobile ? <p>긴급 업무부터 확인하고 카드 안에서 바로 처리하세요.</p> : null}
         </div>
         <div className="button-row page-export-actions">
-          <button type="button" onClick={load}>새로고침</button>
+          <button type="button" onClick={refresh}>새로고침</button>
         </div>
       </div>
 
@@ -5627,9 +5658,9 @@ function MyWorkPage({
         <section className="mobile-focus-summary" aria-label="오늘 업무 요약">
           <header><span>우선순위</span><strong>{summary?.blockingCount ? `긴급 ${summary.blockingCount}건` : '정상 진행'}</strong></header>
           <div>
-            <button type="button" onClick={() => setActiveTab('Requested')}><span>시작 전</span><strong>{summary ? summary.requestedCount : '-'}</strong></button>
-            <button type="button" onClick={() => setActiveTab('InProgress')}><span>진행 중</span><strong>{summary ? summary.inProgressCount : '-'}</strong></button>
-            <button type="button" data-tone="danger" onClick={() => setActiveTab('All')}><span>차단·긴급</span><strong>{summary ? summary.blockingCount : '-'}</strong></button>
+            <button type="button" onClick={() => selectTab('Requested')}><span>시작 전</span><strong>{summary ? summary.requestedCount : '-'}</strong></button>
+            <button type="button" onClick={() => selectTab('InProgress')}><span>진행 중</span><strong>{summary ? summary.inProgressCount : '-'}</strong></button>
+            <button type="button" data-tone="danger" onClick={() => selectTab('All')}><span>차단·긴급</span><strong>{summary ? summary.blockingCount : '-'}</strong></button>
           </div>
         </section>
       ) : (
@@ -5649,7 +5680,7 @@ function MyWorkPage({
             type="button"
             className={activeTab === tab.key ? 'active-filter' : undefined}
             aria-selected={activeTab === tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => selectTab(tab.key)}
           >
             {tab.label}
           </button>
@@ -5657,7 +5688,11 @@ function MyWorkPage({
       </div>
 
       {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' ? <StateMessage state={summaryState} /> : null}
-      {message ? <p className={message.includes('실패') || message.includes('권한') ? 'error-text' : 'success-text'}>{message}</p> : null}
+      {latestActionFeedback ? (
+        <div className="page-action-feedback" aria-label="최근 내 업무 처리 결과">
+          <ActionFeedback message={latestActionFeedback.message} tone={latestActionFeedback.tone} focusOnAttention />
+        </div>
+      ) : null}
 
       {activeTab !== 'AssignedProjects' && itemsState.kind === 'ready' ? (
         <SelectedExportTray
@@ -5676,7 +5711,7 @@ function MyWorkPage({
 
       {activeTab === 'AssignedProjects' ? (
         <>
-          {assignedProjectsState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+          {assignedProjectsState.kind === 'loading' ? <p className="muted-text">담당 프로젝트를 불러오는 중입니다.</p> : null}
           {assignedProjectsState.kind === 'empty' ? <p className="empty-text">담당 프로젝트가 없습니다.</p> : null}
           {assignedProjectsState.kind !== 'ready' && assignedProjectsState.kind !== 'loading' && assignedProjectsState.kind !== 'empty' ? <StateMessage state={assignedProjectsState} /> : null}
           {assignedProjectsState.kind === 'ready' ? (
@@ -5702,7 +5737,7 @@ function MyWorkPage({
         </>
       ) : (
         <>
-          {itemsState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+          {itemsState.kind === 'loading' ? <p className="muted-text">내 업무를 불러오는 중입니다.</p> : null}
           {itemsState.kind === 'empty' ? <p className="empty-text">표시할 내 업무가 없습니다.</p> : null}
           {itemsState.kind !== 'ready' && itemsState.kind !== 'loading' && itemsState.kind !== 'empty' ? <StateMessage state={itemsState} /> : null}
           {itemsState.kind === 'ready' ? (
@@ -5730,11 +5765,21 @@ function MyWorkPage({
                           </div>
                           <p>{item.description ?? '처리할 업무가 있습니다.'}</p>
                           <div className="button-row">
-                            <button type="button" disabled={movingWorkItemId === item.workItemId} onClick={() => void openWorkItem(item)}>
-                              {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : isDomainControlledWorkItem(item) ? domainWorkItemActionLabel(item) : '이동'}
+                            <button type="button" disabled={actions.isBusy(`work:${item.workItemId}`)} onClick={() => void openWorkItem(item)}>
+                              {actions.isBusy(`work:${item.workItemId}`) ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : isDomainControlledWorkItem(item) ? domainWorkItemActionLabel(item) : '이동'}
                             </button>
-                            {!isPendingLinkedWorkItem(item) && !isDomainControlledWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
+                            {!isPendingLinkedWorkItem(item) && !isDomainControlledWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? (
+                              <button type="button" disabled={actions.isBusy(`work:${item.workItemId}`)} onClick={() => void completeWorkItem(item)}>
+                                {actions.isBusy(`work:${item.workItemId}`) ? '완료 처리 중' : '작업 완료'}
+                              </button>
+                            ) : null}
                           </div>
+                          {(() => {
+                            const feedback = actions.feedbackFor(`work:${item.workItemId}`);
+                            return feedback && (feedback.tone === 'loading' || feedback.tone === 'error')
+                              ? <ActionFeedback message={feedback.message} tone={feedback.tone} focusOnAttention={feedback.tone === 'error'} />
+                              : null;
+                          })()}
                         </article>
                       ))}
                     </div>
@@ -5761,11 +5806,21 @@ function MyWorkPage({
                               <td>{formatDateTime(item.createdAtUtc)}</td>
                               <td>
                                 <div className="button-row">
-                                  <button type="button" disabled={movingWorkItemId === item.workItemId} onClick={() => void openWorkItem(item)}>
-                                    {movingWorkItemId === item.workItemId ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : isDomainControlledWorkItem(item) ? domainWorkItemActionLabel(item) : '이동'}
+                                  <button type="button" disabled={actions.isBusy(`work:${item.workItemId}`)} onClick={() => void openWorkItem(item)}>
+                                    {actions.isBusy(`work:${item.workItemId}`) ? '이동 중' : isPendingLinkedWorkItem(item) ? 'Pending 열기' : isDomainControlledWorkItem(item) ? domainWorkItemActionLabel(item) : '이동'}
                                   </button>
-                                  {!isPendingLinkedWorkItem(item) && !isDomainControlledWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? <button type="button" onClick={() => runAction(item.workItemId, 'complete')}>작업 완료</button> : null}
+                                  {!isPendingLinkedWorkItem(item) && !isDomainControlledWorkItem(item) && item.status !== 'Completed' && item.status !== 'Cancelled' ? (
+                                    <button type="button" disabled={actions.isBusy(`work:${item.workItemId}`)} onClick={() => void completeWorkItem(item)}>
+                                      {actions.isBusy(`work:${item.workItemId}`) ? '완료 처리 중' : '작업 완료'}
+                                    </button>
+                                  ) : null}
                                 </div>
+                                {(() => {
+                                  const feedback = actions.feedbackFor(`work:${item.workItemId}`);
+                                  return feedback && (feedback.tone === 'loading' || feedback.tone === 'error')
+                                    ? <ActionFeedback message={feedback.message} tone={feedback.tone} focusOnAttention={feedback.tone === 'error'} />
+                                    : null;
+                                })()}
                               </td>
                             </tr>
                           ))}
@@ -6233,58 +6288,100 @@ function NotificationsPage({
   const [summaryState, setSummaryState] = useState<LoadState<NotificationSummary>>({ kind: 'loading' });
   const [itemsState, setItemsState] = useState<LoadState<NotificationListResponse>>({ kind: 'loading' });
   const [activeTab, setActiveTab] = useState<NotificationTab>('unread');
-  const [message, setMessage] = useState('');
+  const activeTabRef = useRef<NotificationTab>('unread');
+  const loadGenerationRef = useRef(0);
+  const actions = useActionFeedback();
   const isMobile = useIsMobileViewport();
 
-  const load = useCallback(() => {
-    setSummaryState({ kind: 'loading' });
-    setItemsState({ kind: 'loading' });
-    Promise.all([
-      getNotificationSummary(developmentUserKey),
-      listNotifications(developmentUserKey, activeTab === 'All' ? undefined : activeTab)
-    ])
-      .then(([summary, items]) => {
-        setSummaryState({ kind: 'ready', data: summary });
-        setItemsState(items.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: items });
-        onBadgeRefresh();
-      })
-      .catch((error: unknown) => {
+  const load = useCallback(async (mode: 'replace' | 'preserve' = 'replace'): Promise<boolean> => {
+    const generation = ++loadGenerationRef.current;
+    const tab = activeTabRef.current;
+    if (mode === 'replace') {
+      setSummaryState({ kind: 'loading' });
+      setItemsState({ kind: 'loading' });
+    }
+
+    try {
+      const [summary, items] = await Promise.all([
+        getNotificationSummary(developmentUserKey),
+        listNotifications(developmentUserKey, tab === 'All' ? undefined : tab)
+      ]);
+      if (generation !== loadGenerationRef.current) {
+        return true;
+      }
+
+      setSummaryState({ kind: 'ready', data: summary });
+      setItemsState(items.items.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: items });
+      onBadgeRefresh();
+      return true;
+    } catch (error: unknown) {
+      if (generation !== loadGenerationRef.current) {
+        return true;
+      }
+
+      if (mode === 'replace') {
         setSummaryState(toLoadError(error, '알림 요약을 불러올 수 없습니다.'));
         setItemsState(toLoadError(error, '알림 목록을 불러올 수 없습니다.'));
-      });
-  }, [activeTab, developmentUserKey, onBadgeRefresh]);
+      }
+      return false;
+    }
+  }, [developmentUserKey, onBadgeRefresh]);
 
   useEffect(() => {
-    queueMicrotask(load);
+    queueMicrotask(() => void load('replace'));
   }, [load]);
 
-  async function read(notificationId: string) {
-    setMessage('');
-    try {
-      await markNotificationRead(developmentUserKey, notificationId);
-      setMessage('알림을 읽음 처리했습니다.');
-      load();
+  function selectTab(tab: NotificationTab) {
+    activeTabRef.current = tab;
+    actions.reset();
+    setActiveTab(tab);
+    void load('replace');
+  }
+
+  function refresh() {
+    actions.reset();
+    void load('replace');
+  }
+
+  async function read(item: NotificationItem) {
+    await actions.run(`notification:${item.notificationId}`, async () => {
+      await markNotificationRead(developmentUserKey, item.notificationId);
       onBadgeRefresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '알림 읽음 처리에 실패했습니다.');
-    }
+    }, {
+      loadingMessage: `${item.title} 알림을 읽음 처리 중입니다.`,
+      successMessage: `${item.title} 알림을 읽음 처리했습니다.`,
+      partialMessage: `${item.title} 알림은 읽음 처리했지만 최신 목록을 불러오지 못했습니다. 새로고침해 주세요.`,
+      errorFallback: '알림 읽음 처리에 실패했습니다.',
+      subject: item.title,
+      refresh: () => load('preserve'),
+      conflicts: { scopes: ['notifications:all'] }
+    });
   }
 
   async function readAll() {
-    setMessage('');
-    try {
+    await actions.run('notifications:all', async () => {
       await markAllNotificationsRead(developmentUserKey);
-      setMessage('모든 알림을 읽음 처리했습니다.');
-      load();
       onBadgeRefresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '알림 읽음 처리에 실패했습니다.');
-    }
+    }, {
+      loadingMessage: '모든 알림을 읽음 처리 중입니다.',
+      successMessage: '모든 알림을 읽음 처리했습니다.',
+      partialMessage: '모든 알림은 읽음 처리했지만 최신 목록을 불러오지 못했습니다. 새로고침해 주세요.',
+      errorFallback: '모든 알림 읽음 처리에 실패했습니다.',
+      refresh: () => load('preserve'),
+      conflicts: { prefixes: ['notification:'] }
+    });
   }
 
   const summary = summaryState.kind === 'ready' ? summaryState.data : null;
   const visibleNotificationIds = itemsState.kind === 'ready' ? itemsState.data.items.map((item) => item.notificationId) : [];
   const notificationSelection = useSelectedRows(visibleNotificationIds);
+  const allNotificationsFeedback = actions.feedbackFor('notifications:all');
+  const latestRowFeedback = actions.latestFeedback?.scope.startsWith('notification:')
+    && (actions.latestFeedback.tone === 'success' || actions.latestFeedback.tone === 'partial')
+    ? actions.latestFeedback
+    : null;
+  const allNotificationsBusy = actions.isBusy('notifications:all');
+  const anyNotificationBusy = actions.hasBusyPrefix('notification:');
 
   return (
     <section className={isMobile ? 'page-surface workflow-page mobile-first-page' : 'page-surface workflow-page'}>
@@ -6294,9 +6391,14 @@ function NotificationsPage({
           <h2>{isMobile ? '업무 알림' : '알림'}</h2>
           {isMobile ? <p>읽지 않은 긴급 신호를 먼저 확인하세요.</p> : null}
         </div>
-        <div className="button-row">
-          <button type="button" onClick={readAll}>전체 읽음</button>
-          <button type="button" onClick={load}>새로고침</button>
+        <div className="page-action-cluster">
+          <div className="button-row">
+            <button type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>
+              {allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}
+            </button>
+            <button type="button" onClick={refresh}>새로고침</button>
+          </div>
+          {allNotificationsFeedback ? <ActionFeedback message={allNotificationsFeedback.message} tone={allNotificationsFeedback.tone} focusOnAttention /> : null}
         </div>
       </div>
 
@@ -6304,8 +6406,8 @@ function NotificationsPage({
         <section className="mobile-focus-summary mobile-focus-summary--notifications" aria-label="알림 우선순위">
           <header><span>확인 필요</span><strong>{summary?.blockingCount ? `긴급 ${summary.blockingCount}건` : '긴급 알림 없음'}</strong></header>
           <div>
-            <button type="button" onClick={() => setActiveTab('unread')}><span>읽지 않음</span><strong>{summary ? summary.unreadCount : '-'}</strong></button>
-            <button type="button" data-tone="danger" onClick={() => setActiveTab('All')}><span>긴급·차단</span><strong>{summary ? summary.blockingCount : '-'}</strong></button>
+            <button type="button" onClick={() => selectTab('unread')}><span>읽지 않음</span><strong>{summary ? summary.unreadCount : '-'}</strong></button>
+            <button type="button" data-tone="danger" onClick={() => selectTab('All')}><span>긴급·차단</span><strong>{summary ? summary.blockingCount : '-'}</strong></button>
           </div>
         </section>
       ) : (
@@ -6322,7 +6424,7 @@ function NotificationsPage({
             type="button"
             className={activeTab === tab.key ? 'active-filter' : undefined}
             aria-selected={activeTab === tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => selectTab(tab.key)}
           >
             {tab.label}
           </button>
@@ -6330,7 +6432,11 @@ function NotificationsPage({
       </div>
 
       {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' ? <StateMessage state={summaryState} /> : null}
-      {message ? <p className={message.includes('실패') || message.includes('권한') ? 'error-text' : 'success-text'}>{message}</p> : null}
+      {latestRowFeedback ? (
+        <div className="page-action-feedback" aria-label="최근 알림 처리 결과">
+          <ActionFeedback message={latestRowFeedback.message} tone={latestRowFeedback.tone} focusOnAttention />
+        </div>
+      ) : null}
 
       {itemsState.kind === 'ready' ? (
         <SelectedExportTray
@@ -6347,7 +6453,7 @@ function NotificationsPage({
         />
       ) : null}
 
-      {itemsState.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+      {itemsState.kind === 'loading' ? <p className="muted-text">알림을 불러오는 중입니다.</p> : null}
       {itemsState.kind === 'empty' ? <p className="empty-text">표시할 알림이 없습니다.</p> : null}
       {itemsState.kind !== 'ready' && itemsState.kind !== 'loading' && itemsState.kind !== 'empty' ? <StateMessage state={itemsState} /> : null}
       {itemsState.kind === 'ready' ? (
@@ -6381,8 +6487,18 @@ function NotificationsPage({
                       <div className="button-row">
                         <button type="button" onClick={() => onOpenNotification(item.notificationId)}>상세</button>
                         {item.projectId ? <button type="button" onClick={() => onOpenProject(item.projectId!, item.linkUrl)}>이동</button> : null}
-                        {!item.readAtUtc ? <button type="button" onClick={() => read(item.notificationId)}>읽음</button> : null}
+                        {!item.readAtUtc ? (
+                          <button type="button" disabled={allNotificationsBusy || actions.isBusy(`notification:${item.notificationId}`)} onClick={() => void read(item)}>
+                            {actions.isBusy(`notification:${item.notificationId}`) ? '읽음 처리 중' : '읽음'}
+                          </button>
+                        ) : null}
                       </div>
+                      {(() => {
+                        const feedback = actions.feedbackFor(`notification:${item.notificationId}`);
+                        return feedback && (feedback.tone === 'loading' || feedback.tone === 'error')
+                          ? <ActionFeedback message={feedback.message} tone={feedback.tone} focusOnAttention={feedback.tone === 'error'} />
+                          : null;
+                      })()}
                     </article>
                   ))}
                 </div>
@@ -6411,8 +6527,18 @@ function NotificationsPage({
                             <div className="button-row">
                               <button type="button" onClick={() => onOpenNotification(item.notificationId)}>상세</button>
                               {item.projectId ? <button type="button" onClick={() => onOpenProject(item.projectId!, item.linkUrl)}>이동</button> : null}
-                              {!item.readAtUtc ? <button type="button" onClick={() => read(item.notificationId)}>읽음</button> : null}
+                              {!item.readAtUtc ? (
+                                <button type="button" disabled={allNotificationsBusy || actions.isBusy(`notification:${item.notificationId}`)} onClick={() => void read(item)}>
+                                  {actions.isBusy(`notification:${item.notificationId}`) ? '읽음 처리 중' : '읽음'}
+                                </button>
+                              ) : null}
                             </div>
+                            {(() => {
+                              const feedback = actions.feedbackFor(`notification:${item.notificationId}`);
+                              return feedback && (feedback.tone === 'loading' || feedback.tone === 'error')
+                                ? <ActionFeedback message={feedback.message} tone={feedback.tone} focusOnAttention={feedback.tone === 'error'} />
+                                : null;
+                            })()}
                           </td>
                         </tr>
                       ))}
@@ -6452,15 +6578,36 @@ function StatusBadge({ label, tone }: { label: string; tone?: StatusTone }) {
   return <span className="status-badge" data-tone={tone}>{label}</span>;
 }
 
-type ActionFeedbackTone = 'neutral' | 'loading' | 'success' | 'error' | 'partial';
+function ActionFeedback({
+  message,
+  tone = 'neutral',
+  focusOnAttention = false
+}: {
+  message: string;
+  tone?: ActionFeedbackTone;
+  focusOnAttention?: boolean;
+}) {
+  const feedbackRef = useRef<HTMLParagraphElement>(null);
 
-function ActionFeedback({ message, tone = 'neutral' }: { message: string; tone?: ActionFeedbackTone }) {
+  useEffect(() => {
+    if (focusOnAttention && message && (tone === 'error' || tone === 'partial')) {
+      feedbackRef.current?.focus();
+    }
+  }, [focusOnAttention, message, tone]);
+
   if (!message) {
     return null;
   }
 
   return (
-    <p className="action-feedback" data-tone={tone} role={tone === 'error' ? 'alert' : 'status'}>
+    <p
+      ref={feedbackRef}
+      className="action-feedback"
+      data-tone={tone}
+      role={tone === 'error' ? 'alert' : 'status'}
+      aria-live={tone === 'error' ? 'assertive' : 'polite'}
+      tabIndex={focusOnAttention ? -1 : undefined}
+    >
       {message}
     </p>
   );

@@ -442,6 +442,60 @@ describe('App', () => {
     expect(screen.getAllByText('읽지 않음').length).toBeGreaterThan(0);
   });
 
+  it('keeps my work visible and reports partial success when the post-action refresh fails', async () => {
+    let workCompleted = false;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/my-work/76000000-0000-0000-0000-000000000001/complete' && init?.method === 'POST') {
+        workCompleted = true;
+        return json({ status: 'Completed', statusLabel: '완료' });
+      }
+      if (path === '/api/my-work' && workCompleted) {
+        return json({ title: 'refresh failed' }, 500);
+      }
+      return mockFetch(input, init);
+    }));
+    render(<App />);
+
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '내 업무' }));
+    expect(await screen.findByText('생산계획, 담당자 입력')).toBeInTheDocument();
+    const selectedWork = screen.getByRole('checkbox', { name: '생산계획, 담당자 입력 선택' });
+    fireEvent.click(selectedWork);
+    fireEvent.click(screen.getByRole('button', { name: '작업 완료' }));
+
+    expect(await screen.findByText('생산계획, 담당자 입력 업무는 완료했지만 최신 목록을 불러오지 못했습니다. 새로고침해 주세요.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '작업 완료' })).not.toBeDisabled();
+    expect(selectedWork).toBeChecked();
+  });
+
+  it('keeps notification success feedback visible after the read row leaves the active tab', async () => {
+    let notificationRead = false;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/notifications/77000000-0000-0000-0000-000000000001/read' && init?.method === 'POST') {
+        notificationRead = true;
+        return json({ notificationId: '77000000-0000-0000-0000-000000000001', readAtUtc: '2026-07-18T10:00:00Z' });
+      }
+      if (path === '/api/notifications' && notificationRead) {
+        return json({ items: [] });
+      }
+      if (path === '/api/notifications/summary' && notificationRead) {
+        return json({ unreadCount: 0, blockingCount: 0 });
+      }
+      return mockFetch(input, init);
+    }));
+    render(<App />);
+
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '알림' }));
+    expect(await screen.findByText('프로젝트가 생성되었습니다.')).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: '읽음' }).at(-1)!);
+
+    expect(await screen.findByText('프로젝트가 생성되었습니다. 알림을 읽음 처리했습니다.')).toBeInTheDocument();
+    expect(screen.getByText('표시할 알림이 없습니다.')).toBeInTheDocument();
+  });
+
   it('uses a top-left trigger with an accessible permission-derived mobile drawer', async () => {
     mockMobileViewport(true);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

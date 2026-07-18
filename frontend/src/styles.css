@@ -12613,3 +12613,76 @@ body {
     grid-column: 1 / -1;
   }
 }
+
+.page-action-cluster {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  min-width: min(100%, 320px);
+}
+
+.page-action-cluster .action-feedback {
+  width: min(100%, 320px);
+}
+
+.page-action-feedback {
+  display: flex;
+  justify-content: flex-end;
+  margin: -2px 0 2px;
+}
+
+.page-action-feedback .action-feedback {
+  width: min(100%, 520px);
+  border-radius: 3px 16px 16px 16px;
+  box-shadow: 0 5px 16px rgb(46 27 28 / 6%);
+}
+
+.workflow-card > .action-feedback,
+td > .action-feedback {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.action-feedback:focus-visible {
+  outline: 3px solid rgb(218 33 39 / 22%);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .app-shell[data-layout-mode='mobile'] .page-action-cluster {
+    width: 100%;
+    min-width: 0;
+    justify-items: stretch;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .page-action-cluster .action-feedback,
+  .app-shell[data-layout-mode='mobile'] .page-action-feedback .action-feedback {
+    width: 100%;
+    padding: 7px 9px;
+    border-radius: 2px 12px 12px 12px;
+    font-size: 0.65rem;
+    line-height: 1.35;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .page-action-feedback {
+    justify-content: stretch;
+    margin: -3px 0 0;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-page-header .page-action-cluster .button-row > button {
+    border-color: #ddd3d5;
+    background: #ffffff;
+    color: #382f31;
+    box-shadow: 0 4px 12px rgb(67 28 30 / 6%);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .workflow-card > .action-feedback {
+    display: block;
+    overflow: visible;
+    padding: 6px 8px;
+    border-radius: 10px 2px 10px 10px;
+    font-size: 0.61rem;
+    -webkit-line-clamp: unset;
+  }
+}

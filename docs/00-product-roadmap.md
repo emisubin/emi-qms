@@ -985,7 +985,7 @@ Excel 출력 대상 후보:
 | 1.1 | TASK-007A Pending List | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-USER-FLOW-001 사용자 내용 확인, 내 업무·알림 기반 | binary 첨부 storage 정책은 별도 후속 | Yes | experiment 재구현 금지; canonical 승격 시 별도 통합·UAT Gate |
 | 1.2 | TASK-007B 병목 상태 집계 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A experiment scope 완료 | 없음. 정렬 toggle은 optional P3 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 1.3 | TASK-MOBILE-001 적응형 현장 UX | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A·007B experiment scope 완료 | 사진 binary 정책은 별도 후속 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
-| 1.3A | TASK-MOBILE-002 모바일 우선 전면 개편 | APPROVED_FEATURE_IMPLEMENTATION | Experiment Complete | Change 001~003 automated validation complete / `BATCHED_FINAL` | MOBILE-001·로그인 shell·DESIGN-001 계보 | `App.tsx` 분할은 optional housekeeping | Yes | 완료 scope 재구현 금지; 최종 일괄 검수 |
+| 1.3A | TASK-MOBILE-002 모바일 우선 전면 개편 | APPROVED_FEATURE_IMPLEMENTATION | Experiment Complete | Change 001~004 automated validation complete / `BATCHED_FINAL` | MOBILE-001·로그인 shell·DESIGN-001·DESIGN-000 계보 | `App.tsx` 분할은 optional housekeeping | Yes | 완료 scope 재구현 금지; 최종 일괄 검수 |
 | 1.4 | TASK-HOME-001 Home MVP | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·MOBILE-001 experiment scope 완료 | query/cache 최적화는 실측 시 P3 후속 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 1.4A | TASK-HOME-002 개인화 Home·프로필 shell | NEW_FEATURE | Experiment Complete | 본체와 Change 002 전 부서 조회 메뉴·compact design implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-HOME-001·MOBILE-002·DESIGN-001 experiment scope | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수. 후속 UX-001 A2 Full-Stack에서 HOME 회귀까지 재검증 |
 | 2.1 | TASK-008A 자재 도착·분할 입고 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007A experiment scope 완료 | 운영 migration handover 미승인 | Yes | experiment 재구현 금지; canonical 승격은 별도 UAT |
@@ -998,12 +998,12 @@ Excel 출력 대상 후보:
 | 3.4 | Pending 유형 관리자 화면 (ID 미정) | NEW_FEATURE | Deferred | Deferred | TASK-007A 안정화 | 유형·권한 정책 | Yes | 별도 소형 Task ID와 planning 승인 |
 | 4.1 | TASK-013A 물류 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-012A experiment scope 완료 | 실제 포장·서명본 양식은 후속 change | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·013A experiment scope 완료 | 운영 정산 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
-| 4.2A | TASK-SALES-KPI-001 영업 연간 매출 KPI | NEW_FEATURE | Experiment Complete | 2-pass planning·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-014A·HOME-002 experiment scope | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
+| 4.2A | TASK-SALES-KPI-001 영업 연간 매출 KPI | NEW_FEATURE | Experiment Complete | 본체와 Change 002 benchmark 기반 actual·target·attainment graph, automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-014A·HOME-002·DESIGN-000 experiment scope | forecast·전년 비교는 계약 데이터 없음, 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | Experiment Complete / Optional Follow-up | 20개 화면 선택 export automated validation complete / `BATCHED_FINAL` | 주요 data model experiment 구현 완료 | column picker·multi-sheet는 별도 optional 후속 | Yes | 현재 선택 export 재구현 금지; 원하면 column picker change |
 | 4.3A | TASK-EXPORT-002 선택 프로젝트 Excel export | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-EXPORT-001 Phase 1 | 없음 | Yes | 재구현 금지; 최종 screenshot·파일 일괄 검수 |
 | 4.4 | QR 스캔 랜딩 (ID 미정) | NEW_FEATURE | Deferred | Deferred | MOBILE-001·제조 흐름 | 공개/인증 landing 정책 | Yes | 별도 신규 기능 Task 승인 |
-| 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Deferred | Scope Review Required | 기능 흐름 안정화 | Figma Variables·CSS token 기준 | Yes | 기능 변경 없는 component/token 범위 승인 |
-| 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Experiment Complete | Automated validation·페이지 screenshot complete / `BATCHED_FINAL` | 로그인 shell, 후속 MOBILE-002가 shape/navigation 보완 | DESIGN-000 token foundation은 별도 housekeeping | Yes | 완료 화면 통일 재구현 금지; 최종 일괄 검수 |
+| 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Experiment Complete | CSS semantic token·React primitive·shell/Home/Sales adoption·desktop/mobile visual validation complete / `BATCHED_FINAL` | 기능 흐름 안정화·사용자 reference image | Figma file/library publish는 범위 밖, 대표 repo·main 미반영 | Yes | 완료 foundation 재구현 금지; 최종 일괄 검수 |
+| 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Experiment Complete | Automated validation·페이지 screenshot complete / `BATCHED_FINAL` | 로그인 shell, 후속 MOBILE-002와 DESIGN-000 foundation이 보완 | 없음. Figma publish는 optional 후속 | Yes | 완료 화면 통일 재구현 금지; 최종 일괄 검수 |
 | 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment Complete | A1·A2 implementation, automated·isolated browser validation complete / `BATCHED_FINAL` | A1 공통 contract·내 업무·알림, A2 생산·구매·자재·IQC·키팅·패널·Excel 완료 | 대표 repo·main·Persistent UAT 미반영; 전역 toast/store·A2 밖 문자열 tone 정리는 제외 | Yes | 재구현 금지; 최종 일괄 검수. 다음 optional 범위는 EXPORT-001 column picker |
 | 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004·TASK-UX-001 A1 experiment | 관리자 감사 조회 UI는 별도 후속 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | 운영 전환 (Task ID 미정) | UAT_RUNTIME | Deferred | Scope Review Required | 기능·P2·design gate 완료 | hosting/domain, redirect URI, Teams catalog, provider, 교육 | Yes | 운영 전환 Task와 rollback 승인 |
@@ -1499,7 +1499,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-MOBILE-001: 동일 URL 적응형 현장 UX
 
-- 실험 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL`. 후속 MOBILE-002 Change 003까지 좌상단 drawer와 모바일 shape 체계를 반영했다.
+- 실험 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL`. 후속 MOBILE-002 Change 004까지 좌상단 drawer·모바일 shape·PC 관리 기능의 기본 화면 제외와 핵심 판단 우선 배치를 반영했다.
 - 목적: 기존 URL과 인증 흐름을 유지하면서 모바일 내비게이션과 현장 입력·사진 업로드 기반을 제공한다.
 - 포함 범위: responsive navigation, 390px/Teams narrow, 사진 압축·재시도, 접근성·overflow 기준
 - 제외 범위: 공용 태블릿·공용 기기 mode, 별도 session 정책, sessionStorage 강제 정책
@@ -1615,12 +1615,13 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 ### TASK-SALES-KPI-001: 영업 연간 매출·목표 KPI
 
 - 목적: 영업 사용자가 Home과 전용 `영업` 화면에서 12개월 확정 매출·목표와 금액 KPI를 한눈에 판단한다.
-- 포함 범위: 연도·통화 선택, 월별 확정 매출 막대와 목표 선, 연간/당월/목표/달성률/잔여·초과 KPI, 월별 근거, 별도 파이프라인, 관리자 목표 CAS
+- 포함 범위: 연도·통화 선택, 월별 확정 매출·목표 grouped bar와 경과 월 달성률 선·100% 기준선, 연간/당월/목표/달성률/잔여·초과 KPI, 월별 근거, 별도 파이프라인, 관리자 목표 CAS
 - 제외 범위: 외부 회계 연동, 예측 매출의 실적 포함, 환율 환산, 기존 정산 workflow 변경
 - 선행조건: TASK-014A 확정 정산 데이터와 TASK-HOME-002 개인화 Home
 - 주요 테스트: 12개월 집계, 미등록 목표, project scope, 목표 권한·CAS·audit, desktop·390px, Home/영업 숫자 일치
 - 2026-07-19 실험 재정렬 승인: 사용자가 영업 menu와 영업 Home을 같은 연간 graph로 바꾸도록 명시해 current experiment에서 fast-track을 승인했다. canonical queue와 대표 repo·`main`·Persistent UAT·provider·게시 경계는 변경하지 않았다.
 - 2026-07-19 실험 상태: Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·필수 자동 검증을 완료했다. additive `0043`은 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고 발행일·금액이 확정된 세금계산서만 실적으로 집계하며 예상 파이프라인은 달성률에서 분리했다. Desktop·390px 영업 Home/전용 화면 증빙을 완료했고 사용자 검수는 `BATCHED_FINAL`이다. 현재 experiment에서 재구현하지 않는다.
+- 2026-07-19 Change 002: 공식 Power BI·Tableau·Salesforce target dashboard 사례를 benchmark해 의미가 약한 목표 금액선을 제거했다. 실제·목표는 같은 금액 축의 막대로 직접 비교하고, 경과 월 달성률만 선으로 연결하며 100% 기준선을 추가했다. 미래 월은 0%로 오해되지 않도록 선에서 제외했고 mobile도 4×3 block 대신 실제 12개월 SVG graph를 사용한다. forecast·전년 비교는 권위 있는 데이터 계약이 없어 Deferred한다.
 
 ### TASK-EXPORT-001: 모든 페이지 Excel 출력 공통 기능
 
@@ -1653,9 +1654,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### DESIGN-000 이후: 시각 토큰과 화면 통일
 
-- DESIGN-000은 Figma Variables, CSS token과 공통 component kit만 다루며 기능 변경을 포함하지 않는다.
+- DESIGN-000은 reference를 EMI 의미 체계로 투영한 CSS semantic token과 `DsPageHeader`, `DsSurface`, `DsToolbar`, `DsTabs`, `DsBadge` 공통 component를 구현했다. Shell·Home·Sales를 우선 적용했고 desktop/mobile visual regression을 완료했다.
 - DESIGN-001 화면 통일 실험은 구현·자동 검증·페이지별 screenshot을 완료해 `EXPERIMENT_COMPLETE / BATCHED_FINAL`이다. 같은 전체 화면 통일을 다시 기획하지 않는다.
-- DESIGN-000 token foundation은 별도 `DEFERRED` housekeeping으로 남는다.
+- DESIGN-000 token foundation도 `EXPERIMENT_COMPLETE / BATCHED_FINAL`이며 Figma file/library publish만 범위 밖이다. 후속 화면은 신규 임의 값보다 foundation token과 primitive를 먼저 사용한다.
 - 기능 Task에서도 loading·empty·error·success feedback, 접근성, 한글 안내와 390px/Teams narrow 기준은 선행 적용한다.
 
 ## 24. 추적 대상 리스트
@@ -1923,6 +1924,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-18 | TASK-EXPORT-001 Change 002로 전 조회 화면의 Excel action을 선택 내보내기 하나로 통합 | 사용자가 같은 의미의 전체·선택 export button 두 개를 보지 않게 하고, 현재 목록 전체 선택도 별도 action이 아닌 checkbox로 제공하면서 업무 12개·관리자 8개 화면의 권한·scope·audit 계약을 공통화하기 위함 | 19장·23장~25장, TASK-EXPORT-001 Change 002 구현 보고서 |
 | 2026-07-19 | TASK-SALES-KPI-001의 실적은 발행일·금액이 확정된 세금계산서만 사용하고 예상 파이프라인은 달성률에서 분리 | 영업 Home과 전용 화면의 금액 판단을 일치시키면서 수주 예상액이 실제 달성률을 과장하지 않게 하고, 월 목표 수정은 시스템 관리자 CAS·audit로 제한하기 위함 | 23장~25장, TASK-SALES-KPI-001 |
 | 2026-07-19 | TASK-ADMIN-002는 고정 6종 양식과 Draft→Active→Archived lifecycle, 시스템 관리자 지정 부서장·현재 부서 fence를 사용 | code 없는 양식 변경을 허용하되 임의 workflow 확장·과거 snapshot 변경·부서 이동 뒤 과권한을 차단하고 새 실행에만 새 Active version을 적용하기 위함 | 23장~25장, TASK-ADMIN-002 |
+| 2026-07-19 | 영업 그래프는 월 actual·target grouped bar와 경과 월 attainment line·100% 기준선을 사용하고 mobile에도 동일한 12개월 graph를 제공 | 단순 목표 금액선과 4×3 월 block을 제거해 월별 gap·달성 여부·연속 추세를 직접 판단하고 미래 월 0% 오해를 막기 위함 | 23장~25장, TASK-SALES-KPI-001 Change 002 |
+| 2026-07-19 | 모바일 기본 화면은 현장 판단·처리를 우선하고 Excel·대량 관리·중복 Home widget을 제외하며 DESIGN-000 semantic token과 공통 primitive를 사용 | PC 기능을 전부 복제하지 않고 390px에서 핵심 정보 밀도와 조작성을 높이면서 desktop 기능과 서버 권한을 보존하기 위함 | 3장·23장~25장, TASK-MOBILE-002 Change 004, DESIGN-000 |
 
 ## 26. 용어 사전
 

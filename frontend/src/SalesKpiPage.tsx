@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, getSalesKpi, getSalesKpiMonth, getSalesTargets, saveSalesTargets } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { DsBadge, DsPageHeader, DsSurface, DsToolbar } from './design-system';
 import type { SalesKpiMonthDetail, SalesKpiResponse, SalesTargetsResponse } from './salesKpi';
 import { SalesKpiChart } from './SalesKpiChart';
 import { formatMoney } from './salesKpiFormat';
@@ -105,6 +106,9 @@ export function SalesKpiPage({
     ['목표 달성률', data.kpi.achievementRate === null ? '목표 미등록' : `${data.kpi.achievementRate}%`, '확정 매출 기준'],
     [data.kpi.exceededTargetAmount && data.kpi.exceededTargetAmount > 0 ? '초과 달성액' : '잔여 목표', formatMoney(data.kpi.exceededTargetAmount && data.kpi.exceededTargetAmount > 0 ? data.kpi.exceededTargetAmount : data.kpi.remainingTargetAmount, data.currency), '예상 파이프라인 제외']
   ] : [], [data]);
+  const visibleKpiCards = isMobile
+    ? [kpiCards[1], kpiCards[3], kpiCards[4]].filter((card): card is string[] => Boolean(card))
+    : kpiCards;
 
   if (state.kind === 'loading') return <section className="page-surface sales-kpi-page"><p role="status">영업 지표를 불러오는 중입니다.</p></section>;
   if (state.kind === 'forbidden' || state.kind === 'error') return <section className="page-surface sales-kpi-page"><div className="sales-kpi-state" role="alert"><strong>{state.message}</strong><button type="button" onClick={() => void load(initialYear, initialCurrency)}>다시 시도</button></div></section>;
@@ -112,41 +116,65 @@ export function SalesKpiPage({
 
   return (
     <section className="page-surface sales-kpi-page" data-mobile-experience={isMobile || undefined} aria-labelledby="sales-kpi-title">
-      <header className="sales-kpi-header">
-        <div><p className="eyebrow">SALES PERFORMANCE</p><h2 id="sales-kpi-title">연간 매출 목표</h2><p>세금계산서 발행이 완료된 매출과 월 목표를 한눈에 비교합니다.</p></div>
-        <div className="sales-kpi-controls">
+      <DsPageHeader
+        className="sales-kpi-header"
+        eyebrow="영업 현황"
+        title="연간 매출 성과"
+        titleId="sales-kpi-title"
+        description="월 실적과 목표, 달성률을 한 화면에서 비교합니다."
+        actions={<DsToolbar className="sales-kpi-controls" label="매출 조회 조건">
           <label>연도<select value={data.year} onChange={(event) => void load(Number(event.target.value), data.currency)}>{data.availableYears.map((year) => <option key={year}>{year}</option>)}</select></label>
           <label>통화<select value={data.currency} onChange={(event) => void load(data.year, event.target.value)}>{data.availableCurrencies.map((currency) => <option key={currency}>{currency}</option>)}</select></label>
-          {canManageTargets ? <button type="button" className="secondary-button" onClick={() => void openTargetEditor()}>목표 관리</button> : null}
-        </div>
-      </header>
+          {canManageTargets && !isMobile ? <button type="button" className="secondary-button" onClick={() => void openTargetEditor()}>목표 관리</button> : null}
+        </DsToolbar>}
+      />
 
-      <div className="sales-kpi-cards">{kpiCards.map(([label, value, note], index) => <article key={label} data-shape={index % 3}><span>{label}</span><strong>{value}</strong><small>{note}</small></article>)}</div>
+      <div className="sales-kpi-cards">{visibleKpiCards.map(([label, value, note], index) => <article key={label} data-shape={index % 3}><span>{label}</span><strong>{value}</strong><small>{note}</small></article>)}</div>
 
-      <section className="sales-kpi-main-card">
-        <header><div><p className="eyebrow">12 MONTH VIEW</p><h3>{data.year}년 월별 매출 · 목표</h3></div><span>{data.currency}</span></header>
-        <SalesKpiChart months={data.months} currency={data.currency} selectedMonth={selectedMonth} mobile={isMobile} onSelectMonth={(month) => void openMonth(month)} />
-      </section>
+      <DsSurface className="sales-kpi-main-card">
+        <header><div><p className="eyebrow">12개월 비교</p><h3>{data.year}년 월별 실적 · 목표 · 달성률</h3></div><DsBadge>{data.currency}</DsBadge></header>
+        <SalesKpiChart months={data.months} currency={data.currency} year={data.year} selectedMonth={selectedMonth} mobile={isMobile} onSelectMonth={(month) => void openMonth(month)} />
+        {isMobile ? (
+          <label className="sales-kpi-month-control">
+            <span>근거를 확인할 월</span>
+            <select value={selectedMonth} onChange={(event) => void openMonth(Number(event.target.value))}>
+              {data.months.map((month) => <option key={month.month} value={month.month}>{month.month}월</option>)}
+            </select>
+          </label>
+        ) : null}
+      </DsSurface>
 
       <div className="sales-kpi-subgrid">
         <article className="sales-pipeline-card"><span>예상 파이프라인</span><strong>{formatMoney(data.pipeline.amount, data.currency)}</strong><small>진행 프로젝트 {data.pipeline.projectCount}건 · 달성률에는 포함하지 않음</small></article>
-        <article className="sales-data-note"><span>집계 확인</span><strong>{data.missingAmountCount}건</strong><small>완료 정산 중 판매금액 또는 통화 미입력</small></article>
+        {!isMobile ? <article className="sales-data-note"><span>집계 확인</span><strong>{data.missingAmountCount}건</strong><small>완료 정산 중 판매금액 또는 통화 미입력</small></article> : null}
       </div>
 
-      <section className="sales-month-detail">
-        <header><div><p className="eyebrow">REVENUE EVIDENCE</p><h3>{selectedMonth}월 확정 매출 근거</h3></div><span>{detail.kind === 'ready' ? `${detail.data.projects.length}건` : ''}</span></header>
-        {detail.kind === 'loading' ? <p role="status">근거 목록을 불러오는 중입니다.</p> : null}
-        {detail.kind === 'error' ? <p role="alert">{detail.message}</p> : null}
-        {detail.kind === 'ready' && detail.data.projects.length === 0 ? <p>이 달에 완료된 확정 매출이 없습니다.</p> : null}
-        {detail.kind === 'ready' && detail.data.projects.length > 0 ? <div className="sales-month-list">{detail.data.projects.map((project) => <button key={project.projectId} type="button" onClick={() => onOpenProject(project.projectId)}><span><strong>{project.projectName}</strong><small>{project.projectCode} · {project.invoiceIssuedDate}</small></span><b>{formatMoney(project.amount, data.currency)}</b></button>)}</div> : null}
-      </section>
+      {isMobile ? (
+        <details className="ds-surface sales-month-detail sales-month-detail--mobile">
+          <summary><span>{selectedMonth}월 매출 근거</span><b>{detail.kind === 'ready' ? `${detail.data.projects.length}건` : '보기'}</b></summary>
+          <div className="sales-month-detail-content">
+            {detail.kind === 'loading' ? <p role="status">근거 목록을 불러오는 중입니다.</p> : null}
+            {detail.kind === 'error' ? <p role="alert">{detail.message}</p> : null}
+            {detail.kind === 'ready' && detail.data.projects.length === 0 ? <p>이 달에 완료된 확정 매출이 없습니다.</p> : null}
+            {detail.kind === 'ready' && detail.data.projects.length > 0 ? <div className="sales-month-list">{detail.data.projects.map((project) => <button key={project.projectId} type="button" onClick={() => onOpenProject(project.projectId)}><span><strong>{project.projectName}</strong><small>{project.projectCode} · {project.invoiceIssuedDate}</small></span><b>{formatMoney(project.amount, data.currency)}</b></button>)}</div> : null}
+          </div>
+        </details>
+      ) : (
+        <DsSurface className="sales-month-detail">
+          <header><div><p className="eyebrow">매출 근거</p><h3>{selectedMonth}월 확정 매출 근거</h3></div><DsBadge tone="neutral">{detail.kind === 'ready' ? `${detail.data.projects.length}건` : ''}</DsBadge></header>
+          {detail.kind === 'loading' ? <p role="status">근거 목록을 불러오는 중입니다.</p> : null}
+          {detail.kind === 'error' ? <p role="alert">{detail.message}</p> : null}
+          {detail.kind === 'ready' && detail.data.projects.length === 0 ? <p>이 달에 완료된 확정 매출이 없습니다.</p> : null}
+          {detail.kind === 'ready' && detail.data.projects.length > 0 ? <div className="sales-month-list">{detail.data.projects.map((project) => <button key={project.projectId} type="button" onClick={() => onOpenProject(project.projectId)}><span><strong>{project.projectName}</strong><small>{project.projectCode} · {project.invoiceIssuedDate}</small></span><b>{formatMoney(project.amount, data.currency)}</b></button>)}</div> : null}
+        </DsSurface>
+      )}
 
-      {targetEditorOpen && targets ? <section className="sales-target-editor" aria-label="월별 목표 관리">
+      {targetEditorOpen && targets ? <DsSurface className="sales-target-editor" label="월별 목표 관리">
         <header><div><p className="eyebrow">ADMIN TARGETS</p><h3>{data.year}년 월별 목표</h3></div><button type="button" onClick={() => setTargetEditorOpen(false)}>닫기</button></header>
         <div className="sales-target-grid">{targetInputs.map((value, index) => <label key={index}><span>{index + 1}월</span><input type="number" min="0" step="10000" value={value} placeholder="미등록" onChange={(event) => setTargetInputs((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} /></label>)}</div>
         {targetFeedback ? <p className="sales-target-feedback" data-tone={targetFeedback.tone} role={targetFeedback.tone === 'error' ? 'alert' : 'status'}>{targetFeedback.message}</p> : null}
         <button type="button" className="primary-button" disabled={actions.isBusy('sales-targets')} onClick={() => void saveTargetValues()}>선택한 목표 저장</button>
-      </section> : null}
+      </DsSurface> : null}
     </section>
   );
 }

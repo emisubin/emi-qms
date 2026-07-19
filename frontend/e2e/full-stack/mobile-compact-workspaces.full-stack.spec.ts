@@ -5,10 +5,10 @@ import path from 'node:path';
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = process.env.MOBILE_SCREENSHOT_DIR?.trim()
   ? path.resolve(process.env.MOBILE_SCREENSHOT_DIR)
-  : path.resolve(process.cwd(), '../tasks/mobile-002-change-003-screenshots');
+  : path.resolve(process.cwd(), '../tasks/mobile-002-change-004-screenshots');
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
 
-test('TASK-MOBILE-002 Change 003: major mobile workspaces use the top drawer and shape system', async ({ page, request }) => {
+test('TASK-MOBILE-002 Change 004: mobile workspaces keep field actions and omit PC management controls', async ({ page, request }) => {
   test.setTimeout(150_000);
   const unique = Date.now();
   const projectTitle = `모바일 전면 개편 검수 ${unique}`;
@@ -57,8 +57,11 @@ test('TASK-MOBILE-002 Change 003: major mobile workspaces use the top drawer and
   await page.goto('/production-planning');
   await page.getByPlaceholder('프로젝트명, 고객사, Code, Item 검색').fill(projectTitle);
   await page.getByRole('button', { name: '검색', exact: true }).click();
-  await expect(page.locator('.production-planning-mobile .procurement-project-card').filter({ hasText: projectTitle })).toBeVisible();
-  await expect(page.locator('.production-planning-mobile .mobile-priority-grid')).toBeVisible();
+  const productionProjectCard = page.locator('.production-planning-mobile .procurement-project-card').filter({ hasText: projectTitle });
+  await expect(productionProjectCard).toBeVisible();
+  await expect(productionProjectCard.locator('.mobile-priority-grid')).toBeVisible();
+  await expect(page.getByRole('button', { name: '생산계획 단계 설정' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toHaveCount(0);
   const kpiShapeCount = await page.locator('.dashboard-kpi-card').evaluateAll((elements) =>
     new Set(elements.map((element) => getComputedStyle(element).borderRadius)).size
   );
@@ -73,6 +76,8 @@ test('TASK-MOBILE-002 Change 003: major mobile workspaces use the top drawer and
   const procurementCard = page.locator('.procurement-project-card').filter({ hasText: projectTitle });
   await expect(procurementCard).toBeVisible();
   await expect(procurementCard.locator('.mobile-priority-grid')).toBeVisible();
+  await expect(page.getByRole('button', { name: '구매 필수 항목 설정' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toHaveCount(0);
   await expect(procurementCard.getByText('프로젝트 정보', { exact: true })).toBeVisible();
   await assertCompactMobilePage(page);
   await capture(page, '04-procurement-dashboard-mobile-390.png');
@@ -119,16 +124,13 @@ test('TASK-MOBILE-002 Change 003: major mobile workspaces use the top drawer and
   await page.goto('/admin/users');
   await expect(page.getByRole('heading', { name: '사용자 관리' })).toBeVisible();
   const fieldToggle = page.locator('.mobile-admin-field-toggle');
-  await expect(fieldToggle).toBeVisible();
+  await expect(fieldToggle).toBeHidden();
+  await expect(page.locator('.admin-mobile-page .bulk-action-bar')).toBeHidden();
   await expect(page.getByText('사용자 목록을 불러오는 중입니다.')).toBeHidden();
   await expect(page.locator('.admin-mobile-page table')).toBeVisible();
   await expect(page.locator('.admin-mobile-page')).not.toHaveClass(/admin-mobile-page--all-fields/);
   await assertCompactMobilePage(page);
   await capture(page, '11-admin-users-priority-mobile-390.png');
-
-  await fieldToggle.click();
-  await expect(page.locator('.admin-mobile-page')).toHaveClass(/admin-mobile-page--all-fields/);
-  await capture(page, '12-admin-users-all-fields-mobile-390.png');
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/procurement');

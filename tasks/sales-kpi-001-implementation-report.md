@@ -5,6 +5,7 @@
 - 목적: 영업 사용자가 Home과 영업 전용 화면에서 월별 확정 매출과 목표를 1년 단위로 비교하고, 금액 KPI와 근거 프로젝트를 확인하게 한다.
 - 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL` — 구현·필수 자동 검증·격리 브라우저 검증 완료, 사용자 검수는 마지막 일괄 대기
 - 최종 계약: [Fable 2차 기획](../docs/32-sales-kpi-plan.md)
+- 최신 표시 계약: [Change 002 구현 보고서](sales-kpi-001-change-002-implementation-report.md)
 - Branch/base: `experiment/task-home-002-personalized-shell` / `c4b999f`
 - 대표 repo·`main`·Persistent UAT·actual provider: 미변경
 - Merge 승인: `0/3`
@@ -33,7 +34,7 @@
 - 왼쪽 menu에 `영업`을 유지하고 전용 route에 금액 KPI 5개, 12개월 주 graph, 파이프라인, 월별 근거를 구성했다.
 - 영업 부서 사용자의 Home 핵심 panel을 같은 연간 graph와 금액 KPI 3개로 교체했다.
 - Desktop은 reference 이미지처럼 넓은 흰 작업면·얇은 경계·낮은 그림자·compact card를 사용한다.
-- Mobile은 PC graph를 가로 축소하지 않고 4×3 월 grid와 핵심 카드 순서로 다시 배치하며 가로 overflow를 허용하지 않는다.
+- Change 002 이후 Mobile도 4×3 월 grid가 아니라 12개월 actual·target·attainment SVG graph와 핵심 카드 순서를 사용하며 가로 overflow를 허용하지 않는다.
 
 ### Excel/PDF/첨부·Workflow 영향
 
@@ -105,9 +106,9 @@ Open P0/P1/P2: `0/0/0`. Risk acceptance 없음.
 
 - 영업 부서로 로그인하면 Home의 첫 지표가 연간 매출 graph로 표시된다.
 - 왼쪽 `영업` menu에서는 더 많은 금액 KPI와 월별 근거를 확인할 수 있다.
-- 막대는 확정 매출, 선과 점은 등록 목표다. 목표가 없는 달은 `목표 미등록`으로 표시된다.
+- 파란 막대는 확정 매출, 회색 막대는 월 목표, 빨간 선과 점은 경과 월 달성률이다. 100% 기준선으로 월별 달성 여부를 비교한다.
 - 예상 파이프라인은 참고 금액이며 연간 달성률에는 포함되지 않는다.
-- Mobile에서는 12개월이 4×3 block으로 표시되고 각 달을 눌러 근거를 연다.
+- Mobile에서도 실제 12개월 graph가 표시되며 44px 월 selector로 근거를 연다.
 
 ## 12. 사용자 검수 결과와 남은 항목
 

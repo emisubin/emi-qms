@@ -7,7 +7,7 @@ const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = path.resolve(process.cwd(), '../tasks/export-002-screenshots');
 const workbookPath = path.join(screenshotDirectory, 'selected-projects.xlsx');
 
-test('TASK-EXPORT-002: selected projects alone are exported on desktop and mobile', async ({ page, request }) => {
+test('TASK-EXPORT-002: selected projects export on desktop and mobile omits the bulk workflow', async ({ page, request }) => {
   const auditCountBefore = Number(await queryDatabaseValue("select count(*)::text from data_export_events where export_kind = 'ProjectsSelected';"));
   const unique = Date.now();
   const first = { code: `SEL-A-${unique}`, title: `합성 선택 프로젝트 A ${unique}` };
@@ -48,9 +48,8 @@ test('TASK-EXPORT-002: selected projects alone are exported on desktop and mobil
   const filterSheet = page.getByRole('dialog', { name: '프로젝트 검색·필터' });
   await filterSheet.getByPlaceholder('고객사, Item, Code, Title').fill(String(unique));
   await filterSheet.getByRole('button', { name: '조건 적용' }).click();
-  await selectProject(page, first);
-  await selectProject(page, second);
-  await expect(page.getByLabel('선택 프로젝트 내보내기')).toContainText('2개 선택');
+  await expect(page.getByRole('checkbox', { name: `${first.code} ${first.title} 선택` })).toBeHidden();
+  await expect(page.getByLabel('선택 프로젝트 내보내기')).toBeHidden();
   await assertNoHorizontalOverflow(page);
   await capture(page, '02-selected-projects-mobile-390.png');
 

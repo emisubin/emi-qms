@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, getHomeDepartmentMetrics, getMyWorkSummary, getNotificationSummary, getSalesKpi, listPendingIssues, listProjects } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { DsBadge, DsSurface } from './design-system';
 import type { HomeMetricsResponse } from './home';
 import type { PendingListResponse } from './pending';
 import type { MyWorkSummary, NotificationSummary, ProjectListResponse } from './projects';
@@ -224,25 +225,26 @@ export function HomePage({
       </header>
 
       {isSalesDepartment ? (
-        <section className="home-sales-performance" aria-label="영업팀 연간 매출 지표" data-state={salesState.kind}>
+        <DsSurface className="home-sales-performance" label="영업팀 연간 매출 지표">
           <header>
-            <div><p className="eyebrow">SALES PERFORMANCE</p><h3>연간 매출 · 목표</h3><p>세금계산서가 완료된 확정 매출 기준입니다.</p></div>
+            <div><p className="eyebrow">영업 성과</p><h3>연간 매출 성과</h3><p>월 실적과 목표, 달성률을 함께 비교합니다.</p></div>
             {salesState.kind === 'ready' ? <button type="button" onClick={() => onOpenSalesKpi(salesState.data.year, salesState.data.currency)}>영업 KPI 전체 보기 →</button> : null}
           </header>
           {!canReadSalesAmount ? <div className="home-department-status" role="alert">영업 금액 지표 권한을 확인해 주세요.</div> : null}
           {salesState.kind === 'loading' ? <p className="home-department-status" role="status">연간 매출 지표를 불러오는 중입니다.</p> : null}
           {salesState.kind === 'error' ? <div className="home-department-status" role="alert"><span>{salesState.message}</span><button type="button" onClick={() => void loadSalesKpi()}>다시 시도</button></div> : null}
           {salesState.kind === 'ready' ? <>
-            <SalesKpiChart months={salesState.data.months} currency={salesState.data.currency} compact mobile={isMobile} />
+            <DsBadge>{salesState.data.currency}</DsBadge>
+            <SalesKpiChart months={salesState.data.months} currency={salesState.data.currency} year={salesState.data.year} compact mobile={isMobile} />
             <div className="home-sales-kpis">
               <article><span>연간 확정 매출</span><strong>{formatMoney(salesState.data.kpi.revenueTotal, salesState.data.currency)}</strong></article>
               <article><span>목표 달성률</span><strong>{salesState.data.kpi.achievementRate === null ? '목표 미등록' : `${salesState.data.kpi.achievementRate}%`}</strong></article>
-              <article><span>잔여 목표</span><strong>{formatMoney(salesState.data.kpi.remainingTargetAmount, salesState.data.currency)}</strong></article>
+              {!isMobile ? <article><span>잔여 목표</span><strong>{formatMoney(salesState.data.kpi.remainingTargetAmount, salesState.data.currency)}</strong></article> : null}
             </div>
           </> : null}
-        </section>
+        </DsSurface>
       ) : departmentState.kind !== 'empty' ? (
-        <section className="home-department-panel" aria-label="내 부서 핵심 지표" data-state={departmentState.kind}>
+        <DsSurface className="home-department-panel" label="내 부서 핵심 지표">
           <header>
             <div>
               <p className="eyebrow">DEPARTMENT FOCUS</p>
@@ -273,7 +275,7 @@ export function HomePage({
               ))}
             </div>
           ) : null}
-        </section>
+        </DsSurface>
       ) : null}
 
       {isMobile ? (
@@ -329,7 +331,7 @@ export function HomePage({
             )}
           </HomeWidget>
 
-          {canReadPending ? (
+          {canReadPending && !isMobile ? (
             <HomeWidget
               eyebrow="ISSUE CONTROL"
               title="Pending"
@@ -350,22 +352,24 @@ export function HomePage({
             </HomeWidget>
           ) : null}
 
-          <HomeWidget
-            eyebrow="NOTIFICATIONS"
-            title="알림"
-            state={notificationsState}
-            onRetry={loadNotifications}
-            onOpen={onOpenNotifications}
-            openLabel="알림 전체 보기"
-            emptyMessage="읽지 않은 알림이 없습니다."
-          >
-            {(data) => (
-              <div className="home-metric-grid home-metric-grid--two">
-                <HomeMetric label="읽지 않음" value={data.unreadCount} tone={data.unreadCount > 0 ? 'danger' : undefined} />
-                <HomeMetric label="긴급·차단" value={data.blockingCount} tone={data.blockingCount > 0 ? 'danger' : undefined} />
-              </div>
-            )}
-          </HomeWidget>
+          {!isMobile ? (
+            <HomeWidget
+              eyebrow="NOTIFICATIONS"
+              title="알림"
+              state={notificationsState}
+              onRetry={loadNotifications}
+              onOpen={onOpenNotifications}
+              openLabel="알림 전체 보기"
+              emptyMessage="읽지 않은 알림이 없습니다."
+            >
+              {(data) => (
+                <div className="home-metric-grid home-metric-grid--two">
+                  <HomeMetric label="읽지 않음" value={data.unreadCount} tone={data.unreadCount > 0 ? 'danger' : undefined} />
+                  <HomeMetric label="긴급·차단" value={data.blockingCount} tone={data.blockingCount > 0 ? 'danger' : undefined} />
+                </div>
+              )}
+            </HomeWidget>
+          ) : null}
 
           <HomeWidget
             eyebrow="NEXT ATTENTION"

@@ -90,8 +90,8 @@ describe('App', () => {
     window.history.pushState(null, '', '/');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '연간 매출 · 목표' })).toBeInTheDocument();
-    expect(await screen.findByRole('img', { name: '월별 확정 매출 막대와 목표 선 비교' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '연간 매출 성과' })).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: '월별 확정 매출과 목표 막대, 달성률 선 비교' })).toBeInTheDocument();
 
     const accountTrigger = document.querySelector<HTMLButtonElement>('.account-identity-trigger');
     expect(accountTrigger).not.toBeNull();

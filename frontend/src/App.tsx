@@ -9089,9 +9089,9 @@ function ProductionPlanningDashboardPage({
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>프로젝트 목록</button>
-          {canUpdateProductionPlanning ? <button type="button" onClick={onOpenSettings}>생산계획 단계 설정</button> : null}
-          {canUpdateProductionPlanning ? <button type="button" onClick={downloadBulkTemplate}>Excel 양식 다운로드</button> : null}
-          {canUpdateProductionPlanning ? <button type="button" className="primary-button" onClick={() => setShowExcelDialog(true)}>Excel 업로드</button> : null}
+          {canUpdateProductionPlanning && !isMobile ? <button type="button" onClick={onOpenSettings}>생산계획 단계 설정</button> : null}
+          {canUpdateProductionPlanning && !isMobile ? <button type="button" onClick={downloadBulkTemplate}>Excel 양식 다운로드</button> : null}
+          {canUpdateProductionPlanning && !isMobile ? <button type="button" className="primary-button" onClick={() => setShowExcelDialog(true)}>Excel 업로드</button> : null}
         </div>
       </div>
       {excelMessage ? <p role="alert" className={successMessage(excelMessage) ? 'success-text' : 'error-text'}>{excelMessage}</p> : null}
@@ -10638,7 +10638,7 @@ function ProcurementDashboardPage({
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>프로젝트 목록</button>
-          {canUpdateProcurement ? (
+          {canUpdateProcurement && !isMobile ? (
             <>
               <button type="button" onClick={onOpenSettings}>구매 필수 항목 설정</button>
               <button type="button" onClick={downloadTemplate} disabled={isDownloadingTemplate}>

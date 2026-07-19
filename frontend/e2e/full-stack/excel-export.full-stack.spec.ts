@@ -6,7 +6,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = path.resolve(process.cwd(), '../tasks/export-001-screenshots');
 
-test('TASK-EXPORT-001: three screens export formula-safe workbooks on desktop and mobile', async ({ page, request }) => {
+test('TASK-EXPORT-001: desktop exports remain formula-safe while mobile keeps the field surface simple', async ({ page, request }) => {
   const auditCountBefore = Number(await queryDatabaseValue("select count(*)::text from data_export_events where export_kind in ('ProjectsSelected','ProcurementDashboardSelected','MyWorkSelected');"));
   const unique = Date.now();
   const projectTitle = `Excel 내보내기 검수 ${unique}`;
@@ -44,26 +44,31 @@ test('TASK-EXPORT-001: three screens export formula-safe workbooks on desktop an
   await filterSheet.getByPlaceholder('고객사, Item, Code, Title').fill(projectTitle);
   await filterSheet.getByRole('button', { name: '조건 적용' }).click();
   await expect(page.getByText(projectTitle, { exact: true })).toBeVisible();
-  await exportAndVerify(page);
+  await assertMobileExportOmitted(page);
   await assertNoHorizontalOverflow(page);
   await capture(page, '04-projects-mobile-390.png');
 
   await page.goto('/procurement');
   await expect(page.getByRole('heading', { name: '구매' })).toBeVisible();
-  await exportAndVerify(page);
+  await assertMobileExportOmitted(page);
   await assertNoHorizontalOverflow(page);
   await capture(page, '05-procurement-mobile-390.png');
 
   await page.goto('/my-work');
   await selectDevelopmentUser(page, 'dev-production');
   await expect(page.getByRole('heading', { name: '오늘 처리할 업무' })).toBeVisible();
-  await exportAndVerify(page);
+  await assertMobileExportOmitted(page);
   await assertNoHorizontalOverflow(page);
   await capture(page, '06-my-work-mobile-390.png');
 
-  expect(Number(await queryDatabaseValue("select count(*)::text from data_export_events where export_kind in ('ProjectsSelected','ProcurementDashboardSelected','MyWorkSelected');"))).toBe(auditCountBefore + 6);
+  expect(Number(await queryDatabaseValue("select count(*)::text from data_export_events where export_kind in ('ProjectsSelected','ProcurementDashboardSelected','MyWorkSelected');"))).toBe(auditCountBefore + 3);
   expect(await queryDatabaseValue("select count(*)::text from data_export_events where row_count < 0 or row_count > 10000;")).toBe('0');
 });
+
+async function assertMobileExportOmitted(page: Page) {
+  await expect(page.locator('.selected-export-tray').first()).toBeHidden();
+  await expect(page.getByRole('button', { name: '선택 Excel 내보내기', exact: true })).toHaveCount(0);
+}
 
 async function exportAndVerify(page: Page) {
   const tray = page.locator('.selected-export-tray').first();

@@ -4,6 +4,7 @@ import { formatCompactMoney } from './salesKpiFormat';
 export function SalesKpiChart({
   months,
   currency,
+  year,
   selectedMonth,
   compact = false,
   mobile = false,
@@ -11,90 +12,118 @@ export function SalesKpiChart({
 }: {
   months: SalesKpiMonth[];
   currency: string;
+  year?: number;
   selectedMonth?: number;
   compact?: boolean;
   mobile?: boolean;
   onSelectMonth?: (month: number) => void;
 }) {
-  const values = months.flatMap((month) => [month.revenueAmount, month.targetAmount ?? 0]);
-  const max = Math.max(...values, 1);
+  const now = new Date();
+  const elapsedMonth = year === undefined || year < now.getFullYear()
+    ? 12
+    : year === now.getFullYear()
+      ? now.getMonth() + 1
+      : 0;
+  const moneyValues = months.flatMap((month) => [month.revenueAmount, month.targetAmount ?? 0]);
+  const maxMoney = Math.max(...moneyValues, 1);
+  const attainmentValues = months.map((month) => (
+    month.month <= elapsedMonth && month.targetAmount !== null && month.targetAmount > 0
+      ? (month.revenueAmount / month.targetAmount) * 100
+      : null
+  ));
+  const rawMaxAttainment = Math.max(100, ...attainmentValues.map((value) => value ?? 0));
+  const maxAttainment = Math.min(200, Math.ceil(rawMaxAttainment / 25) * 25);
 
-  if (mobile) {
-    return (
-      <div className="sales-chart-mobile" role="group" aria-label="12개월 확정 매출과 목표 비교">
-        {months.map((month) => {
-          const revenueHeight = Math.max((month.revenueAmount / max) * 100, month.revenueAmount > 0 ? 4 : 0);
-          const targetPosition = month.targetAmount === null ? null : (month.targetAmount / max) * 100;
-          const content = <>
-            <span>{month.month}월</span>
-            <div className="sales-chart-mobile-plot" aria-hidden="true">
-              <i className="sales-chart-mobile-bar" style={{ height: `${revenueHeight}%` }} />
-              {targetPosition !== null ? <i className="sales-chart-mobile-target" style={{ bottom: `${targetPosition}%` }} /> : null}
-            </div>
-            <strong>{formatCompactMoney(month.revenueAmount, currency)}</strong>
-            <small>{month.targetAmount === null ? '목표 -' : `목표 ${formatCompactMoney(month.targetAmount, currency)}`}</small>
-          </>;
-          const label = `${month.month}월 확정 매출 ${formatCompactMoney(month.revenueAmount, currency)}, ${month.targetAmount === null ? '목표 미등록' : `목표 ${formatCompactMoney(month.targetAmount, currency)}`}`;
-          return onSelectMonth ? (
-            <button key={month.month} type="button" className={month.month === selectedMonth ? 'is-selected' : ''} aria-label={label} onClick={() => onSelectMonth(month.month)}>{content}</button>
-          ) : (
-            <article key={month.month} aria-label={label}>{content}</article>
-          );
-        })}
-        <div className="sales-chart-legend" aria-hidden="true">
-          <span><i data-kind="revenue" />확정 매출</span>
-          <span><i data-kind="target" />월 목표</span>
-        </div>
-      </div>
-    );
-  }
+  const width = mobile ? 360 : 940;
+  const height = mobile ? 226 : compact ? 220 : 302;
+  const margin = mobile
+    ? { top: 25, right: 30, bottom: 36, left: 30 }
+    : { top: 30, right: 54, bottom: 40, left: 58 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const baseline = margin.top + plotHeight;
+  const slot = plotWidth / 12;
+  const barWidth = mobile ? 7 : compact ? 13 : 17;
+  const groupGap = mobile ? 1.5 : 3;
+  const monthX = (index: number) => margin.left + slot * index + slot / 2;
+  const attainmentY = (value: number) => baseline - (Math.min(value, maxAttainment) / maxAttainment) * plotHeight;
+  const selected = selectedMonth ? months.find((month) => month.month === selectedMonth) : undefined;
+  const selectedAttainment = selected?.targetAmount && selected.targetAmount > 0
+    ? (selected.revenueAmount / selected.targetAmount) * 100
+    : null;
 
-  const width = 900;
-  const height = compact ? 220 : 300;
-  const baseline = height - 42;
-  const chartHeight = baseline - 24;
-  const slot = 68;
-  const start = 46;
-  const points = months
-    .filter((month) => month.targetAmount !== null)
-    .map((month) => {
-      const x = start + (month.month - 1) * slot + 18;
-      const y = baseline - ((month.targetAmount ?? 0) / max) * chartHeight;
-      return `${x},${y}`;
-    })
-    .join(' ');
+  let attainmentPath = '';
+  let isOpen = false;
+  attainmentValues.forEach((value, index) => {
+    if (value === null) {
+      isOpen = false;
+      return;
+    }
+    attainmentPath += `${isOpen ? ' L' : ' M'} ${monthX(index)} ${attainmentY(value)}`;
+    isOpen = true;
+  });
 
   return (
-    <div className={compact ? 'sales-chart sales-chart--compact' : 'sales-chart'}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-labelledby={`sales-chart-title-${compact ? 'compact' : 'full'}`}>
-        <title id={`sales-chart-title-${compact ? 'compact' : 'full'}`}>월별 확정 매출 막대와 목표 선 비교</title>
+    <div
+      className={`sales-chart ${compact ? 'sales-chart--compact' : ''} ${mobile ? 'sales-chart--mobile' : ''}`.trim()}
+      role="group"
+      aria-label="12개월 확정 매출·목표·달성률 그래프"
+    >
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="월별 확정 매출과 목표 막대, 달성률 선 비교">
         {[0, 0.5, 1].map((ratio) => {
-          const y = baseline - chartHeight * ratio;
-          return <line key={ratio} x1="28" x2="875" y1={y} y2={y} className="sales-chart-grid" />;
-        })}
-        {months.map((month) => {
-          const x = start + (month.month - 1) * slot;
-          const barHeight = (month.revenueAmount / max) * chartHeight;
+          const y = baseline - plotHeight * ratio;
           return (
-            <g key={month.month}>
+            <g key={ratio}>
+              <line x1={margin.left} x2={width - margin.right} y1={y} y2={y} className="sales-chart-grid" />
+              {ratio > 0 ? <text x={margin.left - 5} y={y + 3} textAnchor="end" className="sales-chart-axis-label">{formatCompactMoney(maxMoney * ratio, currency)}</text> : null}
+            </g>
+          );
+        })}
+
+        <line
+          x1={margin.left}
+          x2={width - margin.right}
+          y1={attainmentY(100)}
+          y2={attainmentY(100)}
+          className="sales-chart-attainment-reference"
+        />
+        <text x={width - margin.right + 4} y={attainmentY(100) + 3} className="sales-chart-axis-label sales-chart-axis-label--percent">100%</text>
+
+        {months.map((month, index) => {
+          const center = monthX(index);
+          const revenueHeight = Math.max((month.revenueAmount / maxMoney) * plotHeight, month.revenueAmount > 0 ? 2 : 0);
+          const targetHeight = month.targetAmount === null ? 0 : Math.max((month.targetAmount / maxMoney) * plotHeight, month.targetAmount > 0 ? 2 : 0);
+          const label = `${month.month}월 확정 매출 ${formatCompactMoney(month.revenueAmount, currency)}, ${month.targetAmount === null ? '목표 미등록' : `목표 ${formatCompactMoney(month.targetAmount, currency)}`}, ${attainmentValues[index] === null ? '달성률 계산 안 함' : `달성률 ${attainmentValues[index]!.toFixed(1)}%`}`;
+          return (
+            <g key={month.month} className={month.month === selectedMonth ? 'is-selected' : undefined}>
               <rect
-                x={x}
-                y={baseline - barHeight}
-                width="36"
-                height={Math.max(barHeight, 2)}
-                rx="8"
-                className={month.month === selectedMonth ? 'sales-chart-bar is-selected' : 'sales-chart-bar'}
+                x={center - groupGap / 2 - barWidth}
+                y={baseline - revenueHeight}
+                width={barWidth}
+                height={Math.max(revenueHeight, 1)}
+                rx={mobile ? 1.5 : 3}
+                className="sales-chart-bar sales-chart-bar--revenue"
               />
-              <text x={x + 18} y={baseline + 24} textAnchor="middle" className="sales-chart-label">{month.month}월</text>
-              {onSelectMonth ? (
+              {month.targetAmount !== null ? (
                 <rect
-                  x={x - 8}
-                  y="12"
-                  width="52"
-                  height={baseline + 25}
+                  x={center + groupGap / 2}
+                  y={baseline - targetHeight}
+                  width={barWidth}
+                  height={Math.max(targetHeight, 1)}
+                  rx={mobile ? 1.5 : 3}
+                  className="sales-chart-bar sales-chart-bar--target"
+                />
+              ) : null}
+              <text x={center} y={baseline + (mobile ? 17 : 23)} textAnchor="middle" className="sales-chart-label">{month.month}</text>
+              {onSelectMonth && !mobile ? (
+                <rect
+                  x={center - slot / 2}
+                  y={margin.top - 12}
+                  width={slot}
+                  height={plotHeight + 38}
                   tabIndex={0}
                   role="button"
-                  aria-label={`${month.month}월 확정 매출 ${formatCompactMoney(month.revenueAmount, currency)}, ${month.targetAmount === null ? '목표 미등록' : `목표 ${formatCompactMoney(month.targetAmount, currency)}`}`}
+                  aria-label={label}
                   className="sales-chart-hit"
                   onClick={() => onSelectMonth(month.month)}
                   onKeyDown={(event) => {
@@ -105,21 +134,38 @@ export function SalesKpiChart({
             </g>
           );
         })}
-        {points ? <polyline points={points} className="sales-chart-target-line" /> : null}
-        {months.filter((month) => month.targetAmount !== null).map((month) => {
-          const x = start + (month.month - 1) * slot + 18;
-          const y = baseline - ((month.targetAmount ?? 0) / max) * chartHeight;
-          return <circle key={`target-${month.month}`} cx={x} cy={y} r="5" className="sales-chart-target-dot" />;
-        })}
+
+        {attainmentPath ? <path d={attainmentPath} className="sales-chart-attainment-line" /> : null}
+        {attainmentValues.map((value, index) => value === null ? null : (
+          <circle
+            key={`attainment-${months[index].month}`}
+            cx={monthX(index)}
+            cy={attainmentY(value)}
+            r={mobile ? 2.4 : 4}
+            className="sales-chart-attainment-dot"
+          />
+        ))}
       </svg>
+
       <div className="sales-chart-legend" aria-hidden="true">
         <span><i data-kind="revenue" />확정 매출</span>
         <span><i data-kind="target" />월 목표</span>
+        <span><i data-kind="attainment" />월 달성률</span>
       </div>
+
+      {selected ? (
+        <div className="sales-chart-selection" aria-live="polite">
+          <strong>{selected.month}월</strong>
+          <span>매출 {formatCompactMoney(selected.revenueAmount, currency)}</span>
+          <span>{selected.targetAmount === null ? '목표 미등록' : `목표 ${formatCompactMoney(selected.targetAmount, currency)}`}</span>
+          <b>{selectedAttainment === null ? '달성률 -' : `달성률 ${selectedAttainment.toFixed(1)}%`}</b>
+        </div>
+      ) : null}
+
       <table className="sr-only">
-        <caption>월별 확정 매출과 목표</caption>
-        <thead><tr><th>월</th><th>확정 매출</th><th>목표</th></tr></thead>
-        <tbody>{months.map((month) => <tr key={month.month}><td>{month.month}월</td><td>{month.revenueAmount}</td><td>{month.targetAmount ?? '미등록'}</td></tr>)}</tbody>
+        <caption>월별 확정 매출, 목표와 달성률</caption>
+        <thead><tr><th>월</th><th>확정 매출</th><th>목표</th><th>달성률</th></tr></thead>
+        <tbody>{months.map((month, index) => <tr key={month.month}><td>{month.month}월</td><td>{month.revenueAmount}</td><td>{month.targetAmount ?? '미등록'}</td><td>{attainmentValues[index] === null ? '계산 안 함' : `${attainmentValues[index]!.toFixed(1)}%`}</td></tr>)}</tbody>
       </table>
     </div>
   );

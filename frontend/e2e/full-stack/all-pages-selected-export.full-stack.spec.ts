@@ -92,14 +92,10 @@ test('TASK-EXPORT-001 change-002: every list page exposes one selected Excel flo
     await page.goto(target.route);
     await waitForPageData(page);
     const tray = page.locator('.selected-export-tray').first();
-    if (await tray.count() === 0) {
-      await assertNoHorizontalOverflow(page);
-      await capture(page, `mobile-${target.name}.png`);
-      continue;
+    if (await tray.count() > 0) {
+      await expect(tray, `${target.route} mobile selected export tray`).toBeHidden();
     }
-    await expect(tray, `${target.route} mobile selected export tray`).toBeVisible();
-    await expect(tray.getByRole('button', { name: '선택 Excel 내보내기', exact: true })).toHaveCount(1);
-    await expect(page.getByRole('button', { name: 'Excel 내보내기', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '선택 Excel 내보내기', exact: true })).toHaveCount(0);
     await assertNoHorizontalOverflow(page);
     await capture(page, `mobile-${target.name}.png`);
   }

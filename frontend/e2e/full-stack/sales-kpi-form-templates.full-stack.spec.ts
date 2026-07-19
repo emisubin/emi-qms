@@ -3,33 +3,33 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
-const screenshotDirectory = path.resolve(process.cwd(), '../tasks/sales-admin-002-screenshots');
+const screenshotDirectory = path.resolve(process.cwd(), '../tasks/design-000-screenshots');
 
-test('SALES-KPI-001 + ADMIN-002: adaptive sales dashboard and no-code form management', async ({ page, request }) => {
+test('DESIGN-000 + SALES-KPI-001 Change 002: token foundation and adaptive decision chart', async ({ page, request }) => {
   await page.route('**/api/sales/kpi**', mockSalesKpi);
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '연간 매출 · 목표' })).toBeVisible();
-  await expect(page.getByRole('img', { name: '월별 확정 매출 막대와 목표 선 비교' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '연간 매출 성과' })).toBeVisible();
+  await expect(page.getByRole('img', { name: '월별 확정 매출과 목표 막대, 달성률 선 비교' })).toBeVisible();
   await capture(page, '01-sales-home-desktop-1440.png');
 
   await page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '영업' }).click();
   await expect(page).toHaveURL(/\/sales/);
-  await expect(page.getByRole('heading', { name: '연간 매출 목표' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '연간 매출 성과' })).toBeVisible();
   await expect(page.getByText('₩1,140,000,000')).toBeVisible();
   await capture(page, '02-sales-kpi-desktop-1440.png');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/sales?year=2026&currency=KRW');
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
-  await expect(page.getByRole('group', { name: '12개월 확정 매출과 목표 비교' })).toBeVisible();
+  await expect(page.getByRole('group', { name: '12개월 확정 매출·목표·달성률 그래프' })).toBeVisible();
   await assertNoHorizontalOverflow(page);
   await capture(page, '03-sales-kpi-mobile-390.png');
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '연간 매출 · 목표' })).toBeVisible();
-  await expect(page.getByRole('group', { name: '12개월 확정 매출과 목표 비교' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '연간 매출 성과' })).toBeVisible();
+  await expect(page.getByRole('group', { name: '12개월 확정 매출·목표·달성률 그래프' })).toBeVisible();
   await assertNoHorizontalOverflow(page);
   await capture(page, '04-sales-home-mobile-390.png');
 

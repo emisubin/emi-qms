@@ -19,6 +19,7 @@
 - Change 012: Fable 정책·USER-FLOW WIP를 로컬 보존 커밋으로 고정한 뒤 대표 clone에 선별 이식하고 임시 worktree를 정리
 - Change 014: `experiment/*` 전용 Fable 2-pass fast-track과 review 직접 참조 `second-planning` runner 추가
 - Change 015: experiment 완료 원장, 마지막 일괄 사용자 검수 상태와 완료 scope 재선택 방지 gate 추가
+- Change 016: experiment “다음 작업” 실행 의미, 비차단 Fable 권장안 자동 채택과 재승인 질문 방지 gate 추가
 
 Backend, Frontend, migration, dependency, runtime과 Persistent UAT source diff는 없다. Change 007~012는 governance shell script 1개와 관련 governance·기획 문서·Git worktree만 변경한다.
 
@@ -493,12 +494,26 @@ Git 결과: Change 014 allowlist 7개 파일을 local experiment commit으로 �
 
 Open P0/P1/P2는 `0/0/0`이다. `EXPERIMENT_COMPLETED_TASK_RESELECTED`는 완료 원장과 재선택 gate로 `RESOLVED`했다. 사용자 최종 일괄 검수, 대표 repo·`main`, Persistent UAT, provider, push·PR·merge는 실행하지 않았고 main merge 승인 `0/3`을 유지했다.
 
+## 10.16 Change 016 — 실험 다음 작업 재승인 방지
+
+사용자는 이 experiment branch에서 인터뷰·중간 승인·권장안 채택 확인 없이 신규 기능을 결과까지 연속 진행하도록 반복해 명시했다. 그런데 Change 015 이후 Product Roadmap과 완료 원장의 Pending 유형 관리자 화면에 `DEFERRED / POLICY_INPUT`과 “단순 다음 작업만으로 임의 정책을 확정하지 않는다”는 문장이 추가됐고, 후속 session이 이를 Change 014의 standing instruction보다 강한 사용자 승인 gate로 해석했다.
+
+변경 결과는 다음과 같다.
+
+- “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task를 선택하는 명시적 실행 지시로 고정했다.
+- Task ID가 미정이거나 비차단 제품 정책 선택지가 남았어도 identity 검색 뒤 Fable 1차 기획·Codex review·Fable 2차 기획에서 권장안을 자동 확정하도록 했다.
+- 재승인 질문 없이 구현·검증·screenshot·local commit까지 이어가되 canonical purpose ambiguity, Repository 충돌, 보안·권한 불변조건과 대표 repo·`main`·Persistent UAT·실제 provider·destructive operation 경계만 차단한다.
+- 일반 branch 승인 흐름, 완료 기능 재선택 금지와 main merge 승인 `0/3`은 유지했다.
+- `EXPERIMENT_FAST_TRACK_REAPPROVAL_PROMPTED`를 `RESOLVED_IN_CHANGE_016`으로 기록했다.
+
+제품 Backend·Frontend·API·DB·migration·dependency·runtime 변경은 없다. 변경 문서 `8`, local link missing `0`, duplicate heading `0`, `git diff --check` PASS, 제품 source·migration·dependency·runtime diff `0`을 확인했다. Local commit만 수행하며 push·PR·merge와 main merge 승인 `0/3`은 유지한다.
+
 ## 11. 5종 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | 이 문서 | Change 007~014 기록 / Change 015 완료 원장·중복 방지 구현·검증 |
-| SOP | `tasks/gov-codex-002.md` 8장, Root `AGENTS.md` | fast-track과 완료 원장 조회·재개 절차 |
+| Implementation report | 이 문서 | Change 007~016 기록 |
+| SOP | `tasks/gov-codex-002.md` 8장, Root `AGENTS.md` | fast-track·완료 원장·다음 작업 자동 선택 절차 |
 | User manual | `tasks/gov-codex-002.md` 9장, `docs/27-experiment-task-ledger.md` | 완료·남은·검수·승격 상태 안내 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 015 experiment 상태·남은 queue·Decision Log 동기화 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 015 정책 승인·문서 검증 완료 / 제품 화면 검수는 마지막 일괄 대기 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 016 experiment 다음 Task·재승인 방지 gate 동기화 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 016 정책 승인·문서 검증 완료 / 제품 화면 검수는 마지막 일괄 대기 |

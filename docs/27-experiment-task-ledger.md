@@ -18,6 +18,7 @@
 | `EXPERIMENT_COMPLETE` | 승인된 실험 범위의 구현·필수 자동 검증·Finding gate·종료 산출물이 완료됨. 사용자 직접 검수는 `BATCHED_FINAL`로 마지막에 일괄 수행할 수 있음 | 같은 목적을 다시 Fable에 보내거나 재구현하지 않는다. 사용자가 명시적으로 수정을 요청한 경우에만 기존 Task의 다음 `change-###` 또는 bugfix로 재개한다 |
 | `EXPERIMENT_SLICE_COMPLETE` | 명시된 phase 또는 slice는 완료됐지만 같은 Task family의 별도 후속 범위가 남음 | 완료 slice는 건드리지 않고 이름이 지정된 후속 범위만 시작한다 |
 | `DEFERRED` | 기획·구현을 시작하지 않았거나 정책·외부 입력을 기다림 | blocker와 Roadmap 순서를 확인한 뒤 신규 Task gate를 수행한다 |
+| `READY / FAST_TRACK` | 이름 있는 다음 제품 Task이며, 남은 비차단 정책은 Fable 2-pass 권장안으로 확정할 수 있음 | 사용자의 “다음 작업 시작” 지시로 별도 승인 없이 기획·review·2차 기획·구현·검증·screenshot·local commit까지 진행한다 |
 | `PROMOTION_PENDING` | 실험 구현은 끝났지만 대표 repo·`main`·UAT에 반영하지 않음 | 기능을 재구현하지 않고 별도 승격·통합·UAT Task로 다룬다. `main` merge는 분리 승인 3회가 필요하다 |
 
 `BATCHED_FINAL`은 사용자 검수를 완료했다고 가장하는 상태가 아니다. 실험 개발 완료 판정과 Task 선택에서만 완료로 취급하며, 사용자 검수 checklist에는 계속 `사용자 검수 대기 — 마지막 일괄 검수`를 기록한다. 사용자 검수에서 실패가 발견되면 완료 Task를 새 Task로 복제하지 않고 기존 Task의 change 또는 bugfix로 재개한다.
@@ -57,11 +58,11 @@
 
 ## 4. 남은 제품 개발 Task
 
-아래는 완료 Task의 재구현이 아니라 별도 후속 범위다. `우선순위`는 현재 실험 계보의 권장 순서이며, 사용자 명시 요청이 있으면 Roadmap override를 기록하고 해당 항목을 진행한다.
+아래는 완료 Task의 재구현이 아니라 별도 후속 범위다. `우선순위`는 현재 실험 계보의 권장 순서다. 이 branch의 standing instruction 아래에서 사용자가 “다음 작업 시작”이라고 하면 가장 높은 우선순위의 이름 있는 미완료 제품 Task를 선택하고, 비차단 정책은 Fable 권장안으로 자동 채택해 결과까지 진행한다.
 
 | 우선순위 | Task·후속 범위 | 현재 상태 | 시작 조건·주의 |
 | --- | --- | --- | --- |
-| 1 | Pending 유형 관리자 화면 — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 유형·권한 정책을 확정한 뒤 새 canonical ID를 부여한다. `TASK-007A` 본체를 다시 만들지 않는다 |
+| 1 | Pending 유형 관리자 화면 — Task ID 미정 | `READY / FAST_TRACK` | 신규 Task identity 검색 뒤 canonical ID를 부여하고 유형·권한 정책은 Fable 2-pass 권장안으로 확정한다. `TASK-007A` 본체를 다시 만들지 않는다 |
 | 2 | QR 스캔 landing — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 공개 또는 인증 landing 정책과 QR 운영 경계를 먼저 확정한다 |
 | 3 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
 | 4 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |

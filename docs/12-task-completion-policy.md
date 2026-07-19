@@ -88,6 +88,8 @@ user validation checklist는 자동 검증과 사용자 직접 확인 항목을 
 
 같은 목적은 다시 기획하거나 구현하지 않는다. 사용자 최종 검수에서 실패가 발견되면 기존 Task의 change 또는 bugfix로 재개하고, 신규 능력이 필요한 경우에만 별도 `NEW_FEATURE`를 만든다. P3·optional scope·운영 승격은 완료 Task를 자동으로 다시 여는 사유가 아니며 각각 후속 backlog나 별도 승격 Task로 추적한다.
 
+사용자가 해당 experiment 대화·branch에 인터뷰와 중간 승인 생략, Fable 권장안 자동 채택과 연속 구현을 standing instruction으로 지정했다면 “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task를 선택하는 실행 지시로 처리한다. `DEFERRED / POLICY_INPUT`의 비차단 정책은 Fable 2-pass에서 확정하며 사용자에게 승인·채택·확인을 다시 요구하지 않는다. 단, 후보가 둘 이상이라 canonical purpose를 확정할 수 없는 경우, Repository 충돌, 보안·권한 불변조건 위반 또는 대표 repo·`main`·Persistent UAT·실제 provider·destructive operation 경계는 자동 진행 대상이 아니다.
+
 ## 5. Finding gate
 
 Finding은 P0/P1/P2/P3로 관리하고 다음 gate를 적용한다.

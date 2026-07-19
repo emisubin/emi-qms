@@ -50,6 +50,10 @@ Roadmap 순서는 단순 번호가 아니라 status, dependencies, external bloc
 ### `experiment/*` 완료 원장 gate
 
 - `experiment/*`에서 새 Task·다음 Task·Fable 기획·구현을 선택하기 전에 [실험 브랜치 Task 완료 원장](docs/27-experiment-task-ledger.md)을 반드시 읽는다.
+- 사용자가 이 대화와 branch에 대해 인터뷰·중간 승인 생략, Fable 권장안 자동 채택과 결과까지의 연속 진행을 standing instruction으로 명시했다면, “다음 작업 시작”은 완료 원장의 우선순위가 가장 높은 이름 있는 미완료 제품 Task를 선택하고 그 Task의 `experiment/*` fast-track을 실행하라는 명시적 지시다. 이 경우 `roadmapSequenceMatch=true`로 기록하며 별도 승인·확인 질문을 만들지 않는다.
+- 위 standing instruction 아래의 `DEFERRED / POLICY_INPUT`은 사용자 승인 대기가 아니라 Fable 1차 기획에서 선택지·권장안을 만들고 Codex review를 거쳐 Fable 2차 기획이 확정할 비차단 입력이다. 권장안이 기존 보안·권한·workflow 불변조건을 보존하고 2차 기획의 blocking decision이 0이면 자동 채택해 구현까지 이어간다.
+- 같은 목적 후보가 둘 이상이거나, 이름 있는 다음 Task를 하나로 확정할 수 없거나, Repository source끼리 의미 있게 충돌하거나, 대표 repo·`main`·Persistent UAT·실제 provider·destructive operation처럼 fast-track 제외 경계를 넘어야 하는 경우에만 중단한다. 단순히 Task ID가 아직 없거나 제품 정책 선택지가 남았다는 이유만으로 사용자 승인을 다시 요청하지 않는다.
+- 완료 원장·Roadmap·change를 갱신할 때 이 standing instruction을 약화해 “다음 작업”을 다시 승인 대기로 바꾸는 문구를 추가하지 않는다. 일반 branch의 승인 흐름과 `main` merge 승인 3회 경계는 그대로 유지한다.
 - 원장의 `EXPERIMENT_COMPLETE` scope와 같은 목적이면 사용자 검수 대기, 대표 repo 미반영, UAT 미적용 또는 P3 backlog를 이유로 Fable planning·새 Task·재구현을 시작하지 않는다. 새 기능 요청이 아니라면 `BLOCKED_ALREADY_COMPLETED`로 먼저 보고한다.
 - 사용자가 완료 기능의 수정을 요청하면 새 Task ID를 만들지 않고 기존 canonical Task의 다음 `change-###` 또는 확인된 결함의 `BUGFIX`를 사용한다. 신규 사용자 능력·상태·권한·외부 연동이면 별도 `NEW_FEATURE`로 분류한다.
 - `EXPERIMENT_SLICE_COMPLETE`는 완료 slice를 다시 열지 않는다. purpose identity와 변경 allowlist는 원장에 이름이 적힌 후속 slice만 포함해야 한다.

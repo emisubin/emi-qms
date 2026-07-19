@@ -23,6 +23,7 @@
 - Change 013: Generic primary draft와 USER-FLOW compatibility redraft 분리·exact target 승인 gate·상태 충돌 P2 보정 / 구현·자동·독립 검증·사용자 검수 완료 / P2 `3/3` Resolved / merge 승인
 - Change 014: `experiment/*` 전용 Fable 1차 기획·Codex review·Fable 2차 기획·Codex 구현 fast-track과 `second-planning` runner 계약 / 사용자 정책·구현 승인 / 자동 검증·local commit 완료 / push·PR·merge 미승인
 - Change 015: experiment 완료 원장·`BATCHED_FINAL` 판정·완료 scope 중복 실행 방지 gate / 사용자 정책·문서 구현 승인 / local commit 범위 / push·PR·merge 미승인
+- Change 016: experiment standing instruction의 “다음 작업” 실행 의미·비차단 정책 Fable 권장안 자동 채택·재승인 질문 방지 gate / 사용자 정책·문서 구현 승인 / local commit 범위 / push·PR·merge 미승인
 
 ## 2. 목표
 
@@ -115,11 +116,14 @@
 28. `experiment/*`에서 다음 Task를 선택하기 전 `docs/27-experiment-task-ledger.md`를 읽는다. `EXPERIMENT_COMPLETE`와 같은 purpose면 Fable·새 planning·재구현을 시작하지 않는다.
 29. `BATCHED_FINAL`은 실험 개발 완료이지만 사용자 검수는 마지막 일괄 대기다. 검수 실패가 생기면 기존 Task의 다음 change 또는 bugfix로 재개하고, 완료 Task를 새 ID로 복제하지 않는다.
 30. `EXPERIMENT_SLICE_COMPLETE`는 완료 slice를 보존하고 원장에 이름이 적힌 후속 slice만 새 purpose로 사용한다. 대표 repo·`main` 승격은 기능 재구현이 아니라 별도 통합·UAT Task다.
+31. experiment standing instruction이 유효할 때 “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task를 선택하는 명시적 실행 지시다. `DEFERRED / POLICY_INPUT`의 비차단 선택은 Fable 2-pass 권장안으로 자동 확정하고 별도 승인 질문을 만들지 않는다.
+32. 다음 Task 후보가 하나로 확정되지 않거나 Repository 충돌·보안 불변조건·fast-track 제외 경계에 걸릴 때만 중단한다. Task ID 미정이나 일반 제품 선택지만으로는 중단하지 않으며, Roadmap·원장 갱신으로 이 standing instruction을 약화하지 않는다.
 
 ## 9. 사용자 안내
 
 - 새 업무 흐름·화면·데이터 개념·외부 연동·권한 능력을 요청하면 Fable 5가 업무 맥락을 먼저 interview한다. 선택 사항은 쉬운 비교와 권장안을 제공한다.
 - 실험 branch에서 fast-track을 미리 요청했다면 Fable 권장안을 기본으로 1차 기획하고, Codex가 문제를 검토한 뒤 Fable이 2차 기획을 한 번 다시 작성한다. 사용자는 중간 승인 대신 구현 결과와 페이지별 screenshot을 받는다.
+- 같은 실험 대화에서 “다음 작업 시작”이라고 하면 완료 원장상 첫 번째 이름 있는 미완료 제품 Task를 뜻한다. Task ID와 비차단 정책이 아직 없더라도 Codex가 identity를 확정하고 Fable 권장안을 자동 채택하므로 사용자가 승인·채택·확인을 반복할 필요가 없다.
 - Codex는 질문·답변을 전달·기록하며 사용자가 interview 요약을 확인한 뒤 Fable planning과 Codex 검토 결과를 받는다.
 - 버그, P2, 보안 보강, UAT, 문서, 정리와 기존 정책 선택은 Fable 없이 Codex가 조사한다.
 - “승인된 기능을 구현하라”는 요청은 다시 기획하지 않는다.
@@ -164,16 +168,17 @@
 - Change 013 P2 `ROADMAP_CURRENT_STATE_CONFLICT`: `RESOLVED`. 실행 큐·USER-FLOW 상세·추적 87·88·Decision Log를 Governance merge 선행·redraft/문서 merge 승인·제품 구현 미승인으로 정렬했다.
 - Change 014 `EXPERIMENT_SECOND_PLANNING_NOT_ENFORCED`: `RESOLVED_IN_CHANGE_014`. 기존 `draft`가 Codex review를 필수 source로 확인하지 않던 공백을 experiment-only `second-planning` mode와 planning·review·approval·target fail-closed gate로 해소했다.
 - Change 015 `EXPERIMENT_COMPLETED_TASK_RESELECTED`: `RESOLVED_IN_CHANGE_015`. canonical main queue의 Pending 상태와 experiment implementation 완료가 한 표에서 구분되지 않아 `TASK-007A`가 다시 선택된 원인을 완료 원장, `BATCHED_FINAL` 상태와 fail-closed 재선택 규칙으로 해소했다.
+- Change 016 `EXPERIMENT_FAST_TRACK_REAPPROVAL_PROMPTED`: `RESOLVED_IN_CHANGE_016`. Roadmap과 완료 원장에 추가된 “정책 입력 전 다음 작업 불가” 문구가 기존 standing instruction보다 강하게 읽혀 승인 질문을 재발시킨 원인을 제거하고, 이름 있는 다음 Task 선택·비차단 Fable 권장안 자동 채택·실제 차단 경계를 source-of-truth에 명시했다.
 
 ## 12. 5종 산출물 상태
 
 | 산출물 | Canonical 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/gov-codex-002-implementation-report.md` | Change 007~014 기록 / Change 015 완료 원장·중복 방지 문서 검증 |
+| Implementation report | `tasks/gov-codex-002-implementation-report.md` | Change 007~016 기록 |
 | SOP | 이 문서 8장 | 작성됨 |
 | User manual | 이 문서 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 015 experiment 완료·남은 범위 동기화 |
-| User validation checklist | 이 문서 13장 | Change 001~014 상태 보존 / Change 015 정책 사용자 승인·문서 검증 완료 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 016 experiment 다음 Task·자동 채택 gate 동기화 |
+| User validation checklist | 이 문서 13장 | Change 001~015 상태 보존 / Change 016 정책 사용자 승인·문서 검증 완료 |
 
 ## 13. 사용자 검수 체크리스트
 
@@ -240,3 +245,5 @@
 - [x] `EXPERIMENT_COMPLETE`와 같은 purpose의 Fable·새 planning·재구현 차단 규칙 확인
 - [x] `TASK-UX-001 A1` 완료와 A2 Deferred, 선택 export 완료와 column picker optional 후속을 분리
 - [x] Change 015 local governance commit 승인; push·PR·merge와 `main` 승인 `0/3` 유지
+- [x] Change 016에서 “다음 작업 시작”을 실행 지시로 고정하고 비차단 정책 재승인 질문을 금지
+- [x] Change 016의 실제 차단 경계와 일반 branch·`main` merge 승인 `0/3` 보존

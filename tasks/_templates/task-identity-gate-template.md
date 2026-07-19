@@ -13,6 +13,9 @@
 - canonicalTaskId: `<TASK-ID | NONE | AMBIGUOUS>`
 - reuseExistingTask: `false`
 - explicitRoadmapOverrideApproved: `false`
+- experimentStandingInstructionApplies: `false`
+- experimentLedgerSelectedTask: `<TASK-ID | NAME | NONE>`
+- policyInputResolution: `<USER_DECISION | FABLE_RECOMMENDATION_AUTO_ADOPT | N/A>`
 - gateStatus: `BLOCKED`
 
 ## Purpose identity
@@ -42,3 +45,5 @@
 - `BLOCKED_INCOMPLETE`: 검색 범위나 source of truth를 충분히 확인하지 못했다.
 
 `PASS_REUSE`이면 새 Task ID를 만들지 않고 `canonicalTaskId`의 다음 `change-###`를 사용한다. `PASS_REUSE`와 `PASS_CREATE` 외에는 Fable 호출, 새 Task·branch·worktree·planning 파일 작성을 시작하지 않는다.
+
+`experimentStandingInstructionApplies=true`이고 완료 원장의 첫 번째 이름 있는 미완료 제품 Task가 하나로 확정되면 사용자의 “다음 작업 시작”은 해당 Task에 대한 명시적 실행 지시다. 이때 `experimentLedgerSelectedTask`를 기록하고 `roadmapSequenceMatch=true`로 판정한다. `DEFERRED / POLICY_INPUT`의 비차단 선택은 `policyInputResolution=FABLE_RECOMMENDATION_AUTO_ADOPT`로 기록하며 별도 승인 질문을 만들지 않는다. 실제 차단 경계는 Root `AGENTS.md`의 experiment 완료 원장 gate를 따른다.

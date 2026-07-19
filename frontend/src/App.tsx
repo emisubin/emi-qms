@@ -2224,8 +2224,6 @@ const mobileNavigationHints: Record<string, string> = {
   '관리자': '시스템 운영'
 };
 
-const mobileNavigationShapeNames = ['circle', 'square', 'oval', 'rounded', 'angular'] as const;
-
 function AppNavigation({
   items,
   onNavigate,
@@ -2398,7 +2396,7 @@ function AppMobileNavigation({
                 >
                   <span
                     className="mobile-menu-item-shape"
-                    data-shape={mobileNavigationShapeNames[index % mobileNavigationShapeNames.length]}
+                    data-shape-role={item.active ? 'active' : 'control'}
                     aria-hidden="true"
                   ><NavigationIcon label={item.label} /></span>
                   <span className="mobile-menu-item-copy">

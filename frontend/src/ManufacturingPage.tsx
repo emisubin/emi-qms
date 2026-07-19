@@ -13,6 +13,7 @@ import {
   stopManufacturingExecution
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { workflowShapeRole } from './design-system';
 import { MobileSheet } from './MobileSheet';
 import type {
   ManufacturingActionDepartment,
@@ -346,13 +347,18 @@ export function ManufacturingPage({
               <strong>{projects.length}개 프로젝트</strong>
             </div>
             <div className="manufacturing-project-list">
-              {projects.map((project, index) => (
+              {projects.map((project) => (
                 <button
                   key={project.projectId}
                   type="button"
                   className="manufacturing-project-card"
                   data-active={project.projectId === selectedProjectId}
-                  data-shape={index % 3 === 0 ? 'angular' : index % 3 === 1 ? 'rounded' : 'oval'}
+                  data-shape-role={workflowShapeRole({
+                    blocked: project.blockedCount > 0,
+                    completed: project.completedCount > 0 && project.readyCount === 0 && project.inProgressCount === 0,
+                    active: project.projectId === selectedProjectId,
+                    inProgress: project.inProgressCount > 0
+                  })}
                   onClick={() => selectProject(project)}
                 >
                   <span>{project.projectCode}</span>

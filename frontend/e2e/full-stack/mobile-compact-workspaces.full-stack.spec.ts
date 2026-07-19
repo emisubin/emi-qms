@@ -5,10 +5,10 @@ import path from 'node:path';
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = process.env.MOBILE_SCREENSHOT_DIR?.trim()
   ? path.resolve(process.env.MOBILE_SCREENSHOT_DIR)
-  : path.resolve(process.cwd(), '../tasks/mobile-002-change-004-screenshots');
+  : path.resolve(process.cwd(), '../tasks/mobile-002-change-005-screenshots');
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
 
-test('TASK-MOBILE-002 Change 004: mobile workspaces keep field actions and omit PC management controls', async ({ page, request }) => {
+test('TASK-MOBILE-002 Change 005: mobile workspaces use one shape for each semantic meaning', async ({ page, request }) => {
   test.setTimeout(150_000);
   const unique = Date.now();
   const projectTitle = `모바일 전면 개편 검수 ${unique}`;
@@ -39,10 +39,11 @@ test('TASK-MOBILE-002 Change 004: mobile workspaces keep field actions and omit 
   const menuDrawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
   await expect(menuDrawer).toBeVisible();
   await expect(menuDrawer.locator('.mobile-menu-item').first()).toBeFocused();
-  const menuShapeNames = await menuDrawer.locator('.mobile-menu-item-shape').evaluateAll((elements) =>
-    Array.from(new Set(elements.map((element) => element.getAttribute('data-shape'))))
+  const menuShapeRoles = await menuDrawer.locator('.mobile-menu-item-shape').evaluateAll((elements) =>
+    Array.from(new Set(elements.map((element) => element.getAttribute('data-shape-role'))))
   );
-  expect(menuShapeNames).toEqual(expect.arrayContaining(['circle', 'square', 'oval', 'rounded', 'angular']));
+  expect(menuShapeRoles.sort()).toEqual(['active', 'control']);
+  await expect(menuDrawer.locator('[data-shape]')).toHaveCount(0);
   await capture(page, '01b-left-menu-drawer-mobile-390.png');
   await page.keyboard.press('Escape');
   await expect(menuDrawer).toBeHidden();
@@ -62,10 +63,14 @@ test('TASK-MOBILE-002 Change 004: mobile workspaces keep field actions and omit 
   await expect(productionProjectCard.locator('.mobile-priority-grid')).toBeVisible();
   await expect(page.getByRole('button', { name: '생산계획 단계 설정' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toHaveCount(0);
-  const kpiShapeCount = await page.locator('.dashboard-kpi-card').evaluateAll((elements) =>
+  const standardKpiShapeCount = await page.locator('.dashboard-kpi-card:not([data-variant="warning"])').evaluateAll((elements) =>
     new Set(elements.map((element) => getComputedStyle(element).borderRadius)).size
   );
-  expect(kpiShapeCount).toBeGreaterThanOrEqual(3);
+  expect(standardKpiShapeCount).toBe(1);
+  const warningKpi = page.locator('.dashboard-kpi-card[data-variant="warning"]');
+  if (await warningKpi.count()) {
+    expect(await warningKpi.first().evaluate((element) => getComputedStyle(element).clipPath)).not.toBe('none');
+  }
   await assertCompactMobilePage(page);
   await capture(page, '03-production-planning-mobile-390.png');
 
@@ -100,6 +105,10 @@ test('TASK-MOBILE-002 Change 004: mobile workspaces keep field actions and omit 
   await expect(materialCard).toBeVisible();
   await expect(materialCard.locator('.material-item-meta--priority')).toBeVisible();
   await expect(materialCard.getByText('입고 상세', { exact: true })).toBeVisible();
+  const materialCardRadiusCount = await page.locator('.material-item-card').evaluateAll((elements) =>
+    new Set(elements.map((element) => getComputedStyle(element).borderRadius)).size
+  );
+  expect(materialCardRadiusCount).toBe(1);
   await assertCompactMobilePage(page);
   await capture(page, '07-material-receiving-mobile-390.png');
 
@@ -118,6 +127,8 @@ test('TASK-MOBILE-002 Change 004: mobile workspaces keep field actions and omit 
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: '관리자' })).toBeVisible();
   await expect(page.locator('.admin-dashboard-card[data-tone="danger"]')).toBeVisible();
+  const warningClipPath = await page.locator('.admin-dashboard-card[data-tone="danger"]').evaluate((element) => getComputedStyle(element).clipPath);
+  expect(warningClipPath).not.toBe('none');
   await assertCompactMobilePage(page);
   await capture(page, '10-admin-dashboard-mobile-390.png');
 

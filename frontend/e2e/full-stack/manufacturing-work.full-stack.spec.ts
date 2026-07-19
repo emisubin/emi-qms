@@ -35,6 +35,7 @@ test('TASK-011A: manufacturing user starts, checks, stops, resumes and completes
   await stopDialog.getByLabel('조치 담당 부서').selectOption({ index: 1 });
   await stopDialog.getByRole('button', { name: '작업 중단 · 긴급 Pending 생성' }).click();
   await expect(page.getByRole('button', { name: /긴급 Pending/u })).toBeVisible();
+  await expect(page.locator('.manufacturing-project-card')).toHaveAttribute('data-shape-role', 'warning');
 
   const pendingId = queryDatabase(`
     select id::text
@@ -51,6 +52,7 @@ test('TASK-011A: manufacturing user starts, checks, stops, resumes and completes
   await page.getByRole('button', { name: '제조 완료 · LQC 전달' }).click();
   await expect(page.getByText(/제조를 완료하고 LQC 업무를 생성했습니다/u)).toBeVisible();
   await expect(page.locator('.manufacturing-focus-card')).toHaveAttribute('data-status', 'completed');
+  await expect(page.locator('.manufacturing-project-card')).toHaveAttribute('data-shape-role', 'success');
   await assertNoHorizontalOverflow(page);
 
   expect(queryDatabase(`

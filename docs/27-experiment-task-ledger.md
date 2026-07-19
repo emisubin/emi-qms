@@ -33,7 +33,7 @@
 | `TASK-MOBILE-001` | 동일 URL 적응형 현장 UX와 좁은 화면 navigation 기준 | [구현 보고서](../tasks/mobile-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-HOME-001` | 내 업무·병목·Pending·알림 Home widget dashboard | [구현 보고서](../tasks/home-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-HOME-002` | actual 사용자 프로필 shell·본인 사진·9개 부서 Home 핵심 지표·desktop/mobile navigation 재구성·Change 002 전 부서 운영 메뉴 조회와 compact reference design | [본체](../tasks/home-002-implementation-report.md), [Change 002](../tasks/home-002-change-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
-| `TASK-MOBILE-002` | 모바일 우선 정보 재배치, 전체 화면 개편, 좌상단 drawer, 모바일 shape·타이포 체계, Change 004 현장 판단 우선 단순화 | [1차](../tasks/mobile-002-implementation-report.md), [Change 002](../tasks/mobile-002-change-002-implementation-report.md), [Change 003](../tasks/mobile-002-change-003-implementation-report.md), [Change 004](../tasks/mobile-002-change-004-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-MOBILE-002` | 모바일 우선 정보 재배치, 전체 화면 개편, 좌상단 drawer, 모바일 shape·타이포 체계, Change 004 현장 판단 우선 단순화, Change 005 의미 기반 도형 통일 | [1차](../tasks/mobile-002-implementation-report.md), [Change 002](../tasks/mobile-002-change-002-implementation-report.md), [Change 003](../tasks/mobile-002-change-003-implementation-report.md), [Change 004](../tasks/mobile-002-change-004-implementation-report.md), [Change 005](../tasks/mobile-002-change-005-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `DESIGN-001` | 로그인 shell을 기준으로 전체 업무 화면 시각 통일 | [구현 보고서](../tasks/design-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-008A` | 자재 도착·분할 입고·IQC 요청·입고 확정 | [구현 보고서](../tasks/008a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-008B` | 사급 자재 제공·입고·잔량·마감 추적 | [구현 보고서](../tasks/008b-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
@@ -53,7 +53,7 @@
 | `TASK-ADMIN-002` | 고정 6종 검사·제조 양식의 무코드 version 관리, 지정 부서장 scope, 제조 snapshot과 선택 Excel | [구현 보고서](../tasks/admin-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `DESIGN-000` | reference 기반 CSS semantic token, 공통 React primitive, shell·Home·Sales 우선 적용과 desktop/mobile visual baseline | [구현 보고서](../tasks/design-000-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 Backend `398/398`, Frontend `104/104`, migration `0044`까지의 fresh PostgreSQL 적용·기존 `0042 → 0044` upgrade다. 직전 전체 Full-Stack `38/38` 기준선 위에서 DESIGN-000·Sales Change 002 `1/1`, MOBILE Change 004 `1/1`, desktop 보존/mobile 단순화 export 영향 `3/3`을 추가로 통과했다. Desktop·390px privacy-safe synthetic screenshot은 DESIGN 6개와 MOBILE Change 004 13개이며 확인한 mobile route의 horizontal overflow는 0이다. disposable runtime·DB는 종료했고 대표 runtime으로 우회하지 않았다.
+현재 계보의 최신 누적 자동 기준선은 Backend `398/398`, Frontend `106/106`, migration `0044`까지의 fresh PostgreSQL 적용·기존 `0042 → 0044` upgrade다. 직전 전체 Full-Stack `38/38` 기준선 위에서 DESIGN-000·Sales Change 002 `1/1`, MOBILE Change 004 `1/1`, desktop 보존/mobile 단순화 export 영향 `3/3`, MOBILE Change 005 compact workspace `1/1`과 키팅·제조·품질 상태 전이 `3/3`을 추가로 통과했다. Desktop·390px privacy-safe synthetic screenshot은 DESIGN 6개와 MOBILE Change 004 13개, Change 005 13개이며 확인한 mobile route의 horizontal overflow는 0이다. disposable runtime·DB는 종료했고 대표 runtime으로 우회하지 않았다.
 
 ## 4. 남은 제품 개발 Task
 

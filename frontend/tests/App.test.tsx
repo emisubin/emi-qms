@@ -571,8 +571,9 @@ describe('App', () => {
     expect(within(mobileNavigation).getByRole('button', { name: '품질' })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '물류' })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '알림 1건' })).toBeInTheDocument();
-    expect(Array.from(menuDrawer.querySelectorAll('.mobile-menu-item-shape')).map((shape) => shape.getAttribute('data-shape')))
-      .toEqual(expect.arrayContaining(['circle', 'square', 'oval', 'rounded', 'angular']));
+    expect(Array.from(menuDrawer.querySelectorAll('.mobile-menu-item-shape')).map((shape) => shape.getAttribute('data-shape-role')))
+      .toEqual(expect.arrayContaining(['active', 'control']));
+    expect(menuDrawer.querySelector('[data-shape]')).not.toBeInTheDocument();
     await waitFor(() => expect(within(mobileNavigation).getByRole('button', { name: '홈' })).toHaveFocus());
 
     fireEvent.keyDown(document, { key: 'Escape' });

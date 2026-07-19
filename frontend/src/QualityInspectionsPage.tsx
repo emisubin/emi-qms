@@ -14,6 +14,7 @@ import {
   uploadQualityInspectionPhoto
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { workflowShapeRole } from './design-system';
 import { MobileSheet } from './MobileSheet';
 import type {
   QualityActionDepartment,
@@ -442,12 +443,17 @@ export function QualityInspectionsPage({
           <aside className="quality-project-rail" aria-label="품질 프로젝트 대기열">
             <div className="quality-section-label"><span>PROJECT QUEUE</span><strong>{projects.length}</strong></div>
             <div className="quality-project-list">
-              {projects.map((project, index) => (
+              {projects.map((project) => (
                 <button
                   key={project.projectId}
                   type="button"
                   className={selectedProjectId === project.projectId ? 'quality-project-card active' : 'quality-project-card'}
-                  data-shape={index % 3 === 0 ? 'square' : index % 3 === 1 ? 'round' : 'oval'}
+                  data-shape-role={workflowShapeRole({
+                    blocked: project.blockedCount > 0,
+                    completed: project.completedCount > 0 && project.readyCount === 0 && project.inProgressCount === 0,
+                    active: selectedProjectId === project.projectId,
+                    inProgress: project.inProgressCount > 0
+                  })}
                   onClick={() => selectProject(project)}
                 >
                   <span>{project.projectCode}</span>
@@ -463,10 +469,10 @@ export function QualityInspectionsPage({
               <header className="quality-project-summary">
                 <div><p>{selectedProject.projectCode}</p><h3>{selectedProject.projectTitle}</h3></div>
                 <div className="quality-mini-metrics" aria-label="프로젝트 검사 요약">
-                  <span><strong>{selectedProject.readyCount}</strong><small>대기</small></span>
-                  <span><strong>{selectedProject.inProgressCount}</strong><small>진행</small></span>
-                  <span className="is-blocked"><strong>{selectedProject.blockedCount}</strong><small>차단</small></span>
-                  <span className="is-done"><strong>{selectedProject.completedCount}</strong><small>완료</small></span>
+                  <span data-tone="ready"><strong>{selectedProject.readyCount}</strong><small>대기</small></span>
+                  <span data-tone="progress"><strong>{selectedProject.inProgressCount}</strong><small>진행</small></span>
+                  <span className="is-blocked" data-tone="blocked"><strong>{selectedProject.blockedCount}</strong><small>차단</small></span>
+                  <span className="is-done" data-tone="completed"><strong>{selectedProject.completedCount}</strong><small>완료</small></span>
                 </div>
               </header>
 

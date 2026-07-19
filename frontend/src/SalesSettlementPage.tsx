@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ApiError, completeSalesSettlement, getSalesSettlement, saveSalesSettlementDraft } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { workflowShapeRole } from './design-system';
 import type { SalesSettlementDetail } from './salesSettlement';
 
 type LoadState =
@@ -140,9 +141,9 @@ export function SalesSettlementPage({
           <span className="settlement-condition-total" data-ready={conditionsReady}>{conditionsReady ? '조건 충족' : '확인 필요'}</span>
         </div>
         <div className="settlement-condition-grid">
-          <ConditionCard shape="circle" ready={detail.allPanelsDelivered} label="납품" value={`${detail.deliveredPanelCount}/${detail.activePanelCount}`} supporting={detail.activePanelCount === 0 ? 'active panel이 없습니다' : 'active panel'} />
-          <ConditionCard shape="square" ready={detail.noOpenPending} label="Pending" value={`${detail.openPendingCount}건`} supporting={detail.noOpenPending ? '미결 사항 없음' : '먼저 조치가 필요합니다'} action={detail.openPendingCount > 0 ? <button type="button" onClick={onOpenPending}>목록 열기</button> : undefined} />
-          <ConditionCard shape="pill" ready={displayedInvoiceReady} label="세금계산서" value={displayedInvoiceReady ? '발행 기록' : '미입력'} supporting={displayedInvoiceReady ? invoiceIssuedDate : '발행일이 필요합니다'} />
+          <ConditionCard ready={detail.allPanelsDelivered} label="납품" value={`${detail.deliveredPanelCount}/${detail.activePanelCount}`} supporting={detail.activePanelCount === 0 ? 'active panel이 없습니다' : 'active panel'} />
+          <ConditionCard ready={detail.noOpenPending} blocked={!detail.noOpenPending} label="Pending" value={`${detail.openPendingCount}건`} supporting={detail.noOpenPending ? '미결 사항 없음' : '먼저 조치가 필요합니다'} action={detail.openPendingCount > 0 ? <button type="button" onClick={onOpenPending}>목록 열기</button> : undefined} />
+          <ConditionCard ready={displayedInvoiceReady} label="세금계산서" value={displayedInvoiceReady ? '발행 기록' : '미입력'} supporting={displayedInvoiceReady ? invoiceIssuedDate : '발행일이 필요합니다'} />
         </div>
       </section>
 
@@ -205,8 +206,9 @@ export function SalesSettlementPage({
   );
 }
 
-function ConditionCard({ shape, ready, label, value, supporting, action }: { shape: 'circle' | 'square' | 'pill'; ready: boolean; label: string; value: string; supporting: string; action?: ReactNode }) {
-  return <article className="settlement-condition-card" data-shape={shape} data-ready={ready}><div className="settlement-condition-icon" aria-hidden="true">{ready ? '✓' : '·'}</div><div><span>{label}</span><strong>{value}</strong><small>{supporting}</small></div>{action}</article>;
+function ConditionCard({ ready, blocked = false, label, value, supporting, action }: { ready: boolean; blocked?: boolean; label: string; value: string; supporting: string; action?: ReactNode }) {
+  const shapeRole = workflowShapeRole({ blocked, completed: ready });
+  return <article className="settlement-condition-card" data-shape-role="surface" data-ready={ready}><div className="settlement-condition-icon" data-shape-role={shapeRole} aria-hidden="true">{ready ? '✓' : '·'}</div><div><span>{label}</span><strong>{value}</strong><small>{supporting}</small></div>{action}</article>;
 }
 
 function messageOf(error: unknown, fallback: string) {

@@ -68,6 +68,10 @@ test('TASK-012A: LQC evidence, immutable report, manufacturing confirmation and 
   await expect(page.locator('.quality-focus-card')).toBeVisible();
   await expect(page.locator('.quality-photo-list img')).toBeVisible();
   await expect(page.getByRole('button', { name: '판정 확정' })).toBeEnabled();
+  await expect(page.locator('.quality-project-card.active')).toHaveAttribute('data-shape-role', 'active');
+  expect(await page.locator('.quality-stage-tab').evaluateAll((elements) =>
+    new Set(elements.map((element) => getComputedStyle(element).borderRadius)).size
+  )).toBe(1);
   await page.screenshot({ path: '../tasks/012a-screenshots/quality-inspections-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/quality/inspections?stage=LQC&project=${projectId}&panel=${panelId}`);

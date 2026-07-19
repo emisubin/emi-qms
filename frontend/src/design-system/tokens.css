@@ -44,12 +44,48 @@
   --ds-radius-md: 8px;
   --ds-radius-lg: 10px;
   --ds-radius-pill: 999px;
+  --ds-shape-surface-radius: 8px;
+  --ds-shape-control-radius: 6px;
+  --ds-shape-active-radius: 8px;
+  --ds-shape-warning-cut: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
   --ds-shadow-surface: 0 2px 10px rgb(31 41 75 / 4%);
   --ds-shadow-overlay: 0 18px 48px rgb(31 41 75 / 14%);
 
   --ds-sidebar-width: 192px;
   --ds-topbar-height: 52px;
   --ds-content-max: 1440px;
+}
+
+/* Change 005: one geometry per semantic meaning; content surfaces never become circles or pills. */
+.app-shell [data-shape-role='surface'] {
+  --ds-semantic-radius: var(--ds-shape-surface-radius);
+  --ds-semantic-clip: none;
+}
+
+.app-shell [data-shape-role='control'] {
+  --ds-semantic-radius: var(--ds-shape-control-radius);
+  --ds-semantic-clip: none;
+}
+
+.app-shell [data-shape-role='active'] {
+  --ds-semantic-radius: var(--ds-shape-active-radius);
+  --ds-semantic-clip: none;
+}
+
+.app-shell [data-shape-role='status'] {
+  --ds-semantic-radius: var(--ds-radius-pill);
+  --ds-semantic-clip: none;
+}
+
+.app-shell [data-shape-role='count'],
+.app-shell [data-shape-role='success'] {
+  --ds-semantic-radius: 50%;
+  --ds-semantic-clip: none;
+}
+
+.app-shell [data-shape-role='warning'] {
+  --ds-semantic-radius: 2px;
+  --ds-semantic-clip: var(--ds-shape-warning-cut);
 }
 
 .app-shell {
@@ -852,5 +888,128 @@
     min-height: 58px;
     grid-column: auto;
     padding: var(--ds-space-3);
+  }
+}
+
+/* TASK-MOBILE-002 Change 005 — mobile geometry is role-driven, never list-position-driven. */
+@media (max-width: 860px) {
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item,
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item:nth-child(n):not(.active),
+  .app-shell[data-layout-mode='mobile'] .home-hero--mobile,
+  .app-shell[data-layout-mode='mobile'] .home-mobile-priority,
+  .app-shell[data-layout-mode='mobile'] .home-widget:nth-of-type(n),
+  .app-shell[data-layout-mode='mobile'] .procurement-project-card:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .material-item-card:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .teams-activity-card:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .detail-grid > div:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .mobile-detail-list > div:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .material-item-meta--priority div:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .quality-stage-tab:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .quality-panel-chip:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .quality-item:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .quality-choice-row button:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .quality-decision-options button:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .manufacturing-step-list li:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .sales-kpi-cards article:nth-child(n) {
+    border-radius: var(--ds-shape-surface-radius) !important;
+    clip-path: none;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .page-header,
+  .app-shell[data-layout-mode='mobile'] .mobile-page-header,
+  .app-shell[data-layout-mode='mobile'] .mobile-operations-header {
+    border-radius: var(--ds-shape-surface-radius);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item.active,
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item[aria-current='page'] {
+    border-radius: var(--ds-shape-active-radius) !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item-shape[data-shape-role] {
+    display: grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border-radius: var(--ds-semantic-radius);
+    clip-path: var(--ds-semantic-clip);
+    background: var(--ds-color-primary-soft);
+    color: var(--ds-color-primary-hover);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item-shape[data-shape-role='active'] {
+    background: var(--ds-color-primary);
+    color: #ffffff;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item.active .mobile-menu-item-shape,
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item[aria-current='page'] .mobile-menu-item-shape {
+    background: #ffffff;
+    color: var(--ds-color-primary-hover);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .kitting-panel-card[data-shape-role],
+  .app-shell[data-layout-mode='mobile'] .manufacturing-project-card[data-shape-role],
+  .app-shell[data-layout-mode='mobile'] .quality-project-card[data-shape-role],
+  .app-shell[data-layout-mode='mobile'] .settlement-condition-card[data-shape-role],
+  .app-shell[data-layout-mode='mobile'] .sales-kpi-cards article[data-shape-role] {
+    border-radius: var(--ds-shape-surface-radius) !important;
+    clip-path: none;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .kitting-panel-card[data-shape-role='warning'],
+  .app-shell[data-layout-mode='mobile'] .manufacturing-project-card[data-shape-role='warning'],
+  .app-shell[data-layout-mode='mobile'] .quality-project-card[data-shape-role='warning'] {
+    border-radius: 2px !important;
+    clip-path: var(--ds-shape-warning-cut);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .kitting-panel-card[data-shape-role='success'] .kitting-panel-check,
+  .app-shell[data-layout-mode='mobile'] .settlement-condition-icon[data-shape-role='success'] {
+    border-radius: 50%;
+    background: var(--ds-color-success-soft);
+    color: var(--ds-color-success);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .settlement-condition-icon[data-shape-role='warning'] {
+    border-radius: 2px;
+    clip-path: var(--ds-shape-warning-cut);
+    background: var(--ds-color-danger-soft);
+    color: var(--ds-color-danger);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .dashboard-kpi-card:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .pending-summary-grid > div:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .admin-dashboard-card:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .mobile-focus-summary > div > button:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .home-mobile-priority-metrics button:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .material-summary-strip button:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .manufacturing-metrics > span:nth-child(n) {
+    border-radius: var(--ds-shape-surface-radius) !important;
+    clip-path: none;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .dashboard-kpi-card[data-variant='warning'],
+  .app-shell[data-layout-mode='mobile'] .admin-dashboard-card[data-tone='danger'],
+  .app-shell[data-layout-mode='mobile'] .home-mobile-priority-metrics button[data-tone='danger'],
+  .app-shell[data-layout-mode='mobile'] .manufacturing-metrics > span[data-tone='blocked'] {
+    border-radius: 2px !important;
+    clip-path: var(--ds-shape-warning-cut);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-project-dday,
+  .app-shell[data-layout-mode='mobile'] .status-badge,
+  .app-shell[data-layout-mode='mobile'] .material-status-badge,
+  .app-shell[data-layout-mode='mobile'] .receipt-completion-badge,
+  .app-shell[data-layout-mode='mobile'] .order-item-badge,
+  .app-shell[data-layout-mode='mobile'] .ds-badge {
+    border-radius: var(--ds-radius-pill);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .nav-badge,
+  .app-shell[data-layout-mode='mobile'] .quality-section-label strong,
+  .app-shell[data-layout-mode='mobile'] .quality-item > header > span,
+  .app-shell[data-layout-mode='mobile'] .manufacturing-step-list li > span {
+    border-radius: 50%;
   }
 }

@@ -129,7 +129,7 @@ export function SalesKpiPage({
         </DsToolbar>}
       />
 
-      <div className="sales-kpi-cards">{visibleKpiCards.map(([label, value, note], index) => <article key={label} data-shape={index % 3}><span>{label}</span><strong>{value}</strong><small>{note}</small></article>)}</div>
+      <div className="sales-kpi-cards">{visibleKpiCards.map(([label, value, note]) => <article key={label} data-shape-role="surface"><span>{label}</span><strong>{value}</strong><small>{note}</small></article>)}</div>
 
       <DsSurface className="sales-kpi-main-card">
         <header><div><p className="eyebrow">12개월 비교</p><h3>{data.year}년 월별 실적 · 목표 · 달성률</h3></div><DsBadge>{data.currency}</DsBadge></header>

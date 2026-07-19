@@ -38,9 +38,9 @@ test('TASK-010A: material user completes selected panels from adaptive kitting w
   await expect(page.getByRole('button', { name: '메뉴 열기' })).toBeVisible();
   await expect(page.locator('.kitting-project-list')).toHaveCSS('overflow-x', 'auto');
   await expect(page.locator('.kitting-panel-grid')).toBeVisible();
-  expect(await page.locator('.kitting-panel-card').evaluateAll((cards) =>
-    new Set(cards.map((card) => card.getAttribute('data-shape'))).size
-  )).toBeGreaterThanOrEqual(4);
+  expect((await page.locator('.kitting-panel-card').evaluateAll((cards) =>
+    Array.from(new Set(cards.map((card) => card.getAttribute('data-shape-role')))).sort()
+  ))).toEqual(['status', 'success']);
   await assertNoHorizontalOverflow(page);
   await capture(page, '02-panel-kitting-mobile-390.jpg');
 

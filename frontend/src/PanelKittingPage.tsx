@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, completePanelKitting, getPanelKittingQueue } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { workflowShapeRole } from './design-system';
 import type { PanelKittingProject, PanelKittingQueueResponse } from './panelKitting';
 import { SelectedExportTray } from './SelectedExcelExport';
 import { useActionFeedback } from './useActionFeedback';
@@ -234,7 +235,7 @@ export function PanelKittingPage({
               {actions.latestFeedback ? <p className="action-feedback kitting-notice" data-tone={actions.latestFeedback.tone} role={actions.latestFeedback.tone === 'error' ? 'alert' : 'status'}>{actions.latestFeedback.message}</p> : null}
 
               <div className="kitting-panel-grid" aria-label={`${selectedProject.projectTitle} 패널 목록`}>
-                {selectedProject.panels.map((panel, index) => {
+                {selectedProject.panels.map((panel) => {
                   const selected = selectedPanelIds.includes(panel.panelId);
                   return (
                     <button
@@ -243,7 +244,11 @@ export function PanelKittingPage({
                       className="kitting-panel-card"
                       ref={panel.panelId === linkedPanelId ? linkedPanelRef : undefined}
                       data-panel-id={panel.panelId}
-                      data-shape={index % 4 === 0 ? 'angular' : index % 4 === 1 ? 'rounded' : index % 4 === 2 ? 'square' : 'soft'}
+                      data-shape-role={workflowShapeRole({
+                        completed: panel.kittingCompleted,
+                        active: selected || panel.panelId === linkedPanelId,
+                        inProgress: panel.selectable
+                      })}
                       data-selected={selected}
                       data-completed={panel.kittingCompleted}
                       data-linked={panel.panelId === linkedPanelId}

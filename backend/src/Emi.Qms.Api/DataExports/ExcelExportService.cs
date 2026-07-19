@@ -82,6 +82,21 @@ public sealed class ExcelExportService(
         IReadOnlyList<Guid> projectIds,
         ProjectAccessScope accessScope,
         bool includeSalesAmount,
+        CancellationToken cancellationToken) =>
+        await ExportSelectedProjectsAsync(
+            actorUserId,
+            projectIds,
+            accessScope,
+            includeSalesAmount,
+            null,
+            cancellationToken);
+
+    internal async Task<ExcelExportResult> ExportSelectedProjectsAsync(
+        Guid actorUserId,
+        IReadOnlyList<Guid> projectIds,
+        ProjectAccessScope accessScope,
+        bool includeSalesAmount,
+        IReadOnlyList<SelectedExportColumn>? selectedColumns,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -102,20 +117,33 @@ public sealed class ExcelExportService(
                 return new ExcelExportResult(ExcelExportStatus.SelectionUnavailable);
             }
 
+            var availableColumns = ProjectColumns(includeSalesAmount);
+            var workbookColumns = selectedColumns is null
+                ? availableColumns
+                : availableColumns.Where(column => selectedColumns.Any(selected =>
+                    string.Equals(selected.Label, column.Header, StringComparison.Ordinal))).ToList();
+            if (workbookColumns.Count == 0 || (selectedColumns is not null && workbookColumns.Count != selectedColumns.Count))
+            {
+                throw new InvalidOperationException("Selected project metadata and workbook columns are out of sync.");
+            }
+
+            var sensitiveSalesAmountIncluded = selectedColumns is null
+                ? includeSalesAmount
+                : selectedColumns.Any(column => column.SensitiveSalesAmountIncluded);
             cancellationToken.ThrowIfCancellationRequested();
             var content = workbookBuilder.Build(
                 "프로젝트 목록",
                 "프로젝트",
                 $"선택 프로젝트 {projectIds.Count}건",
                 response.Items,
-                ProjectColumns(includeSalesAmount));
+                workbookColumns);
             cancellationToken.ThrowIfCancellationRequested();
             await auditStore.AppendSuccessAsync(
                 actorUserId,
                 "ProjectsSelected",
                 response.Items.Count,
                 false,
-                includeSalesAmount,
+                sensitiveSalesAmountIncluded,
                 cancellationToken);
 
             return Success(content, "프로젝트선택", response.Items.Count);
@@ -225,7 +253,7 @@ public sealed class ExcelExportService(
             new ExcelExportFile(content, $"EMI_{screenName}_{timestamp}.xlsx", rowCount));
     }
 
-    private static IReadOnlyList<ExcelColumn<ProjectListItemResponse>> ProjectColumns(bool includeSalesAmount)
+    internal static IReadOnlyList<ExcelColumn<ProjectListItemResponse>> ProjectColumns(bool includeSalesAmount)
     {
         var columns = new List<ExcelColumn<ProjectListItemResponse>>
         {

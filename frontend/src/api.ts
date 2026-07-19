@@ -2261,11 +2261,28 @@ export type SelectedExportScreen =
   | 'admin-work-item-escalations'
   | 'form-templates';
 
+export type SelectedExportColumn = {
+  key: string;
+  label: string;
+  required: boolean;
+};
+
+export async function getSelectedExportColumns(
+  developmentUserKey: string | undefined,
+  screen: SelectedExportScreen
+): Promise<SelectedExportColumn[]> {
+  return fetchJson<SelectedExportColumn[]>(
+    `/api/data-exports/selected/columns?screen=${encodeURIComponent(screen)}`,
+    developmentUserKey
+  );
+}
+
 export async function exportSelectedRowsExcel(
   developmentUserKey: string | undefined,
   screen: SelectedExportScreen,
   ids: readonly string[],
-  filters: Record<string, string | undefined> = {}
+  filters: Record<string, string | undefined> = {},
+  columns?: readonly string[]
 ): Promise<ExcelExportDownload> {
   return downloadExcelExport(
     '/api/data-exports/selected',
@@ -2274,7 +2291,7 @@ export async function exportSelectedRowsExcel(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ screen, ids, filters })
+      body: JSON.stringify({ screen, ids, filters, ...(columns ? { columns } : {}) })
     }
   );
 }

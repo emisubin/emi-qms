@@ -101,12 +101,76 @@ public sealed class SelectedExcelExportService(
 {
     public const int MaximumSelectedRows = 1_000;
 
-    public async Task<ExcelExportResult> ExportAsync(
+    internal IReadOnlyList<SelectedExportColumn> GetEffectiveColumns(string screen, ClaimsPrincipal user)
+    {
+        var labels = screen switch
+        {
+            SelectedExportScreens.Projects => ExcelExportService.ProjectColumns(
+                ProjectEndpointExtensions.CanReadSalesAmount(user)).Select(column => column.Header),
+            SelectedExportScreens.MyWork => MyWorkColumns.Select(column => column.Header),
+            SelectedExportScreens.ProductionPlanning => ProductionPlanningColumns.Select(column => column.Header),
+            SelectedExportScreens.Procurement => ProcurementColumns.Select(column => column.Header),
+            SelectedExportScreens.MaterialReceipts => MaterialReceiptColumns.Select(column => column.Header),
+            SelectedExportScreens.MaterialKitting => KittingColumns.Select(column => column.Header),
+            SelectedExportScreens.Manufacturing => ManufacturingColumns.Select(column => column.Header),
+            SelectedExportScreens.MaterialIqc => MaterialIqcColumns.Select(column => column.Header),
+            SelectedExportScreens.QualityInspections => QualityColumns.Select(column => column.Header),
+            SelectedExportScreens.Logistics => LogisticsColumns.Select(column => column.Header),
+            SelectedExportScreens.Pending => PendingColumns.Select(column => column.Header),
+            SelectedExportScreens.Notifications => NotificationColumns.Select(column => column.Header),
+            SelectedExportScreens.AdminUsers => AdminUserColumns.Select(column => column.Header),
+            SelectedExportScreens.AdminDepartments => AdminDepartmentColumns.Select(column => column.Header),
+            SelectedExportScreens.AdminCalendarHolidays => CalendarHolidayColumns.Select(column => column.Header),
+            SelectedExportScreens.AdminPermissions => PermissionColumns.Select(column => column.Header),
+            SelectedExportScreens.AdminMasterHistory => AdminMasterHistoryColumns.Select(column => column.Header),
+            SelectedExportScreens.AdminWorkHistory => AdminWorkHistoryColumns.Select(column => column.Header),
+            SelectedExportScreens.AdminNotificationDeliveries => NotificationDeliveryColumns.Select(column => column.Header),
+            SelectedExportScreens.AdminWorkItemEscalations => EscalationColumns.Select(column => column.Header),
+            _ => throw new ArgumentOutOfRangeException(nameof(screen), screen, "Unsupported selected export screen.")
+        };
+
+        return SelectedExportColumnRegistry.Describe(screen, labels);
+    }
+
+    internal bool TryResolveColumns(
+        string screen,
+        ClaimsPrincipal user,
+        IReadOnlyList<string?>? requestedKeys,
+        out IReadOnlyList<SelectedExportColumn> selectedColumns) =>
+        SelectedExportColumnRegistry.TryResolve(GetEffectiveColumns(screen, user), requestedKeys, out selectedColumns);
+
+    internal static IReadOnlyDictionary<string, IReadOnlyList<string>> GetColumnLabelsForContract() =>
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            [SelectedExportScreens.Projects] = ExcelExportService.ProjectColumns(true).Select(column => column.Header).ToList(),
+            [SelectedExportScreens.MyWork] = MyWorkColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.ProductionPlanning] = ProductionPlanningColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.Procurement] = ProcurementColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.MaterialReceipts] = MaterialReceiptColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.MaterialKitting] = KittingColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.Manufacturing] = ManufacturingColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.MaterialIqc] = MaterialIqcColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.QualityInspections] = QualityColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.Logistics] = LogisticsColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.Pending] = PendingColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.Notifications] = NotificationColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.AdminUsers] = AdminUserColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.AdminDepartments] = AdminDepartmentColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.AdminCalendarHolidays] = CalendarHolidayColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.AdminPermissions] = PermissionColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.AdminMasterHistory] = AdminMasterHistoryColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.AdminWorkHistory] = AdminWorkHistoryColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.AdminNotificationDeliveries] = NotificationDeliveryColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.AdminWorkItemEscalations] = EscalationColumns.Select(column => column.Header).ToList()
+        };
+
+    internal async Task<ExcelExportResult> ExportAsync(
         string screen,
         IReadOnlyList<Guid> ids,
         IReadOnlyDictionary<string, string?> filters,
         Guid actorUserId,
         ClaimsPrincipal user,
+        IReadOnlyList<SelectedExportColumn> selectedColumns,
         CancellationToken cancellationToken)
     {
         var scope = ProjectEndpointExtensions.GetProjectAccessScope(user);
@@ -117,32 +181,33 @@ public sealed class SelectedExcelExportService(
                 ids,
                 scope,
                 ProjectEndpointExtensions.CanReadSalesAmount(user),
+                selectedColumns,
                 cancellationToken),
             SelectedExportScreens.MyWork => await ExportRowsAsync(
                 actorUserId, ids, filters, "내 업무", "내업무", SelectedExportScreens.MyWork,
                 () => workflowStore.GetMyWorkItemsAsync(actorUserId, Filter(filters, "status"), cancellationToken),
-                response => response.Items, row => row.WorkItemId, MyWorkColumns, cancellationToken),
+                response => response.Items, row => row.WorkItemId, FilterColumns(MyWorkColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.ProductionPlanning => await ExportRowsAsync(
                 actorUserId, ids, filters, "생산계획", "생산계획", SelectedExportScreens.ProductionPlanning,
                 () => productionPlanningStore.ListProjectsAsync(Filter(filters, "search"), cancellationToken),
-                response => response.Projects, row => row.ProjectId, ProductionPlanningColumns, cancellationToken),
+                response => response.Projects, row => row.ProjectId, FilterColumns(ProductionPlanningColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.Procurement => await ExportRowsAsync(
                 actorUserId, ids, filters, "구매", "구매", SelectedExportScreens.Procurement,
                 () => procurementStore.GetProcurementDashboardAsync(
                     Filter(filters, "search"), DateFilter(filters, "expectedReceiptDateFrom"), DateFilter(filters, "expectedReceiptDateTo"),
                     scope, ExcelExportService.MaximumRows, cancellationToken),
-                response => response.Projects, row => row.ProjectId, ProcurementColumns, cancellationToken),
+                response => response.Projects, row => row.ProjectId, FilterColumns(ProcurementColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.MaterialReceipts => await ExportRowsAsync(
                 actorUserId, ids, filters, "자재 입고", "자재입고", SelectedExportScreens.MaterialReceipts,
                 () => materialsStore.ListAsync(
                     Filter(filters, "search"), BoolFilter(filters, "includeCompleted"), Filter(filters, "supplyType"),
                     DateFilter(filters, "expectedReceiptDateFrom"), DateFilter(filters, "expectedReceiptDateTo"), scope, cancellationToken),
-                response => response.Items, row => row.ItemId, MaterialReceiptColumns, cancellationToken),
+                response => response.Items, row => row.ItemId, FilterColumns(MaterialReceiptColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.MaterialKitting => await ExportRowsAsync(
                 actorUserId, ids, filters, "키팅", "키팅", SelectedExportScreens.MaterialKitting,
                 () => panelKittingStore.ListAsync(scope, GuidFilter(filters, "projectId"), cancellationToken),
                 response => response.Projects.SelectMany(project => project.Panels.Select(panel => new KittingExportRow(project, panel))).ToList(),
-                row => row.Panel.PanelId, KittingColumns, cancellationToken),
+                row => row.Panel.PanelId, FilterColumns(KittingColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.Manufacturing => await ExportRowsAsync(
                 actorUserId, ids, filters, "제조 작업", "제조", SelectedExportScreens.Manufacturing,
                 () => manufacturingStore.ListAsync(
@@ -151,47 +216,47 @@ public sealed class SelectedExcelExportService(
                     ProjectEndpointExtensions.HasPermission(user, QmsPermissions.ManufacturingUpdate),
                     GuidFilter(filters, "projectId"), cancellationToken),
                 response => response.Projects.SelectMany(project => project.Panels.Select(panel => new ManufacturingExportRow(project, panel))).ToList(),
-                row => row.Panel.PanelId, ManufacturingColumns, cancellationToken),
+                row => row.Panel.PanelId, FilterColumns(ManufacturingColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.MaterialIqc => await ExportRowsAsync(
                 actorUserId, ids, filters, "수입검사", "IQC", SelectedExportScreens.MaterialIqc,
                 () => materialsStore.ListIqcAsync(BoolFilter(filters, "includeDecided"), scope, cancellationToken),
-                response => response.Items, row => row.AttemptId, MaterialIqcColumns, cancellationToken),
+                response => response.Items, row => row.AttemptId, FilterColumns(MaterialIqcColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.QualityInspections => await ExportRowsAsync(
                 actorUserId, ids, filters, "품질 검사", "품질", SelectedExportScreens.QualityInspections,
                 () => qualityInspectionStore.ListAsync(
                     scope, actorUserId, ProjectEndpointExtensions.HasPermission(user, QmsPermissions.QualityInspect),
                     Filter(filters, "stage"), GuidFilter(filters, "projectId"), cancellationToken),
                 response => response.Projects.SelectMany(project => project.Panels.Select(panel => new QualityExportRow(project, panel))).ToList(),
-                row => row.Panel.PanelId, QualityColumns, cancellationToken),
+                row => row.Panel.PanelId, FilterColumns(QualityColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.Logistics => await ExportRowsAsync(
                 actorUserId, ids, filters, "물류", "물류", SelectedExportScreens.Logistics,
                 () => logisticsStore.ListAsync(
                     Filter(filters, "stage"), GuidFilter(filters, "projectId"), scope, actorUserId,
                     ProjectEndpointExtensions.HasPermission(user, QmsPermissions.LogisticsShip), cancellationToken),
                 response => response.Projects.SelectMany(project => project.Items.Select(item => new LogisticsExportRow(response.Stage, project, item))).ToList(),
-                row => row.Item.TargetId, LogisticsColumns, cancellationToken),
+                row => row.Item.TargetId, FilterColumns(LogisticsColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.Pending => await ExportRowsAsync(
                 actorUserId, ids, filters, "Pending", "Pending", SelectedExportScreens.Pending,
                 () => pendingStore.ListAsync(
                     Filter(filters, "status"), Filter(filters, "issueType"), Filter(filters, "priority"),
                     GuidFilter(filters, "assigneeUserId"), GuidFilter(filters, "projectId"), cancellationToken),
-                response => response.Items, row => row.PendingId, PendingColumns, cancellationToken),
+                response => response.Items, row => row.PendingId, FilterColumns(PendingColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.Notifications => await ExportRowsAsync(
                 actorUserId, ids, filters, "알림", "알림", SelectedExportScreens.Notifications,
                 () => workflowStore.GetNotificationsAsync(actorUserId, Filter(filters, "readStatus"), cancellationToken),
-                response => response.Items, row => row.NotificationId, NotificationColumns, cancellationToken),
+                response => response.Items, row => row.NotificationId, FilterColumns(NotificationColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.AdminUsers => await ExportRowsAsync(
                 actorUserId, ids, filters, "사용자 관리", "사용자", SelectedExportScreens.AdminUsers,
                 () => userAdministrationStore.GetSnapshotAsync(cancellationToken),
-                response => response.Users, row => row.UserId, AdminUserColumns, cancellationToken),
+                response => response.Users, row => row.UserId, FilterColumns(AdminUserColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.AdminDepartments => await ExportRowsAsync(
                 actorUserId, ids, filters, "부서 관리", "부서", SelectedExportScreens.AdminDepartments,
                 () => adminMasterDataStore.ListDepartmentsAsync(cancellationToken),
-                response => response.Departments, row => row.DepartmentId, AdminDepartmentColumns, cancellationToken),
+                response => response.Departments, row => row.DepartmentId, FilterColumns(AdminDepartmentColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.AdminCalendarHolidays => await ExportRowsAsync(
                 actorUserId, ids, filters, "휴일 관리", "휴일", SelectedExportScreens.AdminCalendarHolidays,
                 () => calendarHolidayStore.ListAsync(IntFilter(filters, "year") ?? timeProvider.GetUtcNow().Year, "KR", cancellationToken),
-                response => response.Holidays, row => row.HolidayId, CalendarHolidayColumns, cancellationToken),
+                response => response.Holidays, row => row.HolidayId, FilterColumns(CalendarHolidayColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.AdminPermissions => await ExportRowsAsync(
                 actorUserId, ids, filters, "권한 매트릭스", "권한", SelectedExportScreens.AdminPermissions,
                 () => adminMasterDataStore.GetPermissionMatrixAsync(cancellationToken),
@@ -199,28 +264,28 @@ public sealed class SelectedExcelExportService(
                     permission,
                     string.Join(", ", response.Assignments.Where(item => item.PermissionId == permission.PermissionId)
                         .Join(response.Roles, item => item.RoleId, role => role.RoleId, (_, role) => role.Name)))).ToList(),
-                row => row.Permission.PermissionId, PermissionColumns, cancellationToken),
+                row => row.Permission.PermissionId, FilterColumns(PermissionColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.AdminMasterHistory => await ExportRowsAsync(
                 actorUserId, ids, filters, "기준정보 변경이력", "기준정보이력", SelectedExportScreens.AdminMasterHistory,
                 () => adminMasterDataStore.ListChangeLogsAsync(
                     Filter(filters, "entityType"), GuidFilter(filters, "changedByUserId"),
                     DateTimeFilter(filters, "from"), DateTimeFilter(filters, "to"), cancellationToken),
-                response => response.Items, row => row.ChangeLogId, AdminMasterHistoryColumns, cancellationToken),
+                response => response.Items, row => row.ChangeLogId, FilterColumns(AdminMasterHistoryColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.AdminWorkHistory => await ExportRowsAsync(
                 actorUserId, ids, filters, "업무 이력", "업무이력", SelectedExportScreens.AdminWorkHistory,
                 () => adminMasterDataStore.ListWorkItemHistoryAsync(
                     GuidFilter(filters, "projectId"), GuidFilter(filters, "userId"), Filter(filters, "stage"), Filter(filters, "status"),
                     DateTimeFilter(filters, "from"), DateTimeFilter(filters, "to"), cancellationToken),
-                response => response.Items, row => row.WorkItemId, AdminWorkHistoryColumns, cancellationToken),
+                response => response.Items, row => row.WorkItemId, FilterColumns(AdminWorkHistoryColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.AdminNotificationDeliveries => await ExportRowsAsync(
                 actorUserId, ids, filters, "알림 전송 관리", "알림전송", SelectedExportScreens.AdminNotificationDeliveries,
                 () => notificationDeliveryStore.ListDeliveriesAsync(
                     Filter(filters, "status"), Filter(filters, "channel"), Filter(filters, "deliveryType"), Filter(filters, "handlingStatus"), cancellationToken),
-                response => response.Items, row => row.DeliveryId, NotificationDeliveryColumns, cancellationToken),
+                response => response.Items, row => row.DeliveryId, FilterColumns(NotificationDeliveryColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.AdminWorkItemEscalations => await ExportRowsAsync(
                 actorUserId, ids, filters, "업무 에스컬레이션", "에스컬레이션", SelectedExportScreens.AdminWorkItemEscalations,
                 () => workItemEscalationStore.ListEscalationsAsync(Filter(filters, "status"), Filter(filters, "level"), cancellationToken),
-                response => response.Items, row => row.EscalationId, EscalationColumns, cancellationToken),
+                response => response.Items, row => row.EscalationId, FilterColumns(EscalationColumns, selectedColumns), cancellationToken),
             _ => new ExcelExportResult(ExcelExportStatus.SelectionUnavailable)
         };
     }
@@ -266,6 +331,20 @@ public sealed class SelectedExcelExportService(
                 ExcelExportStatus.Success,
                 new ExcelExportFile(content, $"EMI_{screenName}_선택_{timestamp}.xlsx", selected.Count));
         }
+    }
+
+    private static IReadOnlyList<ExcelColumn<TRow>> FilterColumns<TRow>(
+        IReadOnlyList<ExcelColumn<TRow>> availableColumns,
+        IReadOnlyList<SelectedExportColumn> selectedColumns)
+    {
+        var selectedLabels = selectedColumns.Select(column => column.Label).ToHashSet(StringComparer.Ordinal);
+        var filtered = availableColumns.Where(column => selectedLabels.Contains(column.Header)).ToList();
+        if (filtered.Count == 0 || filtered.Count != selectedColumns.Count)
+        {
+            throw new InvalidOperationException("Selected export metadata and workbook columns are out of sync.");
+        }
+
+        return filtered;
     }
 
     private static string? Filter(IReadOnlyDictionary<string, string?> filters, string key) =>

@@ -50,7 +50,6 @@ import {
   downloadProjectExcelTemplate,
   downloadProcurementDashboardTemplate,
   downloadProcurementTemplate,
-  exportSelectedProjectsExcel,
   getAdminDashboard,
   getAdminCalendarHolidays,
   getAdminDepartments,
@@ -7611,7 +7610,6 @@ function ProjectListPage({
           screen="projects"
           ariaLabel="선택 프로젝트 내보내기"
           label="선택 Excel 내보내기"
-          exportFile={() => exportSelectedProjectsExcel(developmentUserKey, [...selectedProjectIds])}
           visibleIds={state.data.map((project) => project.projectId)}
           selectedIds={selectedProjectIds}
           allSelected={state.data.length > 0 && state.data.every((project) => selectedProjectIds.has(project.projectId))}

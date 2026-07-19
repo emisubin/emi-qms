@@ -195,6 +195,33 @@ public static class DataExportEndpointExtensions
         .RequireAuthorization()
         .WithName("ExportMyWork");
 
+        app.MapGet("/api/data-exports/selected/columns", (
+            string? screen,
+            SelectedExcelExportService exportService,
+            ClaimsPrincipal user) =>
+        {
+            var normalizedScreen = screen?.Trim();
+            if (normalizedScreen is null || !SelectedExportScreens.All.Contains(normalizedScreen))
+            {
+                return Results.ValidationProblem(
+                    new Dictionary<string, string[]> { ["screen"] = ["지원하지 않는 내보내기 화면입니다."] },
+                    statusCode: StatusCodes.Status422UnprocessableEntity,
+                    title: "선택 내보내기 요청을 확인해 주세요.");
+            }
+
+            if (!CanExportSelectedScreen(user, normalizedScreen))
+            {
+                return Results.Forbid();
+            }
+
+            var columns = exportService.GetEffectiveColumns(normalizedScreen, user)
+                .Select(column => new SelectedExportColumnResponse(column.Key, column.Label, column.Required))
+                .ToList();
+            return Results.Ok(columns);
+        })
+        .RequireAuthorization()
+        .WithName("GetSelectedExportColumns");
+
         app.MapPost("/api/data-exports/selected", async (
             SelectedExportRequest request,
             HttpContext httpContext,
@@ -222,6 +249,11 @@ public static class DataExportEndpointExtensions
                 return Results.Forbid();
             }
 
+            if (!exportService.TryResolveColumns(screen, user, request.Columns, out var selectedColumns))
+            {
+                return InvalidSelectedColumns();
+            }
+
             var validation = ValidateSelectedIds(request.Ids);
             if (validation.Error is not null)
             {
@@ -234,6 +266,7 @@ public static class DataExportEndpointExtensions
                 request.Filters ?? new Dictionary<string, string?>(),
                 actorUserId.Value,
                 user,
+                selectedColumns,
                 cancellationToken);
             return ToResult(result, httpContext);
         })
@@ -294,6 +327,12 @@ public static class DataExportEndpointExtensions
                 statusCode: StatusCodes.Status422UnprocessableEntity,
                 title: "선택 항목을 확인해 주세요."));
     }
+
+    private static IResult InvalidSelectedColumns() =>
+        Results.ValidationProblem(
+            new Dictionary<string, string[]> { ["columns"] = ["컬럼 선택을 다시 확인해 주세요."] },
+            statusCode: StatusCodes.Status422UnprocessableEntity,
+            title: "내보낼 컬럼을 확인해 주세요.");
 
     private static IResult ToResult(ExcelExportResult result, HttpContext httpContext)
     {
@@ -432,4 +471,7 @@ public static class DataExportEndpointExtensions
 public sealed record SelectedExportRequest(
     string? Screen,
     IReadOnlyList<Guid>? Ids,
-    IReadOnlyDictionary<string, string?>? Filters);
+    IReadOnlyDictionary<string, string?>? Filters,
+    IReadOnlyList<string?>? Columns);
+
+public sealed record SelectedExportColumnResponse(string Key, string Label, bool Required);

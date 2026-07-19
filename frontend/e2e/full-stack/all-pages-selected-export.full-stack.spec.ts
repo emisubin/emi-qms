@@ -7,6 +7,7 @@ const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const artifactDirectory = '/tmp/emi-qms-export-001-all-pages';
 const screenshotDirectory = path.join(artifactDirectory, 'screenshots');
 const workbookDirectory = path.join(artifactDirectory, 'workbooks');
+const columnPickerScreenshotDirectory = path.resolve(process.cwd(), '../tasks/export-001-change-003-screenshots');
 
 const pages = [
   { route: '/projects', name: '01-projects', userKey: 'dev-sales' },
@@ -31,11 +32,12 @@ const pages = [
   { route: '/admin/system/work-item-escalations', name: '20-admin-work-item-escalations', userKey: 'dev-admin' }
 ] as const;
 
-test('TASK-EXPORT-001 change-002: every list page exposes one selected Excel flow', async ({ page, request }) => {
+test('TASK-EXPORT-001 change-003: every selected export page uses the server column picker', async ({ page, request }) => {
   test.setTimeout(480_000);
   await fs.rm(artifactDirectory, { force: true, recursive: true });
   await fs.mkdir(screenshotDirectory, { recursive: true });
   await fs.mkdir(workbookDirectory, { recursive: true });
+  await fs.mkdir(columnPickerScreenshotDirectory, { recursive: true });
   seedExternalAdminUser();
   const syntheticProject = await createQualityReadyProject(request, Date.now());
   await completeManufacturing(request, syntheticProject.projectId, syntheticProject.panelId);
@@ -45,6 +47,8 @@ test('TASK-EXPORT-001 change-002: every list page exposes one selected Excel flo
   await page.getByLabel('개발 사용자').selectOption('dev-admin');
 
   let downloadedWorkbookCount = 0;
+  let pickerScreenshotCount = 0;
+  let customColumnSelectionCount = 0;
   const emptyDesktopRoutes: string[] = [];
   for (const target of pages) {
     await selectDevelopmentUser(page, target.userKey);
@@ -61,6 +65,26 @@ test('TASK-EXPORT-001 change-002: every list page exposes one selected Excel flo
     await expect(tray.getByRole('button', { name: '선택 Excel 내보내기', exact: true })).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'Excel 내보내기', exact: true })).toHaveCount(0);
 
+    const pickerTrigger = tray.getByRole('button', { name: /컬럼 선택/ });
+    await expect(pickerTrigger).toBeVisible();
+    await pickerTrigger.click();
+    const picker = page.getByRole('dialog', { name: '내보낼 컬럼 선택' });
+    await expect(picker).toBeVisible();
+    const columnCheckboxes = picker.getByRole('checkbox');
+    await expect(columnCheckboxes.first()).toBeVisible();
+    expect(await columnCheckboxes.count()).toBeGreaterThan(1);
+    expect(await picker.locator('input[type="checkbox"]:disabled').count()).toBeGreaterThan(0);
+    const expectedHeaderCount = await columnCheckboxes.count();
+    if (target.name === '05-material-receipts' || target.name === '13-admin-users') {
+      const optionalColumn = picker.locator('input[type="checkbox"]:not(:disabled)').last();
+      await optionalColumn.uncheck();
+      customColumnSelectionCount += 1;
+    }
+    await captureAt(page, path.join(columnPickerScreenshotDirectory, `${target.name}-column-picker-desktop-1440.png`));
+    pickerScreenshotCount += 1;
+    await page.keyboard.press('Escape');
+    await expect(picker).toBeHidden();
+
     const selectAll = tray.getByRole('checkbox', { name: '현재 목록 전체 선택', exact: true });
     await expect(selectAll).toHaveCount(1);
     if (await selectAll.isEnabled()) {
@@ -72,7 +96,10 @@ test('TASK-EXPORT-001 change-002: every list page exposes one selected Excel flo
       ]);
       const workbookPath = path.join(workbookDirectory, `${target.name}.xlsx`);
       await download.saveAs(workbookPath);
-      verifyFormulaSafeWorkbook(workbookPath);
+      verifyFormulaSafeWorkbook(
+        workbookPath,
+        expectedHeaderCount - (target.name === '05-material-receipts' || target.name === '13-admin-users' ? 1 : 0)
+      );
       downloadedWorkbookCount += 1;
     }
 
@@ -85,6 +112,8 @@ test('TASK-EXPORT-001 change-002: every list page exposes one selected Excel flo
     'utf8'
   );
   expect(downloadedWorkbookCount).toBeGreaterThanOrEqual(10);
+  expect(pickerScreenshotCount).toBe(20);
+  expect(customColumnSelectionCount).toBe(2);
 
   await page.setViewportSize({ width: 390, height: 844 });
   for (const target of pages) {
@@ -98,12 +127,16 @@ test('TASK-EXPORT-001 change-002: every list page exposes one selected Excel flo
     await expect(page.getByRole('button', { name: '선택 Excel 내보내기', exact: true })).toHaveCount(0);
     await assertNoHorizontalOverflow(page);
     await capture(page, `mobile-${target.name}.png`);
+    if (target.name === '01-projects') {
+      await captureAt(page, path.join(columnPickerScreenshotDirectory, '21-projects-mobile-no-export-390.png'));
+    }
   }
 });
 
-function verifyFormulaSafeWorkbook(filePath: string) {
+function verifyFormulaSafeWorkbook(filePath: string, expectedHeaderCount: number) {
   const worksheetXml = execFileSync('unzip', ['-p', filePath, 'xl/worksheets/sheet1.xml'], { encoding: 'utf8' });
   expect(worksheetXml).not.toMatch(/<f(?:\s|>)/);
+  expect(worksheetXml.match(/<(?:[a-z]+:)?c\b[^>]*\br="[A-Z]+5"/gi)?.length ?? 0).toBe(expectedHeaderCount);
 }
 
 async function selectDevelopmentUser(page: Page, userKey: string) {
@@ -118,13 +151,17 @@ async function waitForPageData(page: Page) {
 }
 
 async function capture(page: Page, fileName: string) {
+  await captureAt(page, path.join(screenshotDirectory, fileName));
+}
+
+async function captureAt(page: Page, outputPath: string) {
   await page.evaluate(async () => {
     await document.fonts.ready;
     window.scrollTo(0, 0);
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   });
   await page.screenshot({
-    path: path.join(screenshotDirectory, fileName),
+    path: outputPath,
     animations: 'disabled',
     fullPage: true
   });

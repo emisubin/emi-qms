@@ -429,10 +429,18 @@ describe('App', () => {
 
     fireEvent.click(exportButton);
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      expect.stringContaining('/api/projects/export/selected'),
+      expect.stringContaining('/api/data-exports/selected'),
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ projectIds: [projectId, onHoldProjectId] })
+        body: JSON.stringify({
+          screen: 'projects',
+          ids: [projectId, onHoldProjectId],
+          filters: {
+            search: '',
+            deliveryDateFrom: '',
+            deliveryDateTo: ''
+          }
+        })
       })
     ));
     expect(await screen.findByText('Excel 파일 생성을 완료했습니다')).toBeInTheDocument();
@@ -2790,14 +2798,14 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(projectDetail(true, 'Active', body.projectTitle), 201);
   }
 
-  if (path === '/api/projects/export/selected' && init?.method === 'POST') {
-    const body = JSON.parse(String(init.body)) as { projectIds: string[] };
+  if (path === '/api/data-exports/selected' && init?.method === 'POST') {
+    const body = JSON.parse(String(init.body)) as { ids: string[] };
     return new Response(new Blob(['selected-xlsx']), {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="EMI_selected.xlsx"',
-        'X-Export-Row-Count': String(body.projectIds.length)
+        'X-Export-Row-Count': String(body.ids.length)
       }
     });
   }

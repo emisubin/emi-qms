@@ -9,6 +9,7 @@ export function ExcelExportAction({
   disabled = false,
   disabledReason,
   unprocessableEntityHint = '조건을 좁혀 다시 시도해 주세요.',
+  onUnprocessableEntity,
   onBusyChange
 }: {
   exportFile: () => Promise<ExcelExportDownload>;
@@ -17,6 +18,7 @@ export function ExcelExportAction({
   disabled?: boolean;
   disabledReason?: string;
   unprocessableEntityHint?: string;
+  onUnprocessableEntity?: () => void;
   onBusyChange?: (isBusy: boolean) => void;
 }) {
   const [isExporting, setIsExporting] = useState(false);
@@ -41,6 +43,7 @@ export function ExcelExportAction({
     } catch (error: unknown) {
       setTone('error');
       if (error instanceof ApiError && error.status === 422) {
+        onUnprocessableEntity?.();
         setMessage(error.message.includes(unprocessableEntityHint)
           ? error.message
           : `${error.message} ${unprocessableEntityHint}`);

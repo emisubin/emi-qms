@@ -1979,6 +1979,76 @@ public sealed class ProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task SelectedExportColumnPicker_IsServerAllowlistedAndKeepsRequiredColumns()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var noRoleClient = context.CreateClient("dev-no-role");
+        var unique = Guid.NewGuid().ToString("N")[..8];
+        var projectId = await CreateProjectAndReadIdAsync(salesClient, $"COLUMN-{unique}", $"Column Picker {unique}", 1);
+
+        using var deniedMetadata = await noRoleClient.GetAsync(
+            "/api/data-exports/selected/columns?screen=projects",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedMetadata.StatusCode);
+
+        using var unsupportedMetadata = await salesClient.GetAsync(
+            "/api/data-exports/selected/columns?screen=unknown",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, unsupportedMetadata.StatusCode);
+
+        using var metadata = await salesClient.GetAsync(
+            "/api/data-exports/selected/columns?screen=projects",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, metadata.StatusCode);
+        using var metadataJson = await ReadJsonAsync(metadata);
+        var metadataColumns = metadataJson.RootElement.EnumerateArray().ToList();
+        var projectCode = metadataColumns.Single(column => column.GetProperty("label").GetString() == "PJT Code");
+        var projectTitle = metadataColumns.Single(column => column.GetProperty("label").GetString() == "PJT Title");
+        Assert.True(projectCode.GetProperty("required").GetBoolean());
+        Assert.Contains(metadataColumns, column => column.GetProperty("label").GetString() == "매출액");
+
+        using var restrictedMetadata = await procurementClient.GetAsync(
+            "/api/data-exports/selected/columns?screen=projects",
+            TestContext.Current.CancellationToken);
+        using var restrictedJson = await ReadJsonAsync(restrictedMetadata);
+        Assert.DoesNotContain(restrictedJson.RootElement.EnumerateArray(), column => column.GetProperty("label").GetString() == "매출액");
+
+        var selectedKeys = new[]
+        {
+            projectTitle.GetProperty("key").GetString(),
+            projectCode.GetProperty("key").GetString()
+        };
+        using var selectedExport = await salesClient.PostAsJsonAsync(
+            "/api/data-exports/selected",
+            new { screen = "projects", ids = new[] { projectId }, filters = new { }, columns = selectedKeys },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, selectedExport.StatusCode);
+        using (var workbook = new XLWorkbook(new MemoryStream(await selectedExport.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken))))
+        {
+            var headers = workbook.Worksheet("프로젝트").Row(5).CellsUsed().Select(cell => cell.GetString()).ToList();
+            Assert.Equal(["PJT Code", "PJT Title"], headers);
+            Assert.DoesNotContain(workbook.Worksheet("프로젝트").CellsUsed(), cell => cell.HasFormula);
+        }
+        Assert.Equal(1L, await context.ReadScalarAsync<long>(
+            "select count(*) from data_export_events where export_kind = 'ProjectsSelected' and not sensitive_sales_amount_included;"));
+
+        using var missingRequired = await salesClient.PostAsJsonAsync(
+            "/api/data-exports/selected",
+            new
+            {
+                screen = "projects",
+                ids = new[] { projectId },
+                filters = new { },
+                columns = new[] { projectTitle.GetProperty("key").GetString() }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, missingRequired.StatusCode);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from data_export_events;"));
+    }
+
+    [Fact]
     public async Task DeletedProjectRestore_IsAdminOnlyAndReturnsProjectToActiveList()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();

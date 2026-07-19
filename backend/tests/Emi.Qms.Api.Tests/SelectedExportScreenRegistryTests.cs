@@ -35,4 +35,47 @@ public sealed class SelectedExportScreenRegistryTests
         Assert.Equal("AdminPermissionMatrixSelected", SelectedExportScreens.AuditKinds[SelectedExportScreens.AdminPermissions]);
         Assert.Equal("AdminMasterChangeLogsSelected", SelectedExportScreens.AuditKinds[SelectedExportScreens.AdminMasterHistory]);
     }
+
+    [Fact]
+    public void ColumnRegistry_CoversEveryScreenWithStableRequiredKeys()
+    {
+        var labelsByScreen = SelectedExcelExportService.GetColumnLabelsForContract();
+
+        Assert.Equal(SelectedExportScreens.All.Count, labelsByScreen.Count);
+        Assert.Equal(SelectedExportScreens.All.Count, SelectedExportColumnRegistry.RequiredContract.Count);
+        foreach (var screen in SelectedExportScreens.All)
+        {
+            var columns = SelectedExportColumnRegistry.Describe(screen, labelsByScreen[screen]);
+            Assert.NotEmpty(columns);
+            Assert.Equal(columns.Count, columns.Select(column => column.Key).Distinct(StringComparer.Ordinal).Count());
+            Assert.All(columns, column => Assert.True(SelectedExportColumnRegistry.IsValidKey(column.Key)));
+            Assert.Contains(columns, column => column.Required);
+            Assert.All(
+                SelectedExportColumnRegistry.RequiredContract[screen],
+                required => Assert.Contains(columns, column =>
+                    column.Required && column.Label == required.Key && column.Key == required.Value));
+        }
+    }
+
+    [Fact]
+    public void ColumnRegistry_ResolvesInServerOrderAndRejectsInvalidSubsets()
+    {
+        var columns = SelectedExportColumnRegistry.Describe(
+            SelectedExportScreens.MaterialReceipts,
+            SelectedExcelExportService.GetColumnLabelsForContract()[SelectedExportScreens.MaterialReceipts]);
+        var requiredKeys = columns.Where(column => column.Required).Select(column => column.Key).ToList();
+        var optionalKey = columns.First(column => !column.Required).Key;
+
+        Assert.True(SelectedExportColumnRegistry.TryResolve(
+            columns,
+            [optionalKey, .. requiredKeys.AsEnumerable().Reverse()],
+            out var selected));
+        Assert.Equal(
+            columns.Where(column => requiredKeys.Contains(column.Key) || column.Key == optionalKey).Select(column => column.Key),
+            selected.Select(column => column.Key));
+        Assert.False(SelectedExportColumnRegistry.TryResolve(columns, [], out _));
+        Assert.False(SelectedExportColumnRegistry.TryResolve(columns, [requiredKeys[0]], out _));
+        Assert.False(SelectedExportColumnRegistry.TryResolve(columns, [.. requiredKeys, "UNKNOWN"], out _));
+        Assert.False(SelectedExportColumnRegistry.TryResolve(columns, [.. requiredKeys, requiredKeys[0]], out _));
+    }
 }

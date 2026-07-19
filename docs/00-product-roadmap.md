@@ -999,12 +999,12 @@ Excel 출력 대상 후보:
 | 4.1 | TASK-013A 물류 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-012A experiment scope 완료 | 실제 포장·서명본 양식은 후속 change | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·013A experiment scope 완료 | 운영 정산 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.2A | TASK-SALES-KPI-001 영업 연간 매출 KPI | NEW_FEATURE | Experiment Complete | 본체와 Change 002 benchmark 기반 actual·target·attainment graph, automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-014A·HOME-002·DESIGN-000 experiment scope | forecast·전년 비교는 계약 데이터 없음, 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
-| 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | Experiment Complete / Optional Follow-up | 20개 화면 선택 export automated validation complete / `BATCHED_FINAL` | 주요 data model experiment 구현 완료 | column picker·multi-sheet는 별도 optional 후속 | Yes | 현재 선택 export 재구현 금지; 원하면 column picker change |
+| 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | Experiment Complete | Change 002 20개 화면 선택 export와 Change 003 server allowlist column picker automated validation complete / `BATCHED_FINAL` | 주요 data model experiment 구현 완료 | preset·재정렬·multi-sheet는 별도 optional 후속 | Yes | 완료 scope 재구현 금지; 최종 일괄 검수 |
 | 4.3A | TASK-EXPORT-002 선택 프로젝트 Excel export | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-EXPORT-001 Phase 1 | 없음 | Yes | 재구현 금지; 최종 screenshot·파일 일괄 검수 |
 | 4.4 | QR 스캔 랜딩 (ID 미정) | NEW_FEATURE | Deferred | Deferred | MOBILE-001·제조 흐름 | 공개/인증 landing 정책 | Yes | 별도 신규 기능 Task 승인 |
 | 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Experiment Complete | CSS semantic token·React primitive·shell/Home/Sales adoption·desktop/mobile visual validation complete / `BATCHED_FINAL` | 기능 흐름 안정화·사용자 reference image | Figma file/library publish는 범위 밖, 대표 repo·main 미반영 | Yes | 완료 foundation 재구현 금지; 최종 일괄 검수 |
 | 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Experiment Complete | Automated validation·페이지 screenshot complete / `BATCHED_FINAL` | 로그인 shell, 후속 MOBILE-002와 DESIGN-000 foundation이 보완 | 없음. Figma publish는 optional 후속 | Yes | 완료 화면 통일 재구현 금지; 최종 일괄 검수 |
-| 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment Complete | A1·A2 implementation, automated·isolated browser validation complete / `BATCHED_FINAL` | A1 공통 contract·내 업무·알림, A2 생산·구매·자재·IQC·키팅·패널·Excel 완료 | 대표 repo·main·Persistent UAT 미반영; 전역 toast/store·A2 밖 문자열 tone 정리는 제외 | Yes | 재구현 금지; 최종 일괄 검수. 다음 optional 범위는 EXPORT-001 column picker |
+| 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment Complete | A1·A2 implementation, automated·isolated browser validation complete / `BATCHED_FINAL` | A1 공통 contract·내 업무·알림, A2 생산·구매·자재·IQC·키팅·패널·Excel 완료 | 대표 repo·main·Persistent UAT 미반영; 전역 toast/store·A2 밖 문자열 tone 정리는 제외 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004·TASK-UX-001 A1 experiment | 관리자 감사 조회 UI는 별도 후속 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | 운영 전환 (Task ID 미정) | UAT_RUNTIME | Deferred | Scope Review Required | 기능·P2·design gate 완료 | hosting/domain, redirect URI, Teams catalog, provider, 교육 | Yes | 운영 전환 Task와 rollback 승인 |
 
@@ -1466,7 +1466,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 검증: Backend 391/391, Frontend 101/101·build, migration 41개 fresh apply, 격리 desktop/390 save·reset·overflow 0, actual provider 0.
 - 산출물: [Fable 2차 기획](26-notification-preferences-plan.md), [Implementation report](../tasks/notify-005-implementation-report.md), [SOP](../tasks/notify-005-sop.md), [User manual](../tasks/notify-005-user-manual.md), [Checklist/Screenshots](../tasks/notify-005.md)
 
-현재 experiment Task 선택은 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 따른다. TASK-007A~014A, MOBILE-001/002, HOME-001/002, DESIGN-001, 현재 선택 export, E2E 기준선, UX-001 A1/A2와 NOTIFY-005는 `EXPERIMENT_COMPLETE`이므로 사용자 검수 대기만을 이유로 다시 기획·구현하지 않는다. 다음 optional 범위는 사용자가 원할 때만 시작하는 `TASK-EXPORT-001` column picker다. 아래 과거 실험 기록의 “canonical TASK-007A Gate 유지” 문구는 대표 repo·`main` 승격 당시의 gate를 보존한 역사적 snapshot이지 현재 experiment에서 TASK-007A를 재개발하라는 지시가 아니다. 대표 repo·`main` 승격, Persistent UAT와 게시·merge는 여전히 별도이며 main merge 승인 `0/3`이다.
+현재 experiment Task 선택은 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 따른다. TASK-007A~014A, MOBILE-001/002, HOME-001/002, DESIGN-000/001, 현재 선택 export와 column picker, E2E 기준선, UX-001 A1/A2와 NOTIFY-005는 `EXPERIMENT_COMPLETE`이므로 사용자 검수 대기만을 이유로 다시 기획·구현하지 않는다. 다음 제품 후보는 아직 유형·권한 정책 입력이 필요한 Pending 유형 관리자 화면이며, 단순 “다음 작업”만으로 임의 정책을 확정하지 않는다. 아래 과거 실험 기록의 “canonical TASK-007A Gate 유지” 문구는 대표 repo·`main` 승격 당시의 gate를 보존한 역사적 snapshot이지 현재 experiment에서 TASK-007A를 재개발하라는 지시가 아니다. 대표 repo·`main` 승격, Persistent UAT와 게시·merge는 여전히 별도이며 main merge 승인 `0/3`이다.
 
 ### TASK-USER-FLOW-001: 웹사이트 전체 유저플로우 설계
 
@@ -1631,8 +1631,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 선행조건: 주요 화면 데이터 모델 안정화
 - 주요 테스트: 권한, 필터, 파일 타입, 개인정보 노출 방지
 - 2026-07-18 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 `TASK-014A` 완료 뒤 “다음작업 시작하라”는 요청에 따라 canonical 다음 `TASK-007A` Gate 및 `Deferred` 상태와 무관하게 현재 실험 계보에서 `TASK-EXPORT-001` 기획·구현을 진행한다. 모든 화면을 한 번에 완료로 가장하지 않고 Fable이 권장하는 서로 다른 우선 화면 vertical slice로 공통 export 구조를 증명하며, 대상 화면·컬럼 선택·row 제한·audit의 미확정 정책은 권장안과 Deferred 경계로 분리한다. canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
-- 2026-07-18 Phase 1 당시 상태: `experiment/task-export-001-excel-export`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 3개 화면 vertical slice 구현·자동 검증을 완료했다. 프로젝트 목록·구매 dashboard·내 업무에 server-side `.xlsx`, 동일 filter/scope query, 매출 권한 column omission, 10,000행 cap, formula-safe text, 2-slot resource fence와 append-only `0038_data_export_events`를 적용했다. 당시 남은 다른 조회 화면은 아래 Change 002에서 20개 화면 선택 export로 완료했고, column picker만 optional 후속이다. 대표 repo·`main`·Persistent UAT·provider는 미반영이다.
+- 2026-07-18 Phase 1 당시 상태: `experiment/task-export-001-excel-export`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 3개 화면 vertical slice 구현·자동 검증을 완료했다. 프로젝트 목록·구매 dashboard·내 업무에 server-side `.xlsx`, 동일 filter/scope query, 매출 권한 column omission, 10,000행 cap, formula-safe text, 2-slot resource fence와 append-only `0038_data_export_events`를 적용했다. 당시 남은 다른 조회 화면은 아래 Change 002에서 20개 화면 선택 export로 완료했고 column picker는 Change 003에서 완료했다. 대표 repo·`main`·Persistent UAT·provider는 미반영이다.
 - 2026-07-18 Change 002 실험 상태: `experiment/task-export-001-all-pages-selected-export`에서 업무 12개·관리자 8개 총 20개 조회 화면을 공통 선택 export registry로 고정했다. 모든 대상 화면은 row/card checkbox, 현재 목록 `전체선택` checkbox와 `선택 Excel 내보내기` action 하나만 사용하고 기존 전체 export UI와 중복 전체 선택 button은 제거했다. 공통 POST endpoint가 최대 1,000개 선택 ID의 권한·scope·현재 존재 여부를 전부 재검증하며 additive `0040` audit kind, formula-safe workbook, desktop 20·390px 20 screenshot, Backend 388·Frontend 92 test와 isolated Full-Stack E2E를 완료했다. 사용자 검수는 `BATCHED_FINAL`이고 현재 선택 export는 재구현하지 않는다. 대표 repo·`main`·push·PR·merge·Persistent UAT·provider는 미반영이다.
+- 2026-07-19 Change 003 실험 상태: 사용자의 “다음 작업” 요청과 완료 원장의 named optional scope에 따라 canonical `TASK-EXPORT-001 change-003`을 재사용했다. Fable 1차 기획, Codex review, review 기반 Fable 2차 기획 뒤 20개 desktop 화면에 server-issued column picker를 적용했다. metadata·POST 검증·workbook·프로젝트 민감 매출 audit는 하나의 effective column source를 사용하고, 화면별 필수 식별 컬럼·ASCII key·중복·권한 밖·stale 선택을 fail-closed로 검증한다. mobile simple-mode와 form template custom export는 제외 상태를 유지했다. Backend `401/401`, Frontend `109/109`, disposable Full-Stack E2E `1/1`, desktop picker 20개·mobile 1개·실제 Excel 2개 증빙과 Open P0/P1/P2 `0/0/0`을 완료했다. solution 전체 format drift는 범위 밖 P3 housekeeping backlog로 분리했고 이번 변경 DataExports 검증은 통과했다. 사용자 검수는 `BATCHED_FINAL`이며 대표 repo·`main`·push·PR·merge·Persistent UAT·provider는 미반영이다.
 
 ### TASK-EXPORT-002: 선택 프로젝트 Excel 내보내기
 
@@ -1684,7 +1685,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 19 | 부적합 조치 유형 상세 | 부분 확정 | 사용자 논의 | TASK-007A/008A/012A | 반송/현장 수리 흐름 |
 | 20 | 포장 구성 입력 필드 | 미확정 | 물류 회신 | TASK-013A | 포장번호, 규격, 중량 등 |
 | 21 | 영업 정산 항목 | 부분 확정 | 사용자 논의 | TASK-014A | 세금계산서 완료는 확정 |
-| 22 | 모든 페이지 Excel 출력 범위 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자 요청 | TASK-EXPORT-001 | 업무 12·관리자 8 화면의 checkbox 전체선택·단일 선택 export 완료. column picker는 optional 후속이며 현재 scope를 다시 열지 않음 |
+| 22 | 모든 페이지 Excel 출력 범위 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자 요청 | TASK-EXPORT-001 | 업무 12·관리자 8 화면의 checkbox 전체선택·단일 선택 export와 server allowlist column picker 완료. preset·재정렬·multi-sheet는 별도 optional이며 완료 scope를 다시 열지 않음 |
 | 23 | Microsoft 365 로그인 적용 시점 | 완료 | 인프라/운영 결정 | TASK-INFRA-001 | 인증 기반 구현 완료. 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 필요 |
 | 24 | 관리자 페이지 범위 | 완료 | 사용자 요청 | TASK-ADMIN-001 | 시스템 관리 중심으로 구현 완료. 업무 부서 입력 기준정보는 후속 결정 |
 | 25 | 프로젝트 대표 상태 방식 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 병목 기준 + 진행률 |
@@ -1927,6 +1928,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-19 | 영업 그래프는 월 actual·target grouped bar와 경과 월 attainment line·100% 기준선을 사용하고 mobile에도 동일한 12개월 graph를 제공 | 단순 목표 금액선과 4×3 월 block을 제거해 월별 gap·달성 여부·연속 추세를 직접 판단하고 미래 월 0% 오해를 막기 위함 | 23장~25장, TASK-SALES-KPI-001 Change 002 |
 | 2026-07-19 | 모바일 기본 화면은 현장 판단·처리를 우선하고 Excel·대량 관리·중복 Home widget을 제외하며 DESIGN-000 semantic token과 공통 primitive를 사용 | PC 기능을 전부 복제하지 않고 390px에서 핵심 정보 밀도와 조작성을 높이면서 desktop 기능과 서버 권한을 보존하기 위함 | 3장·23장~25장, TASK-MOBILE-002 Change 004, DESIGN-000 |
 | 2026-07-19 | 모바일 도형은 배열 순환이 아니라 `surface/control/active/status/count/warning/success` 의미로 결정 | 같은 상태를 같은 모양으로 학습할 수 있게 하고 차단·완료·선택 신호가 목록 순서에 따라 바뀌지 않게 하기 위함 | 3장·23장~25장, TASK-MOBILE-002 Change 005, DESIGN-000 |
+| 2026-07-19 | 선택 Excel 컬럼은 client header가 아니라 화면·사용자별 server effective registry의 key 부분집합으로 받고 필수 식별 컬럼을 잠근다 | metadata·요청 검증·workbook·민감 매출 audit의 권한 drift를 막고 stale·조작 요청을 silent fallback 없이 차단하면서 기존 미전달 client를 보존하기 위함 | 19장·23장~25장, TASK-EXPORT-001 Change 003 |
 
 ## 26. 용어 사전
 

@@ -43,7 +43,7 @@
 | `TASK-012A` | LQC·OQC·고객검수·선택 FAT, 사진·PDF·재검사 | [구현 보고서](../tasks/012a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-013A` | 포장 단위·출발·납품과 필수 증빙·정산 인계 | [구현 보고서](../tasks/013a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-014A` | 세금계산서 draft·정산·프로젝트 완료와 lifecycle fence | [구현 보고서](../tasks/014a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
-| `TASK-EXPORT-001` | 업무 12개·관리자 8개 화면의 checkbox 전체선택과 단일 선택 Excel 내보내기 | [구현 보고서 Change 002](../tasks/export-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-EXPORT-001` | 업무 12개·관리자 8개 화면의 checkbox 전체선택·단일 선택 Excel 내보내기와 server allowlist 기반 필수 잠금 column picker | [Change 002](../tasks/export-001-implementation-report.md), [Change 003](../tasks/export-001-column-picker-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-EXPORT-002` | 여러 프로젝트 선택 Excel 내보내기 | [구현 보고서](../tasks/export-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-E2E-FULL-SUITE-001` | 현재 계약 기준 전체 Full-Stack 회귀 복구, Backend `388/388`, Frontend `92/92`, Full-Stack `35/35` | [구현 보고서](../tasks/e2e-full-suite-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-UX-001 A1` | 공통 action feedback, 내 업무와 알림의 처리 중·성공·부분 성공·실패 UX | [구현 보고서](../tasks/ux-001-implementation-report.md) | `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` |
@@ -53,7 +53,7 @@
 | `TASK-ADMIN-002` | 고정 6종 검사·제조 양식의 무코드 version 관리, 지정 부서장 scope, 제조 snapshot과 선택 Excel | [구현 보고서](../tasks/admin-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `DESIGN-000` | reference 기반 CSS semantic token, 공통 React primitive, shell·Home·Sales 우선 적용과 desktop/mobile visual baseline | [구현 보고서](../tasks/design-000-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 Backend `398/398`, Frontend `106/106`, migration `0044`까지의 fresh PostgreSQL 적용·기존 `0042 → 0044` upgrade다. 직전 전체 Full-Stack `38/38` 기준선 위에서 DESIGN-000·Sales Change 002 `1/1`, MOBILE Change 004 `1/1`, desktop 보존/mobile 단순화 export 영향 `3/3`, MOBILE Change 005 compact workspace `1/1`과 키팅·제조·품질 상태 전이 `3/3`을 추가로 통과했다. Desktop·390px privacy-safe synthetic screenshot은 DESIGN 6개와 MOBILE Change 004 13개, Change 005 13개이며 확인한 mobile route의 horizontal overflow는 0이다. disposable runtime·DB는 종료했고 대표 runtime으로 우회하지 않았다.
+현재 계보의 최신 누적 자동 기준선은 Backend `401/401`, Frontend `109/109`, migration `0044`까지의 fresh PostgreSQL 적용·기존 `0042 → 0044` upgrade다. 직전 전체 Full-Stack `38/38` 기준선 위에서 DESIGN-000·Sales Change 002 `1/1`, MOBILE Change 004 `1/1`, desktop 보존/mobile 단순화 export 영향 `3/3`, MOBILE Change 005 compact workspace `1/1`과 키팅·제조·품질 상태 전이 `3/3`, EXPORT Change 003 column picker `1/1`을 추가로 통과했다. Desktop·390px privacy-safe synthetic screenshot은 DESIGN 6개, MOBILE Change 004 13개, Change 005 13개와 EXPORT Change 003 23개이며 확인한 mobile route의 horizontal overflow는 0이다. disposable runtime·DB와 실제 Excel workbook은 종료했고 대표 runtime으로 우회하지 않았다.
 
 ## 4. 남은 제품 개발 Task
 
@@ -61,13 +61,12 @@
 
 | 우선순위 | Task·후속 범위 | 현재 상태 | 시작 조건·주의 |
 | --- | --- | --- | --- |
-| 1 | `TASK-EXPORT-001` 후속 — 사용자 column picker | `DEFERRED / OPTIONAL` | 현재 20개 화면 선택 export는 완료 상태로 보존한다. 사용자가 컬럼 선택 기능을 원할 때만 다음 change로 시작한다 |
-| 2 | Pending 유형 관리자 화면 — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 유형·권한 정책을 확정한 뒤 새 canonical ID를 부여한다. `TASK-007A` 본체를 다시 만들지 않는다 |
-| 3 | QR 스캔 landing — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 공개 또는 인증 landing 정책과 QR 운영 경계를 먼저 확정한다 |
-| 4 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
-| 5 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
-| 6 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
-| 7 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
+| 1 | Pending 유형 관리자 화면 — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 유형·권한 정책을 확정한 뒤 새 canonical ID를 부여한다. `TASK-007A` 본체를 다시 만들지 않는다 |
+| 2 | QR 스캔 landing — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 공개 또는 인증 landing 정책과 QR 운영 경계를 먼저 확정한다 |
+| 3 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
+| 4 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
+| 5 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
+| 6 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
 
 ### 4.1 아직 독립 Task로 승격되지 않은 Roadmap 입력
 
@@ -97,6 +96,7 @@
 - `TASK-MOBILE-002`: 대형 `App.tsx` route component 분할, 수동 desktop mode persistence
 - `TASK-010A`: 마지막 미완료 panel 취소 시 stage 완료 정책
 - `DESIGN-001`: production chunk 분할, `main.tsx` Fast Refresh warning 정리
+- Backend experiment formatting: 범위 밖 `LogisticsStore`·`PanelKittingStore`·`ProjectStore`와 대형 API test의 누적 `dotnet format` drift 정리. 기능 build/test는 통과하며 수정 시 별도 HOUSEKEEPING scope로 제한
 - `TASK-013A`: 운영 증빙 저장 용량·보존 정책
 - canonical 승격 전 요구 reviewer/Fable provenance 보강: 기능 재구현이 아니라 승격 검증 범위로 처리
 

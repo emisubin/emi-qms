@@ -71,6 +71,7 @@ describe('ExcelExportAction', () => {
 
   it('supports a disabled selection state, custom 422 recovery, and busy notifications', async () => {
     const onBusyChange = vi.fn();
+    const onUnprocessableEntity = vi.fn();
     const exportFile = vi.fn().mockRejectedValue(new ApiError(422, '선택한 프로젝트를 내보낼 수 없습니다.'));
     const { rerender } = render(
       <ExcelExportAction
@@ -90,12 +91,14 @@ describe('ExcelExportAction', () => {
         exportFile={exportFile}
         scopeLabel="2건 선택"
         unprocessableEntityHint="목록을 새로고침한 뒤 다시 선택해 주세요."
+        onUnprocessableEntity={onUnprocessableEntity}
         onBusyChange={onBusyChange}
       />
     );
     fireEvent.click(screen.getByRole('button', { name: /Excel 내보내기/ }));
 
     expect(await screen.findByText(/목록을 새로고침한 뒤 다시 선택해 주세요/)).toBeInTheDocument();
+    expect(onUnprocessableEntity).toHaveBeenCalledTimes(1);
     expect(onBusyChange).toHaveBeenNthCalledWith(1, true);
     expect(onBusyChange).toHaveBeenLastCalledWith(false);
   });

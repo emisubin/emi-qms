@@ -32,4 +32,5 @@ public static class QmsPermissions
     public const string AdminHistoryRead = "admin-history.read";
     public const string PendingRead = "Pending.Read";
     public const string PendingManage = "Pending.Manage";
+    public const string PendingTypeManage = "PendingType.Manage";
 }

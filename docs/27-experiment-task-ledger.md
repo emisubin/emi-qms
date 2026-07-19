@@ -53,8 +53,9 @@
 | `TASK-SALES-KPI-001` | 영업 Home·전용 화면의 12개월 확정 매출/목표/달성률 graph, 금액 KPI, 월별 근거와 관리자 목표 CAS | [본체](../tasks/sales-kpi-001-implementation-report.md), [Change 002](../tasks/sales-kpi-001-change-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-ADMIN-002` | 고정 6종 검사·제조 양식의 무코드 version 관리, 지정 부서장 scope, 제조 snapshot과 선택 Excel | [구현 보고서](../tasks/admin-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `DESIGN-000` | reference 기반 CSS semantic token, 공통 React primitive, shell·Home·Sales 우선 적용과 desktop/mobile visual baseline | [구현 보고서](../tasks/design-000-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-PENDING-TYPE-001` | system semantic 보호, 사용자 유형 lifecycle·정렬·label, system administrator 권한·CAS·audit, Pending 생성·필터·상세·선택 Excel 연동과 desktop/mobile 관리 화면 | [구현 보고서](../tasks/pending-type-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 Backend `401/401`, Frontend `109/109`, migration `0044`까지의 fresh PostgreSQL 적용·기존 `0042 → 0044` upgrade다. 직전 전체 Full-Stack `38/38` 기준선 위에서 DESIGN-000·Sales Change 002 `1/1`, MOBILE Change 004 `1/1`, desktop 보존/mobile 단순화 export 영향 `3/3`, MOBILE Change 005 compact workspace `1/1`과 키팅·제조·품질 상태 전이 `3/3`, EXPORT Change 003 column picker `1/1`을 추가로 통과했다. Desktop·390px privacy-safe synthetic screenshot은 DESIGN 6개, MOBILE Change 004 13개, Change 005 13개와 EXPORT Change 003 23개이며 확인한 mobile route의 horizontal overflow는 0이다. disposable runtime·DB와 실제 Excel workbook은 종료했고 대표 runtime으로 우회하지 않았다.
+현재 계보의 최신 누적 자동 기준선은 Backend `403/403`, Frontend `109/109`, migration `0045`까지의 fresh PostgreSQL 적용·기존 `0044 → 0045` upgrade다. 직전 전체 Full-Stack `38/38` 기준선 위에서 DESIGN-000·Sales Change 002 `1/1`, MOBILE Change 004 `1/1`, desktop 보존/mobile 단순화 export 영향 `3/3`, MOBILE Change 005 compact workspace `1/1`과 키팅·제조·품질 상태 전이 `3/3`, EXPORT Change 003 column picker `1/1`, Pending 유형 관리·업무 Pending label·선택 Excel·audit `2/2`를 추가로 통과했다. Desktop·390px privacy-safe synthetic screenshot은 DESIGN 6개, MOBILE Change 004 13개, Change 005 13개, EXPORT Change 003 23개와 Pending 유형 5개이며 확인한 mobile route의 horizontal overflow는 0이다. disposable runtime·DB와 실제 Excel workbook은 종료했고 대표 runtime으로 우회하지 않았다.
 
 ## 4. 남은 제품 개발 Task
 
@@ -62,12 +63,11 @@
 
 | 우선순위 | Task·후속 범위 | 현재 상태 | 시작 조건·주의 |
 | --- | --- | --- | --- |
-| 1 | Pending 유형 관리자 화면 — Task ID 미정 | `READY / FAST_TRACK` | 신규 Task identity 검색 뒤 canonical ID를 부여하고 유형·권한 정책은 Fable 2-pass 권장안으로 확정한다. `TASK-007A` 본체를 다시 만들지 않는다 |
-| 2 | QR 스캔 landing — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 공개 또는 인증 landing 정책과 QR 운영 경계를 먼저 확정한다 |
-| 3 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
-| 4 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
-| 5 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
-| 6 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
+| 1 | QR 스캔 landing — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 공개 또는 인증 landing 정책과 QR 운영 경계를 먼저 확정한다 |
+| 2 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
+| 3 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
+| 4 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
+| 5 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
 
 ### 4.1 아직 독립 Task로 승격되지 않은 Roadmap 입력
 
@@ -112,7 +112,7 @@
 3. 신규 상태·권한·외부 연동이 필요하면 별도 `NEW_FEATURE`로 분류한다.
 4. 다른 완료 Task를 함께 재기획하지 않는다.
 
-대표 repo·`main`으로 옮기려면 별도 승격 Task에서 현재 experiment commit 계보, migration `0030`~`0044`, 전체 자동 회귀, Persistent UAT handover와 rollback을 다시 검증한다. 이는 완료 기능의 재개발이 아니다. `main` merge는 사용자가 merge를 요청하더라도 서로 분리된 승인 3회가 기록되기 전까지 수행하지 않는다.
+대표 repo·`main`으로 옮기려면 별도 승격 Task에서 현재 experiment commit 계보, migration `0030`~`0045`, 전체 자동 회귀, Persistent UAT handover와 rollback을 다시 검증한다. 이는 완료 기능의 재개발이 아니다. `main` merge는 사용자가 merge를 요청하더라도 서로 분리된 승인 3회가 기록되기 전까지 수행하지 않는다.
 
 ## 7. 중복 실행 방지 체크리스트
 

@@ -22,6 +22,7 @@ import type {
   PendingPriority,
   PendingStatus
 } from './pending';
+import type { PendingTypeCatalog, PendingTypeOption, ReorderPendingTypeItem } from './pendingTypes';
 import { isInteractionRequiredAuthError } from './auth';
 import type {
   MaterialIqcQueueResponse,
@@ -815,6 +816,67 @@ export async function listPendingAssignees(
   developmentUserKey: string | undefined
 ): Promise<PendingAssignee[]> {
   return fetchJson<PendingAssignee[]>('/api/pending/assignees', developmentUserKey);
+}
+
+export async function getPendingTypeCatalog(
+  developmentUserKey: string | undefined
+): Promise<PendingTypeCatalog> {
+  return fetchJson<PendingTypeCatalog>('/api/pending-types', developmentUserKey);
+}
+
+export async function listPendingTypeManualOptions(
+  developmentUserKey: string | undefined
+): Promise<PendingTypeOption[]> {
+  return fetchJson<PendingTypeOption[]>('/api/pending-types/manual-options', developmentUserKey);
+}
+
+export async function listPendingTypeFilterOptions(
+  developmentUserKey: string | undefined
+): Promise<PendingTypeOption[]> {
+  return fetchJson<PendingTypeOption[]>('/api/pending-types/filter-options', developmentUserKey);
+}
+
+export async function createPendingType(
+  developmentUserKey: string | undefined,
+  request: { displayName: string; description: string | null }
+): Promise<PendingTypeCatalog> {
+  return fetchJson<PendingTypeCatalog>('/api/pending-types', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function updatePendingType(
+  developmentUserKey: string | undefined,
+  code: string,
+  request: { expectedRowVersion: number; displayName: string; description: string | null; isManualEnabled: boolean }
+): Promise<PendingTypeCatalog> {
+  return fetchJson<PendingTypeCatalog>(`/api/pending-types/${encodeURIComponent(code)}`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function setPendingTypeActive(
+  developmentUserKey: string | undefined,
+  code: string,
+  expectedRowVersion: number,
+  isActive: boolean
+): Promise<PendingTypeCatalog> {
+  return fetchJson<PendingTypeCatalog>(`/api/pending-types/${encodeURIComponent(code)}/${isActive ? 'activate' : 'deactivate'}`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ expectedRowVersion })
+  });
+}
+
+export async function reorderPendingTypes(
+  developmentUserKey: string | undefined,
+  items: ReorderPendingTypeItem[]
+): Promise<PendingTypeCatalog> {
+  return fetchJson<PendingTypeCatalog>('/api/pending-types/reorder', developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify({ items })
+  });
 }
 
 export async function createPendingIssue(

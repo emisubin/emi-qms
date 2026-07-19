@@ -22,7 +22,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         CancellationToken cancellationToken)
     {
         var normalizedStatus = PendingStatuses.All.Contains(status ?? "") ? status : null;
-        var normalizedType = PendingIssueTypes.All.Contains(issueType ?? "") ? issueType : null;
+        var normalizedType = string.IsNullOrWhiteSpace(issueType) ? null : issueType.Trim();
         var normalizedPriority = PendingPriorities.All.Contains(priority ?? "") ? priority : null;
 
         await using var dataSource = CreateDataSource();
@@ -37,6 +37,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 pi.target_id,
                 case when pi.target_type = 'Panel' then panel.display_code else null end,
                 pi.issue_type,
+                issue_type.display_name,
                 pi.title,
                 pi.description,
                 pi.status,
@@ -53,6 +54,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             from pending_issues pi
             join projects p on p.id = pi.project_id and p.deleted_at_utc is null
             join qms_users creator on creator.id = pi.created_by_user_id
+            join pending_issue_type_catalog issue_type on issue_type.code = pi.issue_type
             left join qms_users assignee on assignee.id = pi.assignee_user_id
             left join panel_placeholders panel on panel.id = pi.target_id and pi.target_type = 'Panel'
             where (@status is null or pi.status = @status)
@@ -167,6 +169,15 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         {
             await transaction.RollbackAsync(cancellationToken);
             return PendingMutationResult<PendingDetailResponse>.Conflict("완료·취소된 프로젝트에는 Pending을 등록할 수 없습니다.");
+        }
+
+        if (!await IsAvailableManualTypeAsync(connection, transaction, issueType, cancellationToken))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return PendingMutationResult<PendingDetailResponse>.Validation(new Dictionary<string, string[]>
+            {
+                [nameof(request.IssueType)] = ["현재 수동 등록에 사용할 수 있는 Pending 유형을 선택해 주세요."]
+            });
         }
 
         if (request.AssigneeUserId is not null
@@ -914,7 +925,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         {
             errors[nameof(request.ProjectId)] = ["프로젝트를 선택해 주세요."];
         }
-        if (request.IssueType is null || !PendingIssueTypes.All.Contains(request.IssueType.Trim()))
+        if (string.IsNullOrWhiteSpace(request.IssueType) || request.IssueType.Trim().Length > 80)
         {
             errors[nameof(request.IssueType)] = ["Pending 유형을 선택해 주세요."];
         }
@@ -979,6 +990,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 pi.target_id,
                 case when pi.target_type = 'Panel' then panel.display_code else null end,
                 pi.issue_type,
+                issue_type.display_name,
                 pi.title,
                 pi.description,
                 pi.status,
@@ -995,6 +1007,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             from pending_issues pi
             join projects p on p.id = pi.project_id and p.deleted_at_utc is null
             join qms_users creator on creator.id = pi.created_by_user_id
+            join pending_issue_type_catalog issue_type on issue_type.code = pi.issue_type
             left join qms_users assignee on assignee.id = pi.assignee_user_id
             left join panel_placeholders panel on panel.id = pi.target_id and pi.target_type = 'Panel'
             where pi.id = @id;
@@ -1006,9 +1019,9 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
 
     private static PendingListItemResponse ReadIssue(NpgsqlDataReader reader)
     {
-        var status = reader.GetString(11);
-        var priority = reader.GetString(12);
-        var dueDate = reader.IsDBNull(16) ? (DateOnly?)null : reader.GetFieldValue<DateOnly>(16);
+        var status = reader.GetString(12);
+        var priority = reader.GetString(13);
+        var dueDate = reader.IsDBNull(17) ? (DateOnly?)null : reader.GetFieldValue<DateOnly>(17);
         return new PendingListItemResponse(
             reader.GetGuid(0),
             reader.GetInt64(1),
@@ -1019,23 +1032,23 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             reader.GetGuid(6),
             reader.IsDBNull(7) ? null : reader.GetString(7),
             reader.GetString(8),
-            IssueTypeLabel(reader.GetString(8)),
             reader.GetString(9),
             reader.GetString(10),
+            reader.GetString(11),
             status,
             StatusLabel(status),
             priority,
             PriorityLabel(priority),
-            reader.IsDBNull(13) ? null : reader.GetString(13),
-            reader.IsDBNull(14) ? null : reader.GetGuid(14),
-            reader.IsDBNull(15) ? null : reader.GetString(15),
+            reader.IsDBNull(14) ? null : reader.GetString(14),
+            reader.IsDBNull(15) ? null : reader.GetGuid(15),
+            reader.IsDBNull(16) ? null : reader.GetString(16),
             dueDate,
             status != PendingStatuses.Closed && dueDate is not null && dueDate.Value < DateOnly.FromDateTime(DateTime.UtcNow),
-            reader.GetInt32(17),
-            reader.GetGuid(18),
-            reader.GetString(19),
-            reader.GetFieldValue<DateTimeOffset>(20),
-            reader.GetFieldValue<DateTimeOffset>(21));
+            reader.GetInt32(18),
+            reader.GetGuid(19),
+            reader.GetString(20),
+            reader.GetFieldValue<DateTimeOffset>(21),
+            reader.GetFieldValue<DateTimeOffset>(22));
     }
 
     private static async Task<IReadOnlyList<PendingCommentResponse>> ReadCommentsAsync(
@@ -1177,6 +1190,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 pi.target_id,
                 case when pi.target_type = 'Panel' then panel.display_code else null end,
                 pi.issue_type,
+                issue_type.display_name,
                 pi.title,
                 pi.description,
                 pi.status,
@@ -1193,6 +1207,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             from pending_issues pi
             join projects p on p.id = pi.project_id and p.deleted_at_utc is null
             join qms_users creator on creator.id = pi.created_by_user_id
+            join pending_issue_type_catalog issue_type on issue_type.code = pi.issue_type
             left join qms_users assignee on assignee.id = pi.assignee_user_id
             left join panel_placeholders panel on panel.id = pi.target_id and pi.target_type = 'Panel'
             where pi.id = @id
@@ -1237,6 +1252,24 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             );
             """;
         command.Parameters.AddWithValue("id", userId);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
+    }
+
+    private static async Task<bool> IsAvailableManualTypeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string issueType,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select exists (
+                select 1 from pending_issue_type_catalog
+                where code=@code and is_active and is_manual_enabled
+            );
+            """;
+        command.Parameters.AddWithValue("code", issueType);
         return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 
@@ -1527,14 +1560,6 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
     {
         command.Parameters.Add(name, NpgsqlDbType.Date).Value = value ?? (object)DBNull.Value;
     }
-
-    private static string IssueTypeLabel(string value) => value switch
-    {
-        PendingIssueTypes.Nonconformance => "부적합",
-        PendingIssueTypes.Punch => "PUNCH",
-        PendingIssueTypes.ManufacturingStop => "제조 중단",
-        _ => "기타"
-    };
 
     private static string StatusLabel(string value) => value switch
     {

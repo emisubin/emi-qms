@@ -1,4 +1,4 @@
-export type PendingIssueType = 'Nonconformance' | 'Punch' | 'ManufacturingStop' | 'Other';
+export type PendingIssueType = string;
 export type PendingStatus = 'Registered' | 'ActionRequested' | 'InProgress' | 'ReinspectionRequested' | 'Closed';
 export type PendingPriority = 'Normal' | 'Urgent';
 

@@ -995,7 +995,7 @@ Excel 출력 대상 후보:
 | 3.1 | TASK-011A 제조 체크리스트 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-010A·007A experiment scope 완료 | 실제 제조 상세 항목은 template 후속 | Yes | experiment 재구현 금지; 양식 변경은 기존 Task change |
 | 3.2 | TASK-012A 후속 품질 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-009A·011A experiment scope 완료 | 실제 LQC/OQC/FAT 양식은 template 후속 | Yes | experiment 재구현 금지; 양식 변경은 기존 Task change |
 | 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Experiment Complete | 2-pass planning·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-009A·011A·012A experiment model | 실제 운영 양식 content 입력은 후속 change | Yes | 재구현 금지; 최종 일괄 검수 |
-| 3.4 | Pending 유형 관리자 화면 (ID 미정) | NEW_FEATURE | Ready / Experiment Fast-Track | Standing instruction에 따라 비차단 유형·권한 정책은 Fable 2-pass 권장안 자동 채택 | TASK-007A experiment 완료·안정화 | 대표 repo·main·Persistent UAT 제외 | Yes | 동일 목적 검색 뒤 canonical ID 부여 → Fable 2-pass → 구현·검증·screenshot·local commit |
+| 3.4 | TASK-PENDING-TYPE-001 Pending 유형 관리 | NEW_FEATURE | Experiment Complete | Fable 2-pass·local 구현·자동 검증·desktop/mobile 증빙 완료 / `BATCHED_FINAL` | TASK-007A experiment 완료·안정화 | catalog 설정 자체 Excel export는 P3 backlog, 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수. 승격은 별도 UAT Task |
 | 4.1 | TASK-013A 물류 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-012A experiment scope 완료 | 실제 포장·서명본 양식은 후속 change | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·013A experiment scope 완료 | 운영 정산 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.2A | TASK-SALES-KPI-001 영업 연간 매출 KPI | NEW_FEATURE | Experiment Complete | 본체와 Change 002 benchmark 기반 actual·target·attainment graph, automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-014A·HOME-002·DESIGN-000 experiment scope | forecast·전년 비교는 계약 데이터 없음, 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
@@ -1466,7 +1466,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 검증: Backend 391/391, Frontend 101/101·build, migration 41개 fresh apply, 격리 desktop/390 save·reset·overflow 0, actual provider 0.
 - 산출물: [Fable 2차 기획](26-notification-preferences-plan.md), [Implementation report](../tasks/notify-005-implementation-report.md), [SOP](../tasks/notify-005-sop.md), [User manual](../tasks/notify-005-user-manual.md), [Checklist/Screenshots](../tasks/notify-005.md)
 
-현재 experiment Task 선택은 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 따른다. TASK-007A~014A, MOBILE-001/002, HOME-001/002, DESIGN-000/001, 현재 선택 export와 column picker, E2E 기준선, UX-001 A1/A2와 NOTIFY-005는 `EXPERIMENT_COMPLETE`이므로 사용자 검수 대기만을 이유로 다시 기획·구현하지 않는다. 다음 제품 Task는 Pending 유형 관리자 화면이다. 이 branch의 standing instruction에서 “다음 작업 시작”은 해당 이름 있는 Task의 실행 지시이며, 남은 비차단 유형·권한 정책은 사용자에게 승인·채택·확인을 다시 요구하지 않고 Fable 2-pass 권장안으로 확정한다. 아래 과거 실험 기록의 “canonical TASK-007A Gate 유지” 문구는 대표 repo·`main` 승격 당시의 gate를 보존한 역사적 snapshot이지 현재 experiment에서 TASK-007A를 재개발하라는 지시가 아니다. 대표 repo·`main` 승격, Persistent UAT와 게시·merge는 여전히 별도이며 main merge 승인 `0/3`이다.
+현재 experiment Task 선택은 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 따른다. TASK-007A~014A, MOBILE-001/002, HOME-001/002, DESIGN-000/001, 현재 선택 export와 column picker, E2E 기준선, UX-001 A1/A2, NOTIFY-005와 TASK-PENDING-TYPE-001은 `EXPERIMENT_COMPLETE`이므로 사용자 검수 대기만을 이유로 다시 기획·구현하지 않는다. 다음 제품 후보는 QR 스캔 landing이며 아직 canonical Task ID와 공개/인증 정책이 없는 `DEFERRED / POLICY_INPUT` 상태다. 이 branch의 standing instruction에서 “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task 실행 지시이며, 해당 Task의 비차단 정책은 사용자에게 승인·채택·확인을 다시 요구하지 않고 Fable 2-pass 권장안으로 확정한다. 아래 과거 실험 기록의 “canonical TASK-007A Gate 유지” 문구는 대표 repo·`main` 승격 당시의 gate를 보존한 역사적 snapshot이지 현재 experiment에서 TASK-007A를 재개발하라는 지시가 아니다. 대표 repo·`main` 승격, Persistent UAT와 게시·merge는 여전히 별도이며 main merge 승인 `0/3`이다.
 
 ### TASK-USER-FLOW-001: 웹사이트 전체 유저플로우 설계
 
@@ -1591,6 +1591,17 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 주요 테스트: 관리자/부서장/일반 사용자 권한, 부서 이동 scope, version lifecycle, 사용 중 template 보호, 제조 snapshot, audit
 - 2026-07-19 실험 재정렬 승인: 사용자가 영업 KPI와 함께 `ADMIN-002` 구현을 명시해 기존 Deferred 순서를 override했다. 대표 repo·`main`·Persistent UAT·provider·게시 경계는 변경하지 않았다.
 - 2026-07-19 실험 상태: Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·필수 자동 검증을 완료했다. additive `0044`는 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고 고정 6종 catalog, Draft→Active→Archived 불변 lifecycle, 시스템 관리자 지정 부서장, current-department fence, 제조 시작 version lock·snapshot과 선택 Excel을 구현했다. 사용자 검수는 `BATCHED_FINAL`이며 실제 운영 양식 세부 항목은 후속 content change다. 현재 experiment에서 관리 기능을 다시 기획·구현하지 않는다.
+
+### TASK-PENDING-TYPE-001: Pending 유형 관리
+
+- 상태/권장 순서: `NEW_FEATURE / Experiment Complete / BATCHED_FINAL`
+- 목적: 자동 workflow semantic과 사용자-facing Pending 유형 catalog를 분리해 관리자가 code 수정 없이 안전한 표시·사용 정책을 관리한다.
+- 포함 후보: system semantic 보호, 유형 catalog lifecycle·정렬·label·수동 등록 노출, 권한·CAS·audit, Pending 생성/filter/detail/export 연동, desktop/mobile 관리 화면.
+- 제외 범위: TASK-007A 상태·담당·코멘트·재검사·종결 재구현, 전체 role editor, 첨부 storage, 실제 provider, 대표 repo·main·Persistent UAT·게시.
+- 선행조건: TASK-007A experiment 완료, Task identity `PASS_CREATE`, 사용자 experiment standing instruction.
+- 핵심 검수 기준: 자동 유형 파괴 차단, 과거 의미 보존, 권한·scope drift·stale write 차단, 단일 label source, desktop/390px overflow 0.
+- 2026-07-19 실험 상태: Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. additive `0045`는 isolated fresh PostgreSQL과 기존 `0044 → 0045` upgrade에서 검증했고 system semantic 4종 보호, server-generated custom code, system administrator 전용 권한, CAS·append-only audit·원자 reorder, Pending 목록·상세·filter·manual option·선택 Excel의 단일 catalog label을 구현했다. Desktop 관리 표와 390px 조회 전용 카드 증빙을 완료했으며 사용자 검수는 `BATCHED_FINAL`이다. 대표 repo·`main`·Persistent UAT·provider·push·PR·merge에는 반영하지 않았고 현재 experiment에서 재구현하지 않는다.
+- P3 backlog: catalog 설정 자체의 Excel export. 업무 Pending 선택 Excel의 유형 label 연동은 완료했으며 별도 사용자 요청 전에는 현재 Task를 다시 열지 않는다.
 
 ### TASK-013A: 물류 포장 / 출발 / 납품 완료
 
@@ -1930,6 +1941,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-19 | 모바일 도형은 배열 순환이 아니라 `surface/control/active/status/count/warning/success` 의미로 결정 | 같은 상태를 같은 모양으로 학습할 수 있게 하고 차단·완료·선택 신호가 목록 순서에 따라 바뀌지 않게 하기 위함 | 3장·23장~25장, TASK-MOBILE-002 Change 005, DESIGN-000 |
 | 2026-07-19 | 선택 Excel 컬럼은 client header가 아니라 화면·사용자별 server effective registry의 key 부분집합으로 받고 필수 식별 컬럼을 잠근다 | metadata·요청 검증·workbook·민감 매출 audit의 권한 drift를 막고 stale·조작 요청을 silent fallback 없이 차단하면서 기존 미전달 client를 보존하기 위함 | 19장·23장~25장, TASK-EXPORT-001 Change 003 |
 | 2026-07-19 | experiment standing instruction 아래의 “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task 실행 지시이며 비차단 정책은 Fable 2-pass 권장안으로 자동 채택 | Change 014 fast-track보다 나중에 추가된 정책 입력 문구가 재승인 질문을 만든 회귀를 제거하고, 일반 branch·대표 repo·main·Persistent UAT·provider·destructive operation 경계를 보존하면서 실험 개발 속도를 유지하기 위함 | AGENTS.md, 12장, 23장~25장, 27-experiment-task-ledger, TASK-GOV-CODEX-002 Change 016 |
+| 2026-07-19 | Pending system semantic code와 사용자-facing catalog를 분리하고 system administrator 전용 관리·server-generated custom code·CAS·inactive lifecycle을 사용 | 자동 Pending 의미와 과거 issue를 보존하면서 코드 수정 없는 표시·등록 정책 관리, 동시 관리자 stale write 차단과 목록·상세·filter·선택 Excel label 통일을 함께 달성하기 위함 | 23장~25장, 27-experiment-task-ledger, TASK-PENDING-TYPE-001 |
 
 ## 26. 용어 사전
 

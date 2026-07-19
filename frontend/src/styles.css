@@ -14872,3 +14872,190 @@ body {
   .form-manager-assign { display: grid; }
   .form-manager-list { grid-template-columns: 1fr; }
 }
+
+/* Pending type master-data management */
+.pending-type-page {
+  display: grid;
+  gap: 16px;
+  background: #f8f9fc;
+  color: #182238;
+}
+.pending-type-header { align-items: flex-end; }
+.pending-type-header h2 { margin: 3px 0 6px; }
+.pending-type-header p { max-width: 700px; margin: 0; }
+.pending-type-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.pending-type-kpi-grid article {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  min-height: 88px;
+  padding: 16px;
+  border: 1px solid #e7eaf2;
+  border-radius: 12px 4px 12px 4px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(34, 48, 79, .045);
+}
+.pending-type-kpi-grid span { color: #7c8699; font-size: 12px; font-weight: 750; }
+.pending-type-kpi-grid strong { grid-row: 1 / 3; grid-column: 2; align-self: center; color: #315efb; font-size: 26px; }
+.pending-type-kpi-grid small { align-self: end; color: #a0a7b5; }
+.pending-type-table-shell {
+  overflow: hidden;
+  border: 1px solid #e3e7f0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(36, 48, 76, .055);
+}
+.pending-type-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 68px;
+  padding: 13px 16px;
+  border-bottom: 1px solid #e9ecf3;
+}
+.pending-type-toolbar > div { display: flex; align-items: center; gap: 10px; }
+.pending-type-toolbar > div:first-child { display: grid; gap: 3px; }
+.pending-type-toolbar span { color: #8a93a5; font-size: 11px; }
+.pending-type-toolbar button,
+.pending-type-row-actions button,
+.pending-type-order button {
+  min-height: 34px;
+  border: 1px solid #dfe3ec;
+  border-radius: 7px;
+  background: #fff;
+  color: #596579;
+}
+.pending-type-table-scroll { overflow-x: auto; }
+.pending-type-table { width: 100%; min-width: 920px; border-collapse: collapse; }
+.pending-type-table th {
+  height: 40px;
+  padding: 0 13px;
+  border-bottom: 1px solid #e7eaf1;
+  background: #fafbfc;
+  color: #8a93a5;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: left;
+}
+.pending-type-table td {
+  height: 72px;
+  padding: 9px 13px;
+  border-bottom: 1px solid #eef0f5;
+  color: #596579;
+  font-size: 12px;
+  vertical-align: middle;
+}
+.pending-type-table tr:last-child td { border-bottom: 0; }
+.pending-type-table tr[data-active="false"] { background: #fafafa; opacity: .72; }
+.pending-type-table tr:hover { background: #f6f8ff; }
+.pending-type-order { display: flex; align-items: center; gap: 7px; }
+.pending-type-order > strong {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px 2px 9px 2px;
+  background: #315efb;
+  color: #fff;
+  font-size: 11px;
+}
+.pending-type-order > span { display: flex; gap: 3px; }
+.pending-type-order button { width: 27px; min-height: 27px; padding: 0; }
+.pending-type-kind,
+.pending-type-status,
+.pending-type-badges span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.pending-type-kind[data-tone="system"],
+.pending-type-badges [data-tone="system"] { background: #eaf0ff; color: #315efb; }
+.pending-type-kind[data-tone="custom"],
+.pending-type-badges [data-tone="custom"] { background: #f1edff; color: #7048c7; }
+.pending-type-status[data-tone="active"],
+.pending-type-badges [data-tone="active"] { background: #e8f8ef; color: #198754; }
+.pending-type-status[data-tone="inactive"],
+.pending-type-badges [data-tone="inactive"] { background: #f0f1f4; color: #7d8491; }
+.pending-type-name { display: grid; gap: 3px; }
+.pending-type-name strong { color: #263149; font-size: 13px; }
+.pending-type-name span { color: #7e889a; }
+.pending-type-name code { color: #a0a7b5; font-size: 9px; }
+.pending-type-edit-fields { display: grid; gap: 5px; min-width: 220px; }
+.pending-type-edit-fields input,
+.pending-type-dialog input,
+.pending-type-dialog textarea {
+  width: 100%;
+  border: 1px solid #dfe3ec;
+  border-radius: 7px;
+  background: #fff;
+  color: #263149;
+}
+.pending-type-edit-fields input { height: 32px; padding: 0 8px; }
+.pending-type-switch { display: inline-flex; align-items: center; gap: 6px; }
+.pending-type-row-actions { display: flex; gap: 5px; white-space: nowrap; }
+.pending-type-state,
+.pending-type-mobile-note {
+  display: grid;
+  gap: 5px;
+  padding: 16px;
+  border: 1px solid #e2e7f2;
+  border-radius: 11px;
+  background: #fff;
+  color: #687389;
+}
+.pending-type-state p { margin: 0; }
+.pending-type-dialog { width: min(520px, calc(100vw - 32px)); }
+.pending-type-dialog form { display: grid; gap: 13px; }
+.pending-type-dialog textarea { min-height: 100px; padding: 10px; resize: vertical; }
+.pending-type-mobile-list { display: grid; gap: 8px; }
+.pending-type-mobile-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e6eaf2;
+  border-radius: 12px 3px 12px 3px;
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(36, 48, 76, .04);
+}
+.pending-type-mobile-card[data-active="false"] { background: #f6f7f9; opacity: .75; }
+.pending-type-mobile-rank {
+  display: grid;
+  place-items: center;
+  align-self: start;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #315efb;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+.pending-type-mobile-card h3 { margin: 6px 0 3px; color: #263149; font-size: 14px; }
+.pending-type-mobile-card p { margin: 0 0 7px; color: #7e889a; font-size: 11px; }
+.pending-type-mobile-card small { color: #6d788d; font-size: 10px; font-weight: 700; }
+.pending-type-badges { display: flex; gap: 5px; }
+
+@media (max-width: 1000px) {
+  .pending-type-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .pending-type-page { gap: 10px; padding: 10px; }
+  .pending-type-kpi-grid { gap: 6px; }
+  .pending-type-kpi-grid article { min-height: 70px; padding: 10px; border-radius: 10px 3px 10px 3px; }
+  .pending-type-kpi-grid span { font-size: 10px; }
+  .pending-type-kpi-grid strong { font-size: 20px; }
+  .pending-type-kpi-grid small { font-size: 9px; }
+  .pending-type-mobile-note { grid-template-columns: auto 1fr; padding: 10px; font-size: 10px; }
+  .pending-type-mobile-note strong { color: #315efb; }
+}

@@ -238,7 +238,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(10, counts.Roles);
-        Assert.Equal(28, counts.Permissions);
+        Assert.Equal(29, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
@@ -327,6 +327,131 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task PendingTypeCatalogMigration_AddsLeastPrivilegeCatalogAndDatabaseFences()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from pending_issue_type_catalog where is_system and is_active;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from role_permissions rp
+            join roles r on r.id=rp.role_id
+            join permissions p on p.id=rp.permission_id
+            where p.code='PendingType.Manage' and r.code='system-administrator';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from role_permissions rp
+            join roles r on r.id=rp.role_id
+            join permissions p on p.id=rp.permission_id
+            where p.code='PendingType.Manage' and r.code<>'system-administrator';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from pg_constraint where conname='fk_pending_issues_issue_type_catalog';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*) from pg_trigger
+            where tgname in ('trg_guard_pending_issue_type_catalog','trg_guard_pending_issue_type_audit')
+              and not tgisinternal;
+            """,
+            TestContext.Current.CancellationToken));
+
+        var disableOther = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+            provider,
+            "update pending_issue_type_catalog set is_manual_enabled=false,row_version=row_version+1 where code='Other';",
+            TestContext.Current.CancellationToken));
+        Assert.IsType<PostgresException>(disableOther);
+
+        var deleteSystem = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+            provider,
+            "delete from pending_issue_type_catalog where code='Punch';",
+            TestContext.Current.CancellationToken));
+        Assert.IsType<PostgresException>(deleteSystem);
+    }
+
+    [Fact]
+    public async Task PendingTypeCatalogMigration_Upgrades0044DataWithoutChangingIssueTypeCodes()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration(
+            new Dictionary<string, string?> { ["DevelopmentData:SeedEnabled"] = "true" });
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        var previousMigrations = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0044-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql").Where(path => string.CompareOrdinal(Path.GetFileName(path), "0045_") < 0))
+            {
+                File.Copy(source, Path.Combine(previousMigrations.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(previousMigrations.FullName),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await CreateSeeder(database.RepositoryRoot, "Testing", configuration, provider)
+                .SeedAsync(TestContext.Current.CancellationToken);
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into pending_issues (
+                    id,project_id,target_type,target_id,issue_type,title,description,status,priority,
+                    created_by_user_id,updated_by_user_id)
+                values (
+                    '85000000-0000-0000-0000-000000000045',
+                    '40000000-0000-0000-0000-000000000001',
+                    'Project','40000000-0000-0000-0000-000000000001','Punch',
+                    '0045 upgrade PUNCH','기존 Pending 유형 코드를 그대로 보존하는 마이그레이션 검증입니다.',
+                    'Registered','Normal',
+                    '50000000-0000-0000-0000-000000000005','50000000-0000-0000-0000-000000000005');
+                """,
+                TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("Punch", await ReadScalarAsync<string>(
+                provider,
+                "select issue_type from pending_issues where id='85000000-0000-0000-0000-000000000045';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal("PUNCH", await ReadScalarAsync<string>(
+                provider,
+                """
+                select catalog.display_name
+                from pending_issues issue
+                join pending_issue_type_catalog catalog on catalog.code=issue.issue_type
+                where issue.id='85000000-0000-0000-0000-000000000045';
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal("0045_pending_issue_type_catalog", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            previousMigrations.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SalesAndFormTemplateMigrations_UpgradeFrom0042()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -351,7 +476,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal(44L, await ReadScalarAsync<long>(
+            Assert.Equal(45L, await ReadScalarAsync<long>(
                 provider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -580,11 +705,11 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(44L, await ReadScalarAsync<long>(
+        Assert.Equal(45L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0044_form_template_management", await ReadScalarAsync<string>(
+        Assert.Equal("0045_pending_issue_type_catalog", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

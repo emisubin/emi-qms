@@ -58,7 +58,8 @@ public static class SeedIdentityData
         new(new Guid("30000000-0000-0000-0000-000000000025"), QmsPermissions.AdminHistoryRead, "Read administrator history"),
         new(new Guid("30000000-0000-0000-0000-000000000026"), QmsPermissions.PendingRead, "Read pending issues"),
         new(new Guid("30000000-0000-0000-0000-000000000027"), QmsPermissions.PendingManage, "Manage pending issues"),
-        new(new Guid("30000000-0000-0000-0000-000000000028"), QmsPermissions.SalesSettle, "Complete sales settlement")
+        new(new Guid("30000000-0000-0000-0000-000000000028"), QmsPermissions.SalesSettle, "Complete sales settlement"),
+        new(new Guid("30000000-0000-0000-0000-000000000045"), QmsPermissions.PendingTypeManage, "Manage pending issue types")
     ];
 
     public static readonly IReadOnlyList<QmsProject> Projects =
@@ -103,7 +104,8 @@ public static class SeedIdentityData
                 QmsPermissions.ProjectDeletedRead,
                 QmsPermissions.AuditReadAll,
                 QmsPermissions.AdminHistoryRead,
-                QmsPermissions.PendingRead
+                QmsPermissions.PendingRead,
+                QmsPermissions.PendingTypeManage
             ],
             [QmsRoles.Sales] =
             [

@@ -150,6 +150,7 @@ import microsoftLogo from './assets/microsoft-logo.png';
 import type { ReadyHealth } from './health';
 import { HomePage } from './HomePage';
 import { PendingPage } from './PendingPage';
+import { PendingTypeManagementPage } from './PendingTypeManagementPage';
 import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
 import type {
@@ -255,6 +256,7 @@ type View =
   | { kind: 'notification-preferences' }
   | { kind: 'pending'; projectId?: string }
   | { kind: 'pending-detail'; pendingId: string }
+  | { kind: 'pending-types' }
   | { kind: 'admin-dashboard' }
   | { kind: 'admin-users' }
   | { kind: 'admin-user-notification-preferences'; userId: string }
@@ -413,6 +415,10 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/pending') {
     return { kind: 'pending', projectId: new URLSearchParams(window.location.search).get('projectId') ?? undefined };
+  }
+
+  if (window.location.pathname === '/admin/pending-types') {
+    return { kind: 'pending-types' };
   }
 
   const pendingMatch = window.location.pathname.match(/^\/pending\/([^/]+)$/);
@@ -895,6 +901,8 @@ function pathForView(view: View) {
       return `/pending${view.projectId ? `?projectId=${encodeURIComponent(view.projectId)}` : ''}`;
     case 'pending-detail':
       return `/pending/${view.pendingId}`;
+    case 'pending-types':
+      return '/admin/pending-types';
     case 'admin-dashboard':
       return '/admin';
     case 'admin-users':
@@ -1526,6 +1534,7 @@ function QmsAppShellContent({
   const canReadAdminHistory = permissions.includes('admin-history.read');
   const canReadPending = permissions.includes('Pending.Read');
   const canManagePending = permissions.includes('Pending.Manage');
+  const canManagePendingTypes = permissions.includes('PendingType.Manage');
   const canSettleSales = permissions.includes('sales.settle');
   const canManageSalesTargets = permissions.includes('Sales.Target.Manage');
   const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
@@ -1568,6 +1577,9 @@ function QmsAppShellContent({
     ] : []),
     ...(formTemplateScope?.canManage ? [
       { label: '양식 관리', view: { kind: 'form-templates' } as View, active: view.kind === 'form-templates' }
+    ] : []),
+    ...(canManagePendingTypes ? [
+      { label: 'Pending 유형', view: { kind: 'pending-types' } as View, active: view.kind === 'pending-types' }
     ] : []),
     {
       label: '알림',
@@ -1794,6 +1806,10 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'form-templates' ? (
         <FormTemplateManagementPage developmentUserKey={developmentUserKey} isSystemAdministrator={isSystemAdministrator} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'pending-types' ? (
+        <PendingTypeManagementPage developmentUserKey={developmentUserKey} canManage={canManagePendingTypes} />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'my-work' ? (
@@ -5964,6 +5980,7 @@ function isProcurementWorkspace(view: View) {
 
 function isAdminWorkspace(view: View) {
   return view.kind === 'admin-dashboard'
+    || view.kind === 'pending-types'
     || view.kind === 'admin-users'
     || view.kind === 'admin-user-notification-preferences'
     || view.kind === 'admin-departments'

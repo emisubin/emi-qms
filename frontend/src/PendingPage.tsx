@@ -7,6 +7,8 @@ import {
   getPendingIssue,
   listPendingAssignees,
   listPendingIssues,
+  listPendingTypeFilterOptions,
+  listPendingTypeManualOptions,
   listProjects,
   transitionPendingIssue
 } from './api';
@@ -23,6 +25,7 @@ import type {
   PendingPriority,
   PendingStatus
 } from './pending';
+import type { PendingTypeOption } from './pendingTypes';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useSelectedRows } from './useSelectedRows';
 
@@ -44,7 +47,7 @@ type AsyncState<T> =
 
 const emptyCreate: CreatePendingRequest = {
   projectId: '',
-  issueType: 'Nonconformance',
+  issueType: '',
   title: '',
   description: '',
   priority: 'Normal',
@@ -60,14 +63,6 @@ const statusOptions: Array<{ value: PendingStatus | ''; label: string }> = [
   { value: 'InProgress', label: '조치 중' },
   { value: 'ReinspectionRequested', label: '재검사 요청' },
   { value: 'Closed', label: '종결' }
-];
-
-const typeOptions: Array<{ value: PendingIssueType | ''; label: string }> = [
-  { value: '', label: '전체 유형' },
-  { value: 'Nonconformance', label: '부적합' },
-  { value: 'Punch', label: 'PUNCH' },
-  { value: 'ManufacturingStop', label: '제조 중단' },
-  { value: 'Other', label: '기타' }
 ];
 
 const transitionLabels: Record<PendingStatus, string> = {
@@ -99,6 +94,8 @@ function PendingListView({
   const [priority, setPriority] = useState<PendingPriority | ''>('');
   const [projectId, setProjectId] = useState(initialProjectId ?? '');
   const [projectOptions, setProjectOptions] = useState<ProjectListItem[]>([]);
+  const [typeOptions, setTypeOptions] = useState<PendingTypeOption[] | null>(null);
+  const [typeOptionsError, setTypeOptionsError] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -137,6 +134,19 @@ function PendingListView({
 
   useEffect(() => {
     let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setTypeOptions(null);
+      setTypeOptionsError(false);
+      void listPendingTypeFilterOptions(developmentUserKey)
+        .then((options) => { if (active) setTypeOptions(options); })
+        .catch(() => { if (active) setTypeOptionsError(true); });
+    });
+    return () => { active = false; };
+  }, [developmentUserKey]);
+
+  useEffect(() => {
+    let active = true;
     void listPendingIssues(developmentUserKey, {
       status: status || undefined,
       issueType: issueType || undefined,
@@ -160,10 +170,12 @@ function PendingListView({
         <div>
           <p className="eyebrow">{isMobile ? 'URGENT ISSUE CONTROL' : 'COMMON ISSUE CONTROL'}</p>
           <h2 id="pending-title">{isMobile ? '현장 Pending' : 'Pending List'}</h2>
-          <p className="muted-text">{isMobile ? '긴급·기한 초과 이슈부터 확인하고 바로 조치하세요.' : '부적합·PUNCH·제조 중단을 등록하고 담당 조치부터 재검사·종결까지 추적합니다.'}</p>
+          <p className="muted-text">{isMobile ? '긴급·기한 초과 이슈부터 확인하고 바로 조치하세요.' : '관리자가 구성한 Pending 유형으로 등록하고 담당 조치부터 재검사·종결까지 추적합니다.'}</p>
         </div>
-        {canManage ? <button className="primary-button" type="button" onClick={() => setShowCreate(true)}>+ Pending 등록</button> : null}
+        {canManage ? <button className="primary-button" type="button" disabled={typeOptions === null || typeOptionsError} onClick={() => setShowCreate(true)}>+ Pending 등록</button> : null}
       </header>
+
+      {typeOptionsError ? <p className="action-feedback" data-tone="error" role="alert">Pending 유형을 불러오지 못해 유형 필터와 신규 등록을 안전하게 차단했습니다. 새로고침해 주세요.</p> : null}
 
       {state.kind === 'ready' ? <PendingSummaryCards data={state.data} /> : null}
 
@@ -216,7 +228,7 @@ function PendingListView({
             <div className="mobile-filter-form">
               <label><span>프로젝트</span><select data-autofocus value={draftProjectId} onChange={(event) => setDraftProjectId(event.target.value)}><option value="">전체 프로젝트</option>{projectOptions.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
               <label><span>상태</span><select value={draftStatus} onChange={(event) => setDraftStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label><span>유형</span><select value={draftIssueType} onChange={(event) => setDraftIssueType(event.target.value as PendingIssueType | '')}>{typeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              <label><span>유형</span><select disabled={typeOptions === null || typeOptionsError} value={draftIssueType} onChange={(event) => setDraftIssueType(event.target.value as PendingIssueType | '')}><option value="">전체 유형</option>{typeOptions?.map((option) => <option key={option.code} value={option.code}>{option.displayName}{option.isActive ? '' : ' · 사용 중지'}</option>)}</select></label>
               <label><span>긴급도</span><select value={draftPriority} onChange={(event) => setDraftPriority(event.target.value as PendingPriority | '')}><option value="">전체 긴급도</option><option value="Urgent">긴급</option><option value="Normal">일반</option></select></label>
             </div>
           </MobileSheet>
@@ -225,7 +237,7 @@ function PendingListView({
         <div className="pending-filter-bar" aria-label="Pending 필터">
           <label><span>프로젝트</span><select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">전체 프로젝트</option>{projectOptions.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
           <label><span>상태</span><select value={status} onChange={(event) => setStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-          <label><span>유형</span><select value={issueType} onChange={(event) => setIssueType(event.target.value as PendingIssueType | '')}>{typeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label><span>유형</span><select disabled={typeOptions === null || typeOptionsError} value={issueType} onChange={(event) => setIssueType(event.target.value as PendingIssueType | '')}><option value="">전체 유형</option>{typeOptions?.map((option) => <option key={option.code} value={option.code}>{option.displayName}{option.isActive ? '' : ' · 사용 중지'}</option>)}</select></label>
           <label><span>긴급도</span><select value={priority} onChange={(event) => setPriority(event.target.value as PendingPriority | '')}><option value="">전체 긴급도</option><option value="Urgent">긴급</option><option value="Normal">일반</option></select></label>
           <button type="button" onClick={() => { setProjectId(''); setStatus(''); setIssueType(''); setPriority(''); }}>필터 초기화</button>
         </div>
@@ -336,6 +348,7 @@ function PendingCreateDialog({
   const [form, setForm] = useState<CreatePendingRequest>(emptyCreate);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [assignees, setAssignees] = useState<PendingAssignee[]>([]);
+  const [typeOptions, setTypeOptions] = useState<PendingTypeOption[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -346,14 +359,21 @@ function PendingCreateDialog({
 
   useEffect(() => {
     let active = true;
-    void Promise.allSettled([listProjects(developmentUserKey), listPendingAssignees(developmentUserKey)])
-      .then(([projectResult, assigneeResult]) => {
+    void Promise.allSettled([listProjects(developmentUserKey), listPendingAssignees(developmentUserKey), listPendingTypeManualOptions(developmentUserKey)])
+      .then(([projectResult, assigneeResult, typeResult]) => {
         if (!active) return;
         if (projectResult.status === 'fulfilled') {
           setProjects(projectResult.value.items.filter((item) => item.status === 'Active' || item.status === 'OnHold'));
         }
         if (assigneeResult.status === 'fulfilled') {
           setAssignees(assigneeResult.value);
+        }
+        if (typeResult.status === 'fulfilled' && typeResult.value.length > 0) {
+          setTypeOptions(typeResult.value);
+          setForm((current) => ({ ...current, issueType: typeResult.value[0].code }));
+        } else {
+          setTypeOptions([]);
+          setError('Pending 유형 목록을 불러오지 못해 등록을 차단했습니다. 창을 닫고 다시 시도해 주세요.');
         }
         if (projectResult.status === 'rejected' && assigneeResult.status === 'rejected') {
           setError('프로젝트와 담당자 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
@@ -375,8 +395,8 @@ function PendingCreateDialog({
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    if (!form.projectId || form.title.trim().length < 3 || form.description.trim().length < 10) {
-      setError('프로젝트, 3자 이상의 제목, 10자 이상의 상세 내용을 입력해 주세요.');
+    if (!form.projectId || !form.issueType || form.title.trim().length < 3 || form.description.trim().length < 10) {
+      setError('프로젝트, Pending 유형, 3자 이상의 제목, 10자 이상의 상세 내용을 입력해 주세요.');
       return;
     }
     if (form.issueType === 'ManufacturingStop' && !form.actionDepartmentCode) {
@@ -398,7 +418,7 @@ function PendingCreateDialog({
         <header className="page-header"><div><p className="eyebrow">NEW ISSUE</p><h2 id="pending-create-title">Pending 등록</h2></div><button type="button" onClick={onClose}>닫기</button></header>
         <form className="pending-create-form" onSubmit={submit}>
           <label className="form-field"><span>프로젝트 *</span><select disabled={loadingOptions} value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value })}><option value="">프로젝트 선택</option>{projects.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
-          <label className="form-field"><span>유형 *</span><select value={form.issueType} onChange={(event) => setForm({ ...form, issueType: event.target.value as PendingIssueType, actionDepartmentCode: event.target.value === 'ManufacturingStop' ? form.actionDepartmentCode : null })}>{typeOptions.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label className="form-field"><span>유형 *</span><select disabled={loadingOptions || typeOptions.length === 0} value={form.issueType} onChange={(event) => setForm({ ...form, issueType: event.target.value as PendingIssueType, actionDepartmentCode: event.target.value === 'ManufacturingStop' ? form.actionDepartmentCode : null })}><option value="">유형 선택</option>{typeOptions.map((option) => <option key={option.code} value={option.code}>{option.displayName}</option>)}</select></label>
           <label className="form-field"><span>긴급도 *</span><select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value as PendingPriority })}><option value="Normal">일반</option><option value="Urgent">긴급 · 업무 차단</option></select></label>
           {form.issueType === 'ManufacturingStop' ? <label className="form-field"><span>조치 담당 부서 *</span><select disabled={loadingOptions} value={form.actionDepartmentCode ?? ''} onChange={(event) => setForm({ ...form, actionDepartmentCode: event.target.value || null, assigneeUserId: null })}><option value="">부서 선택</option>{departmentCodes.map((code) => <option key={code} value={code}>{departmentLabel(code)}</option>)}</select></label> : null}
           <label className="form-field"><span>조치 담당</span><select disabled={loadingOptions} value={form.assigneeUserId ?? ''} onChange={(event) => { const assignee = assignees.find((item) => item.userId === event.target.value); setForm({ ...form, assigneeUserId: event.target.value || null, actionDepartmentCode: form.issueType === 'ManufacturingStop' ? assignee?.departmentCode ?? form.actionDepartmentCode : form.actionDepartmentCode }); }}><option value="">나중에 지정</option>{assignees.filter((assignee) => form.issueType !== 'ManufacturingStop' || !form.actionDepartmentCode || assignee.departmentCode === form.actionDepartmentCode).map((assignee) => <option key={assignee.userId} value={assignee.userId}>{assignee.displayName} · {departmentLabel(assignee.departmentCode)}</option>)}</select></label>
@@ -407,7 +427,7 @@ function PendingCreateDialog({
           <label className="form-field pending-full-field"><span>상세 내용 *</span><textarea maxLength={2000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="발생 위치, 현상, 영향, 필요한 조치를 입력해 주세요." /></label>
           <div className="pending-attachment-note pending-full-field"><strong>파일 첨부 준비 중</strong><span>보안 저장·검역 정책 확정 전에는 파일을 받지 않습니다. 필요한 근거는 우선 상세 내용과 코멘트로 남겨 주세요.</span></div>
           {error ? <p className="action-feedback pending-full-field" data-tone="error" role="alert">{error}</p> : null}
-          <div className="dialog-actions pending-full-field"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={submitting || loadingOptions} type="submit">{submitting ? '등록 중…' : 'Pending 등록'}</button></div>
+          <div className="dialog-actions pending-full-field"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={submitting || loadingOptions || typeOptions.length === 0} type="submit">{submitting ? '등록 중…' : 'Pending 등록'}</button></div>
         </form>
       </section>
     </div>

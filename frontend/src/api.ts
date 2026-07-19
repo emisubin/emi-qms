@@ -5,6 +5,8 @@ import type {
   SalesSettlementDetail,
   SalesSettlementMutationResponse
 } from './salesSettlement';
+import type { SalesKpiMonthDetail, SalesKpiResponse, SalesTargetsResponse, SaveSalesTargetsRequest } from './salesKpi';
+import type { FormTemplateCatalog, FormTemplateManagers, FormTemplateScope, FormTemplateVersions } from './formTemplates';
 import type { AdminUsersResponse, CurrentUser, ProfilePhotoMetadata, UpdateAdminUserRequest } from './identity';
 import type { HomeMetricsResponse } from './home';
 import type {
@@ -139,6 +141,102 @@ const apiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL ?? 'htt
 export const defaultDevelopmentUserKey = import.meta.env.DEV
   ? (import.meta.env.VITE_DEV_USER_KEY ?? 'dev-sales')
   : undefined;
+
+export async function getSalesKpi(
+  developmentUserKey: string | undefined,
+  options: { year?: number; currency?: string } = {}
+): Promise<SalesKpiResponse> {
+  const params = new URLSearchParams();
+  if (options.year) params.set('year', String(options.year));
+  if (options.currency) params.set('currency', options.currency);
+  const query = params.toString();
+  return fetchJson<SalesKpiResponse>(`/api/sales/kpi${query ? `?${query}` : ''}`, developmentUserKey);
+}
+
+export async function getSalesKpiMonth(
+  developmentUserKey: string | undefined,
+  year: number,
+  month: number,
+  currency: string
+): Promise<SalesKpiMonthDetail> {
+  const params = new URLSearchParams({ year: String(year), currency });
+  return fetchJson<SalesKpiMonthDetail>(`/api/sales/kpi/months/${month}?${params.toString()}`, developmentUserKey);
+}
+
+export async function getSalesTargets(
+  developmentUserKey: string | undefined,
+  year: number,
+  currency: string
+): Promise<SalesTargetsResponse> {
+  const params = new URLSearchParams({ year: String(year), currency });
+  return fetchJson<SalesTargetsResponse>(`/api/sales/targets?${params.toString()}`, developmentUserKey);
+}
+
+export async function saveSalesTargets(
+  developmentUserKey: string | undefined,
+  request: SaveSalesTargetsRequest
+): Promise<SalesTargetsResponse> {
+  return fetchJson<SalesTargetsResponse>('/api/sales/targets', developmentUserKey, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request)
+  });
+}
+
+export async function getFormTemplateScope(developmentUserKey?: string): Promise<FormTemplateScope> {
+  return fetchJson<FormTemplateScope>('/api/form-templates/my-scope', developmentUserKey);
+}
+
+export async function getFormTemplateCatalog(developmentUserKey?: string): Promise<FormTemplateCatalog> {
+  return fetchJson<FormTemplateCatalog>('/api/form-templates', developmentUserKey);
+}
+
+export async function getFormTemplateVersions(developmentUserKey: string | undefined, family: string, templateKey: string): Promise<FormTemplateVersions> {
+  return fetchJson<FormTemplateVersions>(`/api/form-templates/${family}/${templateKey}/versions`, developmentUserKey);
+}
+
+export async function createFormTemplateDraft(developmentUserKey: string | undefined, family: string, templateKey: string, expectedActiveRowVersion: number): Promise<FormTemplateVersions> {
+  return fetchJson<FormTemplateVersions>(`/api/form-templates/${family}/${templateKey}/versions`, developmentUserKey, { method: 'POST', body: JSON.stringify({ expectedActiveRowVersion }) });
+}
+
+export async function saveFormTemplateItems(developmentUserKey: string | undefined, family: string, templateKey: string, versionId: string, expectedRowVersion: number, items: FormTemplateVersions['versions'][number]['items']): Promise<FormTemplateVersions> {
+  return fetchJson<FormTemplateVersions>(`/api/form-templates/${family}/${templateKey}/versions/${versionId}/items`, developmentUserKey, {
+    method: 'PUT', body: JSON.stringify({ expectedRowVersion, items })
+  });
+}
+
+export async function activateFormTemplateVersion(developmentUserKey: string | undefined, family: string, templateKey: string, versionId: string, expectedRowVersion: number): Promise<FormTemplateVersions> {
+  return fetchJson<FormTemplateVersions>(`/api/form-templates/${family}/${templateKey}/versions/${versionId}/activate`, developmentUserKey, { method: 'POST', body: JSON.stringify({ expectedRowVersion }) });
+}
+
+export async function cancelFormTemplateDraft(developmentUserKey: string | undefined, family: string, templateKey: string, versionId: string, expectedRowVersion: number): Promise<FormTemplateVersions> {
+  return fetchJson<FormTemplateVersions>(`/api/form-templates/${family}/${templateKey}/versions/${versionId}/cancel`, developmentUserKey, { method: 'POST', body: JSON.stringify({ expectedRowVersion }) });
+}
+
+export async function getFormTemplateManagers(developmentUserKey?: string): Promise<FormTemplateManagers> {
+  return fetchJson<FormTemplateManagers>('/api/form-templates/managers', developmentUserKey);
+}
+
+export async function assignFormTemplateManager(developmentUserKey: string | undefined, userId: string, domain: string): Promise<FormTemplateManagers> {
+  return fetchJson<FormTemplateManagers>('/api/form-templates/managers', developmentUserKey, { method: 'POST', body: JSON.stringify({ userId, domain }) });
+}
+
+export async function revokeFormTemplateManager(developmentUserKey: string | undefined, bindingId: string): Promise<FormTemplateManagers> {
+  return fetchJson<FormTemplateManagers>(`/api/form-templates/managers/${bindingId}/revoke`, developmentUserKey, { method: 'POST' });
+}
+
+export async function exportFormTemplateVersionsExcel(
+  developmentUserKey: string | undefined,
+  family: string,
+  templateKey: string,
+  versionIds: readonly string[]
+): Promise<ExcelExportDownload> {
+  return downloadExcelExport('/api/form-templates/export', developmentUserKey, 'EMI_양식버전_선택.xlsx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ family, templateKey, versionIds })
+  });
+}
 
 let accessTokenProvider: (() => Promise<string | null>) | null = null;
 let adminTestUserKey: string | null = null;
@@ -2160,7 +2258,8 @@ export type SelectedExportScreen =
   | 'admin-master-history'
   | 'admin-work-history'
   | 'admin-notification-deliveries'
-  | 'admin-work-item-escalations';
+  | 'admin-work-item-escalations'
+  | 'form-templates';
 
 export async function exportSelectedRowsExcel(
   developmentUserKey: string | undefined,

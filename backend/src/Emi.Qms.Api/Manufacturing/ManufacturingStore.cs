@@ -13,14 +13,6 @@ public sealed class ManufacturingStore(
     DatabaseConnectionStringProvider connectionStringProvider,
     PendingStore pendingStore)
 {
-    private static readonly string[] StepNames =
-    [
-        "작업지시·도면 확인",
-        "자재·부품 확인",
-        "제조 작업 수행",
-        "자체 확인"
-    ];
-
     public async Task<ManufacturingQueueResponse> ListAsync(
         ProjectAccessScope accessScope,
         Guid? actorUserId,
@@ -310,15 +302,22 @@ public sealed class ManufacturingStore(
                 return ManufacturingMutationResult<ManufacturingMutationResponse>.Conflict("이미 제조가 시작됐거나 처리할 수 없는 패널입니다. 최신 내용을 다시 불러와 주세요.");
             }
 
+            var template = await LockActiveStepTemplateAsync(connection, transaction, cancellationToken);
+            if (template is null || template.Value.Steps.Count == 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ManufacturingMutationResult<ManufacturingMutationResponse>.Conflict("활성 제조 작업 양식이 없습니다. 양식 관리자에게 확인해 주세요.");
+            }
+
             var executionId = Guid.NewGuid();
             await using (var command = connection.CreateCommand())
             {
                 command.Transaction = transaction;
                 command.CommandText = """
                     insert into panel_manufacturing_executions (
-                        id, project_id, panel_id, status, started_by_user_id
+                        id, project_id, panel_id, status, started_by_user_id, template_version_id
                     )
-                    values (@id, @project_id, @panel_id, 'InProgress', @actor_id);
+                    values (@id, @project_id, @panel_id, 'InProgress', @actor_id, @template_version_id);
 
                     update panel_placeholders
                     set workflow_stage = 'ManufacturingInProgress', updated_at_utc = now()
@@ -332,10 +331,11 @@ public sealed class ManufacturingStore(
                 command.Parameters.AddWithValue("project_id", request.ProjectId);
                 command.Parameters.AddWithValue("panel_id", request.PanelId);
                 command.Parameters.AddWithValue("actor_id", actorUserId);
+                command.Parameters.AddWithValue("template_version_id", template.Value.VersionId);
                 command.Parameters.AddWithValue("work_item_id", panel.WorkItemId);
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
-            for (var index = 0; index < StepNames.Length; index++)
+            for (var index = 0; index < template.Value.Steps.Count; index++)
             {
                 await using var command = connection.CreateCommand();
                 command.Transaction = transaction;
@@ -345,13 +345,13 @@ public sealed class ManufacturingStore(
                     """;
                 command.Parameters.AddWithValue("execution_id", executionId);
                 command.Parameters.AddWithValue("sequence_number", index + 1);
-                command.Parameters.AddWithValue("step_name", StepNames[index]);
+                command.Parameters.AddWithValue("step_name", template.Value.Steps[index]);
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
             await InsertEventAsync(connection, transaction, executionId, "Started", null, null, null, null, actorUserId, cancellationToken);
             var response = new ManufacturingMutationResponse(
                 request.OperationId, request.ProjectId, request.PanelId, executionId,
-                ManufacturingExecutionStatuses.InProgress, 1, 0, StepNames.Length,
+                ManufacturingExecutionStatuses.InProgress, 1, 0, template.Value.Steps.Count,
                 null, null, false, false, false);
             await InsertOperationAsync(connection, transaction, request.OperationId, "Start", request.ProjectId, request.PanelId, executionId, actorUserId, fingerprint, response, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -585,9 +585,9 @@ public sealed class ManufacturingStore(
                     {
                         return MutationActionResult.Conflict("진행 중인 제조 작업만 종료할 수 있습니다.");
                     }
-                    if (snapshot.CheckedStepCount != StepNames.Length || snapshot.TotalStepCount != StepNames.Length)
+                    if (snapshot.TotalStepCount == 0 || snapshot.CheckedStepCount != snapshot.TotalStepCount)
                     {
-                        return MutationActionResult.Conflict("네 가지 제조 단계를 모두 확인한 뒤 종료해 주세요.");
+                        return MutationActionResult.Conflict($"제조 단계 {snapshot.TotalStepCount}개를 모두 확인한 뒤 종료해 주세요.");
                     }
                     var qualityAssignee = await ResolveQualityAssigneeAsync(connection, transaction, snapshot.ProjectId, cancellationToken);
                     if (qualityAssignee is null)
@@ -829,6 +829,53 @@ public sealed class ManufacturingStore(
                 reader.GetGuid(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2),
                 reader.GetString(3), reader.GetGuid(4), reader.GetString(5))
             : null;
+    }
+
+    private static async Task<(Guid VersionId, IReadOnlyList<string> Steps)?> LockActiveStepTemplateAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        Guid versionId;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select version.id
+                from manufacturing_step_template_versions version
+                join manufacturing_step_templates template on template.id = version.template_id
+                where template.template_code = 'PANEL_MANUFACTURING'
+                  and version.lifecycle_status = 'Active'
+                  and version.is_active = true
+                for share of version;
+                """;
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            if (value is not Guid activeVersionId)
+            {
+                return null;
+            }
+            versionId = activeVersionId;
+        }
+
+        var steps = new List<string>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select label
+                from manufacturing_step_template_items
+                where template_version_id = @version_id
+                order by display_order;
+                """;
+            command.Parameters.AddWithValue("version_id", versionId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                steps.Add(reader.GetString(0));
+            }
+        }
+
+        return (versionId, steps);
     }
 
     private static async Task<ExecutionIdentity?> ReadExecutionIdentityAsync(

@@ -20,6 +20,7 @@ public static class QmsPolicies
     public const string ManufacturingUpdate = "ManufacturingUpdate";
     public const string LogisticsShip = "LogisticsShip";
     public const string SalesSettle = "SalesSettle";
+    public const string SalesTargetManage = "SalesTargetManage";
     public const string ProjectSalesAmountRead = "ProjectSalesAmountRead";
     public const string ManufacturingWorkTimeRead = "ManufacturingWorkTimeRead";
     public const string AdminUsersRead = "AdminUsersRead";

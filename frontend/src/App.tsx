@@ -12,6 +12,8 @@ import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
 import { QualityInspectionsPage } from './QualityInspectionsPage';
 import { SalesSettlementPage } from './SalesSettlementPage';
+import { SalesKpiPage } from './SalesKpiPage';
+import { FormTemplateManagementPage } from './FormTemplateManagementPage';
 import { NotificationPreferencesPage } from './NotificationPreferencesPage';
 import { useActionFeedback, type ActionFeedbackState, type ActionFeedbackTone } from './useActionFeedback';
 import type { QualityInspectionStage } from './qualityInspections';
@@ -58,6 +60,7 @@ import {
   getAdminWorkItemEscalations,
   getAdminWorkItemHistory,
   getCurrentUser,
+  getFormTemplateScope,
   getOwnProfilePhoto,
   getAdminUsers,
   getDeletedProject,
@@ -232,6 +235,8 @@ type View =
   | { kind: 'create' }
   | { kind: 'detail'; projectId: string; section?: ProjectDetailSection }
   | { kind: 'sales-settlement'; projectId: string }
+  | { kind: 'sales-kpi'; year?: number; currency?: string }
+  | { kind: 'form-templates' }
   | { kind: 'deleted-detail'; projectId: string }
   | { kind: 'edit'; projectId: string }
   | { kind: 'panel-info-edit'; projectId: string }
@@ -364,6 +369,20 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/my-work') {
     return { kind: 'my-work' };
+  }
+
+  if (window.location.pathname === '/sales') {
+    const params = new URLSearchParams(window.location.search);
+    const year = Number(params.get('year'));
+    return {
+      kind: 'sales-kpi',
+      year: Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : undefined,
+      currency: params.get('currency')?.toUpperCase() || undefined
+    };
+  }
+
+  if (window.location.pathname === '/form-templates') {
+    return { kind: 'form-templates' };
   }
 
   if (window.location.pathname.startsWith('/teams/activity/deliveries/')) {
@@ -810,6 +829,15 @@ function pathForView(view: View) {
       return `/projects/${view.projectId}${view.section && view.section !== 'panels' ? `?section=${view.section}` : ''}`;
     case 'sales-settlement':
       return `/projects/${view.projectId}/settlement`;
+    case 'sales-kpi': {
+      const params = new URLSearchParams();
+      if (view.year) params.set('year', String(view.year));
+      if (view.currency) params.set('currency', view.currency);
+      const query = params.toString();
+      return `/sales${query ? `?${query}` : ''}`;
+    }
+    case 'form-templates':
+      return '/form-templates';
     case 'panel-info-edit':
       return `/projects/${view.projectId}/panel-information/edit`;
     case 'procurement-edit':
@@ -1219,6 +1247,7 @@ function QmsAppShellContent({
   const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
   const [profilePhotoState, setProfilePhotoState] = useState<{ key: string; url: string | null } | null>(null);
   const [profilePhotoNonce, setProfilePhotoNonce] = useState(0);
+  const [formTemplateScope, setFormTemplateScope] = useState<{ canManage: boolean; isSystemAdministrator: boolean; domains: string[] } | null>(null);
   const [projectActionFeedback, setProjectActionFeedback] = useState<{
     projectId: string;
     feedback: ActionFeedbackState;
@@ -1237,6 +1266,23 @@ function QmsAppShellContent({
   const actualProfilePhotoVersion = user?.actualUser.profilePhotoVersion ?? '';
   const profilePhotoKey = `${actualProfileUserId}:${actualProfilePhotoVersion}:${profilePhotoNonce}`;
   const profilePhotoUrl = profilePhotoState?.key === profilePhotoKey ? profilePhotoState.url : null;
+  const formTemplateScopeUserId = currentUser.kind === 'ready' ? currentUser.data.effectiveUser.userId : '';
+  const formTemplateScopeBlocked = currentUser.kind !== 'ready' || currentUser.data.approvalPending;
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (formTemplateScopeBlocked) {
+        setFormTemplateScope(null);
+        return;
+      }
+      getFormTemplateScope(developmentUserKey)
+        .then((scope) => { if (!cancelled) setFormTemplateScope(scope); })
+        .catch(() => { if (!cancelled) setFormTemplateScope(null); });
+    });
+    return () => { cancelled = true; };
+  }, [developmentUserKey, formTemplateScopeBlocked, formTemplateScopeUserId]);
 
   useEffect(() => {
     setAdminTestUserKey(isDevMode ? null : adminTestUserKey);
@@ -1482,6 +1528,7 @@ function QmsAppShellContent({
   const canReadPending = permissions.includes('Pending.Read');
   const canManagePending = permissions.includes('Pending.Manage');
   const canSettleSales = permissions.includes('sales.settle');
+  const canManageSalesTargets = permissions.includes('Sales.Target.Manage');
   const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
   const canBrowseOperationalPages = permissions.includes('projects.read');
@@ -1517,6 +1564,12 @@ function QmsAppShellContent({
     { label: '제조', view: { kind: 'manufacturing-work' }, active: view.kind === 'manufacturing-work' },
     { label: '품질', view: { kind: 'quality-inspections', stage: 'LQC' }, active: view.kind === 'quality-iqc' || view.kind === 'quality-inspections' },
     { label: '물류', view: { kind: 'logistics', stage: 'packing' }, active: view.kind === 'logistics' },
+    ...(canReadSalesAmount ? [
+      { label: '영업', view: { kind: 'sales-kpi' } as View, active: view.kind === 'sales-kpi' }
+    ] : []),
+    ...(formTemplateScope?.canManage ? [
+      { label: '양식 관리', view: { kind: 'form-templates' } as View, active: view.kind === 'form-templates' }
+    ] : []),
     {
       label: '알림',
       view: { kind: 'notifications' },
@@ -1716,15 +1769,32 @@ function QmsAppShellContent({
           developmentUserKey={developmentUserKey}
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
           effectiveDisplayName={currentUser.data.effectiveUser.displayName}
+          effectiveDepartmentCode={currentUser.data.effectiveUser.department}
           effectiveDepartmentName={currentUser.data.effectiveUser.departmentName}
           canReadPending={canReadPendingWorkspace}
+          canReadSalesAmount={canReadSalesAmount}
           onOpenMyWork={() => setView({ kind: 'my-work' })}
           onOpenProjects={() => setView({ kind: 'list' })}
           onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
           onOpenPending={() => setView({ kind: 'pending' })}
           onOpenNotifications={() => setView({ kind: 'notifications' })}
+          onOpenSalesKpi={(year, currency) => setView({ kind: 'sales-kpi', year, currency })}
           onOpenDepartmentMetric={(destinationKey) => setView(viewForHomeDestination(destinationKey))}
         />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'sales-kpi' ? (
+        <SalesKpiPage
+          developmentUserKey={developmentUserKey}
+          initialYear={view.year}
+          initialCurrency={view.currency}
+          canManageTargets={canManageSalesTargets}
+          onOpenProject={(projectId) => setView({ kind: 'sales-settlement', projectId })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'form-templates' ? (
+        <FormTemplateManagementPage developmentUserKey={developmentUserKey} isSystemAdministrator={isSystemAdministrator} />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'my-work' ? (

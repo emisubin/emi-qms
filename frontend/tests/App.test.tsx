@@ -90,8 +90,8 @@ describe('App', () => {
     window.history.pushState(null, '', '/');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '영업 핵심 지표' })).toBeInTheDocument();
-    expect(await screen.findByText('핵심 대기')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '연간 매출 · 목표' })).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: '월별 확정 매출 막대와 목표 선 비교' })).toBeInTheDocument();
 
     const accountTrigger = document.querySelector<HTMLButtonElement>('.account-identity-trigger');
     expect(accountTrigger).not.toBeNull();
@@ -106,7 +106,7 @@ describe('App', () => {
     expect(within(accountDialog).getByRole('button', { name: '로그아웃' })).toBeInTheDocument();
 
     const commonNavigation = screen.getByRole('navigation', { name: '공통 메뉴' });
-    for (const label of ['홈', '내 업무', '프로젝트', 'Pending', '생산관리', '구매', '자재', '제조', '품질', '물류', '알림']) {
+    for (const label of ['홈', '내 업무', '프로젝트', 'Pending', '생산관리', '구매', '자재', '제조', '품질', '물류', '영업', '알림']) {
       expect(within(commonNavigation).getByRole('button', { name: label })).toBeInTheDocument();
     }
     expect(within(commonNavigation).queryByRole('button', { name: '관리자' })).not.toBeInTheDocument();
@@ -2039,6 +2039,39 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       return new Response(null, { status: 204 });
     }
     return json({ title: 'not found' }, 404);
+  }
+
+  if (path === '/api/form-templates/my-scope') {
+    return json(userKey === 'dev-admin'
+      ? { canManage: true, isSystemAdministrator: true, domains: ['Quality', 'Manufacturing'] }
+      : { canManage: false, isSystemAdministrator: false, domains: [] });
+  }
+
+  if (path === '/api/sales/kpi') {
+    return json({
+      year: 2026,
+      currency: 'KRW',
+      defaultCurrency: 'KRW',
+      availableYears: [2026],
+      availableCurrencies: ['KRW'],
+      months: Array.from({ length: 12 }, (_, index) => ({
+        month: index + 1,
+        revenueAmount: (index + 1) * 10000000,
+        targetAmount: 100000000,
+        settlementCount: 1
+      })),
+      kpi: {
+        currentMonthRevenue: 70000000,
+        revenueTotal: 780000000,
+        targetTotal: 1200000000,
+        registeredTargetMonthCount: 12,
+        achievementRate: 65,
+        remainingTargetAmount: 420000000,
+        exceededTargetAmount: 0
+      },
+      pipeline: { amount: 300000000, projectCount: 3 },
+      missingAmountCount: 0
+    });
   }
 
   if (path === '/api/home/department-metrics') {

@@ -994,10 +994,11 @@ Excel 출력 대상 후보:
 | 2.4 | TASK-010A 패널별 키팅 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation와 후속 Full-Stack `35/35` complete / `BATCHED_FINAL` | TASK-008A·009A experiment scope 완료 | 마지막 panel 취소 stage 정책은 P3 후속 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 3.1 | TASK-011A 제조 체크리스트 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-010A·007A experiment scope 완료 | 실제 제조 상세 항목은 template 후속 | Yes | experiment 재구현 금지; 양식 변경은 기존 Task change |
 | 3.2 | TASK-012A 후속 품질 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-009A·011A experiment scope 완료 | 실제 LQC/OQC/FAT 양식은 template 후속 | Yes | experiment 재구현 금지; 양식 변경은 기존 Task change |
-| 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Deferred | Deferred | TASK-009A·011A 실제 template model | 실제 운영 template 안정화 | Yes | data structure 확정 후 planning |
+| 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Experiment Complete | 2-pass planning·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-009A·011A·012A experiment model | 실제 운영 양식 content 입력은 후속 change | Yes | 재구현 금지; 최종 일괄 검수 |
 | 3.4 | Pending 유형 관리자 화면 (ID 미정) | NEW_FEATURE | Deferred | Deferred | TASK-007A 안정화 | 유형·권한 정책 | Yes | 별도 소형 Task ID와 planning 승인 |
 | 4.1 | TASK-013A 물류 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-012A experiment scope 완료 | 실제 포장·서명본 양식은 후속 change | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·013A experiment scope 완료 | 운영 정산 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
+| 4.2A | TASK-SALES-KPI-001 영업 연간 매출 KPI | NEW_FEATURE | Experiment Complete | 2-pass planning·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-014A·HOME-002 experiment scope | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | Experiment Complete / Optional Follow-up | 20개 화면 선택 export automated validation complete / `BATCHED_FINAL` | 주요 data model experiment 구현 완료 | column picker·multi-sheet는 별도 optional 후속 | Yes | 현재 선택 export 재구현 금지; 원하면 column picker change |
 | 4.3A | TASK-EXPORT-002 선택 프로젝트 Excel export | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-EXPORT-001 Phase 1 | 없음 | Yes | 재구현 금지; 최종 screenshot·파일 일괄 검수 |
 | 4.4 | QR 스캔 랜딩 (ID 미정) | NEW_FEATURE | Deferred | Deferred | MOBILE-001·제조 흐름 | 공개/인증 landing 정책 | Yes | 별도 신규 기능 Task 승인 |
@@ -1583,11 +1584,13 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-ADMIN-002: 검사·제조 Template 관리
 
-- 목적: 실제 검사·제조 template 데이터 구조가 안정된 뒤 관리 기능을 제공한다.
-- 포함 범위: template 조회·버전·활성화 정책과 승인된 편집 범위
-- 제외 범위: TASK-009A·011A보다 앞선 추상 template 설계
-- 선행조건: TASK-009A·011A의 실제 data model과 운영 검수
-- 주요 테스트: 권한, versioning, 사용 중 template 보호, audit
+- 목적: 시스템 관리자와 지정된 부서장이 code 수정 없이 자기 부서 검사·제조 양식을 version으로 관리한다.
+- 포함 범위: 고정 6종 catalog, Draft 생성·항목 편집·활성화·보관, 선택 Excel, 부서장 지정, 제조 활성 version snapshot
+- 제외 범위: 임의 신규 양식 종류·workflow 단계 생성, 실제 회사 양식 content 확정, PDF layout builder, 과거 실행 snapshot 변경
+- 선행조건: TASK-009A·011A·012A의 experiment data model
+- 주요 테스트: 관리자/부서장/일반 사용자 권한, 부서 이동 scope, version lifecycle, 사용 중 template 보호, 제조 snapshot, audit
+- 2026-07-19 실험 재정렬 승인: 사용자가 영업 KPI와 함께 `ADMIN-002` 구현을 명시해 기존 Deferred 순서를 override했다. 대표 repo·`main`·Persistent UAT·provider·게시 경계는 변경하지 않았다.
+- 2026-07-19 실험 상태: Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·필수 자동 검증을 완료했다. additive `0044`는 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고 고정 6종 catalog, Draft→Active→Archived 불변 lifecycle, 시스템 관리자 지정 부서장, current-department fence, 제조 시작 version lock·snapshot과 선택 Excel을 구현했다. 사용자 검수는 `BATCHED_FINAL`이며 실제 운영 양식 세부 항목은 후속 content change다. 현재 experiment에서 관리 기능을 다시 기획·구현하지 않는다.
 
 ### TASK-013A: 물류 포장 / 출발 / 납품 완료
 
@@ -1608,6 +1611,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 주요 테스트: 완료 조건, 미납품 차단, 권한, 이력
 - 2026-07-18 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 `TASK-013A` 완료 뒤 “다음작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-014A` 기획·구현을 진행한다. 세금계산서 최소 입력·정산 권한·완료 뒤 정정의 미확정 정책은 Fable의 최소 MVP 권장안과 Deferred 경계로 분리하며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
 - 2026-07-18 실험 상태: `experiment/task-014a-sales-settlement`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. additive `0037`은 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, project-context 세금계산서 draft → 모든 active panel 납품·open Pending 0건 재검증 → 정산·내 업무·workflow·project·audit·인앱 알림 원자 완료와 완료 후 lifecycle fence를 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 현재 experiment에서 재구현하지 않는다.
+
+### TASK-SALES-KPI-001: 영업 연간 매출·목표 KPI
+
+- 목적: 영업 사용자가 Home과 전용 `영업` 화면에서 12개월 확정 매출·목표와 금액 KPI를 한눈에 판단한다.
+- 포함 범위: 연도·통화 선택, 월별 확정 매출 막대와 목표 선, 연간/당월/목표/달성률/잔여·초과 KPI, 월별 근거, 별도 파이프라인, 관리자 목표 CAS
+- 제외 범위: 외부 회계 연동, 예측 매출의 실적 포함, 환율 환산, 기존 정산 workflow 변경
+- 선행조건: TASK-014A 확정 정산 데이터와 TASK-HOME-002 개인화 Home
+- 주요 테스트: 12개월 집계, 미등록 목표, project scope, 목표 권한·CAS·audit, desktop·390px, Home/영업 숫자 일치
+- 2026-07-19 실험 재정렬 승인: 사용자가 영업 menu와 영업 Home을 같은 연간 graph로 바꾸도록 명시해 current experiment에서 fast-track을 승인했다. canonical queue와 대표 repo·`main`·Persistent UAT·provider·게시 경계는 변경하지 않았다.
+- 2026-07-19 실험 상태: Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·필수 자동 검증을 완료했다. additive `0043`은 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고 발행일·금액이 확정된 세금계산서만 실적으로 집계하며 예상 파이프라인은 달성률에서 분리했다. Desktop·390px 영업 Home/전용 화면 증빙을 완료했고 사용자 검수는 `BATCHED_FINAL`이다. 현재 experiment에서 재구현하지 않는다.
 
 ### TASK-EXPORT-001: 모든 페이지 Excel 출력 공통 기능
 
@@ -1908,6 +1921,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-18 | TASK-EXPORT-002 선택 프로젝트 Excel 내보내기를 experiment fast-track으로 진행 | 기존 TASK-EXPORT-001의 filter 결과 전체 export를 보존하면서 사용자가 명시적으로 선택한 프로젝트 subset만 파일로 만드는 신규 능력을 검증하고, canonical TASK-007A·대표 repo·main·Persistent UAT·게시 경계를 유지하기 위함 | 19장·23장~25장, TASK-EXPORT-002 |
 | 2026-07-18 | TASK-EXPORT-002를 experiment branch에 구현하고 자동 검증 완료·사용자 검수 대기로 전환 | 선택 3건 중 2건 workbook, 전부-or-전무 권한/scope 차단, additive audit migration, desktop·390px·실제 Excel screenshot을 확인했으며 canonical queue와 게시 경계를 그대로 유지하기 위함 | 19장·23장~25장, TASK-EXPORT-002 구현 보고서 |
 | 2026-07-18 | TASK-EXPORT-001 Change 002로 전 조회 화면의 Excel action을 선택 내보내기 하나로 통합 | 사용자가 같은 의미의 전체·선택 export button 두 개를 보지 않게 하고, 현재 목록 전체 선택도 별도 action이 아닌 checkbox로 제공하면서 업무 12개·관리자 8개 화면의 권한·scope·audit 계약을 공통화하기 위함 | 19장·23장~25장, TASK-EXPORT-001 Change 002 구현 보고서 |
+| 2026-07-19 | TASK-SALES-KPI-001의 실적은 발행일·금액이 확정된 세금계산서만 사용하고 예상 파이프라인은 달성률에서 분리 | 영업 Home과 전용 화면의 금액 판단을 일치시키면서 수주 예상액이 실제 달성률을 과장하지 않게 하고, 월 목표 수정은 시스템 관리자 CAS·audit로 제한하기 위함 | 23장~25장, TASK-SALES-KPI-001 |
+| 2026-07-19 | TASK-ADMIN-002는 고정 6종 양식과 Draft→Active→Archived lifecycle, 시스템 관리자 지정 부서장·현재 부서 fence를 사용 | code 없는 양식 변경을 허용하되 임의 workflow 확장·과거 snapshot 변경·부서 이동 뒤 과권한을 차단하고 새 실행에만 새 Active version을 적용하기 위함 | 23장~25장, TASK-ADMIN-002 |
 
 ## 26. 용어 사전
 

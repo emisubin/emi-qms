@@ -4,7 +4,7 @@
 
 이 문서는 현재 `experiment/*` 계보에서 이미 구현한 Task와 남은 Task를 구분하는 선택 기준이다. 새 대화나 새 Task를 시작할 때 Product Roadmap과 함께 이 원장을 먼저 읽어, 완료된 기능을 다시 기획하거나 다시 구현하지 않는다.
 
-- 감사 기준일: `2026-07-18`
+- 감사 기준일: `2026-07-19`
 - 감사 branch: `experiment/task-home-002-personalized-shell`
 - 감사 HEAD: TASK-HOME-002 최종 local commit 계보(Git history와 구현 보고서가 source of truth)
 - 대표 repository·GitHub `main`: 이 원장의 완료 판정 대상이 아니며 현재 실험 결과가 반영되지 않음
@@ -49,8 +49,10 @@
 | `TASK-UX-001 A1` | 공통 action feedback, 내 업무와 알림의 처리 중·성공·부분 성공·실패 UX | [구현 보고서](../tasks/ux-001-implementation-report.md) | `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` |
 | `TASK-UX-001 A2` | 생산계획·구매·자재·IQC·키팅·패널·선택 Excel의 구조화 action feedback과 오류 focus | [구현 보고서](../tasks/ux-001-a2-implementation-report.md) | `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` |
 | `TASK-NOTIFY-005` | 사용자별 알림 preference, 필수 잠금, sparse opt-out, audit와 suppression gate | [구현 보고서](../tasks/notify-005-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-SALES-KPI-001` | 영업 Home·전용 화면의 12개월 확정 매출/목표 graph, 금액 KPI, 월별 근거와 관리자 목표 CAS | [구현 보고서](../tasks/sales-kpi-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-ADMIN-002` | 고정 6종 검사·제조 양식의 무코드 version 관리, 지정 부서장 scope, 제조 snapshot과 선택 Excel | [구현 보고서](../tasks/admin-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 `TASK-UX-001 A2`의 Backend 기존 `395/395`, Frontend `104/104`, mock UI E2E `3/3`, migration `0042` 기존 fresh 적용과 Full-Stack `38/38`다. A2는 HOME Change 002의 전 부서 조회와 44px mobile touch target을 포함해 전체 isolated 회귀를 다시 통과했으며 대표 runtime으로 우회하지 않았다. A2 privacy-safe synthetic screenshot 5개와 기존 개인화 Home·프로필 증빙을 완료했다.
+현재 계보의 최신 누적 자동 기준선은 Backend `398/398`, Frontend `104/104`, migration `0044`까지의 fresh PostgreSQL 적용·기존 `0042 → 0044` upgrade와 이번 Sales·ADMIN 결합 Full-Stack `1/1`이다. 직전 전체 Full-Stack `38/38` 기준선 위에서 신규 영업·양식 vertical slice를 추가 검증했고 Desktop·390px privacy-safe synthetic screenshot 6개와 horizontal overflow 0을 확인했다. disposable runtime·DB는 종료했으며 대표 runtime으로 우회하지 않았다.
 
 ## 4. 남은 제품 개발 Task
 
@@ -60,13 +62,12 @@
 | --- | --- | --- | --- |
 | 1 | `TASK-EXPORT-001` 후속 — 사용자 column picker | `DEFERRED / OPTIONAL` | 현재 20개 화면 선택 export는 완료 상태로 보존한다. 사용자가 컬럼 선택 기능을 원할 때만 다음 change로 시작한다 |
 | 2 | `DESIGN-000` — Figma Variables·CSS token·공통 component foundation | `DEFERRED` | 기능 동작을 바꾸지 않는 housekeeping 범위로 제한한다 |
-| 3 | `TASK-ADMIN-002` — 검사·제조 template 관리 | `DEFERRED / EXTERNAL_INPUT` | 실제 IQC/LQC/OQC/제조 양식과 운영 template이 안정된 뒤 시작한다 |
-| 4 | Pending 유형 관리자 화면 — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 유형·권한 정책을 확정한 뒤 새 canonical ID를 부여한다. `TASK-007A` 본체를 다시 만들지 않는다 |
-| 5 | QR 스캔 landing — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 공개 또는 인증 landing 정책과 QR 운영 경계를 먼저 확정한다 |
-| 6 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
-| 7 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
-| 8 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
-| 9 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
+| 3 | Pending 유형 관리자 화면 — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 유형·권한 정책을 확정한 뒤 새 canonical ID를 부여한다. `TASK-007A` 본체를 다시 만들지 않는다 |
+| 4 | QR 스캔 landing — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 공개 또는 인증 landing 정책과 QR 운영 경계를 먼저 확정한다 |
+| 5 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
+| 6 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
+| 7 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
+| 8 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
 
 ### 4.1 아직 독립 Task로 승격되지 않은 Roadmap 입력
 
@@ -74,7 +75,7 @@
 
 | 묶음 | 남은 입력·능력 | 연결할 기존/후속 Task |
 | --- | --- | --- |
-| 검사·제조 양식 | IQC/LQC/OQC 상세 checklist, 값 입력 방식, 필수 사진 위치, 검사성적서 PDF 양식, 제조 화면·popup·저장-only 항목, LQC 요청 기준 | `TASK-009A`, `TASK-011A`, `TASK-012A`의 양식 change 또는 `TASK-ADMIN-002` |
+| 검사·제조 양식 content | IQC/LQC/OQC 상세 checklist, 값 입력 방식, 필수 사진 위치, 검사성적서 PDF layout, 제조 화면·popup·저장-only 항목, LQC 요청 기준 | 관리 기능은 `TASK-ADMIN-002`로 완료. 실제 content는 `TASK-009A`, `TASK-011A`, `TASK-012A` 또는 `TASK-ADMIN-002`의 content change로 입력하며 관리 기능을 재구현하지 않음 |
 | Pending·물류·정산 정책 | 부적합 반송/현장수리 세부 유형, 포장 규격·중량 등 실제 입력, 정산 세부 항목 | `TASK-007A`, `TASK-013A`, `TASK-014A`의 정책 change |
 | 관리자 기준정보 | Item, 포장방식과 `size_required`, 생산계획 단계, 구매 필수 항목, role/permission 편집, 관리자 모바일 고도화 | ADMIN 후속 Task. 완료된 `TASK-ADMIN-001`을 재구현하지 않음 |
 | 사용자 lifecycle | 퇴사·부서이동 시 미완료 업무 이관, dev user 업무의 실계정 수동 이관 | INFRA/ADMIN 후속 정책 Task |
@@ -110,7 +111,7 @@
 3. 신규 상태·권한·외부 연동이 필요하면 별도 `NEW_FEATURE`로 분류한다.
 4. 다른 완료 Task를 함께 재기획하지 않는다.
 
-대표 repo·`main`으로 옮기려면 별도 승격 Task에서 현재 experiment commit 계보, migration `0030`~`0042`, 전체 자동 회귀, Persistent UAT handover와 rollback을 다시 검증한다. 이는 완료 기능의 재개발이 아니다. `main` merge는 사용자가 merge를 요청하더라도 서로 분리된 승인 3회가 기록되기 전까지 수행하지 않는다.
+대표 repo·`main`으로 옮기려면 별도 승격 Task에서 현재 experiment commit 계보, migration `0030`~`0044`, 전체 자동 회귀, Persistent UAT handover와 rollback을 다시 검증한다. 이는 완료 기능의 재개발이 아니다. `main` merge는 사용자가 merge를 요청하더라도 서로 분리된 승인 3회가 기록되기 전까지 수행하지 않는다.
 
 ## 7. 중복 실행 방지 체크리스트
 

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ApiError, getHomeDepartmentMetrics, getMyWorkSummary, getNotificationSummary, listPendingIssues, listProjects } from './api';
+import { ApiError, getHomeDepartmentMetrics, getMyWorkSummary, getNotificationSummary, getSalesKpi, listPendingIssues, listProjects } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
 import type { HomeMetricsResponse } from './home';
 import type { PendingListResponse } from './pending';
 import type { MyWorkSummary, NotificationSummary, ProjectListResponse } from './projects';
+import type { SalesKpiResponse } from './salesKpi';
+import { SalesKpiChart } from './SalesKpiChart';
+import { formatMoney } from './salesKpiFormat';
 
 type WidgetState<T> =
   | { kind: 'loading' }
@@ -16,13 +19,16 @@ type HomePageProps = {
   developmentUserKey: string | undefined;
   requestContextKey: string;
   effectiveDisplayName?: string;
+  effectiveDepartmentCode?: string | null;
   effectiveDepartmentName?: string | null;
   canReadPending: boolean;
+  canReadSalesAmount?: boolean;
   onOpenMyWork: () => void;
   onOpenProjects: () => void;
   onOpenProject: (projectId: string) => void;
   onOpenPending: () => void;
   onOpenNotifications: () => void;
+  onOpenSalesKpi?: (year: number, currency: string) => void;
   onOpenDepartmentMetric?: (destinationKey: string) => void;
 };
 
@@ -30,13 +36,16 @@ export function HomePage({
   developmentUserKey,
   requestContextKey,
   effectiveDisplayName = '사용자',
+  effectiveDepartmentCode = null,
   effectiveDepartmentName = null,
   canReadPending,
+  canReadSalesAmount = false,
   onOpenMyWork,
   onOpenProjects,
   onOpenProject,
   onOpenPending,
   onOpenNotifications,
+  onOpenSalesKpi = () => undefined,
   onOpenDepartmentMetric = () => undefined
 }: HomePageProps) {
   const { isMobile } = useAdaptiveLayout();
@@ -47,11 +56,14 @@ export function HomePage({
   );
   const [notificationsState, setNotificationsState] = useState<WidgetState<NotificationSummary>>({ kind: 'loading' });
   const [departmentState, setDepartmentState] = useState<WidgetState<HomeMetricsResponse>>({ kind: 'loading' });
+  const [salesState, setSalesState] = useState<WidgetState<SalesKpiResponse>>({ kind: 'loading' });
   const myWorkGeneration = useRef(0);
   const projectsGeneration = useRef(0);
   const pendingGeneration = useRef(0);
   const notificationsGeneration = useRef(0);
   const departmentGeneration = useRef(0);
+  const salesGeneration = useRef(0);
+  const isSalesDepartment = effectiveDepartmentCode === 'sales';
 
   const loadDepartmentMetrics = useCallback(async () => {
     const generation = ++departmentGeneration.current;
@@ -65,6 +77,23 @@ export function HomePage({
       setDepartmentState(widgetError(error, '부서 핵심 지표를 불러올 수 없습니다.'));
     }
   }, [developmentUserKey]);
+
+  const loadSalesKpi = useCallback(async () => {
+    const generation = ++salesGeneration.current;
+    if (!isSalesDepartment || !canReadSalesAmount) {
+      setSalesState({ kind: 'hidden' });
+      return;
+    }
+    setSalesState({ kind: 'loading' });
+    try {
+      const data = await getSalesKpi(developmentUserKey);
+      if (generation !== salesGeneration.current) return;
+      setSalesState({ kind: 'ready', data });
+    } catch (error) {
+      if (generation !== salesGeneration.current) return;
+      setSalesState(widgetError(error, '영업 매출 지표를 불러올 수 없습니다.'));
+    }
+  }, [canReadSalesAmount, developmentUserKey, isSalesDepartment]);
 
   const loadMyWork = useCallback(async () => {
     const generation = ++myWorkGeneration.current;
@@ -135,6 +164,15 @@ export function HomePage({
 
   useEffect(() => {
     let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadSalesKpi(); });
+    return () => {
+      cancelled = true;
+      salesGeneration.current += 1;
+    };
+  }, [loadSalesKpi, requestContextKey]);
+
+  useEffect(() => {
+    let cancelled = false;
     queueMicrotask(() => { if (!cancelled) void loadMyWork(); });
     return () => {
       cancelled = true;
@@ -185,7 +223,25 @@ export function HomePage({
         <button type="button" className="primary-button" onClick={onOpenMyWork}>{isMobile ? '오늘 업무 열기' : '내 업무 시작하기'}</button>
       </header>
 
-      {departmentState.kind !== 'empty' ? (
+      {isSalesDepartment ? (
+        <section className="home-sales-performance" aria-label="영업팀 연간 매출 지표" data-state={salesState.kind}>
+          <header>
+            <div><p className="eyebrow">SALES PERFORMANCE</p><h3>연간 매출 · 목표</h3><p>세금계산서가 완료된 확정 매출 기준입니다.</p></div>
+            {salesState.kind === 'ready' ? <button type="button" onClick={() => onOpenSalesKpi(salesState.data.year, salesState.data.currency)}>영업 KPI 전체 보기 →</button> : null}
+          </header>
+          {!canReadSalesAmount ? <div className="home-department-status" role="alert">영업 금액 지표 권한을 확인해 주세요.</div> : null}
+          {salesState.kind === 'loading' ? <p className="home-department-status" role="status">연간 매출 지표를 불러오는 중입니다.</p> : null}
+          {salesState.kind === 'error' ? <div className="home-department-status" role="alert"><span>{salesState.message}</span><button type="button" onClick={() => void loadSalesKpi()}>다시 시도</button></div> : null}
+          {salesState.kind === 'ready' ? <>
+            <SalesKpiChart months={salesState.data.months} currency={salesState.data.currency} compact mobile={isMobile} />
+            <div className="home-sales-kpis">
+              <article><span>연간 확정 매출</span><strong>{formatMoney(salesState.data.kpi.revenueTotal, salesState.data.currency)}</strong></article>
+              <article><span>목표 달성률</span><strong>{salesState.data.kpi.achievementRate === null ? '목표 미등록' : `${salesState.data.kpi.achievementRate}%`}</strong></article>
+              <article><span>잔여 목표</span><strong>{formatMoney(salesState.data.kpi.remainingTargetAmount, salesState.data.currency)}</strong></article>
+            </div>
+          </> : null}
+        </section>
+      ) : departmentState.kind !== 'empty' ? (
         <section className="home-department-panel" aria-label="내 부서 핵심 지표" data-state={departmentState.kind}>
           <header>
             <div>

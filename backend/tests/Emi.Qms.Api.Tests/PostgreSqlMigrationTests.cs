@@ -1,9 +1,11 @@
 using System.Net;
+using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Home;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.ReviewSafe;
+using Emi.Qms.Api.Sales;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
@@ -236,7 +238,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(10, counts.Roles);
-        Assert.Equal(27, counts.Permissions);
+        Assert.Equal(28, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
@@ -304,6 +306,191 @@ public sealed class PostgreSqlMigrationTests
             where tgname = 'trg_guard_material_receipt_projection_write'
               and not tgisinternal;
             """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from information_schema.tables
+            where table_schema='public'
+              and table_name in ('sales_monthly_targets','sales_monthly_target_audit_events');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(5L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from information_schema.tables
+            where table_schema='public' and table_name in (
+              'manufacturing_step_templates','manufacturing_step_template_versions',
+              'manufacturing_step_template_items','form_template_manager_bindings','form_template_audit_events');
+            """,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SalesAndFormTemplateMigrations_UpgradeFrom0042()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var previousMigrations = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0042-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql").Where(path => string.CompareOrdinal(Path.GetFileName(path), "0043_") < 0))
+            {
+                File.Copy(source, Path.Combine(previousMigrations.FullName, Path.GetFileName(source)));
+            }
+
+            var configuration = new ConfigurationBuilder().Build();
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(previousMigrations.FullName),
+                configuration,
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal(44L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(7L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*) from information_schema.tables
+                where table_schema='public' and table_name in (
+                  'sales_monthly_targets','sales_monthly_target_audit_events',
+                  'manufacturing_step_templates','manufacturing_step_template_versions',
+                  'manufacturing_step_template_items','form_template_manager_bindings','form_template_audit_events');
+                """,
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            previousMigrations.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SalesKpiStore_AggregatesMonthlyRevenueTargetsAndPipeline()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        var actorId = new Guid("76000000-0000-0000-0000-000000000043");
+        await ExecuteSqlAsync(provider, $"""
+            insert into departments (id,code,name,sort_order)
+            values ('76000000-0000-0000-0000-000000000051','sales','Sales',20)
+            on conflict (code) do nothing;
+
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values ('{actorId}','sales-kpi-test','Sales KPI Test',(select id from departments where code='sales'),true);
+
+            insert into projects (
+                id,project_key,project_number,name,project_code,project_title,project_title_normalized,
+                status,sales_amount,currency_code)
+            values
+              ('76000000-0000-0000-0000-000000000044','sales-kpi-jan','SALES-KPI-001','January Revenue','SALES-KPI-001','January Revenue','JANUARY REVENUE','Completed',120000000,'KRW'),
+              ('76000000-0000-0000-0000-000000000045','sales-kpi-mar','SALES-KPI-002','March Revenue','SALES-KPI-002','March Revenue','MARCH REVENUE','Completed',80000000,'KRW'),
+              ('76000000-0000-0000-0000-000000000046','sales-kpi-pipeline','SALES-KPI-003','Active Pipeline','SALES-KPI-003','Active Pipeline','ACTIVE PIPELINE','Active',300000000,'KRW');
+
+            insert into sales_settlements (
+                id,project_id,status,invoice_issued_date,version,created_by_user_id,updated_by_user_id,
+                completed_by_user_id,completed_at_utc)
+            values
+              ('76000000-0000-0000-0000-000000000047','76000000-0000-0000-0000-000000000044','Completed','2026-01-15',1,'{actorId}','{actorId}','{actorId}',now()),
+              ('76000000-0000-0000-0000-000000000048','76000000-0000-0000-0000-000000000045','Completed','2026-03-20',1,'{actorId}','{actorId}','{actorId}',now());
+            """, TestContext.Current.CancellationToken);
+
+        var store = new SalesKpiStore(provider, TimeProvider.System);
+        var targets = await store.SaveTargetsAsync(
+            new SaveSalesTargetsRequest(2026, "krw", [
+                new SaveSalesTargetMonthRequest(1, 100000000m, null),
+                new SaveSalesTargetMonthRequest(2, 100000000m, null),
+                new SaveSalesTargetMonthRequest(3, 100000000m, null)
+            ]), actorId, TestContext.Current.CancellationToken);
+        var response = await store.GetAsync(2026, "KRW", new ProjectAccessScope(true, []), TestContext.Current.CancellationToken);
+
+        Assert.Equal(12, response.Months.Count);
+        Assert.Equal(120000000m, response.Months[0].RevenueAmount);
+        Assert.Equal(0m, response.Months[1].RevenueAmount);
+        Assert.Equal(80000000m, response.Months[2].RevenueAmount);
+        Assert.Equal(200000000m, response.Kpi.RevenueTotal);
+        Assert.Equal(300000000m, response.Kpi.TargetTotal);
+        Assert.Equal(66.7m, response.Kpi.AchievementRate);
+        Assert.Equal(100000000m, response.Kpi.RemainingTargetAmount);
+        Assert.Equal(300000000m, response.Pipeline.Amount);
+        Assert.Equal(3, targets.Months.Count(month => month.Amount.HasValue));
+        Assert.Equal(3L, await ReadScalarAsync<long>(provider,
+            "select count(*) from sales_monthly_target_audit_events;",
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task FormTemplateStore_UsesDraftActivationAndDepartmentManagerFence()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        var adminId = new Guid("76000000-0000-0000-0000-000000000049");
+        var qualityManagerId = new Guid("76000000-0000-0000-0000-000000000050");
+        await ExecuteSqlAsync(provider, $"""
+            insert into departments (id,code,name,sort_order)
+            values
+              ('76000000-0000-0000-0000-000000000052','quality','Quality',80),
+              ('76000000-0000-0000-0000-000000000053','manufacturing','Manufacturing',70)
+            on conflict (code) do nothing;
+
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values
+              ('{adminId}','form-admin-test','Form Admin Test',(select id from departments where code='design'),true),
+              ('{qualityManagerId}','form-quality-test','Quality Manager Test',(select id from departments where code='quality'),true);
+            """, TestContext.Current.CancellationToken);
+
+        var store = new FormTemplateStore(provider);
+        var catalog = await store.GetCatalogAsync(adminId, true, TestContext.Current.CancellationToken);
+        Assert.Equal(6, catalog.Templates.Count);
+        var original = await store.GetVersionsAsync("IqcReport", "MATERIAL_IQC", adminId, true, TestContext.Current.CancellationToken);
+        var active = Assert.Single(original.Versions, version => version.LifecycleStatus == "Active");
+        var draftResult = await store.CreateDraftAsync(
+            "IqcReport", "MATERIAL_IQC", new CreateFormTemplateDraftRequest(active.RowVersion),
+            adminId, true, TestContext.Current.CancellationToken);
+        var draft = Assert.Single(draftResult.Versions, version => version.LifecycleStatus == "Draft");
+        var edited = draft.Items.Select((item, index) => new SaveFormTemplateItemRequest(
+            item.ItemCode, index + 1, index == 0 ? "관리 화면에서 변경한 검사 항목" : item.Label,
+            item.Guidance, item.ResponseType, item.IsRequired, item.RequiresPhoto, item.MaxTextLength)).ToArray();
+        var saved = await store.SaveItemsAsync(
+            "IqcReport", "MATERIAL_IQC", draft.VersionId,
+            new SaveFormTemplateItemsRequest(draft.RowVersion, edited), adminId, true,
+            TestContext.Current.CancellationToken);
+        var savedDraft = saved.Versions.Single(version => version.VersionId == draft.VersionId);
+        var activated = await store.ActivateAsync(
+            "IqcReport", "MATERIAL_IQC", draft.VersionId,
+            new TransitionFormTemplateVersionRequest(savedDraft.RowVersion), adminId, true,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("Active", activated.Versions.Single(version => version.VersionId == draft.VersionId).LifecycleStatus);
+        Assert.Equal("Archived", activated.Versions.Single(version => version.VersionId == active.VersionId).LifecycleStatus);
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(provider,
+            $"update iqc_report_template_items set label='forbidden' where template_version_id='{active.VersionId}';",
+            TestContext.Current.CancellationToken));
+
+        var managers = await store.AssignManagerAsync(
+            new AssignFormTemplateManagerRequest(qualityManagerId, "Quality"), adminId, true,
+            TestContext.Current.CancellationToken);
+        Assert.Single(managers.Bindings, binding => binding.UserId == qualityManagerId && binding.RevokedAtUtc is null);
+        Assert.True((await store.GetScopeAsync(qualityManagerId, false, TestContext.Current.CancellationToken)).CanManage);
+        await ExecuteSqlAsync(provider,
+            $"update qms_users set department_id=(select id from departments where code='manufacturing') where id='{qualityManagerId}';",
+            TestContext.Current.CancellationToken);
+        Assert.False((await store.GetScopeAsync(qualityManagerId, false, TestContext.Current.CancellationToken)).CanManage);
+        await Assert.ThrowsAsync<FormTemplateForbiddenException>(() => store.RecordExportAsync(
+            "IqcReport", "MATERIAL_IQC", qualityManagerId, false, 1,
             TestContext.Current.CancellationToken));
     }
 
@@ -393,11 +580,11 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(42L, await ReadScalarAsync<long>(
+        Assert.Equal(44L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0042_user_profile_photos", await ReadScalarAsync<string>(
+        Assert.Equal("0044_form_template_management", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

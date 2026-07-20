@@ -15,13 +15,15 @@ export function SalesKpiPage({
   initialYear,
   initialCurrency,
   canManageTargets,
-  onOpenProject
+  onOpenProject,
+  onOpenBilling = () => undefined
 }: {
   developmentUserKey: string | undefined;
   initialYear?: number;
   initialCurrency?: string;
   canManageTargets: boolean;
   onOpenProject: (projectId: string) => void;
+  onOpenBilling?: () => void;
 }) {
   const { isMobile } = useAdaptiveLayout();
   const [state, setState] = useState<PageState>({ kind: 'loading' });
@@ -126,6 +128,7 @@ export function SalesKpiPage({
           <label>연도<select value={data.year} onChange={(event) => void load(Number(event.target.value), data.currency)}>{data.availableYears.map((year) => <option key={year}>{year}</option>)}</select></label>
           <label>통화<select value={data.currency} onChange={(event) => void load(data.year, event.target.value)}>{data.availableCurrencies.map((currency) => <option key={currency}>{currency}</option>)}</select></label>
           {canManageTargets && !isMobile ? <button type="button" className="secondary-button" onClick={() => void openTargetEditor()}>목표 관리</button> : null}
+          <button type="button" className="secondary-button" onClick={onOpenBilling}>발행요청 자료</button>
         </DsToolbar>}
       />
 

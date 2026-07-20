@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.Pending;
 using Emi.Qms.Api.Projects;
 using Npgsql;
@@ -1200,11 +1201,28 @@ public sealed class ManufacturingStore(
         command.Parameters.AddWithValue("panel_id", snapshot.PanelId);
         command.Parameters.AddWithValue("assignee_id", assignee.UserId);
         AddNullableText(command, "role_code", assignee.RoleCode);
-        command.Parameters.AddWithValue("title", $"LQC 입력 · {snapshot.DisplayCode}");
-        command.Parameters.AddWithValue("description", "제조 완료 패널의 LQC 입력을 진행해 주세요. 상세 검사 화면은 TASK-012A에서 연결됩니다.");
-        command.Parameters.AddWithValue("idempotency_key", $"manufacturing:panel:{snapshot.PanelId}:lqc");
+        var title = $"LQC 입력 · {snapshot.DisplayCode}";
+        var description = "제조 완료 패널의 LQC 입력을 진행해 주세요.";
+        var idempotencyKey = $"manufacturing:panel:{snapshot.PanelId}:lqc";
+        command.Parameters.AddWithValue("title", title);
+        command.Parameters.AddWithValue("description", $"{description} /quality/inspections?stage=LQC&project={snapshot.ProjectId}&panel={snapshot.PanelId}");
+        command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
         command.Parameters.AddWithValue("actor_id", actorUserId);
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        var inserted = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        await using var readCommand = connection.CreateCommand();
+        readCommand.Transaction = transaction;
+        readCommand.CommandText = "select id from work_items where idempotency_key=@key;";
+        readCommand.Parameters.AddWithValue("key", idempotencyKey);
+        var value = await readCommand.ExecuteScalarAsync(cancellationToken);
+        if (value is Guid workItemId)
+        {
+            await WorkAssignmentNotificationWriter.UpsertAsync(
+                connection, transaction, snapshot.ProjectId, workItemId, assignee.UserId,
+                ["QualityLQCSecondary"], title, description,
+                $"/quality/inspections?stage=LQC&project={snapshot.ProjectId}&panel={snapshot.PanelId}",
+                $"{idempotencyKey}:notification", cancellationToken);
+        }
+        return inserted;
     }
 
     private static async Task<bool> IsProjectManufacturingCompletedAsync(

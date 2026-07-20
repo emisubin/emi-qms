@@ -46,7 +46,8 @@
 | `TASK-014A` | 세금계산서 draft·정산·프로젝트 완료와 lifecycle fence | [구현 보고서](../tasks/014a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-EXPORT-001` | 업무 12개·관리자 8개 화면의 checkbox 전체선택·단일 선택 Excel 내보내기와 server allowlist 기반 필수 잠금 column picker | [Change 002](../tasks/export-001-implementation-report.md), [Change 003](../tasks/export-001-column-picker-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-EXPORT-002` | 여러 프로젝트 선택 Excel 내보내기 | [구현 보고서](../tasks/export-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
-| `TASK-E2E-FULL-SUITE-001` | 현재 계약 기준 전체 Full-Stack 회귀 복구, Backend `388/388`, Frontend `92/92`, Full-Stack `35/35` | [구현 보고서](../tasks/e2e-full-suite-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-E2E-FULL-SUITE-001` | 현재 계약 기준 전체 회귀 복구, Change 002 실제 역할 18단계 재검수, Change 003 부서 실데이터·알림 누적·생산계획 입력 잠금, Change 004 전체 흐름·생산계획 정보 우선순위, Change 005 전 부서 저장 field·checklist·event·evidence projection. Frontend `110/110`, 최신 lifecycle `1/1` | [구현 보고서](../tasks/e2e-full-suite-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-BILLING-REQUEST-001` | 출하 프로젝트 선택, 회계팀 세금계산서 발행요청 batch·재다운로드 Excel, 정산 발행요청 gate와 회계 발행 확인 | [구현 보고서](../tasks/billing-request-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-UX-001 A1` | 공통 action feedback, 내 업무와 알림의 처리 중·성공·부분 성공·실패 UX | [구현 보고서](../tasks/ux-001-implementation-report.md) | `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` |
 | `TASK-UX-001 A2` | 생산계획·구매·자재·IQC·키팅·패널·선택 Excel의 구조화 action feedback과 오류 focus | [구현 보고서](../tasks/ux-001-a2-implementation-report.md) | `EXPERIMENT_SLICE_COMPLETE / BATCHED_FINAL` |
 | `TASK-NOTIFY-005` | 사용자별 알림 preference, 필수 잠금, sparse opt-out, audit와 suppression gate | [구현 보고서](../tasks/notify-005-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
@@ -55,7 +56,7 @@
 | `DESIGN-000` | reference 기반 CSS semantic token, 공통 React primitive, shell·Home·Sales 우선 적용과 desktop/mobile visual baseline | [구현 보고서](../tasks/design-000-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-PENDING-TYPE-001` | system semantic 보호, 사용자 유형 lifecycle·정렬·label, system administrator 권한·CAS·audit, Pending 생성·필터·상세·선택 Excel 연동과 desktop/mobile 관리 화면 | [구현 보고서](../tasks/pending-type-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 Backend `403/403`, Frontend `109/109`, migration `0045`까지의 fresh PostgreSQL 적용·기존 `0044 → 0045` upgrade다. 직전 전체 Full-Stack `38/38` 기준선 위에서 DESIGN-000·Sales Change 002 `1/1`, MOBILE Change 004 `1/1`, desktop 보존/mobile 단순화 export 영향 `3/3`, MOBILE Change 005 compact workspace `1/1`과 키팅·제조·품질 상태 전이 `3/3`, EXPORT Change 003 column picker `1/1`, Pending 유형 관리·업무 Pending label·선택 Excel·audit `2/2`를 추가로 통과했다. Desktop·390px privacy-safe synthetic screenshot은 DESIGN 6개, MOBILE Change 004 13개, Change 005 13개, EXPORT Change 003 23개와 Pending 유형 5개이며 확인한 mobile route의 horizontal overflow는 0이다. disposable runtime·DB와 실제 Excel workbook은 종료했고 대표 runtime으로 우회하지 않았다.
+현재 계보의 최신 누적 자동 기준선은 Backend `403/403`, Frontend `110/110`, migration `0046`까지의 fresh PostgreSQL 적용이다. 직전 전체 Full-Stack 기준선 위에서 실제 담당자 UI 입력 lifecycle `1/1`이 프로젝트 생성부터 회계팀 발행요청 Excel·최종 `18/18` 완료까지 통과했다. 프로젝트 생성 수신 정책, 생산관리 지정 gate, 정·부 인계, Pending 인앱·내 업무·TeamsChannel/Mail outbox와 납품→영업 인계, 프로젝트 상세 전 부서의 저장 field·checklist·event·evidence projection을 synthetic data와 disposable runtime에서 검증했다. 최신 단계별 screenshot과 workbook은 사용자 지시대로 Repository가 아닌 `/tmp`에서 채팅 증빙으로만 사용했고 Excel process까지 종료했다. 대표 runtime으로 우회하지 않았고 실제 provider는 호출하지 않았다.
 
 ## 4. 남은 제품 개발 Task
 

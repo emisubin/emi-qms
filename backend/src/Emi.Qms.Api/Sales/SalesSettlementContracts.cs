@@ -20,7 +20,8 @@ public sealed record SalesSettlementDetailResponse(
     bool InvoiceIssued,
     bool CanComplete,
     bool CanMutate,
-    string PendingLink);
+    string PendingLink,
+    SalesBillingProjectStatusResponse BillingRequestStatus);
 
 public sealed record SaveSalesSettlementDraftRequest(
     int? ExpectedVersion,

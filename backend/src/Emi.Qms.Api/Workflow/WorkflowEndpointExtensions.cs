@@ -220,6 +220,20 @@ public static class WorkflowEndpointExtensions
         .RequireAuthorization()
         .WithName("MarkNotificationRead");
 
+        app.MapPost("/api/notifications/projects/{projectId:guid}/read-all", async (
+            Guid projectId,
+            WorkflowStore workflowStore,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            return userId is null
+                ? Results.Unauthorized()
+                : Results.Ok(await workflowStore.MarkProjectNotificationsReadAsync(projectId, userId.Value, cancellationToken));
+        })
+        .RequireAuthorization()
+        .WithName("MarkProjectNotificationsRead");
+
         app.MapPost("/api/notifications/read-all", async (
             WorkflowStore workflowStore,
             ClaimsPrincipal user,

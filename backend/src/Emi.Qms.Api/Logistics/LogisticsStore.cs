@@ -2,6 +2,7 @@ using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.Projects;
 using Npgsql;
 using NpgsqlTypes;
@@ -131,6 +132,140 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         var responseProjects = projects.Values.Select(value => value.Build()).ToList();
         var items = responseProjects.SelectMany(value => value.Items).ToList();
         return new LogisticsQueueResponse(normalized, items.Count, items.Count(value => value.HasOpenPending), responseProjects);
+    }
+
+    public async Task<LogisticsMutationResult<LogisticsProjectHistoryResponse>> GetProjectHistoryAsync(
+        Guid projectId,
+        ProjectAccessScope scope,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+
+        await using (var access = connection.CreateCommand())
+        {
+            access.CommandText = """
+                select exists(
+                    select 1 from projects
+                    where id=@project_id and deleted_at_utc is null
+                      and (@has_read_all or project_key=any(@project_keys))
+                );
+                """;
+            access.Parameters.AddWithValue("project_id", projectId);
+            AddScope(access, scope);
+            if (await access.ExecuteScalarAsync(cancellationToken) is not true)
+                return LogisticsMutationResult<LogisticsProjectHistoryResponse>.NotFound();
+        }
+
+        var owners = new List<LogisticsHistoryOwner>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                select unit.id, 'packing', 'PU-' || lpad(unit.unit_number::text, 3, '0'),
+                       unit.status, unit.version, unit.note, unit.specification, unit.weight_text, null::date,
+                       created.display_name, unit.created_at_utc,
+                       finalized.display_name, unit.finalized_at_utc,
+                       cancelled.display_name, unit.cancelled_at_utc
+                from logistics_packing_units unit
+                join qms_users created on created.id=unit.created_by_user_id
+                left join qms_users finalized on finalized.id=unit.finalized_by_user_id
+                left join qms_users cancelled on cancelled.id=unit.cancelled_by_user_id
+                where unit.project_id=@project_id
+                union all
+                select batch.id,
+                       case batch.stage_code when 'DepartureProcessed' then 'departure' else 'delivery' end,
+                       case batch.stage_code when 'DepartureProcessed' then 'DP-' else 'DL-' end || lpad(batch.batch_number::text, 3, '0'),
+                       batch.status, batch.version, null::text, null::text, null::text, batch.departure_date,
+                       created.display_name, batch.created_at_utc,
+                       finalized.display_name, batch.finalized_at_utc,
+                       cancelled.display_name, batch.cancelled_at_utc
+                from logistics_batches batch
+                join qms_users created on created.id=batch.created_by_user_id
+                left join qms_users finalized on finalized.id=batch.finalized_by_user_id
+                left join qms_users cancelled on cancelled.id=batch.cancelled_by_user_id
+                where batch.project_id=@project_id
+                order by 2, 3;
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                owners.Add(new LogisticsHistoryOwner(
+                    reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt32(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5), reader.IsDBNull(6) ? null : reader.GetString(6),
+                    reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : DateOnly.FromDateTime(reader.GetDateTime(8)),
+                    reader.GetString(9), reader.GetFieldValue<DateTimeOffset>(10), reader.IsDBNull(11) ? null : reader.GetString(11),
+                    reader.IsDBNull(12) ? null : reader.GetFieldValue<DateTimeOffset>(12), reader.IsDBNull(13) ? null : reader.GetString(13),
+                    reader.IsDBNull(14) ? null : reader.GetFieldValue<DateTimeOffset>(14)));
+            }
+        }
+
+        var items = new List<LogisticsProjectHistoryItem>();
+        foreach (var owner in owners)
+        {
+            var panelCodes = new List<string>();
+            var unitCodes = new List<string>();
+            await using (var membership = connection.CreateCommand())
+            {
+                membership.CommandText = owner.Stage == LogisticsStages.Packing
+                    ? """
+                        select panel.display_code, null::text
+                        from logistics_packing_unit_panels member
+                        join panel_placeholders panel on panel.id=member.panel_id
+                        where member.packing_unit_id=@id order by panel.sequence_number;
+                        """
+                    : """
+                        select panel.display_code, 'PU-' || lpad(unit.unit_number::text, 3, '0')
+                        from logistics_batch_units member
+                        join logistics_packing_units unit on unit.id=member.packing_unit_id
+                        join logistics_packing_unit_panels unit_panel on unit_panel.packing_unit_id=unit.id
+                        join panel_placeholders panel on panel.id=unit_panel.panel_id
+                        where member.batch_id=@id order by unit.unit_number,panel.sequence_number;
+                        """;
+                membership.Parameters.AddWithValue("id", owner.TargetId);
+                await using var reader = await membership.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var panelCode = reader.GetString(0);
+                    if (!panelCodes.Contains(panelCode)) panelCodes.Add(panelCode);
+                    if (!reader.IsDBNull(1))
+                    {
+                        var unitCode = reader.GetString(1);
+                        if (!unitCodes.Contains(unitCode)) unitCodes.Add(unitCode);
+                    }
+                }
+            }
+
+            var evidence = new List<LogisticsEvidenceResponse>();
+            await using (var evidenceCommand = connection.CreateCommand())
+            {
+                evidenceCommand.CommandText = owner.Stage == LogisticsStages.Packing
+                    ? """
+                        select id,owner_type,display_name,normalized_mime,byte_size,alt_text,created_at_utc
+                        from logistics_evidence where packing_unit_id=@id order by created_at_utc,id;
+                        """
+                    : """
+                        select id,owner_type,display_name,normalized_mime,byte_size,alt_text,created_at_utc
+                        from logistics_evidence where batch_id=@id order by created_at_utc,id;
+                        """;
+                evidenceCommand.Parameters.AddWithValue("id", owner.TargetId);
+                await using var reader = await evidenceCommand.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    evidence.Add(new LogisticsEvidenceResponse(
+                        reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt32(4),
+                        reader.IsDBNull(5) ? null : reader.GetString(5), reader.GetFieldValue<DateTimeOffset>(6)));
+                }
+            }
+
+            items.Add(new LogisticsProjectHistoryItem(
+                owner.TargetId, owner.Stage, owner.DisplayCode, owner.Status, owner.Version,
+                owner.Note, owner.Specification, owner.WeightText, owner.DepartureDate,
+                panelCodes, unitCodes, evidence, owner.CreatedByName, owner.CreatedAtUtc,
+                owner.FinalizedByName, owner.FinalizedAtUtc, owner.CancelledByName, owner.CancelledAtUtc));
+        }
+
+        return LogisticsMutationResult<LogisticsProjectHistoryResponse>.Success(new(projectId, items));
     }
 
     public async Task<LogisticsMutationResult<LogisticsDraftResponse>> GetDraftAsync(
@@ -811,6 +946,23 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             """;
     }
 
+    private sealed record LogisticsHistoryOwner(
+        Guid TargetId,
+        string Stage,
+        string DisplayCode,
+        string Status,
+        int Version,
+        string? Note,
+        string? Specification,
+        string? WeightText,
+        DateOnly? DepartureDate,
+        string CreatedByName,
+        DateTimeOffset CreatedAtUtc,
+        string? FinalizedByName,
+        DateTimeOffset? FinalizedAtUtc,
+        string? CancelledByName,
+        DateTimeOffset? CancelledAtUtc);
+
     private static async Task<bool> LockProjectInScopeAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, ProjectAccessScope scope, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -1116,6 +1268,22 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             command.Parameters.AddWithValue("project_id", projectId); command.Parameters.AddWithValue("panel_id", panelId); command.Parameters.AddWithValue("stage", stage);
             command.Parameters.AddWithValue("assignee_id", assignee.UserId); AddNullableText(command,"role_code",assignee.RoleCode); command.Parameters.AddWithValue("actor_id", actorId);
             await command.ExecuteNonQueryAsync(cancellationToken);
+            var key = $"logistics:panel:{panelId}:{(stage == "DepartureProcessed" ? "departure" : "delivery")}";
+            await using var readCommand = connection.CreateCommand();
+            readCommand.Transaction = transaction;
+            readCommand.CommandText = "select id from work_items where idempotency_key=@key;";
+            readCommand.Parameters.AddWithValue("key", key);
+            var value = await readCommand.ExecuteScalarAsync(cancellationToken);
+            if (value is Guid workItemId)
+            {
+                var title = stage == "DepartureProcessed" ? "출발 처리" : "납품 완료";
+                var message = stage == "DepartureProcessed" ? "상차사진과 출발일을 등록해 주세요." : "거래명세서 서명본을 등록해 주세요.";
+                var link = $"/logistics?stage={(stage == "DepartureProcessed" ? "departure" : "delivery")}&project={projectId}&panel={panelId}";
+                await WorkAssignmentNotificationWriter.UpsertAsync(
+                    connection, transaction, projectId, workItemId, assignee.UserId,
+                    ["LogisticsSecondary"], $"{title} · 패널", message, link,
+                    $"{key}:notification", cancellationToken);
+            }
         }
     }
 
@@ -1178,11 +1346,25 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         await using var command = connection.CreateCommand(); command.Transaction = transaction;
         command.CommandText = """
             insert into work_items (project_id,target_type,target_id,workflow_stage_code,responsibility_type,assigned_user_id,assigned_role_code,title,description,status,priority,idempotency_key,created_by_user_id)
-            values (@project_id,'Project',@project_id,'SalesSettlementCompleted','SalesPrimary',@assignee_id,@role_code,'영업 정산 처리','모든 활성 패널의 납품이 완료되었습니다. 정산을 진행해 주세요.','Requested','Normal','logistics:project:' || @project_id || ':sales-settlement',@actor_id)
+            values (@project_id,'Project',@project_id,'SalesSettlementCompleted','SalesPrimary',@assignee_id,@role_code,'세금계산서 발행요청 준비','모든 활성 패널의 납품이 완료되었습니다. 회계팀 발행요청 자료를 준비해 주세요.','Requested','Normal','logistics:project:' || @project_id || ':sales-settlement',@actor_id)
             on conflict (idempotency_key) do nothing;
             """;
         command.Parameters.AddWithValue("project_id",projectId); command.Parameters.AddWithValue("assignee_id",sales.UserId); AddNullableText(command,"role_code",sales.RoleCode); command.Parameters.AddWithValue("actor_id",actorId);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        var key = $"logistics:project:{projectId}:sales-settlement";
+        await using var readCommand = connection.CreateCommand();
+        readCommand.Transaction = transaction;
+        readCommand.CommandText = "select id from work_items where idempotency_key=@key;";
+        readCommand.Parameters.AddWithValue("key", key);
+        var value = await readCommand.ExecuteScalarAsync(cancellationToken);
+        if (value is Guid workItemId)
+        {
+            await WorkAssignmentNotificationWriter.UpsertAsync(
+                connection, transaction, projectId, workItemId, sales.UserId,
+                ["SalesSecondary"], "세금계산서 발행요청 준비",
+                "모든 활성 패널의 납품이 완료되었습니다. 회계팀 발행요청 자료를 준비해 주세요.",
+                $"/projects/{projectId}/settlement", $"{key}:notification", cancellationToken);
+        }
     }
 
     private static async Task<(LogisticsMutationResult<LogisticsMutationResponse>? Result, bool Exists)> ReadReplayAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid operationId, string fingerprint, CancellationToken cancellationToken)

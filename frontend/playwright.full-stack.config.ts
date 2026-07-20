@@ -24,7 +24,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'bash scripts/e2e-backend-server.sh',
+      command: 'E2E_SAFE_NOTIFICATION_DISPATCH=true bash scripts/e2e-backend-server.sh',
       cwd: '..',
       url: `${backendUrl}/health/ready`,
       reuseExistingServer: false,

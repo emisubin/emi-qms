@@ -22,7 +22,7 @@ public sealed class ProductionPlanningApiTests
     private static readonly Guid DevSalesUserId = new("50000000-0000-0000-0000-000000000002");
 
     [Fact]
-    public async Task Workflow_ProjectCreation_GeneratesMyWorkAndReferenceNotification()
+    public async Task Workflow_ProjectCreation_BroadcastsOperationalNotificationWithoutStartingWork()
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
@@ -30,33 +30,9 @@ public sealed class ProductionPlanningApiTests
         using var designClient = context.CreateClient("dev-design");
 
         var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-CREATE", "Workflow Create");
+        var otherProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-CREATE-OTHER", "Workflow Create Other");
 
-        using var myWork = await ReadJsonAsync(await adminClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
-        var generated = myWork.RootElement.GetProperty("items").EnumerateArray()
-            .FirstOrDefault(item =>
-                item.GetProperty("projectId").GetGuid() == projectId
-                && item.GetProperty("workflowStageCode").GetString() == "ProductionPlanning");
-        Assert.NotEqual(JsonValueKind.Undefined, generated.ValueKind);
-        Assert.Equal("시작 전", generated.GetProperty("statusLabel").GetString());
-        Assert.Equal("system-administrator", await context.ReadScalarAsync<string>($"""
-            select assigned_role_code
-            from work_items
-            where id = '{generated.GetProperty("workItemId").GetGuid()}';
-            """));
-        Assert.Equal($"/projects/{projectId}/production-planning/edit", generated.GetProperty("linkUrl").GetString());
-        using var requestedWork = await ReadJsonAsync(await adminClient.GetAsync("/api/my-work?status=Requested", TestContext.Current.CancellationToken));
-        Assert.Contains(requestedWork.RootElement.GetProperty("items").EnumerateArray(), item =>
-            item.GetProperty("projectId").GetGuid() == projectId
-            && item.GetProperty("workflowStageCode").GetString() == "ProductionPlanning");
-
-        var workItemId = generated.GetProperty("workItemId").GetGuid();
-        Assert.Equal(HttpStatusCode.Forbidden, (await designClient.PostAsync($"/api/my-work/{workItemId}/start", null, TestContext.Current.CancellationToken)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await salesClient.PostAsync($"/api/my-work/{workItemId}/start", null, TestContext.Current.CancellationToken)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await adminClient.PostAsync($"/api/my-work/{workItemId}/start", null, TestContext.Current.CancellationToken)).StatusCode);
-        using var completed = await ReadJsonAsync(await adminClient.PostAsync($"/api/my-work/{workItemId}/complete", null, TestContext.Current.CancellationToken));
-        Assert.Equal("완료", completed.RootElement.GetProperty("statusLabel").GetString());
-        using var completedWork = await ReadJsonAsync(await adminClient.GetAsync("/api/my-work?status=Completed", TestContext.Current.CancellationToken));
-        Assert.Contains(completedWork.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("workItemId").GetGuid() == workItemId);
+        Assert.False(await WorkItemExistsAsync(context, projectId, WorkflowStageCodes.ProductionPlanning));
 
         using var notifications = await ReadJsonAsync(await designClient.GetAsync("/api/notifications?readStatus=unread", TestContext.Current.CancellationToken));
         var notification = notifications.RootElement.GetProperty("items").EnumerateArray()
@@ -67,9 +43,17 @@ public sealed class ProductionPlanningApiTests
             item.GetProperty("projectId").GetGuid() == projectId
             && item.GetProperty("message").GetString()!.Contains("Workflow Create", StringComparison.Ordinal));
         var notificationId = notification.GetProperty("notificationId").GetGuid();
-        Assert.Equal(HttpStatusCode.OK, (await designClient.PostAsync($"/api/notifications/{notificationId}/read", null, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await designClient.PostAsync($"/api/notifications/projects/{projectId}/read-all", null, TestContext.Current.CancellationToken)).StatusCode);
+        using var remainingUnread = await ReadJsonAsync(await designClient.GetAsync("/api/notifications?readStatus=unread", TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(remainingUnread.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("projectId").GetGuid() == projectId);
+        Assert.Contains(remainingUnread.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("projectId").GetGuid() == otherProjectId);
         using var readNotifications = await ReadJsonAsync(await designClient.GetAsync("/api/notifications?readStatus=read", TestContext.Current.CancellationToken));
         Assert.Contains(readNotifications.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("notificationId").GetGuid() == notificationId);
+
+        using var salesNotifications = await ReadJsonAsync(await salesClient.GetAsync("/api/notifications", TestContext.Current.CancellationToken));
+        Assert.Contains(salesNotifications.RootElement.GetProperty("items").EnumerateArray(), item =>
+            item.GetProperty("projectId").GetGuid() == projectId
+            && item.GetProperty("title").GetString() == "프로젝트가 생성되었습니다.");
     }
 
     [Fact]
@@ -110,8 +94,17 @@ public sealed class ProductionPlanningApiTests
                 }).ToArray(),
                 assignees = new object[]
                 {
+                    new { responsibilityType = "SalesPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000002"), note = "영업" },
                     new { responsibilityType = "DesignPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000010"), note = "설계" },
-                    new { responsibilityType = "ProcurementPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000011"), note = "구매" }
+                    new { responsibilityType = "ProductionPlanningPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000003"), note = "생산관리" },
+                    new { responsibilityType = "ProcurementPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000011"), note = "구매" },
+                    new { responsibilityType = "MaterialsPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000012"), note = "자재" },
+                    new { responsibilityType = "ManufacturingPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000004"), note = "제조" },
+                    new { responsibilityType = "LogisticsPrimary", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000006"), note = "물류" },
+                    new { responsibilityType = "QualityIQC", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "IQC" },
+                    new { responsibilityType = "QualityLQC", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "LQC" },
+                    new { responsibilityType = "QualityOQC", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "OQC" },
+                    new { responsibilityType = "QualityCustomerInspection", assigneeId = (Guid?)null, expectedRowVersion = 0, assignedUserId = Guid.Parse("50000000-0000-0000-0000-000000000005"), note = "고객검수" }
                 }
             },
             TestContext.Current.CancellationToken);
@@ -141,17 +134,6 @@ public sealed class ProductionPlanningApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, saveAgain.StatusCode);
 
-        using var myWork = await ReadJsonAsync(await procurementClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
-        var procurementWork = myWork.RootElement.GetProperty("items").EnumerateArray()
-            .Where(item =>
-                item.GetProperty("projectId").GetGuid() == projectId
-                && item.GetProperty("workflowStageCode").GetString() == "ProcurementInfo")
-            .ToList();
-        Assert.Single(procurementWork);
-        Assert.Equal("구매정보 입력", procurementWork[0].GetProperty("title").GetString());
-        Assert.Equal("ProcurementPrimary", procurementWork[0].GetProperty("responsibilityType").GetString());
-        Assert.Equal($"/projects/{projectId}/procurement/edit", procurementWork[0].GetProperty("linkUrl").GetString());
-        var procurementWorkItemId = procurementWork[0].GetProperty("workItemId").GetGuid();
         using var designWork = await ReadJsonAsync(await designClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
         var generatedDesignWork = designWork.RootElement.GetProperty("items").EnumerateArray()
             .Where(item =>
@@ -215,6 +197,18 @@ public sealed class ProductionPlanningApiTests
             from work_items
             where id = '{designWorkItemId}';
             """));
+
+        using var myWork = await ReadJsonAsync(await procurementClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
+        var procurementWork = myWork.RootElement.GetProperty("items").EnumerateArray()
+            .Where(item =>
+                item.GetProperty("projectId").GetGuid() == projectId
+                && item.GetProperty("workflowStageCode").GetString() == "ProcurementInfo")
+            .ToList();
+        Assert.Single(procurementWork);
+        Assert.Equal("구매정보 입력", procurementWork[0].GetProperty("title").GetString());
+        Assert.Equal("ProcurementPrimary", procurementWork[0].GetProperty("responsibilityType").GetString());
+        Assert.Equal($"/projects/{projectId}/procurement/edit", procurementWork[0].GetProperty("linkUrl").GetString());
+        var procurementWorkItemId = procurementWork[0].GetProperty("workItemId").GetGuid();
 
         var completeProcurement = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
@@ -331,6 +325,11 @@ public sealed class ProductionPlanningApiTests
 
         var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-STAGE-COMPLETE", "Workflow Stage Complete");
         await context.ExecuteSqlAsync($"update projects set fat_required = true where id = '{projectId}';");
+        await context.WorkflowStore.GenerateProductionPlanningAssigneeFollowUpsAsync(
+            projectId,
+            DevSalesUserId,
+            "test-assignee-save",
+            TestContext.Current.CancellationToken);
 
         var stages = new[]
         {

@@ -19,6 +19,7 @@ export interface SalesSettlementDetail {
   canComplete: boolean;
   canMutate: boolean;
   pendingLink: string;
+  billingRequestStatus: import('./salesBilling').SalesBillingProjectStatus;
 }
 
 export interface SaveSalesSettlementDraftRequest {

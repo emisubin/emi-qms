@@ -150,8 +150,6 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         var actionDepartmentCode = string.IsNullOrWhiteSpace(request.ActionDepartmentCode)
             ? null
             : request.ActionDepartmentCode.Trim();
-        var status = request.AssigneeUserId is null ? PendingStatuses.Registered : PendingStatuses.ActionRequested;
-
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -213,6 +211,12 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             });
         }
 
+        var automaticAssignees = request.AssigneeUserId is null && actionDepartmentCode is not null
+            ? await ResolveProjectActionAssigneesAsync(connection, transaction, projectId, actionDepartmentCode, cancellationToken)
+            : new PendingAssigneePair(request.AssigneeUserId, null);
+        var effectiveAssigneeUserId = request.AssigneeUserId ?? automaticAssignees.PrimaryUserId;
+        var status = effectiveAssigneeUserId is null ? PendingStatuses.Registered : PendingStatuses.ActionRequested;
+
         var pendingId = Guid.NewGuid();
         await using (var command = connection.CreateCommand())
         {
@@ -237,7 +241,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             command.Parameters.AddWithValue("status", status);
             command.Parameters.AddWithValue("priority", priority);
             AddNullableText(command, "action_department_code", actionDepartmentCode);
-            AddNullableUuid(command, "assignee_user_id", request.AssigneeUserId);
+            AddNullableUuid(command, "assignee_user_id", effectiveAssigneeUserId);
             AddNullableDate(command, "due_date", request.DueDate);
             command.Parameters.AddWithValue("actor_id", actor.UserId);
             try
@@ -261,13 +265,13 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             null,
             status,
             null,
-            request.AssigneeUserId,
+            effectiveAssigneeUserId,
             "Pending 등록",
             actor.UserId,
             correlationId,
             cancellationToken);
 
-        if (request.AssigneeUserId is not null)
+        if (effectiveAssigneeUserId is not null)
         {
             await CreateAssignmentArtifactsAsync(
                 connection,
@@ -278,7 +282,9 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 description,
                 priority,
                 request.DueDate,
-                request.AssigneeUserId.Value,
+                effectiveAssigneeUserId.Value,
+                automaticAssignees.SecondaryUserId,
+                actionDepartmentCode,
                 actor.UserId,
                 1,
                 cancellationToken);
@@ -477,6 +483,14 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         }
 
         await CancelOpenWorkItemsAsync(connection, transaction, pendingId, cancellationToken);
+        var assignmentPeers = issue.ActionDepartmentCode is null
+            ? new PendingAssigneePair(request.AssigneeUserId.Value, null)
+            : await ResolveProjectActionAssigneesAsync(
+                connection,
+                transaction,
+                issue.ProjectId,
+                issue.ActionDepartmentCode,
+                cancellationToken);
         await CreateAssignmentArtifactsAsync(
             connection,
             transaction,
@@ -487,6 +501,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             issue.Priority,
             issue.DueDate,
             request.AssigneeUserId.Value,
+            assignmentPeers.SecondaryUserId == request.AssigneeUserId.Value ? null : assignmentPeers.SecondaryUserId,
+            issue.ActionDepartmentCode,
             actor.UserId,
             issue.Version + 1,
             cancellationToken);
@@ -596,6 +612,13 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             }
         }
 
+        const string actionDepartmentCode = "procurement";
+        var automaticAssignees = await ResolveProjectActionAssigneesAsync(
+            connection,
+            transaction,
+            projectId,
+            actionDepartmentCode,
+            cancellationToken);
         var pendingId = Guid.NewGuid();
         await using (var command = connection.CreateCommand())
         {
@@ -603,12 +626,12 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             command.CommandText = """
                 insert into pending_issues (
                     id, project_id, target_type, target_id, issue_type, title, description,
-                    status, priority, assignee_user_id, due_date, created_by_user_id,
+                    status, priority, action_department_code, assignee_user_id, due_date, created_by_user_id,
                     updated_by_user_id
                 )
                 values (
                     @id, @project_id, 'ProcurementItem', @target_id, 'Nonconformance', @title, @description,
-                    'Registered', 'Urgent', null, null, @actor_id, @actor_id
+                    @status, 'Urgent', @action_department_code, @assignee_user_id, null, @actor_id, @actor_id
                 );
                 """;
             command.Parameters.AddWithValue("id", pendingId);
@@ -616,6 +639,9 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             command.Parameters.AddWithValue("target_id", procurementItemId);
             command.Parameters.AddWithValue("title", title.Trim());
             command.Parameters.AddWithValue("description", description.Trim());
+            command.Parameters.AddWithValue("status", automaticAssignees.PrimaryUserId is null ? PendingStatuses.Registered : PendingStatuses.ActionRequested);
+            command.Parameters.AddWithValue("action_department_code", actionDepartmentCode);
+            AddNullableUuid(command, "assignee_user_id", automaticAssignees.PrimaryUserId);
             command.Parameters.AddWithValue("actor_id", actorUserId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
@@ -626,13 +652,31 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             pendingId,
             "Created",
             null,
-            PendingStatuses.Registered,
+            automaticAssignees.PrimaryUserId is null ? PendingStatuses.Registered : PendingStatuses.ActionRequested,
             null,
-            null,
+            automaticAssignees.PrimaryUserId,
             "IQC 부적합 자동 등록",
             actorUserId,
             correlationId,
             cancellationToken);
+        if (automaticAssignees.PrimaryUserId is not null)
+        {
+            await CreateAssignmentArtifactsAsync(
+                connection,
+                transaction,
+                pendingId,
+                projectId,
+                title,
+                description,
+                PendingPriorities.Urgent,
+                null,
+                automaticAssignees.PrimaryUserId.Value,
+                automaticAssignees.SecondaryUserId,
+                actionDepartmentCode,
+                actorUserId,
+                1,
+                cancellationToken);
+        }
         return pendingId;
     }
 
@@ -650,6 +694,10 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         string? correlationId,
         CancellationToken cancellationToken)
     {
+        var automaticAssignees = assigneeUserId is null
+            ? await ResolveProjectActionAssigneesAsync(connection, transaction, projectId, actionDepartmentCode, cancellationToken)
+            : new PendingAssigneePair(assigneeUserId, null);
+        assigneeUserId ??= automaticAssignees.PrimaryUserId;
         var pendingId = Guid.NewGuid();
         var status = assigneeUserId is null ? PendingStatuses.Registered : PendingStatuses.ActionRequested;
         var title = $"제조 중단 · {panelDisplayCode}";
@@ -709,6 +757,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 PendingPriorities.Urgent,
                 null,
                 assigneeUserId.Value,
+                automaticAssignees.SecondaryUserId,
+                actionDepartmentCode,
                 actorUserId,
                 1,
                 cancellationToken);
@@ -737,6 +787,10 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             throw new InvalidOperationException("지원하지 않는 품질 Pending 유형입니다.");
         }
 
+        var automaticAssignees = assigneeUserId is null
+            ? await ResolveProjectActionAssigneesAsync(connection, transaction, projectId, actionDepartmentCode, cancellationToken)
+            : new PendingAssigneePair(assigneeUserId, null);
+        assigneeUserId ??= automaticAssignees.PrimaryUserId;
         var pendingId = Guid.NewGuid();
         var status = assigneeUserId is null ? PendingStatuses.Registered : PendingStatuses.ActionRequested;
         var title = $"{stageLabel} {(issueType == PendingIssueTypes.Punch ? "PUNCH" : "부적합")} · {panelDisplayCode}";
@@ -797,6 +851,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 PendingPriorities.Urgent,
                 null,
                 assigneeUserId.Value,
+                automaticAssignees.SecondaryUserId,
+                actionDepartmentCode,
                 actorUserId,
                 1,
                 cancellationToken);
@@ -1334,6 +1390,117 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 
+    private static async Task<PendingAssigneePair> ResolveProjectActionAssigneesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string departmentCode,
+        CancellationToken cancellationToken)
+    {
+        var (primaryTypes, secondaryTypes) = PendingResponsibilityTypes(departmentCode);
+        var primaryUserId = await ReadProjectPendingAssigneeAsync(
+            connection,
+            transaction,
+            projectId,
+            primaryTypes,
+            cancellationToken);
+        primaryUserId ??= await ReadDepartmentPendingAssigneeAsync(
+            connection,
+            transaction,
+            departmentCode,
+            cancellationToken);
+        var secondaryUserId = await ReadProjectPendingAssigneeAsync(
+            connection,
+            transaction,
+            projectId,
+            secondaryTypes,
+            cancellationToken);
+        return new PendingAssigneePair(primaryUserId, secondaryUserId == primaryUserId ? null : secondaryUserId);
+    }
+
+    private static async Task<Guid?> ReadProjectPendingAssigneeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        IReadOnlyList<string> responsibilityTypes,
+        CancellationToken cancellationToken)
+    {
+        if (responsibilityTypes.Count == 0)
+        {
+            return null;
+        }
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select pa.assigned_user_id
+            from project_assignees pa
+            join qms_users users on users.id = pa.assigned_user_id and users.is_active = true
+            where pa.project_id = @project_id
+              and pa.responsibility_type = any(@responsibility_types)
+              and exists (
+                  select 1
+                  from user_roles user_role
+                  join role_permissions role_permission on role_permission.role_id = user_role.role_id
+                  join permissions permission on permission.id = role_permission.permission_id
+                  where user_role.user_id = users.id
+                    and permission.code = 'Pending.Manage'
+              )
+            order by array_position(@responsibility_types, pa.responsibility_type)
+            limit 1;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("responsibility_types", responsibilityTypes.ToArray());
+        return (Guid?)(await command.ExecuteScalarAsync(cancellationToken));
+    }
+
+    private static async Task<Guid?> ReadDepartmentPendingAssigneeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string departmentCode,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select users.id
+            from qms_users users
+            join departments department on department.id = users.department_id
+            where users.is_active = true
+              and department.code = @department_code
+              and exists (
+                  select 1
+                  from user_roles user_role
+                  join role_permissions role_permission on role_permission.role_id = user_role.role_id
+                  join permissions permission on permission.id = role_permission.permission_id
+                  where user_role.user_id = users.id
+                    and permission.code = 'Pending.Manage'
+              )
+            order by users.display_name
+            limit 1;
+            """;
+        command.Parameters.AddWithValue("department_code", departmentCode);
+        return (Guid?)(await command.ExecuteScalarAsync(cancellationToken));
+    }
+
+    private static (IReadOnlyList<string> Primary, IReadOnlyList<string> Secondary) PendingResponsibilityTypes(string departmentCode)
+    {
+        return departmentCode switch
+        {
+            "sales" => (["SalesPrimary"], ["SalesSecondary"]),
+            "design" => (["DesignPrimary"], ["DesignSecondary"]),
+            "production-planning" => (["ProductionPlanningPrimary", "ProductionPlanning"], ["ProductionPlanningSecondary"]),
+            "procurement" => (["ProcurementPrimary", "Procurement"], ["ProcurementSecondary"]),
+            "materials" => (["MaterialsPrimary"], ["MaterialsSecondary"]),
+            "manufacturing" => (["ManufacturingPrimary", "Manufacturing"], ["ManufacturingSecondary"]),
+            "logistics" => (["LogisticsPrimary", "Logistics"], ["LogisticsSecondary"]),
+            "quality" => (
+                ["QualityIQC", "QualityLQC", "QualityOQC", "QualityCustomerInspection", "Quality"],
+                ["QualityIQCSecondary", "QualityLQCSecondary", "QualityOQCSecondary", "QualityCustomerInspectionSecondary"]),
+            _ => ([], [])
+        };
+    }
+
     private static async Task CreateAssignmentArtifactsAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -1344,10 +1511,13 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         string priority,
         DateOnly? dueDate,
         Guid assigneeUserId,
+        Guid? secondaryUserId,
+        string? actionDepartmentCode,
         Guid createdByUserId,
         int version,
         CancellationToken cancellationToken)
     {
+        _ = actionDepartmentCode;
         var stageCode = await ReadCurrentWorkflowStageCodeAsync(connection, transaction, projectId, cancellationToken);
         var workItemId = Guid.NewGuid();
         await using (var command = connection.CreateCommand())
@@ -1364,7 +1534,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                     'PendingAction', @assignee_user_id, @title, @description, 'Requested',
                     @priority, @due_date, @idempotency_key, @created_by_user_id
                 )
-                on conflict (idempotency_key) do nothing;
+                on conflict (idempotency_key) do update set title = excluded.title
+                returning id;
                 """;
             command.Parameters.AddWithValue("id", workItemId);
             command.Parameters.AddWithValue("project_id", projectId);
@@ -1377,7 +1548,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             AddNullableDate(command, "due_date", dueDate);
             command.Parameters.AddWithValue("idempotency_key", $"pending:{pendingId}:assignment:{assigneeUserId}:v{version}");
             command.Parameters.AddWithValue("created_by_user_id", createdByUserId);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            workItemId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? workItemId);
         }
 
         var notificationId = Guid.NewGuid();
@@ -1391,9 +1562,13 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 )
                 values (
                     @id, @project_id, @notification_type, @severity, @title, @message, @link_url,
-                    @idempotency_key, 'RecipientOnly', 'WorkAssignment', @work_item_id
+                    @idempotency_key, 'RecipientOnly', 'PendingAssignment', @work_item_id
                 )
-                on conflict (idempotency_key) do nothing;
+                on conflict (idempotency_key) do update
+                set title = excluded.title,
+                    message = excluded.message,
+                    work_item_id = excluded.work_item_id
+                returning id;
                 """;
             command.Parameters.AddWithValue("id", notificationId);
             command.Parameters.AddWithValue("project_id", projectId);
@@ -1404,7 +1579,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             command.Parameters.AddWithValue("link_url", $"/pending/{pendingId}");
             command.Parameters.AddWithValue("idempotency_key", $"pending:{pendingId}:notification:{assigneeUserId}:v{version}");
             command.Parameters.AddWithValue("work_item_id", workItemId);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? notificationId);
         }
 
         await using (var command = connection.CreateCommand())
@@ -1418,6 +1593,21 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 """;
             command.Parameters.AddWithValue("notification_id", notificationId);
             command.Parameters.AddWithValue("user_id", assigneeUserId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (secondaryUserId is not null && secondaryUserId != assigneeUserId)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into notification_recipients (notification_id, user_id)
+                select @notification_id, @user_id
+                where exists (select 1 from notifications where id = @notification_id)
+                on conflict (notification_id, user_id) do nothing;
+                """;
+            command.Parameters.AddWithValue("notification_id", notificationId);
+            command.Parameters.AddWithValue("user_id", secondaryUserId.Value);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
@@ -1545,6 +1735,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
 
         return NpgsqlDataSource.Create(connectionString);
     }
+
+    private sealed record PendingAssigneePair(Guid? PrimaryUserId, Guid? SecondaryUserId);
 
     private static void AddNullableText(NpgsqlCommand command, string name, string? value)
     {

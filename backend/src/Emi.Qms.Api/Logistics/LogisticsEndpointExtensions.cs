@@ -17,6 +17,17 @@ public static class LogisticsEndpointExtensions
             .RequireAuthorization(policy => policy.RequireAuthenticatedUser().AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
             .WithName("ListLogisticsQueue");
 
+        logistics.MapGet("/projects/{projectId:guid}/history", async (
+            Guid projectId, LogisticsStore store, ClaimsPrincipal user, CancellationToken token) =>
+        {
+            var result = await store.GetProjectHistoryAsync(projectId, Scope(user), token);
+            return result.Status == LogisticsMutationStatus.Success && result.Value is not null
+                ? Results.Ok(result.Value)
+                : Results.NotFound();
+        })
+            .RequireAuthorization(policy => policy.RequireAuthenticatedUser().AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
+            .WithName("GetLogisticsProjectHistory");
+
         logistics.MapGet("/{stage:regex(^(packing|departure|delivery)$)}/{targetId:guid}", async (
             string stage, Guid targetId, LogisticsStore store, ClaimsPrincipal user, CancellationToken token) =>
         {

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.Projects;
 using Npgsql;
 using NpgsqlTypes;
@@ -48,7 +49,7 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
             left join qms_users completed_by
               on completed_by.id = completion.completed_by_user_id
             where project.deleted_at_utc is null
-              and project.status = 'Active'
+              {(projectId is null ? "and project.status = 'Active'" : string.Empty)}
               and (@has_read_all or project.project_key = any(@project_keys))
               {(projectId is null ? string.Empty : "and project.id = @project_id")}
             order by project.project_code, project.id, panel.sequence_number;
@@ -366,6 +367,14 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
         command.Parameters.AddWithValue("idempotency_key", $"materials:kitting:{projectId}");
         command.Parameters.AddWithValue("actor_id", actorUserId);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        var workItemId = await ReadWorkItemIdAsync(connection, transaction, $"materials:kitting:{projectId}", cancellationToken);
+        if (workItemId is not null)
+        {
+            await WorkAssignmentNotificationWriter.UpsertAsync(
+                connection, transaction, projectId, workItemId.Value, assignee.Value.UserId,
+                ["MaterialsSecondary"], "패널 키팅 완료", "입고 준비가 끝난 프로젝트의 패널 키팅을 완료해 주세요.",
+                $"/materials/kitting?project={projectId}", $"materials:kitting:{projectId}:notification", cancellationToken);
+        }
     }
 
     private static Dictionary<string, string[]> ValidateRequest(CompletePanelKittingRequest request)
@@ -729,11 +738,36 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
         command.Parameters.AddWithValue("panel_id", panel.PanelId);
         command.Parameters.AddWithValue("assignee_id", assignee.UserId);
         AddNullableText(command, "role_code", assignee.RoleCode);
-        command.Parameters.AddWithValue("title", $"제조 작업 · {panel.DisplayCode}");
-        command.Parameters.AddWithValue("description", $"키팅 완료 패널의 제조 작업을 진행해 주세요. /manufacturing/work?project={projectId}&panel={panel.PanelId}");
-        command.Parameters.AddWithValue("idempotency_key", $"kitting:panel:{panel.PanelId}:manufacturing");
+        var title = $"제조 작업 · {panel.DisplayCode}";
+        var description = "키팅 완료 패널의 제조 작업을 진행해 주세요.";
+        var idempotencyKey = $"kitting:panel:{panel.PanelId}:manufacturing";
+        command.Parameters.AddWithValue("title", title);
+        command.Parameters.AddWithValue("description", $"{description} /manufacturing/work?project={projectId}&panel={panel.PanelId}");
+        command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
         command.Parameters.AddWithValue("actor_id", actorUserId);
-        return await command.ExecuteNonQueryAsync(cancellationToken);
+        var inserted = await command.ExecuteNonQueryAsync(cancellationToken);
+        var workItemId = await ReadWorkItemIdAsync(connection, transaction, idempotencyKey, cancellationToken);
+        if (workItemId is not null)
+        {
+            await WorkAssignmentNotificationWriter.UpsertAsync(
+                connection, transaction, projectId, workItemId.Value, assignee.UserId,
+                ["ManufacturingSecondary"], title, description,
+                $"/manufacturing/work?project={projectId}&panel={panel.PanelId}", $"{idempotencyKey}:notification", cancellationToken);
+        }
+        return inserted;
+    }
+
+    private static async Task<Guid?> ReadWorkItemIdAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select id from work_items where idempotency_key=@key;";
+        command.Parameters.AddWithValue("key", idempotencyKey);
+        return await command.ExecuteScalarAsync(cancellationToken) as Guid?;
     }
 
     private static async Task<(Guid EventId, bool Created)> EnsureStageCompletedEventAsync(

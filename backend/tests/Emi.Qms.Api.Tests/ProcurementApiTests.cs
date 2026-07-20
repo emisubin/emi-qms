@@ -798,7 +798,7 @@ public sealed class ProcurementApiTests
         var pendingId = failedJson.RootElement.GetProperty("pendingIssueId").GetGuid();
 
         using var pending = await ReadJsonAsync(await coordinatorClient.GetAsync($"/api/pending/{pendingId}", TestContext.Current.CancellationToken));
-        Assert.Equal("Registered", pending.RootElement.GetProperty("issue").GetProperty("status").GetString());
+        Assert.Equal("ActionRequested", pending.RootElement.GetProperty("issue").GetProperty("status").GetString());
         Assert.Equal("Urgent", pending.RootElement.GetProperty("issue").GetProperty("priority").GetString());
         using var assignees = await ReadJsonAsync(await coordinatorClient.GetAsync("/api/pending/assignees", TestContext.Current.CancellationToken));
         var assigneeId = assignees.RootElement[0].GetProperty("userId").GetGuid();
@@ -1392,6 +1392,15 @@ public sealed class ProcurementApiTests
         Assert.Equal(2L, await context.ReadCountAsync(
             "select count(*) from notifications where project_id = @project_id and idempotency_key like 'kitting:operation:%:reference';",
             projectId));
+
+        await context.ExecuteSqlAsync($"update projects set status='Completed' where id='{projectId}';");
+        using var completedProjectQueue = await ReadJsonAsync(await materialsClient.GetAsync(
+            $"/api/materials/kitting?projectId={projectId}",
+            TestContext.Current.CancellationToken));
+        var completedProject = Assert.Single(completedProjectQueue.RootElement.GetProperty("projects").EnumerateArray());
+        Assert.Equal(projectId, completedProject.GetProperty("projectId").GetGuid());
+        Assert.Contains(completedProject.GetProperty("panels").EnumerateArray(), panel =>
+            panel.GetProperty("kittingCompleted").GetBoolean());
     }
 
     [Fact]

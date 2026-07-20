@@ -839,6 +839,13 @@ public sealed class MaterialsStore(
         }
         await InsertEventAsync(connection, transaction, itemId, null, "ArrivalsClosed", null, null, reason, actorUserId, cancellationToken);
         var completed = await RefreshDerivedProjectionAsync(connection, transaction, itemId, actorUserId, cancellationToken);
+        await EnsureMaterialWorkflowStageEventsAsync(
+            connection,
+            transaction,
+            item.ProjectId,
+            itemId,
+            actorUserId,
+            cancellationToken);
         if (completed)
         {
             await PanelKittingStore.EnsureKittingWorkItemIfReadyAsync(
@@ -851,6 +858,120 @@ public sealed class MaterialsStore(
         await transaction.CommitAsync(cancellationToken);
         return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
             new MaterialReceiptActionResponse(itemId, null, null, null, "ArrivalsClosed", completed));
+    }
+
+    private static async Task EnsureMaterialWorkflowStageEventsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid sourceItemId,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        int activeItemCount;
+        int closedItemCount;
+        int itemWithoutReceiptCount;
+        int iqcIncompleteItemCount;
+        int receiptIncompleteItemCount;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select
+                    count(*)::int,
+                    count(*) filter (where item.material_arrivals_closed_at_utc is not null)::int,
+                    count(*) filter (where not exists (
+                        select 1 from material_receipts receipt
+                        where receipt.procurement_item_id = item.id and receipt.status <> 'Cancelled'
+                    ))::int,
+                    count(*) filter (where exists (
+                        select 1 from material_receipts receipt
+                        where receipt.procurement_item_id = item.id
+                          and receipt.status not in ('Passed', 'Confirmed', 'Cancelled')
+                    ))::int,
+                    count(*) filter (where item.receipt_completed = false)::int
+                from project_procurement_items item
+                where item.project_id = @project_id and item.status = 'Active';
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await reader.ReadAsync(cancellationToken);
+            activeItemCount = reader.GetInt32(0);
+            closedItemCount = reader.GetInt32(1);
+            itemWithoutReceiptCount = reader.GetInt32(2);
+            iqcIncompleteItemCount = reader.GetInt32(3);
+            receiptIncompleteItemCount = reader.GetInt32(4);
+        }
+
+        if (activeItemCount == 0 || closedItemCount != activeItemCount || itemWithoutReceiptCount > 0)
+        {
+            return;
+        }
+
+        await EnsureMaterialStageCompletedEventAsync(
+            connection, transaction, projectId, "MaterialArrived", sourceItemId,
+            "모든 활성 구매품목 도착 등록 및 입고 마감", actorUserId, cancellationToken);
+        if (iqcIncompleteItemCount > 0)
+        {
+            return;
+        }
+
+        await EnsureMaterialStageCompletedEventAsync(
+            connection, transaction, projectId, "IQC", sourceItemId,
+            "모든 유효 도착분 IQC 판정 완료", actorUserId, cancellationToken);
+        if (receiptIncompleteItemCount > 0)
+        {
+            return;
+        }
+
+        await EnsureMaterialStageCompletedEventAsync(
+            connection, transaction, projectId, "ReceiptConfirmed", sourceItemId,
+            "모든 활성 구매품목 입고 확정 완료", actorUserId, cancellationToken);
+    }
+
+    private static async Task EnsureMaterialStageCompletedEventAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string stageCode,
+        Guid sourceItemId,
+        string note,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into project_workflow_events (
+                project_id, stage_code, event_type, event_status, source_type, source_id,
+                created_by_user_id, note
+            )
+            select
+                @project_id, @stage_code, 'StageCompleted', 'Succeeded', 'ProcurementItem', @source_id,
+                @actor_id, @note
+            where not exists (
+                select 1
+                from project_workflow_events
+                where project_id = @project_id
+                  and stage_code = @stage_code
+                  and event_type = 'StageCompleted'
+                  and event_status = 'Succeeded'
+            );
+
+            update work_items
+            set status = 'Completed',
+                started_at_utc = coalesce(started_at_utc, now()),
+                completed_at_utc = coalesce(completed_at_utc, now())
+            where project_id = @project_id
+              and workflow_stage_code = @stage_code
+              and status in ('Requested', 'InProgress');
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("stage_code", stageCode);
+        command.Parameters.AddWithValue("source_id", sourceItemId);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        command.Parameters.AddWithValue("note", note);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static Dictionary<string, string[]> ValidateArrival(RegisterMaterialArrivalRequest request)
@@ -1099,6 +1220,8 @@ public sealed class MaterialsStore(
         {
             return;
         }
+        var title = $"IQC 판정 · {orderItem ?? "발주품목"}";
+        var description = $"도착분 {receiptId}의 수입검사를 판정해 주세요.";
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -1112,17 +1235,22 @@ public sealed class MaterialsStore(
                 @assignee_id, @role_code, @title, @description, 'Requested', 'Blocking',
                 @idempotency_key, @actor_id
             )
-            on conflict (idempotency_key) do nothing;
+            on conflict (idempotency_key) do update set title=excluded.title
+            returning id;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("attempt_id", attemptId);
         command.Parameters.AddWithValue("assignee_id", assignee.Value.UserId);
         AddNullableText(command, "role_code", assignee.Value.RoleCode);
-        command.Parameters.AddWithValue("title", $"IQC 판정 · {orderItem ?? "발주품목"}");
-        command.Parameters.AddWithValue("description", $"도착분 {receiptId}의 수입검사를 판정해 주세요. /quality/iqc?request={attemptId}");
+        command.Parameters.AddWithValue("title", title);
+        command.Parameters.AddWithValue("description", $"{description} /quality/iqc?request={attemptId}");
         command.Parameters.AddWithValue("idempotency_key", $"materials:iqc:{attemptId}");
         command.Parameters.AddWithValue("actor_id", actorUserId);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        var workItemId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
+        await CreateAssignmentNotificationAsync(
+            connection, transaction, projectId, workItemId, assignee.Value.UserId,
+            "QualityIQCSecondary", title, description, $"/quality/iqc?request={attemptId}",
+            $"materials:iqc:{attemptId}:notification", cancellationToken);
     }
 
     private static async Task CreateConfirmationWorkItemAsync(
@@ -1140,6 +1268,8 @@ public sealed class MaterialsStore(
         {
             return;
         }
+        var title = $"입고 확정 · {orderItem ?? "발주품목"}";
+        var description = "IQC 합격 도착분을 확인해 주세요.";
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -1153,17 +1283,90 @@ public sealed class MaterialsStore(
                 @assignee_id, @role_code, @title, @description, 'Requested', 'Normal',
                 @idempotency_key, @actor_id
             )
-            on conflict (idempotency_key) do nothing;
+            on conflict (idempotency_key) do update set title=excluded.title
+            returning id;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("item_id", itemId);
         command.Parameters.AddWithValue("assignee_id", assignee.Value.UserId);
         AddNullableText(command, "role_code", assignee.Value.RoleCode);
-        command.Parameters.AddWithValue("title", $"입고 확정 · {orderItem ?? "발주품목"}");
-        command.Parameters.AddWithValue("description", $"IQC 합격 도착분을 확인해 주세요. /materials/receipts?receipt={receiptId}");
+        command.Parameters.AddWithValue("title", title);
+        command.Parameters.AddWithValue("description", $"{description} /materials/receipts?receipt={receiptId}");
         command.Parameters.AddWithValue("idempotency_key", $"materials:receipt:{receiptId}:confirm");
         command.Parameters.AddWithValue("actor_id", actorUserId);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        var workItemId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
+        await CreateAssignmentNotificationAsync(
+            connection, transaction, projectId, workItemId, assignee.Value.UserId,
+            "MaterialsSecondary", title, description, $"/materials/receipts?receipt={receiptId}",
+            $"materials:receipt:{receiptId}:confirm:notification", cancellationToken);
+    }
+
+    private static async Task CreateAssignmentNotificationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid workItemId,
+        Guid primaryUserId,
+        string secondaryResponsibilityType,
+        string title,
+        string message,
+        string linkUrl,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        Guid notificationId;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into notifications (
+                    project_id, notification_type, severity, title, message, link_url,
+                    idempotency_key, visibility_scope, source_kind, work_item_id
+                ) values (
+                    @project_id, 'Info', 'Info', @title, @message, @link_url,
+                    @idempotency_key, 'RecipientOnly', 'WorkAssignment', @work_item_id
+                )
+                on conflict (idempotency_key) do update
+                set title=excluded.title, message=excluded.message, link_url=excluded.link_url, work_item_id=excluded.work_item_id
+                returning id;
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("title", $"새 업무 · {title}");
+            command.Parameters.AddWithValue("message", message);
+            command.Parameters.AddWithValue("link_url", linkUrl);
+            command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+            command.Parameters.AddWithValue("work_item_id", workItemId);
+            notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
+        }
+
+        var recipientIds = new List<Guid> { primaryUserId };
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select assigned_user_id
+                from project_assignees
+                where project_id=@project_id and responsibility_type=@responsibility_type;
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("responsibility_type", secondaryResponsibilityType);
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            if (value is Guid secondaryUserId) recipientIds.Add(secondaryUserId);
+        }
+
+        foreach (var recipientId in recipientIds.Distinct())
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into notification_recipients (notification_id, user_id)
+                values (@notification_id, @user_id)
+                on conflict (notification_id, user_id) do nothing;
+                """;
+            command.Parameters.AddWithValue("notification_id", notificationId);
+            command.Parameters.AddWithValue("user_id", recipientId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static async Task<(Guid UserId, string? RoleCode)?> ResolveAssigneeAsync(

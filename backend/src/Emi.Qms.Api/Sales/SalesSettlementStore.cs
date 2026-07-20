@@ -142,7 +142,7 @@ public sealed class SalesSettlementStore(
         if (invoice.Error is not null)
             return SalesSettlementMutationResult<SalesSettlementMutationResponse>.Validation(invoice.Error.Value.Field, invoice.Error.Value.Message);
         if (invoice.Date is null)
-            return SalesSettlementMutationResult<SalesSettlementMutationResponse>.Validation("invoiceIssuedDate", "세금계산서 발행일을 입력해 주세요.");
+            return SalesSettlementMutationResult<SalesSettlementMutationResponse>.Validation("invoiceIssuedDate", "회계팀 세금계산서 발행 확인일을 입력해 주세요.");
 
         var fingerprint = Fingerprint(projectId, request.ExpectedVersion.Value, invoice.Date.Value, invoice.Number, invoice.Note);
         await using var dataSource = CreateDataSource();
@@ -179,6 +179,8 @@ public sealed class SalesSettlementStore(
                 return await RollbackConflict<SalesSettlementMutationResponse>(transaction, "모든 활성 패널의 납품을 완료한 뒤 다시 시도해 주세요.", cancellationToken);
             if (conditions.OpenPendingCount > 0)
                 return await RollbackConflict<SalesSettlementMutationResponse>(transaction, "열린 Pending을 모두 종결한 뒤 다시 시도해 주세요.", cancellationToken);
+            if (!await HasBillingRequestAsync(connection, transaction, projectId, cancellationToken))
+                return await RollbackConflict<SalesSettlementMutationResponse>(transaction, "회계팀 세금계산서 발행요청 자료를 먼저 만들어 주세요.", cancellationToken);
 
             var workItemId = await LockOpenSettlementWorkAsync(connection, transaction, projectId, cancellationToken);
             if (workItemId is null)
@@ -214,8 +216,8 @@ public sealed class SalesSettlementStore(
     {
         if (value is null) return null;
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), SeoulTimeZone).DateTime);
-        if (value < projectCreatedDate) return "세금계산서 발행일은 프로젝트 생성일보다 빠를 수 없습니다.";
-        if (value > today) return "세금계산서 발행일은 오늘보다 늦을 수 없습니다.";
+        if (value < projectCreatedDate) return "회계팀 발행 확인일은 프로젝트 생성일보다 빠를 수 없습니다.";
+        if (value > today) return "회계팀 발행 확인일은 오늘보다 늦을 수 없습니다.";
         return null;
     }
 
@@ -324,6 +326,19 @@ public sealed class SalesSettlementStore(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         await reader.ReadAsync(cancellationToken);
         return new ConditionSnapshot(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2));
+    }
+
+    private static async Task<bool> HasBillingRequestAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select exists(select 1 from sales_billing_request_items where project_id=@project_id);";
+        command.Parameters.AddWithValue("project_id", projectId);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 
     private static async Task<Guid?> LockOpenSettlementWorkAsync(
@@ -599,10 +614,13 @@ public sealed class SalesSettlementStore(
                    settlement.status,coalesce(settlement.version,0),settlement.invoice_issued_date,
                    settlement.invoice_number,settlement.note,settlement.completed_at_utc,completed_user.display_name,
                    exists(select 1 from project_assignees assignee where assignee.project_id=project.id and assignee.assigned_user_id=@actor_id and assignee.responsibility_type in ('SalesPrimary','SalesSecondary'))
-                     or exists(select 1 from work_items work where work.project_id=project.id and work.target_type='Project' and work.target_id=project.id and work.workflow_stage_code='SalesSettlementCompleted' and work.status in ('Requested','InProgress') and work.assigned_user_id=@actor_id)
+                     or exists(select 1 from work_items work where work.project_id=project.id and work.target_type='Project' and work.target_id=project.id and work.workflow_stage_code='SalesSettlementCompleted' and work.status in ('Requested','InProgress') and work.assigned_user_id=@actor_id),
+                   billing_batch.id, billing_batch.request_number, billing_batch.created_at_utc
             from projects project
             left join sales_settlements settlement on settlement.project_id=project.id
             left join qms_users completed_user on completed_user.id=settlement.completed_by_user_id
+            left join sales_billing_request_items billing_item on billing_item.project_id=project.id
+            left join sales_billing_request_batches billing_batch on billing_batch.id=billing_item.batch_id
             where project.id=@project_id and project.deleted_at_utc is null
               and (@has_read_all or project.project_key=any(@project_keys));
             """;
@@ -622,6 +640,9 @@ public sealed class SalesSettlementStore(
         DateTimeOffset? completedAt;
         string? completedBy;
         bool actorMatch;
+        Guid? billingBatchId;
+        long? billingRequestNumber;
+        DateTimeOffset? billingRequestedAt;
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
             if (!await reader.ReadAsync(cancellationToken)) return null;
@@ -637,6 +658,9 @@ public sealed class SalesSettlementStore(
             completedAt = reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9);
             completedBy = reader.IsDBNull(10) ? null : reader.GetString(10);
             actorMatch = reader.GetBoolean(11);
+            billingBatchId = reader.IsDBNull(12) ? null : reader.GetGuid(12);
+            billingRequestNumber = reader.IsDBNull(13) ? null : reader.GetInt64(13);
+            billingRequestedAt = reader.IsDBNull(14) ? null : reader.GetFieldValue<DateTimeOffset>(14);
         }
 
         var conditions = await ReadConditionsAsync(connection, transaction, projectId, cancellationToken);
@@ -649,9 +673,15 @@ public sealed class SalesSettlementStore(
             conditions.ActivePanelCount, conditions.DeliveredPanelCount, conditions.OpenPendingCount,
             invoiceDate, invoiceNumber, note, completedAt, completedBy,
             allDelivered, noOpenPending, invoiceIssued,
-            canMutate && allDelivered && noOpenPending && invoiceIssued,
+            canMutate && allDelivered && noOpenPending && invoiceIssued && billingBatchId is not null,
             canMutate,
-            $"/pending?project={projectId:D}");
+            $"/pending?project={projectId:D}",
+            new SalesBillingProjectStatusResponse(
+                billingBatchId is not null,
+                billingBatchId,
+                billingRequestNumber,
+                billingRequestedAt,
+                settlementStatus == "Completed"));
     }
 
     private static string Fingerprint(Guid projectId, int expectedVersion, DateOnly date, string? number, string? note)

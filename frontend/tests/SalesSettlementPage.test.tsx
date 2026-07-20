@@ -46,13 +46,13 @@ describe('SalesSettlementPage', () => {
       </AdaptiveLayoutProvider>
     );
 
-    expect(await screen.findByRole('heading', { name: '정산하고 완료하기' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '발행 확인 후 완료하기' })).toBeInTheDocument();
     expect(screen.getByText('2/2')).toBeInTheDocument();
     expect(screen.getByText('0건')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText(/발행일/u), { target: { value: '2026-07-18' } });
+    fireEvent.change(screen.getByLabelText(/회계팀 발행 확인일/u), { target: { value: '2026-07-18' } });
     fireEvent.click(screen.getByRole('button', { name: '최종 완료 확인' }));
     expect(screen.getByText('정말 최종 완료할까요?')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '정산·프로젝트 완료' }));
+    fireEvent.click(screen.getByRole('button', { name: '발행 확인·프로젝트 완료' }));
 
     expect(await screen.findByRole('heading', { name: '프로젝트 완료 내역' })).toBeInTheDocument();
     expect(screen.getByText('프로젝트가 최종 완료되었습니다.')).toBeInTheDocument();
@@ -88,7 +88,8 @@ function detail(completed: boolean) {
     invoiceIssuedDate: completed ? '2026-07-18' : null, invoiceNumber: completed ? 'SYNTH-001' : null, note: null,
     completedAtUtc: completed ? '2026-07-18T01:00:00Z' : null, completedByName: completed ? '합성 영업 담당' : null,
     allPanelsDelivered: true, noOpenPending: true, invoiceIssued: completed,
-    canComplete: !completed, canMutate: !completed, pendingLink: `/pending?projectId=${projectId}`
+    canComplete: !completed, canMutate: !completed, pendingLink: `/pending?projectId=${projectId}`,
+    billingRequestStatus: { requested: true, batchId: crypto.randomUUID(), requestNumber: 12, requestedAtUtc: '2026-07-16T00:00:00Z', accountingIssueConfirmed: completed }
   };
 }
 

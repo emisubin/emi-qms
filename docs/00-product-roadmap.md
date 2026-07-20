@@ -1663,6 +1663,15 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 포함 범위: Home·Pending·IQC·mobile navigation·kitting·project bottleneck·project registration·selected export fixture/selector와 프로젝트 목록 중복 전체선택 UI.
 - 제외 범위: Backend 제품 계약·API·DB·migration·dependency, 대표 repo·`main`, Persistent UAT, 실제 provider, push·PR·merge.
 - 2026-07-18 실험 상태: 현재 HEAD에서 전체 `25/35`와 10개 실패를 재현하고 최신 Pending 부서·구매 수량·통합 IQC·디지털 성적서·audit 증가분 계약으로 보정했다. 프로젝트 desktop header의 중복 전체선택을 제거해 선택 tray 한 개만 남겼다. Backend Release build와 `388/388`, Frontend lint(error 0)·typecheck·`92/92`·build, disposable PostgreSQL Full-Stack E2E `35/35`와 cleanup을 완료했다. 사용자 검수는 `BATCHED_FINAL`이고 현재 회귀 기준선은 완료다. 대표 repo·`main`·push·PR·merge·Persistent UAT·provider는 미반영이다.
+- 2026-07-19 Change 002 실험 상태: 사용자 확정 정책에 따라 생성 알림을 관리자·조회전용 제외 운영 전 사용자로 확대하고, 생산관리 담당 지정 이후 정담당자 내 업무 시작, 단계별 정·부 알림, 납품 후 영업 알림, Pending 자동 담당·내 업무·TeamsChannel/Mail outbox, 자재 연속 흐름과 workflow 완료 정합성을 구현했다. 실제 역할 UI 입력으로 생성→회계 발행요청 Excel→최종 `18/18` 완료 `1/1`, Backend `403/403`, Frontend `109/109`, build/typecheck를 통과했다. 실제 provider·Persistent UAT·대표 repo·`main`은 미반영이다.
+- 2026-07-20 Change 003 실험 상태: 프로젝트 상세의 영업·자재·제조·품질·물류 탭을 workflow-only 요약에서 부서 실데이터와 담당자 수정 진입으로 전환했다. 알림은 프로젝트 단위 읽음·최근 3건 우선 접기·열람 자동 읽음을 추가했고, 생산계획 수정은 초기 응답 완료 전 입력 잠금과 stale response 폐기를 적용했다. Frontend `109/109`, Backend 알림 통합 test `1/1`, isolated 실제 역할 lifecycle `1/1`과 desktop 8개·mobile 5개 탭 visual을 통과했다. 대표 repo·`main`·Persistent UAT·실제 provider는 미반영이다.
+
+### TASK-BILLING-REQUEST-001: 회계팀 세금계산서 발행요청 Excel
+
+- 목적: 매월 1일·16일에 영업이 해당 기간 출하 완료 프로젝트를 선택해 회계팀 발행요청 자료를 즉시 만들고 요청 이력과 동일 workbook을 재다운로드한다.
+- 포함 범위: 서울 반월 추천 기간, 최종 출발일 후보, checkbox 전체/개별 선택, server 재검증, 멱등 batch·snapshot·SHA-256 workbook, 요청 이력·재다운로드, 정산 발행요청 gate·회계 발행 확인 문구.
+- 제외 범위: 영업 직접 세금계산서 발행, 회계팀 계정 workflow, 국세청·ERP, 실제 메일·Teams 전달, 취소·정정·수정세금계산서.
+- 2026-07-19 실험 상태: Fable 1차 기획 → Codex review → Fable 2차 기획 `docs/33-billing-request-plan.md` 뒤 additive migration `0046`, Backend API/store, 영업 발행요청 화면, 정산 gate를 구현했다. 실제 lifecycle에서 출하 프로젝트 선택 Excel과 최종 완료를 검증했고 Backend `403/403`, Frontend `109/109`, typecheck/build를 통과했다. `EXPERIMENT_COMPLETE / BATCHED_FINAL`; 대표 repo·`main`·Persistent UAT·실제 provider 미반영.
 
 ### DESIGN-000 이후: 시각 토큰과 화면 통일
 
@@ -1765,7 +1774,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | 완료 / 독립 재검증·CI 3/3·PR #55 squash merge / Open P0/P1/P2/P3 `0/0/0/0` | 사용자/기획/개발 | TASK-USER-FLOW-001 Change 004 | 개인 개발 판단 자료. Fable direct-write 원문·확정/권고/미확정 경계·병렬 dependency map·vertical slice를 반영했으며 제품 구현·Phase B는 미승인 |
 | 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / Governance merge 승인 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Governance merge 뒤 USER-FLOW를 최신 main에서 별도 처리 |
 | 89 | 선택 프로젝트 Excel 내보내기 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/개발 | TASK-EXPORT-002 | 선택 subset·전부-or-전무 scope 검증·`ProjectsSelected` audit·desktop/mobile/Excel screenshot 완료. 대표 repo·main·Persistent UAT·게시 제외 |
-| 90 | 실험 계보 Full-Stack 전체 회귀 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 개발/품질 | TASK-E2E-FULL-SUITE-001 | `FULL-STACK-BASELINE-UNRELATED-FAILURES` Resolved, 프로젝트 중복 전체선택 제거, Backend 388·Frontend 92·Full-Stack 35/35. 대표 repo·main·게시 제외 |
+| 90 | 실험 계보 Full-Stack 전체 회귀 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 개발/품질 | TASK-E2E-FULL-SUITE-001 | 전체 회귀 복구와 실제 역할 18단계 lifecycle 검증, Change 004 전체 흐름·생산계획 정보 우선순위, Change 005 전 부서 저장 field·checklist·event·evidence projection. 최신 Frontend 110/110, lifecycle 1/1. 대표 repo·main·게시 제외 |
 | 92 | 실험 Task 완료 원장과 중복 실행 방지 | 완료 원장 작성·Task selection gate 적용 | 사용자/개발 | TASK-GOV-CODEX-002 Change 015 | 완료 18 Task·A1 slice·남은 Task·P3 backlog를 분리. `BATCHED_FINAL`은 사용자 검수 완료가 아니며 완료 scope 재구현을 금지 |
 
 ## 25. 결정 이력 (Decision Log)

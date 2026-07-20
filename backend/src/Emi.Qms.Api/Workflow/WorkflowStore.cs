@@ -82,7 +82,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             note,
             cancellationToken);
 
-        if (StageToNextStage.TryGetValue(stageCode, out var nextStageCode)
+        if (!string.Equals(stageCode, WorkflowStageCodes.SalesProjectCreated, StringComparison.Ordinal)
+            && StageToNextStage.TryGetValue(stageCode, out var nextStageCode)
             && StageResponsibilities.TryGetValue(nextStageCode, out var target))
         {
             var stage = await ReadStageAsync(connection, transaction, nextStageCode, cancellationToken);
@@ -187,37 +188,38 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 cancellationToken);
         }
 
-        foreach (var target in new[]
+        var target = (
+            StageCode: WorkflowStageCodes.ProductionPlanning,
+            Responsibility: StageResponsibilities[WorkflowStageCodes.ProductionPlanning]);
+        var stage = await ReadStageAsync(connection, transaction, target.StageCode, cancellationToken);
+        if (stage is not null)
         {
-            (StageCode: WorkflowStageCodes.DesignPanelInfo, Responsibility: StageResponsibilities[WorkflowStageCodes.DesignPanelInfo]),
-            (StageCode: WorkflowStageCodes.ProcurementInfo, Responsibility: StageResponsibilities[WorkflowStageCodes.ProcurementInfo])
-        })
-        {
-            var stage = await ReadStageAsync(connection, transaction, target.StageCode, cancellationToken);
-            if (stage is null)
-            {
-                continue;
-            }
-
             var assignee = await ResolveAssigneeAsync(connection, transaction, project, target.Responsibility, cancellationToken);
-            if (assignee.UserId is null)
+            if (assignee.UserId is not null)
             {
-                continue;
+                await CreateWorkItemAsync(
+                    connection,
+                    transaction,
+                    projectId,
+                    target.StageCode,
+                    target.Responsibility.Primary,
+                    assignee.UserId.Value,
+                    assignee.RoleCode,
+                    WorkItemTitleForStage(stage.StageCode),
+                    BuildWorkDescription(stage, assignee),
+                    eventId,
+                    changedByUserId,
+                    $"project:{projectId}:assignee-save:stage:{target.StageCode}:work:{target.Responsibility.Primary}:{assignee.UserId.Value}",
+                    cancellationToken);
             }
 
-            await CreateWorkItemAsync(
+            await CreateSecondaryReferenceNotificationAsync(
                 connection,
                 transaction,
-                projectId,
-                target.StageCode,
-                target.Responsibility.Primary,
-                assignee.UserId.Value,
-                assignee.RoleCode,
-                WorkItemTitleForStage(stage.StageCode),
-                BuildWorkDescription(stage, assignee),
+                project,
+                stage,
+                target.Responsibility,
                 eventId,
-                changedByUserId,
-                $"project:{projectId}:assignee-save:stage:{target.StageCode}:work:{target.Responsibility.Primary}:{assignee.UserId.Value}",
                 cancellationToken);
         }
 
@@ -965,6 +967,47 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         return await GetNotificationSummaryAsync(userId, cancellationToken);
     }
 
+    public async Task<NotificationSummaryResponse> MarkProjectNotificationsReadAsync(
+        Guid projectId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using (var insert = dataSource.CreateCommand("""
+            insert into notification_recipients (notification_id, user_id)
+            select n.id, @user_id
+            from notifications n
+            where n.project_id = @project_id
+              and n.visibility_scope = 'Authenticated'
+              and exists (
+                    select 1
+                    from qms_users u
+                    where u.id = @user_id
+                      and u.is_active = true
+                )
+            on conflict (notification_id, user_id) do nothing;
+            """))
+        {
+            insert.Parameters.AddWithValue("project_id", projectId);
+            insert.Parameters.AddWithValue("user_id", userId);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var command = dataSource.CreateCommand("""
+            update notification_recipients nr
+            set read_at_utc = coalesce(nr.read_at_utc, now())
+            from notifications n
+            where nr.notification_id = n.id
+              and nr.user_id = @user_id
+              and n.project_id = @project_id
+              and nr.read_at_utc is null;
+            """);
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("user_id", userId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        return await GetNotificationSummaryAsync(userId, cancellationToken);
+    }
+
     private async Task<WorkflowMutationResult<MyWorkItemResponse>> TransitionWorkItemAsync(
         Guid workItemId,
         Guid userId,
@@ -1365,25 +1408,39 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            insert into work_items (
-                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
-                assigned_user_id, assigned_role_code, title, description, status, priority,
-                generated_by_event_id, idempotency_key, created_by_user_id
+            with inserted as (
+                insert into work_items (
+                    project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                    assigned_user_id, assigned_role_code, title, description, status, priority,
+                    generated_by_event_id, idempotency_key, created_by_user_id
+                )
+                select
+                    @project_id, 'Project', @project_id, @stage_code, @responsibility_type,
+                    @assigned_user_id, @assigned_role_code, @title, @description, 'Requested', 'Normal',
+                    @event_id, @idempotency_key, @created_by_user_id
+                where not exists (
+                    select 1
+                    from work_items
+                    where project_id = @project_id
+                      and workflow_stage_code = @stage_code
+                      and responsibility_type = @responsibility_type
+                      and assigned_user_id = @assigned_user_id
+                      and status <> 'Cancelled'
+                )
+                on conflict (idempotency_key) do update set title = excluded.title
+                returning id
             )
-            select
-                @project_id, 'Project', @project_id, @stage_code, @responsibility_type,
-                @assigned_user_id, @assigned_role_code, @title, @description, 'Requested', 'Normal',
-                @event_id, @idempotency_key, @created_by_user_id
-            where not exists (
-                select 1
-                from work_items
-                where project_id = @project_id
-                  and workflow_stage_code = @stage_code
-                  and responsibility_type = @responsibility_type
-                  and assigned_user_id = @assigned_user_id
-                  and status <> 'Cancelled'
-            )
-            on conflict (idempotency_key) do nothing;
+            select id from inserted
+            union all
+            select id
+            from work_items
+            where project_id = @project_id
+              and workflow_stage_code = @stage_code
+              and responsibility_type = @responsibility_type
+              and assigned_user_id = @assigned_user_id
+              and status <> 'Cancelled'
+            order by id
+            limit 1;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("stage_code", stageCode);
@@ -1395,7 +1452,74 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         command.Parameters.AddWithValue("event_id", eventId);
         command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
         command.Parameters.AddWithValue("created_by_user_id", createdByUserId);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        var workItemId = (Guid?)(await command.ExecuteScalarAsync(cancellationToken));
+        if (workItemId is not null)
+        {
+            await CreateWorkAssignmentNotificationAsync(
+                connection,
+                transaction,
+                projectId,
+                stageCode,
+                assignedUserId,
+                title,
+                description,
+                eventId,
+                workItemId.Value,
+                $"{idempotencyKey}:notification",
+                cancellationToken);
+        }
+    }
+
+    private static async Task CreateWorkAssignmentNotificationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string stageCode,
+        Guid assignedUserId,
+        string title,
+        string description,
+        Guid eventId,
+        Guid workItemId,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into notifications (
+                project_id, notification_type, severity, title, message, link_url,
+                generated_by_event_id, idempotency_key, visibility_scope, source_kind, work_item_id
+            )
+            values (
+                @project_id, 'Info', 'Info', @title, @message, @link_url,
+                @event_id, @idempotency_key, 'RecipientOnly', 'WorkAssignment', @work_item_id
+            )
+            on conflict (idempotency_key) do update
+            set title = excluded.title,
+                message = excluded.message,
+                link_url = excluded.link_url,
+                work_item_id = excluded.work_item_id
+            returning id;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("title", $"새 업무 · {title}");
+        command.Parameters.AddWithValue("message", description);
+        command.Parameters.AddWithValue("link_url", LinkUrlForStage(projectId, stageCode));
+        command.Parameters.AddWithValue("event_id", eventId);
+        command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+        command.Parameters.AddWithValue("work_item_id", workItemId);
+        var notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
+
+        await using var recipientCommand = connection.CreateCommand();
+        recipientCommand.Transaction = transaction;
+        recipientCommand.CommandText = """
+            insert into notification_recipients (notification_id, user_id)
+            values (@notification_id, @user_id)
+            on conflict (notification_id, user_id) do nothing;
+            """;
+        recipientCommand.Parameters.AddWithValue("notification_id", notificationId);
+        recipientCommand.Parameters.AddWithValue("user_id", assignedUserId);
+        await recipientCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<ResolvedAssignee> ResolveAssigneeAsync(
@@ -1545,7 +1669,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         var recipients = await ReadActiveUsersForRolesAsync(
             connection,
             transaction,
-            ["design", "production-planning", "procurement", "materials", "manufacturing", "quality", "logistics"],
+            ["sales", "design", "production-planning", "procurement", "materials", "manufacturing", "quality", "logistics"],
             cancellationToken);
 
         await CreateNotificationAsync(
@@ -1619,7 +1743,14 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             join user_roles ur on ur.user_id = u.id
             join roles r on r.id = ur.role_id
             where u.is_active = true
-              and r.code = any(@role_codes);
+              and r.code = any(@role_codes)
+              and not exists (
+                  select 1
+                  from user_roles excluded_user_role
+                  join roles excluded_role on excluded_role.id=excluded_user_role.role_id
+                  where excluded_user_role.user_id=u.id
+                    and excluded_role.code in ('system-administrator', 'read-only')
+              );
             """;
         command.Parameters.AddWithValue("role_codes", roleCodes.ToArray());
 
@@ -1855,7 +1986,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.PackingCompleted => "포장 완료 입력",
             WorkflowStageCodes.DepartureProcessed => "출발 처리 입력",
             WorkflowStageCodes.DeliveryCompleted => "납품 완료 입력",
-            WorkflowStageCodes.SalesSettlementCompleted => "세금계산서, 완료 처리",
+            WorkflowStageCodes.SalesSettlementCompleted => "세금계산서 발행 요청 준비",
             _ => "업무 입력"
         };
     }

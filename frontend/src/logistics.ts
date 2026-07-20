@@ -62,6 +62,32 @@ export interface LogisticsDraftResponse {
   evidence: LogisticsEvidence[];
 }
 
+export interface LogisticsProjectHistoryResponse {
+  projectId: string;
+  items: LogisticsProjectHistoryItem[];
+}
+
+export interface LogisticsProjectHistoryItem {
+  targetId: string;
+  stage: LogisticsStage;
+  displayCode: string;
+  status: string;
+  version: number;
+  note: string | null;
+  specification: string | null;
+  weightText: string | null;
+  departureDate: string | null;
+  panelCodes: string[];
+  unitCodes: string[];
+  evidence: LogisticsEvidence[];
+  createdByName: string;
+  createdAtUtc: string;
+  finalizedByName: string | null;
+  finalizedAtUtc: string | null;
+  cancelledByName: string | null;
+  cancelledAtUtc: string | null;
+}
+
 export interface CreatePackingUnitRequest {
   operationId: string;
   projectId: string;

@@ -6,6 +6,12 @@ import type {
   SalesSettlementMutationResponse
 } from './salesSettlement';
 import type { SalesKpiMonthDetail, SalesKpiResponse, SalesTargetsResponse, SaveSalesTargetsRequest } from './salesKpi';
+import type {
+  CreateSalesBillingRequest,
+  SalesBillingBatch,
+  SalesBillingBatchList,
+  SalesBillingCandidateList
+} from './salesBilling';
 import type { FormTemplateCatalog, FormTemplateManagers, FormTemplateScope, FormTemplateVersions } from './formTemplates';
 import type { AdminUsersResponse, CurrentUser, ProfilePhotoMetadata, UpdateAdminUserRequest } from './identity';
 import type { HomeMetricsResponse } from './home';
@@ -57,6 +63,7 @@ import type {
   CreateLogisticsBatchRequest,
   CreatePackingUnitRequest,
   LogisticsDraftResponse,
+  LogisticsProjectHistoryResponse,
   LogisticsMutationResponse,
   LogisticsQueueResponse,
   LogisticsStage
@@ -182,6 +189,47 @@ export async function saveSalesTargets(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request)
   });
+}
+
+export async function getSalesBillingCandidates(
+  developmentUserKey: string | undefined,
+  periodStart?: string,
+  periodEnd?: string
+): Promise<SalesBillingCandidateList> {
+  const params = new URLSearchParams();
+  if (periodStart) params.set('periodStart', periodStart);
+  if (periodEnd) params.set('periodEnd', periodEnd);
+  const query = params.toString();
+  return fetchJson<SalesBillingCandidateList>(`/api/sales/billing-requests/candidates${query ? `?${query}` : ''}`, developmentUserKey);
+}
+
+export async function listSalesBillingBatches(
+  developmentUserKey: string | undefined
+): Promise<SalesBillingBatchList> {
+  return fetchJson<SalesBillingBatchList>('/api/sales/billing-requests', developmentUserKey);
+}
+
+export async function createSalesBillingBatch(
+  developmentUserKey: string | undefined,
+  request: CreateSalesBillingRequest
+): Promise<SalesBillingBatch> {
+  return fetchJson<SalesBillingBatch>('/api/sales/billing-requests', developmentUserKey, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request)
+  });
+}
+
+export async function downloadSalesBillingWorkbook(
+  developmentUserKey: string | undefined,
+  batchId: string
+): Promise<{ blob: Blob; fileName: string }> {
+  const file = await downloadExcelExport(
+    `/api/sales/billing-requests/${encodeURIComponent(batchId)}/file`,
+    developmentUserKey,
+    'EMI_세금계산서_발행요청.xlsx'
+  );
+  return { blob: file.blob, fileName: file.fileName };
 }
 
 export async function getFormTemplateScope(developmentUserKey?: string): Promise<FormTemplateScope> {
@@ -1002,6 +1050,13 @@ export async function markAllNotificationsRead(
   return fetchJson<NotificationSummary>('/api/notifications/read-all', developmentUserKey, { method: 'POST' });
 }
 
+export async function markProjectNotificationsRead(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<NotificationSummary> {
+  return fetchJson<NotificationSummary>(`/api/notifications/projects/${projectId}/read-all`, developmentUserKey, { method: 'POST' });
+}
+
 export async function getDeletedProject(
   developmentUserKey: string | undefined,
   projectId: string
@@ -1563,6 +1618,16 @@ export async function getLogisticsDraft(
   targetId: string
 ): Promise<LogisticsDraftResponse> {
   return fetchJson<LogisticsDraftResponse>(`/api/logistics/${stage}/${targetId}`, developmentUserKey);
+}
+
+export async function getLogisticsProjectHistory(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<LogisticsProjectHistoryResponse> {
+  return fetchJson<LogisticsProjectHistoryResponse>(
+    `/api/logistics/projects/${projectId}/history`,
+    developmentUserKey
+  );
 }
 
 export async function createPackingUnit(

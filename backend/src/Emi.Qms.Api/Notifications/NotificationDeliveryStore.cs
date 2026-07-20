@@ -1719,7 +1719,7 @@ public sealed class NotificationDeliveryStore(
                 'Teams 채널'
             from notifications n
             left join projects p on p.id = n.project_id
-            where (n.notification_type = 'Blocking' or n.severity = 'Critical')
+            where (n.notification_type = 'Blocking' or n.severity = 'Critical' or n.source_kind = 'PendingAssignment')
               and not exists (
                   select 1
                   from notification_deliveries existing
@@ -1770,7 +1770,7 @@ public sealed class NotificationDeliveryStore(
             join notification_recipients nr on nr.notification_id = n.id
             join qms_users u on u.id = nr.user_id
             left join projects p on p.id = n.project_id
-            where (n.notification_type = 'Blocking' or n.severity = 'Critical')
+            where (n.notification_type = 'Blocking' or n.severity = 'Critical' or n.source_kind = 'PendingAssignment')
               and not exists (
                   select 1
                   from notification_deliveries existing

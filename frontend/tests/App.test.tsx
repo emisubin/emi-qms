@@ -746,14 +746,14 @@ describe('App', () => {
       expect.stringContaining(`/api/my-work/${materialWorkItemId}/start`),
       expect.objectContaining({ method: 'POST' })
     ));
-    expect(await screen.findByRole('tab', { name: 'Workflow' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByText('현재 상세 화면에서는 설계, 생산관리, 구매 입력 화면을 제공합니다. 나머지 workflow 단계는 전용 입력 화면이 제공되기 전까지 이 요약에서 상태를 확인합니다.')).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: '전체 흐름' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('영업 등록부터 세금계산서 완료까지 18단계의 현재 위치와 부서 인계를 한눈에 확인합니다.')).toBeInTheDocument();
 
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '알림' }));
     expect(await screen.findByText('자재 도착 단계 알림')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '이동' }));
 
-    expect(await screen.findByRole('tab', { name: 'Workflow' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('tab', { name: '전체 흐름' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByRole('heading', { name: '자재 입고 처리' })).not.toBeInTheDocument();
   });
 
@@ -1818,8 +1818,15 @@ describe('App', () => {
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     const detailTabs = await screen.findAllByRole('tab');
     expect(detailTabs.map((tab) => tab.textContent)).toEqual(expect.arrayContaining(['설계', '생산관리', '구매']));
+    fireEvent.click(screen.getByRole('tab', { name: '전체 흐름' }));
+    const workflowHeading = await screen.findByRole('heading', { name: '프로젝트 전체 흐름' });
+    const workflowBoard = workflowHeading.closest('section');
+    expect(workflowBoard).not.toBeNull();
+    expect(workflowBoard!.querySelectorAll('.workflow-stage-item')).toHaveLength(2);
     fireEvent.click(screen.getByRole('tab', { name: '생산관리' }));
     expect(await screen.findByText('프로젝트 단위 계획과 담당자 지정')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '프로젝트 전체 흐름' })).not.toBeInTheDocument();
+    expect(document.querySelectorAll('.workflow-stage-item')).toHaveLength(0);
     expect(screen.getByRole('button', { name: '생산계획 수정' })).toBeInTheDocument();
     const assigneeSummary = screen.getByLabelText('담당자 지정 현황');
     expect(within(assigneeSummary).getByLabelText('영업 담당자')).toHaveAttribute('data-tone', 'sales');
@@ -1854,6 +1861,8 @@ describe('App', () => {
     expect(screen.getByLabelText('날짜 미입력 생산단계')).toHaveTextContent('조립 시작');
     expect(screen.getByLabelText('날짜 미입력 생산단계')).toHaveTextContent('필수 미입력');
     expect(screen.queryByText('검수 공휴일')).not.toBeInTheDocument();
+    expect(planItemsTable.compareDocumentPosition(assigneeSummary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(calendarTable.compareDocumentPosition(assigneeSummary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '생산계획 수정' }));
     const projectContext = await screen.findByTestId('project-context-summary');
@@ -1920,6 +1929,264 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Excel 양식 다운로드' })).not.toBeInTheDocument();
   });
 
+  it('projects every saved department input and execution history inside the project tabs', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+
+      if (path === `/api/projects/${projectId}/settlement`) {
+        return Promise.resolve(json({
+          projectId,
+          projectCode: 'PJT-003A',
+          projectTitle: 'TASK-003A Demo',
+          projectStatus: 'Active',
+          settlementStatus: 'Draft',
+          version: 3,
+          activePanelCount: 4,
+          deliveredPanelCount: 2,
+          openPendingCount: 0,
+          invoiceIssuedDate: '2026-07-18',
+          invoiceNumber: 'INV-2026-0718',
+          note: '회계 확인 메모',
+          completedAtUtc: null,
+          completedByName: null,
+          allPanelsDelivered: false,
+          noOpenPending: true,
+          invoiceIssued: true,
+          canComplete: false,
+          canMutate: true,
+          pendingLink: `/pending?projectId=${projectId}`,
+          billingRequestStatus: {
+            requested: true,
+            batchId: '78000000-0000-0000-0000-000000000001',
+            requestNumber: 16,
+            requestedAtUtc: '2026-07-16T01:00:00Z',
+            accountingIssueConfirmed: true
+          }
+        }));
+      }
+
+      if (path === '/api/materials/kitting') {
+        return Promise.resolve(json({ projects: [{
+          projectId,
+          projectCode: 'PJT-003A',
+          projectTitle: 'TASK-003A Demo',
+          activeItemCount: 2,
+          completedItemCount: 1,
+          ready: true,
+          pendingPanelCount: 3,
+          completedPanelCount: 1,
+          panels: [{
+            panelId: panelIds[0],
+            displayCode: 'P01',
+            panelName: 'MAIN PANEL',
+            panelInfoCompleted: true,
+            kittingCompleted: true,
+            completedAtUtc: '2026-07-04T01:00:00Z',
+            completedByDisplayName: 'Dev Materials User',
+            selectable: false
+          }]
+        }] }));
+      }
+
+      const manufacturingPanel = {
+        panelId: panelIds[0],
+        displayCode: 'P01',
+        panelName: 'MAIN PANEL',
+        workflowStage: 'ManufacturingCompleted',
+        workItemId: '76000000-0000-0000-0000-000000000031',
+        workItemStatus: 'Completed',
+        executionId: '76000000-0000-0000-0000-000000000032',
+        status: 'Completed',
+        version: 4,
+        checkedStepCount: 1,
+        totalStepCount: 1,
+        activePendingId: null,
+        activePendingNumber: null,
+        actionDepartmentCode: null,
+        startedAtUtc: '2026-07-05T01:00:00Z',
+        completedAtUtc: '2026-07-05T02:00:00Z',
+        canMutate: false
+      };
+      if (path === '/api/manufacturing/queue') {
+        return Promise.resolve(json({ projects: [{
+          projectId,
+          projectCode: 'PJT-003A',
+          projectTitle: 'TASK-003A Demo',
+          readyCount: 0,
+          inProgressCount: 0,
+          blockedCount: 0,
+          completedCount: 1,
+          panels: [manufacturingPanel]
+        }] }));
+      }
+      if (path === `/api/manufacturing/panels/${panelIds[0]}`) {
+        return Promise.resolve(json({
+          panel: manufacturingPanel,
+          steps: [{
+            stepId: '76000000-0000-0000-0000-000000000033',
+            sequenceNumber: 1,
+            stepName: '조립 준비 확인',
+            checked: true,
+            checkedByDisplayName: 'Dev Manufacturing User',
+            checkedAtUtc: '2026-07-05T01:20:00Z'
+          }],
+          events: [{
+            eventId: '76000000-0000-0000-0000-000000000034',
+            eventType: 'Completed',
+            eventLabel: '제조 완료',
+            stopReasonCode: null,
+            stopDescription: null,
+            pendingId: null,
+            actorDisplayName: 'Dev Manufacturing User',
+            createdAtUtc: '2026-07-05T02:00:00Z'
+          }]
+        }));
+      }
+
+      const qualityPanel = {
+        panelId: panelIds[0],
+        displayCode: 'P01',
+        panelName: 'MAIN PANEL',
+        workflowStage: 'LqcCompleted',
+        stageCode: 'LQC',
+        stageLabel: 'LQC',
+        workItemId: '76000000-0000-0000-0000-000000000041',
+        workItemStatus: 'Completed',
+        attemptId: '76000000-0000-0000-0000-000000000042',
+        attemptNumber: 1,
+        status: 'Completed',
+        version: 2,
+        pendingId: null,
+        pendingNumber: null,
+        actionDepartmentCode: null,
+        canMutate: false
+      };
+      if (path === '/api/quality/inspections/queue') {
+        const stage = url.searchParams.get('stage');
+        return Promise.resolve(json({ projects: stage === 'LQC' ? [{
+          projectId,
+          projectCode: 'PJT-003A',
+          projectTitle: 'TASK-003A Demo',
+          fatRequired: false,
+          readyCount: 0,
+          inProgressCount: 0,
+          blockedCount: 0,
+          completedCount: 1,
+          panels: [qualityPanel]
+        }] : [] }));
+      }
+      if (path === `/api/quality/inspections/panels/${panelIds[0]}`) {
+        return Promise.resolve(json({
+          panel: qualityPanel,
+          reportId: '76000000-0000-0000-0000-000000000043',
+          reportStatus: 'Finalized',
+          reportVersion: 2,
+          result: 'Passed',
+          reason: '기준 충족',
+          pdfStatus: 'Ready',
+          items: [{
+            itemId: '76000000-0000-0000-0000-000000000044',
+            itemCode: 'VISUAL',
+            displayOrder: 1,
+            label: '외관 검사',
+            guidance: '표면 상태 확인',
+            responseType: 'Check',
+            isRequired: true,
+            maxTextLength: null
+          }],
+          responses: [{
+            templateItemId: '76000000-0000-0000-0000-000000000044',
+            checkResult: 'Pass',
+            textValue: null,
+            note: '이상 없음'
+          }],
+          photos: [{
+            photoId: '76000000-0000-0000-0000-000000000045',
+            templateItemId: '76000000-0000-0000-0000-000000000044',
+            displayName: 'quality-proof.jpg',
+            normalizedMime: 'image/jpeg',
+            byteSize: 2048,
+            altText: '외관 검사 증빙',
+            createdAtUtc: '2026-07-06T01:00:00Z'
+          }],
+          history: [{
+            attemptId: '76000000-0000-0000-0000-000000000042',
+            attemptNumber: 1,
+            status: 'Completed',
+            pendingId: null,
+            pendingNumber: null,
+            completedAtUtc: '2026-07-06T01:10:00Z'
+          }]
+        }));
+      }
+
+      if (path === '/api/logistics/queue') {
+        return Promise.resolve(json({
+          stage: url.searchParams.get('stage'),
+          todayCount: 0,
+          blockedCount: 0,
+          projects: []
+        }));
+      }
+      if (path === `/api/logistics/projects/${projectId}/history`) {
+        return Promise.resolve(json({ projectId, items: [{
+          targetId: '76000000-0000-0000-0000-000000000051',
+          stage: 'packing',
+          displayCode: 'PU-001',
+          status: 'Finalized',
+          version: 3,
+          note: '충격 방지 포장',
+          specification: '1200×800×900',
+          weightText: '850 kg',
+          departureDate: null,
+          panelCodes: ['P01'],
+          unitCodes: [],
+          evidence: [{
+            evidenceId: '76000000-0000-0000-0000-000000000052',
+            ownerType: 'PackingPhoto',
+            displayName: 'packing-proof.jpg',
+            normalizedMime: 'image/jpeg',
+            byteSize: 4096,
+            altText: '포장 완료 사진',
+            createdAtUtc: '2026-07-07T01:10:00Z'
+          }],
+          createdByName: 'Dev Logistics User',
+          createdAtUtc: '2026-07-07T01:00:00Z',
+          finalizedByName: 'Dev Logistics User',
+          finalizedAtUtc: '2026-07-07T01:20:00Z',
+          cancelledByName: null,
+          cancelledAtUtc: null
+        }] }));
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+
+    fireEvent.click(await screen.findByRole('tab', { name: '영업' }));
+    expect(await screen.findByLabelText('영업 입력 데이터')).toHaveTextContent('회계 확인 메모');
+    expect(screen.getByLabelText('영업 입력 데이터')).toHaveTextContent('INV-2026-0718');
+
+    fireEvent.click(screen.getByRole('tab', { name: '자재' }));
+    expect(await screen.findByLabelText('자재 입력 데이터')).toHaveTextContent('1차 도착');
+    expect(screen.getByLabelText('자재 입력 데이터')).toHaveTextContent('Dev Materials User');
+
+    fireEvent.click(screen.getByRole('tab', { name: '제조' }));
+    expect(await screen.findByLabelText('제조 입력 데이터')).toHaveTextContent('조립 준비 확인');
+    expect(screen.getByLabelText('제조 입력 데이터')).toHaveTextContent('이력 · 제조 완료');
+
+    fireEvent.click(screen.getByRole('tab', { name: '품질' }));
+    expect(await screen.findByLabelText('품질 입력 데이터')).toHaveTextContent('외관 검사');
+    expect(screen.getByLabelText('품질 입력 데이터')).toHaveTextContent('quality-proof.jpg');
+
+    fireEvent.click(screen.getByRole('tab', { name: '물류' }));
+    expect(await screen.findByLabelText('물류 입력 데이터')).toHaveTextContent('충격 방지 포장');
+    expect(screen.getByLabelText('물류 입력 데이터')).toHaveTextContent('packing-proof.jpg');
+  });
+
   it('gives Materials the staged receiving workspace instead of a completion checkbox', async () => {
     const requests: string[] = [];
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -1963,8 +2230,8 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
     expect(screen.getByRole('note')).toHaveTextContent('조회 전용입니다.');
-    expect(screen.getByRole('button', { name: '+ 도착 등록' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '입고 마감' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '도착분 추가' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '품목 입고 마감' })).toBeDisabled();
   });
 
   it('filters completed material receipt cards by default and shows the derived completion when requested', async () => {
@@ -1980,7 +2247,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByLabelText('완료 포함'));
     expect(await screen.findByText('Completed Relay')).toBeInTheDocument();
-    expect(screen.getByText('입고 확정')).toBeInTheDocument();
+    expect(screen.getAllByText('입고 확정').length).toBeGreaterThan(0);
     expect(screen.queryByRole('checkbox', { name: '입고 완료' })).not.toBeInTheDocument();
   });
 });

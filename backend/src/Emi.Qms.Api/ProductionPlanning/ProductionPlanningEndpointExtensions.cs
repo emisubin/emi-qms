@@ -251,6 +251,11 @@ public static class ProductionPlanningEndpointExtensions
 
             if (result.Status == ProductionPlanningMutationStatus.Success && result.Value is not null)
             {
+                await workflowStore.GenerateProductionPlanningAssigneeFollowUpsAsync(
+                    projectId,
+                    userId.Value,
+                    httpContext.TraceIdentifier,
+                    cancellationToken);
                 await workflowStore.SyncStageWorkItemsAfterSaveAsync(
                     projectId,
                     WorkflowStageCodes.ProductionPlanning,
@@ -259,11 +264,6 @@ public static class ProductionPlanningEndpointExtensions
                     userId.Value,
                     httpContext.TraceIdentifier,
                     "생산계획 저장 완료",
-                    cancellationToken);
-                await workflowStore.GenerateProductionPlanningAssigneeFollowUpsAsync(
-                    projectId,
-                    userId.Value,
-                    httpContext.TraceIdentifier,
                     cancellationToken);
             }
 

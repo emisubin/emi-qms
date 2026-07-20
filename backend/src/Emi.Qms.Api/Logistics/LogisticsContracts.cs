@@ -69,6 +69,30 @@ public sealed record LogisticsDraftResponse(
     IReadOnlyList<Guid> UnitIds,
     IReadOnlyList<LogisticsEvidenceResponse> Evidence);
 
+public sealed record LogisticsProjectHistoryResponse(
+    Guid ProjectId,
+    IReadOnlyList<LogisticsProjectHistoryItem> Items);
+
+public sealed record LogisticsProjectHistoryItem(
+    Guid TargetId,
+    string Stage,
+    string DisplayCode,
+    string Status,
+    int Version,
+    string? Note,
+    string? Specification,
+    string? WeightText,
+    DateOnly? DepartureDate,
+    IReadOnlyList<string> PanelCodes,
+    IReadOnlyList<string> UnitCodes,
+    IReadOnlyList<LogisticsEvidenceResponse> Evidence,
+    string CreatedByName,
+    DateTimeOffset CreatedAtUtc,
+    string? FinalizedByName,
+    DateTimeOffset? FinalizedAtUtc,
+    string? CancelledByName,
+    DateTimeOffset? CancelledAtUtc);
+
 public sealed record LogisticsMutationResponse(
     Guid OperationId,
     Guid ProjectId,

@@ -38,6 +38,7 @@ type MaterialAction =
 export function MaterialReceivingPage({
   developmentUserKey,
   canUpdate,
+  initialProjectCode,
   onBack,
   onOpenIqc,
   onOpenKitting,
@@ -45,6 +46,7 @@ export function MaterialReceivingPage({
 }: {
   developmentUserKey: string;
   canUpdate: boolean;
+  initialProjectCode?: string;
   onBack: () => void;
   onOpenIqc: () => void;
   onOpenKitting: () => void;
@@ -52,9 +54,9 @@ export function MaterialReceivingPage({
 }) {
   const layout = useAdaptiveLayout();
   const [state, setState] = useState<LoadState<MaterialReceiptListResponse>>({ kind: 'loading' });
-  const [search, setSearch] = useState('');
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [includeCompleted, setIncludeCompleted] = useState(false);
+  const [search, setSearch] = useState(initialProjectCode ?? '');
+  const [appliedSearch, setAppliedSearch] = useState(initialProjectCode ?? '');
+  const [includeCompleted, setIncludeCompleted] = useState(Boolean(initialProjectCode));
   const [supplyFilter, setSupplyFilter] = useState<'All' | 'Purchased' | 'CustomerSupplied'>('All');
   const [activeFilter, setActiveFilter] = useState<'all' | 'iqc' | 'blocked' | 'confirm'>('all');
   const [action, setAction] = useState<MaterialAction | null>(null);
@@ -143,6 +145,7 @@ export function MaterialReceivingPage({
           <p className="eyebrow">MATERIAL FLOW</p>
           <h2>자재 입고 관리</h2>
           <p>도착부터 IQC, 입고 확정까지 한 흐름으로 관리합니다.</p>
+          {initialProjectCode ? <p className="workspace-project-filter" role="status">현재 프로젝트: <strong>{initialProjectCode}</strong></p> : null}
         </div>
         <div className="material-hero-actions">
           <button type="button" onClick={onBack}>프로젝트</button>
@@ -219,31 +222,23 @@ export function MaterialReceivingPage({
       {state.kind === 'ready' ? (
         <div className={layout.isMobile ? 'material-item-list material-item-list--mobile' : 'material-item-list material-item-list--desktop'}>
           {visibleItems.map((item) => (
-            <MaterialItemCard
-              key={item.itemId}
-              item={item}
-              canUpdate={canUpdate}
-              mobile={layout.isMobile}
-              onAction={setAction}
-              selected={receiptSelection.selectedIds.has(item.itemId)}
-              selectionBusy={receiptSelection.busy}
-              onSelectionChange={(checked) => receiptSelection.toggle(item.itemId, checked)}
-            />
+            <div className="material-continuous-item" key={item.itemId} data-action-open={action?.item.itemId === item.itemId}>
+              <MaterialItemCard
+                item={item}
+                canUpdate={canUpdate}
+                mobile={layout.isMobile}
+                onAction={setAction}
+                selected={receiptSelection.selectedIds.has(item.itemId)}
+                selectionBusy={receiptSelection.busy}
+                onSelectionChange={(checked) => receiptSelection.toggle(item.itemId, checked)}
+              />
+              {action?.item.itemId === item.itemId ? (
+                <div className="material-continuous-action" aria-live="polite">{actionPanel}</div>
+              ) : null}
+            </div>
           ))}
         </div>
       ) : null}
-
-      {layout.isMobile ? (
-        <MobileSheet
-          open={action !== null}
-          title={actionTitle(action)}
-          eyebrow="MATERIAL ACTION"
-          description="현재 단계에서 허용된 작업만 표시합니다."
-          onClose={() => { setAction(null); actions.reset(); }}
-        >
-          {actionPanel}
-        </MobileSheet>
-      ) : actionPanel ? <aside className="material-action-drawer">{actionPanel}</aside> : null}
     </section>
   );
 }
@@ -449,22 +444,44 @@ function MaterialItemCard({ item, canUpdate, mobile, onAction, selected, selecti
           </dl>
         </details>
       ) : null}
+      <MaterialContinuousFlowOverview item={item} />
       {item.receipts.length === 0 ? <p className="material-no-receipts">아직 등록된 도착분이 없습니다.</p> : (
         <div className="material-receipt-stack">
           {item.receipts.map((receipt) => (
             <button type="button" key={receipt.receiptId} className="material-receipt-chip" onClick={() => onAction({ kind: 'receipt', item, receipt })}>
               <span><b>{formatQuantity(receipt.quantity, receipt.unit)}</b><small>{receipt.arrivalDate}</small></span>
-              {!mobile ? <ReceiptSteps status={receipt.status} /> : <span className="mobile-step-label">{receiptStatusLabel(receipt.status)}</span>}
+              <ReceiptSteps status={receipt.status} />
               <span aria-hidden="true">›</span>
             </button>
           ))}
         </div>
       )}
       <footer>
-        <button type="button" className="primary-button" disabled={!canUpdate || item.arrivalsClosed} onClick={() => onAction({ kind: 'arrival', item })}>+ 도착 등록</button>
-        <button type="button" disabled={!canUpdate || item.arrivalsClosed || !canCloseItem(item)} onClick={() => onAction({ kind: 'close', item })}>입고 마감</button>
+        <button type="button" className="primary-button" disabled={!canUpdate || item.arrivalsClosed} onClick={() => onAction({ kind: 'arrival', item })}>도착분 추가</button>
+        <button type="button" disabled={!canUpdate || item.arrivalsClosed || !canCloseItem(item)} onClick={() => onAction({ kind: 'close', item })}>품목 입고 마감</button>
       </footer>
     </article>
+  );
+}
+
+function MaterialContinuousFlowOverview({ item }: { item: MaterialReceivingItem }) {
+  const validReceipts = item.receipts.filter((receipt) => receipt.status !== 'Cancelled');
+  const completed = [
+    validReceipts.length > 0,
+    validReceipts.length > 0 && validReceipts.every((receipt) => receipt.status === 'Passed' || receipt.status === 'Confirmed'),
+    validReceipts.length > 0 && validReceipts.every((receipt) => receipt.status === 'Confirmed'),
+    item.arrivalsClosed
+  ];
+  const labels = ['도착 등록', 'IQC 판정', '입고 확정', '품목 마감'];
+  const current = completed.findIndex((value) => !value);
+  return (
+    <ol className="material-continuous-flow" aria-label="자재 연속 처리 단계">
+      {labels.map((label, index) => (
+        <li key={label} data-complete={completed[index]} data-current={current === index}>
+          <i>{completed[index] ? '✓' : index + 1}</i><span>{label}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -620,13 +637,6 @@ function InlineActionFeedback({ feedback }: { feedback: ActionFeedbackState }) {
       {feedback.message}
     </p>
   );
-}
-
-function actionTitle(action: MaterialAction | null) {
-  if (!action) return '';
-  if (action.kind === 'arrival') return '도착 등록';
-  if (action.kind === 'close') return '입고 마감';
-  return receiptStatusLabel(action.receipt.status);
 }
 
 function receiptStatusLabel(status: MaterialReceiptStatus) {

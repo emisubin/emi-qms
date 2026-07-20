@@ -111,6 +111,21 @@ public sealed class ProjectRegistrationApiTests
         version = await UploadEvidenceAsync(logisticsClient, "delivery", deliveryId, version, "%PDF-1.4 synthetic"u8.ToArray());
         await AssertFinalizeAsync(logisticsClient, "delivery", deliveryId, version);
 
+        using var historyResponse = await logisticsClient.GetAsync($"/api/logistics/projects/{projectId}/history", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, historyResponse.StatusCode);
+        using var historyJson = await ReadJsonAsync(historyResponse);
+        var history = historyJson.RootElement.GetProperty("items");
+        Assert.Equal(3, history.GetArrayLength());
+        var packingHistory = history.EnumerateArray().Single(item => item.GetProperty("stage").GetString() == "packing");
+        Assert.Equal("Synthetic package", packingHistory.GetProperty("note").GetString());
+        Assert.Equal("S", packingHistory.GetProperty("specification").GetString());
+        Assert.Equal("10kg", packingHistory.GetProperty("weightText").GetString());
+        Assert.Equal(2, packingHistory.GetProperty("panelCodes").GetArrayLength());
+        Assert.Single(packingHistory.GetProperty("evidence").EnumerateArray());
+        var departureHistory = history.EnumerateArray().Single(item => item.GetProperty("stage").GetString() == "departure");
+        Assert.False(departureHistory.GetProperty("departureDate").ValueKind == JsonValueKind.Null);
+        Assert.Single(departureHistory.GetProperty("unitCodes").EnumerateArray());
+
         Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from work_items where project_id='{projectId}' and workflow_stage_code='SalesSettlementCompleted' and target_type='Project';"));
         Assert.Equal(2L, await context.ReadScalarAsync<long>($"select count(*) from panel_placeholders where project_id='{projectId}' and workflow_stage='ShipmentCompleted';"));
         Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from project_workflow_events where project_id='{projectId}' and stage_code in ('PackingCompleted','DepartureProcessed','DeliveryCompleted') and event_type='StageCompleted';"));

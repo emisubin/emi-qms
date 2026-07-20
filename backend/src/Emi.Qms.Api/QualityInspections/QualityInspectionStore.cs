@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.Pending;
 using Emi.Qms.Api.Projects;
 using Npgsql;
@@ -1554,7 +1555,39 @@ public sealed class QualityInspectionStore(
         command.Parameters.AddWithValue("key", key);
         command.Parameters.AddWithValue("actor_id", actorUserId);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await using var readCommand = connection.CreateCommand();
+        readCommand.Transaction = transaction;
+        readCommand.CommandText = "select id from work_items where idempotency_key=@key;";
+        readCommand.Parameters.AddWithValue("key", key);
+        var value = await readCommand.ExecuteScalarAsync(cancellationToken);
+        if (value is Guid workItemId)
+        {
+            var title = $"{StageLabel(next.StageCode)} · {context.PanelDisplayCode}";
+            var message = next.StageCode == "PackingCompleted"
+                ? "품질검사가 완료된 패널의 포장 업무를 진행해 주세요."
+                : $"{StageLabel(next.StageCode)} 작업을 진행해 주세요.";
+            var linkUrl = LinkUrlForHandoff(next.StageCode, context.ProjectId, context.PanelId);
+            await WorkAssignmentNotificationWriter.UpsertAsync(
+                connection, transaction, context.ProjectId, workItemId, next.UserId,
+                SecondaryResponsibilities(next.StageCode), title, message, linkUrl,
+                $"{key}:notification", cancellationToken);
+        }
     }
+
+    private static IReadOnlyList<string> SecondaryResponsibilities(string stageCode) => stageCode switch
+    {
+        QualityInspectionStages.ManufacturingCompleted => ["ManufacturingSecondary"],
+        QualityInspectionStages.Oqc => ["QualityOQCSecondary"],
+        QualityInspectionStages.CustomerInspection or QualityInspectionStages.Fat => ["QualityCustomerInspectionSecondary"],
+        "PackingCompleted" => ["LogisticsSecondary"],
+        _ => []
+    };
+
+    private static string LinkUrlForHandoff(string stageCode, Guid projectId, Guid panelId) => stageCode switch
+    {
+        "PackingCompleted" => $"/logistics?stage=packing&project={projectId}&panel={panelId}",
+        _ => $"/quality/inspections?stage={stageCode}&project={projectId}&panel={panelId}"
+    };
 
     private static async Task EnsureNextWorkItemAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, ReportContext context,

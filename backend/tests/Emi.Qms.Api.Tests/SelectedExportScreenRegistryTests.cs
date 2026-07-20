@@ -6,12 +6,13 @@ namespace Emi.Qms.Api.Tests;
 public sealed class SelectedExportScreenRegistryTests
 {
     [Fact]
-    public void Registry_CoversTwentyUniqueSelectedExportScreens()
+    public void Registry_CoversTwentyOneUniqueSelectedExportScreens()
     {
-        Assert.Equal(20, SelectedExportScreens.All.Count);
+        Assert.Equal(21, SelectedExportScreens.All.Count);
         Assert.Contains(SelectedExportScreens.Projects, SelectedExportScreens.All);
         Assert.Contains(SelectedExportScreens.QualityInspections, SelectedExportScreens.All);
         Assert.Contains(SelectedExportScreens.AdminUsers, SelectedExportScreens.All);
+        Assert.Contains(SelectedExportScreens.AdminNotificationPreferenceAudit, SelectedExportScreens.All);
         Assert.Contains(SelectedExportScreens.AdminWorkItemEscalations, SelectedExportScreens.All);
         Assert.Equal(SelectedExportScreens.All.Count, SelectedExportScreens.AuditKinds.Count);
         Assert.True(SelectedExportScreens.All.SetEquals(SelectedExportScreens.AuditKinds.Keys));
@@ -21,6 +22,7 @@ public sealed class SelectedExportScreenRegistryTests
     public void Registry_SeparatesAdminPolicyFamilies()
     {
         Assert.True(SelectedExportScreens.RequiresAdminUsersRead(SelectedExportScreens.AdminUsers));
+        Assert.True(SelectedExportScreens.RequiresAdminUsersRead(SelectedExportScreens.AdminNotificationPreferenceAudit));
         Assert.True(SelectedExportScreens.RequiresAdminHistoryRead(SelectedExportScreens.AdminMasterHistory));
         Assert.False(SelectedExportScreens.RequiresAdminUsersRead(SelectedExportScreens.Projects));
         Assert.False(SelectedExportScreens.RequiresAdminHistoryRead(SelectedExportScreens.Notifications));

@@ -106,6 +106,7 @@ builder.Services.AddOptions<NotificationOptions>().ValidateOnStart();
 builder.Services.AddSingleton<NotificationWorkerIdentity>();
 builder.Services.AddSingleton<NotificationDeliveryStore>();
 builder.Services.AddSingleton<NotificationPreferenceStore>();
+builder.Services.AddSingleton<NotificationPreferenceAuditStore>();
 builder.Services.AddSingleton<NotificationDispatcher>();
 builder.Services.AddSingleton<WorkItemEscalationStore>();
 builder.Services.AddSingleton<NotificationEscalationService>();
@@ -261,6 +262,7 @@ app.MapDataExportEndpoints();
 app.MapNotificationDeliveryEndpoints();
 app.MapNotificationEscalationEndpoints();
 app.MapNotificationPreferenceEndpoints();
+app.MapNotificationPreferenceAuditEndpoints();
 
 app.Run();
 

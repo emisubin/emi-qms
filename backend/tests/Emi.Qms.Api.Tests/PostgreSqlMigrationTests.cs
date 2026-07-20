@@ -440,7 +440,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0047_panel_qr_codes", await ReadScalarAsync<string>(
+            Assert.Equal("0049_notification_delivery_reprocess_generations", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -476,7 +476,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal(47L, await ReadScalarAsync<long>(
+            Assert.Equal(49L, await ReadScalarAsync<long>(
                 provider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -705,13 +705,29 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(47L, await ReadScalarAsync<long>(
+        Assert.Equal(49L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal("0047_panel_qr_codes", await ReadScalarAsync<string>(
+        Assert.Equal("0049_notification_delivery_reprocess_generations", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from information_schema.tables where table_schema='public' and table_name='notification_delivery_reprocess_events';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema='public'
+              and (
+                (table_name='notification_deliveries' and column_name in ('current_generation','generation_attempt_count'))
+                or (table_name='notification_delivery_attempts' and column_name='generation')
+              );
+            """,
             TestContext.Current.CancellationToken));
         Assert.Equal(3L, await ReadScalarAsync<long>(
             connectionStringProvider,

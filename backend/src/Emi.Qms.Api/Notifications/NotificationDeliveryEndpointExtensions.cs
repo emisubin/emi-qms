@@ -89,6 +89,34 @@ public static class NotificationDeliveryEndpointExtensions
         .RequireAuthorization(QmsPolicies.AdminUsersRead)
         .WithName("RetryNotificationDeliveries");
 
+        app.MapPost("/api/admin/notification-deliveries/reprocess-failed", async (
+            NotificationDeliveryReprocessRequest request,
+            ClaimsPrincipal user,
+            NotificationDeliveryStore deliveryStore,
+            CancellationToken cancellationToken) =>
+        {
+            var currentUserId = GetCurrentUserId(user);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await deliveryStore.ReprocessFailedDeliveriesAsync(
+                request.Items,
+                request.Reason,
+                request.DuplicateRiskAcknowledged,
+                currentUserId.Value,
+                cancellationToken);
+            return result.Status switch
+            {
+                "Succeeded" => Results.Ok(result),
+                "Conflict" => Results.Json(result, statusCode: StatusCodes.Status409Conflict),
+                _ => Results.Json(result, statusCode: StatusCodes.Status422UnprocessableEntity)
+            };
+        })
+        .RequireAuthorization(QmsPolicies.AdminUsersRead)
+        .WithName("ReprocessFailedNotificationDeliveries");
+
         app.MapPost("/api/admin/notification-deliveries/send-manual", async (
             NotificationManualSendRequest request,
             ClaimsPrincipal user,

@@ -342,6 +342,8 @@ export interface AdminNotificationDelivery {
   claimedAtUtc: string | null;
   claimExpiresAtUtc: string | null;
   claimIsStale: boolean;
+  currentGeneration: number;
+  generationAttemptCount: number;
   createdAtUtc: string;
   updatedAtUtc: string;
 }
@@ -363,6 +365,26 @@ export interface AdminNotificationDeliveryActionItem {
   deliveryId: string;
   status: string;
   message: string;
+}
+
+export interface AdminNotificationDeliveryReprocessRequest {
+  items: Array<{ deliveryId: string; expectedGeneration: number }>;
+  reason: string;
+  duplicateRiskAcknowledged: boolean;
+}
+
+export interface AdminNotificationDeliveryReprocessResponse {
+  requestedCount: number;
+  reprocessedCount: number;
+  status: string;
+  message: string;
+  items: Array<{
+    deliveryId: string;
+    priorGeneration: number;
+    newGeneration: number;
+    status: string;
+    message: string;
+  }>;
 }
 
 export interface AdminManualNotificationSendRequest {
@@ -430,11 +452,15 @@ export interface AdminNotificationDeliveryDetail {
   claimExpiresAtUtc: string | null;
   claimIsStale: boolean;
   claimedByInstance: string | null;
+  currentGeneration: number;
+  generationAttemptCount: number;
   attempts: AdminNotificationDeliveryAttempt[];
+  reprocessEvents: AdminNotificationDeliveryReprocessEvent[];
 }
 
 export interface AdminNotificationDeliveryAttempt {
   attemptNumber: number;
+  generation: number;
   workerInstance: string;
   claimedAtUtc: string;
   leaseExpiresAtUtc: string;
@@ -444,6 +470,19 @@ export interface AdminNotificationDeliveryAttempt {
   errorCode: string | null;
   errorMessage: string | null;
   providerMessageId: string | null;
+}
+
+export interface AdminNotificationDeliveryReprocessEvent {
+  eventId: string;
+  priorGeneration: number;
+  newGeneration: number;
+  actorDisplayName: string;
+  reason: string;
+  duplicateRiskAcknowledged: boolean;
+  priorErrorCode: string | null;
+  priorAdminHandlingStatus: string | null;
+  priorAdminHandlingNote: string | null;
+  occurredAtUtc: string;
 }
 
 export interface AdminWorkItemEscalationListResponse {

@@ -36,6 +36,7 @@ public static class SelectedExportScreens
     public const string AdminMasterHistory = "admin-master-history";
     public const string AdminWorkHistory = "admin-work-history";
     public const string AdminNotificationDeliveries = "admin-notification-deliveries";
+    public const string AdminNotificationPreferenceAudit = "admin-notification-preference-audit";
     public const string AdminWorkItemEscalations = "admin-work-item-escalations";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
@@ -43,7 +44,8 @@ public static class SelectedExportScreens
         Projects, MyWork, ProductionPlanning, Procurement, MaterialReceipts, MaterialKitting,
         Manufacturing, MaterialIqc, QualityInspections, Logistics, Pending, Notifications,
         AdminUsers, AdminDepartments, AdminCalendarHolidays, AdminPermissions,
-        AdminMasterHistory, AdminWorkHistory, AdminNotificationDeliveries, AdminWorkItemEscalations
+        AdminMasterHistory, AdminWorkHistory, AdminNotificationDeliveries,
+        AdminNotificationPreferenceAudit, AdminWorkItemEscalations
     };
 
     public static readonly IReadOnlyDictionary<string, string> AuditKinds = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -67,12 +69,13 @@ public static class SelectedExportScreens
         [AdminMasterHistory] = "AdminMasterChangeLogsSelected",
         [AdminWorkHistory] = "AdminWorkHistorySelected",
         [AdminNotificationDeliveries] = "AdminNotificationDeliveriesSelected",
+        [AdminNotificationPreferenceAudit] = "AdminNotificationPreferenceAuditSelected",
         [AdminWorkItemEscalations] = "AdminWorkItemEscalationsSelected"
     };
 
     public static bool RequiresAdminUsersRead(string screen) => screen is
         AdminUsers or AdminDepartments or AdminCalendarHolidays or
-        AdminNotificationDeliveries or AdminWorkItemEscalations;
+        AdminNotificationDeliveries or AdminNotificationPreferenceAudit or AdminWorkItemEscalations;
 
     public static bool RequiresAdminHistoryRead(string screen) => screen is
         AdminPermissions or AdminMasterHistory or AdminWorkHistory;
@@ -93,6 +96,7 @@ public sealed class SelectedExcelExportService(
     AdminCalendarHolidayStore calendarHolidayStore,
     AdminMasterDataStore adminMasterDataStore,
     NotificationDeliveryStore notificationDeliveryStore,
+    NotificationPreferenceAuditStore notificationPreferenceAuditStore,
     WorkItemEscalationStore workItemEscalationStore,
     ExcelWorkbookBuilder workbookBuilder,
     DataExportAuditStore auditStore,
@@ -125,6 +129,7 @@ public sealed class SelectedExcelExportService(
             SelectedExportScreens.AdminMasterHistory => AdminMasterHistoryColumns.Select(column => column.Header),
             SelectedExportScreens.AdminWorkHistory => AdminWorkHistoryColumns.Select(column => column.Header),
             SelectedExportScreens.AdminNotificationDeliveries => NotificationDeliveryColumns.Select(column => column.Header),
+            SelectedExportScreens.AdminNotificationPreferenceAudit => NotificationPreferenceAuditColumns.Select(column => column.Header),
             SelectedExportScreens.AdminWorkItemEscalations => EscalationColumns.Select(column => column.Header),
             _ => throw new ArgumentOutOfRangeException(nameof(screen), screen, "Unsupported selected export screen.")
         };
@@ -161,6 +166,7 @@ public sealed class SelectedExcelExportService(
             [SelectedExportScreens.AdminMasterHistory] = AdminMasterHistoryColumns.Select(column => column.Header).ToList(),
             [SelectedExportScreens.AdminWorkHistory] = AdminWorkHistoryColumns.Select(column => column.Header).ToList(),
             [SelectedExportScreens.AdminNotificationDeliveries] = NotificationDeliveryColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.AdminNotificationPreferenceAudit] = NotificationPreferenceAuditColumns.Select(column => column.Header).ToList(),
             [SelectedExportScreens.AdminWorkItemEscalations] = EscalationColumns.Select(column => column.Header).ToList()
         };
 
@@ -282,6 +288,10 @@ public sealed class SelectedExcelExportService(
                 () => notificationDeliveryStore.ListDeliveriesAsync(
                     Filter(filters, "status"), Filter(filters, "channel"), Filter(filters, "deliveryType"), Filter(filters, "handlingStatus"), cancellationToken),
                 response => response.Items, row => row.DeliveryId, FilterColumns(NotificationDeliveryColumns, selectedColumns), cancellationToken),
+            SelectedExportScreens.AdminNotificationPreferenceAudit => await ExportRowsAsync(
+                actorUserId, ids, filters, "알림 설정 변경 이력", "알림설정이력", SelectedExportScreens.AdminNotificationPreferenceAudit,
+                () => notificationPreferenceAuditStore.ListByIdsAsync(ids, cancellationToken),
+                response => response, row => row.AuditEventId, FilterColumns(NotificationPreferenceAuditColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.AdminWorkItemEscalations => await ExportRowsAsync(
                 actorUserId, ids, filters, "업무 에스컬레이션", "에스컬레이션", SelectedExportScreens.AdminWorkItemEscalations,
                 () => workItemEscalationStore.ListEscalationsAsync(Filter(filters, "status"), Filter(filters, "level"), cancellationToken),
@@ -500,6 +510,16 @@ public sealed class SelectedExcelExportService(
         new("채널", row => row.ChannelLabel), new("유형", row => row.DeliveryTypeLabel), new("상태", row => row.StatusLabel),
         new("시도 횟수", row => row.AttemptCount), new("처리 상태", row => row.AdminHandlingStatusLabel),
         new("다음 시도", row => row.NextAttemptAtUtc), new("발송일시", row => row.SentAtUtc), new("생성일시", row => row.CreatedAtUtc)
+    ];
+
+    private static readonly IReadOnlyList<ExcelColumn<NotificationPreferenceAuditItemResponse>> NotificationPreferenceAuditColumns =
+    [
+        new("변경일시", row => row.OccurredAtUtc), new("대상 사용자", row => row.TargetDisplayName),
+        new("변경 주체", row => row.ActorDisplayName), new("행동", row => row.ActionLabel),
+        new("알림 종류", row => row.DeliveryTypeLabel), new("변경 결과", row => row.ChangeLabel),
+        new("채널", row => row.ChannelLabel), new("변경 전", row => row.OldValue ? "켬" : "끔"),
+        new("변경 후", row => row.NewValue ? "켬" : "끔"), new("결과 버전", row => row.ResultingVersion),
+        new("대상 부서(현재)", row => row.TargetDepartmentName)
     ];
 
     private static readonly IReadOnlyList<ExcelColumn<WorkItemEscalationResponse>> EscalationColumns =

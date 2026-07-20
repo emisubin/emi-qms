@@ -16,6 +16,7 @@ import { SalesKpiPage } from './SalesKpiPage';
 import { SalesBillingRequestPage } from './SalesBillingRequestPage';
 import { FormTemplateManagementPage } from './FormTemplateManagementPage';
 import { NotificationPreferencesPage } from './NotificationPreferencesPage';
+import { NotificationPreferenceAuditPage } from './NotificationPreferenceAuditPage';
 import { PanelQrManager } from './PanelQrManager';
 import { QrScanLandingPage } from './QrScanLandingPage';
 import { useActionFeedback, type ActionFeedbackState, type ActionFeedbackTone } from './useActionFeedback';
@@ -91,6 +92,7 @@ import {
   getMyWorkSummary,
   getNotificationSummary,
   removeOwnProfilePhoto,
+  reprocessFailedAdminNotificationDeliveries,
   getMaterialReceipts,
   getNotificationDetail,
   getReadyHealth,
@@ -179,6 +181,7 @@ import type {
   AdminNotificationDeliveryActionResponse,
   AdminNotificationDeliveryDetail,
   AdminNotificationDeliveryListResponse,
+  AdminNotificationDeliveryReprocessResponse,
   AdminWorkItemEscalationListResponse,
   AdminWorkItemHistoryListResponse,
   AuditEvent,
@@ -282,6 +285,7 @@ type View =
   | { kind: 'admin-send-notification' }
   | { kind: 'admin-notification-deliveries'; status?: string | null; handlingStatus?: string | null; channel?: string | null; deliveryType?: string | null }
   | { kind: 'admin-notification-delivery-detail'; deliveryId: string }
+  | { kind: 'admin-notification-preference-audit' }
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
   | { kind: 'panel'; projectId: string; panelId: string };
 
@@ -529,6 +533,10 @@ function initialViewFromLocation(): View {
       channel: params.get('channel'),
       deliveryType: params.get('deliveryType')
     };
+  }
+
+  if (window.location.pathname === '/admin/system/notification-preference-audit') {
+    return { kind: 'admin-notification-preference-audit' };
   }
 
   if (window.location.pathname === '/admin/system/work-item-escalations') {
@@ -985,6 +993,8 @@ function pathForView(view: View) {
       })}`;
     case 'admin-notification-delivery-detail':
       return `/admin/system/notification-deliveries/${view.deliveryId}`;
+    case 'admin-notification-preference-audit':
+      return '/admin/system/notification-preference-audit';
     case 'admin-work-item-escalations':
       return `/admin/system/work-item-escalations${queryString({
         status: view.status ?? undefined,
@@ -2284,6 +2294,10 @@ function QmsAppShellContent({
           deliveryId={view.deliveryId}
           onBack={() => setView({ kind: 'admin-notification-deliveries' })}
         />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-preference-audit' ? (
+        <NotificationPreferenceAuditPage developmentUserKey={developmentUserKey} />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-work-item-escalations' ? (
@@ -3945,6 +3959,7 @@ function AdminSectionNav({ onNavigate }: { onNavigate: (view: View) => void }) {
         { label: '사용자 관리', view: { kind: 'admin-users' } },
         { label: '알림 수동 발송', view: { kind: 'admin-send-notification' } },
         { label: '알림 발송 상태', view: { kind: 'admin-notification-deliveries' } },
+        { label: '알림 설정 변경 이력', view: { kind: 'admin-notification-preference-audit' } },
         { label: '에스컬레이션 상태', view: { kind: 'admin-work-item-escalations' } }
       ]
     },
@@ -5408,6 +5423,10 @@ function AdminNotificationDeliveriesPage({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deliveryExportBusy, setDeliveryExportBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [reprocessOpen, setReprocessOpen] = useState(false);
+  const [reprocessReason, setReprocessReason] = useState('');
+  const [duplicateRiskAcknowledged, setDuplicateRiskAcknowledged] = useState(false);
+  const [reprocessBusy, setReprocessBusy] = useState(false);
   const [state, setState] = useState<LoadState<AdminNotificationDeliveryListResponse>>({ kind: 'loading' });
 
   useEffect(() => {
@@ -5502,6 +5521,41 @@ function AdminNotificationDeliveriesPage({
     }
   };
 
+  const runFailedReprocess = async () => {
+    if (selectedItems.length === 0 || selectedItems.some((item) => item.status !== 'Failed')) {
+      setMessage('최종 실패 상태의 알림만 재처리할 수 있습니다.');
+      return;
+    }
+    if (reprocessReason.trim().length < 10 || reprocessReason.trim().length > 500) {
+      setMessage('재처리 사유를 10자 이상 500자 이하로 입력해 주세요.');
+      return;
+    }
+    if (!duplicateRiskAcknowledged) {
+      setMessage('외부 provider 중복 가능성을 확인해 주세요.');
+      return;
+    }
+
+    try {
+      setReprocessBusy(true);
+      setMessage('새 재처리 generation을 만들고 있습니다.');
+      const result: AdminNotificationDeliveryReprocessResponse = await reprocessFailedAdminNotificationDeliveries(developmentUserKey, {
+        items: selectedItems.map((item) => ({ deliveryId: item.deliveryId, expectedGeneration: item.currentGeneration ?? 1 })),
+        reason: reprocessReason.trim(),
+        duplicateRiskAcknowledged
+      });
+      setMessage(result.message);
+      setSelectedIds([]);
+      setReprocessOpen(false);
+      setReprocessReason('');
+      setDuplicateRiskAcknowledged(false);
+      load();
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : '최종 실패 알림 재처리 중 오류가 발생했습니다.');
+    } finally {
+      setReprocessBusy(false);
+    }
+  };
+
   return (
     <AdminPageShell eyebrow="System" title="알림 발송 상태" onRefresh={load} message="">
       <div className="admin-guidance">
@@ -5566,8 +5620,25 @@ function AdminNotificationDeliveriesPage({
         <button type="button" onClick={() => void runDeliveryAction('acknowledge')} disabled={selectedIds.length === 0}>선택 확인 처리</button>
         <button type="button" onClick={() => void runDeliveryAction('dismiss')} disabled={selectedIds.length === 0}>선택 제외 처리</button>
         <button type="button" onClick={() => void runDeliveryAction('retry')} disabled={selectedItems.length === 0 || selectedItems.some((item) => item.status !== 'Pending')}>선택 재발송</button>
+        <button
+          type="button"
+          className="danger-button"
+          onClick={() => setReprocessOpen((current) => !current)}
+          disabled={selectedItems.length === 0 || selectedItems.some((item) => item.status !== 'Failed' || (item.currentGeneration ?? 1) >= 5)}
+        >최종 실패 재처리</button>
         {displayedItems.some((item) => item.status === 'Processing') ? <small>발송 처리 중인 항목은 claim 소유권 보호를 위해 선택하거나 상태를 변경할 수 없습니다.</small> : null}
       </div>
+      {reprocessOpen ? (
+        <section className="delivery-reprocess-panel" aria-label="최종 실패 알림 재처리">
+          <div>
+            <strong>선택 {selectedItems.length}건을 새 generation으로 재처리</strong>
+            <p>기존 시도 이력은 유지됩니다. Provider 호출 뒤 결과 저장이 끊긴 건은 이미 전달됐을 수 있으므로 중복 발송 가능성이 있습니다.</p>
+          </div>
+          <label>재처리 사유<textarea rows={3} maxLength={500} value={reprocessReason} onChange={(event) => setReprocessReason(event.target.value)} placeholder="장애 원인 확인 및 재처리 근거를 10자 이상 입력" /></label>
+          <label className="delivery-reprocess-ack"><input type="checkbox" checked={duplicateRiskAcknowledged} onChange={(event) => setDuplicateRiskAcknowledged(event.target.checked)} /><span>외부 provider에 이미 전달되었을 가능성과 중복 위험을 확인했습니다.</span></label>
+          <div className="button-row"><button type="button" className="danger-button" disabled={reprocessBusy} onClick={() => void runFailedReprocess()}>{reprocessBusy ? '재처리 중…' : '새 generation 시작'}</button><button type="button" className="secondary-button" disabled={reprocessBusy} onClick={() => setReprocessOpen(false)}>취소</button></div>
+        </section>
+      ) : null}
       <ActionFeedback message={message} tone={message.includes('오류') ? 'error' : message.includes('저장하고') ? 'loading' : message ? 'success' : 'neutral'} />
       {state.kind === 'loading' ? <p>발송 상태를 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
@@ -5633,7 +5704,7 @@ function AdminNotificationDeliveriesPage({
                       </>
                     ) : null}
                   </td>
-                  <td className="admin-table__cell--number">{item.attemptCount}회</td>
+                  <td className="admin-table__cell--number">G{item.currentGeneration ?? 1}<br /><small>이번 {item.generationAttemptCount ?? item.attemptCount}회 · 전체 {item.attemptCount}회</small></td>
                   <td className="admin-table__cell--date">
                     <small>생성 {formatNullableDateTime(item.createdAtUtc)}</small>
                     <br />
@@ -5673,6 +5744,10 @@ function AdminNotificationDeliveryDetailPage({
   onBack: () => void;
 }) {
   const [state, setState] = useState<LoadState<AdminNotificationDeliveryDetail>>({ kind: 'loading' });
+  const [reprocessReason, setReprocessReason] = useState('');
+  const [duplicateRiskAcknowledged, setDuplicateRiskAcknowledged] = useState(false);
+  const [reprocessBusy, setReprocessBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState('');
   const load = useCallback(() => {
     setState({ kind: 'loading' });
     getAdminNotificationDelivery(developmentUserKey, deliveryId)
@@ -5698,11 +5773,40 @@ function AdminNotificationDeliveryDetailPage({
     };
   }, [deliveryId, developmentUserKey]);
 
+  const reprocessCurrent = async () => {
+    if (state.kind !== 'ready') return;
+    if (reprocessReason.trim().length < 10 || reprocessReason.trim().length > 500) {
+      setActionMessage('재처리 사유를 10자 이상 500자 이하로 입력해 주세요.');
+      return;
+    }
+    if (!duplicateRiskAcknowledged) {
+      setActionMessage('외부 provider 중복 가능성을 확인해 주세요.');
+      return;
+    }
+    try {
+      setReprocessBusy(true);
+      const result = await reprocessFailedAdminNotificationDeliveries(developmentUserKey, {
+        items: [{ deliveryId: state.data.deliveryId, expectedGeneration: state.data.currentGeneration ?? 1 }],
+        reason: reprocessReason.trim(),
+        duplicateRiskAcknowledged
+      });
+      setActionMessage(result.message);
+      setReprocessReason('');
+      setDuplicateRiskAcknowledged(false);
+      load();
+    } catch (error: unknown) {
+      setActionMessage(error instanceof Error ? error.message : '최종 실패 알림 재처리 중 오류가 발생했습니다.');
+    } finally {
+      setReprocessBusy(false);
+    }
+  };
+
   return (
     <AdminPageShell eyebrow="System" title="알림 발송 상세" onRefresh={load} message="">
       <div className="button-row">
         <button type="button" className="secondary-button" onClick={onBack}>목록으로 돌아가기</button>
       </div>
+      {actionMessage ? <p role="status" className={actionMessage.includes('오류') || actionMessage.includes('확인') || actionMessage.includes('입력') ? 'error-text' : 'success-text'}>{actionMessage}</p> : null}
       {state.kind === 'loading' ? <p>상세 정보를 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
@@ -5716,7 +5820,8 @@ function AdminNotificationDeliveryDetailPage({
             <DetailItem label="채널" value={state.data.channelLabel} />
             <DetailItem label="수신/게시 대상" value={state.data.recipient} />
             <DetailItem label="상태" value={state.data.statusLabel} />
-            <DetailItem label="시도 횟수" value={`${state.data.attemptCount}회`} />
+            <DetailItem label="재처리 Generation" value={`G${state.data.currentGeneration ?? 1}`} />
+            <DetailItem label="시도 횟수" value={`이번 ${state.data.generationAttemptCount ?? state.data.attemptCount}회 · 전체 ${state.data.attemptCount}회`} />
             <DetailItem label="다음 시도" value={formatNullableDateTime(state.data.nextAttemptAtUtc)} />
             <DetailItem label="최근 시도" value={formatNullableDateTime(state.data.lastAttemptAtUtc)} />
             <DetailItem label="발송 완료" value={formatNullableDateTime(state.data.sentAtUtc)} />
@@ -5734,6 +5839,14 @@ function AdminNotificationDeliveryDetailPage({
             <p><strong>관리자 조치 안내:</strong> {state.data.actionGuide}</p>
             {state.data.adminHandlingNote ? <p><strong>처리 메모:</strong> {state.data.adminHandlingNote}</p> : null}
           </div>
+          {state.data.status === 'Failed' && (state.data.currentGeneration ?? 1) < 5 ? (
+            <section className="delivery-reprocess-panel delivery-reprocess-panel--detail">
+              <div><strong>최종 실패를 새 generation으로 재처리</strong><p>기존 이력은 보존됩니다. 이미 provider에 전달됐을 가능성이 있으므로 확인 후 실행하세요.</p></div>
+              <label>재처리 사유<textarea rows={3} maxLength={500} value={reprocessReason} onChange={(event) => setReprocessReason(event.target.value)} placeholder="장애 원인 확인 및 재처리 근거를 10자 이상 입력" /></label>
+              <label className="delivery-reprocess-ack"><input type="checkbox" checked={duplicateRiskAcknowledged} onChange={(event) => setDuplicateRiskAcknowledged(event.target.checked)} /><span>외부 provider 중복 가능성을 확인했습니다.</span></label>
+              <button type="button" className="danger-button" disabled={reprocessBusy} onClick={() => void reprocessCurrent()}>{reprocessBusy ? '재처리 중…' : `G${(state.data.currentGeneration ?? 1) + 1} 재처리 시작`}</button>
+            </section>
+          ) : null}
           <details className="advanced-detail">
             <summary>내부 추적값</summary>
             <dl>
@@ -5758,7 +5871,7 @@ function AdminNotificationDeliveryDetailPage({
                   <tbody>
                     {state.data.attempts.map((attempt) => (
                       <tr key={attempt.attemptNumber}>
-                        <td className="admin-table__cell--number">{attempt.attemptNumber}회</td>
+                        <td className="admin-table__cell--number">{attempt.attemptNumber}회<br /><small>Generation G{attempt.generation ?? 1}</small></td>
                         <td className="admin-table__cell--status"><StatusBadge label={deliveryAttemptOutcomeLabel(attempt.outcome)} tone={attempt.outcome === 'FailedPermanent' ? 'danger' : attempt.outcome === 'Processing' || attempt.outcome === 'RetryScheduled' ? 'warning' : 'neutral'} /></td>
                         <td className="admin-table__cell--date">
                           <small>시작 {formatNullableDateTime(attempt.claimedAtUtc)}</small><br />
@@ -5775,6 +5888,19 @@ function AdminNotificationDeliveryDetailPage({
                   </tbody>
                 </table>
               </div>
+            )}
+          </section>
+          <section className="subsection">
+            <h3>수동 재처리 이력</h3>
+            {(state.data.reprocessEvents ?? []).length === 0 ? <p className="muted-text">수동 재처리 기록이 없습니다.</p> : (
+              <div className="reprocess-event-list">{(state.data.reprocessEvents ?? []).map((event) => (
+                <article key={event.eventId}>
+                  <div><strong>G{event.priorGeneration} → G{event.newGeneration}</strong><span>{formatNullableDateTime(event.occurredAtUtc)}</span></div>
+                  <p>{event.reason}</p>
+                  <small>{event.actorDisplayName} · 중복 위험 확인 완료{event.priorErrorCode ? ` · 이전 오류 ${event.priorErrorCode}` : ''}</small>
+                  {event.priorAdminHandlingNote ? <small>이전 처리 메모: {event.priorAdminHandlingNote}</small> : null}
+                </article>
+              ))}</div>
             )}
           </section>
         </section>
@@ -6081,6 +6207,7 @@ function isAdminWorkspace(view: View) {
     || view.kind === 'admin-send-notification'
     || view.kind === 'admin-notification-deliveries'
     || view.kind === 'admin-notification-delivery-detail'
+    || view.kind === 'admin-notification-preference-audit'
     || view.kind === 'admin-work-item-escalations';
 }
 

@@ -1006,6 +1006,8 @@ Excel 출력 대상 후보:
 | 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Experiment Complete | Automated validation·페이지 screenshot complete / `BATCHED_FINAL` | 로그인 shell, 후속 MOBILE-002와 DESIGN-000 foundation이 보완 | 없음. Figma publish는 optional 후속 | Yes | 완료 화면 통일 재구현 금지; 최종 일괄 검수 |
 | 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment Complete | A1·A2 implementation, automated·isolated browser validation complete / `BATCHED_FINAL` | A1 공통 contract·내 업무·알림, A2 생산·구매·자재·IQC·키팅·패널·Excel 완료 | 대표 repo·main·Persistent UAT 미반영; 전역 toast/store·A2 밖 문자열 tone 정리는 제외 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004·TASK-UX-001 A1 experiment | 관리자 감사 조회 UI는 별도 후속 | Yes | 재구현 금지; 최종 일괄 검수 |
+| 5.5 | TASK-NOTIFY-AUDIT-001 관리자 preference 감사 조회 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-005 audit 원장 | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
+| 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | 운영 전환 (Task ID 미정) | UAT_RUNTIME | Deferred | Scope Review Required | 기능·P2·design gate 완료 | hosting/domain, redirect URI, Teams catalog, provider, 교육 | Yes | 운영 전환 Task와 rollback 승인 |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
@@ -1466,7 +1468,23 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 검증: Backend 391/391, Frontend 101/101·build, migration 41개 fresh apply, 격리 desktop/390 save·reset·overflow 0, actual provider 0.
 - 산출물: [Fable 2차 기획](26-notification-preferences-plan.md), [Implementation report](../tasks/notify-005-implementation-report.md), [SOP](../tasks/notify-005-sop.md), [User manual](../tasks/notify-005-user-manual.md), [Checklist/Screenshots](../tasks/notify-005.md)
 
-현재 experiment Task 선택은 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 따른다. TASK-007A~014A, MOBILE-001/002, HOME-001/002, DESIGN-000/001, 현재 선택 export와 column picker, E2E 기준선, UX-001 A1/A2, NOTIFY-005, TASK-PENDING-TYPE-001과 TASK-QR-001은 `EXPERIMENT_COMPLETE`이므로 사용자 검수 대기만을 이유로 다시 기획·구현하지 않는다. 다음 이름 있는 제품 후보는 `TASK-NOTIFY-005` 후속 관리자 preference 감사 조회 UI다. 이 branch의 standing instruction에서 “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task 실행 지시이며, 해당 Task의 비차단 정책은 사용자에게 승인·채택·확인을 다시 요구하지 않고 Fable 2-pass 권장안으로 확정한다. 아래 과거 실험 기록의 “canonical TASK-007A Gate 유지” 문구는 대표 repo·`main` 승격 당시의 gate를 보존한 역사적 snapshot이지 현재 experiment에서 TASK-007A를 재개발하라는 지시가 아니다. 대표 repo·`main` 승격, Persistent UAT와 게시·merge는 여전히 별도이며 main merge 승인 `0/3`이다.
+현재 experiment Task 선택은 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 따른다. TASK-007A~014A, MOBILE-001/002, HOME-001/002, DESIGN-000/001, 현재 선택 export와 column picker, E2E 기준선, UX-001 A1/A2, NOTIFY-005, TASK-PENDING-TYPE-001, TASK-QR-001, TASK-NOTIFY-AUDIT-001과 TASK-NOTIFY-REPROCESS-001은 `EXPERIMENT_COMPLETE`이므로 사용자 검수 대기만을 이유로 다시 기획·구현하지 않는다. 다음 제품 후보는 완료 원장의 첨부·사진 storage/검역/보존/backup·restore 묶음이며 아직 canonical Task ID가 없다. 이 branch의 standing instruction에서 “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task 실행 지시다. 아래 과거 실험 기록의 “canonical TASK-007A Gate 유지” 문구는 대표 repo·`main` 승격 당시의 gate를 보존한 역사적 snapshot이지 현재 experiment에서 TASK-007A를 재개발하라는 지시가 아니다. 대표 repo·`main` 승격, Persistent UAT와 게시·merge는 여전히 별도이며 main merge 승인 `0/3`이다.
+
+### TASK-NOTIFY-AUDIT-001: 관리자 알림 설정 변경 이력
+
+- 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL`
+- 목적: System Administrator가 기존 preference audit 원장을 기간·행동·알림 종류·사용자/부서로 조회·요약하고 선택 Excel로 보존한다.
+- 구현: additive `0048`, admin-only API, shared list/summary predicate, KST 날짜 경계, 현재 계정 기준 안내, desktop table·390px card, 선택 export.
+- 검증: Backend/Frontend 전체 기준선, 기능 API·Excel 테스트와 disposable Full-Stack desktop/mobile `1/1` 통과. actual provider·Persistent UAT 사용 0.
+- 산출물: [Codex 2차 기획](35-notification-preference-audit-plan.md), [구현 보고서](../tasks/notify-audit-001-implementation-report.md).
+
+### TASK-NOTIFY-REPROCESS-001: terminal Failed 수동 재처리
+
+- 상태: `EXPERIMENT_COMPLETE / BATCHED_FINAL`
+- 목적: System Administrator가 terminal Failed만 중복 위험을 확인하고 사유를 남겨 새 generation으로 원자 재처리한다.
+- 구현: additive `0049`, generation별 retry count와 전역 attempt lineage, expected-generation CAS, 최대 G5, append-only event, desktop/mobile 관리자 실행 UX와 상세 이력.
+- 검증: 권한·G1→G2·stale CAS·batch 원자성·worker claim 테스트와 disposable Full-Stack `1/1` 통과. actual provider·Persistent UAT 사용 0.
+- 산출물: [Codex 2차 기획](36-notification-delivery-reprocess-plan.md), [구현 보고서](../tasks/notify-reprocess-001-implementation-report.md).
 
 ### TASK-USER-FLOW-001: 웹사이트 전체 유저플로우 설계
 
@@ -1738,7 +1756,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 52 | 사용자별 알림 설정 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/운영 | TASK-NOTIFY-005 | 선택 3종 sparse opt-out·필수 잠금·audit·Suppressed gate·desktop/390 완료. 대표 repo·main·Persistent UAT 미반영 |
 | 92 | 개인화 Home·프로필 shell | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/개발 | TASK-HOME-002 | actual 사용자 계정 shell·본인 사진·9개 부서 핵심 지표·full-height sidebar·모바일 계정 sheet/drawer 완료. migration `0042`, 대표 repo·main·Persistent UAT 미반영 |
 | 93 | 패널 QR 발급·인증 모바일 scan landing | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 현장 사용자/개발 | TASK-QR-001 | 패널당 활성 1개·SVG/PNG·선택 인쇄·담당 업무 routing·관리자 rotation 완료. Backend `406/406`, Frontend `110/110`, QR E2E `1/1`, migration `0047`; 대표 repo·main·Persistent UAT 미반영 |
-| 91 | 사용자별 알림 설정 감사 조회 UI | Backlog | 사용자/운영 | TASK-NOTIFY-005 후속 | fixed-field 감사 원장은 구현. 관리자 조회·필터·요약 UI는 별도 신규 기능 planning 필요 |
+| 91 | 사용자별 알림 설정 감사 조회 UI | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/운영 | TASK-NOTIFY-AUDIT-001 | 관리자 기간·행동·알림 종류·사용자/부서 조회·요약, 현재 계정 기준 안내, desktop/mobile UI와 선택 Excel 완료. migration `0048`; 대표 repo·main·Persistent UAT 미반영 |
 | 53 | Task 종료 5종 산출물과 개인정보 기준 | 완료 | BASELINE-GOV-001 | [Task 종료 및 산출물 정책](12-task-completion-policy.md) | 사용자 승인 후 PR #21 squash merge. canonical policy를 사용하고 Roadmap/AGENTS에는 세부 규칙을 중복 정의하지 않음 |
 | 54 | Full-Stack E2E PostgreSQL 물리 격리 | 완료 | 개발/운영 | TASK-E2E-ISOLATION-001 | 전용 container/network/tmpfs, `emi_qms_e2e_*` guard, 외부 provider 차단, Full-Stack E2E 16개 통과. PR #22 squash merge `45fd61c` |
 | 55 | HTTPS Development UAT 안정화 | 최초 Task 완료 / Change 001 자동 검증·사용자 검수 완료 / PR #48 squash merge 승인 | 개발/운영 | TASK-UAT-001 | HTTPS-only 5174, strict port/ownership, same-origin 5081 proxy, 로그인 유지·재인증·기존 알림 조회, Delivery Worker 단독 활성, Teams Activity 신규 ManualTest 1건 Sent·client 표시 확인, Review-safe·5176·persistent UAT 보존. PR #23 + PR #48 |
@@ -1760,7 +1778,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
 | 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
 | 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
-| 74 | terminal Failed delivery 수동 재처리 범위 | 정책 결정 완료 / Deferred | 사용자/개발/운영 | TASK-NOTIFY-004 | 현재 P2 필수 보정 아님. Retry generation·append-only audit·duplicate-risk 확인이 필요한 별도 NEW_FEATURE 후보 |
+| 74 | terminal Failed delivery 수동 재처리 범위 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/개발/운영 | TASK-NOTIFY-REPROCESS-001 | terminal Failed만 generation 기반 CAS·원자 배치·사유·중복 위험 확인·append-only audit로 재처리. migration `0049`; 실제 provider·Persistent UAT 미적용 |
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
 | 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수·PR #50 merge·public 재개 완료 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. Backup 삭제는 별도 결정 |
@@ -1953,6 +1971,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-19 | experiment standing instruction 아래의 “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task 실행 지시이며 비차단 정책은 Fable 2-pass 권장안으로 자동 채택 | Change 014 fast-track보다 나중에 추가된 정책 입력 문구가 재승인 질문을 만든 회귀를 제거하고, 일반 branch·대표 repo·main·Persistent UAT·provider·destructive operation 경계를 보존하면서 실험 개발 속도를 유지하기 위함 | AGENTS.md, 12장, 23장~25장, 27-experiment-task-ledger, TASK-GOV-CODEX-002 Change 016 |
 | 2026-07-19 | Pending system semantic code와 사용자-facing catalog를 분리하고 system administrator 전용 관리·server-generated custom code·CAS·inactive lifecycle을 사용 | 자동 Pending 의미와 과거 issue를 보존하면서 코드 수정 없는 표시·등록 정책 관리, 동시 관리자 stale write 차단과 목록·상세·filter·선택 Excel label 통일을 함께 달성하기 위함 | 23장~25장, 27-experiment-task-ledger, TASK-PENDING-TYPE-001 |
 | 2026-07-20 | TASK-QR-001은 패널별 명시 발급·활성 QR 1개·256-bit opaque token·인증 scan landing·현재 단계 담당자 routing·관리자 사유 rotation을 사용 | QR을 인증수단이나 자동 상태 변경 수단으로 쓰지 않으면서 현장 재진입을 단순화하고, raw token의 log·audit 노출과 폐기 QR의 업무정보 노출을 차단하기 위함 | 8장, 23장~25장, 27-experiment-task-ledger, TASK-QR-001 |
+| 2026-07-20 | TASK-NOTIFY-AUDIT-001은 기존 append-only preference 원장을 수정하지 않고 관리자가 현재 계정 기준으로 조회·요약·선택 Excel 보존 | 과거 조직 snapshot을 임의 추정하지 않으면서 DB 직접 조회 없이 설정 문의와 변경 책임을 확인하고, 목록·요약·Excel 필터 drift를 막기 위함 | 23장~25장, 27-experiment-task-ledger, TASK-NOTIFY-AUDIT-001 |
+| 2026-07-20 | TASK-NOTIFY-REPROCESS-001은 terminal Failed delivery의 total attempt를 보존하고 generation별 retry budget만 초기화하며 사유·duplicate-risk 확인·CAS·append-only event를 필수화 | provider exactly-once가 보장되지 않는 경계에서 무한/부분/중복 재처리를 억제하고 같은 delivery의 전체 계보를 감사 가능하게 유지하기 위함 | 6장, 23장~25장, 27-experiment-task-ledger, TASK-NOTIFY-REPROCESS-001 |
 
 ## 26. 용어 사전
 

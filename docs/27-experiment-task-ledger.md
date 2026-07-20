@@ -4,7 +4,7 @@
 
 이 문서는 현재 `experiment/*` 계보에서 이미 구현한 Task와 남은 Task를 구분하는 선택 기준이다. 새 대화나 새 Task를 시작할 때 Product Roadmap과 함께 이 원장을 먼저 읽어, 완료된 기능을 다시 기획하거나 다시 구현하지 않는다.
 
-- 감사 기준일: `2026-07-19`
+- 감사 기준일: `2026-07-20`
 - 감사 branch: `experiment/task-home-002-personalized-shell`
 - 감사 HEAD: TASK-HOME-002 최종 local commit 계보(Git history와 구현 보고서가 source of truth)
 - 대표 repository·GitHub `main`: 이 원장의 완료 판정 대상이 아니며 현재 실험 결과가 반영되지 않음
@@ -56,8 +56,10 @@
 | `DESIGN-000` | reference 기반 CSS semantic token, 공통 React primitive, shell·Home·Sales 우선 적용과 desktop/mobile visual baseline | [구현 보고서](../tasks/design-000-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-PENDING-TYPE-001` | system semantic 보호, 사용자 유형 lifecycle·정렬·label, system administrator 권한·CAS·audit, Pending 생성·필터·상세·선택 Excel 연동과 desktop/mobile 관리 화면 | [구현 보고서](../tasks/pending-type-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-QR-001` | 패널별 명시 QR 발급·SVG/PNG·선택 인쇄, 인증 모바일 scan landing·현재 담당 업무 routing, 관리자 사유 기반 rotation과 append-only audit | [구현 보고서](../tasks/qr-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-NOTIFY-AUDIT-001` | 관리자 알림 설정 변경 이력의 기간·행동·알림 종류·사용자/부서 조회, 요약, desktop/mobile UI와 선택 Excel | [구현 보고서](../tasks/notify-audit-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-NOTIFY-REPROCESS-001` | terminal Failed 알림의 generation 기반 수동 재처리, CAS·원자 배치·중복 위험 확인·append-only event와 관리자 UI | [구현 보고서](../tasks/notify-reprocess-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 Backend `406/406`, Frontend `110/110`, migration `0047`까지의 fresh PostgreSQL 적용이다. 직전 전체 Full-Stack 기준선 위에서 실제 담당자 UI 입력 lifecycle `1/1`이 프로젝트 생성부터 회계팀 발행요청 Excel·최종 `18/18` 완료까지 통과했고, QR 전용 isolated Full-Stack E2E `1/1`에서 설계 담당자의 3개 패널 발급·선택 인쇄, 생산 담당자의 390px scan landing·현재 업무 이동, 관리자 rotation과 폐기 QR 차단을 검증했다. 프로젝트 생성 수신 정책, 생산관리 지정 gate, 정·부 인계, Pending 인앱·내 업무·TeamsChannel/Mail outbox와 납품→영업 인계, 프로젝트 상세 전 부서의 저장 field·checklist·event·evidence projection도 synthetic data와 disposable runtime에서 검증했다. 실제 provider·Persistent UAT·대표 runtime으로 우회하지 않았다.
+현재 계보의 최신 누적 자동 기준선은 Backend `410/410`, Frontend `111/111`, migration `0049`까지의 fresh PostgreSQL 적용이다. 직전 전체 Full-Stack 기준선 위에서 실제 담당자 UI 입력 lifecycle `1/1`과 QR isolated E2E `1/1`을 유지하며, 알림 관리자 제어 E2E `1/1`에서 preference 감사 조회 desktop/mobile과 terminal Failed의 `G1 → G2` 재처리를 검증했다. 프로젝트 생성 수신 정책, 생산관리 지정 gate, 정·부 인계, Pending 인앱·내 업무·TeamsChannel/Mail outbox와 납품→영업 인계, 프로젝트 상세 전 부서의 저장 field·checklist·event·evidence projection도 synthetic data와 disposable runtime에서 검증했다. 실제 provider·Persistent UAT·대표 runtime으로 우회하지 않았다.
 
 ## 4. 남은 제품 개발 Task
 
@@ -65,10 +67,8 @@
 
 | 우선순위 | Task·후속 범위 | 현재 상태 | 시작 조건·주의 |
 | --- | --- | --- | --- |
-| 1 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
-| 2 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
-| 3 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
-| 4 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
+| 1 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
+| 2 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
 
 ### 4.1 아직 독립 Task로 승격되지 않은 Roadmap 입력
 
@@ -113,7 +113,7 @@
 3. 신규 상태·권한·외부 연동이 필요하면 별도 `NEW_FEATURE`로 분류한다.
 4. 다른 완료 Task를 함께 재기획하지 않는다.
 
-대표 repo·`main`으로 옮기려면 별도 승격 Task에서 현재 experiment commit 계보, migration `0030`~`0045`, 전체 자동 회귀, Persistent UAT handover와 rollback을 다시 검증한다. 이는 완료 기능의 재개발이 아니다. `main` merge는 사용자가 merge를 요청하더라도 서로 분리된 승인 3회가 기록되기 전까지 수행하지 않는다.
+대표 repo·`main`으로 옮기려면 별도 승격 Task에서 현재 experiment commit 계보, migration `0030`~`0049`, 전체 자동 회귀, Persistent UAT handover와 rollback을 다시 검증한다. 이는 완료 기능의 재개발이 아니다. `main` merge는 사용자가 merge를 요청하더라도 서로 분리된 승인 3회가 기록되기 전까지 수행하지 않는다.
 
 ## 7. 중복 실행 방지 체크리스트
 

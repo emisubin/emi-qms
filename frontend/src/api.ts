@@ -25,6 +25,7 @@ import type {
   NotificationPreferenceResponse,
   UpdateNotificationPreferencesRequest
 } from './notificationPreferences';
+import type { NotificationPreferenceAuditFilters, NotificationPreferenceAuditList } from './notificationPreferenceAudit';
 import type {
   CreatePendingRequest,
   PendingAssignee,
@@ -89,6 +90,8 @@ import type {
   AdminNotificationDeliveryActionResponse,
   AdminNotificationDeliveryDetail,
   AdminNotificationDeliveryListResponse,
+  AdminNotificationDeliveryReprocessRequest,
+  AdminNotificationDeliveryReprocessResponse,
   AdminReorderRequest,
   AdminWorkItemEscalationListResponse,
   AdminWorkItemHistoryListResponse,
@@ -751,6 +754,16 @@ export async function retryAdminNotificationDeliveries(
   });
 }
 
+export async function reprocessFailedAdminNotificationDeliveries(
+  developmentUserKey: string | undefined,
+  request: AdminNotificationDeliveryReprocessRequest
+): Promise<AdminNotificationDeliveryReprocessResponse> {
+  return fetchJson<AdminNotificationDeliveryReprocessResponse>('/api/admin/notification-deliveries/reprocess-failed', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
 export async function sendAdminManualNotification(
   developmentUserKey: string | undefined,
   request: AdminManualNotificationSendRequest
@@ -766,6 +779,22 @@ export async function getAdminNotificationDelivery(
   deliveryId: string
 ): Promise<AdminNotificationDeliveryDetail> {
   return fetchJson<AdminNotificationDeliveryDetail>(`/api/admin/notification-deliveries/${deliveryId}`, developmentUserKey);
+}
+
+export async function getAdminNotificationPreferenceAudit(
+  developmentUserKey: string | undefined,
+  filters: NotificationPreferenceAuditFilters
+): Promise<NotificationPreferenceAuditList> {
+  const params = new URLSearchParams({
+    from: filters.from,
+    to: filters.to,
+    page: String(filters.page),
+    pageSize: String(filters.pageSize)
+  });
+  if (filters.action) params.set('action', filters.action);
+  if (filters.deliveryType) params.set('deliveryType', filters.deliveryType);
+  if (filters.search.trim()) params.set('search', filters.search.trim());
+  return fetchJson<NotificationPreferenceAuditList>(`/api/admin/notification-preference-audit?${params.toString()}`, developmentUserKey);
 }
 
 export async function getMyTeamsActivityDelivery(
@@ -2471,6 +2500,7 @@ export type SelectedExportScreen =
   | 'admin-master-history'
   | 'admin-work-history'
   | 'admin-notification-deliveries'
+  | 'admin-notification-preference-audit'
   | 'admin-work-item-escalations'
   | 'form-templates';
 

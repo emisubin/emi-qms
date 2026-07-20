@@ -33,6 +33,9 @@ internal static class SelectedExportColumnRegistry
             [SelectedExportScreens.AdminMasterHistory] = Required(("대상 유형", "entity-type"), ("변경일시", "changed-at")),
             [SelectedExportScreens.AdminWorkHistory] = Required(("PJT Code", "project-code"), ("업무", "work-title")),
             [SelectedExportScreens.AdminNotificationDeliveries] = Required(("제목", "delivery-title"), ("생성일시", "created-at")),
+            [SelectedExportScreens.AdminNotificationPreferenceAudit] = Required(
+                ("변경일시", "occurred-at"), ("대상 사용자", "target-user"), ("변경 주체", "actor-user"),
+                ("행동", "action"), ("알림 종류", "delivery-type"), ("변경 결과", "change")),
             [SelectedExportScreens.AdminWorkItemEscalations] = Required(("PJT Code", "project-code"), ("업무", "work-title"))
         };
 

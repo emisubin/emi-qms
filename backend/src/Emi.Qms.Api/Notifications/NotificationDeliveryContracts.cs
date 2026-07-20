@@ -158,7 +158,9 @@ public sealed record NotificationDeliveryRecord(
     Guid? ClaimToken,
     DateTimeOffset? ClaimedAtUtc,
     DateTimeOffset? ClaimExpiresAtUtc,
-    string? ClaimedByInstanceId);
+    string? ClaimedByInstanceId,
+    int CurrentGeneration,
+    int GenerationAttemptCount);
 
 public sealed record ClaimedNotificationDelivery(
     NotificationDeliveryRecord Delivery,
@@ -168,6 +170,7 @@ public sealed record ClaimedNotificationDelivery(
 
 public sealed record NotificationDeliveryAttemptRecord(
     int AttemptNumber,
+    int Generation,
     string WorkerInstanceId,
     DateTimeOffset ClaimedAtUtc,
     DateTimeOffset LeaseExpiresAtUtc,
@@ -180,6 +183,7 @@ public sealed record NotificationDeliveryAttemptRecord(
 
 public sealed record NotificationDeliveryAttemptResponse(
     int AttemptNumber,
+    int Generation,
     string WorkerInstance,
     DateTimeOffset ClaimedAtUtc,
     DateTimeOffset LeaseExpiresAtUtc,
@@ -319,6 +323,8 @@ public sealed record NotificationDeliveryResponse(
     DateTimeOffset? ClaimedAtUtc,
     DateTimeOffset? ClaimExpiresAtUtc,
     bool ClaimIsStale,
+    int CurrentGeneration,
+    int GenerationAttemptCount,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
@@ -337,6 +343,41 @@ public sealed record NotificationDeliveryAdminActionItemResponse(
     Guid DeliveryId,
     string Status,
     string Message);
+
+public sealed record NotificationDeliveryReprocessItemRequest(
+    Guid DeliveryId,
+    int ExpectedGeneration);
+
+public sealed record NotificationDeliveryReprocessRequest(
+    IReadOnlyList<NotificationDeliveryReprocessItemRequest> Items,
+    string? Reason,
+    bool DuplicateRiskAcknowledged);
+
+public sealed record NotificationDeliveryReprocessResponse(
+    int RequestedCount,
+    int ReprocessedCount,
+    string Status,
+    string Message,
+    IReadOnlyList<NotificationDeliveryReprocessItemResponse> Items);
+
+public sealed record NotificationDeliveryReprocessItemResponse(
+    Guid DeliveryId,
+    int PriorGeneration,
+    int NewGeneration,
+    string Status,
+    string Message);
+
+public sealed record NotificationDeliveryReprocessEventResponse(
+    Guid EventId,
+    int PriorGeneration,
+    int NewGeneration,
+    string ActorDisplayName,
+    string Reason,
+    bool DuplicateRiskAcknowledged,
+    string? PriorErrorCode,
+    string? PriorAdminHandlingStatus,
+    string? PriorAdminHandlingNote,
+    DateTimeOffset OccurredAtUtc);
 
 public sealed record NotificationManualSendRequest(
     string? SendMode,
@@ -405,7 +446,10 @@ public sealed record NotificationDeliveryDetailResponse(
     DateTimeOffset? ClaimExpiresAtUtc,
     bool ClaimIsStale,
     string? ClaimedByInstance,
-    IReadOnlyList<NotificationDeliveryAttemptResponse> Attempts);
+    int CurrentGeneration,
+    int GenerationAttemptCount,
+    IReadOnlyList<NotificationDeliveryAttemptResponse> Attempts,
+    IReadOnlyList<NotificationDeliveryReprocessEventResponse> ReprocessEvents);
 
 public sealed record NotificationTestMailRequest(
     string? RecipientEmail,

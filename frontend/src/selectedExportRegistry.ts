@@ -27,5 +27,6 @@ export const selectedExportPageRegistry: readonly SelectedExportPage[] = [
   { route: '/admin/history/master-data', screen: 'admin-master-history', selectionKey: 'changeLogId', area: 'admin' },
   { route: '/admin/history/work-items', screen: 'admin-work-history', selectionKey: 'workItemId', area: 'admin' },
   { route: '/admin/system/notification-deliveries', screen: 'admin-notification-deliveries', selectionKey: 'deliveryId', area: 'admin' },
+  { route: '/admin/system/notification-preference-audit', screen: 'admin-notification-preference-audit', selectionKey: 'auditEventId', area: 'admin' },
   { route: '/admin/system/work-item-escalations', screen: 'admin-work-item-escalations', selectionKey: 'escalationId', area: 'admin' }
 ] as const;

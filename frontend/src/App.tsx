@@ -16,6 +16,8 @@ import { SalesKpiPage } from './SalesKpiPage';
 import { SalesBillingRequestPage } from './SalesBillingRequestPage';
 import { FormTemplateManagementPage } from './FormTemplateManagementPage';
 import { NotificationPreferencesPage } from './NotificationPreferencesPage';
+import { PanelQrManager } from './PanelQrManager';
+import { QrScanLandingPage } from './QrScanLandingPage';
 import { useActionFeedback, type ActionFeedbackState, type ActionFeedbackTone } from './useActionFeedback';
 import type { QualityInspectionStage } from './qualityInspections';
 import type { LogisticsStage } from './logistics';
@@ -237,6 +239,7 @@ import type {
 
 type View =
   | { kind: 'home' }
+  | { kind: 'qr-scan'; token: string }
   | { kind: 'my-work' }
   | { kind: 'teams-activity' }
   | { kind: 'teams-activity-detail'; deliveryId: string }
@@ -392,6 +395,11 @@ const packagingMethodOptions: Array<{ value: PackagingMethod; label: string }> =
 function initialViewFromLocation(): View {
   if (typeof window === 'undefined') {
     return { kind: 'home' };
+  }
+
+  const qrScanMatch = window.location.pathname.match(/^\/q\/([A-Za-z0-9_-]{43})$/);
+  if (qrScanMatch?.[1]) {
+    return { kind: 'qr-scan', token: qrScanMatch[1] };
   }
 
   if (window.location.pathname === '/' && isLikelyTeamsContext()) {
@@ -865,6 +873,8 @@ function pathForView(view: View) {
   switch (view.kind) {
     case 'home':
       return '/';
+    case 'qr-scan':
+      return `/q/${view.token}`;
     case 'my-work':
       return '/my-work';
     case 'teams-activity':
@@ -1839,6 +1849,18 @@ function QmsAppShellContent({
         />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'qr-scan' ? (
+        <QrScanLandingPage
+          key={view.token}
+          developmentUserKey={developmentUserKey}
+          token={view.token}
+          onOpenPath={(path) => {
+            window.history.pushState(null, '', path);
+            setViewState(initialViewFromLocation());
+          }}
+        />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'sales-kpi' ? (
         <SalesKpiPage
           developmentUserKey={developmentUserKey}
@@ -1937,6 +1959,7 @@ function QmsAppShellContent({
           canUpdateManufacturing={canUpdateManufacturing}
           canInspectQuality={canInspectQuality}
           canShipLogistics={canShipLogistics}
+          isSystemAdministrator={isSystemAdministrator}
           initialSection={view.section ?? 'panels'}
           onBack={() => setView({ kind: 'list' })}
           onEdit={() => setView({ kind: 'edit', projectId: view.projectId })}
@@ -8580,6 +8603,7 @@ function ProjectDetailPage({
   canUpdateManufacturing,
   canInspectQuality,
   canShipLogistics,
+  isSystemAdministrator,
   initialSection,
   onBack,
   onEdit,
@@ -8608,6 +8632,7 @@ function ProjectDetailPage({
   canUpdateManufacturing: boolean;
   canInspectQuality: boolean;
   canShipLogistics: boolean;
+  isSystemAdministrator: boolean;
   initialSection: ProjectDetailSection;
   onBack: () => void;
   onEdit: () => void;
@@ -8908,11 +8933,13 @@ function ProjectDetailPage({
 
       {activeDetailSection === 'panels' ? (
         <PanelInformationSection
+          developmentUserKey={developmentUserKey}
           project={project}
           state={panelInfoState}
           canUpdatePanelInfo={canUpdatePanelInfo}
           onEdit={onEditPanelInformation}
           onOpenPanel={onOpenPanel}
+          isSystemAdministrator={isSystemAdministrator}
         />
       ) : null}
 
@@ -9571,17 +9598,21 @@ type PanelNameDuplicateGroup = {
 };
 
 function PanelInformationSection({
+  developmentUserKey,
   project,
   state,
   canUpdatePanelInfo,
   onEdit,
-  onOpenPanel
+  onOpenPanel,
+  isSystemAdministrator
 }: {
+  developmentUserKey: string;
   project: ProjectDetail;
   state: LoadState<PanelInformationResponse>;
   canUpdatePanelInfo: boolean;
   onEdit: () => void;
   onOpenPanel: (panelId: string) => void;
+  isSystemAdministrator: boolean;
 }) {
   const canShowEdit = canUpdatePanelInfo && project.status === 'Active';
   const [displayUnit, setDisplayUnit] = useState<PanelInputUnit>(() => readDisplayUnit());
@@ -9638,6 +9669,12 @@ function PanelInformationSection({
             packagingMethod={state.data.packagingMethod}
             displayUnit={displayUnit}
             onOpenPanel={onOpenPanel}
+          />
+          <PanelQrManager
+            developmentUserKey={developmentUserKey}
+            projectId={project.projectId}
+            canIssue={canShowEdit}
+            isSystemAdministrator={isSystemAdministrator}
           />
         </>
       ) : null}

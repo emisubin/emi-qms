@@ -16,6 +16,12 @@ import type { FormTemplateCatalog, FormTemplateManagers, FormTemplateScope, Form
 import type { AdminUsersResponse, CurrentUser, ProfilePhotoMetadata, UpdateAdminUserRequest } from './identity';
 import type { HomeMetricsResponse } from './home';
 import type {
+  PanelQrPrintSheet,
+  PanelQrRecord,
+  PanelQrResolve,
+  ProjectPanelQrList
+} from './panelQr';
+import type {
   NotificationPreferenceResponse,
   UpdateNotificationPreferencesRequest
 } from './notificationPreferences';
@@ -149,6 +155,86 @@ const apiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL ?? 'htt
 export const defaultDevelopmentUserKey = import.meta.env.DEV
   ? (import.meta.env.VITE_DEV_USER_KEY ?? 'dev-sales')
   : undefined;
+
+export async function listProjectPanelQrs(
+  developmentUserKey: string | undefined,
+  projectId: string
+): Promise<ProjectPanelQrList> {
+  return fetchJson<ProjectPanelQrList>(`/api/projects/${encodeURIComponent(projectId)}/qr`, developmentUserKey);
+}
+
+export async function issuePanelQr(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  panelId: string
+): Promise<PanelQrRecord> {
+  return fetchJson<PanelQrRecord>(
+    `/api/projects/${encodeURIComponent(projectId)}/panels/${encodeURIComponent(panelId)}/qr`,
+    developmentUserKey,
+    { method: 'POST', body: '{}' }
+  );
+}
+
+export async function rotatePanelQr(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  panelId: string,
+  reason: string
+): Promise<PanelQrRecord> {
+  return fetchJson<PanelQrRecord>(
+    `/api/projects/${encodeURIComponent(projectId)}/panels/${encodeURIComponent(panelId)}/qr/rotate`,
+    developmentUserKey,
+    { method: 'POST', body: JSON.stringify({ reason }) }
+  );
+}
+
+export async function preparePanelQrPrintSheet(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  panelIds: readonly string[]
+): Promise<PanelQrPrintSheet> {
+  return fetchJson<PanelQrPrintSheet>(
+    `/api/projects/${encodeURIComponent(projectId)}/qr/print-sheet`,
+    developmentUserKey,
+    { method: 'POST', body: JSON.stringify({ panelIds }) }
+  );
+}
+
+export async function getPanelQrImage(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  panelId: string,
+  format: 'svg' | 'png' = 'svg'
+): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetchWithAuth(
+      `/api/projects/${encodeURIComponent(projectId)}/panels/${encodeURIComponent(panelId)}/qr/image?format=${format}`,
+      developmentUserKey
+    );
+  } catch (error: unknown) {
+    if (isInteractionRequiredAuthError(error)) {
+      throw new ApiError(401, '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.');
+    }
+    throw new ApiError(0, '서버에 연결할 수 없습니다. 서버 실행 상태를 확인해 주세요.');
+  }
+
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  return response.blob();
+}
+
+export async function resolvePanelQr(
+  developmentUserKey: string | undefined,
+  token: string
+): Promise<PanelQrResolve> {
+  return fetchJson<PanelQrResolve>('/api/qr/resolve', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ token })
+  });
+}
 
 export async function getSalesKpi(
   developmentUserKey: string | undefined,

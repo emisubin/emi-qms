@@ -55,8 +55,9 @@
 | `TASK-ADMIN-002` | 고정 6종 검사·제조 양식의 무코드 version 관리, 지정 부서장 scope, 제조 snapshot과 선택 Excel | [구현 보고서](../tasks/admin-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `DESIGN-000` | reference 기반 CSS semantic token, 공통 React primitive, shell·Home·Sales 우선 적용과 desktop/mobile visual baseline | [구현 보고서](../tasks/design-000-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-PENDING-TYPE-001` | system semantic 보호, 사용자 유형 lifecycle·정렬·label, system administrator 권한·CAS·audit, Pending 생성·필터·상세·선택 Excel 연동과 desktop/mobile 관리 화면 | [구현 보고서](../tasks/pending-type-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-QR-001` | 패널별 명시 QR 발급·SVG/PNG·선택 인쇄, 인증 모바일 scan landing·현재 담당 업무 routing, 관리자 사유 기반 rotation과 append-only audit | [구현 보고서](../tasks/qr-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 Backend `403/403`, Frontend `110/110`, migration `0046`까지의 fresh PostgreSQL 적용이다. 직전 전체 Full-Stack 기준선 위에서 실제 담당자 UI 입력 lifecycle `1/1`이 프로젝트 생성부터 회계팀 발행요청 Excel·최종 `18/18` 완료까지 통과했다. 프로젝트 생성 수신 정책, 생산관리 지정 gate, 정·부 인계, Pending 인앱·내 업무·TeamsChannel/Mail outbox와 납품→영업 인계, 프로젝트 상세 전 부서의 저장 field·checklist·event·evidence projection을 synthetic data와 disposable runtime에서 검증했다. 최신 단계별 screenshot과 workbook은 사용자 지시대로 Repository가 아닌 `/tmp`에서 채팅 증빙으로만 사용했고 Excel process까지 종료했다. 대표 runtime으로 우회하지 않았고 실제 provider는 호출하지 않았다.
+현재 계보의 최신 누적 자동 기준선은 Backend `406/406`, Frontend `110/110`, migration `0047`까지의 fresh PostgreSQL 적용이다. 직전 전체 Full-Stack 기준선 위에서 실제 담당자 UI 입력 lifecycle `1/1`이 프로젝트 생성부터 회계팀 발행요청 Excel·최종 `18/18` 완료까지 통과했고, QR 전용 isolated Full-Stack E2E `1/1`에서 설계 담당자의 3개 패널 발급·선택 인쇄, 생산 담당자의 390px scan landing·현재 업무 이동, 관리자 rotation과 폐기 QR 차단을 검증했다. 프로젝트 생성 수신 정책, 생산관리 지정 gate, 정·부 인계, Pending 인앱·내 업무·TeamsChannel/Mail outbox와 납품→영업 인계, 프로젝트 상세 전 부서의 저장 field·checklist·event·evidence projection도 synthetic data와 disposable runtime에서 검증했다. 실제 provider·Persistent UAT·대표 runtime으로 우회하지 않았다.
 
 ## 4. 남은 제품 개발 Task
 
@@ -64,11 +65,10 @@
 
 | 우선순위 | Task·후속 범위 | 현재 상태 | 시작 조건·주의 |
 | --- | --- | --- | --- |
-| 1 | QR 스캔 landing — Task ID 미정 | `DEFERRED / POLICY_INPUT` | 공개 또는 인증 landing 정책과 QR 운영 경계를 먼저 확정한다 |
-| 2 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
-| 3 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
-| 4 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
-| 5 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
+| 1 | `TASK-NOTIFY-005` 후속 — 관리자 preference 감사 조회 UI | `DEFERRED / NEW_FEATURE` | 감사 원장은 구현 완료. 조회·필터·요약 UI만 별도 기획한다 |
+| 2 | 첨부·사진 storage/검역/보존/backup·restore — Task ID 미정 | `DEFERRED / SECURITY_AND_OPERATIONS` | `TASK-007A`와 모바일 기능을 재구현하지 않고 binary 저장 능력만 별도 기획한다 |
+| 3 | terminal `Failed` delivery 수동 재처리 — Task ID 미정 | `DEFERRED / OPTIONAL_NEW_FEATURE` | retry generation·append-only audit·provider 중복 위험을 포함해 별도 기획한다 |
+| 4 | 운영 전환 — Task ID 미정 | `DEFERRED / UAT_RUNTIME` | hosting/domain, redirect URI, Teams catalog, 실제 provider, migration·rollback, 교육 승인이 필요하다 |
 
 ### 4.1 아직 독립 Task로 승격되지 않은 Roadmap 입력
 

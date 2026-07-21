@@ -2,6 +2,7 @@ using System.Data;
 using System.Globalization;
 using System.Text.Json;
 using ClosedXML.Excel;
+using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
@@ -700,7 +701,7 @@ public sealed class ProcurementStore(
                     {
                         await InsertAuditAsync(connection, transaction, inserted.ProjectId, inserted.ItemId, change.FieldName, null, change.NewValue, reason, changedByUserId, correlationId, "Excel", batchId, null, change.OriginalInputValue, cancellationToken);
                     }
-                    await CreateMaterialsItemHandoffAsync(
+                    if (!await CreateMaterialsItemHandoffAsync(
                         connection,
                         transaction,
                         project,
@@ -709,7 +710,11 @@ public sealed class ProcurementStore(
                         inserted.OrderItem,
                         "신규",
                         changedByUserId,
-                        cancellationToken);
+                        cancellationToken))
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return MaterialsHandoffValidation<ProcurementListResponse>();
+                    }
                 }
                 else
                 {
@@ -731,7 +736,7 @@ public sealed class ProcurementStore(
                     {
                         await InsertAuditAsync(connection, transaction, current.ProjectId, current.ItemId, change.FieldName, change.OldValue, change.NewValue, reason, changedByUserId, correlationId, "Excel", batchId, null, change.OriginalInputValue, cancellationToken);
                     }
-                    await CreateMaterialsItemHandoffAsync(
+                    if (!await CreateMaterialsItemHandoffAsync(
                         connection,
                         transaction,
                         project,
@@ -740,7 +745,11 @@ public sealed class ProcurementStore(
                         ProcurementDomain.TrimToNull(parsedRow.OrderItem) ?? current.OrderItem,
                         "변경",
                         changedByUserId,
-                        cancellationToken);
+                        cancellationToken))
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return MaterialsHandoffValidation<ProcurementListResponse>();
+                    }
                 }
             }
 
@@ -910,7 +919,7 @@ public sealed class ProcurementStore(
                 {
                     await InsertAuditAsync(connection, transaction, project.ProjectId, inserted.ItemId, change.FieldName, null, change.NewValue, reason, changedByUserId, correlationId, "Direct", null, null, null, cancellationToken);
                 }
-                await CreateMaterialsItemHandoffAsync(
+                if (!await CreateMaterialsItemHandoffAsync(
                     connection,
                     transaction,
                     project,
@@ -919,7 +928,10 @@ public sealed class ProcurementStore(
                     inserted.OrderItem,
                     "신규",
                     changedByUserId,
-                    cancellationToken);
+                    cancellationToken))
+                {
+                    return MaterialsHandoffValidation<ProcurementResponse>();
+                }
 
                 continue;
             }
@@ -1002,7 +1014,7 @@ public sealed class ProcurementStore(
             {
                 await InsertAuditAsync(connection, transaction, project.ProjectId, current.ItemId, change.FieldName, change.OldValue, change.NewValue, auditReason, changedByUserId, correlationId, "Direct", null, null, null, cancellationToken);
             }
-            await CreateMaterialsItemHandoffAsync(
+            if (!await CreateMaterialsItemHandoffAsync(
                 connection,
                 transaction,
                 project,
@@ -1011,7 +1023,10 @@ public sealed class ProcurementStore(
                 ProcurementDomain.TrimToNull(update.OrderItem) ?? current.OrderItem,
                 "변경",
                 changedByUserId,
-                cancellationToken);
+                cancellationToken))
+            {
+                return MaterialsHandoffValidation<ProcurementResponse>();
+            }
         }
 
         return ProcurementMutationResult<ProcurementResponse>.Success(new ProcurementResponse(project.ProjectId, project.ProjectTitle, project.ProjectCode, project.DeliveryDate, []));
@@ -1034,7 +1049,7 @@ public sealed class ProcurementStore(
             && string.IsNullOrWhiteSpace(update.ReceiptCompletionNote);
     }
 
-    private static async Task CreateMaterialsItemHandoffAsync(
+    private static async Task<bool> CreateMaterialsItemHandoffAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         ProcurementProjectSnapshot project,
@@ -1050,11 +1065,11 @@ public sealed class ProcurementStore(
             transaction,
             project.ProjectId,
             ["MaterialsPrimary", "MaterialsSecondary"],
-            "MaterialReceipt.Update",
+            QmsPermissions.MaterialReceiptUpdate,
             cancellationToken);
         if (assignees.Count == 0)
         {
-            return;
+            return false;
         }
 
         var title = $"구매품 {changeKind} 확인 · {orderItem ?? "품목명 미입력"}";
@@ -1103,6 +1118,15 @@ public sealed class ProcurementStore(
             linkUrl,
             $"{idempotencyPrefix}:notification",
             cancellationToken);
+        return true;
+    }
+
+    private static ProcurementMutationResult<T> MaterialsHandoffValidation<T>()
+    {
+        return ProcurementMutationResult<T>.Validation(new Dictionary<string, string[]>
+        {
+            ["MaterialsAssignee"] = ["자재 담당자가 없어 구매품을 인계할 수 없습니다. 생산관리에서 자재 정·부 담당자를 지정한 뒤 다시 저장해 주세요."]
+        });
     }
 
     private static async Task<IReadOnlyList<ProjectHandoffAssignee>> ResolveProjectAssigneesAsync(
@@ -1153,10 +1177,22 @@ public sealed class ProcurementStore(
                 select users.id
                 from qms_users users
                 join user_roles user_role on user_role.user_id=users.id
+                join roles role on role.id=user_role.role_id
                 join role_permissions role_permission on role_permission.role_id=user_role.role_id
                 join permissions permission on permission.id=role_permission.permission_id
-                where users.is_active=true and permission.code=@permission_code
-                order by users.id
+                where users.is_active=true
+                  and permission.code=@permission_code
+                  and role.code not in ('system-administrator', 'read-only')
+                  and not exists (
+                      select 1
+                      from user_roles excluded_user_role
+                      join roles excluded_role on excluded_role.id=excluded_user_role.role_id
+                      where excluded_user_role.user_id=users.id
+                        and excluded_role.code in ('system-administrator', 'read-only')
+                  )
+                order by case when role.code='materials' then 0 else 1 end,
+                         role.code,
+                         users.id
                 limit 1;
                 """;
             command.Parameters.AddWithValue("permission_code", fallbackPermission);

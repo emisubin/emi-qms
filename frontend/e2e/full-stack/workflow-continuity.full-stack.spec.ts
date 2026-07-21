@@ -160,7 +160,8 @@ async function createProcurementItem(request: APIRequestContext, projectId: stri
       reason: '연속 흐름 검수용 발주',
       items: [{
         orderItem: '연속흐름 시험 자재', supplierName: 'Synthetic Vendor',
-        orderDate: '2026-07-01', expectedReceiptDate: '2026-07-20'
+        orderDate: '2026-07-01', expectedReceiptDate: '2026-07-20',
+        orderQuantity: 2, orderUnit: 'EA'
       }]
     }
   });
@@ -171,7 +172,7 @@ async function createProcurementItem(request: APIRequestContext, projectId: stri
 async function registerArrival(request: APIRequestContext, itemId: string) {
   const response = await request.post(`${apiBaseUrl}/api/materials/items/${itemId}/receipts`, {
     headers: devHeaders('dev-materials'),
-    data: { quantity: 2, unit: 'EA', orderQuantity: 2, orderUnit: 'EA', arrivalDate: '2026-07-18', note: '도착 즉시 IQC 연결 검수' }
+    data: { quantity: 2, unit: 'EA', arrivalDate: '2026-07-18', note: '도착 즉시 IQC 연결 검수' }
   });
   expect(response.ok(), await response.text()).toBeTruthy();
   return await response.json() as { receiptId: string; iqcAttemptId: string; status: string };

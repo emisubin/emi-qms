@@ -1240,7 +1240,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                           and (
                               (supply_type = 'Purchased'
                                and nullif(btrim(coalesce(supplier_name, '')), '') is not null
-                               and order_date is not null)
+                               and order_date is not null
+                               and order_quantity > 0
+                               and nullif(btrim(coalesce(order_unit, '')), '') is not null)
                               or
                               (supply_type = 'CustomerSupplied'
                                and order_quantity > 0

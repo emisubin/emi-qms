@@ -1724,7 +1724,7 @@ describe('App', () => {
     expect(alert).toHaveTextContent('도급 구매품 · 1번째 행');
     expect(alert).toHaveTextContent('Completed Relay');
     expect(alert).toHaveTextContent('문제 필드발주 단위');
-    expect(alert).toHaveTextContent('발주 수량과 단위는 둘 다 입력하거나 둘 다 비워야');
+    expect(alert).toHaveTextContent('발주 수량과 단위는 구매팀이 함께 입력해야');
     expect(within(editTable).getByLabelText('발주 단위')).toHaveAttribute('aria-invalid', 'true');
   });
 
@@ -2278,6 +2278,10 @@ describe('App', () => {
     expect(screen.getByText('Relay')).toBeInTheDocument();
     expect(screen.queryByText('통상납기')).not.toBeInTheDocument();
     expect(screen.queryByText('입고 완료')).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: '도착분 추가' })[0]);
+    expect(screen.queryByLabelText('발주 수량')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('도착 수량')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
     fireEvent.click(screen.getByRole('button', { name: /24 EA/ }));
     expect(await screen.findByText('도착 등록', { selector: '.material-status-badge' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'IQC 요청' })).not.toBeInTheDocument();

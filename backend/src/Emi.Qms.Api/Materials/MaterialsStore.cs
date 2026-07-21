@@ -2,6 +2,7 @@ using Emi.Qms.Api.Pending;
 using Emi.Qms.Api.Procurement;
 using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.Notifications;
+using Emi.Qms.Api.Identity;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -276,46 +277,20 @@ public sealed class MaterialsStore(
             });
         }
 
-        if (item.OrderQuantity is null)
+        if (item.OrderQuantity is null || string.IsNullOrWhiteSpace(item.OrderUnit))
         {
-            if (item.SupplyType == ProcurementSupplyTypes.CustomerSupplied)
-            {
-                return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("사급 품목의 제공 예정 수량과 단위를 구매정보에서 먼저 입력해 주세요.");
-            }
-            if (request.OrderQuantity is null or <= 0 || string.IsNullOrWhiteSpace(request.OrderUnit))
-            {
-                return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
-                {
-                    [nameof(request.OrderQuantity)] = ["첫 도착 등록 시 발주 수량과 단위를 함께 입력해 주세요."]
-                });
-            }
-            if (!string.Equals(request.OrderUnit.Trim(), unit, StringComparison.OrdinalIgnoreCase))
-            {
-                return MaterialsMutationResult<MaterialReceiptActionResponse>.Validation(new Dictionary<string, string[]>
-                {
-                    [nameof(request.OrderUnit)] = ["발주 단위와 도착 단위를 같게 입력해 주세요."]
-                });
-            }
-
-            await using var measurementCommand = connection.CreateCommand();
-            measurementCommand.Transaction = transaction;
-            measurementCommand.CommandText = """
-                update project_procurement_items
-                set order_quantity = @quantity,
-                    order_unit = @unit,
-                    row_version = row_version + 1,
-                    updated_by_user_id = @actor_id,
-                    updated_at_utc = now()
-                where id = @id;
-                """;
-            measurementCommand.Parameters.AddWithValue("quantity", request.OrderQuantity.Value);
-            measurementCommand.Parameters.AddWithValue("unit", request.OrderUnit.Trim());
-            measurementCommand.Parameters.AddWithValue("actor_id", actorUserId);
-            measurementCommand.Parameters.AddWithValue("id", itemId);
-            await measurementCommand.ExecuteNonQueryAsync(cancellationToken);
+            var measurementName = item.SupplyType == ProcurementSupplyTypes.CustomerSupplied ? "제공 예정 수량·단위" : "발주 수량·단위";
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict(
+                $"{measurementName}가 없습니다. 구매팀이 구매 탭에서 먼저 입력해야 도착 등록을 할 수 있습니다.");
         }
 
-        var effectiveOrderQuantity = item.OrderQuantity ?? request.OrderQuantity!.Value;
+        if ((await ResolveQualityIqcAssigneesAsync(connection, transaction, item.ProjectId, cancellationToken)).Count == 0)
+        {
+            return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict(
+                "IQC 담당자가 없어 도착분을 품질 검사로 인계할 수 없습니다. 생산관리에서 IQC 정·부 담당자를 지정한 뒤 다시 시도해 주세요.");
+        }
+
+        var effectiveOrderQuantity = item.OrderQuantity.Value;
         await using (var quantityCommand = connection.CreateCommand())
         {
             quantityCommand.Transaction = transaction;
@@ -1146,14 +1121,6 @@ public sealed class MaterialsStore(
         {
             errors[nameof(request.Note)] = ["비고는 1,000자 이하여야 합니다."];
         }
-        if (request.OrderQuantity is not null && request.OrderQuantity <= 0)
-        {
-            errors[nameof(request.OrderQuantity)] = ["발주 수량은 0보다 커야 합니다."];
-        }
-        if (request.OrderUnit is not null && request.OrderUnit.Trim().Length is < 1 or > 20)
-        {
-            errors[nameof(request.OrderUnit)] = ["발주 단위를 1~20자로 입력해 주세요."];
-        }
         return errors;
     }
 
@@ -1524,7 +1491,7 @@ public sealed class MaterialsStore(
             return assignees;
         }
 
-        var fallback = await ResolveAssigneeAsync(connection, transaction, projectId, "QualityIQC", "quality.inspect", cancellationToken);
+        var fallback = await ResolveAssigneeAsync(connection, transaction, projectId, "QualityIQC", QmsPermissions.QualityInspect, cancellationToken);
         return fallback is null
             ? []
             : [new IqcHandoffAssignee(fallback.Value.UserId, "QualityIQC")];
@@ -1540,7 +1507,7 @@ public sealed class MaterialsStore(
         Guid actorUserId,
         CancellationToken cancellationToken)
     {
-        var assignee = await ResolveAssigneeAsync(connection, transaction, projectId, "MaterialsPrimary", "MaterialReceipt.Update", cancellationToken);
+        var assignee = await ResolveAssigneeAsync(connection, transaction, projectId, "MaterialsPrimary", QmsPermissions.MaterialReceiptUpdate, cancellationToken);
         if (assignee is null)
         {
             return;

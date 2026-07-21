@@ -12387,7 +12387,7 @@ function ProcurementEditPage({
         field,
         message: invalidMeasurement.supplyType === 'CustomerSupplied'
           ? '제공 예정 수량은 0보다 큰 숫자이고 단위는 1~20자여야 합니다.'
-          : '발주 수량과 단위는 둘 다 입력하거나 둘 다 비워야 하며, 수량은 0보다 커야 합니다.'
+          : '발주 수량과 단위는 구매팀이 함께 입력해야 하며, 수량은 0보다 커야 합니다.'
       };
       setValidationIssue(issue);
       setActiveSupplyType(invalidMeasurement.supplyType);
@@ -12464,6 +12464,7 @@ function ProcurementEditPage({
           <button type="button" className="primary-button" disabled={!initialDataReady || isSaving} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
         </div>
       </div>
+      <p className="info-text" role="note">발주 수량과 단위는 구매팀이 이 화면에서 입력합니다. 두 값이 없으면 자재팀은 도착 등록을 시작할 수 없습니다.</p>
       {!initialDataReady && (state.kind === 'loading' || projectState.kind === 'loading') ? <p className="production-input-lock-note" role="status">프로젝트·구매정보 확인 중에는 입력할 수 없습니다.</p> : null}
       {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
       {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
@@ -12540,7 +12541,7 @@ function ProcurementEditableList({
                 <option value="CustomerSupplied">사급 자재</option>
               </select>
               <div className="procurement-supply-measurement">
-                <input data-procurement-row={index} data-procurement-field="orderQuantity" aria-invalid={validationIssue?.rowIndex === index && validationIssue.field === 'orderQuantity'} aria-label={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량'} inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} placeholder={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량(선택)'} />
+                <input data-procurement-row={index} data-procurement-field="orderQuantity" aria-invalid={validationIssue?.rowIndex === index && validationIssue.field === 'orderQuantity'} aria-label={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량'} inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} placeholder={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량'} />
                 <input data-procurement-row={index} data-procurement-field="orderUnit" aria-invalid={validationIssue?.rowIndex === index && validationIssue.field === 'orderUnit'} aria-label={row.supplyType === 'CustomerSupplied' ? '제공 예정 단위' : '발주 단위'} value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} placeholder="단위" maxLength={20} />
               </div>
               {validationIssue?.rowIndex === index ? <small className="procurement-inline-error" role="alert">{validationIssue.message}</small> : null}
@@ -12595,7 +12596,7 @@ function ProcurementCards({
                   </select>
                 </FormField>
                 <div className="mobile-supply-measurement">
-                  <FormField label={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량(선택)'} error={issue?.field === 'orderQuantity' ? issue.message : undefined}><input data-procurement-row={sourceRowIndex} data-procurement-field="orderQuantity" aria-invalid={issue?.field === 'orderQuantity'} inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} /></FormField>
+                  <FormField label={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량'} error={issue?.field === 'orderQuantity' ? issue.message : undefined}><input data-procurement-row={sourceRowIndex} data-procurement-field="orderQuantity" aria-invalid={issue?.field === 'orderQuantity'} inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} /></FormField>
                   <FormField label="단위" error={issue?.field === 'orderUnit' ? issue.message : undefined}><input data-procurement-row={sourceRowIndex} data-procurement-field="orderUnit" aria-invalid={issue?.field === 'orderUnit'} value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} maxLength={20} /></FormField>
                 </div>
                 {issue && issue.field !== 'orderQuantity' && issue.field !== 'orderUnit' ? <p className="procurement-inline-error" role="alert">{issue.message}</p> : null}

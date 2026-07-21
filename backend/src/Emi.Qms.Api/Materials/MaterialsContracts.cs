@@ -117,8 +117,6 @@ public sealed record MaterialIqcQueueItemResponse(
 public sealed record RegisterMaterialArrivalRequest(
     decimal? Quantity,
     string? Unit,
-    decimal? OrderQuantity,
-    string? OrderUnit,
     DateOnly? ArrivalDate,
     string? Note);
 

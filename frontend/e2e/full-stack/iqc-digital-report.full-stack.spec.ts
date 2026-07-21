@@ -11,8 +11,8 @@ test('TASK-009A: mobile-first IQC report captures checklist, photo, immutable re
   const projectTitle = `IQC 디지털 성적서 ${unique}`;
   const projectId = await createProject(request, `IQC-${unique}`, projectTitle);
   const procurement = await updateProcurement(request, projectId, [
-    { orderItem: 'Desktop Enclosure', supplierName: 'Synthetic Vendor' },
-    { orderItem: 'Mobile Control Unit', supplierName: 'Synthetic Vendor' }
+    { orderItem: 'Desktop Enclosure', supplierName: 'Synthetic Vendor', orderQuantity: 2, orderUnit: 'EA' },
+    { orderItem: 'Mobile Control Unit', supplierName: 'Synthetic Vendor', orderQuantity: 1, orderUnit: 'SET' }
   ]);
   const desktopAttempt = await createAttempt(request, procurement.items[0].itemId, 2, 'EA');
   const mobileAttempt = await createAttempt(request, procurement.items[1].itemId, 1, 'SET');
@@ -66,7 +66,9 @@ test('TASK-009A: mobile-first IQC report captures checklist, photo, immutable re
   await page.getByRole('button', { name: '메뉴 열기' }).click();
   const mobileMenu = page.getByRole('dialog', { name: '전체 업무 메뉴' });
   await mobileMenu.getByRole('button', { name: '품질' }).click();
-  await page.getByRole('navigation', { name: '품질 검사 단계' }).getByRole('button', { name: /IQC/ }).click();
+  await page.getByTestId('department-project-hub-quality')
+    .getByRole('button', { name: new RegExp(projectTitle, 'u') })
+    .click();
   await expect(page.getByRole('heading', { name: 'IQC 검사함' })).toBeVisible();
   await expect(page.locator('.iqc-request-card').filter({ hasText: 'Mobile Control Unit' })).toBeVisible();
   await assertNoHorizontalOverflow(page);
@@ -129,7 +131,7 @@ async function updateProcurement(request: APIRequestContext, projectId: string, 
 async function createAttempt(request: APIRequestContext, itemId: string, quantity: number, unit: string) {
   const arrival = await request.post(`${apiBaseUrl}/api/materials/items/${itemId}/receipts`, {
     headers: devHeaders('dev-materials'),
-    data: { quantity, unit, orderQuantity: quantity, orderUnit: unit, arrivalDate: '2026-07-17' }
+    data: { quantity, unit, arrivalDate: '2026-07-17' }
   });
   expect(arrival.ok()).toBeTruthy();
   const receipt = await arrival.json() as { receiptId: string };

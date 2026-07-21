@@ -276,6 +276,7 @@ export function MaterialIqcPage({
   const [includeDecided, setIncludeDecided] = useState(false);
   const [selected, setSelected] = useState<MaterialIqcQueueItem | null>(null);
   const [reason, setReason] = useState('');
+  const [reconciliationWarning, setReconciliationWarning] = useState('');
   const actions = useActionFeedback();
   const loadGenerationRef = useRef(0);
   const reconciliationIdentityRef = useRef('');
@@ -289,8 +290,13 @@ export function MaterialIqcPage({
     try {
       const reconciliationIdentity = `${developmentUserKey}:${initialProjectId ?? 'all'}`;
       if (canInspect && reconciliationIdentityRef.current !== reconciliationIdentity) {
-        await reconcileMaterialIqcQueue(developmentUserKey);
-        reconciliationIdentityRef.current = reconciliationIdentity;
+        try {
+          await reconcileMaterialIqcQueue(developmentUserKey);
+          reconciliationIdentityRef.current = reconciliationIdentity;
+          setReconciliationWarning('');
+        } catch (error) {
+          setReconciliationWarning(errorMessage(error, '기존 누락 도착분의 IQC 자동 복구를 완료하지 못했습니다.'));
+        }
       }
       const response = await getMaterialIqcQueue(developmentUserKey, includeDecided);
       if (generation !== loadGenerationRef.current) return false;
@@ -377,6 +383,7 @@ export function MaterialIqcPage({
       </header>
 
       {!canInspect ? <p className="workspace-readonly-banner" role="note">조회 전용입니다. 검사성적서 작성과 합격·부적합 판정은 품질 담당 권한이 필요합니다.</p> : null}
+      {reconciliationWarning ? <p className="warning-text" role="alert">{reconciliationWarning} 현재 검사 목록은 계속 확인할 수 있습니다.</p> : null}
 
       {actions.latestFeedback && selected === null ? <InlineActionFeedback feedback={actions.latestFeedback} /> : null}
 
@@ -524,7 +531,6 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
 }) {
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState(action.item.orderUnit ?? 'EA');
-  const [orderQuantity, setOrderQuantity] = useState(action.item.orderQuantity?.toString() ?? '');
   const [arrivalDate, setArrivalDate] = useState(new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
@@ -542,8 +548,6 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
         const response = await registerMaterialArrival(developmentUserKey, action.item.itemId, {
           quantity: Number(quantity),
           unit,
-          orderQuantity: action.item.orderQuantity === null ? Number(orderQuantity) : null,
-          orderUnit: action.item.orderUnit === null ? unit : null,
           arrivalDate,
           note: note.trim() || null
         });
@@ -556,7 +560,12 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
     return (
       <form className="material-action-form" onSubmit={submit}>
         <ActionContext item={action.item} />
-        {action.item.orderQuantity === null && action.item.supplyType === 'Purchased' ? <label><span>발주 수량</span><input inputMode="decimal" value={orderQuantity} onChange={(event) => setOrderQuantity(event.target.value)} required /></label> : null}
+        {action.item.orderQuantity === null || !action.item.orderUnit ? (
+          <div className="material-action-notice" role="alert">
+            <strong>구매팀 입력이 필요합니다.</strong>
+            <span>{action.item.supplyType === 'CustomerSupplied' ? '제공 예정 수량·단위' : '발주 수량·단위'}를 구매 탭에서 먼저 입력해 주세요.</span>
+          </div>
+        ) : null}
         <div className="material-form-pair">
           <label><span>도착 수량</span><input data-autofocus inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /></label>
           <label><span>단위</span><input value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={20} required disabled={action.item.orderUnit !== null} /></label>
@@ -564,7 +573,7 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
         <label><span>도착일</span><input type="date" value={arrivalDate} onChange={(event) => setArrivalDate(event.target.value)} required /></label>
         <label><span>비고</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="운송 상태나 확인 메모" /></label>
         {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
-        <div className="material-action-buttons"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={!canUpdate || saving}>도착 등록</button></div>
+        <div className="material-action-buttons"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={!canUpdate || saving || action.item.orderQuantity === null || !action.item.orderUnit}>도착 등록</button></div>
       </form>
     );
   }

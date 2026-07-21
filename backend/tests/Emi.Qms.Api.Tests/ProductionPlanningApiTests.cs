@@ -168,6 +168,8 @@ public sealed class ProductionPlanningApiTests
                     new
                     {
                         orderItem = "차단기",
+                        orderQuantity = 10m,
+                        orderUnit = "EA",
                         supplierName = "테스트 업체",
                         orderDate = "2026-06-20",
                         expectedReceiptDate = "2026-07-10"

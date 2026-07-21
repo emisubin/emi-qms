@@ -114,8 +114,6 @@ export type MaterialReceiptActionResponse = {
 export type RegisterMaterialArrivalRequest = {
   quantity: number;
   unit: string;
-  orderQuantity: number | null;
-  orderUnit: string | null;
   arrivalDate: string;
   note: string | null;
 };

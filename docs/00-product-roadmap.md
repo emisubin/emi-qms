@@ -591,6 +591,7 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 구매 화면 기준은 다음과 같다.
 
 - 구매 페이지는 프로젝트 단위로 묶어 표시한다.
+- 프로젝트 구매 조회·수정은 `도급 구매품`과 `사급 자재`를 탭으로 분리하고 각 유형의 건수를 표시한다.
 - 구매정보에는 업체 헤더가 필요하다.
 - 구매 필수 항목은 Item별로 설정할 수 있다.
 - 구매 필수 항목 설정은 최신 설정 1개만 유지한다.
@@ -600,6 +601,9 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 - 새 프로젝트 생성 시 Item에 맞는 구매 필수 항목 skeleton row를 자동 생성한다.
 - 자동 생성 row만으로 구매 단계 완료 처리하지 않는다.
 - 구매 담당자가 실제 정보를 입력하거나 확인해야 완료 판정에 반영한다.
+- 도급 구매품의 발주 수량·단위는 함께 입력하거나 함께 비울 수 있다. 사급 자재의 제공 예정 수량·단위는 반드시 함께 입력한다.
+- 발주·제공 예정 수량이 있으면 누적 도착 수량보다 작게 줄일 수 없고, 도착 이력이 생긴 뒤에는 단위를 바꿀 수 없다.
+- 구매와 자재 입고는 별도 복사본을 만들지 않고 같은 구매 품목 identity를 사용한다.
 
 구매 완료 판정 기준은 다음과 같다.
 
@@ -622,7 +626,7 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 자재 흐름은 다음 네 단계로 본다.
 
 1. 자재 도착
-2. IQC 요청
+2. 도착분별 IQC 자동 인계
 3. 입고 확정
 4. 키팅 완료
 
@@ -631,7 +635,9 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 - 구매품목 단위로 입력한다.
 - 담당 부서는 자재다.
 - 물류 또는 구매는 참조 알림 대상이 될 수 있다.
-- 도착 등록 후 IQC 요청으로 연결한다.
+- 도착 등록과 같은 transaction에서 해당 도착분의 IQC 검사 회차·품질 내 업무·정/부 담당자 알림을 각각 한 건씩 생성한다.
+- 사용자가 별도 IQC 요청 버튼을 누르지 않는다. 한 품목이 여러 번 도착하면 도착분마다 독립된 IQC 회차가 생성된다.
+- 프로젝트 자재 탭은 구매 품목별 한 행을 기본으로 하고, 행을 열면 도착·IQC·Pending 이력을 시간순으로 표시한다.
 
 입고 확정 기준:
 
@@ -654,6 +660,7 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 공통 원칙:
 
 - 검사성적서를 웹사이트에 적용한다.
+- 프로젝트 품질 탭은 `수입검사(IQC)`와 `후속검사`를 구분해 같은 프로젝트의 도착분별 IQC와 LQC·OQC·전진검수·FAT를 함께 조회한다.
 - 휴대폰에서 체크 클릭과 값 입력이 가능해야 한다.
 - 사진 등록이 가능해야 한다.
 - 검사성적서 PDF 출력이 필요하다.
@@ -1002,7 +1009,7 @@ Excel 출력 대상 후보:
 | 4.3 | TASK-EXPORT-001 Excel export | NEW_FEATURE | Experiment Complete | Change 002 20개 화면 선택 export와 Change 003 server allowlist column picker automated validation complete / `BATCHED_FINAL` | 주요 data model experiment 구현 완료 | preset·재정렬·multi-sheet는 별도 optional 후속 | Yes | 완료 scope 재구현 금지; 최종 일괄 검수 |
 | 4.3A | TASK-EXPORT-002 선택 프로젝트 Excel export | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-EXPORT-001 Phase 1 | 없음 | Yes | 재구현 금지; 최종 screenshot·파일 일괄 검수 |
 | 4.4 | TASK-QR-001 — 패널 QR 발급·인쇄·인증 스캔 랜딩 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment planning·implementation·automated validation complete / `BATCHED_FINAL` | MOBILE-001·제조 흐름·TASK-003B `qrEligible` | 대표 repo·main·Persistent UAT 미반영 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
-| 4.5 | TASK-WORKFLOW-CONTINUITY-001 — 실제 담당자 IQC·Pending 연속성 보정 | APPROVED_FEATURE_IMPLEMENTATION | Experiment Complete | Fable 2-pass·Change 6종·실제 역할 UI automated validation complete / `BATCHED_FINAL` | TASK-007A·008A·009A·012A·QR-001·E2E-FULL-SUITE-001 experiment 완료 | 대표 repo·main·Persistent UAT·실제 provider 미반영 | Yes | 완료 change 재실행 금지; 최종 일괄 검수 |
+| 4.5 | TASK-WORKFLOW-CONTINUITY-001 — 실제 담당자 IQC·Pending 연속성 보정 | P2_REMEDIATION | Experiment Complete | Change 002 구매 유형 탭·도급 수량·품목별 자재 이력·도착분별 IQC·프로젝트 품질 IQC까지 automated validation complete / `BATCHED_FINAL` | TASK-007A·008A·009A·012A·QR-001·E2E-FULL-SUITE-001 experiment 완료 | 대표 repo·main·Persistent UAT·실제 provider 미반영 | No | Fable 0회 사용자 override; 완료 change 재실행 금지; 최종 일괄 검수 |
 | 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Experiment Complete | CSS semantic token·React primitive·shell/Home/Sales adoption·desktop/mobile visual validation complete / `BATCHED_FINAL` | 기능 흐름 안정화·사용자 reference image | Figma file/library publish는 범위 밖, 대표 repo·main 미반영 | Yes | 완료 foundation 재구현 금지; 최종 일괄 검수 |
 | 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Experiment Complete | Automated validation·페이지 screenshot complete / `BATCHED_FINAL` | 로그인 shell, 후속 MOBILE-002와 DESIGN-000 foundation이 보완 | 없음. Figma publish는 optional 후속 | Yes | 완료 화면 통일 재구현 금지; 최종 일괄 검수 |
 | 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment Complete | A1·A2 implementation, automated·isolated browser validation complete / `BATCHED_FINAL` | A1 공통 contract·내 업무·알림, A2 생산·구매·자재·IQC·키팅·패널·Excel 완료 | 대표 repo·main·Persistent UAT 미반영; 전역 toast/store·A2 밖 문자열 tone 정리는 제외 | Yes | 재구현 금지; 최종 일괄 검수 |
@@ -1978,6 +1985,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-20 | TASK-NOTIFY-AUDIT-001은 기존 append-only preference 원장을 수정하지 않고 관리자가 현재 계정 기준으로 조회·요약·선택 Excel 보존 | 과거 조직 snapshot을 임의 추정하지 않으면서 DB 직접 조회 없이 설정 문의와 변경 책임을 확인하고, 목록·요약·Excel 필터 drift를 막기 위함 | 23장~25장, 27-experiment-task-ledger, TASK-NOTIFY-AUDIT-001 |
 | 2026-07-20 | TASK-NOTIFY-REPROCESS-001은 terminal Failed delivery의 total attempt를 보존하고 generation별 retry budget만 초기화하며 사유·duplicate-risk 확인·CAS·append-only event를 필수화 | provider exactly-once가 보장되지 않는 경계에서 무한/부분/중복 재처리를 억제하고 같은 delivery의 전체 계보를 감사 가능하게 유지하기 위함 | 6장, 23장~25장, 27-experiment-task-ledger, TASK-NOTIFY-REPROCESS-001 |
 | 2026-07-21 | 검사 Pending 조치 완료는 종결이 아니라 동일 transaction의 재검사 업무·정/부 알림 생성으로 정의하고, 재검사 합격만 Pending·검사·workflow를 종결 | 실제 IQC 입력이 Pending에서 중단되거나 수동 종결·중복 요청으로 부분 상태가 생기는 문제를 제거하고 내 업무에서 정확한 검사까지 연속 이동하기 위함 | 8장, 23장~25장, 27-experiment-task-ledger, TASK-WORKFLOW-CONTINUITY-001 |
+| 2026-07-21 | TASK-WORKFLOW-CONTINUITY-001 Change 002에서 구매·자재·IQC를 같은 구매 품목 identity와 도착분별 검사 회차로 표시 | 사급·도급을 빠르게 구분하고 한 품목의 분할 도착과 IQC 진행을 한 행에서 추적하면서, 별도 IQC 요청이나 복제 data로 인한 누락·불일치를 막기 위함 | 11장~13장, 23장~25장, 27-experiment-task-ledger, TASK-WORKFLOW-CONTINUITY-001 Change 002 |
 
 ## 26. 용어 사전
 

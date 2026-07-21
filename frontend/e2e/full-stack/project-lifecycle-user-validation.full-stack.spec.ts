@@ -189,7 +189,7 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
   await expect(procurementTable).toBeVisible();
   const procurementRows = procurementTable.locator('.procurement-table-row.editable');
   const rowCount = await procurementRows.count();
-  await page.getByRole('button', { name: '행 추가' }).click();
+  await page.getByRole('button', { name: '도급 구매품 행 추가' }).click();
   await expect(procurementRows).toHaveCount(rowCount + 1);
   const procurementRow = procurementRows.nth(rowCount);
   const procurementInputs = procurementRow.locator('input');

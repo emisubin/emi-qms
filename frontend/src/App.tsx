@@ -1995,11 +1995,12 @@ function QmsAppShellContent({
           onOpenPending={() => setView({ kind: 'pending', projectId: view.projectId })}
           onOpenSettlement={() => setView({ kind: 'sales-settlement', projectId: view.projectId })}
           onOpenMaterialKitting={() => setView({ kind: 'materials-kitting', projectId: view.projectId })}
-          onOpenDepartmentWorkspace={(section, projectCode) => {
+          onOpenDepartmentWorkspace={(section, projectCode, workspace) => {
             if (section === 'sales') setView({ kind: 'sales-settlement', projectId: view.projectId });
             if (section === 'materials') setView({ kind: 'materials-receipts', projectCode });
             if (section === 'manufacturing') setView({ kind: 'manufacturing-work', projectId: view.projectId });
-            if (section === 'quality') setView({ kind: 'quality-inspections', stage: 'LQC', projectId: view.projectId });
+            if (section === 'quality' && workspace === 'iqc') setView({ kind: 'quality-iqc' });
+            if (section === 'quality' && workspace !== 'iqc') setView({ kind: 'quality-inspections', stage: 'LQC', projectId: view.projectId });
             if (section === 'logistics') setView({ kind: 'logistics', projectId: view.projectId });
           }}
           onLoadOutcome={(loaded) => {
@@ -8789,7 +8790,7 @@ function ProjectDetailPage({
   onOpenPending: () => void;
   onOpenSettlement: () => void;
   onOpenMaterialKitting: () => void;
-  onOpenDepartmentWorkspace: (section: ProjectDepartmentSection, projectCode?: string) => void;
+  onOpenDepartmentWorkspace: (section: ProjectDepartmentSection, projectCode?: string, workspace?: 'iqc') => void;
   onLoadOutcome?: (loaded: boolean) => void;
   canSettleSales: boolean;
 }) {
@@ -9076,6 +9077,7 @@ function ProjectDetailPage({
             state={departmentDataState}
             onOpen={() => onOpenDepartmentWorkspace(activeDetailSection, project.projectCode)}
             onOpenMaterialKitting={onOpenMaterialKitting}
+            onOpenQualityIqc={() => onOpenDepartmentWorkspace('quality', project.projectCode, 'iqc')}
           />
         ) : null}
 
@@ -9239,14 +9241,18 @@ async function loadProjectDepartmentData({
     ]);
     const items = receipts.items.filter((item) => item.projectId === project.projectId);
     const kitting = kittingQueue.projects.find((item) => item.projectId === project.projectId);
-    const materialRecords: ProjectDepartmentRecord[] = items.flatMap((item) => {
+    const materialRecords: ProjectDepartmentRecord[] = items.map((item) => {
+      const orderedReceipts = [...item.receipts].sort((left, right) => {
+        const arrivalOrder = left.arrivalDate.localeCompare(right.arrivalDate);
+        return arrivalOrder !== 0 ? arrivalOrder : left.createdAtUtc.localeCompare(right.createdAtUtc);
+      });
       const blocked = item.receipts.some((receipt) => receipt.status === 'FailedBlocked');
       const waitingIqc = item.receipts.some((receipt) => receipt.status === 'IqcRequested');
       const status = item.receiptCompleted ? '입고 완료' : blocked ? '부적합 차단' : waitingIqc ? 'IQC 대기' : item.arrivedQuantity ? '입고 진행' : '도착 대기';
-      const itemRecord: ProjectDepartmentRecord = {
+      return {
         key: `material-item:${item.itemId}`,
         title: item.orderItem ?? '구매 품목',
-        subtitle: '자재 입고 항목',
+        subtitle: `${materialSupplyTypeLabel(item.supplyType)} · ${item.receipts.length}회 도착`,
         status,
         tone: item.receiptCompleted ? 'success' : blocked ? 'danger' : 'warning',
         fields: [
@@ -9262,32 +9268,22 @@ async function loadProjectDepartmentData({
           { label: '마감 시각', value: formatDepartmentDateTime(item.arrivalsClosedAtUtc) },
           { label: '입고 완료', value: yesNo(item.receiptCompleted) },
           { label: '사급 지연', value: yesNo(item.customerSupplyOverdue) }
-        ]
-      };
-      const receiptRecords = item.receipts.map((receipt, index): ProjectDepartmentRecord => ({
-        key: `material-receipt:${receipt.receiptId}`,
-        title: `${item.orderItem ?? '구매 품목'} · 입고 ${index + 1}회차`,
-        subtitle: '도착·IQC·입고 확정 입력',
-        status: materialReceiptStatusLabel(receipt.status),
-        tone: receipt.status === 'Confirmed' ? 'success' : receipt.status === 'FailedBlocked' ? 'danger' : 'info',
-        fields: [
-          { label: '입고 수량', value: formatDepartmentQuantity(receipt.quantity, receipt.unit) },
-          { label: '도착일', value: formatDepartmentDate(receipt.arrivalDate) },
-          { label: '입고 메모', value: displayDepartmentValue(receipt.note) },
-          { label: 'Legacy 기록', value: yesNo(receipt.isLegacy) },
-          { label: '등록 시각', value: formatDepartmentDateTime(receipt.createdAtUtc) },
-          { label: '확정 시각', value: formatDepartmentDateTime(receipt.confirmedAtUtc) },
-          { label: '취소 사유', value: displayDepartmentValue(receipt.cancellationReason) },
-          { label: '저장 버전', value: `v${receipt.version}` }
         ],
-        items: receipt.iqcAttempts.map((attempt) => ({
-          key: attempt.attemptId,
-          label: `IQC ${attempt.attemptNumber}차 · ${attempt.status}`,
-          value: `${attempt.decisionMode === 'Detailed' ? '디지털 성적서' : '기존 판정'} · 요청 ${formatDepartmentDateTime(attempt.requestedAtUtc)} · 판정 ${formatDepartmentDateTime(attempt.decidedAtUtc)}`,
-          note: [attempt.reason, attempt.reportStatus ? `성적서 ${attempt.reportStatus}` : null, attempt.pdfStatus ? `PDF ${attempt.pdfStatus}` : null, attempt.pendingIssueId ? '연결 Pending 있음' : null].filter(Boolean).join(' · ') || undefined
-        }))
-      }));
-      return [itemRecord, ...receiptRecords];
+        items: orderedReceipts.flatMap((receipt, index) => [
+          {
+            key: `receipt:${receipt.receiptId}`,
+            label: `입고 ${index + 1}회차 · ${formatDepartmentDate(receipt.arrivalDate)} · ${formatDepartmentQuantity(receipt.quantity, receipt.unit)}`,
+            value: materialReceiptStatusLabel(receipt.status),
+            note: [receipt.note, `등록 ${formatDepartmentDateTime(receipt.createdAtUtc)}`, receipt.confirmedAtUtc ? `확정 ${formatDepartmentDateTime(receipt.confirmedAtUtc)}` : null, receipt.cancellationReason ? `취소 ${receipt.cancellationReason}` : null].filter(Boolean).join(' · ') || undefined
+          },
+          ...receipt.iqcAttempts.map((attempt) => ({
+            key: `attempt:${attempt.attemptId}`,
+            label: `↳ IQC ${attempt.attemptNumber}차 · ${materialIqcAttemptStatusLabel(attempt.status)}`,
+            value: `${attempt.decisionMode === 'Detailed' ? '디지털 성적서' : '기존 판정'} · 요청 ${formatDepartmentDateTime(attempt.requestedAtUtc)}`,
+            note: [attempt.decidedAtUtc ? `판정 ${formatDepartmentDateTime(attempt.decidedAtUtc)}` : null, attempt.reason, attempt.reportStatus ? `성적서 ${attempt.reportStatus}` : null, attempt.pdfStatus ? `PDF ${attempt.pdfStatus}` : null, attempt.pendingIssueId ? '연결 Pending 있음' : null].filter(Boolean).join(' · ') || undefined
+          }))
+        ])
+      } satisfies ProjectDepartmentRecord;
     });
     const kittingRecords: ProjectDepartmentRecord[] = (kitting?.panels ?? []).map((panel) => ({
       key: `kitting:${panel.panelId}`,
@@ -9372,9 +9368,19 @@ async function loadProjectDepartmentData({
 
   if (section === 'quality') {
     const stages: QualityInspectionStage[] = ['LQC', 'OQC', 'CustomerInspection', 'FAT'];
-    const queues = await Promise.all(stages.map((stage) => getQualityInspectionQueue(developmentUserKey, stage, project.projectId)));
+    const [queues, materialReceipts] = await Promise.all([
+      Promise.all(stages.map((stage) => getQualityInspectionQueue(developmentUserKey, stage, project.projectId))),
+      getMaterialReceipts(developmentUserKey, project.projectCode, true)
+    ]);
     const stageProjects = queues.map((queue, index) => ({ stage: stages[index], project: queue.projects.find((item) => item.projectId === project.projectId) }));
     const panels = stageProjects.flatMap(({ stage, project: stageProject }) => (stageProject?.panels ?? []).map((panel) => ({ stage, panel })));
+    const materialItems = materialReceipts.items.filter((item) => item.projectId === project.projectId);
+    const iqcReceipts = materialItems.flatMap((item) => [...item.receipts]
+      .sort((left, right) => {
+        const arrivalOrder = left.arrivalDate.localeCompare(right.arrivalDate);
+        return arrivalOrder !== 0 ? arrivalOrder : left.createdAtUtc.localeCompare(right.createdAtUtc);
+      })
+      .map((receipt, index) => ({ item, receipt, index })));
     const inspections = await Promise.all(panels.map(async ({ stage, panel }) => {
       try {
         return { stage, detail: await getQualityInspectionPanel(developmentUserKey, panel.panelId, stage) };
@@ -9398,13 +9404,44 @@ async function loadProjectDepartmentData({
       }
     }));
     return {
-      canMutate: permissions.quality && panels.some(({ panel }) => panel.canMutate),
-      metrics: stageProjects.map(({ stage, project: stageProject }) => ({
-        label: qualityStageLabel(stage),
-        value: `${stageProject?.completedCount ?? 0}/${stageProject?.panels.length ?? 0}`,
-        tone: stageProject && stageProject.panels.length > 0 && stageProject.completedCount === stageProject.panels.length ? 'success' : 'neutral'
-      })),
-      records: inspections.map(({ stage, detail }) => {
+      canMutate: permissions.quality && (iqcReceipts.length > 0 || panels.some(({ panel }) => panel.canMutate)),
+      metrics: [
+        {
+          label: 'IQC',
+          value: `${iqcReceipts.filter(({ receipt }) => receipt.status === 'Passed' || receipt.status === 'Confirmed').length}/${iqcReceipts.length}`,
+          tone: iqcReceipts.length > 0 && iqcReceipts.every(({ receipt }) => receipt.status === 'Passed' || receipt.status === 'Confirmed') ? 'success' : 'neutral'
+        },
+        ...stageProjects.map(({ stage, project: stageProject }) => ({
+          label: qualityStageLabel(stage),
+          value: `${stageProject?.completedCount ?? 0}/${stageProject?.panels.length ?? 0}`,
+          tone: stageProject && stageProject.panels.length > 0 && stageProject.completedCount === stageProject.panels.length ? 'success' as const : 'neutral' as const
+        }))
+      ],
+      records: [
+        ...iqcReceipts.map(({ item, receipt, index }) => ({
+          key: `IQC:${receipt.receiptId}`,
+          title: `IQC · ${item.orderItem ?? '구매 품목'} · 입고 ${index + 1}회차`,
+          subtitle: `${formatDepartmentDate(receipt.arrivalDate)} · ${formatDepartmentQuantity(receipt.quantity, receipt.unit)} · ${materialSupplyTypeLabel(item.supplyType)}`,
+          status: materialReceiptStatusLabel(receipt.status),
+          tone: receipt.status === 'Confirmed' || receipt.status === 'Passed' ? 'success' as const : receipt.status === 'FailedBlocked' ? 'danger' as const : 'info' as const,
+          fields: [
+            { label: '품목', value: displayDepartmentValue(item.orderItem) },
+            { label: '공급 구분', value: materialSupplyTypeLabel(item.supplyType) },
+            { label: '공급처', value: displayDepartmentValue(item.supplierName) },
+            { label: '도착일', value: formatDepartmentDate(receipt.arrivalDate) },
+            { label: '도착 수량', value: formatDepartmentQuantity(receipt.quantity, receipt.unit) },
+            { label: '입고 상태', value: materialReceiptStatusLabel(receipt.status) },
+            { label: '입고 메모', value: displayDepartmentValue(receipt.note) },
+            { label: '연결 IQC', value: `${receipt.iqcAttempts.length}회` }
+          ],
+          items: receipt.iqcAttempts.map((attempt) => ({
+            key: `iqc:${attempt.attemptId}`,
+            label: `${attempt.attemptNumber}차 · ${materialIqcAttemptStatusLabel(attempt.status)}`,
+            value: `${attempt.decisionMode === 'Detailed' ? '디지털 성적서' : '기존 판정'} · 요청 ${formatDepartmentDateTime(attempt.requestedAtUtc)}`,
+            note: [attempt.decidedAtUtc ? `판정 ${formatDepartmentDateTime(attempt.decidedAtUtc)}` : null, attempt.reason, attempt.reportStatus ? `성적서 ${attempt.reportStatus}` : null, attempt.pdfStatus ? `PDF ${attempt.pdfStatus}` : null, attempt.pendingIssueId ? '연결 Pending 있음' : null].filter(Boolean).join(' · ') || undefined
+          }))
+        } satisfies ProjectDepartmentRecord)),
+        ...inspections.map(({ stage, detail }) => {
         const panel = detail.panel;
         const responseByItem = new Map(detail.responses.map((response) => [response.templateItemId, response]));
         return {
@@ -9451,7 +9488,7 @@ async function loadProjectDepartmentData({
             }))
           ]
         } satisfies ProjectDepartmentRecord;
-      })
+      })]
     };
   }
 
@@ -9529,27 +9566,36 @@ function ProjectDepartmentDataSection({
   section,
   state,
   onOpen,
-  onOpenMaterialKitting
+  onOpenMaterialKitting,
+  onOpenQualityIqc
 }: {
   section: ProjectDepartmentSection;
   state: LoadState<ProjectDepartmentData>;
   onOpen: () => void;
   onOpenMaterialKitting: () => void;
+  onOpenQualityIqc: () => void;
 }) {
   const [materialView, setMaterialView] = useState<'receiving' | 'kitting'>('receiving');
+  const [qualityView, setQualityView] = useState<'iqc' | 'following'>('iqc');
   const labels = {
     sales: { title: '영업', action: '영업 후속 업무 열기', description: '프로젝트 생성과 납품 후 발행 요청 준비를 확인합니다.' },
     materials: { title: '자재', action: '자재 연속 흐름 열기', description: '도착·IQC·입고 확정·키팅 상태를 한 흐름으로 확인합니다.' },
     manufacturing: { title: '제조', action: '제조 업무 열기', description: '패널별 제조 착수·중단·완료 상태를 확인합니다.' },
-    quality: { title: '품질', action: '품질 업무 열기', description: 'LQC·OQC·전진검수·FAT 결과를 확인합니다.' },
+    quality: { title: '품질', action: '품질 업무 열기', description: 'IQC부터 LQC·OQC·입회검사·FAT까지 프로젝트 검사 결과를 확인합니다.' },
     logistics: { title: '물류', action: '물류 업무 열기', description: '포장·출발·납품 완료 상태를 확인합니다.' }
   } as const;
   const department = labels[section];
   const data = state.kind === 'ready' ? state.data : null;
   const visibleRecords = section === 'materials' && data
-    ? data.records.filter((record) => materialView === 'kitting' ? record.key.startsWith('kitting:') : !record.key.startsWith('kitting:'))
-    : data?.records ?? [];
-  const openWorkspace = section === 'materials' && materialView === 'kitting' ? onOpenMaterialKitting : onOpen;
+    ? data.records.filter((record) => materialView === 'kitting' ? record.key.startsWith('kitting:') : record.key.startsWith('material-item:'))
+    : section === 'quality' && data
+      ? data.records.filter((record) => qualityView === 'iqc' ? record.key.startsWith('IQC:') : !record.key.startsWith('IQC:'))
+      : data?.records ?? [];
+  const openWorkspace = section === 'materials' && materialView === 'kitting'
+    ? onOpenMaterialKitting
+    : section === 'quality' && qualityView === 'iqc'
+      ? onOpenQualityIqc
+      : onOpen;
   const actionLabel = !data?.canMutate
     ? '업무 화면에서 조회'
     : section === 'materials'
@@ -9581,6 +9627,12 @@ function ProjectDepartmentDataSection({
               <button type="button" role="tab" aria-selected={materialView === 'kitting'} className={materialView === 'kitting' ? 'secondary-button active' : 'secondary-button'} onClick={() => setMaterialView('kitting')}>키팅 관리</button>
             </div>
           ) : null}
+          {section === 'quality' ? (
+            <div className="section-switcher material-detail-subtabs" role="tablist" aria-label="품질 검사 구분">
+              <button type="button" role="tab" aria-selected={qualityView === 'iqc'} className={qualityView === 'iqc' ? 'secondary-button active' : 'secondary-button'} onClick={() => setQualityView('iqc')}>수입검사(IQC)</button>
+              <button type="button" role="tab" aria-selected={qualityView === 'following'} className={qualityView === 'following' ? 'secondary-button active' : 'secondary-button'} onClick={() => setQualityView('following')}>후속검사</button>
+            </div>
+          ) : null}
           <div className="project-department-metrics" aria-label={`${department.title} 프로젝트 지표`}>
             {data.metrics.map((metric) => (
               <article key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong>{metric.tone ? <i data-tone={metric.tone} /> : null}</article>
@@ -9588,7 +9640,35 @@ function ProjectDepartmentDataSection({
           </div>
           {visibleRecords.length > 0 ? (
             <div className="project-department-records" aria-label={`${department.title} 입력 데이터`}>
-              {visibleRecords.map((record) => (
+              {visibleRecords.map((record) => record.key.startsWith('material-item:') ? (
+                <details className="project-department-record project-material-item-row" key={record.key}>
+                  <summary>
+                    <div className="project-material-item-identity"><strong>{record.title}</strong>{record.subtitle ? <small>{record.subtitle}</small> : null}</div>
+                    <div className="project-material-item-summary">
+                      {record.fields.slice(2, 6).map((field) => <span key={`${record.key}:summary:${field.label}`}><small>{field.label}</small><b>{field.value}</b></span>)}
+                    </div>
+                    <StatusBadge label={record.status} tone={record.tone} />
+                    <i aria-hidden="true">⌄</i>
+                  </summary>
+                  <div className="project-material-item-detail">
+                    <dl className="project-department-field-grid">
+                      {record.fields.map((field) => (
+                        <div key={`${record.key}:${field.label}`}><dt>{field.label}</dt><dd>{field.value}</dd></div>
+                      ))}
+                    </dl>
+                    {record.items && record.items.length > 0 ? (
+                      <div className="project-department-record-items project-material-history">
+                        {record.items.map((item) => (
+                          <div key={item.key} data-iqc={item.key.startsWith('attempt:') ? 'true' : 'false'}>
+                            <span><strong>{item.label}</strong><small>{item.note}</small></span>
+                            <b>{item.value}</b>
+                          </div>
+                        ))}
+                      </div>
+                    ) : <p className="empty-text project-material-empty">등록된 도착 이력이 없습니다.</p>}
+                  </div>
+                </details>
+              ) : (
                 <article className="project-department-record" key={record.key}>
                   <header>
                     <div><strong>{record.title}</strong>{record.subtitle ? <small>{record.subtitle}</small> : null}</div>
@@ -9633,6 +9713,10 @@ function qualityStageLabel(stage: QualityInspectionStage) {
 
 function qualityStatusLabel(status: string) {
   return ({ Ready: '검사 대기', Requested: '검사 요청', InProgress: '검사 중', Passed: '합격', Failed: '부적합', Completed: '완료', Confirmed: '확정' } as Record<string, string>)[status] ?? status;
+}
+
+function materialIqcAttemptStatusLabel(status: string) {
+  return ({ Requested: '검사 대기', Passed: '합격', Failed: '부적합' } as Record<string, string>)[status] ?? status;
 }
 
 function logisticsStageLabel(stage: LogisticsStage) {
@@ -9692,7 +9776,7 @@ function formatFileSize(value: number) {
 }
 
 function materialSupplyTypeLabel(value: string) {
-  return ({ Purchased: '구매품', CustomerSupplied: '고객 지급품' } as Record<string, string>)[value] ?? value;
+  return ({ Purchased: '도급 구매품', CustomerSupplied: '사급 자재' } as Record<string, string>)[value] ?? value;
 }
 
 function materialReceiptStatusLabel(value: string) {
@@ -11927,9 +12011,14 @@ function ProcurementSection({
 
 function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
   const isMobile = useIsMobileViewport();
-  return isMobile
-    ? <ProcurementCards items={items} editable={false} onChange={() => undefined} />
-    : (
+  const [activeSupplyType, setActiveSupplyType] = useState<ProcurementSupplyType>('Purchased');
+  const visibleItems = items.filter((item) => item.supplyType === activeSupplyType);
+  return (
+    <div className="procurement-supply-groups">
+      <ProcurementSupplyTabs items={items} activeSupplyType={activeSupplyType} onChange={setActiveSupplyType} />
+      {visibleItems.length === 0 ? <p className="empty-text">등록된 {procurementSupplyGroupLabel(activeSupplyType)}이 없습니다.</p> : isMobile
+        ? <ProcurementCards items={visibleItems} editable={false} onChange={() => undefined} />
+        : (
       <div className="procurement-table procurement-readonly-table procurement-desktop" role="table" aria-label="구매정보">
         <div className="procurement-table-head" role="row">
           <span>통상납기</span>
@@ -11942,7 +12031,7 @@ function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
           <span>공급 방식</span>
           <span>입고 상태</span>
         </div>
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <div className="procurement-table-row" role="row" key={item.itemId}>
             <span>{emptyDash(item.standardLeadTime)}</span>
             <span className="order-item-badge">{emptyDash(item.orderItem)}</span>
@@ -11953,13 +12042,42 @@ function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
             <span>{emptyDash(item.issueNote)}</span>
             <div className="procurement-supply-cell">
               <SupplyTypeBadge supplyType={item.supplyType} />
-              {item.supplyType === 'CustomerSupplied' ? <small>{formatSupplyQuantity(item.orderQuantity, item.orderUnit)}</small> : null}
+              {item.orderQuantity ? <small>{formatSupplyQuantity(item.orderQuantity, item.orderUnit)}</small> : null}
             </div>
             <ReceiptCompletionBadge completed={item.receiptCompleted} completedAtUtc={item.receiptCompletedAtUtc} />
           </div>
         ))}
       </div>
-    );
+      )}
+    </div>
+  );
+}
+
+function ProcurementSupplyTabs({
+  items,
+  activeSupplyType,
+  onChange
+}: {
+  items: Array<Pick<ProcurementItem, 'supplyType'>>;
+  activeSupplyType: ProcurementSupplyType;
+  onChange: (supplyType: ProcurementSupplyType) => void;
+}) {
+  return (
+    <div className="section-switcher procurement-supply-tabs" role="tablist" aria-label="구매 공급 구분">
+      {(['Purchased', 'CustomerSupplied'] as const).map((supplyType) => {
+        const count = items.filter((item) => item.supplyType === supplyType).length;
+        return (
+          <button type="button" role="tab" key={supplyType} aria-selected={activeSupplyType === supplyType} className={activeSupplyType === supplyType ? 'secondary-button active' : 'secondary-button'} onClick={() => onChange(supplyType)}>
+            {procurementSupplyGroupLabel(supplyType)} <span>{count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function procurementSupplyGroupLabel(supplyType: ProcurementSupplyType) {
+  return supplyType === 'CustomerSupplied' ? '사급 자재' : '도급 구매품';
 }
 
 function ReceiptCompletionBadge({ completed, completedAtUtc }: { completed: boolean; completedAtUtc?: string | null }) {
@@ -11971,7 +12089,7 @@ function ReceiptCompletionBadge({ completed, completedAtUtc }: { completed: bool
 }
 
 function SupplyTypeBadge({ supplyType }: { supplyType: ProcurementSupplyType }) {
-  return <span className="supply-type-badge" data-supply-type={supplyType}>{supplyType === 'CustomerSupplied' ? '사급 · 고객 제공' : '일반 구매'}</span>;
+  return <span className="supply-type-badge" data-supply-type={supplyType}>{procurementSupplyGroupLabel(supplyType)}</span>;
 }
 
 function ProcurementEditPage({
@@ -11996,6 +12114,7 @@ function ProcurementEditPage({
   const [isSaving, setIsSaving] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [showExcel, setShowExcel] = useState(false);
+  const [activeSupplyType, setActiveSupplyType] = useState<ProcurementSupplyType>('Purchased');
   const loadRequestIdRef = useRef(0);
   const initialDataReady = state.kind === 'ready' && projectState.kind === 'ready';
 
@@ -12039,17 +12158,23 @@ function ProcurementEditPage({
     setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...next } : row));
   }
 
-  function addRow() {
+  function addRow(supplyType: ProcurementSupplyType = activeSupplyType) {
     const projectDeliveryDate = state.kind === 'ready' ? state.data.projectDeliveryDate : null;
-    setRows((current) => [...current, emptyProcurementRow(projectDeliveryDate)]);
+    setRows((current) => [...current, { ...emptyProcurementRow(projectDeliveryDate), supplyType }]);
   }
 
   async function save() {
-    const invalidCustomerSupply = rows.find((row) => row.supplyType === 'CustomerSupplied'
-      && (!(Number(row.orderQuantity) > 0) || row.orderUnit.trim().length < 1 || row.orderUnit.trim().length > 20));
-    if (invalidCustomerSupply) {
+    const invalidMeasurement = rows.find((row) => {
+      const quantityEntered = row.orderQuantity.trim().length > 0;
+      const unitEntered = row.orderUnit.trim().length > 0;
+      return (row.supplyType === 'CustomerSupplied' || quantityEntered || unitEntered)
+        && (!(Number(row.orderQuantity) > 0) || row.orderUnit.trim().length < 1 || row.orderUnit.trim().length > 20);
+    });
+    if (invalidMeasurement) {
       setMessageTone('error');
-      setMessage('사급 품목은 제공 예정 수량과 1~20자 단위를 함께 입력해 주세요.');
+      setMessage(invalidMeasurement.supplyType === 'CustomerSupplied'
+        ? '사급 품목은 제공 예정 수량과 1~20자 단위를 함께 입력해 주세요.'
+        : '도급 구매품의 발주 수량과 1~20자 단위는 함께 입력하거나 모두 비워 주세요.');
       return;
     }
     setIsSaving(true);
@@ -12103,7 +12228,7 @@ function ProcurementEditPage({
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>상세</button>
-          <button type="button" onClick={addRow} disabled={!initialDataReady || isSaving}>행 추가</button>
+          <button type="button" onClick={() => addRow(activeSupplyType)} disabled={!initialDataReady || isSaving}>{procurementSupplyGroupLabel(activeSupplyType)} 행 추가</button>
           <button type="button" onClick={downloadTemplate} disabled={!initialDataReady || isDownloading || isSaving}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button>
           <button type="button" onClick={() => setShowExcel(true)} disabled={!initialDataReady || isSaving}>Excel 업로드</button>
           <button type="button" className="primary-button" disabled={!initialDataReady || isSaving} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
@@ -12118,7 +12243,7 @@ function ProcurementEditPage({
             <span>수정사유</span>
             <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
-          <ProcurementEditableList rows={rows} onChange={updateRow} />
+          <ProcurementEditableList rows={rows} onChange={updateRow} activeSupplyType={activeSupplyType} onActiveSupplyTypeChange={setActiveSupplyType} />
         </>
       ) : null}
       {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
@@ -12138,15 +12263,23 @@ function ProcurementEditPage({
 
 function ProcurementEditableList({
   rows,
-  onChange
+  onChange,
+  activeSupplyType,
+  onActiveSupplyTypeChange
 }: {
   rows: ProcurementRowForm[];
   onChange: (index: number, next: Partial<ProcurementRowForm>) => void;
+  activeSupplyType: ProcurementSupplyType;
+  onActiveSupplyTypeChange: (supplyType: ProcurementSupplyType) => void;
 }) {
   const isMobile = useIsMobileViewport();
-  return isMobile
-    ? <ProcurementCards items={rows} editable onChange={onChange} />
-    : (
+  const visibleRows = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.supplyType === activeSupplyType);
+  return (
+    <div className="procurement-supply-groups">
+      <ProcurementSupplyTabs items={rows} activeSupplyType={activeSupplyType} onChange={onActiveSupplyTypeChange} />
+      {visibleRows.length === 0 ? <p className="empty-text">등록된 {procurementSupplyGroupLabel(activeSupplyType)}이 없습니다. 위 버튼으로 행을 추가해 주세요.</p> : isMobile
+        ? <ProcurementCards items={visibleRows.map(({ row }) => row)} editable onChange={(index, next) => onChange(visibleRows[index].index, next)} />
+        : (
       <div className="procurement-table procurement-desktop" role="table" aria-label="구매정보 수정">
         <div className="procurement-table-head editable" role="row">
           <span>통상납기</span>
@@ -12159,7 +12292,7 @@ function ProcurementEditableList({
           <span>공급 방식</span>
           <span>입고 완료</span>
         </div>
-        {rows.map((row, index) => (
+        {visibleRows.map(({ row, index }) => (
           <div className="procurement-table-row editable" role="row" key={row.itemId ?? `new-${index}`}>
             <input value={row.standardLeadTime} onChange={(event) => onChange(index, { standardLeadTime: event.target.value })} />
             <input className="order-item-input" value={row.orderItem} onChange={(event) => onChange(index, { orderItem: event.target.value })} />
@@ -12170,15 +12303,13 @@ function ProcurementEditableList({
             <input value={row.issueNote} onChange={(event) => onChange(index, { issueNote: event.target.value })} />
             <div className="procurement-supply-editor">
               <select aria-label="공급 방식" value={row.supplyType} onChange={(event) => onChange(index, { supplyType: event.target.value as ProcurementSupplyType })}>
-                <option value="Purchased">일반 구매</option>
-                <option value="CustomerSupplied">사급 · 고객 제공</option>
+                <option value="Purchased">도급 구매품</option>
+                <option value="CustomerSupplied">사급 자재</option>
               </select>
-              {row.supplyType === 'CustomerSupplied' ? (
-                <div className="procurement-supply-measurement">
-                  <input aria-label="제공 예정 수량" inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} placeholder="예정 수량" />
-                  <input aria-label="제공 예정 단위" value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} placeholder="단위" maxLength={20} />
-                </div>
-              ) : <small>도착 등록 시 수량 입력</small>}
+              <div className="procurement-supply-measurement">
+                <input aria-label={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량'} inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} placeholder={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량(선택)'} />
+                <input aria-label={row.supplyType === 'CustomerSupplied' ? '제공 예정 단위' : '발주 단위'} value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} placeholder="단위" maxLength={20} />
+              </div>
             </div>
             <div className="receipt-input-cell receipt-input-cell--derived">
               <ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} />
@@ -12187,7 +12318,9 @@ function ProcurementEditableList({
           </div>
         ))}
       </div>
-    );
+      )}
+    </div>
+  );
 }
 
 function ProcurementCards({
@@ -12217,16 +12350,14 @@ function ProcurementCards({
                 <FormField label="이슈사항"><input value={row.issueNote} onChange={(event) => onChange(index, { issueNote: event.target.value })} /></FormField>
                 <FormField label="공급 방식">
                   <select value={row.supplyType} onChange={(event) => onChange(index, { supplyType: event.target.value as ProcurementSupplyType })}>
-                    <option value="Purchased">일반 구매</option>
-                    <option value="CustomerSupplied">사급 · 고객 제공</option>
+                    <option value="Purchased">도급 구매품</option>
+                    <option value="CustomerSupplied">사급 자재</option>
                   </select>
                 </FormField>
-                {row.supplyType === 'CustomerSupplied' ? (
-                  <div className="mobile-supply-measurement">
-                    <FormField label="제공 예정 수량"><input inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} /></FormField>
-                    <FormField label="단위"><input value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} maxLength={20} /></FormField>
-                  </div>
-                ) : null}
+                <div className="mobile-supply-measurement">
+                  <FormField label={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량(선택)'}><input inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} /></FormField>
+                  <FormField label="단위"><input value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} maxLength={20} /></FormField>
+                </div>
                 <div className="receipt-input-cell receipt-input-cell--derived">
                   <ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} />
                   <small>자재 입고 흐름에서 자동 계산</small>
@@ -12241,7 +12372,7 @@ function ProcurementCards({
                 <dl className="mobile-priority-grid mobile-priority-grid--procurement">
                   <div><dt>입고예정</dt><dd>{emptyDash(row.expectedReceiptDate)}</dd></div>
                   <div><dt>입고 상태</dt><dd><ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} /></dd></div>
-                  <div><dt>{row.supplyType === 'CustomerSupplied' ? '제공 예정' : '업체'}</dt><dd>{row.supplyType === 'CustomerSupplied' ? formatSupplyQuantity(Number(row.orderQuantity) || null, row.orderUnit || null) : emptyDash(row.supplierName)}</dd></div>
+                  <div><dt>{row.supplyType === 'CustomerSupplied' ? '제공 예정' : '발주 수량'}</dt><dd>{formatSupplyQuantity(Number(row.orderQuantity) || null, row.orderUnit || null)}</dd></div>
                 </dl>
                 {row.issueNote ? <p className="mobile-card-alert">{row.issueNote}</p> : null}
                 <details className="mobile-card-details">
@@ -15922,8 +16053,8 @@ function procurementFormToRequest(row: ProcurementRowForm) {
     expectedReceiptDate: row.expectedReceiptDate || null,
     issueNote: row.issueNote.trim() || null,
     supplyType: row.supplyType,
-    orderQuantity: row.supplyType === 'CustomerSupplied' && row.orderQuantity.trim() ? Number(row.orderQuantity) : null,
-    orderUnit: row.supplyType === 'CustomerSupplied' ? row.orderUnit.trim() || null : null
+    orderQuantity: row.orderQuantity.trim() ? Number(row.orderQuantity) : null,
+    orderUnit: row.orderUnit.trim() || null
   };
 }
 

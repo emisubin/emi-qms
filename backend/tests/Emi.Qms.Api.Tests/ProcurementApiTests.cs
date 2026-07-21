@@ -371,6 +371,110 @@ public sealed class ProcurementApiTests
     }
 
     [Fact]
+    public async Task PurchasedQuantity_LinksProcurementToEveryArrivalIqcWorkAndRecipients()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        var projectId = await CreateProjectAsync(salesClient, "PROC-PURCHASED-TRACE", "Purchased Material Trace");
+        await context.ExecuteSqlAsync($"""
+            insert into project_assignees (project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc)
+            values
+              ('{projectId}', 'QualityIQC', '50000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000002', now()),
+              ('{projectId}', 'QualityIQCSecondary', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002', now());
+            """);
+
+        var missingUnit = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "Incomplete Purchased Item", supplyType = "Purchased", orderQuantity = 10m } } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, missingUnit.StatusCode);
+
+        var create = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                items = new[]
+                {
+                    new
+                    {
+                        orderItem = "Purchased Busbar",
+                        supplierName = "Vendor P",
+                        supplyType = "Purchased",
+                        orderQuantity = 10m,
+                        orderUnit = "EA",
+                        expectedReceiptDate = "2026-07-20"
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        using var created = await ReadJsonAsync(create);
+        var item = created.RootElement.GetProperty("items")[0];
+        var itemId = item.GetProperty("itemId").GetGuid();
+        Assert.Equal("Purchased", item.GetProperty("supplyType").GetString());
+        Assert.Equal(10m, item.GetProperty("orderQuantity").GetDecimal());
+        Assert.Equal("EA", item.GetProperty("orderUnit").GetString());
+
+        var arrivals = new List<(Guid ReceiptId, Guid AttemptId)>();
+        foreach (var input in new[] { (Quantity: 4m, Date: "2026-07-15"), (Quantity: 6m, Date: "2026-07-18") })
+        {
+            var response = await materialsClient.PostAsJsonAsync(
+                $"/api/materials/items/{itemId}/receipts",
+                new { quantity = input.Quantity, unit = "EA", arrivalDate = input.Date, note = $"{input.Date} 도착분" },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var json = await ReadJsonAsync(response);
+            arrivals.Add((json.RootElement.GetProperty("receiptId").GetGuid(), json.RootElement.GetProperty("iqcAttemptId").GetGuid()));
+        }
+
+        Assert.Equal(2, arrivals.Select(entry => entry.ReceiptId).Distinct().Count());
+        Assert.Equal(2, arrivals.Select(entry => entry.AttemptId).Distinct().Count());
+        var materialItem = await FindMaterialItemAsync(materialsClient, itemId);
+        Assert.Equal(10m, materialItem.GetProperty("orderQuantity").GetDecimal());
+        Assert.Equal(10m, materialItem.GetProperty("arrivedQuantity").GetDecimal());
+        var receipts = materialItem.GetProperty("receipts").EnumerateArray().ToList();
+        Assert.Equal(2, receipts.Count);
+        Assert.All(receipts, receipt => Assert.Single(receipt.GetProperty("iqcAttempts").EnumerateArray()));
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id = @project_id and workflow_stage_code = 'IQC' and idempotency_key like 'materials:iqc:%';",
+            projectId));
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from notifications where project_id = @project_id and idempotency_key like 'materials:iqc:%:notification';",
+            projectId));
+        Assert.Equal(4L, await context.ReadCountAsync(
+            """
+            select count(*)
+            from notification_recipients recipient
+            join notifications notification on notification.id = recipient.notification_id
+            where notification.project_id = @project_id
+              and notification.idempotency_key like 'materials:iqc:%:notification';
+            """,
+            projectId));
+
+        var afterArrivals = await ReadProcurementAsync(procurementClient, projectId);
+        var current = afterArrivals.RootElement.GetProperty("items")[0];
+        var unsafeReduction = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                reason = "도착 후 수량 축소 검증",
+                items = new[]
+                {
+                    new
+                    {
+                        itemId,
+                        expectedRowVersion = current.GetProperty("rowVersion").GetInt32(),
+                        orderQuantity = 9m
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, unsafeReduction.StatusCode);
+    }
+
+    [Fact]
     public async Task MaterialReceipt_FollowsArrivalIqcConfirmationAndDerivedCompletion()
     {
         await using var context = await ProcurementApiTestContext.CreateAsync();

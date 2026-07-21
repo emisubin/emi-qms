@@ -133,6 +133,7 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   // 3. 설계 KPI의 12면 미입력 상태를 본 뒤 담당자가 12면을 모두 입력한다.
   await captureHome(page, 'dev-design', 'dashboards/03-design-before-panel-input.jpg');
   await page.goto(`/projects/${projectId}`);
+  await page.getByRole('tab', { name: '설계' }).click();
   await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
   for (let sequence = 1; sequence <= panelCount; sequence += 1) {
     await page.getByLabel(`No.${sequence} 패널명`).fill(`MCC-STRESS-${String(sequence).padStart(2, '0')}`);
@@ -150,24 +151,27 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await page.getByRole('tab', { name: '구매' }).click();
   await page.getByRole('button', { name: '구매정보 수정' }).click();
   const procurementTable = page.getByRole('table', { name: '구매정보 수정' });
-  const procurementRows = procurementTable.locator('.procurement-table-row.editable');
-  await expect(procurementTable).toBeVisible();
-  await page.getByRole('button', { name: '행 추가' }).click();
+  await expect(page.getByText('등록된 도급 구매품이 없습니다. 위 버튼으로 행을 추가해 주세요.')).toBeVisible();
+  await page.getByRole('button', { name: '도급 구매품 행 추가' }).click();
+  let procurementRows = procurementTable.locator('.procurement-table-row.editable');
   await expect(procurementRows).toHaveCount(1);
-  await page.getByRole('button', { name: '행 추가' }).click();
-  await expect(procurementRows).toHaveCount(2);
   await fillProcurementRow(procurementRows.nth(0), {
     leadTime: '3주', item: '제어기 일반 구매품', supplier: '합성 공급사', owner: '구매 기술담당',
     orderDate: '2026-07-01', expectedDate: '2026-07-18', issue: '일반 구매 정상 입고', supplyType: 'Purchased'
   });
-  await fillProcurementRow(procurementRows.nth(1), {
+  await page.getByRole('tab', { name: /사급 자재/ }).click();
+  await page.getByRole('button', { name: '사급 자재 행 추가' }).click();
+  procurementRows = procurementTable.locator('.procurement-table-row.editable');
+  await expect(procurementRows).toHaveCount(1);
+  await fillProcurementRow(procurementRows.nth(0), {
     leadTime: '고객 제공', item: '고객 사급 동부스바', supplier: '고객 제공', owner: '자재 추적담당',
     orderDate: '2026-07-01', expectedDate: '2026-07-14', issue: '7월 15~20일 분할 제공, 지연 추적 필요',
     supplyType: 'CustomerSupplied', quantity: '12', unit: 'EA'
   });
   await page.getByRole('button', { name: '저장' }).click();
   await expect(page.getByText('구매정보를 저장했습니다.')).toBeVisible();
-  await expect(page.getByRole('table', { name: '구매정보', exact: true })).toContainText('사급 · 고객 제공');
+  await page.getByRole('tab', { name: /사급 자재/ }).click();
+  await expect(page.getByRole('table', { name: '구매정보', exact: true })).toContainText('사급 자재');
   await captureHome(page, 'dev-procurement', 'dashboards/04-procurement-overdue-mixed-items.jpg');
   await captureProjectTab(page, projectId, 'dev-procurement', '구매', 'stages/04-procurement-mixed-items.jpg');
 
@@ -255,9 +259,11 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
       if (await nextAction.count() === 0) break;
       const nextButton = nextAction.getByRole('button');
       const label = (await nextButton.textContent())?.trim() ?? '상태 변경';
-      await page.getByLabel('상태 변경 사유').fill(`${label} · 도면 확인 및 작업 재개 승인`);
+      await page.getByLabel('처리 내용').fill(`${label} · 도면 확인 및 작업 재개 승인`);
       await nextButton.click();
-      await expect(page.getByText(`${label} 상태로 변경되었습니다.`)).toBeVisible();
+      await expect(page.getByText(label === '조치 완료'
+        ? '조치를 완료하고 품질 재검사 업무를 생성했습니다.'
+        : `${label} 상태로 변경되었습니다.`)).toBeVisible();
     }
     await expect(page.locator('.pending-detail-header .status-badge').filter({ hasText: '종결' })).toBeVisible();
   }

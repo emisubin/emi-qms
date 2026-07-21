@@ -50,11 +50,11 @@ type ProductionPlanningResponse = {
 async function addProcurementEditRow(page: Page) {
   const editRows = page.getByRole('table', { name: '구매정보 수정' }).locator('.procurement-table-row.editable');
   const initialRowCount = await editRows.count();
-  await page.getByRole('button', { name: '행 추가' }).click();
+  await page.getByRole('button', { name: '도급 구매품 행 추가' }).click();
   await expect(editRows).toHaveCount(initialRowCount + 1);
   const addedRow = editRows.nth(initialRowCount);
   await expect(addedRow).toBeVisible();
-  await expect(addedRow.locator('input')).toHaveCount(7);
+  await expect(addedRow.locator('input')).toHaveCount(9);
   return addedRow;
 }
 
@@ -507,7 +507,7 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await expect(page.getByTestId('project-context-summary')).toContainText(projectTitle);
   await expect(page.getByTestId('project-context-summary')).toContainText(`FS-4A-DIRECT-${unique}`);
   await expect(page.getByTestId('project-context-summary')).toContainText('2026-10-10');
-  await expect(page.getByRole('table', { name: '구매정보 수정' })).toBeVisible();
+  await expect(page.getByText('등록된 도급 구매품이 없습니다. 위 버튼으로 행을 추가해 주세요.')).toBeVisible();
   const addedRow = await addProcurementEditRow(page);
   await fillProcurementEditInput(addedRow, 0, '4W');
   await fillProcurementEditInput(addedRow, 1, 'MCCB');

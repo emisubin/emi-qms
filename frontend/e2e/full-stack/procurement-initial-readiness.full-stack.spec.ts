@@ -30,7 +30,7 @@ test('TASK-E2E-RELIABILITY-001 Change 001: procurement actions wait for the late
 
   await page.getByRole('button', { name: '구매정보 수정' }).click();
   await expect(page.getByRole('status')).toContainText('프로젝트·구매정보 확인 중에는 입력할 수 없습니다.');
-  for (const actionName of ['행 추가', 'Excel 양식 다운로드', 'Excel 업로드', '저장']) {
+  for (const actionName of ['도급 구매품 행 추가', 'Excel 양식 다운로드', 'Excel 업로드', '저장']) {
     await expect(page.getByRole('button', { name: actionName })).toBeDisabled();
   }
 
@@ -46,11 +46,11 @@ test('TASK-E2E-RELIABILITY-001 Change 001: procurement actions wait for the late
   releaseProcurementLoad();
   const editRows = page.getByRole('table', { name: '구매정보 수정' }).locator('.procurement-table-row.editable');
   await expect(editRows).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '행 추가' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '도급 구매품 행 추가' })).toBeEnabled();
   await expect(page.getByRole('button', { name: '저장' })).toBeEnabled();
   await page.unroute(procurementPattern);
 
-  await page.getByRole('button', { name: '행 추가' }).click();
+  await page.getByRole('button', { name: '도급 구매품 행 추가' }).click();
   await expect(editRows).toHaveCount(1);
   await page.screenshot({
     path: `${evidenceDirectory}/e2e-reliability-001-change-001-procurement-ready.jpg`,

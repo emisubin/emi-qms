@@ -1547,10 +1547,14 @@ describe('App', () => {
 
     const procurementSection = (await screen.findByText('구매정보')).closest('section');
     expect(procurementSection).not.toBeNull();
-    expect(within(procurementSection as HTMLElement).getByText('Relay')).toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).getByRole('tab', { name: /도급 구매품/ })).toHaveAttribute('aria-selected', 'true');
+    expect(within(procurementSection as HTMLElement).getByText('Completed Relay')).toBeInTheDocument();
     expect(within(procurementSection as HTMLElement).getAllByText('Vendor A').length).toBeGreaterThan(0);
-    expect(within(procurementSection as HTMLElement).getByText('사급 · 고객 제공')).toBeInTheDocument();
+    fireEvent.click(within(procurementSection as HTMLElement).getByRole('tab', { name: /사급 자재/ }));
+    expect(within(procurementSection as HTMLElement).getByText('Relay')).toBeInTheDocument();
+    expect(within(procurementSection as HTMLElement).getAllByText('사급 자재').length).toBeGreaterThanOrEqual(2);
     expect(within(procurementSection as HTMLElement).getByText('100 EA')).toBeInTheDocument();
+    fireEvent.click(within(procurementSection as HTMLElement).getByRole('tab', { name: /도급 구매품/ }));
     expect(within(procurementSection as HTMLElement).getByText('완료(6/7 12:30)')).toBeInTheDocument();
     expect(within(procurementSection as HTMLElement).queryByText('출하일')).not.toBeInTheDocument();
     expect(within(procurementSection as HTMLElement).queryByText('예정일까지')).not.toBeInTheDocument();
@@ -1577,12 +1581,16 @@ describe('App', () => {
     fireEvent.click(firstCard);
     fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
 
-    const procurementMobile = await screen.findByTestId('procurement-mobile');
+    let procurementMobile = await screen.findByTestId('procurement-mobile');
+    expect(procurementMobile).toHaveTextContent('Completed Relay');
+    expect(procurementMobile).toHaveTextContent('도급 구매품');
+    fireEvent.click(screen.getByRole('tab', { name: /사급 자재/ }));
+    procurementMobile = await screen.findByTestId('procurement-mobile');
     expect(procurementMobile).toHaveTextContent('Relay');
     expect(procurementMobile).toHaveTextContent('업체Vendor A');
     expect(procurementMobile).toHaveTextContent('기술 담당자Owner A');
     expect(procurementMobile).toHaveTextContent('입고예정2026-06-29');
-    expect(procurementMobile).toHaveTextContent('사급 · 고객 제공');
+    expect(procurementMobile).toHaveTextContent('사급 자재');
     expect(procurementMobile).toHaveTextContent('제공 예정100 EA');
     expect(procurementMobile).not.toHaveTextContent('예정일까지');
     expect(procurementMobile).not.toHaveTextContent('D-3');
@@ -1626,6 +1634,12 @@ describe('App', () => {
     expect(contextSummary).not.toHaveTextContent('Active');
     expect(await screen.findByRole('table', { name: '구매정보 수정' })).toBeInTheDocument();
     const editTable = screen.getByRole('table', { name: '구매정보 수정' });
+    expect(within(editTable).getAllByLabelText('공급 방식')[0]).toHaveValue('Purchased');
+    expect(within(editTable).getByLabelText('발주 수량')).toHaveValue('');
+    expect(within(editTable).getByLabelText('발주 단위')).toHaveValue('');
+    fireEvent.change(within(editTable).getByLabelText('발주 수량'), { target: { value: '25' } });
+    fireEvent.change(within(editTable).getByLabelText('발주 단위'), { target: { value: 'EA' } });
+    fireEvent.click(screen.getByRole('tab', { name: /사급 자재/ }));
     expect(within(editTable).getAllByLabelText('공급 방식')[0]).toHaveValue('CustomerSupplied');
     expect(within(editTable).getByLabelText('제공 예정 수량')).toHaveValue('100');
     expect(within(editTable).getByLabelText('제공 예정 단위')).toHaveValue('EA');
@@ -1633,7 +1647,8 @@ describe('App', () => {
     expect(editTable).not.toHaveTextContent('예정일까지');
     expect(screen.getByRole('button', { name: 'Excel 양식 다운로드' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Excel 업로드' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '행 추가' }));
+    fireEvent.click(screen.getByRole('tab', { name: /도급 구매품/ }));
+    fireEvent.click(screen.getByRole('button', { name: '도급 구매품 행 추가' }));
     const inputs = within(editTable).getAllByRole('textbox');
     fireEvent.change(inputs[0], { target: { value: '8W' } });
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
@@ -1643,6 +1658,7 @@ describe('App', () => {
     expect(screen.getByLabelText('최근 저장 결과')).toHaveTextContent('구매정보를 저장했습니다. 최신 화면을 불러오지 못했습니다. 새로고침해 주세요.');
     expect(screen.getByLabelText('최근 저장 결과').querySelector('[data-tone="partial"]')).not.toBeNull();
     expect(JSON.stringify(savedRequests[0])).toContain('8W');
+    expect(JSON.stringify(savedRequests[0])).toContain('25');
   });
 
   it('waits for the latest procurement edit load before accepting row input', async () => {
@@ -1669,7 +1685,7 @@ describe('App', () => {
 
     await waitFor(() => expect(editLoadResolvers).toHaveLength(2));
     expect(screen.getByRole('status')).toHaveTextContent('프로젝트·구매정보 확인 중에는 입력할 수 없습니다.');
-    for (const actionName of ['행 추가', 'Excel 양식 다운로드', 'Excel 업로드', '저장']) {
+    for (const actionName of ['도급 구매품 행 추가', 'Excel 양식 다운로드', 'Excel 업로드', '저장']) {
       expect(screen.getByRole('button', { name: actionName })).toBeDisabled();
     }
     await act(async () => {
@@ -1677,7 +1693,7 @@ describe('App', () => {
       await Promise.resolve();
     });
     expect(screen.queryByRole('table', { name: '구매정보 수정' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '행 추가' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '도급 구매품 행 추가' })).toBeDisabled();
 
     await act(async () => {
       editLoadResolvers[1](json(procurementResponse()));
@@ -1685,9 +1701,9 @@ describe('App', () => {
     });
     const editTable = await screen.findByRole('table', { name: '구매정보 수정' });
     expect(screen.queryByText('프로젝트·구매정보 확인 중에는 입력할 수 없습니다.')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '행 추가' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '도급 구매품 행 추가' })).toBeEnabled();
     const initialRowCount = editTable.querySelectorAll('.procurement-table-row.editable').length;
-    fireEvent.click(screen.getByRole('button', { name: '행 추가' }));
+    fireEvent.click(screen.getByRole('button', { name: '도급 구매품 행 추가' }));
     expect(editTable.querySelectorAll('.procurement-table-row.editable')).toHaveLength(initialRowCount + 1);
   });
 
@@ -2209,6 +2225,8 @@ describe('App', () => {
     expect(screen.getByLabelText('제조 입력 데이터')).toHaveTextContent('이력 · 제조 완료');
 
     fireEvent.click(screen.getByRole('tab', { name: '품질' }));
+    expect(await screen.findByLabelText('품질 입력 데이터')).toHaveTextContent('IQC · Relay');
+    fireEvent.click(screen.getByRole('tab', { name: '후속검사' }));
     expect(await screen.findByLabelText('품질 입력 데이터')).toHaveTextContent('외관 검사');
     expect(screen.getByLabelText('품질 입력 데이터')).toHaveTextContent('quality-proof.jpg');
 

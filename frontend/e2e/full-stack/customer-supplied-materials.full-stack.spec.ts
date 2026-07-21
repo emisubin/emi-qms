@@ -27,8 +27,9 @@ test('TASK-008B: customer-supplied material keeps one quantity truth across proc
   await page.getByLabel('개발 사용자').selectOption('dev-procurement');
   await openProject(page, projectTitle);
   await page.getByRole('tab', { name: '구매' }).click();
+  await page.getByRole('tab', { name: /사급 자재/ }).click();
   const purchaseTable = page.getByRole('table', { name: '구매정보' });
-  await expect(purchaseTable).toContainText('사급 · 고객 제공');
+  await expect(purchaseTable).toContainText('사급 자재');
   await expect(purchaseTable).toContainText('10 EA');
 
   await page.getByLabel('개발 사용자').selectOption('dev-materials');
@@ -102,8 +103,9 @@ test('TASK-008B: customer-supplied material keeps one quantity truth across proc
   await page.goto('/projects');
   await openProject(page, projectTitle);
   await page.getByRole('tab', { name: '구매' }).click();
+  await page.getByRole('tab', { name: /사급 자재/ }).click();
   const mobilePurchase = page.locator('[data-testid="procurement-mobile"]');
-  await expect(mobilePurchase).toContainText('사급 · 고객 제공');
+  await expect(mobilePurchase).toContainText('사급 자재');
   await expect(mobilePurchase).toContainText('제공 예정4 EA');
   await assertNoHorizontalOverflow(page);
 });

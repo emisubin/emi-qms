@@ -866,9 +866,10 @@ public sealed class ProcurementStore(
                     return SupplyValidation<ProcurementResponse>("OrderQuantity", "사급 품목은 제공 예정 수량과 단위를 함께 입력해 주세요.");
                 }
                 if (newSupplyType == ProcurementSupplyTypes.Purchased
-                    && (update.OrderQuantity is not null || update.OrderUnit is not null))
+                    && ((update.OrderQuantity is null) != (newOrderUnit is null)
+                        || update.OrderQuantity is <= 0))
                 {
-                    return SupplyValidation<ProcurementResponse>("OrderQuantity", "일반 구매품의 발주 수량과 단위는 첫 도착 등록에서 입력해 주세요.");
+                    return SupplyValidation<ProcurementResponse>("OrderQuantity", "일반 구매품의 발주 수량과 단위는 함께 입력하거나 모두 비워 주세요.");
                 }
 
                 var row = new ParsedProcurementExcelRow(0, 0, project.ProjectTitle, project.ProjectCode, update.StandardLeadTime, update.OrderItem, update.SupplierName, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, false, []);
@@ -936,6 +937,12 @@ public sealed class ProcurementStore(
                 {
                     return SupplyValidation<ProcurementResponse>("OrderQuantity", "사급 품목은 제공 예정 수량과 단위를 함께 입력해 주세요.");
                 }
+                if (nextSupplyType == ProcurementSupplyTypes.Purchased
+                    && ((nextOrderQuantity is null) != (nextOrderUnit is null)
+                        || nextOrderQuantity is <= 0))
+                {
+                    return SupplyValidation<ProcurementResponse>("OrderQuantity", "일반 구매품의 발주 수량과 단위는 함께 입력하거나 모두 비워 주세요.");
+                }
 
                 var receiptAggregate = await ReadMaterialReceiptAggregateAsync(connection, transaction, current.ItemId, cancellationToken);
                 if (!string.Equals(nextSupplyType, current.SupplyType, StringComparison.Ordinal)
@@ -945,7 +952,7 @@ public sealed class ProcurementStore(
                 }
                 if (nextOrderQuantity is not null && nextOrderQuantity < receiptAggregate.ArrivedQuantity)
                 {
-                    return SupplyValidation<ProcurementResponse>("OrderQuantity", $"제공 예정 수량은 누적 도착 수량({receiptAggregate.ArrivedQuantity:0.###})보다 작을 수 없습니다.");
+                    return SupplyValidation<ProcurementResponse>("OrderQuantity", $"발주·제공 예정 수량은 누적 도착 수량({receiptAggregate.ArrivedQuantity:0.###})보다 작을 수 없습니다.");
                 }
                 if (receiptAggregate.ActiveReceiptCount > 0
                     && update.OrderUnit is not null
@@ -2018,9 +2025,9 @@ public sealed class ProcurementStore(
         if (item.SupplyType == ProcurementSupplyTypes.CustomerSupplied)
         {
             AddNew(changes, "SupplyType", item.SupplyType);
-            AddNew(changes, "OrderQuantity", item.OrderQuantity?.ToString("0.###", CultureInfo.InvariantCulture));
-            AddNew(changes, "OrderUnit", item.OrderUnit);
         }
+        AddNew(changes, "OrderQuantity", item.OrderQuantity?.ToString("0.###", CultureInfo.InvariantCulture));
+        AddNew(changes, "OrderUnit", item.OrderUnit);
         if (item.ReceiptCompleted)
         {
             AddNew(changes, "ReceiptCompleted", "True");

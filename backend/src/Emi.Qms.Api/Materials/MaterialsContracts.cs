@@ -87,6 +87,10 @@ public sealed record MaterialIqcAttemptResponse(
 public sealed record MaterialIqcQueueResponse(
     IReadOnlyList<MaterialIqcQueueItemResponse> Items);
 
+public sealed record MaterialIqcReconciliationResponse(
+    int RecoveredReceiptCount,
+    int EnsuredAttemptCount);
+
 public sealed record MaterialIqcQueueItemResponse(
     Guid AttemptId,
     Guid ReceiptId,

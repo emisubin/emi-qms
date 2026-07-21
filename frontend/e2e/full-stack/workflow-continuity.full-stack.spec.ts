@@ -40,7 +40,7 @@ test('WORKFLOW-CONTINUITY-001: arrival, IQC pending, automatic reinspection, and
   const firstWorkGroup = page.getByRole('region', { name: `${projectTitle} 내 업무` });
   await expect(firstWorkGroup).toContainText('IQC 판정');
   await firstWorkGroup.getByRole('button', { name: '이동', exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/quality/iqc\\?request=${arrival.iqcAttemptId}$`, 'u'));
+  await expect(page).toHaveURL(new RegExp(`/quality/iqc\\?project=${projectId}&request=${arrival.iqcAttemptId}$`, 'u'));
   const firstReport = page.locator('.material-action-drawer--iqc-report');
   await expect(firstReport).toContainText('연속흐름 시험 자재');
   await capture(page, '04-iqc-my-work-deep-link-desktop.png');
@@ -80,7 +80,7 @@ test('WORKFLOW-CONTINUITY-001: arrival, IQC pending, automatic reinspection, and
   const reinspectionGroup = page.getByRole('region', { name: `${projectTitle} 내 업무` });
   await expect(reinspectionGroup).toContainText('IQC 판정');
   await reinspectionGroup.getByRole('button', { name: '이동', exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/quality/iqc\\?request=${reinspectionAttempt.attemptId}$`, 'u'));
+  await expect(page).toHaveURL(new RegExp(`/quality/iqc\\?project=${projectId}&request=${reinspectionAttempt.attemptId}$`, 'u'));
   const reinspectionReport = page.locator('.material-action-drawer--iqc-report');
   await expect(reinspectionReport).toContainText('2차');
   await capture(page, '07-reinspection-my-work-deep-link-desktop.png');

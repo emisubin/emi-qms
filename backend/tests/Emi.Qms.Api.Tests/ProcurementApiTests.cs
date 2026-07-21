@@ -381,6 +381,8 @@ public sealed class ProcurementApiTests
         await context.ExecuteSqlAsync($"""
             insert into project_assignees (project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc)
             values
+              ('{projectId}', 'MaterialsPrimary', '50000000-0000-0000-0000-000000000012', '50000000-0000-0000-0000-000000000002', now()),
+              ('{projectId}', 'MaterialsSecondary', '50000000-0000-0000-0000-000000000011', '50000000-0000-0000-0000-000000000002', now()),
               ('{projectId}', 'QualityIQC', '50000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000002', now()),
               ('{projectId}', 'QualityIQCSecondary', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002', now());
             """);
@@ -416,6 +418,45 @@ public sealed class ProcurementApiTests
         Assert.Equal("Purchased", item.GetProperty("supplyType").GetString());
         Assert.Equal(10m, item.GetProperty("orderQuantity").GetDecimal());
         Assert.Equal("EA", item.GetProperty("orderUnit").GetString());
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id=@project_id and idempotency_key like 'procurement:materials:%';",
+            projectId));
+        Assert.Equal(1L, await context.ReadCountAsync(
+            "select count(*) from notifications where project_id=@project_id and idempotency_key like 'procurement:materials:%:notification';",
+            projectId));
+        Assert.Equal(2L, await context.ReadCountAsync(
+            """
+            select count(*)
+            from notification_recipients recipient
+            join notifications notification on notification.id=recipient.notification_id
+            where notification.project_id=@project_id
+              and notification.idempotency_key like 'procurement:materials:%:notification';
+            """,
+            projectId));
+
+        var changed = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                reason = "납기 정보 보정",
+                items = new[]
+                {
+                    new
+                    {
+                        itemId,
+                        expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
+                        standardLeadTime = "3W"
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        Assert.Equal(4L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id=@project_id and idempotency_key like 'procurement:materials:%';",
+            projectId));
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from notifications where project_id=@project_id and idempotency_key like 'procurement:materials:%:notification';",
+            projectId));
 
         var arrivals = new List<(Guid ReceiptId, Guid AttemptId)>();
         foreach (var input in new[] { (Quantity: 4m, Date: "2026-07-15"), (Quantity: 6m, Date: "2026-07-18") })
@@ -437,7 +478,7 @@ public sealed class ProcurementApiTests
         var receipts = materialItem.GetProperty("receipts").EnumerateArray().ToList();
         Assert.Equal(2, receipts.Count);
         Assert.All(receipts, receipt => Assert.Single(receipt.GetProperty("iqcAttempts").EnumerateArray()));
-        Assert.Equal(2L, await context.ReadCountAsync(
+        Assert.Equal(4L, await context.ReadCountAsync(
             "select count(*) from work_items where project_id = @project_id and workflow_stage_code = 'IQC' and idempotency_key like 'materials:iqc:%';",
             projectId));
         Assert.Equal(2L, await context.ReadCountAsync(
@@ -472,6 +513,80 @@ public sealed class ProcurementApiTests
             },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.BadRequest, unsafeReduction.StatusCode);
+    }
+
+    [Fact]
+    public async Task IqcReconciliation_RecoversOrphanArrivalAndBothQualityAssignmentsWithoutDuplicates()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var qualityClient = context.CreateClient("dev-quality");
+        var projectId = await CreateProjectAsync(salesClient, "PROC-IQC-RECOVER", "Recover Missing IQC");
+        await context.ExecuteSqlAsync($"""
+            insert into project_assignees (project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc)
+            values
+              ('{projectId}', 'QualityIQC', '50000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000002', now()),
+              ('{projectId}', 'QualityIQCSecondary', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002', now());
+            """);
+        var procurementSave = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "Legacy Orphan", supplyType = "Purchased", orderQuantity = 2m, orderUnit = "EA" } } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, procurementSave.StatusCode);
+        using var procurement = await ReadJsonAsync(procurementSave);
+        var itemId = procurement.RootElement.GetProperty("items")[0].GetProperty("itemId").GetGuid();
+        var receiptId = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into material_receipts (
+                id, procurement_item_id, quantity, unit, arrival_date, note, status,
+                created_by_user_id, updated_by_user_id)
+            values (
+                '{receiptId}', '{itemId}', 2, 'EA', '2026-07-20', '이전 runtime에서 누락된 도착분', 'Arrived',
+                '50000000-0000-0000-0000-000000000012', '50000000-0000-0000-0000-000000000012');
+            """);
+
+        var firstResponse = await qualityClient.PostAsync(
+            "/api/quality/iqc/reconcile",
+            null,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        using var first = await ReadJsonAsync(firstResponse);
+        Assert.Equal(1, first.RootElement.GetProperty("recoveredReceiptCount").GetInt32());
+
+        var queueResponse = await qualityClient.GetAsync("/api/quality/iqc", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, queueResponse.StatusCode);
+        using var queue = await ReadJsonAsync(queueResponse);
+        var recoveredAttempt = Assert.Single(
+            queue.RootElement.GetProperty("items").EnumerateArray(),
+            item => item.GetProperty("receiptId").GetGuid() == receiptId);
+        Assert.Equal("Requested", recoveredAttempt.GetProperty("status").GetString());
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id=@project_id and idempotency_key like 'materials:iqc:%';",
+            projectId));
+        Assert.Equal(1L, await context.ReadCountAsync(
+            "select count(*) from notifications where project_id=@project_id and idempotency_key like 'materials:iqc:%:notification';",
+            projectId));
+        Assert.Equal(2L, await context.ReadCountAsync(
+            """
+            select count(*)
+            from notification_recipients recipient
+            join notifications notification on notification.id=recipient.notification_id
+            where notification.project_id=@project_id
+              and notification.idempotency_key like 'materials:iqc:%:notification';
+            """,
+            projectId));
+
+        var secondResponse = await qualityClient.PostAsync(
+            "/api/quality/iqc/reconcile",
+            null,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        using var second = await ReadJsonAsync(secondResponse);
+        Assert.Equal(0, second.RootElement.GetProperty("recoveredReceiptCount").GetInt32());
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id=@project_id and idempotency_key like 'materials:iqc:%';",
+            projectId));
     }
 
     [Fact]
@@ -850,12 +965,16 @@ public sealed class ProcurementApiTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(HttpStatusCode.OK, responses[1].StatusCode);
-        Assert.Contains(responses[0].StatusCode, new[]
+        var allowedProcurementStatuses = new[]
         {
             HttpStatusCode.OK,
             HttpStatusCode.BadRequest,
             HttpStatusCode.Conflict
-        });
+        };
+        Assert.True(
+            allowedProcurementStatuses.Contains(responses[0].StatusCode),
+            $"Unexpected procurement status {responses[0].StatusCode}: {await responses[0].Content.ReadAsStringAsync(TestContext.Current.CancellationToken)}{Environment.NewLine}"
+            + string.Join(Environment.NewLine, context.Logs.Where(entry => entry.Exception is not null).Select(entry => entry.Exception)));
 
         using var finalProcurement = await ReadProcurementAsync(procurementClient, projectId);
         var finalItem = finalProcurement.RootElement.GetProperty("items")[0];
@@ -1004,6 +1123,12 @@ public sealed class ProcurementApiTests
         using var salesClient = context.CreateClient("dev-sales");
         using var procurementClient = context.CreateClient("dev-procurement");
         var projectId = await CreateProjectAsync(salesClient, "PROC-EXCEL", "Proc Excel");
+        await context.ExecuteSqlAsync($"""
+            insert into project_assignees (project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc)
+            values
+              ('{projectId}', 'MaterialsPrimary', '50000000-0000-0000-0000-000000000012', '50000000-0000-0000-0000-000000000002', now()),
+              ('{projectId}', 'MaterialsSecondary', '50000000-0000-0000-0000-000000000011', '50000000-0000-0000-0000-000000000002', now());
+            """);
         var firstFile = CreateProcurementExcel("Proc Excel", "PROC-EXCEL",
             ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Vendor X", "Owner A", "2026-07-01", "2026-07-10", "First", ""],
             ["", "", "5W", "Cable", "", "Owner B", "2026.07.02", "2026.07.11", "", ""],
@@ -1022,11 +1147,20 @@ public sealed class ProcurementApiTests
         Assert.Equal("2026-07-10", saved.RootElement.GetProperty("items")[0].GetProperty("expectedReceiptDate").GetString());
         Assert.Equal("2026-10-10", saved.RootElement.GetProperty("items")[0].GetProperty("shipmentDisplayDate").GetString());
         Assert.DoesNotContain(saved.RootElement.GetProperty("items")[0].EnumerateObject(), property => property.NameEquals("shipmentText"));
+        Assert.Equal(4L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id=@project_id and idempotency_key like 'procurement:materials:%';",
+            projectId));
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from notifications where project_id=@project_id and idempotency_key like 'procurement:materials:%:notification';",
+            projectId));
 
         var duplicatePreview = await PreviewExcelAsync(procurementClient, firstFile, "procurement.xlsx");
         var duplicate = await ApplyExcelAsync(procurementClient, firstFile, "procurement.xlsx", duplicatePreview, reason: null);
         Assert.Equal(HttpStatusCode.OK, duplicate.StatusCode);
         Assert.Equal(0, duplicatePreview.RootElement.GetProperty("newCount").GetInt32() + duplicatePreview.RootElement.GetProperty("changedCount").GetInt32());
+        Assert.Equal(4L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id=@project_id and idempotency_key like 'procurement:materials:%';",
+            projectId));
 
         var secondFile = CreateProcurementExcel("Proc Excel", "PROC-EXCEL",
             ["Proc Excel", "PROC-EXCEL", "4W", "MCCB", "Vendor X", "Owner A", "2026-07-01", "2026-07-10", "First changed", ""],
@@ -1042,6 +1176,12 @@ public sealed class ProcurementApiTests
         var afterReapply = await ReadProcurementAsync(procurementClient, projectId);
         Assert.Equal(3, afterReapply.RootElement.GetProperty("items").GetArrayLength());
         Assert.Contains(afterReapply.RootElement.GetProperty("items").EnumerateArray(), item => item.GetProperty("orderItem").GetString() == "Cable");
+        Assert.Equal(8L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id=@project_id and idempotency_key like 'procurement:materials:%';",
+            projectId));
+        Assert.Equal(4L, await context.ReadCountAsync(
+            "select count(*) from notifications where project_id=@project_id and idempotency_key like 'procurement:materials:%:notification';",
+            projectId));
     }
 
     [Fact]

@@ -40,6 +40,7 @@ import type { PendingTypeCatalog, PendingTypeOption, ReorderPendingTypeItem } fr
 import { isInteractionRequiredAuthError } from './auth';
 import type {
   MaterialIqcQueueResponse,
+  MaterialIqcReconciliationResponse,
   MaterialReceiptActionResponse,
   MaterialReceiptListResponse,
   RegisterMaterialArrivalRequest
@@ -2048,6 +2049,12 @@ export async function closeMaterialArrivals(
 export async function getMaterialIqcQueue(developmentUserKey: string | undefined, includeDecided = false) {
   const query = includeDecided ? '?includeDecided=true' : '';
   return fetchJson<MaterialIqcQueueResponse>(`/api/quality/iqc${query}`, developmentUserKey);
+}
+
+export async function reconcileMaterialIqcQueue(developmentUserKey: string | undefined) {
+  return fetchJson<MaterialIqcReconciliationResponse>('/api/quality/iqc/reconcile', developmentUserKey, {
+    method: 'POST'
+  });
 }
 
 export async function recordMaterialIqcResult(

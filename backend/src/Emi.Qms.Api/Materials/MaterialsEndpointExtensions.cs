@@ -159,6 +159,22 @@ public static class MaterialsEndpointExtensions
             .AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
         .WithName("ListMaterialIqcRequests");
 
+        quality.MapPost("/reconcile", async (
+            MaterialsStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            return userId is null
+                ? Results.Unauthorized()
+                : Results.Ok(await store.ReconcileIqcHandoffsAsync(
+                    userId.Value,
+                    GetProjectAccessScope(user),
+                    cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("ReconcileMaterialIqcHandoffs");
+
         quality.MapGet("/{attemptId:guid}/report", async (
             Guid attemptId,
             IqcReportStore store,

@@ -97,6 +97,11 @@ export type MaterialIqcQueueItem = {
 
 export type MaterialIqcQueueResponse = { items: MaterialIqcQueueItem[] };
 
+export type MaterialIqcReconciliationResponse = {
+  recoveredReceiptCount: number;
+  ensuredAttemptCount: number;
+};
+
 export type MaterialReceiptActionResponse = {
   procurementItemId: string;
   receiptId: string | null;

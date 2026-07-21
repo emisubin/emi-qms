@@ -7,6 +7,7 @@ import {
   confirmMaterialReceipt,
   getMaterialIqcQueue,
   getMaterialReceipts,
+  reconcileMaterialIqcQueue,
   recordMaterialIqcResult,
   registerMaterialArrival
 } from './api';
@@ -258,12 +259,14 @@ export function MaterialReceivingPage({
 export function MaterialIqcPage({
   developmentUserKey,
   canInspect,
+  initialProjectId,
   initialRequestId,
   onBack,
   onOpenPending
 }: {
   developmentUserKey: string;
   canInspect: boolean;
+  initialProjectId?: string;
   initialRequestId?: string;
   onBack: () => void;
   onOpenPending: (pendingId: string) => void;
@@ -275,6 +278,7 @@ export function MaterialIqcPage({
   const [reason, setReason] = useState('');
   const actions = useActionFeedback();
   const loadGenerationRef = useRef(0);
+  const reconciliationIdentityRef = useRef('');
   const iqcVisibleIds = state.kind === 'ready' ? state.data.map((item) => item.attemptId) : [];
   const iqcSelection = useSelectedRows(iqcVisibleIds);
 
@@ -283,12 +287,20 @@ export function MaterialIqcPage({
     loadGenerationRef.current = generation;
     if (!preserve) setState({ kind: 'loading' });
     try {
+      const reconciliationIdentity = `${developmentUserKey}:${initialProjectId ?? 'all'}`;
+      if (canInspect && reconciliationIdentityRef.current !== reconciliationIdentity) {
+        await reconcileMaterialIqcQueue(developmentUserKey);
+        reconciliationIdentityRef.current = reconciliationIdentity;
+      }
       const response = await getMaterialIqcQueue(developmentUserKey, includeDecided);
       if (generation !== loadGenerationRef.current) return false;
-      setState({ kind: 'ready', data: response.items });
+      const visibleItems = initialProjectId
+        ? response.items.filter((item) => item.projectId === initialProjectId)
+        : response.items;
+      setState({ kind: 'ready', data: visibleItems });
       const requestedId = initialRequestId ?? new URLSearchParams(window.location.search).get('request');
-      setSelected((current) => response.items.find((item) => item.attemptId === requestedId)
-        ?? response.items.find((item) => item.attemptId === current?.attemptId)
+      setSelected((current) => visibleItems.find((item) => item.attemptId === requestedId)
+        ?? visibleItems.find((item) => item.attemptId === current?.attemptId)
         ?? null);
       return true;
     } catch (error) {
@@ -296,7 +308,7 @@ export function MaterialIqcPage({
       if (!preserve) setState({ kind: 'error', message: errorMessage(error, 'IQC 검사함을 불러오지 못했습니다.') });
       return false;
     }
-  }, [developmentUserKey, includeDecided, initialRequestId]);
+  }, [canInspect, developmentUserKey, includeDecided, initialProjectId, initialRequestId]);
 
   useEffect(() => { queueMicrotask(() => void load()); }, [load]);
 
@@ -359,6 +371,7 @@ export function MaterialIqcPage({
           <p className="eyebrow">QUALITY GATE</p>
           <h2>IQC 검사함</h2>
           <p>요청된 도착분을 확인하고 합격 또는 부적합을 기록합니다.</p>
+          {initialProjectId && state.kind === 'ready' ? <p className="workspace-project-filter" role="status">선택 프로젝트: <strong>{state.data[0]?.projectCode ?? '현재 프로젝트'}</strong></p> : null}
         </div>
         <button type="button" onClick={onBack}>자재 입고로</button>
       </header>
@@ -380,7 +393,7 @@ export function MaterialIqcPage({
           selectedIds={iqcSelection.selectedIds}
           allSelected={iqcSelection.allSelected}
           busy={iqcSelection.busy}
-          filters={{ includeDecided: String(includeDecided) }}
+          filters={{ includeDecided: String(includeDecided), projectId: initialProjectId }}
           onBusyChange={iqcSelection.setBusy}
           onToggleAll={iqcSelection.toggleAll}
           onClear={iqcSelection.clear}
@@ -525,14 +538,20 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
   if (action.kind === 'arrival') {
     async function submit(event: FormEvent) {
       event.preventDefault();
-      await guarded(`material:${action.item.itemId}:arrival`, () => registerMaterialArrival(developmentUserKey, action.item.itemId, {
-        quantity: Number(quantity),
-        unit,
-        orderQuantity: action.item.orderQuantity === null ? Number(orderQuantity) : null,
-        orderUnit: action.item.orderUnit === null ? unit : null,
-        arrivalDate,
-        note: note.trim() || null
-      }), '도착분을 등록하고 IQC 검사 대기로 넘겼습니다.');
+      await guarded(`material:${action.item.itemId}:arrival`, async () => {
+        const response = await registerMaterialArrival(developmentUserKey, action.item.itemId, {
+          quantity: Number(quantity),
+          unit,
+          orderQuantity: action.item.orderQuantity === null ? Number(orderQuantity) : null,
+          orderUnit: action.item.orderUnit === null ? unit : null,
+          arrivalDate,
+          note: note.trim() || null
+        });
+        if (!response.iqcAttemptId || response.status !== 'IqcRequested') {
+          throw new ApiError(409, '도착분은 저장됐지만 IQC 검사 업무 생성이 확인되지 않았습니다. 품질 검사함에서 누락 복구 후 다시 확인해 주세요.');
+        }
+        return response;
+      }, '도착분 저장과 IQC 검사 업무 생성을 확인했습니다.');
     }
     return (
       <form className="material-action-form" onSubmit={submit}>

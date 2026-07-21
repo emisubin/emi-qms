@@ -58,9 +58,9 @@
 | `TASK-QR-001` | 패널별 명시 QR 발급·SVG/PNG·선택 인쇄, 인증 모바일 scan landing·현재 담당 업무 routing, 관리자 사유 기반 rotation과 append-only audit | [구현 보고서](../tasks/qr-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-NOTIFY-AUDIT-001` | 관리자 알림 설정 변경 이력의 기간·행동·알림 종류·사용자/부서 조회, 요약, desktop/mobile UI와 선택 Excel | [구현 보고서](../tasks/notify-audit-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-NOTIFY-REPROCESS-001` | terminal Failed 알림의 generation 기반 수동 재처리, CAS·원자 배치·중복 위험 확인·append-only event와 관리자 UI | [구현 보고서](../tasks/notify-reprocess-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
-| `TASK-WORKFLOW-CONTINUITY-001` | 실제 담당자 IQC Pending 검수 실패를 기준으로 도착→검사→Pending→자동 재검사→합격 연속성, 구매 병행 handoff와 QR batch를 보정. Change 002에서 구매 사급/도급 탭, 도급 수량, 품목별 자재 도착·IQC 이력과 프로젝트 품질 IQC 조회를 같은 품목 identity로 연결 | [본체](../tasks/workflow-continuity-001-implementation-report.md), [Change 002](../tasks/workflow-continuity-001-change-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-WORKFLOW-CONTINUITY-001` | 실제 담당자 IQC Pending 검수 실패를 기준으로 도착→검사→Pending→자동 재검사→합격 연속성, 구매 병행 handoff와 QR batch를 보정. Change 003에서 구매 오류 위치 안내, 구매 신규·변경의 자재 정/부 인계, 프로젝트 우선 부서 화면, 도착 IQC postcondition과 기존 누락 IQC 복구를 연결 | [본체](../tasks/workflow-continuity-001-implementation-report.md), [Change 002](../tasks/workflow-continuity-001-change-002-implementation-report.md), [Change 003](../tasks/workflow-continuity-001-change-003-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 
-현재 계보의 최신 누적 자동 기준선은 Backend `412/412`, Frontend `113/113`, migration `0049`까지의 fresh PostgreSQL 적용이다. 직전 전체 Full-Stack 기준선 위에서 실제 담당자 IQC·Pending 연속성, QR, 구매 수량→분할 도착→도착분별 IQC→품목별 자재 이력→프로젝트 품질 IQC를 synthetic data와 disposable runtime에서 검증했다. 구매·자재가 같은 품목 identity를 사용하고 도착 두 건이 서로 다른 IQC·내 업무·정/부 알림을 생성하는 Backend 통합 계약도 확인했다. 실제 provider·Persistent UAT·대표 runtime으로 우회하지 않았다.
+현재 계보의 최신 누적 자동 기준선은 Backend `413/413`, Frontend `115/115`, migration `0049`까지의 fresh PostgreSQL 적용이다. 직전 전체 Full-Stack 기준선 위에서 구매 오류의 행·필드 안내, 구매 신규·변경의 자재 정/부 내 업무·알림, 자재 업무 선택과 5개 부서 프로젝트 우선 진입, 도착 IQC postcondition 및 기존 누락 IQC reconciliation을 synthetic data와 disposable runtime에서 검증했다. 실제 provider·Persistent UAT·대표 runtime으로 우회하지 않았다.
 
 ## 4. 남은 제품 개발 Task
 

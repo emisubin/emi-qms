@@ -2,6 +2,7 @@ using System.Data;
 using System.Globalization;
 using System.Text.Json;
 using ClosedXML.Excel;
+using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
 using Emi.Qms.Api.Projects;
@@ -690,6 +691,7 @@ public sealed class ProcurementStore(
                 {
                     continue;
                 }
+                var project = projects.Single(item => item.ProjectId == row.ProjectId.Value);
 
                 if (row.ItemId is null)
                 {
@@ -698,6 +700,16 @@ public sealed class ProcurementStore(
                     {
                         await InsertAuditAsync(connection, transaction, inserted.ProjectId, inserted.ItemId, change.FieldName, null, change.NewValue, reason, changedByUserId, correlationId, "Excel", batchId, null, change.OriginalInputValue, cancellationToken);
                     }
+                    await CreateMaterialsItemHandoffAsync(
+                        connection,
+                        transaction,
+                        project,
+                        inserted.ItemId,
+                        inserted.RowVersion,
+                        inserted.OrderItem,
+                        "신규",
+                        changedByUserId,
+                        cancellationToken);
                 }
                 else
                 {
@@ -719,6 +731,16 @@ public sealed class ProcurementStore(
                     {
                         await InsertAuditAsync(connection, transaction, current.ProjectId, current.ItemId, change.FieldName, change.OldValue, change.NewValue, reason, changedByUserId, correlationId, "Excel", batchId, null, change.OriginalInputValue, cancellationToken);
                     }
+                    await CreateMaterialsItemHandoffAsync(
+                        connection,
+                        transaction,
+                        project,
+                        current.ItemId,
+                        current.RowVersion + 1,
+                        ProcurementDomain.TrimToNull(parsedRow.OrderItem) ?? current.OrderItem,
+                        "변경",
+                        changedByUserId,
+                        cancellationToken);
                 }
             }
 
@@ -888,6 +910,16 @@ public sealed class ProcurementStore(
                 {
                     await InsertAuditAsync(connection, transaction, project.ProjectId, inserted.ItemId, change.FieldName, null, change.NewValue, reason, changedByUserId, correlationId, "Direct", null, null, null, cancellationToken);
                 }
+                await CreateMaterialsItemHandoffAsync(
+                    connection,
+                    transaction,
+                    project,
+                    inserted.ItemId,
+                    inserted.RowVersion,
+                    inserted.OrderItem,
+                    "신규",
+                    changedByUserId,
+                    cancellationToken);
 
                 continue;
             }
@@ -970,6 +1002,16 @@ public sealed class ProcurementStore(
             {
                 await InsertAuditAsync(connection, transaction, project.ProjectId, current.ItemId, change.FieldName, change.OldValue, change.NewValue, auditReason, changedByUserId, correlationId, "Direct", null, null, null, cancellationToken);
             }
+            await CreateMaterialsItemHandoffAsync(
+                connection,
+                transaction,
+                project,
+                current.ItemId,
+                current.RowVersion + 1,
+                ProcurementDomain.TrimToNull(update.OrderItem) ?? current.OrderItem,
+                "변경",
+                changedByUserId,
+                cancellationToken);
         }
 
         return ProcurementMutationResult<ProcurementResponse>.Success(new ProcurementResponse(project.ProjectId, project.ProjectTitle, project.ProjectCode, project.DeliveryDate, []));
@@ -990,6 +1032,142 @@ public sealed class ProcurementStore(
             && update.ReceiptCompleted is null
             && update.ReceiptCompletedAtUtc is null
             && string.IsNullOrWhiteSpace(update.ReceiptCompletionNote);
+    }
+
+    private static async Task CreateMaterialsItemHandoffAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ProcurementProjectSnapshot project,
+        Guid itemId,
+        int rowVersion,
+        string? orderItem,
+        string changeKind,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var assignees = await ResolveProjectAssigneesAsync(
+            connection,
+            transaction,
+            project.ProjectId,
+            ["MaterialsPrimary", "MaterialsSecondary"],
+            "MaterialReceipt.Update",
+            cancellationToken);
+        if (assignees.Count == 0)
+        {
+            return;
+        }
+
+        var title = $"구매품 {changeKind} 확인 · {orderItem ?? "품목명 미입력"}";
+        var description = $"{project.ProjectCode} 구매품 {changeKind} 내용을 확인하고 입고 계획에 반영해 주세요.";
+        var linkUrl = $"/materials/receipts?project={Uri.EscapeDataString(project.ProjectCode)}";
+        var idempotencyPrefix = $"procurement:materials:{itemId:N}:v{rowVersion}";
+        var workItemIds = new List<Guid>();
+        foreach (var assignee in assignees)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into work_items (
+                    project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                    assigned_user_id, assigned_role_code, title, description, status, priority,
+                    idempotency_key, created_by_user_id
+                ) values (
+                    @project_id, 'ProcurementItem', @item_id, 'MaterialArrived', @responsibility_type,
+                    @assignee_id, null, @title, @description, 'Requested', 'Normal',
+                    @idempotency_key, @actor_id
+                )
+                on conflict (idempotency_key) do update
+                set title=excluded.title, description=excluded.description
+                returning id;
+                """;
+            command.Parameters.AddWithValue("project_id", project.ProjectId);
+            command.Parameters.AddWithValue("item_id", itemId);
+            command.Parameters.AddWithValue("responsibility_type", assignee.ResponsibilityType);
+            command.Parameters.AddWithValue("assignee_id", assignee.UserId);
+            command.Parameters.AddWithValue("title", title);
+            command.Parameters.AddWithValue("description", $"{description} {linkUrl}");
+            command.Parameters.AddWithValue("idempotency_key", $"{idempotencyPrefix}:{assignee.UserId:N}");
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            workItemIds.Add((Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty));
+        }
+
+        await WorkAssignmentNotificationWriter.UpsertAsync(
+            connection,
+            transaction,
+            project.ProjectId,
+            workItemIds[0],
+            assignees[0].UserId,
+            ["MaterialsSecondary"],
+            title,
+            description,
+            linkUrl,
+            $"{idempotencyPrefix}:notification",
+            cancellationToken);
+    }
+
+    private static async Task<IReadOnlyList<ProjectHandoffAssignee>> ResolveProjectAssigneesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string[] responsibilityTypes,
+        string fallbackPermission,
+        CancellationToken cancellationToken)
+    {
+        var assignees = new List<ProjectHandoffAssignee>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select selected.assigned_user_id, selected.responsibility_type
+                from (
+                    select distinct on (assignee.assigned_user_id)
+                           assignee.assigned_user_id, assignee.responsibility_type,
+                           array_position(@responsibility_types, assignee.responsibility_type) as responsibility_order
+                    from project_assignees assignee
+                    join qms_users users on users.id=assignee.assigned_user_id and users.is_active=true
+                    where assignee.project_id=@project_id
+                      and assignee.responsibility_type=any(@responsibility_types)
+                    order by assignee.assigned_user_id,
+                             array_position(@responsibility_types, assignee.responsibility_type)
+                ) selected
+                order by selected.responsibility_order, selected.assigned_user_id;
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("responsibility_types", responsibilityTypes);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                assignees.Add(new ProjectHandoffAssignee(reader.GetGuid(0), reader.GetString(1)));
+            }
+        }
+
+        if (assignees.Count > 0)
+        {
+            return assignees;
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select users.id
+                from qms_users users
+                join user_roles user_role on user_role.user_id=users.id
+                join role_permissions role_permission on role_permission.role_id=user_role.role_id
+                join permissions permission on permission.id=role_permission.permission_id
+                where users.is_active=true and permission.code=@permission_code
+                order by users.id
+                limit 1;
+                """;
+            command.Parameters.AddWithValue("permission_code", fallbackPermission);
+            var fallback = await command.ExecuteScalarAsync(cancellationToken);
+            if (fallback is Guid userId)
+            {
+                assignees.Add(new ProjectHandoffAssignee(userId, responsibilityTypes[0]));
+            }
+        }
+
+        return assignees;
     }
 
     private static string? NormalizeSupplyType(string? value)
@@ -1448,7 +1626,7 @@ public sealed class ProcurementStore(
             select id, project_title, project_code, project_key, delivery_date, status, deleted_at_utc
             from projects
             where id = @project_id
-            for update;
+            for no key update;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -2405,6 +2583,7 @@ public sealed class ProcurementStore(
     }
 
     private sealed record Change(string FieldName, string? OldValue, string? NewValue, string? OriginalInputValue);
+    private sealed record ProjectHandoffAssignee(Guid UserId, string ResponsibilityType);
 
     private sealed record HistoryEvent(
         Guid AuditId,

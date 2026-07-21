@@ -165,6 +165,7 @@ import type { ReadyHealth } from './health';
 import { HomePage } from './HomePage';
 import { PendingPage } from './PendingPage';
 import { PendingTypeManagementPage } from './PendingTypeManagementPage';
+import { DepartmentProjectHub, type DepartmentWorkspaceOption } from './DepartmentProjectHub';
 import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
 import type {
@@ -263,11 +264,12 @@ type View =
   | { kind: 'procurement-edit'; projectId: string }
   | { kind: 'procurement-dashboard' }
   | { kind: 'procurement-settings' }
+  | { kind: 'operational-hub'; area: OperationalHubArea }
   | { kind: 'materials-receipts'; projectCode?: string; risk?: 'customer-supply-overdue' }
   | { kind: 'materials-kitting'; projectId?: string; panelId?: string }
   | { kind: 'manufacturing-work'; projectId?: string; panelId?: string }
   | { kind: 'logistics'; stage?: LogisticsStage; projectId?: string; panelId?: string; unitId?: string; draftId?: string }
-  | { kind: 'quality-iqc'; requestId?: string }
+  | { kind: 'quality-iqc'; projectId?: string; requestId?: string }
   | { kind: 'quality-inspections'; stage?: QualityInspectionStage; projectId?: string; panelId?: string }
   | { kind: 'notifications' }
   | { kind: 'notification-preferences' }
@@ -288,6 +290,8 @@ type View =
   | { kind: 'admin-notification-preference-audit' }
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
   | { kind: 'panel'; projectId: string; panelId: string };
+
+type OperationalHubArea = 'materials' | 'manufacturing' | 'quality' | 'logistics' | 'pending';
 
 type LoadState<T> =
   | { kind: 'loading' }
@@ -396,6 +400,52 @@ const packagingMethodOptions: Array<{ value: PackagingMethod; label: string }> =
   { value: 'HeavyDutyBox', label: '고강도박스포장' }
 ];
 
+const operationalHubConfigs: Record<OperationalHubArea, {
+  department: string;
+  title: string;
+  description: string;
+  requireWorkspaceChoice?: boolean;
+  workspaces: DepartmentWorkspaceOption[];
+}> = {
+  materials: {
+    department: 'Materials',
+    title: '자재 업무',
+    description: '입고 관리와 패널 키팅을 먼저 구분한 뒤 프로젝트 안에서 처리합니다.',
+    requireWorkspaceChoice: true,
+    workspaces: [
+      { key: 'receiving', label: '입고 관리', description: '구매품 도착·IQC·입고 확정', shape: 'square' },
+      { key: 'kitting', label: '패널 키팅', description: '패널별 자재 준비와 완료 처리', shape: 'round' }
+    ]
+  },
+  manufacturing: {
+    department: 'Manufacturing',
+    title: '제조 프로젝트',
+    description: '프로젝트를 고른 뒤 패널별 제조 시작·중단·재개·완료를 처리합니다.',
+    workspaces: [{ key: 'manufacturing', label: '제조 실행', description: '패널별 작업과 Pending 관리', shape: 'cut' }]
+  },
+  quality: {
+    department: 'Quality',
+    title: '품질 프로젝트',
+    description: '프로젝트별 수입검사와 후속 품질검사를 분리해 확인합니다.',
+    workspaces: [
+      { key: 'iqc', label: '수입검사(IQC)', description: '도착분별 검사성적서와 판정', shape: 'round' },
+      { key: 'inspections', label: '후속 품질검사', description: 'LQC·OQC·전진검수·FAT', shape: 'square' }
+    ]
+  },
+  logistics: {
+    department: 'Logistics',
+    title: '물류 프로젝트',
+    description: '프로젝트를 고른 뒤 포장·출발·납품 증빙을 연속 처리합니다.',
+    workspaces: [{ key: 'packing', label: '물류 실행', description: '포장부터 납품 완료까지', shape: 'pill' }]
+  },
+  pending: {
+    department: 'Pending',
+    title: 'Pending 프로젝트',
+    description: '프로젝트를 먼저 고르고 그 안의 미해결 이슈와 조치 이력을 확인합니다.',
+    workspaces: [{ key: 'pending', label: 'Pending 관리', description: '등록·조치·재검사·종결', shape: 'cut' }]
+  }
+};
+
 function initialViewFromLocation(): View {
   if (typeof window === 'undefined') {
     return { kind: 'home' };
@@ -468,7 +518,8 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/pending') {
-    return { kind: 'pending', projectId: new URLSearchParams(window.location.search).get('projectId') ?? undefined };
+    const projectId = new URLSearchParams(window.location.search).get('projectId') ?? undefined;
+    return projectId ? { kind: 'pending', projectId } : { kind: 'operational-hub', area: 'pending' };
   }
 
   if (window.location.pathname === '/admin/pending-types') {
@@ -559,6 +610,18 @@ function initialViewFromLocation(): View {
     return { kind: 'production-planning-edit', projectId: productionPlanningEditMatch[1] };
   }
 
+  if (window.location.pathname === '/materials') {
+    return { kind: 'operational-hub', area: 'materials' };
+  }
+
+  if (window.location.pathname === '/manufacturing') {
+    return { kind: 'operational-hub', area: 'manufacturing' };
+  }
+
+  if (window.location.pathname === '/quality') {
+    return { kind: 'operational-hub', area: 'quality' };
+  }
+
   if (window.location.pathname === '/materials/receipts') {
     const params = new URLSearchParams(window.location.search);
     return {
@@ -588,6 +651,9 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/logistics') {
     const params = new URLSearchParams(window.location.search);
+    if (![...params.keys()].some((key) => ['stage', 'project', 'panel', 'unit', 'draft'].includes(key))) {
+      return { kind: 'operational-hub', area: 'logistics' };
+    }
     return {
       kind: 'logistics',
       stage: logisticsStageFromQuery(params.get('stage')),
@@ -599,7 +665,12 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/quality/iqc') {
-    return { kind: 'quality-iqc', requestId: new URLSearchParams(window.location.search).get('request') ?? undefined };
+    const params = new URLSearchParams(window.location.search);
+    return {
+      kind: 'quality-iqc',
+      projectId: params.get('project') ?? undefined,
+      requestId: params.get('request') ?? undefined
+    };
   }
 
   if (window.location.pathname === '/quality/inspections') {
@@ -801,7 +872,11 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
     }
 
     if (url.pathname === '/quality/iqc') {
-      return { kind: 'quality-iqc', requestId: url.searchParams.get('request') ?? undefined };
+      return {
+        kind: 'quality-iqc',
+        projectId: url.searchParams.get('project') ?? projectId,
+        requestId: url.searchParams.get('request') ?? undefined
+      };
     }
 
     if (url.pathname === '/logistics') {
@@ -926,6 +1001,14 @@ function pathForView(view: View) {
       return '/production-planning';
     case 'production-planning-settings':
       return '/production-planning/settings';
+    case 'operational-hub':
+      return ({
+        materials: '/materials',
+        manufacturing: '/manufacturing',
+        quality: '/quality',
+        logistics: '/logistics',
+        pending: '/pending'
+      } as const)[view.area];
     case 'materials-receipts': {
       const params = new URLSearchParams();
       if (view.projectCode) params.set('project', view.projectCode);
@@ -957,8 +1040,13 @@ function pathForView(view: View) {
       const query = params.toString();
       return `/logistics${query ? `?${query}` : ''}`;
     }
-    case 'quality-iqc':
-      return `/quality/iqc${view.requestId ? `?request=${encodeURIComponent(view.requestId)}` : ''}`;
+    case 'quality-iqc': {
+      const params = new URLSearchParams();
+      if (view.projectId) params.set('project', view.projectId);
+      if (view.requestId) params.set('request', view.requestId);
+      const query = params.toString();
+      return `/quality/iqc${query ? `?${query}` : ''}`;
+    }
     case 'quality-inspections': {
       const params = new URLSearchParams();
       if (view.stage) params.set('stage', view.stage);
@@ -1621,7 +1709,6 @@ function QmsAppShellContent({
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
   const canBrowseOperationalPages = permissions.includes('projects.read');
   const canReadPendingWorkspace = canReadPending || canBrowseOperationalPages;
-  const materialsHomeView: View = { kind: 'materials-receipts' };
   const switchDevelopmentUser = (nextUserKey: string) => {
     window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
     setDevelopmentUserKey(nextUserKey);
@@ -1645,13 +1732,13 @@ function QmsAppShellContent({
     { label: '홈', view: { kind: 'home' }, active: view.kind === 'home' },
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount },
     { label: '프로젝트', view: { kind: 'list' }, active: isProjectWorkspace(view) },
-    { label: 'Pending', view: { kind: 'pending' }, active: view.kind === 'pending' || view.kind === 'pending-detail' },
+    { label: 'Pending', view: { kind: 'operational-hub', area: 'pending' }, active: (view.kind === 'operational-hub' && view.area === 'pending') || view.kind === 'pending' || view.kind === 'pending-detail' },
     { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
-    { label: '자재', view: materialsHomeView, active: view.kind === 'materials-receipts' || view.kind === 'materials-kitting' },
-    { label: '제조', view: { kind: 'manufacturing-work' }, active: view.kind === 'manufacturing-work' },
-    { label: '품질', view: { kind: 'quality-inspections', stage: 'LQC' }, active: view.kind === 'quality-iqc' || view.kind === 'quality-inspections' },
-    { label: '물류', view: { kind: 'logistics', stage: 'packing' }, active: view.kind === 'logistics' },
+    { label: '자재', view: { kind: 'operational-hub', area: 'materials' }, active: (view.kind === 'operational-hub' && view.area === 'materials') || view.kind === 'materials-receipts' || view.kind === 'materials-kitting' },
+    { label: '제조', view: { kind: 'operational-hub', area: 'manufacturing' }, active: (view.kind === 'operational-hub' && view.area === 'manufacturing') || view.kind === 'manufacturing-work' },
+    { label: '품질', view: { kind: 'operational-hub', area: 'quality' }, active: (view.kind === 'operational-hub' && view.area === 'quality') || view.kind === 'quality-iqc' || view.kind === 'quality-inspections' },
+    { label: '물류', view: { kind: 'operational-hub', area: 'logistics' }, active: (view.kind === 'operational-hub' && view.area === 'logistics') || view.kind === 'logistics' },
     ...(canReadSalesAmount ? [
       { label: '영업', view: { kind: 'sales-kpi' } as View, active: view.kind === 'sales-kpi' || view.kind === 'sales-billing' }
     ] : []),
@@ -1685,6 +1772,29 @@ function QmsAppShellContent({
       onResetAdminTestUser={resetAdminTestUser}
     />
   );
+  const openOperationalProject = (area: OperationalHubArea, workspace: string, project: ProjectListItem) => {
+    if (area === 'materials') {
+      setView(workspace === 'kitting'
+        ? { kind: 'materials-kitting', projectId: project.projectId }
+        : { kind: 'materials-receipts', projectCode: project.projectCode });
+      return;
+    }
+    if (area === 'manufacturing') {
+      setView({ kind: 'manufacturing-work', projectId: project.projectId });
+      return;
+    }
+    if (area === 'quality') {
+      setView(workspace === 'inspections'
+        ? { kind: 'quality-inspections', stage: 'LQC', projectId: project.projectId }
+        : { kind: 'quality-iqc', projectId: project.projectId });
+      return;
+    }
+    if (area === 'logistics') {
+      setView({ kind: 'logistics', stage: 'packing', projectId: project.projectId });
+      return;
+    }
+    setView({ kind: 'pending', projectId: project.projectId });
+  };
 
   return (
     <main
@@ -1867,7 +1977,7 @@ function QmsAppShellContent({
           onOpenMyWork={() => setView({ kind: 'my-work' })}
           onOpenProjects={() => setView({ kind: 'list' })}
           onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
-          onOpenPending={() => setView({ kind: 'pending' })}
+          onOpenPending={() => setView({ kind: 'operational-hub', area: 'pending' })}
           onOpenNotifications={() => setView({ kind: 'notifications' })}
           onOpenSalesKpi={(year, currency) => setView({ kind: 'sales-kpi', year, currency })}
           onOpenDepartmentMetric={(destinationKey) => setView(viewForHomeDestination(destinationKey))}
@@ -1913,6 +2023,14 @@ function QmsAppShellContent({
         <PendingTypeManagementPage developmentUserKey={developmentUserKey} canManage={canManagePendingTypes} />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'operational-hub' ? (
+        <DepartmentProjectHub
+          developmentUserKey={developmentUserKey}
+          {...operationalHubConfigs[view.area]}
+          onOpenProject={(workspace, project) => openOperationalProject(view.area, workspace, project)}
+        />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'my-work' ? (
         <MyWorkPage
           developmentUserKey={developmentUserKey}
@@ -1942,7 +2060,7 @@ function QmsAppShellContent({
           initialProjectId={view.kind === 'pending' ? view.projectId : undefined}
           canManage={canManagePending}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
-          onBackToList={() => setView({ kind: 'pending' })}
+          onBackToList={() => setView({ kind: 'operational-hub', area: 'pending' })}
           onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
           onBadgeRefresh={refreshShellBadges}
         />
@@ -2123,9 +2241,9 @@ function QmsAppShellContent({
           canUpdate={canUpdateMaterialReceipt}
           initialProjectCode={view.projectCode}
           initialRisk={view.risk}
-          onBack={() => setView({ kind: 'list' })}
+          onBack={() => setView({ kind: 'operational-hub', area: 'materials' })}
           onOpenIqc={(requestId) => setView({ kind: 'quality-iqc', requestId })}
-          onOpenKitting={() => setView({ kind: 'materials-kitting' })}
+          onOpenKitting={() => setView({ kind: 'operational-hub', area: 'materials' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
@@ -2136,8 +2254,8 @@ function QmsAppShellContent({
           canComplete={canUpdateMaterialReceipt}
           initialProjectId={view.projectId}
           initialPanelId={view.panelId}
-          onBack={() => setView({ kind: 'list' })}
-          onOpenReceipts={() => setView({ kind: 'materials-receipts' })}
+          onBack={() => setView({ kind: 'operational-hub', area: 'materials' })}
+          onOpenReceipts={() => setView({ kind: 'operational-hub', area: 'materials' })}
         />
       ) : null}
 
@@ -2147,7 +2265,7 @@ function QmsAppShellContent({
           canMutate={canUpdateManufacturing}
           initialProjectId={view.projectId}
           initialPanelId={view.panelId}
-          onBack={() => setView({ kind: 'list' })}
+          onBack={() => setView({ kind: 'operational-hub', area: 'manufacturing' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
@@ -2156,8 +2274,9 @@ function QmsAppShellContent({
         <MaterialIqcPage
           developmentUserKey={developmentUserKey}
           canInspect={canInspectQuality}
+          initialProjectId={view.projectId}
           initialRequestId={view.requestId}
-          onBack={() => setView({ kind: 'materials-receipts' })}
+          onBack={() => setView({ kind: 'operational-hub', area: 'quality' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
@@ -2169,8 +2288,8 @@ function QmsAppShellContent({
           initialStage={view.stage}
           initialProjectId={view.projectId}
           initialPanelId={view.panelId}
-          onOpenIqc={() => setView({ kind: 'quality-iqc' })}
-          onBack={() => setView({ kind: 'list' })}
+          onOpenIqc={() => setView({ kind: 'quality-iqc', projectId: view.projectId })}
+          onBack={() => setView({ kind: 'operational-hub', area: 'quality' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
@@ -2190,7 +2309,7 @@ function QmsAppShellContent({
             projectId: view.projectId,
             draftId
           })}
-          onBack={() => setView({ kind: 'list' })}
+          onBack={() => setView({ kind: 'operational-hub', area: 'logistics' })}
         />
       ) : null}
 
@@ -9954,6 +10073,12 @@ type ProcurementRowForm = {
   dDayText: string;
 };
 
+type ProcurementValidationIssue = {
+  rowIndex: number;
+  field: 'supplyType' | 'orderQuantity' | 'orderUnit' | 'reason' | 'items';
+  message: string;
+};
+
 type ProductionPlanRowForm = {
   itemId: string | null;
   templateStepId: string | null;
@@ -12080,6 +12205,83 @@ function procurementSupplyGroupLabel(supplyType: ProcurementSupplyType) {
   return supplyType === 'CustomerSupplied' ? '사급 자재' : '도급 구매품';
 }
 
+function ProcurementIssuePanel({ row, rowNumber, issue }: { row?: ProcurementRowForm; rowNumber: number; issue: ProcurementValidationIssue }) {
+  return (
+    <section className="procurement-error-panel" role="alert" aria-labelledby="procurement-error-title">
+      <span className="procurement-error-mark" aria-hidden="true">!</span>
+      <div>
+        <p>저장하지 못한 위치</p>
+        <h3 id="procurement-error-title">{row ? `${procurementSupplyGroupLabel(row.supplyType)} · ${rowNumber}번째 행` : '구매정보 입력'}</h3>
+        <dl>
+          <div><dt>품목</dt><dd>{row?.orderItem.trim() || '품목명 미입력'}</dd></div>
+          <div><dt>문제 필드</dt><dd>{procurementValidationFieldLabel(issue.field, row?.supplyType)}</dd></div>
+          <div><dt>해결 방법</dt><dd>{issue.message}</dd></div>
+        </dl>
+      </div>
+    </section>
+  );
+}
+
+function procurementIssueSummary(rows: ProcurementRowForm[], rowIndex: number, issue: ProcurementValidationIssue) {
+  const row = rows[rowIndex];
+  if (!row) return issue.message;
+  const rowNumber = rows.slice(0, rowIndex + 1).filter((candidate) => candidate.supplyType === row.supplyType).length;
+  return `${procurementSupplyGroupLabel(row.supplyType)} ${rowNumber}번째 행 · ${row.orderItem.trim() || '품목명 미입력'} · ${procurementValidationFieldLabel(issue.field, row.supplyType)}을 확인해 주세요.`;
+}
+
+function procurementValidationFieldLabel(field: ProcurementValidationIssue['field'], supplyType?: ProcurementSupplyType) {
+  return ({
+    supplyType: '공급 방식',
+    orderQuantity: supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량',
+    orderUnit: supplyType === 'CustomerSupplied' ? '제공 예정 단위' : '발주 단위',
+    reason: '수정사유',
+    items: '구매 품목'
+  } as const)[field];
+}
+
+function focusProcurementIssue(issue: ProcurementValidationIssue) {
+  window.setTimeout(() => {
+    document.querySelector<HTMLElement>(`[data-procurement-row="${issue.rowIndex}"][data-procurement-field="${issue.field}"]`)?.focus();
+  }, 0);
+}
+
+function procurementIssueFromApiError(
+  error: unknown,
+  rows: ProcurementRowForm[],
+  originalRows: ProcurementRowForm[],
+  activeSupplyType: ProcurementSupplyType
+): ProcurementValidationIssue | null {
+  if (!(error instanceof ApiError) || !error.errors) return null;
+  const entry = Object.entries(error.errors)[0];
+  if (!entry) return null;
+  const [path, messages] = entry;
+  const normalized = path.replaceAll('$', '').toLowerCase();
+  const field: ProcurementValidationIssue['field'] = normalized.includes('reason')
+    ? 'reason'
+    : normalized.includes('supplytype')
+      ? 'supplyType'
+      : normalized.includes('orderunit')
+        ? 'orderUnit'
+        : normalized.includes('orderquantity')
+          ? 'orderQuantity'
+          : 'items';
+  const indexedRow = /items\[(\d+)\]/iu.exec(path)?.[1];
+  const dirtyRow = rows.findIndex((row) => {
+    if (!row.itemId) return true;
+    const original = originalRows.find((candidate) => candidate.itemId === row.itemId);
+    return !original || JSON.stringify(procurementFormToRequest(row)) !== JSON.stringify(procurementFormToRequest(original));
+  });
+  const activeRow = rows.findIndex((row) => row.supplyType === activeSupplyType);
+  const rowIndex = indexedRow === undefined
+    ? (dirtyRow >= 0 ? dirtyRow : Math.max(activeRow, 0))
+    : Math.min(Number(indexedRow), Math.max(rows.length - 1, 0));
+  return {
+    rowIndex,
+    field,
+    message: messages[0] ?? '입력값을 다시 확인해 주세요.'
+  };
+}
+
 function ReceiptCompletionBadge({ completed, completedAtUtc }: { completed: boolean; completedAtUtc?: string | null }) {
   return (
     <span className="receipt-completion-badge" data-completed={completed ? 'true' : 'false'}>
@@ -12115,7 +12317,9 @@ function ProcurementEditPage({
   const [isDownloading, setIsDownloading] = useState(false);
   const [showExcel, setShowExcel] = useState(false);
   const [activeSupplyType, setActiveSupplyType] = useState<ProcurementSupplyType>('Purchased');
+  const [validationIssue, setValidationIssue] = useState<ProcurementValidationIssue | null>(null);
   const loadRequestIdRef = useRef(0);
+  const originalRowsRef = useRef<ProcurementRowForm[]>([]);
   const initialDataReady = state.kind === 'ready' && projectState.kind === 'ready';
 
   const load = useCallback(() => {
@@ -12134,7 +12338,10 @@ function ProcurementEditPage({
 
         setState({ kind: 'ready', data: response });
         setProjectState({ kind: 'ready', data: project });
-        setRows(response.items.map(procurementItemToForm));
+        const loadedRows = response.items.map(procurementItemToForm);
+        originalRowsRef.current = loadedRows;
+        setRows(loadedRows);
+        setValidationIssue(null);
       })
       .catch((error: unknown) => {
         if (requestId !== loadRequestIdRef.current) {
@@ -12155,6 +12362,7 @@ function ProcurementEditPage({
   }
 
   function updateRow(index: number, next: Partial<ProcurementRowForm>) {
+    if (validationIssue?.rowIndex === index) setValidationIssue(null);
     setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...next } : row));
   }
 
@@ -12164,17 +12372,28 @@ function ProcurementEditPage({
   }
 
   async function save() {
-    const invalidMeasurement = rows.find((row) => {
+    setValidationIssue(null);
+    const invalidMeasurementIndex = rows.findIndex((row) => {
       const quantityEntered = row.orderQuantity.trim().length > 0;
       const unitEntered = row.orderUnit.trim().length > 0;
       return (row.supplyType === 'CustomerSupplied' || quantityEntered || unitEntered)
         && (!(Number(row.orderQuantity) > 0) || row.orderUnit.trim().length < 1 || row.orderUnit.trim().length > 20);
     });
-    if (invalidMeasurement) {
+    if (invalidMeasurementIndex >= 0) {
+      const invalidMeasurement = rows[invalidMeasurementIndex];
+      const field = !(Number(invalidMeasurement.orderQuantity) > 0) ? 'orderQuantity' : 'orderUnit';
+      const issue: ProcurementValidationIssue = {
+        rowIndex: invalidMeasurementIndex,
+        field,
+        message: invalidMeasurement.supplyType === 'CustomerSupplied'
+          ? '제공 예정 수량은 0보다 큰 숫자이고 단위는 1~20자여야 합니다.'
+          : '발주 수량과 단위는 둘 다 입력하거나 둘 다 비워야 하며, 수량은 0보다 커야 합니다.'
+      };
+      setValidationIssue(issue);
+      setActiveSupplyType(invalidMeasurement.supplyType);
       setMessageTone('error');
-      setMessage(invalidMeasurement.supplyType === 'CustomerSupplied'
-        ? '사급 품목은 제공 예정 수량과 1~20자 단위를 함께 입력해 주세요.'
-        : '도급 구매품의 발주 수량과 1~20자 단위는 함께 입력하거나 모두 비워 주세요.');
+      setMessage(procurementIssueSummary(rows, invalidMeasurementIndex, issue));
+      focusProcurementIssue(issue);
       return;
     }
     setIsSaving(true);
@@ -12186,12 +12405,23 @@ function ProcurementEditPage({
         items: rows.map(procurementFormToRequest)
       });
       setState({ kind: 'ready', data: response });
-      setRows(response.items.map(procurementItemToForm));
+      const savedRows = response.items.map(procurementItemToForm);
+      originalRowsRef.current = savedRows;
+      setRows(savedRows);
       setReason('');
       onSaved({ tone: 'success', message: '구매정보를 저장했습니다.' });
     } catch (error) {
       setMessageTone('error');
-      handleFormError(error, () => undefined, setMessage);
+      const issue = procurementIssueFromApiError(error, rows, originalRowsRef.current, activeSupplyType);
+      if (issue) {
+        const row = rows[issue.rowIndex];
+        setValidationIssue(issue);
+        setActiveSupplyType(row?.supplyType ?? activeSupplyType);
+        setMessage(row ? procurementIssueSummary(rows, issue.rowIndex, issue) : issue.message);
+        focusProcurementIssue(issue);
+      } else {
+        handleFormError(error, () => undefined, setMessage);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -12239,11 +12469,12 @@ function ProcurementEditPage({
       {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <>
-          <label className="form-field panel-reason-field">
+          <label className={validationIssue?.field === 'reason' ? 'form-field panel-reason-field has-error' : 'form-field panel-reason-field'}>
             <span>수정사유</span>
-            <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
+            <textarea data-procurement-row={validationIssue?.field === 'reason' ? validationIssue.rowIndex : undefined} data-procurement-field="reason" aria-invalid={validationIssue?.field === 'reason'} value={reason} onChange={(event) => { setReason(event.target.value); if (validationIssue?.field === 'reason') setValidationIssue(null); }} />
           </label>
-          <ProcurementEditableList rows={rows} onChange={updateRow} activeSupplyType={activeSupplyType} onActiveSupplyTypeChange={setActiveSupplyType} />
+          {validationIssue ? <ProcurementIssuePanel row={rows[validationIssue.rowIndex]} rowNumber={rows.slice(0, validationIssue.rowIndex + 1).filter((row) => row.supplyType === rows[validationIssue.rowIndex]?.supplyType).length} issue={validationIssue} /> : null}
+          <ProcurementEditableList rows={rows} onChange={updateRow} activeSupplyType={activeSupplyType} onActiveSupplyTypeChange={setActiveSupplyType} validationIssue={validationIssue} />
         </>
       ) : null}
       {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
@@ -12265,12 +12496,14 @@ function ProcurementEditableList({
   rows,
   onChange,
   activeSupplyType,
-  onActiveSupplyTypeChange
+  onActiveSupplyTypeChange,
+  validationIssue
 }: {
   rows: ProcurementRowForm[];
   onChange: (index: number, next: Partial<ProcurementRowForm>) => void;
   activeSupplyType: ProcurementSupplyType;
   onActiveSupplyTypeChange: (supplyType: ProcurementSupplyType) => void;
+  validationIssue: ProcurementValidationIssue | null;
 }) {
   const isMobile = useIsMobileViewport();
   const visibleRows = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.supplyType === activeSupplyType);
@@ -12278,7 +12511,7 @@ function ProcurementEditableList({
     <div className="procurement-supply-groups">
       <ProcurementSupplyTabs items={rows} activeSupplyType={activeSupplyType} onChange={onActiveSupplyTypeChange} />
       {visibleRows.length === 0 ? <p className="empty-text">등록된 {procurementSupplyGroupLabel(activeSupplyType)}이 없습니다. 위 버튼으로 행을 추가해 주세요.</p> : isMobile
-        ? <ProcurementCards items={visibleRows.map(({ row }) => row)} editable onChange={(index, next) => onChange(visibleRows[index].index, next)} />
+        ? <ProcurementCards items={visibleRows.map(({ row }) => row)} editable onChange={(index, next) => onChange(visibleRows[index].index, next)} rowIndexes={visibleRows.map(({ index }) => index)} validationIssue={validationIssue} />
         : (
       <div className="procurement-table procurement-desktop" role="table" aria-label="구매정보 수정">
         <div className="procurement-table-head editable" role="row">
@@ -12293,7 +12526,7 @@ function ProcurementEditableList({
           <span>입고 완료</span>
         </div>
         {visibleRows.map(({ row, index }) => (
-          <div className="procurement-table-row editable" role="row" key={row.itemId ?? `new-${index}`}>
+          <div className={validationIssue?.rowIndex === index ? 'procurement-table-row editable has-error' : 'procurement-table-row editable'} role="row" key={row.itemId ?? `new-${index}`} data-procurement-error-row={validationIssue?.rowIndex === index}>
             <input value={row.standardLeadTime} onChange={(event) => onChange(index, { standardLeadTime: event.target.value })} />
             <input className="order-item-input" value={row.orderItem} onChange={(event) => onChange(index, { orderItem: event.target.value })} />
             <input value={row.supplierName} onChange={(event) => onChange(index, { supplierName: event.target.value })} />
@@ -12302,14 +12535,15 @@ function ProcurementEditableList({
             <input type="date" value={row.expectedReceiptDate} onChange={(event) => onChange(index, { expectedReceiptDate: event.target.value })} />
             <input value={row.issueNote} onChange={(event) => onChange(index, { issueNote: event.target.value })} />
             <div className="procurement-supply-editor">
-              <select aria-label="공급 방식" value={row.supplyType} onChange={(event) => onChange(index, { supplyType: event.target.value as ProcurementSupplyType })}>
+              <select data-procurement-row={index} data-procurement-field="supplyType" aria-invalid={validationIssue?.rowIndex === index && validationIssue.field === 'supplyType'} aria-label="공급 방식" value={row.supplyType} onChange={(event) => onChange(index, { supplyType: event.target.value as ProcurementSupplyType })}>
                 <option value="Purchased">도급 구매품</option>
                 <option value="CustomerSupplied">사급 자재</option>
               </select>
               <div className="procurement-supply-measurement">
-                <input aria-label={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량'} inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} placeholder={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량(선택)'} />
-                <input aria-label={row.supplyType === 'CustomerSupplied' ? '제공 예정 단위' : '발주 단위'} value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} placeholder="단위" maxLength={20} />
+                <input data-procurement-row={index} data-procurement-field="orderQuantity" aria-invalid={validationIssue?.rowIndex === index && validationIssue.field === 'orderQuantity'} aria-label={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량'} inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} placeholder={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량(선택)'} />
+                <input data-procurement-row={index} data-procurement-field="orderUnit" aria-invalid={validationIssue?.rowIndex === index && validationIssue.field === 'orderUnit'} aria-label={row.supplyType === 'CustomerSupplied' ? '제공 예정 단위' : '발주 단위'} value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} placeholder="단위" maxLength={20} />
               </div>
+              {validationIssue?.rowIndex === index ? <small className="procurement-inline-error" role="alert">{validationIssue.message}</small> : null}
             </div>
             <div className="receipt-input-cell receipt-input-cell--derived">
               <ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} />
@@ -12326,18 +12560,24 @@ function ProcurementEditableList({
 function ProcurementCards({
   items,
   editable,
-  onChange
+  onChange,
+  rowIndexes,
+  validationIssue
 }: {
   items: ProcurementItem[] | ProcurementRowForm[];
   editable: boolean;
   onChange: (index: number, next: Partial<ProcurementRowForm>) => void;
+  rowIndexes?: number[];
+  validationIssue?: ProcurementValidationIssue | null;
 }) {
   return (
     <div className="procurement-cards procurement-mobile" data-testid="procurement-mobile">
       {items.map((item, index) => {
         const row = isProcurementForm(item) ? item : procurementItemToForm(item);
+        const sourceRowIndex = rowIndexes?.[index] ?? index;
+        const issue = validationIssue?.rowIndex === sourceRowIndex ? validationIssue : null;
         return (
-          <article className="procurement-card" key={row.itemId ?? `new-${index}`}>
+          <article className={issue ? 'procurement-card has-error' : 'procurement-card'} key={row.itemId ?? `new-${index}`}>
             {editable ? (
               <>
                 <FormField label="발주품목"><input className="order-item-input" value={row.orderItem} onChange={(event) => onChange(index, { orderItem: event.target.value })} /></FormField>
@@ -12349,15 +12589,16 @@ function ProcurementCards({
                 <div className="readonly-field"><span>프로젝트 납품예정일</span><strong>{emptyDash(row.shipmentDisplayDate)}</strong></div>
                 <FormField label="이슈사항"><input value={row.issueNote} onChange={(event) => onChange(index, { issueNote: event.target.value })} /></FormField>
                 <FormField label="공급 방식">
-                  <select value={row.supplyType} onChange={(event) => onChange(index, { supplyType: event.target.value as ProcurementSupplyType })}>
+                  <select data-procurement-row={sourceRowIndex} data-procurement-field="supplyType" aria-invalid={issue?.field === 'supplyType'} value={row.supplyType} onChange={(event) => onChange(index, { supplyType: event.target.value as ProcurementSupplyType })}>
                     <option value="Purchased">도급 구매품</option>
                     <option value="CustomerSupplied">사급 자재</option>
                   </select>
                 </FormField>
                 <div className="mobile-supply-measurement">
-                  <FormField label={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량(선택)'}><input inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} /></FormField>
-                  <FormField label="단위"><input value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} maxLength={20} /></FormField>
+                  <FormField label={row.supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량(선택)'} error={issue?.field === 'orderQuantity' ? issue.message : undefined}><input data-procurement-row={sourceRowIndex} data-procurement-field="orderQuantity" aria-invalid={issue?.field === 'orderQuantity'} inputMode="decimal" value={row.orderQuantity} onChange={(event) => onChange(index, { orderQuantity: event.target.value })} /></FormField>
+                  <FormField label="단위" error={issue?.field === 'orderUnit' ? issue.message : undefined}><input data-procurement-row={sourceRowIndex} data-procurement-field="orderUnit" aria-invalid={issue?.field === 'orderUnit'} value={row.orderUnit} onChange={(event) => onChange(index, { orderUnit: event.target.value })} maxLength={20} /></FormField>
                 </div>
+                {issue && issue.field !== 'orderQuantity' && issue.field !== 'orderUnit' ? <p className="procurement-inline-error" role="alert">{issue.message}</p> : null}
                 <div className="receipt-input-cell receipt-input-cell--derived">
                   <ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} />
                   <small>자재 입고 흐름에서 자동 계산</small>

@@ -1707,6 +1707,27 @@ describe('App', () => {
     expect(editTable.querySelectorAll('.procurement-table-row.editable')).toHaveLength(initialRowCount + 1);
   });
 
+  it('identifies the exact purchased row, field, and correction when quantity input is incomplete', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
+    fireEvent.click(await screen.findByRole('button', { name: '구매정보 수정' }));
+
+    const editTable = await screen.findByRole('table', { name: '구매정보 수정' });
+    fireEvent.change(within(editTable).getByLabelText('발주 수량'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    const issuePanel = await screen.findByText('저장하지 못한 위치');
+    const alert = issuePanel.closest('[role="alert"]') as HTMLElement;
+    expect(alert).toHaveTextContent('도급 구매품 · 1번째 행');
+    expect(alert).toHaveTextContent('Completed Relay');
+    expect(alert).toHaveTextContent('문제 필드발주 단위');
+    expect(alert).toHaveTextContent('발주 수량과 단위는 둘 다 입력하거나 둘 다 비워야');
+    expect(within(editTable).getByLabelText('발주 단위')).toHaveAttribute('aria-invalid', 'true');
+  });
+
   it('shows project context on product detail and simplifies procurement Excel preview sections', async () => {
     render(<App />);
 
@@ -2246,6 +2267,12 @@ describe('App', () => {
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
 
+    const materialsHub = await screen.findByTestId('department-project-hub-materials');
+    expect(within(materialsHub).getByRole('heading', { name: '자재 업무' })).toBeInTheDocument();
+    expect(within(materialsHub).getByRole('button', { name: /TASK-003A Demo/ })).toBeDisabled();
+    fireEvent.click(within(materialsHub).getByRole('radio', { name: /입고 관리/ }));
+    fireEvent.click(within(materialsHub).getByRole('button', { name: /TASK-003A Demo/ }));
+
     expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
     expect(screen.getByText('도착부터 IQC, 입고 확정까지 한 흐름으로 관리합니다.')).toBeInTheDocument();
     expect(screen.getByText('Relay')).toBeInTheDocument();
@@ -2256,32 +2283,62 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'IQC 요청' })).not.toBeInTheDocument();
   });
 
+  it('opens every downstream operations menu with a project-first hub', async () => {
+    render(<App />);
+
+    const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
+    const expectations = [
+      { menu: 'Pending', testId: 'department-project-hub-pending', heading: 'Pending 프로젝트' },
+      { menu: '자재', testId: 'department-project-hub-materials', heading: '자재 업무' },
+      { menu: '제조', testId: 'department-project-hub-manufacturing', heading: '제조 프로젝트' },
+      { menu: '품질', testId: 'department-project-hub-quality', heading: '품질 프로젝트' },
+      { menu: '물류', testId: 'department-project-hub-logistics', heading: '물류 프로젝트' }
+    ];
+
+    for (const expectation of expectations) {
+      fireEvent.click(within(commonNavigation).getByRole('button', { name: expectation.menu }));
+      const hub = await screen.findByTestId(expectation.testId);
+      expect(within(hub).getByRole('heading', { name: expectation.heading })).toBeInTheDocument();
+      expect(within(hub).getByRole('heading', { name: '프로젝트 선택' })).toBeInTheDocument();
+      expect(within(hub).getByRole('button', { name: /TASK-003A Demo/ })).toBeInTheDocument();
+    }
+  });
+
   it('opens the Materials workspace for Sales as read-only and keeps input unavailable', async () => {
     render(<App />);
 
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
 
+    const materialsHub = await screen.findByTestId('department-project-hub-materials');
+    fireEvent.click(within(materialsHub).getByRole('radio', { name: /입고 관리/ }));
+    fireEvent.click(within(materialsHub).getByRole('button', { name: /TASK-003A Demo/ }));
+
     expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
     expect(screen.getByRole('note')).toHaveTextContent('조회 전용입니다.');
-    expect(screen.getByRole('button', { name: '도착분 추가' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '품목 입고 마감' })).toBeDisabled();
+    expect(screen.getAllByRole('button', { name: '도착분 추가' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
+    expect(screen.getAllByRole('button', { name: '품목 입고 마감' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
   });
 
-  it('filters completed material receipt cards by default and shows the derived completion when requested', async () => {
+  it('shows the full selected-project receipt history and can hide completed material cards', async () => {
     render(<App />);
 
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
 
+    const materialsHub = await screen.findByTestId('department-project-hub-materials');
+    fireEvent.click(within(materialsHub).getByRole('radio', { name: /입고 관리/ }));
+    fireEvent.click(within(materialsHub).getByRole('button', { name: /TASK-003A Demo/ }));
+
     expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
     expect(screen.getByText('Relay')).toBeInTheDocument();
-    expect(screen.queryByText('Completed Relay')).not.toBeInTheDocument();
+    expect(screen.getByText('Completed Relay')).toBeInTheDocument();
+    expect(screen.getByLabelText('완료 포함')).toBeChecked();
+    expect(screen.getAllByText('입고 확정').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByLabelText('완료 포함'));
-    expect(await screen.findByText('Completed Relay')).toBeInTheDocument();
-    expect(screen.getAllByText('입고 확정').length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.queryByText('Completed Relay')).not.toBeInTheDocument());
     expect(screen.queryByRole('checkbox', { name: '입고 완료' })).not.toBeInTheDocument();
   });
 });
@@ -3414,6 +3471,10 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (path === '/api/materials/receipts') {
     return json(materialReceiptResponse(url.searchParams.get('includeCompleted') === 'true'));
+  }
+
+  if (path === '/api/quality/iqc/reconcile' && init?.method === 'POST') {
+    return json({ recoveredReceiptCount: 0, ensuredAttemptCount: 0 });
   }
 
   if (path === '/api/quality/iqc') {

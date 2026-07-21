@@ -39,6 +39,7 @@ export function MaterialReceivingPage({
   developmentUserKey,
   canUpdate,
   initialProjectCode,
+  initialRisk,
   onBack,
   onOpenIqc,
   onOpenKitting,
@@ -47,6 +48,7 @@ export function MaterialReceivingPage({
   developmentUserKey: string;
   canUpdate: boolean;
   initialProjectCode?: string;
+  initialRisk?: 'customer-supply-overdue';
   onBack: () => void;
   onOpenIqc: () => void;
   onOpenKitting: () => void;
@@ -57,7 +59,8 @@ export function MaterialReceivingPage({
   const [search, setSearch] = useState(initialProjectCode ?? '');
   const [appliedSearch, setAppliedSearch] = useState(initialProjectCode ?? '');
   const [includeCompleted, setIncludeCompleted] = useState(Boolean(initialProjectCode));
-  const [supplyFilter, setSupplyFilter] = useState<'All' | 'Purchased' | 'CustomerSupplied'>('All');
+  const [supplyFilter, setSupplyFilter] = useState<'All' | 'Purchased' | 'CustomerSupplied'>(initialRisk ? 'CustomerSupplied' : 'All');
+  const [customerSupplyOverdueOnly, setCustomerSupplyOverdueOnly] = useState(initialRisk === 'customer-supply-overdue');
   const [activeFilter, setActiveFilter] = useState<'all' | 'iqc' | 'blocked' | 'confirm'>('all');
   const [action, setAction] = useState<MaterialAction | null>(null);
   const actions = useActionFeedback();
@@ -101,16 +104,20 @@ export function MaterialReceivingPage({
   }, [state]);
 
   const visibleItems = useMemo(() => {
-    if (state.kind !== 'ready' || activeFilter === 'all') {
-      return state.kind === 'ready' ? state.data.items : [];
+    if (state.kind !== 'ready') {
+      return [];
     }
+    const riskFilteredItems = customerSupplyOverdueOnly
+      ? state.data.items.filter((item) => item.customerSupplyOverdue)
+      : state.data.items;
+    if (activeFilter === 'all') return riskFilteredItems;
     const statusByFilter: Record<Exclude<typeof activeFilter, 'all'>, MaterialReceiptStatus> = {
       iqc: 'IqcRequested',
       blocked: 'FailedBlocked',
       confirm: 'Passed'
     };
-    return state.data.items.filter((item) => item.receipts.some((receipt) => receipt.status === statusByFilter[activeFilter]));
-  }, [activeFilter, state]);
+    return riskFilteredItems.filter((item) => item.receipts.some((receipt) => receipt.status === statusByFilter[activeFilter]));
+  }, [activeFilter, customerSupplyOverdueOnly, state]);
   const receiptSelection = useSelectedRows(visibleItems.map((item) => item.itemId));
 
   async function runAction(scope: string, operation: () => Promise<unknown>, success: string) {
@@ -193,8 +200,15 @@ export function MaterialReceivingPage({
           ['Purchased', '일반 구매'],
           ['CustomerSupplied', '사급']
         ] as const).map(([value, label]) => (
-          <button type="button" key={value} data-active={supplyFilter === value} onClick={() => setSupplyFilter(value)}>{label}</button>
+          <button type="button" key={value} data-active={supplyFilter === value && !customerSupplyOverdueOnly} onClick={() => {
+            setSupplyFilter(value);
+            setCustomerSupplyOverdueOnly(false);
+          }}>{label}</button>
         ))}
+        <button type="button" data-active={customerSupplyOverdueOnly} onClick={() => {
+          setSupplyFilter('CustomerSupplied');
+          setCustomerSupplyOverdueOnly(true);
+        }}>제공 지연</button>
         {state.kind === 'ready' ? <span>사급 {state.data.summary.customerSuppliedItemCount} · 제공 지연 {state.data.summary.customerSupplyOverdueCount}</span> : null}
       </div>
 

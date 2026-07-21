@@ -534,7 +534,7 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await page.getByRole('button', { name: '검색' }).click();
   const materialCard = page.locator('.material-item-card').filter({ hasText: projectTitle });
   await expect(materialCard).toContainText('MCCB');
-  await materialCard.getByRole('button', { name: '+ 도착 등록' }).click();
+  await materialCard.getByRole('button', { name: '도착분 추가' }).click();
   await page.getByLabel('발주 수량').fill('1');
   await page.getByLabel('도착 수량').fill('1');
   await page.getByRole('button', { name: '도착 등록', exact: true }).click();

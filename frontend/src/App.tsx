@@ -263,7 +263,7 @@ type View =
   | { kind: 'procurement-edit'; projectId: string }
   | { kind: 'procurement-dashboard' }
   | { kind: 'procurement-settings' }
-  | { kind: 'materials-receipts'; projectCode?: string }
+  | { kind: 'materials-receipts'; projectCode?: string; risk?: 'customer-supply-overdue' }
   | { kind: 'materials-kitting'; projectId?: string; panelId?: string }
   | { kind: 'manufacturing-work'; projectId?: string; panelId?: string }
   | { kind: 'logistics'; stage?: LogisticsStage; projectId?: string; panelId?: string; unitId?: string; draftId?: string }
@@ -560,7 +560,12 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/materials/receipts') {
-    return { kind: 'materials-receipts', projectCode: new URLSearchParams(window.location.search).get('project') ?? undefined };
+    const params = new URLSearchParams(window.location.search);
+    return {
+      kind: 'materials-receipts',
+      projectCode: params.get('project') ?? undefined,
+      risk: params.get('risk') === 'customer-supply-overdue' ? 'customer-supply-overdue' : undefined
+    };
   }
 
   if (window.location.pathname === '/materials/kitting') {
@@ -863,6 +868,7 @@ function viewForHomeDestination(destinationKey: string): View {
     case 'production-planning': return { kind: 'production-planning-dashboard' };
     case 'procurement': return { kind: 'procurement-dashboard' };
     case 'materials-receipts': return { kind: 'materials-receipts' };
+    case 'materials-customer-supply-overdue': return { kind: 'materials-receipts', risk: 'customer-supply-overdue' };
     case 'materials-kitting': return { kind: 'materials-kitting' };
     case 'manufacturing': return { kind: 'manufacturing-work' };
     case 'quality': return { kind: 'quality-inspections', stage: 'LQC' };
@@ -916,8 +922,13 @@ function pathForView(view: View) {
       return '/production-planning';
     case 'production-planning-settings':
       return '/production-planning/settings';
-    case 'materials-receipts':
-      return `/materials/receipts${view.projectCode ? `?project=${encodeURIComponent(view.projectCode)}` : ''}`;
+    case 'materials-receipts': {
+      const params = new URLSearchParams();
+      if (view.projectCode) params.set('project', view.projectCode);
+      if (view.risk) params.set('risk', view.risk);
+      const query = params.toString();
+      return `/materials/receipts${query ? `?${query}` : ''}`;
+    }
     case 'materials-kitting': {
       const params = new URLSearchParams();
       if (view.projectId) params.set('project', view.projectId);
@@ -2105,6 +2116,7 @@ function QmsAppShellContent({
           developmentUserKey={developmentUserKey}
           canUpdate={canUpdateMaterialReceipt}
           initialProjectCode={view.projectCode}
+          initialRisk={view.risk}
           onBack={() => setView({ kind: 'list' })}
           onOpenIqc={() => setView({ kind: 'quality-iqc' })}
           onOpenKitting={() => setView({ kind: 'materials-kitting' })}
@@ -11958,6 +11970,7 @@ function ProcurementEditPage({
   const [isDownloading, setIsDownloading] = useState(false);
   const [showExcel, setShowExcel] = useState(false);
   const loadRequestIdRef = useRef(0);
+  const initialDataReady = state.kind === 'ready' && projectState.kind === 'ready';
 
   const load = useCallback(() => {
     const requestId = loadRequestIdRef.current + 1;
@@ -12063,12 +12076,13 @@ function ProcurementEditPage({
         </div>
         <div className="button-row">
           <button type="button" onClick={onBack}>상세</button>
-          <button type="button" onClick={addRow}>행 추가</button>
-          <button type="button" onClick={downloadTemplate} disabled={isDownloading}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button>
-          <button type="button" onClick={() => setShowExcel(true)}>Excel 업로드</button>
-          <button type="button" className="primary-button" disabled={isSaving} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
+          <button type="button" onClick={addRow} disabled={!initialDataReady || isSaving}>행 추가</button>
+          <button type="button" onClick={downloadTemplate} disabled={!initialDataReady || isDownloading || isSaving}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button>
+          <button type="button" onClick={() => setShowExcel(true)} disabled={!initialDataReady || isSaving}>Excel 업로드</button>
+          <button type="button" className="primary-button" disabled={!initialDataReady || isSaving} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
         </div>
       </div>
+      {!initialDataReady && (state.kind === 'loading' || projectState.kind === 'loading') ? <p className="production-input-lock-note" role="status">프로젝트·구매정보 확인 중에는 입력할 수 없습니다.</p> : null}
       {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
       {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdaptiveLayoutProvider } from '../src/adaptive-layout';
 import { setRuntimeMutationAllowed } from '../src/api';
@@ -115,6 +115,54 @@ describe('ManufacturingPage', () => {
     expect(await screen.findByText(/조회 전용입니다/u)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '1단계 확인' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '작업 중단' })).not.toBeInTheDocument();
+  });
+
+  it('serializes rapid manufacturing step clicks before React can render the disabled state', async () => {
+    let releaseStep: () => void = () => undefined;
+    const stepGate = new Promise<void>((resolve) => {
+      releaseStep = resolve;
+    });
+    let stepRequests = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/manufacturing/queue') return json(queue('InProgress'));
+      if (url.pathname === `/api/manufacturing/panels/${panelId}`) return json(detail('InProgress'));
+      if (url.pathname === '/api/manufacturing/action-departments') return json([]);
+      if (url.pathname === `/api/manufacturing/executions/${executionId}/check-step`) {
+        stepRequests += 1;
+        await stepGate;
+        return json({ projectId, panelId });
+      }
+      return json({ title: 'not found' }, 404);
+    }));
+
+    render(
+      <AdaptiveLayoutProvider>
+        <ManufacturingPage
+          developmentUserKey="dev-manufacturing"
+          canMutate
+          initialProjectId={projectId}
+          initialPanelId={panelId}
+          onBack={vi.fn()}
+          onOpenPending={vi.fn()}
+        />
+      </AdaptiveLayoutProvider>
+    );
+
+    const stepButton = await screen.findByRole('button', { name: '1단계 확인' });
+    act(() => {
+      stepButton.click();
+      stepButton.click();
+      stepButton.click();
+    });
+
+    await waitFor(() => expect(stepRequests).toBe(1));
+    expect(stepButton).toBeDisabled();
+    expect(screen.getByText('제조 단계를 저장하는 중입니다. 완료될 때까지 잠시 기다려 주세요.')).toBeInTheDocument();
+
+    releaseStep();
+    expect(await screen.findByText('작업지시·도면 확인 단계를 확인했습니다.')).toBeInTheDocument();
+    expect(stepRequests).toBe(1);
   });
 });
 

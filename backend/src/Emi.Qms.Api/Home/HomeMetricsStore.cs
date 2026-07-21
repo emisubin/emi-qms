@@ -182,8 +182,12 @@ public sealed class HomeMetricsStore(DatabaseConnectionStringProvider connection
             )
             select
                 (select count(*)::int from project_procurement_items i join visible v on v.id=i.project_id
-                    where i.status='Active' and not i.receipt_completed and i.material_arrivals_closed_at_utc is null
-                    and not exists(select 1 from material_receipts r where r.procurement_item_id=i.id)),
+                    where i.status='Active' and i.supply_type='CustomerSupplied'
+                      and i.expected_receipt_date<current_date
+                      and i.order_quantity > coalesce((
+                          select sum(r.quantity) from material_receipts r
+                          where r.procurement_item_id=i.id and r.status<>'Cancelled'
+                      ),0)),
                 (select count(*)::int from material_iqc_attempts a join material_receipts r on r.id=a.material_receipt_id
                     join project_procurement_items i on i.id=r.procurement_item_id join visible v on v.id=i.project_id
                     where a.status='Requested'),
@@ -195,7 +199,7 @@ public sealed class HomeMetricsStore(DatabaseConnectionStringProvider connection
         var counts = await ReadCountsAsync(sql, scope, null, cancellationToken);
         return
         [
-            Metric("materials-arrival", "도착 등록 대기", counts[0], "warning", "materials-receipts", "입고 등록"),
+            Metric("materials-customer-supply-overdue", "사급 제공 지연", counts[0], "danger", "materials-customer-supply-overdue", "지연 잔량 확인"),
             Metric("materials-iqc", "IQC 판정 대기", counts[1], "danger", "materials-receipts", "IQC 확인"),
             Metric("materials-kitting", "키팅 대기 패널", counts[2], "neutral", "materials-kitting", "키팅 열기")
         ];

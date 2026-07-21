@@ -40,7 +40,7 @@
 | `TASK-008B` | 사급 자재 제공·입고·잔량·마감 추적 | [구현 보고서](../tasks/008b-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-009A` | IQC 디지털 성적서, 사진, 판정 snapshot과 PDF | [구현 보고서](../tasks/009a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-010A` | 패널별 키팅 완료와 제조 내 업무 원자 인계 | [구현 보고서](../tasks/010a-implementation-report.md), [후속 전체 회귀](../tasks/e2e-full-suite-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
-| `TASK-011A` | 제조 시작·4단계 실행·중단 Pending·재개·LQC 인계 | [구현 보고서](../tasks/011a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-011A` | 제조 시작·4단계 실행·중단 Pending·재개·LQC 인계·Change 002 연속 click 직렬 저장 | [본체](../tasks/011a-implementation-report.md), [Change 002](../tasks/011a-change-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-012A` | LQC·OQC·고객검수·선택 FAT, 사진·PDF·재검사 | [구현 보고서](../tasks/012a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-013A` | 포장 단위·출발·납품과 필수 증빙·정산 인계 | [구현 보고서](../tasks/013a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-014A` | 세금계산서 draft·정산·프로젝트 완료와 lifecycle fence | [구현 보고서](../tasks/014a-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs/promises';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
@@ -24,10 +25,47 @@ test('TASK-011A: manufacturing user starts, checks, stops, resumes and completes
   await assertNoHorizontalOverflow(page);
 
   await page.getByRole('button', { name: '제조 시작' }).click();
-  for (let sequence = 1; sequence <= 4; sequence += 1) {
+  let releaseFirstStep: () => void = () => undefined;
+  const firstStepGate = new Promise<void>((resolve) => {
+    releaseFirstStep = resolve;
+  });
+  let firstStepRequests = 0;
+  const checkStepPattern = '**/api/manufacturing/executions/*/check-step';
+  await page.route(checkStepPattern, async (route) => {
+    firstStepRequests += 1;
+    if (firstStepRequests === 1) await firstStepGate;
+    await route.continue();
+  });
+  const firstStepButton = page.getByRole('button', { name: '1단계 확인' });
+  await firstStepButton.evaluate((element) => {
+    const button = element as HTMLButtonElement;
+    button.click();
+    button.click();
+    button.click();
+  });
+  await expect(page.locator('.manufacturing-actions .primary-button')).toBeDisabled();
+  await expect(page.getByText('제조 단계를 저장하는 중입니다. 완료될 때까지 잠시 기다려 주세요.')).toBeVisible();
+  await fs.mkdir('/tmp/emi-qms-p2-remediation-evidence', { recursive: true });
+  await page.screenshot({
+    path: '/tmp/emi-qms-p2-remediation-evidence/011a-change-002-manufacturing-step-saving.jpg',
+    fullPage: true,
+    type: 'jpeg',
+    quality: 88
+  });
+  expect(firstStepRequests).toBe(1);
+  releaseFirstStep();
+  await expect(page.getByRole('button', { name: '2단계 확인' })).toBeEnabled();
+  await page.unroute(checkStepPattern);
+  for (let sequence = 2; sequence <= 4; sequence += 1) {
     await page.getByRole('button', { name: `${sequence}단계 확인` }).click();
   }
   await expect(page.getByRole('button', { name: '제조 완료 · LQC 전달' })).toBeEnabled();
+  await page.screenshot({
+    path: '/tmp/emi-qms-p2-remediation-evidence/011a-change-002-manufacturing-four-steps-complete.jpg',
+    fullPage: true,
+    type: 'jpeg',
+    quality: 88
+  });
 
   await page.getByRole('button', { name: '작업 중단' }).click();
   const stopDialog = page.getByRole('dialog', { name: '제조 작업 중단' });

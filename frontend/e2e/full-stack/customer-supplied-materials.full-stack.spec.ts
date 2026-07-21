@@ -32,8 +32,16 @@ test('TASK-008B: customer-supplied material keeps one quantity truth across proc
   await expect(purchaseTable).toContainText('10 EA');
 
   await page.getByLabel('개발 사용자').selectOption('dev-materials');
-  await page.goto('/materials/receipts');
+  await page.goto('/');
+  const overdueMetric = page.getByRole('button', { name: /사급 제공 지연/ });
+  await expect(overdueMetric).toContainText('1');
+  await saveEvidence(page, 'home-002-change-003-materials-home.jpg');
+  await overdueMetric.click();
+  await expect(page).toHaveURL(/\/materials\/receipts\?risk=customer-supply-overdue$/);
+  await expect(page.getByRole('button', { name: '제공 지연' })).toHaveAttribute('data-active', 'true');
   const materialCard = page.locator('.material-item-card').filter({ hasText: projectTitle });
+  await expect(materialCard).toBeVisible();
+  await saveEvidence(page, 'home-002-change-003-customer-supply-overdue.jpg');
   await expect(materialCard).toContainText('사급 · 제공 지연');
   await expect(materialCard).toContainText('미도착 잔량10 EA');
   await expect(materialCard).toContainText('처리 대기량0 EA');
@@ -215,6 +223,17 @@ function devHeaders(userKey: string) {
 async function assertNoHorizontalOverflow(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBe(0);
+}
+
+async function saveEvidence(page: Page, fileName: string) {
+  const evidenceDirectory = path.join('/tmp', 'emi-qms-p2-remediation-evidence');
+  await fs.mkdir(evidenceDirectory, { recursive: true });
+  await page.screenshot({
+    path: path.join(evidenceDirectory, fileName),
+    fullPage: true,
+    type: 'jpeg',
+    quality: 88
+  });
 }
 
 async function openProject(page: Page, projectTitle: string) {

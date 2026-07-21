@@ -81,6 +81,7 @@ export function ManufacturingPage({
   const [stopAssignee, setStopAssignee] = useState('');
   const stopTriggerRef = useRef<HTMLButtonElement>(null);
   const operationReceipts = useRef<Record<string, OperationReceipt>>({});
+  const mutationInFlightRef = useRef(false);
 
   const writeLocation = useCallback((projectId: string, panelId?: string) => {
     if (typeof window === 'undefined') return;
@@ -185,9 +186,13 @@ export function ManufacturingPage({
     request: (operationId: string) => Promise<{ projectId: string; panelId: string }>,
     successMessage: string
   ) {
+    if (mutationInFlightRef.current) {
+      return false;
+    }
+    mutationInFlightRef.current = true;
     const receiptId = operationId(action, fingerprint);
     setSavingAction(action);
-    setFeedback(null);
+    setFeedback({ tone: 'info', message: '제조 단계를 저장하는 중입니다. 완료될 때까지 잠시 기다려 주세요.' });
     try {
       const result = await request(receiptId);
       delete operationReceipts.current[action];
@@ -198,11 +203,13 @@ export function ManufacturingPage({
       setFeedback({ tone: 'error', message: errorMessage(error, '제조 작업을 처리하지 못했습니다.') });
       return false;
     } finally {
+      mutationInFlightRef.current = false;
       setSavingAction('');
     }
   }
 
   function selectProject(project: ManufacturingProject) {
+    if (mutationInFlightRef.current) return;
     const nextPanel = project.panels.find((item) => item.status === 'Blocked' || item.status === 'InProgress' || item.status === 'Ready')
       ?? project.panels[0];
     setSelectedProjectId(project.projectId);
@@ -212,6 +219,7 @@ export function ManufacturingPage({
   }
 
   function selectPanel(nextPanel: ManufacturingPanel) {
+    if (mutationInFlightRef.current) return;
     setSelectedPanelId(nextPanel.panelId);
     setFeedback(null);
     writeLocation(selectedProjectId, nextPanel.panelId);
@@ -359,6 +367,7 @@ export function ManufacturingPage({
                     active: project.projectId === selectedProjectId,
                     inProgress: project.inProgressCount > 0
                   })}
+                  disabled={Boolean(savingAction)}
                   onClick={() => selectProject(project)}
                 >
                   <span>{project.projectCode}</span>
@@ -406,6 +415,7 @@ export function ManufacturingPage({
                       className="manufacturing-panel-chip"
                       data-status={item.status.toLowerCase()}
                       data-active={item.panelId === selectedPanelId}
+                      disabled={Boolean(savingAction)}
                       onClick={() => selectPanel(item)}
                     >
                       <span className="manufacturing-status-shape" aria-hidden="true">{item.status === 'Completed' ? '✓' : ''}</span>
@@ -426,7 +436,7 @@ export function ManufacturingPage({
 
               {detail && panel ? (
                 <div className="manufacturing-detail-grid">
-                  <section className="manufacturing-focus-card" data-status={panel.status.toLowerCase()}>
+                  <section className="manufacturing-focus-card" data-status={panel.status.toLowerCase()} aria-busy={Boolean(savingAction)}>
                     <header>
                       <div className="manufacturing-focus-symbol" aria-hidden="true">
                         <span>{panel.status === 'Completed' ? '✓' : panel.checkedStepCount}</span>
@@ -487,7 +497,9 @@ export function ManufacturingPage({
                           </button>
                         ) : null}
                         {panel.status === 'InProgress' ? (
-                          <button ref={stopTriggerRef} type="button" className="manufacturing-stop" disabled={Boolean(savingAction)} onClick={() => setStopOpen(true)}>
+                          <button ref={stopTriggerRef} type="button" className="manufacturing-stop" disabled={Boolean(savingAction)} onClick={() => {
+                            if (!mutationInFlightRef.current) setStopOpen(true);
+                          }}>
                             작업 중단
                           </button>
                         ) : null}

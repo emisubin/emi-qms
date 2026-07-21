@@ -119,6 +119,21 @@ describe('App', () => {
     expect(within(topbarActions as HTMLElement).queryByRole('button', { name: '자재' })).not.toBeInTheDocument();
   });
 
+  it('opens the customer-supplied overdue material queue from the Materials Home metric', async () => {
+    window.history.pushState(null, '', '/');
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
+    const metric = await screen.findByRole('button', { name: /사급 제공 지연/ });
+    expect(metric).toHaveTextContent('1');
+    fireEvent.click(metric);
+
+    expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/materials/receipts');
+    expect(new URLSearchParams(window.location.search).get('risk')).toBe('customer-supply-overdue');
+    expect(screen.getByRole('button', { name: '제공 지연' })).toHaveAttribute('data-active', 'true');
+  });
+
   it('keeps the Pending workspace discoverable through operational read access', async () => {
     window.history.pushState(null, '', '/');
     const calls: string[] = [];
@@ -1647,17 +1662,24 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: '구매정보 수정' }));
 
     await waitFor(() => expect(editLoadResolvers).toHaveLength(2));
+    expect(screen.getByRole('status')).toHaveTextContent('프로젝트·구매정보 확인 중에는 입력할 수 없습니다.');
+    for (const actionName of ['행 추가', 'Excel 양식 다운로드', 'Excel 업로드', '저장']) {
+      expect(screen.getByRole('button', { name: actionName })).toBeDisabled();
+    }
     await act(async () => {
       editLoadResolvers[0](json({ ...procurementResponse(), items: [] }));
       await Promise.resolve();
     });
     expect(screen.queryByRole('table', { name: '구매정보 수정' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '행 추가' })).toBeDisabled();
 
     await act(async () => {
       editLoadResolvers[1](json(procurementResponse()));
       await Promise.resolve();
     });
     const editTable = await screen.findByRole('table', { name: '구매정보 수정' });
+    expect(screen.queryByText('프로젝트·구매정보 확인 중에는 입력할 수 없습니다.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '행 추가' })).toBeEnabled();
     const initialRowCount = editTable.querySelectorAll('.procurement-table-row.editable').length;
     fireEvent.click(screen.getByRole('button', { name: '행 추가' }));
     expect(editTable.querySelectorAll('.procurement-table-row.editable')).toHaveLength(initialRowCount + 1);
@@ -2352,6 +2374,17 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (path === '/api/home/department-metrics') {
     const user = currentUser(userKey);
+    if (user.department === 'materials') {
+      return json({
+        departmentCode: user.department,
+        departmentName: user.departmentName,
+        metrics: [
+          { id: 'materials-customer-supply-overdue', label: '사급 제공 지연', count: 1, tone: 'danger', destinationKey: 'materials-customer-supply-overdue', actionLabel: '지연 잔량 확인' },
+          { id: 'materials-iqc', label: 'IQC 판정 대기', count: 0, tone: 'danger', destinationKey: 'materials-receipts', actionLabel: 'IQC 확인' },
+          { id: 'materials-kitting', label: '키팅 대기 패널', count: 0, tone: 'neutral', destinationKey: 'materials-kitting', actionLabel: '키팅 열기' }
+        ]
+      });
+    }
     return json({
       departmentCode: user.department,
       departmentName: user.departmentName,

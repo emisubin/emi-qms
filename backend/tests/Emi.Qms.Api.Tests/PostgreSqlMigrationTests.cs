@@ -660,6 +660,28 @@ public sealed class PostgreSqlMigrationTests
             "select count(*) from user_profile_photo_audit_events where profile_user_id='76000000-0000-0000-0000-000000000042';",
             TestContext.Current.CancellationToken));
 
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into projects (id, project_key, project_number, name)
+            values ('76000000-0000-0000-0000-000000000052', 'home-material-risk', 'HOME-MATERIAL-001', 'Home Material Risk');
+
+            insert into project_procurement_items (
+                id, project_id, sequence_number, supply_type, order_quantity, order_unit, expected_receipt_date)
+            values (
+                '76000000-0000-0000-0000-000000000053',
+                '76000000-0000-0000-0000-000000000052',
+                1, 'CustomerSupplied', 12, 'EA', current_date - 3);
+
+            insert into material_receipts (
+                id, procurement_item_id, quantity, unit, arrival_date, status)
+            values (
+                '76000000-0000-0000-0000-000000000054',
+                '76000000-0000-0000-0000-000000000053',
+                6, 'EA', current_date, 'Arrived');
+            """,
+            TestContext.Current.CancellationToken);
+
         var permissions = new HashSet<string>(StringComparer.Ordinal)
         {
             QmsPermissions.ProjectRead,
@@ -692,6 +714,12 @@ public sealed class PostgreSqlMigrationTests
 
             Assert.Equal(3, response.Metrics.Count);
             Assert.All(response.Metrics, metric => Assert.True(metric.Count >= 0));
+            if (department == "materials")
+            {
+                var riskMetric = Assert.Single(response.Metrics, metric => metric.Id == "materials-customer-supply-overdue");
+                Assert.Equal(1, riskMetric.Count);
+                Assert.Equal("materials-customer-supply-overdue", riskMetric.DestinationKey);
+            }
         }
     }
 

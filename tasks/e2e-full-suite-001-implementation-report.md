@@ -385,3 +385,33 @@ Open P0/P1/P2는 `0/0/0`이다. 합성 screenshot은 `/tmp/emi-qms-change-003-ev
 | `LOGISTICS-COMPLETED-INPUT-HISTORY-MISSING` | P2 | `RESOLVED` | 프로젝트 scope history endpoint와 read-only projection 추가 |
 
 신규 Open P0/P1/P2는 `0/0/0`이다. 합성 screenshot과 workbook은 사용자 지시대로 Repository가 아닌 `/tmp/emi-qms-lifecycle-evidence`에서 채팅 증빙으로만 사용했다. 사용자 직접 검수는 `BATCHED_FINAL`로 마지막 일괄 검수 대기이며 대표 repo·`main`·Persistent UAT·실제 provider·push·PR·merge는 변경하지 않았다.
+
+## 18. Change 006 — 12면 혼합 자재·반복 Pending 실사용 심화 검수 (2026-07-20)
+
+### 검수 결과
+
+- 영업→생산관리→설계→구매→자재→제조→품질→물류→영업 회계 발행요청을 실제 역할 UI로 처리했다.
+- 일반 구매품 12 EA와 고객 사급품 12 EA를 혼합하고, 사급품은 제공 예정일 7월 14일보다 늦은 7월 15~20일에 2 EA씩 6회 입고했다.
+- 12면 중 6면에 제조 Pending을 생성해 생산관리 인앱·내 업무와 TeamsChannel/Mail delivery 후보를 확인하고 모두 종결했다.
+- 12면 제조 duration 3일 projection, 품질 4단계, 물류 3단계와 회계 발행요청 workbook을 거쳐 최종 workflow `18/18`, open Pending `0`, 프로젝트 `Completed`를 확인했다.
+- isolated Full-Stack UI `1/1 PASS`, `2.2m`; disposable DB·container·network cleanup PASS.
+
+### Finding과 gate
+
+| ID | Severity | 상태 | 결과 |
+| --- | --- | --- | --- |
+| `MATERIAL-CUSTOMER-SUPPLY-OVERDUE-NOTIFICATION-MISSING` | P1 | `OPEN` | 사급 지연 전용 알림 0건. 도착·IQC·입고 확정 알림은 있으나 예정일 초과를 알리지 않음. |
+| `MATERIAL-HOME-KPI-OMITS-CUSTOMER-SUPPLY-RISK` | P2 | `RESOLVED` | `TASK-HOME-002 Change 003`에서 사급 지연 품목을 Home에 집계하고 전용 필터로 연결. |
+| `PROCUREMENT-INITIAL-LOAD-ACTION-UNLOCKED` | P2 | `RESOLVED` | `TASK-E2E-RELIABILITY-001 Change 001`에서 최신 초기 load 전 행 추가·저장·Excel을 잠그고 regression을 고정. |
+| `MANUFACTURING-RAPID-STAGE-SAVE-LOSS` | P2 | `RESOLVED` | `TASK-011A Change 002`에서 synchronous mutation fence·저장 안내·선택 잠금을 적용하고 3-click/1-POST E2E를 고정. |
+| `MULTI-PANEL-REPETITIVE-INPUT-FRICTION` | P3 | `BACKLOG` | 12면 반복 입력과 다음 패널 이동 비용이 큼. |
+
+Open P0/P1/P2는 `0/1/0`이며 신규 알림 능력인 P1은 사용자 지시에 따라 Fable 제외·보류했다. 게시·merge gate는 `NO_GO`다. 상세 부서별 평가는 [Change 006 사용자 평가](e2e-full-suite-001-change-006-user-evaluation.md), 실행 계약은 [Change 006](e2e-full-suite-001-change-006.md)에 기록했다. 합성 evidence는 `/tmp/emi-qms-stress-lifecycle-evidence`에만 있으며 Repository에 tracked/staged하지 않았다. 대표 repo·`main`·Persistent UAT와 실제 provider는 변경하지 않았다.
+
+### 2026-07-21 비-Fable P2 후속 검증
+
+- `TASK-HOME-002 Change 003`: 자재 Home 사급 제공 지연 KPI·deep-link·전용 필터, isolated E2E `1/1 PASS`.
+- `TASK-E2E-RELIABILITY-001 Change 001`: 구매 초기 action readiness lock, focused E2E `1/1` 및 구매→자재·권한·모바일 회귀 `1/1 PASS`.
+- `TASK-011A Change 002`: 제조 동일 tick 3-click/1-POST 직렬화, 4단계·Pending·LQC E2E `1/1 PASS`.
+- 합동 검증: Backend Release build warning/error `0/0`, Frontend lint error `0`(기존 warning 1), unit `113/113`, typecheck·production build·`git diff --check` PASS.
+- screenshot은 `/tmp/emi-qms-p2-remediation-evidence`, E2E PostgreSQL·container·network은 모두 제거했다.

@@ -1197,6 +1197,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 보정: 기존 Repository request-id 패턴으로 최신 load만 반영하고, E2E는 행 추가 1회·정확한 row 증가·input 8개 준비를 결정적으로 검증한다.
 - 영향: Frontend source·unit·Full-Stack E2E만 변경. Backend·API·DB·migration·runtime configuration 변경 없음
 - 자동 검증: 수정 전 deterministic regression 실패 재현, 수정 후 targeted PASS, 대상 E2E 20/20, frontend unit 62/62·lint·typecheck·build, 전체 Full-Stack E2E 16/16 통과
+- Change 001: 심화 검수에서 확인된 `PROCUREMENT-INITIAL-LOAD-ACTION-UNLOCKED` P2를 해소했다. project·procurement 최신 초기 load 전에는 행 추가·저장·Excel 동작을 잠그고, 상태 안내와 deterministic unit·isolated Full-Stack E2E를 추가했다. experiment `BATCHED_FINAL`, 대표 repo·main 미반영.
 - 산출물: [Task와 검수 checklist](../tasks/e2e-reliability-001.md), [Implementation report](../tasks/e2e-reliability-001-implementation-report.md), [SOP](../tasks/e2e-reliability-001-sop.md), [User manual](../tasks/e2e-reliability-001-user-manual.md), 이 Roadmap update
 
 ### TASK-E2E-ISOLATION-001: Full-Stack E2E PostgreSQL 물리 격리
@@ -1589,6 +1590,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 주요 테스트: 모바일 입력, 중단 등록, 권한, 이력
 - 2026-07-17 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 “다음 작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-011A` 기획·구현을 진행한다. 상세 제조 표시·입력 항목과 LQC 기준은 Fable 권장안의 최소 MVP·Deferred로 분리하며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
 - 2026-07-17 실험 상태: `experiment/task-011a-manufacturing-work`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. `0034`는 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, 시작·4단계·중단 Pending·재개·panel LQC handoff를 완료했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 현재 experiment에서 재구현하지 않는다.
+- 2026-07-21 실험 Change 002: `MANUFACTURING-RAPID-STAGE-SAVE-LOSS` P2를 해소했다. React render 전 ref fence로 제조 mutation을 직렬화하고 저장·refresh 중 action·project·panel 선택을 잠그며 안내를 노출했다. 동일 tick 3회 click에 POST 1건, 이어진 4/4·Pending·LQC isolated E2E를 통과했고 대표 repo·main은 미반영이다.
 
 ### TASK-012A: LQC / OQC / 전진검수 / FAT
 
@@ -1783,7 +1785,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
 | 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수·PR #50 merge·public 재개 완료 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. Backup 삭제는 별도 결정 |
 | 78 | Task instruction chain·완료 보고 형식 | 최초 Task merge 완료 / Change 001 상태 충돌 P2 Resolved·자동·독립 검증·사용자 검수 완료 / merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 최초 Task 완료와 현재 Change 상태를 분리하고 작업 현황·Git 게시·중단 Task·Roadmap next·Finding identity를 보존 |
-| 79 | Full-Stack E2E 구매정보 동적 행 timing | 구현·자동 검증·사용자 검수 완료 / squash merge 승인 | 개발/품질 | TASK-E2E-RELIABILITY-001 | 최신 load만 edit state에 반영하고 행 추가 1회·정확한 row/input 준비를 검증. 대상 E2E 20/20, 전체 16/16 통과 |
+| 79 | Full-Stack E2E 구매정보 동적 행 timing | 본체 병합 완료 / Change 001 experiment `BATCHED_FINAL` | 개발/품질 | TASK-E2E-RELIABILITY-001 | 최신 load만 edit state에 반영하고, Change 001에서 초기 load 중 행 추가·저장·Excel을 잠그는 readiness 계약까지 보정. deterministic unit·isolated E2E 통과 |
 | 80 | Backend import-order format debt | 구현·자동·독립 검증·사용자 검수·merge 완료 | 개발/품질 | TASK-BACKEND-FORMAT-001 | 정확한 Backend C# 9개 파일의 `IMPORTS=9`를 diagnostic 0으로 정리. 실행 코드·API·DB·runtime 변경 0 |
 | 82 | Entra 로그인 공통 디자인 shell | 사용자 검수·승격·5174 반영·PR #49 merge 완료 | 사용자/개발/품질 | TASK-DESIGN-LOGIN-001 | 승인된 Figma 기반 auth shell과 Loading·checkbox 반영. Code Connect는 향후 필수 Gate가 아니며 5176 실험 runtime은 보존 |
 | 83 | 로그인 디자인 promotion·experiment worktree 정리 | Promotion 정리 완료 / 5176 experiment 보존 | 사용자/개발 | TASK-GOV-CODEX-002 Change 004 | Clean·process 미사용·PR #49 merge 확인 뒤 promotion worktree 제거. 5176 experiment는 runtime·미게시 디자인 source로 계속 보존 |

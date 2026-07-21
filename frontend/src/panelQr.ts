@@ -36,6 +36,13 @@ export type PanelQrPrintSheet = {
   }>;
 };
 
+export type PanelQrBatchIssue = {
+  projectId: string;
+  requestedCount: number;
+  newlyIssuedCount: number;
+  alreadyIssuedCount: number;
+};
+
 export type PanelQrResolveStatus =
   | 'Ok'
   | 'OkCompletedProject'

@@ -8,9 +8,7 @@ import {
   getMaterialIqcQueue,
   getMaterialReceipts,
   recordMaterialIqcResult,
-  registerMaterialArrival,
-  requestMaterialIqc,
-  requestMaterialReinspection
+  registerMaterialArrival
 } from './api';
 import { MobileSheet } from './MobileSheet';
 import { IqcReportWorkspace } from './IqcReportWorkspace';
@@ -50,7 +48,7 @@ export function MaterialReceivingPage({
   initialProjectCode?: string;
   initialRisk?: 'customer-supply-overdue';
   onBack: () => void;
-  onOpenIqc: () => void;
+  onOpenIqc: (requestId?: string) => void;
   onOpenKitting: () => void;
   onOpenPending: (pendingId: string) => void;
 }) {
@@ -157,11 +155,11 @@ export function MaterialReceivingPage({
         <div className="material-hero-actions">
           <button type="button" onClick={onBack}>프로젝트</button>
           <button type="button" onClick={onOpenKitting}>패널 키팅</button>
-          <button type="button" className="primary-button" onClick={onOpenIqc}>IQC 검사함</button>
+          <button type="button" className="primary-button" onClick={() => onOpenIqc()}>IQC 검사함</button>
         </div>
       </header>
 
-      {!canUpdate ? <p className="workspace-readonly-banner" role="note">조회 전용입니다. 도착 등록·IQC 요청·입고 확정은 자재 담당 권한이 필요합니다.</p> : null}
+      {!canUpdate ? <p className="workspace-readonly-banner" role="note">조회 전용입니다. 도착 등록·입고 확정은 자재 담당 권한이 필요합니다.</p> : null}
 
       {actions.latestFeedback && action === null ? <InlineActionFeedback feedback={actions.latestFeedback} /> : null}
 
@@ -260,11 +258,13 @@ export function MaterialReceivingPage({
 export function MaterialIqcPage({
   developmentUserKey,
   canInspect,
+  initialRequestId,
   onBack,
   onOpenPending
 }: {
   developmentUserKey: string;
   canInspect: boolean;
+  initialRequestId?: string;
   onBack: () => void;
   onOpenPending: (pendingId: string) => void;
 }) {
@@ -286,7 +286,7 @@ export function MaterialIqcPage({
       const response = await getMaterialIqcQueue(developmentUserKey, includeDecided);
       if (generation !== loadGenerationRef.current) return false;
       setState({ kind: 'ready', data: response.items });
-      const requestedId = new URLSearchParams(window.location.search).get('request');
+      const requestedId = initialRequestId ?? new URLSearchParams(window.location.search).get('request');
       setSelected((current) => response.items.find((item) => item.attemptId === requestedId)
         ?? response.items.find((item) => item.attemptId === current?.attemptId)
         ?? null);
@@ -296,7 +296,7 @@ export function MaterialIqcPage({
       if (!preserve) setState({ kind: 'error', message: errorMessage(error, 'IQC 검사함을 불러오지 못했습니다.') });
       return false;
     }
-  }, [developmentUserKey, includeDecided]);
+  }, [developmentUserKey, includeDecided, initialRequestId]);
 
   useEffect(() => { queueMicrotask(() => void load()); }, [load]);
 
@@ -504,7 +504,7 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
   canUpdate: boolean;
   feedback: ActionFeedbackState | null;
   onClose: () => void;
-  onOpenIqc: () => void;
+  onOpenIqc: (requestId?: string) => void;
   onOpenPending: (pendingId: string) => void;
   onRun: (scope: string, operation: () => Promise<unknown>, success: string) => Promise<void>;
   developmentUserKey: string;
@@ -532,7 +532,7 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
         orderUnit: action.item.orderUnit === null ? unit : null,
         arrivalDate,
         note: note.trim() || null
-      }), '도착분을 등록했습니다.');
+      }), '도착분을 등록하고 IQC 검사 대기로 넘겼습니다.');
     }
     return (
       <form className="material-action-form" onSubmit={submit}>
@@ -564,6 +564,7 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
 
   const receipt = action.receipt;
   const pendingId = receipt.iqcAttempts.findLast((attempt) => attempt.pendingIssueId)?.pendingIssueId;
+  const requestedAttemptId = receipt.iqcAttempts.findLast((attempt) => attempt.status === 'Requested')?.attemptId;
   return (
     <div className="material-action-form">
       <ActionContext item={action.item} receipt={receipt} />
@@ -571,11 +572,9 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
       {receipt.note ? <div className="material-action-notice"><strong>도착 메모</strong><span>{receipt.note}</span></div> : null}
       {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
       <div className="material-action-buttons material-action-buttons--stack">
-        {receipt.status === 'Arrived' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(`material:${receipt.receiptId}:iqc-request`, () => requestMaterialIqc(developmentUserKey, receipt.receiptId, receipt.version), 'IQC 검사를 요청했습니다.')}>IQC 요청</button> : null}
         {receipt.status === 'Arrived' ? <><textarea aria-label="취소 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="취소 사유 3자 이상" /><button type="button" disabled={!canUpdate || saving || reason.trim().length < 3} onClick={() => void guarded(`material:${receipt.receiptId}:cancel`, () => cancelMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version, reason), '도착 등록을 취소했습니다.')}>도착 취소</button></> : null}
-        {receipt.status === 'IqcRequested' ? <button type="button" className="primary-button" onClick={onOpenIqc}>IQC 검사함 열기</button> : null}
+        {receipt.status === 'IqcRequested' ? <button type="button" className="primary-button" onClick={() => onOpenIqc(requestedAttemptId)}>이 IQC 검사 열기</button> : null}
         {receipt.status === 'FailedBlocked' && pendingId ? <button type="button" onClick={() => onOpenPending(pendingId)}>연결된 Pending 열기</button> : null}
-        {receipt.status === 'FailedBlocked' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(`material:${receipt.receiptId}:reinspect`, () => requestMaterialReinspection(developmentUserKey, receipt.receiptId, receipt.version), '재검사를 요청했습니다.')}>Pending 조치 후 재검사 요청</button> : null}
         {receipt.status === 'Passed' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(`material:${receipt.receiptId}:confirm`, () => confirmMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version), '입고를 확정했습니다.')}>입고 확정</button> : null}
         {receipt.status === 'Confirmed' ? <div className="material-success-panel"><strong>입고 확정 완료</strong><span>{formatDateTime(receipt.confirmedAtUtc)}</span></div> : null}
         {receipt.status === 'Cancelled' ? <div className="material-action-notice"><strong>취소된 도착분</strong><span>{receipt.cancellationReason}</span></div> : null}

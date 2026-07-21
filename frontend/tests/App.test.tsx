@@ -1084,6 +1084,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '등록' }));
 
     expect(await screen.findByRole('button', { name: '저장 중' })).toBeDisabled();
+    fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     const productPanelTable = await screen.findByRole('table', { name: '설계' });
     expect(within(productPanelTable).getByText('No')).toBeInTheDocument();
     expect(within(productPanelTable).getByText('패널명')).toBeInTheDocument();
@@ -1389,6 +1390,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
     await screen.findByRole('button', { name: '신규 프로젝트' });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
     fireEvent.change(await screen.findByLabelText('입력 단위'), { target: { value: 'Inch' } });
     fireEvent.click(screen.getByRole('button', { name: 'Excel 양식 다운로드' }));
@@ -1406,6 +1408,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
     await screen.findByRole('button', { name: '신규 프로젝트' });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     expect(await screen.findByRole('button', { name: '패널명·사이즈 수정' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel 양식 다운로드' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '패널명·사이즈 수정' }));
@@ -1432,6 +1435,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
     await screen.findByRole('button', { name: '신규 프로젝트' });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Excel 양식 다운로드' }));
 
@@ -1463,6 +1467,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
     await screen.findByRole('button', { name: '신규 프로젝트' });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
     fireEvent.change(await screen.findByLabelText('입력 단위'), { target: { value: 'Inch' } });
     fireEvent.change(await screen.findByLabelText('No.1 패널명'), { target: { value: 'DRIFT-B' } });
@@ -1492,6 +1497,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
     await screen.findByRole('button', { name: '신규 프로젝트' });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
     fireEvent.change(await screen.findByLabelText('No.1 패널명'), { target: { value: 'DUP-PANEL' } });
     fireEvent.change(await screen.findByLabelText('No.2 패널명'), { target: { value: ' dup-panel ' } });
@@ -1535,7 +1541,7 @@ describe('App', () => {
 
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
-    expect(await screen.findByRole('tab', { name: '설계' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('tab', { name: '전체 흐름' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByText('구매정보')).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
 
@@ -1690,6 +1696,7 @@ describe('App', () => {
 
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     const productTable = await screen.findByRole('table', { name: '설계' });
     fireEvent.click(within(productTable).getAllByRole('row')[1]);
 
@@ -2194,7 +2201,8 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: '자재' }));
     expect(await screen.findByLabelText('자재 입력 데이터')).toHaveTextContent('1차 도착');
-    expect(screen.getByLabelText('자재 입력 데이터')).toHaveTextContent('Dev Materials User');
+    fireEvent.click(screen.getByRole('tab', { name: '키팅 관리' }));
+    expect(await screen.findByLabelText('자재 입력 데이터')).toHaveTextContent('Dev Materials User');
 
     fireEvent.click(screen.getByRole('tab', { name: '제조' }));
     expect(await screen.findByLabelText('제조 입력 데이터')).toHaveTextContent('조립 준비 확인');
@@ -2210,20 +2218,7 @@ describe('App', () => {
   });
 
   it('gives Materials the staged receiving workspace instead of a completion checkbox', async () => {
-    const requests: string[] = [];
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input));
-      if (url.pathname.endsWith('/iqc-requests') && init?.method === 'POST') {
-        requests.push(url.pathname);
-        return Promise.resolve(json({
-          procurementItemId: '76000000-0000-0000-0000-000000000001',
-          receiptId: '77000000-0000-0000-0000-000000000001',
-          iqcAttemptId: '78000000-0000-0000-0000-000000000001',
-          pendingIssueId: null,
-          status: 'IqcRequested',
-          receiptCompleted: false
-        }));
-      }
       return mockFetch(input, init);
     }));
 
@@ -2240,8 +2235,7 @@ describe('App', () => {
     expect(screen.queryByText('입고 완료')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /24 EA/ }));
     expect(await screen.findByText('도착 등록', { selector: '.material-status-badge' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'IQC 요청' }));
-    await waitFor(() => expect(requests).toContain('/api/materials/receipts/77000000-0000-0000-0000-000000000001/iqc-requests'));
+    expect(screen.queryByRole('button', { name: 'IQC 요청' })).not.toBeInTheDocument();
   });
 
   it('opens the Materials workspace for Sales as read-only and keeps input unavailable', async () => {

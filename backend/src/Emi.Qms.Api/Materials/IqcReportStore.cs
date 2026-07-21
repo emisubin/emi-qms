@@ -344,7 +344,7 @@ public sealed class IqcReportStore(
         var responses = await ReadResponsesAsync(connection, reportId, cancellationToken, transaction);
         var photos = await ReadPhotosAsync(connection, reportId, cancellationToken, transaction);
         var snapshotPhotos = await ReadSnapshotPhotosAsync(connection, reportId, cancellationToken, transaction);
-        var invariantErrors = ValidateFinalization(items, responses, photos, request.Result!);
+        var invariantErrors = ValidateFinalization(items, responses, photos, request.Result!, request.Reason!);
         if (invariantErrors.Count > 0)
         {
             return MaterialsMutationResult<IqcReportResponse>.Validation(invariantErrors);
@@ -661,7 +661,8 @@ public sealed class IqcReportStore(
         IReadOnlyList<IqcTemplateItemResponse> items,
         IReadOnlyList<IqcItemResponseValue> responses,
         IReadOnlyList<IqcPhotoResponse> photos,
-        string result)
+        string result,
+        string reason)
     {
         var errors = new Dictionary<string, string[]>();
         var responseByItem = responses.ToDictionary(response => response.TemplateItemId);
@@ -686,6 +687,10 @@ public sealed class IqcReportStore(
         if (result == "Passed" && responses.Any(response => response.CheckResult == "Fail"))
         {
             errors["Result"] = ["부적합 항목이 있어 합격으로 최종화할 수 없습니다."];
+        }
+        if (result == "Failed" && photos.Count == 0 && reason.Trim().Length < 30)
+        {
+            errors["Reason"] = ["부적합 판정은 사진 1장 이상 또는 구체적인 근거 30자 이상이 필요합니다."];
         }
         return errors;
     }

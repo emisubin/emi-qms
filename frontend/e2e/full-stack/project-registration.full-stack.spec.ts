@@ -538,8 +538,6 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await page.getByLabel('발주 수량').fill('1');
   await page.getByLabel('도착 수량').fill('1');
   await page.getByRole('button', { name: '도착 등록', exact: true }).click();
-  await materialCard.locator('.material-receipt-chip').click();
-  await page.getByRole('button', { name: 'IQC 요청' }).click();
 
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
   await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '품질' }).click();

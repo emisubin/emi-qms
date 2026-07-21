@@ -161,12 +161,13 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
     page, 'dev-procurement', projectTitle, '02-procurement-assigned', '02-procurement-assigned'
   );
   expect(procurementBeforeDesign.notificationProjectVisible).toBe(true);
-  expect(procurementBeforeDesign.myWorkProjectVisible).toBe(false);
+  expect(procurementBeforeDesign.myWorkProjectVisible).toBe(true);
   handoffEvidence.push(procurementBeforeDesign);
 
   // 3. 설계 담당자가 패널명과 치수를 직접 입력한다.
   await switchUser(page, 'dev-design');
   await page.goto(`/projects/${projectId}`);
+  await page.getByRole('tab', { name: '설계' }).click();
   await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
   await page.getByLabel('No.1 패널명').fill('MCC-LIFE-01');
   await page.getByLabel('No.1 W').fill('800');
@@ -224,15 +225,7 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
     page, 'dev-quality', projectTitle, '05-to-quality-iqc', '05-to-quality-iqc'
   ));
 
-  // 6. 자재가 IQC를 요청하고 품질 담당자가 체크·사진·판정을 모두 화면에서 입력한다.
-  await switchUser(page, 'dev-materials');
-  await page.goto('/materials/receipts');
-  await searchMaterials(page, projectTitle);
-  materialCard = page.locator('.material-item-card').filter({ hasText: projectTitle });
-  await materialCard.locator('.material-receipt-chip').click();
-  await page.getByRole('button', { name: 'IQC 요청' }).click();
-  await expect(page.getByText('IQC 검사를 요청했습니다.')).toBeVisible();
-
+  // 6. 도착 등록으로 자동 생성된 IQC를 품질 담당자가 체크·사진·판정한다.
   await switchUser(page, 'dev-quality');
   await page.goto('/quality/iqc');
   const iqcCard = page.locator('.iqc-request-card').filter({ hasText: projectTitle });

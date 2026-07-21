@@ -405,13 +405,7 @@ async function registerInspectAndConfirmReceipt(
   await action.getByLabel('도착일').fill(arrivalDate);
   await action.getByLabel('비고').fill(note);
   await action.getByRole('button', { name: '도착 등록', exact: true }).click();
-  await expect(page.getByText('도착분을 등록했습니다.')).toBeVisible();
-
-  await searchMaterials(page, projectTitle);
-  item = page.locator('.material-continuous-item').filter({ hasText: itemName });
-  await item.locator('.material-receipt-chip').filter({ hasText: arrivalDate }).click();
-  await item.getByRole('button', { name: 'IQC 요청' }).click();
-  await expect(page.getByText('IQC 검사를 요청했습니다.')).toBeVisible();
+  await expect(page.getByText('도착분을 등록하고 IQC 검사 대기로 넘겼습니다.')).toBeVisible();
 
   await switchUser(page, 'dev-quality');
   await page.goto('/quality/iqc');

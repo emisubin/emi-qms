@@ -17,6 +17,7 @@ import type { AdminUsersResponse, CurrentUser, ProfilePhotoMetadata, UpdateAdmin
 import type { HomeMetricsResponse } from './home';
 import type {
   PanelQrPrintSheet,
+  PanelQrBatchIssue,
   PanelQrRecord,
   PanelQrResolve,
   ProjectPanelQrList
@@ -188,6 +189,18 @@ export async function rotatePanelQr(
     `/api/projects/${encodeURIComponent(projectId)}/panels/${encodeURIComponent(panelId)}/qr/rotate`,
     developmentUserKey,
     { method: 'POST', body: JSON.stringify({ reason }) }
+  );
+}
+
+export async function issuePanelQrBatch(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  panelIds: readonly string[]
+): Promise<PanelQrBatchIssue> {
+  return fetchJson<PanelQrBatchIssue>(
+    `/api/projects/${encodeURIComponent(projectId)}/qr/issue-batch`,
+    developmentUserKey,
+    { method: 'POST', body: JSON.stringify({ panelIds }) }
   );
 }
 

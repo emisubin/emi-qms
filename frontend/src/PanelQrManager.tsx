@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
   getPanelQrImage,
   issuePanelQr,
+  issuePanelQrBatch,
   listProjectPanelQrs,
   preparePanelQrPrintSheet,
   rotatePanelQr
@@ -41,13 +42,13 @@ export function PanelQrManager({
     try {
       const next = await listProjectPanelQrs(developmentUserKey, projectId);
       setData(next);
-      setSelected((current) => new Set([...current].filter((id) => next.panels.some((panel) => panel.panelId === id && panel.hasActiveQr))));
+      setSelected((current) => new Set([...current].filter((id) => next.panels.some((panel) => panel.panelId === id && (panel.hasActiveQr || (canIssue && panel.qrEligible))))));
     } catch (error) {
       setMessage(qrErrorMessage(error, 'QR 목록을 불러올 수 없습니다.'));
     } finally {
       setBusy(null);
     }
-  }, [developmentUserKey, projectId]);
+  }, [canIssue, developmentUserKey, projectId]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => () => {
@@ -57,8 +58,12 @@ export function PanelQrManager({
     printItems.forEach((item) => URL.revokeObjectURL(item.imageUrl));
   }, [printItems]);
 
-  const issuedPanels = useMemo(() => data?.panels.filter((panel) => panel.hasActiveQr) ?? [], [data]);
-  const allIssuedSelected = issuedPanels.length > 0 && issuedPanels.every((panel) => selected.has(panel.panelId));
+  const selectablePanels = useMemo(() => data?.panels.filter((panel) => panel.hasActiveQr || (canIssue && panel.qrEligible)) ?? [], [canIssue, data]);
+  const allSelectableSelected = selectablePanels.length > 0 && selectablePanels.every((panel) => selected.has(panel.panelId));
+  const selectionNeedsIssue = useMemo(
+    () => data?.panels.some((panel) => selected.has(panel.panelId) && !panel.hasActiveQr) ?? false,
+    [data, selected]
+  );
 
   async function issue(panel: ProjectPanelQrItem) {
     setBusy(panel.panelId);
@@ -88,6 +93,21 @@ export function PanelQrManager({
     } catch (error) {
       setMessage(qrErrorMessage(error, 'QR 이미지를 불러올 수 없습니다.'));
     } finally {
+      setBusy(null);
+    }
+  }
+
+  async function issueSelected() {
+    const panelIds = [...selected];
+    if (panelIds.length === 0) return;
+    setBusy('issue-batch');
+    setMessage('');
+    try {
+      const result = await issuePanelQrBatch(developmentUserKey, projectId, panelIds);
+      setMessage(`${result.requestedCount}개 확인 · 신규 ${result.newlyIssuedCount}개 발급 · 기존 ${result.alreadyIssuedCount}개 유지`);
+      await load();
+    } catch (error) {
+      setMessage(qrErrorMessage(error, '선택한 QR을 발급할 수 없습니다. 목록을 새로고침해 주세요.'));
       setBusy(null);
     }
   }
@@ -182,26 +202,32 @@ export function PanelQrManager({
             <label>
               <input
                 type="checkbox"
-                checked={allIssuedSelected}
-                disabled={issuedPanels.length === 0}
-                onChange={() => setSelected(allIssuedSelected ? new Set() : new Set(issuedPanels.slice(0, 50).map((panel) => panel.panelId)))}
+                checked={allSelectableSelected}
+                disabled={selectablePanels.length === 0}
+                onChange={() => setSelected(allSelectableSelected ? new Set() : new Set(selectablePanels.slice(0, 50).map((panel) => panel.panelId)))}
               />
-              발급 QR 전체 선택
+              발급 가능 패널 전체 선택
             </label>
-            <button type="button" className="secondary-button" disabled={selected.size === 0 || busy !== null} onClick={() => void buildPrintSheet()}>
-              선택 {selected.size}개 인쇄판
+            <button
+              type="button"
+              className={selectionNeedsIssue ? 'primary-button' : 'secondary-button'}
+              disabled={selected.size === 0 || busy !== null}
+              onClick={() => void (selectionNeedsIssue ? issueSelected() : buildPrintSheet())}
+            >
+              {selectionNeedsIssue ? `선택 ${selected.size}개 QR 발급` : `선택 ${selected.size}개 인쇄판`}
             </button>
           </div>
           <div className="panel-qr-list">
             {data.panels.map((panel) => (
-              <article key={panel.panelId} data-issued={panel.hasActiveQr || undefined}>
+              <Fragment key={panel.panelId}>
+              <article data-issued={panel.hasActiveQr || undefined}>
                 <label className="panel-qr-select">
                   <input
                     type="checkbox"
                     checked={selected.has(panel.panelId)}
-                    disabled={!panel.hasActiveQr}
+                    disabled={!(panel.hasActiveQr || (canIssue && panel.qrEligible))}
                     onChange={() => toggle(panel.panelId)}
-                    aria-label={`${panel.displayName} 인쇄 선택`}
+                    aria-label={`${panel.displayName} QR 선택`}
                   />
                   <span>{panel.sequenceNumber}</span>
                 </label>
@@ -215,7 +241,13 @@ export function PanelQrManager({
                 <div className="panel-qr-actions">
                   {panel.hasActiveQr ? (
                     <>
-                      <button type="button" onClick={() => void openPreview(panel)} disabled={busy !== null}>보기</button>
+                      <button
+                        type="button"
+                        onClick={() => void openPreview(panel)}
+                        disabled={busy !== null}
+                        aria-expanded={preview?.panelId === panel.panelId}
+                        aria-controls={`panel-qr-preview-${panel.panelId}`}
+                      >보기</button>
                       <button type="button" onClick={() => void downloadPng(panel)} disabled={busy !== null}>PNG</button>
                     </>
                   ) : canIssue && panel.qrEligible ? (
@@ -223,32 +255,32 @@ export function PanelQrManager({
                   ) : null}
                 </div>
               </article>
+              {preview?.panelId === panel.panelId ? (
+                <div className="panel-qr-preview panel-qr-preview--inline" id={`panel-qr-preview-${panel.panelId}`}>
+                  <figure>
+                    <img src={preview.imageUrl} alt={`${preview.displayName} QR 코드`} />
+                    <figcaption><strong>{preview.displayName}</strong><span>{preview.displayCode}</span></figcaption>
+                  </figure>
+                  <div>
+                    <h5>현장 라벨 미리보기</h5>
+                    <p>QR에는 업무 데이터가 아닌 임의 식별자만 들어갑니다.</p>
+                    {isSystemAdministrator ? (
+                      <label>
+                        재발급 사유
+                        <textarea value={rotationReason} onChange={(event) => setRotationReason(event.target.value)} placeholder="분실·훼손 등 사유를 입력" />
+                        <button type="button" className="danger-button" disabled={busy !== null || rotationReason.trim().length < 2} onClick={() => void rotate()}>
+                          기존 QR 폐기 후 재발급
+                        </button>
+                      </label>
+                    ) : null}
+                    <button type="button" className="secondary-button" onClick={() => setPreview(null)}>닫기</button>
+                  </div>
+                </div>
+              ) : null}
+              </Fragment>
             ))}
           </div>
         </>
-      ) : null}
-
-      {preview ? (
-        <div className="panel-qr-preview">
-          <figure>
-            <img src={preview.imageUrl} alt={`${preview.displayName} QR 코드`} />
-            <figcaption><strong>{preview.displayName}</strong><span>{preview.displayCode}</span></figcaption>
-          </figure>
-          <div>
-            <h5>현장 라벨 미리보기</h5>
-            <p>QR에는 업무 데이터가 아닌 임의 식별자만 들어갑니다.</p>
-            {isSystemAdministrator ? (
-              <label>
-                재발급 사유
-                <textarea value={rotationReason} onChange={(event) => setRotationReason(event.target.value)} placeholder="분실·훼손 등 사유를 입력" />
-                <button type="button" className="danger-button" disabled={busy !== null || rotationReason.trim().length < 2} onClick={() => void rotate()}>
-                  기존 QR 폐기 후 재발급
-                </button>
-              </label>
-            ) : null}
-            <button type="button" className="secondary-button" onClick={() => setPreview(null)}>닫기</button>
-          </div>
-        </div>
       ) : null}
 
       {printItems.length > 0 ? (

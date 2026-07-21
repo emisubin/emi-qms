@@ -69,7 +69,7 @@ const transitionLabels: Record<PendingStatus, string> = {
   Registered: '등록',
   ActionRequested: '조치 요청',
   InProgress: '조치 시작',
-  ReinspectionRequested: '재검사 요청',
+  ReinspectionRequested: '조치 완료',
   Closed: '종결'
 };
 
@@ -475,7 +475,35 @@ function PendingDetailView({
   }, [canManage, developmentUserKey]);
 
   const detail = state.kind === 'ready' ? state.data : null;
-  const timeline = useMemo(() => detail?.history.slice().reverse() ?? [], [detail]);
+  const timeline = useMemo(() => {
+    if (!detail) return [];
+    return [
+      ...detail.history.map((event) => ({
+        key: `history:${event.historyId}`,
+        title: event.eventLabel,
+        summary: event.fromStatusLabel && event.toStatusLabel
+          ? `${event.fromStatusLabel} → ${event.toStatusLabel}`
+          : event.toStatusLabel ?? '',
+        detail: event.fromAssigneeDisplayName !== event.toAssigneeDisplayName && event.toAssigneeDisplayName
+          ? `담당 ${event.toAssigneeDisplayName}`
+          : event.reason ?? '',
+        note: event.reason && event.fromAssigneeDisplayName !== event.toAssigneeDisplayName ? event.reason : '',
+        actor: event.changedByDisplayName,
+        createdAtUtc: event.createdAtUtc,
+        rank: 0
+      })),
+      ...detail.comments.map((item) => ({
+        key: `comment:${item.commentId}`,
+        title: '코멘트',
+        summary: item.body,
+        detail: '',
+        note: '',
+        actor: item.createdByDisplayName,
+        createdAtUtc: item.createdAtUtc,
+        rank: 1
+      }))
+    ].sort((left, right) => left.createdAtUtc.localeCompare(right.createdAtUtc) || left.rank - right.rank || left.key.localeCompare(right.key));
+  }, [detail]);
 
   async function runMutation(operation: () => Promise<PendingDetail>, successMessage: string, resetFields?: () => void) {
     setBusy(true);
@@ -497,6 +525,8 @@ function PendingDetailView({
   if (state.kind === 'error') return <section className="page-surface pending-page"><PendingError message={state.message} onRetry={load} /><button type="button" onClick={onBackToList}>목록으로</button></section>;
   if (!detail) return null;
   const issue = detail.issue;
+  const nextTransition = detail.allowedTransitions[0];
+  const completingAction = nextTransition === 'ReinspectionRequested';
 
   return (
     <section className={isMobile ? 'page-surface pending-page mobile-first-page mobile-pending-detail-page' : 'page-surface pending-page'} aria-labelledby="pending-detail-title">
@@ -518,12 +548,10 @@ function PendingDetailView({
 
           {canManage && detail.canAssign ? <section className="pending-section"><h3>담당 변경</h3><div className="pending-inline-action"><select aria-label="새 조치 담당" value={nextAssignee} onChange={(event) => setNextAssignee(event.target.value)}><option value="">새 담당자 선택</option>{assignees.filter((item) => item.userId !== issue.assigneeUserId).map((item) => <option key={item.userId} value={item.userId}>{item.displayName} · {departmentLabel(item.departmentCode)}</option>)}</select><input aria-label="담당 변경 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="변경 사유 (3자 이상)" /><button disabled={busy || !nextAssignee || reason.trim().length < 3} type="button" onClick={() => void runMutation(() => assignPendingIssue(developmentUserKey, pendingId, nextAssignee, issue.version, reason), '조치 담당자가 변경되었습니다.', () => { setReason(''); setNextAssignee(''); })}>담당 변경</button></div></section> : null}
 
-          {detail.allowedTransitions.length > 0 ? <section className="pending-section pending-next-action"><div><p className="eyebrow">NEXT ACTION</p><h3>{transitionLabels[detail.allowedTransitions[0]]}</h3><p>현재 상태를 확인하고 변경 사유를 남겨 다음 담당자에게 넘깁니다.</p></div><div className="pending-transition-control"><input aria-label="상태 변경 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="처리 내용 또는 확인 결과 (3자 이상)" /><button className="primary-button" disabled={busy || reason.trim().length < 3} type="button" onClick={() => void runMutation(() => transitionPendingIssue(developmentUserKey, pendingId, detail.allowedTransitions[0], issue.version, reason), `${transitionLabels[detail.allowedTransitions[0]]} 상태로 변경되었습니다.`, () => setReason(''))}>{transitionLabels[detail.allowedTransitions[0]]}</button></div></section> : null}
-
-          <section className="pending-section"><div className="subsection-header"><h3>코멘트</h3><span>{detail.comments.length}개</span></div>{detail.comments.length === 0 ? <p className="muted-text">아직 코멘트가 없습니다. 조치 근거와 재검사 결과를 남겨 주세요.</p> : <div className="pending-comments">{detail.comments.map((item) => <article key={item.commentId}><strong>{item.createdByDisplayName}</strong><p>{item.body}</p><time>{formatDateTime(item.createdAtUtc)}</time></article>)}</div>}{detail.canComment ? <form className="pending-comment-form" onSubmit={(event) => { event.preventDefault(); if (comment.trim()) void runMutation(() => addPendingComment(developmentUserKey, pendingId, comment), '코멘트가 추가되었습니다.', () => setComment('')); }}><textarea aria-label="새 코멘트" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="조치 내용, 확인 결과 또는 다음 요청을 남겨 주세요." /><button className="primary-button" disabled={busy || !comment.trim()} type="submit">코멘트 등록</button></form> : null}</section>
+          {nextTransition ? <section className="pending-section pending-next-action"><div><p className="eyebrow">NEXT ACTION</p><h3>{transitionLabels[nextTransition]}</h3><p>{completingAction ? '처리 내용을 남기고 완료하면 품질 재검사 업무와 알림이 자동 생성됩니다.' : '현재 상태를 확인하고 처리 내용을 남겨 다음 단계로 넘깁니다.'}</p></div><div className="pending-transition-control"><input aria-label="처리 내용" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="처리 내용 또는 확인 결과 (3자 이상)" /><button className="primary-button" disabled={busy || reason.trim().length < 3} type="button" onClick={() => void runMutation(() => transitionPendingIssue(developmentUserKey, pendingId, nextTransition, issue.version, reason), completingAction ? '조치를 완료하고 품질 재검사 업무를 생성했습니다.' : `${transitionLabels[nextTransition]} 상태로 변경되었습니다.`, () => setReason(''))}>{transitionLabels[nextTransition]}</button></div></section> : null}
         </div>
 
-        <aside className="pending-timeline"><h3>변경 이력</h3>{timeline.map((event) => <article key={event.historyId}><span className="pending-timeline-dot" /><div><strong>{event.eventLabel}</strong><p>{event.fromStatusLabel && event.toStatusLabel ? `${event.fromStatusLabel} → ${event.toStatusLabel}` : event.toStatusLabel ?? ''}{event.fromAssigneeDisplayName !== event.toAssigneeDisplayName && event.toAssigneeDisplayName ? ` · ${event.toAssigneeDisplayName}` : ''}</p>{event.reason ? <p>{event.reason}</p> : null}<small>{event.changedByDisplayName} · {formatDateTime(event.createdAtUtc)}</small></div></article>)}<div className="pending-attachment-note"><strong>첨부파일 보류</strong><span>보안 정책 확정 후 이 타임라인에 파일 audit를 함께 표시합니다.</span></div></aside>
+        <aside className="pending-timeline"><div className="subsection-header"><h3>처리 활동</h3><span>{timeline.length}건</span></div>{timeline.map((event) => <article key={event.key}><span className="pending-timeline-dot" /><div><strong>{event.title}</strong>{event.summary ? <p>{event.summary}</p> : null}{event.detail ? <p>{event.detail}</p> : null}{event.note ? <p>{event.note}</p> : null}<small>{event.actor} · {formatDateTime(event.createdAtUtc)}</small></div></article>)}{detail.canComment ? <form className="pending-comment-form pending-timeline-composer" onSubmit={(event) => { event.preventDefault(); if (comment.trim()) void runMutation(() => addPendingComment(developmentUserKey, pendingId, comment), '활동에 코멘트를 추가했습니다.', () => setComment('')); }}><textarea aria-label="처리 활동 코멘트" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="추가 확인이나 인계 메모를 남겨 주세요." /><button className="primary-button" disabled={busy || !comment.trim()} type="submit">활동 추가</button></form> : null}<div className="pending-attachment-note"><strong>첨부파일 보류</strong><span>보안 정책 확정 후 이 타임라인에 파일 audit를 함께 표시합니다.</span></div></aside>
       </div>
     </section>
   );

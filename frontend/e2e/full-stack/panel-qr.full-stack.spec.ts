@@ -16,23 +16,27 @@ test('TASK-QR-001: issue, preview, print, scan-route, and rotation use the real 
   await page.getByLabel('개발 사용자').selectOption('dev-design');
   await page.goto(`/projects/${project.projectId}`);
   await expect(page.getByRole('heading', { name: project.projectTitle })).toBeVisible();
+  await page.getByRole('tab', { name: '설계' }).click();
   await expect(page.getByRole('heading', { name: '패널 QR' })).toBeVisible();
 
-  for (let index = 0; index < 3; index += 1) {
-    const [refreshedList] = await Promise.all([
-      page.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === `/api/projects/${project.projectId}/qr`),
-      page.getByRole('button', { name: 'QR 발급' }).first().click()
-    ]);
-    expect(refreshedList.status(), await refreshedList.text()).toBe(200);
-    await expect(page.locator('.panel-qr-status[data-tone="issued"]')).toHaveCount(index + 1);
-  }
+  const selectAll = page.getByLabel('발급 가능 패널 전체 선택');
+  await selectAll.check();
+  await expect(page.locator('.panel-qr-select input:checked')).toHaveCount(3);
+  const [batchIssued, refreshedList] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === `/api/projects/${project.projectId}/qr/issue-batch`),
+    page.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === `/api/projects/${project.projectId}/qr`),
+    page.getByRole('button', { name: '선택 3개 QR 발급' }).click()
+  ]);
+  expect(batchIssued.status(), await batchIssued.text()).toBe(200);
+  expect(refreshedList.status(), await refreshedList.text()).toBe(200);
   await expect(page.locator('.panel-qr-status[data-tone="issued"]')).toHaveCount(3);
   await page.locator('.panel-qr-manager').getByRole('button', { name: '보기', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: '현장 라벨 미리보기' })).toBeVisible();
   await expect(page.locator('.panel-qr-preview img')).toHaveAttribute('src', /^blob:/);
+  expect(await page.locator('.panel-qr-preview').evaluate((preview) => preview.previousElementSibling?.tagName)).toBe('ARTICLE');
   await capture(page, '01-panel-qr-issued-desktop-1440.png');
 
-  await page.getByLabel('발급 QR 전체 선택').check();
+  await expect(selectAll).toBeChecked();
   await page.getByRole('button', { name: '선택 3개 인쇄판' }).click();
   await expect(page.locator('.panel-qr-print-grid figure')).toHaveCount(3);
   await capture(page, '02-panel-qr-print-sheet-desktop-1440.png');

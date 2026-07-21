@@ -267,7 +267,7 @@ type View =
   | { kind: 'materials-kitting'; projectId?: string; panelId?: string }
   | { kind: 'manufacturing-work'; projectId?: string; panelId?: string }
   | { kind: 'logistics'; stage?: LogisticsStage; projectId?: string; panelId?: string; unitId?: string; draftId?: string }
-  | { kind: 'quality-iqc' }
+  | { kind: 'quality-iqc'; requestId?: string }
   | { kind: 'quality-inspections'; stage?: QualityInspectionStage; projectId?: string; panelId?: string }
   | { kind: 'notifications' }
   | { kind: 'notification-preferences' }
@@ -599,7 +599,7 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/quality/iqc') {
-    return { kind: 'quality-iqc' };
+    return { kind: 'quality-iqc', requestId: new URLSearchParams(window.location.search).get('request') ?? undefined };
   }
 
   if (window.location.pathname === '/quality/inspections') {
@@ -800,6 +800,10 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
       };
     }
 
+    if (url.pathname === '/quality/iqc') {
+      return { kind: 'quality-iqc', requestId: url.searchParams.get('request') ?? undefined };
+    }
+
     if (url.pathname === '/logistics') {
       return {
         kind: 'logistics',
@@ -954,7 +958,7 @@ function pathForView(view: View) {
       return `/logistics${query ? `?${query}` : ''}`;
     }
     case 'quality-iqc':
-      return '/quality/iqc';
+      return `/quality/iqc${view.requestId ? `?request=${encodeURIComponent(view.requestId)}` : ''}`;
     case 'quality-inspections': {
       const params = new URLSearchParams();
       if (view.stage) params.set('stage', view.stage);
@@ -1032,7 +1036,7 @@ function queryString(values: Record<string, string | undefined>) {
 }
 
 function parseProjectDetailSection(value: string | null): ProjectDetailSection {
-  return sectionFromQuery(value) ?? 'panels';
+  return sectionFromQuery(value) ?? 'workflow';
 }
 
 export function App({
@@ -1981,7 +1985,7 @@ function QmsAppShellContent({
           canInspectQuality={canInspectQuality}
           canShipLogistics={canShipLogistics}
           isSystemAdministrator={isSystemAdministrator}
-          initialSection={view.section ?? 'panels'}
+          initialSection={view.section ?? 'workflow'}
           onBack={() => setView({ kind: 'list' })}
           onEdit={() => setView({ kind: 'edit', projectId: view.projectId })}
           onEditPanelInformation={() => setView({ kind: 'panel-info-edit', projectId: view.projectId })}
@@ -1990,6 +1994,7 @@ function QmsAppShellContent({
           onOpenPanel={(panelId) => setView({ kind: 'panel', projectId: view.projectId, panelId })}
           onOpenPending={() => setView({ kind: 'pending', projectId: view.projectId })}
           onOpenSettlement={() => setView({ kind: 'sales-settlement', projectId: view.projectId })}
+          onOpenMaterialKitting={() => setView({ kind: 'materials-kitting', projectId: view.projectId })}
           onOpenDepartmentWorkspace={(section, projectCode) => {
             if (section === 'sales') setView({ kind: 'sales-settlement', projectId: view.projectId });
             if (section === 'materials') setView({ kind: 'materials-receipts', projectCode });
@@ -2118,7 +2123,7 @@ function QmsAppShellContent({
           initialProjectCode={view.projectCode}
           initialRisk={view.risk}
           onBack={() => setView({ kind: 'list' })}
-          onOpenIqc={() => setView({ kind: 'quality-iqc' })}
+          onOpenIqc={(requestId) => setView({ kind: 'quality-iqc', requestId })}
           onOpenKitting={() => setView({ kind: 'materials-kitting' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
@@ -2150,6 +2155,7 @@ function QmsAppShellContent({
         <MaterialIqcPage
           developmentUserKey={developmentUserKey}
           canInspect={canInspectQuality}
+          initialRequestId={view.requestId}
           onBack={() => setView({ kind: 'materials-receipts' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
@@ -8752,6 +8758,7 @@ function ProjectDetailPage({
   onOpenPanel,
   onOpenPending,
   onOpenSettlement,
+  onOpenMaterialKitting,
   onOpenDepartmentWorkspace,
   onLoadOutcome,
   canSettleSales
@@ -8781,6 +8788,7 @@ function ProjectDetailPage({
   onOpenPanel: (panelId: string) => void;
   onOpenPending: () => void;
   onOpenSettlement: () => void;
+  onOpenMaterialKitting: () => void;
   onOpenDepartmentWorkspace: (section: ProjectDepartmentSection, projectCode?: string) => void;
   onLoadOutcome?: (loaded: boolean) => void;
   canSettleSales: boolean;
@@ -8905,7 +8913,7 @@ function ProjectDetailPage({
   function selectDetailSection(section: ProjectDetailSection) {
     setActiveDetailSection(section);
     if (typeof window !== 'undefined') {
-      const nextPath = `/projects/${projectId}${section === 'panels' ? '' : `?section=${section}`}`;
+      const nextPath = `/projects/${projectId}${section === 'workflow' ? '' : `?section=${section}`}`;
       if (`${window.location.pathname}${window.location.search}` !== nextPath) {
         window.history.replaceState(null, '', nextPath);
       }
@@ -9067,6 +9075,7 @@ function ProjectDetailPage({
             section={activeDetailSection}
             state={departmentDataState}
             onOpen={() => onOpenDepartmentWorkspace(activeDetailSection, project.projectCode)}
+            onOpenMaterialKitting={onOpenMaterialKitting}
           />
         ) : null}
 
@@ -9519,12 +9528,15 @@ async function loadProjectDepartmentData({
 function ProjectDepartmentDataSection({
   section,
   state,
-  onOpen
+  onOpen,
+  onOpenMaterialKitting
 }: {
   section: ProjectDepartmentSection;
   state: LoadState<ProjectDepartmentData>;
   onOpen: () => void;
+  onOpenMaterialKitting: () => void;
 }) {
+  const [materialView, setMaterialView] = useState<'receiving' | 'kitting'>('receiving');
   const labels = {
     sales: { title: '영업', action: '영업 후속 업무 열기', description: '프로젝트 생성과 납품 후 발행 요청 준비를 확인합니다.' },
     materials: { title: '자재', action: '자재 연속 흐름 열기', description: '도착·IQC·입고 확정·키팅 상태를 한 흐름으로 확인합니다.' },
@@ -9534,6 +9546,15 @@ function ProjectDepartmentDataSection({
   } as const;
   const department = labels[section];
   const data = state.kind === 'ready' ? state.data : null;
+  const visibleRecords = section === 'materials' && data
+    ? data.records.filter((record) => materialView === 'kitting' ? record.key.startsWith('kitting:') : !record.key.startsWith('kitting:'))
+    : data?.records ?? [];
+  const openWorkspace = section === 'materials' && materialView === 'kitting' ? onOpenMaterialKitting : onOpen;
+  const actionLabel = !data?.canMutate
+    ? '업무 화면에서 조회'
+    : section === 'materials'
+      ? materialView === 'kitting' ? '키팅 업무 수정' : '입고 업무 수정'
+      : department.action.replace(' 열기', ' 수정');
 
   return (
     <section className="subsection project-department-section" data-department={section}>
@@ -9545,8 +9566,8 @@ function ProjectDepartmentDataSection({
         </div>
         <div className="project-department-action">
           {data && !data.canMutate ? <small>조회 전용 · 담당자만 수정할 수 있습니다.</small> : null}
-          <button type="button" className={data?.canMutate ? 'primary-button' : 'secondary-button'} onClick={onOpen}>
-            {data?.canMutate ? department.action.replace(' 열기', ' 수정') : '업무 화면에서 조회'}
+          <button type="button" className={data?.canMutate ? 'primary-button' : 'secondary-button'} onClick={openWorkspace}>
+            {actionLabel}
           </button>
         </div>
       </div>
@@ -9554,14 +9575,20 @@ function ProjectDepartmentDataSection({
       {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
       {data ? (
         <>
+          {section === 'materials' ? (
+            <div className="section-switcher material-detail-subtabs" role="tablist" aria-label="자재 업무 구분">
+              <button type="button" role="tab" aria-selected={materialView === 'receiving'} className={materialView === 'receiving' ? 'secondary-button active' : 'secondary-button'} onClick={() => setMaterialView('receiving')}>입고 관리</button>
+              <button type="button" role="tab" aria-selected={materialView === 'kitting'} className={materialView === 'kitting' ? 'secondary-button active' : 'secondary-button'} onClick={() => setMaterialView('kitting')}>키팅 관리</button>
+            </div>
+          ) : null}
           <div className="project-department-metrics" aria-label={`${department.title} 프로젝트 지표`}>
             {data.metrics.map((metric) => (
               <article key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong>{metric.tone ? <i data-tone={metric.tone} /> : null}</article>
             ))}
           </div>
-          {data.records.length > 0 ? (
+          {visibleRecords.length > 0 ? (
             <div className="project-department-records" aria-label={`${department.title} 입력 데이터`}>
-              {data.records.map((record) => (
+              {visibleRecords.map((record) => (
                 <article className="project-department-record" key={record.key}>
                   <header>
                     <div><strong>{record.title}</strong>{record.subtitle ? <small>{record.subtitle}</small> : null}</div>

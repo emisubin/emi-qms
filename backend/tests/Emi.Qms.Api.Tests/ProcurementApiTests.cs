@@ -40,12 +40,15 @@ public sealed class ProcurementApiTests
             TestContext.Current.CancellationToken);
         using var arrivalJson = await ReadJsonAsync(arrival);
         var receiptId = arrivalJson.RootElement.GetProperty("receiptId").GetGuid();
+        var autoAttemptId = arrivalJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        Assert.Equal("IqcRequested", arrivalJson.RootElement.GetProperty("status").GetString());
         var iqcRequest = await materialsClient.PostAsJsonAsync(
             $"/api/materials/receipts/{receiptId}/iqc-requests",
             new { expectedVersion = 1 },
             TestContext.Current.CancellationToken);
         using var iqcRequestJson = await ReadJsonAsync(iqcRequest);
         var attemptId = iqcRequestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        Assert.Equal(autoAttemptId, attemptId);
 
         var bypass = await qualityClient.PostAsJsonAsync(
             $"/api/quality/iqc/{attemptId}/result",
@@ -405,6 +408,8 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.OK, arrival.StatusCode);
         using var arrivalJson = await ReadJsonAsync(arrival);
         var receiptId = arrivalJson.RootElement.GetProperty("receiptId").GetGuid();
+        var autoAttemptId = arrivalJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        Assert.Equal("IqcRequested", arrivalJson.RootElement.GetProperty("status").GetString());
 
         using (var afterMeasurement = await ReadProcurementAsync(procurementClient, projectId))
         {
@@ -447,6 +452,7 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.OK, iqcRequest.StatusCode);
         using var iqcRequestJson = await ReadJsonAsync(iqcRequest);
         var attemptId = iqcRequestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        Assert.Equal(autoAttemptId, attemptId);
         await context.MarkAttemptLegacyAsync(attemptId);
 
         var iqcPass = await qualityClient.PostAsJsonAsync(
@@ -781,17 +787,27 @@ public sealed class ProcurementApiTests
             TestContext.Current.CancellationToken);
         using var arrivalJson = await ReadJsonAsync(arrival);
         var receiptId = arrivalJson.RootElement.GetProperty("receiptId").GetGuid();
+        var autoAttemptId = arrivalJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
         var request = await materialsClient.PostAsJsonAsync(
             $"/api/materials/receipts/{receiptId}/iqc-requests",
             new { expectedVersion = 1 },
             TestContext.Current.CancellationToken);
         using var requestJson = await ReadJsonAsync(request);
         var firstAttemptId = requestJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        Assert.Equal(autoAttemptId, firstAttemptId);
         await context.MarkAttemptLegacyAsync(firstAttemptId);
+
+        using (var qualityWork = await ReadJsonAsync(await qualityClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken)))
+        {
+            var iqcWork = Assert.Single(qualityWork.RootElement.GetProperty("items").EnumerateArray(), item =>
+                item.GetProperty("projectId").GetGuid() == projectId
+                && item.GetProperty("linkUrl").GetString() == $"/quality/iqc?request={firstAttemptId}");
+            Assert.Equal($"/quality/iqc?request={firstAttemptId}", iqcWork.GetProperty("linkUrl").GetString());
+        }
 
         var failed = await qualityClient.PostAsJsonAsync(
             $"/api/quality/iqc/{firstAttemptId}/result",
-            new { expectedReceiptVersion = 2, result = "Failed", reason = "단자 외관 손상 확인" },
+            new { expectedReceiptVersion = 2, result = "Failed", reason = "단자 외관의 균열과 눌림 흔적이 확인되어 조립 안전성 검토가 필요합니다." },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, failed.StatusCode);
         using var failedJson = await ReadJsonAsync(failed);
@@ -822,6 +838,13 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.OK, reinspection.StatusCode);
         using var reinspectionJson = await ReadJsonAsync(reinspection);
         var secondAttemptId = reinspectionJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        using (var qualityWork = await ReadJsonAsync(await qualityClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken)))
+        {
+            var reinspectionWork = Assert.Single(qualityWork.RootElement.GetProperty("items").EnumerateArray(), item =>
+                item.GetProperty("projectId").GetGuid() == projectId
+                && item.GetProperty("linkUrl").GetString() == $"/quality/iqc?request={secondAttemptId}");
+            Assert.Equal($"/quality/iqc?request={secondAttemptId}", reinspectionWork.GetProperty("linkUrl").GetString());
+        }
         await context.MarkAttemptLegacyAsync(secondAttemptId);
         var passed = await qualityClient.PostAsJsonAsync(
             $"/api/quality/iqc/{secondAttemptId}/result",
@@ -1247,7 +1270,20 @@ public sealed class ProcurementApiTests
 
         var oneRequired = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { reason = "partial required procurement", items = new[] { new { orderItem = " 차단기 " } } },
+            new
+            {
+                reason = "partial required procurement",
+                items = new[]
+                {
+                    new
+                    {
+                        orderItem = " 차단기 ",
+                        supplierName = "필수품목 공급사",
+                        orderDate = "2026-07-01",
+                        expectedReceiptDate = "2026-07-15"
+                    }
+                }
+            },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, oneRequired.StatusCode);
         using var partialWorkflow = await ReadJsonAsync(await procurementClient.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
@@ -1263,8 +1299,22 @@ public sealed class ProcurementApiTests
                 reason = "all required procurement",
                 items = new object[]
                 {
-                    new { itemId = existing.GetProperty("itemId").GetGuid(), expectedRowVersion = existing.GetProperty("rowVersion").GetInt32(), orderItem = "차단기" },
-                    new { orderItem = "외함" }
+                    new
+                    {
+                        itemId = existing.GetProperty("itemId").GetGuid(),
+                        expectedRowVersion = existing.GetProperty("rowVersion").GetInt32(),
+                        orderItem = "차단기",
+                        supplierName = "필수품목 공급사",
+                        orderDate = "2026-07-01",
+                        expectedReceiptDate = "2026-07-15"
+                    },
+                    new
+                    {
+                        orderItem = "외함",
+                        supplierName = "필수품목 공급사",
+                        orderDate = "2026-07-02",
+                        expectedReceiptDate = "2026-07-16"
+                    }
                 }
             },
             TestContext.Current.CancellationToken);

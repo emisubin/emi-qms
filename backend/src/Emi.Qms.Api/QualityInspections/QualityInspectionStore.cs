@@ -610,7 +610,8 @@ public sealed class QualityInspectionStore(
 
         var items = await ReadTemplateRowsAsync(connection, transaction, context.TemplateVersionId, cancellationToken);
         var responses = await ReadResponseRowsAsync(connection, transaction, reportId, cancellationToken);
-        var invariantErrors = ValidateFinalization(items, responses, result!);
+        var photos = await ReadPhotoSnapshotsAsync(connection, transaction, reportId, cancellationToken);
+        var invariantErrors = ValidateFinalization(items, responses, photos, result!, reason!);
         if (invariantErrors.Count > 0) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Validation(invariantErrors);
 
         if (result == "Failed")
@@ -635,22 +636,32 @@ public sealed class QualityInspectionStore(
         }
 
         var actorName = await ReadActorNameAsync(connection, transaction, actorUserId, cancellationToken);
-        var photos = await ReadPhotoSnapshotsAsync(connection, transaction, reportId, cancellationToken);
         var snapshot = BuildSnapshot(context, items, responses, photos, result!, reason!, actorName);
         var snapshotHash = Hash(Encoding.UTF8.GetBytes(snapshot));
         Guid? pendingId = null;
         long? pendingNumber = null;
         if (result == "Failed")
         {
-            var issueType = context.StageCode is QualityInspectionStages.CustomerInspection or QualityInspectionStages.Fat
-                ? PendingIssueTypes.Punch
-                : PendingIssueTypes.Nonconformance;
-            var pending = await pendingStore.CreatePanelQualityIssueAsync(
-                connection, transaction, context.ProjectId, context.PanelId, context.PanelDisplayCode,
-                StageLabel(context.StageCode), issueType, reason!, department!, request.AssigneeUserId,
-                actorUserId, correlationId, cancellationToken);
-            pendingId = pending.PendingId;
-            pendingNumber = pending.IssueNumber;
+            if (context.LinkedPendingId is not null)
+            {
+                pendingId = context.LinkedPendingId;
+                await pendingStore.ReopenQualityIssueAfterFailedReinspectionAsync(
+                    connection, transaction, context.LinkedPendingId.Value, actorUserId,
+                    $"{StageLabel(context.StageCode)} {context.AttemptNumber}차 재검사 부적합: {reason}",
+                    correlationId, cancellationToken);
+            }
+            else
+            {
+                var issueType = context.StageCode is QualityInspectionStages.CustomerInspection or QualityInspectionStages.Fat
+                    ? PendingIssueTypes.Punch
+                    : PendingIssueTypes.Nonconformance;
+                var pending = await pendingStore.CreatePanelQualityIssueAsync(
+                    connection, transaction, context.ProjectId, context.PanelId, context.PanelDisplayCode,
+                    StageLabel(context.StageCode), issueType, reason!, department!, request.AssigneeUserId,
+                    actorUserId, correlationId, cancellationToken);
+                pendingId = pending.PendingId;
+                pendingNumber = pending.IssueNumber;
+            }
         }
         var attemptPendingId = pendingId ?? context.LinkedPendingId;
 
@@ -716,6 +727,121 @@ public sealed class QualityInspectionStore(
         return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Success(response);
     }
 
+    internal static async Task<Guid?> EnsurePendingReinspectionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using (var existingCommand = connection.CreateCommand())
+        {
+            existingCommand.Transaction = transaction;
+            existingCommand.CommandText = """
+                select id
+                from panel_quality_inspection_attempts
+                where linked_pending_issue_id = @pending_id
+                  and status in ('Requested', 'InProgress')
+                order by attempt_number desc
+                limit 1;
+                """;
+            existingCommand.Parameters.AddWithValue("pending_id", pendingId);
+            if (await existingCommand.ExecuteScalarAsync(cancellationToken) is Guid existingAttemptId)
+            {
+                return existingAttemptId;
+            }
+        }
+
+        Guid projectId;
+        Guid panelId;
+        string stageCode;
+        int attemptNumber;
+        string panelDisplayCode;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select attempt.project_id, attempt.panel_id, attempt.stage_code,
+                       attempt.attempt_number + 1, panel.display_code
+                from panel_quality_inspection_attempts attempt
+                join panel_placeholders panel on panel.id = attempt.panel_id and panel.status = 'Active'
+                where attempt.linked_pending_issue_id = @pending_id
+                  and attempt.status = 'Failed'
+                order by attempt.attempt_number desc
+                limit 1
+                for update of attempt, panel;
+                """;
+            command.Parameters.AddWithValue("pending_id", pendingId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)) return null;
+            projectId = reader.GetGuid(0);
+            panelId = reader.GetGuid(1);
+            stageCode = reader.GetString(2);
+            attemptNumber = reader.GetInt32(3);
+            panelDisplayCode = reader.GetString(4);
+        }
+
+        var templateVersionId = await ReadActiveTemplateVersionAsync(connection, transaction, stageCode, cancellationToken)
+            ?? throw new InvalidOperationException("활성 검사 양식을 찾을 수 없습니다.");
+        var assignee = await ResolveAssigneeAsync(connection, transaction, projectId, stageCode, cancellationToken)
+            ?? throw new InvalidOperationException("품질 재검사 담당자를 지정한 뒤 조치를 완료해 주세요.");
+        var workItemId = Guid.NewGuid();
+        var attemptId = Guid.NewGuid();
+        var reportId = Guid.NewGuid();
+        var key = $"quality:pending:{pendingId}:reinspection:{attemptNumber}";
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into work_items (
+                    id, project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                    assigned_user_id, assigned_role_code, title, description, status, priority,
+                    idempotency_key, created_by_user_id
+                ) values (
+                    @work_id, @project_id, 'Panel', @panel_id, @stage_code, @responsibility,
+                    @assignee_id, @role_code, @title, @description, 'Requested', 'Blocking',
+                    @key, @actor_id
+                );
+                insert into panel_quality_inspection_attempts (
+                    id, project_id, panel_id, stage_code, attempt_number, status, work_item_id,
+                    linked_pending_issue_id, version
+                ) values (
+                    @attempt_id, @project_id, @panel_id, @stage_code, @attempt_number, 'Requested', @work_id,
+                    @pending_id, 1
+                );
+                insert into panel_quality_reports (
+                    id, attempt_id, template_version_id, status, version,
+                    created_by_user_id, updated_by_user_id
+                ) values (@report_id, @attempt_id, @template_id, 'Draft', 1, @actor_id, @actor_id);
+                """;
+            command.Parameters.AddWithValue("work_id", workItemId);
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("panel_id", panelId);
+            command.Parameters.AddWithValue("stage_code", stageCode);
+            command.Parameters.AddWithValue("responsibility", assignee.Responsibility);
+            command.Parameters.AddWithValue("assignee_id", assignee.UserId);
+            AddNullableText(command, "role_code", assignee.RoleCode);
+            command.Parameters.AddWithValue("title", $"{StageLabel(stageCode)} 재검사 · {panelDisplayCode}");
+            command.Parameters.AddWithValue("description", "연결된 Pending 조치가 완료되었습니다. 재검사를 진행해 주세요.");
+            command.Parameters.AddWithValue("key", key);
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("attempt_id", attemptId);
+            command.Parameters.AddWithValue("attempt_number", attemptNumber);
+            command.Parameters.AddWithValue("pending_id", pendingId);
+            command.Parameters.AddWithValue("report_id", reportId);
+            command.Parameters.AddWithValue("template_id", templateVersionId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await WorkAssignmentNotificationWriter.UpsertAsync(
+            connection, transaction, projectId, workItemId, assignee.UserId,
+            SecondaryResponsibilities(stageCode),
+            $"{StageLabel(stageCode)} 재검사 · {panelDisplayCode}",
+            "Pending 조치가 완료되어 재검사를 요청했습니다.",
+            $"/quality/inspections?stage={stageCode}&project={projectId}&panel={panelId}",
+            $"{key}:notification", cancellationToken);
+        return attemptId;
+    }
+
     public async Task<QualityInspectionMutationResult<QualityInspectionMutationResponse>> RequestReinspectionAsync(
         RequestQualityReinspectionRequest request,
         Guid actorUserId,
@@ -742,60 +868,33 @@ public sealed class QualityInspectionStore(
         {
             return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("재검사 요청 상태와 최신 Pending version을 확인해 주세요.");
         }
-        var attemptNumber = failed.AttemptNumber + 1;
-        var workItemId = Guid.NewGuid();
-        var attemptId = Guid.NewGuid();
-        var reportId = Guid.NewGuid();
-        var templateVersionId = await ReadActiveTemplateVersionAsync(connection, transaction, failed.StageCode, cancellationToken);
-        if (templateVersionId is null)
-        {
-            return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("활성 검사 양식을 찾을 수 없습니다.");
-        }
-        var responsibility = PrimaryResponsibility(failed.StageCode);
+        var attemptId = await EnsurePendingReinspectionAsync(connection, transaction, request.PendingId, actorUserId, cancellationToken)
+            ?? throw new InvalidOperationException("연결된 품질검사 Pending을 찾을 수 없습니다.");
+        Guid reportId;
+        string attemptStatus;
+        int reportVersion;
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
             command.CommandText = """
-                insert into work_items (
-                    id, project_id, target_type, target_id, workflow_stage_code, responsibility_type,
-                    assigned_user_id, title, description, status, priority, idempotency_key,
-                    created_by_user_id, started_at_utc
-                ) values (
-                    @work_id, @project_id, 'Panel', @panel_id, @stage_code, @responsibility,
-                    @actor_id, @title, @description, 'InProgress', 'Blocking', @key,
-                    @actor_id, now()
-                ) on conflict (idempotency_key) do nothing;
-                insert into panel_quality_inspection_attempts (
-                    id, project_id, panel_id, stage_code, attempt_number, status, work_item_id,
-                    linked_pending_issue_id, version, started_by_user_id, started_at_utc
-                ) values (
-                    @attempt_id, @project_id, @panel_id, @stage_code, @attempt_number, 'InProgress', @work_id,
-                    @pending_id, 1, @actor_id, now()
-                );
-                insert into panel_quality_reports (
-                    id, attempt_id, template_version_id, status, version,
-                    created_by_user_id, updated_by_user_id
-                ) values (@report_id, @attempt_id, @template_id, 'Draft', 1, @actor_id, @actor_id);
+                select report.id, attempt.status, report.version
+                from panel_quality_inspection_attempts attempt
+                join panel_quality_reports report on report.attempt_id = attempt.id
+                where attempt.id = @attempt_id;
                 """;
-            command.Parameters.AddWithValue("work_id", workItemId);
-            command.Parameters.AddWithValue("project_id", failed.ProjectId);
-            command.Parameters.AddWithValue("panel_id", failed.PanelId);
-            command.Parameters.AddWithValue("stage_code", failed.StageCode);
-            command.Parameters.AddWithValue("responsibility", responsibility);
-            command.Parameters.AddWithValue("actor_id", actorUserId);
-            command.Parameters.AddWithValue("title", $"{StageLabel(failed.StageCode)} 재검사 · {failed.PanelDisplayCode}");
-            command.Parameters.AddWithValue("description", "연결된 Pending 조치 후 재검사를 진행해 주세요.");
-            command.Parameters.AddWithValue("key", $"quality:panel:{failed.PanelId}:{failed.StageCode}:attempt:{attemptNumber}");
             command.Parameters.AddWithValue("attempt_id", attemptId);
-            command.Parameters.AddWithValue("report_id", reportId);
-            command.Parameters.AddWithValue("template_id", templateVersionId.Value);
-            command.Parameters.AddWithValue("attempt_number", attemptNumber);
-            command.Parameters.AddWithValue("pending_id", request.PendingId);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
+            }
+            reportId = reader.GetGuid(0);
+            attemptStatus = reader.GetString(1);
+            reportVersion = reader.GetInt32(2);
         }
         var response = new QualityInspectionMutationResponse(
             request.OperationId, failed.ProjectId, failed.PanelId, failed.StageCode, attemptId, reportId,
-            "InProgress", 1, request.PendingId, failed.PendingNumber, null, false);
+            attemptStatus, reportVersion, request.PendingId, failed.PendingNumber, null, false);
         await InsertOperationAsync(connection, transaction, request.OperationId, "RequestReinspection", failed.ProjectId, failed.PanelId, failed.StageCode, attemptId, actorUserId, fingerprint, response, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Success(response);
@@ -1393,7 +1492,11 @@ public sealed class QualityInspectionStore(
     }
 
     private static Dictionary<string, string[]> ValidateFinalization(
-        IReadOnlyList<TemplateRow> items, IReadOnlyList<ResponseRow> responses, string result)
+        IReadOnlyList<TemplateRow> items,
+        IReadOnlyList<ResponseRow> responses,
+        IReadOnlyList<PhotoSnapshot> photos,
+        string result,
+        string reason)
     {
         var errors = new Dictionary<string, string[]>();
         var map = responses.ToDictionary(item => item.TemplateItemId);
@@ -1412,6 +1515,8 @@ public sealed class QualityInspectionStore(
         var hasFail = responses.Any(item => item.CheckResult == "Fail");
         if (result == "Passed" && hasFail) errors["result"] = ["부적합 항목이 있어 합격으로 확정할 수 없습니다."];
         if (result == "Failed" && !hasFail) errors["result"] = ["부적합 판정에는 하나 이상의 부적합 항목이 필요합니다."];
+        if (result == "Failed" && photos.Count == 0 && reason.Trim().Length < 30)
+            errors["reason"] = ["부적합 판정은 사진 1장 이상 또는 구체적인 근거 30자 이상이 필요합니다."];
         return errors;
     }
 
@@ -1576,6 +1681,7 @@ public sealed class QualityInspectionStore(
 
     private static IReadOnlyList<string> SecondaryResponsibilities(string stageCode) => stageCode switch
     {
+        QualityInspectionStages.Lqc => ["QualityLQCSecondary"],
         QualityInspectionStages.ManufacturingCompleted => ["ManufacturingSecondary"],
         QualityInspectionStages.Oqc => ["QualityOQCSecondary"],
         QualityInspectionStages.CustomerInspection or QualityInspectionStages.Fat => ["QualityCustomerInspectionSecondary"],

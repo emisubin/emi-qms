@@ -146,6 +146,40 @@ public sealed class ProductionPlanningApiTests
         Assert.Equal($"/projects/{projectId}/panel-information/edit", generatedDesignWork[0].GetProperty("linkUrl").GetString());
         var designWorkItemId = generatedDesignWork[0].GetProperty("workItemId").GetGuid();
 
+        using var procurementWorkBeforeDesign = await ReadJsonAsync(await procurementClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
+        var generatedProcurementWork = procurementWorkBeforeDesign.RootElement.GetProperty("items").EnumerateArray()
+            .Where(item =>
+                item.GetProperty("projectId").GetGuid() == projectId
+                && item.GetProperty("workflowStageCode").GetString() == "ProcurementInfo")
+            .ToList();
+        Assert.Single(generatedProcurementWork);
+        Assert.Equal("구매정보 입력", generatedProcurementWork[0].GetProperty("title").GetString());
+        Assert.Equal("ProcurementPrimary", generatedProcurementWork[0].GetProperty("responsibilityType").GetString());
+        Assert.Equal($"/projects/{projectId}/procurement/edit", generatedProcurementWork[0].GetProperty("linkUrl").GetString());
+        var procurementWorkItemId = generatedProcurementWork[0].GetProperty("workItemId").GetGuid();
+
+        var completeProcurement = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                reason = "workflow procurement complete",
+                items = new[]
+                {
+                    new
+                    {
+                        orderItem = "차단기",
+                        supplierName = "테스트 업체",
+                        orderDate = "2026-06-20",
+                        expectedReceiptDate = "2026-07-10"
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, completeProcurement.StatusCode);
+        Assert.Equal("Completed", await context.ReadScalarAsync<string>($"""
+            select status from work_items where id = '{procurementWorkItemId}';
+            """));
+
         using var panelInfo = await ReadJsonAsync(await designClient.GetAsync($"/api/projects/{projectId}/panel-information", TestContext.Current.CancellationToken));
         var panelRows = panelInfo.RootElement.GetProperty("panels").EnumerateArray().ToList();
         var partialPanel = await designClient.PatchAsJsonAsync(
@@ -198,23 +232,6 @@ public sealed class ProductionPlanningApiTests
             where id = '{designWorkItemId}';
             """));
 
-        using var myWork = await ReadJsonAsync(await procurementClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken));
-        var procurementWork = myWork.RootElement.GetProperty("items").EnumerateArray()
-            .Where(item =>
-                item.GetProperty("projectId").GetGuid() == projectId
-                && item.GetProperty("workflowStageCode").GetString() == "ProcurementInfo")
-            .ToList();
-        Assert.Single(procurementWork);
-        Assert.Equal("구매정보 입력", procurementWork[0].GetProperty("title").GetString());
-        Assert.Equal("ProcurementPrimary", procurementWork[0].GetProperty("responsibilityType").GetString());
-        Assert.Equal($"/projects/{projectId}/procurement/edit", procurementWork[0].GetProperty("linkUrl").GetString());
-        var procurementWorkItemId = procurementWork[0].GetProperty("workItemId").GetGuid();
-
-        var completeProcurement = await procurementClient.PatchAsJsonAsync(
-            $"/api/projects/{projectId}/procurement",
-            new { reason = "workflow procurement complete", items = new[] { new { orderItem = "차단기", supplierName = "테스트 업체" } } },
-            TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, completeProcurement.StatusCode);
         Assert.Equal("Completed", await context.ReadScalarAsync<string>($"""
             select status from work_items where id = '{procurementWorkItemId}';
             """));

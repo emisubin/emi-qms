@@ -1151,6 +1151,84 @@ public sealed class PanelInformationApiTests
     }
 
     [Fact]
+    public async Task PanelQr_BatchIssue_IsAtomicAndIdempotentForEligiblePanels()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var created = await CreateProjectAsync(salesClient, "QR-BATCH-001", "QR Batch", "StretchWrap", 3);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        var panelInfo = await ReadPanelInformationAsync(designClient, projectId);
+        var panels = panelInfo.RootElement.GetProperty("panels").EnumerateArray().ToList();
+        var panelIds = panels.Select(panel => panel.GetProperty("panelId").GetGuid()).ToArray();
+
+        using var partiallyNamed = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                panels = panels.Take(2).Select((panel, index) => new
+                {
+                    panelId = panel.GetProperty("panelId").GetGuid(),
+                    expectedPanelInfoVersion = panel.GetProperty("panelInfoVersion").GetInt32(),
+                    panelNameUpdate = new { isChanged = true, value = $"BATCH-{index + 1:00}" }
+                }).ToArray()
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, partiallyNamed.StatusCode);
+
+        using var rejected = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/qr/issue-batch",
+            new { panelIds },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        foreach (var panelId in panelIds)
+        {
+            Assert.Equal(0, await context.CountActivePanelQrsAsync(panelId));
+        }
+
+        using var namedLast = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                panels = new[]
+                {
+                    new
+                    {
+                        panelId = panelIds[2],
+                        expectedPanelInfoVersion = panels[2].GetProperty("panelInfoVersion").GetInt32(),
+                        panelNameUpdate = new { isChanged = true, value = "BATCH-03" }
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, namedLast.StatusCode);
+
+        using var issued = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/qr/issue-batch",
+            new { panelIds },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, issued.StatusCode);
+        using var issuedJson = await ReadJsonAsync(issued);
+        Assert.Equal(3, issuedJson.RootElement.GetProperty("requestedCount").GetInt32());
+        Assert.Equal(3, issuedJson.RootElement.GetProperty("newlyIssuedCount").GetInt32());
+        Assert.Equal(0, issuedJson.RootElement.GetProperty("alreadyIssuedCount").GetInt32());
+
+        using var replay = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/qr/issue-batch",
+            new { panelIds },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        using var replayJson = await ReadJsonAsync(replay);
+        Assert.Equal(0, replayJson.RootElement.GetProperty("newlyIssuedCount").GetInt32());
+        Assert.Equal(3, replayJson.RootElement.GetProperty("alreadyIssuedCount").GetInt32());
+        foreach (var panelId in panelIds)
+        {
+            Assert.Equal(1, await context.CountActivePanelQrsAsync(panelId));
+        }
+    }
+
+    [Fact]
     public async Task PanelQr_PrintSheetRejectsStaleSelection_AndResolveRequiresAuthentication()
     {
         await using var context = await PanelInfoTestContext.CreateAsync();

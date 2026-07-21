@@ -62,6 +62,25 @@ public static class PanelQrEndpointExtensions
         .RequireAuthorization(QmsPolicies.PanelInfoUpdate)
         .WithName("IssuePanelQr");
 
+        projectApi.MapPost("/qr/issue-batch", async (
+            Guid projectId,
+            PanelQrBatchIssueRequest request,
+            ProjectStore projectStore,
+            PanelQrStore qrStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null) return access;
+            var actorUserId = CurrentUserId(user);
+            if (actorUserId is null) return Results.Unauthorized();
+            var result = await qrStore.IssueBatchAsync(projectId, request.PanelIds, actorUserId.Value, httpContext.TraceIdentifier, cancellationToken);
+            return ToMutationResult(result, Results.Ok);
+        })
+        .RequireAuthorization(QmsPolicies.PanelInfoUpdate)
+        .WithName("IssuePanelQrBatch");
+
         projectApi.MapPost("/panels/{panelId:guid}/qr/rotate", async (
             Guid projectId,
             Guid panelId,

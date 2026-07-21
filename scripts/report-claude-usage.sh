@@ -76,7 +76,9 @@ perl -0777 -e '
 
   my ($session_used, $session_reset, $session_reset_in_minutes, $all_used, $all_reset, $fable_used, $fable_reset);
 
-  while ($text =~ /Current\s*session.*?(\d+)%\s*used.*?Resets\s*in\s*((?:\d+\s*(?:hr|hrs|hour|hours)(?:\s+\d+\s*(?:min|mins|minute|minutes))?)|(?:\d+\s*(?:min|mins|minute|minutes)))/gsi) {
+  my $session_label = qr/Current\s*(?:5(?:\s|-)*hour\s*)?session/i;
+
+  while ($text =~ /$session_label.*?(\d+)%\s*used.*?Resets\s*in\s*((?:\d+\s*(?:hr|hrs|hour|hours)(?:\s+\d+\s*(?:min|mins|minute|minutes))?)|(?:\d+\s*(?:min|mins|minute|minutes)))/gsi) {
     $session_used = $1;
     my $duration = $2;
     my ($hours) = $duration =~ /(\d+)\s*(?:hr|hrs|hour|hours)/i;
@@ -84,7 +86,7 @@ perl -0777 -e '
     $session_reset_in_minutes = (($hours // 0) * 60) + ($minutes // 0);
   }
 
-  while ($text =~ /Current\s*session.*?(\d+)%\s*used.*?Resets\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)\s*\(Asia\/Seoul\))/gsi) {
+  while ($text =~ /$session_label.*?(\d+)%\s*used.*?Resets\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)\s*\(Asia\/Seoul\))/gsi) {
     ($session_used, $session_reset) = ($1, $2);
   }
 
@@ -99,12 +101,36 @@ perl -0777 -e '
   my @used_candidates = ($text =~ /(\d+)%\s*used/gsi);
   my @session_reset_candidates = ($text =~ /Resets\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)\s*\(Asia\/Seoul\))/gsi);
   my @dated_reset_candidates = ($text =~ /Resets\s*([A-Z][a-z]{2}\s*\d{1,2}\s*at\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\s*\(Asia\/Seoul\))/gsi);
-  my $session_label_present = $text =~ /Current\s*session/si ? 1 : 0;
+  my $session_label_present = $text =~ /$session_label/si ? 1 : 0;
   my $all_label_present = $text =~ /Current\s*week\s*\(all\s*models\)/si ? 1 : 0;
 
   if (!defined $session_used
       && $session_label_present
       && scalar(@used_candidates) >= 3) {
+    $session_used = $used_candidates[-3];
+  }
+
+  # Claude usage TUI can repaint the weekly rows after initially rendering all
+  # three rows, producing [session, all, fable, all, fable] after ANSI removal.
+  if (!defined $session_used
+      && scalar(@used_candidates) == 5
+      && $used_candidates[1] == $used_candidates[3]
+      && $used_candidates[2] == $used_candidates[4]) {
+    $session_used = $used_candidates[0];
+  }
+
+  # A usage refresh can leave two complete snapshots in the terminal buffer.
+  # With both weekly labels present, the newest complete triple is authoritative.
+  if (!defined $session_used
+      && $all_label_present
+      && scalar(@used_candidates) == 3) {
+    $session_used = $used_candidates[0];
+  }
+
+  if (!defined $session_used
+      && $all_label_present
+      && scalar(@used_candidates) >= 6
+      && scalar(@used_candidates) % 3 == 0) {
     $session_used = $used_candidates[-3];
   }
 

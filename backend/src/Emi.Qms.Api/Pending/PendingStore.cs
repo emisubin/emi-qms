@@ -1,3 +1,5 @@
+using Emi.Qms.Api.Materials;
+using Emi.Qms.Api.QualityInspections;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -101,7 +103,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
 
         var comments = await ReadCommentsAsync(connection, pendingId, cancellationToken);
         var history = await ReadHistoryAsync(connection, pendingId, cancellationToken);
-        return BuildDetail(issue, comments, history, actor);
+        var isInspectionPending = await IsQualityInspectionPendingAsync(connection, null, pendingId, cancellationToken);
+        return BuildDetail(issue, comments, history, actor, isInspectionPending);
     }
 
     public async Task<IReadOnlyList<PendingAssigneeResponse>> ListAssigneesAsync(CancellationToken cancellationToken)
@@ -379,6 +382,16 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         }
 
         await SyncWorkItemStatusAsync(connection, transaction, pendingId, toStatus!, cancellationToken);
+        if (string.Equals(toStatus, PendingStatuses.ReinspectionRequested, StringComparison.Ordinal))
+        {
+            var materialAttemptId = await MaterialsStore.EnsurePendingReinspectionAsync(
+                connection, transaction, pendingId, actor.UserId, cancellationToken);
+            if (materialAttemptId is null)
+            {
+                await QualityInspectionStore.EnsurePendingReinspectionAsync(
+                    connection, transaction, pendingId, actor.UserId, cancellationToken);
+            }
+        }
         await InsertHistoryAsync(
             connection,
             transaction,
@@ -974,6 +987,48 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             cancellationToken);
     }
 
+    public async Task ReopenQualityIssueAfterFailedReinspectionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        Guid actorUserId,
+        string reason,
+        string? correlationId,
+        CancellationToken cancellationToken)
+    {
+        var issue = await ReadIssueForUpdateAsync(connection, transaction, pendingId, cancellationToken)
+            ?? throw new InvalidOperationException("연결된 Pending을 찾을 수 없습니다.");
+        if (!string.Equals(issue.Status, PendingStatuses.ReinspectionRequested, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("재검사 요청 상태의 Pending만 재조치 상태로 되돌릴 수 있습니다.");
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                update pending_issues
+                set status = 'InProgress', version = version + 1,
+                    updated_by_user_id = @actor_id, updated_at_utc = now(),
+                    closed_by_user_id = null, closed_at_utc = null
+                where id = @id;
+                update work_items
+                set status = 'InProgress', started_at_utc = coalesce(started_at_utc, now()),
+                    completed_at_utc = null, cancelled_at_utc = null
+                where target_type = 'Pending' and target_id = @id
+                  and status <> 'Cancelled';
+                """;
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("id", pendingId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await InsertHistoryAsync(
+            connection, transaction, pendingId, "StatusChanged",
+            issue.Status, PendingStatuses.InProgress,
+            issue.AssigneeUserId, issue.AssigneeUserId,
+            reason.Trim(), actorUserId, correlationId, cancellationToken);
+    }
+
     private static Dictionary<string, string[]> ValidateCreate(CreatePendingRequest request)
     {
         var errors = new Dictionary<string, string[]>();
@@ -1179,9 +1234,12 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         PendingListItemResponse issue,
         IReadOnlyList<PendingCommentResponse> comments,
         IReadOnlyList<PendingHistoryResponse> history,
-        PendingActor actor)
+        PendingActor actor,
+        bool isInspectionPending)
     {
-        var allowed = AllowedTransitions(issue, actor);
+        var allowed = AllowedTransitions(issue, actor)
+            .Where(status => !isInspectionPending || status != PendingStatuses.Closed)
+            .ToList();
         return new PendingDetailResponse(
             issue,
             comments,
@@ -1344,7 +1402,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
 
     private static async Task<bool> IsQualityInspectionPendingAsync(
         NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
+        NpgsqlTransaction? transaction,
         Guid pendingId,
         CancellationToken cancellationToken)
     {
@@ -1355,6 +1413,11 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 select 1
                 from panel_quality_inspection_attempts
                 where linked_pending_issue_id = @pending_id
+                  and status = 'Failed'
+                union all
+                select 1
+                from material_iqc_attempts
+                where pending_issue_id = @pending_id
                   and status = 'Failed'
             );
             """;

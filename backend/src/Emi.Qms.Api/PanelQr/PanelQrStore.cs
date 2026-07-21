@@ -173,6 +173,82 @@ public sealed partial class PanelQrStore(
         }
     }
 
+    public async Task<PanelQrMutationResult<PanelQrBatchIssueResponse>> IssueBatchAsync(
+        Guid projectId,
+        IReadOnlyList<Guid>? panelIds,
+        Guid actorUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var requestedIds = panelIds ?? [];
+        var ids = requestedIds.Distinct().OrderBy(id => id).ToArray();
+        if (ids.Length is < 1 or > MaxPrintSheetItems || ids.Length != requestedIds.Count)
+        {
+            return PanelQrMutationResult<PanelQrBatchIssueResponse>.Validation(
+                "panelIds",
+                "같은 프로젝트에서 중복 없이 QR 발급 대상 1~50개를 선택해 주세요.");
+        }
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var panels = new List<Guid>(ids.Length);
+            foreach (var panelId in ids)
+            {
+                var panel = await LockPanelAsync(connection, transaction, projectId, panelId, cancellationToken);
+                if (panel is null || !panel.QrEligible)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return PanelQrMutationResult<PanelQrBatchIssueResponse>.Conflict(
+                        $"선택 {ids.Length}개 중 현재 발급 가능한 패널이 아닌 항목이 있습니다. 목록을 새로고침해 주세요.");
+                }
+                panels.Add(panelId);
+            }
+
+            var newlyIssued = 0;
+            var alreadyIssued = 0;
+            foreach (var panelId in panels)
+            {
+                var existing = await ReadActiveAsync(connection, transaction, projectId, panelId, cancellationToken);
+                if (existing is not null)
+                {
+                    alreadyIssued++;
+                    continue;
+                }
+
+                var qrId = Guid.NewGuid();
+                await using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = """
+                        insert into panel_qr_codes (id, project_id, panel_id, token, status, issued_by_user_id, issued_at_utc)
+                        values (@id, @project_id, @panel_id, @token, 'Active', @actor_user_id, @issued_at_utc);
+                        """;
+                    command.Parameters.AddWithValue("id", qrId);
+                    command.Parameters.AddWithValue("project_id", projectId);
+                    command.Parameters.AddWithValue("panel_id", panelId);
+                    command.Parameters.AddWithValue("token", GenerateToken());
+                    command.Parameters.AddWithValue("actor_user_id", actorUserId);
+                    command.Parameters.AddWithValue("issued_at_utc", timeProvider.GetUtcNow());
+                    await command.ExecuteNonQueryAsync(cancellationToken);
+                }
+                await InsertEventAsync(connection, transaction, qrId, projectId, panelId, "Issued", null, ids.Length, actorUserId, correlationId, cancellationToken);
+                newlyIssued++;
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            return PanelQrMutationResult<PanelQrBatchIssueResponse>.Success(
+                new PanelQrBatchIssueResponse(projectId, ids.Length, newlyIssued, alreadyIssued));
+        }
+        catch
+        {
+            await RollbackQuietlyAsync(transaction, cancellationToken);
+            throw;
+        }
+    }
+
     public async Task<PanelQrMutationResult<PanelQrRecordResponse>> RotateAsync(
         Guid projectId,
         Guid panelId,

@@ -83,12 +83,16 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             cancellationToken);
 
         if (!string.Equals(stageCode, WorkflowStageCodes.SalesProjectCreated, StringComparison.Ordinal)
-            && StageToNextStage.TryGetValue(stageCode, out var nextStageCode)
-            && StageResponsibilities.TryGetValue(nextStageCode, out var target))
+            && StageToNextStage.TryGetValue(stageCode, out var nextStageCode))
         {
-            var stage = await ReadStageAsync(connection, transaction, nextStageCode, cancellationToken);
-            if (stage is not null)
+            var nextStageCodes = string.Equals(stageCode, WorkflowStageCodes.ProductionPlanning, StringComparison.Ordinal)
+                ? new[] { nextStageCode, WorkflowStageCodes.ProcurementInfo }
+                : new[] { nextStageCode };
+            foreach (var activatedStageCode in nextStageCodes)
             {
+                if (!StageResponsibilities.TryGetValue(activatedStageCode, out var target)) continue;
+                var stage = await ReadStageAsync(connection, transaction, activatedStageCode, cancellationToken);
+                if (stage is null) continue;
                 var assignee = await ResolveAssigneeAsync(connection, transaction, project, target, cancellationToken);
                 if (assignee.UserId is not null)
                 {
@@ -96,7 +100,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                         connection,
                         transaction,
                         projectId,
-                        nextStageCode,
+                        activatedStageCode,
                         target.Primary,
                         assignee.UserId.Value,
                         assignee.RoleCode,
@@ -104,7 +108,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                         BuildWorkDescription(stage, assignee),
                         eventId,
                         createdByUserId,
-                        $"project:{projectId}:stage:{nextStageCode}:work:{target.Primary}",
+                        $"project:{projectId}:stage:{activatedStageCode}:work:{target.Primary}",
                         cancellationToken);
                 }
 
@@ -1229,7 +1233,20 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             procurement_summary as (
                 select
                     count(*)::int as item_count,
-                    count(*) filter (where nullif(btrim(coalesce(order_item, '')), '') is not null)::int as named_item_count
+                    count(*) filter (where nullif(btrim(coalesce(order_item, '')), '') is not null)::int as named_item_count,
+                    count(*) filter (
+                        where nullif(btrim(coalesce(order_item, '')), '') is not null
+                          and expected_receipt_date is not null
+                          and (
+                              (supply_type = 'Purchased'
+                               and nullif(btrim(coalesce(supplier_name, '')), '') is not null
+                               and order_date is not null)
+                              or
+                              (supply_type = 'CustomerSupplied'
+                               and order_quantity > 0
+                               and nullif(btrim(coalesce(order_unit, '')), '') is not null)
+                          )
+                    )::int as complete_item_count
                 from project_procurement_items
                 where project_id = @project_id
                   and status = 'Active'
@@ -1258,6 +1275,16 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                   on upper(btrim(templates.item_code)) = project_context.item_code
                  and templates.is_active = true
                 join procurement_required_item_template_rows rows on rows.template_id = templates.id
+            ),
+            iqc_summary as (
+                select
+                    count(receipt.id) filter (where receipt.status <> 'Cancelled')::int as receipt_count,
+                    count(receipt.id) filter (where receipt.status in ('Passed', 'Confirmed'))::int as passed_count,
+                    count(receipt.id) filter (where receipt.status in ('IqcRequested', 'Passed', 'FailedBlocked', 'Confirmed'))::int as started_count,
+                    count(receipt.id) filter (where receipt.status = 'FailedBlocked')::int as failed_count
+                from project_procurement_items item
+                join material_receipts receipt on receipt.procurement_item_id = item.id
+                where item.project_id = @project_id and item.status = 'Active'
             )
             select
                 coalesce(ps.active_panel_count, 0),
@@ -1269,21 +1296,27 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 coalesce(a.assigned_count, 0),
                 coalesce(pr.item_count, 0),
                 coalesce(pr.named_item_count, 0),
+                coalesce(pr.complete_item_count, 0),
                 coalesce(prs.required_item_count, 0),
-                coalesce(prs.matched_required_item_count, 0)
+                coalesce(prs.matched_required_item_count, 0),
+                coalesce(iqc.receipt_count, 0),
+                coalesce(iqc.passed_count, 0),
+                coalesce(iqc.started_count, 0),
+                coalesce(iqc.failed_count, 0)
             from (select 1) anchor
             left join panel_summary ps on true
             left join production_plan_summary pps on true
             left join assignee_summary a on true
             left join procurement_summary pr on true
-            left join procurement_required_summary prs on true;
+            left join procurement_required_summary prs on true
+            left join iqc_summary iqc on true;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
-            return new WorkflowCompletionFacts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            return new WorkflowCompletionFacts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
 
         return new WorkflowCompletionFacts(
@@ -1297,7 +1330,12 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetInt32(7),
             reader.GetInt32(8),
             reader.GetInt32(9),
-            reader.GetInt32(10));
+            reader.GetInt32(10),
+            reader.GetInt32(11),
+            reader.GetInt32(12),
+            reader.GetInt32(13),
+            reader.GetInt32(14),
+            reader.GetInt32(15));
     }
 
     private static async Task<ProjectWorkflowSnapshot?> ReadProjectAsync(
@@ -2036,6 +2074,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.ProductionPlanning => ProductionPlanningStatus(facts, currentStatus),
             WorkflowStageCodes.DesignPanelInfo => DesignPanelInfoStatus(facts, currentStatus),
             WorkflowStageCodes.ProcurementInfo => ProcurementStatus(facts, currentStatus),
+            WorkflowStageCodes.IQC => IqcStatus(facts, currentStatus),
             _ => currentStatus
         };
     }
@@ -2076,9 +2115,17 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     private static string ProcurementStatus(WorkflowCompletionFacts facts, string currentStatus)
     {
+        if (string.Equals(currentStatus, "Completed", StringComparison.Ordinal))
+        {
+            return currentStatus;
+        }
+
+        var allActiveItemsComplete = facts.ProcurementItemCount > 0
+            && facts.CompletedProcurementItemCount >= facts.ProcurementItemCount;
         if (facts.RequiredProcurementItemCount > 0)
         {
-            if (facts.MatchedRequiredProcurementItemCount >= facts.RequiredProcurementItemCount)
+            if (allActiveItemsComplete
+                && facts.MatchedRequiredProcurementItemCount >= facts.RequiredProcurementItemCount)
             {
                 return "Completed";
             }
@@ -2091,7 +2138,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             return currentStatus;
         }
 
-        if (facts.ProcurementItemCount > 0 && facts.NamedProcurementItemCount >= facts.ProcurementItemCount)
+        if (allActiveItemsComplete)
         {
             return "Completed";
         }
@@ -2101,6 +2148,23 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             return "InProgress";
         }
 
+        return currentStatus;
+    }
+
+    private static string IqcStatus(WorkflowCompletionFacts facts, string currentStatus)
+    {
+        if (facts.IqcReceiptCount > 0 && facts.IqcPassedCount >= facts.IqcReceiptCount)
+        {
+            return "Completed";
+        }
+        if (facts.IqcFailedCount > 0)
+        {
+            return "Blocked";
+        }
+        if (facts.IqcStartedCount > 0)
+        {
+            return "InProgress";
+        }
         return currentStatus;
     }
 
@@ -2131,6 +2195,13 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     private static string LinkUrlForWorkItem(Guid projectId, string stageCode, string targetType, Guid? targetId)
     {
+        if (stageCode == WorkflowStageCodes.IQC
+            && string.Equals(targetType, "Inspection", StringComparison.Ordinal)
+            && targetId is not null)
+        {
+            return $"/quality/iqc?request={targetId.Value}";
+        }
+
         if (stageCode == WorkflowStageCodes.SalesSettlementCompleted
             && string.Equals(targetType, "Project", StringComparison.Ordinal))
         {
@@ -2347,8 +2418,13 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         int RequiredPrimaryAssigneeCount,
         int ProcurementItemCount,
         int NamedProcurementItemCount,
+        int CompletedProcurementItemCount,
         int RequiredProcurementItemCount,
-        int MatchedRequiredProcurementItemCount);
+        int MatchedRequiredProcurementItemCount,
+        int IqcReceiptCount,
+        int IqcPassedCount,
+        int IqcStartedCount,
+        int IqcFailedCount);
 
     private sealed record StageSnapshot(
         string StageCode,

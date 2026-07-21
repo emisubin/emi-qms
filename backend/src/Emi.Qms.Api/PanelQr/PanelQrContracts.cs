@@ -26,6 +26,14 @@ public sealed record ProjectPanelQrListResponse(
 
 public sealed record RotatePanelQrRequest(string? Reason);
 
+public sealed record PanelQrBatchIssueRequest(IReadOnlyList<Guid>? PanelIds);
+
+public sealed record PanelQrBatchIssueResponse(
+    Guid ProjectId,
+    int RequestedCount,
+    int NewlyIssuedCount,
+    int AlreadyIssuedCount);
+
 public sealed record PanelQrPrintSheetRequest(IReadOnlyList<Guid>? PanelIds);
 
 public sealed record PanelQrPrintSheetItemResponse(

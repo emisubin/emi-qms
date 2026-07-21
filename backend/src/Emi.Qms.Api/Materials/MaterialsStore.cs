@@ -272,9 +272,15 @@ public sealed class MaterialsStore(
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
         await InsertEventAsync(connection, transaction, itemId, receiptId, "Arrived", null, MaterialReceiptStatuses.Arrived, request.Note, actorUserId, cancellationToken);
+        var attemptId = await CreateIqcAttemptAsync(
+            connection,
+            transaction,
+            new ReceiptSnapshot(receiptId, itemId, item.ProjectId, MaterialReceiptStatuses.Arrived, 1, item.ReceiptCompleted, item.OrderItem),
+            actorUserId,
+            cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
-            new MaterialReceiptActionResponse(itemId, receiptId, null, null, MaterialReceiptStatuses.Arrived, false));
+            new MaterialReceiptActionResponse(itemId, receiptId, attemptId, null, MaterialReceiptStatuses.IqcRequested, false));
     }
 
     public async Task<MaterialsMutationResult<MaterialReceiptActionResponse>> RequestIqcAsync(
@@ -290,6 +296,27 @@ public sealed class MaterialsStore(
         if (receipt is null)
         {
             return MaterialsMutationResult<MaterialReceiptActionResponse>.NotFound();
+        }
+        if (receipt.Status == MaterialReceiptStatuses.IqcRequested)
+        {
+            await using var replayCommand = connection.CreateCommand();
+            replayCommand.Transaction = transaction;
+            replayCommand.CommandText = """
+                select id, pending_issue_id
+                from material_iqc_attempts
+                where material_receipt_id = @receipt_id and status = 'Requested'
+                order by attempt_number desc limit 1;
+                """;
+            replayCommand.Parameters.AddWithValue("receipt_id", receiptId);
+            await using var replayReader = await replayCommand.ExecuteReaderAsync(cancellationToken);
+            if (await replayReader.ReadAsync(cancellationToken))
+            {
+                return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
+                    new MaterialReceiptActionResponse(
+                        receipt.ItemId, receiptId, replayReader.GetGuid(0),
+                        replayReader.IsDBNull(1) ? null : replayReader.GetGuid(1),
+                        MaterialReceiptStatuses.IqcRequested, receipt.ReceiptCompleted));
+            }
         }
         var versionError = ValidateExpectedVersion(request.ExpectedVersion, receipt.Version);
         if (versionError is not null)
@@ -324,6 +351,10 @@ public sealed class MaterialsStore(
         if (reason is null || reason.Length is < 3 or > 1000)
         {
             errors[nameof(request.Reason)] = ["판정 사유를 3~1,000자로 입력해 주세요."];
+        }
+        if (result == "Failed" && reason is not null && reason.Length < 30)
+        {
+            errors[nameof(request.Reason)] = ["사진이 없는 부적합 판정은 구체적인 근거를 30자 이상 입력해 주세요."];
         }
         if (request.ExpectedReceiptVersion is null or < 1)
         {
@@ -372,6 +403,12 @@ public sealed class MaterialsStore(
                 actorUserId,
                 correlationId,
                 cancellationToken);
+            if (attempt.LinkedPendingId is not null)
+            {
+                await pendingStore.ReopenQualityIssueAfterFailedReinspectionAsync(
+                    connection, transaction, attempt.LinkedPendingId.Value, actorUserId,
+                    $"IQC {attempt.AttemptNumber}차 재검사 부적합: {reason}", correlationId, cancellationToken);
+            }
         }
         else
         {
@@ -467,6 +504,27 @@ public sealed class MaterialsStore(
         {
             return MaterialsMutationResult<MaterialReceiptActionResponse>.NotFound();
         }
+        if (receipt.Status == MaterialReceiptStatuses.IqcRequested)
+        {
+            await using var replayCommand = connection.CreateCommand();
+            replayCommand.Transaction = transaction;
+            replayCommand.CommandText = """
+                select id, pending_issue_id
+                from material_iqc_attempts
+                where material_receipt_id = @receipt_id and status = 'Requested'
+                order by attempt_number desc limit 1;
+                """;
+            replayCommand.Parameters.AddWithValue("receipt_id", receiptId);
+            await using var replayReader = await replayCommand.ExecuteReaderAsync(cancellationToken);
+            if (await replayReader.ReadAsync(cancellationToken))
+            {
+                return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
+                    new MaterialReceiptActionResponse(
+                        receipt.ItemId, receiptId, replayReader.GetGuid(0),
+                        replayReader.IsDBNull(1) ? null : replayReader.GetGuid(1),
+                        MaterialReceiptStatuses.IqcRequested, receipt.ReceiptCompleted));
+            }
+        }
         var versionError = ValidateExpectedVersion(request.ExpectedVersion, receipt.Version);
         if (versionError is not null)
         {
@@ -483,7 +541,8 @@ public sealed class MaterialsStore(
             return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict("연결된 Pending을 재검사 요청 상태로 전환한 뒤 진행해 주세요.");
         }
 
-        var attemptId = await CreateIqcAttemptAsync(connection, transaction, receipt, actorUserId, cancellationToken);
+        var attemptId = await EnsurePendingReinspectionAsync(connection, transaction, pendingId.Value, actorUserId, cancellationToken)
+            ?? throw new InvalidOperationException("연결된 IQC Pending을 찾을 수 없습니다.");
         await InsertEventAsync(connection, transaction, receipt.ItemId, receiptId, "ReinspectionRequested", MaterialReceiptStatuses.FailedBlocked, MaterialReceiptStatuses.IqcRequested, "Pending 조치 후 재검사 요청", actorUserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return MaterialsMutationResult<MaterialReceiptActionResponse>.Success(
@@ -537,6 +596,12 @@ public sealed class MaterialsStore(
                 actorUserId,
                 correlationId,
                 cancellationToken);
+            if (attempt.LinkedPendingId is not null)
+            {
+                await pendingStore.ReopenQualityIssueAfterFailedReinspectionAsync(
+                    connection, transaction, attempt.LinkedPendingId.Value, actorUserId,
+                    $"IQC {attempt.AttemptNumber}차 재검사 부적합: {reason}", correlationId, cancellationToken);
+            }
         }
         else
         {
@@ -1141,7 +1206,7 @@ public sealed class MaterialsStore(
         command.CommandText = """
             select attempt.id, attempt.material_receipt_id, attempt.attempt_number, attempt.status,
                    receipt.procurement_item_id, receipt.status, receipt.version,
-                   item.project_id, item.order_item, attempt.decision_mode
+                   item.project_id, item.order_item, attempt.decision_mode, attempt.pending_issue_id
             from material_iqc_attempts attempt
             join material_receipts receipt on receipt.id = attempt.material_receipt_id
             join project_procurement_items item on item.id = receipt.procurement_item_id and item.status = 'Active'
@@ -1154,16 +1219,18 @@ public sealed class MaterialsStore(
             ? new AttemptSnapshot(
                 reader.GetGuid(0), reader.GetGuid(1), reader.GetInt32(2), reader.GetString(3),
                 reader.GetGuid(4), reader.GetString(5), reader.GetInt32(6), reader.GetGuid(7),
-                reader.IsDBNull(8) ? null : reader.GetString(8), reader.GetString(9))
+                reader.IsDBNull(8) ? null : reader.GetString(8), reader.GetString(9),
+                reader.IsDBNull(10) ? null : reader.GetGuid(10))
             : null;
     }
 
-    private static async Task<Guid> CreateIqcAttemptAsync(
+    internal static async Task<Guid> CreateIqcAttemptAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         ReceiptSnapshot receipt,
         Guid actorUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? linkedPendingId = null)
     {
         var attemptId = Guid.NewGuid();
         int attemptNumber;
@@ -1183,9 +1250,9 @@ public sealed class MaterialsStore(
             command.Transaction = transaction;
             command.CommandText = """
                 insert into material_iqc_attempts (
-                    id, material_receipt_id, attempt_number, status, decision_mode, requested_by_user_id
+                    id, material_receipt_id, attempt_number, status, decision_mode, pending_issue_id, requested_by_user_id
                 )
-                values (@id, @receipt_id, @attempt_number, 'Requested', 'Detailed', @actor_id);
+                values (@id, @receipt_id, @attempt_number, 'Requested', 'Detailed', @pending_id, @actor_id);
 
                 update material_receipts
                 set status = 'IqcRequested', version = version + 1,
@@ -1196,12 +1263,71 @@ public sealed class MaterialsStore(
             command.Parameters.AddWithValue("receipt_id", receipt.ReceiptId);
             command.Parameters.AddWithValue("attempt_number", attemptNumber);
             command.Parameters.AddWithValue("actor_id", actorUserId);
+            AddNullableUuid(command, "pending_id", linkedPendingId);
             command.Parameters.AddWithValue("expected_version", receipt.Version);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
         await CreateIqcWorkItemAsync(connection, transaction, receipt.ProjectId, receipt.ItemId, receipt.ReceiptId, attemptId, receipt.OrderItem, actorUserId, cancellationToken);
         await InsertEventAsync(connection, transaction, receipt.ItemId, receipt.ReceiptId, "IqcRequested", receipt.Status, MaterialReceiptStatuses.IqcRequested, $"IQC {attemptNumber}차 요청", actorUserId, cancellationToken);
         return attemptId;
+    }
+
+    internal static async Task<Guid?> EnsurePendingReinspectionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using (var existingCommand = connection.CreateCommand())
+        {
+            existingCommand.Transaction = transaction;
+            existingCommand.CommandText = """
+                select attempt.id
+                from material_iqc_attempts attempt
+                where attempt.pending_issue_id = @pending_id
+                  and attempt.status = 'Requested'
+                order by attempt.attempt_number desc
+                limit 1;
+                """;
+            existingCommand.Parameters.AddWithValue("pending_id", pendingId);
+            if (await existingCommand.ExecuteScalarAsync(cancellationToken) is Guid existingAttemptId)
+            {
+                return existingAttemptId;
+            }
+        }
+
+        ReceiptSnapshot? receipt = null;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select receipt.id, receipt.procurement_item_id, item.project_id, receipt.status, receipt.version,
+                       item.receipt_completed, item.order_item
+                from material_iqc_attempts failed_attempt
+                join material_receipts receipt on receipt.id = failed_attempt.material_receipt_id
+                join project_procurement_items item on item.id = receipt.procurement_item_id and item.status = 'Active'
+                where failed_attempt.pending_issue_id = @pending_id
+                  and failed_attempt.status = 'Failed'
+                order by failed_attempt.attempt_number desc
+                limit 1
+                for update of receipt, item;
+                """;
+            command.Parameters.AddWithValue("pending_id", pendingId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                receipt = new ReceiptSnapshot(
+                    reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetString(3),
+                    reader.GetInt32(4), reader.GetBoolean(5), reader.IsDBNull(6) ? null : reader.GetString(6));
+            }
+        }
+        if (receipt is null) return null;
+        if (!string.Equals(receipt.Status, MaterialReceiptStatuses.FailedBlocked, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("IQC 부적합 차단 상태에서만 재검사 업무를 생성할 수 있습니다.");
+        }
+        return await CreateIqcAttemptAsync(connection, transaction, receipt, actorUserId, cancellationToken, pendingId);
     }
 
     private static async Task CreateIqcWorkItemAsync(
@@ -1655,7 +1781,7 @@ public sealed class MaterialsStore(
         string? OrderItem,
         string SupplyType);
 
-    private sealed record ReceiptSnapshot(
+    internal sealed record ReceiptSnapshot(
         Guid ReceiptId,
         Guid ItemId,
         Guid ProjectId,
@@ -1674,5 +1800,6 @@ public sealed class MaterialsStore(
         int ReceiptVersion,
         Guid ProjectId,
         string? OrderItem,
-        string DecisionMode);
+        string DecisionMode,
+        Guid? LinkedPendingId);
 }

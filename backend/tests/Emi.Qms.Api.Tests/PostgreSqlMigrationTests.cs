@@ -440,7 +440,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0049_notification_delivery_reprocess_generations", await ReadScalarAsync<string>(
+            Assert.Equal("0053_ul891_panel_sets_monthly_billing", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -476,7 +476,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal(49L, await ReadScalarAsync<long>(
+            Assert.Equal(Directory.GetFiles(migrationSource, "*.sql").LongLength, await ReadScalarAsync<long>(
                 provider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -733,11 +733,13 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(49L, await ReadScalarAsync<long>(
-            connectionStringProvider,
-            "select count(*) from schema_migrations;",
-            TestContext.Current.CancellationToken));
-        Assert.Equal("0049_notification_delivery_reprocess_generations", await ReadScalarAsync<string>(
+        Assert.Equal(
+            Directory.GetFiles(Path.Combine(database.RepositoryRoot, "database", "migrations"), "*.sql").LongLength,
+            await ReadScalarAsync<long>(
+                connectionStringProvider,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        Assert.Equal("0053_ul891_panel_sets_monthly_billing", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

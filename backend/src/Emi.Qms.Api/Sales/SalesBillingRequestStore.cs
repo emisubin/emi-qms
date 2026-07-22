@@ -363,6 +363,7 @@ public sealed class SalesBillingRequestStore(
             left join sales_billing_request_batches request_batch on request_batch.id=request_item.batch_id
             left join sales_settlements settlement on settlement.project_id=project.id
             where project.deleted_at_utc is null
+              and project.structure_mode is distinct from 'Ul891Set'
               and departure.active_panel_count > 0
               and departure.departed_panel_count=departure.active_panel_count
               and departure.last_departure_date between @period_start and @period_end

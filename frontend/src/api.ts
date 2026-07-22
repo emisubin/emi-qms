@@ -1,5 +1,11 @@
 import type { ReadyHealth } from './health';
 import type {
+  MonthlyBilling,
+  Ul891MutationResponse,
+  Ul891SetStructure,
+  UpdateUl891DraftRequest
+} from './ul891Sets';
+import type {
   CompleteSalesSettlementRequest,
   SaveSalesSettlementDraftRequest,
   SalesSettlementDetail,
@@ -924,6 +930,68 @@ export async function getProject(
   projectId: string
 ): Promise<ProjectDetail> {
   return fetchJson<ProjectDetail>(`/api/projects/${projectId}`, developmentUserKey);
+}
+
+export async function getUl891SetStructure(developmentUserKey: string | undefined, projectId: string): Promise<Ul891SetStructure> {
+  return fetchJson<Ul891SetStructure>(`/api/projects/${projectId}/set-structure`, developmentUserKey);
+}
+
+export async function addUl891SetSpec(developmentUserKey: string | undefined, projectId: string, request: { expectedSpecCount: number; name: string; quantity: number; componentCodes: string[]; reason: string }): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/set-specs`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({
+      operationId: crypto.randomUUID(),
+      expectedSpecCount: request.expectedSpecCount,
+      name: request.name,
+      quantity: request.quantity,
+      components: request.componentCodes.map((componentCode) => ({ componentCode })),
+      reason: request.reason
+    })
+  });
+}
+
+export async function updateUl891Draft(developmentUserKey: string | undefined, projectId: string, specId: string, versionId: string, request: UpdateUl891DraftRequest): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/set-specs/${specId}/versions/${versionId}`, developmentUserKey, { method: 'PUT', body: JSON.stringify(request) });
+}
+
+export async function publishUl891Version(developmentUserKey: string | undefined, projectId: string, specId: string, versionId: string, reason: string): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/set-specs/${specId}/versions/${versionId}/publish`, developmentUserKey, { method: 'POST', body: JSON.stringify({ operationId: crypto.randomUUID(), reason }) });
+}
+
+export async function createUl891Version(developmentUserKey: string | undefined, projectId: string, specId: string, reason: string): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/set-specs/${specId}/versions`, developmentUserKey, { method: 'POST', body: JSON.stringify({ operationId: crypto.randomUUID(), reason }) });
+}
+
+export async function applyUl891Version(developmentUserKey: string | undefined, projectId: string, specId: string, request: { expectedActiveInstanceCount: number; versionId: string; instanceIds: string[]; reason: string }): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/set-specs/${specId}/apply-version`, developmentUserKey, { method: 'POST', body: JSON.stringify({ operationId: crypto.randomUUID(), ...request }) });
+}
+
+export async function increaseUl891Instances(developmentUserKey: string | undefined, projectId: string, specId: string, request: { expectedActiveInstanceCount: number; quantity: number; reason: string }): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/set-specs/${specId}/instances/increase`, developmentUserKey, { method: 'POST', body: JSON.stringify({ operationId: crypto.randomUUID(), ...request }) });
+}
+
+export async function cancelUl891Instances(developmentUserKey: string | undefined, projectId: string, request: { instanceIds: string[]; procurementItemIds: string[]; reason: string; exceptionAcknowledged: boolean }): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/set-instances/cancel`, developmentUserKey, { method: 'POST', body: JSON.stringify({ operationId: crypto.randomUUID(), ...request }) });
+}
+
+export async function recoverUl891Case(developmentUserKey: string | undefined, projectId: string, recoveryCaseId: string, expectedVersion: number, note: string): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/recovery-cases/${recoveryCaseId}/recover`, developmentUserKey, { method: 'POST', body: JSON.stringify({ operationId: crypto.randomUUID(), expectedVersion, note }) });
+}
+
+export async function getUl891MonthlyBilling(developmentUserKey: string | undefined, projectId: string): Promise<MonthlyBilling> {
+  return fetchJson<MonthlyBilling>(`/api/projects/${projectId}/monthly-billing`, developmentUserKey);
+}
+
+export async function openUl891MonthlyBilling(developmentUserKey: string | undefined, projectId: string, billingMonth: string, recoveryCaseIds: string[]): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/monthly-billing/open`, developmentUserKey, { method: 'POST', body: JSON.stringify({ operationId: crypto.randomUUID(), billingMonth, recoveryCaseIds }) });
+}
+
+export async function createUl891MonthlyBillingRevision(developmentUserKey: string | undefined, projectId: string, ledgerId: string, request: { expectedLedgerVersion: number; amount: number; note: string | null; recoveryCaseIds: string[]; adjustmentReason: string | null }): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/monthly-billing/${ledgerId}/revisions`, developmentUserKey, { method: 'POST', body: JSON.stringify({ operationId: crypto.randomUUID(), ...request }) });
+}
+
+export async function confirmUl891MonthlyBilling(developmentUserKey: string | undefined, projectId: string, ledgerId: string, request: { expectedLedgerVersion: number; invoiceConfirmedDate: string; invoiceNumber: string; note: string | null }): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/monthly-billing/${ledgerId}/confirm`, developmentUserKey, { method: 'POST', body: JSON.stringify({ operationId: crypto.randomUUID(), ...request }) });
 }
 
 export async function getProjectWorkflow(

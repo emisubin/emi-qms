@@ -589,7 +589,7 @@ export interface CreateProjectRequest {
   item: string;
   projectCode: string;
   projectTitle: string;
-  panelCount: number;
+  panelCount: number | null;
   deliveryDate: string;
   salesOwnerUserId: string;
   packagingMethod: PackagingMethod | null;
@@ -597,6 +597,7 @@ export interface CreateProjectRequest {
   currencyCode: string | null;
   deliveryLocation: string | null;
   fatRequired: boolean;
+  ul891SetSpecs?: import('./ul891Sets').CreateUl891SetSpecInput[];
 }
 
 export interface UpdateProjectRequest {

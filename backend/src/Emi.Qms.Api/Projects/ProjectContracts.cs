@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Emi.Qms.Api.Ul891Sets;
 
 namespace Emi.Qms.Api.Projects;
 
@@ -14,7 +15,8 @@ public sealed record CreateProjectRequest(
     decimal? SalesAmount,
     string? CurrencyCode,
     string? DeliveryLocation,
-    bool? FatRequired);
+    bool? FatRequired,
+    IReadOnlyList<CreateUl891SetSpecRequest>? Ul891SetSpecs = null);
 
 public sealed record UpdateProjectRequest(
     string? CustomerName,

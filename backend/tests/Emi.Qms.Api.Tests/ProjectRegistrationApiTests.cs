@@ -17,7 +17,7 @@ using Xunit;
 
 namespace Emi.Qms.Api.Tests;
 
-public sealed class ProjectRegistrationApiTests
+public sealed partial class ProjectRegistrationApiTests
 {
     private static readonly Guid SalesOwnerUserId = new("50000000-0000-0000-0000-000000000002");
 
@@ -3055,6 +3055,7 @@ public sealed class ProjectRegistrationApiTests
 
         private PostgreSqlTestDatabase Database { get; }
         private QmsWebApplicationFactory Factory { get; }
+        public string ConnectionString => Database.ConnectionString;
         public IServiceProvider Services => Factory.Services;
 
         public static async Task<ProjectApiTestContext> CreateAsync(Action<IServiceCollection>? configureTestServices = null)

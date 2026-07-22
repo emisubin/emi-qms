@@ -1988,6 +1988,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-21 | TASK-WORKFLOW-CONTINUITY-001 Change 002에서 구매·자재·IQC를 같은 구매 품목 identity와 도착분별 검사 회차로 표시 | 사급·도급을 빠르게 구분하고 한 품목의 분할 도착과 IQC 진행을 한 행에서 추적하면서, 별도 IQC 요청이나 복제 data로 인한 누락·불일치를 막기 위함 | 11장~13장, 23장~25장, 27-experiment-task-ledger, TASK-WORKFLOW-CONTINUITY-001 Change 002 |
 | 2026-07-21 | TASK-WORKFLOW-CONTINUITY-001 Change 003에서 구매 신규·변경은 자재 정/부 업무로 인계하고 도착 저장은 IQC 생성 postcondition을 확인하며 기존 누락 도착은 검사함에서 idempotent 복구 | 성공 문구와 실제 업무 생성의 불일치를 없애고, 부서 전역 화면을 프로젝트 우선으로 통일하면서 부분 실패 data도 사용자가 별도 요청 없이 회복하기 위함 | 11장~13장, 23장~25장, 27-experiment-task-ledger, TASK-WORKFLOW-CONTINUITY-001 Change 003 |
 | 2026-07-21 | TASK-WORKFLOW-CONTINUITY-001 Change 004에서 발주 수량·단위는 구매팀 입력으로 고정하고, 권한 fallback이 관리자·조회전용이 아니라 자재 역할 사용자를 우선하며, 도착 등록은 실제 IQC 수신자를 확인한 뒤 같은 흐름으로 인계 | 자재 담당자가 구매 수량을 대신 입력하는 책임 혼선을 없애고, 구매 저장은 성공했지만 자재 사용자의 내 업무·알림에 보이지 않거나 도착분이 IQC에서 누락되는 거짓 성공을 차단하기 위함 | 11장~13장, 23장~25장, 27-experiment-task-ledger, TASK-WORKFLOW-CONTINUITY-001 Change 004 |
+| 2026-07-22 | TASK-UL891-SET-001은 UL891 신규 프로젝트를 세트 사양 version·주문 instance·개별 physical panel 계층으로 생성하고, 선택 증감·부분출하·발주 회수·프로젝트×출하 달력월 발행요청을 사용 | 동일 사양 반복 주문의 공통 이름·규격과 실제 panel별 제조·검사·FAT·QR·출하 원자를 함께 보존하고, 월이 바뀐 부분출하 청구와 발주 후 수량 감소 회수를 누락 없이 추적하기 위함 | 8장·13장·19장·23장~25장, docs/41, TASK-UL891-SET-001 |
 
 ## 26. 용어 사전
 

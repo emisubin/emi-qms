@@ -5,6 +5,7 @@ using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
 using Emi.Qms.Api.QualityInspections;
 using Emi.Qms.Api.Sales;
+using Emi.Qms.Api.Ul891Sets;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -832,6 +833,7 @@ public sealed class ProjectStore(
                         currency_code,
                         delivery_location,
                         fat_required,
+                        structure_mode,
                         status,
                         created_by_user_id,
                         updated_at_utc
@@ -853,12 +855,14 @@ public sealed class ProjectStore(
                         @currency_code,
                         @delivery_location,
                         @fat_required,
+                        @structure_mode,
                         'Active',
                         @created_by_user_id,
                         now()
                     );
                     """;
                 AddProjectParameters(command, projectId, projectKey, input, changedByUserId);
+                command.Parameters.Add("structure_mode", NpgsqlDbType.Text).Value = input.IsUl891Set ? "Ul891Set" : (object)DBNull.Value;
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
@@ -878,7 +882,18 @@ public sealed class ProjectStore(
                 false,
                 cancellationToken);
 
-            for (var sequence = 1; sequence <= input.PanelCount; sequence++)
+            if (input.IsUl891Set)
+            {
+                await Ul891SetStore.CreateInitialStructureAsync(
+                    connection,
+                    transaction,
+                    projectId,
+                    input.Ul891SetSpecs,
+                    changedByUserId,
+                    correlationId,
+                    cancellationToken);
+            }
+            else for (var sequence = 1; sequence <= input.PanelCount; sequence++)
             {
                 var panelId = Guid.NewGuid();
                 var displayCode = ProjectInputNormalizer.FormatPanelDisplayCode(sequence);
@@ -944,6 +959,12 @@ public sealed class ProjectStore(
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return ProjectMutationResult<ProjectDetailResponse>.Conflict("완료된 프로젝트는 수정할 수 없습니다.");
+            }
+
+            if (existing.StructureMode == "Ul891Set" && !string.Equals(existing.Item, input.Item, StringComparison.Ordinal))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ProjectMutationResult<ProjectDetailResponse>.Conflict("세트 데이터가 생성된 UL891 프로젝트의 Item은 변경할 수 없습니다.");
             }
 
             if (!await IsActiveSalesUserAsync(connection, transaction, input.SalesOwnerUserId, cancellationToken))
@@ -1058,6 +1079,12 @@ public sealed class ProjectStore(
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return ProjectMutationResult<ProjectDetailResponse>.Conflict("취소되거나 완료된 프로젝트의 면수는 변경할 수 없습니다.");
+            }
+
+            if (snapshot.StructureMode == "Ul891Set")
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ProjectMutationResult<ProjectDetailResponse>.Conflict("UL891 세트 프로젝트의 수량은 영업 탭에서 세트 인스턴스 단위로 변경해 주세요.");
             }
 
             if (snapshot.ActivePanelCount == input.PanelCount)
@@ -3236,7 +3263,8 @@ public sealed class ProjectStore(
                    currency_code,
                    delivery_location,
                    fat_required,
-                   status
+                   status,
+                   structure_mode
             from projects
             where id = @project_id
               and deleted_at_utc is null
@@ -3270,7 +3298,8 @@ public sealed class ProjectStore(
             reader.IsDBNull(11) ? null : reader.GetString(11),
             reader.IsDBNull(12) ? null : reader.GetString(12),
             !reader.IsDBNull(13) && reader.GetBoolean(13),
-            reader.GetString(14));
+            reader.GetString(14),
+            reader.IsDBNull(15) ? null : reader.GetString(15));
     }
 
     private static async Task<ProjectLockSnapshot?> LockProjectForUpdateAsync(
@@ -3282,7 +3311,7 @@ public sealed class ProjectStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select status
+            select status, structure_mode
             from projects
             where id = @project_id
               and deleted_at_utc is null
@@ -3290,10 +3319,16 @@ public sealed class ProjectStore(
             """;
         command.Parameters.AddWithValue("project_id", projectId);
 
-        var value = await command.ExecuteScalarAsync(cancellationToken);
-        if (value is not string status)
+        string status;
+        string? structureMode;
+        await using (var projectReader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return null;
+            if (!await projectReader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+            status = projectReader.GetString(0);
+            structureMode = projectReader.IsDBNull(1) ? null : projectReader.GetString(1);
         }
 
         await using var panelCommand = connection.CreateCommand();
@@ -3309,10 +3344,10 @@ public sealed class ProjectStore(
         await using var reader = await panelCommand.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
-            return new ProjectLockSnapshot(status, 0, 0);
+            return new ProjectLockSnapshot(status, structureMode, 0, 0);
         }
 
-        return new ProjectLockSnapshot(status, reader.GetInt32(0), reader.GetInt32(1));
+        return new ProjectLockSnapshot(status, structureMode, reader.GetInt32(0), reader.GetInt32(1));
     }
 
     private static async Task<ProjectDeletionSnapshot?> LockProjectDeletionSnapshotAsync(
@@ -3399,7 +3434,8 @@ public sealed class ProjectStore(
         string? CurrencyCode,
         string? DeliveryLocation,
         bool FatRequired,
-        string Status)
+        string Status,
+        string? StructureMode)
     {
         public IReadOnlyList<ProjectFieldChange> CollectChanges(NormalizedUpdateProjectInput input)
         {
@@ -3625,7 +3661,7 @@ public sealed class ProjectStore(
         }
     }
 
-    private sealed record ProjectLockSnapshot(string Status, int ActivePanelCount, int MaxSequenceNumber);
+    private sealed record ProjectLockSnapshot(string Status, string? StructureMode, int ActivePanelCount, int MaxSequenceNumber);
 
     private sealed record ProjectDeletionSnapshot(
         string Status,

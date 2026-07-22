@@ -71,6 +71,7 @@ import {
   getPanelInformation,
   getPanelInformationHistory,
   getProject,
+  getUl891SetStructure,
   getProjectWorkflow,
   getProjectProductionPlanning,
   getProjectProductionPlanningHistory,
@@ -163,6 +164,8 @@ import emiLogo from './assets/emi-logo.png';
 import microsoftLogo from './assets/microsoft-logo.png';
 import type { ReadyHealth } from './health';
 import { HomePage } from './HomePage';
+import { Ul891SetWorkspace } from './Ul891SetWorkspace';
+import type { CreateUl891SetSpecInput, Ul891SetStructure } from './ul891Sets';
 import { PendingPage } from './PendingPage';
 import { PendingTypeManagementPage } from './PendingTypeManagementPage';
 import { DepartmentProjectHub, type DepartmentWorkspaceOption } from './DepartmentProjectHub';
@@ -8791,6 +8794,7 @@ function ProjectCreatePage({
   const [owners, setOwners] = useState<SalesOwner[]>([]);
   const [productTypes, setProductTypes] = useState<ProductionProductType[]>([]);
   const [form, setForm] = useState<ProjectFormValues>(emptyForm);
+  const [ul891SetSpecs, setUl891SetSpecs] = useState<CreateUl891SetSpecInput[]>([defaultUl891SetSpec(1)]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -8811,6 +8815,9 @@ function ProjectCreatePage({
   async function submit(event: FormEvent) {
     event.preventDefault();
     const validation = validateProjectForm(form, false, productTypes);
+    if (form.item === 'UL891') {
+      Object.assign(validation, validateUl891SetSpecs(ul891SetSpecs));
+    }
     setErrors(validation);
     setMessage('');
     if (Object.keys(validation).length > 0) {
@@ -8819,7 +8826,10 @@ function ProjectCreatePage({
 
     setIsSaving(true);
     try {
-      const project = await createProject(developmentUserKey, toCreateRequest(form));
+      const project = await createProject(
+        developmentUserKey,
+        toCreateRequest(form, form.item === 'UL891' ? ul891SetSpecs : undefined)
+      );
       onCreated(project.projectId);
     } catch (error) {
       handleFormError(error, setErrors, setMessage);
@@ -8844,12 +8854,75 @@ function ProjectCreatePage({
         errors={errors}
         isSaving={isSaving}
         submitLabel="등록"
+        useUl891SetInput={form.item === 'UL891'}
+        extraFields={form.item === 'UL891'
+          ? <Ul891SetOrderEditor specs={ul891SetSpecs} onChange={setUl891SetSpecs} error={errors.ul891SetSpecs} />
+          : undefined}
         onChange={setForm}
         onSubmit={submit}
       />
       {message ? <p role="alert" className="error-text">{message}</p> : null}
     </section>
   );
+}
+
+function Ul891SetOrderEditor({ specs, onChange, error }: {
+  specs: CreateUl891SetSpecInput[];
+  onChange: (specs: CreateUl891SetSpecInput[]) => void;
+  error?: string;
+}) {
+  const totalPanels = specs.reduce((sum, spec) => sum + Number(spec.quantity || 0) * spec.components.length, 0);
+  const updateSpec = (index: number, patch: Partial<CreateUl891SetSpecInput>) => onChange(specs.map((spec, specIndex) => specIndex === index ? { ...spec, ...patch } : spec));
+  const updateCode = (specIndex: number, componentIndex: number, value: string) => {
+    const components = specs[specIndex].components.map((component, index) => index === componentIndex ? { componentCode: value.toUpperCase() } : component);
+    updateSpec(specIndex, { components });
+  };
+
+  return (
+    <fieldset className={error ? 'ul891-order-editor has-error' : 'ul891-order-editor'} data-field="ul891SetSpecs">
+      <legend>UL891 세트 주문 구성*</legend>
+      <div className="ul891-order-editor-summary">
+        <span>세트 사양 <strong>{specs.length}</strong></span>
+        <span>주문 세트 <strong>{specs.reduce((sum, spec) => sum + Number(spec.quantity || 0), 0)}</strong></span>
+        <span>생성 패널 <strong>{totalPanels}</strong></span>
+      </div>
+      <p>같은 사양을 여러 세트 주문하면 구성 A~G의 이름·규격은 한 번만 설계합니다. 각 실물 패널 ID는 별도로 생성됩니다.</p>
+      <div className="ul891-order-specs">
+        {specs.map((spec, specIndex) => (
+          <article key={`set-spec-${specIndex}`}>
+            <header><span>SET {specIndex + 1}</span><strong>{spec.name || '새 세트 사양'}</strong>{specs.length > 1 ? <button type="button" onClick={() => onChange(specs.filter((_, index) => index !== specIndex))}>삭제</button> : null}</header>
+            <label>세트 사양명<input name={`ul891SetSpecs[${specIndex}].name`} value={spec.name} onChange={(event) => updateSpec(specIndex, { name: event.target.value })} /></label>
+            <label>주문 수량<input name={`ul891SetSpecs[${specIndex}].quantity`} type="number" min="1" max="999" value={spec.quantity} onChange={(event) => updateSpec(specIndex, { quantity: Number(event.target.value) })} /></label>
+            <div className="ul891-code-editor"><span>구성 패널 code</span>{spec.components.map((component, componentIndex) => <label key={`${specIndex}-${componentIndex}`}><input aria-label={`세트 ${specIndex + 1} 구성 ${componentIndex + 1}`} value={component.componentCode} maxLength={30} onChange={(event) => updateCode(specIndex, componentIndex, event.target.value)} /><button type="button" aria-label={`${component.componentCode || componentIndex + 1} 구성 삭제`} disabled={spec.components.length <= 1} onClick={() => updateSpec(specIndex, { components: spec.components.filter((_, index) => index !== componentIndex) })}>×</button></label>)}</div>
+            <button type="button" onClick={() => updateSpec(specIndex, { components: [...spec.components, { componentCode: nextComponentCode(spec.components.length) }] })}>구성 패널 추가</button>
+          </article>
+        ))}
+      </div>
+      <button type="button" className="secondary-button" onClick={() => onChange([...specs, defaultUl891SetSpec(specs.length + 1)])}>다른 세트 사양 추가</button>
+      {error ? <small role="alert">{error}</small> : null}
+    </fieldset>
+  );
+}
+
+function defaultUl891SetSpec(index: number): CreateUl891SetSpecInput {
+  return { name: `세트 사양 ${index}`, quantity: 1, components: ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((componentCode) => ({ componentCode })) };
+}
+
+function nextComponentCode(index: number) {
+  return index < 26 ? String.fromCharCode(65 + index) : `P${index + 1}`;
+}
+
+function validateUl891SetSpecs(specs: CreateUl891SetSpecInput[]): Record<string, string> {
+  if (specs.length === 0) return { ul891SetSpecs: '세트 사양을 하나 이상 입력해 주세요.' };
+  const total = specs.reduce((sum, spec) => sum + Number(spec.quantity || 0) * spec.components.length, 0);
+  for (const [index, spec] of specs.entries()) {
+    if (!spec.name.trim()) return { ul891SetSpecs: `${index + 1}번째 세트 사양명을 입력해 주세요.` };
+    if (!Number.isInteger(spec.quantity) || spec.quantity < 1 || spec.quantity > 999) return { ul891SetSpecs: `${index + 1}번째 주문 수량은 1~999 정수여야 합니다.` };
+    const codes = spec.components.map((item) => item.componentCode.trim().toUpperCase());
+    if (codes.length === 0 || codes.some((code) => !code)) return { ul891SetSpecs: `${index + 1}번째 구성 panel code를 입력해 주세요.` };
+    if (new Set(codes).size !== codes.length) return { ul891SetSpecs: `${index + 1}번째 세트 안에서 panel code가 중복됩니다.` };
+  }
+  return total > maxPanelsPerProject ? { ul891SetSpecs: `생성되는 패널은 최대 ${maxPanelsPerProject}개까지 가능합니다.` } : {};
 }
 
 function ProjectDetailPage({
@@ -9200,16 +9273,33 @@ function ProjectDetailPage({
           />
         ) : null}
 
-      {activeDetailSection === 'panels' ? (
-        <PanelInformationSection
+      {activeDetailSection === 'sales' ? (
+        <Ul891SetWorkspace
           developmentUserKey={developmentUserKey}
-          project={project}
-          state={panelInfoState}
-          canUpdatePanelInfo={canUpdatePanelInfo}
-          onEdit={onEditPanelInformation}
+          projectId={projectId}
+          mode="sales"
           onOpenPanel={onOpenPanel}
-          isSystemAdministrator={isSystemAdministrator}
         />
+      ) : null}
+
+      {activeDetailSection === 'panels' ? (
+        <>
+          <Ul891SetWorkspace
+            developmentUserKey={developmentUserKey}
+            projectId={projectId}
+            mode="design"
+            onOpenPanel={onOpenPanel}
+          />
+          <PanelInformationSection
+            developmentUserKey={developmentUserKey}
+            project={project}
+            state={panelInfoState}
+            canUpdatePanelInfo={canUpdatePanelInfo}
+            onEdit={onEditPanelInformation}
+            onOpenPanel={onOpenPanel}
+            isSystemAdministrator={isSystemAdministrator}
+          />
+        </>
       ) : null}
 
       {activeDetailSection === 'procurement' ? (
@@ -13943,6 +14033,7 @@ function ProjectEditPage({
   const [owners, setOwners] = useState<SalesOwner[]>([]);
   const [productTypes, setProductTypes] = useState<ProductionProductType[]>([]);
   const [panels, setPanels] = useState<PanelPlaceholder[]>([]);
+  const [setStructure, setSetStructure] = useState<Ul891SetStructure | null>(null);
   const [form, setForm] = useState<ProjectFormValues>(emptyForm);
   const [selectedCancelPanels, setSelectedCancelPanels] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -13971,9 +14062,10 @@ function ProjectEditPage({
       getProject(developmentUserKey, projectId),
       getSalesOwners(developmentUserKey),
       listProductionProductTypes(developmentUserKey),
-      listPanels(developmentUserKey, projectId)
+      listPanels(developmentUserKey, projectId),
+      getUl891SetStructure(developmentUserKey, projectId).catch(() => null)
     ])
-      .then(([project, ownerItems, typeItems, panelItems]) => {
+      .then(([project, ownerItems, typeItems, panelItems, structure]) => {
         if (!isCurrent || requestId !== loadRequestIdRef.current) {
           return;
         }
@@ -13982,6 +14074,7 @@ function ProjectEditPage({
         setOwners(ownerItems);
         setProductTypes(typeItems);
         setPanels(panelItems);
+        setSetStructure(structure);
         if (initializedProjectIdRef.current !== projectId && !isDirtyRef.current) {
           initializedProjectIdRef.current = projectId;
           setForm(projectToForm(project));
@@ -14072,6 +14165,7 @@ function ProjectEditPage({
         isSaving={isSaving}
         submitLabel="저장"
         includeReason
+        useUl891SetInput={setStructure?.structureMode === 'Ul891Set'}
         onChange={handleFormChange}
         onSubmit={submit}
       />
@@ -14106,13 +14200,18 @@ function PanelPlaceholderDetailPage({
   onBack: () => void;
 }) {
   const [state, setState] = useState<LoadState<{ project: ProjectDetail; panel: PanelPlaceholder }>>({ kind: 'loading' });
+  const [setStructure, setSetStructure] = useState<Ul891SetStructure | null>(null);
 
   useEffect(() => {
     Promise.all([
       getProject(developmentUserKey, projectId),
-      getPanel(developmentUserKey, projectId, panelId)
+      getPanel(developmentUserKey, projectId, panelId),
+      getUl891SetStructure(developmentUserKey, projectId).catch(() => null)
     ])
-      .then(([project, panel]) => setState({ kind: 'ready', data: { project, panel } }))
+      .then(([project, panel, structure]) => {
+        setSetStructure(structure);
+        setState({ kind: 'ready', data: { project, panel } });
+      })
       .catch((error: unknown) => setState(toLoadError(error, '패널 상세를 불러올 수 없습니다.')));
   }, [developmentUserKey, panelId, projectId]);
 
@@ -14130,6 +14229,7 @@ function PanelPlaceholderDetailPage({
       {state.kind === 'ready' ? (
         <>
           <ProjectContextSummary project={state.data.project} />
+          {setStructure?.structureMode === 'Ul891Set' ? <PanelSetContext structure={setStructure} panelId={panelId} /> : null}
           <section className="project-context-summary product-context-summary" aria-label="패널 요약">
             <div><span>패널</span><strong>No.{state.data.panel.sequenceNumber} · {state.data.panel.panelName ?? '패널명 미입력'}</strong></div>
             <div><span>사이즈</span><strong>{formatSize(state.data.panel)}</strong></div>
@@ -14141,6 +14241,25 @@ function PanelPlaceholderDetailPage({
       ) : null}
     </section>
   );
+}
+
+function PanelSetContext({ structure, panelId }: { structure: Ul891SetStructure; panelId: string }) {
+  for (const spec of structure.specs) {
+    for (const instance of spec.instances) {
+      const panel = instance.panels.find((item) => item.panelId === panelId);
+      if (!panel) continue;
+      return (
+        <section className="panel-set-context" aria-label="세트 및 패널 처리 단위">
+          <div><span>세트 사양</span><strong>SET {spec.specNo} · {spec.name}</strong></div>
+          <div><span>실물 세트</span><strong>{instance.instanceNumber}번 · 사양 v{instance.specVersionNumber}</strong></div>
+          <div><span>구성 code</span><strong>{panel.componentCode}</strong></div>
+          <div><span>공통 규격</span><strong>{panel.panelSpecification ?? '미입력'}</strong></div>
+          <p>이 화면의 제조·검사·FAT·QR·출하 이력은 이 개별 패널 ID에만 연결됩니다.</p>
+        </section>
+      );
+    }
+  }
+  return null;
 }
 
 function DeletedProjectDetailPage({
@@ -14279,6 +14398,8 @@ function ProjectForm({
   isSaving,
   submitLabel,
   includeReason = false,
+  useUl891SetInput = false,
+  extraFields,
   onChange,
   onSubmit
 }: {
@@ -14289,6 +14410,8 @@ function ProjectForm({
   isSaving: boolean;
   submitLabel: string;
   includeReason?: boolean;
+  useUl891SetInput?: boolean;
+  extraFields?: ReactNode;
   onChange: (values: ProjectFormValues) => void;
   onSubmit: (event: FormEvent) => void;
 }) {
@@ -14320,16 +14443,18 @@ function ProjectForm({
       <FormField label="PJT Title*" error={errors.projectTitle}>
         <input name="projectTitle" value={form.projectTitle} onChange={(event) => setField('projectTitle', event.target.value)} />
       </FormField>
-      <FormField label="면수*" error={errors.panelCount}>
-        <input
-          name="panelCount"
-          min="1"
-          max={maxPanelsPerProject}
-          type="number"
-          value={form.panelCount}
-          onChange={(event) => setField('panelCount', event.target.value)}
-        />
-      </FormField>
+      {useUl891SetInput ? (
+        <div className="form-field ul891-derived-field">
+          <span>처리 단위</span>
+          <strong>세트 사양별 주문 · 개별 패널 실행</strong>
+          <small>면수는 아래 세트 수량 × 구성 패널 수로 자동 계산됩니다.</small>
+        </div>
+      ) : (
+        <FormField label="면수*" error={errors.panelCount}>
+          <input name="panelCount" min="1" max={maxPanelsPerProject} type="number" value={form.panelCount} onChange={(event) => setField('panelCount', event.target.value)} />
+        </FormField>
+      )}
+      {extraFields}
       <FormField label="납기일*" error={errors.deliveryDate}>
         <input name="deliveryDate" type="date" value={form.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} />
       </FormField>
@@ -15151,10 +15276,10 @@ function validateProjectForm(form: ProjectFormValues, includeReason: boolean, pr
     'item',
     'projectCode',
     'projectTitle',
-    'panelCount',
     'deliveryDate',
     'salesOwnerUserId'
   ];
+  if (form.item !== 'UL891') required.push('panelCount');
 
   for (const field of required) {
     if (!form[field].trim()) {
@@ -15162,11 +15287,11 @@ function validateProjectForm(form: ProjectFormValues, includeReason: boolean, pr
     }
   }
 
-  if (Number(form.panelCount) < 1 || !Number.isInteger(Number(form.panelCount))) {
+  if (form.item !== 'UL891' && (Number(form.panelCount) < 1 || !Number.isInteger(Number(form.panelCount)))) {
     errors.panelCount = '1 이상의 정수여야 합니다.';
   }
 
-  if (Number(form.panelCount) > maxPanelsPerProject) {
+  if (form.item !== 'UL891' && Number(form.panelCount) > maxPanelsPerProject) {
     errors.panelCount = `1 이상 ${maxPanelsPerProject} 이하의 정수여야 합니다.`;
   }
 
@@ -15294,20 +15419,21 @@ function findProductTypeForProjectItem(productTypes: ProductionProductType[], pr
   return productTypes.find((item) => item.isActive && item.code.toUpperCase() === normalized);
 }
 
-function toCreateRequest(form: ProjectFormValues) {
+function toCreateRequest(form: ProjectFormValues, ul891SetSpecs?: CreateUl891SetSpecInput[]) {
   return {
     customerName: form.customerName.trim(),
     item: form.item.trim(),
     projectCode: form.projectCode.trim(),
     projectTitle: form.projectTitle.trim(),
-    panelCount: Number(form.panelCount),
+    panelCount: ul891SetSpecs ? null : Number(form.panelCount),
     deliveryDate: form.deliveryDate,
     salesOwnerUserId: form.salesOwnerUserId,
     packagingMethod: toPackagingMethod(form.packagingMethod),
     salesAmount: form.salesAmount.trim() ? Number(form.salesAmount) : null,
     currencyCode: form.salesAmount.trim() ? form.currencyCode.trim().toUpperCase() : null,
     deliveryLocation: form.deliveryLocation.trim() || null,
-    fatRequired: form.fatRequired === 'true'
+    fatRequired: form.fatRequired === 'true',
+    ul891SetSpecs
   };
 }
 

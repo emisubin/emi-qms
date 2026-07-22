@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.Ul891Sets;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -179,8 +180,22 @@ public sealed class SalesSettlementStore(
                 return await RollbackConflict<SalesSettlementMutationResponse>(transaction, "모든 활성 패널의 납품을 완료한 뒤 다시 시도해 주세요.", cancellationToken);
             if (conditions.OpenPendingCount > 0)
                 return await RollbackConflict<SalesSettlementMutationResponse>(transaction, "열린 Pending을 모두 종결한 뒤 다시 시도해 주세요.", cancellationToken);
-            if (!await HasBillingRequestAsync(connection, transaction, projectId, cancellationToken))
+            if (project.StructureMode == "Ul891Set")
+            {
+                if (project.SalesAmount is null or <= 0)
+                    return await RollbackConflict<SalesSettlementMutationResponse>(transaction, "프로젝트 판매액을 먼저 입력해 주세요.", cancellationToken);
+                var monthlyGate = await MonthlyBillingStore.ReadCompletionGateAsync(connection, transaction, projectId, project.SalesAmount.Value, cancellationToken);
+                if (!monthlyGate.AllLedgersConfirmed)
+                    return await RollbackConflict<SalesSettlementMutationResponse>(transaction, "모든 출하 월의 최신 발행요청을 회계 발행 확인해 주세요.", cancellationToken);
+                if (!monthlyGate.AllRecoveriesConfirmed)
+                    return await RollbackConflict<SalesSettlementMutationResponse>(transaction, "발주 후 취소된 품목의 회수를 모두 확인해 주세요.", cancellationToken);
+                if (!monthlyGate.RequestedAmountMatchesSalesAmount)
+                    return await RollbackConflict<SalesSettlementMutationResponse>(transaction, $"월별 발행요청 합계 {monthlyGate.RequestedAmount:N0}이 프로젝트 판매액과 일치해야 합니다.", cancellationToken);
+            }
+            else if (!await HasBillingRequestAsync(connection, transaction, projectId, cancellationToken))
+            {
                 return await RollbackConflict<SalesSettlementMutationResponse>(transaction, "회계팀 세금계산서 발행요청 자료를 먼저 만들어 주세요.", cancellationToken);
+            }
 
             var workItemId = await LockOpenSettlementWorkAsync(connection, transaction, projectId, cancellationToken);
             if (workItemId is null)
@@ -240,7 +255,8 @@ public sealed class SalesSettlementStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select project.id,project.status,(project.created_at_utc at time zone 'Asia/Seoul')::date
+            select project.id,project.status,(project.created_at_utc at time zone 'Asia/Seoul')::date,
+                   project.structure_mode,project.sales_amount
             from projects project
             where project.id=@project_id and project.deleted_at_utc is null
               and (@has_read_all or project.project_key=any(@project_keys))
@@ -250,7 +266,8 @@ public sealed class SalesSettlementStore(
         AddScope(command, scope);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
-            ? new ProjectSnapshot(reader.GetGuid(0), reader.GetString(1), reader.GetFieldValue<DateOnly>(2))
+            ? new ProjectSnapshot(reader.GetGuid(0), reader.GetString(1), reader.GetFieldValue<DateOnly>(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetDecimal(4))
             : null;
     }
 
@@ -739,7 +756,7 @@ public sealed class SalesSettlementStore(
         try { await transaction.RollbackAsync(token); } catch { }
     }
 
-    private sealed record ProjectSnapshot(Guid Id, string Status, DateOnly CreatedDate);
+    private sealed record ProjectSnapshot(Guid Id, string Status, DateOnly CreatedDate, string? StructureMode, decimal? SalesAmount);
     private sealed record SettlementSnapshot(Guid Id, string Status, int Version);
     private sealed record ConditionSnapshot(int ActivePanelCount, int DeliveredPanelCount, int OpenPendingCount);
     private sealed record InvoiceProjection(DateOnly? Date, string? Number, string? Note, (string Field, string Message)? Error);

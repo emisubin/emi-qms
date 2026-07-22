@@ -59,8 +59,9 @@
 | `TASK-NOTIFY-AUDIT-001` | 관리자 알림 설정 변경 이력의 기간·행동·알림 종류·사용자/부서 조회, 요약, desktop/mobile UI와 선택 Excel | [구현 보고서](../tasks/notify-audit-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-NOTIFY-REPROCESS-001` | terminal Failed 알림의 generation 기반 수동 재처리, CAS·원자 배치·중복 위험 확인·append-only event와 관리자 UI | [구현 보고서](../tasks/notify-reprocess-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-WORKFLOW-CONTINUITY-001` | 실제 담당자 IQC Pending 검수 실패를 기준으로 도착→검사→Pending→자동 재검사→합격 연속성, 구매 병행 handoff와 QR batch를 보정. Change 004에서 구매팀 발주 수량 책임, 자재 role fallback, 도착의 실제 IQC 인계와 기존 누락분 복구·품질 전체 회귀를 확정 | [본체](../tasks/workflow-continuity-001-implementation-report.md), [Change 002](../tasks/workflow-continuity-001-change-002-implementation-report.md), [Change 003](../tasks/workflow-continuity-001-change-003-implementation-report.md), [Change 004](../tasks/workflow-continuity-001-change-004-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `TASK-UL891-SET-001` | UL891 세트 사양 version·주문 instance·개별 physical panel, 생성 후 새 사양/수량 증감, 부분출하, 발주 후 취소 회수, 프로젝트×출하 달력월 발행요청과 완료 gate | [최종 기획](41-ul891-panel-set-plan.md), [구현 보고서](../tasks/ul891-set-001-implementation-report.md), [검수 체크리스트](../tasks/ul891-set-001-user-validation-checklist.md) | `EXPERIMENT_COMPLETE / USER_VALIDATION_PENDING` |
 
-현재 계보의 최신 누적 자동 기준선은 Backend `414/414`, Frontend `115/115`, migration `0049`까지의 fresh PostgreSQL 적용이다. 직전 전체 Full-Stack 기준선 위에서 구매팀의 발주 수량·단위 입력, 구매 저장 직후 자재 역할 사용자의 내 업무·알림, 자재 도착 입력의 구매 수량 제거, 도착 즉시 IQC와 기존 누락분 reconciliation, IQC checklist·사진·판정·PDF·Pending·재검사 회귀를 synthetic data와 disposable runtime에서 검증했다. 실제 provider·Persistent UAT·대표 runtime으로 우회하지 않았다.
+현재 계보의 최신 누적 자동 기준선은 Backend 전체 `420/420`, Frontend 전체 `122/122`, migration `0053`까지의 fresh PostgreSQL 적용이다. UL891 전용 Backend·migration `5/5`, Frontend `3/3`, production build와 고정 runtime의 3사양·6세트·38패널 실제 UI/API 검증을 통과했다. 실제 provider·Persistent UAT·대표 runtime으로 우회하지 않았다.
 
 ## 4. 남은 제품 개발 Task
 

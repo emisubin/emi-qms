@@ -1,0 +1,542 @@
+/* DESIGN-000 Change 001: monochrome, square wireframe presentation layer. */
+:root {
+  --wire-black: #111111;
+  --wire-ink: #1f1f1f;
+  --wire-muted: #666666;
+  --wire-faint: #8a8a8a;
+  --wire-line: #c8c8c8;
+  --wire-line-strong: #8f8f8f;
+  --wire-canvas: #f4f4f4;
+  --wire-surface: #ffffff;
+  --wire-subtle: #eeeeee;
+
+  --auth-brand: var(--wire-black);
+  --auth-brand-glow: #3a3a3a;
+  --auth-ink: var(--wire-ink);
+  --auth-muted: var(--wire-muted);
+  --brand-red: var(--wire-black);
+  --brand-red-strong: #2b2b2b;
+  --brand-red-deep: #000000;
+  --brand-red-soft: var(--wire-subtle);
+  --brand-red-wash: #f7f7f7;
+  --canvas: var(--wire-canvas);
+  --surface: var(--wire-surface);
+  --surface-subtle: #fafafa;
+  --ink: var(--wire-ink);
+  --muted: var(--wire-muted);
+  --line: var(--wire-line);
+  --line-strong: var(--wire-line-strong);
+  --shadow-soft: none;
+  --shadow-card: none;
+  --radius-shell: 0;
+  --radius-card: 0;
+  --radius-control: 0;
+
+  --ds-color-canvas: var(--wire-canvas);
+  --ds-color-surface: var(--wire-surface);
+  --ds-color-surface-subtle: #fafafa;
+  --ds-color-surface-active: #e5e5e5;
+  --ds-color-primary: var(--wire-black);
+  --ds-color-primary-hover: #2b2b2b;
+  --ds-color-primary-strong: #000000;
+  --ds-color-primary-soft: var(--wire-subtle);
+  --ds-color-text: var(--wire-ink);
+  --ds-color-text-muted: var(--wire-muted);
+  --ds-color-text-faint: var(--wire-faint);
+  --ds-color-border: var(--wire-line);
+  --ds-color-border-strong: var(--wire-line-strong);
+  --ds-radius-xs: 0;
+  --ds-radius-sm: 0;
+  --ds-radius-md: 0;
+  --ds-radius-lg: 0;
+  --ds-radius-pill: 2px;
+  --ds-shape-surface-radius: 0;
+  --ds-shape-control-radius: 0;
+  --ds-shape-active-radius: 0;
+  --ds-shadow-surface: none;
+  --ds-shadow-overlay: none;
+}
+
+html,
+body,
+#root {
+  background: var(--wire-canvas);
+}
+
+.app-shell {
+  --sales-blue: var(--wire-black);
+  --sales-ink: var(--wire-ink);
+  --sales-muted: var(--wire-muted);
+  --sales-line: var(--wire-line);
+  --quality-red: var(--wire-black);
+  --quality-green: var(--wire-ink);
+  --quality-green-soft: var(--wire-subtle);
+  --pending-green: var(--wire-black);
+  --pending-ink: var(--wire-ink);
+  --pending-soft: var(--wire-subtle);
+  --preference-green: var(--wire-black);
+  --preference-ink: var(--wire-ink);
+  --preference-line: var(--wire-line);
+  --preference-soft: var(--wire-subtle);
+  --logistics-coral: #555555;
+  --logistics-ink: var(--wire-ink);
+  --logistics-mint: #ededed;
+  --logistics-navy: var(--wire-black);
+  --logistics-sand: #f4f4f4;
+  --logistics-teal: #444444;
+  color: var(--wire-ink);
+  background: var(--wire-canvas);
+}
+
+/* A wireframe uses borders, not elevation or decorative color, for hierarchy. */
+.app-shell *,
+.auth-gate * {
+  text-shadow: none !important;
+}
+
+.app-shell * {
+  border-color: var(--wire-line) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: var(--wire-ink) !important;
+}
+
+.app-shell :where(p, small, label, .eyebrow, [class*='muted'], [class*='description'], [class*='meta']) {
+  color: var(--wire-muted) !important;
+}
+
+.app-shell :where(
+  article,
+  section,
+  aside,
+  fieldset,
+  details,
+  dialog,
+  table,
+  thead,
+  tbody,
+  tfoot,
+  tr,
+  td,
+  th,
+  form,
+  [class*='card'],
+  [class*='panel'],
+  [class*='surface'],
+  [class*='workspace'],
+  [class*='toolbar'],
+  [class*='drawer'],
+  [class*='popover'],
+  [class*='modal'],
+  [class*='hero']
+) {
+  border-color: var(--wire-line) !important;
+  border-radius: 0 !important;
+  background-color: var(--wire-surface) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.app-shell :where(
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [role='button'],
+  [role='tab'],
+  [class*='chip'],
+  [class*='pill'],
+  [class*='toggle']
+) {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.app-shell :where(input, select, textarea) {
+  border-color: var(--wire-line-strong) !important;
+  background-color: var(--wire-surface) !important;
+  color: var(--wire-ink) !important;
+  accent-color: var(--wire-black) !important;
+}
+
+.app-shell :where(input, select, textarea)::placeholder {
+  color: var(--wire-faint) !important;
+}
+
+.app-shell button:not(:disabled) {
+  border-color: var(--wire-line-strong);
+  background-color: var(--wire-surface);
+  background-image: none !important;
+  color: var(--wire-ink);
+}
+
+.app-shell button:hover:not(:disabled) {
+  border-color: var(--wire-black);
+  background-color: var(--wire-subtle);
+  color: var(--wire-black);
+}
+
+.app-shell :where(
+  .primary-button,
+  .app-nav-button.active,
+  .app-nav-button[aria-current='page'],
+  .secondary-button.active,
+  .tab-button.active,
+  .segmented-control button[aria-selected='true'],
+  [role='tab'][aria-selected='true'],
+  button[aria-pressed='true'],
+  button[data-active='true']
+) {
+  border-color: var(--wire-black) !important;
+  background-color: var(--wire-black) !important;
+  background-image: none !important;
+  color: #ffffff !important;
+}
+
+.app-shell :where(
+  .primary-button,
+  .app-nav-button.active,
+  .app-nav-button[aria-current='page'],
+  .secondary-button.active,
+  .tab-button.active,
+  .segmented-control button[aria-selected='true'],
+  [role='tab'][aria-selected='true'],
+  button[aria-pressed='true'],
+  button[data-active='true']
+) * {
+  color: #ffffff !important;
+}
+
+.app-shell :where(
+  .primary-button,
+  .app-nav-button.active,
+  .app-nav-button[aria-current='page'],
+  .secondary-button.active,
+  .tab-button.active,
+  .segmented-control button[aria-selected='true'],
+  [role='tab'][aria-selected='true'],
+  button[aria-pressed='true'],
+  button[data-active='true']
+):hover:not(:disabled) {
+  border-color: #000000 !important;
+  background-color: #2b2b2b !important;
+  color: #ffffff !important;
+}
+
+.app-shell :where(
+  .app-sidebar,
+  .mobile-app-bar,
+  .mobile-menu-drawer,
+  .topbar,
+  .page-header,
+  .ds-page-header,
+  .ds-toolbar,
+  .ds-surface
+) {
+  border-color: var(--wire-line) !important;
+  border-radius: 0 !important;
+  background: var(--wire-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell :where(.page-surface, .app-content, main) {
+  background: transparent !important;
+}
+
+.app-shell :where(span, i, em, b) {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+.app-shell [role='radio'] i {
+  width: 20px !important;
+  height: 20px !important;
+  border: 2px solid var(--wire-black) !important;
+  border-radius: 0 !important;
+  background: var(--wire-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell [role='radio'][aria-checked='true'] i {
+  background: var(--wire-black) !important;
+}
+
+.app-shell :where(a, .link-button) {
+  color: var(--wire-ink);
+  text-decoration-color: var(--wire-line-strong);
+}
+
+.app-shell :where(hr, [class*='divider']) {
+  border-color: var(--wire-line) !important;
+}
+
+.app-shell :where(
+  tr[aria-selected='true'],
+  tr[data-selected='true'],
+  [class*='row'][data-active='true'],
+  [class*='item'][data-active='true'],
+  [class*='card'][data-active='true']
+) {
+  border-color: var(--wire-black) !important;
+  background-color: var(--wire-subtle) !important;
+  color: var(--wire-ink) !important;
+}
+
+.app-shell :where(svg, canvas, [class*='chart'], [class*='graph']) {
+  filter: grayscale(1);
+}
+
+.app-shell :where(.sales-chart-bar, .sales-chart-mobile-bar) {
+  fill: #bcbcbc !important;
+  background: #bcbcbc !important;
+}
+
+.app-shell .sales-chart-bar.is-selected {
+  fill: var(--wire-black) !important;
+}
+
+.app-shell :where(.sales-chart-target-line, .sales-chart-target-dot) {
+  stroke: #555555 !important;
+}
+
+.app-shell :where(.sales-chart-target-dot) {
+  fill: #ffffff !important;
+}
+
+.app-shell :where(.sales-chart-mobile-target, .sales-chart-legend i[data-kind='target']) {
+  background: #555555 !important;
+}
+
+.app-shell img,
+.auth-gate img {
+  filter: grayscale(1) contrast(1.08);
+}
+
+.app-shell :where(.app-brand-lockup img, .mobile-app-brand img, .mobile-menu-brand-logo) {
+  border-radius: 0 !important;
+  background: var(--wire-black) !important;
+}
+
+.app-shell .mobile-menu-trigger {
+  border-color: var(--wire-black) !important;
+  background-color: var(--wire-black) !important;
+  background-image: none !important;
+  color: #ffffff !important;
+}
+
+/* Identity photos remain circular because the shape denotes a person, not a control. */
+.app-shell :where(.profile-avatar, .profile-avatar img) {
+  border-radius: 50% !important;
+}
+
+.app-shell :where(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--wire-black) !important;
+  outline-offset: 2px;
+}
+
+/* Semantic status is the only colored layer in the product. */
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .customer-supply-badge,
+  .supply-type-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge,
+  [data-shape-role='status'],
+  [data-shape-role='success'],
+  [data-shape-role='warning']
+) {
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+.app-shell :where(.nav-badge, [aria-label*='읽지 않음']) {
+  border-color: #e1a7ae !important;
+  border-radius: 2px !important;
+  background-color: #b52f40 !important;
+  color: #ffffff !important;
+}
+
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-tone='success'],
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-status='Completed'],
+.app-shell .material-status-badge[data-status='Passed'],
+.app-shell .material-status-badge[data-status='Confirmed'],
+.app-shell .receipt-completion-badge[data-completed='true'],
+.app-shell [data-status='Active'],
+.app-shell [data-status='Published'],
+.app-shell [data-status='Completed'],
+.app-shell [data-status='Passed'],
+.app-shell [data-status='Confirmed'],
+.app-shell [data-shape-role='success'] {
+  border-color: #9bcfb2 !important;
+  background-color: #e8f7ee !important;
+  color: #176b3b !important;
+}
+
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-tone='danger'],
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-tone='error'],
+.app-shell .material-status-badge[data-status='FailedBlocked'],
+.app-shell [data-status='Cancelled'],
+.app-shell [data-status='Failed'],
+.app-shell [data-status='FailedBlocked'],
+.app-shell [data-status='AdjustmentRequired'],
+.app-shell [data-status='blocked'],
+.app-shell [data-shape-role='warning'] {
+  border-color: #e1a7ae !important;
+  background-color: #fff0f2 !important;
+  color: #a52939 !important;
+}
+
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-tone='warning'],
+.app-shell .status-badge[data-status='OnHold'],
+.app-shell .material-status-badge[data-status='IqcRequested'],
+.app-shell .iqc-report-badge[data-kind='Draft'],
+.app-shell [data-status='OnHold'],
+.app-shell [data-status='Draft'],
+.app-shell [data-status='Requested'] {
+  border-color: #e4c27c !important;
+  background-color: #fff6df !important;
+  color: #875b08 !important;
+}
+
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-tone='info'],
+.app-shell .material-status-badge[data-status='IqcRequested'] {
+  border-color: #aebde5 !important;
+  background-color: #edf2ff !important;
+  color: #2f55a4 !important;
+}
+
+.app-shell :where(.pending-type-badges [data-tone='active']) {
+  border-radius: 2px !important;
+}
+
+.app-shell :where(.quality-choice-row, .quality-decision-options, .iqc-check-options) button[data-active='true'][data-result='Pass'] {
+  border-color: #238551 !important;
+  background-color: #238551 !important;
+  color: #ffffff !important;
+}
+
+.app-shell :where(.quality-choice-row, .quality-decision-options, .iqc-check-options) button[data-active='true'][data-result='Fail'],
+.app-shell :where(.quality-choice-row, .quality-decision-options, .iqc-check-options) button[data-active='true'][data-result='failed'] {
+  border-color: #b52f40 !important;
+  background-color: #b52f40 !important;
+  color: #ffffff !important;
+}
+
+/* Login follows the same wireframe foundation without changing its layout. */
+.auth-gate,
+.auth-login-canvas,
+.auth-brand-panel,
+.auth-gate[data-auth-layout='login'],
+.auth-gate[data-auth-layout='login'] .auth-brand-panel {
+  background: var(--wire-black) !important;
+  background-image: none !important;
+}
+
+.auth-gate-panel,
+.auth-gate[data-auth-layout='login'] .auth-gate-panel {
+  border-radius: 0 !important;
+  background: var(--wire-surface) !important;
+  box-shadow: none !important;
+}
+
+.auth-brand-panel::before,
+.auth-brand-panel::after,
+.auth-login-canvas::before,
+.auth-brand-effect,
+.auth-brand-dots {
+  display: none !important;
+}
+
+.auth-loading-indicator::before,
+.auth-gate[data-auth-layout='login'] .auth-loading-indicator::before {
+  border-radius: 50% !important;
+}
+
+.auth-primary-button,
+.auth-secondary-button,
+.auth-gate[data-auth-layout='login'] .auth-primary-button,
+.auth-gate[data-auth-layout='login'] .remember-session-option input {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.auth-primary-button,
+.auth-gate[data-auth-layout='login'] .auth-primary-button {
+  border: 1px solid var(--wire-black) !important;
+  background: var(--wire-black) !important;
+  color: #ffffff !important;
+}
+
+.auth-secondary-button {
+  border-color: var(--wire-line-strong) !important;
+  background: var(--wire-surface) !important;
+  color: var(--wire-ink) !important;
+}
+
+.auth-primary-button:focus-visible,
+.auth-secondary-button:focus-visible,
+.remember-session-option input:focus-visible {
+  outline: 2px solid var(--wire-black) !important;
+  outline-offset: 2px;
+}
+
+@media (max-width: 860px) {
+  .app-shell[data-layout-mode='mobile'],
+  .app-shell[data-layout-mode='mobile'] .mobile-app-bar {
+    background: var(--wire-surface) !important;
+    box-shadow: none !important;
+  }
+}

@@ -1010,7 +1010,7 @@ Excel 출력 대상 후보:
 | 4.3A | TASK-EXPORT-002 선택 프로젝트 Excel export | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-EXPORT-001 Phase 1 | 없음 | Yes | 재구현 금지; 최종 screenshot·파일 일괄 검수 |
 | 4.4 | TASK-QR-001 — 패널 QR 발급·인쇄·인증 스캔 랜딩 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment planning·implementation·automated validation complete / `BATCHED_FINAL` | MOBILE-001·제조 흐름·TASK-003B `qrEligible` | 대표 repo·main·Persistent UAT 미반영 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.5 | TASK-WORKFLOW-CONTINUITY-001 — 실제 담당자 IQC·Pending 연속성 보정 | P2_REMEDIATION | Experiment Complete | Change 004 구매팀 발주 수량 책임·자재 role fallback·도착 즉시 IQC와 기존 누락분 복구·품질 회귀까지 automated validation complete / `BATCHED_FINAL` | TASK-007A·008A·009A·012A·QR-001·E2E-FULL-SUITE-001 experiment 완료 | 대표 repo·main·Persistent UAT·실제 provider 미반영 | No | Fable 0회 사용자 override; 완료 change 재실행 금지; 최종 일괄 검수 |
-| 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Experiment Complete | CSS semantic token·React primitive·shell/Home/Sales adoption·desktop/mobile visual validation complete / `BATCHED_FINAL` | 기능 흐름 안정화·사용자 reference image | Figma file/library publish는 범위 밖, 대표 repo·main 미반영 | Yes | 완료 foundation 재구현 금지; 최종 일괄 검수 |
+| 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Experiment Complete | CSS semantic token·React primitive·shell/Home/Sales adoption, Change 001 전역 black & white wireframe·semantic status color 예외와 desktop/mobile visual validation complete / `BATCHED_FINAL` | 기능 흐름 안정화·사용자 reference image | Figma file/library publish는 범위 밖, 대표 repo·main 미반영 | Yes | 완료 foundation 재구현 금지; Change 001 사용자 검수 |
 | 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Experiment Complete | Automated validation·페이지 screenshot complete / `BATCHED_FINAL` | 로그인 shell, 후속 MOBILE-002와 DESIGN-000 foundation이 보완 | 없음. Figma publish는 optional 후속 | Yes | 완료 화면 통일 재구현 금지; 최종 일괄 검수 |
 | 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment Complete | A1·A2 implementation, automated·isolated browser validation complete / `BATCHED_FINAL` | A1 공통 contract·내 업무·알림, A2 생산·구매·자재·IQC·키팅·패널·Excel 완료 | 대표 repo·main·Persistent UAT 미반영; 전역 toast/store·A2 밖 문자열 tone 정리는 제외 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004·TASK-UX-001 A1 experiment | 관리자 감사 조회 UI는 별도 후속 | Yes | 재구현 금지; 최종 일괄 검수 |
@@ -1705,6 +1705,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 ### DESIGN-000 이후: 시각 토큰과 화면 통일
 
 - DESIGN-000은 reference를 EMI 의미 체계로 투영한 CSS semantic token과 `DsPageHeader`, `DsSurface`, `DsToolbar`, `DsTabs`, `DsBadge` 공통 component를 구현했다. Shell·Home·Sales를 우선 적용했고 desktop/mobile visual regression을 완료했다.
+- DESIGN-000 Change 001은 비상태 색·그라디언트·그림자를 제거하고 카드·입력·버튼·메뉴를 사각형으로 통일했다. 성공·주의·오류·진행·미읽음처럼 판단에 필요한 상태 표시만 의미색을 유지하며 기능·권한·API·DB·workflow는 변경하지 않았다.
 - DESIGN-001 화면 통일 실험은 구현·자동 검증·페이지별 screenshot을 완료해 `EXPERIMENT_COMPLETE / BATCHED_FINAL`이다. 같은 전체 화면 통일을 다시 기획하지 않는다.
 - DESIGN-000 token foundation도 `EXPERIMENT_COMPLETE / BATCHED_FINAL`이며 Figma file/library publish만 범위 밖이다. 후속 화면은 신규 임의 값보다 foundation token과 primitive를 먼저 사용한다.
 - 기능 Task에서도 loading·empty·error·success feedback, 접근성, 한글 안내와 390px/Teams narrow 기준은 선행 적용한다.
@@ -1989,6 +1990,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-21 | TASK-WORKFLOW-CONTINUITY-001 Change 003에서 구매 신규·변경은 자재 정/부 업무로 인계하고 도착 저장은 IQC 생성 postcondition을 확인하며 기존 누락 도착은 검사함에서 idempotent 복구 | 성공 문구와 실제 업무 생성의 불일치를 없애고, 부서 전역 화면을 프로젝트 우선으로 통일하면서 부분 실패 data도 사용자가 별도 요청 없이 회복하기 위함 | 11장~13장, 23장~25장, 27-experiment-task-ledger, TASK-WORKFLOW-CONTINUITY-001 Change 003 |
 | 2026-07-21 | TASK-WORKFLOW-CONTINUITY-001 Change 004에서 발주 수량·단위는 구매팀 입력으로 고정하고, 권한 fallback이 관리자·조회전용이 아니라 자재 역할 사용자를 우선하며, 도착 등록은 실제 IQC 수신자를 확인한 뒤 같은 흐름으로 인계 | 자재 담당자가 구매 수량을 대신 입력하는 책임 혼선을 없애고, 구매 저장은 성공했지만 자재 사용자의 내 업무·알림에 보이지 않거나 도착분이 IQC에서 누락되는 거짓 성공을 차단하기 위함 | 11장~13장, 23장~25장, 27-experiment-task-ledger, TASK-WORKFLOW-CONTINUITY-001 Change 004 |
 | 2026-07-22 | TASK-UL891-SET-001은 UL891 신규 프로젝트를 세트 사양 version·주문 instance·개별 physical panel 계층으로 생성하고, 선택 증감·부분출하·발주 회수·프로젝트×출하 달력월 발행요청을 사용 | 동일 사양 반복 주문의 공통 이름·규격과 실제 panel별 제조·검사·FAT·QR·출하 원자를 함께 보존하고, 월이 바뀐 부분출하 청구와 발주 후 수량 감소 회수를 누락 없이 추적하기 위함 | 8장·13장·19장·23장~25장, docs/41, TASK-UL891-SET-001 |
+| 2026-07-22 | DESIGN-000 Change 001에서 상태 표시 외 제품 전체를 black & white·무그림자·사각형 wireframe으로 전환 | 색은 사용자의 성공·주의·오류·진행 판단에만 쓰고 구조 계층은 1px 선과 흑백 명도로 표현해 화면별 장식 색·rounded card drift를 제거하기 위함 | 23장~25장, DESIGN-000 Change 001 |
 
 ## 26. 용어 사전
 

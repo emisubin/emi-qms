@@ -53,7 +53,7 @@
 | `TASK-NOTIFY-005` | 사용자별 알림 preference, 필수 잠금, sparse opt-out, audit와 suppression gate | [구현 보고서](../tasks/notify-005-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-SALES-KPI-001` | 영업 Home·전용 화면의 12개월 확정 매출/목표/달성률 graph, 금액 KPI, 월별 근거와 관리자 목표 CAS | [본체](../tasks/sales-kpi-001-implementation-report.md), [Change 002](../tasks/sales-kpi-001-change-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-ADMIN-002` | 고정 6종 검사·제조 양식의 무코드 version 관리, 지정 부서장 scope, 제조 snapshot과 선택 Excel | [구현 보고서](../tasks/admin-002-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
-| `DESIGN-000` | reference 기반 CSS semantic token, 공통 React primitive, shell·Home·Sales 우선 적용과 desktop/mobile visual baseline | [구현 보고서](../tasks/design-000-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
+| `DESIGN-000` | reference 기반 CSS semantic token·공통 React primitive와 Change 001 전역 black & white·무그림자·사각형 wireframe, semantic status color 예외, desktop/mobile visual baseline | [본체](../tasks/design-000-implementation-report.md), [Change 001](../tasks/design-000-change-001-implementation-report.md) | `EXPERIMENT_COMPLETE / USER_VALIDATION_PENDING` |
 | `TASK-PENDING-TYPE-001` | system semantic 보호, 사용자 유형 lifecycle·정렬·label, system administrator 권한·CAS·audit, Pending 생성·필터·상세·선택 Excel 연동과 desktop/mobile 관리 화면 | [구현 보고서](../tasks/pending-type-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-QR-001` | 패널별 명시 QR 발급·SVG/PNG·선택 인쇄, 인증 모바일 scan landing·현재 담당 업무 routing, 관리자 사유 기반 rotation과 append-only audit | [구현 보고서](../tasks/qr-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-NOTIFY-AUDIT-001` | 관리자 알림 설정 변경 이력의 기간·행동·알림 종류·사용자/부서 조회, 요약, desktop/mobile UI와 선택 Excel | [구현 보고서](../tasks/notify-audit-001-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
@@ -61,7 +61,7 @@
 | `TASK-WORKFLOW-CONTINUITY-001` | 실제 담당자 IQC Pending 검수 실패를 기준으로 도착→검사→Pending→자동 재검사→합격 연속성, 구매 병행 handoff와 QR batch를 보정. Change 004에서 구매팀 발주 수량 책임, 자재 role fallback, 도착의 실제 IQC 인계와 기존 누락분 복구·품질 전체 회귀를 확정 | [본체](../tasks/workflow-continuity-001-implementation-report.md), [Change 002](../tasks/workflow-continuity-001-change-002-implementation-report.md), [Change 003](../tasks/workflow-continuity-001-change-003-implementation-report.md), [Change 004](../tasks/workflow-continuity-001-change-004-implementation-report.md) | `EXPERIMENT_COMPLETE / BATCHED_FINAL` |
 | `TASK-UL891-SET-001` | UL891 세트 사양 version·주문 instance·개별 physical panel, 생성 후 새 사양/수량 증감, 부분출하, 발주 후 취소 회수, 프로젝트×출하 달력월 발행요청과 완료 gate | [최종 기획](41-ul891-panel-set-plan.md), [구현 보고서](../tasks/ul891-set-001-implementation-report.md), [검수 체크리스트](../tasks/ul891-set-001-user-validation-checklist.md) | `EXPERIMENT_COMPLETE / USER_VALIDATION_PENDING` |
 
-현재 계보의 최신 누적 자동 기준선은 Backend 전체 `420/420`, Frontend 전체 `122/122`, migration `0053`까지의 fresh PostgreSQL 적용이다. UL891 전용 Backend·migration `5/5`, Frontend `3/3`, production build와 고정 runtime의 3사양·6세트·38패널 실제 UI/API 검증을 통과했다. 실제 provider·Persistent UAT·대표 runtime으로 우회하지 않았다.
+현재 계보의 최신 누적 자동 기준선은 Backend 전체 `420/420`, Frontend 전체 `123/123`, migration `0053`까지의 fresh PostgreSQL 적용이다. DESIGN-000 Change 001은 Frontend typecheck·lint(error 0)·production build와 1440px/390px 고정 runtime visual projection을 통과했다. UL891 전용 Backend·migration `5/5`, Frontend `3/3`, production build와 고정 runtime의 3사양·6세트·38패널 실제 UI/API 검증도 유지된다. 실제 provider·Persistent UAT·대표 runtime으로 우회하지 않았다.
 
 ## 4. 남은 제품 개발 Task
 

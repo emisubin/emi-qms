@@ -111,7 +111,7 @@ export function DepartmentProjectHub({
         {state.kind === 'error' ? <div className="action-feedback" data-tone="error" role="alert">{state.message}<button type="button" onClick={() => void load()}>다시 시도</button></div> : null}
         {state.kind === 'ready' && state.projects.length === 0 ? <div className="department-hub-empty"><strong>표시할 프로젝트가 없습니다.</strong><span>검색어를 바꾸거나 프로젝트 등록 상태를 확인해 주세요.</span></div> : null}
         {state.kind === 'ready' ? (
-          <div className="department-project-grid">
+          <div className={department === 'Materials' && workspace === 'receiving' ? 'department-project-grid department-project-grid--receiving' : 'department-project-grid'}>
             {state.projects.map((project, index) => (
               <button
                 type="button"

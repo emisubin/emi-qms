@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using Emi.Qms.Api.Identity;
-using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.Workflow;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -93,7 +93,7 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
                 completedAt is not null,
                 completedAt,
                 reader.IsDBNull(10) ? null : reader.GetString(10),
-                builder.Ready && reader.GetBoolean(8) && completedAt is null));
+                reader.GetBoolean(8) && completedAt is null));
         }
 
         return new PanelKittingQueueResponse(builders.Values
@@ -193,36 +193,10 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
             }
 
             var readiness = await ReadReadinessAsync(connection, transaction, request.ProjectId, cancellationToken);
-            if (!readiness.Ready)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return MaterialsMutationResult<PanelKittingCompletionResponse>.Validation(
-                    new Dictionary<string, string[]> { ["readiness"] = [readiness.ActiveItemCount == 0
-                        ? "활성 구매품목이 하나 이상 있어야 키팅을 완료할 수 있습니다."
-                        : $"입고가 완료되지 않은 구매품목이 {readiness.ActiveItemCount - readiness.CompletedItemCount}건 있습니다."] });
-            }
-
-            var assignee = await ResolveManufacturingAssigneeAsync(
-                connection,
-                transaction,
-                request.ProjectId,
-                cancellationToken);
-            if (assignee is null)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return MaterialsMutationResult<PanelKittingCompletionResponse>.Validation(
-                    new Dictionary<string, string[]> { ["manufacturingAssignee"] = ["제조 담당자를 지정한 뒤 다시 시도해 주세요."] });
-            }
-
             var panelCounts = await ReadPanelCountsAsync(connection, transaction, request.ProjectId, cancellationToken);
             var projectKittingCompleted = panelCounts.ActivePanelCount > 0
                 && panelCounts.CompletedPanelCount + panels.Count >= panelCounts.ActivePanelCount;
-            var existingWorkItemCount = await CountExistingManufacturingWorkItemsAsync(
-                connection,
-                transaction,
-                panels.Select(panel => panel.PanelId).ToList(),
-                cancellationToken);
-            var generatedWorkItemCount = panels.Count - existingWorkItemCount;
+            const int generatedWorkItemCount = 0;
             var batchId = Guid.NewGuid();
 
             await InsertBatchAsync(
@@ -238,7 +212,6 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
                 readiness,
                 cancellationToken);
 
-            var actualGeneratedCount = 0;
             foreach (var panel in panels)
             {
                 await InsertCompletionAsync(
@@ -249,35 +222,17 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
                     panel.PanelId,
                     actorUserId,
                     cancellationToken);
-                actualGeneratedCount += await InsertManufacturingWorkItemAsync(
-                    connection,
-                    transaction,
-                    request.ProjectId,
-                    panel,
-                    assignee.Value,
-                    actorUserId,
-                    cancellationToken);
             }
 
-            if (actualGeneratedCount != generatedWorkItemCount)
-            {
-                throw new InvalidOperationException("The manufacturing work item count changed during the kitting transaction.");
-            }
-
-            Guid? stageEventId = null;
-            if (projectKittingCompleted)
-            {
-                var eventId = await EnsureStageCompletedEventAsync(
-                    connection,
-                    transaction,
-                    request.ProjectId,
-                    batchId,
-                    request.OperationId,
-                    actorUserId,
-                    cancellationToken);
-                stageEventId = eventId.EventId;
-                await CompleteKittingWorkItemAsync(connection, transaction, request.ProjectId, cancellationToken);
-            }
+            var stageEventId = await WorkflowStore.EnsureEffectiveKittingStageCompletedAsync(
+                connection,
+                transaction,
+                request.ProjectId,
+                "PanelKittingBatch",
+                batchId,
+                request.OperationId,
+                actorUserId,
+                cancellationToken);
 
             await CreateBatchReferenceNotificationAsync(
                 connection,
@@ -286,7 +241,6 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
                 request.OperationId,
                 panels.Count,
                 stageEventId,
-                assignee.Value.UserId,
                 cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
@@ -303,77 +257,6 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
             await transaction.RollbackAsync(cancellationToken);
             return MaterialsMutationResult<PanelKittingCompletionResponse>.Conflict(
                 "다른 요청이 먼저 키팅을 완료했습니다. 최신 내용을 다시 불러와 주세요.");
-        }
-    }
-
-    internal static async Task EnsureKittingWorkItemIfReadyAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
-        Guid actorUserId,
-        CancellationToken cancellationToken)
-    {
-        var readiness = await ReadReadinessAsync(connection, transaction, projectId, cancellationToken);
-        if (!readiness.Ready)
-        {
-            return;
-        }
-
-        await using (var stageCommand = connection.CreateCommand())
-        {
-            stageCommand.Transaction = transaction;
-            stageCommand.CommandText = """
-                select exists (
-                    select 1
-                    from project_workflow_events
-                    where project_id = @project_id
-                      and stage_code = 'KittingCompleted'
-                      and event_type = 'StageCompleted'
-                      and event_status = 'Succeeded'
-                );
-                """;
-            stageCommand.Parameters.AddWithValue("project_id", projectId);
-            if ((bool)(await stageCommand.ExecuteScalarAsync(cancellationToken) ?? false))
-            {
-                return;
-            }
-        }
-
-        var assignee = await ResolveMaterialsAssigneeAsync(connection, transaction, projectId, cancellationToken);
-        if (assignee is null)
-        {
-            return;
-        }
-
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            insert into work_items (
-                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
-                assigned_user_id, assigned_role_code, title, description, status, priority,
-                idempotency_key, created_by_user_id
-            )
-            values (
-                @project_id, 'Project', @project_id, 'KittingCompleted', 'MaterialsPrimary',
-                @assignee_id, @role_code, '패널 키팅 완료',
-                '입고 준비가 끝난 프로젝트의 패널 키팅을 완료해 주세요. /materials/kitting?project=' || @project_id::text,
-                'Requested', 'Normal', @idempotency_key, @actor_id
-            )
-            on conflict (idempotency_key) do nothing;
-            """;
-        command.Parameters.AddWithValue("project_id", projectId);
-        command.Parameters.AddWithValue("assignee_id", assignee.Value.UserId);
-        AddNullableText(command, "role_code", assignee.Value.RoleCode);
-        command.Parameters.AddWithValue("idempotency_key", $"materials:kitting:{projectId}");
-        command.Parameters.AddWithValue("actor_id", actorUserId);
-        await command.ExecuteNonQueryAsync(cancellationToken);
-        var workItemId = await ReadWorkItemIdAsync(connection, transaction, $"materials:kitting:{projectId}", cancellationToken);
-        if (workItemId is not null)
-        {
-            await WorkAssignmentNotificationWriter.UpsertAsync(
-                connection, transaction, projectId, workItemId.Value, assignee.Value.UserId,
-                ["MaterialsSecondary"], "패널 키팅 완료", "입고 준비가 끝난 프로젝트의 패널 키팅을 완료해 주세요.",
-                $"/materials/kitting?project={projectId}", $"materials:kitting:{projectId}:notification", cancellationToken);
         }
     }
 
@@ -535,115 +418,6 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
         return new PanelCounts(reader.GetInt32(0), reader.GetInt32(1));
     }
 
-    private static async Task<AssigneeSnapshot?> ResolveManufacturingAssigneeAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
-        CancellationToken cancellationToken)
-        => await ResolveAssigneeAsync(
-            connection,
-            transaction,
-            projectId,
-            ["ManufacturingPrimary", "ManufacturingSecondary", "Manufacturing", "SalesPrimary", "SalesSecondary"],
-            QmsPermissions.ManufacturingUpdate,
-            "manufacturing",
-            cancellationToken);
-
-    private static async Task<AssigneeSnapshot?> ResolveMaterialsAssigneeAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
-        CancellationToken cancellationToken)
-        => await ResolveAssigneeAsync(
-            connection,
-            transaction,
-            projectId,
-            ["MaterialsPrimary", "MaterialsSecondary", "SalesPrimary", "SalesSecondary"],
-            QmsPermissions.MaterialReceiptUpdate,
-            "materials",
-            cancellationToken);
-
-    private static async Task<AssigneeSnapshot?> ResolveAssigneeAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
-        IReadOnlyList<string> responsibilityTypes,
-        string permissionCode,
-        string operationalRoleCode,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            with candidates as (
-                select pa.assigned_user_id as user_id,
-                       role.code as role_code,
-                       array_position(@responsibility_types, pa.responsibility_type) as priority,
-                       users.display_name
-                from project_assignees pa
-                join qms_users users on users.id = pa.assigned_user_id and users.is_active = true
-                left join user_roles user_role on user_role.user_id = users.id
-                left join roles role on role.id = user_role.role_id
-                where pa.project_id = @project_id
-                  and pa.responsibility_type = any(@responsibility_types)
-                  and exists (
-                      select 1
-                      from user_roles allowed_user_role
-                      join role_permissions allowed_role_permission on allowed_role_permission.role_id = allowed_user_role.role_id
-                      join permissions allowed_permission on allowed_permission.id = allowed_role_permission.permission_id
-                      where allowed_user_role.user_id = users.id
-                        and allowed_permission.code = @permission_code
-                  )
-                union all
-                select users.id, role.code, 100, users.display_name
-                from qms_users users
-                join user_roles user_role on user_role.user_id = users.id
-                join roles role on role.id = user_role.role_id
-                join role_permissions role_permission on role_permission.role_id = role.id
-                join permissions permission on permission.id = role_permission.permission_id
-                where users.is_active = true
-                  and role.code = @operational_role_code
-                  and permission.code = @permission_code
-                union all
-                select users.id, role.code, 200, users.display_name
-                from qms_users users
-                join user_roles user_role on user_role.user_id = users.id
-                join roles role on role.id = user_role.role_id
-                join role_permissions role_permission on role_permission.role_id = role.id
-                join permissions permission on permission.id = role_permission.permission_id
-                where users.is_active = true
-                  and role.code = 'system-administrator'
-                  and permission.code = @permission_code
-            )
-            select user_id, role_code
-            from candidates
-            order by priority, display_name, user_id
-            limit 1;
-            """;
-        command.Parameters.AddWithValue("project_id", projectId);
-        command.Parameters.AddWithValue("responsibility_types", responsibilityTypes.ToArray());
-        command.Parameters.AddWithValue("permission_code", permissionCode);
-        command.Parameters.AddWithValue("operational_role_code", operationalRoleCode);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
-            ? new AssigneeSnapshot(reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1))
-            : null;
-    }
-
-    private static async Task<int> CountExistingManufacturingWorkItemsAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        IReadOnlyList<Guid> panelIds,
-        CancellationToken cancellationToken)
-    {
-        var keys = panelIds.Select(panelId => $"kitting:panel:{panelId}:manufacturing").ToArray();
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "select count(*)::int from work_items where idempotency_key = any(@keys);";
-        command.Parameters.AddWithValue("keys", keys);
-        return (int)(await command.ExecuteScalarAsync(cancellationToken) ?? 0);
-    }
-
     private static async Task InsertBatchAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -708,66 +482,6 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
         command.Parameters.AddWithValue("panel_id", panelId);
         command.Parameters.AddWithValue("actor_id", actorUserId);
         await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
-    private static async Task<int> InsertManufacturingWorkItemAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
-        PanelSnapshot panel,
-        AssigneeSnapshot assignee,
-        Guid actorUserId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            insert into work_items (
-                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
-                assigned_user_id, assigned_role_code, title, description, status, priority,
-                idempotency_key, created_by_user_id
-            )
-            values (
-                @project_id, 'Panel', @panel_id, 'ManufacturingWork', 'ManufacturingPrimary',
-                @assignee_id, @role_code, @title, @description, 'Requested', 'Normal',
-                @idempotency_key, @actor_id
-            )
-            on conflict (idempotency_key) do nothing;
-            """;
-        command.Parameters.AddWithValue("project_id", projectId);
-        command.Parameters.AddWithValue("panel_id", panel.PanelId);
-        command.Parameters.AddWithValue("assignee_id", assignee.UserId);
-        AddNullableText(command, "role_code", assignee.RoleCode);
-        var title = $"제조 작업 · {panel.DisplayCode}";
-        var description = "키팅 완료 패널의 제조 작업을 진행해 주세요.";
-        var idempotencyKey = $"kitting:panel:{panel.PanelId}:manufacturing";
-        command.Parameters.AddWithValue("title", title);
-        command.Parameters.AddWithValue("description", $"{description} /manufacturing/work?project={projectId}&panel={panel.PanelId}");
-        command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
-        command.Parameters.AddWithValue("actor_id", actorUserId);
-        var inserted = await command.ExecuteNonQueryAsync(cancellationToken);
-        var workItemId = await ReadWorkItemIdAsync(connection, transaction, idempotencyKey, cancellationToken);
-        if (workItemId is not null)
-        {
-            await WorkAssignmentNotificationWriter.UpsertAsync(
-                connection, transaction, projectId, workItemId.Value, assignee.UserId,
-                ["ManufacturingSecondary"], title, description,
-                $"/manufacturing/work?project={projectId}&panel={panel.PanelId}", $"{idempotencyKey}:notification", cancellationToken);
-        }
-        return inserted;
-    }
-
-    private static async Task<Guid?> ReadWorkItemIdAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        string idempotencyKey,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "select id from work_items where idempotency_key=@key;";
-        command.Parameters.AddWithValue("key", idempotencyKey);
-        return await command.ExecuteScalarAsync(cancellationToken) as Guid?;
     }
 
     private static async Task<(Guid EventId, bool Created)> EnsureStageCompletedEventAsync(
@@ -846,10 +560,9 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
         Guid operationId,
         int panelCount,
         Guid? eventId,
-        Guid manufacturingAssigneeId,
         CancellationToken cancellationToken)
     {
-        var recipientIds = new HashSet<Guid> { manufacturingAssigneeId };
+        var recipientIds = new HashSet<Guid>();
         await using (var recipientCommand = connection.CreateCommand())
         {
             recipientCommand.Transaction = transaction;
@@ -881,14 +594,14 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
                     generated_by_event_id, idempotency_key
                 )
                 values (
-                    @project_id, 'Reference', 'Info', '패널 키팅이 완료되었습니다.',
+                    @project_id, 'Reference', 'Info', '패널 키팅 완료 상태가 공유되었습니다.',
                     @message, @link_url, @event_id, @idempotency_key
                 )
                 on conflict (idempotency_key) do update set title = excluded.title
                 returning id;
                 """;
             command.Parameters.AddWithValue("project_id", projectId);
-            command.Parameters.AddWithValue("message", $"이번 작업에서 패널 {panelCount}건의 키팅이 완료되어 제조 업무가 생성되었습니다.");
+            command.Parameters.AddWithValue("message", $"패널 {panelCount}건의 키팅 완료 상태를 공유했습니다. 제조 투입 여부와 별개인 자재 준비 정보입니다.");
             command.Parameters.AddWithValue("link_url", $"/materials/kitting?project={projectId}");
             command.Parameters.Add("event_id", NpgsqlDbType.Uuid).Value = eventId ?? (object)DBNull.Value;
             command.Parameters.AddWithValue("idempotency_key", $"kitting:operation:{operationId}:reference");
@@ -919,9 +632,6 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
         }
         return NpgsqlDataSource.Create(connectionString);
     }
-
-    private static void AddNullableText(NpgsqlCommand command, string name, string? value)
-        => command.Parameters.Add(name, NpgsqlDbType.Text).Value = value ?? (object)DBNull.Value;
 
     private sealed class ProjectBuilder(
         Guid projectId,
@@ -968,5 +678,4 @@ public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectio
         public bool Ready => ActiveItemCount > 0 && ActiveItemCount == CompletedItemCount;
     }
     private sealed record PanelCounts(int ActivePanelCount, int CompletedPanelCount);
-    private readonly record struct AssigneeSnapshot(Guid UserId, string? RoleCode);
 }

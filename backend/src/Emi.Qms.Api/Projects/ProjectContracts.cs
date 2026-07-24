@@ -157,6 +157,8 @@ public sealed class ProjectDetailResponse : ProjectListItemResponse
     public int InspectionCompletedCount { get; init; }
     public int DuplicatePanelNameGroupCount { get; init; }
     public bool ProjectPanelInformationCompleted { get; init; }
+    public int ManufacturingStepCount { get; init; }
+    public int OqcStepCount { get; init; }
 }
 
 public class DeletedProjectListItemResponse : ProjectListItemResponse

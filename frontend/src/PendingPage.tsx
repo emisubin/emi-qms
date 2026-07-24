@@ -4,6 +4,7 @@ import {
   addPendingComment,
   assignPendingIssue,
   createPendingIssue,
+  getMaterialIqcQueue,
   getPendingIssue,
   listPendingAssignees,
   listPendingIssues,
@@ -23,9 +24,11 @@ import type {
   PendingIssueType,
   PendingListResponse,
   PendingPriority,
+  PendingReinspection,
   PendingStatus
 } from './pending';
 import type { PendingTypeOption } from './pendingTypes';
+import { buildPendingTimeline } from './pendingTimeline';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useSelectedRows } from './useSelectedRows';
 
@@ -37,6 +40,7 @@ type PendingPageProps = {
   onOpenPending: (pendingId: string) => void;
   onBackToList: () => void;
   onOpenProject: (projectId: string) => void;
+  onOpenIqc: (attemptId: string) => void;
   onBadgeRefresh: () => void;
 };
 
@@ -440,6 +444,7 @@ function PendingDetailView({
   canManage,
   onBackToList,
   onOpenProject,
+  onOpenIqc,
   onBadgeRefresh
 }: PendingPageProps & { pendingId: string }) {
   const { isMobile } = useAdaptiveLayout();
@@ -450,6 +455,7 @@ function PendingDetailView({
   const [nextAssignee, setNextAssignee] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [discoveredReinspection, setDiscoveredReinspection] = useState<PendingReinspection | null>(null);
 
   const load = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -475,35 +481,27 @@ function PendingDetailView({
   }, [canManage, developmentUserKey]);
 
   const detail = state.kind === 'ready' ? state.data : null;
-  const timeline = useMemo(() => {
-    if (!detail) return [];
-    return [
-      ...detail.history.map((event) => ({
-        key: `history:${event.historyId}`,
-        title: event.eventLabel,
-        summary: event.fromStatusLabel && event.toStatusLabel
-          ? `${event.fromStatusLabel} → ${event.toStatusLabel}`
-          : event.toStatusLabel ?? '',
-        detail: event.fromAssigneeDisplayName !== event.toAssigneeDisplayName && event.toAssigneeDisplayName
-          ? `담당 ${event.toAssigneeDisplayName}`
-          : event.reason ?? '',
-        note: event.reason && event.fromAssigneeDisplayName !== event.toAssigneeDisplayName ? event.reason : '',
-        actor: event.changedByDisplayName,
-        createdAtUtc: event.createdAtUtc,
-        rank: 0
-      })),
-      ...detail.comments.map((item) => ({
-        key: `comment:${item.commentId}`,
-        title: '코멘트',
-        summary: item.body,
-        detail: '',
-        note: '',
-        actor: item.createdByDisplayName,
-        createdAtUtc: item.createdAtUtc,
-        rank: 1
-      }))
-    ].sort((left, right) => left.createdAtUtc.localeCompare(right.createdAtUtc) || left.rank - right.rank || left.key.localeCompare(right.key));
-  }, [detail]);
+  const timeline = useMemo(() => detail ? buildPendingTimeline(detail) : [], [detail]);
+  useEffect(() => {
+    if (!detail || detail.issue.status !== 'ReinspectionRequested' || detail.reinspection) {
+      setDiscoveredReinspection(null);
+      return;
+    }
+    let active = true;
+    void getMaterialIqcQueue(developmentUserKey, false).then((response) => {
+      if (!active) return;
+      const attempt = response.items.find((item) => item.pendingIssueId === pendingId && item.status === 'Requested');
+      setDiscoveredReinspection(attempt ? {
+        attemptId: attempt.attemptId,
+        attemptNumber: attempt.attemptNumber,
+        orderItem: attempt.orderItem,
+        quantity: attempt.quantity,
+        unit: attempt.unit,
+        linkUrl: `/quality/iqc?request=${attempt.attemptId}`
+      } : null);
+    }).catch(() => active && setDiscoveredReinspection(null));
+    return () => { active = false; };
+  }, [detail, developmentUserKey, pendingId]);
 
   async function runMutation(operation: () => Promise<PendingDetail>, successMessage: string, resetFields?: () => void) {
     setBusy(true);
@@ -525,6 +523,7 @@ function PendingDetailView({
   if (state.kind === 'error') return <section className="page-surface pending-page"><PendingError message={state.message} onRetry={load} /><button type="button" onClick={onBackToList}>목록으로</button></section>;
   if (!detail) return null;
   const issue = detail.issue;
+  const reinspection = detail.reinspection ?? discoveredReinspection;
   const nextTransition = detail.allowedTransitions[0];
   const completingAction = nextTransition === 'ReinspectionRequested';
 
@@ -546,12 +545,25 @@ function PendingDetailView({
         <div className="pending-detail-main">
           <section className="pending-section"><h3>발생 내용</h3><p className="pending-description">{issue.description}</p><dl className="pending-facts"><div><dt>등록자</dt><dd>{issue.createdByDisplayName}</dd></div><div><dt>조치 담당</dt><dd>{issue.assigneeDisplayName ?? '미지정'}</dd></div>{issue.targetType === 'Panel' ? <div><dt>대상 패널</dt><dd>{issue.targetLabel ?? '패널'}</dd></div> : null}{issue.actionDepartmentCode ? <div><dt>조치 부서</dt><dd>{departmentLabel(issue.actionDepartmentCode)}</dd></div> : null}<div><dt>등록일</dt><dd>{formatDateTime(issue.createdAtUtc)}</dd></div><div><dt>최근 변경</dt><dd>{formatDateTime(issue.updatedAtUtc)}</dd></div></dl></section>
 
+          {issue.status === 'ReinspectionRequested' ? (
+            <section className="pending-section pending-reinspection-action" aria-labelledby="pending-reinspection-title">
+              <div>
+                <p className="eyebrow">QUALITY REINSPECTION</p>
+                <h3 id="pending-reinspection-title">품질 재검사에서 판정해 주세요</h3>
+                {reinspection ? (
+                  <p><strong>{reinspection.orderItem ?? issue.targetLabel ?? '검사 품목'}</strong> · {formatPendingQuantity(reinspection.quantity, reinspection.unit)} · {reinspection.attemptNumber}차 검사</p>
+                ) : <p>재검사 업무를 준비하고 있습니다. 잠시 후 다시 확인해 주세요.</p>}
+              </div>
+              <button className="primary-button" type="button" disabled={!reinspection} onClick={() => reinspection && onOpenIqc(reinspection.attemptId)}>품질 재검사 열기</button>
+            </section>
+          ) : null}
+
           {canManage && detail.canAssign ? <section className="pending-section"><h3>담당 변경</h3><div className="pending-inline-action"><select aria-label="새 조치 담당" value={nextAssignee} onChange={(event) => setNextAssignee(event.target.value)}><option value="">새 담당자 선택</option>{assignees.filter((item) => item.userId !== issue.assigneeUserId).map((item) => <option key={item.userId} value={item.userId}>{item.displayName} · {departmentLabel(item.departmentCode)}</option>)}</select><input aria-label="담당 변경 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="변경 사유 (3자 이상)" /><button disabled={busy || !nextAssignee || reason.trim().length < 3} type="button" onClick={() => void runMutation(() => assignPendingIssue(developmentUserKey, pendingId, nextAssignee, issue.version, reason), '조치 담당자가 변경되었습니다.', () => { setReason(''); setNextAssignee(''); })}>담당 변경</button></div></section> : null}
 
           {nextTransition ? <section className="pending-section pending-next-action"><div><p className="eyebrow">NEXT ACTION</p><h3>{transitionLabels[nextTransition]}</h3><p>{completingAction ? '처리 내용을 남기고 완료하면 품질 재검사 업무와 알림이 자동 생성됩니다.' : '현재 상태를 확인하고 처리 내용을 남겨 다음 단계로 넘깁니다.'}</p></div><div className="pending-transition-control"><input aria-label="처리 내용" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="처리 내용 또는 확인 결과 (3자 이상)" /><button className="primary-button" disabled={busy || reason.trim().length < 3} type="button" onClick={() => void runMutation(() => transitionPendingIssue(developmentUserKey, pendingId, nextTransition, issue.version, reason), completingAction ? '조치를 완료하고 품질 재검사 업무를 생성했습니다.' : `${transitionLabels[nextTransition]} 상태로 변경되었습니다.`, () => setReason(''))}>{transitionLabels[nextTransition]}</button></div></section> : null}
         </div>
 
-        <aside className="pending-timeline"><div className="subsection-header"><h3>처리 활동</h3><span>{timeline.length}건</span></div>{timeline.map((event) => <article key={event.key}><span className="pending-timeline-dot" /><div><strong>{event.title}</strong>{event.summary ? <p>{event.summary}</p> : null}{event.detail ? <p>{event.detail}</p> : null}{event.note ? <p>{event.note}</p> : null}<small>{event.actor} · {formatDateTime(event.createdAtUtc)}</small></div></article>)}{detail.canComment ? <form className="pending-comment-form pending-timeline-composer" onSubmit={(event) => { event.preventDefault(); if (comment.trim()) void runMutation(() => addPendingComment(developmentUserKey, pendingId, comment), '활동에 코멘트를 추가했습니다.', () => setComment('')); }}><textarea aria-label="처리 활동 코멘트" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="추가 확인이나 인계 메모를 남겨 주세요." /><button className="primary-button" disabled={busy || !comment.trim()} type="submit">활동 추가</button></form> : null}<div className="pending-attachment-note"><strong>첨부파일 보류</strong><span>보안 정책 확정 후 이 타임라인에 파일 audit를 함께 표시합니다.</span></div></aside>
+        <section className="pending-timeline"><div className="subsection-header"><div><p className="eyebrow">ACTIVITY</p><h3>코멘트와 처리 이력</h3></div><span>{timeline.length}건</span></div>{detail.canComment ? <form className="pending-comment-form pending-timeline-composer" onSubmit={(event) => { event.preventDefault(); if (comment.trim()) void runMutation(() => addPendingComment(developmentUserKey, pendingId, comment), '코멘트와 처리 이력에 추가했습니다.', () => setComment('')); }}><label><span>새 코멘트</span><textarea aria-label="처리 활동 코멘트" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="조치 내용, 확인 결과 또는 다음 담당자에게 전달할 내용을 남겨 주세요." /></label><button className="primary-button" disabled={busy || !comment.trim()} type="submit">코멘트 등록</button></form> : null}<div className="pending-timeline-list">{timeline.map((event) => <article key={event.key}><span className="pending-timeline-dot" /><div><strong>{event.title}</strong>{event.summary ? <p>{event.summary}</p> : null}{event.detail ? <p>{event.detail}</p> : null}{event.note ? <p>{event.note}</p> : null}<small>{event.actor} · {formatDateTime(event.createdAtUtc)}</small></div></article>)}</div><div className="pending-attachment-note"><strong>첨부파일 보류</strong><span>보안 정책 확정 후 이 타임라인에 파일 audit를 함께 표시합니다.</span></div></section>
       </div>
     </section>
   );
@@ -567,6 +579,11 @@ function PendingError({ message, onRetry }: { message: string; onRetry: () => vo
 
 function PendingEmpty({ canManage, onCreate }: { canManage: boolean; onCreate: () => void }) {
   return <div className="pending-empty"><span aria-hidden="true">✓</span><strong>조건에 맞는 Pending이 없습니다.</strong><p>모든 업무가 정상이라면 이 상태가 맞습니다. 새 이슈가 생기면 즉시 등록해 담당자를 연결하세요.</p>{canManage ? <button className="primary-button" type="button" onClick={onCreate}>첫 Pending 등록</button> : null}</div>;
+}
+
+function formatPendingQuantity(quantity: number | null, unit: string | null) {
+  if (quantity === null) return '수량 미입력';
+  return `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 3 }).format(quantity)}${unit ? ` ${unit}` : ''}`;
 }
 
 function messageForError(error: unknown) {

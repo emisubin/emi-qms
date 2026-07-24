@@ -113,6 +113,8 @@ export interface ProjectDetail extends ProjectListItem {
   inspectionCompletedCount: number;
   duplicatePanelNameGroupCount: number;
   projectPanelInformationCompleted: boolean;
+  manufacturingStepCount: number;
+  oqcStepCount: number;
 }
 
 export type ProjectStatus = 'Active' | 'OnHold' | 'Cancelled' | 'Completed';

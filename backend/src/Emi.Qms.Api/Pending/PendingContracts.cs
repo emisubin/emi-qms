@@ -107,7 +107,16 @@ public sealed record PendingDetailResponse(
     IReadOnlyList<PendingHistoryResponse> History,
     IReadOnlyList<string> AllowedTransitions,
     bool CanComment,
-    bool CanAssign);
+    bool CanAssign,
+    PendingReinspectionResponse? Reinspection);
+
+public sealed record PendingReinspectionResponse(
+    Guid AttemptId,
+    int AttemptNumber,
+    string? OrderItem,
+    decimal? Quantity,
+    string? Unit,
+    string LinkUrl);
 
 public sealed record PendingCommentResponse(
     Guid CommentId,
@@ -137,7 +146,7 @@ public sealed record ManufacturingStopPendingResult(Guid PendingId, long IssueNu
 
 public sealed record PanelQualityPendingResult(Guid PendingId, long IssueNumber);
 
-public sealed record PendingActor(Guid UserId, bool IsCoordinator);
+public sealed record PendingActor(Guid UserId, bool IsCoordinator, bool IsQuality);
 
 public sealed record PendingMutationResult<T>(
     PendingMutationStatus Status,

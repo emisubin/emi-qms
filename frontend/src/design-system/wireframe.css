@@ -249,6 +249,22 @@ body,
   background-image: none !important;
 }
 
+/* Progress fill is semantic status, so it must remain visible in wireframe mode. */
+.app-shell .project-progress-meter > i {
+  background-color: var(--wire-subtle) !important;
+  background-image: none !important;
+}
+
+.app-shell .project-progress-meter > i > b {
+  background-color: var(--wire-black) !important;
+  background-image: none !important;
+}
+
+.app-shell .project-progress-meter[data-tone='success'] > i > b { background-color: #238455 !important; }
+.app-shell .project-progress-meter[data-tone='danger'] > i > b { background-color: #c83e4d !important; }
+.app-shell .project-progress-meter[data-tone='warning'] > i > b { background-color: #b97810 !important; }
+.app-shell .project-progress-meter[data-tone='info'] > i > b { background-color: #315efb !important; }
+
 .app-shell [role='radio'] i {
   width: 20px !important;
   height: 20px !important;
@@ -437,7 +453,8 @@ body,
 .app-shell .iqc-report-badge[data-kind='Draft'],
 .app-shell [data-status='OnHold'],
 .app-shell [data-status='Draft'],
-.app-shell [data-status='Requested'] {
+.app-shell [data-status='Requested'],
+.app-shell [data-status='PartiallyCompleted'] {
   border-color: #e4c27c !important;
   background-color: #fff6df !important;
   color: #875b08 !important;

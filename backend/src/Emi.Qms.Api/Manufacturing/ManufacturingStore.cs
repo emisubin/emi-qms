@@ -5,6 +5,8 @@ using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.Pending;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.QualityInspections;
+using Emi.Qms.Api.Workflow;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -14,6 +16,8 @@ public sealed class ManufacturingStore(
     DatabaseConnectionStringProvider connectionStringProvider,
     PendingStore pendingStore)
 {
+    private const int MaxReleasePanelCount = 500;
+
     public async Task<ManufacturingQueueResponse> ListAsync(
         ProjectAccessScope accessScope,
         Guid? actorUserId,
@@ -44,12 +48,13 @@ public sealed class ManufacturingStore(
                 pending.action_department_code,
                 execution.started_by_user_id,
                 execution.started_at_utc,
-                execution.completed_at_utc
+                execution.completed_at_utc,
+                completion.id is not null
             from projects project
             join panel_placeholders panel
               on panel.project_id = project.id
              and panel.status = 'Active'
-            join panel_kitting_completions completion on completion.panel_id = panel.id
+            left join panel_kitting_completions completion on completion.panel_id = panel.id
             join work_items work_item
               on work_item.idempotency_key = 'kitting:panel:' || panel.id::text || ':manufacturing'
              and work_item.target_type = 'Panel'
@@ -99,6 +104,7 @@ public sealed class ManufacturingStore(
                 reader.GetString(4),
                 reader.IsDBNull(5) ? null : reader.GetString(5),
                 reader.GetString(6),
+                reader.GetBoolean(20),
                 reader.GetGuid(7),
                 reader.GetString(8),
                 reader.IsDBNull(9) ? null : reader.GetGuid(9),
@@ -115,6 +121,225 @@ public sealed class ManufacturingStore(
         }
 
         return new ManufacturingQueueResponse(builders.Values.Select(builder => builder.ToResponse()).ToList());
+    }
+
+    public async Task<ManufacturingReleaseQueueResponse> ListReleaseCandidatesAsync(
+        ProjectAccessScope accessScope,
+        Guid? projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand($"""
+            select
+                project.id,
+                project.project_code,
+                project.project_title,
+                readiness.active_item_count,
+                readiness.completed_item_count,
+                panel.id,
+                panel.display_code,
+                panel.panel_name,
+                panel.panel_info_completed,
+                completion.id is not null,
+                work_item.id is not null,
+                work_item.status,
+                work_item.created_at_utc
+            from projects project
+            cross join lateral (
+                select count(*)::int as active_item_count,
+                       count(*) filter (where item.receipt_completed)::int as completed_item_count
+                from project_procurement_items item
+                where item.project_id = project.id
+                  and item.status = 'Active'
+            ) readiness
+            join panel_placeholders panel
+              on panel.project_id = project.id
+             and panel.status = 'Active'
+            left join panel_kitting_completions completion on completion.panel_id = panel.id
+            left join work_items work_item
+              on work_item.idempotency_key = 'kitting:panel:' || panel.id::text || ':manufacturing'
+             and work_item.target_type = 'Panel'
+             and work_item.target_id = panel.id
+            where project.deleted_at_utc is null
+              and project.status = 'Active'
+              and (@has_read_all or project.project_key = any(@project_keys))
+              {(projectId is null ? string.Empty : "and project.id = @project_id")}
+            order by project.project_code, project.id, panel.sequence_number;
+            """);
+        command.Parameters.AddWithValue("has_read_all", accessScope.HasProjectReadAll);
+        command.Parameters.AddWithValue("project_keys", accessScope.ProjectKeys.ToArray());
+        if (projectId is not null)
+        {
+            command.Parameters.AddWithValue("project_id", projectId.Value);
+        }
+
+        var builders = new Dictionary<Guid, ReleaseProjectBuilder>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var currentProjectId = reader.GetGuid(0);
+            if (!builders.TryGetValue(currentProjectId, out var builder))
+            {
+                builder = new ReleaseProjectBuilder(
+                    currentProjectId,
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt32(3),
+                    reader.GetInt32(4));
+                builders[currentProjectId] = builder;
+            }
+
+            var panelInfoCompleted = reader.GetBoolean(8);
+            var released = reader.GetBoolean(10);
+            builder.Panels.Add(new ManufacturingReleasePanelResponse(
+                reader.GetGuid(5),
+                reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                panelInfoCompleted,
+                reader.GetBoolean(9),
+                released,
+                reader.IsDBNull(11) ? null : reader.GetString(11),
+                reader.IsDBNull(12) ? null : reader.GetFieldValue<DateTimeOffset>(12),
+                panelInfoCompleted && !released));
+        }
+
+        return new ManufacturingReleaseQueueResponse(builders.Values.Select(builder => builder.ToResponse()).ToList());
+    }
+
+    public async Task<ManufacturingMutationResult<ManufacturingReleaseResponse>> ReleaseAsync(
+        ReleaseManufacturingRequest request,
+        Guid actorUserId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        var errors = ValidateRelease(request);
+        if (errors.Count > 0)
+        {
+            return ManufacturingMutationResult<ManufacturingReleaseResponse>.Validation(errors);
+        }
+
+        var panelIds = request.PanelIds!.OrderBy(panelId => panelId).ToArray();
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var project = await LockProjectAsync(connection, transaction, request.ProjectId, accessScope, cancellationToken);
+            if (project is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ManufacturingMutationResult<ManufacturingReleaseResponse>.NotFound();
+            }
+
+            var replay = await ReadReleaseOperationAsync(connection, transaction, request.OperationId, cancellationToken);
+            if (replay is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                if (replay.ProjectId != request.ProjectId
+                    || replay.RequestedByUserId != actorUserId
+                    || !replay.PanelIds.SequenceEqual(panelIds))
+                {
+                    return ManufacturingMutationResult<ManufacturingReleaseResponse>.Conflict(
+                        "같은 작업 식별자를 다른 제조 투입 요청에 사용할 수 없습니다. 최신 내용을 다시 불러와 주세요.");
+                }
+
+                return ManufacturingMutationResult<ManufacturingReleaseResponse>.Success(new ManufacturingReleaseResponse(
+                    request.OperationId,
+                    replay.ReleasedPanelCount,
+                    replay.GeneratedWorkItemCount,
+                    true));
+            }
+
+            if (!string.Equals(project.Status, "Active", StringComparison.Ordinal))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ManufacturingMutationResult<ManufacturingReleaseResponse>.Conflict("진행 중인 프로젝트에서만 제조 투입을 요청할 수 있습니다.");
+            }
+
+            var panels = await LockReleasePanelsAsync(connection, transaction, request.ProjectId, panelIds, cancellationToken);
+            if (panels.Count != panelIds.Length)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ManufacturingMutationResult<ManufacturingReleaseResponse>.Validation(
+                    new Dictionary<string, string[]> { [nameof(request.PanelIds)] = ["선택한 패널은 이 프로젝트의 활성 패널이어야 합니다."] });
+            }
+
+            var incompletePanels = panels.Where(panel => !panel.PanelInfoCompleted).Select(panel => panel.DisplayCode).ToList();
+            if (incompletePanels.Count > 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ManufacturingMutationResult<ManufacturingReleaseResponse>.Validation(
+                    new Dictionary<string, string[]> { [nameof(request.PanelIds)] = [$"패널정보를 먼저 완료해 주세요: {string.Join(", ", incompletePanels)}"] });
+            }
+
+            var releasedPanels = panels.Where(panel => panel.Released).Select(panel => panel.DisplayCode).ToList();
+            if (releasedPanels.Count > 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ManufacturingMutationResult<ManufacturingReleaseResponse>.Conflict(
+                    $"이미 제조 투입 요청된 패널이 포함되어 있습니다: {string.Join(", ", releasedPanels)}. 최신 내용을 다시 불러와 주세요.");
+            }
+
+            var assignee = await ResolveManufacturingAssigneeAsync(connection, transaction, request.ProjectId, cancellationToken);
+            if (assignee is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ManufacturingMutationResult<ManufacturingReleaseResponse>.Validation(
+                    new Dictionary<string, string[]> { ["manufacturingAssignee"] = ["제조 담당자를 지정한 뒤 다시 시도해 주세요."] });
+            }
+
+            var readiness = await ReadMaterialReadinessAsync(connection, transaction, request.ProjectId, cancellationToken);
+            var generatedCount = 0;
+            foreach (var panel in panels)
+            {
+                generatedCount += await InsertManufacturingReleaseWorkItemAsync(
+                    connection,
+                    transaction,
+                    request.ProjectId,
+                    panel,
+                    readiness,
+                    assignee.Value,
+                    actorUserId,
+                    cancellationToken);
+            }
+            if (generatedCount != panels.Count)
+            {
+                throw new InvalidOperationException("The manufacturing release work item count changed during the transaction.");
+            }
+
+            await InsertReleaseOperationAsync(
+                connection,
+                transaction,
+                request.OperationId,
+                request.ProjectId,
+                actorUserId,
+                panelIds,
+                panels.Count,
+                generatedCount,
+                cancellationToken);
+            await WorkflowStore.EnsureEffectiveKittingStageCompletedAsync(
+                connection,
+                transaction,
+                request.ProjectId,
+                "ManufacturingRelease",
+                request.OperationId,
+                request.OperationId,
+                actorUserId,
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return ManufacturingMutationResult<ManufacturingReleaseResponse>.Success(new ManufacturingReleaseResponse(
+                request.OperationId,
+                panels.Count,
+                generatedCount,
+                false));
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ManufacturingMutationResult<ManufacturingReleaseResponse>.Conflict(
+                "다른 요청이 먼저 제조 투입 상태를 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+        }
     }
 
     public async Task<ManufacturingExecutionDetailResponse?> GetDetailAsync(
@@ -294,7 +519,7 @@ public sealed class ManufacturingStore(
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return ManufacturingMutationResult<ManufacturingMutationResponse>.Validation(
-                    new Dictionary<string, string[]> { ["panel"] = ["키팅 완료된 활성 패널만 제조 작업을 시작할 수 있습니다."] });
+                    new Dictionary<string, string[]> { ["panel"] = ["생산관리에서 제조 투입 요청한 활성 패널만 제조 작업을 시작할 수 있습니다."] });
             }
             if (!string.Equals(panel.WorkflowStage, "BeforeManufacturing", StringComparison.Ordinal)
                 || !string.Equals(panel.WorkItemStatus, "Requested", StringComparison.Ordinal))
@@ -314,6 +539,16 @@ public sealed class ManufacturingStore(
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return ManufacturingMutationResult<ManufacturingMutationResponse>.Conflict("활성 제조 작업 양식이 없습니다. 양식 관리자에게 확인해 주세요.");
+            }
+            var qualityAssignee = await ResolveQualityAssigneeAsync(connection, transaction, request.ProjectId, cancellationToken);
+            if (qualityAssignee is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ManufacturingMutationResult<ManufacturingMutationResponse>.Validation(
+                    new Dictionary<string, string[]>
+                    {
+                        ["qualityAssignee"] = ["제조 시작과 함께 LQC를 진행할 품질 담당자를 먼저 지정해 주세요."]
+                    });
             }
 
             var executionId = Guid.NewGuid();
@@ -355,11 +590,20 @@ public sealed class ManufacturingStore(
                 command.Parameters.AddWithValue("step_name", template.Value.Steps[index]);
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
+            var lqcCreated = await InsertLqcWorkItemAsync(
+                connection,
+                transaction,
+                request.ProjectId,
+                request.PanelId,
+                panel.DisplayCode,
+                qualityAssignee.Value,
+                actorUserId,
+                cancellationToken);
             await InsertEventAsync(connection, transaction, executionId, "Started", null, null, null, null, actorUserId, cancellationToken);
             var response = new ManufacturingMutationResponse(
                 request.OperationId, request.ProjectId, request.PanelId, executionId,
                 ManufacturingExecutionStatuses.InProgress, 1, 0, template.Value.Steps.Count,
-                null, null, false, false, false);
+                null, null, lqcCreated, false, false);
             await InsertOperationAsync(connection, transaction, request.OperationId, "Start", request.ProjectId, request.PanelId, executionId, actorUserId, fingerprint, response, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return ManufacturingMutationResult<ManufacturingMutationResponse>.Success(response);
@@ -596,15 +840,6 @@ public sealed class ManufacturingStore(
                     {
                         return MutationActionResult.Conflict($"제조 단계 {snapshot.TotalStepCount}개를 모두 확인한 뒤 종료해 주세요.");
                     }
-                    var qualityAssignee = await ResolveQualityAssigneeAsync(connection, transaction, snapshot.ProjectId, cancellationToken);
-                    if (qualityAssignee is null)
-                    {
-                        return MutationActionResult.Validation(new Dictionary<string, string[]>
-                        {
-                            ["qualityAssignee"] = ["LQC 품질 담당자를 지정한 뒤 다시 시도해 주세요."]
-                        });
-                    }
-
                     await using (var command = connection.CreateCommand())
                     {
                         command.Transaction = transaction;
@@ -628,7 +863,18 @@ public sealed class ManufacturingStore(
                         command.Parameters.AddWithValue("work_item_id", snapshot.WorkItemId);
                         await command.ExecuteNonQueryAsync(cancellationToken);
                     }
-                    var lqcCreated = await InsertLqcWorkItemAsync(connection, transaction, snapshot, qualityAssignee.Value, actorUserId, cancellationToken);
+                    var oqcHandoff = await QualityInspectionStore.TryOpenOqcAfterManufacturingAndLqcAsync(
+                        connection,
+                        transaction,
+                        snapshot.ProjectId,
+                        snapshot.PanelId,
+                        actorUserId,
+                        request.OperationId,
+                        cancellationToken);
+                    if (oqcHandoff.ConflictMessage is not null)
+                    {
+                        return MutationActionResult.Conflict(oqcHandoff.ConflictMessage);
+                    }
                     await InsertEventAsync(connection, transaction, executionId, "Completed", null, null, null, null, actorUserId, cancellationToken);
                     var projectCompleted = await IsProjectManufacturingCompletedAsync(connection, transaction, snapshot.ProjectId, cancellationToken);
                     if (projectCompleted)
@@ -638,7 +884,7 @@ public sealed class ManufacturingStore(
                     var response = new ManufacturingMutationResponse(
                         request.OperationId, snapshot.ProjectId, snapshot.PanelId, executionId,
                         ManufacturingExecutionStatuses.Completed, snapshot.Version + 1, snapshot.CheckedStepCount, snapshot.TotalStepCount,
-                        null, null, lqcCreated, projectCompleted, false);
+                        null, null, false, projectCompleted, false);
                     return MutationActionResult.Success(response);
                 },
                 cancellationToken);
@@ -783,6 +1029,256 @@ public sealed class ManufacturingStore(
         }
     }
 
+    private static Dictionary<string, string[]> ValidateRelease(ReleaseManufacturingRequest request)
+    {
+        var errors = ValidateOperation(request.OperationId);
+        if (request.ProjectId == Guid.Empty)
+        {
+            errors[nameof(request.ProjectId)] = ["프로젝트를 선택해 주세요."];
+        }
+        if (request.PanelIds is null || request.PanelIds.Count == 0)
+        {
+            errors[nameof(request.PanelIds)] = ["제조 투입할 패널을 하나 이상 선택해 주세요."];
+        }
+        else if (request.PanelIds.Count > MaxReleasePanelCount)
+        {
+            errors[nameof(request.PanelIds)] = [$"한 번에 최대 {MaxReleasePanelCount}개 패널까지 요청할 수 있습니다."];
+        }
+        else if (request.PanelIds.Any(panelId => panelId == Guid.Empty)
+                 || request.PanelIds.Distinct().Count() != request.PanelIds.Count)
+        {
+            errors[nameof(request.PanelIds)] = ["패널 선택값을 다시 확인해 주세요."];
+        }
+        return errors;
+    }
+
+    private static async Task<ReleaseOperationSnapshot?> ReadReleaseOperationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select project_id, requested_by_user_id, panel_ids,
+                   released_panel_count, generated_work_item_count
+            from panel_manufacturing_release_operations
+            where operation_id = @operation_id;
+            """;
+        command.Parameters.AddWithValue("operation_id", operationId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? new ReleaseOperationSnapshot(
+                reader.GetGuid(0),
+                reader.GetGuid(1),
+                reader.GetFieldValue<Guid[]>(2),
+                reader.GetInt32(3),
+                reader.GetInt32(4))
+            : null;
+    }
+
+    private static async Task<IReadOnlyList<ReleasePanelSnapshot>> LockReleasePanelsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        IReadOnlyList<Guid> panelIds,
+        CancellationToken cancellationToken)
+    {
+        var panels = new List<ReleasePanelSnapshot>();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select panel.id, panel.display_code, panel.panel_name, panel.panel_info_completed,
+                   completion.id is not null, work_item.id is not null
+            from panel_placeholders panel
+            left join panel_kitting_completions completion on completion.panel_id = panel.id
+            left join work_items work_item
+              on work_item.idempotency_key = 'kitting:panel:' || panel.id::text || ':manufacturing'
+             and work_item.target_type = 'Panel'
+             and work_item.target_id = panel.id
+            where panel.project_id = @project_id
+              and panel.id = any(@panel_ids)
+              and panel.status = 'Active'
+            order by panel.id
+            for update of panel;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("panel_ids", panelIds.ToArray());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            panels.Add(new ReleasePanelSnapshot(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.GetBoolean(3),
+                reader.GetBoolean(4),
+                reader.GetBoolean(5)));
+        }
+        return panels;
+    }
+
+    private static async Task<MaterialReadinessSnapshot> ReadMaterialReadinessAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select count(*)::int,
+                   count(*) filter (where receipt_completed)::int
+            from project_procurement_items
+            where project_id = @project_id
+              and status = 'Active';
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+        return new MaterialReadinessSnapshot(reader.GetInt32(0), reader.GetInt32(1));
+    }
+
+    private static async Task<ReleaseAssigneeSnapshot?> ResolveManufacturingAssigneeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var responsibilityTypes = new[] { "ManufacturingPrimary", "ManufacturingSecondary", "Manufacturing" };
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select pa.assigned_user_id,
+                   pa.responsibility_type,
+                   role.code
+            from project_assignees pa
+            join qms_users users on users.id = pa.assigned_user_id and users.is_active = true
+            left join user_roles user_role on user_role.user_id = users.id
+            left join roles role on role.id = user_role.role_id
+            where pa.project_id = @project_id
+              and pa.responsibility_type = any(@responsibility_types)
+              and exists (
+                  select 1
+                  from user_roles allowed_user_role
+                  join role_permissions allowed_role_permission on allowed_role_permission.role_id = allowed_user_role.role_id
+                  join permissions allowed_permission on allowed_permission.id = allowed_role_permission.permission_id
+                  where allowed_user_role.user_id = users.id
+                    and allowed_permission.code = @permission_code
+              )
+            order by array_position(@responsibility_types, pa.responsibility_type), users.display_name, users.id
+            limit 1;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("responsibility_types", responsibilityTypes);
+        command.Parameters.AddWithValue("permission_code", QmsPermissions.ManufacturingUpdate);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? new ReleaseAssigneeSnapshot(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2))
+            : null;
+    }
+
+    private static async Task<int> InsertManufacturingReleaseWorkItemAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        ReleasePanelSnapshot panel,
+        MaterialReadinessSnapshot readiness,
+        ReleaseAssigneeSnapshot assignee,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var idempotencyKey = $"kitting:panel:{panel.PanelId}:manufacturing";
+        var title = $"제조 투입 요청 · {panel.DisplayCode}";
+        var kittingLabel = panel.KittingCompleted ? "키팅 완료" : "키팅 미보고";
+        var materialLabel = readiness.ActiveItemCount == 0
+            ? "구매품목 없음"
+            : $"자재 입고 {readiness.CompletedItemCount}/{readiness.ActiveItemCount}";
+        var description = $"{kittingLabel} · {materialLabel}. 패널 제조 작업을 시작해 주세요.";
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into work_items (
+                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                assigned_user_id, assigned_role_code, title, description, status, priority,
+                idempotency_key, created_by_user_id
+            )
+            values (
+                @project_id, 'Panel', @panel_id, 'ManufacturingWork', @responsibility_type,
+                @assignee_id, @role_code, @title, @description, 'Requested', 'Normal',
+                @idempotency_key, @actor_id
+            );
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("panel_id", panel.PanelId);
+        command.Parameters.AddWithValue("responsibility_type", assignee.ResponsibilityType);
+        command.Parameters.AddWithValue("assignee_id", assignee.UserId);
+        AddNullableText(command, "role_code", assignee.RoleCode);
+        command.Parameters.AddWithValue("title", title);
+        command.Parameters.AddWithValue("description", $"{description} /manufacturing/work?project={projectId}&panel={panel.PanelId}");
+        command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        var inserted = await command.ExecuteNonQueryAsync(cancellationToken);
+
+        await using var readCommand = connection.CreateCommand();
+        readCommand.Transaction = transaction;
+        readCommand.CommandText = "select id from work_items where idempotency_key = @key;";
+        readCommand.Parameters.AddWithValue("key", idempotencyKey);
+        if (await readCommand.ExecuteScalarAsync(cancellationToken) is Guid workItemId)
+        {
+            await WorkAssignmentNotificationWriter.UpsertAsync(
+                connection,
+                transaction,
+                projectId,
+                workItemId,
+                assignee.UserId,
+                ["ManufacturingSecondary"],
+                title,
+                description,
+                $"/manufacturing/work?project={projectId}&panel={panel.PanelId}",
+                $"{idempotencyKey}:notification",
+                cancellationToken);
+        }
+        return inserted;
+    }
+
+    private static async Task InsertReleaseOperationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid operationId,
+        Guid projectId,
+        Guid actorUserId,
+        IReadOnlyList<Guid> panelIds,
+        int releasedPanelCount,
+        int generatedWorkItemCount,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into panel_manufacturing_release_operations (
+                operation_id, project_id, requested_by_user_id, panel_ids,
+                released_panel_count, generated_work_item_count
+            )
+            values (
+                @operation_id, @project_id, @actor_id, @panel_ids,
+                @released_panel_count, @generated_work_item_count
+            );
+            """;
+        command.Parameters.AddWithValue("operation_id", operationId);
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        command.Parameters.AddWithValue("panel_ids", panelIds.ToArray());
+        command.Parameters.AddWithValue("released_panel_count", releasedPanelCount);
+        command.Parameters.AddWithValue("generated_work_item_count", generatedWorkItemCount);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static async Task<ProjectSnapshot?> LockProjectAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -820,7 +1316,6 @@ public sealed class ManufacturingStore(
             select panel.id, panel.display_code, panel.panel_name, panel.workflow_stage,
                    work_item.id, work_item.status
             from panel_placeholders panel
-            join panel_kitting_completions completion on completion.panel_id = panel.id
             join work_items work_item
               on work_item.idempotency_key = 'kitting:panel:' || panel.id::text || ':manufacturing'
             where panel.id = @panel_id
@@ -1183,7 +1678,9 @@ public sealed class ManufacturingStore(
     private static async Task<bool> InsertLqcWorkItemAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        ExecutionSnapshot snapshot,
+        Guid projectId,
+        Guid panelId,
+        string panelDisplayCode,
         AssigneeSnapshot assignee,
         Guid actorUserId,
         CancellationToken cancellationToken)
@@ -1203,15 +1700,15 @@ public sealed class ManufacturingStore(
             )
             on conflict (idempotency_key) do nothing;
             """;
-        command.Parameters.AddWithValue("project_id", snapshot.ProjectId);
-        command.Parameters.AddWithValue("panel_id", snapshot.PanelId);
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("panel_id", panelId);
         command.Parameters.AddWithValue("assignee_id", assignee.UserId);
         AddNullableText(command, "role_code", assignee.RoleCode);
-        var title = $"LQC 입력 · {snapshot.DisplayCode}";
-        var description = "제조 완료 패널의 LQC 입력을 진행해 주세요.";
-        var idempotencyKey = $"manufacturing:panel:{snapshot.PanelId}:lqc";
+        var title = $"LQC 입력 · {panelDisplayCode}";
+        var description = "제조 시작과 함께 현재 진행 중인 단계의 LQC를 진행해 주세요.";
+        var idempotencyKey = $"manufacturing:panel:{panelId}:lqc";
         command.Parameters.AddWithValue("title", title);
-        command.Parameters.AddWithValue("description", $"{description} /quality/inspections?stage=LQC&project={snapshot.ProjectId}&panel={snapshot.PanelId}");
+        command.Parameters.AddWithValue("description", $"{description} /quality/inspections?stage=LQC&project={projectId}&panel={panelId}");
         command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
         command.Parameters.AddWithValue("actor_id", actorUserId);
         var inserted = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
@@ -1223,9 +1720,9 @@ public sealed class ManufacturingStore(
         if (value is Guid workItemId)
         {
             await WorkAssignmentNotificationWriter.UpsertAsync(
-                connection, transaction, snapshot.ProjectId, workItemId, assignee.UserId,
+                connection, transaction, projectId, workItemId, assignee.UserId,
                 ["QualityLQCSecondary"], title, description,
-                $"/quality/inspections?stage=LQC&project={snapshot.ProjectId}&panel={snapshot.PanelId}",
+                $"/quality/inspections?stage=LQC&project={projectId}&panel={panelId}",
                 $"{idempotencyKey}:notification", cancellationToken);
         }
         return inserted;
@@ -1436,7 +1933,40 @@ public sealed class ManufacturingStore(
             Panels);
     }
 
+    private sealed class ReleaseProjectBuilder(
+        Guid projectId,
+        string projectCode,
+        string projectTitle,
+        int activeItemCount,
+        int completedItemCount)
+    {
+        public List<ManufacturingReleasePanelResponse> Panels { get; } = [];
+
+        public ManufacturingReleaseProjectResponse ToResponse() => new(
+            projectId,
+            projectCode,
+            projectTitle,
+            activeItemCount,
+            completedItemCount,
+            Panels);
+    }
+
     private sealed record ProjectSnapshot(Guid ProjectId, string Status);
+    private sealed record ReleaseOperationSnapshot(
+        Guid ProjectId,
+        Guid RequestedByUserId,
+        IReadOnlyList<Guid> PanelIds,
+        int ReleasedPanelCount,
+        int GeneratedWorkItemCount);
+    private sealed record ReleasePanelSnapshot(
+        Guid PanelId,
+        string DisplayCode,
+        string? PanelName,
+        bool PanelInfoCompleted,
+        bool KittingCompleted,
+        bool Released);
+    private sealed record MaterialReadinessSnapshot(int ActiveItemCount, int CompletedItemCount);
+    private readonly record struct ReleaseAssigneeSnapshot(Guid UserId, string ResponsibilityType, string? RoleCode);
     private sealed record ReadyPanelSnapshot(Guid PanelId, string DisplayCode, string? PanelName, string WorkflowStage, Guid WorkItemId, string WorkItemStatus);
     private sealed record ExecutionIdentity(Guid ProjectId, Guid PanelId);
     private sealed record ExecutionSnapshot(

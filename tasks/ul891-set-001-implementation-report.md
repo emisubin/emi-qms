@@ -120,3 +120,139 @@
 
 - local experiment commit을 revert하고 runtime을 이전 reachable commit으로 되돌린다.
 - migration `0053`은 적용 뒤 down migration을 제공하지 않는다. Persistent UAT에는 적용하지 않았으며 승격 시 fresh backup·isolated rehearsal·forward fix 원칙을 사용한다.
+
+## 10. Change 002 — 패널 상세 업무 허브 완성 (2026-07-22)
+
+### 10.1 구현 결과
+
+- 프로젝트 상세의 9개 탭과 조회 중심 구조는 변경하지 않았다. 복잡한 입력은 기존 별도 편집·업무 화면을 계속 authoritative source로 사용한다.
+- 패널 상세를 `요약·설계·자재/키팅·제조·품질·물류·QR/이력` 7개 탭의 패널 중심 업무 허브로 확장했다.
+- 기존 자재·제조·품질·물류 조회 API를 합성하되 패널 ID 또는 패널 display code로 직접 연결된 record만 표시한다. 한 부서 조회가 실패해도 다른 탭은 계속 열린다.
+- 구매품목·자재 입고와 IQC처럼 현재 패널/BOM 귀속이 없는 데이터는 `프로젝트 공통`으로 명시하고 임의의 패널 데이터처럼 표시하지 않는다.
+- 키팅·제조·LQC/OQC/입회/FAT·포장/출발/납품 업무 버튼은 기존 workspace에 `projectId + panelId + stage`를 전달한다. 권한·validation·mutation은 기존 Backend와 업무 화면을 그대로 사용한다.
+- 패널 상세 route의 선택 탭을 `?tab=`에 보존해 새로고침 뒤에도 같은 패널 문맥을 유지한다.
+- 기존 QR manager에 `focusPanelId` projection을 추가해 패널 상세에서는 선택한 패널 한 대만 표시하고, 프로젝트 설계 탭의 전체 QR 동작은 유지한다.
+
+### 10.2 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Frontend typecheck | PASS |
+| Frontend lint | PASS — error 0, 기존 `main.tsx` Fast Refresh warning 1 |
+| Frontend 전체 unit | PASS — 19 files, `124/124` |
+| 신규 패널 업무 허브 unit | PASS — 패널별 키팅·제조 projection, 프로젝트 공통 표시, exact panel deep link |
+| Frontend production build | PASS — 기존 chunk-size warning 유지 |
+| 기존 18단계 Full-Stack E2E | BLOCKED_BY_TEST_DRIFT — 현재 선택형 키팅 정책과 달리 `키팅 완료 즉시 제조 업무 생성`을 기대해 프로젝트 상세 진척 assertion 전에 중단 |
+| 고정 runtime | PASS — Frontend `42983` 200, Backend `41166` ready/database reachable |
+| 실제 desktop UI | PASS — synthetic UL891 3사양·6세트·38패널의 P01에서 요약·자재/키팅·QR/이력 탭과 단일 패널 QR projection 확인 |
+| `git diff --check` | PASS |
+
+첫 전체 unit 실행에서 기존 관리자 장기 테스트 1건이 5초 timeout에 한 번 걸렸으나, 해당 테스트 단독 재실행과 전체 suite 재실행이 모두 통과했다. 제품 코드 회귀로 재현되지 않았다.
+
+### 10.3 Finding·경계
+
+- Open P0/P1/P2: `0/0/0`
+- 신규 migration·Backend API·권한·상태·알림·외부 provider는 추가하지 않았다.
+- 대표 repo·`main`·Persistent UAT·push·PR·merge는 변경하지 않았다. main merge 승인 `0/3`을 유지한다.
+- 현재 worktree에는 Change 002 시작 전부터 다수의 미커밋 사용자/기존 Task 변경이 겹쳐 있다. `App.tsx`·`styles.css`·`App.test.tsx`의 타 변경을 함께 커밋하지 않기 위해 이번 변경은 자동 commit하지 않았다.
+
+### 10.4 사용자 검수
+
+상태: `자동 검증 완료 / 사용자 검수 대기 — 마지막 일괄 검수`
+
+- [x] P01 요약에서 설계·키팅·제조·품질·물류·QR 상태 구분
+- [x] 자재 탭에서 프로젝트 공통 구매/입고와 패널 직접 키팅 구분
+- [x] QR 탭에서 다른 37개 패널을 제외하고 P01만 표시
+- [x] 키팅 업무 이동 URL에 프로젝트와 패널 ID 보존
+- [ ] 사용자가 390px 실제 기기에서 7개 탭과 2열 상태 카드 밀도 확인
+- [ ] 각 부서 담당 계정으로 제조·품질·물류 exact target 이동 최종 확인
+
+## 11. Change 003 — 프로젝트 상세 부서 탭 재구성 (2026-07-22)
+
+### 11.1 구현 결과
+
+1. 영업 탭에서 상단 프로젝트 기본정보와 중복되던 고객사·Item·PJT Code·납기일 등의 입력 요약을 제거했다. 세트 주문 관리와 정산·월별 발행요청은 고유 업무이므로 유지했다.
+2. 프로젝트 상세 탭을 `전체 흐름 → 생산관리 → 설계 → 구매 → 제조 → 품질 → 물류 → 영업`으로 재배치했다. 영업 탭은 유효 부서가 영업팀인 사용자에게만 마지막에 표시하며, 비영업 사용자의 직접 `?section=sales` 접근은 전체 흐름으로 정규화한다.
+3. 프로젝트 상세의 자재 탭을 제거했다. 기존 자재 독립 업무·패널 상세 자재/키팅·서버 권한은 유지하고, 이전 `?section=materials` 링크는 구매로 정규화한다.
+4. 구매 탭은 각 구매품목의 자재 결과를 `입고 확정` 또는 `미확정`으로만 보여 준다. 입고 회차·IQC·Pending·키팅 상세는 복제하지 않는다.
+5. 제조·품질·물류 탭을 활성 패널 전체의 현황 표/모바일 카드로 교체했다. 기록이 없는 패널도 `미시작`으로 포함하고, 차단/Pending을 우선해 현재 단계를 계산한다.
+6. 각 패널 행/카드는 패널 상세의 정확한 `?tab=manufacturing|quality|logistics`로 연결한다. 기존 담당자 mutation workspace와 Backend 권한 계약은 변경하지 않았다.
+
+### 11.2 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Frontend typecheck | PASS |
+| Frontend lint | PASS — error 0, 기존 `main.tsx` Fast Refresh warning 1 |
+| Frontend 전체 unit | PASS — 19 files, `125/125` |
+| 신규 프로젝트 상세 unit | PASS — 탭 순서·영업 부서 제한·legacy query 정규화·구매 입고확정·3개 패널 deep link |
+| Frontend production build | PASS — 기존 chunk-size warning 유지 |
+| 영향 Full-Stack E2E | PASS — 격리 PostgreSQL에서 구매·자재 추적 `1/1`, IQC Pending·재검사·프로젝트 탭 연속성 `1/1` |
+| 고정 runtime | PASS — Frontend `42983` 200, Backend `41166` process 유지 |
+| 실제 desktop UI | PASS — 영업 사용자 8개 탭, 구매 입고확정, 제조·품질·물류 각 38개 패널과 P01 exact tab deep link 확인 |
+| 실제 비영업 UI | PASS — `dev-design`에서 영업·자재 탭 미노출, 직접 영업 query가 전체 흐름으로 정규화 |
+| 실제 390px UI | PASS — 제조·품질·물류가 표 축소본이 아닌 패널 카드 projection으로 표시 |
+
+### 11.3 Finding·경계
+
+- Open P0/P1/P2: `0/0/0`
+- P3: 기존 frontend 단일 bundle의 500 kB 초과 warning은 유지한다.
+- 격리 Full-Stack 첫 실행에서 부분 일치 탭 selector와 이전 IQC 재검사 UI 기대값이 실패했다. 제품 결함이 아니라 현재 `부적합 항목만 재검사` 계약과 어긋난 테스트를 exact selector·1개 항목·전용 재검사 완료 동작으로 갱신한 뒤 두 흐름을 모두 통과했다.
+- Backend API·DB·migration·workflow·알림·mutation 권한은 변경하지 않았다.
+- 대표 repo·`main`·Persistent UAT·push·PR·merge는 변경하지 않았다. main merge 승인 `0/3`을 유지한다.
+- 현재 worktree에는 Change 003 시작 전부터 `App.tsx`·`styles.css`·tests를 포함한 미커밋 변경이 겹쳐 있어 자동 commit하지 않는다.
+
+### 11.4 사용자 검수
+
+상태: `자동 검증 완료 / 사용자 검수 대기 — 마지막 일괄 검수`
+
+- [x] 영업 사용자 탭 순서와 영업 탭 마지막 배치
+- [x] 비영업 사용자 영업 탭 차단과 legacy query 정규화
+- [x] 구매품목 입고확정/미확정 단순 표시
+- [x] 제조·품질·물류 38패널 목록과 exact panel detail tab 연결
+- [x] 390px 전용 패널 카드 구조
+- [ ] 사용자가 실제 업무 데이터의 상태 문구와 정보 밀도 최종 확인
+
+## 12. Change 004 — 프로젝트 상세 패널 진척률·부서 KPI (2026-07-22)
+
+### 12.1 구현 결과
+
+1. 제조·품질·물류의 desktop 패널 목록을 `No · 패널명 · 핵심정보 · 진행률` 네 열로 통일했다. 진행률은 숫자 `%`와 상태 tone을 채운 사각형 막대를 함께 표시하고 패널 상세 exact tab 연결을 유지했다.
+2. 제조는 시작된 실행의 고정 단계 수, 미착수 패널은 활성 제조 양식 단계 수를 분모로 사용한다. KPI는 `착수 대기 · 제조 중 · 중단 · 완료 · 진행률`이며 착수 대기는 제조 전 활성 패널 전체를 포함한다.
+3. 품질은 패널별 `OQC Check 항목 + 전진검수 1 + 선택 FAT 1`을 분모로 계산한다. LQC는 별도 완료 KPI이고 진척률 분모에는 넣지 않는다. FAT 비필수 프로젝트는 `FAT 완료 없음`으로 표시한다.
+4. 물류는 패널별 `포장 · 출발 · 납품` 3단계를 각각 1로 계산하고, 확정 이력의 패널 code를 중복 제거해 단계별 완료 면수를 집계한다.
+5. Project detail API에 활성 제조 단계 수와 활성 OQC Check 항목 수를 추가했다. 실행·검사가 시작된 패널은 해당 회차에 고정된 실제 단계/항목 수를 우선 사용해 이후 양식 version 변경으로 과거 진척이 흔들리지 않게 했다.
+6. 390px에서는 표 축소본 대신 패널명·핵심정보·진척률을 한 장에 보여 주는 전용 카드 projection을 유지했다.
+
+### 12.2 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Backend project detail 계약 | PASS — 제조/OQC 활성 단계 수 `4/4` |
+| Backend 전체 test | PASS — `420/420` |
+| Frontend 대상 unit | PASS — 제조·품질·물류 exact header, KPI, 부분 진척 계산 |
+| Frontend 전체 unit | PASS — `19 files, 125/125` |
+| Frontend typecheck | PASS |
+| Frontend lint | PASS — error 0, 기존 `main.tsx` Fast Refresh warning 1 |
+| Frontend production build | PASS — 기존 chunk-size warning 유지 |
+| 고정 runtime | PASS — Frontend `42983` 200, Backend `41166` ready/database reachable |
+| 실제 desktop UI | PASS — 38면 FAT 대상 프로젝트에서 제조 `0/4`, 품질 `0/6`, 물류 `0/3`과 5개/4개 KPI 확인 |
+| 실제 390px UI | PASS — 전용 카드, 진행 막대, horizontal overflow 0 |
+
+### 12.3 Finding·경계
+
+- Change 004 자체 Open P0/P1/P2: `0/0/0`.
+- 품질 진척 계산은 사용자가 확정한 단위를 반영했지만 현재 전진검수·FAT 입력 화면과 Backend는 여전히 여러 체크항목을 요구한다. 입력 모델 보정은 [TASK-012A Change 003](012a-change-003.md)의 `012A-AGGREGATE-DECISION` OPEN P2이며 이 Change의 읽기 전용 현황판 범위 밖이다.
+- 기존 전체 lifecycle E2E는 구매 편집기의 현재 빈 상태 구조까지 보정한 뒤 구매·IQC·키팅을 통과했으나, 과거 `키팅 완료 → 제조 업무 자동 생성` 정책 문구에서 다시 중단됐다. 제품은 현재 `키팅=선택 알림`, `생산관리 제조 투입 요청=제조 업무 생성` 계약이므로 테스트 시나리오 갱신이 필요하다. 격리 DB·컨테이너는 두 실행 모두 자동 삭제됐다.
+- 대표 repo·`main`·Persistent UAT·push·PR·merge는 변경하지 않았다. main merge 승인 `0/3`을 유지한다.
+- 여러 기존 Task의 미커밋 변경이 같은 worktree와 `App.tsx`·`styles.css` 등에 겹쳐 있어 자동 commit하지 않았다.
+
+### 12.4 5종 종료 산출물
+
+| 산출물 | 위치 | 상태 |
+| --- | --- | --- |
+| Implementation report | 이 문서 12장 | 작성 완료 |
+| SOP | 이 문서 계산 규칙 + Change 004 계약 | 검수용 완료 |
+| User manual | 사용자 검수 체크리스트 Change 004 | 작성 완료 |
+| Roadmap update | `docs/00-product-roadmap.md` Decision Log | 반영 완료 |
+| User validation checklist | `tasks/ul891-set-001-user-validation-checklist.md` | 사용자 검수 대기 |

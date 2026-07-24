@@ -131,9 +131,11 @@ public sealed class IqcReportStore(
         }
 
         var items = await ReadTemplateItemsAsync(connection, context.TemplateVersionId, cancellationToken, transaction);
+        var reinspectionSource = await ReadReinspectionSourceAsync(connection, context, cancellationToken, transaction);
+        items = SelectReinspectionItems(items, reinspectionSource);
         var itemById = items.ToDictionary(item => item.ItemId);
         var inputs = request.Responses ?? [];
-        var errors = ValidateResponses(inputs, itemById);
+        var errors = ValidateResponses(inputs, itemById, reinspectionSource?.Failures.Count > 0);
         if (errors.Count > 0)
         {
             return MaterialsMutationResult<IqcReportResponse>.Validation(errors);
@@ -224,6 +226,8 @@ public sealed class IqcReportStore(
             return stateError;
         }
         var items = await ReadTemplateItemsAsync(connection, context.TemplateVersionId, cancellationToken, transaction);
+        var reinspectionSource = await ReadReinspectionSourceAsync(connection, context, cancellationToken, transaction);
+        items = SelectReinspectionItems(items, reinspectionSource);
         if (!items.Any(item => item.ItemId == templateItemId))
         {
             return Validation<IqcReportResponse>(nameof(templateItemId), "현재 성적서 양식의 항목을 선택해 주세요.");
@@ -341,9 +345,15 @@ public sealed class IqcReportStore(
             return stateError;
         }
         var items = await ReadTemplateItemsAsync(connection, context.TemplateVersionId, cancellationToken, transaction);
-        var responses = await ReadResponsesAsync(connection, reportId, cancellationToken, transaction);
-        var photos = await ReadPhotosAsync(connection, reportId, cancellationToken, transaction);
+        var reinspectionSource = await ReadReinspectionSourceAsync(connection, context, cancellationToken, transaction);
+        items = SelectReinspectionItems(items, reinspectionSource);
+        var applicableItemIds = items.Select(item => item.ItemId).ToHashSet();
+        var responses = (await ReadResponsesAsync(connection, reportId, cancellationToken, transaction))
+            .Where(response => applicableItemIds.Contains(response.TemplateItemId)).ToList();
+        var photos = (await ReadPhotosAsync(connection, reportId, cancellationToken, transaction))
+            .Where(photo => applicableItemIds.Contains(photo.TemplateItemId)).ToList();
         var snapshotPhotos = await ReadSnapshotPhotosAsync(connection, reportId, cancellationToken, transaction);
+        snapshotPhotos = snapshotPhotos.Where(photo => applicableItemIds.Contains(photo.TemplateItemId)).ToList();
         var invariantErrors = ValidateFinalization(items, responses, photos, request.Result!, request.Reason!);
         if (invariantErrors.Count > 0)
         {
@@ -582,7 +592,8 @@ public sealed class IqcReportStore(
 
     private static Dictionary<string, string[]> ValidateResponses(
         IReadOnlyList<SaveIqcItemResponseRequest> inputs,
-        IReadOnlyDictionary<Guid, IqcTemplateItemResponse> itemById)
+        IReadOnlyDictionary<Guid, IqcTemplateItemResponse> itemById,
+        bool reinspectionOnly)
     {
         var errors = new Dictionary<string, string[]>();
         if (inputs.GroupBy(input => input.TemplateItemId).Any(group => group.Count() > 1))
@@ -606,9 +617,11 @@ public sealed class IqcReportStore(
             }
             if (item.ResponseType == "Check")
             {
-                if (check is not ("Pass" or "Fail" or "NotApplicable"))
+                if (check is not ("Pass" or "Fail") && (reinspectionOnly || check != "NotApplicable"))
                 {
-                    errors[$"responses.{input.TemplateItemId}.checkResult"] = ["적합, 부적합 또는 해당없음을 선택해 주세요."];
+                    errors[$"responses.{input.TemplateItemId}.checkResult"] = [reinspectionOnly
+                        ? "재검사 항목은 적합 또는 부적합을 선택해 주세요."
+                        : "적합, 부적합 또는 해당없음을 선택해 주세요."];
                 }
                 if (check == "NotApplicable" && note is null)
                 {
@@ -769,12 +782,17 @@ public sealed class IqcReportStore(
         CancellationToken cancellationToken)
     {
         var items = await ReadTemplateItemsAsync(connection, context.TemplateVersionId, cancellationToken);
+        var reinspectionSource = await ReadReinspectionSourceAsync(connection, context, cancellationToken);
+        items = SelectReinspectionItems(items, reinspectionSource);
+        var applicableItemIds = items.Select(item => item.ItemId).ToHashSet();
         var responses = context.ReportId is null
             ? []
-            : await ReadResponsesAsync(connection, context.ReportId.Value, cancellationToken);
+            : (await ReadResponsesAsync(connection, context.ReportId.Value, cancellationToken))
+                .Where(response => applicableItemIds.Contains(response.TemplateItemId)).ToList();
         var photos = context.ReportId is null
             ? []
-            : await ReadPhotosAsync(connection, context.ReportId.Value, cancellationToken);
+            : (await ReadPhotosAsync(connection, context.ReportId.Value, cancellationToken))
+                .Where(photo => applicableItemIds.Contains(photo.TemplateItemId)).ToList();
         return new IqcReportResponse(
             context.AttemptId,
             context.ReceiptId,
@@ -799,11 +817,119 @@ public sealed class IqcReportStore(
             context.DecisionMode == IqcDecisionModes.Detailed
                 && context.AttemptStatus == "Requested"
                 && context.ReportStatus != IqcReportStatuses.Finalized,
+            reinspectionSource,
             items,
             responses,
             photos,
             context.FinalizedAtUtc,
             context.FinalizedBy);
+    }
+
+    private static IReadOnlyList<IqcTemplateItemResponse> SelectReinspectionItems(
+        IReadOnlyList<IqcTemplateItemResponse> items,
+        IqcReinspectionSourceResponse? source)
+    {
+        if (source is null || source.Failures.Count == 0)
+        {
+            return items;
+        }
+        var failedCodes = source.Failures.Select(failure => failure.ItemCode).ToHashSet(StringComparer.Ordinal);
+        return items.Where(item => failedCodes.Contains(item.ItemCode)).ToList();
+    }
+
+    private static async Task<IqcReinspectionSourceResponse?> ReadReinspectionSourceAsync(
+        NpgsqlConnection connection,
+        ReportContext context,
+        CancellationToken cancellationToken,
+        NpgsqlTransaction? transaction = null)
+    {
+        if (context.AttemptNumber <= 1)
+        {
+            return null;
+        }
+
+        Guid previousAttemptId;
+        Guid? pendingId;
+        int previousAttemptNumber;
+        string failureReason;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select previous.id, previous.attempt_number,
+                       coalesce(previous_report.reason, previous.reason, '이전 검사 부적합'),
+                       current.pending_issue_id
+                from material_iqc_attempts current
+                join lateral (
+                    select candidate.id, candidate.attempt_number, candidate.reason
+                    from material_iqc_attempts candidate
+                    where candidate.material_receipt_id = current.material_receipt_id
+                      and candidate.attempt_number < current.attempt_number
+                      and candidate.status = 'Failed'
+                    order by candidate.attempt_number desc
+                    limit 1
+                ) previous on true
+                left join iqc_reports previous_report on previous_report.attempt_id = previous.id
+                where current.id = @attempt_id;
+                """;
+            command.Parameters.AddWithValue("attempt_id", context.AttemptId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+            previousAttemptId = reader.GetGuid(0);
+            previousAttemptNumber = reader.GetInt32(1);
+            failureReason = reader.GetString(2);
+            pendingId = reader.IsDBNull(3) ? null : reader.GetGuid(3);
+        }
+
+        var failures = new List<IqcReinspectionFailureResponse>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select item.item_code, item.label, response.note
+                from iqc_reports report
+                join iqc_report_responses response on response.report_id = report.id and response.check_result = 'Fail'
+                join iqc_report_template_items item on item.id = response.template_item_id
+                where report.attempt_id = @attempt_id
+                order by item.display_order;
+                """;
+            command.Parameters.AddWithValue("attempt_id", previousAttemptId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                failures.Add(new IqcReinspectionFailureResponse(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2)));
+            }
+        }
+
+        if (failures.Count == 0)
+        {
+            return null;
+        }
+
+        string? actionReason = null;
+        if (pendingId is not null)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                select reason
+                from pending_history
+                where pending_issue_id = @pending_id
+                  and to_status = 'ReinspectionRequested'
+                order by created_at_utc desc, id desc
+                limit 1;
+                """;
+            command.Parameters.AddWithValue("pending_id", pendingId.Value);
+            actionReason = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken), System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return new IqcReinspectionSourceResponse(previousAttemptNumber, failureReason, actionReason, failures);
     }
 
     private static async Task<ReportContext?> ReadAttemptContextAsync(

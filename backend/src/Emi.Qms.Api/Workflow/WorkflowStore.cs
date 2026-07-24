@@ -12,8 +12,6 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         [WorkflowStageCodes.ProcurementInfo] = WorkflowStageCodes.MaterialArrived,
         [WorkflowStageCodes.MaterialArrived] = WorkflowStageCodes.IQC,
         [WorkflowStageCodes.IQC] = WorkflowStageCodes.ReceiptConfirmed,
-        [WorkflowStageCodes.ReceiptConfirmed] = WorkflowStageCodes.KittingCompleted,
-        [WorkflowStageCodes.KittingCompleted] = WorkflowStageCodes.ManufacturingWork,
         [WorkflowStageCodes.ManufacturingWork] = WorkflowStageCodes.LQC,
         [WorkflowStageCodes.LQC] = WorkflowStageCodes.ManufacturingCompleted,
         [WorkflowStageCodes.ManufacturingCompleted] = WorkflowStageCodes.OQC,
@@ -45,6 +43,106 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         [WorkflowStageCodes.DeliveryCompleted] = new("LogisticsPrimary", "LogisticsSecondary", ["Logistics"]),
         [WorkflowStageCodes.SalesSettlementCompleted] = new("SalesPrimary", "SalesSecondary", [])
     };
+
+    internal static async Task<Guid?> EnsureEffectiveKittingStageCompletedAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string sourceType,
+        Guid sourceId,
+        Guid operationId,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        Guid? eventId;
+        await using (var insert = connection.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                insert into project_workflow_events (
+                    project_id, stage_code, event_type, event_status, source_type, source_id,
+                    correlation_id, created_by_user_id, note
+                )
+                select
+                    @project_id, 'KittingCompleted', 'StageCompleted', 'Succeeded',
+                    @source_type, @source_id, @correlation_id, @actor_id,
+                    '모든 활성 패널이 키팅 완료 또는 생산관리 제조 투입 요청됨'
+                where (
+                    select count(*)
+                    from panel_placeholders panel
+                    where panel.project_id = @project_id
+                      and panel.status = 'Active'
+                ) > 0
+                  and (
+                    select count(*)
+                    from panel_placeholders panel
+                    where panel.project_id = @project_id
+                      and panel.status = 'Active'
+                      and (
+                          exists (
+                              select 1 from panel_kitting_completions completion
+                              where completion.panel_id = panel.id
+                          )
+                          or exists (
+                              select 1 from panel_manufacturing_release_operations release
+                              where release.project_id = @project_id
+                                and panel.id = any(release.panel_ids)
+                          )
+                      )
+                ) = (
+                    select count(*)
+                    from panel_placeholders panel
+                    where panel.project_id = @project_id
+                      and panel.status = 'Active'
+                )
+                  and not exists (
+                      select 1
+                      from project_workflow_events event
+                      where event.project_id = @project_id
+                        and event.stage_code = 'KittingCompleted'
+                        and event.event_type = 'StageCompleted'
+                        and event.event_status = 'Succeeded'
+                  )
+                returning id;
+                """;
+            insert.Parameters.AddWithValue("project_id", projectId);
+            insert.Parameters.AddWithValue("source_type", sourceType);
+            insert.Parameters.AddWithValue("source_id", sourceId);
+            insert.Parameters.AddWithValue("correlation_id", operationId.ToString("D"));
+            insert.Parameters.AddWithValue("actor_id", actorUserId);
+            eventId = (Guid?)await insert.ExecuteScalarAsync(cancellationToken);
+        }
+
+        if (eventId is null)
+        {
+            await using var existing = connection.CreateCommand();
+            existing.Transaction = transaction;
+            existing.CommandText = """
+                select id
+                from project_workflow_events
+                where project_id = @project_id
+                  and stage_code = 'KittingCompleted'
+                  and event_type = 'StageCompleted'
+                  and event_status = 'Succeeded'
+                order by created_at_utc
+                limit 1;
+                """;
+            existing.Parameters.AddWithValue("project_id", projectId);
+            eventId = (Guid?)await existing.ExecuteScalarAsync(cancellationToken);
+        }
+
+        if (eventId is not null)
+        {
+            await MarkStageWorkItemsCompletedAsync(
+                connection,
+                transaction,
+                projectId,
+                WorkflowStageCodes.KittingCompleted,
+                cancellationToken);
+        }
+
+        return eventId;
+    }
 
     public async Task CompleteStageAsync(
         Guid projectId,
@@ -1287,6 +1385,190 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 from project_procurement_items item
                 join material_receipts receipt on receipt.procurement_item_id = item.id
                 where item.project_id = @project_id and item.status = 'Active'
+            ),
+            material_summary as (
+                select
+                    count(*)::int as active_item_count,
+                    count(*) filter (
+                        where exists (
+                            select 1 from material_receipts receipt
+                            where receipt.procurement_item_id = item.id
+                              and receipt.status <> 'Cancelled'
+                        )
+                    )::int as arrived_item_count,
+                    count(*) filter (
+                        where item.material_arrivals_closed_at_utc is not null
+                    )::int as arrival_closed_item_count,
+                    count(*) filter (
+                        where item.receipt_completed = true
+                           or (
+                               item.order_quantity is not null
+                               and coalesce((
+                                   select sum(receipt.quantity)
+                                   from material_receipts receipt
+                                   where receipt.procurement_item_id = item.id
+                                     and receipt.status = 'Confirmed'
+                                     and receipt.quantity is not null
+                               ), 0) >= item.order_quantity
+                           )
+                    )::int as receipt_confirmed_item_count
+                from project_procurement_items item
+                where item.project_id = @project_id
+                  and item.status = 'Active'
+            ),
+            kitting_summary as (
+                select count(*) filter (
+                    where exists (
+                        select 1 from panel_kitting_completions completion
+                        where completion.panel_id = panel.id
+                    )
+                    or exists (
+                        select 1 from panel_manufacturing_release_operations release
+                        where release.project_id = @project_id
+                          and panel.id = any(release.panel_ids)
+                    )
+                )::int as ready_panel_count
+                from panel_placeholders panel
+                where panel.project_id = @project_id
+                  and panel.status = 'Active'
+            ),
+            manufacturing_summary as (
+                select
+                    count(distinct execution.panel_id) filter (
+                        where execution.status in ('InProgress', 'Blocked', 'Completed')
+                    )::int as started_panel_count,
+                    count(distinct execution.panel_id) filter (
+                        where execution.status = 'Completed'
+                    )::int as completed_panel_count,
+                    count(distinct execution.panel_id) filter (
+                        where execution.status = 'Blocked'
+                    )::int as blocked_panel_count
+                from panel_manufacturing_executions execution
+                join panel_placeholders panel
+                  on panel.id = execution.panel_id
+                 and panel.status = 'Active'
+                where execution.project_id = @project_id
+            ),
+            latest_quality_attempts as (
+                select distinct on (attempt.panel_id, attempt.stage_code)
+                    attempt.panel_id,
+                    attempt.stage_code,
+                    attempt.status
+                from panel_quality_inspection_attempts attempt
+                join panel_placeholders panel
+                  on panel.id = attempt.panel_id
+                 and panel.status = 'Active'
+                where attempt.project_id = @project_id
+                  and attempt.status <> 'Cancelled'
+                order by attempt.panel_id, attempt.stage_code, attempt.attempt_number desc, attempt.created_at_utc desc
+            ),
+            quality_summary as (
+                select
+                    count(*) filter (where stage_code = 'LQC')::int as lqc_started_count,
+                    count(*) filter (where stage_code = 'LQC' and status = 'Passed')::int as lqc_passed_count,
+                    count(*) filter (where stage_code = 'LQC' and status = 'Failed')::int as lqc_failed_count,
+                    count(*) filter (where stage_code = 'OQC')::int as oqc_started_count,
+                    count(*) filter (where stage_code = 'OQC' and status = 'Passed')::int as oqc_passed_count,
+                    count(*) filter (where stage_code = 'OQC' and status = 'Failed')::int as oqc_failed_count,
+                    count(*) filter (where stage_code = 'CustomerInspection')::int as customer_started_count,
+                    count(*) filter (where stage_code = 'CustomerInspection' and status = 'Passed')::int as customer_passed_count,
+                    count(*) filter (where stage_code = 'CustomerInspection' and status = 'Failed')::int as customer_failed_count,
+                    count(*) filter (where stage_code = 'FAT')::int as fat_started_count,
+                    count(*) filter (where stage_code = 'FAT' and status = 'Passed')::int as fat_passed_count,
+                    count(*) filter (where stage_code = 'FAT' and status = 'Failed')::int as fat_failed_count
+                from latest_quality_attempts
+            ),
+            manufacturing_confirmation_summary as (
+                select count(distinct ready.panel_id)::int as ready_panel_count
+                from (
+                    select execution.panel_id
+                    from panel_manufacturing_executions execution
+                    where execution.project_id = @project_id
+                      and execution.status = 'Completed'
+                    intersect
+                    select attempt.panel_id
+                    from latest_quality_attempts attempt
+                    where attempt.stage_code = 'LQC'
+                      and attempt.status = 'Passed'
+                ) ready
+            ),
+            logistics_summary as (
+                select
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_packing_unit_panels membership
+                            join logistics_packing_units unit on unit.id = membership.packing_unit_id
+                            where membership.panel_id = panel.id
+                              and membership.active
+                              and unit.status <> 'Cancelled'
+                        )
+                    )::int as packing_started_count,
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_packing_unit_panels membership
+                            join logistics_packing_units unit on unit.id = membership.packing_unit_id
+                            where membership.panel_id = panel.id
+                              and membership.active
+                              and unit.status = 'Finalized'
+                        )
+                    )::int as packing_completed_count,
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_packing_unit_panels membership
+                            join logistics_batch_units batch_unit
+                              on batch_unit.packing_unit_id = membership.packing_unit_id
+                             and batch_unit.active
+                            join logistics_batches batch
+                              on batch.id = batch_unit.batch_id
+                             and batch.stage_code = 'DepartureProcessed'
+                             and batch.status <> 'Cancelled'
+                            where membership.panel_id = panel.id
+                              and membership.active
+                        )
+                    )::int as departure_started_count,
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_packing_unit_panels membership
+                            join logistics_batch_units batch_unit
+                              on batch_unit.packing_unit_id = membership.packing_unit_id
+                             and batch_unit.active
+                            join logistics_batches batch
+                              on batch.id = batch_unit.batch_id
+                             and batch.stage_code = 'DepartureProcessed'
+                             and batch.status = 'Finalized'
+                            where membership.panel_id = panel.id
+                              and membership.active
+                        )
+                    )::int as departure_completed_count,
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_packing_unit_panels membership
+                            join logistics_batch_units batch_unit
+                              on batch_unit.packing_unit_id = membership.packing_unit_id
+                             and batch_unit.active
+                            join logistics_batches batch
+                              on batch.id = batch_unit.batch_id
+                             and batch.stage_code = 'DeliveryCompleted'
+                             and batch.status <> 'Cancelled'
+                            where membership.panel_id = panel.id
+                              and membership.active
+                        )
+                    )::int as delivery_started_count,
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_delivery_results result
+                            where result.panel_id = panel.id
+                        )
+                    )::int as delivery_completed_count
+                from panel_placeholders panel
+                where panel.project_id = @project_id
+                  and panel.status = 'Active'
             )
             select
                 coalesce(ps.active_panel_count, 0),
@@ -1304,21 +1586,54 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 coalesce(iqc.receipt_count, 0),
                 coalesce(iqc.passed_count, 0),
                 coalesce(iqc.started_count, 0),
-                coalesce(iqc.failed_count, 0)
+                coalesce(iqc.failed_count, 0),
+                coalesce(material.active_item_count, 0),
+                coalesce(material.arrived_item_count, 0),
+                coalesce(material.arrival_closed_item_count, 0),
+                coalesce(material.receipt_confirmed_item_count, 0),
+                coalesce(kitting.ready_panel_count, 0),
+                coalesce(manufacturing.started_panel_count, 0),
+                coalesce(manufacturing.completed_panel_count, 0),
+                coalesce(manufacturing.blocked_panel_count, 0),
+                coalesce(quality.lqc_started_count, 0),
+                coalesce(quality.lqc_passed_count, 0),
+                coalesce(quality.lqc_failed_count, 0),
+                coalesce(confirmation.ready_panel_count, 0),
+                coalesce(quality.oqc_started_count, 0),
+                coalesce(quality.oqc_passed_count, 0),
+                coalesce(quality.oqc_failed_count, 0),
+                coalesce(quality.customer_started_count, 0),
+                coalesce(quality.customer_passed_count, 0),
+                coalesce(quality.customer_failed_count, 0),
+                coalesce(quality.fat_started_count, 0),
+                coalesce(quality.fat_passed_count, 0),
+                coalesce(quality.fat_failed_count, 0),
+                coalesce(logistics.packing_started_count, 0),
+                coalesce(logistics.packing_completed_count, 0),
+                coalesce(logistics.departure_started_count, 0),
+                coalesce(logistics.departure_completed_count, 0),
+                coalesce(logistics.delivery_started_count, 0),
+                coalesce(logistics.delivery_completed_count, 0)
             from (select 1) anchor
             left join panel_summary ps on true
             left join production_plan_summary pps on true
             left join assignee_summary a on true
             left join procurement_summary pr on true
             left join procurement_required_summary prs on true
-            left join iqc_summary iqc on true;
+            left join iqc_summary iqc on true
+            left join material_summary material on true
+            left join kitting_summary kitting on true
+            left join manufacturing_summary manufacturing on true
+            left join quality_summary quality on true
+            left join manufacturing_confirmation_summary confirmation on true
+            left join logistics_summary logistics on true;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
-            return new WorkflowCompletionFacts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            return new WorkflowCompletionFacts();
         }
 
         return new WorkflowCompletionFacts(
@@ -1337,7 +1652,34 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetInt32(12),
             reader.GetInt32(13),
             reader.GetInt32(14),
-            reader.GetInt32(15));
+            reader.GetInt32(15),
+            reader.GetInt32(16),
+            reader.GetInt32(17),
+            reader.GetInt32(18),
+            reader.GetInt32(19),
+            reader.GetInt32(20),
+            reader.GetInt32(21),
+            reader.GetInt32(22),
+            reader.GetInt32(23),
+            reader.GetInt32(24),
+            reader.GetInt32(25),
+            reader.GetInt32(26),
+            reader.GetInt32(27),
+            reader.GetInt32(28),
+            reader.GetInt32(29),
+            reader.GetInt32(30),
+            reader.GetInt32(31),
+            reader.GetInt32(32),
+            reader.GetInt32(33),
+            reader.GetInt32(34),
+            reader.GetInt32(35),
+            reader.GetInt32(36),
+            reader.GetInt32(37),
+            reader.GetInt32(38),
+            reader.GetInt32(39),
+            reader.GetInt32(40),
+            reader.GetInt32(41),
+            reader.GetInt32(42));
     }
 
     private static async Task<ProjectWorkflowSnapshot?> ReadProjectAsync(
@@ -2016,7 +2358,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.MaterialArrived => "자재 도착 등록",
             WorkflowStageCodes.IQC => "수입검사 입력",
             WorkflowStageCodes.ReceiptConfirmed => "입고 확정 입력",
-            WorkflowStageCodes.KittingCompleted => "키팅 완료 입력",
+            WorkflowStageCodes.KittingCompleted => "키팅 완료 알림",
             WorkflowStageCodes.ManufacturingWork => "제조 작업 입력",
             WorkflowStageCodes.LQC => "LQC 입력",
             WorkflowStageCodes.ManufacturingCompleted => "제조 완료 입력",
@@ -2076,7 +2418,79 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.ProductionPlanning => ProductionPlanningStatus(facts, currentStatus),
             WorkflowStageCodes.DesignPanelInfo => DesignPanelInfoStatus(facts, currentStatus),
             WorkflowStageCodes.ProcurementInfo => ProcurementStatus(facts, currentStatus),
+            WorkflowStageCodes.MaterialArrived => AggregateStageStatus(
+                facts.ActiveMaterialItemCount,
+                facts.ArrivedMaterialItemCount,
+                facts.ArrivalClosedMaterialItemCount,
+                0,
+                currentStatus),
             WorkflowStageCodes.IQC => IqcStatus(facts, currentStatus),
+            WorkflowStageCodes.ReceiptConfirmed => AggregateStageStatus(
+                facts.ActiveMaterialItemCount,
+                facts.ArrivedMaterialItemCount,
+                facts.ReceiptConfirmedMaterialItemCount,
+                0,
+                currentStatus),
+            WorkflowStageCodes.KittingCompleted => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.EffectiveKittingReadyPanelCount,
+                facts.EffectiveKittingReadyPanelCount,
+                0,
+                currentStatus),
+            WorkflowStageCodes.ManufacturingWork => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.ManufacturingStartedPanelCount,
+                facts.ManufacturingCompletedPanelCount,
+                facts.ManufacturingBlockedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.LQC => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.LqcStartedPanelCount,
+                facts.LqcPassedPanelCount,
+                facts.LqcFailedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.ManufacturingCompleted => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.ManufacturingCompletedPanelCount,
+                facts.ManufacturingLqcReadyPanelCount,
+                facts.ManufacturingBlockedPanelCount + facts.LqcFailedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.OQC => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.OqcStartedPanelCount,
+                facts.OqcPassedPanelCount,
+                facts.OqcFailedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.CustomerInspection => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.CustomerInspectionStartedPanelCount,
+                facts.CustomerInspectionPassedPanelCount,
+                facts.CustomerInspectionFailedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.FAT => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.FatStartedPanelCount,
+                facts.FatPassedPanelCount,
+                facts.FatFailedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.PackingCompleted => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.PackingStartedPanelCount,
+                facts.PackingCompletedPanelCount,
+                0,
+                currentStatus),
+            WorkflowStageCodes.DepartureProcessed => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.DepartureStartedPanelCount,
+                facts.DepartureCompletedPanelCount,
+                0,
+                currentStatus),
+            WorkflowStageCodes.DeliveryCompleted => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.DeliveryStartedPanelCount,
+                facts.DeliveryCompletedPanelCount,
+                0,
+                currentStatus),
             _ => currentStatus
         };
     }
@@ -2109,7 +2523,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
         if (facts.TouchedPanelCount > 0)
         {
-            return "InProgress";
+            return facts.CompletedPanelCount > 0 ? WorkflowStatuses.PartiallyCompleted : "InProgress";
         }
 
         return currentStatus;
@@ -2134,7 +2548,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
             if (facts.ProcurementItemCount > 0)
             {
-                return "InProgress";
+                return facts.CompletedProcurementItemCount > 0
+                    ? WorkflowStatuses.PartiallyCompleted
+                    : "InProgress";
             }
 
             return currentStatus;
@@ -2147,7 +2563,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
         if (facts.ProcurementItemCount > 0)
         {
-            return "InProgress";
+            return facts.CompletedProcurementItemCount > 0
+                ? WorkflowStatuses.PartiallyCompleted
+                : "InProgress";
         }
 
         return currentStatus;
@@ -2155,19 +2573,49 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     private static string IqcStatus(WorkflowCompletionFacts facts, string currentStatus)
     {
-        if (facts.IqcReceiptCount > 0 && facts.IqcPassedCount >= facts.IqcReceiptCount)
-        {
-            return "Completed";
-        }
-        if (facts.IqcFailedCount > 0)
+        return AggregateStageStatus(
+            facts.IqcReceiptCount,
+            facts.IqcStartedCount,
+            facts.IqcPassedCount,
+            facts.IqcFailedCount,
+            currentStatus);
+    }
+
+    private static string AggregateStageStatus(
+        int totalCount,
+        int startedCount,
+        int completedCount,
+        int failedCount,
+        string currentStatus)
+    {
+        if (failedCount > 0 || string.Equals(currentStatus, "Blocked", StringComparison.Ordinal))
         {
             return "Blocked";
         }
-        if (facts.IqcStartedCount > 0)
+
+        if (totalCount <= 0)
+        {
+            return currentStatus;
+        }
+
+        if (completedCount >= totalCount)
+        {
+            return "Completed";
+        }
+
+        if (completedCount > 0)
+        {
+            return WorkflowStatuses.PartiallyCompleted;
+        }
+
+        if (startedCount > 0)
         {
             return "InProgress";
         }
-        return currentStatus;
+
+        return string.Equals(currentStatus, "Completed", StringComparison.Ordinal)
+            ? "NotStarted"
+            : currentStatus;
     }
 
     private static string WorkflowStatusLabel(string status)
@@ -2175,6 +2623,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         return status switch
         {
             "Completed" => "완료",
+            WorkflowStatuses.PartiallyCompleted => "부분 완료",
             "InProgress" => "진행 중",
             "Requested" => "내 업무 생성됨",
             "Blocked" => "차단",
@@ -2411,22 +2860,49 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         bool SalesOwnerIsActive);
 
     private sealed record WorkflowCompletionFacts(
-        int ActivePanelCount,
-        int CompletedPanelCount,
-        int TouchedPanelCount,
-        int ProductionPlanItemCount,
-        int RequiredPlanItemCount,
-        int PlannedRequiredPlanItemCount,
-        int RequiredPrimaryAssigneeCount,
-        int ProcurementItemCount,
-        int NamedProcurementItemCount,
-        int CompletedProcurementItemCount,
-        int RequiredProcurementItemCount,
-        int MatchedRequiredProcurementItemCount,
-        int IqcReceiptCount,
-        int IqcPassedCount,
-        int IqcStartedCount,
-        int IqcFailedCount);
+        int ActivePanelCount = 0,
+        int CompletedPanelCount = 0,
+        int TouchedPanelCount = 0,
+        int ProductionPlanItemCount = 0,
+        int RequiredPlanItemCount = 0,
+        int PlannedRequiredPlanItemCount = 0,
+        int RequiredPrimaryAssigneeCount = 0,
+        int ProcurementItemCount = 0,
+        int NamedProcurementItemCount = 0,
+        int CompletedProcurementItemCount = 0,
+        int RequiredProcurementItemCount = 0,
+        int MatchedRequiredProcurementItemCount = 0,
+        int IqcReceiptCount = 0,
+        int IqcPassedCount = 0,
+        int IqcStartedCount = 0,
+        int IqcFailedCount = 0,
+        int ActiveMaterialItemCount = 0,
+        int ArrivedMaterialItemCount = 0,
+        int ArrivalClosedMaterialItemCount = 0,
+        int ReceiptConfirmedMaterialItemCount = 0,
+        int EffectiveKittingReadyPanelCount = 0,
+        int ManufacturingStartedPanelCount = 0,
+        int ManufacturingCompletedPanelCount = 0,
+        int ManufacturingBlockedPanelCount = 0,
+        int LqcStartedPanelCount = 0,
+        int LqcPassedPanelCount = 0,
+        int LqcFailedPanelCount = 0,
+        int ManufacturingLqcReadyPanelCount = 0,
+        int OqcStartedPanelCount = 0,
+        int OqcPassedPanelCount = 0,
+        int OqcFailedPanelCount = 0,
+        int CustomerInspectionStartedPanelCount = 0,
+        int CustomerInspectionPassedPanelCount = 0,
+        int CustomerInspectionFailedPanelCount = 0,
+        int FatStartedPanelCount = 0,
+        int FatPassedPanelCount = 0,
+        int FatFailedPanelCount = 0,
+        int PackingStartedPanelCount = 0,
+        int PackingCompletedPanelCount = 0,
+        int DepartureStartedPanelCount = 0,
+        int DepartureCompletedPanelCount = 0,
+        int DeliveryStartedPanelCount = 0,
+        int DeliveryCompletedPanelCount = 0);
 
     private sealed record StageSnapshot(
         string StageCode,

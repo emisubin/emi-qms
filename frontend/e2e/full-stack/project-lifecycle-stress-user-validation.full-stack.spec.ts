@@ -157,7 +157,8 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await expect(procurementRows).toHaveCount(1);
   await fillProcurementRow(procurementRows.nth(0), {
     leadTime: '3주', item: '제어기 일반 구매품', supplier: '합성 공급사', owner: '구매 기술담당',
-    orderDate: '2026-07-01', expectedDate: '2026-07-18', issue: '일반 구매 정상 입고', supplyType: 'Purchased'
+    orderDate: '2026-07-01', expectedDate: '2026-07-18', issue: '일반 구매 정상 입고',
+    supplyType: 'Purchased', quantity: '12', unit: 'EA'
   });
   await page.getByRole('tab', { name: /사급 자재/ }).click();
   await page.getByRole('button', { name: '사급 자재 행 추가' }).click();
@@ -176,11 +177,11 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await captureProjectTab(page, projectId, 'dev-procurement', '구매', 'stages/04-procurement-mixed-items.jpg');
 
   // 5~7. 일반 구매 1회와 사급 6회 분할 도착을 모두 UI로 IQC·확정한다.
-  await registerInspectAndConfirmReceipt(page, projectTitle, '제어기 일반 구매품', 12, '2026-07-18', true, '일반 구매품 정상 도착');
+  await registerInspectAndConfirmReceipt(page, projectTitle, '제어기 일반 구매품', 12, '2026-07-18', '일반 구매품 정상 도착');
   for (let index = 0; index < customerReceiptDates.length; index += 1) {
     const arrivalDate = customerReceiptDates[index];
     await registerInspectAndConfirmReceipt(
-      page, projectTitle, '고객 사급 동부스바', 2, arrivalDate, false,
+      page, projectTitle, '고객 사급 동부스바', 2, arrivalDate,
       `사급 분할 입고 ${index + 1}/6 · 예정일 이후 도착`
     );
     if (index === 2) {
@@ -199,8 +200,8 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   `));
   expect(customerSupplyOverdueAlertCount).toBe(0);
 
-  await closeMaterialItem(page, projectTitle, '제어기 일반 구매품', '일반 구매품 전량 확정');
-  await closeMaterialItem(page, projectTitle, '고객 사급 동부스바', '7월 15~20일 사급 12 EA 전량 확정');
+  await closeMaterialItem(page, projectTitle, '제어기 일반 구매품');
+  await closeMaterialItem(page, projectTitle, '고객 사급 동부스바');
   await captureMaterialsTracking(page, projectTitle, 'materials/07-mixed-materials-completed.jpg', true);
 
   // 8. 자재 담당자가 12면을 한 번에 키팅 완료한다.
@@ -210,8 +211,18 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await expect(kittingCards).toHaveCount(panelCount);
   for (let index = 0; index < panelCount; index += 1) await kittingCards.nth(index).click();
   await page.getByRole('button', { name: `${panelCount}면 키팅 완료` }).click();
-  await expect(page.getByText(new RegExp(`제조 업무 ${panelCount}건`))).toBeVisible();
+  await expect(page.getByText('마지막 패널까지 키팅 완료 상태를 공유했습니다.')).toBeVisible();
   await captureProjectFlow(page, projectId, 'stages/08-kitting-12-completed.jpg');
+
+  await switchUser(page, 'dev-production');
+  await page.goto('/production-planning');
+  await page.getByRole('tab', { name: /제조 투입/u }).click();
+  const releaseProject = page.locator('.production-project-row').filter({ hasText: projectTitle });
+  await releaseProject.click();
+  const releasePanel = page.getByLabel('패널 제조 투입 요청');
+  await releasePanel.getByText('투입 가능 전체선택').click();
+  await releasePanel.getByRole('button', { name: `선택 ${panelCount}면 제조 투입 요청` }).click();
+  await expect(releasePanel.getByText(`${panelCount}면을 제조팀에 투입 요청했습니다. 제조 업무 ${panelCount}건이 생성되었습니다.`)).toBeVisible();
 
   // 9. 제조 담당자가 12면을 시작하고 절반에서 반복 Pending을 발생시킨다.
   await switchUser(page, 'dev-manufacturing');
@@ -221,7 +232,7 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
     for (let sequence = 1; sequence <= 4; sequence += 1) {
       await page.getByRole('button', { name: `${sequence}단계 확인` }).click();
       await expect(page.getByRole('button', {
-        name: sequence < 4 ? `${sequence + 1}단계 확인` : '제조 완료 · LQC 전달'
+        name: sequence < 4 ? `${sequence + 1}단계 확인` : '제조 완료'
       })).toBeVisible();
     }
     if (pendingPanelIndexes.has(index)) {
@@ -268,13 +279,13 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
     await expect(page.locator('.pending-detail-header .status-badge').filter({ hasText: '종결' })).toBeVisible();
   }
 
-  // 제조 담당자가 6개 Pending을 재개하고 12면 모두 LQC로 인계한다.
+  // 제조 담당자가 6개 Pending을 재개하고 12면 제조를 각각 완료한다.
   for (let index = 0; index < panelIds.length; index += 1) {
     await switchUser(page, 'dev-manufacturing');
     await page.goto(`/manufacturing/work?project=${projectId}&panel=${panelIds[index]}`);
     if (pendingPanelIndexes.has(index)) await page.getByRole('button', { name: 'Pending 확인 후 재개' }).click();
-    await page.getByRole('button', { name: '제조 완료 · LQC 전달' }).click();
-    await expect(page.getByText(/제조를 완료하고 LQC 업무를 생성했습니다/u)).toBeVisible();
+    await page.getByRole('button', { name: '제조 완료' }).click();
+    await expect(page.getByText(/제조를 완료했습니다/u)).toBeVisible();
   }
   queryDatabase(`
     update panel_manufacturing_executions
@@ -290,13 +301,9 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await captureHome(page, 'dev-quality', 'dashboards/10-quality-twelve-lqc-waiting.jpg');
   await captureProjectTab(page, projectId, 'dev-manufacturing', '제조', 'manufacturing/10-manufacturing-12-three-day.jpg');
 
-  // 10~14. 12면 각각 LQC → 제조 확인 → OQC → 전진검수 → FAT를 입력한다.
+  // 10~14. 12면 각각 LQC → 자동 OQC 인계 → 전진검수·FAT를 입력한다.
   for (let index = 0; index < panelIds.length; index += 1) {
     await completeQualityStage(page, 'LQC', 'LQC', projectId, panelIds[index], index + 1);
-    await switchUser(page, 'dev-manufacturing');
-    await page.goto(`/manufacturing/work?project=${projectId}&panel=${panelIds[index]}`);
-    await page.getByRole('button', { name: '제조 완료 확인' }).click();
-    await expect(page.getByText('OQC 업무가 생성되었습니다.')).toBeVisible();
     await completeQualityStage(page, 'OQC', 'OQC 자체검수', projectId, panelIds[index], index + 1);
     await completeQualityStage(page, 'CustomerInspection', '전진검수', projectId, panelIds[index], index + 1);
     await completeQualityStage(page, 'FAT', 'FAT', projectId, panelIds[index], index + 1);
@@ -385,7 +392,10 @@ async function fillProcurementRow(row: Locator, values: {
   await inputs.nth(5).fill(values.expectedDate);
   await inputs.nth(6).fill(values.issue);
   await row.getByLabel('공급 방식').selectOption(values.supplyType);
-  if (values.supplyType === 'CustomerSupplied') {
+  if (values.supplyType === 'Purchased') {
+    await row.getByLabel('발주 수량').fill(values.quantity ?? '12');
+    await row.getByLabel('발주 단위').fill(values.unit ?? 'EA');
+  } else {
     await row.getByLabel('제공 예정 수량').fill(values.quantity ?? '12');
     await row.getByLabel('제공 예정 단위').fill(values.unit ?? 'EA');
   }
@@ -397,21 +407,19 @@ async function registerInspectAndConfirmReceipt(
   itemName: string,
   quantity: number,
   arrivalDate: string,
-  firstPurchasedArrival: boolean,
   note: string
 ) {
   await switchUser(page, 'dev-materials');
   await page.goto('/materials/receipts');
   await searchMaterials(page, projectTitle);
-  let item = page.locator('.material-continuous-item').filter({ hasText: itemName });
-  await item.getByRole('button', { name: '도착분 추가' }).click();
+  let item = page.locator('.material-purchase-entry').filter({ hasText: itemName });
+  await item.getByRole('button', { name: '도착입력' }).click();
   const action = item.locator('.material-action-form');
-  if (firstPurchasedArrival) await action.getByLabel('발주 수량').fill(String(quantity));
   await action.getByLabel('도착 수량').fill(String(quantity));
   await action.getByLabel('도착일').fill(arrivalDate);
   await action.getByLabel('비고').fill(note);
-  await action.getByRole('button', { name: '도착 등록', exact: true }).click();
-  await expect(page.getByText('도착분을 등록하고 IQC 검사 대기로 넘겼습니다.')).toBeVisible();
+  await action.getByRole('button', { name: '저장', exact: true }).click();
+  await expect(page.getByText('도착분 저장과 IQC 검사 업무 생성을 확인했습니다.')).toBeVisible();
 
   await switchUser(page, 'dev-quality');
   await page.goto('/quality/iqc');
@@ -422,21 +430,19 @@ async function registerInspectAndConfirmReceipt(
   await switchUser(page, 'dev-materials');
   await page.goto('/materials/receipts');
   await searchMaterials(page, projectTitle);
-  item = page.locator('.material-continuous-item').filter({ hasText: itemName });
-  await item.locator('.material-receipt-chip').filter({ hasText: arrivalDate }).click();
+  item = page.locator('.material-purchase-entry').filter({ hasText: itemName });
+  await item.locator('.material-purchase-main').click();
+  await item.locator('.material-receipt-line').filter({ hasText: arrivalDate }).click();
   await item.getByRole('button', { name: '입고 확정' }).click();
-  await expect(page.getByText('입고를 확정했습니다.')).toBeVisible();
+  await expect(page.getByText('입고를 확정했습니다. 전량 확정이면 품목도 자동 완료됩니다.')).toBeVisible();
 }
 
-async function closeMaterialItem(page: Page, projectTitle: string, itemName: string, reason: string) {
+async function closeMaterialItem(page: Page, projectTitle: string, itemName: string) {
   await switchUser(page, 'dev-materials');
   await page.goto('/materials/receipts');
   await searchMaterials(page, projectTitle);
-  const item = page.locator('.material-continuous-item').filter({ hasText: itemName });
-  await item.getByRole('button', { name: '품목 입고 마감' }).click();
-  await item.getByLabel('마감 사유').fill(reason);
-  await item.getByRole('button', { name: '입고 마감', exact: true }).click();
-  await expect(page.getByText('입고를 마감하고 완료값을 계산했습니다.')).toBeVisible();
+  const item = page.locator('.material-purchase-row').filter({ hasText: itemName });
+  await expect(item).toContainText('입고 완료');
 }
 
 async function completeIqc(scope: Locator) {
@@ -472,16 +478,22 @@ async function completeQualityStage(
   await switchUser(page, 'dev-quality');
   await page.goto(`/quality/inspections?stage=${stage}&project=${projectId}&panel=${panelId}`);
   await page.getByRole('button', { name: `${stageLabel} 시작` }).click();
-  const items = page.locator('.quality-item');
-  await expect(items.first()).toBeVisible();
-  for (let index = 0; index < await items.count(); index += 1) {
-    const item = items.nth(index);
-    const pass = item.getByRole('button', { name: '적합', exact: true });
-    if (await pass.count()) await pass.click();
-    const text = item.getByPlaceholder('측정값·특이사항을 입력하세요.');
-    if (await text.count()) await text.fill(`${sequence}번 패널 ${stageLabel} 측정값 정상`);
+  const aggregate = stage === 'CustomerInspection' || stage === 'FAT';
+  if (aggregate) {
+    await expect(page.locator('.quality-aggregate-decision')).toContainText('패널 전체를 한 번에 판정');
+    await expect(page.locator('.quality-item')).toHaveCount(0);
+  } else {
+    const items = page.locator('.quality-item');
+    await expect(items.first()).toBeVisible();
+    for (let index = 0; index < await items.count(); index += 1) {
+      const item = items.nth(index);
+      const pass = item.getByRole('button', { name: '적합', exact: true });
+      if (await pass.count()) await pass.click();
+      const text = item.getByPlaceholder('측정값·특이사항을 입력하세요.');
+      if (await text.count()) await text.fill(`${sequence}번 패널 ${stageLabel} 측정값 정상`);
+    }
+    await page.getByRole('button', { name: '임시 저장' }).click();
   }
-  await page.getByRole('button', { name: '임시 저장' }).click();
   const uploader = page.locator('.quality-photo-uploader');
   await uploader.locator('input[type="file"]').setInputFiles(evidenceImage);
   await uploader.getByPlaceholder('예: 배선 체결 상태').fill(`${sequence}번 패널 ${stageLabel} 증빙`);
@@ -510,6 +522,7 @@ async function completeLogisticsStage(
   if (stage === 'packing') await page.getByLabel('포장 메모').fill('12면 목재 포장과 방수 상태 확인');
   if (stage === 'departure') await page.getByLabel('출발일').fill(currentSeoulDate);
   await page.getByRole('button', { name: startButton }).click();
+  await expect(page.getByText(/draft를 만들었습니다/u)).toBeVisible();
   const evidence = page.locator('.logistics-evidence-form');
   await evidence.locator('input[type="file"]').setInputFiles(evidenceImage);
   if (needsAltText) await evidence.getByLabel('사진 설명').fill(`${finalizeButton} 12면 현장 증빙`);
@@ -586,7 +599,7 @@ async function capture(page: Page, filename: string) {
 async function searchMaterials(page: Page, projectTitle: string) {
   await page.getByPlaceholder('PJT 코드, 발주품목, 업체').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
-  await expect(page.locator('.material-item-card').filter({ hasText: projectTitle }).first()).toBeVisible();
+  await expect(page.locator('.material-project-row').filter({ hasText: projectTitle }).first()).toBeVisible();
 }
 
 async function switchUser(page: Page, userKey: DevelopmentUserKey) {

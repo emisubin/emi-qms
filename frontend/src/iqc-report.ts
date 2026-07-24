@@ -31,6 +31,19 @@ export type IqcPhoto = {
   createdAtUtc: string;
 };
 
+export type IqcReinspectionFailure = {
+  itemCode: string;
+  label: string;
+  note: string | null;
+};
+
+export type IqcReinspectionSource = {
+  previousAttemptNumber: number;
+  failureReason: string;
+  actionReason: string | null;
+  failures: IqcReinspectionFailure[];
+};
+
 export type IqcReport = {
   attemptId: string;
   receiptId: string;
@@ -53,6 +66,7 @@ export type IqcReport = {
   pdfErrorCode: string | null;
   templateVersion: number;
   canEdit: boolean;
+  reinspectionSource?: IqcReinspectionSource | null;
   items: IqcTemplateItem[];
   responses: IqcItemResponse[];
   photos: IqcPhoto[];

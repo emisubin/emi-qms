@@ -21,6 +21,27 @@ public static class ManufacturingStopReasons
 
 public sealed record ManufacturingQueueResponse(IReadOnlyList<ManufacturingProjectResponse> Projects);
 
+public sealed record ManufacturingReleaseQueueResponse(IReadOnlyList<ManufacturingReleaseProjectResponse> Projects);
+
+public sealed record ManufacturingReleaseProjectResponse(
+    Guid ProjectId,
+    string ProjectCode,
+    string ProjectTitle,
+    int ActiveItemCount,
+    int CompletedItemCount,
+    IReadOnlyList<ManufacturingReleasePanelResponse> Panels);
+
+public sealed record ManufacturingReleasePanelResponse(
+    Guid PanelId,
+    string DisplayCode,
+    string? PanelName,
+    bool PanelInfoCompleted,
+    bool KittingCompleted,
+    bool Released,
+    string? WorkItemStatus,
+    DateTimeOffset? ReleasedAtUtc,
+    bool Selectable);
+
 public sealed record ManufacturingProjectResponse(
     Guid ProjectId,
     string ProjectCode,
@@ -36,6 +57,7 @@ public sealed record ManufacturingPanelResponse(
     string DisplayCode,
     string? PanelName,
     string WorkflowStage,
+    bool KittingCompleted,
     Guid WorkItemId,
     string WorkItemStatus,
     Guid? ExecutionId,
@@ -83,6 +105,14 @@ public sealed record ManufacturingActionOwnerResponse(
     string DisplayName);
 
 public sealed record StartManufacturingRequest(Guid OperationId, Guid ProjectId, Guid PanelId);
+
+public sealed record ReleaseManufacturingRequest(Guid OperationId, Guid ProjectId, IReadOnlyList<Guid>? PanelIds);
+
+public sealed record ManufacturingReleaseResponse(
+    Guid OperationId,
+    int ReleasedPanelCount,
+    int GeneratedWorkItemCount,
+    bool Replayed);
 
 public sealed record CheckManufacturingStepRequest(Guid OperationId, Guid StepId, int ExpectedVersion);
 

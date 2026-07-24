@@ -21,6 +21,7 @@ import type {
 import type { FormTemplateCatalog, FormTemplateManagers, FormTemplateScope, FormTemplateVersions } from './formTemplates';
 import type { AdminUsersResponse, CurrentUser, ProfilePhotoMetadata, UpdateAdminUserRequest } from './identity';
 import type { HomeMetricsResponse } from './home';
+import type { CreateNoticeRequest, NoticeDeleteResponse, NoticeDetail, NoticeListResponse } from './notices';
 import type {
   PanelQrPrintSheet,
   PanelQrBatchIssue,
@@ -62,6 +63,8 @@ import type {
   ManufacturingExecutionDetail,
   ManufacturingMutationResponse,
   ManufacturingQueueResponse,
+  ManufacturingReleaseQueueResponse,
+  ManufacturingReleaseResponse,
   StopManufacturingRequest
 } from './manufacturing';
 import type {
@@ -1720,6 +1723,24 @@ export async function getManufacturingQueue(
   return fetchJson<ManufacturingQueueResponse>(`/api/manufacturing/queue${query}`, developmentUserKey);
 }
 
+export async function getManufacturingReleaseCandidates(
+  developmentUserKey: string | undefined,
+  projectId?: string
+): Promise<ManufacturingReleaseQueueResponse> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+  return fetchJson<ManufacturingReleaseQueueResponse>(`/api/manufacturing/release-candidates${query}`, developmentUserKey);
+}
+
+export async function releaseManufacturingPanels(
+  developmentUserKey: string | undefined,
+  request: { operationId: string; projectId: string; panelIds: string[] }
+): Promise<ManufacturingReleaseResponse> {
+  return fetchJson<ManufacturingReleaseResponse>('/api/manufacturing/releases', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
 export async function getManufacturingPanel(
   developmentUserKey: string | undefined,
   panelId: string
@@ -1797,6 +1818,16 @@ export async function getQualityInspectionQueue(
   if (projectId) params.set('projectId', projectId);
   const query = params.size ? `?${params.toString()}` : '';
   return fetchJson<QualityInspectionQueueResponse>(`/api/quality/inspections/queue${query}`, developmentUserKey);
+}
+
+export async function reconcileQualityInspectionHandoffs(
+  developmentUserKey: string | undefined
+): Promise<import('./qualityInspections').QualityInspectionReconciliationResponse> {
+  return fetchJson<import('./qualityInspections').QualityInspectionReconciliationResponse>(
+    '/api/quality/inspections/reconcile',
+    developmentUserKey,
+    { method: 'POST' }
+  );
 }
 
 export async function getLogisticsQueue(
@@ -2625,6 +2656,43 @@ export async function exportSelectedRowsExcel(
       body: JSON.stringify({ screen, ids, filters, ...(columns ? { columns } : {}) })
     }
   );
+}
+
+export async function listNotices(
+  developmentUserKey: string | undefined,
+  page = 1,
+  pageSize = 20
+): Promise<NoticeListResponse> {
+  return fetchJson<NoticeListResponse>(
+    `/api/notices?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`,
+    developmentUserKey
+  );
+}
+
+export async function getNotice(
+  developmentUserKey: string | undefined,
+  noticeId: string
+): Promise<NoticeDetail> {
+  return fetchJson<NoticeDetail>(`/api/notices/${encodeURIComponent(noticeId)}`, developmentUserKey);
+}
+
+export async function createNotice(
+  developmentUserKey: string | undefined,
+  request: CreateNoticeRequest
+): Promise<NoticeDetail> {
+  return fetchJson<NoticeDetail>('/api/notices', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function deleteNotice(
+  developmentUserKey: string | undefined,
+  noticeId: string
+): Promise<NoticeDeleteResponse> {
+  return fetchJson<NoticeDeleteResponse>(`/api/notices/${encodeURIComponent(noticeId)}`, developmentUserKey, {
+    method: 'DELETE'
+  });
 }
 
 async function downloadExcelExport(

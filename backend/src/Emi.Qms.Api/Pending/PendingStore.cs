@@ -104,7 +104,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         var comments = await ReadCommentsAsync(connection, pendingId, cancellationToken);
         var history = await ReadHistoryAsync(connection, pendingId, cancellationToken);
         var isInspectionPending = await IsQualityInspectionPendingAsync(connection, null, pendingId, cancellationToken);
-        return BuildDetail(issue, comments, history, actor, isInspectionPending);
+        var reinspection = await ReadPendingReinspectionAsync(connection, pendingId, cancellationToken);
+        return BuildDetail(issue, comments, history, actor, isInspectionPending, reinspection);
     }
 
     public async Task<IReadOnlyList<PendingAssigneeResponse>> ListAssigneesAsync(CancellationToken cancellationToken)
@@ -563,7 +564,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         {
             return PendingMutationResult<PendingDetailResponse>.NotFound();
         }
-        if (issue.Status == PendingStatuses.Closed || !CanParticipate(issue, actor))
+        var isInspectionPending = await IsQualityInspectionPendingAsync(connection, transaction, pendingId, cancellationToken);
+        if (issue.Status == PendingStatuses.Closed || !CanParticipate(issue, actor, isInspectionPending))
         {
             return PendingMutationResult<PendingDetailResponse>.Forbidden();
         }
@@ -1027,6 +1029,13 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             issue.Status, PendingStatuses.InProgress,
             issue.AssigneeUserId, issue.AssigneeUserId,
             reason.Trim(), actorUserId, correlationId, cancellationToken);
+        await NotifyActionAssigneesOfFailedReinspectionAsync(
+            connection,
+            transaction,
+            issue,
+            reason.Trim(),
+            issue.Version + 1,
+            cancellationToken);
     }
 
     private static Dictionary<string, string[]> ValidateCreate(CreatePendingRequest request)
@@ -1235,7 +1244,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         IReadOnlyList<PendingCommentResponse> comments,
         IReadOnlyList<PendingHistoryResponse> history,
         PendingActor actor,
-        bool isInspectionPending)
+        bool isInspectionPending,
+        PendingReinspectionResponse? reinspection)
     {
         var allowed = AllowedTransitions(issue, actor)
             .Where(status => !isInspectionPending || status != PendingStatuses.Closed)
@@ -1245,8 +1255,42 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             comments,
             history,
             allowed,
-            issue.Status != PendingStatuses.Closed && CanParticipate(issue, actor),
-            issue.Status != PendingStatuses.Closed && actor.IsCoordinator);
+            issue.Status != PendingStatuses.Closed && CanParticipate(issue, actor, isInspectionPending),
+            issue.Status != PendingStatuses.Closed && actor.IsCoordinator,
+            reinspection);
+    }
+
+    private static async Task<PendingReinspectionResponse?> ReadPendingReinspectionAsync(
+        NpgsqlConnection connection,
+        Guid pendingId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select attempt.id, attempt.attempt_number, item.order_item, receipt.quantity, receipt.unit
+            from material_iqc_attempts attempt
+            join material_receipts receipt on receipt.id = attempt.material_receipt_id
+            join project_procurement_items item on item.id = receipt.procurement_item_id
+            where attempt.pending_issue_id = @pending_id
+              and attempt.status = 'Requested'
+            order by attempt.attempt_number desc, attempt.requested_at_utc desc
+            limit 1;
+            """;
+        command.Parameters.AddWithValue("pending_id", pendingId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var attemptId = reader.GetGuid(0);
+        return new PendingReinspectionResponse(
+            attemptId,
+            reader.GetInt32(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetDecimal(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            $"/quality/iqc?request={attemptId}");
     }
 
     private static IReadOnlyList<string> AllowedTransitions(PendingListItemResponse issue, PendingActor actor)
@@ -1278,9 +1322,10 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         };
     }
 
-    private static bool CanParticipate(PendingListItemResponse issue, PendingActor actor)
+    private static bool CanParticipate(PendingListItemResponse issue, PendingActor actor, bool isInspectionPending = false)
     {
         return actor.IsCoordinator
+            || (isInspectionPending && actor.IsQuality)
             || issue.CreatedByUserId == actor.UserId
             || issue.AssigneeUserId == actor.UserId;
     }
@@ -1675,6 +1720,96 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         }
     }
 
+    private static async Task NotifyActionAssigneesOfFailedReinspectionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        PendingListItemResponse issue,
+        string reason,
+        int version,
+        CancellationToken cancellationToken)
+    {
+        var resolvedAssignees = !string.IsNullOrWhiteSpace(issue.ActionDepartmentCode)
+            ? await ResolveProjectActionAssigneesAsync(
+                connection,
+                transaction,
+                issue.ProjectId,
+                issue.ActionDepartmentCode,
+                cancellationToken)
+            : new PendingAssigneePair(null, null);
+        var primaryUserId = issue.AssigneeUserId ?? resolvedAssignees.PrimaryUserId;
+        if (primaryUserId is null)
+        {
+            return;
+        }
+
+        Guid? workItemId;
+        await using (var workItemCommand = connection.CreateCommand())
+        {
+            workItemCommand.Transaction = transaction;
+            workItemCommand.CommandText = """
+                select id
+                from work_items
+                where target_type = 'Pending'
+                  and target_id = @pending_id
+                  and status = 'InProgress'
+                order by created_at_utc desc, id
+                limit 1;
+                """;
+            workItemCommand.Parameters.AddWithValue("pending_id", issue.PendingId);
+            workItemId = (Guid?)(await workItemCommand.ExecuteScalarAsync(cancellationToken));
+        }
+
+        var notificationId = Guid.NewGuid();
+        await using (var notificationCommand = connection.CreateCommand())
+        {
+            notificationCommand.Transaction = transaction;
+            notificationCommand.CommandText = """
+                insert into notifications (
+                    id, project_id, notification_type, severity, title, message, link_url,
+                    idempotency_key, visibility_scope, source_kind, work_item_id
+                )
+                values (
+                    @id, @project_id, @notification_type, @severity, @title, @message, @link_url,
+                    @idempotency_key, 'RecipientOnly', 'PendingAssignment', @work_item_id
+                )
+                on conflict (idempotency_key) do update
+                set title = excluded.title,
+                    message = excluded.message,
+                    work_item_id = excluded.work_item_id
+                returning id;
+                """;
+            notificationCommand.Parameters.AddWithValue("id", notificationId);
+            notificationCommand.Parameters.AddWithValue("project_id", issue.ProjectId);
+            notificationCommand.Parameters.AddWithValue("notification_type", issue.Priority == PendingPriorities.Urgent ? "Blocking" : "Info");
+            notificationCommand.Parameters.AddWithValue("severity", issue.Priority == PendingPriorities.Urgent ? "Critical" : "Warning");
+            notificationCommand.Parameters.AddWithValue("title", $"재조치 필요 · {issue.Title}");
+            notificationCommand.Parameters.AddWithValue("message", reason.Length > 200 ? reason[..200] : reason);
+            notificationCommand.Parameters.AddWithValue("link_url", $"/pending/{issue.PendingId}");
+            notificationCommand.Parameters.AddWithValue("idempotency_key", $"pending:{issue.PendingId}:reopened:v{version}");
+            notificationCommand.Parameters.AddWithValue("work_item_id", (object?)workItemId ?? DBNull.Value);
+            notificationId = (Guid)(await notificationCommand.ExecuteScalarAsync(cancellationToken) ?? notificationId);
+        }
+
+        var recipients = new HashSet<Guid> { primaryUserId.Value };
+        if (resolvedAssignees.SecondaryUserId is not null)
+        {
+            recipients.Add(resolvedAssignees.SecondaryUserId.Value);
+        }
+        foreach (var recipientId in recipients)
+        {
+            await using var recipientCommand = connection.CreateCommand();
+            recipientCommand.Transaction = transaction;
+            recipientCommand.CommandText = """
+                insert into notification_recipients (notification_id, user_id)
+                values (@notification_id, @user_id)
+                on conflict (notification_id, user_id) do nothing;
+                """;
+            recipientCommand.Parameters.AddWithValue("notification_id", notificationId);
+            recipientCommand.Parameters.AddWithValue("user_id", recipientId);
+            await recipientCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
     private static async Task<string> ReadCurrentWorkflowStageCodeAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -1738,6 +1873,11 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 where target_type = 'Pending' and target_id = @pending_id and status = 'Requested';
                 """,
             PendingStatuses.Closed => """
+                update work_items
+                set status = 'Completed', completed_at_utc = coalesce(completed_at_utc, now())
+                where target_type = 'Pending' and target_id = @pending_id and status in ('Requested', 'InProgress');
+                """,
+            PendingStatuses.ReinspectionRequested => """
                 update work_items
                 set status = 'Completed', completed_at_utc = coalesce(completed_at_utc, now())
                 where target_type = 'Pending' and target_id = @pending_id and status in ('Requested', 'InProgress');

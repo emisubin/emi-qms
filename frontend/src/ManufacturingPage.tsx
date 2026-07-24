@@ -3,9 +3,7 @@ import {
   ApiError,
   checkManufacturingStep,
   completeManufacturingExecution,
-  confirmPanelManufacturingCompleted,
   getManufacturingPanel,
-  getManufacturingCompletionQueue,
   getManufacturingQueue,
   listManufacturingActionDepartments,
   resumeManufacturingExecution,
@@ -24,7 +22,6 @@ import type {
   ManufacturingStatus,
   StopManufacturingRequest
 } from './manufacturing';
-import type { QualityInspectionPanel } from './qualityInspections';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useSelectedRows } from './useSelectedRows';
 
@@ -71,7 +68,6 @@ export function ManufacturingPage({
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId ?? '');
   const [selectedPanelId, setSelectedPanelId] = useState(initialPanelId ?? '');
   const [departments, setDepartments] = useState<ManufacturingActionDepartment[]>([]);
-  const [completionPanels, setCompletionPanels] = useState<QualityInspectionPanel[]>([]);
   const [savingAction, setSavingAction] = useState('');
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [stopOpen, setStopOpen] = useState(false);
@@ -96,9 +92,6 @@ export function ManufacturingPage({
     try {
       const data = await getManufacturingQueue(developmentUserKey);
       setQueueState({ kind: 'ready', data });
-      void getManufacturingCompletionQueue(developmentUserKey)
-        .then((response) => setCompletionPanels(response.projects.flatMap((project) => project.panels)))
-        .catch(() => setCompletionPanels([]));
       const requestedProject = preferredProjectId ?? selectedProjectId ?? initialProjectId;
       const project = data.projects.find((item) => item.projectId === requestedProject)
         ?? data.projects.find((item) => item.blockedCount > 0 || item.inProgressCount > 0 || item.readyCount > 0)
@@ -152,7 +145,6 @@ export function ManufacturingPage({
   const selectedPanel = selectedProject?.panels.find((panel) => panel.panelId === selectedPanelId) ?? null;
   const detail = detailState.kind === 'ready' ? detailState.data : null;
   const panel = detail?.panel ?? selectedPanel;
-  const completionTask = completionPanels.find((item) => item.panelId === panel?.panelId) ?? null;
   const selectedDepartment = departments.find((item) => item.departmentCode === stopDepartment) ?? null;
   const allStepsChecked = Boolean(detail?.steps.length) && detail!.steps.every((step) => step.checked);
   const nextStep = detail?.steps.find((step) => !step.checked) ?? null;
@@ -175,9 +167,6 @@ export function ManufacturingPage({
     setDetailState({ kind: 'ready', data: panelDetail });
     setSelectedProjectId(projectId);
     setSelectedPanelId(panelId);
-    void getManufacturingCompletionQueue(developmentUserKey)
-      .then((response) => setCompletionPanels(response.projects.flatMap((project) => project.panels)))
-      .catch(() => setCompletionPanels([]));
   }
 
   async function mutate(
@@ -235,7 +224,7 @@ export function ManufacturingPage({
         projectId: selectedProject.projectId,
         panelId: panel.panelId
       }),
-      `${panel.displayCode} 제조 작업을 시작했습니다.`
+      `${panel.displayCode} 제조와 단계별 LQC를 함께 시작했습니다.`
     );
   }
 
@@ -275,21 +264,7 @@ export function ManufacturingPage({
         operationId: id,
         expectedVersion: panel.version
       }),
-      `${panel.displayCode} 제조를 완료하고 LQC 업무를 생성했습니다.`
-    );
-  }
-
-  async function confirmCompletion() {
-    if (!selectedProject || !panel || !completionTask || !canMutate) return;
-    await mutate(
-      'confirm-completion',
-      `${selectedProject.projectId}|${panel.panelId}`,
-      (id) => confirmPanelManufacturingCompleted(developmentUserKey, {
-        operationId: id,
-        projectId: selectedProject.projectId,
-        panelId: panel.panelId
-      }),
-      `${panel.displayCode} 제조 완료를 확인하고 OQC로 넘겼습니다.`
+      `${panel.displayCode} 제조를 완료했습니다. LQC도 합격이면 OQC가 자동으로 열립니다.`
     );
   }
 
@@ -325,7 +300,7 @@ export function ManufacturingPage({
         <div>
           <p className="eyebrow">SHOP FLOOR · PANEL FLOW</p>
           <h2>제조 작업</h2>
-          <p>키팅 완료 패널을 시작하고, 네 단계 확인 후 LQC로 넘깁니다.</p>
+          <p>패널 제조와 단계별 LQC를 함께 진행하고, 둘 다 끝나면 OQC로 자동 인계합니다.</p>
         </div>
         <button type="button" className="manufacturing-back" onClick={onBack}>프로젝트 보기</button>
         <span className="manufacturing-hero-disc" aria-hidden="true" />
@@ -343,7 +318,7 @@ export function ManufacturingPage({
       {queueState.kind === 'ready' && projects.length === 0 ? (
         <div className="manufacturing-state">
           <strong>제조 대기 패널이 없습니다.</strong>
-          <span>자재 화면에서 패널 키팅을 완료하면 이곳에 제조 업무가 나타납니다.</span>
+          <span>생산관리에서 패널을 제조 투입 요청하면 이곳에 업무가 나타납니다.</span>
         </div>
       ) : null}
 
@@ -419,7 +394,7 @@ export function ManufacturingPage({
                       onClick={() => selectPanel(item)}
                     >
                       <span className="manufacturing-status-shape" aria-hidden="true">{item.status === 'Completed' ? '✓' : ''}</span>
-                      <span><strong>{item.displayCode}</strong><small>{statusLabel(item.status)}</small></span>
+                      <span><strong>{item.displayCode}</strong><small>{statusLabel(item.status)} · {item.kittingCompleted ? '키팅 완료' : '키팅 미보고'}</small></span>
                     </button>
                   </div>
                 ))}
@@ -455,8 +430,8 @@ export function ManufacturingPage({
 
                     {panel.status === 'Ready' ? (
                       <div className="manufacturing-ready-copy">
-                        <strong>키팅 완료 · 제조 시작 준비</strong>
-                        <span>작업지시와 도면을 준비한 뒤 이 패널의 실행을 시작하세요.</span>
+                        <strong>제조 투입 요청됨 · {panel.kittingCompleted ? '키팅 완료' : '키팅 미보고'}</strong>
+                        <span>키팅은 참고 정보입니다. 작업지시와 도면을 확인한 뒤 이 패널의 실행을 시작하세요.</span>
                       </div>
                     ) : (
                       <ol className="manufacturing-step-list">
@@ -493,7 +468,7 @@ export function ManufacturingPage({
                         ) : null}
                         {panel.status === 'InProgress' && allStepsChecked ? (
                           <button type="button" className="primary-button manufacturing-complete" disabled={Boolean(savingAction)} onClick={() => void complete()}>
-                            {savingAction === 'complete' ? '완료 중…' : '제조 완료 · LQC 전달'}
+                            {savingAction === 'complete' ? '완료 중…' : '제조 완료'}
                           </button>
                         ) : null}
                         {panel.status === 'InProgress' ? (
@@ -516,21 +491,6 @@ export function ManufacturingPage({
                         <span>긴급 Pending #{panel.activePendingNumber}</span>
                         <strong>{departmentName(panel.actionDepartmentCode, departments)} 조치 확인 →</strong>
                       </button>
-                    ) : null}
-                    {panel.status === 'Completed' && completionTask ? (
-                      <section className="manufacturing-confirmation-card" data-status={completionTask.status.toLowerCase()}>
-                        <span className="manufacturing-confirmation-mark" aria-hidden="true">11</span>
-                        <div>
-                          <small>LQC PASS · NEXT GATE</small>
-                          <strong>{completionTask.status === 'Confirmed' ? '제조 완료 확인됨' : '제조 완료 확인 대기'}</strong>
-                          <p>{completionTask.status === 'Confirmed' ? 'OQC 업무가 생성되었습니다.' : 'LQC 합격 내용을 확인하면 OQC 담당자에게 즉시 인계됩니다.'}</p>
-                        </div>
-                        {completionTask.status !== 'Confirmed' ? (
-                          <button type="button" disabled={!canMutate || Boolean(savingAction)} onClick={() => void confirmCompletion()}>
-                            {savingAction === 'confirm-completion' ? '확인 중' : '제조 완료 확인'}
-                          </button>
-                        ) : <span className="manufacturing-confirmed-disc">✓</span>}
-                      </section>
                     ) : null}
                   </section>
 

@@ -4,6 +4,38 @@ export interface ManufacturingQueueResponse {
   projects: ManufacturingProject[];
 }
 
+export interface ManufacturingReleaseQueueResponse {
+  projects: ManufacturingReleaseProject[];
+}
+
+export interface ManufacturingReleaseProject {
+  projectId: string;
+  projectCode: string;
+  projectTitle: string;
+  activeItemCount: number;
+  completedItemCount: number;
+  panels: ManufacturingReleasePanel[];
+}
+
+export interface ManufacturingReleasePanel {
+  panelId: string;
+  displayCode: string;
+  panelName: string | null;
+  panelInfoCompleted: boolean;
+  kittingCompleted: boolean;
+  released: boolean;
+  workItemStatus: string | null;
+  releasedAtUtc: string | null;
+  selectable: boolean;
+}
+
+export interface ManufacturingReleaseResponse {
+  operationId: string;
+  releasedPanelCount: number;
+  generatedWorkItemCount: number;
+  replayed: boolean;
+}
+
 export interface ManufacturingProject {
   projectId: string;
   projectCode: string;
@@ -20,6 +52,7 @@ export interface ManufacturingPanel {
   displayCode: string;
   panelName: string | null;
   workflowStage: string;
+  kittingCompleted: boolean;
   workItemId: string;
   workItemStatus: string;
   executionId: string | null;

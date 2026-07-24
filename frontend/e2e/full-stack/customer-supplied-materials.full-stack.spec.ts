@@ -40,12 +40,11 @@ test('TASK-008B: customer-supplied material keeps one quantity truth across proc
   await overdueMetric.click();
   await expect(page).toHaveURL(/\/materials\/receipts\?risk=customer-supply-overdue$/);
   await expect(page.getByRole('button', { name: '제공 지연' })).toHaveAttribute('data-active', 'true');
-  const materialCard = page.locator('.material-item-card').filter({ hasText: projectTitle });
+  const materialCard = page.locator('.material-purchase-row').filter({ hasText: item!.orderItem ?? '' });
   await expect(materialCard).toBeVisible();
   await saveEvidence(page, 'home-002-change-003-customer-supply-overdue.jpg');
-  await expect(materialCard).toContainText('사급 · 제공 지연');
-  await expect(materialCard).toContainText('미도착 잔량10 EA');
-  await expect(materialCard).toContainText('처리 대기량0 EA');
+  await expect(materialCard).toContainText('사급 지연');
+  await expect(materialCard).toContainText('잔여 10 EA');
 
   const arrival = await postJson<{ receiptId: string }>(request, 'dev-materials', `/api/materials/items/${item!.itemId}/receipts`, {
     quantity: 4,

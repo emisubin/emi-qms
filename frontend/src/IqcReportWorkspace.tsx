@@ -6,12 +6,14 @@ import {
   finalizeIqcReport,
   getIqcPhotoBlob,
   getIqcReport,
+  getMaterialIqcQueue,
+  getPendingIssue,
   initializeIqcReport,
   retryIqcPdf,
   saveIqcResponses,
   uploadIqcPhoto
 } from './api';
-import type { IqcCheckResult, IqcItemResponse, IqcReport, IqcTemplateItem, SaveIqcItemResponse } from './iqc-report';
+import type { IqcCheckResult, IqcItemResponse, IqcReinspectionSource, IqcReport, IqcTemplateItem, SaveIqcItemResponse } from './iqc-report';
 import type { ActionFeedbackTone } from './useActionFeedback';
 
 type Step = 'items' | 'photo' | 'review';
@@ -37,16 +39,23 @@ export function IqcReportWorkspace({
   const [step, setStep] = useState<Step>('items');
   const [draft, setDraft] = useState<Record<string, SaveIqcItemResponse>>({});
   const [reason, setReason] = useState('');
+  const [serverScopedReinspection, setServerScopedReinspection] = useState(false);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     void getIqcReport(developmentUserKey, attemptId)
-      .then((value) => {
+      .then(async (value) => {
         if (!active) return;
-        setReport(value);
-        setDraft(toDraft(value.responses));
-        setReason(value.reason ?? '');
+        const serverScoped = Boolean(value.reinspectionSource);
+        const next = value.attemptNumber > 1 && !value.reinspectionSource
+          ? await discoverReinspectionSource(developmentUserKey, value)
+          : value;
+        if (!active) return;
+        setServerScopedReinspection(serverScoped);
+        setReport(next);
+        setDraft(toDraft(next.responses));
+        setReason(next.reason ?? '');
       })
       .catch((error) => {
         if (!active) return;
@@ -57,14 +66,25 @@ export function IqcReportWorkspace({
     return () => { active = false; };
   }, [attemptId, developmentUserKey]);
 
+  const scopedItems = useMemo(() => {
+    if (!report?.reinspectionSource?.failures.length) return report?.items ?? [];
+    const failedCodes = new Set(report.reinspectionSource.failures.map((failure) => failure.itemCode));
+    return report.items.filter((item) => failedCodes.has(item.itemCode));
+  }, [report]);
   const requiredMissing = useMemo(() => {
     if (!report) return 0;
-    return report.items.filter((item) => item.isRequired && !isAnswered(item, draft[item.itemId])).length;
-  }, [draft, report]);
+    return scopedItems.filter((item) => item.isRequired && !isAnswered(item, draft[item.itemId])).length;
+  }, [draft, report, scopedItems]);
   const photoMissing = useMemo(() => {
     if (!report) return 0;
-    return report.items.filter((item) => item.requiresPhoto && !report.photos.some((photo) => photo.templateItemId === item.itemId)).length;
-  }, [report]);
+    return scopedItems.filter((item) => item.requiresPhoto && !report.photos.some((photo) => photo.templateItemId === item.itemId)).length;
+  }, [report, scopedItems]);
+  const reasonMissing = reason.trim().length < 3;
+  const isReadyToFinalize = requiredMissing === 0 && photoMissing === 0 && !reasonMissing;
+  const reportSteps = useMemo<Step[]>(
+    () => scopedItems.some((item) => item.requiresPhoto) ? ['items', 'photo', 'review'] : ['items', 'review'],
+    [scopedItems]
+  );
 
   async function run(action: () => Promise<IqcReport>, success: string) {
     setSaving(true);
@@ -93,10 +113,17 @@ export function IqcReportWorkspace({
   async function saveAndNext() {
     if (!report?.reportId || !report.reportVersion) return;
     const next = await run(
-      () => saveIqcResponses(developmentUserKey, report.reportId!, report.reportVersion!, Object.values(draft)),
+      () => saveIqcResponses(
+        developmentUserKey,
+        report.reportId!,
+        report.reportVersion!,
+        serverScopedReinspection
+          ? scopedItems.map((item) => draft[item.itemId]).filter((value): value is SaveIqcItemResponse => Boolean(value))
+          : Object.values(draft)
+      ),
       '검사항목을 저장했습니다.'
     );
-    if (next) setStep('photo');
+    if (next) setStep(scopedItems.some((item) => item.requiresPhoto) ? 'photo' : 'review');
   }
 
   async function addPhoto(itemId: string, file: File | null, altText: string) {
@@ -171,8 +198,9 @@ export function IqcReportWorkspace({
   return (
     <div className="iqc-report-editor" data-step={step}>
       <ReportContext report={report} />
+      {report.reinspectionSource ? <ReinspectionComparison source={report.reinspectionSource} /> : null}
       <nav className="iqc-report-steps" aria-label="성적서 작성 단계">
-        {(['items', 'photo', 'review'] as Step[]).map((value, index) => (
+        {reportSteps.map((value, index) => (
           <button type="button" key={value} data-active={step === value} onClick={() => setStep(value)}>
             <i>{index + 1}</i><span>{value === 'items' ? '검사항목' : value === 'photo' ? '사진' : '최종확인'}</span>
           </button>
@@ -184,23 +212,31 @@ export function IqcReportWorkspace({
         <section className="iqc-report-panel" aria-labelledby="iqc-items-title">
           <header><span>STEP 1</span><div><h4 id="iqc-items-title">검사항목</h4><p>현장에서 확인한 결과만 선택합니다.</p></div></header>
           <div className="iqc-item-stack">
-            {report.items.map((item) => <IqcItemEditor key={item.itemId} item={item} value={draft[item.itemId]} disabled={!canInspect || saving} onChange={(value) => setDraft((current) => ({ ...current, [item.itemId]: value }))} />)}
+            {scopedItems.map((item) => <IqcItemEditor key={item.itemId} item={item} value={draft[item.itemId]} disabled={!canInspect || saving} reinspection={Boolean(report.reinspectionSource)} onChange={(value) => setDraft((current) => ({ ...current, [item.itemId]: value }))} />)}
           </div>
-          <button type="button" className="primary-button iqc-next-button" disabled={!canInspect || saving} onClick={() => void saveAndNext()}>저장하고 사진 등록</button>
+          <button type="button" className="primary-button iqc-next-button" disabled={!canInspect || saving} onClick={() => void saveAndNext()}>{scopedItems.some((item) => item.requiresPhoto) ? '저장하고 사진 등록' : '저장하고 최종확인'}</button>
         </section>
       ) : null}
 
       {step === 'photo' ? (
-        <PhotoStep report={report} developmentUserKey={developmentUserKey} disabled={!canInspect || saving} onUpload={addPhoto} onDelete={removePhoto} onNext={() => setStep('review')} />
+        <PhotoStep report={report} items={scopedItems} developmentUserKey={developmentUserKey} disabled={!canInspect || saving} onUpload={addPhoto} onDelete={removePhoto} onNext={() => setStep('review')} />
       ) : null}
 
       {step === 'review' ? (
         <section className="iqc-report-panel iqc-review-panel" aria-labelledby="iqc-review-title">
           <header><span>STEP 3</span><div><h4 id="iqc-review-title">최종확인</h4><p>확정 후에는 성적서와 사진을 수정할 수 없습니다.</p></div></header>
-          <div className="iqc-review-score"><div data-complete={requiredMissing === 0}><strong>{report.items.length - requiredMissing}/{report.items.length}</strong><span>검사항목</span></div><div data-complete={photoMissing === 0}><strong>{report.photos.length}</strong><span>증빙 사진</span></div><div><strong>v{report.templateVersion}</strong><span>검사 양식</span></div></div>
-          <label className="iqc-reason-field"><span>종합 판정 사유</span><textarea data-field="iqc-report-reason" aria-invalid={messageTone === 'error' && reason.trim().length < 3 || undefined} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="확인 결과를 3자 이상 기록" disabled={!canInspect || saving} /></label>
+          <div className="iqc-review-score"><div data-complete={requiredMissing === 0}><strong>{scopedItems.length - requiredMissing}/{scopedItems.length}</strong><span>{report.attemptNumber > 1 ? '재검사 항목' : '검사항목'}</span></div><div data-complete={photoMissing === 0}><strong>{report.photos.length}</strong><span>증빙 사진</span></div><div><strong>v{report.templateVersion}</strong><span>검사 양식</span></div></div>
+          <label className="iqc-reason-field"><span>{report.attemptNumber > 1 ? '재검사 코멘트' : '종합 판정 사유'}</span><textarea data-field="iqc-report-reason" aria-invalid={messageTone === 'error' && reason.trim().length < 3 || undefined} value={reason} onChange={(event) => setReason(event.target.value)} placeholder={report.attemptNumber > 1 ? '조치 내용을 확인한 결과와 재검사 판정 근거를 기록' : '확인 결과를 3자 이상 기록'} disabled={!canInspect || saving} /></label>
+          <div className="iqc-finalize-readiness" id="iqc-finalize-readiness" data-ready={isReadyToFinalize} role="status">
+            <strong>{isReadyToFinalize ? '판정 준비 완료' : '판정 전에 확인해 주세요'}</strong>
+            <ul>
+              <li data-complete={requiredMissing === 0}>{requiredMissing === 0 ? '필수 검사항목 완료' : `필수 검사항목 ${requiredMissing}개 남음`}</li>
+              <li data-complete={photoMissing === 0}>{photoMissing === 0 ? '필수 사진 등록 완료' : `필수 사진 ${photoMissing}장 필요`}</li>
+              <li data-complete={!reasonMissing}>{reasonMissing ? `${report.attemptNumber > 1 ? '재검사 코멘트' : '판정 사유'} 3자 이상 필요` : '판정 근거 입력 완료'}</li>
+            </ul>
+          </div>
           <ActionFeedback message={message} tone={messageTone} />
-          <div className="iqc-finalize-actions"><button type="button" className="iqc-fail-button" disabled={!canInspect || saving} onClick={() => void finalize('Failed')}>부적합 · 입고 차단</button><button type="button" className="primary-button" disabled={!canInspect || saving} onClick={() => void finalize('Passed')}>합격 · 성적서 확정</button></div>
+          <div className="iqc-finalize-actions" aria-describedby="iqc-finalize-readiness"><button type="button" className="iqc-fail-button" disabled={!canInspect || saving || !isReadyToFinalize} onClick={() => void finalize('Failed')}>{report.attemptNumber > 1 ? '불합격 · 재조치 요청' : '부적합 · 입고 차단'}</button><button type="button" className="primary-button" disabled={!canInspect || saving || !isReadyToFinalize} onClick={() => void finalize('Passed')}>{report.attemptNumber > 1 ? '합격 · Pending 해제' : '합격 · 성적서 확정'}</button></div>
         </section>
       ) : null}
       {step !== 'review' ? <ActionFeedback message={message} tone={messageTone} /> : null}
@@ -209,14 +245,14 @@ export function IqcReportWorkspace({
   );
 }
 
-function IqcItemEditor({ item, value, disabled, onChange }: { item: IqcTemplateItem; value?: SaveIqcItemResponse; disabled: boolean; onChange: (value: SaveIqcItemResponse) => void }) {
+function IqcItemEditor({ item, value, disabled, reinspection, onChange }: { item: IqcTemplateItem; value?: SaveIqcItemResponse; disabled: boolean; reinspection: boolean; onChange: (value: SaveIqcItemResponse) => void }) {
   const current = value ?? { templateItemId: item.itemId, checkResult: null, textValue: null, note: null };
   return (
-    <article className="iqc-item-card" data-complete={isAnswered(item, current)} data-photo={item.requiresPhoto}>
+    <article className="iqc-item-card" data-complete={isAnswered(item, current)} data-photo={item.requiresPhoto} data-reinspection={reinspection || undefined}>
       <header><i>{String(item.displayOrder).padStart(2, '0')}</i><div><strong>{item.label}</strong><small>{item.guidance}</small></div>{item.requiresPhoto ? <span>PHOTO</span> : null}</header>
       {item.responseType === 'Check' ? (
         <div className="iqc-check-options">
-          {([['Pass', '적합'], ['Fail', '부적합'], ['NotApplicable', '해당없음']] as Array<[IqcCheckResult, string]>).map(([result, label]) => <button type="button" key={result} data-active={current.checkResult === result} data-result={result} disabled={disabled} onClick={() => onChange({ ...current, checkResult: result })}>{label}</button>)}
+          {([['Pass', '적합'], ['Fail', '부적합'], ...(reinspection ? [] : [['NotApplicable', '해당없음']])] as Array<[IqcCheckResult, string]>).map(([result, label]) => <button type="button" key={result} data-active={current.checkResult === result} data-result={result} disabled={disabled} onClick={() => onChange({ ...current, checkResult: result })}>{label}</button>)}
         </div>
       ) : <textarea aria-label={item.label} value={current.textValue ?? ''} maxLength={item.maxTextLength ?? undefined} onChange={(event) => onChange({ ...current, textValue: event.target.value || null })} placeholder="측정값 또는 특이사항" disabled={disabled} />}
       {item.responseType === 'Check' && current.checkResult && current.checkResult !== 'Pass' ? <input aria-label={`${item.label} 비고`} value={current.note ?? ''} onChange={(event) => onChange({ ...current, note: event.target.value || null })} placeholder={current.checkResult === 'NotApplicable' ? '해당없음 사유 필수' : '부적합 근거 또는 비고'} disabled={disabled} /> : null}
@@ -224,8 +260,10 @@ function IqcItemEditor({ item, value, disabled, onChange }: { item: IqcTemplateI
   );
 }
 
-function PhotoStep({ report, developmentUserKey, disabled, onUpload, onDelete, onNext }: { report: IqcReport; developmentUserKey: string; disabled: boolean; onUpload: (itemId: string, file: File | null, alt: string) => Promise<void>; onDelete: (photoId: string) => Promise<void>; onNext: () => void }) {
-  const item = report.items.find((candidate) => candidate.requiresPhoto) ?? report.items[0];
+function PhotoStep({ report, items, developmentUserKey, disabled, onUpload, onDelete, onNext }: { report: IqcReport; items: IqcTemplateItem[]; developmentUserKey: string; disabled: boolean; onUpload: (itemId: string, file: File | null, alt: string) => Promise<void>; onDelete: (photoId: string) => Promise<void>; onNext: () => void }) {
+  const item = items.find((candidate) => candidate.requiresPhoto) ?? items[0];
+  const requiredPhotoIds = items.filter((candidate) => candidate.requiresPhoto).map((candidate) => candidate.itemId);
+  const requiredPhotosReady = requiredPhotoIds.every((itemId) => report.photos.some((photo) => photo.templateItemId === itemId));
   const [file, setFile] = useState<File | null>(null);
   const [alt, setAlt] = useState('외함 전체 상태');
   return (
@@ -235,7 +273,7 @@ function PhotoStep({ report, developmentUserKey, disabled, onUpload, onDelete, o
       <label className="iqc-photo-alt"><span>사진 설명</span><input value={alt} maxLength={200} onChange={(event) => setAlt(event.target.value)} disabled={disabled} /></label>
       <button type="button" className="primary-button" disabled={disabled || !file || alt.trim().length === 0} onClick={() => void onUpload(item.itemId, file, alt.trim()).then(() => setFile(null))}>사진 등록</button>
       <div className="iqc-photo-grid">{report.photos.map((photo) => <PhotoEvidence key={photo.photoId} reportId={report.reportId!} photo={photo} developmentUserKey={developmentUserKey} editable={!disabled} onDelete={() => void onDelete(photo.photoId)} />)}</div>
-      <button type="button" className="iqc-next-button" disabled={report.photos.length === 0} onClick={onNext}>최종확인으로</button>
+      <button type="button" className="iqc-next-button" disabled={!requiredPhotosReady} onClick={onNext}>최종확인으로</button>
     </section>
   );
 }
@@ -291,6 +329,30 @@ function ReportContext({ report }: { report: IqcReport }) {
   return <header className="iqc-report-context"><div><span>{report.projectCode}</span><strong>{report.orderItem ?? '발주품목 미입력'}</strong><small>{report.projectTitle}</small></div><div><b>{report.attemptNumber}차</b><span>{formatQuantity(report.quantity, report.unit)}</span></div></header>;
 }
 
+function ReinspectionComparison({ source }: { source: IqcReinspectionSource }) {
+  return (
+    <section className="iqc-reinspection-comparison" aria-labelledby="iqc-reinspection-title">
+      <header>
+        <div><span>REINSPECTION SCOPE</span><h4 id="iqc-reinspection-title">부적합 항목만 다시 확인합니다</h4></div>
+        <strong>{source.previousAttemptNumber}차 검사 기준 · {source.failures.length}개</strong>
+      </header>
+      <div className="iqc-reinspection-evidence">
+        <article><span>부적합 근거</span><strong>{source.failureReason}</strong></article>
+        <article><span>조치 내용</span><strong>{source.actionReason?.trim() || '아래 Pending 조치 이력에서 확인'}</strong></article>
+      </div>
+      <ul>
+        {source.failures.map((failure) => (
+          <li key={failure.itemCode}>
+            <span>{source.previousAttemptNumber}차 부적합</span>
+            <div><strong>{failure.label}</strong>{failure.note ? <p>{failure.note}</p> : null}</div>
+          </li>
+        ))}
+      </ul>
+      <p>아래 항목은 <b>적합</b> 또는 <b>부적합</b>으로만 다시 판정할 수 있습니다.</p>
+    </section>
+  );
+}
+
 function ActionFeedback({ message, tone }: { message: string; tone: ActionFeedbackTone }) {
   if (!message) return null;
   return (
@@ -327,6 +389,53 @@ function formatQuantity(quantity: number | null, unit: string | null) {
 
 function formatDateTime(value: string | null) {
   return value ? new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '-';
+}
+
+async function discoverReinspectionSource(developmentUserKey: string, current: IqcReport): Promise<IqcReport> {
+  try {
+    const queue = await getMaterialIqcQueue(developmentUserKey, true);
+    const previous = queue.items
+      .filter((item) => item.receiptId === current.receiptId && item.attemptNumber < current.attemptNumber && item.status === 'Failed')
+      .sort((left, right) => right.attemptNumber - left.attemptNumber)[0];
+    if (!previous) return current;
+
+    const previousReport = await getIqcReport(developmentUserKey, previous.attemptId);
+    const responseByItem = new Map(previousReport.responses.map((response) => [response.templateItemId, response]));
+    const failures = previousReport.items.flatMap((item) => {
+      const response = responseByItem.get(item.itemId);
+      return response?.checkResult === 'Fail'
+        ? [{ itemCode: item.itemCode, label: item.label, note: response.note }]
+        : [];
+    });
+    if (failures.length === 0) return current;
+
+    let actionReason: string | null = null;
+    if (previous.pendingIssueId) {
+      try {
+        const pending = await getPendingIssue(developmentUserKey, previous.pendingIssueId);
+        actionReason = [...pending.history]
+          .reverse()
+          .find((event) => event.toStatus === 'ReinspectionRequested' && event.reason?.trim())
+          ?.reason?.trim() ?? null;
+      } catch {
+        actionReason = null;
+      }
+    }
+
+    return {
+      ...current,
+      reinspectionSource: {
+        previousAttemptNumber: previous.attemptNumber,
+        failureReason: previousReport.reason?.trim()
+          || failures.map((failure) => failure.note?.trim()).filter(Boolean).join(' · ')
+          || '이전 검사 부적합',
+        actionReason,
+        failures
+      }
+    };
+  } catch {
+    return current;
+  }
 }
 
 function errorMessage(error: unknown, fallback: string) {

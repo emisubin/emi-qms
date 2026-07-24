@@ -48,13 +48,14 @@ test('TASK-013A: packing, departure and delivery evidence create the sales hando
   expect(bypass.status()).toBe(409);
 
   const packingOperationId = crypto.randomUUID();
-  const packingRequest = { operationId: packingOperationId, projectId, panelIds, note: '합성 포장', specification: 'RPP', weightText: '20kg' };
+  const packingRequest = { operationId: packingOperationId, projectId, panelIds: [panelIds[0]], note: '패널 1 개별 포장', specification: 'RPP', weightText: '10kg' };
   const packing = await postJson(request, '/api/logistics/packing-units', 'dev-logistics', packingRequest) as Mutation;
   const replay = await postJson(request, '/api/logistics/packing-units', 'dev-logistics', packingRequest) as Mutation;
   expect(replay.replayed).toBe(true);
   expect(replay.targetId).toBe(packing.targetId);
   await page.goto(`/logistics?stage=packing&project=${projectId}&draft=${packing.targetId}`);
-  await expect(page.getByText(/진행 중인 draft를 복구했습니다/u)).toBeVisible();
+  await expect(page.getByText('Draft')).toBeVisible();
+  await expect(page.getByText('PU-001')).toBeVisible();
   await expect(page.getByRole('button', { name: '임시 작업 취소' })).toBeVisible();
   await assertNoHorizontalOverflow(page);
   let version = await uploadEvidence(request, 'packing', packing.targetId, packing.version, tinyPng(), '합성 포장 사진');
@@ -81,6 +82,31 @@ test('TASK-013A: packing, departure and delivery evidence create the sales hando
   }) as Mutation;
   version = await uploadEvidence(request, 'delivery', delivery.targetId, delivery.version, Buffer.from('%PDF-1.4 synthetic'), '');
   await finalize(request, 'delivery', delivery.targetId, version);
+
+  expect(queryDatabase(`select count(*)::text from panel_placeholders where project_id='${projectId}' and workflow_stage='ShipmentCompleted';`)).toBe('1');
+  expect(queryDatabase(`select count(*)::text from work_items where project_id='${projectId}' and workflow_stage_code='SalesSettlementCompleted' and target_type='Project';`)).toBe('0');
+  const remainingPackingQueue = await request.get(`${apiBaseUrl}/api/logistics/queue?stage=packing&projectId=${projectId}`, {
+    headers: devHeaders('dev-logistics')
+  });
+  expect(remainingPackingQueue.ok(), await remainingPackingQueue.text()).toBeTruthy();
+  const remainingPacking = await remainingPackingQueue.json() as { projects: Array<{ items: Array<{ panelIds: string[] }> }> };
+  expect(remainingPacking.projects.flatMap((project) => project.items).flatMap((item) => item.panelIds)).toEqual([panelIds[1]]);
+
+  const secondPacking = await postJson(request, '/api/logistics/packing-units', 'dev-logistics', {
+    operationId: crypto.randomUUID(), projectId, panelIds: [panelIds[1]], note: '패널 2 개별 포장', specification: 'RPP', weightText: '10kg'
+  }) as Mutation;
+  version = await uploadEvidence(request, 'packing', secondPacking.targetId, secondPacking.version, tinyPng(), '패널 2 포장 사진');
+  await finalize(request, 'packing', secondPacking.targetId, version);
+  const secondDeparture = await postJson(request, '/api/logistics/departure-batches', 'dev-logistics', {
+    operationId: crypto.randomUUID(), projectId, unitIds: [secondPacking.targetId], departureDate: '2026-07-19'
+  }) as Mutation;
+  version = await uploadEvidence(request, 'departure', secondDeparture.targetId, secondDeparture.version, tinyPng(), '패널 2 상차 사진');
+  await finalize(request, 'departure', secondDeparture.targetId, version);
+  const secondDelivery = await postJson(request, '/api/logistics/delivery-batches', 'dev-logistics', {
+    operationId: crypto.randomUUID(), projectId, unitIds: [secondPacking.targetId], departureDate: null
+  }) as Mutation;
+  version = await uploadEvidence(request, 'delivery', secondDelivery.targetId, secondDelivery.version, Buffer.from('%PDF-1.4 panel-two'), '');
+  await finalize(request, 'delivery', secondDelivery.targetId, version);
 
   expect(queryDatabase(`select count(*)::text from panel_placeholders where project_id='${projectId}' and workflow_stage='ShipmentCompleted';`)).toBe('2');
   expect(queryDatabase(`select count(*)::text from project_workflow_events where project_id='${projectId}' and stage_code in ('PackingCompleted','DepartureProcessed','DeliveryCompleted') and event_type='StageCompleted';`)).toBe('3');

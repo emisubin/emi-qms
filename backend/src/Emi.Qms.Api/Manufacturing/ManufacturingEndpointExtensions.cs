@@ -28,6 +28,38 @@ public static class ManufacturingEndpointExtensions
             .AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
         .WithName("ListManufacturingQueue");
 
+        manufacturing.MapGet("/release-candidates", async (
+            Guid? projectId,
+            ManufacturingStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+            Results.Ok(await store.ListReleaseCandidatesAsync(
+                GetProjectAccessScope(user),
+                projectId,
+                cancellationToken)))
+        .RequireAuthorization(policy => policy
+            .RequireAuthenticatedUser()
+            .AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
+        .WithName("ListManufacturingReleaseCandidates");
+
+        manufacturing.MapPost("/releases", async (
+            ReleaseManufacturingRequest request,
+            ManufacturingStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = GetCurrentUserId(user);
+            return actorId is null
+                ? Results.Unauthorized()
+                : ToReleaseResult(await store.ReleaseAsync(
+                    request,
+                    actorId.Value,
+                    GetProjectAccessScope(user),
+                    cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.ProductionPlanUpdate)
+        .WithName("ReleaseManufacturingPanels");
+
         manufacturing.MapGet("/panels/{panelId:guid}", async (
             Guid panelId,
             ManufacturingStore store,
@@ -140,6 +172,20 @@ public static class ManufacturingEndpointExtensions
             ManufacturingMutationStatus.Validation => Results.ValidationProblem(result.Errors),
             ManufacturingMutationStatus.Conflict => Results.Problem(
                 title: result.Message ?? "요청한 제조 작업을 수행할 수 없습니다.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
+        };
+    }
+
+    private static IResult ToReleaseResult(ManufacturingMutationResult<ManufacturingReleaseResponse> result)
+    {
+        return result.Status switch
+        {
+            ManufacturingMutationStatus.Success when result.Value is not null => Results.Ok(result.Value),
+            ManufacturingMutationStatus.NotFound => Results.NotFound(),
+            ManufacturingMutationStatus.Validation => Results.ValidationProblem(result.Errors),
+            ManufacturingMutationStatus.Conflict => Results.Problem(
+                title: result.Message ?? "요청한 제조 투입을 처리할 수 없습니다.",
                 statusCode: StatusCodes.Status409Conflict),
             _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
         };

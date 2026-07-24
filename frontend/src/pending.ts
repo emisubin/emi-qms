@@ -51,6 +51,16 @@ export interface PendingDetail {
   allowedTransitions: PendingStatus[];
   canComment: boolean;
   canAssign: boolean;
+  reinspection?: PendingReinspection | null;
+}
+
+export interface PendingReinspection {
+  attemptId: string;
+  attemptNumber: number;
+  orderItem: string | null;
+  quantity: number | null;
+  unit: string | null;
+  linkUrl: string;
 }
 
 export interface PendingComment {

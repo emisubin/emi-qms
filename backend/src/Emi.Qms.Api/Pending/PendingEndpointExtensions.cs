@@ -148,7 +148,9 @@ public static class PendingEndpointExtensions
         }
         var isCoordinator = user.FindAll(ClaimTypes.Role)
             .Any(claim => string.Equals(claim.Value, QmsRoles.ProductionPlanning, StringComparison.Ordinal));
-        return new PendingActor(userId, isCoordinator);
+        var isQuality = user.FindAll(ClaimTypes.Role)
+            .Any(claim => string.Equals(claim.Value, QmsRoles.Quality, StringComparison.Ordinal));
+        return new PendingActor(userId, isCoordinator, isQuality);
     }
 
     private static bool HasPermission(ClaimsPrincipal user, string permissionCode)

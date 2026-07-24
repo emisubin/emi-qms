@@ -122,7 +122,7 @@ public sealed class PanelInformationApiTests
         Assert.Equal(1, partialJson.RootElement.GetProperty("panelInfoCompletedCount").GetInt32());
         using var partialWorkflow = await ReadJsonAsync(await designClient.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
         var partialDesignStage = partialWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "DesignPanelInfo");
-        Assert.Equal("InProgress", partialDesignStage.GetProperty("status").GetString());
+        Assert.Equal("PartiallyCompleted", partialDesignStage.GetProperty("status").GetString());
 
         var updatedRows = partialJson.RootElement.GetProperty("panels").EnumerateArray().ToList();
         var complete = await designClient.PatchAsJsonAsync(

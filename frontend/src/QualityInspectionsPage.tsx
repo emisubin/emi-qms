@@ -7,6 +7,7 @@ import {
   getQualityInspectionPanel,
   getQualityInspectionQueue,
   listQualityActionDepartments,
+  reconcileQualityInspectionHandoffs,
   removeQualityInspectionPhoto,
   retryQualityInspectionPdf,
   saveQualityInspectionResponses,
@@ -16,6 +17,7 @@ import {
 import { useAdaptiveLayout } from './adaptive-layout';
 import { workflowShapeRole } from './design-system';
 import { MobileSheet } from './MobileSheet';
+import { PendingInspectionContext } from './PendingInspectionContext';
 import type {
   QualityActionDepartment,
   QualityCheckResult,
@@ -73,6 +75,8 @@ export function QualityInspectionsPage({
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [savingAction, setSavingAction] = useState('');
   const [decisionOpen, setDecisionOpen] = useState(false);
+  const [decisionError, setDecisionError] = useState('');
+  const [decisionConflict, setDecisionConflict] = useState(false);
   const [decision, setDecision] = useState<'Passed' | 'Failed'>('Passed');
   const [decisionReason, setDecisionReason] = useState('검사 기준을 확인했습니다.');
   const [actionDepartment, setActionDepartment] = useState('');
@@ -82,6 +86,8 @@ export function QualityInspectionsPage({
   const [photoItemId, setPhotoItemId] = useState('');
   const decisionTriggerRef = useRef<HTMLButtonElement>(null);
   const operationReceipts = useRef<Record<string, OperationReceipt>>({});
+  const reconciliationAttemptedForUser = useRef('');
+  const finalizeInFlight = useRef(false);
 
   const writeLocation = useCallback((nextStage: QualityInspectionStage, projectId?: string, panelId?: string) => {
     const params = new URLSearchParams({ stage: nextStage });
@@ -97,6 +103,31 @@ export function QualityInspectionsPage({
   ) => {
     setQueueState({ kind: 'loading' });
     try {
+      if (canInspect && reconciliationAttemptedForUser.current !== developmentUserKey) {
+        reconciliationAttemptedForUser.current = developmentUserKey;
+        try {
+          const reconciled = await reconcileQualityInspectionHandoffs(developmentUserKey);
+          const recoveredCount = reconciled.recoveredOqcHandoffCount
+            + reconciled.recoveredInspectionHandoffCount
+            + reconciled.recoveredPackingHandoffCount;
+          if (recoveredCount > 0) {
+            setFeedback({
+              tone: 'info',
+              message: `누락된 품질 후속 업무 ${recoveredCount}건을 자동으로 복구했습니다.`
+            });
+          } else if (reconciled.unresolvedAssigneeCount > 0) {
+            setFeedback({
+              tone: 'info',
+              message: `담당자 미지정으로 복구하지 못한 후속 업무 ${reconciled.unresolvedAssigneeCount}건이 있습니다.`
+            });
+          }
+        } catch {
+          setFeedback({
+            tone: 'info',
+            message: '누락 업무 자동 점검에 실패했지만 현재 검사 목록은 계속 불러옵니다.'
+          });
+        }
+      }
       const data = await getQualityInspectionQueue(developmentUserKey, nextStage);
       setQueueState({ kind: 'ready', data });
       const project = data.projects.find((item) => item.projectId === preferredProjectId)
@@ -111,7 +142,7 @@ export function QualityInspectionsPage({
     } catch (error) {
       setQueueState({ kind: 'error', message: errorMessage(error, '품질검사 목록을 불러오지 못했습니다.') });
     }
-  }, [developmentUserKey, writeLocation]);
+  }, [canInspect, developmentUserKey, writeLocation]);
 
   const loadDetail = useCallback(async (panelId: string, nextStage: QualityInspectionStage) => {
     if (!panelId) {
@@ -155,9 +186,15 @@ export function QualityInspectionsPage({
       };
     }
     setDraft(values);
-    setPhotoItemId((currentValue) => detail.items.some((item) => item.itemId === currentValue)
+    setPhotoItemId((currentValue) => detail.items.some((item) => item.itemId === currentValue && item.isAvailable !== false)
       ? currentValue
-      : detail.items[0]?.itemId ?? '');
+      : detail.items.find((item) => item.isAvailable !== false)?.itemId ?? '');
+    if (detail.panel.pendingId && detail.panel.actionDepartmentCode) {
+      setActionDepartment(detail.panel.actionDepartmentCode);
+      setActionAssignee('');
+    }
+    setDecisionError('');
+    setDecisionConflict(false);
   }, [detail]);
 
   const projects = queueState.kind === 'ready' ? queueState.data.projects : [];
@@ -167,13 +204,17 @@ export function QualityInspectionsPage({
   const selectedPanel = selectedProject?.panels.find((item) => item.panelId === selectedPanelId) ?? null;
   const panel = detail?.panel ?? selectedPanel;
   const selectedDepartment = departments.find((item) => item.departmentCode === actionDepartment) ?? null;
-  const requiredItems = detail?.items.filter((item) => item.isRequired) ?? [];
+  const requiredItems = detail?.decisionMode === 'Checklist' ? detail.items.filter((item) => item.isRequired) : [];
   const completedRequired = requiredItems.filter((item) => {
     const value = draft[item.itemId];
     return item.responseType === 'Check' ? Boolean(value?.checkResult) : Boolean(value?.textValue.trim());
   }).length;
   const progress = requiredItems.length ? Math.round((completedRequired / requiredItems.length) * 100) : 0;
+  const hasUnavailableRequired = requiredItems.some((item) => item.isAvailable === false);
   const canMutatePanel = canInspect && panel?.canMutate === true;
+  const isReinspection = Boolean(panel?.pendingId && detail?.reportStatus !== 'Finalized');
+  const hasFailedResponse = detail?.decisionMode === 'Checklist'
+    && detail.items.some((item) => item.isAvailable !== false && draft[item.itemId]?.checkResult === 'Fail');
 
   function operationId(action: string, fingerprint: string) {
     const current = operationReceipts.current[action];
@@ -216,6 +257,13 @@ export function QualityInspectionsPage({
     writeLocation(stage, selectedProjectId, nextPanel.panelId);
   }
 
+  function openDecision() {
+    setDecision(hasFailedResponse ? 'Failed' : 'Passed');
+    setDecisionError('');
+    setDecisionConflict(false);
+    setDecisionOpen(true);
+  }
+
   async function start() {
     if (!selectedProject || !panel || !canMutatePanel) return;
     const fingerprint = `${selectedProject.projectId}|${panel.panelId}|${stage}`;
@@ -240,6 +288,7 @@ export function QualityInspectionsPage({
 
   function responsePayload(): QualityInspectionItemValue[] {
     return (detail?.items ?? []).flatMap((item) => {
+      if (item.isAvailable === false) return [];
       const value = draft[item.itemId];
       if (!value) return [];
       if (item.responseType === 'Check' && !value.checkResult) return [];
@@ -254,7 +303,7 @@ export function QualityInspectionsPage({
   }
 
   async function saveDraft(showFeedback = true) {
-    if (!detail?.reportId || !detail.reportVersion || !canMutatePanel) return null;
+    if (!detail?.reportId || !detail.reportVersion || !canMutatePanel || detail.decisionMode !== 'Checklist') return null;
     const responses = responsePayload();
     const fingerprint = `${detail.reportId}|${detail.reportVersion}|${JSON.stringify(responses)}`;
     setSavingAction('save');
@@ -280,21 +329,43 @@ export function QualityInspectionsPage({
   }
 
   async function finalize() {
-    if (!detail?.reportId || !detail.reportVersion || !canMutatePanel) return;
-    if (decisionReason.trim().length < 3 || (decision === 'Failed' && !actionDepartment)) return;
+    if (!detail?.reportId || !detail.reportVersion || !canMutatePanel || finalizeInFlight.current) return;
+    const validationError = validateDecision(
+      detail,
+      draft,
+      decision,
+      decisionReason,
+      actionDepartment
+    );
+    if (validationError) {
+      setDecisionError(validationError);
+      setDecisionConflict(false);
+      return;
+    }
+    finalizeInFlight.current = true;
     setSavingAction('finalize');
     setFeedback(null);
+    setDecisionError('');
+    setDecisionConflict(false);
     try {
-      const saved = await saveDraft(false);
-      if (!saved) return;
-      const fingerprint = [detail.reportId, saved.version, decision, decisionReason.trim(), actionDepartment, actionAssignee].join('|');
+      const responses = detail.decisionMode === 'Checklist' ? responsePayload() : null;
+      const fingerprint = [
+        detail.reportId,
+        detail.reportVersion,
+        decision,
+        decisionReason.trim(),
+        actionDepartment,
+        actionAssignee,
+        JSON.stringify(responses)
+      ].join('|');
       const result = await finalizeQualityInspection(developmentUserKey, detail.reportId, {
         operationId: operationId('finalize', fingerprint),
-        expectedReportVersion: saved.version,
+        expectedReportVersion: detail.reportVersion,
         result: decision,
         reason: decisionReason.trim(),
         actionDepartmentCode: decision === 'Failed' ? actionDepartment : null,
-        assigneeUserId: decision === 'Failed' && actionAssignee ? actionAssignee : null
+        assigneeUserId: decision === 'Failed' && actionAssignee ? actionAssignee : null,
+        responses
       });
       delete operationReceipts.current.finalize;
       setDecisionOpen(false);
@@ -302,11 +373,27 @@ export function QualityInspectionsPage({
       setFeedback({
         tone: 'success',
         message: decision === 'Passed'
-          ? `합격 확정 · 다음 단계 ${result.nextStageCode ? stageLabel(result.nextStageCode) : '인계 완료'}`
+          ? passedFeedback(stage, selectedProject?.fatRequired === true, result.nextStageCode)
           : `${stageLabel(stage)} ${stage === 'CustomerInspection' || stage === 'FAT' ? 'PUNCH' : '부적합'} Pending #${result.pendingNumber ?? '-'} 생성`
       });
     } catch (error) {
-      setFeedback({ tone: 'error', message: errorMessage(error, '검사 판정을 확정하지 못했습니다.') });
+      setDecisionError(errorMessage(error, '검사 판정을 확정하지 못했습니다.'));
+      setDecisionConflict(error instanceof ApiError && error.status === 409);
+    } finally {
+      finalizeInFlight.current = false;
+      setSavingAction('');
+    }
+  }
+
+  async function reloadDecisionAfterConflict() {
+    if (!selectedProject || !panel || savingAction) return;
+    setSavingAction('reload');
+    try {
+      await refresh(selectedProject.projectId, panel.panelId);
+      setDecisionError('');
+      setDecisionConflict(false);
+    } catch (error) {
+      setDecisionError(errorMessage(error, '최신 검사 내용을 불러오지 못했습니다.'));
     } finally {
       setSavingAction('');
     }
@@ -406,7 +493,7 @@ export function QualityInspectionsPage({
         <div>
           <p className="eyebrow">QUALITY · PANEL GATE</p>
           <h2>품질 검사</h2>
-          <p>패널 한 면의 핵심 항목을 확인하고 다음 공정으로 바로 넘깁니다.</p>
+          <p>LQC는 제조 단계와 나란히 진행하고, 완료된 패널부터 다음 검사로 넘깁니다.</p>
         </div>
         <button type="button" onClick={onBack}>프로젝트 보기</button>
         <span className="quality-hero-circle" aria-hidden="true" />
@@ -524,6 +611,7 @@ export function QualityInspectionsPage({
                         <span>조치 대기 · {panel.actionDepartmentCode ?? '부서 확인'}</span><strong>Pending #{panel.pendingNumber ?? '-'} →</strong>
                       </button>
                     ) : null}
+                    {panel.pendingId && detail?.reportStatus !== 'Finalized' ? <PendingInspectionContext pendingId={panel.pendingId} developmentUserKey={developmentUserKey} /> : null}
 
                     {!detail?.reportId && panel.status !== 'Completed' ? (
                       <div className="quality-start-card">
@@ -534,33 +622,39 @@ export function QualityInspectionsPage({
 
                     {detail?.reportId ? (
                       <>
-                        <div className="quality-item-list">
+                        {detail.decisionMode === 'Aggregate' ? (
+                          <section className="quality-aggregate-decision" aria-label={`${stageSummary.label} 패널 통합 판정`}>
+                            <span>PANEL DECISION</span>
+                            <strong>이 검사는 패널 전체를 한 번에 판정합니다.</strong>
+                            <p>항목별 체크 없이 적합 또는 부적합을 선택합니다. 부적합이면 근거 사진이나 30자 이상의 구체적인 사유를 남기면 Pending으로 이동합니다.</p>
+                          </section>
+                        ) : <div className="quality-item-list">
                           {detail.items.map((item) => {
                             const value = draft[item.itemId] ?? { checkResult: null, textValue: '', note: '' };
                             return (
-                              <section key={item.itemId} className="quality-item" data-result={value.checkResult?.toLowerCase() ?? 'empty'}>
-                                <header><span>{String(item.displayOrder).padStart(2, '0')}</span><div><strong>{item.label}</strong><small>{item.guidance ?? (item.isRequired ? '필수 확인' : '선택 입력')}</small></div>{item.isRequired ? <em>필수</em> : null}</header>
+                              <section key={item.itemId} className="quality-item" data-result={value.checkResult?.toLowerCase() ?? 'empty'} data-available={item.isAvailable === false ? 'false' : 'true'}>
+                                <header><span>{String(item.displayOrder).padStart(2, '0')}</span><div><strong>{item.label}</strong><small>{item.availabilityMessage ?? item.guidance ?? (item.isRequired ? '필수 확인' : '선택 입력')}</small></div>{item.isAvailable === false ? <em>제조 대기</em> : item.isRequired ? <em>필수</em> : null}</header>
                                 {item.responseType === 'Check' ? (
                                   <div className="quality-choice-row" role="group" aria-label={`${item.label} 결과`}>
                                     {([['Pass', '적합'], ['NotApplicable', '해당없음'], ['Fail', '부적합']] as const).map(([result, label]) => (
-                                      <button key={result} type="button" className={value.checkResult === result ? 'selected' : ''} data-result={result.toLowerCase()} disabled={!canMutatePanel || detail.reportStatus === 'Finalized'} onClick={() => setDraft((current) => ({ ...current, [item.itemId]: { ...value, checkResult: result } }))}>{label}</button>
+                                      <button key={result} type="button" className={value.checkResult === result ? 'selected' : ''} data-result={result.toLowerCase()} disabled={!canMutatePanel || detail.reportStatus === 'Finalized' || item.isAvailable === false} onClick={() => setDraft((current) => ({ ...current, [item.itemId]: { ...value, checkResult: result } }))}>{label}</button>
                                     ))}
                                   </div>
                                 ) : (
-                                  <textarea value={value.textValue} maxLength={item.maxTextLength ?? 1000} disabled={!canMutatePanel || detail.reportStatus === 'Finalized'} placeholder="측정값·특이사항을 입력하세요." onChange={(event) => setDraft((current) => ({ ...current, [item.itemId]: { ...value, textValue: event.target.value } }))} />
+                                  <textarea value={value.textValue} maxLength={item.maxTextLength ?? 1000} disabled={!canMutatePanel || detail.reportStatus === 'Finalized' || item.isAvailable === false} placeholder="측정값·특이사항을 입력하세요." onChange={(event) => setDraft((current) => ({ ...current, [item.itemId]: { ...value, textValue: event.target.value } }))} />
                                 )}
-                                {item.responseType === 'Check' && value.checkResult === 'NotApplicable' ? <input value={value.note} disabled={!canMutatePanel || detail.reportStatus === 'Finalized'} placeholder="해당없음 사유" onChange={(event) => setDraft((current) => ({ ...current, [item.itemId]: { ...value, note: event.target.value } }))} /> : null}
+                                {item.responseType === 'Check' && value.checkResult === 'NotApplicable' ? <input value={value.note} disabled={!canMutatePanel || detail.reportStatus === 'Finalized' || item.isAvailable === false} placeholder="해당없음 사유" onChange={(event) => setDraft((current) => ({ ...current, [item.itemId]: { ...value, note: event.target.value } }))} /> : null}
                               </section>
                             );
                           })}
-                        </div>
+                        </div>}
 
                         <section className="quality-evidence-card">
                           <header><div><span>PHOTO EVIDENCE</span><strong>사진 증빙</strong></div><em>{detail.photos.length}/5</em></header>
                           {detail.photos.length ? <div className="quality-photo-list">{detail.photos.map((photo) => <QualityPhotoEvidence key={photo.photoId} developmentUserKey={developmentUserKey} reportId={detail.reportId!} photo={photo} editable={canMutatePanel && detail.reportStatus !== 'Finalized'} onRemove={() => void removePhoto(photo.photoId)} />)}</div> : <p>사진은 선택 사항입니다. 확정 시 등록된 증빙만 snapshot에 포함됩니다.</p>}
                           {canMutatePanel && detail.reportStatus !== 'Finalized' ? (
                             <div className="quality-photo-uploader">
-                              <label><span>연결 항목</span><select value={photoItemId} onChange={(event) => setPhotoItemId(event.target.value)}>{detail.items.map((item) => <option key={item.itemId} value={item.itemId}>{item.displayOrder}. {item.label}</option>)}</select></label>
+                              {detail.decisionMode === 'Checklist' ? <label><span>연결 항목</span><select value={photoItemId} onChange={(event) => setPhotoItemId(event.target.value)}>{detail.items.filter((item) => item.isAvailable !== false).map((item) => <option key={item.itemId} value={item.itemId}>{item.displayOrder}. {item.label}</option>)}</select></label> : null}
                               <label className="quality-photo-file"><input type="file" accept="image/jpeg,image/png" capture="environment" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} /><span>{photoFile ? photoFile.name : '카메라 또는 사진 선택'}</span><small>JPEG·PNG / 장당 5MB 이하</small></label>
                               <label><span>사진 설명</span><input value={photoAlt} maxLength={200} placeholder="예: 배선 체결 상태" onChange={(event) => setPhotoAlt(event.target.value)} /></label>
                               <button type="button" disabled={!photoFile || !photoItemId || !photoAlt.trim() || Boolean(savingAction)} onClick={() => void uploadPhoto()}>{savingAction === 'photo' ? '등록 중' : '사진 등록'}</button>
@@ -570,8 +664,8 @@ export function QualityInspectionsPage({
 
                         {detail.reportStatus !== 'Finalized' ? (
                           <div className="quality-actions">
-                            <button type="button" disabled={!canMutatePanel || Boolean(savingAction)} onClick={() => void saveDraft()}>{savingAction === 'save' ? '저장 중' : '임시 저장'}</button>
-                            <button ref={decisionTriggerRef} type="button" className="quality-decision-button" disabled={!canMutatePanel || Boolean(savingAction)} onClick={() => setDecisionOpen(true)}>판정 확정</button>
+                            {detail.decisionMode === 'Checklist' ? <button type="button" disabled={!canMutatePanel || Boolean(savingAction)} onClick={() => void saveDraft()}>{savingAction === 'save' ? '저장 중' : '임시 저장'}</button> : null}
+                            <button ref={decisionTriggerRef} type="button" className="quality-decision-button" disabled={!canMutatePanel || Boolean(savingAction) || hasUnavailableRequired} onClick={openDecision}>{hasUnavailableRequired ? '제조 단계 진행 대기' : '판정 확정'}</button>
                           </div>
                         ) : (
                           <div className="quality-finalized-card" data-result={detail.result?.toLowerCase()}><span>{detail.result === 'Passed' ? 'PASS' : stage === 'CustomerInspection' || stage === 'FAT' ? 'PUNCH' : 'FAIL'}</span><strong>{detail.reason}</strong><small>PDF {detail.pdfStatus === 'Ready' ? '생성 완료' : detail.pdfStatus === 'Failed' ? '재시도 필요' : '생성 중'}</small><div>{detail.pdfStatus === 'Ready' ? <button type="button" onClick={() => void downloadPdf()}>PDF 내려받기</button> : null}{detail.pdfStatus === 'Failed' && canMutatePanel ? <button type="button" disabled={Boolean(savingAction)} onClick={() => void retryPdf()}>{savingAction === 'pdf' ? '요청 중' : 'PDF 다시 만들기'}</button> : null}</div></div>
@@ -597,21 +691,25 @@ export function QualityInspectionsPage({
         eyebrow="FINAL JUDGMENT"
         description="판정을 확정하면 성적서가 잠기고 다음 단계 또는 Pending으로 연결됩니다."
         triggerRef={decisionTriggerRef}
-        onClose={() => setDecisionOpen(false)}
+        onClose={() => {
+          if (!savingAction) setDecisionOpen(false);
+        }}
       >
-        <div className="quality-decision-form">
+        <div className="quality-decision-form" aria-busy={savingAction === 'finalize'}>
           <div className="quality-decision-options">
-            <button type="button" className={decision === 'Passed' ? 'selected' : ''} data-result="passed" onClick={() => setDecision('Passed')}><span>○</span><strong>합격</strong><small>다음 단계 인계</small></button>
-            <button type="button" className={decision === 'Failed' ? 'selected' : ''} data-result="failed" onClick={() => setDecision('Failed')}><span>▰</span><strong>{stage === 'CustomerInspection' || stage === 'FAT' ? 'PUNCH 발생' : '부적합'}</strong><small>조치 Pending 생성</small></button>
+            <button type="button" className={decision === 'Passed' ? 'selected' : ''} data-result="passed" disabled={Boolean(savingAction) || hasFailedResponse} onClick={() => { setDecision('Passed'); setDecisionError(''); }}><span>○</span><strong>합격</strong><small>{hasFailedResponse ? '부적합 항목 확인 필요' : '다음 단계 인계'}</small></button>
+            <button type="button" className={decision === 'Failed' ? 'selected' : ''} data-result="failed" disabled={Boolean(savingAction)} onClick={() => { setDecision('Failed'); setDecisionError(''); }}><span>▰</span><strong>{stage === 'CustomerInspection' || stage === 'FAT' ? 'PUNCH 발생' : '부적합'}</strong><small>조치 Pending 생성</small></button>
           </div>
-          <label><span>판정 사유 <small>{decisionReason.length}/1000</small></span><textarea value={decisionReason} maxLength={1000} onChange={(event) => setDecisionReason(event.target.value)} /></label>
-          {decision === 'Failed' ? (
+          <label><span>{isReinspection ? '재검사 코멘트' : '판정 사유'} <small>{decisionReason.length}/1000</small></span><textarea value={decisionReason} maxLength={1000} disabled={Boolean(savingAction)} placeholder={isReinspection ? '조치 내용을 확인한 결과와 재검사 판정 근거를 입력하세요.' : '검사 판정 근거를 입력하세요.'} onChange={(event) => { setDecisionReason(event.target.value); setDecisionError(''); }} /></label>
+          {decision === 'Failed' && !isReinspection ? (
             <>
-              <label><span>조치 담당 부서</span><select value={actionDepartment} onChange={(event) => { setActionDepartment(event.target.value); setActionAssignee(''); }}><option value="">부서 선택</option>{departments.map((item) => <option key={item.departmentCode} value={item.departmentCode}>{item.departmentName}</option>)}</select></label>
-              <label><span>조치 담당자 <small>선택</small></span><select value={actionAssignee} disabled={!selectedDepartment} onChange={(event) => setActionAssignee(event.target.value)}><option value="">담당자 미지정</option>{selectedDepartment?.assignees.map((item) => <option key={item.userId} value={item.userId}>{item.displayName}</option>)}</select></label>
+              <label><span>조치 담당 부서</span><select value={actionDepartment} disabled={Boolean(savingAction)} onChange={(event) => { setActionDepartment(event.target.value); setActionAssignee(''); setDecisionError(''); }}><option value="">부서 선택</option>{departments.map((item) => <option key={item.departmentCode} value={item.departmentCode}>{item.departmentName}</option>)}</select></label>
+              <label><span>조치 담당자 <small>선택</small></span><select value={actionAssignee} disabled={!selectedDepartment || Boolean(savingAction)} onChange={(event) => setActionAssignee(event.target.value)}><option value="">담당자 미지정</option>{selectedDepartment?.assignees.map((item) => <option key={item.userId} value={item.userId}>{item.displayName}</option>)}</select></label>
             </>
           ) : null}
-          <button type="button" className="quality-finalize-submit" disabled={Boolean(savingAction) || decisionReason.trim().length < 3 || (decision === 'Failed' && !actionDepartment)} onClick={() => void finalize()}>{savingAction === 'finalize' ? '확정 중' : decision === 'Passed' ? '합격 확정 및 인계' : 'Pending 생성 및 확정'}</button>
+          {decisionError ? <p className="quality-decision-error" role="alert">{decisionError}</p> : null}
+          {decisionConflict ? <button type="button" className="quality-decision-reload" disabled={Boolean(savingAction)} onClick={() => void reloadDecisionAfterConflict()}>{savingAction === 'reload' ? '불러오는 중' : '최신 검사 내용 다시 불러오기'}</button> : null}
+          <button type="button" className="quality-finalize-submit" disabled={Boolean(savingAction) || decisionReason.trim().length < 3 || (decision === 'Failed' && !actionDepartment)} onClick={() => void finalize()}>{savingAction === 'finalize' ? '확정 중' : decision === 'Passed' ? (isReinspection ? '합격 · Pending 해제' : '합격 확정 및 인계') : (isReinspection ? '불합격 · 재조치 요청' : 'Pending 생성 및 확정')}</button>
         </div>
       </MobileSheet>
     </section>
@@ -662,6 +760,15 @@ function stageLabel(stage: string) {
   return stage === 'LQC' ? 'LQC' : stage === 'OQC' ? 'OQC' : stage === 'CustomerInspection' ? '전진검수' : stage === 'FAT' ? 'FAT' : stage === 'ManufacturingCompleted' ? '제조 완료 확인' : stage === 'PackingCompleted' ? '포장' : stage;
 }
 
+function passedFeedback(stage: QualityInspectionStage, fatRequired: boolean, nextStageCode: string | null) {
+  if (stage === 'LQC' && !nextStageCode) return 'LQC 합격 · 이 패널의 제조 완료 시 OQC가 자동으로 열립니다.';
+  if (stage === 'OQC' && fatRequired) return 'OQC 합격 · 이 패널의 전진검수와 FAT를 동시에 열었습니다.';
+  if ((stage === 'CustomerInspection' || stage === 'FAT') && !nextStageCode) {
+    return `${stageLabel(stage)} 합격 · 이 패널의 병행 품질검사 완료를 기다립니다.`;
+  }
+  return `합격 확정 · 다음 단계 ${nextStageCode ? stageLabel(nextStageCode) : '인계 완료'}`;
+}
+
 function statusLabel(status: string) {
   return status === 'Ready' || status === 'Requested' ? '시작 전' : status === 'InProgress' ? '진행 중' : status === 'Failed' ? '조치 필요' : status === 'Passed' || status === 'Completed' || status === 'Confirmed' ? '완료' : status;
 }
@@ -671,6 +778,37 @@ function statusKey(status: string) {
 }
 
 function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError) return error.message;
+  if (error instanceof ApiError) {
+    return error.errors ? Object.values(error.errors).flat().find(Boolean) ?? error.message : error.message;
+  }
   return error instanceof Error ? error.message : fallback;
+}
+
+function validateDecision(
+  detail: QualityInspectionDetail,
+  draft: Record<string, DraftValue>,
+  decision: 'Passed' | 'Failed',
+  reason: string,
+  actionDepartment: string
+) {
+  if (reason.trim().length < 3) return '판정 사유를 3자 이상 입력해 주세요.';
+
+  if (detail.decisionMode === 'Checklist') {
+    for (const item of detail.items.filter((candidate) => candidate.isRequired && candidate.isAvailable !== false)) {
+      const value = draft[item.itemId];
+      if (item.responseType === 'Check' && !value?.checkResult) return `${item.label}: 필수 검사 결과를 입력해 주세요.`;
+      if (item.responseType === 'Text' && !value?.textValue.trim()) return `${item.label}: 필수 측정값을 입력해 주세요.`;
+      if (value?.checkResult === 'NotApplicable' && !value.note.trim()) return `${item.label}: 해당없음 사유를 입력해 주세요.`;
+    }
+
+    const hasFail = detail.items.some((item) => item.isAvailable !== false && draft[item.itemId]?.checkResult === 'Fail');
+    if (decision === 'Passed' && hasFail) return '부적합 항목이 있어 합격으로 확정할 수 없습니다.';
+    if (decision === 'Failed' && !hasFail) return '부적합 판정에는 하나 이상의 부적합 항목이 필요합니다.';
+  }
+
+  if (decision === 'Failed' && detail.photos.length === 0 && reason.trim().length < 30) {
+    return '부적합 판정은 사진 1장 이상 또는 구체적인 근거 30자 이상이 필요합니다.';
+  }
+  if (decision === 'Failed' && !actionDepartment) return '조치 담당 부서를 선택해 주세요.';
+  return null;
 }

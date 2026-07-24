@@ -3,13 +3,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
-const screenshotDirectory = path.resolve(process.cwd(), '../tasks/home-001-screenshots');
+const screenshotDirectory = path.resolve(process.cwd(), '../tasks/notice-board-001-screenshots');
 
-test('TASK-HOME-001: Home widgets stay responsive, operationally readable, and linked to source pages', async ({ page, request }) => {
+test('TASK-NOTICE-BOARD-001: authenticated users share notices from Home on desktop and mobile', async ({ page, request }) => {
   const unique = Date.now();
-  const projectTitle = `홈 대시보드 검수 ${unique}`;
-  const projectId = await createProject(request, `HOME-${unique}`, projectTitle);
-  await createPending(request, projectId, `홈 긴급 병목 ${unique}`);
+  const apiTitle = `생산 일정 공지 ${unique}`;
+  const apiBody = '이번 주 생산 계획 변경사항을 확인해 주세요.\n설계와 구매 담당자는 금요일까지 회신 바랍니다.';
+  const apiNoticeId = await createNotice(request, apiTitle, apiBody, 'dev-sales');
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
@@ -17,61 +17,52 @@ test('TASK-HOME-001: Home widgets stay responsive, operationally readable, and l
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: '업무 홈' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '내 업무' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '프로젝트 병목' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Pending' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '알림' })).toBeVisible();
-  await expect(page.getByRole('button', { name: projectTitle })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '홈' })).toHaveClass(/active/);
-  await capture(page, '01-home-desktop-1440.png');
+  await expect(page.getByRole('heading', { name: '공지사항' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '공지 작성' })).toBeVisible();
+  await expect(page.getByRole('button', { name: new RegExp(apiTitle) })).toContainText('Sales');
+  await capture(page, '01-home-notice-desktop-1440.png');
 
-  await page.getByRole('button', { name: projectTitle }).click();
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`));
-  await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
+  await page.getByRole('button', { name: '공지 전체 보기' }).click();
+  await expect(page).toHaveURL(/\/notices$/);
+  await expect(page.getByRole('heading', { name: '공지사항' })).toBeVisible();
+  await expect(page.getByRole('button', { name: new RegExp(apiTitle) })).toBeVisible();
+  await capture(page, '02-notice-list-desktop-1440.png');
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '공지 작성' }).click();
+  await expect(page).toHaveURL(/\/notices\?compose=1$/);
+  await expect(page.getByRole('heading', { name: '공지 작성' })).toBeVisible();
+  await capture(page, '03-notice-compose-desktop-1440.png');
+
+  const uiTitle = `품질 검사 일정 ${unique}`;
+  const uiBody = '수입검사 일정이 변경되었습니다.\n자재 도착 등록 후 품질팀에 전달해 주세요.';
+  await page.getByRole('textbox', { name: /제목/ }).fill(uiTitle);
+  await page.getByRole('textbox', { name: /내용/ }).fill(uiBody);
+  await page.getByRole('button', { name: '공지 등록' }).click();
+  await expect(page).toHaveURL(/\/notices\/[0-9a-f-]{36}$/i);
+  await expect(page.getByRole('heading', { name: uiTitle })).toBeVisible();
+  await expect(page.getByText('Dev Quality User · Quality')).toBeVisible();
+  await expect(page.getByRole('button', { name: '내 공지 삭제' })).toBeVisible();
+  await capture(page, '04-notice-detail-desktop-1440.png');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '업무 홈' })).toBeVisible();
-  const menuTrigger = page.getByRole('button', { name: '메뉴 열기' });
-  await menuTrigger.click();
-  const menuDrawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
-  const mobileNavigation = menuDrawer.getByRole('navigation', { name: '모바일 공통 메뉴' });
-  await expect(mobileNavigation.getByRole('button', { name: '홈' })).toHaveAttribute('aria-current', 'page');
-  await expect(mobileNavigation.getByRole('button', { name: 'Pending' })).toBeVisible();
+  await expect(page.getByRole('button', { name: new RegExp(uiTitle) })).toBeVisible();
   await assertNoHorizontalOverflow(page);
-  await assertTouchTargets(mobileNavigation.getByRole('button'));
-  await page.keyboard.press('Escape');
-  await expect(menuDrawer).toBeHidden();
-  await capture(page, '02-home-mobile-390.png');
+  await capture(page, '05-home-notice-mobile-390.png');
 
-  await page.goto('/projects');
-  await page.route('**/api/me', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json() as { permissions: string[] };
-    await route.fulfill({
-      response,
-      json: {
-        ...body,
-        permissions: body.permissions.filter((permission) => permission !== 'Pending.Read')
-      }
-    });
-  });
-  let pendingRequestCount = 0;
-  const pendingRequestListener = (requestEvent: { url(): string }) => {
-    if (new URL(requestEvent.url()).pathname === '/api/pending') {
-      pendingRequestCount += 1;
-    }
-  };
-  page.on('request', pendingRequestListener);
-  await page.goto('/');
-
-  await expect(page.getByRole('heading', { name: '업무 홈' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Pending' })).toBeVisible();
-  await expect(page.getByLabel('프로젝트 병목 요약')).toContainText('Pending');
-  expect(pendingRequestCount).toBeGreaterThan(0);
+  await page.goto('/notices');
+  await expect(page.getByRole('button', { name: new RegExp(uiTitle) })).toBeVisible();
   await assertNoHorizontalOverflow(page);
-  await capture(page, '03-home-without-pending-permission-390.png');
-  page.off('request', pendingRequestListener);
+  await capture(page, '06-notice-list-mobile-390.png');
+
+  await page.getByRole('button', { name: new RegExp(apiTitle) }).click();
+  await expect(page).toHaveURL(`/notices/${apiNoticeId}`);
+  await expect(page.getByText(apiBody.split('\n')[1])).toBeVisible();
+  await expect(page.getByRole('button', { name: '내 공지 삭제' })).toHaveCount(0);
+  await assertNoHorizontalOverflow(page);
+  await capture(page, '07-notice-detail-mobile-390.png');
 });
 
 async function capture(page: Page, filename: string) {
@@ -89,52 +80,11 @@ async function assertNoHorizontalOverflow(page: Page) {
   expect(overflow).toBe(0);
 }
 
-async function assertTouchTargets(buttons: ReturnType<Page['getByRole']>) {
-  const targets = await buttons.evaluateAll((elements) => elements.map((element) => {
-    const rect = element.getBoundingClientRect();
-    return { width: rect.width, height: rect.height };
-  }));
-  expect(targets.every((target) => target.width >= 44 && target.height >= 44)).toBeTruthy();
-}
-
-async function createProject(
-  request: APIRequestContext,
-  projectCode: string,
-  projectTitle: string
-) {
-  const response = await request.post(`${apiBaseUrl}/api/projects`, {
-    headers: { 'X-Dev-User': 'dev-sales' },
-    data: {
-      customerName: 'Synthetic Customer',
-      item: 'RPP',
-      projectCode,
-      projectTitle,
-      panelCount: 3,
-      deliveryDate: '2026-12-31',
-      salesOwnerUserId: '50000000-0000-0000-0000-000000000002',
-      packagingMethod: 'WoodenCrate',
-      salesAmount: 1000,
-      currencyCode: 'KRW',
-      deliveryLocation: 'Synthetic Site',
-      fatRequired: false
-    }
+async function createNotice(request: APIRequestContext, title: string, body: string, developmentUserKey: string) {
+  const response = await request.post(`${apiBaseUrl}/api/notices`, {
+    headers: { 'X-Dev-User': developmentUserKey },
+    data: { requestId: crypto.randomUUID(), title, body }
   });
   expect(response.ok()).toBeTruthy();
-  return (await response.json() as { projectId: string }).projectId;
-}
-
-async function createPending(request: APIRequestContext, projectId: string, title: string) {
-  const response = await request.post(`${apiBaseUrl}/api/pending`, {
-    headers: { 'X-Dev-User': 'dev-quality' },
-    data: {
-      projectId,
-      issueType: 'ManufacturingStop',
-      title,
-      description: 'Synthetic Home dashboard verification item.',
-      priority: 'Urgent',
-      actionDepartmentCode: 'production-planning',
-      assigneeUserId: '50000000-0000-0000-0000-000000000003'
-    }
-  });
-  expect(response.ok()).toBeTruthy();
+  return (await response.json() as { noticeId: string }).noticeId;
 }

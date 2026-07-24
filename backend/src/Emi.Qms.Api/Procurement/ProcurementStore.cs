@@ -262,7 +262,34 @@ public sealed class ProcurementStore(
                    i.source_project_text, i.source_project_code_text, i.standard_lead_time, i.order_item,
                    i.supplier_name, i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
-                   u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
+                   u.display_name,
+                   coalesce(
+                       i.receipt_completion_note,
+                       case
+                           when not i.receipt_completed
+                            and i.order_quantity is not null
+                            and coalesce((
+                                select sum(receipt.quantity)
+                                from material_receipts receipt
+                                where receipt.procurement_item_id = i.id
+                                  and receipt.status = 'Confirmed'
+                            ), 0) > 0
+                           then concat(
+                               '부분 입고 ',
+                               to_char(coalesce((
+                                   select sum(receipt.quantity)
+                                   from material_receipts receipt
+                                   where receipt.procurement_item_id = i.id
+                                     and receipt.status = 'Confirmed'
+                               ), 0), 'FM999999999999990.###'),
+                               '/',
+                               to_char(i.order_quantity, 'FM999999999999990.###'),
+                               case when i.order_unit is null then '' else ' ' || i.order_unit end
+                           )
+                           else null
+                       end
+                   ) as receipt_completion_note,
+                   i.row_version, i.source_excel_row_number,
                    i.source_group_sequence, i.row_match_key, i.status,
                    i.supply_type, i.order_quantity, i.order_unit
             from project_procurement_items i
@@ -697,7 +724,8 @@ public sealed class ProcurementStore(
                 if (row.ItemId is null)
                 {
                     var inserted = await InsertItemAsync(connection, transaction, row.ProjectId.Value, parsedRow, changedByUserId, cancellationToken);
-                    foreach (var change in CollectNewItemChanges(inserted))
+                    var changes = CollectNewItemChanges(inserted);
+                    foreach (var change in changes)
                     {
                         await InsertAuditAsync(connection, transaction, inserted.ProjectId, inserted.ItemId, change.FieldName, null, change.NewValue, reason, changedByUserId, correlationId, "Excel", batchId, null, change.OriginalInputValue, cancellationToken);
                     }
@@ -709,6 +737,7 @@ public sealed class ProcurementStore(
                         inserted.RowVersion,
                         inserted.OrderItem,
                         "신규",
+                        changes,
                         changedByUserId,
                         cancellationToken))
                     {
@@ -744,6 +773,7 @@ public sealed class ProcurementStore(
                         current.RowVersion + 1,
                         ProcurementDomain.TrimToNull(parsedRow.OrderItem) ?? current.OrderItem,
                         "변경",
+                        changes,
                         changedByUserId,
                         cancellationToken))
                     {
@@ -915,7 +945,8 @@ public sealed class ProcurementStore(
                     newSupplyType,
                     update.OrderQuantity,
                     newOrderUnit);
-                foreach (var change in CollectNewItemChanges(inserted))
+                var newItemChanges = CollectNewItemChanges(inserted);
+                foreach (var change in newItemChanges)
                 {
                     await InsertAuditAsync(connection, transaction, project.ProjectId, inserted.ItemId, change.FieldName, null, change.NewValue, reason, changedByUserId, correlationId, "Direct", null, null, null, cancellationToken);
                 }
@@ -927,6 +958,7 @@ public sealed class ProcurementStore(
                     inserted.RowVersion,
                     inserted.OrderItem,
                     "신규",
+                    newItemChanges,
                     changedByUserId,
                     cancellationToken))
                 {
@@ -1022,6 +1054,7 @@ public sealed class ProcurementStore(
                 current.RowVersion + 1,
                 ProcurementDomain.TrimToNull(update.OrderItem) ?? current.OrderItem,
                 "변경",
+                changes,
                 changedByUserId,
                 cancellationToken))
             {
@@ -1057,6 +1090,7 @@ public sealed class ProcurementStore(
         int rowVersion,
         string? orderItem,
         string changeKind,
+        IReadOnlyList<Change> changes,
         Guid actorUserId,
         CancellationToken cancellationToken)
     {
@@ -1073,7 +1107,9 @@ public sealed class ProcurementStore(
         }
 
         var title = $"구매품 {changeKind} 확인 · {orderItem ?? "품목명 미입력"}";
-        var description = $"{project.ProjectCode} 구매품 {changeKind} 내용을 확인하고 입고 계획에 반영해 주세요.";
+        var changeDetails = BuildMaterialsChangeDetails(changeKind, changes);
+        var summary = $"{project.ProjectCode} 구매품 {changeKind} 내용을 확인하고 입고 계획에 반영해 주세요.";
+        var description = $"{summary}\n\n상세 내용\n{changeDetails}";
         var linkUrl = $"/materials/receipts?project={Uri.EscapeDataString(project.ProjectCode)}";
         var idempotencyPrefix = $"procurement:materials:{itemId:N}:v{rowVersion}";
         var workItemIds = new List<Guid>();
@@ -1119,6 +1155,61 @@ public sealed class ProcurementStore(
             $"{idempotencyPrefix}:notification",
             cancellationToken);
         return true;
+    }
+
+    private static string BuildMaterialsChangeDetails(string changeKind, IReadOnlyList<Change> changes)
+    {
+        if (changes.Count == 0)
+        {
+            return "상세 변경 없음";
+        }
+
+        return string.Join(
+            "\n",
+            changes.Select(change =>
+            {
+                var label = MaterialsChangeFieldLabel(change.FieldName);
+                var next = FormatMaterialsChangeValue(change.FieldName, change.NewValue);
+                return changeKind == "신규"
+                    ? $"{label} {next}"
+                    : $"{label} 변경 {FormatMaterialsChangeValue(change.FieldName, change.OldValue)} → {next}";
+            }));
+    }
+
+    private static string MaterialsChangeFieldLabel(string fieldName) => fieldName switch
+    {
+        "StandardLeadTime" => "통상납기",
+        "OrderItem" => "발주품목",
+        "SupplierName" => "업체",
+        "TechnicalOwner" => "기술 담당자",
+        "OrderDate" => "발주일",
+        "ExpectedReceiptDate" => "입고예정일",
+        "IssueNote" => "이슈사항",
+        "SupplyType" => "공급 방식",
+        "OrderQuantity" => "발주·제공 예정 수량",
+        "OrderUnit" => "단위",
+        _ => fieldName
+    };
+
+    private static string FormatMaterialsChangeValue(string fieldName, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+
+        if (fieldName is "OrderDate" or "ExpectedReceiptDate"
+            && DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            return date.ToString("M/d", CultureInfo.InvariantCulture);
+        }
+
+        if (fieldName == "SupplyType")
+        {
+            return value == ProcurementSupplyTypes.CustomerSupplied ? "사급 자재" : "도급 구매품";
+        }
+
+        return value.Replace('\r', ' ').Replace('\n', ' ').Trim();
     }
 
     private static ProcurementMutationResult<T> MaterialsHandoffValidation<T>()
@@ -1741,7 +1832,34 @@ public sealed class ProcurementStore(
                    i.source_project_text, i.source_project_code_text, i.standard_lead_time, i.order_item,
                    i.supplier_name, i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
-                   u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
+                   u.display_name,
+                   coalesce(
+                       i.receipt_completion_note,
+                       case
+                           when not i.receipt_completed
+                            and i.order_quantity is not null
+                            and coalesce((
+                                select sum(receipt.quantity)
+                                from material_receipts receipt
+                                where receipt.procurement_item_id = i.id
+                                  and receipt.status = 'Confirmed'
+                            ), 0) > 0
+                           then concat(
+                               '부분 입고 ',
+                               to_char(coalesce((
+                                   select sum(receipt.quantity)
+                                   from material_receipts receipt
+                                   where receipt.procurement_item_id = i.id
+                                     and receipt.status = 'Confirmed'
+                               ), 0), 'FM999999999999990.###'),
+                               '/',
+                               to_char(i.order_quantity, 'FM999999999999990.###'),
+                               case when i.order_unit is null then '' else ' ' || i.order_unit end
+                           )
+                           else null
+                       end
+                   ) as receipt_completion_note,
+                   i.row_version, i.source_excel_row_number,
                    i.source_group_sequence, i.row_match_key, i.status,
                    i.supply_type, i.order_quantity, i.order_unit
             from project_procurement_items i

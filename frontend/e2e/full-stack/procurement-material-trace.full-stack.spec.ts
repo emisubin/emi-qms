@@ -9,7 +9,8 @@ test('WORKFLOW-CONTINUITY-001 Change 002: procurement quantity, split arrivals, 
   test.setTimeout(120_000);
   const unique = Date.now();
   const projectTitle = `구매 자재 추적 ${unique}`;
-  const projectId = await createProject(request, `TRACE-${String(unique).slice(-8)}`, projectTitle);
+  const projectCode = `TRACE-${String(unique).slice(-8)}`;
+  const projectId = await createProject(request, projectCode, projectTitle);
   const procurement = await saveProcurement(request, projectId);
   const purchased = procurement.items.find((item) => item.supplyType === 'Purchased')!;
 
@@ -46,37 +47,35 @@ test('WORKFLOW-CONTINUITY-001 Change 002: procurement quantity, split arrivals, 
   await capture(page, '02-procurement-customer-supplied-desktop.png');
 
   await page.getByLabel('개발 사용자').selectOption('dev-materials');
-  await page.goto(`/projects/${projectId}?section=materials`);
-  const materialRow = page.locator('.project-material-item-row').filter({ hasText: '도급 제어반 부품' });
+  await page.goto(`/materials/receipts?project=${projectCode}`);
+  const materialRow = page.locator('.material-purchase-row').filter({ hasText: '도급 제어반 부품' });
   await expect(materialRow).toHaveCount(1);
-  await materialRow.locator('summary').click();
-  await expect(materialRow).toContainText('입고 1회차 · 2026-07-15 · 4 EA');
-  await expect(materialRow).toContainText('입고 2회차 · 2026-07-18 · 6 EA');
-  await expect(materialRow.locator('[data-iqc="true"]')).toHaveCount(2);
+  await materialRow.locator('.material-purchase-main').click();
+  await expect(materialRow.locator('.material-receipt-line')).toHaveCount(2);
+  await expect(materialRow).toContainText('4 EA');
+  await expect(materialRow).toContainText('6 EA');
   await capture(page, '03-material-item-inline-history-desktop.png');
 
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
   await page.goto(`/projects/${projectId}?section=quality`);
-  await expect(page.getByRole('tab', { name: '수입검사(IQC)' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('button', { name: '품질 업무 수정' })).toBeVisible();
-  const qualityData = page.getByLabel('품질 입력 데이터');
-  await expect(qualityData.locator('.project-department-record')).toHaveCount(2);
-  await expect(qualityData).toContainText('입고 1회차');
-  await expect(qualityData).toContainText('입고 2회차');
-  await capture(page, '04-quality-iqc-project-tab-desktop.png');
+  const qualityPanels = page.getByRole('table', { name: '품질 패널 현황' });
+  await expect(qualityPanels.getByRole('row')).toHaveCount(3);
+  await expect(qualityPanels).toContainText('미시작');
+  await expect(page.getByRole('tab', { name: '수입검사(IQC)' })).toHaveCount(0);
+  await capture(page, '04-quality-panel-status-desktop.png');
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`/projects/${projectId}?section=materials`);
-  const mobileRow = page.locator('.project-material-item-row').filter({ hasText: '도급 제어반 부품' });
-  await mobileRow.locator('summary').click();
-  await expect(mobileRow.locator('[data-iqc="true"]')).toHaveCount(2);
+  await page.goto(`/materials/receipts?project=${projectCode}`);
+  const mobileRow = page.locator('.material-purchase-row').filter({ hasText: '도급 제어반 부품' });
+  await mobileRow.locator('.material-purchase-main').click();
+  await expect(mobileRow.locator('.material-receipt-line')).toHaveCount(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   await capture(page, '05-material-item-inline-history-mobile-390.png');
 
   await page.goto(`/projects/${projectId}?section=quality`);
-  await expect(page.getByRole('tab', { name: '수입검사(IQC)' })).toBeVisible();
+  await expect(page.getByLabel('품질 패널 현황').locator('.project-panel-status-card')).toHaveCount(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
-  await capture(page, '06-quality-iqc-project-tab-mobile-390.png');
+  await capture(page, '06-quality-panel-status-mobile-390.png');
 });
 
 async function createProject(request: APIRequestContext, projectCode: string, projectTitle: string) {

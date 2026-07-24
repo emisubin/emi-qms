@@ -5,26 +5,55 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
 
-test('TASK-011A: manufacturing user starts, checks, stops, resumes and completes a panel', async ({ page, request }) => {
+test('TASK-010A/011A: production releases a non-kitted panel and manufacturing completes it', async ({ page, request }) => {
   test.setTimeout(180_000);
   const unique = Date.now();
+  const projectTitle = `합성 제조 실행 ${unique}`;
   const { projectId, panelId } = await createManufacturingProject(
     request,
     `MFG-${unique}`,
-    `합성 제조 실행 ${unique}`
+    projectTitle
   );
 
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/production-planning');
+  await page.getByLabel('개발 사용자').selectOption('dev-production');
+  await page.goto('/production-planning');
+  await expect(page.getByRole('heading', { name: '생산관리' })).toBeVisible();
+  await page.getByRole('tab', { name: /제조 투입/u }).click();
+  const projectRow = page.locator('.production-project-row').filter({ hasText: projectTitle });
+  await expect(projectRow).toBeVisible();
+  await projectRow.click();
+  const releasePanel = page.getByLabel('패널 제조 투입 요청');
+  await expect(releasePanel.getByText('키팅 미보고')).toBeVisible();
+  await releasePanel.locator('.manufacturing-release-row input[type="checkbox"]').check();
+  await releasePanel.getByRole('button', { name: '선택 1면 제조 투입 요청' }).click();
+  await expect(releasePanel.getByText('1면을 제조팀에 투입 요청했습니다. 제조 업무 1건이 생성되었습니다.')).toBeVisible();
+  expect(queryDatabase(`
+    select count(*)::text
+    from notification_recipients recipient
+    join notifications notification on notification.id = recipient.notification_id
+    where notification.project_id = '${projectId}'
+      and notification.idempotency_key like 'kitting:panel:%:manufacturing:notification';
+  `)).toBe('2');
+
   await page.goto(`/manufacturing/work?project=${projectId}&panel=${panelId}`);
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/manufacturing/work?project=${projectId}&panel=${panelId}`);
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
   await expect(page.getByRole('heading', { name: '제조 작업' })).toBeVisible();
-  await expect(page.getByText('키팅 완료 · 제조 시작 준비')).toBeVisible();
+  await expect(page.getByText('제조 투입 요청됨 · 키팅 미보고')).toBeVisible();
   await assertNoHorizontalOverflow(page);
 
   await page.getByRole('button', { name: '제조 시작' }).click();
+  await expect(page.getByText(/제조와 단계별 LQC를 함께 시작했습니다/u)).toBeVisible();
+  expect(queryDatabase(`
+    select count(*)::text
+    from work_items
+    where project_id = '${projectId}' and target_id = '${panelId}'
+      and workflow_stage_code = 'LQC' and responsibility_type = 'QualityLQC';
+  `)).toBe('1');
   let releaseFirstStep: () => void = () => undefined;
   const firstStepGate = new Promise<void>((resolve) => {
     releaseFirstStep = resolve;
@@ -59,7 +88,7 @@ test('TASK-011A: manufacturing user starts, checks, stops, resumes and completes
   for (let sequence = 2; sequence <= 4; sequence += 1) {
     await page.getByRole('button', { name: `${sequence}단계 확인` }).click();
   }
-  await expect(page.getByRole('button', { name: '제조 완료 · LQC 전달' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '제조 완료' })).toBeEnabled();
   await page.screenshot({
     path: '/tmp/emi-qms-p2-remediation-evidence/011a-change-002-manufacturing-four-steps-complete.jpg',
     fullPage: true,
@@ -86,9 +115,9 @@ test('TASK-011A: manufacturing user starts, checks, stops, resumes and completes
   await closePending(request, pendingId);
 
   await page.getByRole('button', { name: 'Pending 확인 후 재개' }).click();
-  await expect(page.getByRole('button', { name: '제조 완료 · LQC 전달' })).toBeEnabled();
-  await page.getByRole('button', { name: '제조 완료 · LQC 전달' }).click();
-  await expect(page.getByText(/제조를 완료하고 LQC 업무를 생성했습니다/u)).toBeVisible();
+  await expect(page.getByRole('button', { name: '제조 완료' })).toBeEnabled();
+  await page.getByRole('button', { name: '제조 완료' }).click();
+  await expect(page.getByText(/제조를 완료했습니다/u)).toBeVisible();
   await expect(page.locator('.manufacturing-focus-card')).toHaveAttribute('data-status', 'completed');
   await expect(page.locator('.manufacturing-project-card')).toHaveAttribute('data-shape-role', 'success');
   await assertNoHorizontalOverflow(page);
@@ -124,38 +153,19 @@ async function createManufacturingProject(request: APIRequestContext, projectCod
   }
   const projectId = (await created.json() as { projectId: string }).projectId;
 
-  const procurement = await request.patch(`${apiBaseUrl}/api/projects/${projectId}/procurement`, {
-    headers: devHeaders('dev-procurement'),
-    data: {
-      items: [{ orderItem: 'Synthetic Manufacturing Material' }]
-    }
-  });
-  if (!procurement.ok()) {
-    throw new Error(`Synthetic procurement setup failed (${procurement.status()}): ${await procurement.text()}`);
-  }
-
   queryDatabase(`
     update panel_placeholders
     set panel_name = 'MCC-A', width_mm = 600, height_mm = 1800, depth_mm = 400,
         panel_info_completed = true
     where project_id = '${projectId}' and status = 'Active';
-    begin;
-    select set_config('emi_qms.material_receipt_write', 'allowed', true);
-    update project_procurement_items
-    set receipt_completed = true,
-        receipt_completed_at_utc = now(),
-        receipt_completed_by_user_id = '50000000-0000-0000-0000-000000000012'
-    where project_id = '${projectId}' and status = 'Active';
-    commit;
-    select id::text from panel_placeholders where project_id = '${projectId}' and status = 'Active';
+    insert into project_assignees (
+      project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc
+    ) values
+      ('${projectId}', 'ManufacturingPrimary', '50000000-0000-0000-0000-000000000004', '${salesOwnerUserId}', now()),
+      ('${projectId}', 'ManufacturingSecondary', '50000000-0000-0000-0000-000000000001', '${salesOwnerUserId}', now());
   `);
   const panelId = queryDatabase(`select id::text from panel_placeholders where project_id = '${projectId}' and status = 'Active';`);
 
-  const completedKitting = await request.post(`${apiBaseUrl}/api/materials/kitting/complete`, {
-    headers: devHeaders('dev-materials'),
-    data: { operationId: crypto.randomUUID(), projectId, panelIds: [panelId] }
-  });
-  expect(completedKitting.ok()).toBeTruthy();
   return { projectId, panelId };
 }
 

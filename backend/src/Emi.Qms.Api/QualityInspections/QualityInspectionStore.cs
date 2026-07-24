@@ -20,6 +20,268 @@ public sealed class QualityInspectionStore(
     private const int MaxPhotos = 5;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    public async Task<QualityInspectionReconciliationResponse> ReconcileHandoffsAsync(
+        Guid actorUserId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        var panels = new List<QualityReconciliationPanel>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select
+                    project.id,
+                    panel.id,
+                    panel.display_code,
+                    project.fat_required,
+                    lqc.id,
+                    lqc.status,
+                    oqc.id,
+                    oqc.status,
+                    customer_inspection.id,
+                    customer_inspection.status,
+                    fat.id,
+                    fat.status,
+                    exists (
+                        select 1 from panel_manufacturing_executions execution
+                        where execution.panel_id = panel.id
+                          and execution.status = 'Completed'
+                    ) as manufacturing_completed,
+                    exists (
+                        select 1 from panel_manufacturing_completion_confirmations confirmation
+                        where confirmation.panel_id = panel.id
+                    ) as has_confirmation,
+                    exists (
+                        select 1 from work_items work
+                        where work.idempotency_key = 'quality:panel:' || panel.id || ':OQC:attempt:1'
+                    ) as has_oqc_work,
+                    exists (
+                        select 1 from work_items work
+                        where work.idempotency_key = 'quality:panel:' || panel.id || ':CustomerInspection:attempt:1'
+                    ) as has_customer_work,
+                    exists (
+                        select 1 from work_items work
+                        where work.idempotency_key = 'quality:panel:' || panel.id || ':FAT:attempt:1'
+                    ) as has_fat_work,
+                    exists (
+                        select 1 from work_items work
+                        where work.idempotency_key = 'quality:panel:' || panel.id || ':packing'
+                    ) as has_packing_work
+                from panel_placeholders panel
+                join projects project on project.id = panel.project_id
+                left join lateral (
+                    select attempt.id, attempt.status
+                    from panel_quality_inspection_attempts attempt
+                    where attempt.panel_id = panel.id and attempt.stage_code = 'LQC'
+                    order by attempt.attempt_number desc, attempt.created_at_utc desc
+                    limit 1
+                ) lqc on true
+                left join lateral (
+                    select attempt.id, attempt.status
+                    from panel_quality_inspection_attempts attempt
+                    where attempt.panel_id = panel.id and attempt.stage_code = 'OQC'
+                    order by attempt.attempt_number desc, attempt.created_at_utc desc
+                    limit 1
+                ) oqc on true
+                left join lateral (
+                    select attempt.id, attempt.status
+                    from panel_quality_inspection_attempts attempt
+                    where attempt.panel_id = panel.id and attempt.stage_code = 'CustomerInspection'
+                    order by attempt.attempt_number desc, attempt.created_at_utc desc
+                    limit 1
+                ) customer_inspection on true
+                left join lateral (
+                    select attempt.id, attempt.status
+                    from panel_quality_inspection_attempts attempt
+                    where attempt.panel_id = panel.id and attempt.stage_code = 'FAT'
+                    order by attempt.attempt_number desc, attempt.created_at_utc desc
+                    limit 1
+                ) fat on true
+                where panel.status = 'Active'
+                  and project.deleted_at_utc is null
+                  and project.status in ('Active', 'OnHold')
+                  and (@has_read_all or project.project_key = any(@project_keys))
+                order by project.id, panel.id;
+                """;
+            AddScope(command, accessScope);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                panels.Add(new QualityReconciliationPanel(
+                    reader.GetGuid(0),
+                    reader.GetGuid(1),
+                    reader.GetString(2),
+                    reader.GetBoolean(3),
+                    reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetGuid(6),
+                    reader.IsDBNull(7) ? null : reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetGuid(8),
+                    reader.IsDBNull(9) ? null : reader.GetString(9),
+                    reader.IsDBNull(10) ? null : reader.GetGuid(10),
+                    reader.IsDBNull(11) ? null : reader.GetString(11),
+                    reader.GetBoolean(12),
+                    reader.GetBoolean(13),
+                    reader.GetBoolean(14),
+                    reader.GetBoolean(15),
+                    reader.GetBoolean(16),
+                    reader.GetBoolean(17)));
+            }
+        }
+
+        var recoveredOqc = 0;
+        var recoveredInspection = 0;
+        var recoveredPacking = 0;
+        var unresolved = 0;
+
+        foreach (var panel in panels)
+        {
+            var operationId = Guid.NewGuid();
+            if (panel.ManufacturingCompleted
+                && string.Equals(panel.LqcStatus, "Passed", StringComparison.Ordinal)
+                && (!panel.HasManufacturingConfirmation || !panel.HasOqcWork))
+            {
+                var result = await TryOpenOqcAfterManufacturingAndLqcAsync(
+                    connection,
+                    transaction,
+                    panel.ProjectId,
+                    panel.PanelId,
+                    actorUserId,
+                    operationId,
+                    cancellationToken);
+                if (result.ConflictMessage is not null)
+                {
+                    unresolved++;
+                }
+                else if (result.Opened)
+                {
+                    recoveredOqc++;
+                }
+            }
+
+            if (panel.LqcAttemptId is not null && string.Equals(panel.LqcStatus, "Passed", StringComparison.Ordinal))
+            {
+                await EnsureProjectStageEventIfCompleteAsync(
+                    connection, transaction, panel.ProjectId, QualityInspectionStages.Lqc,
+                    panel.LqcAttemptId.Value, operationId, actorUserId, cancellationToken);
+                await EnsureProjectConfirmationEventIfCompleteAsync(
+                    connection, transaction, panel.ProjectId, panel.LqcAttemptId.Value,
+                    operationId, actorUserId, cancellationToken);
+            }
+
+            if (panel.OqcAttemptId is not null && string.Equals(panel.OqcStatus, "Passed", StringComparison.Ordinal))
+            {
+                await EnsureProjectStageEventIfCompleteAsync(
+                    connection, transaction, panel.ProjectId, QualityInspectionStages.Oqc,
+                    panel.OqcAttemptId.Value, operationId, actorUserId, cancellationToken);
+
+                if (!panel.HasCustomerInspectionWork)
+                {
+                    var customerAssignee = await ResolveAssigneeAsync(
+                        connection, transaction, panel.ProjectId, QualityInspectionStages.CustomerInspection, cancellationToken);
+                    if (customerAssignee is null)
+                    {
+                        unresolved++;
+                    }
+                    else
+                    {
+                        await EnsureNextWorkItemAsync(
+                            connection,
+                            transaction,
+                            new HandoffContext(
+                                panel.ProjectId, panel.PanelId, panel.PanelDisplayCode, panel.FatRequired,
+                                QualityInspectionStages.Oqc, panel.OqcAttemptId.Value, 1),
+                            customerAssignee,
+                            actorUserId,
+                            cancellationToken);
+                        recoveredInspection++;
+                    }
+                }
+
+                if (panel.FatRequired && !panel.HasFatWork)
+                {
+                    var fatAssignee = await ResolveAssigneeAsync(
+                        connection, transaction, panel.ProjectId, QualityInspectionStages.Fat, cancellationToken);
+                    if (fatAssignee is null)
+                    {
+                        unresolved++;
+                    }
+                    else
+                    {
+                        await EnsureNextWorkItemAsync(
+                            connection,
+                            transaction,
+                            new HandoffContext(
+                                panel.ProjectId, panel.PanelId, panel.PanelDisplayCode, panel.FatRequired,
+                                QualityInspectionStages.Oqc, panel.OqcAttemptId.Value, 1),
+                            fatAssignee,
+                            actorUserId,
+                            cancellationToken);
+                        recoveredInspection++;
+                    }
+                }
+            }
+
+            if (panel.CustomerInspectionAttemptId is not null
+                && string.Equals(panel.CustomerInspectionStatus, "Passed", StringComparison.Ordinal))
+            {
+                await EnsureProjectStageEventIfCompleteAsync(
+                    connection, transaction, panel.ProjectId, QualityInspectionStages.CustomerInspection,
+                    panel.CustomerInspectionAttemptId.Value, operationId, actorUserId, cancellationToken);
+            }
+
+            if (panel.FatAttemptId is not null && string.Equals(panel.FatStatus, "Passed", StringComparison.Ordinal))
+            {
+                await EnsureProjectStageEventIfCompleteAsync(
+                    connection, transaction, panel.ProjectId, QualityInspectionStages.Fat,
+                    panel.FatAttemptId.Value, operationId, actorUserId, cancellationToken);
+            }
+
+            var finalQualityPassed = string.Equals(panel.CustomerInspectionStatus, "Passed", StringComparison.Ordinal)
+                && (!panel.FatRequired || string.Equals(panel.FatStatus, "Passed", StringComparison.Ordinal));
+            if (finalQualityPassed && !panel.HasPackingWork)
+            {
+                var packingAssignee = await ResolveAssigneeAsync(
+                    connection, transaction, panel.ProjectId, "PackingCompleted", cancellationToken);
+                if (packingAssignee is null)
+                {
+                    unresolved++;
+                }
+                else
+                {
+                    var sourceAttemptId = panel.FatRequired
+                        ? panel.FatAttemptId!.Value
+                        : panel.CustomerInspectionAttemptId!.Value;
+                    await EnsureNextWorkItemAsync(
+                        connection,
+                        transaction,
+                        new HandoffContext(
+                            panel.ProjectId, panel.PanelId, panel.PanelDisplayCode, panel.FatRequired,
+                            panel.FatRequired ? QualityInspectionStages.Fat : QualityInspectionStages.CustomerInspection,
+                            sourceAttemptId, 1),
+                        packingAssignee,
+                        actorUserId,
+                        cancellationToken);
+                    await AdvancePanelStageAsync(
+                        connection, transaction, panel.PanelId, "InspectionCompleted", cancellationToken);
+                    recoveredPacking++;
+                }
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return new QualityInspectionReconciliationResponse(
+            recoveredOqc,
+            recoveredInspection,
+            recoveredPacking,
+            unresolved);
+    }
+
     public static async Task CancelPanelInspectionsAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -203,22 +465,28 @@ public sealed class QualityInspectionStore(
 
         if (panel.AttemptId is null)
         {
-            return new QualityInspectionDetailResponse(panel, null, null, null, null, null, null, [], [], [], []);
+            return new QualityInspectionDetailResponse(panel, DecisionMode(normalizedStage), null, null, null, null, null, null, [], [], [], []);
         }
 
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var report = await ReadReportViewAsync(connection, panel.AttemptId.Value, cancellationToken);
         var history = await ReadHistoryAsync(connection, panel.PanelId, normalizedStage, cancellationToken);
+        var items = report?.Items ?? [];
+        if (normalizedStage == QualityInspectionStages.Lqc && items.Count > 0)
+        {
+            items = await ApplyLqcAvailabilityAsync(connection, null, panel.PanelId, items, cancellationToken);
+        }
         return new QualityInspectionDetailResponse(
             panel,
+            report?.DecisionMode ?? DecisionMode(normalizedStage),
             report?.ReportId,
             report?.Status,
             report?.Version,
             report?.Result,
             report?.Reason,
             report?.PdfStatus,
-            report?.Items ?? [],
+            items,
             report?.Responses ?? [],
             report?.Photos ?? [],
             history);
@@ -300,6 +568,19 @@ public sealed class QualityInspectionStore(
             reportId = existing.ReportId;
             attemptNumber = existing.AttemptNumber;
             version = existing.Version;
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                update panel_quality_inspection_attempts
+                set status = 'InProgress',
+                    started_by_user_id = coalesce(started_by_user_id, @actor_id),
+                    started_at_utc = coalesce(started_at_utc, now()),
+                    updated_at_utc = now()
+                where id = @attempt_id and status in ('Requested', 'InProgress');
+                """;
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("attempt_id", attemptId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
         }
         else
         {
@@ -317,10 +598,10 @@ public sealed class QualityInspectionStore(
                 command.CommandText = """
                     insert into panel_quality_inspection_attempts (
                         id, project_id, panel_id, stage_code, attempt_number, status, work_item_id,
-                        version, started_by_user_id, started_at_utc, updated_at_utc
+                        decision_mode, version, started_by_user_id, started_at_utc, updated_at_utc
                     ) values (
                         @id, @project_id, @panel_id, @stage_code, @attempt_number, 'InProgress', @work_item_id,
-                        1, @actor_id, now(), now()
+                        @decision_mode, 1, @actor_id, now(), now()
                     );
                     insert into panel_quality_reports (
                         id, attempt_id, template_version_id, status, version,
@@ -333,6 +614,7 @@ public sealed class QualityInspectionStore(
                 command.Parameters.AddWithValue("stage_code", stage);
                 command.Parameters.AddWithValue("attempt_number", attemptNumber);
                 command.Parameters.AddWithValue("work_item_id", work.WorkItemId);
+                command.Parameters.AddWithValue("decision_mode", DecisionMode(stage));
                 command.Parameters.AddWithValue("actor_id", actorUserId);
                 command.Parameters.AddWithValue("report_id", reportId);
                 command.Parameters.AddWithValue("template_id", templateVersionId.Value);
@@ -341,10 +623,6 @@ public sealed class QualityInspectionStore(
             version = 1;
         }
         await MarkWorkInProgressAsync(connection, transaction, work.WorkItemId, cancellationToken);
-        if (stage == QualityInspectionStages.Lqc)
-        {
-            await AdvancePanelStageAsync(connection, transaction, request.PanelId, "InspectionInProgress", cancellationToken);
-        }
         var response = new QualityInspectionMutationResponse(
             request.OperationId, request.ProjectId, request.PanelId, stage, attemptId, reportId,
             "InProgress", version, null, null, null, false);
@@ -385,9 +663,21 @@ public sealed class QualityInspectionStore(
         }
         if (context.ReportStatus != "Draft") return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("확정된 성적서는 수정할 수 없습니다.");
         if (context.ReportVersion != request.ExpectedReportVersion) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+        if (context.DecisionMode == "Aggregate")
+        {
+            return Validation("responses", "전진검수와 FAT는 패널 통합 판정이므로 항목별 검사 응답을 저장하지 않습니다.");
+        }
         var items = await ReadTemplateRowsAsync(connection, transaction, context.TemplateVersionId, cancellationToken);
         var itemMap = items.ToDictionary(item => item.ItemId);
         var errors = ValidateResponses(normalized, itemMap);
+        if (context.StageCode == QualityInspectionStages.Lqc)
+        {
+            AddLqcAvailabilityErrors(
+                errors,
+                normalized.Select(item => item.TemplateItemId),
+                items,
+                await ReadLqcManufacturingProgressAsync(connection, transaction, context.PanelId, cancellationToken));
+        }
         if (errors.Count > 0) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Validation(errors);
 
         foreach (var item in normalized)
@@ -477,6 +767,19 @@ public sealed class QualityInspectionStore(
         if (context.ReportVersion != expectedReportVersion) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
         var items = await ReadTemplateRowsAsync(connection, transaction, context.TemplateVersionId, cancellationToken);
         if (items.All(item => item.ItemId != templateItemId)) return Validation("templateItemId", "현재 성적서의 검사 항목을 선택해 주세요.");
+        if (context.StageCode == QualityInspectionStages.Lqc)
+        {
+            var availabilityErrors = new Dictionary<string, string[]>();
+            AddLqcAvailabilityErrors(
+                availabilityErrors,
+                [templateItemId],
+                items,
+                await ReadLqcManufacturingProgressAsync(connection, transaction, context.PanelId, cancellationToken));
+            if (availabilityErrors.Count > 0)
+            {
+                return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Validation(availabilityErrors);
+            }
+        }
 
         var usedNames = new HashSet<string>(StringComparer.Ordinal);
         var totalBytes = 0;
@@ -585,6 +888,11 @@ public sealed class QualityInspectionStore(
         var result = Normalize(request.Result);
         var reason = Normalize(request.Reason);
         var department = Normalize(request.ActionDepartmentCode);
+        var submittedResponses = request.Responses?.Select(item => new SaveQualityInspectionItemRequest(
+            item.TemplateItemId,
+            Normalize(item.CheckResult),
+            Normalize(item.TextValue),
+            Normalize(item.Note))).ToList();
         var errors = new Dictionary<string, string[]>();
         if (request.OperationId == Guid.Empty) errors["operationId"] = ["요청 식별자가 필요합니다."];
         if (request.ExpectedReportVersion is null or < 1) errors["expectedReportVersion"] = ["최신 성적서 version이 필요합니다."];
@@ -592,7 +900,20 @@ public sealed class QualityInspectionStore(
         if (reason is null || reason.Length is < 3 or > 1000) errors["reason"] = ["판정 사유를 3~1000자로 입력해 주세요."];
         if (result == "Failed" && department is null) errors["actionDepartmentCode"] = ["조치 담당 부서를 선택해 주세요."];
         if (errors.Count > 0) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Validation(errors);
-        var fingerprint = Fingerprint("Finalize", reportId, request.ExpectedReportVersion!.Value, result!, reason!, department, request.AssigneeUserId);
+        var responseFingerprint = submittedResponses is null
+            ? null
+            : string.Join('|', submittedResponses
+                .OrderBy(item => item.TemplateItemId)
+                .Select(item => $"{item.TemplateItemId}:{item.CheckResult}:{item.TextValue}:{item.Note}"));
+        var fingerprint = Fingerprint(
+            "Finalize",
+            reportId,
+            request.ExpectedReportVersion!.Value,
+            result!,
+            reason!,
+            department,
+            request.AssigneeUserId,
+            responseFingerprint);
 
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -609,9 +930,40 @@ public sealed class QualityInspectionStore(
         if (context.ReportVersion != request.ExpectedReportVersion) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
 
         var items = await ReadTemplateRowsAsync(connection, transaction, context.TemplateVersionId, cancellationToken);
-        var responses = await ReadResponseRowsAsync(connection, transaction, reportId, cancellationToken);
+        IReadOnlyList<ResponseRow> responses;
+        if (submittedResponses is null)
+        {
+            responses = await ReadResponseRowsAsync(connection, transaction, reportId, cancellationToken);
+        }
+        else
+        {
+            var responseErrors = ValidateResponses(submittedResponses, items.ToDictionary(item => item.ItemId));
+            if (context.StageCode == QualityInspectionStages.Lqc)
+            {
+                AddLqcAvailabilityErrors(
+                    responseErrors,
+                    submittedResponses.Select(item => item.TemplateItemId),
+                    items,
+                    await ReadLqcManufacturingProgressAsync(connection, transaction, context.PanelId, cancellationToken));
+            }
+            if (responseErrors.Count > 0)
+            {
+                return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Validation(responseErrors);
+            }
+            responses = submittedResponses
+                .Select(item => new ResponseRow(item.TemplateItemId, item.CheckResult, item.TextValue, item.Note))
+                .ToList();
+        }
         var photos = await ReadPhotoSnapshotsAsync(connection, transaction, reportId, cancellationToken);
-        var invariantErrors = ValidateFinalization(items, responses, photos, result!, reason!);
+        var invariantErrors = ValidateFinalization(items, responses, photos, context.DecisionMode, result!, reason!);
+        if (context.StageCode == QualityInspectionStages.Lqc)
+        {
+            AddLqcAvailabilityErrors(
+                invariantErrors,
+                items.Where(item => item.ResponseType == "Check").Select(item => item.ItemId),
+                items,
+                await ReadLqcManufacturingProgressAsync(connection, transaction, context.PanelId, cancellationToken));
+        }
         if (invariantErrors.Count > 0) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Validation(invariantErrors);
 
         if (result == "Failed")
@@ -627,12 +979,60 @@ public sealed class QualityInspectionStore(
             }
         }
 
-        var next = result == "Passed"
-            ? await ResolveNextHandoffAsync(connection, transaction, context, cancellationToken)
-            : null;
-        if (result == "Passed" && next is null)
+        var handoffs = new List<HandoffAssignee>();
+        if (result == "Passed")
         {
-            return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("다음 단계 담당자를 지정한 뒤 다시 시도해 주세요.");
+            if (context.StageCode == QualityInspectionStages.Oqc)
+            {
+                var customerInspection = await ResolveAssigneeAsync(
+                    connection, transaction, context.ProjectId, QualityInspectionStages.CustomerInspection, cancellationToken);
+                if (customerInspection is null)
+                {
+                    return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("전진검수 담당자를 지정한 뒤 다시 시도해 주세요.");
+                }
+                handoffs.Add(customerInspection);
+                if (context.FatRequired)
+                {
+                    var fat = await ResolveAssigneeAsync(
+                        connection, transaction, context.ProjectId, QualityInspectionStages.Fat, cancellationToken);
+                    if (fat is null)
+                    {
+                        return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("FAT 담당자를 지정한 뒤 다시 시도해 주세요.");
+                    }
+                    handoffs.Add(fat);
+                }
+            }
+            else if (context.StageCode == QualityInspectionStages.CustomerInspection)
+            {
+                var readyForPacking = !context.FatRequired
+                    || await ReadLatestPassedAttemptAsync(
+                        connection, transaction, context.PanelId, QualityInspectionStages.Fat, cancellationToken) is not null;
+                if (readyForPacking)
+                {
+                    var packing = await ResolveAssigneeAsync(
+                        connection, transaction, context.ProjectId, "PackingCompleted", cancellationToken);
+                    if (packing is null)
+                    {
+                        return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("물류 포장 담당자를 지정한 뒤 다시 시도해 주세요.");
+                    }
+                    handoffs.Add(packing);
+                }
+            }
+            else if (context.StageCode == QualityInspectionStages.Fat)
+            {
+                var customerInspectionPassed = await ReadLatestPassedAttemptAsync(
+                    connection, transaction, context.PanelId, QualityInspectionStages.CustomerInspection, cancellationToken) is not null;
+                if (customerInspectionPassed)
+                {
+                    var packing = await ResolveAssigneeAsync(
+                        connection, transaction, context.ProjectId, "PackingCompleted", cancellationToken);
+                    if (packing is null)
+                    {
+                        return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("물류 포장 담당자를 지정한 뒤 다시 시도해 주세요.");
+                    }
+                    handoffs.Add(packing);
+                }
+            }
         }
 
         var actorName = await ReadActorNameAsync(connection, transaction, actorUserId, cancellationToken);
@@ -664,6 +1064,17 @@ public sealed class QualityInspectionStore(
             }
         }
         var attemptPendingId = pendingId ?? context.LinkedPendingId;
+
+        if (submittedResponses is not null)
+        {
+            await ReplaceResponseRowsAsync(
+                connection,
+                transaction,
+                reportId,
+                submittedResponses,
+                actorUserId,
+                cancellationToken);
+        }
 
         await using (var command = connection.CreateCommand())
         {
@@ -699,17 +1110,39 @@ public sealed class QualityInspectionStore(
         }
 
         string? nextStage = null;
-        if (result == "Passed" && next is not null)
+        if (result == "Passed")
         {
-            nextStage = next.StageCode;
-            await EnsureNextWorkItemAsync(connection, transaction, context, next, actorUserId, cancellationToken);
+            foreach (var handoff in handoffs)
+            {
+                await EnsureNextWorkItemAsync(connection, transaction, context, handoff, actorUserId, cancellationToken);
+            }
+            nextStage = handoffs.FirstOrDefault()?.StageCode;
+            if (context.StageCode == QualityInspectionStages.Lqc)
+            {
+                var oqcHandoff = await TryOpenOqcAfterManufacturingAndLqcAsync(
+                    connection,
+                    transaction,
+                    context.ProjectId,
+                    context.PanelId,
+                    actorUserId,
+                    request.OperationId,
+                    cancellationToken);
+                if (oqcHandoff.ConflictMessage is not null)
+                {
+                    return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict(oqcHandoff.ConflictMessage);
+                }
+                if (oqcHandoff.Opened)
+                {
+                    nextStage = QualityInspectionStages.Oqc;
+                }
+            }
             if (context.LinkedPendingId is not null)
             {
                 await pendingStore.ClosePanelQualityIssueAsync(
                     connection, transaction, context.LinkedPendingId.Value, actorUserId,
                     $"{StageLabel(context.StageCode)} 재검사 합격", correlationId, cancellationToken);
             }
-            if (next.StageCode == "PackingCompleted")
+            if (handoffs.Any(handoff => handoff.StageCode == "PackingCompleted"))
             {
                 await AdvancePanelStageAsync(connection, transaction, context.PanelId, "InspectionCompleted", cancellationToken);
             }
@@ -804,10 +1237,10 @@ public sealed class QualityInspectionStore(
                 );
                 insert into panel_quality_inspection_attempts (
                     id, project_id, panel_id, stage_code, attempt_number, status, work_item_id,
-                    linked_pending_issue_id, version
+                    linked_pending_issue_id, decision_mode, version
                 ) values (
                     @attempt_id, @project_id, @panel_id, @stage_code, @attempt_number, 'Requested', @work_id,
-                    @pending_id, 1
+                    @pending_id, @decision_mode, 1
                 );
                 insert into panel_quality_reports (
                     id, attempt_id, template_version_id, status, version,
@@ -828,6 +1261,7 @@ public sealed class QualityInspectionStore(
             command.Parameters.AddWithValue("attempt_id", attemptId);
             command.Parameters.AddWithValue("attempt_number", attemptNumber);
             command.Parameters.AddWithValue("pending_id", pendingId);
+            command.Parameters.AddWithValue("decision_mode", DecisionMode(stageCode));
             command.Parameters.AddWithValue("report_id", reportId);
             command.Parameters.AddWithValue("template_id", templateVersionId);
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -840,6 +1274,192 @@ public sealed class QualityInspectionStore(
             $"/quality/inspections?stage={stageCode}&project={projectId}&panel={panelId}",
             $"{key}:notification", cancellationToken);
         return attemptId;
+    }
+
+    internal static async Task<(bool Opened, string? ConflictMessage)> TryOpenOqcAfterManufacturingAndLqcAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid panelId,
+        Guid actorUserId,
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        Guid? lqcAttemptId;
+        string panelDisplayCode;
+        bool fatRequired;
+        bool manufacturingCompleted;
+        await using (var readiness = connection.CreateCommand())
+        {
+            readiness.Transaction = transaction;
+            readiness.CommandText = """
+                select panel.display_code,
+                       project.fat_required,
+                       (
+                           select latest.id
+                           from (
+                               select attempt.id, attempt.status
+                               from panel_quality_inspection_attempts attempt
+                               where attempt.panel_id = panel.id
+                                 and attempt.stage_code = 'LQC'
+                               order by attempt.attempt_number desc, attempt.created_at_utc desc
+                               limit 1
+                           ) latest
+                           where latest.status = 'Passed'
+                       ) as lqc_attempt_id,
+                       exists (
+                           select 1
+                           from panel_manufacturing_executions execution
+                           where execution.panel_id = panel.id
+                             and execution.status = 'Completed'
+                       ) as manufacturing_completed
+                from panel_placeholders panel
+                join projects project on project.id = panel.project_id
+                where panel.id = @panel_id
+                  and panel.project_id = @project_id
+                  and panel.status = 'Active'
+                  and project.deleted_at_utc is null
+                  and project.status <> 'Cancelled';
+                """;
+            readiness.Parameters.AddWithValue("panel_id", panelId);
+            readiness.Parameters.AddWithValue("project_id", projectId);
+            await using var reader = await readiness.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return (false, "활성 패널 정보를 다시 확인해 주세요.");
+            }
+            panelDisplayCode = reader.GetString(0);
+            fatRequired = reader.GetBoolean(1);
+            lqcAttemptId = reader.IsDBNull(2) ? null : reader.GetGuid(2);
+            manufacturingCompleted = reader.GetBoolean(3);
+        }
+
+        if (lqcAttemptId is null || !manufacturingCompleted)
+        {
+            return (false, null);
+        }
+
+        var oqcAssignee = await ResolveAssigneeAsync(
+            connection,
+            transaction,
+            projectId,
+            QualityInspectionStages.Oqc,
+            cancellationToken);
+        if (oqcAssignee is null)
+        {
+            return (false, "OQC 담당자를 지정한 뒤 다시 시도해 주세요.");
+        }
+
+        Guid manufacturingUserId = actorUserId;
+        string? manufacturingRoleCode = null;
+        await using (var assignee = connection.CreateCommand())
+        {
+            assignee.Transaction = transaction;
+            assignee.CommandText = """
+                select assigned_user_id, assigned_role_code
+                from work_items
+                where project_id = @project_id
+                  and target_type = 'Panel'
+                  and target_id = @panel_id
+                  and workflow_stage_code = 'ManufacturingWork'
+                  and status <> 'Cancelled'
+                order by created_at_utc desc, id desc
+                limit 1;
+                """;
+            assignee.Parameters.AddWithValue("project_id", projectId);
+            assignee.Parameters.AddWithValue("panel_id", panelId);
+            await using var reader = await assignee.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                manufacturingUserId = reader.GetGuid(0);
+                manufacturingRoleCode = reader.IsDBNull(1) ? null : reader.GetString(1);
+            }
+        }
+
+        var confirmationKey = $"quality:panel:{panelId}:manufacturing-completed";
+        await using (var confirmationWork = connection.CreateCommand())
+        {
+            confirmationWork.Transaction = transaction;
+            confirmationWork.CommandText = """
+                insert into work_items (
+                    project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                    assigned_user_id, assigned_role_code, title, description, status, priority,
+                    idempotency_key, created_by_user_id, started_at_utc, completed_at_utc
+                ) values (
+                    @project_id, 'Panel', @panel_id, 'ManufacturingCompleted', 'ManufacturingPrimary',
+                    @assignee_id, @role_code, @title, @description, 'Completed', 'Normal',
+                    @key, @actor_id, now(), now()
+                )
+                on conflict (idempotency_key) do update
+                set status = 'Completed',
+                    started_at_utc = coalesce(work_items.started_at_utc, now()),
+                    completed_at_utc = coalesce(work_items.completed_at_utc, now());
+                """;
+            confirmationWork.Parameters.AddWithValue("project_id", projectId);
+            confirmationWork.Parameters.AddWithValue("panel_id", panelId);
+            confirmationWork.Parameters.AddWithValue("assignee_id", manufacturingUserId);
+            AddNullableText(confirmationWork, "role_code", manufacturingRoleCode);
+            confirmationWork.Parameters.AddWithValue("title", $"제조·LQC 완료 자동 확인 · {panelDisplayCode}");
+            confirmationWork.Parameters.AddWithValue("description", "패널 제조와 LQC가 모두 완료되어 OQC로 자동 인계했습니다.");
+            confirmationWork.Parameters.AddWithValue("key", confirmationKey);
+            confirmationWork.Parameters.AddWithValue("actor_id", actorUserId);
+            await confirmationWork.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        Guid confirmationWorkItemId;
+        await using (var readWork = connection.CreateCommand())
+        {
+            readWork.Transaction = transaction;
+            readWork.CommandText = "select id from work_items where idempotency_key = @key;";
+            readWork.Parameters.AddWithValue("key", confirmationKey);
+            confirmationWorkItemId = (Guid)(await readWork.ExecuteScalarAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Manufacturing confirmation work item was not created."));
+        }
+
+        await using (var confirmation = connection.CreateCommand())
+        {
+            confirmation.Transaction = transaction;
+            confirmation.CommandText = """
+                insert into panel_manufacturing_completion_confirmations (
+                    project_id, panel_id, lqc_attempt_id, work_item_id, confirmed_by_user_id
+                ) values (
+                    @project_id, @panel_id, @lqc_attempt_id, @work_item_id, @confirmed_by
+                )
+                on conflict (panel_id) do nothing;
+                """;
+            confirmation.Parameters.AddWithValue("project_id", projectId);
+            confirmation.Parameters.AddWithValue("panel_id", panelId);
+            confirmation.Parameters.AddWithValue("lqc_attempt_id", lqcAttemptId.Value);
+            confirmation.Parameters.AddWithValue("work_item_id", confirmationWorkItemId);
+            confirmation.Parameters.AddWithValue("confirmed_by", manufacturingUserId);
+            await confirmation.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var context = new HandoffContext(
+            projectId,
+            panelId,
+            panelDisplayCode,
+            fatRequired,
+            QualityInspectionStages.ManufacturingCompleted,
+            lqcAttemptId.Value,
+            1);
+        await EnsureNextWorkItemAsync(
+            connection,
+            transaction,
+            context,
+            oqcAssignee,
+            actorUserId,
+            cancellationToken);
+        await AdvancePanelStageAsync(connection, transaction, panelId, "InspectionInProgress", cancellationToken);
+        await EnsureProjectConfirmationEventIfCompleteAsync(
+            connection,
+            transaction,
+            projectId,
+            lqcAttemptId.Value,
+            operationId,
+            actorUserId,
+            cancellationToken);
+        return (true, null);
     }
 
     public async Task<QualityInspectionMutationResult<QualityInspectionMutationResponse>> RequestReinspectionAsync(
@@ -1126,12 +1746,16 @@ public sealed class QualityInspectionStore(
         string? result;
         string? reason;
         string? pdfStatus;
+        string decisionMode;
         Guid templateVersionId;
         await using (var command = connection.CreateCommand())
         {
             command.CommandText = """
-                select id, status, version, result, reason, pdf_status, template_version_id
-                from panel_quality_reports where attempt_id = @attempt_id;
+                select report.id, report.status, report.version, report.result, report.reason,
+                       report.pdf_status, report.template_version_id, attempt.decision_mode
+                from panel_quality_reports report
+                join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id
+                where report.attempt_id = @attempt_id;
                 """;
             command.Parameters.AddWithValue("attempt_id", attemptId);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1143,6 +1767,7 @@ public sealed class QualityInspectionStore(
             reason = reader.IsDBNull(4) ? null : reader.GetString(4);
             pdfStatus = reader.IsDBNull(5) ? null : reader.GetString(5);
             templateVersionId = reader.GetGuid(6);
+            decisionMode = reader.GetString(7);
         }
         var items = await ReadTemplateRowsAsync(connection, null, templateVersionId, cancellationToken);
         var responses = await ReadResponseRowsAsync(connection, null, reportId, cancellationToken);
@@ -1162,7 +1787,7 @@ public sealed class QualityInspectionStore(
                     reader.GetInt32(4), reader.GetString(5), reader.GetFieldValue<DateTimeOffset>(6)));
             }
         }
-        return new ReportView(reportId, status, version, result, reason, pdfStatus,
+        return new ReportView(reportId, status, version, result, reason, pdfStatus, decisionMode,
             items.Select(item => item.ToResponse()).ToList(),
             responses.Select(item => item.ToResponse()).ToList(), photos);
     }
@@ -1341,7 +1966,7 @@ public sealed class QualityInspectionStore(
                    attempt.id, attempt.project_id, attempt.panel_id, attempt.stage_code,
                    attempt.attempt_number, attempt.work_item_id, attempt.linked_pending_issue_id,
                    panel.display_code, panel.panel_name, project.project_code, project.project_title,
-                   project.fat_required
+                   project.fat_required, attempt.decision_mode
             from panel_quality_reports report
             join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id
             join panel_placeholders panel on panel.id = attempt.panel_id and panel.status = 'Active'
@@ -1360,7 +1985,7 @@ public sealed class QualityInspectionStore(
                 reader.GetGuid(4), reader.GetGuid(5), reader.GetGuid(6), reader.GetString(7),
                 reader.GetInt32(8), reader.GetGuid(9), reader.IsDBNull(10) ? null : reader.GetGuid(10),
                 reader.GetString(11), reader.IsDBNull(12) ? null : reader.GetString(12),
-                reader.GetString(13), reader.GetString(14), reader.GetBoolean(15))
+                reader.GetString(13), reader.GetString(14), reader.GetBoolean(15), reader.GetString(16))
             : null;
     }
 
@@ -1385,6 +2010,110 @@ public sealed class QualityInspectionStore(
                 reader.IsDBNull(7) ? null : reader.GetInt32(7)));
         }
         return result;
+    }
+
+    private static async Task<IReadOnlyList<QualityInspectionTemplateItemResponse>> ApplyLqcAvailabilityAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid panelId,
+        IReadOnlyList<QualityInspectionTemplateItemResponse> items,
+        CancellationToken cancellationToken)
+    {
+        var progress = await ReadLqcManufacturingProgressAsync(
+            connection,
+            transaction,
+            panelId,
+            cancellationToken);
+        var checkRank = 0;
+        return items
+            .OrderBy(item => item.DisplayOrder)
+            .Select(item =>
+            {
+                if (item.ResponseType != "Check") return item;
+                checkRank += 1;
+                var available = checkRank <= progress.AvailableStepCount;
+                var manufacturingStepName = checkRank <= progress.StepNames.Count
+                    ? progress.StepNames[checkRank - 1]
+                    : $"제조 {checkRank}단계";
+                return item with
+                {
+                    IsAvailable = available,
+                    AvailabilityMessage = available
+                        ? $"제조 단계: {manufacturingStepName} — 현재 LQC 입력 가능"
+                        : $"제조 단계: {manufacturingStepName} — 단계 시작 후 입력 가능 · 현재 {progress.AvailableStepCount}/{progress.TotalStepCount}단계 개방"
+                };
+            })
+            .ToList();
+    }
+
+    private static async Task<LqcManufacturingProgress> ReadLqcManufacturingProgressAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid panelId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select execution.status,
+                   count(step.id) filter (where step.checked_at_utc is not null)::int as checked_count,
+                   count(step.id)::int as total_count,
+                   coalesce(
+                       array_agg(step.step_name order by step.sequence_number) filter (where step.id is not null),
+                       array[]::text[]
+                   ) as step_names
+            from panel_manufacturing_executions execution
+            left join panel_manufacturing_execution_steps step on step.execution_id = execution.id
+            where execution.id = (
+                select candidate.id
+                from panel_manufacturing_executions candidate
+                where candidate.panel_id = @panel_id and candidate.status <> 'Cancelled'
+                order by candidate.started_at_utc desc, candidate.id desc
+                limit 1
+            )
+            group by execution.status;
+            """;
+        command.Parameters.AddWithValue("panel_id", panelId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return new LqcManufacturingProgress(0, 0, []);
+        }
+        var status = reader.GetString(0);
+        var checkedCount = reader.GetInt32(1);
+        var totalCount = reader.GetInt32(2);
+        var stepNames = reader.GetFieldValue<string[]>(3);
+        var availableCount = status == Emi.Qms.Api.Manufacturing.ManufacturingExecutionStatuses.Completed
+            ? totalCount
+            : status is Emi.Qms.Api.Manufacturing.ManufacturingExecutionStatuses.InProgress
+                or Emi.Qms.Api.Manufacturing.ManufacturingExecutionStatuses.Blocked
+                ? Math.Min(totalCount, checkedCount + 1)
+                : checkedCount;
+        return new LqcManufacturingProgress(availableCount, totalCount, stepNames);
+    }
+
+    private static void AddLqcAvailabilityErrors(
+        Dictionary<string, string[]> errors,
+        IEnumerable<Guid> submittedItemIds,
+        IReadOnlyList<TemplateRow> items,
+        LqcManufacturingProgress progress)
+    {
+        var submitted = submittedItemIds.ToHashSet();
+        var unavailableLabels = items
+            .Where(item => item.ResponseType == "Check")
+            .OrderBy(item => item.DisplayOrder)
+            .Select((item, index) => new { Item = item, Rank = index + 1 })
+            .Where(candidate => submitted.Contains(candidate.Item.ItemId)
+                && candidate.Rank > progress.AvailableStepCount)
+            .Select(candidate => candidate.Item.Label)
+            .ToList();
+        if (unavailableLabels.Count > 0)
+        {
+            errors["responses"] =
+            [
+                $"아직 제조 단계가 시작되지 않은 LQC 항목은 입력할 수 없습니다: {string.Join(", ", unavailableLabels)}"
+            ];
+        }
     }
 
     private static async Task<List<ResponseRow>> ReadResponseRowsAsync(
@@ -1458,6 +2187,45 @@ public sealed class QualityInspectionStore(
         await update.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task ReplaceResponseRowsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid reportId,
+        IReadOnlyList<SaveQualityInspectionItemRequest> responses,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using (var delete = connection.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = "delete from panel_quality_report_responses where report_id = @report_id;";
+            delete.Parameters.AddWithValue("report_id", reportId);
+            await delete.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var item in responses)
+        {
+            await using var insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                insert into panel_quality_report_responses (
+                    report_id, template_item_id, check_result, text_value, note,
+                    updated_by_user_id, updated_at_utc
+                ) values (
+                    @report_id, @item_id, @check_result, @text_value, @note,
+                    @actor_id, now()
+                );
+                """;
+            insert.Parameters.AddWithValue("report_id", reportId);
+            insert.Parameters.AddWithValue("item_id", item.TemplateItemId);
+            AddNullableText(insert, "check_result", item.CheckResult);
+            AddNullableText(insert, "text_value", item.TextValue);
+            AddNullableText(insert, "note", item.Note);
+            insert.Parameters.AddWithValue("actor_id", actorUserId);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
     private static Dictionary<string, string[]> ValidateResponses(
         IReadOnlyList<SaveQualityInspectionItemRequest> responses,
         IReadOnlyDictionary<Guid, TemplateRow> items)
@@ -1495,10 +2263,19 @@ public sealed class QualityInspectionStore(
         IReadOnlyList<TemplateRow> items,
         IReadOnlyList<ResponseRow> responses,
         IReadOnlyList<PhotoSnapshot> photos,
+        string decisionMode,
         string result,
         string reason)
     {
         var errors = new Dictionary<string, string[]>();
+        if (decisionMode == "Aggregate")
+        {
+            if (responses.Count > 0)
+                errors["responses"] = ["전진검수와 FAT는 패널 통합 판정이므로 항목별 검사 응답을 포함할 수 없습니다."];
+            if (result == "Failed" && photos.Count == 0 && reason.Trim().Length < 30)
+                errors["reason"] = ["부적합 판정은 사진 1장 이상 또는 구체적인 근거 30자 이상이 필요합니다."];
+            return errors;
+        }
         var map = responses.ToDictionary(item => item.TemplateItemId);
         foreach (var item in items.Where(item => item.IsRequired))
         {
@@ -1547,21 +2324,6 @@ public sealed class QualityInspectionStore(
         command.Parameters.AddWithValue("user_id", userId);
         command.Parameters.AddWithValue("department_code", departmentCode);
         return await command.ExecuteScalarAsync(cancellationToken) is true;
-    }
-
-    private static async Task<HandoffAssignee?> ResolveNextHandoffAsync(
-        NpgsqlConnection connection, NpgsqlTransaction transaction, ReportContext context,
-        CancellationToken cancellationToken)
-    {
-        var nextStage = context.StageCode switch
-        {
-            QualityInspectionStages.Lqc => QualityInspectionStages.ManufacturingCompleted,
-            QualityInspectionStages.Oqc => QualityInspectionStages.CustomerInspection,
-            QualityInspectionStages.CustomerInspection => context.FatRequired ? QualityInspectionStages.Fat : "PackingCompleted",
-            QualityInspectionStages.Fat => "PackingCompleted",
-            _ => null
-        };
-        return nextStage is null ? null : await ResolveAssigneeAsync(connection, transaction, context.ProjectId, nextStage, cancellationToken);
     }
 
     private static async Task<HandoffAssignee?> ResolveAssigneeAsync(
@@ -1802,9 +2564,15 @@ public sealed class QualityInspectionStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select id from panel_quality_inspection_attempts
-            where panel_id = @panel_id and stage_code = @stage_code and status = 'Passed'
-            order by attempt_number desc limit 1;
+            select latest.id
+            from (
+                select id, status
+                from panel_quality_inspection_attempts
+                where panel_id = @panel_id and stage_code = @stage_code
+                order by attempt_number desc, created_at_utc desc
+                limit 1
+            ) latest
+            where latest.status = 'Passed';
             """;
         command.Parameters.AddWithValue("panel_id", panelId);
         command.Parameters.AddWithValue("stage_code", stageCode);
@@ -1862,6 +2630,7 @@ public sealed class QualityInspectionStore(
             panelCode = context.PanelDisplayCode,
             panelName = context.PanelName,
             context.StageCode,
+            context.DecisionMode,
             stageLabel = StageLabel(context.StageCode),
             context.AttemptNumber,
             result,
@@ -1977,6 +2746,10 @@ public sealed class QualityInspectionStore(
         var stage = NormalizeStage(value);
         return stage is not null && QualityInspectionStages.InspectionStages.Contains(stage) ? stage : null;
     }
+    private static string DecisionMode(string stageCode)
+        => stageCode is QualityInspectionStages.CustomerInspection or QualityInspectionStages.Fat
+            ? "Aggregate"
+            : "Checklist";
     private static string StageLabel(string stageCode) => stageCode switch
     {
         QualityInspectionStages.Lqc => "LQC",
@@ -2024,13 +2797,32 @@ public sealed class QualityInspectionStore(
     }
 
     private sealed record ProjectSnapshot(Guid ProjectId, string ProjectCode, string ProjectTitle, bool FatRequired);
+    private sealed record QualityReconciliationPanel(
+        Guid ProjectId,
+        Guid PanelId,
+        string PanelDisplayCode,
+        bool FatRequired,
+        Guid? LqcAttemptId,
+        string? LqcStatus,
+        Guid? OqcAttemptId,
+        string? OqcStatus,
+        Guid? CustomerInspectionAttemptId,
+        string? CustomerInspectionStatus,
+        Guid? FatAttemptId,
+        string? FatStatus,
+        bool ManufacturingCompleted,
+        bool HasManufacturingConfirmation,
+        bool HasOqcWork,
+        bool HasCustomerInspectionWork,
+        bool HasFatWork,
+        bool HasPackingWork);
     private sealed record StageWorkSnapshot(string PanelDisplayCode, string? PanelName, string WorkflowStage, Guid WorkItemId, string WorkStatus, Guid AssignedUserId);
     private sealed record ActiveAttemptSnapshot(Guid AttemptId, int AttemptNumber, int Version, Guid ReportId);
     private sealed record ReportContext(
         Guid ReportId, string ReportStatus, int ReportVersion, Guid TemplateVersionId,
         Guid AttemptId, Guid ProjectId, Guid PanelId, string StageCode, int AttemptNumber,
         Guid WorkItemId, Guid? LinkedPendingId, string PanelDisplayCode, string? PanelName,
-        string ProjectCode, string ProjectTitle, bool FatRequired);
+        string ProjectCode, string ProjectTitle, bool FatRequired, string DecisionMode);
     private record HandoffContext(Guid ProjectId, Guid PanelId, string PanelDisplayCode, bool FatRequired, string StageCode, Guid AttemptId, int AttemptNumber);
     private sealed record HandoffAssignee(string StageCode, string Responsibility, Guid UserId, string? RoleCode);
     private sealed record FailedAttemptSnapshot(
@@ -2052,8 +2844,12 @@ public sealed class QualityInspectionStore(
         int ByteSize,
         string Sha256,
         string AltText);
+    private sealed record LqcManufacturingProgress(
+        int AvailableStepCount,
+        int TotalStepCount,
+        IReadOnlyList<string> StepNames);
     private sealed record ReportView(
-        Guid ReportId, string Status, int Version, string? Result, string? Reason, string? PdfStatus,
+        Guid ReportId, string Status, int Version, string? Result, string? Reason, string? PdfStatus, string DecisionMode,
         IReadOnlyList<QualityInspectionTemplateItemResponse> Items,
         IReadOnlyList<QualityInspectionItemValueResponse> Responses,
         IReadOnlyList<QualityInspectionPhotoResponse> Photos);

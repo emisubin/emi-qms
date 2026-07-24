@@ -48,6 +48,7 @@ public sealed record QualityInspectionPanelSummary(
 
 public sealed record QualityInspectionDetailResponse(
     QualityInspectionPanelSummary Panel,
+    string DecisionMode,
     Guid? ReportId,
     string? ReportStatus,
     int? ReportVersion,
@@ -67,7 +68,9 @@ public sealed record QualityInspectionTemplateItemResponse(
     string? Guidance,
     string ResponseType,
     bool IsRequired,
-    int? MaxTextLength);
+    int? MaxTextLength,
+    bool IsAvailable = true,
+    string? AvailabilityMessage = null);
 
 public sealed record QualityInspectionItemValueResponse(
     Guid TemplateItemId,
@@ -122,7 +125,8 @@ public sealed record FinalizeQualityInspectionRequest(
     string? Result,
     string? Reason,
     string? ActionDepartmentCode,
-    Guid? AssigneeUserId);
+    Guid? AssigneeUserId,
+    IReadOnlyList<SaveQualityInspectionItemRequest>? Responses = null);
 
 public sealed record RequestQualityReinspectionRequest(
     Guid OperationId,
@@ -133,6 +137,12 @@ public sealed record ConfirmPanelManufacturingCompletedRequest(
     Guid OperationId,
     Guid ProjectId,
     Guid PanelId);
+
+public sealed record QualityInspectionReconciliationResponse(
+    int RecoveredOqcHandoffCount,
+    int RecoveredInspectionHandoffCount,
+    int RecoveredPackingHandoffCount,
+    int UnresolvedAssigneeCount);
 
 public sealed record RetryQualityInspectionPdfRequest(Guid OperationId);
 

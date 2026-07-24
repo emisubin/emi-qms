@@ -185,13 +185,12 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
   await page.goto(`/projects/${projectId}`);
   await page.getByRole('tab', { name: '구매' }).click();
   await page.getByRole('button', { name: '구매정보 수정' }).click();
+  await page.getByRole('button', { name: '도급 구매품 행 추가' }).click();
   const procurementTable = page.getByRole('table', { name: '구매정보 수정' });
   await expect(procurementTable).toBeVisible();
   const procurementRows = procurementTable.locator('.procurement-table-row.editable');
-  const rowCount = await procurementRows.count();
-  await page.getByRole('button', { name: '도급 구매품 행 추가' }).click();
-  await expect(procurementRows).toHaveCount(rowCount + 1);
-  const procurementRow = procurementRows.nth(rowCount);
+  await expect(procurementRows).toHaveCount(1);
+  const procurementRow = procurementRows.first();
   const procurementInputs = procurementRow.locator('input');
   await procurementInputs.nth(0).fill('4주');
   await procurementInputs.nth(1).fill('제어반 외함');
@@ -200,6 +199,8 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
   await procurementInputs.nth(4).fill('2026-07-20');
   await procurementInputs.nth(5).fill('2026-08-10');
   await procurementInputs.nth(6).fill('초도 발주');
+  await procurementRow.getByLabel('발주 수량').fill('1');
+  await procurementRow.getByLabel('발주 단위').fill('EA');
   await page.getByRole('button', { name: '저장' }).click();
   await expect(page.getByRole('table', { name: '구매정보' })).toContainText('제어반 외함');
   await captureProjectDetail(page, projectId, '04-procurement-entered.jpg');
@@ -211,15 +212,15 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
   await switchUser(page, 'dev-materials');
   await page.goto('/materials/receipts');
   await searchMaterials(page, projectTitle);
-  let materialCard = page.locator('.material-item-card').filter({ hasText: projectTitle });
-  await materialCard.getByRole('button', { name: '도착분 추가' }).click();
-  await page.getByLabel('발주 수량').fill('1');
+  let materialCard = page.locator('.material-purchase-row').filter({ hasText: '제어반 외함' });
+  await materialCard.getByRole('button', { name: '도착입력' }).click();
   await page.getByLabel('도착 수량').fill('1');
   const unitInput = page.getByLabel('단위');
   if (await unitInput.isEnabled() && !(await unitInput.inputValue())) await unitInput.fill('EA');
   await page.getByLabel('비고').fill('외관 손상 없이 도착');
-  await page.getByRole('button', { name: '도착 등록', exact: true }).click();
-  await expect(materialCard.locator('.material-receipt-chip')).toBeVisible();
+  await page.getByRole('button', { name: '저장', exact: true }).click();
+  await materialCard.locator('.material-purchase-main').click();
+  await expect(materialCard.locator('.material-receipt-line')).toBeVisible();
   await captureProjectDetail(page, projectId, '05-material-arrived.jpg');
   handoffEvidence.push(await captureAssigneeEvidence(
     page, 'dev-quality', projectTitle, '05-to-quality-iqc', '05-to-quality-iqc'
@@ -240,18 +241,16 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
     page, 'dev-materials', projectTitle, '06-to-material-receipt', '06-to-material-receipt'
   ));
 
-  // 7. 자재 담당자가 합격분을 입고 확정하고 발주품목을 마감한다.
+  // 7. 자재 담당자가 합격분을 입고 확정하면 전량 품목은 자동 마감된다.
   await switchUser(page, 'dev-materials');
   await page.goto('/materials/receipts');
   await searchMaterials(page, projectTitle);
-  materialCard = page.locator('.material-item-card').filter({ hasText: projectTitle });
-  await materialCard.locator('.material-receipt-chip').click();
+  materialCard = page.locator('.material-purchase-row').filter({ hasText: '제어반 외함' });
+  await materialCard.locator('.material-purchase-main').click();
+  await materialCard.locator('.material-receipt-line').click();
   await page.getByRole('button', { name: '입고 확정' }).click();
-  await expect(page.getByText('입고를 확정했습니다.')).toBeVisible();
-  await materialCard.getByRole('button', { name: '품목 입고 마감' }).click();
-  await page.getByLabel('마감 사유').fill('전량 입고와 IQC 합격 확인');
-  await page.getByRole('button', { name: '입고 마감', exact: true }).click();
-  await expect(page.getByText('입고를 마감하고 완료값을 계산했습니다.')).toBeVisible();
+  await expect(page.getByText('입고를 확정했습니다. 전량 확정이면 품목도 자동 완료됩니다.')).toBeVisible();
+  await expect(materialCard).toContainText('입고 완료');
   await captureProjectDetail(page, projectId, '07-material-receipt-confirmed.jpg');
   handoffEvidence.push(await captureAssigneeEvidence(
     page, 'dev-materials', projectTitle, '07-to-kitting', '07-to-kitting'
@@ -265,8 +264,22 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
   await expect(kittingPanel).toContainText('선택 가능');
   await kittingPanel.click();
   await page.getByRole('button', { name: '1면 키팅 완료' }).click();
-  await expect(page.getByText('마지막 패널까지 완료했습니다. 제조 업무 1건이 생성되었습니다.')).toBeVisible();
+  await expect(page.getByText('마지막 패널까지 키팅 완료 상태를 공유했습니다.')).toBeVisible();
   await captureProjectDetail(page, projectId, '08-kitting-completed.jpg');
+  expect(queryDatabase(`select count(*)::text from work_items where project_id='${projectId}' and workflow_stage_code='Manufacturing' and status <> 'Cancelled';`)).toBe('0');
+
+  // 키팅은 참고 상태다. 생산관리 담당자가 실제 투입 패널을 선택해야 제조 업무가 생성된다.
+  await switchUser(page, 'dev-production');
+  await page.goto('/production-planning');
+  await page.getByRole('tab', { name: /제조 투입/u }).click();
+  const releaseProject = page.locator('.production-project-row').filter({ hasText: projectTitle });
+  await expect(releaseProject).toBeVisible();
+  await releaseProject.click();
+  const releasePanel = page.getByLabel('패널 제조 투입 요청');
+  await expect(releasePanel.getByText('키팅 완료')).toBeVisible();
+  await releasePanel.locator('.manufacturing-release-row input[type="checkbox"]').check();
+  await releasePanel.getByRole('button', { name: '선택 1면 제조 투입 요청' }).click();
+  await expect(releasePanel.getByText('1면을 제조팀에 투입 요청했습니다. 제조 업무 1건이 생성되었습니다.')).toBeVisible();
   handoffEvidence.push(await captureAssigneeEvidence(
     page, 'dev-manufacturing', projectTitle, '08-to-manufacturing', '08-to-manufacturing'
   ));
@@ -310,9 +323,11 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
     if (await nextAction.count() === 0) break;
     const nextButton = nextAction.getByRole('button');
     const nextLabel = (await nextButton.textContent())?.trim() ?? '상태 변경';
-    await page.getByLabel('상태 변경 사유').fill(`${nextLabel} 담당자 화면 입력 확인`);
+    await page.getByLabel('처리 내용').fill(`${nextLabel} 담당자 화면 입력 확인`);
     await nextButton.click();
-    await expect(page.getByText(`${nextLabel} 상태로 변경되었습니다.`)).toBeVisible();
+    await expect(page.getByText(nextLabel === '조치 완료'
+      ? '조치를 완료하고 품질 재검사 업무를 생성했습니다.'
+      : `${nextLabel} 상태로 변경되었습니다.`)).toBeVisible();
   }
   await expect(page.locator('.pending-detail-header .status-badge').filter({ hasText: '종결' })).toBeVisible();
   await captureProjectDetail(page, projectId, '09b-manufacturing-pending-closed.jpg');
@@ -320,12 +335,12 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
     page, 'dev-manufacturing', projectTitle, '09b-pending-back-to-manufacturing', '09b-pending-back-to-manufacturing'
   ));
 
-  // 제조 담당자가 Pending 종결을 확인하고 LQC로 인계한다.
+  // 제조 담당자가 Pending 종결을 확인하고 패널 제조를 완료한다.
   await switchUser(page, 'dev-manufacturing');
   await page.goto(`/manufacturing/work?project=${projectId}&panel=${panelId}`);
   await page.getByRole('button', { name: 'Pending 확인 후 재개' }).click();
-  await page.getByRole('button', { name: '제조 완료 · LQC 전달' }).click();
-  await expect(page.getByText(/제조를 완료하고 LQC 업무를 생성했습니다/u)).toBeVisible();
+  await page.getByRole('button', { name: '제조 완료' }).click();
+  await expect(page.getByText(/제조를 완료했습니다/u)).toBeVisible();
   await captureProjectDetail(page, projectId, '09-manufacturing-completed.jpg');
   handoffEvidence.push(await captureAssigneeEvidence(
     page, 'dev-quality', projectTitle, '09-to-lqc', '09-to-lqc'
@@ -335,18 +350,11 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
   await completeQualityStage(page, 'LQC', 'LQC', projectId, panelId);
   await captureProjectDetail(page, projectId, '10-lqc-passed.jpg');
   handoffEvidence.push(await captureAssigneeEvidence(
-    page, 'dev-manufacturing', projectTitle, '10-to-manufacturing-confirmation', '10-to-manufacturing-confirmation'
+    page, 'dev-quality', projectTitle, '10-to-oqc', '10-to-oqc'
   ));
 
-  // 11. 제조 담당자가 LQC 결과를 확인해 제조 완료를 확정한다.
-  await switchUser(page, 'dev-manufacturing');
-  await page.goto(`/manufacturing/work?project=${projectId}&panel=${panelId}`);
-  await page.getByRole('button', { name: '제조 완료 확인' }).click();
-  await expect(page.getByText('OQC 업무가 생성되었습니다.')).toBeVisible();
+  // 11. 제조와 LQC 공동 완료가 자동 기록되고 OQC가 열린다.
   await captureProjectDetail(page, projectId, '11-manufacturing-confirmed.jpg');
-  handoffEvidence.push(await captureAssigneeEvidence(
-    page, 'dev-quality', projectTitle, '11-to-oqc', '11-to-oqc'
-  ));
 
   // 12~14. 품질 담당자가 OQC, 전진검수, FAT를 같은 실제 입력 흐름으로 확정한다.
   await completeQualityStage(page, 'OQC', 'OQC 자체검수', projectId, panelId);
@@ -383,11 +391,28 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
   ));
 
   // 18. 영업담당자가 출하 프로젝트를 선택해 회계팀 발행요청 Excel을 만들고, 회계 발행 확인 후 최종 완료한다.
+  const shipmentDate = queryDatabase(`
+    select max(batch.departure_date)::text
+    from logistics_batches batch
+    where batch.project_id='${projectId}' and batch.stage_code='DepartureProcessed' and batch.status='Finalized';
+  `);
+  expect(shipmentDate).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
+  expect(queryDatabase(`select count(*)::text from panel_placeholders where project_id='${projectId}' and status='Active';`)).toBe('1');
+  expect(queryDatabase(`
+    select count(distinct panel.id)::text
+    from panel_placeholders panel
+    join logistics_packing_unit_panels membership on membership.panel_id=panel.id and membership.active
+    join logistics_batch_units batch_unit on batch_unit.packing_unit_id=membership.packing_unit_id and batch_unit.stage_code='DepartureProcessed' and batch_unit.active
+    join logistics_batches batch on batch.id=batch_unit.batch_id and batch.status='Finalized'
+    where panel.project_id='${projectId}' and panel.status='Active';
+  `)).toBe('1');
+  expect(queryDatabase(`select count(*)::text from pending_issues where project_id='${projectId}' and status<>'Closed';`)).toBe('0');
+  const shipmentMonthStart = `${shipmentDate.slice(0, 7)}-01`;
   await switchUser(page, 'dev-sales');
   await page.goto('/sales/billing-requests');
   await expect(page.getByRole('heading', { name: '세금계산서 발행요청' })).toBeVisible();
-  await page.getByLabel('시작일').fill(currentSeoulDate);
-  await page.getByLabel('종료일').fill(currentSeoulDate);
+  await page.getByLabel('종료일').fill(shipmentDate);
+  await page.getByLabel('시작일').fill(shipmentMonthStart);
   await page.getByRole('button', { name: '조회' }).click();
   const billingRow = page.locator('.billing-table tbody tr').filter({ hasText: projectTitle });
   await expect(billingRow).toBeVisible();
@@ -509,7 +534,7 @@ async function captureEvidenceScreenshot(page: Page, filename: string) {
 async function searchMaterials(page: Page, projectTitle: string) {
   await page.getByPlaceholder('PJT 코드, 발주품목, 업체').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
-  await expect(page.locator('.material-item-card').filter({ hasText: projectTitle })).toBeVisible();
+  await expect(page.locator('.material-project-row').filter({ hasText: projectTitle })).toBeVisible();
 }
 
 async function completeIqc(scope: Locator) {
@@ -541,17 +566,24 @@ async function completeQualityStage(
   await page.goto(`/quality/inspections?stage=${stage}&project=${projectId}&panel=${panelId}`);
   await expect(page.getByRole('heading', { name: '품질 검사' })).toBeVisible();
   await page.getByRole('button', { name: `${stageLabel} 시작` }).click();
-  const items = page.locator('.quality-item');
-  await expect(items.first()).toBeVisible();
-  for (let index = 0; index < await items.count(); index += 1) {
-    const item = items.nth(index);
-    const pass = item.getByRole('button', { name: '적합', exact: true });
-    if (await pass.count()) await pass.click();
-    const text = item.getByPlaceholder('측정값·특이사항을 입력하세요.');
-    if (await text.count()) await text.fill(`${stageLabel} 측정값 정상`);
+  const aggregate = stage === 'CustomerInspection' || stage === 'FAT';
+  if (aggregate) {
+    await expect(page.locator('.quality-aggregate-decision')).toContainText('패널 전체를 한 번에 판정');
+    await expect(page.locator('.quality-item')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '임시 저장' })).toHaveCount(0);
+  } else {
+    const items = page.locator('.quality-item');
+    await expect(items.first()).toBeVisible();
+    for (let index = 0; index < await items.count(); index += 1) {
+      const item = items.nth(index);
+      const pass = item.getByRole('button', { name: '적합', exact: true });
+      if (await pass.count()) await pass.click();
+      const text = item.getByPlaceholder('측정값·특이사항을 입력하세요.');
+      if (await text.count()) await text.fill(`${stageLabel} 측정값 정상`);
+    }
+    await page.getByRole('button', { name: '임시 저장' }).click();
+    await expect(page.getByText('검사 항목을 저장했습니다.')).toBeVisible();
   }
-  await page.getByRole('button', { name: '임시 저장' }).click();
-  await expect(page.getByText('검사 항목을 저장했습니다.')).toBeVisible();
   const uploader = page.locator('.quality-photo-uploader');
   await uploader.locator('input[type="file"]').setInputFiles(evidenceImage);
   await uploader.getByPlaceholder('예: 배선 체결 상태').fill(`${stageLabel} 사진 증빙`);
@@ -581,10 +613,13 @@ async function completeLogisticsStage(
   if (stage === 'packing') await page.getByLabel('포장 메모').fill('목재 포장과 방수 상태 확인');
   if (stage === 'departure') await page.getByLabel('출발일').fill(currentSeoulDate);
   await page.getByRole('button', { name: startButton }).click();
+  await expect(page.getByText(/draft를 만들었습니다/u)).toBeVisible();
   const evidence = page.locator('.logistics-evidence-form');
   await evidence.locator('input[type="file"]').setInputFiles(evidenceImage);
   if (needsAltText) await evidence.getByLabel('사진 설명').fill(`${finalizeButton} 현장 증빙`);
-  await evidence.getByRole('button', { name: '증빙 등록' }).click();
+  const uploadButton = evidence.getByRole('button', { name: '증빙 등록' });
+  await expect(uploadButton).toBeEnabled();
+  await uploadButton.click();
   await expect(page.getByText('증빙을 안전하게 등록했습니다. 내용을 확인하고 확정해 주세요.')).toBeVisible();
   await page.getByRole('button', { name: finalizeButton }).click();
   await expect(page.getByText(new RegExp(`${finalizeButton.replace(' 확정', '')} 확정 완료`))).toBeVisible();
@@ -615,14 +650,14 @@ async function captureProjectDepartmentTabs(page: Page, projectId: string) {
   await expect(page.locator('.workflow-stage-item')).toHaveCount(18);
   const tabList = page.getByRole('tablist', { name: '프로젝트 상세 섹션' });
   const tabs = [
-    { label: '영업', filename: '19-project-tab-sales.jpg', directData: true, section: 'sales', expectedText: '정산·회계 발행 확인' },
-    { label: '생산관리', filename: '20-project-tab-production.jpg', directData: false, section: null, expectedText: null },
-    { label: '설계', filename: '21-project-tab-design.jpg', directData: false, section: null, expectedText: null },
-    { label: '구매', filename: '22-project-tab-procurement.jpg', directData: false, section: null, expectedText: null },
-    { label: '자재', filename: '23-project-tab-materials.jpg', directData: true, section: 'materials', expectedText: 'P01 키팅' },
-    { label: '제조', filename: '24-project-tab-manufacturing.jpg', directData: true, section: 'manufacturing', expectedText: '이력 · 작업 종료' },
-    { label: '품질', filename: '25-project-tab-quality.jpg', directData: true, section: 'quality', expectedText: 'FAT · P01' },
-    { label: '물류', filename: '26-project-tab-logistics.jpg', directData: true, section: 'logistics', expectedText: '납품 · DL-001' }
+    { label: '전체 흐름', filename: '19-project-tab-workflow.jpg', kind: 'workflow', section: null, expectedText: '프로젝트 전체 흐름' },
+    { label: '생산관리', filename: '20-project-tab-production.jpg', kind: 'planning', section: null, expectedText: '계획 항목과 일정' },
+    { label: '설계', filename: '21-project-tab-design.jpg', kind: 'design', section: null, expectedText: '패널명' },
+    { label: '구매', filename: '22-project-tab-procurement.jpg', kind: 'procurement', section: null, expectedText: '제어반 외함' },
+    { label: '제조', filename: '23-project-tab-manufacturing.jpg', kind: 'panel', section: 'manufacturing', expectedText: '패널별 제조 착수' },
+    { label: '품질', filename: '24-project-tab-quality.jpg', kind: 'panel', section: 'quality', expectedText: 'OQC 완료' },
+    { label: '물류', filename: '25-project-tab-logistics.jpg', kind: 'panel', section: 'logistics', expectedText: '납품 완료' },
+    { label: '영업', filename: '26-project-tab-sales.jpg', kind: 'sales', section: 'sales', expectedText: '정산·회계 발행 확인' }
   ] as const;
 
   for (const tab of tabs) {
@@ -630,13 +665,30 @@ async function captureProjectDepartmentTabs(page: Page, projectId: string) {
     await expect(button).toHaveCount(1);
     await button.click();
     await expect(button).toHaveAttribute('aria-selected', 'true');
-    if (tab.directData) {
+    await expect(page.locator('.project-detail-tab-content')).toBeVisible();
+    await expect(page.locator('.project-detail-tab-content')).toContainText(tab.expectedText);
+    if (tab.kind === 'panel') {
       await expect(page.locator('.project-department-section .project-department-metrics')).toBeVisible();
-      await expect(page.locator('.project-department-section .project-department-stage-list')).toHaveCount(0);
-      await expect(page.locator('.project-department-section .project-department-records')).toBeVisible();
-      await expect(page.locator('.project-department-section .project-department-record')).not.toHaveCount(0);
-      await expect(page.locator('.project-department-section .project-department-field-grid')).not.toHaveCount(0);
+      await expect(page.locator('.project-panel-status-table')).toBeVisible();
       await expect(page.locator(`.project-department-section[data-department="${tab.section}"]`)).toContainText(tab.expectedText);
+      const progressRendering = await page.locator('.project-panel-status-table .project-progress-meter').evaluateAll((meters) => {
+        const completed = meters.filter((meter) => meter.querySelector('strong')?.textContent?.trim() === '100%');
+        return {
+          completedCount: completed.length,
+          unfilledCompleted: completed.map((meter) => {
+            const track = meter.querySelector('i');
+            const fill = meter.querySelector('i > b');
+            if (!track || !fill) return true;
+            const fillStyle = window.getComputedStyle(fill);
+            return fill.getBoundingClientRect().width < track.getBoundingClientRect().width - 2
+              || fillStyle.backgroundColor === 'rgba(0, 0, 0, 0)';
+          }).filter(Boolean).length
+        };
+      });
+      expect(progressRendering.completedCount).toBeGreaterThan(0);
+      expect(progressRendering.unfilledCompleted).toBe(0);
+    } else if (tab.kind === 'sales') {
+      await expect(page.locator('.project-department-section[data-department="sales"]')).toContainText(tab.expectedText);
     }
     await page.evaluate(async () => {
       await document.fonts.ready;
@@ -650,13 +702,10 @@ async function captureProjectDepartmentTabs(page: Page, projectId: string) {
   }
 
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const tab of tabs.filter((candidate) => candidate.directData)) {
+  for (const tab of tabs) {
     const button = tabList.getByRole('tab', { name: tab.label, exact: true });
     await button.click();
-    await expect(page.locator('.project-department-section .project-department-metrics')).toBeVisible();
-    await expect(page.locator('.project-department-section .project-department-records')).toBeVisible();
-    await expect(page.locator('.project-department-section .project-department-field-grid')).not.toHaveCount(0);
-    await expect(page.locator(`.project-department-section[data-department="${tab.section}"]`)).toContainText(tab.expectedText);
+    await expect(page.locator('.project-detail-tab-content')).toContainText(tab.expectedText);
     await expect.poll(() => page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - window.innerWidth))).toBe(0);
     await captureEvidenceScreenshot(page, tab.filename.replace('.jpg', '-mobile.jpg'));
   }

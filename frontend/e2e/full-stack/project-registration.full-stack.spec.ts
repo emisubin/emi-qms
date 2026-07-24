@@ -532,12 +532,11 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '자재' }).click();
   await page.getByPlaceholder('PJT 코드, 발주품목, 업체').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
-  const materialCard = page.locator('.material-item-card').filter({ hasText: projectTitle });
+  const materialCard = page.locator('.material-purchase-row').filter({ hasText: 'MCCB' });
   await expect(materialCard).toContainText('MCCB');
-  await materialCard.getByRole('button', { name: '도착분 추가' }).click();
-  await page.getByLabel('발주 수량').fill('1');
+  await materialCard.getByRole('button', { name: '도착입력' }).click();
   await page.getByLabel('도착 수량').fill('1');
-  await page.getByRole('button', { name: '도착 등록', exact: true }).click();
+  await page.getByRole('button', { name: '저장', exact: true }).click();
 
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
   await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '품질' }).click();
@@ -554,12 +553,10 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await page.goto('/materials/receipts');
   await page.getByPlaceholder('PJT 코드, 발주품목, 업체').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
-  const confirmedCard = page.locator('.material-item-card').filter({ hasText: projectTitle });
-  await confirmedCard.locator('.material-receipt-chip').click();
+  const confirmedCard = page.locator('.material-purchase-row').filter({ hasText: 'MCCB' });
+  await confirmedCard.locator('.material-purchase-main').click();
+  await confirmedCard.locator('.material-receipt-line').click();
   await page.getByRole('button', { name: '입고 확정' }).click();
-  await confirmedCard.getByRole('button', { name: '입고 마감' }).click();
-  await page.getByLabel('마감 사유').fill('전량 입고 완료');
-  await page.getByRole('button', { name: '입고 마감', exact: true }).last().click();
   expect(await queryDatabaseValue(`select receipt_completed::text from project_procurement_items where project_id = '${projectId}' limit 1;`)).toBe('true');
 
   await page.getByLabel('개발 사용자').selectOption('dev-procurement');

@@ -766,6 +766,8 @@ public sealed partial class ProjectRegistrationApiTests
         Assert.Equal(4, root.GetProperty("qrEligibleCount").GetInt32());
         Assert.Equal(6, root.GetProperty("manufacturingCompletedCount").GetInt32());
         Assert.Equal(3, root.GetProperty("inspectionCompletedCount").GetInt32());
+        Assert.Equal(4, root.GetProperty("manufacturingStepCount").GetInt32());
+        Assert.Equal(4, root.GetProperty("oqcStepCount").GetInt32());
     }
 
     [Fact]
@@ -1046,7 +1048,9 @@ public sealed partial class ProjectRegistrationApiTests
         using var requiredWorkflow = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
         var requiredFatStage = requiredWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "FAT");
         Assert.NotEqual("Skipped", requiredFatStage.GetProperty("status").GetString());
-        Assert.Equal(18, requiredWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
+        Assert.Equal(17, requiredWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
+        var optionalKittingStage = requiredWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "KittingCompleted");
+        Assert.True(optionalKittingStage.GetProperty("isOptional").GetBoolean());
 
         var update = await client.PatchAsJsonAsync(
             $"/api/projects/{projectId}",
@@ -1059,7 +1063,7 @@ public sealed partial class ProjectRegistrationApiTests
         using var optionalWorkflow = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
         var optionalFatStage = optionalWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "FAT");
         Assert.Equal("Skipped", optionalFatStage.GetProperty("status").GetString());
-        Assert.Equal(17, optionalWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
+        Assert.Equal(16, optionalWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
         Assert.False((await ReadSingleProjectListItemAsync(client, "FAT Required Project")).GetProperty("fatRequired").GetBoolean());
     }
 
@@ -2160,9 +2164,20 @@ public sealed partial class ProjectRegistrationApiTests
             where panel.project_id = '{projectId}'
             order by panel.sequence_number
             limit 1;
+
+            insert into panel_manufacturing_release_operations (
+                operation_id, project_id, requested_by_user_id, panel_ids,
+                released_panel_count, generated_work_item_count
+            )
+            select uuid_generate_v4(), '{projectId}', '{SalesOwnerUserId}', array[panel.id], 1, 1
+            from panel_placeholders panel
+            where panel.project_id = '{projectId}'
+            order by panel.sequence_number
+            limit 1;
             """);
         Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from panel_kitting_batches where project_id = '{projectId}';"));
         Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from panel_kitting_completions where project_id = '{projectId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from panel_manufacturing_release_operations where project_id = '{projectId}';"));
 
         var activePurge = await SendJsonAsync(
             adminClient,
@@ -2217,6 +2232,7 @@ public sealed partial class ProjectRegistrationApiTests
         Assert.Equal(0, await context.CountRowsAsync("project_audit_events", projectId));
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from panel_kitting_batches;"));
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from panel_kitting_completions;"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from panel_manufacturing_release_operations;"));
     }
 
     [Fact]

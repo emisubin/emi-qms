@@ -3,16 +3,17 @@ import { useAdaptiveLayout } from './adaptive-layout';
 import {
   ApiError,
   cancelMaterialReceipt,
-  closeMaterialArrivals,
   confirmMaterialReceipt,
   getMaterialIqcQueue,
   getMaterialReceipts,
+  getPendingIssue,
   reconcileMaterialIqcQueue,
   recordMaterialIqcResult,
   registerMaterialArrival
 } from './api';
 import { MobileSheet } from './MobileSheet';
 import { IqcReportWorkspace } from './IqcReportWorkspace';
+import { PendingInspectionContext } from './PendingInspectionContext';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useSelectedRows } from './useSelectedRows';
 import { useActionFeedback, type ActionFeedbackState } from './useActionFeedback';
@@ -31,8 +32,7 @@ type LoadState<T> =
 
 type MaterialAction =
   | { kind: 'arrival'; item: MaterialReceivingItem }
-  | { kind: 'receipt'; item: MaterialReceivingItem; receipt: MaterialReceipt }
-  | { kind: 'close'; item: MaterialReceivingItem };
+  | { kind: 'receipt'; item: MaterialReceivingItem; receipt: MaterialReceipt };
 
 export function MaterialReceivingPage({
   developmentUserKey,
@@ -53,7 +53,6 @@ export function MaterialReceivingPage({
   onOpenKitting: () => void;
   onOpenPending: (pendingId: string) => void;
 }) {
-  const layout = useAdaptiveLayout();
   const [state, setState] = useState<LoadState<MaterialReceiptListResponse>>({ kind: 'loading' });
   const [search, setSearch] = useState(initialProjectCode ?? '');
   const [appliedSearch, setAppliedSearch] = useState(initialProjectCode ?? '');
@@ -62,6 +61,7 @@ export function MaterialReceivingPage({
   const [customerSupplyOverdueOnly, setCustomerSupplyOverdueOnly] = useState(initialRisk === 'customer-supply-overdue');
   const [activeFilter, setActiveFilter] = useState<'all' | 'iqc' | 'blocked' | 'confirm'>('all');
   const [action, setAction] = useState<MaterialAction | null>(null);
+  const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
   const actions = useActionFeedback();
   const loadGenerationRef = useRef(0);
 
@@ -73,13 +73,16 @@ export function MaterialReceivingPage({
       const data = await getMaterialReceipts(developmentUserKey, appliedSearch, includeCompleted, '', '', supplyFilter);
       if (generation !== loadGenerationRef.current) return false;
       setState({ kind: 'ready', data });
+      if (!preserve && initialProjectCode) {
+        setExpandedProjectId(data.items.find((item) => item.projectCode === initialProjectCode)?.projectId ?? null);
+      }
       return true;
     } catch (error) {
       if (generation !== loadGenerationRef.current) return false;
       if (!preserve) setState({ kind: 'error', message: errorMessage(error, '자재 입고 현황을 불러오지 못했습니다.') });
       return false;
     }
-  }, [appliedSearch, developmentUserKey, includeCompleted, supplyFilter]);
+  }, [appliedSearch, developmentUserKey, includeCompleted, initialProjectCode, supplyFilter]);
 
   useEffect(() => {
     queueMicrotask(() => void load());
@@ -118,6 +121,20 @@ export function MaterialReceivingPage({
     return riskFilteredItems.filter((item) => item.receipts.some((receipt) => receipt.status === statusByFilter[activeFilter]));
   }, [activeFilter, customerSupplyOverdueOnly, state]);
   const receiptSelection = useSelectedRows(visibleItems.map((item) => item.itemId));
+  const visibleProjects = useMemo(() => {
+    const grouped = new Map<string, { projectId: string; projectCode: string; projectTitle: string; items: MaterialReceivingItem[] }>();
+    for (const item of visibleItems) {
+      const project = grouped.get(item.projectId) ?? {
+        projectId: item.projectId,
+        projectCode: item.projectCode,
+        projectTitle: item.projectTitle,
+        items: []
+      };
+      project.items.push(item);
+      grouped.set(item.projectId, project);
+    }
+    return [...grouped.values()];
+  }, [visibleItems]);
 
   async function runAction(scope: string, operation: () => Promise<unknown>, success: string) {
     const result = await actions.run(scope, operation, {
@@ -233,23 +250,56 @@ export function MaterialReceivingPage({
       ) : null}
 
       {state.kind === 'ready' ? (
-        <div className={layout.isMobile ? 'material-item-list material-item-list--mobile' : 'material-item-list material-item-list--desktop'}>
-          {visibleItems.map((item) => (
-            <div className="material-continuous-item" key={item.itemId} data-action-open={action?.item.itemId === item.itemId}>
-              <MaterialItemCard
-                item={item}
-                canUpdate={canUpdate}
-                mobile={layout.isMobile}
-                onAction={setAction}
-                selected={receiptSelection.selectedIds.has(item.itemId)}
-                selectionBusy={receiptSelection.busy}
-                onSelectionChange={(checked) => receiptSelection.toggle(item.itemId, checked)}
-              />
-              {action?.item.itemId === item.itemId ? (
-                <div className="material-continuous-action" aria-live="polite">{actionPanel}</div>
-              ) : null}
-            </div>
-          ))}
+        <div className="material-project-list" role="list" aria-label="자재 입고 프로젝트">
+          {visibleProjects.map((project, projectIndex) => {
+            const expanded = expandedProjectId === project.projectId;
+            const completedCount = project.items.filter((item) => item.receiptCompleted).length;
+            const partialCount = project.items.filter((item) => !item.receiptCompleted && (item.confirmedQuantity ?? 0) > 0).length;
+            const confirmCount = project.items.flatMap((item) => item.receipts).filter((receipt) => receipt.status === 'Passed').length;
+            return (
+              <article className="material-project-row" key={project.projectId} role="listitem" data-expanded={expanded}>
+                <button
+                  type="button"
+                  className="material-project-toggle"
+                  aria-expanded={expanded}
+                  onClick={() => {
+                    setExpandedProjectId(expanded ? null : project.projectId);
+                    setAction(null);
+                  }}
+                >
+                  <span className="material-project-number">{String(projectIndex + 1).padStart(2, '0')}</span>
+                  <span className="material-project-identity"><small>{project.projectCode}</small><strong>{project.projectTitle}</strong></span>
+                  <span><small>구매품</small><b>{project.items.length}건</b></span>
+                  <span><small>입고 완료</small><b>{completedCount}/{project.items.length}</b></span>
+                  <span><small>부분 입고</small><b>{partialCount}건</b></span>
+                  <span><small>확정 대기</small><b>{confirmCount}건</b></span>
+                  <i aria-hidden="true">{expanded ? '−' : '+'}</i>
+                </button>
+                {expanded ? (
+                  <div className="material-project-purchases">
+                    <div className="material-purchase-head" role="row">
+                      <span>선택</span><span>구분</span><span>발주품목</span><span>업체</span><span>발주·예정량</span><span>입고예정일</span><span>입고 현황</span><span>작업</span>
+                    </div>
+                    {project.items.map((item) => (
+                      <div className="material-purchase-entry" key={item.itemId} data-action-open={action?.item.itemId === item.itemId}>
+                        <MaterialPurchaseRow
+                          item={item}
+                          canUpdate={canUpdate}
+                          onAction={setAction}
+                          selected={receiptSelection.selectedIds.has(item.itemId)}
+                          selectionBusy={receiptSelection.busy}
+                          onSelectionChange={(checked) => receiptSelection.toggle(item.itemId, checked)}
+                        />
+                        {action?.item.itemId === item.itemId ? (
+                          <div className="material-continuous-action material-purchase-action" aria-live="polite">{actionPanel}</div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
         </div>
       ) : null}
     </section>
@@ -300,9 +350,22 @@ export function MaterialIqcPage({
       }
       const response = await getMaterialIqcQueue(developmentUserKey, includeDecided);
       if (generation !== loadGenerationRef.current) return false;
-      const visibleItems = initialProjectId
+      let visibleItems = initialProjectId
         ? response.items.filter((item) => item.projectId === initialProjectId)
         : response.items;
+      const unresolvedPendingIds = [...new Set(visibleItems
+        .filter((item) => item.pendingIssueId && !item.pendingIssueNumber)
+        .map((item) => item.pendingIssueId!))];
+      if (unresolvedPendingIds.length > 0) {
+        const pendingDetails = await Promise.allSettled(unresolvedPendingIds.map((pendingId) => getPendingIssue(developmentUserKey, pendingId)));
+        const issueNumberById = new Map<string, number>();
+        pendingDetails.forEach((result, index) => {
+          if (result.status === 'fulfilled') issueNumberById.set(unresolvedPendingIds[index], result.value.issue.issueNumber);
+        });
+        visibleItems = visibleItems.map((item) => item.pendingIssueId && !item.pendingIssueNumber
+          ? { ...item, pendingIssueNumber: issueNumberById.get(item.pendingIssueId) ?? null }
+          : item);
+      }
       setState({ kind: 'ready', data: visibleItems });
       const requestedId = initialRequestId ?? new URLSearchParams(window.location.search).get('request');
       setSelected((current) => visibleItems.find((item) => item.attemptId === requestedId)
@@ -349,26 +412,48 @@ export function MaterialIqcPage({
     }
   }
 
-  const inspector = selected && selected.decisionMode === 'Legacy' && selected.status === 'Requested' ? (
-    <IqcInspector
-      item={selected}
-      reason={reason}
-      feedback={actions.latestFeedback}
-      disabled={!canInspect || actions.hasBusyPrefix('iqc:') || selected.status !== 'Requested'}
-      onReason={setReason}
-      onSubmit={submit}
-      onClose={() => { setSelected(null); actions.reset(); setReason(''); }}
-      onOpenPending={onOpenPending}
-    />
-  ) : selected ? (
-    <IqcReportWorkspace
-      attemptId={selected.attemptId}
-      developmentUserKey={developmentUserKey}
-      canInspect={canInspect}
-      onClose={() => { setSelected(null); actions.reset(); setReason(''); void load(); }}
-      onChanged={() => setIncludeDecided(true)}
-    />
+  const inspector = selected ? (
+    <div className="iqc-inspection-workspace">
+      {selected.pendingIssueId ? <PendingInspectionContext pendingId={selected.pendingIssueId} developmentUserKey={developmentUserKey} /> : null}
+      {selected.decisionMode === 'Legacy' && selected.status === 'Requested' ? (
+        <IqcInspector
+          item={selected}
+          reason={reason}
+          feedback={actions.latestFeedback}
+          disabled={!canInspect || actions.hasBusyPrefix('iqc:') || selected.status !== 'Requested'}
+          onReason={setReason}
+          onSubmit={submit}
+          onClose={() => { setSelected(null); actions.reset(); setReason(''); }}
+          onOpenPending={onOpenPending}
+        />
+      ) : (
+        <IqcReportWorkspace
+          attemptId={selected.attemptId}
+          developmentUserKey={developmentUserKey}
+          canInspect={canInspect}
+          onClose={() => { setSelected(null); actions.reset(); setReason(''); void load(); }}
+          onChanged={() => setIncludeDecided(true)}
+        />
+      )}
+    </div>
   ) : null;
+  const reinspectionItems = state.kind === 'ready' ? state.data.filter((item) => item.pendingIssueId !== null) : [];
+  const initialInspectionItems = state.kind === 'ready' ? state.data.filter((item) => item.pendingIssueId === null) : [];
+
+  function renderIqcCard(item: MaterialIqcQueueItem) {
+    return (
+      <article className="iqc-request-card selected-export-row" key={item.attemptId} data-status={item.status} data-report={item.reportStatus ?? item.decisionMode} data-reinspection={item.pendingIssueId !== null || undefined}>
+        <SelectionCheckbox checked={iqcSelection.selectedIds.has(item.attemptId)} disabled={iqcSelection.busy} label={`${item.projectCode} ${item.orderItem ?? '품목'} 선택`} onChange={(checked) => iqcSelection.toggle(item.attemptId, checked)} />
+        <button type="button" className="iqc-request-open" onClick={() => { setSelected(item); setReason(item.reason ?? ''); }}>
+          <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.pendingIssueId ? <span className="iqc-reinspection-badge">{item.pendingIssueNumber ? `재검사 · P-${String(item.pendingIssueNumber).padStart(4, '0')}` : 'Pending 재검사'}</span> : null}{item.decisionMode === 'Legacy' ? <span className="iqc-report-badge" data-kind="legacy">LEGACY</span> : <span className="iqc-report-badge" data-kind={item.reportStatus ?? 'new'}>{item.reportStatus === 'Finalized' ? '성적서 완료' : item.reportStatus === 'Draft' ? '작성 중' : '신규 성적서'}</span>}{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
+          <b>{item.orderItem ?? '발주품목 미입력'}</b>
+          <small>{item.projectTitle}</small>
+          <span>{formatQuantity(item.quantity, item.unit)} · {item.attemptNumber}차 검사</span>
+          <small>{formatDateTime(item.requestedAtUtc)} 요청</small>
+        </button>
+      </article>
+    );
+  }
 
   return (
     <section className="page-surface material-workspace material-iqc-workspace" data-testid="material-iqc-page">
@@ -410,21 +495,17 @@ export function MaterialIqcPage({
       {state.kind === 'loading' ? <MaterialLoading /> : null}
       {state.kind === 'error' ? <p className="error-text" role="alert">{state.message}</p> : null}
       {state.kind === 'ready' && state.data.length === 0 ? <div className="material-empty-state"><strong>검사 대기 항목이 없습니다.</strong><span>새 IQC 요청이 들어오면 여기에 표시됩니다.</span></div> : null}
-      {state.kind === 'ready' ? (
-        <div className={layout.isMobile ? 'iqc-card-list iqc-card-list--mobile' : 'iqc-card-list'}>
-          {state.data.map((item) => (
-            <article className="iqc-request-card selected-export-row" key={item.attemptId} data-status={item.status} data-report={item.reportStatus ?? item.decisionMode}>
-              <SelectionCheckbox checked={iqcSelection.selectedIds.has(item.attemptId)} disabled={iqcSelection.busy} label={`${item.projectCode} ${item.orderItem ?? '품목'} 선택`} onChange={(checked) => iqcSelection.toggle(item.attemptId, checked)} />
-              <button type="button" className="iqc-request-open" onClick={() => { setSelected(item); setReason(item.reason ?? ''); }}>
-                <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.decisionMode === 'Legacy' ? <span className="iqc-report-badge" data-kind="legacy">LEGACY</span> : <span className="iqc-report-badge" data-kind={item.reportStatus ?? 'new'}>{item.reportStatus === 'Finalized' ? '성적서 완료' : item.reportStatus === 'Draft' ? '작성 중' : '신규 성적서'}</span>}{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
-                <b>{item.orderItem ?? '발주품목 미입력'}</b>
-                <small>{item.projectTitle}</small>
-                <span>{formatQuantity(item.quantity, item.unit)} · {item.attemptNumber}차 검사</span>
-                <small>{formatDateTime(item.requestedAtUtc)} 요청</small>
-              </button>
-            </article>
-          ))}
-        </div>
+      {state.kind === 'ready' && reinspectionItems.length > 0 ? (
+        <section className="iqc-queue-section iqc-queue-section--reinspection" aria-labelledby="iqc-reinspection-queue-title">
+          <header><div><p className="eyebrow">PENDING FOLLOW-UP</p><h3 id="iqc-reinspection-queue-title">Pending 재검사</h3></div><strong>{reinspectionItems.filter((item) => item.status === 'Requested').length}건</strong></header>
+          <div className={layout.isMobile ? 'iqc-card-list iqc-card-list--mobile' : 'iqc-card-list'}>{reinspectionItems.map(renderIqcCard)}</div>
+        </section>
+      ) : null}
+      {state.kind === 'ready' && initialInspectionItems.length > 0 ? (
+        <section className="iqc-queue-section" aria-labelledby="iqc-initial-queue-title">
+          {reinspectionItems.length > 0 ? <header><div><p className="eyebrow">STANDARD INTAKE</p><h3 id="iqc-initial-queue-title">일반 IQC</h3></div><strong>{initialInspectionItems.filter((item) => item.status === 'Requested').length}건</strong></header> : null}
+          <div className={layout.isMobile ? 'iqc-card-list iqc-card-list--mobile' : 'iqc-card-list'}>{initialInspectionItems.map(renderIqcCard)}</div>
+        </section>
       ) : null}
 
       {layout.isMobile ? (
@@ -436,86 +517,85 @@ export function MaterialIqcPage({
   );
 }
 
-function MaterialItemCard({ item, canUpdate, mobile, onAction, selected, selectionBusy, onSelectionChange }: {
+function MaterialPurchaseRow({ item, canUpdate, onAction, selected, selectionBusy, onSelectionChange }: {
   item: MaterialReceivingItem;
   canUpdate: boolean;
-  mobile: boolean;
   onAction: (action: MaterialAction) => void;
   selected: boolean;
   selectionBusy: boolean;
   onSelectionChange: (selected: boolean) => void;
 }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const activeReceipts = item.receipts.filter((receipt) => receipt.status !== 'Cancelled');
+  const historyId = `material-history-${item.itemId}`;
+  const latestStatus = item.receiptCompleted
+    ? '입고 완료'
+    : (item.confirmedQuantity ?? 0) > 0
+      ? '부분 입고'
+      : item.receipts.some((receipt) => receipt.status === 'Passed')
+        ? '입고 확정 대기'
+        : item.receipts.some((receipt) => receipt.status === 'FailedBlocked')
+          ? 'IQC 부적합'
+          : item.receipts.some((receipt) => receipt.status === 'IqcRequested')
+            ? 'IQC 대기'
+            : item.receipts.length > 0
+              ? '도착 등록'
+              : '도착 대기';
+  function toggleHistory(target: EventTarget | null) {
+    if (item.receipts.length === 0 || (target instanceof Element && target.closest('button, input, label, a, select, textarea'))) {
+      return;
+    }
+    setHistoryOpen((current) => !current);
+  }
   return (
-    <article className="material-item-card selected-export-row" data-completed={item.receiptCompleted}>
-      <header>
+    <article className="material-purchase-row selected-export-row" data-completed={item.receiptCompleted}>
+      <div
+        className="material-purchase-main"
+        role="row"
+        tabIndex={item.receipts.length > 0 ? 0 : undefined}
+        aria-expanded={item.receipts.length > 0 ? historyOpen : undefined}
+        aria-controls={item.receipts.length > 0 ? historyId : undefined}
+        onClick={(event) => toggleHistory(event.target)}
+        onKeyDown={(event) => {
+          const targetIsInteractive = event.target instanceof Element && event.target.closest('button, input, label, a, select, textarea');
+          if ((event.key === 'Enter' || event.key === ' ') && !targetIsInteractive) {
+            event.preventDefault();
+            toggleHistory(event.target);
+          }
+        }}
+      >
         <SelectionCheckbox checked={selected} disabled={selectionBusy} label={`${item.projectCode} ${item.orderItem ?? '품목'} 선택`} onChange={onSelectionChange} />
-        <div><span>{item.projectCode}</span><strong>{item.orderItem ?? '발주품목 미입력'}</strong><small>{item.projectTitle}</small></div>
-        <div className="material-card-badges">{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={item.customerSupplyOverdue} /> : null}<StatusBadge status={item.receiptCompleted ? 'Confirmed' : item.arrivalsClosed ? 'Passed' : item.receipts.at(0)?.status ?? 'Arrived'} /></div>
-      </header>
-      {mobile ? (
-        <dl className="material-item-meta material-item-meta--priority">
-          <div><dt>입고예정</dt><dd>{item.expectedReceiptDate ?? '-'}</dd></div>
-          <div><dt>{item.supplyType === 'CustomerSupplied' ? '미도착' : '누적 도착'}</dt><dd>{formatQuantity(item.supplyType === 'CustomerSupplied' ? item.remainingQuantity : item.arrivedQuantity, item.orderUnit)}</dd></div>
-          <div><dt>{item.supplyType === 'CustomerSupplied' ? '처리 대기' : '발주 수량'}</dt><dd>{formatQuantity(item.supplyType === 'CustomerSupplied' ? item.processingQuantity : item.orderQuantity, item.orderUnit)}</dd></div>
-        </dl>
-      ) : (
-        <dl className="material-item-meta">
-          <div><dt>{item.supplyType === 'CustomerSupplied' ? '공급 책임' : '업체'}</dt><dd>{item.supplyType === 'CustomerSupplied' ? '고객 제공' : item.supplierName ?? '-'}</dd></div>
-          <div><dt>입고예정</dt><dd>{item.expectedReceiptDate ?? '-'}</dd></div>
-          <div><dt>{item.supplyType === 'CustomerSupplied' ? '제공 예정' : '발주'}</dt><dd>{formatQuantity(item.orderQuantity, item.orderUnit)}</dd></div>
-          <div><dt>누적 도착</dt><dd>{formatQuantity(item.arrivedQuantity, item.orderUnit)}</dd></div>
-          {item.supplyType === 'CustomerSupplied' ? <><div><dt>입고 확정</dt><dd>{formatQuantity(item.confirmedQuantity, item.orderUnit)}</dd></div><div><dt>미도착 잔량</dt><dd>{formatQuantity(item.remainingQuantity, item.orderUnit)}</dd></div><div><dt>처리 대기량</dt><dd>{formatQuantity(item.processingQuantity, item.orderUnit)}</dd></div><div><dt>업체 참고</dt><dd>{item.supplierName ?? '-'}</dd></div></> : null}
-        </dl>
-      )}
-      {mobile ? (
-        <details className="mobile-card-details material-card-details">
-          <summary>입고 상세</summary>
-          <dl className="material-item-meta">
-            <div><dt>{item.supplyType === 'CustomerSupplied' ? '공급 책임' : '업체'}</dt><dd>{item.supplyType === 'CustomerSupplied' ? '고객 제공' : item.supplierName ?? '-'}</dd></div>
-            <div><dt>{item.supplyType === 'CustomerSupplied' ? '제공 예정' : '발주'}</dt><dd>{formatQuantity(item.orderQuantity, item.orderUnit)}</dd></div>
-            <div><dt>누적 도착</dt><dd>{formatQuantity(item.arrivedQuantity, item.orderUnit)}</dd></div>
-            {item.supplyType === 'CustomerSupplied' ? <><div><dt>입고 확정</dt><dd>{formatQuantity(item.confirmedQuantity, item.orderUnit)}</dd></div><div><dt>업체 참고</dt><dd>{item.supplierName ?? '-'}</dd></div></> : null}
-          </dl>
-        </details>
-      ) : null}
-      <MaterialContinuousFlowOverview item={item} />
-      {item.receipts.length === 0 ? <p className="material-no-receipts">아직 등록된 도착분이 없습니다.</p> : (
-        <div className="material-receipt-stack">
-          {item.receipts.map((receipt) => (
-            <button type="button" key={receipt.receiptId} className="material-receipt-chip" onClick={() => onAction({ kind: 'receipt', item, receipt })}>
-              <span><b>{formatQuantity(receipt.quantity, receipt.unit)}</b><small>{receipt.arrivalDate}</small></span>
-              <ReceiptSteps status={receipt.status} />
-              <span aria-hidden="true">›</span>
-            </button>
-          ))}
+        <span className="material-purchase-supply">{item.supplyType === 'CustomerSupplied' ? item.customerSupplyOverdue ? '사급 지연' : '사급' : '도급'}</span>
+        <span className="material-purchase-name">
+          <strong>{item.orderItem ?? '발주품목 미입력'}</strong>
+          <small>{activeReceipts.length > 0 ? `${activeReceipts.length}회 도착 · 행을 눌러 이력 ${historyOpen ? '접기' : '보기'}` : '도착 이력 없음'}</small>
+        </span>
+        <span>{item.supplyType === 'CustomerSupplied' ? '고객 제공' : item.supplierName ?? '-'}</span>
+        <span>{formatQuantity(item.orderQuantity, item.orderUnit)}</span>
+        <span>{item.expectedReceiptDate ?? '-'}</span>
+        <span className="material-purchase-status" data-status={item.receiptCompleted ? 'completed' : (item.confirmedQuantity ?? 0) > 0 ? 'partial' : 'active'}>
+          <strong>{latestStatus}</strong>
+          <small>확정 {formatQuantity(item.confirmedQuantity, item.orderUnit)} · 잔여 {formatQuantity(item.remainingQuantity, item.orderUnit)}</small>
+        </span>
+        <button type="button" className="primary-button material-arrival-open" disabled={!canUpdate || item.arrivalsClosed} onClick={() => onAction({ kind: 'arrival', item })}>도착입력</button>
+      </div>
+      {item.receipts.length > 0 && historyOpen ? (
+        <div className="material-receipt-history" id={historyId}>
+          <header><strong>도착·IQC 이력</strong><span>{item.receipts.length}건</span></header>
+          <div>
+            {item.receipts.map((receipt) => (
+              <button type="button" key={receipt.receiptId} className="material-receipt-line" onClick={() => onAction({ kind: 'receipt', item, receipt })}>
+                <span>{receipt.arrivalDate}</span>
+                <strong>{formatQuantity(receipt.quantity, receipt.unit)}</strong>
+                <span>{receipt.note ?? '비고 없음'}</span>
+                <StatusBadge status={receipt.status} />
+                <i aria-hidden="true">열기</i>
+              </button>
+            ))}
+          </div>
         </div>
-      )}
-      <footer>
-        <button type="button" className="primary-button" disabled={!canUpdate || item.arrivalsClosed} onClick={() => onAction({ kind: 'arrival', item })}>도착분 추가</button>
-        <button type="button" disabled={!canUpdate || item.arrivalsClosed || !canCloseItem(item)} onClick={() => onAction({ kind: 'close', item })}>품목 입고 마감</button>
-      </footer>
+      ) : null}
     </article>
-  );
-}
-
-function MaterialContinuousFlowOverview({ item }: { item: MaterialReceivingItem }) {
-  const validReceipts = item.receipts.filter((receipt) => receipt.status !== 'Cancelled');
-  const completed = [
-    validReceipts.length > 0,
-    validReceipts.length > 0 && validReceipts.every((receipt) => receipt.status === 'Passed' || receipt.status === 'Confirmed'),
-    validReceipts.length > 0 && validReceipts.every((receipt) => receipt.status === 'Confirmed'),
-    item.arrivalsClosed
-  ];
-  const labels = ['도착 등록', 'IQC 판정', '입고 확정', '품목 마감'];
-  const current = completed.findIndex((value) => !value);
-  return (
-    <ol className="material-continuous-flow" aria-label="자재 연속 처리 단계">
-      {labels.map((label, index) => (
-        <li key={label} data-complete={completed[index]} data-current={current === index}>
-          <i>{completed[index] ? '✓' : index + 1}</i><span>{label}</span>
-        </li>
-      ))}
-    </ol>
   );
 }
 
@@ -573,19 +653,7 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
         <label><span>도착일</span><input type="date" value={arrivalDate} onChange={(event) => setArrivalDate(event.target.value)} required /></label>
         <label><span>비고</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="운송 상태나 확인 메모" /></label>
         {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
-        <div className="material-action-buttons"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={!canUpdate || saving || action.item.orderQuantity === null || !action.item.orderUnit}>도착 등록</button></div>
-      </form>
-    );
-  }
-
-  if (action.kind === 'close') {
-    return (
-      <form className="material-action-form" onSubmit={(event) => { event.preventDefault(); void guarded(`material:${action.item.itemId}:close`, () => closeMaterialArrivals(developmentUserKey, action.item.itemId, action.item.rowVersion, reason), '입고를 마감하고 완료값을 계산했습니다.'); }}>
-        <ActionContext item={action.item} />
-        <div className="material-action-notice"><strong>되돌릴 수 없는 마감입니다.</strong><span>{action.item.supplyType === 'CustomerSupplied' ? `미도착 잔량 0, 모든 도착분 확정이 필요합니다. 현재 잔량 ${formatQuantity(action.item.remainingQuantity, action.item.orderUnit)}` : '모든 유효 도착분이 확정된 경우 발주품목 입고가 완료됩니다.'}</span></div>
-        <label><span>마감 사유</span><textarea data-autofocus value={reason} onChange={(event) => setReason(event.target.value)} required minLength={3} /></label>
-        {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
-        <div className="material-action-buttons"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={!canUpdate || saving}>입고 마감</button></div>
+        <div className="material-action-buttons"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={!canUpdate || saving || action.item.orderQuantity === null || !action.item.orderUnit}>저장</button></div>
       </form>
     );
   }
@@ -603,7 +671,7 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
         {receipt.status === 'Arrived' ? <><textarea aria-label="취소 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="취소 사유 3자 이상" /><button type="button" disabled={!canUpdate || saving || reason.trim().length < 3} onClick={() => void guarded(`material:${receipt.receiptId}:cancel`, () => cancelMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version, reason), '도착 등록을 취소했습니다.')}>도착 취소</button></> : null}
         {receipt.status === 'IqcRequested' ? <button type="button" className="primary-button" onClick={() => onOpenIqc(requestedAttemptId)}>이 IQC 검사 열기</button> : null}
         {receipt.status === 'FailedBlocked' && pendingId ? <button type="button" onClick={() => onOpenPending(pendingId)}>연결된 Pending 열기</button> : null}
-        {receipt.status === 'Passed' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(`material:${receipt.receiptId}:confirm`, () => confirmMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version), '입고를 확정했습니다.')}>입고 확정</button> : null}
+        {receipt.status === 'Passed' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(`material:${receipt.receiptId}:confirm`, () => confirmMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version), '입고를 확정했습니다. 전량 확정이면 품목도 자동 완료됩니다.')}>입고 확정</button> : null}
         {receipt.status === 'Confirmed' ? <div className="material-success-panel"><strong>입고 확정 완료</strong><span>{formatDateTime(receipt.confirmedAtUtc)}</span></div> : null}
         {receipt.status === 'Cancelled' ? <div className="material-action-notice"><strong>취소된 도착분</strong><span>{receipt.cancellationReason}</span></div> : null}
       </div>
@@ -691,12 +759,6 @@ function formatQuantity(quantity: number | null | undefined, unit: string | null
 function formatDateTime(value: string | null) {
   if (!value) return '-';
   return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
-}
-
-function canCloseItem(item: MaterialReceivingItem) {
-  return (item.supplyType !== 'CustomerSupplied' || item.remainingQuantity === 0)
-    && item.receipts.some((receipt) => receipt.status !== 'Cancelled')
-    && item.receipts.every((receipt) => receipt.status === 'Confirmed' || receipt.status === 'Cancelled');
 }
 
 function errorMessage(error: unknown, fallback: string) {

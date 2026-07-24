@@ -337,10 +337,11 @@ public sealed class ProductionPlanningApiTests
     }
 
     [Fact]
-    public async Task Workflow_CompleteStageEvent_CompletesCurrentStageWorkItemAcrossWorkflow()
+    public async Task Workflow_CompleteStageEvent_StopsAutomaticHandoffAtOptionalKitting()
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
 
         var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-STAGE-COMPLETE", "Workflow Stage Complete");
         await context.ExecuteSqlAsync($"update projects set fat_required = true where id = '{projectId}';");
@@ -350,15 +351,73 @@ public sealed class ProductionPlanningApiTests
             "test-assignee-save",
             TestContext.Current.CancellationToken);
 
-        var stages = new[]
+        var stagesBeforeRelease = new[]
         {
             WorkflowStageCodes.ProductionPlanning,
             WorkflowStageCodes.DesignPanelInfo,
             WorkflowStageCodes.ProcurementInfo,
             WorkflowStageCodes.MaterialArrived,
             WorkflowStageCodes.IQC,
-            WorkflowStageCodes.ReceiptConfirmed,
+            WorkflowStageCodes.ReceiptConfirmed
+        };
+        foreach (var stageCode in stagesBeforeRelease)
+        {
+            Assert.True(await WorkItemExistsAsync(context, projectId, stageCode), $"Expected work item before completing {stageCode}.");
+
+            await context.WorkflowStore.CompleteStageAsync(
+                projectId,
+                stageCode,
+                "Test",
+                null,
+                DevSalesUserId,
+                $"complete-{stageCode}",
+                "stage complete event work item sync",
+                TestContext.Current.CancellationToken);
+
+            Assert.True(await HasCompletedWorkItemAsync(context, projectId, stageCode), $"Expected completed work item for {stageCode}.");
+        }
+
+        Assert.False(await WorkItemExistsAsync(context, projectId, WorkflowStageCodes.KittingCompleted));
+        await context.WorkflowStore.CompleteStageAsync(
+            projectId,
             WorkflowStageCodes.KittingCompleted,
+            "Test",
+            null,
+            DevSalesUserId,
+            "complete-optional-kitting",
+            "optional kitting reference only",
+            TestContext.Current.CancellationToken);
+        Assert.False(await WorkItemExistsAsync(context, projectId, WorkflowStageCodes.ManufacturingWork));
+
+        await InsertAssigneeAsync(
+            context,
+            projectId,
+            "ManufacturingPrimary",
+            Guid.Parse("50000000-0000-0000-0000-000000000004"));
+        await context.ExecuteSqlAsync($"""
+            update panel_placeholders
+            set panel_name = display_code,
+                width_mm = 600,
+                height_mm = 1800,
+                depth_mm = 400,
+                panel_info_completed = true
+            where project_id = '{projectId}' and status = 'Active';
+            """);
+        var panelId = await context.ReadScalarAsync<Guid>($"""
+            select id
+            from panel_placeholders
+            where project_id = '{projectId}' and status = 'Active'
+            order by sequence_number
+            limit 1;
+            """);
+        var released = await productionClient.PostAsJsonAsync(
+            "/api/manufacturing/releases",
+            new { operationId = Guid.NewGuid(), projectId, panelIds = new[] { panelId } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, released.StatusCode);
+
+        var stagesAfterRelease = new[]
+        {
             WorkflowStageCodes.ManufacturingWork,
             WorkflowStageCodes.LQC,
             WorkflowStageCodes.ManufacturingCompleted,
@@ -371,7 +430,7 @@ public sealed class ProductionPlanningApiTests
             WorkflowStageCodes.SalesSettlementCompleted
         };
 
-        foreach (var stageCode in stages)
+        foreach (var stageCode in stagesAfterRelease)
         {
             Assert.True(await WorkItemExistsAsync(context, projectId, stageCode), $"Expected work item before completing {stageCode}.");
 

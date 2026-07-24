@@ -39,6 +39,17 @@ public sealed record IqcPhotoResponse(
     string AltText,
     DateTimeOffset CreatedAtUtc);
 
+public sealed record IqcReinspectionFailureResponse(
+    string ItemCode,
+    string Label,
+    string? Note);
+
+public sealed record IqcReinspectionSourceResponse(
+    int PreviousAttemptNumber,
+    string FailureReason,
+    string? ActionReason,
+    IReadOnlyList<IqcReinspectionFailureResponse> Failures);
+
 public sealed record IqcReportResponse(
     Guid AttemptId,
     Guid ReceiptId,
@@ -61,6 +72,7 @@ public sealed record IqcReportResponse(
     string? PdfErrorCode,
     int TemplateVersion,
     bool CanEdit,
+    IqcReinspectionSourceResponse? ReinspectionSource,
     IReadOnlyList<IqcTemplateItemResponse> Items,
     IReadOnlyList<IqcItemResponseValue> Responses,
     IReadOnlyList<IqcPhotoResponse> Photos,

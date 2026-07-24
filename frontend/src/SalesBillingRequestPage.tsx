@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiError,
   createSalesBillingBatch,
@@ -33,19 +33,23 @@ export function SalesBillingRequestPage({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const latestLoadId = useRef(0);
 
   const load = useCallback(async (start?: string, end?: string, quiet = false) => {
+    const loadId = ++latestLoadId.current;
     if (!quiet) setState({ kind: 'loading' });
     try {
       const [candidates, batches] = await Promise.all([
         getSalesBillingCandidates(developmentUserKey, start, end),
         listSalesBillingBatches(developmentUserKey)
       ]);
+      if (loadId !== latestLoadId.current) return;
       setPeriodStart(candidates.period.periodStart);
       setPeriodEnd(candidates.period.periodEnd);
       setSelected((current) => new Set([...current].filter((id) => candidates.items.some((item) => item.projectId === id && item.canSelect))));
       setState({ kind: 'ready', candidates, batches: batches.items });
     } catch (error) {
+      if (loadId !== latestLoadId.current) return;
       setState({ kind: 'error', message: messageOf(error, '발행요청 대상을 불러오지 못했습니다.') });
     }
   }, [developmentUserKey]);

@@ -49,15 +49,15 @@ test('WORKFLOW-CONTINUITY-001 Change 004: purchase-owned quantity, Materials fal
   const materialsHub = page.getByTestId('department-project-hub-materials');
   await materialsHub.getByRole('radio', { name: /입고 관리/u }).click();
   await materialsHub.getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
-  const materialCard = page.locator('.material-item-card').filter({ hasText: orderItem });
-  await materialCard.getByRole('button', { name: '도착분 추가' }).click();
+  const materialCard = page.locator('.material-purchase-row').filter({ hasText: orderItem });
+  await materialCard.getByRole('button', { name: '도착입력' }).click();
   const arrivalForm = page.locator('.material-action-form').filter({ hasText: orderItem });
   await expect(arrivalForm.getByLabel('발주 수량')).toHaveCount(0);
   await expect(arrivalForm.getByLabel('도착 수량')).toBeVisible();
   await capture(page, '04-material-arrival-only-desktop.png');
   await arrivalForm.getByLabel('도착 수량').fill('3');
   await arrivalForm.getByLabel('도착일').fill('2026-07-21');
-  await arrivalForm.getByRole('button', { name: '도착 등록' }).click();
+  await arrivalForm.getByRole('button', { name: '저장' }).click();
   await expect(page.getByText('도착분 저장과 IQC 검사 업무 생성을 확인했습니다.')).toBeVisible();
 
   createOrphanArrival(randomUUID(), itemId);

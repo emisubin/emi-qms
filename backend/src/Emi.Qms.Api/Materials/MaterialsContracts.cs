@@ -109,6 +109,7 @@ public sealed record MaterialIqcQueueItemResponse(
     DateTimeOffset RequestedAtUtc,
     DateTimeOffset? DecidedAtUtc,
     Guid? PendingIssueId,
+    long? PendingIssueNumber,
     string? Reason,
     Guid? ReportId,
     string? ReportStatus,

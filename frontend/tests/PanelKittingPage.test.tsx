@@ -81,7 +81,7 @@ describe('PanelKittingPage', () => {
         return json({
           operationId: body.operationId,
           completedPanelCount: 1,
-          generatedWorkItemCount: 1,
+          generatedWorkItemCount: 0,
           projectKittingCompleted: false,
           replayed: false
         });
@@ -105,16 +105,16 @@ describe('PanelKittingPage', () => {
     const page = await screen.findByTestId('panel-kitting-page');
     expect(page).toHaveClass('panel-kitting-page--mobile');
     expect(screen.getByRole('heading', { name: '패널 키팅' })).toBeInTheDocument();
-    expect(screen.getByText('입고 조건 충족 · 패널을 선택해 제조로 넘기세요.')).toBeInTheDocument();
-    expect(screen.getByText('연결된 제조 대상').closest('button')).toHaveAttribute('data-linked', 'true');
+    expect(screen.getByText('전체 입고 완료 · 실제 키팅을 마친 패널만 알려 주세요.')).toBeInTheDocument();
+    expect(screen.getByText('연결된 패널').closest('button')).toHaveAttribute('data-linked', 'true');
 
     fireEvent.click(screen.getByRole('button', { name: /PANEL-01.*MCC-A/u }));
-    const completeButton = screen.getByRole('button', { name: '1면 키팅 완료' });
+    const completeButton = screen.getByRole('button', { name: '1면 키팅 완료 알림' });
     fireEvent.click(completeButton);
     expect(await screen.findByText(/잠시 연결할 수 없습니다.*잠시 후 다시 시도해 주세요/u)).toHaveAttribute('data-tone', 'error');
 
-    fireEvent.click(screen.getByRole('button', { name: '1면 키팅 완료' }));
-    expect(await screen.findByText('1면을 완료하고 제조 업무 1건을 넘겼습니다.')).toHaveAttribute('data-tone', 'success');
+    fireEvent.click(screen.getByRole('button', { name: '1면 키팅 완료 알림' }));
+    expect(await screen.findByText('1면의 키팅 완료 상태를 공유했습니다.')).toHaveAttribute('data-tone', 'success');
     await waitFor(() => expect(operationIds).toHaveLength(2));
     expect(operationIds[0]).toMatch(/^[0-9a-f-]{36}$/u);
     expect(operationIds[1]).toBe(operationIds[0]);

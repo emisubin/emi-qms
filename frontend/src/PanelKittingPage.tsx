@@ -130,12 +130,12 @@ export function PanelKittingPage({
         panelIds: selectedPanelIds
       });
       successMessage = result.projectKittingCompleted
-        ? `마지막 패널까지 완료했습니다. 제조 업무 ${result.generatedWorkItemCount}건이 생성되었습니다.`
-        : `${result.completedPanelCount}면을 완료하고 제조 업무 ${result.generatedWorkItemCount}건을 넘겼습니다.`;
+        ? `마지막 패널까지 키팅 완료 상태를 공유했습니다.`
+        : `${result.completedPanelCount}면의 키팅 완료 상태를 공유했습니다.`;
     }, {
-      loadingMessage: '선택한 패널을 제조로 넘기는 중입니다.',
-      successMessage: '키팅 완료를 저장했습니다.',
-      errorFallback: '키팅 완료를 저장하지 못했습니다.',
+      loadingMessage: '선택한 패널의 키팅 완료 상태를 공유하는 중입니다.',
+      successMessage: '키팅 완료 알림을 저장했습니다.',
+      errorFallback: '키팅 완료 알림을 저장하지 못했습니다.',
       refresh: () => load(selectedProject.projectId, true),
       conflicts: { prefixes: ['kitting:'] }
     });
@@ -160,7 +160,7 @@ export function PanelKittingPage({
         <div className="kitting-hero-copy">
           <p className="eyebrow">PANEL HANDOFF</p>
           <h2>패널 키팅</h2>
-          <p>입고 준비가 끝난 패널만 골라 제조 현장으로 바로 넘깁니다.</p>
+          <p>실제로 키팅을 마친 패널을 선택해 생산관리와 제조팀에 자재 준비 상태를 알립니다.</p>
         </div>
         <div className="kitting-hero-actions">
           <button type="button" onClick={onBack}>프로젝트</button>
@@ -215,7 +215,7 @@ export function PanelKittingPage({
                 <div>
                   <span className="kitting-selection-count">{selectedPanelIds.length}</span>
                   <span>선택</span>
-                  <small>준비 패널 {selectablePanelIds.length}면</small>
+                  <small>알림 가능 {selectablePanelIds.length}면</small>
                 </div>
                 <div className="kitting-selection-actions">
                   <button
@@ -224,13 +224,13 @@ export function PanelKittingPage({
                     disabled={!canComplete || actions.isBusy('kitting:bulk') || selectedPanelIds.length === 0}
                     onClick={() => void submit()}
                   >
-                    {actions.isBusy('kitting:bulk') ? '처리 중…' : `${selectedPanelIds.length}면 키팅 완료`}
+                    {actions.isBusy('kitting:bulk') ? '처리 중…' : `${selectedPanelIds.length}면 키팅 완료 알림`}
                   </button>
                 </div>
               </div>
 
               {!canComplete ? (
-                <p className="kitting-permission-note">조회만 가능합니다. 키팅 완료는 자재 담당 권한이 필요합니다.</p>
+                <p className="kitting-permission-note">조회만 가능합니다. 키팅 완료 알림은 자재 담당 권한이 필요합니다.</p>
               ) : null}
               {actions.latestFeedback ? <p className="action-feedback kitting-notice" data-tone={actions.latestFeedback.tone} role={actions.latestFeedback.tone === 'error' ? 'alert' : 'status'}>{actions.latestFeedback.message}</p> : null}
 
@@ -265,7 +265,7 @@ export function PanelKittingPage({
                       <span className="kitting-panel-status" data-ready={panel.selectable}>
                         {panel.kittingCompleted ? '완료' : panel.selectable ? '선택 가능' : '대기'}
                       </span>
-                      {panel.panelId === linkedPanelId ? <span className="kitting-linked-label">연결된 제조 대상</span> : null}
+                      {panel.panelId === linkedPanelId ? <span className="kitting-linked-label">연결된 패널</span> : null}
                     </button>
                   );
                 })}
@@ -312,7 +312,7 @@ function ProjectQueue({
             <strong>{project.projectTitle}</strong>
             <span className="kitting-project-meta">
               <i data-ready={project.ready} />
-              {project.ready ? '입고 준비 완료' : `입고 ${project.completedItemCount}/${project.activeItemCount}`}
+              {project.ready ? '입고 완료 · 참고' : `입고 ${project.completedItemCount}/${project.activeItemCount} · 참고`}
             </span>
             <span className="kitting-project-panels">대기 <b>{project.pendingPanelCount}</b>면</span>
           </button>
@@ -330,7 +330,7 @@ function ProjectReadiness({ project }: { project: PanelKittingProject }) {
       <div className="kitting-project-title">
         <span>{project.projectCode}</span>
         <h3>{project.projectTitle}</h3>
-        <p>{project.ready ? '입고 조건 충족 · 패널을 선택해 제조로 넘기세요.' : '입고 완료 전에는 키팅을 진행할 수 없습니다.'}</p>
+        <p>{project.ready ? '전체 입고 완료 · 실제 키팅을 마친 패널만 알려 주세요.' : `입고 ${project.completedItemCount}/${project.activeItemCount} · 실제 키팅 완료 여부는 지금 공유할 수 있습니다.`}</p>
       </div>
       <div className="kitting-readiness-metrics">
         <div className="kitting-progress-ring" style={{ '--progress': `${percent * 3.6}deg` } as React.CSSProperties}>
@@ -344,7 +344,7 @@ function ProjectReadiness({ project }: { project: PanelKittingProject }) {
         </dl>
       </div>
       <span className="kitting-ready-pill" data-ready={project.ready}>
-        {project.ready ? 'READY' : 'WAITING'}
+        {project.ready ? 'RECEIVED' : 'REFERENCE'}
       </span>
     </section>
   );
@@ -365,7 +365,7 @@ function panelStatus(panel: PanelKittingProject['panels'][number]) {
   if (!panel.panelInfoCompleted) {
     return '패널정보 입력 필요';
   }
-  return panel.selectable ? '제조 인계 준비됨' : '입고 준비 대기';
+  return panel.selectable ? '키팅 완료 알림 가능' : '패널정보 입력 대기';
 }
 
 function errorMessage(error: unknown, fallback: string) {

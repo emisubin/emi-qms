@@ -6,6 +6,13 @@ export interface QualityInspectionQueueResponse {
   projects: QualityInspectionProject[];
 }
 
+export interface QualityInspectionReconciliationResponse {
+  recoveredOqcHandoffCount: number;
+  recoveredInspectionHandoffCount: number;
+  recoveredPackingHandoffCount: number;
+  unresolvedAssigneeCount: number;
+}
+
 export interface QualityInspectionProject {
   projectId: string;
   projectCode: string;
@@ -39,6 +46,7 @@ export interface QualityInspectionPanel {
 
 export interface QualityInspectionDetail {
   panel: QualityInspectionPanel;
+  decisionMode: 'Checklist' | 'Aggregate';
   reportId: string | null;
   reportStatus: string | null;
   reportVersion: number | null;
@@ -60,6 +68,8 @@ export interface QualityInspectionTemplateItem {
   responseType: 'Check' | 'Text';
   isRequired: boolean;
   maxTextLength: number | null;
+  isAvailable: boolean;
+  availabilityMessage: string | null;
 }
 
 export interface QualityInspectionItemValue {
@@ -139,4 +149,5 @@ export interface FinalizeQualityInspectionRequest {
   reason: string;
   actionDepartmentCode: string | null;
   assigneeUserId: string | null;
+  responses: QualityInspectionItemValue[] | null;
 }

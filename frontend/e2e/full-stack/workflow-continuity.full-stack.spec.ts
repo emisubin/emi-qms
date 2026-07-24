@@ -26,14 +26,12 @@ test('WORKFLOW-CONTINUITY-001: arrival, IQC pending, automatic reinspection, and
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`, 'u'));
   await capture(page, '01-project-default-workflow-desktop.png');
 
-  await page.getByRole('tab', { name: '자재' }).click();
-  await expect(page.getByRole('tab', { name: '입고 관리' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('tab', { name: '구매', exact: true }).click();
+  await expect(page.getByRole('tab', { name: '구매', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('연속흐름 시험 자재').first()).toBeVisible();
-  await expect(page.getByText('IQC 대기', { exact: true }).first()).toBeVisible();
-  await capture(page, '02-material-receiving-tab-desktop.png');
-  await page.getByRole('tab', { name: '키팅 관리' }).click();
-  await expect(page.getByRole('tab', { name: '키팅 관리' })).toHaveAttribute('aria-selected', 'true');
-  await capture(page, '03-material-kitting-tab-desktop.png');
+  await expect(page.getByText('미확정', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('tab', { name: '자재', exact: true })).toHaveCount(0);
+  await capture(page, '02-procurement-receipt-confirmation-desktop.png');
 
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
   await page.goto('/my-work');
@@ -78,14 +76,14 @@ test('WORKFLOW-CONTINUITY-001: arrival, IQC pending, automatic reinspection, and
   await capture(page, '06-reinspection-notification-desktop.png');
   await page.goto('/my-work');
   const reinspectionGroup = page.getByRole('region', { name: `${projectTitle} 내 업무` });
-  await expect(reinspectionGroup).toContainText('IQC 판정');
+  await expect(reinspectionGroup).toContainText('재검사');
   await reinspectionGroup.getByRole('button', { name: '이동', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/quality/iqc\\?project=${projectId}&request=${reinspectionAttempt.attemptId}$`, 'u'));
   const reinspectionReport = page.locator('.material-action-drawer--iqc-report');
   await expect(reinspectionReport).toContainText('2차');
   await capture(page, '07-reinspection-my-work-deep-link-desktop.png');
 
-  await finalizeDetailedIqc(reinspectionReport, 'Passed');
+  await finalizeDetailedIqc(reinspectionReport, 'Passed', 1);
   await expect(reinspectionReport.getByText('IQC 합격', { exact: true })).toBeVisible();
   const closedPending = await getPending(request, pendingId);
   expect(closedPending.issue.status).toBe('Closed');
@@ -99,16 +97,16 @@ test('WORKFLOW-CONTINUITY-001: arrival, IQC pending, automatic reinspection, and
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/projects/${projectId}?section=materials`);
-  await expect(page.getByRole('tab', { name: '입고 관리' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: '키팅 관리' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '구매', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: '자재', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
-  await capture(page, '09-material-subtabs-mobile-390.png');
+  await capture(page, '09-procurement-confirmation-mobile-390.png');
 });
 
-async function finalizeDetailedIqc(scope: Locator, result: 'Passed' | 'Failed') {
+async function finalizeDetailedIqc(scope: Locator, result: 'Passed' | 'Failed', expectedCardCount = 6) {
   await scope.getByRole('button', { name: '검사 시작' }).click();
   const cards = scope.locator('.iqc-item-card');
-  await expect(cards).toHaveCount(6);
+  await expect(cards).toHaveCount(expectedCardCount);
   const cardCount = await cards.count();
   for (let index = 0; index < cardCount; index += 1) {
     const card = cards.nth(index);
@@ -126,6 +124,12 @@ async function finalizeDetailedIqc(scope: Locator, result: 'Passed' | 'Failed') 
       const text = card.locator('textarea');
       if (await text.count()) await text.fill('측정값 정상 범위');
     }
+  }
+  if (expectedCardCount === 1) {
+    await scope.getByRole('button', { name: '저장하고 최종확인' }).click();
+    await scope.locator('textarea[data-field="iqc-report-reason"]').fill('교환품 조치 결과를 확인했고 재검사 항목이 적합합니다.');
+    await scope.getByRole('button', { name: result === 'Passed' ? '합격 · Pending 해제' : '불합격 · 재조치 요청' }).click();
+    return;
   }
   await scope.getByRole('button', { name: '저장하고 사진 등록' }).click();
   await scope.locator('input[type="file"]').setInputFiles(evidenceImage);

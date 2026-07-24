@@ -89,6 +89,7 @@ export type MaterialIqcQueueItem = {
   requestedAtUtc: string;
   decidedAtUtc: string | null;
   pendingIssueId: string | null;
+  pendingIssueNumber: number | null;
   reason: string | null;
   reportId: string | null;
   reportStatus: 'Draft' | 'Finalized' | null;

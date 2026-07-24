@@ -573,7 +573,28 @@ public sealed class ProjectStore(
                 coalesce(active_panels.unknown_workflow_stage_count, 0),
                 coalesce(pending_summary.open_count, 0),
                 coalesce(pending_summary.reinspection_count, 0),
-                coalesce(pending_summary.urgent_count, 0)
+                coalesce(pending_summary.urgent_count, 0),
+                coalesce((
+                    select count(item.id)::integer
+                    from manufacturing_step_templates template
+                    join manufacturing_step_template_versions version
+                      on version.template_id = template.id
+                     and version.lifecycle_status = 'Active'
+                     and version.is_active = true
+                    join manufacturing_step_template_items item
+                      on item.template_version_id = version.id
+                    where template.template_code = 'PANEL_MANUFACTURING'
+                ), 0) as manufacturing_step_count,
+                coalesce((
+                    select count(item.id)::integer
+                    from panel_quality_template_versions version
+                    join panel_quality_template_items item
+                      on item.template_version_id = version.id
+                     and item.response_type = 'Check'
+                    where version.stage_code = 'OQC'
+                      and version.lifecycle_status = 'Active'
+                      and version.is_active = true
+                ), 0) as oqc_step_count
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
@@ -733,6 +754,8 @@ public sealed class ProjectStore(
 
         var baseItem = ReadProjectListItem(reader, includeSalesAmount, 20, includePendingInsights);
         var statusReason = reader.IsDBNull(19) ? null : reader.GetString(19);
+        var manufacturingStepCount = reader.GetInt32(31);
+        var oqcStepCount = reader.GetInt32(32);
         await reader.DisposeAsync();
         var panelInfoSummary = await ReadPanelInformationSummaryAsync(dataSource, projectId, cancellationToken);
         return new ProjectDetailResponse
@@ -764,7 +787,9 @@ public sealed class ProjectStore(
             ManufacturingCompletedCount = panelInfoSummary.ManufacturingCompletedCount,
             InspectionCompletedCount = panelInfoSummary.InspectionCompletedCount,
             DuplicatePanelNameGroupCount = panelInfoSummary.DuplicatePanelNameGroupCount,
-            ProjectPanelInformationCompleted = panelInfoSummary.ProjectPanelInformationCompleted
+            ProjectPanelInformationCompleted = panelInfoSummary.ProjectPanelInformationCompleted,
+            ManufacturingStepCount = manufacturingStepCount,
+            OqcStepCount = oqcStepCount
         };
     }
 
@@ -3605,6 +3630,7 @@ public sealed class ProjectStore(
         await ExecutePurgeCommandAsync(connection, transaction, "delete from sales_settlements where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_completion_confirmations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_release_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_report_pdf_artifacts where report_id in (select report.id from panel_quality_reports report join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id where attempt.project_id = any(@project_ids));", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_report_photos where report_id in (select report.id from panel_quality_reports report join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id where attempt.project_id = any(@project_ids));", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_report_responses where report_id in (select report.id from panel_quality_reports report join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id where attempt.project_id = any(@project_ids));", projectIds, cancellationToken);

@@ -9,7 +9,7 @@ const screenshotDirectory = process.env.TASK010A_SCREENSHOT_DIR?.trim()
   : path.resolve(process.cwd(), '../tasks/010a-screenshots');
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
 
-test('TASK-010A: material user completes selected panels from adaptive kitting workspace', async ({ page, request }) => {
+test('TASK-010A: material user shares optional kitting completion without creating manufacturing work', async ({ page, request }) => {
   test.setTimeout(150_000);
   const unique = Date.now();
   const readyProject = await createKittingProject(request, `KIT-A-${unique}`, `합성 키팅 준비 ${unique}`, 4, true);
@@ -20,17 +20,17 @@ test('TASK-010A: material user completes selected panels from adaptive kitting w
   await page.getByLabel('개발 사용자').selectOption('dev-materials');
   await page.goto(`/materials/kitting?project=${readyProject.projectId}`);
   await expect(page.getByRole('heading', { name: '패널 키팅' })).toBeVisible();
-  await expect(page.getByText('입고 조건 충족 · 패널을 선택해 제조로 넘기세요.')).toBeVisible();
+  await expect(page.getByText('전체 입고 완료 · 실제 키팅을 마친 패널만 알려 주세요.')).toBeVisible();
   await expect(page.locator('.kitting-panel-card')).toHaveCount(4);
   await capture(page, '01-panel-kitting-desktop-1440.jpg');
 
   await page.locator('.kitting-panel-card').nth(0).click();
   await page.locator('.kitting-panel-card').nth(1).click();
-  await expect(page.getByRole('button', { name: '2면 키팅 완료' })).toBeEnabled();
-  await page.getByRole('button', { name: '2면 키팅 완료' }).click();
-  await expect(page.getByText('2면을 완료하고 제조 업무 2건을 넘겼습니다.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '2면 키팅 완료 알림' })).toBeEnabled();
+  await page.getByRole('button', { name: '2면 키팅 완료 알림' }).click();
+  await expect(page.getByText('2면의 키팅 완료 상태를 공유했습니다.')).toBeVisible();
   expect(queryDatabase(`select count(*)::text from panel_kitting_completions where project_id = '${readyProject.projectId}';`)).toBe('2');
-  expect(queryDatabase(`select count(*)::text from work_items where project_id = '${readyProject.projectId}' and workflow_stage_code = 'ManufacturingWork';`)).toBe('2');
+  expect(queryDatabase(`select count(*)::text from work_items where project_id = '${readyProject.projectId}' and workflow_stage_code = 'ManufacturingWork';`)).toBe('0');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/materials/kitting?project=${readyProject.projectId}`);
@@ -45,7 +45,7 @@ test('TASK-010A: material user completes selected panels from adaptive kitting w
   await capture(page, '02-panel-kitting-mobile-390.jpg');
 
   await page.locator('.kitting-panel-card:not([data-completed="true"])').first().click();
-  await expect(page.getByRole('button', { name: '1면 키팅 완료' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '1면 키팅 완료 알림' })).toBeEnabled();
   await capture(page, '03-panel-kitting-selected-mobile-390.jpg');
 
   await page.getByRole('button', { name: '메뉴 열기' }).click();

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ApiError, getHomeDepartmentMetrics, getMyWorkSummary, getNotificationSummary, getSalesKpi, listPendingIssues, listProjects } from './api';
+import { ApiError, getHomeDepartmentMetrics, getMyWorkSummary, getNotificationSummary, getSalesKpi, listNotices, listPendingIssues } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
 import { DsBadge, DsSurface } from './design-system';
 import type { HomeMetricsResponse } from './home';
+import type { NoticeListResponse } from './notices';
 import type { PendingListResponse } from './pending';
-import type { MyWorkSummary, NotificationSummary, ProjectListResponse } from './projects';
+import type { MyWorkSummary, NotificationSummary } from './projects';
 import type { SalesKpiResponse } from './salesKpi';
 import { SalesKpiChart } from './SalesKpiChart';
 import { formatMoney } from './salesKpiFormat';
@@ -25,8 +26,9 @@ type HomePageProps = {
   canReadPending: boolean;
   canReadSalesAmount?: boolean;
   onOpenMyWork: () => void;
-  onOpenProjects: () => void;
-  onOpenProject: (projectId: string) => void;
+  onOpenNotices: () => void;
+  onOpenNotice: (noticeId: string) => void;
+  onCreateNotice: () => void;
   onOpenPending: () => void;
   onOpenNotifications: () => void;
   onOpenSalesKpi?: (year: number, currency: string) => void;
@@ -42,8 +44,9 @@ export function HomePage({
   canReadPending,
   canReadSalesAmount = false,
   onOpenMyWork,
-  onOpenProjects,
-  onOpenProject,
+  onOpenNotices,
+  onOpenNotice,
+  onCreateNotice,
   onOpenPending,
   onOpenNotifications,
   onOpenSalesKpi = () => undefined,
@@ -51,7 +54,7 @@ export function HomePage({
 }: HomePageProps) {
   const { isMobile } = useAdaptiveLayout();
   const [myWorkState, setMyWorkState] = useState<WidgetState<MyWorkSummary>>({ kind: 'loading' });
-  const [projectsState, setProjectsState] = useState<WidgetState<ProjectListResponse>>({ kind: 'loading' });
+  const [noticesState, setNoticesState] = useState<WidgetState<NoticeListResponse>>({ kind: 'loading' });
   const [pendingState, setPendingState] = useState<WidgetState<PendingListResponse>>(
     canReadPending ? { kind: 'loading' } : { kind: 'hidden' }
   );
@@ -59,7 +62,7 @@ export function HomePage({
   const [departmentState, setDepartmentState] = useState<WidgetState<HomeMetricsResponse>>({ kind: 'loading' });
   const [salesState, setSalesState] = useState<WidgetState<SalesKpiResponse>>({ kind: 'loading' });
   const myWorkGeneration = useRef(0);
-  const projectsGeneration = useRef(0);
+  const noticesGeneration = useRef(0);
   const pendingGeneration = useRef(0);
   const notificationsGeneration = useRef(0);
   const departmentGeneration = useRef(0);
@@ -110,16 +113,16 @@ export function HomePage({
     }
   }, [developmentUserKey]);
 
-  const loadProjects = useCallback(async () => {
-    const generation = ++projectsGeneration.current;
-    setProjectsState({ kind: 'loading' });
+  const loadNotices = useCallback(async () => {
+    const generation = ++noticesGeneration.current;
+    setNoticesState({ kind: 'loading' });
     try {
-      const data = await listProjects(developmentUserKey, '', 'All', { pageSize: 5 });
-      if (generation !== projectsGeneration.current) return;
-      setProjectsState({ kind: data.items.length === 0 ? 'empty' : 'ready', data });
+      const data = await listNotices(developmentUserKey, 1, 5);
+      if (generation !== noticesGeneration.current) return;
+      setNoticesState({ kind: data.items.length === 0 ? 'empty' : 'ready', data });
     } catch (error) {
-      if (generation !== projectsGeneration.current) return;
-      setProjectsState(widgetError(error, '프로젝트 병목을 불러올 수 없습니다.'));
+      if (generation !== noticesGeneration.current) return;
+      setNoticesState(widgetError(error, '공지사항을 불러올 수 없습니다.'));
     }
   }, [developmentUserKey]);
 
@@ -183,12 +186,12 @@ export function HomePage({
 
   useEffect(() => {
     let cancelled = false;
-    queueMicrotask(() => { if (!cancelled) void loadProjects(); });
+    queueMicrotask(() => { if (!cancelled) void loadNotices(); });
     return () => {
       cancelled = true;
-      projectsGeneration.current += 1;
+      noticesGeneration.current += 1;
     };
-  }, [loadProjects, requestContextKey]);
+  }, [loadNotices, requestContextKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -208,7 +211,7 @@ export function HomePage({
     };
   }, [loadNotifications, requestContextKey]);
 
-  const visibleWidgetCount = [myWorkState, projectsState, pendingState, notificationsState]
+  const visibleWidgetCount = [myWorkState, noticesState, pendingState, notificationsState]
     .filter((state) => state.kind !== 'hidden').length;
   const pendingSummary = pendingState.kind === 'ready' || pendingState.kind === 'empty' ? pendingState.data.summary : null;
   const notificationSummary = notificationsState.kind === 'ready' || notificationsState.kind === 'empty' ? notificationsState.data : null;
@@ -308,7 +311,7 @@ export function HomePage({
         <section className="home-empty" role="status">
           <strong>표시할 수 있는 요약이 없습니다.</strong>
           <p>현재 허용된 메뉴에서 업무를 계속 확인할 수 있습니다.</p>
-          <button type="button" onClick={onOpenProjects}>프로젝트로 이동</button>
+          <button type="button" onClick={onOpenNotices}>공지사항으로 이동</button>
         </section>
       ) : (
         <div className="home-widget-grid">
@@ -372,28 +375,29 @@ export function HomePage({
           ) : null}
 
           <HomeWidget
-            eyebrow="NEXT ATTENTION"
-            title="프로젝트 병목"
-            state={projectsState}
-            onRetry={loadProjects}
-            onOpen={onOpenProjects}
-            openLabel="프로젝트 전체 보기"
-            emptyMessage="진행 중인 프로젝트가 없습니다."
+            eyebrow="TEAM NOTICE"
+            title="공지사항"
+            state={noticesState}
+            onRetry={loadNotices}
+            onOpen={onOpenNotices}
+            openLabel="공지 전체 보기"
+            secondaryLabel="공지 작성"
+            onSecondary={onCreateNotice}
+            emptyMessage="아직 등록된 공지가 없습니다."
             wide
           >
             {(data) => (
-              <div className="home-project-list">
-                {data.items.map((project, index) => (
-                  <button type="button" key={project.projectId} className="home-project-item" onClick={() => onOpenProject(project.projectId)}>
-                    <span className="home-project-rank">{index + 1}</span>
+              <div className="home-notice-list">
+                {data.items.map((notice) => (
+                  <button type="button" key={notice.noticeId} className="home-notice-item" onClick={() => onOpenNotice(notice.noticeId)}>
+                    <span className="home-notice-mark" aria-hidden="true">N</span>
                     <span>
-                      <strong>{project.projectTitle}</strong>
-                      <small>{project.projectCode} · {project.bottleneck?.label ?? '병목 정보 확인 중'}</small>
+                      <strong>{notice.title}</strong>
+                      <small>{notice.preview}</small>
                     </span>
-                    <span className="home-project-action">
-                      {!canReadPending && project.bottleneck?.nextAction === 'Pending'
-                        ? '프로젝트 열기'
-                        : project.bottleneck?.nextActionLabel ?? '프로젝트 열기'} →
+                    <span className="home-notice-meta">
+                      <b>{notice.authorDisplayName}</b>
+                      <small>{notice.authorDepartmentName ?? '소속 없음'} · {formatNoticeDate(notice.createdAtUtc)}</small>
                     </span>
                   </button>
                 ))}
@@ -406,6 +410,12 @@ export function HomePage({
   );
 }
 
+function formatNoticeDate(value: string) {
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul'
+  }).format(new Date(value));
+}
+
 function HomeWidget<T>({
   eyebrow,
   title,
@@ -413,6 +423,8 @@ function HomeWidget<T>({
   onRetry,
   onOpen,
   openLabel,
+  secondaryLabel,
+  onSecondary,
   emptyMessage,
   wide = false,
   children
@@ -423,6 +435,8 @@ function HomeWidget<T>({
   onRetry: () => void | Promise<void>;
   onOpen: () => void;
   openLabel: string;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
   emptyMessage: string;
   wide?: boolean;
   children: (data: T) => ReactNode;
@@ -438,7 +452,10 @@ function HomeWidget<T>({
           <p className="eyebrow">{eyebrow}</p>
           <h3>{title}</h3>
         </div>
-        <button type="button" className="home-widget-link" onClick={onOpen}>{openLabel}</button>
+        <div className="home-widget-actions">
+          <button type="button" className="home-widget-link" onClick={onOpen}>{openLabel}</button>
+          {secondaryLabel && onSecondary ? <button type="button" className="primary-button" onClick={onSecondary}>{secondaryLabel}</button> : null}
+        </div>
       </header>
 
       {state.kind === 'loading' ? <p className="home-widget-status" role="status">요약을 불러오는 중입니다.</p> : null}

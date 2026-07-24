@@ -93,13 +93,13 @@ test('WORKFLOW-CONTINUITY-001 Change 003: exact purchase error, assignee handoff
   await materialsHub.getByRole('radio', { name: /입고 관리/u }).click();
   await projectButton.click();
   await expect(page.getByRole('heading', { name: '자재 입고 관리' })).toBeVisible();
-  const materialCard = page.locator('.material-item-card').filter({ hasText: orderItem });
-  await materialCard.getByRole('button', { name: '도착분 추가' }).click();
+  const materialCard = page.locator('.material-purchase-row').filter({ hasText: orderItem });
+  await materialCard.getByRole('button', { name: '도착입력' }).click();
   const arrivalForm = page.locator('.material-action-form').filter({ hasText: orderItem });
   await arrivalForm.getByLabel('도착 수량').fill('4');
   await arrivalForm.getByLabel('도착일').fill('2026-07-21');
   await arrivalForm.getByLabel('비고').fill('합성 도착분 자동 IQC 연결');
-  await arrivalForm.getByRole('button', { name: '도착 등록' }).click();
+  await arrivalForm.getByRole('button', { name: '저장' }).click();
   await expect(page.getByText('도착분 저장과 IQC 검사 업무 생성을 확인했습니다.')).toBeVisible();
 
   const orphanReceiptId = randomUUID();

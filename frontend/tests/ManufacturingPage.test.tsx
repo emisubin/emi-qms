@@ -79,7 +79,7 @@ describe('ManufacturingPage', () => {
     const page = await screen.findByTestId('manufacturing-page');
     expect(page).toHaveClass('manufacturing-page--mobile');
     expect(screen.getByRole('heading', { name: '제조 작업' })).toBeInTheDocument();
-    expect(screen.getByText('키팅 완료 · 제조 시작 준비')).toBeInTheDocument();
+    expect(screen.getByText('제조 투입 요청됨 · 키팅 미보고')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '제조 시작' }));
     expect(await screen.findByText('현장 네트워크를 확인해 주세요.')).toBeInTheDocument();

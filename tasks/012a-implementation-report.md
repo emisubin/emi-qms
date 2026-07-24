@@ -187,3 +187,38 @@ Claude `/usage` 정수 반올림 기준이며 실패한 측정은 추정하지 �
 - push·PR·merge, Persistent UAT와 실제 provider는 미승인·미실행
 - main merge 승인 `0/3`
 - canonical Product Roadmap 다음 Gate는 계속 `TASK-007A` Fable deep-interview
+
+## Change 003 — 검사 처리 단위·판정 모델 정합성 감사 (2026-07-22)
+
+이 절은 위 최초 구현 보고 시점의 Finding gate를 현재 사용자 확정 정책으로 다시 대조한 결과이며, 현재 상태 판단에서는 이 절이 우선한다.
+
+### 감사 결과
+
+| 검사 | 확정 정책 | Frontend·Backend 현재 구현 | 판정 |
+| --- | --- | --- | --- |
+| IQC | 구매품목의 개별 도착분별 검사 | `material_receipts`에 연결된 IQC 회차·성적서·업무를 사용하고 panel ID를 검사 원자로 쓰지 않음 | 일치 |
+| OQC | 개별 패널, 단계/항목별 적합·부적합 | panel+stage 회차와 OQC template Check 항목별 Pass/Fail/NA 저장·검증 | 일치 |
+| 전진검수 | 개별 패널, 단계 없는 통합 적합·부적합 1회 | 패널 단위는 맞지만 seed 2개 Check 항목과 공통 checklist UI/validation을 사용 | 불일치 |
+| FAT | 개별 패널, 단계 없는 통합 적합·부적합 1회 | 패널 단위는 맞지만 seed 4개 Check 항목과 공통 checklist UI/validation을 사용 | 불일치 |
+
+### `012A-AGGREGATE-DECISION` — OPEN P2
+
+- 원인: OQC·전진검수·FAT가 모두 같은 checklist attempt/response/finalize 계약으로 구현되어 검사별 판정 모델 차이가 표현되지 않는다.
+- 영향: 사용자는 전진검수와 FAT에서 실제 업무에 없는 여러 항목을 처리해야 하고, 프로젝트 상세는 정책상 각 검사를 1단위로 계산하는 반면 입력 화면은 다단계처럼 보인다.
+- 권장 최소 수정: API·DB에 additive `decisionMode: Checklist | Aggregate`를 도입한다. OQC는 Checklist, 전진검수·FAT는 Aggregate로 고정한다.
+- Backend: Aggregate 회차에는 item response mutation을 거부하고 패널 단위 판정·사유·증빙·PUNCH/Pending만 검증한다.
+- Frontend: 전진검수·FAT에서 체크리스트를 숨기고 단일 `적합/부적합`, 판정 근거, 증빙, Pending 후속만 표시한다.
+- 이력 보존: 기존 finalized 전진검수·FAT 성적서는 legacy read-only로 유지하고 신규 회차부터 새 mode를 적용한다.
+- 상태: 조사·수정안 확정 완료, 제품 코드 수정은 후속 `TASK-012A Change 004` 범위. Open P0/P1/P2/P3는 현재 `0/0/1/0`이다.
+
+### 경계와 검증
+
+- 이번 Change는 정책 대조와 프로젝트 상세 품질 진척 계산에 필요한 확인만 수행했고 검사 저장·PDF·Pending 상태 전이는 변경하지 않았다.
+- Backend 전체 `420/420`, Frontend 전체 `125/125`를 통과해 감사·현황판 변경으로 기존 흐름이 깨지지 않았음을 확인했다.
+- 대표 repo·`main`·Persistent UAT·실제 provider·push·PR·merge는 변경하지 않았다.
+
+## Change 004 — `012A-AGGREGATE-DECISION` 해소 (2026-07-22)
+
+Change 003의 OPEN P2는 [Change 004 구현 보고](012a-change-004-implementation-report.md)에서 해소했다. 신규 LQC·OQC는 `Checklist`, 신규 전진검수·FAT는 `Aggregate` 판정 모드를 회차에 고정한다. Aggregate는 항목별 응답을 받지 않고 패널 단일 판정·근거·증빙·Pending만 사용하며 기존 finalized 성적서는 read-only로 보존한다.
+
+재검사 시작 시 회차의 시작자·시각도 함께 기록하도록 보정해, 적합 재검사에서 회차 `Passed`와 연결 Pending `Closed`가 같은 transaction으로 완료된다. 패널 품질 Aggregate Pending E2E, IQC Pending 연속성 E2E, 실제 역할 18단계와 12면 stress lifecycle을 통과했다. 현재 Open P0/P1/P2는 `0/0/0`이다.

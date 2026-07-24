@@ -58,6 +58,22 @@ public static class QualityInspectionEndpointExtensions
         .RequireAuthorization(QmsPolicies.QualityInspect)
         .WithName("ListPanelQualityActionDepartments");
 
+        quality.MapPost("/reconcile", async (
+            QualityInspectionStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = GetCurrentUserId(user);
+            return actorId is null
+                ? Results.Unauthorized()
+                : Results.Ok(await store.ReconcileHandoffsAsync(
+                    actorId.Value,
+                    GetProjectAccessScope(user),
+                    cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("ReconcilePanelQualityInspectionHandoffs");
+
         quality.MapPost("/start", async (
             StartQualityInspectionRequest request,
             QualityInspectionStore store,

@@ -9,6 +9,7 @@ using Emi.Qms.Api.Logistics;
 using Emi.Qms.Api.Manufacturing;
 using Emi.Qms.Api.Materials;
 using Emi.Qms.Api.Notifications;
+using Emi.Qms.Api.Notices;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.PanelQr;
 using Emi.Qms.Api.Pending;
@@ -59,6 +60,7 @@ builder.Services.AddSingleton<ReviewSafeStatusService>();
 builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
 builder.Services.AddSingleton<UserProfilePhotoStore>();
 builder.Services.AddSingleton<HomeMetricsStore>();
+builder.Services.AddSingleton<NoticeStore>();
 builder.Services.AddSingleton<IProjectDeletionGuard, ProjectDeletionGuard>();
 builder.Services.AddSingleton<ProjectExcelParser>();
 builder.Services.AddSingleton<ProjectStore>();
@@ -166,6 +168,16 @@ app.UseExceptionHandler(exceptionApp =>
 {
     exceptionApp.Run(async context =>
     {
+        var exception = context.Features
+            .Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?
+            .Error;
+        if (exception is not null)
+        {
+            context.RequestServices
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("Emi.Qms.Api.UnhandledException")
+                .LogError(exception, "Unhandled API exception for {Method} {Path}.", context.Request.Method, context.Request.Path);
+        }
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         context.Response.ContentType = "application/problem+json";
         await Results.Problem(
@@ -241,6 +253,7 @@ app.MapGet("/api/runtime-mode", async (ReviewSafeStatusService statusService, Ca
 
 app.MapIdentityEndpoints();
 app.MapHomeMetricsEndpoints();
+app.MapNoticeEndpoints();
 app.MapProjectEndpoints();
 app.MapPanelInformationEndpoints();
 app.MapPanelQrEndpoints();

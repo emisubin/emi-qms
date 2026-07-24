@@ -21,12 +21,14 @@ export function PanelQrManager({
   developmentUserKey,
   projectId,
   canIssue,
-  isSystemAdministrator
+  isSystemAdministrator,
+  focusPanelId
 }: {
   developmentUserKey: string;
   projectId: string;
   canIssue: boolean;
   isSystemAdministrator: boolean;
+  focusPanelId?: string;
 }) {
   const [data, setData] = useState<ProjectPanelQrList | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -58,7 +60,13 @@ export function PanelQrManager({
     printItems.forEach((item) => URL.revokeObjectURL(item.imageUrl));
   }, [printItems]);
 
-  const selectablePanels = useMemo(() => data?.panels.filter((panel) => panel.hasActiveQr || (canIssue && panel.qrEligible)) ?? [], [canIssue, data]);
+  const visiblePanels = useMemo(
+    () => data?.panels.filter((panel) => !focusPanelId || panel.panelId === focusPanelId) ?? [],
+    [data, focusPanelId]
+  );
+  const selectablePanels = useMemo(() => visiblePanels.filter((panel) => panel.hasActiveQr || (canIssue && panel.qrEligible)), [canIssue, visiblePanels]);
+  const visibleIssuedCount = visiblePanels.filter((panel) => panel.hasActiveQr).length;
+  const visibleEligibleCount = visiblePanels.filter((panel) => panel.qrEligible).length;
   const allSelectableSelected = selectablePanels.length > 0 && selectablePanels.every((panel) => selected.has(panel.panelId));
   const selectionNeedsIssue = useMemo(
     () => data?.panels.some((panel) => selected.has(panel.panelId) && !panel.hasActiveQr) ?? false,
@@ -189,8 +197,8 @@ export function PanelQrManager({
           <span>패널 현황과 현재 담당 업무를 모바일에서 바로 엽니다.</span>
         </div>
         <div className="panel-qr-counts" aria-label="QR 현황">
-          <strong>{data?.issuedCount ?? 0}</strong>
-          <span>발급 / 가능 {data?.eligibleCount ?? 0}</span>
+          <strong>{focusPanelId ? visibleIssuedCount : data?.issuedCount ?? 0}</strong>
+          <span>발급 / 가능 {focusPanelId ? visibleEligibleCount : data?.eligibleCount ?? 0}</span>
         </div>
       </header>
 
@@ -218,7 +226,7 @@ export function PanelQrManager({
             </button>
           </div>
           <div className="panel-qr-list">
-            {data.panels.map((panel) => (
+            {visiblePanels.map((panel) => (
               <Fragment key={panel.panelId}>
               <article data-issued={panel.hasActiveQr || undefined}>
                 <label className="panel-qr-select">

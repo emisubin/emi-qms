@@ -101,11 +101,11 @@ test('TASK-MOBILE-002 Change 005: mobile workspaces use one shape for each seman
 
   await selectMobileDevelopmentUser(page, 'dev-materials');
   await page.goto('/materials/receipts');
-  const materialCard = page.locator('.material-item-card').filter({ hasText: projectTitle });
+  const materialCard = page.locator('.material-purchase-row').first();
   await expect(materialCard).toBeVisible();
-  await expect(materialCard.locator('.material-item-meta--priority')).toBeVisible();
-  await expect(materialCard.getByText('입고 상세', { exact: true })).toBeVisible();
-  const materialCardRadiusCount = await page.locator('.material-item-card').evaluateAll((elements) =>
+  await expect(materialCard.locator('.material-purchase-status')).toBeVisible();
+  await expect(page.locator('.material-project-toggle')).toBeVisible();
+  const materialCardRadiusCount = await page.locator('.material-purchase-row').evaluateAll((elements) =>
     new Set(elements.map((element) => getComputedStyle(element).borderRadius)).size
   );
   expect(materialCardRadiusCount).toBe(1);

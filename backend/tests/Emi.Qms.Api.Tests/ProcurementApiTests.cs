@@ -293,6 +293,17 @@ public sealed class ProcurementApiTests
             new { expectedReportVersion = secondReportVersion, responses = new[] { new { templateItemId = failedItemId, checkResult = "Pass", textValue = (string?)null, note = (string?)null } } },
             TestContext.Current.CancellationToken));
         secondReportVersion = savedSecond.RootElement.GetProperty("reportVersion").GetInt32();
+        var contradictoryFailure = await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/reports/{secondReportId}/finalize",
+            new
+            {
+                expectedReportVersion = secondReportVersion,
+                expectedReceiptVersion = secondReceiptVersion,
+                result = "Failed",
+                reason = "모든 재검사 항목이 적합인데도 부적합으로 확정하는 우회 요청을 차단합니다."
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, contradictoryFailure.StatusCode);
         var passed = await qualityClient.PostAsJsonAsync(
             $"/api/quality/iqc/reports/{secondReportId}/finalize",
             new { expectedReportVersion = secondReportVersion, expectedReceiptVersion = secondReceiptVersion, result = "Passed", reason = "교체 명판 규격 적합 확인" },
@@ -682,10 +693,8 @@ public sealed class ProcurementApiTests
         var confirmationWork = await context.ReadTextAsync(
             "select description from work_items where project_id=@project_id and idempotency_key like 'materials:receipt:%:confirm:%' order by created_at_utc desc limit 1;",
             projectId);
-        Assert.StartsWith("IQC 합격 도착분의 입고 확정을 진행해 주세요.", confirmationWork, StringComparison.Ordinal);
-        Assert.Contains("\n\n상세 내용\n", confirmationWork, StringComparison.Ordinal);
-        Assert.Contains("발주품목 Purchased Busbar", confirmationWork, StringComparison.Ordinal);
-        Assert.Contains("합격 수량 4 EA", confirmationWork, StringComparison.Ordinal);
+        Assert.Equal("IQC 합격 도착분의 입고 확정을 진행해 주세요. (Purchased Busbar 4 EA)", confirmationWork);
+        Assert.DoesNotContain("\n", confirmationWork, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, (await materialsClient.PostAsJsonAsync(
             $"/api/materials/receipts/{arrivals[0].ReceiptId}/confirm",
             new { expectedVersion = 3 },
@@ -1372,7 +1381,7 @@ public sealed class ProcurementApiTests
         }
         using (var reopenedPending = await ReadJsonAsync(await coordinatorClient.GetAsync($"/api/pending/{pendingId}", TestContext.Current.CancellationToken)))
         {
-            Assert.Equal("InProgress", reopenedPending.RootElement.GetProperty("issue").GetProperty("status").GetString());
+            Assert.Equal("ActionRequested", reopenedPending.RootElement.GetProperty("issue").GetProperty("status").GetString());
             Assert.Contains(reopenedPending.RootElement.GetProperty("history").EnumerateArray(), history =>
                 history.GetProperty("reason").GetString()!.Contains("재검사 부적합", StringComparison.Ordinal));
         }
@@ -1382,7 +1391,7 @@ public sealed class ProcurementApiTests
             from work_items
             where project_id = @project_id and target_type = 'Pending'
               and target_id = (select id from pending_issues where project_id = @project_id limit 1)
-              and status = 'InProgress';
+              and status = 'Requested';
             """,
             projectId));
         Assert.Equal(1L, await context.ReadCountAsync(
@@ -1405,7 +1414,11 @@ public sealed class ProcurementApiTests
 
         Assert.Equal(HttpStatusCode.OK, (await coordinatorClient.PostAsJsonAsync(
             $"/api/pending/{pendingId}/transition",
-            new { toStatus = "ReinspectionRequested", expectedVersion = 5, reason = "단자 교체 조치 완료 후 2차 재검사 요청" },
+            new { toStatus = "InProgress", expectedVersion = 5, reason = "단자 교체 재조치 시작" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await coordinatorClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/transition",
+            new { toStatus = "ReinspectionRequested", expectedVersion = 6, reason = "단자 교체 조치 완료 후 2차 재검사 요청" },
             TestContext.Current.CancellationToken)).StatusCode);
         var thirdReinspection = await materialsClient.PostAsJsonAsync(
             $"/api/materials/receipts/{receiptId}/reinspection",
@@ -1879,7 +1892,7 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.OK, oneRequired.StatusCode);
         using var partialWorkflow = await ReadJsonAsync(await procurementClient.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
         var partialProcurementStage = partialWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "ProcurementInfo");
-        Assert.Equal("InProgress", partialProcurementStage.GetProperty("status").GetString());
+        Assert.Equal("PartiallyCompleted", partialProcurementStage.GetProperty("status").GetString());
 
         var current = await ReadProcurementAsync(procurementClient, projectId);
         var existing = current.RootElement.GetProperty("items")[0];
@@ -1897,18 +1910,14 @@ public sealed class ProcurementApiTests
                         orderItem = "차단기",
                         supplierName = "필수품목 공급사",
                         orderDate = "2026-07-01",
-                        expectedReceiptDate = "2026-07-15",
-                        orderQuantity = 10,
-                        orderUnit = "EA"
+                        expectedReceiptDate = "2026-07-15"
                     },
                     new
                     {
                         orderItem = "외함",
                         supplierName = "필수품목 공급사",
                         orderDate = "2026-07-02",
-                        expectedReceiptDate = "2026-07-16",
-                        orderQuantity = 2,
-                        orderUnit = "EA"
+                        expectedReceiptDate = "2026-07-16"
                     }
                 }
             },
@@ -2135,9 +2144,7 @@ public sealed class ProcurementApiTests
                 '50000000-0000-0000-0000-000000000004', now(),
                 '50000000-0000-0000-0000-000000000004', now(), 1, now()
             from panel_placeholders
-            where project_id = '{projectId}' and status = 'Active'
-            order by display_code
-            limit 1;
+            where project_id = '{projectId}' and status = 'Active';
             """);
 
         using (var workflow = await ReadJsonAsync(await qualityClient.GetAsync(
@@ -2161,9 +2168,13 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.OK, reconciled.StatusCode);
         using (var reconciledJson = await ReadJsonAsync(reconciled))
         {
+            Assert.Equal(1, reconciledJson.RootElement.GetProperty("recoveredLqcHandoffCount").GetInt32());
             Assert.Equal(1, reconciledJson.RootElement.GetProperty("recoveredOqcHandoffCount").GetInt32());
             Assert.Equal(0, reconciledJson.RootElement.GetProperty("unresolvedAssigneeCount").GetInt32());
         }
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id = @project_id and workflow_stage_code = 'LQC';",
+            projectId));
         Assert.Equal(1L, await context.ReadCountAsync(
             "select count(*) from panel_manufacturing_completion_confirmations where project_id = @project_id;",
             projectId));
@@ -2186,6 +2197,7 @@ public sealed class ProcurementApiTests
                    null,
                    TestContext.Current.CancellationToken)))
         {
+            Assert.Equal(0, replay.RootElement.GetProperty("recoveredLqcHandoffCount").GetInt32());
             Assert.Equal(0, replay.RootElement.GetProperty("recoveredOqcHandoffCount").GetInt32());
             Assert.Equal(0, replay.RootElement.GetProperty("recoveredInspectionHandoffCount").GetInt32());
             Assert.Equal(0, replay.RootElement.GetProperty("recoveredPackingHandoffCount").GetInt32());
@@ -2193,6 +2205,284 @@ public sealed class ProcurementApiTests
         Assert.Equal(1L, await context.ReadCountAsync(
             "select count(*) from work_items where project_id = @project_id and workflow_stage_code = 'OQC';",
             projectId));
+    }
+
+    [Theory]
+    [InlineData("LQC", "QualityLQC")]
+    [InlineData("OQC", "QualityOQC")]
+    public async Task PanelQualityReinspection_OnlyExposesFailedItemsAndAllowsOtherDepartmentsToComment(
+        string stageCode,
+        string responsibility)
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var qualityClient = context.CreateClient("dev-quality");
+        using var manufacturingClient = context.CreateClient("dev-manufacturing");
+        using var readOnlyClient = context.CreateClient("dev-viewer");
+        var projectId = await CreateProjectAsync(salesClient, $"REINSPECT-{stageCode}", $"{stageCode} Reinspection", 1);
+
+        using var panelList = await ReadJsonAsync(await salesClient.GetAsync(
+            $"/api/projects/{projectId}/panels",
+            TestContext.Current.CancellationToken));
+        var panelId = Assert.Single(panelList.RootElement.EnumerateArray()).GetProperty("panelId").GetGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into project_assignees (
+                project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc
+            ) values (
+                '{projectId}', '{responsibility}', '50000000-0000-0000-0000-000000000005',
+                '{SalesOwnerUserId}', now()
+            )
+            on conflict (project_id, responsibility_type) do update
+            set assigned_user_id = excluded.assigned_user_id,
+                assigned_by_user_id = excluded.assigned_by_user_id,
+                assigned_at_utc = excluded.assigned_at_utc;
+
+            insert into work_items (
+                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                assigned_user_id, assigned_role_code, title, description, status, priority,
+                idempotency_key, created_by_user_id
+            ) values (
+                '{projectId}', 'Panel', '{panelId}', '{stageCode}', '{responsibility}',
+                '50000000-0000-0000-0000-000000000005', 'quality',
+                '{stageCode} 검사', '재검사 범위 회귀', 'Requested', 'Normal',
+                'test:reinspection:{stageCode}:{panelId}', '{SalesOwnerUserId}'
+            );
+            """);
+        if (stageCode == "LQC")
+        {
+            await context.ExecuteSqlAsync($"""
+                with execution as (
+                    insert into panel_manufacturing_executions (
+                        project_id, panel_id, status, started_by_user_id, started_at_utc,
+                        completed_by_user_id, completed_at_utc, version, updated_at_utc
+                    ) values (
+                        '{projectId}', '{panelId}', 'Completed',
+                        '50000000-0000-0000-0000-000000000004', now(),
+                        '50000000-0000-0000-0000-000000000004', now(), 1, now()
+                    )
+                    returning id
+                )
+                insert into panel_manufacturing_execution_steps (execution_id, sequence_number, step_name, checked_by_user_id, checked_at_utc)
+                select id, step_number, '제조 ' || step_number || '단계',
+                       '50000000-0000-0000-0000-000000000004', now()
+                from execution cross join generate_series(1, 4) step_number;
+                """);
+        }
+
+        var start = await qualityClient.PostAsJsonAsync(
+            "/api/quality/inspections/start",
+            new { operationId = Guid.NewGuid(), projectId, panelId, stageCode },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, start.StatusCode);
+        using var startJson = await ReadJsonAsync(start);
+        var reportId = startJson.RootElement.GetProperty("reportId").GetGuid();
+
+        using var detail = await ReadJsonAsync(await qualityClient.GetAsync(
+            $"/api/quality/inspections/panels/{panelId}?stage={stageCode}",
+            TestContext.Current.CancellationToken));
+        var reportVersion = detail.RootElement.GetProperty("reportVersion").GetInt32();
+        var requiredItems = detail.RootElement.GetProperty("items").EnumerateArray()
+            .Where(item => item.GetProperty("isRequired").GetBoolean())
+            .ToList();
+        Assert.True(requiredItems.Count >= 2);
+        var failedItemId = requiredItems[0].GetProperty("itemId").GetGuid();
+        var nonTargetItemId = requiredItems[1].GetProperty("itemId").GetGuid();
+        var responses = requiredItems.Select((item, index) => new
+        {
+            templateItemId = item.GetProperty("itemId").GetGuid(),
+            checkResult = index == 0 ? "Fail" : "Pass",
+            textValue = (string?)null,
+            note = index == 0 ? "체결 상태가 검사 기준과 일치하지 않아 재조치가 필요합니다." : null
+        }).ToArray();
+
+        var failed = await qualityClient.PostAsJsonAsync(
+            $"/api/quality/inspections/reports/{reportId}/finalize",
+            new
+            {
+                operationId = Guid.NewGuid(),
+                expectedReportVersion = reportVersion,
+                result = "Failed",
+                reason = "검사 항목에서 기준 미달이 확인되어 제조 부서 재조치가 필요합니다.",
+                actionDepartmentCode = "manufacturing",
+                assigneeUserId = Guid.Parse("50000000-0000-0000-0000-000000000004"),
+                responses
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, failed.StatusCode);
+        using var failedJson = await ReadJsonAsync(failed);
+        var pendingId = failedJson.RootElement.GetProperty("pendingId").GetGuid();
+
+        using (var initialFailedDetail = await ReadJsonAsync(await qualityClient.GetAsync(
+                   $"/api/quality/inspections/panels/{panelId}?stage={stageCode}",
+                   TestContext.Current.CancellationToken)))
+        {
+            var initialItems = initialFailedDetail.RootElement.GetProperty("items").EnumerateArray().ToList();
+            Assert.True(initialItems.Count >= requiredItems.Count);
+            Assert.All(initialItems, item => Assert.False(item.GetProperty("isReinspectionTarget").GetBoolean()));
+        }
+
+        var comment = await salesClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/comments",
+            new { body = "영업 부서에서 고객 일정 영향을 확인했습니다." },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, comment.StatusCode);
+        using (var commentJson = await ReadJsonAsync(comment))
+        {
+            Assert.True(commentJson.RootElement.GetProperty("canComment").GetBoolean());
+            Assert.Contains(
+                commentJson.RootElement.GetProperty("comments").EnumerateArray(),
+                item => item.GetProperty("body").GetString() == "영업 부서에서 고객 일정 영향을 확인했습니다.");
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await salesClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/transition",
+            new { toStatus = "InProgress", expectedVersion = 1, reason = "권한 경계 확인" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        using (var readOnlyDetail = await ReadJsonAsync(await readOnlyClient.GetAsync(
+                   $"/api/pending/{pendingId}",
+                   TestContext.Current.CancellationToken)))
+        {
+            Assert.False(readOnlyDetail.RootElement.GetProperty("canComment").GetBoolean());
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await readOnlyClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/comments",
+            new { body = "조회 전용 계정은 코멘트를 등록할 수 없습니다." },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var inProgress = await manufacturingClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/transition",
+            new { toStatus = "InProgress", expectedVersion = 1, reason = "부적합 항목 조치를 시작합니다." },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, inProgress.StatusCode);
+        var requested = await manufacturingClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/transition",
+            new { toStatus = "ReinspectionRequested", expectedVersion = 2, reason = "부적합 항목 조치를 완료했습니다." },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, requested.StatusCode);
+
+        using var reinspection = await ReadJsonAsync(await qualityClient.GetAsync(
+            $"/api/quality/inspections/panels/{panelId}?stage={stageCode}",
+            TestContext.Current.CancellationToken));
+        var reinspectionReportId = reinspection.RootElement.GetProperty("reportId").GetGuid();
+        var reinspectionVersion = reinspection.RootElement.GetProperty("reportVersion").GetInt32();
+        var reinspectionItem = Assert.Single(reinspection.RootElement.GetProperty("items").EnumerateArray());
+        Assert.Equal(failedItemId, reinspectionItem.GetProperty("itemId").GetGuid());
+        Assert.True(reinspectionItem.GetProperty("isReinspectionTarget").GetBoolean());
+        Assert.Contains("재조치", reinspectionItem.GetProperty("previousFailureEvidence").GetString(), StringComparison.Ordinal);
+
+        var outOfScope = await qualityClient.PutAsJsonAsync(
+            $"/api/quality/inspections/reports/{reinspectionReportId}/responses",
+            new
+            {
+                operationId = Guid.NewGuid(),
+                expectedReportVersion = reinspectionVersion,
+                responses = new[]
+                {
+                    new { templateItemId = failedItemId, checkResult = "Pass", textValue = (string?)null, note = (string?)null },
+                    new { templateItemId = nonTargetItemId, checkResult = "Pass", textValue = (string?)null, note = (string?)null }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, outOfScope.StatusCode);
+
+        if (stageCode == "OQC")
+        {
+            var failedAgain = await qualityClient.PostAsJsonAsync(
+                $"/api/quality/inspections/reports/{reinspectionReportId}/finalize",
+                new
+                {
+                    operationId = Guid.NewGuid(),
+                    expectedReportVersion = reinspectionVersion,
+                    result = "Failed",
+                    reason = "재검사에서도 동일 항목이 기준에 미달하여 추가 재조치가 필요합니다.",
+                    actionDepartmentCode = (string?)null,
+                    assigneeUserId = (Guid?)null,
+                    responses = new[]
+                    {
+                        new { templateItemId = failedItemId, checkResult = "Fail", textValue = (string?)null, note = "동일 부적합이 남아 있습니다." }
+                    }
+                },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, failedAgain.StatusCode);
+            using (var reopened = await ReadJsonAsync(await qualityClient.GetAsync(
+                       $"/api/pending/{pendingId}",
+                       TestContext.Current.CancellationToken)))
+            {
+                Assert.Equal("ActionRequested", reopened.RootElement.GetProperty("issue").GetProperty("status").GetString());
+                Assert.Equal(4, reopened.RootElement.GetProperty("issue").GetProperty("version").GetInt32());
+            }
+
+            var inProgressAgain = await manufacturingClient.PostAsJsonAsync(
+                $"/api/pending/{pendingId}/transition",
+                new { toStatus = "InProgress", expectedVersion = 4, reason = "추가 재조치를 시작합니다." },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, inProgressAgain.StatusCode);
+            var requestedAgain = await manufacturingClient.PostAsJsonAsync(
+                $"/api/pending/{pendingId}/transition",
+                new { toStatus = "ReinspectionRequested", expectedVersion = 5, reason = "추가 재조치를 완료했습니다." },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, requestedAgain.StatusCode);
+            using var secondReinspection = await ReadJsonAsync(await qualityClient.GetAsync(
+                $"/api/quality/inspections/panels/{panelId}?stage={stageCode}",
+                TestContext.Current.CancellationToken));
+            reinspectionReportId = secondReinspection.RootElement.GetProperty("reportId").GetGuid();
+            reinspectionVersion = secondReinspection.RootElement.GetProperty("reportVersion").GetInt32();
+            var secondItem = Assert.Single(secondReinspection.RootElement.GetProperty("items").EnumerateArray());
+            Assert.Equal(failedItemId, secondItem.GetProperty("itemId").GetGuid());
+            Assert.True(secondItem.GetProperty("isReinspectionTarget").GetBoolean());
+        }
+
+        var passed = await qualityClient.PostAsJsonAsync(
+            $"/api/quality/inspections/reports/{reinspectionReportId}/finalize",
+            new
+            {
+                operationId = Guid.NewGuid(),
+                expectedReportVersion = reinspectionVersion,
+                result = "Passed",
+                reason = "재조치 결과 적합합니다.",
+                actionDepartmentCode = (string?)null,
+                assigneeUserId = (Guid?)null,
+                responses = new[]
+                {
+                    new { templateItemId = failedItemId, checkResult = "Pass", textValue = (string?)null, note = (string?)null }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            passed.StatusCode == HttpStatusCode.OK,
+            $"Expected OK but received {passed.StatusCode}: {await passed.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)}{Environment.NewLine}"
+            + string.Join(Environment.NewLine, context.Logs.Where(entry => entry.Exception is not null).Select(entry => entry.Exception)));
+        using var closedPending = await ReadJsonAsync(await qualityClient.GetAsync(
+            $"/api/pending/{pendingId}",
+            TestContext.Current.CancellationToken));
+        Assert.Equal("Closed", closedPending.RootElement.GetProperty("issue").GetProperty("status").GetString());
+
+        using (var completedDetail = await ReadJsonAsync(await qualityClient.GetAsync(
+                   $"/api/quality/inspections/panels/{panelId}?stage={stageCode}",
+                   TestContext.Current.CancellationToken)))
+        {
+            var completedItems = completedDetail.RootElement.GetProperty("items").EnumerateArray().ToList();
+            var completedResponses = completedDetail.RootElement.GetProperty("responses").EnumerateArray().ToList();
+            Assert.True(completedItems.Count >= requiredItems.Count);
+            Assert.Contains(completedItems, item => item.GetProperty("itemId").GetGuid() == nonTargetItemId);
+            Assert.Contains(completedItems, item =>
+                item.GetProperty("itemId").GetGuid() == failedItemId
+                && item.GetProperty("isReinspectionTarget").GetBoolean());
+            Assert.Contains(completedResponses, item =>
+                item.GetProperty("templateItemId").GetGuid() == nonTargetItemId
+                && item.GetProperty("checkResult").GetString() == "Pass");
+            Assert.Contains(completedResponses, item =>
+                item.GetProperty("templateItemId").GetGuid() == failedItemId
+                && item.GetProperty("checkResult").GetString() == "Pass");
+        }
+
+        using var passedQueue = await ReadJsonAsync(await qualityClient.GetAsync(
+            $"/api/quality/inspections/queue?stage={stageCode}&projectId={projectId}",
+            TestContext.Current.CancellationToken));
+        var passedProject = Assert.Single(passedQueue.RootElement.GetProperty("projects").EnumerateArray());
+        var passedPanel = Assert.Single(passedProject.GetProperty("panels").EnumerateArray());
+        Assert.Equal("Passed", passedPanel.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, passedPanel.GetProperty("pendingId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, passedPanel.GetProperty("pendingNumber").ValueKind);
     }
 
     [Fact]

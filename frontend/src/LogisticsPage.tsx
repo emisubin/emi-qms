@@ -53,6 +53,8 @@ export function LogisticsPage({
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const onLocationChangeRef = useRef(onLocationChange);
+  useEffect(() => { onLocationChangeRef.current = onLocationChange; }, [onLocationChange]);
 
   const applyDraftDetails = useCallback((details: LogisticsDraftResponse) => {
     setDraftDetails(details);
@@ -82,7 +84,20 @@ export function LogisticsPage({
     try {
       const response = await getLogisticsQueue(developmentUserKey, stage, initialProjectId);
       setQueue(response);
-      if (!initialDraftId) {
+      const recoverableDraftId = initialDraftId ?? response.drafts?.[0]?.targetId;
+      if (recoverableDraftId) {
+        try {
+          await refreshDraft(recoverableDraftId);
+          if (!initialDraftId) {
+            onLocationChangeRef.current(stage, recoverableDraftId);
+            setFeedback({ kind: 'success', text: '중간에 멈춘 물류 작업을 복구했습니다. 증빙을 확인하고 저장하면 바로 확정됩니다.' });
+          }
+        } catch (error) {
+          setDraft(null);
+          setDraftDetails(null);
+          setFeedback({ kind: 'error', text: messageOf(error) });
+        }
+      } else {
         setDraft(null);
         setDraftDetails(null);
         const preferred = response.projects.flatMap((project) => project.items).find((item) =>
@@ -94,15 +109,6 @@ export function LogisticsPage({
       setFeedback({ kind: 'error', text: messageOf(error) });
       setLoading(false);
       return;
-    }
-    if (initialDraftId) {
-      try {
-        await refreshDraft(initialDraftId);
-      } catch (error) {
-        setDraft(null);
-        setDraftDetails(null);
-        setFeedback({ kind: 'error', text: messageOf(error) });
-      }
     }
     setLoading(false);
   }, [developmentUserKey, initialDraftId, initialPanelId, initialProjectId, initialUnitId, refreshDraft, stage]);
@@ -146,67 +152,52 @@ export function LogisticsPage({
     });
   }
 
-  async function createDraft() {
-    if (!selectedProjectId || selected.size === 0 || selectionCrossesProjects || selectedBlocked) return;
+  async function saveAndFinalize() {
+    if ((!draft && (!selectedProjectId || selected.size === 0 || selectionCrossesProjects || selectedBlocked))
+      || (!file && evidenceCount === 0)) return;
     setBusy(true);
     setFeedback(null);
+    let workingDraft = draft;
     try {
-      const operationId = crypto.randomUUID();
-      const response = stage === 'packing'
-        ? await createPackingUnit(developmentUserKey, {
-          operationId,
-          projectId: selectedProjectId,
-          panelIds: selectedEntries.flatMap(({ item }) => item.panelIds),
-          note: note.trim() || null,
-          specification: null,
-          weightText: null
-        })
-        : await createLogisticsBatch(developmentUserKey, stage, {
-          operationId,
-          projectId: selectedProjectId,
-          unitIds: selectedEntries.map(({ item }) => item.targetId),
-          departureDate: stage === 'departure' ? departureDate : null
-        });
-      await refreshDraft(response.targetId);
-      onLocationChange(stage, response.targetId);
-      setFeedback({ kind: 'success', text: `${stageMeta[stage].short} draft를 만들었습니다. ${stageMeta[stage].evidence}을 등록해 주세요.` });
-    } catch (error) {
-      setFeedback({ kind: 'error', text: messageOf(error) });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function uploadEvidence() {
-    if (!draft || !file) return;
-    setBusy(true);
-    setFeedback(null);
-    try {
-      const response = await uploadLogisticsEvidence(
+      if (!workingDraft) {
+        const operationId = crypto.randomUUID();
+        workingDraft = stage === 'packing'
+          ? await createPackingUnit(developmentUserKey, {
+            operationId,
+            projectId: selectedProjectId!,
+            panelIds: selectedEntries.flatMap(({ item }) => item.panelIds),
+            note: note.trim() || null,
+            specification: null,
+            weightText: null
+          })
+          : await createLogisticsBatch(developmentUserKey, stage, {
+            operationId,
+            projectId: selectedProjectId!,
+            unitIds: selectedEntries.map(({ item }) => item.targetId),
+            departureDate: stage === 'departure' ? departureDate : null
+          });
+        setDraft(workingDraft);
+        onLocationChange(stage, workingDraft.targetId);
+      }
+      if (file) {
+        workingDraft = await uploadLogisticsEvidence(
+          developmentUserKey,
+          stage,
+          workingDraft.targetId,
+          crypto.randomUUID(),
+          workingDraft.version,
+          stage === 'delivery' ? '' : altText,
+          file
+        );
+        setDraft(workingDraft);
+      }
+      await finalizeLogisticsOperation(
         developmentUserKey,
         stage,
-        draft.targetId,
+        workingDraft.targetId,
         crypto.randomUUID(),
-        draft.version,
-        stage === 'delivery' ? '' : altText,
-        file
+        workingDraft.version
       );
-      setDraft(response);
-      await refreshDraft(response.targetId);
-      setFeedback({ kind: 'success', text: '증빙을 안전하게 등록했습니다. 내용을 확인하고 확정해 주세요.' });
-    } catch (error) {
-      setFeedback({ kind: 'error', text: messageOf(error) });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function finalize() {
-    if (!draft) return;
-    setBusy(true);
-    setFeedback(null);
-    try {
-      await finalizeLogisticsOperation(developmentUserKey, stage, draft.targetId, crypto.randomUUID(), draft.version);
       setFeedback({ kind: 'success', text: `${stageMeta[stage].label} 확정 완료 · 다음 단계는 ${stageMeta[stage].next}입니다.` });
       setDraft(null);
       setDraftDetails(null);
@@ -214,7 +205,15 @@ export function LogisticsPage({
       setSelected(new Set());
       onLocationChange(stage);
     } catch (error) {
-      setFeedback({ kind: 'error', text: messageOf(error) });
+      if (workingDraft) {
+        try {
+          await refreshDraft(workingDraft.targetId);
+          onLocationChange(stage, workingDraft.targetId);
+        } catch {
+          // A concurrent finalization can make the draft unreadable as a draft; the queue reload will reconcile it.
+        }
+      }
+      setFeedback({ kind: 'error', text: `${messageOf(error)} 입력 내용은 임시 작업으로 보존했으며 이 화면에서 다시 저장할 수 있습니다.` });
     } finally {
       setBusy(false);
     }
@@ -267,7 +266,7 @@ export function LogisticsPage({
       <div className="logistics-priority-strip">
         <div><strong>{queue?.todayCount ?? 0}</strong><span>처리 대기</span></div>
         <div data-alert={(queue?.blockedCount ?? 0) > 0}><strong>{queue?.blockedCount ?? 0}</strong><span>차단 확인</span></div>
-        <p><b>{stageMeta[stage].short}</b><span>대상 → 증빙 → 확정 순서로 진행하세요.</span></p>
+        <p><b>{stageMeta[stage].short}</b><span>대상과 증빙을 입력하고 저장 한 번으로 확정합니다.</span></p>
       </div>
 
       {feedback ? <div ref={errorRef} tabIndex={-1} role={feedback.kind === 'error' ? 'alert' : 'status'}
@@ -321,45 +320,37 @@ export function LogisticsPage({
           </section>
 
           <aside className="logistics-action-panel">
-            <header><span>STEP 2–3</span><h2>증빙과 확정</h2></header>
+            <header><span>STEP 2</span><h2>증빙 등록 및 확정</h2></header>
             <div className="logistics-selection-summary">
               <span className="logistics-summary-circle">{selectedCount}</span>
               <div><small>선택 대상</small><strong>{selectedLabel}</strong></div>
             </div>
 
-            {!draft ? (
-              <div className="logistics-create-form">
-                {stage === 'packing' ? <label>포장 메모 <input value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} placeholder="선택 입력" /></label> : null}
-                {stage === 'departure' ? <label>출발일 <input type="date" value={departureDate} onChange={(event) => setDepartureDate(event.target.value)} /></label> : null}
-                {selectionCrossesProjects ? <p className="logistics-inline-error">같은 프로젝트 대상만 함께 처리할 수 있습니다.</p> : null}
-                {selectedBlocked ? <p className="logistics-inline-error">Pending 또는 담당 권한을 확인해 주세요.</p> : null}
-                {!canMutate ? <p className="logistics-readonly">조회 전용입니다. 물류 담당자에게 처리를 요청해 주세요.</p> : null}
-                <button type="button" className="logistics-primary" onClick={() => void createDraft()}
-                  disabled={!canMutate || busy || selected.size === 0 || selectionCrossesProjects || selectedBlocked}>
-                  {busy ? '준비 중…' : `${stageMeta[stage].short} 시작`}
+            <div className="logistics-create-form">
+              {draft ? <div className="logistics-draft-token"><span>복구됨</span><strong>v{draft.version}</strong><small>등록 증빙 {evidenceCount}개 · 저장을 다시 눌러 확정할 수 있습니다.</small></div> : null}
+              {!draft && stage === 'packing' ? <label>포장 메모 <input value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} placeholder="선택 입력" /></label> : null}
+              {!draft && stage === 'departure' ? <label>출발일 <input type="date" value={departureDate} onChange={(event) => setDepartureDate(event.target.value)} /></label> : null}
+              <label className="logistics-file-field">
+                <span>{stageMeta[stage].evidence} <b>필수</b></span>
+                <input type="file" accept={stage === 'delivery' ? 'image/jpeg,image/png,application/pdf' : 'image/jpeg,image/png'}
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)} disabled={!canMutate || busy} />
+                <strong>{file?.name ?? (evidenceCount > 0 ? `등록된 증빙 ${evidenceCount}개 사용` : '파일을 먼저 선택하세요')}</strong>
+                <small>{stage === 'delivery' ? 'JPEG·PNG·PDF / 최대 10MB' : 'JPEG·PNG / 최대 5MB'}</small>
+              </label>
+              {stage !== 'delivery' ? <label>사진 설명 <input value={altText} maxLength={160} onChange={(event) => setAltText(event.target.value)} /></label> : null}
+              {selectionCrossesProjects ? <p className="logistics-inline-error">같은 프로젝트 대상만 함께 처리할 수 있습니다.</p> : null}
+              {selectedBlocked ? <p className="logistics-inline-error">Pending 또는 담당 권한을 확인해 주세요.</p> : null}
+              {!canMutate ? <p className="logistics-readonly">조회 전용입니다. 물류 담당자에게 처리를 요청해 주세요.</p> : null}
+              <div className="logistics-confirm-box">
+                <span>한 번에 완료</span>
+                <p>저장하면 증빙 등록과 {stageMeta[stage].label} 확정이 연속 처리됩니다.</p>
+                <button type="button" className="logistics-primary" onClick={() => void saveAndFinalize()}
+                  disabled={!canMutate || busy || (!draft && (selected.size === 0 || selectionCrossesProjects || selectedBlocked)) || (!file && evidenceCount === 0)}>
+                  {busy ? '저장 및 확정 중…' : `${stageMeta[stage].label} 저장 및 확정`}
                 </button>
+                {draft ? <button type="button" className="logistics-secondary" onClick={() => void cancelDraft()} disabled={!canMutate || busy}>임시 작업 취소</button> : null}
               </div>
-            ) : (
-              <div className="logistics-evidence-form">
-                <div className="logistics-draft-token"><span>Draft</span><strong>v{draft.version}</strong><small>등록 증빙 {evidenceCount}개 · 새로고침해도 이어서 처리할 수 있습니다.</small></div>
-                {!canMutate ? <p className="logistics-readonly">조회 전용입니다. 물류 담당자만 이 draft를 변경할 수 있습니다.</p> : null}
-                <label className="logistics-file-field">
-                  <span>{stageMeta[stage].evidence}</span>
-                  <input type="file" accept={stage === 'delivery' ? 'image/jpeg,image/png,application/pdf' : 'image/jpeg,image/png'}
-                    onChange={(event) => setFile(event.target.files?.[0] ?? null)} disabled={!canMutate || busy} />
-                  <strong>{file?.name ?? '파일 선택'}</strong>
-                  <small>{stage === 'delivery' ? 'JPEG·PNG·PDF / 최대 10MB' : 'JPEG·PNG / 최대 5MB'}</small>
-                </label>
-                {stage !== 'delivery' ? <label>사진 설명 <input value={altText} maxLength={160} onChange={(event) => setAltText(event.target.value)} /></label> : null}
-                <button type="button" className="logistics-secondary" onClick={() => void uploadEvidence()} disabled={!canMutate || !file || busy}>증빙 등록</button>
-                <div className="logistics-confirm-box"><span>마지막 확인</span><p>확정 후에는 대상과 증빙을 수정할 수 없습니다.</p>
-                  <button type="button" className="logistics-primary" onClick={() => void finalize()} disabled={!canMutate || busy || evidenceCount === 0}>
-                    {busy ? '확정 중…' : `${stageMeta[stage].label} 확정`}
-                  </button>
-                  <button type="button" className="logistics-secondary" onClick={() => void cancelDraft()} disabled={!canMutate || busy}>임시 작업 취소</button>
-                </div>
-              </div>
-            )}
+            </div>
           </aside>
         </div>
       ) : null}

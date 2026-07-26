@@ -146,7 +146,7 @@ public sealed record ManufacturingStopPendingResult(Guid PendingId, long IssueNu
 
 public sealed record PanelQualityPendingResult(Guid PendingId, long IssueNumber);
 
-public sealed record PendingActor(Guid UserId, bool IsCoordinator, bool IsQuality);
+public sealed record PendingActor(Guid UserId, bool IsCoordinator, bool IsQuality, bool CanComment);
 
 public sealed record PendingMutationResult<T>(
     PendingMutationStatus Status,

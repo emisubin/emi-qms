@@ -50,6 +50,18 @@ public sealed class QualityInspectionStore(
                     exists (
                         select 1 from panel_manufacturing_executions execution
                         where execution.panel_id = panel.id
+                          and execution.status in ('InProgress', 'Blocked', 'Completed')
+                    ) as manufacturing_started,
+                    exists (
+                        select 1 from work_items work
+                        where work.target_type = 'Panel'
+                          and work.target_id = panel.id
+                          and work.workflow_stage_code = 'LQC'
+                          and work.status <> 'Cancelled'
+                    ) as has_lqc_work,
+                    exists (
+                        select 1 from panel_manufacturing_executions execution
+                        where execution.panel_id = panel.id
                           and execution.status = 'Completed'
                     ) as manufacturing_completed,
                     exists (
@@ -130,10 +142,13 @@ public sealed class QualityInspectionStore(
                     reader.GetBoolean(14),
                     reader.GetBoolean(15),
                     reader.GetBoolean(16),
-                    reader.GetBoolean(17)));
+                    reader.GetBoolean(17),
+                    reader.GetBoolean(18),
+                    reader.GetBoolean(19)));
             }
         }
 
+        var recoveredLqc = 0;
         var recoveredOqc = 0;
         var recoveredInspection = 0;
         var recoveredPacking = 0;
@@ -142,6 +157,28 @@ public sealed class QualityInspectionStore(
         foreach (var panel in panels)
         {
             var operationId = Guid.NewGuid();
+            if (panel.ManufacturingStarted && !panel.HasLqcWork)
+            {
+                var lqcAssignee = await ResolveAssigneeAsync(
+                    connection, transaction, panel.ProjectId, QualityInspectionStages.Lqc, cancellationToken);
+                if (lqcAssignee is null)
+                {
+                    unresolved++;
+                }
+                else if (await EnsureMissingLqcWorkItemAsync(
+                    connection,
+                    transaction,
+                    panel.ProjectId,
+                    panel.PanelId,
+                    panel.PanelDisplayCode,
+                    lqcAssignee,
+                    actorUserId,
+                    cancellationToken))
+                {
+                    recoveredLqc++;
+                }
+            }
+
             if (panel.ManufacturingCompleted
                 && string.Equals(panel.LqcStatus, "Passed", StringComparison.Ordinal)
                 && (!panel.HasManufacturingConfirmation || !panel.HasOqcWork))
@@ -276,6 +313,7 @@ public sealed class QualityInspectionStore(
 
         await transaction.CommitAsync(cancellationToken);
         return new QualityInspectionReconciliationResponse(
+            recoveredLqc,
             recoveredOqc,
             recoveredInspection,
             recoveredPacking,
@@ -365,7 +403,7 @@ public sealed class QualityInspectionStore(
                     when work_item.status = 'Completed' then 'Completed'
                     else 'Ready'
                 end as status,
-                coalesce(attempt.version, 0), attempt.linked_pending_issue_id,
+                coalesce(attempt.version, 0), pending.id,
                 pending.issue_number, pending.action_department_code,
                 (
                     @can_inspect
@@ -397,7 +435,9 @@ public sealed class QualityInspectionStore(
                 order by candidate.attempt_number desc
                 limit 1
             ) attempt on true
-            left join pending_issues pending on pending.id = attempt.linked_pending_issue_id
+            left join pending_issues pending
+              on pending.id = attempt.linked_pending_issue_id
+             and pending.status <> 'Closed'
             left join panel_manufacturing_completion_confirmations confirmation on confirmation.panel_id = panel.id
             where project.deleted_at_utc is null
               and project.status <> 'Cancelled'
@@ -472,11 +512,6 @@ public sealed class QualityInspectionStore(
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var report = await ReadReportViewAsync(connection, panel.AttemptId.Value, cancellationToken);
         var history = await ReadHistoryAsync(connection, panel.PanelId, normalizedStage, cancellationToken);
-        var items = report?.Items ?? [];
-        if (normalizedStage == QualityInspectionStages.Lqc && items.Count > 0)
-        {
-            items = await ApplyLqcAvailabilityAsync(connection, null, panel.PanelId, items, cancellationToken);
-        }
         return new QualityInspectionDetailResponse(
             panel,
             report?.DecisionMode ?? DecisionMode(normalizedStage),
@@ -486,7 +521,7 @@ public sealed class QualityInspectionStore(
             report?.Result,
             report?.Reason,
             report?.PdfStatus,
-            items,
+            report?.Items ?? [],
             report?.Responses ?? [],
             report?.Photos ?? [],
             history);
@@ -667,7 +702,11 @@ public sealed class QualityInspectionStore(
         {
             return Validation("responses", "전진검수와 FAT는 패널 통합 판정이므로 항목별 검사 응답을 저장하지 않습니다.");
         }
-        var items = await ReadTemplateRowsAsync(connection, transaction, context.TemplateVersionId, cancellationToken);
+        var allItems = await ReadTemplateRowsAsync(connection, transaction, context.TemplateVersionId, cancellationToken);
+        var reinspectionScope = await ReadReinspectionScopeAsync(
+            connection, transaction, context.TemplateVersionId, context.LinkedPendingId,
+            context.StageCode, context.AttemptNumber, cancellationToken);
+        var items = ApplyReinspectionScope(allItems, reinspectionScope);
         var itemMap = items.ToDictionary(item => item.ItemId);
         var errors = ValidateResponses(normalized, itemMap);
         if (context.StageCode == QualityInspectionStages.Lqc)
@@ -675,7 +714,7 @@ public sealed class QualityInspectionStore(
             AddLqcAvailabilityErrors(
                 errors,
                 normalized.Select(item => item.TemplateItemId),
-                items,
+                allItems,
                 await ReadLqcManufacturingProgressAsync(connection, transaction, context.PanelId, cancellationToken));
         }
         if (errors.Count > 0) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Validation(errors);
@@ -765,7 +804,11 @@ public sealed class QualityInspectionStore(
         }
         if (context.ReportStatus != "Draft") return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("확정된 성적서에는 사진을 추가할 수 없습니다.");
         if (context.ReportVersion != expectedReportVersion) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
-        var items = await ReadTemplateRowsAsync(connection, transaction, context.TemplateVersionId, cancellationToken);
+        var allItems = await ReadTemplateRowsAsync(connection, transaction, context.TemplateVersionId, cancellationToken);
+        var reinspectionScope = await ReadReinspectionScopeAsync(
+            connection, transaction, context.TemplateVersionId, context.LinkedPendingId,
+            context.StageCode, context.AttemptNumber, cancellationToken);
+        var items = ApplyReinspectionScope(allItems, reinspectionScope);
         if (items.All(item => item.ItemId != templateItemId)) return Validation("templateItemId", "현재 성적서의 검사 항목을 선택해 주세요.");
         if (context.StageCode == QualityInspectionStages.Lqc)
         {
@@ -773,7 +816,7 @@ public sealed class QualityInspectionStore(
             AddLqcAvailabilityErrors(
                 availabilityErrors,
                 [templateItemId],
-                items,
+                allItems,
                 await ReadLqcManufacturingProgressAsync(connection, transaction, context.PanelId, cancellationToken));
             if (availabilityErrors.Count > 0)
             {
@@ -898,7 +941,6 @@ public sealed class QualityInspectionStore(
         if (request.ExpectedReportVersion is null or < 1) errors["expectedReportVersion"] = ["최신 성적서 version이 필요합니다."];
         if (result is not ("Passed" or "Failed")) errors["result"] = ["합격 또는 부적합을 선택해 주세요."];
         if (reason is null || reason.Length is < 3 or > 1000) errors["reason"] = ["판정 사유를 3~1000자로 입력해 주세요."];
-        if (result == "Failed" && department is null) errors["actionDepartmentCode"] = ["조치 담당 부서를 선택해 주세요."];
         if (errors.Count > 0) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Validation(errors);
         var responseFingerprint = submittedResponses is null
             ? null
@@ -928,8 +970,16 @@ public sealed class QualityInspectionStore(
         }
         if (context.ReportStatus != "Draft") return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("이미 확정된 성적서입니다.");
         if (context.ReportVersion != request.ExpectedReportVersion) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+        if (result == "Failed" && context.LinkedPendingId is null && department is null)
+        {
+            return Validation("actionDepartmentCode", "조치 담당 부서를 선택해 주세요.");
+        }
 
-        var items = await ReadTemplateRowsAsync(connection, transaction, context.TemplateVersionId, cancellationToken);
+        var allItems = await ReadTemplateRowsAsync(connection, transaction, context.TemplateVersionId, cancellationToken);
+        var reinspectionScope = await ReadReinspectionScopeAsync(
+            connection, transaction, context.TemplateVersionId, context.LinkedPendingId,
+            context.StageCode, context.AttemptNumber, cancellationToken);
+        var items = ApplyReinspectionScope(allItems, reinspectionScope);
         IReadOnlyList<ResponseRow> responses;
         if (submittedResponses is null)
         {
@@ -943,7 +993,7 @@ public sealed class QualityInspectionStore(
                 AddLqcAvailabilityErrors(
                     responseErrors,
                     submittedResponses.Select(item => item.TemplateItemId),
-                    items,
+                    allItems,
                     await ReadLqcManufacturingProgressAsync(connection, transaction, context.PanelId, cancellationToken));
             }
             if (responseErrors.Count > 0)
@@ -955,18 +1005,24 @@ public sealed class QualityInspectionStore(
                 .ToList();
         }
         var photos = await ReadPhotoSnapshotsAsync(connection, transaction, reportId, cancellationToken);
+        if (reinspectionScope is not null)
+        {
+            var allowedItemIds = reinspectionScope.EvidenceByItemId.Keys.ToHashSet();
+            responses = responses.Where(response => allowedItemIds.Contains(response.TemplateItemId)).ToList();
+            photos = photos.Where(photo => allowedItemIds.Contains(photo.TemplateItemId)).ToList();
+        }
         var invariantErrors = ValidateFinalization(items, responses, photos, context.DecisionMode, result!, reason!);
         if (context.StageCode == QualityInspectionStages.Lqc)
         {
             AddLqcAvailabilityErrors(
                 invariantErrors,
                 items.Where(item => item.ResponseType == "Check").Select(item => item.ItemId),
-                items,
+                allItems,
                 await ReadLqcManufacturingProgressAsync(connection, transaction, context.PanelId, cancellationToken));
         }
         if (invariantErrors.Count > 0) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Validation(invariantErrors);
 
-        if (result == "Failed")
+        if (result == "Failed" && context.LinkedPendingId is null)
         {
             if (!await IsActiveDepartmentAsync(connection, transaction, department!, cancellationToken))
             {
@@ -1090,7 +1146,10 @@ public sealed class QualityInspectionStore(
                 update panel_quality_inspection_attempts
                 set status = @result, linked_pending_issue_id = @pending_id,
                     version = version + 1, completed_by_user_id = @actor_id,
-                    completed_at_utc = now(), updated_at_utc = now()
+                    completed_at_utc = now(),
+                    started_by_user_id = coalesce(started_by_user_id, @actor_id),
+                    started_at_utc = coalesce(started_at_utc, now()),
+                    updated_at_utc = now()
                 where id = @attempt_id;
                 update work_items
                 set status = 'Completed', started_at_utc = coalesce(started_at_utc, now()),
@@ -1190,14 +1249,16 @@ public sealed class QualityInspectionStore(
         string stageCode;
         int attemptNumber;
         string panelDisplayCode;
+        Guid templateVersionId;
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
             command.CommandText = """
                 select attempt.project_id, attempt.panel_id, attempt.stage_code,
-                       attempt.attempt_number + 1, panel.display_code
+                       attempt.attempt_number + 1, panel.display_code, report.template_version_id
                 from panel_quality_inspection_attempts attempt
                 join panel_placeholders panel on panel.id = attempt.panel_id and panel.status = 'Active'
+                join panel_quality_reports report on report.attempt_id = attempt.id
                 where attempt.linked_pending_issue_id = @pending_id
                   and attempt.status = 'Failed'
                 order by attempt.attempt_number desc
@@ -1212,10 +1273,9 @@ public sealed class QualityInspectionStore(
             stageCode = reader.GetString(2);
             attemptNumber = reader.GetInt32(3);
             panelDisplayCode = reader.GetString(4);
+            templateVersionId = reader.GetGuid(5);
         }
 
-        var templateVersionId = await ReadActiveTemplateVersionAsync(connection, transaction, stageCode, cancellationToken)
-            ?? throw new InvalidOperationException("활성 검사 양식을 찾을 수 없습니다.");
         var assignee = await ResolveAssigneeAsync(connection, transaction, projectId, stageCode, cancellationToken)
             ?? throw new InvalidOperationException("품질 재검사 담당자를 지정한 뒤 조치를 완료해 주세요.");
         var workItemId = Guid.NewGuid();
@@ -1748,11 +1808,17 @@ public sealed class QualityInspectionStore(
         string? pdfStatus;
         string decisionMode;
         Guid templateVersionId;
+        Guid panelId;
+        string stageCode;
+        int attemptNumber;
+        Guid? linkedPendingId;
         await using (var command = connection.CreateCommand())
         {
             command.CommandText = """
                 select report.id, report.status, report.version, report.result, report.reason,
-                       report.pdf_status, report.template_version_id, attempt.decision_mode
+                       report.pdf_status, report.template_version_id, attempt.decision_mode,
+                       attempt.panel_id, attempt.stage_code, attempt.attempt_number,
+                       attempt.linked_pending_issue_id
                 from panel_quality_reports report
                 join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id
                 where report.attempt_id = @attempt_id;
@@ -1768,28 +1834,161 @@ public sealed class QualityInspectionStore(
             pdfStatus = reader.IsDBNull(5) ? null : reader.GetString(5);
             templateVersionId = reader.GetGuid(6);
             decisionMode = reader.GetString(7);
+            panelId = reader.GetGuid(8);
+            stageCode = reader.GetString(9);
+            attemptNumber = reader.GetInt32(10);
+            linkedPendingId = reader.IsDBNull(11) ? null : reader.GetGuid(11);
         }
-        var items = await ReadTemplateRowsAsync(connection, null, templateVersionId, cancellationToken);
-        var responses = await ReadResponseRowsAsync(connection, null, reportId, cancellationToken);
-        var photos = new List<QualityInspectionPhotoResponse>();
-        await using (var command = connection.CreateCommand())
+        var allItems = await ReadTemplateRowsAsync(connection, null, templateVersionId, cancellationToken);
+        var reinspectionScope = await ReadReinspectionScopeAsync(
+            connection, null, templateVersionId, linkedPendingId, stageCode, attemptNumber, cancellationToken,
+            allowInitialFailedAttempt: string.Equals(result, "Failed", StringComparison.Ordinal));
+        IReadOnlyList<QualityInspectionTemplateItemResponse> itemResponses = allItems
+            .Select(item => item.ToResponse(reinspectionScope))
+            .ToList();
+        if (stageCode == QualityInspectionStages.Lqc && itemResponses.Count > 0)
         {
-            command.CommandText = """
-                select id, template_item_id, display_name, normalized_mime, byte_size, alt_text, created_at_utc
-                from panel_quality_report_photos where report_id = @report_id order by created_at_utc, id;
-                """;
-            command.Parameters.AddWithValue("report_id", reportId);
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
+            itemResponses = await ApplyLqcAvailabilityAsync(
+                connection, null, panelId, itemResponses, cancellationToken);
+        }
+        var isCompletedReinspection = reinspectionScope is not null
+            && string.Equals(status, "Finalized", StringComparison.Ordinal)
+            && string.Equals(result, "Passed", StringComparison.Ordinal);
+        if (reinspectionScope is not null && !isCompletedReinspection)
+        {
+            itemResponses = itemResponses
+                .Where(item => reinspectionScope.EvidenceByItemId.ContainsKey(item.ItemId))
+                .ToList();
+        }
+        List<ResponseRow> responses;
+        List<QualityInspectionPhotoResponse> photos;
+        if (isCompletedReinspection && linkedPendingId is not null)
+        {
+            responses = await ReadEffectiveReinspectionResponsesAsync(
+                connection, linkedPendingId.Value, stageCode, attemptNumber, templateVersionId, cancellationToken);
+            photos = await ReadReinspectionPhotosAsync(
+                connection, linkedPendingId.Value, stageCode, attemptNumber, templateVersionId, cancellationToken);
+        }
+        else
+        {
+            responses = await ReadResponseRowsAsync(connection, null, reportId, cancellationToken);
+            photos = await ReadReportPhotosAsync(connection, reportId, cancellationToken);
+            if (reinspectionScope is not null)
             {
-                photos.Add(new QualityInspectionPhotoResponse(
-                    reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3),
-                    reader.GetInt32(4), reader.GetString(5), reader.GetFieldValue<DateTimeOffset>(6)));
+                var allowedItemIds = reinspectionScope.EvidenceByItemId.Keys.ToHashSet();
+                responses = responses.Where(response => allowedItemIds.Contains(response.TemplateItemId)).ToList();
+                photos = photos.Where(photo => allowedItemIds.Contains(photo.TemplateItemId)).ToList();
             }
         }
         return new ReportView(reportId, status, version, result, reason, pdfStatus, decisionMode,
-            items.Select(item => item.ToResponse()).ToList(),
+            itemResponses,
             responses.Select(item => item.ToResponse()).ToList(), photos);
+    }
+
+    private static async Task<List<ResponseRow>> ReadEffectiveReinspectionResponsesAsync(
+        NpgsqlConnection connection,
+        Guid linkedPendingId,
+        string stageCode,
+        int attemptNumber,
+        Guid currentTemplateVersionId,
+        CancellationToken cancellationToken)
+    {
+        var result = new List<ResponseRow>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select distinct on (current_item.id)
+                   current_item.id, response.check_result, response.text_value, response.note
+            from panel_quality_inspection_attempts attempt
+            join panel_quality_reports report
+              on report.attempt_id = attempt.id
+             and report.status = 'Finalized'
+            join panel_quality_report_responses response on response.report_id = report.id
+            join panel_quality_template_items source_item on source_item.id = response.template_item_id
+            join panel_quality_template_items current_item
+              on current_item.template_version_id = @template_version_id
+             and current_item.item_code = source_item.item_code
+            where attempt.linked_pending_issue_id = @pending_id
+              and attempt.stage_code = @stage_code
+              and attempt.attempt_number <= @attempt_number
+            order by current_item.id, attempt.attempt_number desc, response.updated_at_utc desc;
+            """;
+        command.Parameters.AddWithValue("pending_id", linkedPendingId);
+        command.Parameters.AddWithValue("stage_code", stageCode);
+        command.Parameters.AddWithValue("attempt_number", attemptNumber);
+        command.Parameters.AddWithValue("template_version_id", currentTemplateVersionId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new ResponseRow(
+                reader.GetGuid(0),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3)));
+        }
+        return result;
+    }
+
+    private static async Task<List<QualityInspectionPhotoResponse>> ReadReinspectionPhotosAsync(
+        NpgsqlConnection connection,
+        Guid linkedPendingId,
+        string stageCode,
+        int attemptNumber,
+        Guid currentTemplateVersionId,
+        CancellationToken cancellationToken)
+    {
+        var result = new List<QualityInspectionPhotoResponse>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select photo.id, current_item.id, photo.display_name, photo.normalized_mime,
+                   photo.byte_size, photo.alt_text, photo.created_at_utc
+            from panel_quality_inspection_attempts attempt
+            join panel_quality_reports report
+              on report.attempt_id = attempt.id
+             and report.status = 'Finalized'
+            join panel_quality_report_photos photo on photo.report_id = report.id
+            join panel_quality_template_items source_item on source_item.id = photo.template_item_id
+            join panel_quality_template_items current_item
+              on current_item.template_version_id = @template_version_id
+             and current_item.item_code = source_item.item_code
+            where attempt.linked_pending_issue_id = @pending_id
+              and attempt.stage_code = @stage_code
+              and attempt.attempt_number <= @attempt_number
+            order by photo.created_at_utc, photo.id;
+            """;
+        command.Parameters.AddWithValue("pending_id", linkedPendingId);
+        command.Parameters.AddWithValue("stage_code", stageCode);
+        command.Parameters.AddWithValue("attempt_number", attemptNumber);
+        command.Parameters.AddWithValue("template_version_id", currentTemplateVersionId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new QualityInspectionPhotoResponse(
+                reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3),
+                reader.GetInt32(4), reader.GetString(5), reader.GetFieldValue<DateTimeOffset>(6)));
+        }
+        return result;
+    }
+
+    private static async Task<List<QualityInspectionPhotoResponse>> ReadReportPhotosAsync(
+        NpgsqlConnection connection,
+        Guid reportId,
+        CancellationToken cancellationToken)
+    {
+        var result = new List<QualityInspectionPhotoResponse>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, template_item_id, display_name, normalized_mime, byte_size, alt_text, created_at_utc
+            from panel_quality_report_photos where report_id = @report_id order by created_at_utc, id;
+            """;
+        command.Parameters.AddWithValue("report_id", reportId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new QualityInspectionPhotoResponse(
+                reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3),
+                reader.GetInt32(4), reader.GetString(5), reader.GetFieldValue<DateTimeOffset>(6)));
+        }
+        return result;
     }
 
     private static async Task<IReadOnlyList<QualityInspectionAttemptHistoryResponse>> ReadHistoryAsync(
@@ -2011,6 +2210,95 @@ public sealed class QualityInspectionStore(
         }
         return result;
     }
+
+    private static async Task<ReinspectionScope?> ReadReinspectionScopeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid currentTemplateVersionId,
+        Guid? linkedPendingId,
+        string stageCode,
+        int attemptNumber,
+        CancellationToken cancellationToken,
+        bool allowInitialFailedAttempt = false)
+    {
+        if (linkedPendingId is null
+            || stageCode is not (QualityInspectionStages.Lqc or QualityInspectionStages.Oqc))
+        {
+            return null;
+        }
+
+        var evidenceByItemId = new Dictionary<Guid, string?>();
+        var previousFailedItemCount = 0;
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            with previous_attempt as (
+                select attempt.id
+                from panel_quality_inspection_attempts attempt
+                where attempt.linked_pending_issue_id = @pending_id
+                  and attempt.stage_code = @stage_code
+                  and attempt.status = 'Failed'
+                  and attempt.attempt_number < @attempt_number
+                order by attempt.attempt_number desc, attempt.created_at_utc desc
+                limit 1
+            ),
+            failed_items as (
+                select previous_item.item_code,
+                       coalesce(
+                           nullif(btrim(response.note), ''),
+                           nullif(btrim(report.reason), ''),
+                           '이전 검사에서 부적합으로 판정된 항목입니다.'
+                       ) as previous_failure_evidence
+                from previous_attempt
+                join panel_quality_reports report on report.attempt_id = previous_attempt.id
+                join panel_quality_report_responses response on response.report_id = report.id
+                join panel_quality_template_items previous_item
+                  on previous_item.id = response.template_item_id
+                where response.check_result = 'Fail'
+            )
+            select current_item.id, failed_items.previous_failure_evidence,
+                   count(*) over ()::int as failed_item_count
+            from failed_items
+            left join panel_quality_template_items current_item
+              on current_item.template_version_id = @template_version_id
+             and current_item.item_code = failed_items.item_code
+            order by failed_items.item_code;
+            """;
+        command.Parameters.AddWithValue("pending_id", linkedPendingId.Value);
+        command.Parameters.AddWithValue("stage_code", stageCode);
+        command.Parameters.AddWithValue("attempt_number", attemptNumber);
+        command.Parameters.AddWithValue("template_version_id", currentTemplateVersionId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            previousFailedItemCount = reader.GetInt32(2);
+            if (reader.IsDBNull(0))
+            {
+                continue;
+            }
+            evidenceByItemId[reader.GetGuid(0)] = reader.IsDBNull(1) ? null : reader.GetString(1);
+        }
+        if (previousFailedItemCount == 0)
+        {
+            if (allowInitialFailedAttempt)
+            {
+                return null;
+            }
+            throw new InvalidOperationException("재검사할 이전 부적합 항목을 찾을 수 없습니다.");
+        }
+        if (evidenceByItemId.Count != previousFailedItemCount)
+        {
+            throw new InvalidOperationException("검사 양식 변경으로 재검사 항목 일부를 복원할 수 없습니다.");
+        }
+        return new ReinspectionScope(evidenceByItemId);
+    }
+
+    private static IReadOnlyList<TemplateRow> ApplyReinspectionScope(
+        IReadOnlyList<TemplateRow> items,
+        ReinspectionScope? scope)
+        => scope is null
+            ? items
+            : items.Where(item => scope.EvidenceByItemId.ContainsKey(item.ItemId)).ToList();
 
     private static async Task<IReadOnlyList<QualityInspectionTemplateItemResponse>> ApplyLqcAvailabilityAsync(
         NpgsqlConnection connection,
@@ -2384,6 +2672,77 @@ public sealed class QualityInspectionStore(
         return await reader.ReadAsync(cancellationToken)
             ? new HandoffAssignee(stageCode, PrimaryResponsibility(stageCode), reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1))
             : null;
+    }
+
+    private static async Task<bool> EnsureMissingLqcWorkItemAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid panelId,
+        string panelDisplayCode,
+        HandoffAssignee assignee,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        const string description = "제조 시작과 함께 현재 진행 중인 단계의 LQC를 진행해 주세요.";
+        var title = $"LQC 입력 · {panelDisplayCode}";
+        var key = $"manufacturing:panel:{panelId}:lqc";
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into work_items (
+                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                assigned_user_id, assigned_role_code, title, description, status, priority,
+                idempotency_key, created_by_user_id
+            )
+            values (
+                @project_id, 'Panel', @panel_id, 'LQC', 'QualityLQC',
+                @assignee_id, @role_code, @title, @description, 'Requested', 'Normal',
+                @key, @actor_id
+            )
+            on conflict (idempotency_key) do update set
+                assigned_user_id = excluded.assigned_user_id,
+                assigned_role_code = excluded.assigned_role_code,
+                title = excluded.title,
+                description = excluded.description,
+                status = 'Requested',
+                started_at_utc = null,
+                completed_at_utc = null,
+                cancelled_at_utc = null
+            where work_items.status = 'Cancelled';
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("panel_id", panelId);
+        command.Parameters.AddWithValue("assignee_id", assignee.UserId);
+        AddNullableText(command, "role_code", assignee.RoleCode);
+        command.Parameters.AddWithValue("title", title);
+        command.Parameters.AddWithValue(
+            "description",
+            $"{description} /quality/inspections?stage=LQC&project={projectId}&panel={panelId}");
+        command.Parameters.AddWithValue("key", key);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        var inserted = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+
+        await using var readCommand = connection.CreateCommand();
+        readCommand.Transaction = transaction;
+        readCommand.CommandText = "select id from work_items where idempotency_key = @key;";
+        readCommand.Parameters.AddWithValue("key", key);
+        if (await readCommand.ExecuteScalarAsync(cancellationToken) is Guid workItemId)
+        {
+            await WorkAssignmentNotificationWriter.UpsertAsync(
+                connection,
+                transaction,
+                projectId,
+                workItemId,
+                assignee.UserId,
+                SecondaryResponsibilities(QualityInspectionStages.Lqc),
+                title,
+                description,
+                $"/quality/inspections?stage=LQC&project={projectId}&panel={panelId}",
+                $"{key}:notification",
+                cancellationToken);
+        }
+        return inserted;
     }
 
     private static async Task EnsureNextWorkItemAsync(
@@ -2810,6 +3169,8 @@ public sealed class QualityInspectionStore(
         string? CustomerInspectionStatus,
         Guid? FatAttemptId,
         string? FatStatus,
+        bool ManufacturingStarted,
+        bool HasLqcWork,
         bool ManufacturingCompleted,
         bool HasManufacturingConfirmation,
         bool HasOqcWork,
@@ -2830,7 +3191,22 @@ public sealed class QualityInspectionStore(
         string PanelDisplayCode, string PendingStatus, int PendingVersion, long PendingNumber);
     private sealed record TemplateRow(Guid ItemId, string ItemCode, int DisplayOrder, string Label, string? Guidance, string ResponseType, bool IsRequired, int? MaxTextLength)
     {
-        public QualityInspectionTemplateItemResponse ToResponse() => new(ItemId, ItemCode, DisplayOrder, Label, Guidance, ResponseType, IsRequired, MaxTextLength);
+        public QualityInspectionTemplateItemResponse ToResponse(ReinspectionScope? scope = null)
+        {
+            string? evidence = null;
+            var isTarget = scope is not null && scope.EvidenceByItemId.TryGetValue(ItemId, out evidence);
+            return new QualityInspectionTemplateItemResponse(
+                ItemId,
+                ItemCode,
+                DisplayOrder,
+                Label,
+                Guidance,
+                ResponseType,
+                IsRequired,
+                MaxTextLength,
+                IsReinspectionTarget: isTarget,
+                PreviousFailureEvidence: isTarget ? evidence : null);
+        }
     }
     private sealed record ResponseRow(Guid TemplateItemId, string? CheckResult, string? TextValue, string? Note)
     {
@@ -2848,6 +3224,7 @@ public sealed class QualityInspectionStore(
         int AvailableStepCount,
         int TotalStepCount,
         IReadOnlyList<string> StepNames);
+    private sealed record ReinspectionScope(IReadOnlyDictionary<Guid, string?> EvidenceByItemId);
     private sealed record ReportView(
         Guid ReportId, string Status, int Version, string? Result, string? Reason, string? PdfStatus, string DecisionMode,
         IReadOnlyList<QualityInspectionTemplateItemResponse> Items,

@@ -324,6 +324,110 @@ test('TASK-WORKFLOW-CONTINUITY-001 Change 011: LQC and OQC finalization roll bac
   await assertAtomicChecklistRetry(request, projectId, panelId, 'OQC');
 });
 
+test('TASK-WORKFLOW-CONTINUITY-001 Change 012: OQC reinspection exposes only failed items and closes the same Pending', async ({ request }) => {
+  test.setTimeout(180_000);
+  const unique = Date.now();
+  const { projectId, panelId } = await createManufacturingReadyProject(
+    request,
+    `RECHECK-${unique}`,
+    `OQC 항목 재검사 ${unique}`
+  );
+  await completeManufacturing(request, projectId, panelId);
+  await finalizeChecklistInspection(request, panelId, 'LQC');
+
+  const started = await postJson(request, '/api/quality/inspections/start', 'dev-quality', {
+    operationId: crypto.randomUUID(), projectId, panelId, stageCode: 'OQC'
+  }) as { reportId: string; version: number };
+  const detail = await getQualityDetail(request, panelId, 'OQC');
+  const requiredItems = detail.items.filter((item) => item.isRequired && item.isAvailable);
+  expect(requiredItems.length).toBeGreaterThan(1);
+  const failedItem = requiredItems[0];
+  const nonTargetItem = requiredItems[1];
+  const failed = await postJson(
+    request,
+    `/api/quality/inspections/reports/${started.reportId}/finalize`,
+    'dev-quality',
+    {
+      operationId: crypto.randomUUID(),
+      expectedReportVersion: started.version,
+      result: 'Failed',
+      reason: 'OQC 검사에서 한 항목이 기준에 미달하여 생산관리 조치와 해당 항목 재검사가 필요합니다.',
+      actionDepartmentCode: 'production-planning',
+      assigneeUserId: null,
+      responses: requiredItems.map((item) => ({
+        templateItemId: item.itemId,
+        checkResult: item.itemId === failedItem.itemId ? 'Fail' : 'Pass',
+        textValue: null,
+        note: item.itemId === failedItem.itemId ? '외관 표시가 검사 기준과 일치하지 않습니다.' : null
+      }))
+    }
+  ) as { pendingId: string };
+
+  const failedDetail = await getQualityDetail(request, panelId, 'OQC');
+  expect(failedDetail.items.length).toBe(detail.items.length);
+  expect(failedDetail.items.every((item) => !item.isReinspectionTarget)).toBe(true);
+
+  await postJson(request, `/api/pending/${failed.pendingId}/transition`, 'dev-production', {
+    toStatus: 'InProgress',
+    expectedVersion: 1,
+    reason: '부적합 항목 조치를 시작합니다.'
+  });
+  await postJson(request, `/api/pending/${failed.pendingId}/transition`, 'dev-production', {
+    toStatus: 'ReinspectionRequested',
+    expectedVersion: 2,
+    reason: '부적합 항목 조치를 완료했습니다.'
+  });
+
+  const reinspection = await getQualityDetail(request, panelId, 'OQC');
+  expect(reinspection.panel.pendingId).toBe(failed.pendingId);
+  expect(reinspection.items).toHaveLength(1);
+  expect(reinspection.items[0].itemId).toBe(failedItem.itemId);
+  expect(reinspection.items[0].isReinspectionTarget).toBe(true);
+  expect(reinspection.items[0].previousFailureEvidence).toContain('외관 표시');
+
+  const rejected = await request.put(
+    `${apiBaseUrl}/api/quality/inspections/reports/${reinspection.reportId}/responses`,
+    {
+      headers: devHeaders('dev-quality'),
+      data: {
+        operationId: crypto.randomUUID(),
+        expectedReportVersion: reinspection.reportVersion,
+        responses: [
+          { templateItemId: failedItem.itemId, checkResult: 'Pass', textValue: null, note: null },
+          { templateItemId: nonTargetItem.itemId, checkResult: 'Pass', textValue: null, note: null }
+        ]
+      }
+    }
+  );
+  expect(rejected.status()).toBe(400);
+
+  const passed = await postJson(
+    request,
+    `/api/quality/inspections/reports/${reinspection.reportId}/finalize`,
+    'dev-quality',
+    {
+      operationId: crypto.randomUUID(),
+      expectedReportVersion: reinspection.reportVersion,
+      result: 'Passed',
+      reason: '재조치 결과 해당 항목이 기준에 적합합니다.',
+      actionDepartmentCode: null,
+      assigneeUserId: null,
+      responses: [
+        { templateItemId: failedItem.itemId, checkResult: 'Pass', textValue: null, note: null }
+      ]
+    }
+  ) as { status: string; pendingId: string };
+  expect(passed.status).toBe('Passed');
+  expect(passed.pendingId).toBe(failed.pendingId);
+  expect(queryDatabase(`select status from pending_issues where id = '${failed.pendingId}';`)).toBe('Closed');
+
+  const completed = await getQualityDetail(request, panelId, 'OQC');
+  expect(completed.items).toHaveLength(detail.items.length);
+  expect(completed.items.find((item) => item.itemId === failedItem.itemId)?.isReinspectionTarget).toBe(true);
+  expect(completed.responses.find((item) => item.templateItemId === failedItem.itemId)?.checkResult).toBe('Pass');
+  expect(completed.responses.find((item) => item.templateItemId === nonTargetItem.itemId)?.checkResult).toBe('Pass');
+});
+
 async function completeManufacturing(request: APIRequestContext, projectId: string, panelId: string) {
   const manufacturing = await startManufacturing(request, projectId, panelId);
   await completeStartedManufacturing(request, manufacturing);
@@ -388,7 +492,14 @@ type QualityDetail = {
   reportStatus: string;
   reportVersion: number;
   panel: { pendingId: string | null };
-  items: Array<{ itemId: string; responseType: 'Check' | 'Text'; isRequired: boolean; isAvailable: boolean }>;
+  items: Array<{
+    itemId: string;
+    responseType: 'Check' | 'Text';
+    isRequired: boolean;
+    isAvailable: boolean;
+    isReinspectionTarget: boolean;
+    previousFailureEvidence: string | null;
+  }>;
 };
 
 async function getQualityDetail(request: APIRequestContext, panelId: string, stageCode: string) {

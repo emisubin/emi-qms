@@ -107,7 +107,8 @@ export function QualityInspectionsPage({
         reconciliationAttemptedForUser.current = developmentUserKey;
         try {
           const reconciled = await reconcileQualityInspectionHandoffs(developmentUserKey);
-          const recoveredCount = reconciled.recoveredOqcHandoffCount
+          const recoveredCount = reconciled.recoveredLqcHandoffCount
+            + reconciled.recoveredOqcHandoffCount
             + reconciled.recoveredInspectionHandoffCount
             + reconciled.recoveredPackingHandoffCount;
           if (recoveredCount > 0) {
@@ -634,6 +635,7 @@ export function QualityInspectionsPage({
                             return (
                               <section key={item.itemId} className="quality-item" data-result={value.checkResult?.toLowerCase() ?? 'empty'} data-available={item.isAvailable === false ? 'false' : 'true'}>
                                 <header><span>{String(item.displayOrder).padStart(2, '0')}</span><div><strong>{item.label}</strong><small>{item.availabilityMessage ?? item.guidance ?? (item.isRequired ? '필수 확인' : '선택 입력')}</small></div>{item.isAvailable === false ? <em>제조 대기</em> : item.isRequired ? <em>필수</em> : null}</header>
+                                {item.isReinspectionTarget ? <div className="quality-reinspection-evidence"><strong>{detail.reportStatus === 'Finalized' && detail.result === 'Passed' ? '재검사 적합 완료' : '이 항목만 재검사'}</strong><span>이전 부적합 근거</span><p>{item.previousFailureEvidence ?? '이전 검사에서 부적합으로 판정된 항목입니다.'}</p></div> : null}
                                 {item.responseType === 'Check' ? (
                                   <div className="quality-choice-row" role="group" aria-label={`${item.label} 결과`}>
                                     {([['Pass', '적합'], ['NotApplicable', '해당없음'], ['Fail', '부적합']] as const).map(([result, label]) => (
@@ -696,10 +698,17 @@ export function QualityInspectionsPage({
         }}
       >
         <div className="quality-decision-form" aria-busy={savingAction === 'finalize'}>
-          <div className="quality-decision-options">
-            <button type="button" className={decision === 'Passed' ? 'selected' : ''} data-result="passed" disabled={Boolean(savingAction) || hasFailedResponse} onClick={() => { setDecision('Passed'); setDecisionError(''); }}><span>○</span><strong>합격</strong><small>{hasFailedResponse ? '부적합 항목 확인 필요' : '다음 단계 인계'}</small></button>
-            <button type="button" className={decision === 'Failed' ? 'selected' : ''} data-result="failed" disabled={Boolean(savingAction)} onClick={() => { setDecision('Failed'); setDecisionError(''); }}><span>▰</span><strong>{stage === 'CustomerInspection' || stage === 'FAT' ? 'PUNCH 발생' : '부적합'}</strong><small>조치 Pending 생성</small></button>
-          </div>
+          {detail?.decisionMode === 'Aggregate' ? (
+            <div className="quality-decision-options">
+              <button type="button" className={decision === 'Passed' ? 'selected' : ''} data-result="passed" disabled={Boolean(savingAction)} onClick={() => { setDecision('Passed'); setDecisionError(''); }}><span>○</span><strong>합격</strong><small>다음 단계 인계</small></button>
+              <button type="button" className={decision === 'Failed' ? 'selected' : ''} data-result="failed" disabled={Boolean(savingAction)} onClick={() => { setDecision('Failed'); setDecisionError(''); }}><span>▰</span><strong>{stage === 'CustomerInspection' || stage === 'FAT' ? 'PUNCH 발생' : '부적합'}</strong><small>조치 Pending 생성</small></button>
+            </div>
+          ) : (
+            <div className="quality-decision-derived" data-result={decision.toLowerCase()}>
+              <span>{decision === 'Passed' ? '○' : '▰'}</span>
+              <div><strong>{decision === 'Passed' ? '모든 검사 항목 적합' : '부적합 항목 확인'}</strong><small>{decision === 'Passed' ? '합격으로 확정합니다.' : '부적합으로 확정하고 조치를 요청합니다.'}</small></div>
+            </div>
+          )}
           <label><span>{isReinspection ? '재검사 코멘트' : '판정 사유'} <small>{decisionReason.length}/1000</small></span><textarea value={decisionReason} maxLength={1000} disabled={Boolean(savingAction)} placeholder={isReinspection ? '조치 내용을 확인한 결과와 재검사 판정 근거를 입력하세요.' : '검사 판정 근거를 입력하세요.'} onChange={(event) => { setDecisionReason(event.target.value); setDecisionError(''); }} /></label>
           {decision === 'Failed' && !isReinspection ? (
             <>
@@ -709,7 +718,7 @@ export function QualityInspectionsPage({
           ) : null}
           {decisionError ? <p className="quality-decision-error" role="alert">{decisionError}</p> : null}
           {decisionConflict ? <button type="button" className="quality-decision-reload" disabled={Boolean(savingAction)} onClick={() => void reloadDecisionAfterConflict()}>{savingAction === 'reload' ? '불러오는 중' : '최신 검사 내용 다시 불러오기'}</button> : null}
-          <button type="button" className="quality-finalize-submit" disabled={Boolean(savingAction) || decisionReason.trim().length < 3 || (decision === 'Failed' && !actionDepartment)} onClick={() => void finalize()}>{savingAction === 'finalize' ? '확정 중' : decision === 'Passed' ? (isReinspection ? '합격 · Pending 해제' : '합격 확정 및 인계') : (isReinspection ? '불합격 · 재조치 요청' : 'Pending 생성 및 확정')}</button>
+          <button type="button" className="quality-finalize-submit" disabled={Boolean(savingAction) || decisionReason.trim().length < 3 || (decision === 'Failed' && !isReinspection && !actionDepartment)} onClick={() => void finalize()}>{savingAction === 'finalize' ? '확정 중' : decision === 'Passed' ? (isReinspection ? '합격 · Pending 해제' : '합격 확정 및 인계') : (isReinspection ? '불합격 · 재조치 요청' : 'Pending 생성 및 확정')}</button>
         </div>
       </MobileSheet>
     </section>
@@ -809,6 +818,7 @@ function validateDecision(
   if (decision === 'Failed' && detail.photos.length === 0 && reason.trim().length < 30) {
     return '부적합 판정은 사진 1장 이상 또는 구체적인 근거 30자 이상이 필요합니다.';
   }
-  if (decision === 'Failed' && !actionDepartment) return '조치 담당 부서를 선택해 주세요.';
+  const isReinspection = Boolean(detail.panel.pendingId && detail.reportStatus !== 'Finalized');
+  if (decision === 'Failed' && !isReinspection && !actionDepartment) return '조치 담당 부서를 선택해 주세요.';
   return null;
 }

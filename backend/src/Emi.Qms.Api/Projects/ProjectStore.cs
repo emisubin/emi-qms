@@ -318,7 +318,27 @@ public sealed class ProjectStore(
             ) assignee_summary on true
             left join lateral (
                 select count(*)::integer as item_count,
-                       count(*) filter (where order_item is not null and btrim(order_item) <> '')::integer as named_item_count
+                       count(*) filter (
+                           where nullif(btrim(coalesce(order_item, '')), '') is not null
+                             and expected_receipt_date is not null
+                             and (
+                                 (supply_type = 'Purchased'
+                                  and nullif(btrim(coalesce(supplier_name, '')), '') is not null
+                                  and order_date is not null)
+                                 or
+                                 (supply_type = 'CustomerSupplied'
+                                  and order_quantity > 0
+                                  and nullif(btrim(coalesce(order_unit, '')), '') is not null)
+                             )
+                       )::integer as completed_item_count,
+                       exists (
+                           select 1
+                           from project_workflow_events event
+                           where event.project_id = projects.id
+                             and event.stage_code = 'ProcurementInfo'
+                             and event.event_type = 'StageCompleted'
+                             and event.event_status = 'Succeeded'
+                       ) as has_completed_stage_event
                 from project_procurement_items
                 where project_procurement_items.project_id = projects.id
                   and project_procurement_items.status = 'Active'
@@ -358,10 +378,14 @@ public sealed class ProjectStore(
                                and active_panels.panel_info_completed_count = active_panels.active_panel_count
                            ) then 'DesignPanelInfo'
                            when not (
-                               case
+                               procurement_summary.has_completed_stage_event
+                               or case
                                    when coalesce(procurement_required_summary.required_item_count, 0) > 0
-                                       then procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count
-                                   else procurement_summary.item_count > 0 and procurement_summary.named_item_count = procurement_summary.item_count
+                                       then procurement_summary.item_count > 0
+                                        and procurement_summary.completed_item_count = procurement_summary.item_count
+                                        and procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count
+                                   else procurement_summary.item_count > 0
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count
                                end
                            ) then 'ProcurementInfo'
                            else 'MaterialArrived'
@@ -385,11 +409,14 @@ public sealed class ProjectStore(
                                    else 0
                                  end
                                + case
+                                   when procurement_summary.has_completed_stage_event then 1
                                    when coalesce(procurement_required_summary.required_item_count, 0) > 0
+                                    and procurement_summary.item_count > 0
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count
                                     and procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count then 1
                                    when coalesce(procurement_required_summary.required_item_count, 0) = 0
                                     and procurement_summary.item_count > 0
-                                    and procurement_summary.named_item_count = procurement_summary.item_count then 1
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count then 1
                                    else 0
                                  end
                            )::numeric * 100 / case when projects.fat_required then 18 else 17 end)::integer
@@ -664,7 +691,27 @@ public sealed class ProjectStore(
             ) assignee_summary on true
             left join lateral (
                 select count(*)::integer as item_count,
-                       count(*) filter (where order_item is not null and btrim(order_item) <> '')::integer as named_item_count
+                       count(*) filter (
+                           where nullif(btrim(coalesce(order_item, '')), '') is not null
+                             and expected_receipt_date is not null
+                             and (
+                                 (supply_type = 'Purchased'
+                                  and nullif(btrim(coalesce(supplier_name, '')), '') is not null
+                                  and order_date is not null)
+                                 or
+                                 (supply_type = 'CustomerSupplied'
+                                  and order_quantity > 0
+                                  and nullif(btrim(coalesce(order_unit, '')), '') is not null)
+                             )
+                       )::integer as completed_item_count,
+                       exists (
+                           select 1
+                           from project_workflow_events event
+                           where event.project_id = projects.id
+                             and event.stage_code = 'ProcurementInfo'
+                             and event.event_type = 'StageCompleted'
+                             and event.event_status = 'Succeeded'
+                       ) as has_completed_stage_event
                 from project_procurement_items
                 where project_procurement_items.project_id = projects.id
                   and project_procurement_items.status = 'Active'
@@ -704,10 +751,14 @@ public sealed class ProjectStore(
                                and active_panels.panel_info_completed_count = active_panels.active_panel_count
                            ) then 'DesignPanelInfo'
                            when not (
-                               case
+                               procurement_summary.has_completed_stage_event
+                               or case
                                    when coalesce(procurement_required_summary.required_item_count, 0) > 0
-                                       then procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count
-                                   else procurement_summary.item_count > 0 and procurement_summary.named_item_count = procurement_summary.item_count
+                                       then procurement_summary.item_count > 0
+                                        and procurement_summary.completed_item_count = procurement_summary.item_count
+                                        and procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count
+                                   else procurement_summary.item_count > 0
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count
                                end
                            ) then 'ProcurementInfo'
                            else 'MaterialArrived'
@@ -731,11 +782,14 @@ public sealed class ProjectStore(
                                    else 0
                                  end
                                + case
+                                   when procurement_summary.has_completed_stage_event then 1
                                    when coalesce(procurement_required_summary.required_item_count, 0) > 0
+                                    and procurement_summary.item_count > 0
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count
                                     and procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count then 1
                                    when coalesce(procurement_required_summary.required_item_count, 0) = 0
                                     and procurement_summary.item_count > 0
-                                    and procurement_summary.named_item_count = procurement_summary.item_count then 1
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count then 1
                                    else 0
                                  end
                            )::numeric * 100 / case when projects.fat_required then 18 else 17 end)::integer
@@ -3638,6 +3692,7 @@ public sealed class ProjectStore(
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_inspection_attempts where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_events where execution_id in (select id from panel_manufacturing_executions where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_assembly_batch_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_execution_steps where execution_id in (select id from panel_manufacturing_executions where project_id = any(@project_ids));", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_executions where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_kitting_completions where project_id = any(@project_ids);", projectIds, cancellationToken);

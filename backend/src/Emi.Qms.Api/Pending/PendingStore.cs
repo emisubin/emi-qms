@@ -456,7 +456,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         {
             return PendingMutationResult<PendingDetailResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
         }
-        if (issue.Status == PendingStatuses.Closed)
+        if (issue.Status == PendingStatuses.Closed || !actor.CanComment)
         {
             return PendingMutationResult<PendingDetailResponse>.Conflict("종결된 Pending의 담당자는 변경할 수 없습니다.");
         }
@@ -564,8 +564,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         {
             return PendingMutationResult<PendingDetailResponse>.NotFound();
         }
-        var isInspectionPending = await IsQualityInspectionPendingAsync(connection, transaction, pendingId, cancellationToken);
-        if (issue.Status == PendingStatuses.Closed || !CanParticipate(issue, actor, isInspectionPending))
+        if (issue.Status == PendingStatuses.Closed)
         {
             return PendingMutationResult<PendingDetailResponse>.Forbidden();
         }
@@ -1010,12 +1009,12 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             command.Transaction = transaction;
             command.CommandText = """
                 update pending_issues
-                set status = 'InProgress', version = version + 1,
+                set status = 'ActionRequested', version = version + 1,
                     updated_by_user_id = @actor_id, updated_at_utc = now(),
                     closed_by_user_id = null, closed_at_utc = null
                 where id = @id;
                 update work_items
-                set status = 'InProgress', started_at_utc = coalesce(started_at_utc, now()),
+                set status = 'Requested', started_at_utc = null,
                     completed_at_utc = null, cancelled_at_utc = null
                 where target_type = 'Pending' and target_id = @id
                   and status <> 'Cancelled';
@@ -1026,7 +1025,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         }
         await InsertHistoryAsync(
             connection, transaction, pendingId, "StatusChanged",
-            issue.Status, PendingStatuses.InProgress,
+            issue.Status, PendingStatuses.ActionRequested,
             issue.AssigneeUserId, issue.AssigneeUserId,
             reason.Trim(), actorUserId, correlationId, cancellationToken);
         await NotifyActionAssigneesOfFailedReinspectionAsync(
@@ -1255,7 +1254,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             comments,
             history,
             allowed,
-            issue.Status != PendingStatuses.Closed && CanParticipate(issue, actor, isInspectionPending),
+            issue.Status != PendingStatuses.Closed && actor.CanComment,
             issue.Status != PendingStatuses.Closed && actor.IsCoordinator,
             reinspection);
     }
@@ -1751,7 +1750,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 from work_items
                 where target_type = 'Pending'
                   and target_id = @pending_id
-                  and status = 'InProgress'
+                  and status = 'Requested'
                 order by created_at_utc desc, id
                 limit 1;
                 """;

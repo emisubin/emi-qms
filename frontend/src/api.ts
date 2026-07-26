@@ -59,6 +59,8 @@ import type {
   PanelKittingQueueResponse
 } from './panelKitting';
 import type {
+  AssemblyBatchManufacturingRequest,
+  AssemblyBatchManufacturingResponse,
   ManufacturingActionDepartment,
   ManufacturingExecutionDetail,
   ManufacturingMutationResponse,
@@ -1773,6 +1775,20 @@ export async function checkManufacturingStep(
     method: 'POST',
     body: JSON.stringify(request)
   });
+}
+
+export async function completeManufacturingAssemblyBatch(
+  developmentUserKey: string | undefined,
+  request: AssemblyBatchManufacturingRequest
+): Promise<AssemblyBatchManufacturingResponse> {
+  return fetchJson<AssemblyBatchManufacturingResponse>(
+    '/api/manufacturing/executions/assembly-batch',
+    developmentUserKey,
+    {
+      method: 'POST',
+      body: JSON.stringify(request)
+    }
+  );
 }
 
 export async function stopManufacturingExecution(

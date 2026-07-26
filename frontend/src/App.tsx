@@ -9392,6 +9392,9 @@ function ProjectDetailPage({
   }
 
   const project = projectState.data;
+  const canonicalProjectProgressPercent = workflowState.kind === 'ready'
+    ? workflowState.data.progressPercent
+    : project.projectProgressPercent;
   const canShowEdit = canUpdate;
   const isOnHold = project.status === 'OnHold';
   const isCancelled = project.status === 'Cancelled';
@@ -9424,7 +9427,7 @@ function ProjectDetailPage({
           {isMobile ? <button type="button" className="mobile-back-button" onClick={onBack}>← 프로젝트</button> : null}
           <p className="eyebrow">{isMobile ? project.projectCode : 'Project Detail'}</p>
           <h2>{project.projectTitle}</h2>
-          {isMobile ? <div className="mobile-detail-hero-meta"><ProjectStatusBadge status={project.status} /><span>{formatProjectProgress(project.projectProgressPercent)} 진행</span></div> : null}
+          {isMobile ? <div className="mobile-detail-hero-meta"><ProjectStatusBadge status={project.status} /><span>{formatProjectProgress(canonicalProjectProgressPercent)} 진행</span></div> : null}
         </div>
         {isMobile ? (
           <details className="mobile-secondary-actions mobile-project-actions">
@@ -9447,11 +9450,11 @@ function ProjectDetailPage({
             onOpenPanels={() => selectDetailSection('panels')}
             onOpenWorkflow={() => selectDetailSection('workflow')}
           />
-          <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
+          <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} progressPercent={canonicalProjectProgressPercent} />
         </>
       ) : (
         <>
-          <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
+          <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} progressPercent={canonicalProjectProgressPercent} />
           <ProjectBottleneckOverview
             project={project}
             onOpenPending={onOpenPending}
@@ -9739,12 +9742,20 @@ async function loadProjectDepartmentData({
     }));
     const totalPanelCount = project.activePanelCount;
     const defaultStepCount = project.manufacturingStepCount;
+    const executionByPanelId = new Map(executions.map((execution) => [execution.panel.panelId, execution]));
     const panelProgress = panels.map((panel) => {
       const totalUnits = panel.totalStepCount > 0 ? panel.totalStepCount : defaultStepCount;
       const completedUnits = panel.status === 'Completed'
         ? totalUnits
         : Math.min(panel.checkedStepCount, totalUnits);
-      return { panel, completedUnits, totalUnits };
+      const execution = executionByPanelId.get(panel.panelId);
+      const nextStepName = execution?.steps.find((step) => !step.checked)?.stepName ?? null;
+      return {
+        panel,
+        completedUnits,
+        totalUnits,
+        currentStage: manufacturingCurrentStageLabel(panel.status, nextStepName)
+      };
     });
     const missingPanelCount = Math.max(totalPanelCount - panels.length, 0);
     const overallCompletedUnits = panelProgress.reduce((sum, item) => sum + item.completedUnits, 0);
@@ -9763,11 +9774,11 @@ async function loadProjectDepartmentData({
         { label: '완료', value: `${completedCount}/${totalPanelCount}`, tone: 'success' },
         { label: '진행률', value: `${calculateProgressPercent(overallCompletedUnits, overallTotalUnits)}%`, tone: 'info' }
       ],
-      panelStatuses: panelProgress.map(({ panel, completedUnits, totalUnits }) => ({
+      panelStatuses: panelProgress.map(({ panel, completedUnits, totalUnits, currentStage }) => ({
         key: `manufacturing:${panel.panelId}`,
         panelIds: [panel.panelId],
         panelCodes: [panel.displayCode],
-        stage: '제조',
+        stage: currentStage,
         status: manufacturingStatusLabel(panel.status),
         tone: panel.status === 'Completed' ? 'success' : panel.status === 'Blocked' ? 'danger' : panel.status === 'InProgress' ? 'info' : 'neutral',
         detail: panel.activePendingNumber
@@ -9866,11 +9877,16 @@ async function loadProjectDepartmentData({
       inspectionGroups.set(inspection.detail.panel.panelId, group);
     });
     const qualityPanelStatuses: ProjectPanelDepartmentStatus[] = [...inspectionGroups.values()].map((group) => {
-      const latest = [...group].sort((left, right) => {
+      const ordered = [...group].sort((left, right) => {
         const leftBlocked = left.detail.panel.pendingNumber || left.detail.panel.status === 'Failed' ? 100 : 0;
         const rightBlocked = right.detail.panel.pendingNumber || right.detail.panel.status === 'Failed' ? 100 : 0;
         return leftBlocked + stages.indexOf(left.stage) - (rightBlocked + stages.indexOf(right.stage));
-      }).at(-1)!;
+      });
+      const latest = ordered.at(-1)!;
+      const blockingInspection = ordered
+        .filter((inspection) => inspection.detail.panel.pendingNumber || inspection.detail.panel.status === 'Failed')
+        .at(-1);
+      const lqc = group.find((inspection) => inspection.stage === 'LQC');
       const oqc = group.find((inspection) => inspection.stage === 'OQC');
       const oqcCheckItems = oqc?.detail.items.filter((item) => item.responseType === 'Check') ?? [];
       const oqcTotalUnits = oqcCheckItems.length > 0 ? oqcCheckItems.length : defaultOqcStepCount;
@@ -9883,25 +9899,44 @@ async function loadProjectDepartmentData({
       const fatCompleted = project.fatRequired && fat && isQualityInspectionCompleted(fat.detail.panel.status) ? 1 : 0;
       const totalUnits = oqcTotalUnits + 1 + (project.fatRequired ? 1 : 0);
       const completedUnits = oqcCompletedUnits + customerCompleted + fatCompleted;
-      const hasBlocking = group.some((inspection) => inspection.detail.panel.pendingNumber || inspection.detail.panel.status === 'Failed');
+      const hasBlocking = Boolean(blockingInspection);
       const allCompleted = totalUnits > 0 && completedUnits === totalUnits;
+      const oqcCompleted = Boolean(oqc && isQualityInspectionCompleted(oqc.detail.panel.status));
+      const nextQualityStages = oqcCompleted
+        ? [
+            customerCompleted ? null : '전진검수',
+            project.fatRequired && !fatCompleted ? 'FAT' : null
+          ].filter((stage): stage is string => Boolean(stage))
+        : [];
+      const currentStage = blockingInspection
+        ? qualityStageLabel(blockingInspection.stage)
+        : allCompleted
+          ? '품질 완료'
+          : !oqc
+            ? lqc ? qualityStageLabel(lqc.stage) : 'LQC 대기'
+            : !oqcCompleted
+              ? 'OQC'
+              : nextQualityStages.join(' · ') || '품질 완료';
       const status = hasBlocking
         ? 'Pending'
         : allCompleted
           ? '검사 완료'
           : qualityStatusLabel(latest.detail.panel.status);
+      const detail = blockingInspection
+        ? `${qualityStageLabel(blockingInspection.stage)} 부적합 · Pending 조치 대기`
+        : [
+            `OQC ${oqcCompletedUnits}/${oqcTotalUnits}`,
+            oqcCompleted ? `전진검수 ${customerCompleted ? '완료' : '대기'}` : null,
+            oqcCompleted ? (project.fatRequired ? `FAT ${fatCompleted ? '완료' : '대기'}` : 'FAT 없음') : null
+          ].filter(Boolean).join(' · ');
       return {
         key: `quality:${latest.detail.panel.panelId}`,
         panelIds: [latest.detail.panel.panelId],
         panelCodes: [latest.detail.panel.displayCode],
-        stage: qualityStageLabel(latest.stage),
+        stage: currentStage,
         status,
         tone: hasBlocking ? 'danger' : allCompleted ? 'success' : latest.detail.panel.attemptNumber > 0 ? 'info' : 'neutral',
-        detail: [
-          `OQC ${oqcCompletedUnits}/${oqcTotalUnits}`,
-          `전진검수 ${customerCompleted ? '완료' : '대기'}`,
-          project.fatRequired ? `FAT ${fatCompleted ? '완료' : '대기'}` : 'FAT 없음'
-        ].join(' · '),
+        detail,
         rank: stages.indexOf(latest.stage) + 1,
         completedUnits,
         totalUnits
@@ -10084,23 +10119,31 @@ async function loadProjectDepartmentData({
     : completedRank >= stages.indexOf(stage) + 1 ? project.activePanelCount : 0;
   const logisticsCompletedUnits = stages.reduce((sum, stage) => sum + stageCompletedPanelCount(stage), 0);
   const logisticsTotalUnits = project.activePanelCount * stages.length;
-  const logisticsStatuses: ProjectPanelDepartmentStatus[] = [...logisticsPanelProgress.entries()].map(([panelCode, progress]) => ({
-    key: `logistics:${panelCode}`,
-    panelIds: [...progress.panelIds],
-    panelCodes: [panelCode],
-    stage: logisticsStageLabel(progress.stage),
-    status: progress.status,
-    tone: progress.tone,
-    detail: [
-      `포장 ${progress.completedStages.has('packing') ? '완료' : '대기'}`,
-      `출발 ${progress.completedStages.has('departure') ? '완료' : '대기'}`,
-      `납품 ${progress.completedStages.has('delivery') ? '완료' : '대기'}`,
-      progress.tone === 'danger' ? progress.detail : null
-    ].filter(Boolean).join(' · '),
-    rank: progress.rank,
-    completedUnits: progress.completedStages.size,
-    totalUnits: stages.length
-  }));
+  const logisticsStatuses: ProjectPanelDepartmentStatus[] = [...logisticsPanelProgress.entries()].map(([panelCode, progress]) => {
+    const nextStage = stages.find((stage) => !progress.completedStages.has(stage));
+    const currentStage = progress.tone === 'danger'
+      ? logisticsStageLabel(progress.stage)
+      : nextStage
+        ? logisticsStageLabel(nextStage)
+        : '물류 완료';
+    return {
+      key: `logistics:${panelCode}`,
+      panelIds: [...progress.panelIds],
+      panelCodes: [panelCode],
+      stage: currentStage,
+      status: progress.status,
+      tone: progress.tone,
+      detail: [
+        `포장 ${progress.completedStages.has('packing') ? '완료' : '대기'}`,
+        `출발 ${progress.completedStages.has('departure') ? '완료' : '대기'}`,
+        `납품 ${progress.completedStages.has('delivery') ? '완료' : '대기'}`,
+        progress.tone === 'danger' ? progress.detail : null
+      ].filter(Boolean).join(' · '),
+      rank: progress.rank,
+      completedUnits: progress.completedStages.size,
+      totalUnits: stages.length
+    };
+  });
   const historyRecords: ProjectDepartmentRecord[] = orderedHistory.map((item) => ({
     key: `history:${item.stage}:${item.targetId}`,
     title: `${logisticsStageLabel(item.stage)} · ${item.displayCode}`,
@@ -10368,13 +10411,14 @@ function ProjectPanelDepartmentSection({
       {panelState.kind === 'ready' && rows.length > 0 && !isMobile ? (
         <div className="project-panel-status-table" role="table" aria-label={`${label.title} 패널 현황`}>
           <div className="project-panel-status-head" role="row">
-            <span>No</span><span>패널명</span><span>핵심정보</span><span>진행률</span>
+            <span>No</span><span>패널명</span><span>핵심정보</span><span>{label.title} 단계</span><span>진행률</span>
           </div>
           {rows.map(({ panel, progress }) => (
             <button type="button" role="row" className="project-panel-status-row" key={panel.panelId} onClick={() => onOpenPanel(panel.panelId)}>
               <span>{panel.sequenceNumber}</span>
               <span><strong>{panel.panelName ?? panel.displayCode}</strong><small>{panel.displayCode}</small></span>
               <span className="project-panel-key-info"><StatusBadge label={progress.status} tone={progress.tone} /><small>{progress.detail}</small></span>
+              <span className="project-panel-current-stage">{progress.stage}</span>
               <ProjectProgressMeter completed={progress.completedUnits} total={progress.totalUnits} tone={progress.tone} label={`${panel.displayCode} ${label.title}`} />
             </button>
           ))}
@@ -10386,7 +10430,8 @@ function ProjectPanelDepartmentSection({
             <button type="button" className="project-panel-status-card" key={panel.panelId} onClick={() => onOpenPanel(panel.panelId)}>
               <span className="project-panel-status-card-title"><b>{panel.displayCode}</b><strong>{panel.panelName ?? '패널명 미입력'}</strong><StatusBadge label={progress.status} tone={progress.tone} /></span>
               <span><small>핵심정보</small><b>{progress.detail}</b></span>
-              <span><small>진행률</small><ProjectProgressMeter completed={progress.completedUnits} total={progress.totalUnits} tone={progress.tone} label={`${panel.displayCode} ${label.title}`} /></span>
+              <span className="project-panel-status-card-stage"><small>{label.title} 단계</small><b>{progress.stage}</b></span>
+              <span className="project-panel-status-card-progress"><small>진행률</small><ProjectProgressMeter completed={progress.completedUnits} total={progress.totalUnits} tone={progress.tone} label={`${panel.displayCode} ${label.title}`} /></span>
               <i aria-hidden="true">상세 →</i>
             </button>
           ))}
@@ -10408,17 +10453,22 @@ function selectProjectPanelDepartmentStatus(
   }
 
   const empty = {
-    manufacturing: { stage: '제조', detail: '제조 투입 전' },
-    quality: { stage: '품질', detail: 'OQC 대기 · 전진검수 대기' },
-    logistics: { stage: '물류', detail: '포장 전' }
+    manufacturing: { stage: '착수 대기', detail: '제조 투입 전' },
+    quality: { stage: 'LQC 대기', detail: 'LQC 검사 전' },
+    logistics: { stage: '포장 대기', detail: '포장 전' }
   } as const;
   const completedUnits = fallbackPanelCompletedUnits(section, panel.workflowStage, defaultTotalUnits);
   const completed = defaultTotalUnits > 0 && completedUnits === defaultTotalUnits;
+  const completedStage = {
+    manufacturing: '제조 완료',
+    quality: '품질 완료',
+    logistics: '물류 완료'
+  } as const;
   return {
     key: `${section}:${panel.panelId}:not-started`,
     panelIds: [panel.panelId],
     panelCodes: [panel.displayCode],
-    stage: empty[section].stage,
+    stage: completed ? completedStage[section] : empty[section].stage,
     status: completed ? '완료' : '미시작',
     tone: completed ? 'success' : 'neutral',
     detail: empty[section].detail,
@@ -10477,6 +10527,15 @@ function salesSettlementStatusLabel(status: string) {
 
 function manufacturingStatusLabel(status: string) {
   return ({ Ready: '착수 대기', InProgress: '제조 중', Blocked: '중단', Completed: '완료', Cancelled: '취소' } as Record<string, string>)[status] ?? status;
+}
+
+function manufacturingCurrentStageLabel(status: string, nextStepName: string | null) {
+  if (status === 'Completed') return '제조 완료';
+  if (status === 'Ready') return '착수 대기';
+  if (status === 'Cancelled') return '제조 취소';
+  if (status === 'Blocked') return nextStepName ? `${nextStepName} · 중단` : '제조 중단';
+  if (status === 'InProgress') return nextStepName ?? '완료 처리 대기';
+  return nextStepName ?? '제조';
 }
 
 function qualityStageLabel(stage: QualityInspectionStage) {
@@ -15765,7 +15824,15 @@ function ProjectBottleneckOverview({
   );
 }
 
-function ProjectSummary({ project, canReadSalesAmount }: { project: ProjectListItem; canReadSalesAmount: boolean }) {
+function ProjectSummary({
+  project,
+  canReadSalesAmount,
+  progressPercent = project.projectProgressPercent
+}: {
+  project: ProjectListItem;
+  canReadSalesAmount: boolean;
+  progressPercent?: number | null;
+}) {
   return (
     <dl className="detail-grid">
       <div><dt>상태</dt><dd><ProjectStatusBadge status={project.status} /></dd></div>
@@ -15781,7 +15848,7 @@ function ProjectSummary({ project, canReadSalesAmount }: { project: ProjectListI
       {canReadSalesAmount && project.salesAmount !== undefined ? (
         <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
       ) : null}
-      <div><dt>진행률</dt><dd>{formatProjectProgress(project.projectProgressPercent)}</dd></div>
+      <div><dt>진행률</dt><dd>{formatProjectProgress(progressPercent)}</dd></div>
     </dl>
   );
 }
@@ -15857,7 +15924,7 @@ function ProjectWorkflowSummary({ state }: { state: LoadState<ProjectWorkflowRes
           >
             <span className="workflow-stage-number">{stage.sequenceNumber}</span>
             <div>
-              <strong>{displayWorkflowStageLabel(stage.departmentLabel, stage.stageCode, stage.stageName)}{stage.isOptional ? ' (선택)' : ''}</strong>
+              <strong>{displayWorkflowStageLabel(stage.departmentLabel, stage.stageCode, stage.stageName)}{stage.isOptional && stage.stageCode !== 'KittingCompleted' ? ' (선택)' : ''}</strong>
               <small>{stage.statusLabel}{stage.workItemCount > 0 ? ` · 내 업무 ${stage.workItemCount}건` : ''}</small>
             </div>
           </li>
@@ -17243,7 +17310,13 @@ function displayWorkflowStageLabel(departmentLabel: string, stageCode: string, s
     return departmentLabel;
   }
 
-  return `${departmentLabel} / ${displayWorkflowStageName(stageCode, stageName)}`;
+  const workflowBoardName = {
+    KittingCompleted: '제조 요청',
+    PackingCompleted: '포장',
+    DeliveryCompleted: '납품',
+    SalesSettlementCompleted: '세금계산서'
+  }[stageCode] ?? displayWorkflowStageName(stageCode, stageName);
+  return `${departmentLabel} / ${workflowBoardName}`;
 }
 
 function previewResultLabel(resultType: PanelInformationExcelPreviewResponse['rows'][number]['resultType']) {

@@ -131,7 +131,94 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
 
         var responseProjects = projects.Values.Select(value => value.Build()).ToList();
         var items = responseProjects.SelectMany(value => value.Items).ToList();
-        return new LogisticsQueueResponse(normalized, items.Count, items.Count(value => value.HasOpenPending), responseProjects);
+        var drafts = await ReadDraftSummariesAsync(
+            dataSource, normalized, projectId, scope, actorUserId, canShip, cancellationToken);
+        return new LogisticsQueueResponse(
+            normalized, items.Count, items.Count(value => value.HasOpenPending), responseProjects, drafts);
+    }
+
+    private static async Task<IReadOnlyList<LogisticsDraftSummary>> ReadDraftSummariesAsync(
+        NpgsqlDataSource dataSource,
+        string stage,
+        Guid? projectId,
+        ProjectAccessScope scope,
+        Guid? actorUserId,
+        bool canShip,
+        CancellationToken cancellationToken)
+    {
+        var projectFilter = projectId is null ? string.Empty : "and project.id = @project_id";
+        var sql = stage == LogisticsStages.Packing
+            ? $"""
+                select unit.id, unit.project_id, project.project_code, project.project_title,
+                       'packing', 'PU-' || lpad(unit.unit_number::text, 3, '0'),
+                       unit.version,
+                       (select count(*)::int from logistics_evidence evidence where evidence.packing_unit_id=unit.id),
+                       unit.created_at_utc
+                from logistics_packing_units unit
+                join projects project on project.id=unit.project_id
+                  and project.deleted_at_utc is null and project.status <> 'Cancelled'
+                where unit.status='Draft'
+                  and (@has_read_all or project.project_key=any(@project_keys))
+                  and @can_ship
+                  and (
+                    unit.created_by_user_id=@actor_id
+                    or exists(
+                      select 1 from project_assignees assignee
+                      where assignee.project_id=project.id
+                        and assignee.assigned_user_id=@actor_id
+                        and assignee.responsibility_type in ('LogisticsPrimary','LogisticsSecondary')
+                    )
+                  )
+                  {projectFilter}
+                order by unit.created_at_utc desc, unit.id desc;
+                """
+            : $"""
+                select batch.id, batch.project_id, project.project_code, project.project_title,
+                       @stage,
+                       case batch.stage_code when 'DepartureProcessed' then 'DP-' else 'DL-' end
+                         || lpad(batch.batch_number::text, 3, '0'),
+                       batch.version,
+                       (select count(*)::int from logistics_evidence evidence where evidence.batch_id=batch.id),
+                       batch.created_at_utc
+                from logistics_batches batch
+                join projects project on project.id=batch.project_id
+                  and project.deleted_at_utc is null and project.status <> 'Cancelled'
+                where batch.status='Draft' and batch.stage_code=@work_stage
+                  and (@has_read_all or project.project_key=any(@project_keys))
+                  and @can_ship
+                  and (
+                    batch.created_by_user_id=@actor_id
+                    or exists(
+                      select 1 from project_assignees assignee
+                      where assignee.project_id=project.id
+                        and assignee.assigned_user_id=@actor_id
+                        and assignee.responsibility_type in ('LogisticsPrimary','LogisticsSecondary')
+                    )
+                  )
+                  {projectFilter}
+                order by batch.created_at_utc desc, batch.id desc;
+                """;
+        await using var command = dataSource.CreateCommand(sql);
+        AddScope(command, scope);
+        command.Parameters.AddWithValue("actor_id", actorUserId ?? Guid.Empty);
+        command.Parameters.AddWithValue("can_ship", canShip);
+        if (projectId is not null) command.Parameters.AddWithValue("project_id", projectId.Value);
+        if (stage != LogisticsStages.Packing)
+        {
+            command.Parameters.AddWithValue("stage", stage);
+            command.Parameters.AddWithValue("work_stage", LogisticsStages.WorkStage(stage));
+        }
+
+        var result = new List<LogisticsDraftSummary>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new LogisticsDraftSummary(
+                reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3),
+                reader.GetString(4), reader.GetString(5), reader.GetInt32(6), reader.GetInt32(7),
+                reader.GetFieldValue<DateTimeOffset>(8)));
+        }
+        return result;
     }
 
     public async Task<LogisticsMutationResult<LogisticsProjectHistoryResponse>> GetProjectHistoryAsync(

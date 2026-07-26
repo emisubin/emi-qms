@@ -66,6 +66,8 @@ export interface ManufacturingPanel {
   startedAtUtc: string | null;
   completedAtUtc: string | null;
   canMutate: boolean;
+  assemblyStepChecked: boolean | null;
+  assemblyStepSequence: number | null;
 }
 
 export interface ManufacturingExecutionDetail {
@@ -118,6 +120,24 @@ export interface ManufacturingMutationResponse {
   pendingNumber: number | null;
   panelLqcWorkCreated: boolean;
   projectManufacturingCompleted: boolean;
+  replayed: boolean;
+}
+
+export interface AssemblyBatchManufacturingRequest {
+  operationId: string;
+  projectId: string;
+  panels: Array<{
+    panelId: string;
+    executionId: string;
+    expectedVersion: number;
+  }>;
+}
+
+export interface AssemblyBatchManufacturingResponse {
+  operationId: string;
+  projectId: string;
+  completedPanelCount: number;
+  checkedStepCount: number;
   replayed: boolean;
 }
 

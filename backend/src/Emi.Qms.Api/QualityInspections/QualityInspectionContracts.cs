@@ -70,7 +70,9 @@ public sealed record QualityInspectionTemplateItemResponse(
     bool IsRequired,
     int? MaxTextLength,
     bool IsAvailable = true,
-    string? AvailabilityMessage = null);
+    string? AvailabilityMessage = null,
+    bool IsReinspectionTarget = false,
+    string? PreviousFailureEvidence = null);
 
 public sealed record QualityInspectionItemValueResponse(
     Guid TemplateItemId,
@@ -139,6 +141,7 @@ public sealed record ConfirmPanelManufacturingCompletedRequest(
     Guid PanelId);
 
 public sealed record QualityInspectionReconciliationResponse(
+    int RecoveredLqcHandoffCount,
     int RecoveredOqcHandoffCount,
     int RecoveredInspectionHandoffCount,
     int RecoveredPackingHandoffCount,

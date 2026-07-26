@@ -1550,15 +1550,8 @@ public sealed class MaterialsStore(
         var presentation = await ReadConfirmationPresentationAsync(connection, transaction, receiptId, cancellationToken);
         var title = $"입고 확정 · {orderItem ?? "발주품목"}";
         var notificationMessage = $"{presentation.ProjectCode} · {presentation.OrderItem ?? orderItem ?? "발주품목"} · {presentation.Quantity:0.###} {presentation.Unit ?? ""} · {presentation.ArrivalDate:M/d} 도착분이 IQC 합격했습니다. 입고 확정을 진행해 주세요.";
-        var description = $"""
-            IQC 합격 도착분의 입고 확정을 진행해 주세요.
-
-            상세 내용
-            프로젝트 {presentation.ProjectCode}
-            발주품목 {presentation.OrderItem ?? orderItem ?? "발주품목"}
-            합격 수량 {presentation.Quantity:0.###} {presentation.Unit ?? ""}
-            도착일 {presentation.ArrivalDate:M/d}
-            """;
+        var quantity = $"{presentation.Quantity:0.###} {presentation.Unit ?? ""}".Trim();
+        var description = $"IQC 합격 도착분의 입고 확정을 진행해 주세요. ({presentation.OrderItem ?? orderItem ?? "발주품목"} {quantity})";
         var linkUrl = $"/materials/receipts?receipt={receiptId}";
         var workItemIds = new List<Guid>();
         foreach (var assignee in assignees)
@@ -1585,7 +1578,7 @@ public sealed class MaterialsStore(
             command.Parameters.AddWithValue("responsibility_type", assignee.ResponsibilityType);
             command.Parameters.AddWithValue("assignee_id", assignee.UserId);
             command.Parameters.AddWithValue("title", title);
-            command.Parameters.AddWithValue("description", $"{description} {linkUrl}");
+            command.Parameters.AddWithValue("description", description);
             command.Parameters.AddWithValue("idempotency_key", $"materials:receipt:{receiptId}:confirm:{assignee.UserId:N}");
             command.Parameters.AddWithValue("actor_id", actorUserId);
             workItemIds.Add((Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty));

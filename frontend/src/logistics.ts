@@ -5,6 +5,19 @@ export interface LogisticsQueueResponse {
   todayCount: number;
   blockedCount: number;
   projects: LogisticsProjectQueue[];
+  drafts: LogisticsDraftSummary[];
+}
+
+export interface LogisticsDraftSummary {
+  targetId: string;
+  projectId: string;
+  projectCode: string;
+  projectTitle: string;
+  stage: LogisticsStage;
+  displayCode: string;
+  version: number;
+  evidenceCount: number;
+  createdAtUtc: string;
 }
 
 export interface LogisticsProjectQueue {

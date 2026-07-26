@@ -1,9 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
+const assemblyBatchScreenshotDirectory = path.resolve(
+  process.cwd(),
+  '../tasks/manufacturing-batch-001-screenshots'
+);
 
 test('TASK-010A/011A: production releases a non-kitted panel and manufacturing completes it', async ({ page, request }) => {
   test.setTimeout(180_000);
@@ -130,6 +135,138 @@ test('TASK-010A/011A: production releases a non-kitted panel and manufacturing c
   `)).toBe('1');
 });
 
+test('TASK-MANUFACTURING-BATCH-001: manufacturing completes assembly for selected panels atomically', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const unique = Date.now();
+  const projectTitle = `합성 다중 조립 ${unique}`;
+  const { projectId, panelIds } = await createManufacturingBatchProject(
+    request,
+    `MFG-BATCH-${unique}`,
+    projectTitle
+  );
+
+  const released = await request.post(`${apiBaseUrl}/api/manufacturing/releases`, {
+    headers: devHeaders('dev-production'),
+    data: { operationId: crypto.randomUUID(), projectId, panelIds }
+  });
+  expect(released.ok(), await released.text()).toBeTruthy();
+
+  for (const panelId of panelIds) {
+    const started = await request.post(`${apiBaseUrl}/api/manufacturing/executions/start`, {
+      headers: devHeaders('dev-manufacturing'),
+      data: { operationId: crypto.randomUUID(), projectId, panelId }
+    });
+    expect(started.ok(), await started.text()).toBeTruthy();
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/manufacturing/work?project=${projectId}&panel=${panelIds[0]}`);
+  await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
+  await page.goto(`/manufacturing/work?project=${projectId}&panel=${panelIds[0]}`);
+  await expect(page.getByRole('heading', { name: '제조 작업' })).toBeVisible();
+  const panelCheckboxes = page.locator('.manufacturing-panel-selectable > .selected-export-checkbox');
+  await expect(panelCheckboxes).toHaveCount(2);
+  await panelCheckboxes.nth(0).check();
+  await panelCheckboxes.nth(1).check();
+  await page.getByRole('button', { name: '선택 패널 조립 단계 완료 (2면)' }).click();
+
+  const confirmation = page.getByRole('dialog', { name: '조립 단계 일괄 완료' });
+  await expect(confirmation).toContainText('처리 가능2면');
+  await expect(confirmation).toContainText('조립 처리2단계');
+  await expect(confirmation).toContainText('조립 단계만 완료 처리합니다. 다른 제조 단계는 그대로 유지됩니다');
+  await fs.mkdir(assemblyBatchScreenshotDirectory, { recursive: true });
+  await page.screenshot({
+    path: path.join(assemblyBatchScreenshotDirectory, '01-assembly-batch-confirm-desktop-1440.png'),
+    fullPage: true
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: path.join(assemblyBatchScreenshotDirectory, '02-assembly-batch-confirm-mobile-390.png'),
+    fullPage: true
+  });
+  await confirmation.getByRole('button', { name: '2면 조립 단계 완료' }).click();
+  await expect(page.getByText('2면의 조립 단계만 완료했습니다. 다른 제조 단계는 유지됩니다.')).toBeVisible();
+  await expect(panelCheckboxes.nth(0)).not.toBeChecked();
+  await expect(panelCheckboxes.nth(1)).not.toBeChecked();
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: path.join(assemblyBatchScreenshotDirectory, '03-assembly-batch-success-mobile-390.png'),
+    fullPage: true
+  });
+
+  const batchOperationId = queryDatabase(`
+    select operation_id::text
+    from panel_manufacturing_assembly_batch_operations
+    where project_id = '${projectId}'
+    order by created_at_utc desc
+    limit 1;
+  `);
+  expect(batchOperationId).toMatch(/^[0-9a-f-]{36}$/u);
+  expect(queryDatabase(`
+    select count(*)::text
+    from panel_manufacturing_events
+    where batch_operation_id = '${batchOperationId}';
+  `)).toBe('2');
+  expect(queryDatabase(`
+    select count(*)::text
+    from panel_manufacturing_execution_steps step
+    join panel_manufacturing_executions execution on execution.id = step.execution_id
+    where execution.project_id = '${projectId}'
+      and step.sequence_number <> 3
+      and step.checked_at_utc is not null;
+  `)).toBe('0');
+  expect(queryDatabase(`
+    select count(*)::text
+    from panel_manufacturing_executions
+    where project_id = '${projectId}' and status = 'InProgress' and version = 2;
+  `)).toBe('2');
+
+  for (const panelId of panelIds) {
+    const detailResponse = await request.get(`${apiBaseUrl}/api/manufacturing/panels/${panelId}`, {
+      headers: devHeaders('dev-manufacturing')
+    });
+    expect(detailResponse.ok()).toBeTruthy();
+    const detail = await detailResponse.json() as {
+      panel: { executionId: string; version: number };
+      steps: Array<{ stepId: string; sequenceNumber: number; checked: boolean }>;
+    };
+    expect(detail.steps.find((step) => step.sequenceNumber === 3)?.checked).toBeTruthy();
+    expect(detail.steps.filter((step) => step.sequenceNumber !== 3).every((step) => !step.checked)).toBeTruthy();
+    let expectedVersion = detail.panel.version;
+    for (const remainingStep of detail.steps.filter((step) => !step.checked)) {
+      const checked = await request.post(
+        `${apiBaseUrl}/api/manufacturing/executions/${detail.panel.executionId}/check-step`,
+        {
+          headers: devHeaders('dev-manufacturing'),
+          data: {
+            operationId: crypto.randomUUID(),
+            stepId: remainingStep.stepId,
+            expectedVersion
+          }
+        }
+      );
+      expect(checked.ok(), await checked.text()).toBeTruthy();
+      expectedVersion = (await checked.json() as { version: number }).version;
+    }
+    const completed = await request.post(
+      `${apiBaseUrl}/api/manufacturing/executions/${detail.panel.executionId}/complete`,
+      {
+        headers: devHeaders('dev-manufacturing'),
+        data: { operationId: crypto.randomUUID(), expectedVersion }
+      }
+    );
+    expect(completed.ok(), await completed.text()).toBeTruthy();
+  }
+  expect(queryDatabase(`
+    select count(*)::text
+    from work_items
+    where project_id = '${projectId}' and workflow_stage_code = 'LQC';
+  `)).toBe('2');
+});
+
 async function createManufacturingProject(request: APIRequestContext, projectCode: string, projectTitle: string) {
   const created = await request.post(`${apiBaseUrl}/api/projects`, {
     headers: devHeaders('dev-sales'),
@@ -167,6 +304,53 @@ async function createManufacturingProject(request: APIRequestContext, projectCod
   const panelId = queryDatabase(`select id::text from panel_placeholders where project_id = '${projectId}' and status = 'Active';`);
 
   return { projectId, panelId };
+}
+
+async function createManufacturingBatchProject(
+  request: APIRequestContext,
+  projectCode: string,
+  projectTitle: string
+) {
+  const created = await request.post(`${apiBaseUrl}/api/projects`, {
+    headers: devHeaders('dev-sales'),
+    data: {
+      customerName: 'Synthetic Manufacturing Customer',
+      item: 'RPP',
+      projectCode,
+      projectTitle,
+      panelCount: 2,
+      deliveryDate: '2026-10-10',
+      salesOwnerUserId,
+      packagingMethod: 'StretchWrap',
+      salesAmount: null,
+      currencyCode: null,
+      deliveryLocation: 'Synthetic Site',
+      fatRequired: false
+    }
+  });
+  if (!created.ok()) {
+    throw new Error(`Synthetic batch project creation failed (${created.status()}): ${await created.text()}`);
+  }
+  const projectId = (await created.json() as { projectId: string }).projectId;
+  queryDatabase(`
+    update panel_placeholders
+    set panel_name = 'BATCH-' || lpad(sequence_number::text, 2, '0'),
+        width_mm = 600, height_mm = 1800, depth_mm = 400,
+        panel_info_completed = true
+    where project_id = '${projectId}' and status = 'Active';
+    insert into project_assignees (
+      project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc
+    ) values
+      ('${projectId}', 'ManufacturingPrimary', '50000000-0000-0000-0000-000000000004', '${salesOwnerUserId}', now()),
+      ('${projectId}', 'ManufacturingSecondary', '50000000-0000-0000-0000-000000000001', '${salesOwnerUserId}', now());
+  `);
+  const panelIds = queryDatabase(`
+    select string_agg(id::text, ',' order by sequence_number)
+    from panel_placeholders
+    where project_id = '${projectId}' and status = 'Active';
+  `).split(',');
+  expect(panelIds).toHaveLength(2);
+  return { projectId, panelIds };
 }
 
 async function closePending(request: APIRequestContext, pendingId: string) {

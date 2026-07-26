@@ -697,9 +697,14 @@ public sealed class IqcReportStore(
                 errors[$"items.{item.ItemId}.photo"] = ["외함 상태 증빙 사진을 등록해 주세요."];
             }
         }
-        if (result == "Passed" && responses.Any(response => response.CheckResult == "Fail"))
+        var hasFail = responses.Any(response => response.CheckResult == "Fail");
+        if (result == "Passed" && hasFail)
         {
             errors["Result"] = ["부적합 항목이 있어 합격으로 최종화할 수 없습니다."];
+        }
+        if (result == "Failed" && !hasFail)
+        {
+            errors["Result"] = ["부적합 판정에는 하나 이상의 부적합 항목이 필요합니다."];
         }
         if (result == "Failed" && photos.Count == 0 && reason.Trim().Length < 30)
         {

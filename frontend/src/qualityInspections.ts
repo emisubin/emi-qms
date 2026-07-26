@@ -7,6 +7,7 @@ export interface QualityInspectionQueueResponse {
 }
 
 export interface QualityInspectionReconciliationResponse {
+  recoveredLqcHandoffCount: number;
   recoveredOqcHandoffCount: number;
   recoveredInspectionHandoffCount: number;
   recoveredPackingHandoffCount: number;
@@ -70,6 +71,8 @@ export interface QualityInspectionTemplateItem {
   maxTextLength: number | null;
   isAvailable: boolean;
   availabilityMessage: string | null;
+  isReinspectionTarget: boolean;
+  previousFailureEvidence: string | null;
 }
 
 export interface QualityInspectionItemValue {

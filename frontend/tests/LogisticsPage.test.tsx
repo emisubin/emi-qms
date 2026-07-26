@@ -26,16 +26,25 @@ describe('LogisticsPage', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows the mobile action priority and creates a same-project packing draft', async () => {
+  it('requires evidence first and finalizes packing with one save action', async () => {
     const requests: Array<Record<string, unknown>> = [];
+    const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       if (url.pathname === '/api/logistics/queue') return json(queue());
       if (url.pathname === '/api/logistics/packing-units') {
+        calls.push('create');
         requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
         return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'packing', status: 'Draft', version: 1, nextStage: 'evidence', replayed: false });
       }
-      if (url.pathname === `/api/logistics/packing/${draftId}`) return json(draft());
+      if (url.pathname === `/api/logistics/packing/${draftId}/evidence`) {
+        calls.push('evidence');
+        return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'packing', status: 'Draft', version: 2, nextStage: 'confirm', replayed: false });
+      }
+      if (url.pathname === `/api/logistics/packing/${draftId}/finalize`) {
+        calls.push('finalize');
+        return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'packing', status: 'Finalized', version: 3, nextStage: 'departure', replayed: false });
+      }
       return json({ title: 'not found' }, 404);
     }));
 
@@ -48,19 +57,39 @@ describe('LogisticsPage', () => {
     expect(await screen.findByRole('heading', { name: '물류 실행' })).toBeInTheDocument();
     expect(screen.getByText('처리 대기')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /P01/u }));
-    fireEvent.click(screen.getByRole('button', { name: '포장 묶음 시작' }));
+    const saveButton = screen.getByRole('button', { name: '포장 저장 및 확정' });
+    expect(saveButton).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/포장 사진/u), {
+      target: { files: [new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'packing.png', { type: 'image/png' })] }
+    });
+    fireEvent.click(saveButton);
 
-    expect(await screen.findByText(/draft를 만들었습니다/u)).toBeInTheDocument();
-    expect(screen.getByText('포장 사진')).toBeInTheDocument();
+    expect(await screen.findByText(/포장 확정 완료/u)).toBeInTheDocument();
     await waitFor(() => expect(requests).toHaveLength(1));
+    expect(calls).toEqual(['create', 'evidence', 'finalize']);
     expect(requests[0].projectId).toBe(projectId);
     expect(requests[0].panelIds).toEqual([panelId]);
   });
 
-  it('recovers a draft from its URL when the original queue item is no longer available', async () => {
+  it('recovers a draft from the queue when the original item and URL draft are unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/logistics/queue') return json({ ...queue(), todayCount: 0, projects: [] });
+      if (url.pathname === '/api/logistics/queue') return json({
+        ...queue(),
+        todayCount: 0,
+        projects: [],
+        drafts: [{
+          targetId: draftId,
+          projectId,
+          projectCode: 'LOG-013A',
+          projectTitle: 'Synthetic Logistics',
+          stage: 'packing',
+          displayCode: 'PU-001',
+          version: 2,
+          evidenceCount: 1,
+          createdAtUtc: '2026-07-18T00:00:00Z'
+        }]
+      });
       if (url.pathname === `/api/logistics/packing/${draftId}`) return json({
         ...draft(),
         version: 2,
@@ -74,14 +103,14 @@ describe('LogisticsPage', () => {
 
     render(
       <AdaptiveLayoutProvider>
-        <LogisticsPage developmentUserKey="dev-logistics" canMutate initialStage="packing" initialDraftId={draftId}
+        <LogisticsPage developmentUserKey="dev-logistics" canMutate initialStage="packing"
           onLocationChange={vi.fn()} onBack={vi.fn()} />
       </AdaptiveLayoutProvider>
     );
 
-    expect(await screen.findByText(/진행 중인 draft를 복구했습니다/u)).toBeInTheDocument();
+    expect(await screen.findByText(/중간에 멈춘 물류 작업을 복구했습니다/u)).toBeInTheDocument();
     expect(screen.getByText(/등록 증빙 1개/u)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '포장 확정' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '포장 저장 및 확정' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '임시 작업 취소' })).toBeInTheDocument();
   });
 });
@@ -96,6 +125,7 @@ function draft() {
 function queue() {
   return {
     stage: 'packing', todayCount: 1, blockedCount: 0,
+    drafts: [],
     projects: [{
       projectId, projectCode: 'LOG-013A', projectTitle: 'Synthetic Logistics',
       items: [{

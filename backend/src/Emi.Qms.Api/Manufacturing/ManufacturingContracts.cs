@@ -70,7 +70,9 @@ public sealed record ManufacturingPanelResponse(
     string? ActionDepartmentCode,
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
-    bool CanMutate);
+    bool CanMutate,
+    bool? AssemblyStepChecked,
+    int? AssemblyStepSequence);
 
 public sealed record ManufacturingExecutionDetailResponse(
     ManufacturingPanelResponse Panel,
@@ -115,6 +117,20 @@ public sealed record ManufacturingReleaseResponse(
     bool Replayed);
 
 public sealed record CheckManufacturingStepRequest(Guid OperationId, Guid StepId, int ExpectedVersion);
+
+public sealed record AssemblyBatchPanelRequest(Guid PanelId, Guid ExecutionId, int ExpectedVersion);
+
+public sealed record AssemblyBatchManufacturingRequest(
+    Guid OperationId,
+    Guid ProjectId,
+    IReadOnlyList<AssemblyBatchPanelRequest>? Panels);
+
+public sealed record AssemblyBatchManufacturingResponse(
+    Guid OperationId,
+    Guid ProjectId,
+    int CompletedPanelCount,
+    int CheckedStepCount,
+    bool Replayed);
 
 public sealed record StopManufacturingRequest(
     Guid OperationId,

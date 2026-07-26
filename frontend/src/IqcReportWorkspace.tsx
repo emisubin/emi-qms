@@ -81,6 +81,8 @@ export function IqcReportWorkspace({
   }, [report, scopedItems]);
   const reasonMissing = reason.trim().length < 3;
   const isReadyToFinalize = requiredMissing === 0 && photoMissing === 0 && !reasonMissing;
+  const hasFailedResponse = scopedItems.some((item) => draft[item.itemId]?.checkResult === 'Fail');
+  const finalResult = hasFailedResponse ? 'Failed' : 'Passed';
   const reportSteps = useMemo<Step[]>(
     () => scopedItems.some((item) => item.requiresPhoto) ? ['items', 'photo', 'review'] : ['items', 'review'],
     [scopedItems]
@@ -236,7 +238,18 @@ export function IqcReportWorkspace({
             </ul>
           </div>
           <ActionFeedback message={message} tone={messageTone} />
-          <div className="iqc-finalize-actions" aria-describedby="iqc-finalize-readiness"><button type="button" className="iqc-fail-button" disabled={!canInspect || saving || !isReadyToFinalize} onClick={() => void finalize('Failed')}>{report.attemptNumber > 1 ? '불합격 · 재조치 요청' : '부적합 · 입고 차단'}</button><button type="button" className="primary-button" disabled={!canInspect || saving || !isReadyToFinalize} onClick={() => void finalize('Passed')}>{report.attemptNumber > 1 ? '합격 · Pending 해제' : '합격 · 성적서 확정'}</button></div>
+          <div className="iqc-finalize-actions" aria-describedby="iqc-finalize-readiness">
+            <button
+              type="button"
+              className={finalResult === 'Failed' ? 'iqc-fail-button' : 'primary-button'}
+              disabled={!canInspect || saving || !isReadyToFinalize}
+              onClick={() => void finalize(finalResult)}
+            >
+              {finalResult === 'Failed'
+                ? report.attemptNumber > 1 ? '불합격 · 재조치 요청' : '부적합 · 입고 차단'
+                : report.attemptNumber > 1 ? '합격 · Pending 해제' : '합격 · 성적서 확정'}
+            </button>
+          </div>
         </section>
       ) : null}
       {step !== 'review' ? <ActionFeedback message={message} tone={messageTone} /> : null}

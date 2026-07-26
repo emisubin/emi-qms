@@ -75,7 +75,7 @@ export function PendingInspectionContext({
           <label><span>재검사 코멘트</span><textarea aria-label="재검사 코멘트" value={comment} maxLength={2000} onChange={(event) => setComment(event.target.value)} placeholder="조치 내용을 확인한 결과나 재검사 메모를 남겨 주세요." /></label>
           <button type="submit" disabled={saving || !comment.trim()}>{saving ? '등록 중…' : '코멘트 등록'}</button>
         </form>
-      ) : <p className="pending-inspection-readonly">조치·검사 담당자만 코멘트를 추가할 수 있습니다.</p>}
+      ) : <p className="pending-inspection-readonly">{readyDetail.issue.status === 'Closed' ? '종결된 Pending에는 새 코멘트를 추가할 수 없습니다.' : '현재 계정은 코멘트를 조회만 할 수 있습니다.'}</p>}
       {feedback ? <p className="pending-inspection-feedback" role="status">{feedback}</p> : null}
       <ol className="pending-inspection-timeline">
         {timeline.map((event) => (

@@ -1176,6 +1176,27 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: '수정' })).not.toBeInTheDocument();
   });
 
+  it('uses the whole-workflow progress as the project detail progress source', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, window.location.origin);
+      if (url.pathname === `/api/projects/${projectId}/workflow`) {
+        return Promise.resolve(json({
+          ...projectWorkflowResponse(projectId),
+          completedRequiredStageCount: 7,
+          progressPercent: 41
+        }));
+      }
+
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+
+    await waitFor(() => expect(screen.getAllByText('41%').length).toBeGreaterThanOrEqual(2));
+    expect(screen.queryByText('6%')).not.toBeInTheDocument();
+  });
+
   it('validates required fields on the create form', async () => {
     render(<App />);
 
@@ -1604,7 +1625,7 @@ describe('App', () => {
       if (path === `/api/quality/inspections/panels/${panelIds[0]}`) {
         return json({ panel: { panelId: panelIds[0], displayCode: 'P01', panelName: 'MAIN', workflowStage: 'ManufacturingCompleted', stageCode: 'LQC', stageLabel: 'LQC', workItemId: 'quality-work-1', workItemStatus: 'Requested', attemptId: null, attemptNumber: 0, status: 'Ready', version: 1, pendingId: null, pendingNumber: null, actionDepartmentCode: null, canMutate: false }, decisionMode: 'Checklist', reportId: null, reportStatus: null, reportVersion: null, result: null, reason: null, pdfStatus: null, items: [], responses: [], photos: [], history: [] });
       }
-      if (path === '/api/logistics/queue') return json({ stage: url.searchParams.get('stage'), todayCount: 0, blockedCount: 0, projects: [] });
+      if (path === '/api/logistics/queue') return json({ stage: url.searchParams.get('stage'), todayCount: 0, blockedCount: 0, projects: [], drafts: [] });
       if (path === `/api/logistics/projects/${projectId}/history`) {
         return json({ projectId, items: [{ targetId: 'packing-1', stage: 'packing', displayCode: 'PU-001', status: 'Finalized', version: 1, note: null, specification: null, weightText: null, departureDate: null, panelCodes: ['P01'], unitCodes: [], evidence: [], createdByName: '담당자', createdAtUtc: '2026-07-06T01:00:00Z', finalizedByName: '담당자', finalizedAtUtc: '2026-07-06T02:00:00Z', cancelledByName: null, cancelledAtUtc: null }] });
       }
@@ -2126,7 +2147,12 @@ describe('App', () => {
     const workflowHeading = await screen.findByRole('heading', { name: '프로젝트 전체 흐름' });
     const workflowBoard = workflowHeading.closest('section');
     expect(workflowBoard).not.toBeNull();
-    expect(workflowBoard!.querySelectorAll('.workflow-stage-item')).toHaveLength(2);
+    expect(workflowBoard!.querySelectorAll('.workflow-stage-item')).toHaveLength(6);
+    expect(workflowBoard).toHaveTextContent('자재 / 제조 요청');
+    expect(workflowBoard).not.toHaveTextContent('자재 / 제조 요청 (선택)');
+    expect(workflowBoard).toHaveTextContent('물류 / 포장');
+    expect(workflowBoard).toHaveTextContent('물류 / 납품');
+    expect(workflowBoard).toHaveTextContent('영업 / 세금계산서');
     fireEvent.click(screen.getByRole('tab', { name: '생산관리' }));
     expect(await screen.findByText('프로젝트 단위 계획과 담당자 지정')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '프로젝트 전체 흐름' })).not.toBeInTheDocument();
@@ -2372,10 +2398,13 @@ describe('App', () => {
         stageCode: 'OQC',
         stageLabel: 'OQC',
         workItemId: '76000000-0000-0000-0000-000000000046',
-        workItemStatus: 'InProgress',
+        workItemStatus: 'Completed',
         attemptId: '76000000-0000-0000-0000-000000000047',
-        status: 'InProgress',
-        version: 1
+        status: 'Failed',
+        version: 2,
+        pendingId: '76000000-0000-0000-0000-000000000048',
+        pendingNumber: 48,
+        actionDepartmentCode: 'manufacturing'
       };
       if (path === '/api/quality/inspections/queue') {
         const stage = url.searchParams.get('stage');
@@ -2386,8 +2415,8 @@ describe('App', () => {
           projectTitle: 'TASK-003A Demo',
           fatRequired: false,
           readyCount: stage === 'LQC' ? 0 : 1,
-          inProgressCount: stage === 'OQC' ? 1 : 0,
-          blockedCount: 0,
+          inProgressCount: 0,
+          blockedCount: stage === 'OQC' ? 1 : 0,
           completedCount: stage === 'LQC' ? 1 : 0,
           panels: [stagePanel]
         }] : [] }));
@@ -2419,10 +2448,10 @@ describe('App', () => {
           panel: oqc ? oqcPanel : qualityPanel,
           decisionMode: 'Checklist',
           reportId: '76000000-0000-0000-0000-000000000043',
-          reportStatus: oqc ? 'Draft' : 'Finalized',
-          reportVersion: oqc ? 1 : 2,
-          result: oqc ? null : 'Passed',
-          reason: oqc ? null : '기준 충족',
+          reportStatus: 'Finalized',
+          reportVersion: 2,
+          result: oqc ? 'Failed' : 'Passed',
+          reason: oqc ? 'OQC 부적합 조치 필요' : '기준 충족',
           pdfStatus: oqc ? null : 'Ready',
           items: qualityItems,
           responses: [{
@@ -2512,9 +2541,10 @@ describe('App', () => {
 
     fireEvent.click(within(projectTabs).getByRole('tab', { name: '제조' }));
     const manufacturingTable = await screen.findByRole('table', { name: '제조 패널 현황' });
-    expect(within(manufacturingTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보진행률');
+    expect(within(manufacturingTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보제조 단계진행률');
     expect(manufacturingTable).toHaveTextContent('P01');
     expect(manufacturingTable).toHaveTextContent('완료 · 단계 1/1');
+    expect(manufacturingTable).toHaveTextContent('제조 완료');
     expect(manufacturingTable).toHaveTextContent('미시작');
     expect(within(manufacturingTable).getByLabelText('P01 제조 진행률 100% (1/1)')).toBeInTheDocument();
     const manufacturingSection = manufacturingTable.closest('section');
@@ -2524,8 +2554,12 @@ describe('App', () => {
 
     fireEvent.click(within(projectTabs).getByRole('tab', { name: '품질' }));
     const qualityTable = await screen.findByRole('table', { name: '품질 패널 현황' });
-    expect(within(qualityTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보진행률');
-    expect(qualityTable).toHaveTextContent('OQC 1/4 · 전진검수 대기 · FAT 없음');
+    expect(within(qualityTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보품질 단계진행률');
+    expect(qualityTable).toHaveTextContent('OQC 부적합 · Pending 조치 대기');
+    expect(qualityTable).not.toHaveTextContent('전진검수 대기');
+    expect(qualityTable).not.toHaveTextContent('FAT 대기');
+    expect(qualityTable).toHaveTextContent('OQC');
+    expect(qualityTable).toHaveTextContent('Pending');
     expect(within(qualityTable).getByLabelText('P01 품질 진행률 20% (1/5)')).toBeInTheDocument();
     const qualitySection = qualityTable.closest('section');
     expect(qualitySection).toHaveTextContent('LQC 완료1/4');
@@ -2534,8 +2568,9 @@ describe('App', () => {
 
     fireEvent.click(within(projectTabs).getByRole('tab', { name: '물류' }));
     const logisticsTable = await screen.findByRole('table', { name: '물류 패널 현황' });
-    expect(within(logisticsTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보진행률');
+    expect(within(logisticsTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보물류 단계진행률');
     expect(logisticsTable).toHaveTextContent('포장 완료 · 출발 대기 · 납품 대기');
+    expect(logisticsTable).toHaveTextContent('출발');
     expect(within(logisticsTable).getByLabelText('P01 물류 진행률 33% (1/3)')).toBeInTheDocument();
     const logisticsSection = logisticsTable.closest('section');
     expect(logisticsSection).toHaveTextContent('포장 완료1/4');
@@ -4442,6 +4477,54 @@ function projectWorkflowResponse(id = projectId) {
         status: 'Requested',
         statusLabel: '내 업무 생성됨',
         workItemCount: 1,
+        completedAtUtc: null
+      },
+      {
+        stageCode: 'KittingCompleted',
+        sequenceNumber: 8,
+        departmentCode: 'materials',
+        departmentLabel: '자재',
+        stageName: '키팅 완료',
+        isOptional: true,
+        status: 'NotStarted',
+        statusLabel: '미시작',
+        workItemCount: 0,
+        completedAtUtc: null
+      },
+      {
+        stageCode: 'PackingCompleted',
+        sequenceNumber: 15,
+        departmentCode: 'logistics',
+        departmentLabel: '물류',
+        stageName: '포장 완료',
+        isOptional: false,
+        status: 'NotStarted',
+        statusLabel: '미시작',
+        workItemCount: 0,
+        completedAtUtc: null
+      },
+      {
+        stageCode: 'DeliveryCompleted',
+        sequenceNumber: 17,
+        departmentCode: 'logistics',
+        departmentLabel: '물류',
+        stageName: '납품 완료',
+        isOptional: false,
+        status: 'NotStarted',
+        statusLabel: '미시작',
+        workItemCount: 0,
+        completedAtUtc: null
+      },
+      {
+        stageCode: 'SalesSettlementCompleted',
+        sequenceNumber: 18,
+        departmentCode: 'sales',
+        departmentLabel: '영업',
+        stageName: '세금계산서·완료',
+        isOptional: false,
+        status: 'NotStarted',
+        statusLabel: '미시작',
+        workItemCount: 0,
         completedAtUtc: null
       }
     ]

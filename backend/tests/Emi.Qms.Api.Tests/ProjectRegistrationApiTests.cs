@@ -73,6 +73,13 @@ public sealed partial class ProjectRegistrationApiTests
         using var draftJson = await ReadJsonAsync(draftResponse);
         Assert.Equal("Draft", draftJson.RootElement.GetProperty("status").GetString());
         Assert.Equal(2, draftJson.RootElement.GetProperty("panelIds").GetArrayLength());
+        using var queueAfterDraft = await logisticsClient.GetAsync(
+            $"/api/logistics/queue?stage=packing&projectId={projectId}",
+            TestContext.Current.CancellationToken);
+        using var queueAfterDraftJson = await ReadJsonAsync(queueAfterDraft);
+        var recoverableDraft = Assert.Single(queueAfterDraftJson.RootElement.GetProperty("drafts").EnumerateArray());
+        Assert.Equal(unitId, recoverableDraft.GetProperty("targetId").GetGuid());
+        Assert.Equal(0, recoverableDraft.GetProperty("evidenceCount").GetInt32());
         using var fingerprintConflict = await logisticsClient.PostAsJsonAsync("/api/logistics/packing-units", new
         {
             operationId = packingOperationId, projectId, panelIds, note = "Different payload", specification = "S", weightText = "10kg"
@@ -903,14 +910,22 @@ public sealed partial class ProjectRegistrationApiTests
                 sequence_number,
                 source_project_text,
                 source_project_code_text,
-                order_item
+                order_item,
+                supplier_name,
+                order_date,
+                expected_receipt_date,
+                is_confirmed
             )
             values (
                 '{workflowProjectId}',
                 1,
                 '{workflowTitle}',
                 'WORK-WF-{unique}',
-                '차단기'
+                '차단기',
+                '구매 공급사',
+                date '2026-07-01',
+                date '2026-07-15',
+                true
             );
             """);
         var procurementCompleted = await ReadSingleProjectListItemAsync(client, workflowTitle);
@@ -940,14 +955,22 @@ public sealed partial class ProjectRegistrationApiTests
                 sequence_number,
                 source_project_text,
                 source_project_code_text,
-                order_item
+                order_item,
+                supplier_name,
+                order_date,
+                expected_receipt_date,
+                is_confirmed
             )
             values (
                 '{fatProjectId}',
                 1,
                 '{fatTitle}',
                 'WORK-FAT-{unique}',
-                '차단기'
+                '차단기',
+                '구매 공급사',
+                date '2026-07-01',
+                date '2026-07-15',
+                true
             );
             """);
         var fatProgress = await ReadSingleProjectListItemAsync(client, fatTitle);

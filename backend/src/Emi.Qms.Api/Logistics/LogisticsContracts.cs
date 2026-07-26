@@ -27,7 +27,19 @@ public sealed record LogisticsQueueResponse(
     string Stage,
     int TodayCount,
     int BlockedCount,
-    IReadOnlyList<LogisticsProjectQueue> Projects);
+    IReadOnlyList<LogisticsProjectQueue> Projects,
+    IReadOnlyList<LogisticsDraftSummary> Drafts);
+
+public sealed record LogisticsDraftSummary(
+    Guid TargetId,
+    Guid ProjectId,
+    string ProjectCode,
+    string ProjectTitle,
+    string Stage,
+    string DisplayCode,
+    int Version,
+    int EvidenceCount,
+    DateTimeOffset CreatedAtUtc);
 
 public sealed record LogisticsProjectQueue(
     Guid ProjectId,

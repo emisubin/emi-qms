@@ -440,7 +440,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0054_panel_quality_decision_modes", await ReadScalarAsync<string>(
+            Assert.Equal("0056_manufacturing_assembly_batch", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -739,7 +739,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0054_panel_quality_decision_modes", await ReadScalarAsync<string>(
+        Assert.Equal("0056_manufacturing_assembly_batch", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -826,6 +826,25 @@ public sealed class PostgreSqlMigrationTests
                   'panel_manufacturing_events',
                   'panel_manufacturing_operations'
               );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name = 'panel_manufacturing_assembly_batch_operations';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'panel_manufacturing_events'
+              and column_name = 'batch_operation_id';
             """,
             TestContext.Current.CancellationToken));
         Assert.Equal(1L, await ReadScalarAsync<long>(

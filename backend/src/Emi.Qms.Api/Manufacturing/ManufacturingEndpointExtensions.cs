@@ -106,6 +106,24 @@ public static class ManufacturingEndpointExtensions
         .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
         .WithName("CheckManufacturingStep");
 
+        manufacturing.MapPost("/executions/assembly-batch", async (
+            AssemblyBatchManufacturingRequest request,
+            ManufacturingStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = GetCurrentUserId(user);
+            return actorId is null
+                ? Results.Unauthorized()
+                : ToAssemblyBatchResult(await store.CompleteAssemblyBatchAsync(
+                    request,
+                    actorId.Value,
+                    GetProjectAccessScope(user),
+                    cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
+        .WithName("CompleteManufacturingAssemblyBatch");
+
         manufacturing.MapPost("/executions/{executionId:guid}/stop", async (
             Guid executionId,
             StopManufacturingRequest request,
@@ -186,6 +204,21 @@ public static class ManufacturingEndpointExtensions
             ManufacturingMutationStatus.Validation => Results.ValidationProblem(result.Errors),
             ManufacturingMutationStatus.Conflict => Results.Problem(
                 title: result.Message ?? "요청한 제조 투입을 처리할 수 없습니다.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
+        };
+    }
+
+    private static IResult ToAssemblyBatchResult(
+        ManufacturingMutationResult<AssemblyBatchManufacturingResponse> result)
+    {
+        return result.Status switch
+        {
+            ManufacturingMutationStatus.Success when result.Value is not null => Results.Ok(result.Value),
+            ManufacturingMutationStatus.NotFound => Results.NotFound(),
+            ManufacturingMutationStatus.Validation => Results.ValidationProblem(result.Errors),
+            ManufacturingMutationStatus.Conflict => Results.Problem(
+                title: result.Message ?? "선택 패널의 조립 단계를 완료할 수 없습니다.",
                 statusCode: StatusCodes.Status409Conflict),
             _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
         };

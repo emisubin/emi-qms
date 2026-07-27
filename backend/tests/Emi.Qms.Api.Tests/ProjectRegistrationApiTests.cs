@@ -93,10 +93,14 @@ public sealed partial class ProjectRegistrationApiTests
         Assert.Equal(PostgresErrorCodes.RaiseException, immutableMembership.SqlState);
         using var departureQueue = await logisticsClient.GetAsync($"/api/logistics/queue?stage=departure&projectId={projectId}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, departureQueue.StatusCode);
+        using var departureQueueJson = await ReadJsonAsync(departureQueue);
+        var departureItems = departureQueueJson.RootElement.GetProperty("projects")[0].GetProperty("items");
+        Assert.Equal(2, departureItems.GetArrayLength());
+        Assert.All(departureItems.EnumerateArray(), item => Assert.Equal("Panel", item.GetProperty("targetType").GetString()));
 
         using var departureResponse = await logisticsClient.PostAsJsonAsync("/api/logistics/departure-batches", new
         {
-            operationId = Guid.NewGuid(), projectId, unitIds = new[] { unitId }, departureDate = DateOnly.FromDateTime(DateTime.UtcNow)
+            operationId = Guid.NewGuid(), projectId, panelIds = new[] { panelIds[0] }, departureDate = DateOnly.FromDateTime(DateTime.UtcNow)
         }, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, departureResponse.StatusCode);
         using var departureJson = await ReadJsonAsync(departureResponse);
@@ -104,12 +108,22 @@ public sealed partial class ProjectRegistrationApiTests
         version = departureJson.RootElement.GetProperty("version").GetInt32();
         version = await UploadEvidenceAsync(logisticsClient, "departure", departureId, version, new byte[] { 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a });
         await AssertFinalizeAsync(logisticsClient, "departure", departureId, version);
+        using var remainingDepartureQueue = await logisticsClient.GetAsync($"/api/logistics/queue?stage=departure&projectId={projectId}", TestContext.Current.CancellationToken);
+        using var remainingDepartureQueueJson = await ReadJsonAsync(remainingDepartureQueue);
+        var remainingDepartureItems = remainingDepartureQueueJson.RootElement.GetProperty("projects")[0].GetProperty("items");
+        var remainingDeparture = Assert.Single(remainingDepartureItems.EnumerateArray());
+        Assert.Equal(panelIds[1], remainingDeparture.GetProperty("targetId").GetGuid());
+
         using var deliveryQueue = await logisticsClient.GetAsync($"/api/logistics/queue?stage=delivery&projectId={projectId}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, deliveryQueue.StatusCode);
+        using var deliveryQueueJson = await ReadJsonAsync(deliveryQueue);
+        var firstDeliveryItem = Assert.Single(
+            deliveryQueueJson.RootElement.GetProperty("projects")[0].GetProperty("items").EnumerateArray());
+        Assert.Equal(panelIds[0], firstDeliveryItem.GetProperty("targetId").GetGuid());
 
         using var deliveryResponse = await logisticsClient.PostAsJsonAsync("/api/logistics/delivery-batches", new
         {
-            operationId = Guid.NewGuid(), projectId, unitIds = new[] { unitId }, departureDate = (DateOnly?)null
+            operationId = Guid.NewGuid(), projectId, panelIds = new[] { panelIds[0] }, departureDate = (DateOnly?)null
         }, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, deliveryResponse.StatusCode);
         using var deliveryJson = await ReadJsonAsync(deliveryResponse);
@@ -117,21 +131,54 @@ public sealed partial class ProjectRegistrationApiTests
         version = deliveryJson.RootElement.GetProperty("version").GetInt32();
         version = await UploadEvidenceAsync(logisticsClient, "delivery", deliveryId, version, "%PDF-1.4 synthetic"u8.ToArray());
         await AssertFinalizeAsync(logisticsClient, "delivery", deliveryId, version);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>(
+            $"select count(*) from work_items where project_id='{projectId}' and workflow_stage_code='SalesSettlementCompleted';"));
+        Assert.Equal("ShipmentCompleted", await context.ReadScalarAsync<string>(
+            $"select workflow_stage from panel_placeholders where id='{panelIds[0]}';"));
+        Assert.NotEqual("ShipmentCompleted", await context.ReadScalarAsync<string>(
+            $"select workflow_stage from panel_placeholders where id='{panelIds[1]}';"));
+
+        using var secondDepartureResponse = await logisticsClient.PostAsJsonAsync("/api/logistics/departure-batches", new
+        {
+            operationId = Guid.NewGuid(), projectId, unitIds = new[] { unitId }, departureDate = DateOnly.FromDateTime(DateTime.UtcNow)
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, secondDepartureResponse.StatusCode);
+        using var secondDepartureJson = await ReadJsonAsync(secondDepartureResponse);
+        var secondDepartureId = secondDepartureJson.RootElement.GetProperty("targetId").GetGuid();
+        version = secondDepartureJson.RootElement.GetProperty("version").GetInt32();
+        version = await UploadEvidenceAsync(logisticsClient, "departure", secondDepartureId, version, new byte[] { 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a });
+        await AssertFinalizeAsync(logisticsClient, "departure", secondDepartureId, version);
+
+        using var secondDeliveryResponse = await logisticsClient.PostAsJsonAsync("/api/logistics/delivery-batches", new
+        {
+            operationId = Guid.NewGuid(), projectId, unitIds = new[] { unitId }, departureDate = (DateOnly?)null
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, secondDeliveryResponse.StatusCode);
+        using var secondDeliveryJson = await ReadJsonAsync(secondDeliveryResponse);
+        var secondDeliveryId = secondDeliveryJson.RootElement.GetProperty("targetId").GetGuid();
+        version = secondDeliveryJson.RootElement.GetProperty("version").GetInt32();
+        version = await UploadEvidenceAsync(logisticsClient, "delivery", secondDeliveryId, version, "%PDF-1.4 synthetic-2"u8.ToArray());
+        await AssertFinalizeAsync(logisticsClient, "delivery", secondDeliveryId, version);
 
         using var historyResponse = await logisticsClient.GetAsync($"/api/logistics/projects/{projectId}/history", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, historyResponse.StatusCode);
         using var historyJson = await ReadJsonAsync(historyResponse);
         var history = historyJson.RootElement.GetProperty("items");
-        Assert.Equal(3, history.GetArrayLength());
+        Assert.Equal(5, history.GetArrayLength());
         var packingHistory = history.EnumerateArray().Single(item => item.GetProperty("stage").GetString() == "packing");
         Assert.Equal("Synthetic package", packingHistory.GetProperty("note").GetString());
         Assert.Equal("S", packingHistory.GetProperty("specification").GetString());
         Assert.Equal("10kg", packingHistory.GetProperty("weightText").GetString());
         Assert.Equal(2, packingHistory.GetProperty("panelCodes").GetArrayLength());
         Assert.Single(packingHistory.GetProperty("evidence").EnumerateArray());
-        var departureHistory = history.EnumerateArray().Single(item => item.GetProperty("stage").GetString() == "departure");
-        Assert.False(departureHistory.GetProperty("departureDate").ValueKind == JsonValueKind.Null);
-        Assert.Single(departureHistory.GetProperty("unitCodes").EnumerateArray());
+        var departureHistory = history.EnumerateArray().Where(item => item.GetProperty("stage").GetString() == "departure").ToArray();
+        Assert.Equal(2, departureHistory.Length);
+        Assert.All(departureHistory, item =>
+        {
+            Assert.False(item.GetProperty("departureDate").ValueKind == JsonValueKind.Null);
+            Assert.Single(item.GetProperty("unitCodes").EnumerateArray());
+            Assert.Single(item.GetProperty("panelCodes").EnumerateArray());
+        });
 
         Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from work_items where project_id='{projectId}' and workflow_stage_code='SalesSettlementCompleted' and target_type='Project';"));
         Assert.Equal(2L, await context.ReadScalarAsync<long>($"select count(*) from panel_placeholders where project_id='{projectId}' and workflow_stage='ShipmentCompleted';"));

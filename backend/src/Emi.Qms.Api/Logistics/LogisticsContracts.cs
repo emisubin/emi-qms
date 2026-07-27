@@ -132,12 +132,14 @@ public sealed record CreateLogisticsBatchRequest(
     Guid OperationId,
     Guid ProjectId,
     IReadOnlyList<Guid>? UnitIds,
+    IReadOnlyList<Guid>? PanelIds,
     DateOnly? DepartureDate);
 
 public sealed record ReplaceLogisticsBatchUnitsRequest(
     Guid OperationId,
     int? ExpectedVersion,
     IReadOnlyList<Guid>? UnitIds,
+    IReadOnlyList<Guid>? PanelIds,
     DateOnly? DepartureDate);
 
 public sealed record FinalizeLogisticsRequest(Guid OperationId, int? ExpectedVersion);

@@ -36,6 +36,9 @@ public sealed partial class ProjectRegistrationApiTests
             values ('{departureId}','{projectId}','DepartureProcessed',1,'Draft',1,date '2026-07-20','{SalesOwnerUserId}');
             insert into logistics_batch_units(batch_id,packing_unit_id,stage_code,active,added_by_user_id)
             values ('{departureId}','{packingId}','DepartureProcessed',true,'{SalesOwnerUserId}');
+            insert into logistics_batch_panels(batch_id,packing_unit_id,panel_id,stage_code,active,added_by_user_id)
+            values ('{departureId}','{packingId}','{panelIds[0]}','DepartureProcessed',true,'{SalesOwnerUserId}'),
+                   ('{departureId}','{packingId}','{panelIds[1]}','DepartureProcessed',true,'{SalesOwnerUserId}');
             update logistics_batches set status='Finalized',finalized_by_user_id='{SalesOwnerUserId}',finalized_at_utc=now() where id='{departureId}';
             """);
 

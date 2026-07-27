@@ -329,10 +329,9 @@ public sealed class SalesSettlementStore(
                     from logistics_delivery_results result
                     join logistics_batches batch on batch.id=result.batch_id
                       and batch.project_id=@project_id and batch.stage_code='DeliveryCompleted' and batch.status='Finalized'
-                    join logistics_batch_units batch_unit on batch_unit.batch_id=batch.id
-                      and batch_unit.packing_unit_id=result.packing_unit_id and batch_unit.active
-                    join logistics_packing_unit_panels membership on membership.packing_unit_id=result.packing_unit_id
-                      and membership.panel_id=panel.id and membership.active
+                    join logistics_batch_panels batch_panel on batch_panel.batch_id=batch.id
+                      and batch_panel.packing_unit_id=result.packing_unit_id
+                      and batch_panel.panel_id=panel.id and batch_panel.active
                     where result.panel_id=panel.id
                 ))::int,
                 (select count(*)::int from pending_issues pending where pending.project_id=@project_id and pending.status<>'Closed')

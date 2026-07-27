@@ -272,10 +272,9 @@ public sealed class MonthlyBillingStore(DatabaseConnectionStringProvider connect
                 select date_trunc('month',batch.departure_date)::date billing_month,
                        count(distinct panel.id)::integer panel_count
                 from panel_placeholders panel
-                join logistics_packing_unit_panels membership on membership.panel_id=panel.id and membership.active
-                join logistics_batch_units batch_unit on batch_unit.packing_unit_id=membership.packing_unit_id
-                    and batch_unit.active and batch_unit.stage_code='DepartureProcessed'
-                join logistics_batches batch on batch.id=batch_unit.batch_id
+                join logistics_batch_panels batch_panel on batch_panel.panel_id=panel.id
+                    and batch_panel.active and batch_panel.stage_code='DepartureProcessed'
+                join logistics_batches batch on batch.id=batch_panel.batch_id
                     and batch.status='Finalized' and batch.departure_date is not null
                 where panel.project_id=@project_id and panel.status='Active'
                 group by date_trunc('month',batch.departure_date)::date
@@ -360,8 +359,9 @@ public sealed class MonthlyBillingStore(DatabaseConnectionStringProvider connect
             from panel_placeholders panel
             join logistics_packing_unit_panels membership on membership.panel_id=panel.id and membership.active
             join logistics_packing_units unit on unit.id=membership.packing_unit_id
-            join logistics_batch_units bu on bu.packing_unit_id=unit.id and bu.active and bu.stage_code='DepartureProcessed'
-            join logistics_batches batch on batch.id=bu.batch_id and batch.status='Finalized' and batch.departure_date is not null
+            join logistics_batch_panels batch_panel on batch_panel.panel_id=panel.id
+                and batch_panel.packing_unit_id=unit.id and batch_panel.active and batch_panel.stage_code='DepartureProcessed'
+            join logistics_batches batch on batch.id=batch_panel.batch_id and batch.status='Finalized' and batch.departure_date is not null
             left join ul891_set_instances instance on instance.id=panel.set_instance_id
             left join ul891_set_specs spec on spec.id=instance.spec_id
             where panel.project_id=@project_id

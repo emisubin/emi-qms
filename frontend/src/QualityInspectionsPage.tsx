@@ -15,8 +15,9 @@ import {
   uploadQualityInspectionPhoto
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
-import { workflowShapeRole } from './design-system';
+import { DsActionBar, DsInputFlow, DsInputSection } from './design-system';
 import { MobileSheet } from './MobileSheet';
+import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import { PendingInspectionContext } from './PendingInspectionContext';
 import type {
   QualityActionDepartment,
@@ -25,7 +26,6 @@ import type {
   QualityInspectionItemValue,
   QualityInspectionPanel,
   QualityInspectionPhoto,
-  QualityInspectionProject,
   QualityInspectionQueueResponse,
   QualityInspectionStage
 } from './qualityInspections';
@@ -51,8 +51,8 @@ export function QualityInspectionsPage({
   initialStage = 'LQC',
   initialProjectId,
   initialPanelId,
-  onOpenIqc,
   onBack,
+  onOpenProject,
   onOpenPending
 }: {
   developmentUserKey: string;
@@ -60,8 +60,9 @@ export function QualityInspectionsPage({
   initialStage?: QualityInspectionStage;
   initialProjectId?: string;
   initialPanelId?: string;
-  onOpenIqc: () => void;
+  onOpenIqc?: () => void;
   onBack: () => void;
+  onOpenProject?: (projectId: string) => void;
   onOpenPending: (pendingId: string) => void;
 }) {
   const { isMobile } = useAdaptiveLayout();
@@ -129,8 +130,13 @@ export function QualityInspectionsPage({
           });
         }
       }
-      const data = await getQualityInspectionQueue(developmentUserKey, nextStage);
+      const data = await getQualityInspectionQueue(developmentUserKey, nextStage, preferredProjectId);
       setQueueState({ kind: 'ready', data });
+      if (!preferredProjectId) {
+        setSelectedProjectId('');
+        setSelectedPanelId('');
+        return;
+      }
       const project = data.projects.find((item) => item.projectId === preferredProjectId)
         ?? data.projects.find((item) => item.blockedCount > 0 || item.inProgressCount > 0 || item.readyCount > 0)
         ?? data.projects[0];
@@ -159,10 +165,9 @@ export function QualityInspectionsPage({
   }, [developmentUserKey]);
 
   useEffect(() => {
-    queueMicrotask(() => void loadQueue(stage, initialProjectId, initialPanelId));
-  // Deep-link selection is applied on initial mount; later selection is local state.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [developmentUserKey]);
+    setStage(initialStage);
+    queueMicrotask(() => void loadQueue(initialStage, initialProjectId, initialPanelId));
+  }, [initialPanelId, initialProjectId, initialStage, loadQueue]);
 
   useEffect(() => {
     queueMicrotask(() => void loadDetail(selectedPanelId, stage));
@@ -227,29 +232,13 @@ export function QualityInspectionsPage({
 
   async function refresh(projectId: string, panelId: string) {
     const [queue, nextDetail] = await Promise.all([
-      getQualityInspectionQueue(developmentUserKey, stage),
+      getQualityInspectionQueue(developmentUserKey, stage, projectId),
       getQualityInspectionPanel(developmentUserKey, panelId, stage)
     ]);
     setQueueState({ kind: 'ready', data: queue });
     setDetailState({ kind: 'ready', data: nextDetail });
     setSelectedProjectId(projectId);
     setSelectedPanelId(panelId);
-  }
-
-  function selectStage(next: QualityInspectionStage) {
-    setStage(next);
-    setFeedback(null);
-    setSelectedProjectId('');
-    setSelectedPanelId('');
-    void loadQueue(next);
-  }
-
-  function selectProject(project: QualityInspectionProject) {
-    const nextPanel = project.panels.find((item) => item.status === 'Failed' || item.status === 'InProgress' || item.status === 'Ready') ?? project.panels[0];
-    setSelectedProjectId(project.projectId);
-    setSelectedPanelId(nextPanel?.panelId ?? '');
-    setFeedback(null);
-    writeLocation(stage, project.projectId, nextPanel?.panelId);
   }
 
   function selectPanel(nextPanel: QualityInspectionPanel) {
@@ -488,35 +477,57 @@ export function QualityInspectionsPage({
 
   const stageSummary = useMemo(() => stageTabs.find((item) => item.value === stage)!, [stage]);
 
+  if (queueState.kind === 'ready' && !initialProjectId) {
+    const dashboardProjects = queueState.data.projects;
+    const totals = dashboardProjects.reduce((summary, project) => ({
+      ready: summary.ready + project.readyCount,
+      progress: summary.progress + project.inProgressCount,
+      blocked: summary.blocked + project.blockedCount,
+      completed: summary.completed + project.completedCount
+    }), { ready: 0, progress: 0, blocked: 0, completed: 0 });
+    return (
+      <OperationalProjectDashboard
+        testId={`quality-${stage.toLowerCase()}-dashboard`}
+        eyebrow={`QUALITY · ${stage}`}
+        title={`${stageSummary.label} 프로젝트`}
+        description={`${stageSummary.label} 검사 대상이 있는 프로젝트를 선택하면 한 프로젝트의 패널만 표시합니다.`}
+        unitLabel="패널"
+        metrics={[
+          { label: '검사 대기', value: totals.ready, helper: '검사 시작 가능' },
+          { label: '검사 중', value: totals.progress, helper: '작성·판정 진행 중' },
+          { label: 'Pending', value: totals.blocked, helper: '부적합 조치 필요', tone: 'warning' },
+          { label: '검사 완료', value: totals.completed, helper: '판정 확정 패널', tone: 'positive' }
+        ]}
+        projects={dashboardProjects.map((project) => ({
+          projectId: project.projectId,
+          projectCode: project.projectCode,
+          projectTitle: project.projectTitle,
+          totalCount: project.panels.length,
+          readyCount: project.readyCount,
+          inProgressCount: project.inProgressCount,
+          blockedCount: project.blockedCount,
+          completedCount: project.completedCount,
+          detail: project.fatRequired ? 'FAT 필수 프로젝트' : '표준 품질 흐름'
+        }))}
+        emptyMessage={`${stageSummary.label} 대상 프로젝트가 없습니다.`}
+        onBack={onBack}
+        onOpenProject={(projectId) => onOpenProject?.(projectId)}
+      />
+    );
+  }
+
   return (
     <section className={isMobile ? 'page-surface quality-inspection-page quality-inspection-page--mobile' : 'page-surface quality-inspection-page'} data-testid="quality-inspection-page">
       <header className="quality-inspection-hero">
         <div>
           <p className="eyebrow">QUALITY · PANEL GATE</p>
-          <h2>품질 검사</h2>
-          <p>LQC는 제조 단계와 나란히 진행하고, 완료된 패널부터 다음 검사로 넘깁니다.</p>
+          <h2>{stageSummary.label} 검사</h2>
+          <p>선택한 프로젝트의 패널만 세로 목록에서 골라 검사합니다.</p>
         </div>
-        <button type="button" onClick={onBack}>프로젝트 보기</button>
+        <button type="button" onClick={onBack}>{stageSummary.label} 프로젝트</button>
         <span className="quality-hero-circle" aria-hidden="true" />
         <span className="quality-hero-square" aria-hidden="true" />
       </header>
-
-      <nav className="quality-stage-tabs" aria-label="품질 검사 단계">
-        <button type="button" className="quality-stage-tab quality-stage-tab--iqc" onClick={onOpenIqc}>
-          <span>07</span><strong>IQC</strong><small>자재</small>
-        </button>
-        {stageTabs.map((item) => (
-          <button
-            key={item.value}
-            type="button"
-            className={stage === item.value ? 'quality-stage-tab active' : 'quality-stage-tab'}
-            data-stage={item.value.toLowerCase()}
-            onClick={() => selectStage(item.value)}
-          >
-            <span>{item.short}</span><strong>{item.label}</strong><small>{item.value === 'CustomerInspection' ? '고객' : '패널'}</small>
-          </button>
-        ))}
-      </nav>
 
       {queueState.kind === 'loading' ? <QualityLoading label={`${stageSummary.label} 대기열 확인 중`} /> : null}
       {queueState.kind === 'error' ? (
@@ -527,30 +538,28 @@ export function QualityInspectionsPage({
       ) : null}
 
       {queueState.kind === 'ready' && projects.length > 0 ? (
-        <div className="quality-workspace">
-          <aside className="quality-project-rail" aria-label="품질 프로젝트 대기열">
-            <div className="quality-section-label"><span>PROJECT QUEUE</span><strong>{projects.length}</strong></div>
-            <div className="quality-project-list">
-              {projects.map((project) => (
-                <button
-                  key={project.projectId}
-                  type="button"
-                  className={selectedProjectId === project.projectId ? 'quality-project-card active' : 'quality-project-card'}
-                  data-shape-role={workflowShapeRole({
-                    blocked: project.blockedCount > 0,
-                    completed: project.completedCount > 0 && project.readyCount === 0 && project.inProgressCount === 0,
-                    active: selectedProjectId === project.projectId,
-                    inProgress: project.inProgressCount > 0
-                  })}
-                  onClick={() => selectProject(project)}
-                >
-                  <span>{project.projectCode}</span>
-                  <strong>{project.projectTitle}</strong>
-                  <small>대기 {project.readyCount} · 진행 {project.inProgressCount} · 차단 {project.blockedCount}</small>
-                </button>
+        <div className="quality-workspace quality-workspace--single-project">
+          {selectedProject ? (
+          <aside className="quality-project-rail quality-panel-rail" aria-label={`${selectedProject.projectTitle} 검사 패널 목록`}>
+            <div className="quality-section-label"><span>PANEL QUEUE</span><strong>{selectedProject.panels.length}</strong></div>
+            <div className="quality-panel-list">
+              {selectedProject.panels.map((item) => (
+                <div className="quality-panel-selectable" key={`${item.panelId}-${item.stageCode}`}>
+                  <SelectionCheckbox checked={qualitySelection.selectedIds.has(item.panelId)} disabled={qualitySelection.busy} label={`${item.displayCode} 선택`} onChange={(checked) => qualitySelection.toggle(item.panelId, checked)} />
+                  <button
+                    type="button"
+                    className={selectedPanelId === item.panelId ? 'quality-panel-chip active' : 'quality-panel-chip'}
+                    data-status={statusKey(item.status)}
+                    onClick={() => selectPanel(item)}
+                  >
+                    <span className="quality-status-shape" aria-hidden="true" />
+                    <span><strong>{item.displayCode}</strong><small>{statusLabel(item.status)} · {item.attemptNumber ? `${item.attemptNumber}차` : '신규'}</small></span>
+                  </button>
+                </div>
               ))}
             </div>
           </aside>
+          ) : null}
 
           {selectedProject ? (
             <main className="quality-panel-workarea">
@@ -576,23 +585,6 @@ export function QualityInspectionsPage({
                 onToggleAll={qualitySelection.toggleAll}
                 onClear={qualitySelection.clear}
               />
-
-              <div className="quality-panel-strip" aria-label="검사 패널 선택">
-                {selectedProject.panels.map((item) => (
-                  <div className="quality-panel-selectable" key={`${item.panelId}-${item.stageCode}`}>
-                    <SelectionCheckbox checked={qualitySelection.selectedIds.has(item.panelId)} disabled={qualitySelection.busy} label={`${item.displayCode} 선택`} onChange={(checked) => qualitySelection.toggle(item.panelId, checked)} />
-                    <button
-                      type="button"
-                      className={selectedPanelId === item.panelId ? 'quality-panel-chip active' : 'quality-panel-chip'}
-                      data-status={statusKey(item.status)}
-                      onClick={() => selectPanel(item)}
-                    >
-                      <span className="quality-status-shape" aria-hidden="true" />
-                      <span><strong>{item.displayCode}</strong><small>{statusLabel(item.status)} · {item.attemptNumber ? `${item.attemptNumber}차` : '신규'}</small></span>
-                    </button>
-                  </div>
-                ))}
-              </div>
 
               {detailState.kind === 'loading' ? <QualityLoading label="패널 검사 불러오는 중" /> : null}
               {detailState.kind === 'error' ? <div className="quality-empty-state" role="alert"><strong>검사 상세를 열 수 없습니다.</strong><span>{detailState.message}</span></div> : null}
@@ -698,27 +690,35 @@ export function QualityInspectionsPage({
         }}
       >
         <div className="quality-decision-form" aria-busy={savingAction === 'finalize'}>
-          {detail?.decisionMode === 'Aggregate' ? (
-            <div className="quality-decision-options">
-              <button type="button" className={decision === 'Passed' ? 'selected' : ''} data-result="passed" disabled={Boolean(savingAction)} onClick={() => { setDecision('Passed'); setDecisionError(''); }}><span>○</span><strong>합격</strong><small>다음 단계 인계</small></button>
-              <button type="button" className={decision === 'Failed' ? 'selected' : ''} data-result="failed" disabled={Boolean(savingAction)} onClick={() => { setDecision('Failed'); setDecisionError(''); }}><span>▰</span><strong>{stage === 'CustomerInspection' || stage === 'FAT' ? 'PUNCH 발생' : '부적합'}</strong><small>조치 Pending 생성</small></button>
-            </div>
-          ) : (
-            <div className="quality-decision-derived" data-result={decision.toLowerCase()}>
-              <span>{decision === 'Passed' ? '○' : '▰'}</span>
-              <div><strong>{decision === 'Passed' ? '모든 검사 항목 적합' : '부적합 항목 확인'}</strong><small>{decision === 'Passed' ? '합격으로 확정합니다.' : '부적합으로 확정하고 조치를 요청합니다.'}</small></div>
-            </div>
-          )}
-          <label><span>{isReinspection ? '재검사 코멘트' : '판정 사유'} <small>{decisionReason.length}/1000</small></span><textarea value={decisionReason} maxLength={1000} disabled={Boolean(savingAction)} placeholder={isReinspection ? '조치 내용을 확인한 결과와 재검사 판정 근거를 입력하세요.' : '검사 판정 근거를 입력하세요.'} onChange={(event) => { setDecisionReason(event.target.value); setDecisionError(''); }} /></label>
-          {decision === 'Failed' && !isReinspection ? (
-            <>
-              <label><span>조치 담당 부서</span><select value={actionDepartment} disabled={Boolean(savingAction)} onChange={(event) => { setActionDepartment(event.target.value); setActionAssignee(''); setDecisionError(''); }}><option value="">부서 선택</option>{departments.map((item) => <option key={item.departmentCode} value={item.departmentCode}>{item.departmentName}</option>)}</select></label>
-              <label><span>조치 담당자 <small>선택</small></span><select value={actionAssignee} disabled={!selectedDepartment || Boolean(savingAction)} onChange={(event) => setActionAssignee(event.target.value)}><option value="">담당자 미지정</option>{selectedDepartment?.assignees.map((item) => <option key={item.userId} value={item.userId}>{item.displayName}</option>)}</select></label>
-            </>
-          ) : null}
-          {decisionError ? <p className="quality-decision-error" role="alert">{decisionError}</p> : null}
-          {decisionConflict ? <button type="button" className="quality-decision-reload" disabled={Boolean(savingAction)} onClick={() => void reloadDecisionAfterConflict()}>{savingAction === 'reload' ? '불러오는 중' : '최신 검사 내용 다시 불러오기'}</button> : null}
-          <button type="button" className="quality-finalize-submit" disabled={Boolean(savingAction) || decisionReason.trim().length < 3 || (decision === 'Failed' && !isReinspection && !actionDepartment)} onClick={() => void finalize()}>{savingAction === 'finalize' ? '확정 중' : decision === 'Passed' ? (isReinspection ? '합격 · Pending 해제' : '합격 확정 및 인계') : (isReinspection ? '불합격 · 재조치 요청' : 'Pending 생성 및 확정')}</button>
+          <DsInputFlow title={`${stageSummary.label} 판정 입력`} description="판정과 근거를 확인하고 마지막 확정 버튼 하나를 누르세요.">
+            <DsInputSection number={1} title="판정 결과" description={detail?.decisionMode === 'Aggregate' ? '패널 전체 결과를 선택합니다.' : '검사항목 결과에 따라 판정이 자동 결정됩니다.'}>
+              {detail?.decisionMode === 'Aggregate' ? (
+                <div className="quality-decision-options">
+                  <button type="button" className={decision === 'Passed' ? 'selected' : ''} data-result="passed" disabled={Boolean(savingAction)} onClick={() => { setDecision('Passed'); setDecisionError(''); }}><span>○</span><strong>합격</strong><small>다음 단계 인계</small></button>
+                  <button type="button" className={decision === 'Failed' ? 'selected' : ''} data-result="failed" disabled={Boolean(savingAction)} onClick={() => { setDecision('Failed'); setDecisionError(''); }}><span>▰</span><strong>{stage === 'CustomerInspection' || stage === 'FAT' ? 'PUNCH 발생' : '부적합'}</strong><small>조치 Pending 생성</small></button>
+                </div>
+              ) : (
+                <div className="quality-decision-derived" data-result={decision.toLowerCase()}>
+                  <span>{decision === 'Passed' ? '○' : '▰'}</span>
+                  <div><strong>{decision === 'Passed' ? '모든 검사 항목 적합' : '부적합 항목 확인'}</strong><small>{decision === 'Passed' ? '합격으로 확정합니다.' : '부적합으로 확정하고 조치를 요청합니다.'}</small></div>
+                </div>
+              )}
+            </DsInputSection>
+            <DsInputSection number={2} title={isReinspection ? '재검사 근거' : '판정 근거'} description="확정 후 이력과 성적서에 남을 내용을 입력합니다.">
+              <label><span>{isReinspection ? '재검사 코멘트' : '판정 사유'} <small>{decisionReason.length}/1000</small></span><textarea value={decisionReason} maxLength={1000} disabled={Boolean(savingAction)} placeholder={isReinspection ? '조치 내용을 확인한 결과와 재검사 판정 근거를 입력하세요.' : '검사 판정 근거를 입력하세요.'} onChange={(event) => { setDecisionReason(event.target.value); setDecisionError(''); }} /></label>
+              {decision === 'Failed' && !isReinspection ? (
+                <div className="ds-field-grid">
+                  <label><span>조치 담당 부서</span><select value={actionDepartment} disabled={Boolean(savingAction)} onChange={(event) => { setActionDepartment(event.target.value); setActionAssignee(''); setDecisionError(''); }}><option value="">부서 선택</option>{departments.map((item) => <option key={item.departmentCode} value={item.departmentCode}>{item.departmentName}</option>)}</select></label>
+                  <label><span>조치 담당자 <small>선택</small></span><select value={actionAssignee} disabled={!selectedDepartment || Boolean(savingAction)} onChange={(event) => setActionAssignee(event.target.value)}><option value="">담당자 미지정</option>{selectedDepartment?.assignees.map((item) => <option key={item.userId} value={item.userId}>{item.displayName}</option>)}</select></label>
+                </div>
+              ) : null}
+              {decisionError ? <p className="quality-decision-error" role="alert">{decisionError}</p> : null}
+              {decisionConflict ? <button type="button" className="quality-decision-reload" disabled={Boolean(savingAction)} onClick={() => void reloadDecisionAfterConflict()}>{savingAction === 'reload' ? '불러오는 중' : '최신 검사 내용 다시 불러오기'}</button> : null}
+            </DsInputSection>
+            <DsActionBar description={decision === 'Passed' ? '확정하면 다음 품질 단계가 자동으로 열립니다.' : '확정하면 조치 담당자의 Pending과 내 업무가 생성됩니다.'}>
+              <button type="button" className="quality-finalize-submit" disabled={Boolean(savingAction) || decisionReason.trim().length < 3 || (decision === 'Failed' && !isReinspection && !actionDepartment)} onClick={() => void finalize()}>{savingAction === 'finalize' ? '확정 중' : decision === 'Passed' ? (isReinspection ? '합격 · Pending 해제' : '합격 확정 및 인계') : (isReinspection ? '불합격 · 재조치 요청' : 'Pending 생성 및 확정')}</button>
+            </DsActionBar>
+          </DsInputFlow>
         </div>
       </MobileSheet>
     </section>

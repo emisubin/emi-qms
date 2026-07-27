@@ -6,6 +6,7 @@ import { LogisticsPage } from '../src/LogisticsPage';
 
 const projectId = '91000000-0000-0000-0000-000000000010';
 const panelId = '92000000-0000-0000-0000-000000000001';
+const secondPanelId = '92000000-0000-0000-0000-000000000002';
 const draftId = '93000000-0000-0000-0000-000000000001';
 
 describe('LogisticsPage', () => {
@@ -50,11 +51,11 @@ describe('LogisticsPage', () => {
 
     render(
       <AdaptiveLayoutProvider>
-        <LogisticsPage developmentUserKey="dev-logistics" canMutate initialStage="packing" onLocationChange={vi.fn()} onBack={vi.fn()} />
+        <LogisticsPage developmentUserKey="dev-logistics" canMutate initialStage="packing" initialProjectId={projectId} onLocationChange={vi.fn()} onBack={vi.fn()} />
       </AdaptiveLayoutProvider>
     );
 
-    expect(await screen.findByRole('heading', { name: '물류 실행' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '포장 처리' })).toBeInTheDocument();
     expect(screen.getByText('처리 대기')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /P01/u }));
     const saveButton = screen.getByRole('button', { name: '포장 저장 및 확정' });
@@ -69,6 +70,62 @@ describe('LogisticsPage', () => {
     expect(calls).toEqual(['create', 'evidence', 'finalize']);
     expect(requests[0].projectId).toBe(projectId);
     expect(requests[0].panelIds).toEqual([panelId]);
+  });
+
+  it('creates departure from only the panels selected by the user', async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/logistics/queue') {
+        return json({
+          stage: 'departure', todayCount: 2, blockedCount: 0, drafts: [],
+          projects: [{
+            projectId, projectCode: 'LOG-016', projectTitle: 'Panel Departure',
+            items: [
+              {
+                targetId: panelId, targetType: 'Panel', displayCode: 'P01', title: 'Panel 01',
+                supportingText: 'PU-001 · 포장 완료 · 출발 대기', panelIds: [panelId], panelCodes: ['P01'],
+                version: 1, status: 'Requested', hasOpenPending: false, canMutate: true
+              },
+              {
+                targetId: secondPanelId, targetType: 'Panel', displayCode: 'P02', title: 'Panel 02',
+                supportingText: 'PU-001 · 포장 완료 · 출발 대기', panelIds: [secondPanelId], panelCodes: ['P02'],
+                version: 1, status: 'Requested', hasOpenPending: false, canMutate: true
+              }
+            ]
+          }]
+        });
+      }
+      if (url.pathname === '/api/logistics/departure-batches') {
+        requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'departure', status: 'Draft', version: 1, nextStage: 'evidence', replayed: false });
+      }
+      if (url.pathname === `/api/logistics/departure/${draftId}/evidence`) {
+        return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'departure', status: 'Draft', version: 2, nextStage: 'confirm', replayed: false });
+      }
+      if (url.pathname === `/api/logistics/departure/${draftId}/finalize`) {
+        return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'departure', status: 'Finalized', version: 3, nextStage: 'delivery', replayed: false });
+      }
+      return json({ title: 'not found' }, 404);
+    }));
+
+    render(
+      <AdaptiveLayoutProvider>
+        <LogisticsPage developmentUserKey="dev-logistics" canMutate initialStage="departure" initialProjectId={projectId} onLocationChange={vi.fn()} onBack={vi.fn()} />
+      </AdaptiveLayoutProvider>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /P01/u }));
+    expect(screen.getByRole('button', { name: /P02/u })).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.change(screen.getByLabelText(/상차 사진/u), {
+      target: { files: [new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'departure.png', { type: 'image/png' })] }
+    });
+    fireEvent.click(screen.getByRole('button', { name: '출발 저장 및 확정' }));
+
+    expect(await screen.findByText(/출발 확정 완료/u)).toBeInTheDocument();
+    expect(requests).toHaveLength(1);
+    expect(requests[0].panelIds).toEqual([panelId]);
+    expect(requests[0]).not.toHaveProperty('unitIds');
   });
 
   it('recovers a draft from the queue when the original item and URL draft are unavailable', async () => {
@@ -104,7 +161,7 @@ describe('LogisticsPage', () => {
     render(
       <AdaptiveLayoutProvider>
         <LogisticsPage developmentUserKey="dev-logistics" canMutate initialStage="packing"
-          onLocationChange={vi.fn()} onBack={vi.fn()} />
+          initialProjectId={projectId} onLocationChange={vi.fn()} onBack={vi.fn()} />
       </AdaptiveLayoutProvider>
     );
 

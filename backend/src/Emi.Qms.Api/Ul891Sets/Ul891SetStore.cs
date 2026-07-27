@@ -900,8 +900,9 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                 left join logistics_packing_units unit on unit.id=membership.packing_unit_id and unit.status<>'Cancelled'
                 left join lateral (
                     select batch.departure_date
-                    from logistics_batch_units bu join logistics_batches batch on batch.id=bu.batch_id
-                    where bu.packing_unit_id=unit.id and bu.active and batch.stage_code='DepartureProcessed' and batch.status='Finalized'
+                    from logistics_batch_panels batch_panel join logistics_batches batch on batch.id=batch_panel.batch_id
+                    where batch_panel.panel_id=panel.id and batch_panel.active
+                      and batch.stage_code='DepartureProcessed' and batch.status='Finalized'
                     order by batch.finalized_at_utc desc limit 1
                 ) departure on true
                 left join lateral (

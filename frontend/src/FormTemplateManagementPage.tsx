@@ -84,6 +84,20 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
     }, { loadingMessage: '새 초안을 만드는 중입니다.', successMessage: '활성 양식을 복제해 새 초안을 만들었습니다.', errorFallback: '새 초안을 만들지 못했습니다.' });
   }
 
+  async function beginEditing() {
+    if (!versions || selectedVersion?.lifecycleStatus === 'Draft') return;
+    const existingDraft = versions.versions
+      .filter((version) => version.lifecycleStatus === 'Draft')
+      .sort((left, right) => right.versionNumber - left.versionNumber)[0];
+    if (existingDraft) {
+      setSelectedVersionId(existingDraft.versionId);
+      setDraftItems(existingDraft.items.map(copyItem));
+      actions.setFeedback('template:edit', { tone: 'neutral', message: '저장 중인 초안을 열었습니다.' });
+      return;
+    }
+    await createDraft();
+  }
+
   async function saveDraft() {
     if (!selectedTemplate || !selectedVersion || selectedVersion.lifecycleStatus !== 'Draft') return;
     await actions.run('template:save', async () => {
@@ -141,6 +155,8 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   const visibleVersionIds = versions?.versions.map((version) => version.versionId) ?? [];
   const allSelected = visibleVersionIds.length > 0 && visibleVersionIds.every((id) => selectedVersionIds.has(id));
   const latestFeedback = actions.latestFeedback;
+  const isEditing = selectedVersion?.lifecycleStatus === 'Draft';
+  const templateActionBusy = actions.hasBusyPrefix('template:');
 
   if (state.kind === 'loading') return <section className="page-surface form-template-page"><p role="status">양식 관리 화면을 준비하는 중입니다.</p></section>;
   if (state.kind === 'error') return <section className="page-surface form-template-page"><p role="alert">{state.message}</p><button type="button" onClick={() => void load()}>다시 시도</button></section>;
@@ -161,7 +177,7 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
         </nav>
 
         <section className="form-template-versions" aria-label="양식 버전">
-          <header><div><strong>{versions?.displayName ?? '버전'}</strong><small>Active 버전은 수정할 수 없습니다.</small></div><button type="button" className="primary-button" onClick={() => void createDraft()}>새 초안</button></header>
+          <header><div><strong>{versions?.displayName ?? '버전'}</strong><small>사용 중 버전은 편집할 때 안전한 초안으로 복제됩니다.</small></div></header>
           <SelectedExportTray
             developmentUserKey={developmentUserKey}
             screen="form-templates"
@@ -180,10 +196,19 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
 
         <section className="form-template-editor" aria-label="양식 항목 편집">
           {!selectedVersion ? <p>버전을 선택해 주세요.</p> : <>
-            <header><div><p className="eyebrow">VERSION {selectedVersion.versionNumber}</p><h3>{selectedVersion.displayName}</h3></div><span data-status={selectedVersion.lifecycleStatus}>{statusLabel(selectedVersion.lifecycleStatus)}</span></header>
-            {selectedVersion.lifecycleStatus !== 'Draft' ? <p className="form-version-lock">이 버전은 사용 중이거나 보관되어 수정할 수 없습니다. 변경하려면 새 초안을 만드세요.</p> : null}
+            <header>
+              <div><p className="eyebrow">VERSION {selectedVersion.versionNumber}</p><h3>{selectedVersion.displayName}</h3></div>
+              <div className="form-template-editor-controls">
+                <span className="form-template-version-status" data-status={selectedVersion.lifecycleStatus}>{statusLabel(selectedVersion.lifecycleStatus)}</span>
+                <div className="form-template-primary-actions">
+                  <button type="button" className="secondary-button" disabled={isEditing || templateActionBusy} onClick={() => void beginEditing()}>편집</button>
+                  <button type="button" className="primary-button" disabled={!isEditing || templateActionBusy} onClick={() => void saveDraft()}>{actions.isBusy('template:save') ? '저장 중' : '저장'}</button>
+                </div>
+              </div>
+            </header>
+            {selectedVersion.lifecycleStatus !== 'Draft' ? <p className="form-version-lock">사용 중이거나 보관된 버전은 직접 바뀌지 않습니다. 편집을 누르면 사용 중 버전을 복제한 초안이 열립니다.</p> : null}
             <div className="form-item-list">{draftItems.map((item, index) => <FormItemEditor key={item.itemId} item={item} index={index} editable={selectedVersion.lifecycleStatus === 'Draft'} manufacturing={versions?.family === 'Manufacturing'} onChange={(next) => setDraftItems((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? next : candidate))} onMove={(offset) => setDraftItems((current) => moveItem(current, index, offset))} onRemove={() => setDraftItems((current) => resequence(current.filter((_, candidateIndex) => candidateIndex !== index)))} />)}</div>
-            {selectedVersion.lifecycleStatus === 'Draft' ? <div className="form-editor-actions"><button type="button" onClick={() => setDraftItems((current) => [...current, newItem(current.length + 1, versions?.family === 'Manufacturing')])}>항목 추가</button><button type="button" onClick={() => void archiveDraft()}>초안 보관</button><button type="button" className="secondary-button" onClick={() => void saveDraft()}>초안 저장</button><button type="button" className="primary-button" onClick={() => void activateDraft()}>활성화</button></div> : null}
+            {selectedVersion.lifecycleStatus === 'Draft' ? <div className="form-editor-actions"><button type="button" onClick={() => setDraftItems((current) => [...current, newItem(current.length + 1, versions?.family === 'Manufacturing')])}>항목 추가</button><button type="button" onClick={() => void archiveDraft()}>초안 보관</button><button type="button" className="primary-button" onClick={() => void activateDraft()}>활성화</button></div> : null}
           </>}
         </section>
       </div>

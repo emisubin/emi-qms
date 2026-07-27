@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ApiError, completeSalesSettlement, getSalesSettlement, saveSalesSettlementDraft } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
-import { workflowShapeRole } from './design-system';
+import { DsActionBar, DsInputFlow, DsInputSection, workflowShapeRole } from './design-system';
 import type { SalesSettlementDetail } from './salesSettlement';
 
 type LoadState =
@@ -164,19 +164,29 @@ export function SalesSettlementPage({
             <span className="settlement-state-chip">{completed ? '읽기 전용' : detail.settlementStatus === 'Draft' ? `임시 저장 v${detail.version}` : '새 기록'}</span>
           </div>
           <form onSubmit={saveDraft} className="settlement-form">
-            <label className="form-field settlement-date-field">
-              <span>회계팀 발행 확인일 <em>필수</em></span>
-              <input type="date" required value={invoiceIssuedDate} onChange={(event) => setInvoiceIssuedDate(event.target.value)} disabled={completed || !detail.canMutate || Boolean(busyAction)} />
-            </label>
-            <label className="form-field">
-              <span>회계팀 세금계산서 번호 <small>선택 · 64자</small></span>
-              <input maxLength={64} value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} placeholder="발행 시스템의 확인 번호" disabled={completed || !detail.canMutate || Boolean(busyAction)} />
-            </label>
-            <label className="form-field settlement-note-field">
-              <span>회계 확인 메모 <small>{note.length}/500</small></span>
-              <textarea maxLength={500} rows={isMobile ? 3 : 4} value={note} onChange={(event) => setNote(event.target.value)} placeholder="정산에 필요한 내부 메모만 입력하세요" disabled={completed || !detail.canMutate || Boolean(busyAction)} />
-            </label>
-            {!completed && detail.canMutate ? <button type="submit" className="settlement-draft-button" disabled={Boolean(busyAction)}>{busyAction === 'draft' ? '저장 중…' : '임시 저장'}</button> : null}
+            <DsInputFlow title="회계팀 발행 확인 입력" description="발행 확인일을 입력하고 저장하면 최종 완료 조건에 반영됩니다.">
+              <DsInputSection number={1} title="발행 확인 정보" description="확인일은 필수이고 번호와 메모는 선택 입력입니다.">
+                <div className="ds-field-grid">
+                  <label className="form-field settlement-date-field">
+                    <span>회계팀 발행 확인일 <em>필수</em></span>
+                    <input type="date" required value={invoiceIssuedDate} onChange={(event) => setInvoiceIssuedDate(event.target.value)} disabled={completed || !detail.canMutate || Boolean(busyAction)} />
+                  </label>
+                  <label className="form-field">
+                    <span>회계팀 세금계산서 번호 <small>선택 · 64자</small></span>
+                    <input maxLength={64} value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} placeholder="발행 시스템의 확인 번호" disabled={completed || !detail.canMutate || Boolean(busyAction)} />
+                  </label>
+                  <label className="form-field settlement-note-field ds-field-span">
+                    <span>회계 확인 메모 <small>{note.length}/500</small></span>
+                    <textarea maxLength={500} rows={isMobile ? 3 : 4} value={note} onChange={(event) => setNote(event.target.value)} placeholder="정산에 필요한 내부 메모만 입력하세요" disabled={completed || !detail.canMutate || Boolean(busyAction)} />
+                  </label>
+                </div>
+              </DsInputSection>
+              {!completed && detail.canMutate ? (
+                <DsActionBar description="임시 저장 후에도 최종 완료 전까지 다시 수정할 수 있습니다.">
+                  <button type="submit" className="settlement-draft-button primary-button" disabled={Boolean(busyAction)}>{busyAction === 'draft' ? '저장 중…' : '발행 확인 저장'}</button>
+                </DsActionBar>
+              ) : null}
+            </DsInputFlow>
           </form>
         </section>
 

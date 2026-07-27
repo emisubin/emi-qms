@@ -92,7 +92,7 @@ describe('QualityInspectionsPage', () => {
 
     const page = await screen.findByTestId('quality-inspection-page');
     expect(page).toHaveClass('quality-inspection-page--mobile');
-    expect(screen.getByRole('heading', { name: '품질 검사' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'LQC 검사' })).toBeInTheDocument();
     expect(screen.getByText('검사 항목을 불러오고 판정 근거를 기록합니다.')).toBeInTheDocument();
     expect(await screen.findByText('누락된 품질 후속 업무 1건을 자동으로 복구했습니다.')).toBeInTheDocument();
     expect(reconciliationCalls).toBe(1);

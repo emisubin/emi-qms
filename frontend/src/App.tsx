@@ -175,7 +175,9 @@ import { Ul891SetWorkspace } from './Ul891SetWorkspace';
 import type { CreateUl891SetSpecInput, Ul891SetStructure } from './ul891Sets';
 import { PendingPage } from './PendingPage';
 import { PendingTypeManagementPage } from './PendingTypeManagementPage';
-import { DepartmentProjectHub, type DepartmentWorkspaceOption } from './DepartmentProjectHub';
+import type { DepartmentWorkspaceOption } from './DepartmentProjectHub';
+import { DepartmentWorkHub } from './DepartmentWorkHub';
+import { DsActionBar, DsChoiceGroup, DsInputFlow, DsInputSection } from './design-system';
 import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
 import type {
@@ -270,7 +272,7 @@ type View =
   | { kind: 'edit'; projectId: string }
   | { kind: 'panel-info-edit'; projectId: string }
   | { kind: 'production-planning-edit'; projectId: string }
-  | { kind: 'production-planning-dashboard' }
+  | { kind: 'production-planning-dashboard'; workspace?: 'planning' | 'release' }
   | { kind: 'production-planning-settings' }
   | { kind: 'procurement-edit'; projectId: string }
   | { kind: 'procurement-dashboard' }
@@ -302,7 +304,7 @@ type View =
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
   | { kind: 'panel'; projectId: string; panelId: string; section?: PanelDetailSection };
 
-type OperationalHubArea = 'materials' | 'manufacturing' | 'quality' | 'logistics' | 'pending';
+type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
 
 type LoadState<T> =
   | { kind: 'loading' }
@@ -439,6 +441,15 @@ const operationalHubConfigs: Record<OperationalHubArea, {
   requireWorkspaceChoice?: boolean;
   workspaces: DepartmentWorkspaceOption[];
 }> = {
+  production: {
+    department: 'Production',
+    title: '생산관리 업무',
+    description: '생산계획과 제조 투입을 구분해 업무별 현황부터 확인합니다.',
+    workspaces: [
+      { key: 'planning', label: '생산계획', description: '일정·계획 항목·담당자 관리', shape: 'square' },
+      { key: 'release', label: '제조 투입', description: '프로젝트별 패널 제조 요청', shape: 'cut' }
+    ]
+  },
   materials: {
     department: 'Materials',
     title: '자재 업무',
@@ -449,32 +460,27 @@ const operationalHubConfigs: Record<OperationalHubArea, {
       { key: 'kitting', label: '패널 키팅', description: '패널별 자재 준비와 완료 처리', shape: 'round' }
     ]
   },
-  manufacturing: {
-    department: 'Manufacturing',
-    title: '제조 프로젝트',
-    description: '프로젝트를 고른 뒤 패널별 제조 시작·중단·재개·완료를 처리합니다.',
-    workspaces: [{ key: 'manufacturing', label: '제조 실행', description: '패널별 작업과 Pending 관리', shape: 'cut' }]
-  },
   quality: {
     department: 'Quality',
-    title: '품질 프로젝트',
-    description: '프로젝트별 수입검사와 후속 품질검사를 분리해 확인합니다.',
+    title: '품질 업무',
+    description: '검사 종류를 먼저 선택한 뒤 해당 검사의 KPI와 프로젝트를 확인합니다.',
     workspaces: [
       { key: 'iqc', label: '수입검사(IQC)', description: '도착분별 검사성적서와 판정', shape: 'round' },
-      { key: 'inspections', label: '후속 품질검사', description: 'LQC·OQC·전진검수·FAT', shape: 'square' }
+      { key: 'LQC', label: 'LQC', description: '제조 단계와 나란히 진행하는 공정검사', shape: 'square' },
+      { key: 'OQC', label: 'OQC 자체검수', description: '패널 제조·LQC 완료 후 단계별 검사', shape: 'cut' },
+      { key: 'CustomerInspection', label: '전진검수', description: '패널 단위 고객 입회 판정', shape: 'pill' },
+      { key: 'FAT', label: 'FAT', description: '필수 프로젝트의 패널 단위 공장검수', shape: 'round' }
     ]
   },
   logistics: {
     department: 'Logistics',
-    title: '물류 프로젝트',
-    description: '프로젝트를 고른 뒤 포장·출발·납품 증빙을 연속 처리합니다.',
-    workspaces: [{ key: 'packing', label: '물류 실행', description: '포장부터 납품 완료까지', shape: 'pill' }]
-  },
-  pending: {
-    department: 'Pending',
-    title: 'Pending 프로젝트',
-    description: '프로젝트를 먼저 고르고 그 안의 미해결 이슈와 조치 이력을 확인합니다.',
-    workspaces: [{ key: 'pending', label: 'Pending 관리', description: '등록·조치·재검사·종결', shape: 'cut' }]
+    title: '물류 업무',
+    description: '포장·출발·납품을 각각의 업무 현황에서 처리합니다.',
+    workspaces: [
+      { key: 'packing', label: '포장', description: '패널 선택과 포장 증빙 등록', shape: 'square' },
+      { key: 'departure', label: '출발', description: '포장 완료 패널의 출발 처리', shape: 'cut' },
+      { key: 'delivery', label: '납품', description: '출발 패널의 납품 증빙 확정', shape: 'round' }
+    ]
   }
 };
 
@@ -560,7 +566,7 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/pending') {
     const projectId = new URLSearchParams(window.location.search).get('projectId') ?? undefined;
-    return projectId ? { kind: 'pending', projectId } : { kind: 'operational-hub', area: 'pending' };
+    return { kind: 'pending', projectId };
   }
 
   if (window.location.pathname === '/admin/pending-types') {
@@ -656,7 +662,7 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/manufacturing') {
-    return { kind: 'operational-hub', area: 'manufacturing' };
+    return { kind: 'manufacturing-work' };
   }
 
   if (window.location.pathname === '/quality') {
@@ -725,7 +731,15 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/production-planning') {
-    return { kind: 'production-planning-dashboard' };
+    return { kind: 'operational-hub', area: 'production' };
+  }
+
+  if (window.location.pathname === '/production-planning/plans') {
+    return { kind: 'production-planning-dashboard', workspace: 'planning' };
+  }
+
+  if (window.location.pathname === '/production-planning/releases') {
+    return { kind: 'production-planning-dashboard', workspace: 'release' };
   }
 
   if (window.location.pathname === '/production-planning/settings') {
@@ -990,7 +1004,7 @@ function logisticsStageFromQuery(value: string | null): LogisticsStage | undefin
 function viewForHomeDestination(destinationKey: string): View {
   switch (destinationKey) {
     case 'my-work': return { kind: 'my-work' };
-    case 'production-planning': return { kind: 'production-planning-dashboard' };
+    case 'production-planning': return { kind: 'production-planning-dashboard', workspace: 'planning' };
     case 'procurement': return { kind: 'procurement-dashboard' };
     case 'materials-receipts': return { kind: 'materials-receipts' };
     case 'materials-customer-supply-overdue': return { kind: 'materials-receipts', risk: 'customer-supply-overdue' };
@@ -1046,16 +1060,15 @@ function pathForView(view: View) {
     case 'production-planning-edit':
       return `/projects/${view.projectId}/production-planning/edit`;
     case 'production-planning-dashboard':
-      return '/production-planning';
+      return view.workspace === 'release' ? '/production-planning/releases' : '/production-planning/plans';
     case 'production-planning-settings':
       return '/production-planning/settings';
     case 'operational-hub':
       return ({
+        production: '/production-planning',
         materials: '/materials',
-        manufacturing: '/manufacturing',
         quality: '/quality',
-        logistics: '/logistics',
-        pending: '/pending'
+        logistics: '/logistics'
       } as const)[view.area];
     case 'materials-receipts': {
       const params = new URLSearchParams();
@@ -1076,7 +1089,7 @@ function pathForView(view: View) {
       if (view.projectId) params.set('project', view.projectId);
       if (view.panelId) params.set('panel', view.panelId);
       const query = params.toString();
-      return `/manufacturing/work${query ? `?${query}` : ''}`;
+      return view.projectId ? `/manufacturing/work${query ? `?${query}` : ''}` : '/manufacturing';
     }
     case 'logistics': {
       const params = new URLSearchParams();
@@ -1788,11 +1801,11 @@ function QmsAppShellContent({
     { label: '홈', view: { kind: 'home' }, active: view.kind === 'home' },
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount },
     { label: '프로젝트', view: { kind: 'list' }, active: isProjectWorkspace(view) },
-    { label: 'Pending', view: { kind: 'operational-hub', area: 'pending' }, active: (view.kind === 'operational-hub' && view.area === 'pending') || view.kind === 'pending' || view.kind === 'pending-detail' },
-    { label: '생산관리', view: { kind: 'production-planning-dashboard' }, active: isProductionPlanningWorkspace(view) },
+    { label: 'Pending', view: { kind: 'pending' }, active: view.kind === 'pending' || view.kind === 'pending-detail' },
+    { label: '생산관리', view: { kind: 'operational-hub', area: 'production' }, active: isProductionPlanningWorkspace(view) || (view.kind === 'operational-hub' && view.area === 'production') },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     { label: '자재', view: { kind: 'operational-hub', area: 'materials' }, active: (view.kind === 'operational-hub' && view.area === 'materials') || view.kind === 'materials-receipts' || view.kind === 'materials-kitting' },
-    { label: '제조', view: { kind: 'operational-hub', area: 'manufacturing' }, active: (view.kind === 'operational-hub' && view.area === 'manufacturing') || view.kind === 'manufacturing-work' },
+    { label: '제조', view: { kind: 'manufacturing-work' }, active: view.kind === 'manufacturing-work' },
     { label: '품질', view: { kind: 'operational-hub', area: 'quality' }, active: (view.kind === 'operational-hub' && view.area === 'quality') || view.kind === 'quality-iqc' || view.kind === 'quality-inspections' },
     { label: '물류', view: { kind: 'operational-hub', area: 'logistics' }, active: (view.kind === 'operational-hub' && view.area === 'logistics') || view.kind === 'logistics' },
     ...(canReadSalesAmount ? [
@@ -1828,28 +1841,24 @@ function QmsAppShellContent({
       onResetAdminTestUser={resetAdminTestUser}
     />
   );
-  const openOperationalProject = (area: OperationalHubArea, workspace: string, project: ProjectListItem) => {
-    if (area === 'materials') {
-      setView(workspace === 'kitting'
-        ? { kind: 'materials-kitting', projectId: project.projectId }
-        : { kind: 'materials-receipts', projectCode: project.projectCode });
+  const openOperationalWorkspace = (area: OperationalHubArea, workspace: string) => {
+    if (area === 'production') {
+      setView({ kind: 'production-planning-dashboard', workspace: workspace === 'release' ? 'release' : 'planning' });
       return;
     }
-    if (area === 'manufacturing') {
-      setView({ kind: 'manufacturing-work', projectId: project.projectId });
+    if (area === 'materials') {
+      setView(workspace === 'kitting' ? { kind: 'materials-kitting' } : { kind: 'materials-receipts' });
       return;
     }
     if (area === 'quality') {
-      setView(workspace === 'inspections'
-        ? { kind: 'quality-inspections', stage: 'LQC', projectId: project.projectId }
-        : { kind: 'quality-iqc', projectId: project.projectId });
+      setView(workspace === 'iqc'
+        ? { kind: 'quality-iqc' }
+        : { kind: 'quality-inspections', stage: workspace as QualityInspectionStage });
       return;
     }
     if (area === 'logistics') {
-      setView({ kind: 'logistics', stage: 'packing', projectId: project.projectId });
-      return;
+      setView({ kind: 'logistics', stage: workspace as LogisticsStage });
     }
-    setView({ kind: 'pending', projectId: project.projectId });
   };
 
   return (
@@ -2034,7 +2043,7 @@ function QmsAppShellContent({
           onOpenNotices={() => setView({ kind: 'notice-board' })}
           onOpenNotice={(noticeId) => setView({ kind: 'notice-board', noticeId })}
           onCreateNotice={() => setView({ kind: 'notice-board', compose: true })}
-          onOpenPending={() => setView({ kind: 'operational-hub', area: 'pending' })}
+          onOpenPending={() => setView({ kind: 'pending' })}
           onOpenNotifications={() => setView({ kind: 'notifications' })}
           onOpenSalesKpi={(year, currency) => setView({ kind: 'sales-kpi', year, currency })}
           onOpenDepartmentMetric={(destinationKey) => setView(viewForHomeDestination(destinationKey))}
@@ -2094,10 +2103,9 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'operational-hub' ? (
-        <DepartmentProjectHub
-          developmentUserKey={developmentUserKey}
+        <DepartmentWorkHub
           {...operationalHubConfigs[view.area]}
-          onOpenProject={(workspace, project) => openOperationalProject(view.area, workspace, project)}
+          onOpenWorkspace={(workspace) => openOperationalWorkspace(view.area, workspace)}
         />
       ) : null}
 
@@ -2125,12 +2133,14 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && (view.kind === 'pending' || view.kind === 'pending-detail') ? (
         <PendingPage
+          key={view.kind === 'pending-detail' ? `detail:${view.pendingId}` : `project:${view.projectId ?? 'all'}`}
           developmentUserKey={developmentUserKey}
           pendingId={view.kind === 'pending-detail' ? view.pendingId : undefined}
           initialProjectId={view.kind === 'pending' ? view.projectId : undefined}
           canManage={canManagePending}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
-          onBackToList={() => setView({ kind: 'operational-hub', area: 'pending' })}
+          onOpenProjectPending={(projectId) => setView({ kind: 'pending', projectId })}
+          onBackToList={() => setView({ kind: 'pending' })}
           onOpenProject={(projectId) => setView({ kind: 'detail', projectId })}
           onOpenIqc={(requestId) => setView({ kind: 'quality-iqc', requestId })}
           onBadgeRefresh={refreshShellBadges}
@@ -2273,7 +2283,8 @@ function QmsAppShellContent({
         <ProductionPlanningDashboardPage
           developmentUserKey={developmentUserKey}
           canUpdateProductionPlanning={canUpdateProductionPlanning}
-          onBack={() => setView({ kind: 'list' })}
+          workspace={view.workspace ?? 'planning'}
+          onBack={() => setView({ kind: 'operational-hub', area: 'production' })}
           onOpenSettings={() => setView({ kind: 'production-planning-settings' })}
           onOpenProject={(projectId) => setView({ kind: 'detail', projectId, section: 'production-planning' })}
           onEditProject={(projectId) => setView({ kind: 'production-planning-edit', projectId })}
@@ -2315,7 +2326,7 @@ function QmsAppShellContent({
           initialRisk={view.risk}
           onBack={() => setView({ kind: 'operational-hub', area: 'materials' })}
           onOpenIqc={(requestId) => setView({ kind: 'quality-iqc', requestId })}
-          onOpenKitting={() => setView({ kind: 'operational-hub', area: 'materials' })}
+          onOpenKitting={() => setView({ kind: 'materials-kitting' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
@@ -2326,8 +2337,9 @@ function QmsAppShellContent({
           canComplete={canUpdateMaterialReceipt}
           initialProjectId={view.projectId}
           initialPanelId={view.panelId}
-          onBack={() => setView({ kind: 'operational-hub', area: 'materials' })}
-          onOpenReceipts={() => setView({ kind: 'operational-hub', area: 'materials' })}
+          onBack={() => setView(view.projectId ? { kind: 'materials-kitting' } : { kind: 'operational-hub', area: 'materials' })}
+          onOpenProject={(projectId) => setView({ kind: 'materials-kitting', projectId })}
+          onOpenReceipts={() => setView({ kind: 'materials-receipts' })}
         />
       ) : null}
 
@@ -2337,7 +2349,8 @@ function QmsAppShellContent({
           canMutate={canUpdateManufacturing}
           initialProjectId={view.projectId}
           initialPanelId={view.panelId}
-          onBack={() => setView({ kind: 'operational-hub', area: 'manufacturing' })}
+          onBack={() => setView({ kind: 'manufacturing-work' })}
+          onOpenProject={(projectId) => setView({ kind: 'manufacturing-work', projectId })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
@@ -2348,7 +2361,8 @@ function QmsAppShellContent({
           canInspect={canInspectQuality}
           initialProjectId={view.projectId}
           initialRequestId={view.requestId}
-          onBack={() => setView({ kind: 'operational-hub', area: 'quality' })}
+          onBack={() => setView(view.projectId ? { kind: 'quality-iqc' } : { kind: 'operational-hub', area: 'quality' })}
+          onOpenProject={(projectId) => setView({ kind: 'quality-iqc', projectId })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
@@ -2360,8 +2374,10 @@ function QmsAppShellContent({
           initialStage={view.stage}
           initialProjectId={view.projectId}
           initialPanelId={view.panelId}
-          onOpenIqc={() => setView({ kind: 'quality-iqc', projectId: view.projectId })}
-          onBack={() => setView({ kind: 'operational-hub', area: 'quality' })}
+          onBack={() => setView(view.projectId
+            ? { kind: 'quality-inspections', stage: view.stage }
+            : { kind: 'operational-hub', area: 'quality' })}
+          onOpenProject={(projectId) => setView({ kind: 'quality-inspections', stage: view.stage ?? 'LQC', projectId })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
       ) : null}
@@ -2381,7 +2397,10 @@ function QmsAppShellContent({
             projectId: view.projectId,
             draftId
           })}
-          onBack={() => setView({ kind: 'operational-hub', area: 'logistics' })}
+          onBack={() => setView(view.projectId
+            ? { kind: 'logistics', stage: view.stage }
+            : { kind: 'operational-hub', area: 'logistics' })}
+          onOpenProject={(projectId) => setView({ kind: 'logistics', stage: view.stage ?? 'packing', projectId })}
         />
       ) : null}
 
@@ -10836,6 +10855,7 @@ const qualityAssigneeGroups: AssigneeGroupDefinition[] = [
 function ProductionPlanningDashboardPage({
   developmentUserKey,
   canUpdateProductionPlanning,
+  workspace,
   onBack,
   onOpenSettings,
   onOpenProject,
@@ -10843,12 +10863,13 @@ function ProductionPlanningDashboardPage({
 }: {
   developmentUserKey: string;
   canUpdateProductionPlanning: boolean;
+  workspace: 'planning' | 'release';
   onBack: () => void;
   onOpenSettings: () => void;
   onOpenProject: (projectId: string) => void;
   onEditProject: (projectId: string) => void;
 }) {
-  const [workspaceTab, setWorkspaceTab] = useState<'planning' | 'release'>('planning');
+  const workspaceTab = workspace;
   const [search, setSearch] = useState('');
   const [summaryState, setSummaryState] = useState<LoadState<ProductionPlanningSummary>>({ kind: 'loading' });
   const [state, setState] = useState<LoadState<ProductionPlanningProjectListResponse>>({ kind: 'loading' });
@@ -10942,38 +10963,6 @@ function ProductionPlanningDashboardPage({
         </div>
       </div>
 
-      <div className="section-switcher production-workspace-tabs" role="tablist" aria-label="생산관리 업무 구분">
-        <button
-          type="button"
-          role="tab"
-          aria-label="생산계획"
-          className="secondary-button"
-          aria-selected={workspaceTab === 'planning'}
-          onClick={() => {
-            setWorkspaceTab('planning');
-            setExpandedProjectId(null);
-          }}
-        >
-          생산계획
-          <span>일정·담당자</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-label="제조 투입"
-          className="secondary-button"
-          aria-selected={workspaceTab === 'release'}
-          onClick={() => {
-            setWorkspaceTab('release');
-            setExpandedProjectId(null);
-            setShowExcelDialog(false);
-          }}
-        >
-          제조 투입
-          <span>패널 선택</span>
-        </button>
-      </div>
-
       {workspaceTab === 'planning' && excelMessage ? <p role="alert" className={successMessage(excelMessage) ? 'success-text' : 'error-text'}>{excelMessage}</p> : null}
       {workspaceTab === 'planning' && showExcelDialog ? (
         <ProductionPlanningExcelDialog
@@ -10995,6 +10984,14 @@ function ProductionPlanningDashboardPage({
         </div>
       ) : null}
       {workspaceTab === 'planning' && summaryState.kind !== 'ready' && summaryState.kind !== 'loading' && summaryState.kind !== 'empty' ? <StateMessage state={summaryState} /> : null}
+      {workspaceTab === 'release' && state.kind === 'ready' ? (
+        <div className="dashboard-kpi-grid" aria-label="제조 투입 요약">
+          <DashboardKpiCard title="대상 프로젝트" value={state.data.projects.length} helperText="진행 프로젝트 기준" />
+          <DashboardKpiCard title="전체 패널" value={state.data.projects.reduce((sum, project) => sum + project.activePanelCount, 0)} helperText="제조 투입 검토 대상" />
+          <DashboardKpiCard title="계획 완료 프로젝트" value={state.data.projects.filter((project) => project.planStatus === 'Planned').length} helperText="투입 준비 가능" variant="positive" />
+          <DashboardKpiCard title="계획 확인 필요" value={state.data.projects.filter((project) => project.planStatus !== 'Planned').length} helperText="투입 전 계획 확인" variant="warning" />
+        </div>
+      ) : null}
 
       <form className="toolbar" onSubmit={(event) => { event.preventDefault(); load(); }}>
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="프로젝트명, 고객사, Code, Item 검색" />
@@ -12376,58 +12373,70 @@ function ProductionPlanningEditPage({
       {projectState.kind === 'loading' ? <p className="muted-text">프로젝트 정보를 불러오는 중입니다.</p> : null}
       {projectState.kind === 'ready' ? <ProjectContextSummary project={projectState.data} /> : null}
       {projectState.kind !== 'ready' && projectState.kind !== 'loading' ? <StateMessage state={projectState} /> : null}
-      <div className="subsection-header">
-        <div>
-          <p className="eyebrow">Production Planning</p>
-          <h2>생산계획 수정</h2>
-        </div>
-        <div className="button-row">
-          <button type="button" onClick={onBack}>상세</button>
-          <button type="button" onClick={downloadTemplate} disabled={!initialDataReady || isDownloading || !selectedProductTypeId}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button>
-          <button type="button" onClick={() => setShowExcelDialog(true)} disabled={!initialDataReady}>Excel 업로드</button>
+      <DsInputFlow title="생산계획 수정" description="기본 조건을 확인하고 계획일과 담당자를 지정한 뒤 한 번만 저장하세요.">
+        {showExcelDialog && project ? (
+          <ProductionPlanningExcelDialog
+            developmentUserKey={developmentUserKey}
+            projectContext={{ projectId, projectTitle: project.projectTitle }}
+            onClose={() => setShowExcelDialog(false)}
+            onApplied={() => {
+              setShowExcelDialog(false);
+              void load();
+            }}
+          />
+        ) : null}
+        {!initialDataReady && (projectState.kind === 'loading' || state.kind === 'loading' || typesState.kind === 'loading') ? <p className="production-input-lock-note" role="status">프로젝트·생산계획·담당자 정보를 확인하는 동안 입력을 잠갔습니다.</p> : null}
+        {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
+        {typesState.kind !== 'ready' && typesState.kind !== 'loading' ? <StateMessage state={typesState} /> : null}
+        {plan && typesState.kind === 'ready' ? (
+          <fieldset className="production-edit-lock" disabled={!initialDataReady || isSaving}>
+            <legend className="sr-only">생산계획 입력</legend>
+            <FormErrorSummary errors={errors} />
+            <DsInputSection
+              number={1}
+              title="기본 조건"
+              description="프로젝트 Item을 확인하고 공통 비고를 입력합니다."
+              actions={(
+                <>
+                  <button type="button" onClick={downloadTemplate} disabled={!initialDataReady || isDownloading || !selectedProductTypeId}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button>
+                  <button type="button" onClick={() => setShowExcelDialog(true)} disabled={!initialDataReady}>Excel 업로드</button>
+                </>
+              )}
+            >
+              <div className="production-edit-controls">
+                <div className={fieldError(errors, 'productTypeId') || hasInvalidProjectItem ? 'readonly-field has-error' : 'readonly-field'} data-field="productTypeId" tabIndex={-1}>
+                  <span>Item</span>
+                  <strong>{selectedProductType?.code ?? project?.item ?? '-'}</strong>
+                  {hasInvalidProjectItem ? <small role="alert" className="field-error-message">현재 프로젝트의 Item이 등록된 Item 기준값과 일치하지 않습니다. 프로젝트 정보를 수정한 후 생산계획을 입력해 주세요.</small> : null}
+                  <FieldErrorMessage field="productTypeId" message={fieldError(errors, 'productTypeId')} />
+                </div>
+                <label className="form-field">
+                  <span>비고</span>
+                  <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+                </label>
+                <label className={fieldError(errors, 'reason') ? 'form-field panel-reason-field has-error' : 'form-field panel-reason-field'}>
+                  <span>수정사유</span>
+                  <textarea name="reason" value={reason} onChange={(event) => setReason(event.target.value)} />
+                  <FieldErrorMessage field="reason" message={fieldError(errors, 'reason')} />
+                </label>
+              </div>
+            </DsInputSection>
+            <DsInputSection number={2} title="계획일 입력" description="필요한 단계의 날짜와 메모를 행에서 바로 입력합니다.">
+              <ProductionPlanningEditableList rows={rows} errors={errors} onChange={updateRow} onAddRow={addCustomRow} onDeleteRow={deleteCustomRow} />
+            </DsInputSection>
+            <DsInputSection number={3} title="담당자 지정" description="각 업무의 정·부 담당자를 지정합니다.">
+              <ProductionAssigneeEditor plan={plan} assignees={assignees} errors={errors} onChange={updateAssignee} />
+            </DsInputSection>
+          </fieldset>
+        ) : null}
+        <DsActionBar
+          description="계획일과 담당자를 확인하면 저장 후 설계·구매 업무가 함께 시작됩니다."
+          feedback={message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : undefined}
+        >
+          <button type="button" onClick={onBack}>취소</button>
           <button type="button" className="primary-button" disabled={!initialDataReady || isSaving || hasInvalidProjectItem} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
-        </div>
-      </div>
-      {showExcelDialog && project ? (
-        <ProductionPlanningExcelDialog
-          developmentUserKey={developmentUserKey}
-          projectContext={{ projectId, projectTitle: project.projectTitle }}
-          onClose={() => setShowExcelDialog(false)}
-          onApplied={() => {
-            setShowExcelDialog(false);
-            void load();
-          }}
-        />
-      ) : null}
-      {!initialDataReady && (projectState.kind === 'loading' || state.kind === 'loading' || typesState.kind === 'loading') ? <p className="production-input-lock-note" role="status">프로젝트·생산계획·담당자 정보를 확인하는 동안 입력을 잠갔습니다.</p> : null}
-      {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
-      {typesState.kind !== 'ready' && typesState.kind !== 'loading' ? <StateMessage state={typesState} /> : null}
-      {plan && typesState.kind === 'ready' ? (
-        <fieldset className="production-edit-lock" disabled={!initialDataReady || isSaving}>
-          <legend className="sr-only">생산계획 입력</legend>
-          <FormErrorSummary errors={errors} />
-          <div className="production-edit-controls">
-            <div className={fieldError(errors, 'productTypeId') || hasInvalidProjectItem ? 'readonly-field has-error' : 'readonly-field'} data-field="productTypeId" tabIndex={-1}>
-              <span>Item</span>
-              <strong>{selectedProductType?.code ?? project?.item ?? '-'}</strong>
-              {hasInvalidProjectItem ? <small role="alert" className="field-error-message">현재 프로젝트의 Item이 등록된 Item 기준값과 일치하지 않습니다. 프로젝트 정보를 수정한 후 생산계획을 입력해 주세요.</small> : null}
-              <FieldErrorMessage field="productTypeId" message={fieldError(errors, 'productTypeId')} />
-            </div>
-            <label className="form-field">
-              <span>비고</span>
-              <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
-            </label>
-            <label className={fieldError(errors, 'reason') ? 'form-field panel-reason-field has-error' : 'form-field panel-reason-field'}>
-              <span>수정사유</span>
-              <textarea name="reason" value={reason} onChange={(event) => setReason(event.target.value)} />
-              <FieldErrorMessage field="reason" message={fieldError(errors, 'reason')} />
-            </label>
-          </div>
-          <ProductionPlanningEditableList rows={rows} errors={errors} onChange={updateRow} onAddRow={addCustomRow} onDeleteRow={deleteCustomRow} />
-          <ProductionAssigneeEditor plan={plan} assignees={assignees} errors={errors} onChange={updateAssignee} />
-        </fieldset>
-      ) : null}
-      {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
+        </DsActionBar>
+      </DsInputFlow>
     </section>
   );
 }
@@ -13389,34 +13398,56 @@ function ProcurementEditPage({
       {projectState.kind === 'loading' ? <p className="muted-text">프로젝트 정보를 불러오는 중입니다.</p> : null}
       {projectState.kind === 'ready' ? <ProjectContextSummary project={projectState.data} /> : null}
       {projectState.kind !== 'ready' && projectState.kind !== 'loading' ? <StateMessage state={projectState} /> : null}
-      <div className="subsection-header">
-        <div>
-          <p className="eyebrow">Procurement</p>
-          <h2>구매정보 수정</h2>
-        </div>
-        <div className="button-row">
-          <button type="button" onClick={onBack}>상세</button>
-          <button type="button" onClick={() => addRow(activeSupplyType)} disabled={!initialDataReady || isSaving}>{procurementSupplyGroupLabel(activeSupplyType)} 행 추가</button>
-          <button type="button" onClick={downloadTemplate} disabled={!initialDataReady || isDownloading || isSaving}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button>
-          <button type="button" onClick={() => setShowExcel(true)} disabled={!initialDataReady || isSaving}>Excel 업로드</button>
-          <button type="button" className="primary-button" disabled={!initialDataReady || isSaving} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
-        </div>
-      </div>
-      <p className="info-text" role="note">발주 수량과 단위는 구매팀이 이 화면에서 입력합니다. 두 값이 없으면 자재팀은 도착 등록을 시작할 수 없습니다.</p>
-      {!initialDataReady && (state.kind === 'loading' || projectState.kind === 'loading') ? <p className="production-input-lock-note" role="status">프로젝트·구매정보 확인 중에는 입력할 수 없습니다.</p> : null}
-      {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
-      {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
-      {state.kind === 'ready' ? (
-        <>
+      <DsInputFlow title="구매정보 입력" description="공급 방식을 고르고 품목을 한 행씩 입력한 뒤 한 번만 저장하세요.">
+        <DsInputSection number={1} title="공급 방식 선택" description="사급품과 도급품은 같은 입력 방식으로 나뉘어 관리됩니다.">
+          <DsChoiceGroup
+            label="구매 공급 방식"
+            value={activeSupplyType}
+            options={[
+              { value: 'Purchased', label: '도급 구매품', description: '구매팀이 발주 수량과 일정을 입력합니다.' },
+              { value: 'CustomerSupplied', label: '사급 자재', description: '고객 제공 예정 수량과 일정을 입력합니다.' }
+            ]}
+            onChange={setActiveSupplyType}
+            disabled={!initialDataReady || isSaving}
+          />
+          <p className="info-text" role="note">발주 수량과 단위는 구매팀이 이 화면에서 입력합니다. 두 값이 없으면 자재팀은 도착 등록을 시작할 수 없습니다.</p>
+        </DsInputSection>
+        <DsInputSection
+          number={2}
+          title={`${procurementSupplyGroupLabel(activeSupplyType)} 품목 입력`}
+          description="품목을 추가하고 필요한 값을 같은 행에서 바로 입력합니다."
+          actions={(
+            <>
+              <button type="button" onClick={() => addRow(activeSupplyType)} disabled={!initialDataReady || isSaving}>{procurementSupplyGroupLabel(activeSupplyType)} 행 추가</button>
+              <button type="button" onClick={downloadTemplate} disabled={!initialDataReady || isDownloading || isSaving}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button>
+              <button type="button" onClick={() => setShowExcel(true)} disabled={!initialDataReady || isSaving}>Excel 업로드</button>
+            </>
+          )}
+        >
+          {!initialDataReady && (state.kind === 'loading' || projectState.kind === 'loading') ? <p className="production-input-lock-note" role="status">프로젝트·구매정보 확인 중에는 입력할 수 없습니다.</p> : null}
+          {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
+          {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
+          {state.kind === 'ready' ? (
+            <>
+              {validationIssue ? <ProcurementIssuePanel row={rows[validationIssue.rowIndex]} rowNumber={rows.slice(0, validationIssue.rowIndex + 1).filter((row) => row.supplyType === rows[validationIssue.rowIndex]?.supplyType).length} issue={validationIssue} /> : null}
+              <ProcurementEditableList rows={rows} onChange={updateRow} activeSupplyType={activeSupplyType} onActiveSupplyTypeChange={setActiveSupplyType} validationIssue={validationIssue} />
+            </>
+          ) : null}
+        </DsInputSection>
+        <DsInputSection number={3} title="변경 사유" description="구매정보 변경 이유가 있으면 간단히 남겨 주세요.">
           <label className={validationIssue?.field === 'reason' ? 'form-field panel-reason-field has-error' : 'form-field panel-reason-field'}>
             <span>수정사유</span>
             <textarea data-procurement-row={validationIssue?.field === 'reason' ? validationIssue.rowIndex : undefined} data-procurement-field="reason" aria-invalid={validationIssue?.field === 'reason'} value={reason} onChange={(event) => { setReason(event.target.value); if (validationIssue?.field === 'reason') setValidationIssue(null); }} />
           </label>
-          {validationIssue ? <ProcurementIssuePanel row={rows[validationIssue.rowIndex]} rowNumber={rows.slice(0, validationIssue.rowIndex + 1).filter((row) => row.supplyType === rows[validationIssue.rowIndex]?.supplyType).length} issue={validationIssue} /> : null}
-          <ProcurementEditableList rows={rows} onChange={updateRow} activeSupplyType={activeSupplyType} onActiveSupplyTypeChange={setActiveSupplyType} validationIssue={validationIssue} />
-        </>
-      ) : null}
-      {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
+        </DsInputSection>
+        <DsActionBar
+          description="발주 수량·단위·예정일을 확인하면 자재 담당자에게 변경 업무가 전달됩니다."
+          feedback={message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : undefined}
+        >
+          <button type="button" onClick={onBack}>취소</button>
+          <button type="button" className="primary-button" disabled={!initialDataReady || isSaving} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
+        </DsActionBar>
+      </DsInputFlow>
       {showExcel ? (
         <ProcurementExcelDialog
           developmentUserKey={developmentUserKey}
@@ -14333,114 +14364,108 @@ function PanelInformationEditPage({
 
   return (
     <section className="page-surface panel-info-section">
-      <div className="subsection-header">
-        <div>
-          <h3>설계 정보 입력</h3>
-          <span>{formatPackagingMethod(projectState.data.packagingMethod)}</span>
-        </div>
-        <div className="button-row">
-          <button type="button" onClick={onBack}>상세</button>
-          <button type="button" onClick={load}>새로고침</button>
-          {canUpdatePanelInfo ? (
-            <button type="button" onClick={downloadTemplate} disabled={isDownloadingTemplate}>
-              {isDownloadingTemplate ? '다운로드 중' : 'Excel 양식 다운로드'}
-            </button>
-          ) : null}
-          <button type="button" onClick={() => setShowExcel(true)} disabled={!canEdit}>Excel 업로드</button>
-          <button type="button" className="primary-button" disabled={!canEdit || isSaving || !hasChanges} onClick={() => void save()}>
-            {isSaving ? '저장 중' : '직접 입력 저장'}
-          </button>
-        </div>
-      </div>
       {data ? (
-        <>
-          <div className="panel-info-summary">
-            <StatusChip label="입력 완료" value={`${data.panelInfoCompletedCount}/${data.activePanelCount}`} />
-            <StatusChip
-              label="입력 미완료"
-              value={`${data.panelInfoPendingCount}/${data.activePanelCount}`}
-              tone={data.panelInfoPendingCount > 0 ? 'danger' : undefined}
-            />
-            <StatusChip label="QR 가능" value={String(data.qrEligibleCount)} />
-            <StatusChip label="동일명칭" value={String(data.duplicatePanelNameGroupCount)} />
-          </div>
-
-          {data.panelInformationStatusMessage ? (
-            <p role="status" className="warning-text">{data.panelInformationStatusMessage}</p>
-          ) : null}
-          {!canUpdatePanelInfo ? <p className="muted-text">읽기 전용</p> : null}
-          {canUpdatePanelInfo && projectState.data.status !== 'Active' ? (
-            <p role="alert" className="warning-text">현재 프로젝트 상태에서는 설계 정보를 수정할 수 없습니다.</p>
-          ) : null}
-
-          <div className="toolbar panel-toolbar">
-            <label>
-              <span>입력 단위</span>
-              <select value={editInputUnit} onChange={(event) => changeEditInputUnit(event.target.value as PanelInputUnit)}>
-                <option value="Mm">mm</option>
-                <option value="Inch">inch</option>
-              </select>
-            </label>
-            <label>
-              <span>표시 단위</span>
-              <select value={displayUnit} onChange={(event) => setDisplayUnit(event.target.value as PanelInputUnit)}>
-                <option value="Mm">mm</option>
-                <option value="Inch">inch</option>
-              </select>
-            </label>
-            <label>
-              <span>필터</span>
-              <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
-                <option value="All">전체</option>
-                <option value="Completed">완료</option>
-                <option value="Pending">미완료</option>
-                <option value="QrEligible">QR 가능</option>
-              </select>
-            </label>
-            <label>
-              <span>검색</span>
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="No 또는 패널명" />
-            </label>
-          </div>
-
-          {canUpdatePanelInfo ? (
-            <div className="panel-template-help">
-              <strong>입력 단위: {editInputUnit === 'Inch' ? 'inch' : 'mm'}</strong>
-              <span>No는 수정하지 마세요.</span>
-              <span>도번은 업로드 시 저장되지 않습니다.</span>
-              <span>일부 입력 상태에서도 저장할 수 있습니다.</span>
-              <span>일반 포장은 패널명 입력 시 설계 단계가 완료됩니다.</span>
-              <span>목포장은 패널명과 W/H/D 입력 시 설계 단계가 완료됩니다.</span>
-              <span>사이즈를 입력하는 경우 W/H/D를 모두 입력해야 합니다.</span>
+        <DsInputFlow title="설계 정보 입력" description={`${formatPackagingMethod(projectState.data.packagingMethod)} 기준으로 패널명과 치수를 행에서 바로 입력하세요.`}>
+          <DsInputSection
+            number={1}
+            title="입력 대상과 단위"
+            description="완료 현황을 확인하고 입력 단위와 표시 대상을 고릅니다."
+            actions={(
+              <>
+                <button type="button" onClick={load}>새로고침</button>
+                {canUpdatePanelInfo ? (
+                  <button type="button" onClick={downloadTemplate} disabled={isDownloadingTemplate}>
+                    {isDownloadingTemplate ? '다운로드 중' : 'Excel 양식 다운로드'}
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => setShowExcel(true)} disabled={!canEdit}>Excel 업로드</button>
+              </>
+            )}
+          >
+            <div className="panel-info-summary">
+              <StatusChip label="입력 완료" value={`${data.panelInfoCompletedCount}/${data.activePanelCount}`} />
+              <StatusChip
+                label="입력 미완료"
+                value={`${data.panelInfoPendingCount}/${data.activePanelCount}`}
+                tone={data.panelInfoPendingCount > 0 ? 'danger' : undefined}
+              />
+              <StatusChip label="QR 가능" value={String(data.qrEligibleCount)} />
+              <StatusChip label="동일명칭" value={String(data.duplicatePanelNameGroupCount)} />
             </div>
-          ) : null}
-
+            {data.panelInformationStatusMessage ? <p role="status" className="warning-text">{data.panelInformationStatusMessage}</p> : null}
+            {!canUpdatePanelInfo ? <p className="muted-text">읽기 전용</p> : null}
+            {canUpdatePanelInfo && projectState.data.status !== 'Active' ? <p role="alert" className="warning-text">현재 프로젝트 상태에서는 설계 정보를 수정할 수 없습니다.</p> : null}
+            <div className="toolbar panel-toolbar">
+              <label>
+                <span>입력 단위</span>
+                <select value={editInputUnit} onChange={(event) => changeEditInputUnit(event.target.value as PanelInputUnit)}>
+                  <option value="Mm">mm</option>
+                  <option value="Inch">inch</option>
+                </select>
+              </label>
+              <label>
+                <span>표시 단위</span>
+                <select value={displayUnit} onChange={(event) => setDisplayUnit(event.target.value as PanelInputUnit)}>
+                  <option value="Mm">mm</option>
+                  <option value="Inch">inch</option>
+                </select>
+              </label>
+              <label>
+                <span>필터</span>
+                <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
+                  <option value="All">전체</option>
+                  <option value="Completed">완료</option>
+                  <option value="Pending">미완료</option>
+                  <option value="QrEligible">QR 가능</option>
+                </select>
+              </label>
+              <label>
+                <span>검색</span>
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="No 또는 패널명" />
+              </label>
+            </div>
+          </DsInputSection>
+          <DsInputSection number={2} title="패널 정보 입력" description="패널명과 W/H/D를 같은 행에서 입력합니다. 일부 입력 상태도 저장할 수 있습니다.">
+            {canUpdatePanelInfo ? (
+              <div className="panel-template-help">
+                <strong>입력 단위: {editInputUnit === 'Inch' ? 'inch' : 'mm'}</strong>
+                <span>일반 포장은 패널명, 목포장은 패널명과 W/H/D가 완료 기준입니다.</span>
+                <span>사이즈를 입력하는 경우 W/H/D를 모두 입력해야 합니다.</span>
+              </div>
+            ) : null}
+            <PanelInfoEditDesktop
+              rows={visibleRows}
+              displayUnit={displayUnit}
+              canEdit={canEdit}
+              onPanelNameChange={setPanelName}
+              onSizeChange={setSizeInput}
+            />
+            <PanelInfoEditMobile
+              rows={visibleRows}
+              displayUnit={displayUnit}
+              canEdit={canEdit}
+              onPanelNameChange={setPanelName}
+              onSizeChange={setSizeInput}
+            />
+          </DsInputSection>
           {reasonRequired ? (
-            <label className="form-field panel-reason-field">
-              <span>수정사유*</span>
-              <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
-            </label>
+            <DsInputSection number={3} title="변경 사유" description="기존 패널 정보를 바꾸는 이유를 입력합니다.">
+              <label className="form-field panel-reason-field">
+                <span>수정사유*</span>
+                <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
+              </label>
+            </DsInputSection>
           ) : null}
-
-          <PanelInfoEditDesktop
-            rows={visibleRows}
-            displayUnit={displayUnit}
-            canEdit={canEdit}
-            onPanelNameChange={setPanelName}
-            onSizeChange={setSizeInput}
-          />
-
-          <PanelInfoEditMobile
-            rows={visibleRows}
-            displayUnit={displayUnit}
-            canEdit={canEdit}
-            onPanelNameChange={setPanelName}
-            onSizeChange={setSizeInput}
-          />
-
-          {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
-
-        </>
+          <DsActionBar
+            description="변경한 패널만 저장되며 입력하지 않은 패널은 그대로 유지됩니다."
+            feedback={message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : undefined}
+          >
+            <button type="button" onClick={onBack}>취소</button>
+            <button type="button" className="primary-button" disabled={!canEdit || isSaving || !hasChanges} onClick={() => void save()}>
+              {isSaving ? '저장 중' : '직접 입력 저장'}
+            </button>
+          </DsActionBar>
+        </DsInputFlow>
       ) : null}
 
       {showExcel && data ? (
@@ -15592,85 +15617,104 @@ function ProjectForm({
     || packagingMethodOptions.some((item) => item.value === form.packagingMethod);
 
   return (
-    <form className="project-form" noValidate onSubmit={onSubmit}>
-      <FormErrorSummary errors={errors} />
-      <FormField label="고객사*" error={errors.customerName}>
-        <input name="customerName" value={form.customerName} onChange={(event) => setField('customerName', event.target.value)} />
-      </FormField>
-      <FormField label="Item*" error={errors.item}>
-        <select name="item" value={form.item} onChange={(event) => setField('item', event.target.value)}>
-          <option value="">Item 선택</option>
-          {!currentItemIsKnown ? <option value={form.item}>현재값: {form.item}</option> : null}
-          {activeProductTypes.map((item) => (
-            <option key={item.productTypeId} value={item.code}>{item.code}</option>
-          ))}
-        </select>
-        {!currentItemIsKnown ? <small className="warning-text">현재 Item은 등록된 Item 기준값이 아닙니다. 저장하려면 Item을 선택해 주세요.</small> : null}
-      </FormField>
-      <FormField label="PJT Code*" error={errors.projectCode}>
-        <input name="projectCode" value={form.projectCode} onChange={(event) => setField('projectCode', event.target.value)} />
-      </FormField>
-      <FormField label="PJT Title*" error={errors.projectTitle}>
-        <input name="projectTitle" value={form.projectTitle} onChange={(event) => setField('projectTitle', event.target.value)} />
-      </FormField>
-      {useUl891SetInput ? (
-        <div className="form-field ul891-derived-field">
-          <span>처리 단위</span>
-          <strong>세트 사양별 주문 · 개별 패널 실행</strong>
-          <small>면수는 아래 세트 수량 × 구성 패널 수로 자동 계산됩니다.</small>
-        </div>
-      ) : (
-        <FormField label="면수*" error={errors.panelCount}>
-          <input name="panelCount" min="1" max={maxPanelsPerProject} type="number" value={form.panelCount} onChange={(event) => setField('panelCount', event.target.value)} />
-        </FormField>
-      )}
-      {extraFields}
-      <FormField label="납기일*" error={errors.deliveryDate}>
-        <input name="deliveryDate" type="date" value={form.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} />
-      </FormField>
-      <FormField label="영업담당자*" error={errors.salesOwnerUserId}>
-        <select name="salesOwnerUserId" value={form.salesOwnerUserId} onChange={(event) => setField('salesOwnerUserId', event.target.value)}>
-          <option value="">선택</option>
-          {owners.map((owner) => (
-            <option key={owner.userId} value={owner.userId}>{owner.displayName}</option>
-          ))}
-        </select>
-      </FormField>
-      <FormField label="포장방식*" error={errors.packagingMethod}>
-        <select name="packagingMethod" value={form.packagingMethod} onChange={(event) => setField('packagingMethod', event.target.value)}>
-          <option value="">선택</option>
-          {!currentPackagingMethodIsKnown ? <option value={form.packagingMethod}>현재값: {formatPackagingMethod(form.packagingMethod)}</option> : null}
-          {packagingMethodOptions.map((method) => (
-            <option key={method.value} value={method.value}>{method.label}</option>
-          ))}
-        </select>
-        {!currentPackagingMethodIsKnown ? <small className="warning-text">현재 포장방식은 허용된 기준값이 아닙니다. 저장하려면 포장방식을 선택해 주세요.</small> : null}
-      </FormField>
-      <FormField label="판매금액" error={errors.salesAmount}>
-        <input name="salesAmount" value={form.salesAmount} inputMode="decimal" onChange={(event) => setField('salesAmount', event.target.value)} />
-      </FormField>
-      <FormField label="통화" error={errors.currencyCode}>
-        <input name="currencyCode" maxLength={3} value={form.currencyCode} onChange={(event) => setField('currencyCode', event.target.value.toUpperCase())} />
-      </FormField>
-      <FormField label="납품장소" error={errors.deliveryLocation}>
-        <input name="deliveryLocation" value={form.deliveryLocation} onChange={(event) => setField('deliveryLocation', event.target.value)} />
-      </FormField>
-      <FormField label="FAT 필요 여부" error={errors.fatRequired}>
-        <select name="fatRequired" value={form.fatRequired} onChange={(event) => setField('fatRequired', event.target.value)}>
-          <option value="false">아니오</option>
-          <option value="true">예</option>
-        </select>
-      </FormField>
-      {includeReason ? (
-        <FormField label="수정사유*" error={errors.reason}>
-          <textarea name="reason" value={form.reason} onChange={(event) => setField('reason', event.target.value)} />
-        </FormField>
-      ) : null}
-      <div className="form-actions">
-        <button type="submit" className="primary-button" disabled={isSaving}>
-          {isSaving ? '저장 중' : submitLabel}
-        </button>
-      </div>
+    <form className="project-form ds-department-form" noValidate onSubmit={onSubmit}>
+      <DsInputFlow title={includeReason ? '프로젝트 정보 수정' : '새 프로젝트 입력'} description="필수 항목부터 순서대로 입력하면 마지막 저장 버튼 하나로 반영됩니다.">
+        <FormErrorSummary errors={errors} />
+        <DsInputSection number={1} title="프로젝트 기본 정보" description="고객사와 프로젝트를 식별하는 필수값입니다.">
+          <div className="ds-field-grid">
+            <FormField label="고객사*" error={errors.customerName}>
+              <input name="customerName" value={form.customerName} onChange={(event) => setField('customerName', event.target.value)} />
+            </FormField>
+            <FormField label="Item*" error={errors.item}>
+              <select name="item" value={form.item} onChange={(event) => setField('item', event.target.value)}>
+                <option value="">Item 선택</option>
+                {!currentItemIsKnown ? <option value={form.item}>현재값: {form.item}</option> : null}
+                {activeProductTypes.map((item) => (
+                  <option key={item.productTypeId} value={item.code}>{item.code}</option>
+                ))}
+              </select>
+              {!currentItemIsKnown ? <small className="warning-text">현재 Item은 등록된 Item 기준값이 아닙니다. 저장하려면 Item을 선택해 주세요.</small> : null}
+            </FormField>
+            <FormField label="PJT Code*" error={errors.projectCode}>
+              <input name="projectCode" value={form.projectCode} onChange={(event) => setField('projectCode', event.target.value)} />
+            </FormField>
+            <FormField label="PJT Title*" error={errors.projectTitle}>
+              <input name="projectTitle" value={form.projectTitle} onChange={(event) => setField('projectTitle', event.target.value)} />
+            </FormField>
+            {useUl891SetInput ? (
+              <div className="form-field ul891-derived-field ds-field-span">
+                <span>처리 단위</span>
+                <strong>세트 사양별 주문 · 개별 패널 실행</strong>
+                <small>면수는 아래 세트 수량 × 구성 패널 수로 자동 계산됩니다.</small>
+              </div>
+            ) : (
+              <FormField label="면수*" error={errors.panelCount}>
+                <input name="panelCount" min="1" max={maxPanelsPerProject} type="number" value={form.panelCount} onChange={(event) => setField('panelCount', event.target.value)} />
+              </FormField>
+            )}
+            {extraFields ? <div className="ds-field-span">{extraFields}</div> : null}
+          </div>
+        </DsInputSection>
+        <DsInputSection number={2} title="납품과 담당 정보" description="일정·담당자·포장 및 정산 기준을 입력합니다.">
+          <div className="ds-field-grid">
+            <FormField label="납기일*" error={errors.deliveryDate}>
+              <input name="deliveryDate" type="date" value={form.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} />
+            </FormField>
+            <FormField label="영업담당자*" error={errors.salesOwnerUserId}>
+              <select name="salesOwnerUserId" value={form.salesOwnerUserId} onChange={(event) => setField('salesOwnerUserId', event.target.value)}>
+                <option value="">선택</option>
+                {owners.map((owner) => (
+                  <option key={owner.userId} value={owner.userId}>{owner.displayName}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="포장방식*" error={errors.packagingMethod}>
+              <select name="packagingMethod" value={form.packagingMethod} onChange={(event) => setField('packagingMethod', event.target.value)}>
+                <option value="">선택</option>
+                {!currentPackagingMethodIsKnown ? <option value={form.packagingMethod}>현재값: {formatPackagingMethod(form.packagingMethod)}</option> : null}
+                {packagingMethodOptions.map((method) => (
+                  <option key={method.value} value={method.value}>{method.label}</option>
+                ))}
+              </select>
+              {!currentPackagingMethodIsKnown ? <small className="warning-text">현재 포장방식은 허용된 기준값이 아닙니다. 저장하려면 포장방식을 선택해 주세요.</small> : null}
+            </FormField>
+            <FormField label="판매금액" error={errors.salesAmount}>
+              <input name="salesAmount" value={form.salesAmount} inputMode="decimal" onChange={(event) => setField('salesAmount', event.target.value)} />
+            </FormField>
+            <FormField label="통화" error={errors.currencyCode}>
+              <input name="currencyCode" maxLength={3} value={form.currencyCode} onChange={(event) => setField('currencyCode', event.target.value.toUpperCase())} />
+            </FormField>
+            <FormField label="납품장소" error={errors.deliveryLocation}>
+              <input name="deliveryLocation" value={form.deliveryLocation} onChange={(event) => setField('deliveryLocation', event.target.value)} />
+            </FormField>
+            <div className="form-field ds-field-span">
+              <span>FAT 필요 여부</span>
+              <DsChoiceGroup
+                label="FAT 필요 여부"
+                value={form.fatRequired}
+                options={[
+                  { value: 'false', label: '필요 없음', description: 'FAT 단계를 사용하지 않습니다.' },
+                  { value: 'true', label: '필요', description: '패널별 FAT 검사를 진행합니다.' }
+                ]}
+                onChange={(value) => setField('fatRequired', value)}
+              />
+              {errors.fatRequired ? <small role="alert">{errors.fatRequired}</small> : null}
+            </div>
+          </div>
+        </DsInputSection>
+        {includeReason ? (
+          <DsInputSection number={3} title="변경 사유" description="기존 정보가 바뀌는 이유를 남겨 주세요.">
+            <FormField label="수정사유*" error={errors.reason}>
+              <textarea name="reason" value={form.reason} onChange={(event) => setField('reason', event.target.value)} />
+            </FormField>
+          </DsInputSection>
+        ) : null}
+        <DsActionBar description="저장 전 필수값과 납기일을 확인해 주세요.">
+          <button type="submit" className="primary-button" disabled={isSaving}>
+            {isSaving ? '저장 중' : submitLabel}
+          </button>
+        </DsActionBar>
+      </DsInputFlow>
     </form>
   );
 }

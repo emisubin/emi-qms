@@ -95,6 +95,7 @@ describe('PanelKittingPage', () => {
         <PanelKittingPage
           developmentUserKey="dev-materials"
           canComplete
+          initialProjectId={projectId}
           initialPanelId={firstPanelId}
           onBack={vi.fn()}
           onOpenReceipts={vi.fn()}

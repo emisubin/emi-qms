@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, cancelLogisticsDraft, createLogisticsBatch, createPackingUnit, finalizeLogisticsOperation, getLogisticsDraft, getLogisticsQueue, uploadLogisticsEvidence } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { DsActionBar, DsInputFlow, DsInputSection } from './design-system';
+import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import type { LogisticsDraftResponse, LogisticsMutationResponse, LogisticsQueueItem, LogisticsQueueResponse, LogisticsStage } from './logistics';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useSelectedRows } from './useSelectedRows';
@@ -15,6 +17,7 @@ interface LogisticsPageProps {
   initialDraftId?: string;
   onLocationChange: (stage: LogisticsStage, draftId?: string) => void;
   onBack: () => void;
+  onOpenProject?: (projectId: string) => void;
 }
 
 const stageMeta: Record<LogisticsStage, { number: string; label: string; short: string; evidence: string; next: string }> = {
@@ -37,7 +40,8 @@ export function LogisticsPage({
   initialUnitId,
   initialDraftId,
   onLocationChange,
-  onBack
+  onBack,
+  onOpenProject
 }: LogisticsPageProps) {
   const layout = useAdaptiveLayout();
   const [stage, setStage] = useState<LogisticsStage>(initialStage);
@@ -84,7 +88,7 @@ export function LogisticsPage({
     try {
       const response = await getLogisticsQueue(developmentUserKey, stage, initialProjectId);
       setQueue(response);
-      const recoverableDraftId = initialDraftId ?? response.drafts?.[0]?.targetId;
+      const recoverableDraftId = initialProjectId ? initialDraftId ?? response.drafts?.[0]?.targetId : undefined;
       if (recoverableDraftId) {
         try {
           await refreshDraft(recoverableDraftId);
@@ -114,6 +118,7 @@ export function LogisticsPage({
   }, [developmentUserKey, initialDraftId, initialPanelId, initialProjectId, initialUnitId, refreshDraft, stage]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setStage(initialStage); }, [initialStage]);
   useEffect(() => { if (feedback?.kind === 'error') errorRef.current?.focus(); }, [feedback]);
 
   const allItems = useMemo(() => queue?.projects.flatMap((project) =>
@@ -125,22 +130,11 @@ export function LogisticsPage({
   const selectionCrossesProjects = selectedEntries.some(({ project }) => project.projectId !== selectedProjectId);
   const selectedBlocked = selectedEntries.some(({ item }) => item.hasOpenPending || !item.canMutate);
   const selectedCount = draftDetails
-    ? (stage === 'packing' ? draftDetails.panelIds.length : draftDetails.unitIds.length)
+    ? draftDetails.panelIds.length
     : selected.size;
   const selectedLabel = draftDetails?.displayCode
     ?? (selectedEntries.map(({ item }) => item.displayCode).join(', ') || '대상을 선택하세요');
   const evidenceCount = draftDetails?.evidence.length ?? 0;
-
-  function changeStage(next: LogisticsStage) {
-    if (busy) return;
-    setStage(next);
-    setDraft(null);
-    setDraftDetails(null);
-    setFile(null);
-    setSelected(new Set());
-    setFeedback(null);
-    onLocationChange(next);
-  }
 
   function toggle(item: LogisticsQueueItem) {
     if (draft || !item.canMutate) return;
@@ -173,7 +167,7 @@ export function LogisticsPage({
           : await createLogisticsBatch(developmentUserKey, stage, {
             operationId,
             projectId: selectedProjectId!,
-            unitIds: selectedEntries.map(({ item }) => item.targetId),
+            panelIds: selectedEntries.flatMap(({ item }) => item.panelIds),
             departureDate: stage === 'departure' ? departureDate : null
           });
         setDraft(workingDraft);
@@ -238,30 +232,60 @@ export function LogisticsPage({
     }
   }
 
+  if (!loading && queue && !initialProjectId) {
+    const readyCount = queue.projects.reduce((sum, project) =>
+      sum + project.items.filter((item) => !item.hasOpenPending).length, 0);
+    const draftCount = queue.drafts.length;
+    return (
+      <OperationalProjectDashboard
+        testId={`logistics-${stage}-dashboard`}
+        eyebrow={`LOGISTICS · ${stage.toUpperCase()}`}
+        title={`${stageMeta[stage].label} 프로젝트`}
+        description={`${stageMeta[stage].label} 대상이 있는 프로젝트를 선택하면 해당 프로젝트의 처리 대상만 표시합니다.`}
+        unitLabel="대상"
+        metrics={[
+          { label: '처리 대기', value: readyCount, helper: `${stageMeta[stage].label} 가능 대상` },
+          { label: '작성 중', value: draftCount, helper: '증빙·확정 진행 중' },
+          { label: '차단', value: queue.blockedCount, helper: 'Pending 확인 필요', tone: 'warning' },
+          { label: '대상 프로젝트', value: queue.projects.length, helper: '현재 업무 기준' }
+        ]}
+        projects={queue.projects.map((project) => {
+          const projectDraftCount = queue.drafts.filter((item) => item.projectId === project.projectId).length;
+          const blockedCount = project.items.filter((item) => item.hasOpenPending).length;
+          const projectReadyCount = project.items.length - blockedCount;
+          return {
+            projectId: project.projectId,
+            projectCode: project.projectCode,
+            projectTitle: project.projectTitle,
+            totalCount: project.items.length + projectDraftCount,
+            readyCount: projectReadyCount,
+            inProgressCount: projectDraftCount,
+            blockedCount,
+            completedCount: 0,
+            detail: `${stageMeta[stage].evidence} 등록 후 한 번에 확정`
+          };
+        })}
+        emptyMessage={`${stageMeta[stage].label} 대상 프로젝트가 없습니다.`}
+        onBack={onBack}
+        onOpenProject={(projectId) => onOpenProject?.(projectId)}
+      />
+    );
+  }
+
   return (
     <section className="logistics-page" data-mobile={layout.mode === 'mobile'}>
       <header className="logistics-hero">
         <button type="button" className="logistics-back" onClick={onBack} aria-label="프로젝트로 돌아가기">←</button>
         <div>
           <span className="logistics-kicker">LOGISTICS CONTROL</span>
-          <h1>물류 실행</h1>
-          <p>오늘 필요한 포장·출발·납품만 빠르게 처리합니다.</p>
+          <h1>{stageMeta[stage].label} 처리</h1>
+          <p>선택한 프로젝트의 {stageMeta[stage].label} 대상과 증빙만 처리합니다.</p>
         </div>
         <div className="logistics-today" aria-label={`오늘 할 일 ${queue?.todayCount ?? 0}건`}>
           <strong>{queue?.todayCount ?? '—'}</strong>
           <span>오늘</span>
         </div>
       </header>
-
-      <nav className="logistics-stage-switch" aria-label="물류 단계">
-        {(Object.keys(stageMeta) as LogisticsStage[]).map((candidate) => (
-          <button key={candidate} type="button" aria-current={stage === candidate ? 'step' : undefined}
-            onClick={() => changeStage(candidate)} disabled={busy}>
-            <span>{stageMeta[candidate].number}</span>
-            <strong>{stageMeta[candidate].label}</strong>
-          </button>
-        ))}
-      </nav>
 
       <div className="logistics-priority-strip">
         <div><strong>{queue?.todayCount ?? 0}</strong><span>처리 대기</span></div>
@@ -320,37 +344,39 @@ export function LogisticsPage({
           </section>
 
           <aside className="logistics-action-panel">
-            <header><span>STEP 2</span><h2>증빙 등록 및 확정</h2></header>
-            <div className="logistics-selection-summary">
-              <span className="logistics-summary-circle">{selectedCount}</span>
-              <div><small>선택 대상</small><strong>{selectedLabel}</strong></div>
-            </div>
-
-            <div className="logistics-create-form">
-              {draft ? <div className="logistics-draft-token"><span>복구됨</span><strong>v{draft.version}</strong><small>등록 증빙 {evidenceCount}개 · 저장을 다시 눌러 확정할 수 있습니다.</small></div> : null}
-              {!draft && stage === 'packing' ? <label>포장 메모 <input value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} placeholder="선택 입력" /></label> : null}
-              {!draft && stage === 'departure' ? <label>출발일 <input type="date" value={departureDate} onChange={(event) => setDepartureDate(event.target.value)} /></label> : null}
-              <label className="logistics-file-field">
-                <span>{stageMeta[stage].evidence} <b>필수</b></span>
-                <input type="file" accept={stage === 'delivery' ? 'image/jpeg,image/png,application/pdf' : 'image/jpeg,image/png'}
-                  onChange={(event) => setFile(event.target.files?.[0] ?? null)} disabled={!canMutate || busy} />
-                <strong>{file?.name ?? (evidenceCount > 0 ? `등록된 증빙 ${evidenceCount}개 사용` : '파일을 먼저 선택하세요')}</strong>
-                <small>{stage === 'delivery' ? 'JPEG·PNG·PDF / 최대 10MB' : 'JPEG·PNG / 최대 5MB'}</small>
-              </label>
-              {stage !== 'delivery' ? <label>사진 설명 <input value={altText} maxLength={160} onChange={(event) => setAltText(event.target.value)} /></label> : null}
-              {selectionCrossesProjects ? <p className="logistics-inline-error">같은 프로젝트 대상만 함께 처리할 수 있습니다.</p> : null}
-              {selectedBlocked ? <p className="logistics-inline-error">Pending 또는 담당 권한을 확인해 주세요.</p> : null}
-              {!canMutate ? <p className="logistics-readonly">조회 전용입니다. 물류 담당자에게 처리를 요청해 주세요.</p> : null}
-              <div className="logistics-confirm-box">
-                <span>한 번에 완료</span>
-                <p>저장하면 증빙 등록과 {stageMeta[stage].label} 확정이 연속 처리됩니다.</p>
+            <DsInputFlow title={`${stageMeta[stage].label} 입력`} description="대상과 증빙을 확인하면 저장 한 번으로 바로 확정됩니다.">
+              <DsInputSection number={1} title="선택 대상 확인" description="왼쪽 목록에서 선택한 처리 대상입니다.">
+                <div className="logistics-selection-summary">
+                  <span className="logistics-summary-circle">{selectedCount}</span>
+                  <div><small>선택 대상</small><strong>{selectedLabel}</strong></div>
+                </div>
+                {draft ? <div className="logistics-draft-token"><span>복구됨</span><strong>v{draft.version}</strong><small>등록 증빙 {evidenceCount}개 · 저장을 다시 눌러 확정할 수 있습니다.</small></div> : null}
+              </DsInputSection>
+              <DsInputSection number={2} title="증빙과 처리 정보" description={`${stageMeta[stage].evidence}를 먼저 첨부하세요.`}>
+                <div className="logistics-create-form">
+                  {!draft && stage === 'packing' ? <label>포장 메모 <input value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} placeholder="선택 입력" /></label> : null}
+                  {!draft && stage === 'departure' ? <label>출발일 <input type="date" value={departureDate} onChange={(event) => setDepartureDate(event.target.value)} /></label> : null}
+                  <label className="logistics-file-field">
+                    <span>{stageMeta[stage].evidence} <b>필수</b></span>
+                    <input type="file" accept={stage === 'delivery' ? 'image/jpeg,image/png,application/pdf' : 'image/jpeg,image/png'}
+                      onChange={(event) => setFile(event.target.files?.[0] ?? null)} disabled={!canMutate || busy} />
+                    <strong>{file?.name ?? (evidenceCount > 0 ? `등록된 증빙 ${evidenceCount}개 사용` : '파일을 먼저 선택하세요')}</strong>
+                    <small>{stage === 'delivery' ? 'JPEG·PNG·PDF / 최대 10MB' : 'JPEG·PNG / 최대 5MB'}</small>
+                  </label>
+                  {stage !== 'delivery' ? <label>사진 설명 <input value={altText} maxLength={160} onChange={(event) => setAltText(event.target.value)} /></label> : null}
+                  {selectionCrossesProjects ? <p className="logistics-inline-error">같은 프로젝트 대상만 함께 처리할 수 있습니다.</p> : null}
+                  {selectedBlocked ? <p className="logistics-inline-error">Pending 또는 담당 권한을 확인해 주세요.</p> : null}
+                  {!canMutate ? <p className="logistics-readonly">조회 전용입니다. 물류 담당자에게 처리를 요청해 주세요.</p> : null}
+                </div>
+              </DsInputSection>
+              <DsActionBar description={`저장하면 증빙 등록과 ${stageMeta[stage].label} 확정이 연속 처리됩니다.`}>
+                {draft ? <button type="button" className="logistics-secondary" onClick={() => void cancelDraft()} disabled={!canMutate || busy}>임시 작업 취소</button> : null}
                 <button type="button" className="logistics-primary" onClick={() => void saveAndFinalize()}
                   disabled={!canMutate || busy || (!draft && (selected.size === 0 || selectionCrossesProjects || selectedBlocked)) || (!file && evidenceCount === 0)}>
                   {busy ? '저장 및 확정 중…' : `${stageMeta[stage].label} 저장 및 확정`}
                 </button>
-                {draft ? <button type="button" className="logistics-secondary" onClick={() => void cancelDraft()} disabled={!canMutate || busy}>임시 작업 취소</button> : null}
-              </div>
-            </div>
+              </DsActionBar>
+            </DsInputFlow>
           </aside>
         </div>
       ) : null}

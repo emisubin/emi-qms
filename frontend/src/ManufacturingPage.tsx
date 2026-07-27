@@ -12,13 +12,13 @@ import {
   stopManufacturingExecution
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
-import { workflowShapeRole } from './design-system';
+import { DsActionBar, DsInputFlow, DsInputSection } from './design-system';
 import { MobileSheet } from './MobileSheet';
+import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import type {
   ManufacturingActionDepartment,
   ManufacturingExecutionDetail,
   ManufacturingPanel,
-  ManufacturingProject,
   ManufacturingQueueResponse,
   ManufacturingStatus,
   StopManufacturingRequest
@@ -54,6 +54,7 @@ export function ManufacturingPage({
   initialProjectId,
   initialPanelId,
   onBack,
+  onOpenProject,
   onOpenPending
 }: {
   developmentUserKey: string;
@@ -61,6 +62,7 @@ export function ManufacturingPage({
   initialProjectId?: string;
   initialPanelId?: string;
   onBack: () => void;
+  onOpenProject?: (projectId: string) => void;
   onOpenPending: (pendingId: string) => void;
 }) {
   const { isMobile } = useAdaptiveLayout();
@@ -94,8 +96,13 @@ export function ManufacturingPage({
   const loadQueue = useCallback(async (preferredProjectId?: string, preferredPanelId?: string) => {
     setQueueState({ kind: 'loading' });
     try {
-      const data = await getManufacturingQueue(developmentUserKey);
+      const data = await getManufacturingQueue(developmentUserKey, initialProjectId);
       setQueueState({ kind: 'ready', data });
+      if (!initialProjectId) {
+        setSelectedProjectId('');
+        setSelectedPanelId('');
+        return;
+      }
       const requestedProject = preferredProjectId ?? selectedProjectId ?? initialProjectId;
       const project = data.projects.find((item) => item.projectId === requestedProject)
         ?? data.projects.find((item) => item.blockedCount > 0 || item.inProgressCount > 0 || item.readyCount > 0)
@@ -169,7 +176,7 @@ export function ManufacturingPage({
 
   async function refreshAfterMutation(projectId: string, panelId: string) {
     const [queue, panelDetail] = await Promise.all([
-      getManufacturingQueue(developmentUserKey),
+      getManufacturingQueue(developmentUserKey, projectId),
       getManufacturingPanel(developmentUserKey, panelId)
     ]);
     setQueueState({ kind: 'ready', data: queue });
@@ -204,16 +211,6 @@ export function ManufacturingPage({
       mutationInFlightRef.current = false;
       setSavingAction('');
     }
-  }
-
-  function selectProject(project: ManufacturingProject) {
-    if (mutationInFlightRef.current) return;
-    const nextPanel = project.panels.find((item) => item.status === 'Blocked' || item.status === 'InProgress' || item.status === 'Ready')
-      ?? project.panels[0];
-    setSelectedProjectId(project.projectId);
-    setSelectedPanelId(nextPanel?.panelId ?? '');
-    setFeedback(null);
-    writeLocation(project.projectId, nextPanel?.panelId);
   }
 
   function selectPanel(nextPanel: ManufacturingPanel) {
@@ -324,7 +321,7 @@ export function ManufacturingPage({
         panels
       });
       delete operationReceipts.current['assembly-batch'];
-      const queue = await getManufacturingQueue(developmentUserKey);
+      const queue = await getManufacturingQueue(developmentUserKey, selectedProject.projectId);
       setQueueState({ kind: 'ready', data: queue });
       if (selectedPanelId) {
         setDetailState({ kind: 'ready', data: await getManufacturingPanel(developmentUserKey, selectedPanelId) });
@@ -347,6 +344,45 @@ export function ManufacturingPage({
     }
   }
 
+  if (queueState.kind === 'ready' && !initialProjectId) {
+    const dashboardProjects = queueState.data.projects;
+    const totals = dashboardProjects.reduce((summary, project) => ({
+      ready: summary.ready + project.readyCount,
+      progress: summary.progress + project.inProgressCount,
+      blocked: summary.blocked + project.blockedCount,
+      completed: summary.completed + project.completedCount
+    }), { ready: 0, progress: 0, blocked: 0, completed: 0 });
+    return (
+      <OperationalProjectDashboard
+        testId="manufacturing-dashboard"
+        eyebrow="MANUFACTURING · PROJECT QUEUE"
+        title="제조 프로젝트"
+        description="프로젝트를 선택하면 그 프로젝트의 패널 제조 작업만 표시합니다."
+        unitLabel="패널"
+        metrics={[
+          { label: '착수 대기', value: totals.ready, helper: '제조 시작 전 패널' },
+          { label: '제조 중', value: totals.progress, helper: '현재 작업 중' },
+          { label: '중단', value: totals.blocked, helper: 'Pending 확인 필요', tone: 'warning' },
+          { label: '완료', value: totals.completed, helper: '제조 완료 패널', tone: 'positive' }
+        ]}
+        projects={dashboardProjects.map((project) => ({
+          projectId: project.projectId,
+          projectCode: project.projectCode,
+          projectTitle: project.projectTitle,
+          totalCount: project.panels.length,
+          readyCount: project.readyCount,
+          inProgressCount: project.inProgressCount,
+          blockedCount: project.blockedCount,
+          completedCount: project.completedCount,
+          detail: `제조 진행률 ${project.panels.length ? Math.round((project.panels.reduce((sum, panel) => sum + panel.checkedStepCount, 0) / project.panels.reduce((sum, panel) => sum + Math.max(1, panel.totalStepCount), 0)) * 100) : 0}%`
+        }))}
+        emptyMessage="제조 대상 프로젝트가 없습니다."
+        onBack={onBack}
+        onOpenProject={(projectId) => onOpenProject?.(projectId)}
+      />
+    );
+  }
+
   return (
     <section
       className={isMobile ? 'page-surface manufacturing-page manufacturing-page--mobile' : 'page-surface manufacturing-page'}
@@ -358,7 +394,7 @@ export function ManufacturingPage({
           <h2>제조 작업</h2>
           <p>패널 제조와 단계별 LQC를 함께 진행하고, 둘 다 끝나면 OQC로 자동 인계합니다.</p>
         </div>
-        <button type="button" className="manufacturing-back" onClick={onBack}>프로젝트 보기</button>
+        <button type="button" className="manufacturing-back" onClick={onBack}>제조 프로젝트</button>
         <span className="manufacturing-hero-disc" aria-hidden="true" />
         <span className="manufacturing-hero-angle" aria-hidden="true" />
       </header>
@@ -379,35 +415,33 @@ export function ManufacturingPage({
       ) : null}
 
       {queueState.kind === 'ready' && projects.length > 0 ? (
-        <div className="manufacturing-workspace">
-          <aside className="manufacturing-project-queue" aria-label="제조 프로젝트 목록">
+        <div className="manufacturing-workspace manufacturing-workspace--single-project">
+          {selectedProject ? (
+          <aside className="manufacturing-project-queue manufacturing-panel-rail" aria-label={`${selectedProject.projectTitle} 패널 목록`}>
             <div className="manufacturing-section-heading">
-              <p>PROJECT QUEUE</p>
-              <strong>{projects.length}개 프로젝트</strong>
+              <p>PANEL QUEUE</p>
+              <strong>{selectedProject.panels.length}면</strong>
             </div>
-            <div className="manufacturing-project-list">
-              {projects.map((project) => (
-                <button
-                  key={project.projectId}
-                  type="button"
-                  className="manufacturing-project-card"
-                  data-active={project.projectId === selectedProjectId}
-                  data-shape-role={workflowShapeRole({
-                    blocked: project.blockedCount > 0,
-                    completed: project.completedCount > 0 && project.readyCount === 0 && project.inProgressCount === 0,
-                    active: project.projectId === selectedProjectId,
-                    inProgress: project.inProgressCount > 0
-                  })}
-                  disabled={Boolean(savingAction)}
-                  onClick={() => selectProject(project)}
-                >
-                  <span>{project.projectCode}</span>
-                  <strong>{project.projectTitle}</strong>
-                  <small>대기 {project.readyCount} · 진행 {project.inProgressCount} · 중단 {project.blockedCount}</small>
-                </button>
+            <div className="manufacturing-panel-list">
+              {selectedProject.panels.map((item) => (
+                <div className="manufacturing-panel-selectable" key={item.panelId}>
+                  <SelectionCheckbox checked={manufacturingSelection.selectedIds.has(item.panelId)} disabled={manufacturingSelection.busy || Boolean(savingAction)} label={`${item.displayCode} 선택`} onChange={(checked) => manufacturingSelection.toggle(item.panelId, checked)} />
+                  <button
+                    type="button"
+                    className="manufacturing-panel-chip"
+                    data-status={item.status.toLowerCase()}
+                    data-active={item.panelId === selectedPanelId}
+                    disabled={Boolean(savingAction)}
+                    onClick={() => selectPanel(item)}
+                  >
+                    <span className="manufacturing-status-shape" aria-hidden="true">{item.status === 'Completed' ? '✓' : ''}</span>
+                    <span><strong>{item.displayCode}</strong><small>{statusLabel(item.status)} · {item.checkedStepCount}/{item.totalStepCount || 4}</small></span>
+                  </button>
+                </div>
               ))}
             </div>
           </aside>
+          ) : null}
 
           {selectedProject ? (
             <main className="manufacturing-panel-area">
@@ -464,25 +498,6 @@ export function ManufacturingPage({
                 </>
               ) : null}
 
-              <div className="manufacturing-panel-strip" aria-label="프로젝트 패널">
-                {selectedProject.panels.map((item) => (
-                  <div className="manufacturing-panel-selectable" key={item.panelId}>
-                    <SelectionCheckbox checked={manufacturingSelection.selectedIds.has(item.panelId)} disabled={manufacturingSelection.busy || Boolean(savingAction)} label={`${item.displayCode} 선택`} onChange={(checked) => manufacturingSelection.toggle(item.panelId, checked)} />
-                    <button
-                      type="button"
-                      className="manufacturing-panel-chip"
-                      data-status={item.status.toLowerCase()}
-                      data-active={item.panelId === selectedPanelId}
-                      disabled={Boolean(savingAction)}
-                      onClick={() => selectPanel(item)}
-                    >
-                      <span className="manufacturing-status-shape" aria-hidden="true">{item.status === 'Completed' ? '✓' : ''}</span>
-                      <span><strong>{item.displayCode}</strong><small>{statusLabel(item.status)} · {item.kittingCompleted ? '키팅 완료' : '키팅 미보고'}</small></span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-
               {detailState.kind === 'loading' || detailState.kind === 'idle' ? <ManufacturingDetailLoading /> : null}
               {detailState.kind === 'error' ? (
                 <div className="manufacturing-state" role="alert">
@@ -495,79 +510,81 @@ export function ManufacturingPage({
               {detail && panel ? (
                 <div className="manufacturing-detail-grid">
                   <section className="manufacturing-focus-card" data-status={panel.status.toLowerCase()} aria-busy={Boolean(savingAction)}>
-                    <header>
-                      <div className="manufacturing-focus-symbol" aria-hidden="true">
-                        <span>{panel.status === 'Completed' ? '✓' : panel.checkedStepCount}</span>
-                      </div>
-                      <div>
-                        <p>{statusLabel(panel.status)} · {panel.workflowStage}</p>
-                        <h3>{panel.displayCode}</h3>
-                        <span>{panel.panelName ?? '패널명 미입력'}</span>
-                      </div>
-                      <strong className="manufacturing-progress-count">{panel.checkedStepCount}/{panel.totalStepCount || 4}</strong>
-                    </header>
-
-                    <div className="manufacturing-progress-track" aria-label={`제조 단계 ${panel.checkedStepCount}/${panel.totalStepCount || 4}`}>
-                      <span style={{ width: `${Math.min(100, (panel.checkedStepCount / (panel.totalStepCount || 4)) * 100)}%` }} />
-                    </div>
-
-                    {panel.status === 'Ready' ? (
-                      <div className="manufacturing-ready-copy">
-                        <strong>제조 투입 요청됨 · {panel.kittingCompleted ? '키팅 완료' : '키팅 미보고'}</strong>
-                        <span>키팅은 참고 정보입니다. 작업지시와 도면을 확인한 뒤 이 패널의 실행을 시작하세요.</span>
-                      </div>
-                    ) : (
-                      <ol className="manufacturing-step-list">
-                        {detail.steps.map((step) => (
-                          <li key={step.stepId} data-checked={step.checked} data-next={step.stepId === nextStep?.stepId}>
-                            <span>{step.checked ? '✓' : step.sequenceNumber}</span>
-                            <div>
-                              <strong>{step.stepName}</strong>
-                              <small>{step.checked
-                                ? `${step.checkedByDisplayName ?? '담당자'} · ${formatOperationalTime(step.checkedAtUtc)}`
-                                : step.stepId === nextStep?.stepId ? '다음 확인 단계' : '앞 단계를 먼저 확인하세요'}</small>
-                            </div>
-                          </li>
-                        ))}
-                      </ol>
-                    )}
-
-                    {!mayMutatePanel ? (
-                      <p className="manufacturing-readonly-note">조회 전용입니다. 제조 시작·체크·중단·완료는 제조 담당 권한이 필요합니다.</p>
-                    ) : null}
-                    {feedback ? <p className="manufacturing-feedback" data-tone={feedback.tone} role="status">{feedback.message}</p> : null}
-
-                    {mayMutatePanel ? (
-                      <div className="manufacturing-actions">
+                    <DsInputFlow title={`${panel.displayCode} 제조 입력`} description="현재 단계만 확인 버튼으로 처리하면 다음 단계가 자동으로 열립니다.">
+                      <DsInputSection number={1} title="패널과 진행 상태" description="선택한 패널과 현재 제조 진행률입니다.">
+                        <header>
+                          <div className="manufacturing-focus-symbol" aria-hidden="true">
+                            <span>{panel.status === 'Completed' ? '✓' : panel.checkedStepCount}</span>
+                          </div>
+                          <div>
+                            <p>{statusLabel(panel.status)} · {panel.workflowStage}</p>
+                            <h3>{panel.displayCode}</h3>
+                            <span>{panel.panelName ?? '패널명 미입력'}</span>
+                          </div>
+                          <strong className="manufacturing-progress-count">{panel.checkedStepCount}/{panel.totalStepCount || 4}</strong>
+                        </header>
+                        <div className="manufacturing-progress-track" aria-label={`제조 단계 ${panel.checkedStepCount}/${panel.totalStepCount || 4}`}>
+                          <span style={{ width: `${Math.min(100, (panel.checkedStepCount / (panel.totalStepCount || 4)) * 100)}%` }} />
+                        </div>
+                      </DsInputSection>
+                      <DsInputSection number={2} title="현재 단계 처리" description={nextStep ? `${nextStep.stepName} 단계만 확인하면 됩니다.` : '현재 패널의 제조 상태를 확인하세요.'}>
                         {panel.status === 'Ready' ? (
-                          <button type="button" className="primary-button" disabled={Boolean(savingAction)} onClick={() => void start()}>
-                            {savingAction === 'start' ? '시작 중…' : '제조 시작'}
-                          </button>
-                        ) : null}
-                        {panel.status === 'InProgress' && nextStep ? (
-                          <button type="button" className="primary-button" disabled={Boolean(savingAction)} onClick={() => void checkNextStep()}>
-                            {savingAction === 'check-step' ? '확인 중…' : `${nextStep.sequenceNumber}단계 확인`}
-                          </button>
-                        ) : null}
-                        {panel.status === 'InProgress' && allStepsChecked ? (
-                          <button type="button" className="primary-button manufacturing-complete" disabled={Boolean(savingAction)} onClick={() => void complete()}>
-                            {savingAction === 'complete' ? '완료 중…' : '제조 완료'}
-                          </button>
-                        ) : null}
-                        {panel.status === 'InProgress' ? (
-                          <button ref={stopTriggerRef} type="button" className="manufacturing-stop" disabled={Boolean(savingAction)} onClick={() => {
-                            if (!mutationInFlightRef.current) setStopOpen(true);
-                          }}>
-                            작업 중단
-                          </button>
-                        ) : null}
-                        {panel.status === 'Blocked' ? (
-                          <button type="button" className="primary-button" disabled={Boolean(savingAction)} onClick={() => void resume()}>
-                            {savingAction === 'resume' ? '확인 중…' : 'Pending 확인 후 재개'}
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
+                          <div className="manufacturing-ready-copy">
+                            <strong>제조 투입 요청됨 · {panel.kittingCompleted ? '키팅 완료' : '키팅 미보고'}</strong>
+                            <span>키팅은 참고 정보입니다. 작업지시와 도면을 확인한 뒤 이 패널의 실행을 시작하세요.</span>
+                          </div>
+                        ) : (
+                          <ol className="manufacturing-step-list">
+                            {detail.steps.map((step) => (
+                              <li key={step.stepId} data-checked={step.checked} data-next={step.stepId === nextStep?.stepId}>
+                                <span>{step.checked ? '✓' : step.sequenceNumber}</span>
+                                <div>
+                                  <strong>{step.stepName}</strong>
+                                  <small>{step.checked
+                                    ? `${step.checkedByDisplayName ?? '담당자'} · ${formatOperationalTime(step.checkedAtUtc)}`
+                                    : step.stepId === nextStep?.stepId ? '다음 확인 단계' : '앞 단계를 먼저 확인하세요'}</small>
+                                </div>
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                        {!mayMutatePanel ? <p className="manufacturing-readonly-note">조회 전용입니다. 제조 시작·체크·중단·완료는 제조 담당 권한이 필요합니다.</p> : null}
+                      </DsInputSection>
+                      {mayMutatePanel ? (
+                        <DsActionBar
+                          description="검은색 버튼은 지금 할 수 있는 다음 작업 하나만 표시합니다."
+                          feedback={feedback ? <p className="manufacturing-feedback" data-tone={feedback.tone} role="status">{feedback.message}</p> : undefined}
+                        >
+                          {panel.status === 'Ready' ? (
+                            <button type="button" className="primary-button" disabled={Boolean(savingAction)} onClick={() => void start()}>
+                              {savingAction === 'start' ? '시작 중…' : '제조 시작'}
+                            </button>
+                          ) : null}
+                          {panel.status === 'InProgress' && nextStep ? (
+                            <button type="button" className="primary-button" disabled={Boolean(savingAction)} onClick={() => void checkNextStep()}>
+                              {savingAction === 'check-step' ? '확인 중…' : `${nextStep.sequenceNumber}단계 확인`}
+                            </button>
+                          ) : null}
+                          {panel.status === 'InProgress' && allStepsChecked ? (
+                            <button type="button" className="primary-button manufacturing-complete" disabled={Boolean(savingAction)} onClick={() => void complete()}>
+                              {savingAction === 'complete' ? '완료 중…' : '제조 완료'}
+                            </button>
+                          ) : null}
+                          {panel.status === 'InProgress' ? (
+                            <button ref={stopTriggerRef} type="button" className="manufacturing-stop" disabled={Boolean(savingAction)} onClick={() => {
+                              if (!mutationInFlightRef.current) setStopOpen(true);
+                            }}>
+                              작업 중단
+                            </button>
+                          ) : null}
+                          {panel.status === 'Blocked' ? (
+                            <button type="button" className="primary-button" disabled={Boolean(savingAction)} onClick={() => void resume()}>
+                              {savingAction === 'resume' ? '확인 중…' : 'Pending 확인 후 재개'}
+                            </button>
+                          ) : null}
+                        </DsActionBar>
+                      ) : feedback ? <p className="manufacturing-feedback" data-tone={feedback.tone} role="status">{feedback.message}</p> : null}
+                    </DsInputFlow>
 
                     {panel.status === 'Blocked' && panel.activePendingId ? (
                       <button type="button" className="manufacturing-pending-link" onClick={() => onOpenPending(panel.activePendingId!)}>

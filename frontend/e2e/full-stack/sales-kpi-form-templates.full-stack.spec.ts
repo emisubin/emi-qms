@@ -41,7 +41,9 @@ test('DESIGN-000 + SALES-KPI-001 Change 002: token foundation and adaptive decis
   await expect(page.getByRole('heading', { name: '양식 관리' })).toBeVisible();
   await expect(page.getByRole('button', { name: '부서장 지정' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '자재 수입검사 v2' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '초안 저장' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '편집' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '저장' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '저장' })).toBeEnabled();
   await capture(page, '05-form-templates-desktop-1440.png');
 
   await page.setViewportSize({ width: 390, height: 844 });

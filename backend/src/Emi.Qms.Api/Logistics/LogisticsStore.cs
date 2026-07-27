@@ -25,26 +25,30 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
+            update logistics_batch_panels membership
+            set active = false
+            from logistics_batches batch
+            where membership.batch_id = batch.id
+              and batch.status = 'Draft'
+              and membership.panel_id = @panel_id
+              and membership.active;
             update logistics_batch_units membership
             set active = false
             from logistics_batches batch
             where membership.batch_id = batch.id
               and batch.status = 'Draft'
-              and exists (
+              and not exists (
                   select 1
-                  from logistics_batch_units affected_membership
-                  join logistics_packing_unit_panels panel_membership
-                    on panel_membership.packing_unit_id = affected_membership.packing_unit_id
-                   and panel_membership.active
-                  where affected_membership.batch_id = batch.id
-                    and affected_membership.active
-                    and panel_membership.panel_id = @panel_id
+                  from logistics_batch_panels selected
+                  where selected.batch_id = batch.id
+                    and selected.packing_unit_id = membership.packing_unit_id
+                    and selected.active
               );
             update logistics_batches batch
             set status = 'Cancelled', version = version + 1,
                 cancelled_by_user_id = @actor_id, cancelled_at_utc = now()
             where batch.status = 'Draft'
-              and not exists (select 1 from logistics_batch_units membership where membership.batch_id = batch.id and membership.active);
+              and not exists (select 1 from logistics_batch_panels membership where membership.batch_id = batch.id and membership.active);
             update logistics_packing_unit_panels membership
             set active = false
             from logistics_packing_units unit
@@ -75,6 +79,9 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
+            update logistics_batch_panels membership set active = false
+            from logistics_batches batch
+            where membership.batch_id = batch.id and batch.project_id = @project_id and batch.status = 'Draft';
             update logistics_batch_units membership set active = false
             from logistics_batches batch
             where membership.batch_id = batch.id and batch.project_id = @project_id and batch.status = 'Draft';
@@ -303,10 +310,9 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
                         """
                     : """
                         select panel.display_code, 'PU-' || lpad(unit.unit_number::text, 3, '0')
-                        from logistics_batch_units member
+                        from logistics_batch_panels member
                         join logistics_packing_units unit on unit.id=member.packing_unit_id
-                        join logistics_packing_unit_panels unit_panel on unit_panel.packing_unit_id=unit.id
-                        join panel_placeholders panel on panel.id=unit_panel.panel_id
+                        join panel_placeholders panel on panel.id=member.panel_id
                         where member.batch_id=@id order by unit.unit_number,panel.sequence_number;
                         """;
                 membership.Parameters.AddWithValue("id", owner.TargetId);
@@ -409,12 +415,10 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             membershipCommand.CommandText = normalized == LogisticsStages.Packing
                 ? "select panel_id from logistics_packing_unit_panels where packing_unit_id=@id and active order by panel_id"
                 : """
-                    select distinct batch_unit.packing_unit_id, membership.panel_id
-                    from logistics_batch_units batch_unit
-                    join logistics_packing_unit_panels membership
-                      on membership.packing_unit_id=batch_unit.packing_unit_id and membership.active
-                    where batch_unit.batch_id=@id and batch_unit.active
-                    order by batch_unit.packing_unit_id, membership.panel_id;
+                    select distinct membership.packing_unit_id, membership.panel_id
+                    from logistics_batch_panels membership
+                    where membership.batch_id=@id and membership.active
+                    order by membership.packing_unit_id, membership.panel_id;
                     """;
             membershipCommand.Parameters.AddWithValue("id", targetId);
             await using var reader = await membershipCommand.ExecuteReaderAsync(cancellationToken);
@@ -545,8 +549,10 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         if (normalized is not (LogisticsStages.Departure or LogisticsStages.Delivery))
             return LogisticsMutationResult<LogisticsMutationResponse>.Validation("stage", "출발 또는 납품 단계를 선택해 주세요.");
         var unitIds = NormalizeIds(request.UnitIds);
-        if (unitIds.Count == 0) return LogisticsMutationResult<LogisticsMutationResponse>.Validation("unitIds", "처리할 포장 단위를 한 개 이상 선택해 주세요.");
-        var fingerprint = Fingerprint("create-batch", normalized, request.ProjectId, unitIds, request.DepartureDate);
+        var requestedPanelIds = NormalizeIds(request.PanelIds);
+        if (unitIds.Count == 0 && requestedPanelIds.Count == 0)
+            return LogisticsMutationResult<LogisticsMutationResponse>.Validation("panelIds", "처리할 패널을 한 개 이상 선택해 주세요.");
+        var fingerprint = Fingerprint("create-batch", normalized, request.ProjectId, unitIds, requestedPanelIds, request.DepartureDate);
 
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -556,12 +562,14 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             if (!await LockProjectInScopeAsync(connection, transaction, request.ProjectId, scope, cancellationToken)) return await RollbackNotFound(transaction, cancellationToken);
             var replay = await ReadReplayAsync(connection, transaction, request.OperationId, fingerprint, cancellationToken);
             if (replay.Result is not null) { await transaction.CommitAsync(cancellationToken); return replay.Result; }
-            var panels = await ReadUnitPanelsAsync(connection, transaction, request.ProjectId, unitIds, normalized, cancellationToken);
-            if (panels is null) return await RollbackConflict(transaction, "같은 프로젝트에서 현재 단계에 처리 가능한 포장 단위만 선택해 주세요.", cancellationToken);
+            var selection = await ReadBatchSelectionAsync(
+                connection, transaction, request.ProjectId, unitIds, requestedPanelIds, normalized, null, cancellationToken);
+            if (selection is null)
+                return await RollbackConflict(transaction, "같은 프로젝트에서 현재 단계에 처리 가능한 패널만 선택해 주세요.", cancellationToken);
             var workStage = LogisticsStages.WorkStage(normalized);
-            if (!await ActorCanMutateAsync(connection, transaction, request.ProjectId, panels.Value.PanelIds, workStage, actorId, cancellationToken))
+            if (!await ActorCanMutateAsync(connection, transaction, request.ProjectId, selection.PanelIds, workStage, actorId, cancellationToken))
                 return await RollbackForbidden(transaction, cancellationToken);
-            if (await HasOpenPendingAsync(connection, transaction, request.ProjectId, panels.Value.PanelIds, cancellationToken))
+            if (await HasOpenPendingAsync(connection, transaction, request.ProjectId, selection.PanelIds, cancellationToken))
                 return await RollbackConflict(transaction, "열린 Pending을 먼저 처리한 뒤 다음 단계를 진행해 주세요.", cancellationToken);
 
             var targetId = Guid.NewGuid();
@@ -590,7 +598,8 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
                 insert.Parameters.AddWithValue("actor_id", actorId);
                 await insert.ExecuteNonQueryAsync(cancellationToken);
             }
-            await InsertBatchMembershipsAsync(connection, transaction, targetId, unitIds, workStageCode, actorId, cancellationToken);
+            await InsertBatchMembershipsAsync(
+                connection, transaction, targetId, selection.UnitIds, selection.PanelIds, workStageCode, actorId, cancellationToken);
             var response = new LogisticsMutationResponse(request.OperationId, request.ProjectId, targetId, normalized, "Draft", 1, "evidence", false);
             await InsertReceiptAsync(connection, transaction, request.OperationId, "CreateLogisticsBatch", request.ProjectId, null, targetId, actorId, fingerprint, response, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -612,9 +621,12 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             return LogisticsMutationResult<LogisticsMutationResponse>.Validation("stage", "출발 또는 납품 단계를 선택해 주세요.");
         if (request.ExpectedVersion is null) return LogisticsMutationResult<LogisticsMutationResponse>.Validation("expectedVersion", "현재 버전을 입력해 주세요.");
         var unitIds = NormalizeIds(request.UnitIds);
-        var fingerprint = Fingerprint("replace-batch-units", batchId, normalized, request.ExpectedVersion, unitIds, request.DepartureDate);
-        return await MutateDraftMembershipAsync(batchId, normalized, request.OperationId, request.ExpectedVersion.Value,
-            unitIds, request.DepartureDate, fingerprint, actorId, scope, cancellationToken);
+        var panelIds = NormalizeIds(request.PanelIds);
+        var fingerprint = Fingerprint(
+            "replace-batch-panels", batchId, normalized, request.ExpectedVersion, unitIds, panelIds, request.DepartureDate);
+        return await MutateDraftBatchMembershipAsync(
+            batchId, normalized, request.OperationId, request.ExpectedVersion.Value, unitIds, panelIds,
+            request.DepartureDate, fingerprint, actorId, scope, cancellationToken);
     }
 
     public async Task<LogisticsMutationResult<LogisticsMutationResponse>> AddEvidenceAsync(
@@ -864,7 +876,10 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
                 membership.Transaction = transaction;
                 membership.CommandText = normalized == LogisticsStages.Packing
                     ? "update logistics_packing_unit_panels set active = false where packing_unit_id = @id and active"
-                    : "update logistics_batch_units set active = false where batch_id = @id and active";
+                    : """
+                      update logistics_batch_panels set active = false where batch_id = @id and active;
+                      update logistics_batch_units set active = false where batch_id = @id and active;
+                      """;
                 membership.Parameters.AddWithValue("id", targetId);
                 await membership.ExecuteNonQueryAsync(cancellationToken);
             }
@@ -929,43 +944,27 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             if (replay.Result is not null) { await transaction.CommitAsync(cancellationToken); return replay.Result; }
             if (owner.Status != "Draft" || owner.Version != expectedVersion)
                 return await RollbackConflict(transaction, "다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도해 주세요.", cancellationToken);
-            IReadOnlyList<Guid> panelIds;
-            if (stage == LogisticsStages.Packing)
-            {
-                if (ids.Count > 0 && !await ValidatePanelsAsync(connection, transaction, owner.ProjectId, ids, "PackingCompleted", cancellationToken))
-                    return await RollbackConflict(transaction, "같은 프로젝트의 포장 대기 패널만 선택해 주세요.", cancellationToken);
-                panelIds = ids;
-            }
-            else
-            {
-                var panels = ids.Count == 0 ? (PanelIds: (IReadOnlyList<Guid>)[], PanelCodes: (IReadOnlyList<string>)[])
-                    : await ReadUnitPanelsAsync(connection, transaction, owner.ProjectId, ids, stage, cancellationToken);
-                if (panels is null) return await RollbackConflict(transaction, "같은 프로젝트의 현재 단계 포장 단위만 선택해 주세요.", cancellationToken);
-                panelIds = panels.Value.PanelIds;
-            }
-            if (panelIds.Count > 0 && !await ActorCanMutateAsync(connection, transaction, owner.ProjectId, panelIds, LogisticsStages.WorkStage(stage), actorId, cancellationToken))
+            if (stage != LogisticsStages.Packing)
+                return await RollbackConflict(transaction, "포장 구성 변경 경로를 확인해 주세요.", cancellationToken);
+            if (ids.Count > 0 && !await ValidatePanelsAsync(connection, transaction, owner.ProjectId, ids, "PackingCompleted", cancellationToken))
+                return await RollbackConflict(transaction, "같은 프로젝트의 포장 대기 패널만 선택해 주세요.", cancellationToken);
+            if (ids.Count > 0 && !await ActorCanMutateAsync(connection, transaction, owner.ProjectId, ids, LogisticsStages.WorkStage(stage), actorId, cancellationToken))
                 return await RollbackForbidden(transaction, cancellationToken);
 
             await using (var clear = connection.CreateCommand())
             {
                 clear.Transaction = transaction;
-                clear.CommandText = stage == LogisticsStages.Packing
-                    ? "delete from logistics_packing_unit_panels where packing_unit_id = @id"
-                    : "delete from logistics_batch_units where batch_id = @id";
+                clear.CommandText = "delete from logistics_packing_unit_panels where packing_unit_id = @id";
                 clear.Parameters.AddWithValue("id", targetId);
                 await clear.ExecuteNonQueryAsync(cancellationToken);
             }
-            if (stage == LogisticsStages.Packing) await InsertPackingMembershipsAsync(connection, transaction, targetId, ids, actorId, cancellationToken);
-            else await InsertBatchMembershipsAsync(connection, transaction, targetId, ids, LogisticsStages.WorkStage(stage), actorId, cancellationToken);
+            await InsertPackingMembershipsAsync(connection, transaction, targetId, ids, actorId, cancellationToken);
             await using (var update = connection.CreateCommand())
             {
                 update.Transaction = transaction;
-                update.CommandText = stage == LogisticsStages.Packing
-                    ? "update logistics_packing_units set version=version+1 where id=@id and version=@expected returning version"
-                    : "update logistics_batches set version=version+1, departure_date=@departure_date where id=@id and version=@expected returning version";
+                update.CommandText = "update logistics_packing_units set version=version+1 where id=@id and version=@expected returning version";
                 update.Parameters.AddWithValue("id", targetId);
                 update.Parameters.AddWithValue("expected", expectedVersion);
-                if (stage != LogisticsStages.Packing) AddNullableDate(update, "departure_date", stage == LogisticsStages.Departure ? departureDate : null);
                 var version = Convert.ToInt32(await update.ExecuteScalarAsync(cancellationToken));
                 var response = new LogisticsMutationResponse(operationId, owner.ProjectId, targetId, stage, "Draft", version, ids.Count == 0 ? "target" : "evidence", false);
                 await InsertReceiptAsync(connection, transaction, operationId, "ReplaceLogisticsMembership", owner.ProjectId,
@@ -981,6 +980,100 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             return LogisticsMutationResult<LogisticsMutationResponse>.Conflict("다른 요청이 먼저 물류 구성을 변경했습니다. 새로고침 후 다시 시도해 주세요.");
         }
         catch { await RollbackQuietly(transaction, cancellationToken); throw; }
+    }
+
+    private async Task<LogisticsMutationResult<LogisticsMutationResponse>> MutateDraftBatchMembershipAsync(
+        Guid targetId,
+        string stage,
+        Guid operationId,
+        int expectedVersion,
+        IReadOnlyList<Guid> requestedUnitIds,
+        IReadOnlyList<Guid> requestedPanelIds,
+        DateOnly? departureDate,
+        string fingerprint,
+        Guid actorId,
+        ProjectAccessScope scope,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        try
+        {
+            var owner = await LockOwnerAsync(connection, transaction, targetId, stage, scope, cancellationToken);
+            if (owner is null) return await RollbackNotFound(transaction, cancellationToken);
+            var replay = await ReadReplayAsync(connection, transaction, operationId, fingerprint, cancellationToken);
+            if (replay.Result is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return replay.Result;
+            }
+            if (owner.Status != "Draft" || owner.Version != expectedVersion)
+                return await RollbackConflict(transaction, "다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도해 주세요.", cancellationToken);
+
+            var selection = requestedUnitIds.Count == 0 && requestedPanelIds.Count == 0
+                ? new BatchSelection([], [], [])
+                : await ReadBatchSelectionAsync(
+                    connection, transaction, owner.ProjectId, requestedUnitIds, requestedPanelIds, stage, targetId, cancellationToken);
+            if (selection is null)
+                return await RollbackConflict(transaction, "같은 프로젝트의 현재 단계 패널만 선택해 주세요.", cancellationToken);
+            if (selection.PanelIds.Count > 0
+                && !await ActorCanMutateAsync(
+                    connection, transaction, owner.ProjectId, selection.PanelIds, LogisticsStages.WorkStage(stage), actorId, cancellationToken))
+                return await RollbackForbidden(transaction, cancellationToken);
+
+            await using (var clearPanels = connection.CreateCommand())
+            {
+                clearPanels.Transaction = transaction;
+                clearPanels.CommandText = "delete from logistics_batch_panels where batch_id=@id";
+                clearPanels.Parameters.AddWithValue("id", targetId);
+                await clearPanels.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await using (var clearUnits = connection.CreateCommand())
+            {
+                clearUnits.Transaction = transaction;
+                clearUnits.CommandText = "delete from logistics_batch_units where batch_id=@id";
+                clearUnits.Parameters.AddWithValue("id", targetId);
+                await clearUnits.ExecuteNonQueryAsync(cancellationToken);
+            }
+            if (selection.PanelIds.Count > 0)
+            {
+                await InsertBatchMembershipsAsync(
+                    connection, transaction, targetId, selection.UnitIds, selection.PanelIds,
+                    LogisticsStages.WorkStage(stage), actorId, cancellationToken);
+            }
+            await using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+                update logistics_batches
+                set version=version+1, departure_date=@departure_date
+                where id=@id and version=@expected
+                returning version;
+                """;
+            update.Parameters.AddWithValue("id", targetId);
+            update.Parameters.AddWithValue("expected", expectedVersion);
+            AddNullableDate(update, "departure_date", stage == LogisticsStages.Departure ? departureDate : null);
+            var version = Convert.ToInt32(await update.ExecuteScalarAsync(cancellationToken));
+            var response = new LogisticsMutationResponse(
+                operationId, owner.ProjectId, targetId, stage, "Draft", version,
+                selection.PanelIds.Count == 0 ? "target" : "evidence", false);
+            await InsertReceiptAsync(
+                connection, transaction, operationId, "ReplaceLogisticsMembership", owner.ProjectId,
+                null, targetId, actorId, fingerprint, response, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return LogisticsMutationResult<LogisticsMutationResponse>.Success(response);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            await RollbackQuietly(transaction, cancellationToken);
+            return LogisticsMutationResult<LogisticsMutationResponse>.Conflict(
+                "다른 요청이 먼저 물류 구성을 변경했습니다. 새로고침 후 다시 시도해 주세요.");
+        }
+        catch
+        {
+            await RollbackQuietly(transaction, cancellationToken);
+            throw;
+        }
     }
 
     private static string QueueSql(string stage, bool filterProject)
@@ -1007,29 +1100,38 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         var workStage = LogisticsStages.WorkStage(stage);
         var prerequisite = stage == LogisticsStages.Departure
             ? "unit.status='Finalized'"
-            : "unit.status='Finalized' and exists(select 1 from logistics_batch_units departed join logistics_batches departure on departure.id=departed.batch_id and departure.stage_code='DepartureProcessed' and departure.status='Finalized' where departed.packing_unit_id=unit.id and departed.active)";
+            : """
+              unit.status='Finalized'
+              and exists(
+                select 1
+                from logistics_batch_panels departed
+                join logistics_batches departure
+                  on departure.id=departed.batch_id
+                 and departure.stage_code='DepartureProcessed'
+                 and departure.status='Finalized'
+                where departed.panel_id=panel.id and departed.active
+              )
+              """;
+        var waitLabel = stage == LogisticsStages.Departure ? "출발 대기" : "납품 대기";
         return $"""
             select project.id, project.project_code, project.project_title,
-                   unit.id, 'PackingUnit', 'PU-' || lpad(unit.unit_number::text, 3, '0'),
-                   'Packing Unit ' || unit.unit_number,
-                   count(panel.id)::text || '개 패널', array_agg(panel.id order by panel.sequence_number), array_agg(panel.display_code order by panel.sequence_number),
-                   unit.version, '{workStage}',
+                   panel.id, 'Panel', panel.display_code, coalesce(panel.panel_name, panel.display_code),
+                   'PU-' || lpad(unit.unit_number::text, 3, '0') || ' · 포장 완료 · {waitLabel}',
+                   array[panel.id]::uuid[], array[panel.display_code]::text[],
+                   unit.version, work.status,
                    exists(select 1 from pending_issues pending where pending.status <> 'Closed' and pending.project_id=project.id
-                     and (pending.target_type='Project' or (pending.target_type='Panel' and exists(
-                       select 1 from logistics_packing_unit_panels pending_membership
-                       where pending_membership.packing_unit_id=unit.id and pending_membership.panel_id=pending.target_id and pending_membership.active
-                     )))),
-                   (@can_ship and (exists(select 1 from project_assignees pa where pa.project_id=project.id and pa.assigned_user_id=@actor_id and pa.responsibility_type in ('LogisticsPrimary','LogisticsSecondary')) or bool_and(exists(select 1 from work_items current_work where current_work.target_type='Panel' and current_work.target_id=panel.id and current_work.workflow_stage_code='{workStage}' and current_work.status in ('Requested','InProgress') and current_work.assigned_user_id=@actor_id))))
+                     and (pending.target_type='Project' or (pending.target_type='Panel' and pending.target_id=panel.id))),
+                   (@can_ship and (exists(select 1 from project_assignees pa where pa.project_id=project.id and pa.assigned_user_id=@actor_id and pa.responsibility_type in ('LogisticsPrimary','LogisticsSecondary')) or work.assigned_user_id=@actor_id))
             from logistics_packing_units unit
             join projects project on project.id=unit.project_id and project.deleted_at_utc is null and project.status <> 'Cancelled'
             join logistics_packing_unit_panels membership on membership.packing_unit_id=unit.id and membership.active
             join panel_placeholders panel on panel.id=membership.panel_id and panel.status='Active'
+            join work_items work on work.project_id=project.id and work.target_type='Panel' and work.target_id=panel.id
+              and work.workflow_stage_code='{workStage}' and work.status in ('Requested','InProgress')
             where {prerequisite}
-              and not exists(select 1 from logistics_batch_units used where used.packing_unit_id=unit.id and used.stage_code='{workStage}' and used.active)
-              and exists(select 1 from work_items current_work where current_work.target_type='Panel' and current_work.target_id=panel.id and current_work.workflow_stage_code='{workStage}' and current_work.status in ('Requested','InProgress'))
+              and not exists(select 1 from logistics_batch_panels used where used.panel_id=panel.id and used.stage_code='{workStage}' and used.active)
               and (@has_read_all or project.project_key=any(@project_keys)) {projectFilter}
-            group by project.id, project.project_code, project.project_title, unit.id, unit.unit_number, unit.version
-            order by project.project_code, unit.unit_number;
+            order by project.project_code, unit.unit_number, panel.sequence_number;
             """;
     }
 
@@ -1156,39 +1258,79 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 
-    private static async Task<(IReadOnlyList<Guid> PanelIds, IReadOnlyList<string> PanelCodes)?> ReadUnitPanelsAsync(
-        NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, IReadOnlyList<Guid> unitIds, string stage, CancellationToken cancellationToken)
+    private static async Task<BatchSelection?> ReadBatchSelectionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        IReadOnlyList<Guid> requestedUnitIds,
+        IReadOnlyList<Guid> requestedPanelIds,
+        string stage,
+        Guid? existingBatchId,
+        CancellationToken cancellationToken)
     {
-        await using (var lockCommand = connection.CreateCommand())
-        {
-            lockCommand.Transaction = transaction;
-            lockCommand.CommandText = "select id from logistics_packing_units where id=any(@unit_ids) and project_id=@project_id order by id for update";
-            lockCommand.Parameters.AddWithValue("unit_ids", unitIds.ToArray());
-            lockCommand.Parameters.AddWithValue("project_id", projectId);
-            var locked = 0;
-            await using var lockReader = await lockCommand.ExecuteReaderAsync(cancellationToken);
-            while (await lockReader.ReadAsync(cancellationToken)) locked++;
-            if (locked != unitIds.Count) return null;
-        }
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         var prerequisite = stage == LogisticsStages.Departure
             ? "unit.status='Finalized'"
-            : "unit.status='Finalized' and exists(select 1 from logistics_batch_units departed join logistics_batches departure on departure.id=departed.batch_id and departure.status='Finalized' and departure.stage_code='DepartureProcessed' where departed.packing_unit_id=unit.id and departed.active)";
+            : """
+              unit.status='Finalized'
+              and exists(
+                select 1
+                from logistics_batch_panels departed
+                join logistics_batches departure
+                  on departure.id=departed.batch_id
+                 and departure.status='Finalized'
+                 and departure.stage_code='DepartureProcessed'
+                where departed.panel_id=panel.id and departed.active
+              )
+              """;
         command.CommandText = $"""
-            select count(distinct unit.id), array_agg(distinct panel.id), array_agg(distinct panel.display_code)
+            select unit.id, panel.id, panel.display_code
             from logistics_packing_units unit
             join logistics_packing_unit_panels membership on membership.packing_unit_id=unit.id and membership.active
             join panel_placeholders panel on panel.id=membership.panel_id and panel.status='Active'
-            where unit.id=any(@unit_ids) and unit.project_id=@project_id and {prerequisite}
-              and not exists(select 1 from logistics_batch_units used where used.packing_unit_id=unit.id and used.stage_code=@work_stage and used.active)
+            where unit.project_id=@project_id
+              and (
+                (cardinality(@panel_ids) > 0 and panel.id=any(@panel_ids))
+                or (cardinality(@panel_ids) = 0 and unit.id=any(@unit_ids))
+              )
+              and {prerequisite}
+              and not exists(
+                select 1 from logistics_batch_panels used
+                where used.panel_id=panel.id and used.stage_code=@work_stage and used.active
+                  and (@batch_id is null or used.batch_id<>@batch_id)
+              )
+              and exists(
+                select 1 from work_items work
+                where work.project_id=@project_id and work.target_type='Panel' and work.target_id=panel.id
+                  and work.workflow_stage_code=@work_stage and work.status in ('Requested','InProgress')
+              )
+            order by unit.id, panel.id
+            for update of unit, panel;
             """;
-        command.Parameters.AddWithValue("unit_ids", unitIds.ToArray());
+        command.Parameters.AddWithValue("unit_ids", requestedUnitIds.ToArray());
+        command.Parameters.AddWithValue("panel_ids", requestedPanelIds.ToArray());
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("work_stage", LogisticsStages.WorkStage(stage));
+        AddNullableUuid(command, "batch_id", existingBatchId);
+        var unitIds = new List<Guid>();
+        var panelIds = new List<Guid>();
+        var panelCodes = new List<string>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken) || reader.GetInt64(0) != unitIds.Count || reader.IsDBNull(1)) return null;
-        return (reader.GetFieldValue<Guid[]>(1), reader.GetFieldValue<string[]>(2));
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var unitId = reader.GetGuid(0);
+            var panelId = reader.GetGuid(1);
+            if (!unitIds.Contains(unitId)) unitIds.Add(unitId);
+            if (!panelIds.Contains(panelId))
+            {
+                panelIds.Add(panelId);
+                panelCodes.Add(reader.GetString(2));
+            }
+        }
+        if (requestedPanelIds.Count > 0 && panelIds.Count != requestedPanelIds.Count) return null;
+        if (requestedPanelIds.Count == 0 && unitIds.Count != requestedUnitIds.Count) return null;
+        return panelIds.Count == 0 ? null : new BatchSelection(unitIds, panelIds, panelCodes);
     }
 
     private static async Task<Owner?> LockOwnerAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid targetId, string stage, ProjectAccessScope scope, CancellationToken cancellationToken)
@@ -1220,12 +1362,7 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         command.Transaction = transaction;
         command.CommandText = owner.Stage == LogisticsStages.Packing
             ? "select panel_id from logistics_packing_unit_panels where packing_unit_id=@id and active order by panel_id for update"
-            : """
-                select distinct membership.panel_id
-                from logistics_batch_units batch_unit
-                join logistics_packing_unit_panels membership on membership.packing_unit_id=batch_unit.packing_unit_id and membership.active
-                where batch_unit.batch_id=@id and batch_unit.active order by membership.panel_id;
-                """;
+            : "select panel_id from logistics_batch_panels where batch_id=@id and active order by panel_id for update";
         command.Parameters.AddWithValue("id", owner.Id);
         var result = new List<Guid>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1244,13 +1381,39 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         }
     }
 
-    private static async Task InsertBatchMembershipsAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid batchId, IReadOnlyList<Guid> unitIds, string stage, Guid actorId, CancellationToken cancellationToken)
+    private static async Task InsertBatchMembershipsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid batchId,
+        IReadOnlyList<Guid> unitIds,
+        IReadOnlyList<Guid> panelIds,
+        string stage,
+        Guid actorId,
+        CancellationToken cancellationToken)
     {
         foreach (var unitId in unitIds)
         {
             await using var command = connection.CreateCommand(); command.Transaction = transaction;
             command.CommandText = "insert into logistics_batch_units (batch_id,packing_unit_id,stage_code,added_by_user_id) values (@batch_id,@unit_id,@stage,@actor_id)";
             command.Parameters.AddWithValue("batch_id", batchId); command.Parameters.AddWithValue("unit_id", unitId); command.Parameters.AddWithValue("stage", stage); command.Parameters.AddWithValue("actor_id", actorId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        foreach (var panelId in panelIds)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into logistics_batch_panels (
+                    batch_id, packing_unit_id, panel_id, stage_code, added_by_user_id
+                )
+                select @batch_id, membership.packing_unit_id, membership.panel_id, @stage, @actor_id
+                from logistics_packing_unit_panels membership
+                where membership.panel_id=@panel_id and membership.active;
+                """;
+            command.Parameters.AddWithValue("batch_id", batchId);
+            command.Parameters.AddWithValue("panel_id", panelId);
+            command.Parameters.AddWithValue("stage", stage);
+            command.Parameters.AddWithValue("actor_id", actorId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
@@ -1388,7 +1551,7 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         var completion = stage switch
         {
             "PackingCompleted" => "exists(select 1 from logistics_packing_unit_panels membership join logistics_packing_units unit on unit.id=membership.packing_unit_id and unit.status='Finalized' where membership.panel_id=panel.id and membership.active)",
-            "DepartureProcessed" => "exists(select 1 from logistics_packing_unit_panels membership join logistics_batch_units bu on bu.packing_unit_id=membership.packing_unit_id and bu.active join logistics_batches batch on batch.id=bu.batch_id and batch.stage_code='DepartureProcessed' and batch.status='Finalized' where membership.panel_id=panel.id and membership.active)",
+            "DepartureProcessed" => "exists(select 1 from logistics_batch_panels membership join logistics_batches batch on batch.id=membership.batch_id and batch.stage_code='DepartureProcessed' and batch.status='Finalized' where membership.panel_id=panel.id and membership.active)",
             _ => "exists(select 1 from logistics_delivery_results result where result.panel_id=panel.id)"
         };
         await using var command = connection.CreateCommand(); command.Transaction = transaction;
@@ -1420,8 +1583,8 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         command.CommandText = """
             insert into logistics_delivery_results (batch_id,packing_unit_id,panel_id,delivered_by_user_id)
             select @batch_id,membership.packing_unit_id,membership.panel_id,@actor_id
-            from logistics_batch_units bu join logistics_packing_unit_panels membership on membership.packing_unit_id=bu.packing_unit_id and membership.active
-            where bu.batch_id=@batch_id and bu.active and membership.panel_id=any(@panel_ids)
+            from logistics_batch_panels membership
+            where membership.batch_id=@batch_id and membership.active and membership.panel_id=any(@panel_ids)
             on conflict (panel_id) do nothing;
             """;
         command.Parameters.AddWithValue("batch_id",owner.Id); command.Parameters.AddWithValue("actor_id",actorId); command.Parameters.AddWithValue("panel_ids",panels.ToArray());
@@ -1504,6 +1667,10 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
     private static async Task<LogisticsMutationResult<LogisticsMutationResponse>> RollbackConflict(NpgsqlTransaction transaction,string message,CancellationToken token){await transaction.RollbackAsync(token);return LogisticsMutationResult<LogisticsMutationResponse>.Conflict(message);}
     private static async Task RollbackQuietly(NpgsqlTransaction transaction,CancellationToken token){try{await transaction.RollbackAsync(token);}catch{}}
     private sealed record Owner(Guid Id,Guid ProjectId,string Stage,string Status,int Version,DateOnly? DepartureDate);
+    private sealed record BatchSelection(
+        IReadOnlyList<Guid> UnitIds,
+        IReadOnlyList<Guid> PanelIds,
+        IReadOnlyList<string> PanelCodes);
     private readonly record struct Assignee(Guid UserId,string? RoleCode);
     private sealed class QueueProjectBuilder(Guid id,string code,string title){public List<LogisticsQueueItem> Items{get;}=[];public LogisticsProjectQueue Build()=>new(id,code,title,Items);}
 }

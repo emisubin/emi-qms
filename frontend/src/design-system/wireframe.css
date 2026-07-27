@@ -324,6 +324,369 @@ body,
   background: #555555 !important;
 }
 
+/* DESIGN-000 Change 002: one input language across department workspaces. */
+.ds-input-flow {
+  display: grid;
+  min-width: 0;
+  border: 1px solid var(--wire-line-strong);
+  background: var(--wire-surface);
+}
+
+.ds-input-flow__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: center;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--wire-line-strong);
+}
+
+.ds-input-flow__header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.ds-input-flow__header > div > span {
+  color: var(--wire-muted) !important;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.ds-input-flow__header h3,
+.ds-input-flow__header p {
+  margin: 0;
+}
+
+.ds-input-flow__header h3 {
+  font-size: 1.05rem;
+}
+
+.ds-input-flow__header p {
+  color: var(--wire-muted) !important;
+  font-size: 0.76rem;
+}
+
+.ds-input-flow__header ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(82px, 1fr));
+  min-width: 290px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--wire-line);
+  list-style: none;
+}
+
+.ds-input-flow__header li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 6px 9px;
+  border-right: 1px solid var(--wire-line);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.ds-input-flow__header li:last-child {
+  border-right: 0;
+}
+
+.ds-input-flow__header li b {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid var(--wire-black);
+  background: var(--wire-black) !important;
+  color: #ffffff !important;
+  font-size: 0.64rem;
+}
+
+.ds-input-flow__body {
+  display: grid;
+  min-width: 0;
+}
+
+.ds-input-section {
+  display: grid;
+  min-width: 0;
+  border-bottom: 1px solid var(--wire-line);
+  background: var(--wire-surface);
+}
+
+.ds-input-section:last-child {
+  border-bottom: 0;
+}
+
+.ds-input-section__header {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 58px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--wire-line);
+  background: #fafafa !important;
+}
+
+.ds-input-section__header > b {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--wire-black);
+  font-size: 0.67rem;
+}
+
+.ds-input-section__header > div:not(.ds-input-section__actions) {
+  display: grid;
+  gap: 2px;
+}
+
+.ds-input-section__header h4,
+.ds-input-section__header p {
+  margin: 0;
+}
+
+.ds-input-section__header h4 {
+  font-size: 0.85rem;
+}
+
+.ds-input-section__header p {
+  color: var(--wire-muted) !important;
+  font-size: 0.7rem;
+}
+
+.ds-input-section__actions,
+.ds-input-section__content {
+  min-width: 0;
+}
+
+.ds-input-section__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.ds-input-section__content {
+  padding: 16px;
+}
+
+.ds-input-section__content > :first-child {
+  margin-top: 0;
+}
+
+.ds-input-section__content > :last-child {
+  margin-bottom: 0;
+}
+
+.ds-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ds-field-grid[data-columns='3'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ds-field-grid > .ds-field-span {
+  grid-column: 1 / -1;
+}
+
+.ds-choice-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+  border: 1px solid var(--wire-line-strong);
+}
+
+.app-shell .ds-choice-group > button {
+  display: grid;
+  min-height: 52px;
+  gap: 3px;
+  align-content: center;
+  padding: 9px 12px;
+  border: 0;
+  border-right: 1px solid var(--wire-line-strong);
+  background: var(--wire-surface);
+  text-align: left;
+}
+
+.app-shell .ds-choice-group > button:last-child {
+  border-right: 0;
+}
+
+.app-shell .ds-choice-group > button[aria-pressed='true'] {
+  background: var(--wire-black) !important;
+}
+
+.app-shell .ds-choice-group > button[aria-pressed='true'] strong,
+.app-shell .ds-choice-group > button[aria-pressed='true'] small {
+  color: #ffffff !important;
+}
+
+.ds-choice-group strong {
+  font-size: 0.78rem;
+}
+
+.ds-choice-group small {
+  color: var(--wire-muted) !important;
+  font-size: 0.65rem;
+}
+
+.ds-action-bar {
+  position: sticky;
+  z-index: var(--z-sticky, 10);
+  bottom: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  min-height: 68px;
+  margin-top: 16px;
+  padding: 11px 14px;
+  border: 1px solid var(--wire-line-strong);
+  background: rgba(255, 255, 255, 0.97) !important;
+}
+
+.ds-action-bar__copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ds-action-bar__copy > strong {
+  font-size: 0.78rem;
+}
+
+.ds-action-bar__copy > span {
+  color: var(--wire-muted) !important;
+  font-size: 0.68rem;
+}
+
+.ds-action-bar__feedback > .action-feedback {
+  margin-top: 6px;
+}
+
+.ds-action-bar__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+.ds-action-bar__buttons > button {
+  min-height: 42px;
+  padding-inline: 18px;
+}
+
+.app-shell .ds-input-flow :where(input, select, textarea) {
+  min-height: 42px;
+}
+
+.app-shell .ds-input-flow textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.app-shell .ds-input-flow :where(.form-field, label:has(> input), label:has(> select), label:has(> textarea)) {
+  gap: 6px;
+}
+
+@media (max-width: 700px) {
+  .ds-input-flow__header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px 12px;
+  }
+
+  .ds-input-flow__header ol {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ds-input-flow__header li {
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: 5px;
+    min-height: 34px;
+    padding: 5px 6px;
+    font-size: 0.58rem;
+  }
+
+  .ds-input-flow__header li b {
+    width: 19px;
+    height: 19px;
+    font-size: 0.57rem;
+  }
+
+  .ds-input-section__header {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 9px;
+    padding: 10px;
+  }
+
+  .ds-input-section__header > b {
+    width: 30px;
+    height: 30px;
+  }
+
+  .ds-input-section__actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+
+  .ds-input-section__actions > button {
+    width: 100%;
+  }
+
+  .ds-input-section__content {
+    padding: 11px 10px;
+  }
+
+  .ds-field-grid,
+  .ds-field-grid[data-columns='3'] {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .ds-choice-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .app-shell .ds-choice-group > button {
+    min-height: 48px;
+    padding: 8px 9px;
+    border-right: 1px solid var(--wire-line-strong);
+    border-bottom: 1px solid var(--wire-line-strong);
+  }
+
+  .ds-action-bar {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+    min-height: 0;
+    margin-inline: -1px;
+    padding: 10px;
+  }
+
+  .ds-action-bar__buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ds-action-bar__buttons > button {
+    width: 100%;
+  }
+
+  .ds-action-bar__buttons > button:only-child {
+    grid-column: 1 / -1;
+  }
+}
+
 .app-shell img,
 .auth-gate img {
   filter: grayscale(1) contrast(1.08);

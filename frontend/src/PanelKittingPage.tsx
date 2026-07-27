@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, completePanelKitting, getPanelKittingQueue } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
 import { workflowShapeRole } from './design-system';
+import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import type { PanelKittingProject, PanelKittingQueueResponse } from './panelKitting';
 import { SelectedExportTray } from './SelectedExcelExport';
 import { useActionFeedback } from './useActionFeedback';
@@ -22,6 +23,7 @@ export function PanelKittingPage({
   initialProjectId,
   initialPanelId,
   onBack,
+  onOpenProject,
   onOpenReceipts
 }: {
   developmentUserKey: string;
@@ -29,6 +31,7 @@ export function PanelKittingPage({
   initialProjectId?: string;
   initialPanelId?: string;
   onBack: () => void;
+  onOpenProject?: (projectId: string) => void;
   onOpenReceipts: () => void;
 }) {
   const { isMobile } = useAdaptiveLayout();
@@ -51,6 +54,9 @@ export function PanelKittingPage({
       if (generation !== loadGenerationRef.current) return false;
       setState({ kind: 'ready', data });
       setSelectedProjectId((current) => {
+        if (!preferredProjectId && !initialProjectId && !current) {
+          return '';
+        }
         const requested = preferredProjectId ?? current ?? initialProjectId;
         if (requested && data.projects.some((project) => project.projectId === requested)) {
           return requested;
@@ -89,18 +95,6 @@ export function PanelKittingPage({
   );
   const allSelectableSelected = selectablePanelIds.length > 0
     && selectablePanelIds.every((panelId) => selectedPanelIds.includes(panelId));
-
-  function selectProject(projectId: string) {
-    setSelectedProjectId(projectId);
-    setSelectedPanelIds([]);
-    setLinkedPanelId('');
-    actions.reset();
-    operationReceipt.current = null;
-    const url = new URL(window.location.href);
-    url.searchParams.set('project', projectId);
-    url.searchParams.delete('panel');
-    window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
-  }
 
   function togglePanel(panelId: string) {
     setSelectedPanelIds((current) => current.includes(panelId)
@@ -151,6 +145,41 @@ export function PanelKittingPage({
     }
   }
 
+  if (state.kind === 'ready' && !initialProjectId) {
+    const totalPanels = projects.reduce((sum, project) => sum + project.panels.length, 0);
+    const pendingPanels = projects.reduce((sum, project) => sum + project.pendingPanelCount, 0);
+    const completedPanels = projects.reduce((sum, project) => sum + project.completedPanelCount, 0);
+    return (
+      <OperationalProjectDashboard
+        testId="material-kitting-dashboard"
+        eyebrow="MATERIALS · PANEL HANDOFF"
+        title="패널 키팅 프로젝트"
+        description="키팅 완료 상태를 공유할 프로젝트를 선택하세요. 키팅은 제조 시작의 필수 조건이 아닙니다."
+        unitLabel="패널"
+        metrics={[
+          { label: '대상 프로젝트', value: projects.length, helper: '키팅 상태 확인 가능' },
+          { label: '전체 패널', value: totalPanels, helper: '활성 패널 기준' },
+          { label: '알림 대기', value: pendingPanels, helper: '키팅 완료 공유 가능' },
+          { label: '공유 완료', value: completedPanels, helper: '키팅 완료 알림', tone: 'positive' }
+        ]}
+        projects={projects.map((project) => ({
+          projectId: project.projectId,
+          projectCode: project.projectCode,
+          projectTitle: project.projectTitle,
+          totalCount: project.panels.length,
+          readyCount: project.pendingPanelCount,
+          inProgressCount: 0,
+          blockedCount: project.panels.filter((panel) => !panel.panelInfoCompleted).length,
+          completedCount: project.completedPanelCount,
+          detail: `입고 ${project.completedItemCount}/${project.activeItemCount} · ${project.ready ? '입고 완료' : '입고 진행 중'}`
+        }))}
+        emptyMessage="키팅 대상 프로젝트가 없습니다."
+        onBack={onBack}
+        onOpenProject={(projectId) => onOpenProject?.(projectId)}
+      />
+    );
+  }
+
   return (
     <section
       className={isMobile ? 'page-surface panel-kitting-page panel-kitting-page--mobile' : 'page-surface panel-kitting-page'}
@@ -163,7 +192,7 @@ export function PanelKittingPage({
           <p>실제로 키팅을 마친 패널을 선택해 생산관리와 제조팀에 자재 준비 상태를 알립니다.</p>
         </div>
         <div className="kitting-hero-actions">
-          <button type="button" onClick={onBack}>프로젝트</button>
+          <button type="button" onClick={onBack}>키팅 프로젝트</button>
           <button type="button" onClick={onOpenReceipts}>입고 현황</button>
         </div>
         <span className="kitting-hero-orbit" aria-hidden="true" />
@@ -186,14 +215,7 @@ export function PanelKittingPage({
       ) : null}
 
       {state.kind === 'ready' && projects.length > 0 ? (
-        <div className="kitting-workspace">
-          <ProjectQueue
-            projects={projects}
-            selectedProjectId={selectedProjectId}
-            mobile={isMobile}
-            onSelect={selectProject}
-          />
-
+        <div className="kitting-workspace kitting-workspace--single-project">
           {selectedProject ? (
             <main className="kitting-panel-workspace">
               <ProjectReadiness project={selectedProject} />
@@ -275,50 +297,6 @@ export function PanelKittingPage({
         </div>
       ) : null}
     </section>
-  );
-}
-
-function ProjectQueue({
-  projects,
-  selectedProjectId,
-  mobile,
-  onSelect
-}: {
-  projects: PanelKittingProject[];
-  selectedProjectId: string;
-  mobile: boolean;
-  onSelect: (projectId: string) => void;
-}) {
-  const pendingCount = projects.reduce((total, project) => total + project.pendingPanelCount, 0);
-  return (
-    <aside className="kitting-project-queue" aria-label="키팅 프로젝트 큐">
-      <header>
-        <div>
-          <p className="eyebrow">{mobile ? 'PROJECT QUEUE' : 'ACTIVE PROJECTS'}</p>
-          <h3>작업 프로젝트</h3>
-        </div>
-        <span className="kitting-queue-total">{pendingCount}</span>
-      </header>
-      <div className="kitting-project-list">
-        {projects.map((project) => (
-          <button
-            key={project.projectId}
-            type="button"
-            className="kitting-project-card"
-            data-active={project.projectId === selectedProjectId}
-            onClick={() => onSelect(project.projectId)}
-          >
-            <span className="kitting-project-code">{project.projectCode}</span>
-            <strong>{project.projectTitle}</strong>
-            <span className="kitting-project-meta">
-              <i data-ready={project.ready} />
-              {project.ready ? '입고 완료 · 참고' : `입고 ${project.completedItemCount}/${project.activeItemCount} · 참고`}
-            </span>
-            <span className="kitting-project-panels">대기 <b>{project.pendingPanelCount}</b>면</span>
-          </button>
-        ))}
-      </div>
-    </aside>
   );
 }
 

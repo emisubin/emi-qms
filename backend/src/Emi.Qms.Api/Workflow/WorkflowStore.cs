@@ -1515,12 +1515,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                     count(*) filter (
                         where exists (
                             select 1
-                            from logistics_packing_unit_panels membership
-                            join logistics_batch_units batch_unit
-                              on batch_unit.packing_unit_id = membership.packing_unit_id
-                             and batch_unit.active
+                            from logistics_batch_panels membership
                             join logistics_batches batch
-                              on batch.id = batch_unit.batch_id
+                              on batch.id = membership.batch_id
                              and batch.stage_code = 'DepartureProcessed'
                              and batch.status <> 'Cancelled'
                             where membership.panel_id = panel.id
@@ -1530,12 +1527,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                     count(*) filter (
                         where exists (
                             select 1
-                            from logistics_packing_unit_panels membership
-                            join logistics_batch_units batch_unit
-                              on batch_unit.packing_unit_id = membership.packing_unit_id
-                             and batch_unit.active
+                            from logistics_batch_panels membership
                             join logistics_batches batch
-                              on batch.id = batch_unit.batch_id
+                              on batch.id = membership.batch_id
                              and batch.stage_code = 'DepartureProcessed'
                              and batch.status = 'Finalized'
                             where membership.panel_id = panel.id
@@ -1545,12 +1539,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                     count(*) filter (
                         where exists (
                             select 1
-                            from logistics_packing_unit_panels membership
-                            join logistics_batch_units batch_unit
-                              on batch_unit.packing_unit_id = membership.packing_unit_id
-                             and batch_unit.active
+                            from logistics_batch_panels membership
                             join logistics_batches batch
-                              on batch.id = batch_unit.batch_id
+                              on batch.id = membership.batch_id
                              and batch.stage_code = 'DeliveryCompleted'
                              and batch.status <> 'Cancelled'
                             where membership.panel_id = panel.id

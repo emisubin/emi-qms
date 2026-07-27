@@ -747,7 +747,7 @@ describe('App', () => {
     fireEvent.click(menuButton);
     const reopenedDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
     fireEvent.click(within(reopenedDrawer).getByRole('button', { name: '생산관리' }));
-    expect(await screen.findByRole('heading', { name: '생산관리' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '생산관리 업무' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: '전체 업무 메뉴' })).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/production-planning');
   });
@@ -2071,10 +2071,9 @@ describe('App', () => {
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
 
-    const planningWorkspaceTab = await screen.findByRole('tab', { name: '생산계획' });
-    const releaseWorkspaceTab = screen.getByRole('tab', { name: '제조 투입' });
-    expect(planningWorkspaceTab).toHaveAttribute('aria-selected', 'true');
-    expect(releaseWorkspaceTab).toHaveAttribute('aria-selected', 'false');
+    const productionWorkHub = await screen.findByTestId('department-work-hub-production');
+    expect(within(productionWorkHub).getByRole('heading', { name: '생산관리 업무' })).toBeInTheDocument();
+    fireEvent.click(within(productionWorkHub).getByRole('button', { name: /생산계획/ }));
     const productionSummary = await screen.findByLabelText('생산계획 요약');
     expect(productionSummary).toHaveTextContent('생산계획 미등록');
     expect(productionSummary).toHaveTextContent('작성 중');
@@ -2096,6 +2095,7 @@ describe('App', () => {
     expect(within(screen.getByRole('table', { name: 'UL67 생산계획 단계 설정' })).getByDisplayValue('자재 입고')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '행 추가' })).toBeInTheDocument();
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
+    fireEvent.click(within(await screen.findByTestId('department-work-hub-production')).getByRole('button', { name: /생산계획/ }));
 
     const productionTable = await screen.findByRole('table', { name: '생산계획 프로젝트 목록' });
     expect(productionTable).toHaveTextContent('프로젝트명CodeItem면수납기일생산계획 상태');
@@ -2116,11 +2116,10 @@ describe('App', () => {
     expect(within(expanded).queryByRole('table', { name: '생산계획 캘린더 표' })).not.toBeInTheDocument();
     expect(expanded).not.toHaveTextContent('검수 공휴일');
 
-    const currentReleaseWorkspaceTab = screen.getByRole('tab', { name: '제조 투입' });
-    fireEvent.click(currentReleaseWorkspaceTab);
-    await waitFor(() => expect(currentReleaseWorkspaceTab).toHaveAttribute('aria-selected', 'true'));
-    expect(screen.getByRole('tab', { name: '생산계획' })).toHaveAttribute('aria-selected', 'false');
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
+    fireEvent.click(within(await screen.findByTestId('department-work-hub-production')).getByRole('button', { name: /제조 투입/ }));
     expect(screen.queryByLabelText('생산계획 요약')).not.toBeInTheDocument();
+    expect(await screen.findByLabelText('제조 투입 요약')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel 업로드' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel 양식 다운로드' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '생산계획 단계 설정' })).not.toBeInTheDocument();
@@ -2253,6 +2252,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
+    fireEvent.click(within(await screen.findByTestId('department-work-hub-production')).getByRole('button', { name: /생산계획/ }));
 
     expect(await screen.findByLabelText('생산계획 요약')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel 업로드' })).not.toBeInTheDocument();
@@ -2614,13 +2614,13 @@ describe('App', () => {
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
 
-    const materialsHub = await screen.findByTestId('department-project-hub-materials');
+    const materialsHub = await screen.findByTestId('department-work-hub-materials');
     expect(within(materialsHub).getByRole('heading', { name: '자재 업무' })).toBeInTheDocument();
-    expect(within(materialsHub).getByRole('button', { name: /TASK-003A Demo/ })).toBeDisabled();
-    fireEvent.click(within(materialsHub).getByRole('radio', { name: /입고 관리/ }));
-    fireEvent.click(within(materialsHub).getByRole('button', { name: /TASK-003A Demo/ }));
+    expect(within(materialsHub).queryByText('TASK-003A Demo')).not.toBeInTheDocument();
+    fireEvent.click(within(materialsHub).getByRole('button', { name: /입고 관리/ }));
 
     expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /TASK-003A Demo/ }));
     expect(screen.getByText('도착부터 IQC, 입고 확정까지 한 흐름으로 관리합니다.')).toBeInTheDocument();
     expect(screen.getByText('Relay')).toBeInTheDocument();
     expect(screen.queryByText('통상납기')).not.toBeInTheDocument();
@@ -2639,25 +2639,75 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'IQC 요청' })).not.toBeInTheDocument();
   });
 
-  it('opens every downstream operations menu with a project-first hub', async () => {
+  it('separates multi-work menus from their project dashboards', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/manufacturing/queue') {
+        return json({
+          projects: [{
+            projectId,
+            projectCode: 'PJT-003A',
+            projectTitle: 'TASK-003A Demo',
+            readyCount: 1,
+            inProgressCount: 0,
+            blockedCount: 0,
+            completedCount: 0,
+            panels: [{
+              panelId: panelIds[0],
+              displayCode: 'P01',
+              panelName: 'MAIN',
+              workflowStage: 'ManufacturingReady',
+              kittingCompleted: false,
+              workItemId: 'work-manufacturing',
+              workItemStatus: 'Requested',
+              executionId: null,
+              status: 'Ready',
+              version: 0,
+              checkedStepCount: 0,
+              totalStepCount: 4,
+              activePendingId: null,
+              activePendingNumber: null,
+              actionDepartmentCode: null,
+              startedAtUtc: null,
+              completedAtUtc: null,
+              canMutate: true,
+              assemblyStepChecked: null,
+              assemblyStepSequence: null
+            }]
+          }]
+        });
+      }
+      return mockFetch(input, init);
+    }));
     render(<App />);
 
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
-    const expectations = [
-      { menu: 'Pending', testId: 'department-project-hub-pending', heading: 'Pending 프로젝트' },
-      { menu: '자재', testId: 'department-project-hub-materials', heading: '자재 업무' },
-      { menu: '제조', testId: 'department-project-hub-manufacturing', heading: '제조 프로젝트' },
-      { menu: '품질', testId: 'department-project-hub-quality', heading: '품질 프로젝트' },
-      { menu: '물류', testId: 'department-project-hub-logistics', heading: '물류 프로젝트' }
+    const workHubExpectations = [
+      { menu: '생산관리', testId: 'department-work-hub-production', heading: '생산관리 업무' },
+      { menu: '자재', testId: 'department-work-hub-materials', heading: '자재 업무' },
+      { menu: '품질', testId: 'department-work-hub-quality', heading: '품질 업무' },
+      { menu: '물류', testId: 'department-work-hub-logistics', heading: '물류 업무' }
     ];
 
-    for (const expectation of expectations) {
+    for (const expectation of workHubExpectations) {
       fireEvent.click(within(commonNavigation).getByRole('button', { name: expectation.menu }));
       const hub = await screen.findByTestId(expectation.testId);
       expect(within(hub).getByRole('heading', { name: expectation.heading })).toBeInTheDocument();
-      expect(within(hub).getByRole('heading', { name: '프로젝트 선택' })).toBeInTheDocument();
-      expect(within(hub).getByRole('button', { name: /TASK-003A Demo/ })).toBeInTheDocument();
+      expect(within(hub).getByRole('heading', { name: '처리할 업무를 선택하세요' })).toBeInTheDocument();
+      expect(within(hub).queryByText('TASK-003A Demo')).not.toBeInTheDocument();
     }
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '제조' }));
+    expect(await screen.findByTestId('manufacturing-dashboard')).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: '제조 프로젝트 프로젝트 목록' })).toBeInTheDocument();
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: 'Pending' }));
+    const pendingDashboard = await screen.findByTestId('pending-dashboard');
+    expect(within(pendingDashboard).getByRole('heading', { name: 'Pending 프로젝트' })).toBeInTheDocument();
+    expect(within(pendingDashboard).getByRole('table', { name: 'Pending 프로젝트 프로젝트 목록' })).toBeInTheDocument();
+    fireEvent.click(within(pendingDashboard).getByRole('button', { name: /TASK-003A Demo/ }));
+    expect(await screen.findByRole('heading', { name: 'TASK-003A Demo' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pending 프로젝트' })).toBeInTheDocument();
   });
 
   it('opens the Materials workspace for Sales as read-only and keeps input unavailable', async () => {
@@ -2666,11 +2716,11 @@ describe('App', () => {
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
 
-    const materialsHub = await screen.findByTestId('department-project-hub-materials');
-    fireEvent.click(within(materialsHub).getByRole('radio', { name: /입고 관리/ }));
-    fireEvent.click(within(materialsHub).getByRole('button', { name: /TASK-003A Demo/ }));
+    const materialsHub = await screen.findByTestId('department-work-hub-materials');
+    fireEvent.click(within(materialsHub).getByRole('button', { name: /입고 관리/ }));
 
     expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /TASK-003A Demo/ }));
     expect(screen.getByRole('note')).toHaveTextContent('조회 전용입니다.');
     expect(screen.getAllByRole('button', { name: '도착입력' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
     expect(screen.queryByRole('button', { name: '품목 입고 마감' })).not.toBeInTheDocument();
@@ -2683,11 +2733,14 @@ describe('App', () => {
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
 
-    const materialsHub = await screen.findByTestId('department-project-hub-materials');
-    fireEvent.click(within(materialsHub).getByRole('radio', { name: /입고 관리/ }));
-    fireEvent.click(within(materialsHub).getByRole('button', { name: /TASK-003A Demo/ }));
+    const materialsHub = await screen.findByTestId('department-work-hub-materials');
+    fireEvent.click(within(materialsHub).getByRole('button', { name: /입고 관리/ }));
 
     expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('완료 포함'));
+    const materialProject = screen.getByRole('button', { name: /TASK-003A Demo/ });
+    await waitFor(() => expect(materialProject).toHaveTextContent('구매품2건'));
+    fireEvent.click(materialProject);
     expect(screen.getByText('Relay')).toBeInTheDocument();
     expect(screen.getByText('Completed Relay')).toBeInTheDocument();
     expect(screen.getByLabelText('완료 포함')).toBeChecked();
@@ -2829,6 +2882,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
         urgentCount: 0,
         overdueCount: 0,
         reinspectionCount: 0,
+        closedCount: 0,
         registeredCount: 0,
         actionRequestedCount: 0,
         inProgressCount: 0

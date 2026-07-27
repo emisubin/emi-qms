@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { DsActionBar, DsInputFlow, DsInputSection } from './design-system';
 import {
   ApiError,
   cancelMaterialReceipt,
@@ -13,6 +14,7 @@ import {
 } from './api';
 import { MobileSheet } from './MobileSheet';
 import { IqcReportWorkspace } from './IqcReportWorkspace';
+import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import { PendingInspectionContext } from './PendingInspectionContext';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useSelectedRows } from './useSelectedRows';
@@ -171,7 +173,7 @@ export function MaterialReceivingPage({
           {initialProjectCode ? <p className="workspace-project-filter" role="status">현재 프로젝트: <strong>{initialProjectCode}</strong></p> : null}
         </div>
         <div className="material-hero-actions">
-          <button type="button" onClick={onBack}>프로젝트</button>
+          <button type="button" onClick={onBack}>업무 선택</button>
           <button type="button" onClick={onOpenKitting}>패널 키팅</button>
           <button type="button" className="primary-button" onClick={() => onOpenIqc()}>IQC 검사함</button>
         </div>
@@ -312,6 +314,7 @@ export function MaterialIqcPage({
   initialProjectId,
   initialRequestId,
   onBack,
+  onOpenProject,
   onOpenPending
 }: {
   developmentUserKey: string;
@@ -319,6 +322,7 @@ export function MaterialIqcPage({
   initialProjectId?: string;
   initialRequestId?: string;
   onBack: () => void;
+  onOpenProject?: (projectId: string) => void;
   onOpenPending: (pendingId: string) => void;
 }) {
   const layout = useAdaptiveLayout();
@@ -452,6 +456,50 @@ export function MaterialIqcPage({
           <small>{formatDateTime(item.requestedAtUtc)} 요청</small>
         </button>
       </article>
+    );
+  }
+
+  if (state.kind === 'ready' && !initialProjectId) {
+    const grouped = new Map<string, MaterialIqcQueueItem[]>();
+    for (const item of state.data) {
+      grouped.set(item.projectId, [...(grouped.get(item.projectId) ?? []), item]);
+    }
+    const projects = [...grouped.values()];
+    const requestedCount = state.data.filter((item) => item.status === 'Requested').length;
+    const pendingCount = state.data.filter((item) => item.pendingIssueId !== null).length;
+    const inProgressCount = state.data.filter((item) => item.reportStatus === 'Draft').length;
+    const completedCount = state.data.filter((item) => item.status === 'Passed').length;
+    return (
+      <OperationalProjectDashboard
+        testId="quality-iqc-dashboard"
+        eyebrow="QUALITY · IQC"
+        title="IQC 프로젝트"
+        description="도착분 IQC가 있는 프로젝트를 선택하면 해당 프로젝트의 구매품목 검사만 표시합니다."
+        unitLabel="도착분"
+        metrics={[
+          { label: '검사 대기', value: requestedCount, helper: '판정 전 도착분' },
+          { label: '작성 중', value: inProgressCount, helper: '검사성적서 작성 중' },
+          { label: 'Pending 재검사', value: pendingCount, helper: '부적합 조치 확인', tone: 'warning' },
+          { label: '합격', value: completedCount, helper: '입고 확정 가능', tone: 'positive' }
+        ]}
+        projects={projects.map((items) => {
+          const first = items[0];
+          return {
+            projectId: first.projectId,
+            projectCode: first.projectCode,
+            projectTitle: first.projectTitle,
+            totalCount: items.length,
+            readyCount: items.filter((item) => item.status === 'Requested' && item.reportStatus !== 'Draft').length,
+            inProgressCount: items.filter((item) => item.reportStatus === 'Draft').length,
+            blockedCount: items.filter((item) => item.status === 'Failed' || item.pendingIssueId !== null).length,
+            completedCount: items.filter((item) => item.status === 'Passed').length,
+            detail: `${items.length}개 도착분 · 품목별 검사`
+          };
+        })}
+        emptyMessage="IQC 대상 프로젝트가 없습니다."
+        onBack={onBack}
+        onOpenProject={(projectId) => onOpenProject?.(projectId)}
+      />
     );
   }
 
@@ -639,21 +687,32 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
     }
     return (
       <form className="material-action-form" onSubmit={submit}>
-        <ActionContext item={action.item} />
-        {action.item.orderQuantity === null || !action.item.orderUnit ? (
-          <div className="material-action-notice" role="alert">
-            <strong>구매팀 입력이 필요합니다.</strong>
-            <span>{action.item.supplyType === 'CustomerSupplied' ? '제공 예정 수량·단위' : '발주 수량·단위'}를 구매 탭에서 먼저 입력해 주세요.</span>
-          </div>
-        ) : null}
-        <div className="material-form-pair">
-          <label><span>도착 수량</span><input data-autofocus inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /></label>
-          <label><span>단위</span><input value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={20} required disabled={action.item.orderUnit !== null} /></label>
-        </div>
-        <label><span>도착일</span><input type="date" value={arrivalDate} onChange={(event) => setArrivalDate(event.target.value)} required /></label>
-        <label><span>비고</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="운송 상태나 확인 메모" /></label>
-        {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
-        <div className="material-action-buttons"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={!canUpdate || saving || action.item.orderQuantity === null || !action.item.orderUnit}>저장</button></div>
+        <DsInputFlow title="도착분 입력" description="수량과 도착일만 확인하면 저장과 동시에 IQC 업무가 생성됩니다.">
+          <DsInputSection number={1} title="대상 확인" description="선택한 프로젝트와 구매품목입니다.">
+            <ActionContext item={action.item} />
+            {action.item.orderQuantity === null || !action.item.orderUnit ? (
+              <div className="material-action-notice" role="alert">
+                <strong>구매팀 입력이 필요합니다.</strong>
+                <span>{action.item.supplyType === 'CustomerSupplied' ? '제공 예정 수량·단위' : '발주 수량·단위'}를 구매 탭에서 먼저 입력해 주세요.</span>
+              </div>
+            ) : null}
+          </DsInputSection>
+          <DsInputSection number={2} title="도착 정보" description="이번에 실제 도착한 수량과 날짜를 입력합니다.">
+            <div className="material-form-pair">
+              <label><span>도착 수량</span><input data-autofocus inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /></label>
+              <label><span>단위</span><input value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={20} required disabled={action.item.orderUnit !== null} /></label>
+            </div>
+            <label><span>도착일</span><input type="date" value={arrivalDate} onChange={(event) => setArrivalDate(event.target.value)} required /></label>
+            <label><span>비고</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="운송 상태나 확인 메모" /></label>
+          </DsInputSection>
+          <DsActionBar
+            description="저장하면 별도 IQC 요청 버튼 없이 품질 담당자 검사함으로 전달됩니다."
+            feedback={feedback ? <InlineActionFeedback feedback={feedback} /> : undefined}
+          >
+            <button type="button" onClick={onClose}>취소</button>
+            <button className="primary-button" disabled={!canUpdate || saving || action.item.orderQuantity === null || !action.item.orderUnit}>{saving ? '저장 중' : '도착분 저장'}</button>
+          </DsActionBar>
+        </DsInputFlow>
       </form>
     );
   }
@@ -691,14 +750,22 @@ function IqcInspector({ item, reason, feedback, disabled, onReason, onSubmit, on
 }) {
   return (
     <div className="material-action-form iqc-inspector">
-      <div className="iqc-inspector-context"><span>{item.projectCode}</span><h3>{item.orderItem ?? '발주품목 미입력'}</h3>{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<p>{item.projectTitle}</p></div>
-      <dl className="material-item-meta"><div><dt>검사 차수</dt><dd>{item.attemptNumber}차</dd></div><div><dt>도착 수량</dt><dd>{formatQuantity(item.quantity, item.unit)}</dd></div></dl>
-      <div className="iqc-check-guide"><strong>기본 확인</strong><span>품명·수량·외관·식별 정보를 확인한 뒤 판정하세요.</span></div>
-      {item.pendingIssueId ? <button type="button" onClick={() => onOpenPending(item.pendingIssueId!)}>연결된 Pending 보기</button> : null}
-      <label><span>판정 사유</span><textarea data-autofocus data-field="iqcReason" aria-invalid={feedback?.tone === 'error'} value={reason} onChange={(event) => onReason(event.target.value)} placeholder="확인 결과를 3자 이상 기록" disabled={disabled} /></label>
-      {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
-      <div className="iqc-decision-grid"><button type="button" className="iqc-fail-button" disabled={disabled} onClick={() => void onSubmit('Failed')}>부적합 · 입고 차단</button><button type="button" className="primary-button" disabled={disabled} onClick={() => void onSubmit('Passed')}>합격</button></div>
-      <button type="button" onClick={onClose}>닫기</button>
+      <DsInputFlow title="IQC 판정" description="도착분을 확인하고 사유를 남긴 뒤 결과 버튼 하나를 누르세요.">
+        <DsInputSection number={1} title="검사 대상" description="품목과 도착 차수·수량을 확인합니다.">
+          <div className="iqc-inspector-context"><span>{item.projectCode}</span><h3>{item.orderItem ?? '발주품목 미입력'}</h3>{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<p>{item.projectTitle}</p></div>
+          <dl className="material-item-meta"><div><dt>검사 차수</dt><dd>{item.attemptNumber}차</dd></div><div><dt>도착 수량</dt><dd>{formatQuantity(item.quantity, item.unit)}</dd></div></dl>
+          <div className="iqc-check-guide"><strong>기본 확인</strong><span>품명·수량·외관·식별 정보를 확인한 뒤 판정하세요.</span></div>
+          {item.pendingIssueId ? <button type="button" onClick={() => onOpenPending(item.pendingIssueId!)}>연결된 Pending 보기</button> : null}
+        </DsInputSection>
+        <DsInputSection number={2} title="판정 근거" description="확인 결과를 3자 이상 기록합니다.">
+          <label><span>판정 사유</span><textarea data-autofocus data-field="iqcReason" aria-invalid={feedback?.tone === 'error'} value={reason} onChange={(event) => onReason(event.target.value)} placeholder="확인 결과를 3자 이상 기록" disabled={disabled} /></label>
+        </DsInputSection>
+        <DsActionBar description="합격은 입고 확정 업무로, 부적합은 Pending 조치로 자동 연결됩니다." feedback={feedback ? <InlineActionFeedback feedback={feedback} /> : undefined}>
+          <button type="button" onClick={onClose}>닫기</button>
+          <button type="button" className="iqc-fail-button" disabled={disabled} onClick={() => void onSubmit('Failed')}>부적합</button>
+          <button type="button" className="primary-button" disabled={disabled} onClick={() => void onSubmit('Passed')}>합격</button>
+        </DsActionBar>
+      </DsInputFlow>
     </div>
   );
 }

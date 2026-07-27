@@ -332,11 +332,9 @@ public sealed class SalesBillingRequestStore(
             ), departed_panels as (
                 select distinct panel.id as panel_id, panel.project_id, batch.departure_date
                 from active_panels panel
-                join logistics_packing_unit_panels membership on membership.panel_id=panel.id and membership.active
-                join logistics_packing_units unit on unit.id=membership.packing_unit_id and unit.status='Finalized'
-                join logistics_batch_units batch_unit on batch_unit.packing_unit_id=unit.id
-                  and batch_unit.stage_code='DepartureProcessed' and batch_unit.active
-                join logistics_batches batch on batch.id=batch_unit.batch_id
+                join logistics_batch_panels batch_panel on batch_panel.panel_id=panel.id
+                  and batch_panel.stage_code='DepartureProcessed' and batch_panel.active
+                join logistics_batches batch on batch.id=batch_panel.batch_id
                   and batch.project_id=panel.project_id and batch.stage_code='DepartureProcessed'
                   and batch.status='Finalized' and batch.departure_date is not null
             ), project_departure as (

@@ -324,6 +324,27 @@ public sealed class PostgreSqlMigrationTests
               'manufacturing_step_template_items','form_template_manager_bindings','form_template_audit_events');
             """,
             TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from information_schema.tables
+            where table_schema='public' and table_name='logistics_batch_panels';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from pg_indexes
+            where schemaname='public' and indexname='ux_logistics_batch_panels_active_stage';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from pg_indexes
+            where schemaname='public' and indexname='ux_logistics_batch_units_active_stage';
+            """,
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -440,7 +461,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0056_manufacturing_assembly_batch", await ReadScalarAsync<string>(
+            Assert.Equal("0057_logistics_batch_panels", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -739,7 +760,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0056_manufacturing_assembly_batch", await ReadScalarAsync<string>(
+        Assert.Equal("0057_logistics_batch_panels", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1068,21 +1089,22 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(7L, await ReadScalarAsync<long>(provider, """
+        Assert.Equal(8L, await ReadScalarAsync<long>(provider, """
             select count(*) from information_schema.tables
             where table_schema='public' and table_name in (
               'logistics_packing_units','logistics_packing_unit_panels','logistics_batches',
-              'logistics_batch_units','logistics_evidence','logistics_delivery_results','logistics_operations'
+              'logistics_batch_units','logistics_batch_panels','logistics_evidence','logistics_delivery_results','logistics_operations'
             );
             """, TestContext.Current.CancellationToken));
         Assert.Equal(2L, await ReadScalarAsync<long>(provider, """
             select count(*) from pg_indexes where schemaname='public'
-              and indexname in ('ux_logistics_packing_unit_panels_active_panel','ux_logistics_batch_units_active_stage');
+              and indexname in ('ux_logistics_packing_unit_panels_active_panel','ux_logistics_batch_panels_active_stage');
             """, TestContext.Current.CancellationToken));
-        Assert.Equal(5L, await ReadScalarAsync<long>(provider, """
+        Assert.Equal(6L, await ReadScalarAsync<long>(provider, """
             select count(*) from pg_trigger where not tgisinternal and tgname in (
               'trg_guard_finalized_logistics_packing_unit','trg_guard_finalized_logistics_batch',
-              'trg_guard_logistics_packing_unit_panel','trg_guard_logistics_batch_unit','trg_guard_logistics_evidence'
+              'trg_guard_logistics_packing_unit_panel','trg_guard_logistics_batch_unit',
+              'trg_guard_logistics_batch_panel','trg_guard_logistics_evidence'
             );
             """, TestContext.Current.CancellationToken));
     }

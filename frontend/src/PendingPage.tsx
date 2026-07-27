@@ -15,6 +15,7 @@ import {
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
 import { MobileSheet } from './MobileSheet';
+import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import type { ProjectListItem } from './projects';
 import type {
   CreatePendingRequest,
@@ -38,6 +39,7 @@ type PendingPageProps = {
   initialProjectId?: string;
   canManage: boolean;
   onOpenPending: (pendingId: string) => void;
+  onOpenProjectPending: (projectId: string) => void;
   onBackToList: () => void;
   onOpenProject: (projectId: string) => void;
   onOpenIqc: (attemptId: string) => void;
@@ -88,7 +90,8 @@ function PendingListView({
   initialProjectId,
   canManage,
   onOpenPending,
-  onOpenProject,
+  onOpenProjectPending,
+  onBackToList,
   onBadgeRefresh
 }: PendingPageProps) {
   const { isMobile } = useAdaptiveLayout();
@@ -98,12 +101,12 @@ function PendingListView({
   const [priority, setPriority] = useState<PendingPriority | ''>('');
   const [projectId, setProjectId] = useState(initialProjectId ?? '');
   const [projectOptions, setProjectOptions] = useState<ProjectListItem[]>([]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [typeOptions, setTypeOptions] = useState<PendingTypeOption[] | null>(null);
   const [typeOptionsError, setTypeOptionsError] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  const [draftProjectId, setDraftProjectId] = useState(initialProjectId ?? '');
   const [draftStatus, setDraftStatus] = useState<PendingStatus | ''>('');
   const [draftIssueType, setDraftIssueType] = useState<PendingIssueType | ''>('');
   const [draftPriority, setDraftPriority] = useState<PendingPriority | ''>('');
@@ -128,10 +131,16 @@ function PendingListView({
     let active = true;
     void listProjects(developmentUserKey, '', 'All', { pageSize: 100 })
       .then((response) => {
-        if (active) setProjectOptions(response.items);
+        if (active) {
+          setProjectOptions(response.items);
+          setProjectsLoaded(true);
+        }
       })
       .catch(() => {
-        if (active) setProjectOptions([]);
+        if (active) {
+          setProjectOptions([]);
+          setProjectsLoaded(true);
+        }
       });
     return () => { active = false; };
   }, [developmentUserKey]);
@@ -167,16 +176,108 @@ function PendingListView({
   const items = state.kind === 'ready' ? state.data.items : [];
   const pendingVisibleIds = items.map((item) => item.pendingId);
   const pendingSelection = useSelectedRows(pendingVisibleIds);
-  const activeFilterCount = [projectId, status, issueType, priority].filter(Boolean).length;
+  const activeFilterCount = [status, issueType, priority].filter(Boolean).length;
+
+  if (!initialProjectId) {
+    if (state.kind === 'loading' || !projectsLoaded) {
+      return <section className="page-surface pending-page"><PendingLoading /></section>;
+    }
+    if (state.kind === 'error') {
+      return <section className="page-surface pending-page"><PendingError message={state.message} onRetry={load} /></section>;
+    }
+
+    const issuesByProject = new Map<string, PendingIssue[]>();
+    for (const item of state.data.items) {
+      issuesByProject.set(item.projectId, [...(issuesByProject.get(item.projectId) ?? []), item]);
+    }
+
+    return (
+      <>
+        <OperationalProjectDashboard
+          testId="pending-dashboard"
+          eyebrow="ISSUE CONTROL · PROJECT QUEUE"
+          title="Pending 프로젝트"
+          description="프로젝트별 진행 중·긴급·기한 초과 이슈를 확인한 뒤 한 프로젝트 안에서 조치와 재검사를 처리합니다."
+          unitLabel="이슈"
+          columnLabels={{
+            total: '전체',
+            ready: '진행 중',
+            inProgress: '긴급',
+            blocked: '기한 초과',
+            completed: '종결'
+          }}
+          metrics={[
+            { label: '진행 중', value: state.data.summary.openCount, helper: '종결 전 전체 이슈' },
+            { label: '긴급', value: state.data.summary.urgentCount, helper: '즉시 확인 필요', tone: 'warning' },
+            { label: '기한 초과', value: state.data.summary.overdueCount, helper: '조치 기한 경과', tone: 'warning' },
+            { label: '재검사 대기', value: state.data.summary.reinspectionCount, helper: '품질 판정 필요' }
+          ]}
+          projects={projectOptions.map((project) => {
+            const projectIssues = issuesByProject.get(project.projectId) ?? [];
+            const openCount = projectIssues.filter((item) => item.status !== 'Closed').length;
+            const urgentCount = projectIssues.filter((item) => item.status !== 'Closed' && item.priority === 'Urgent').length;
+            const overdueCount = projectIssues.filter((item) => item.status !== 'Closed' && item.isOverdue).length;
+            const reinspectionCount = projectIssues.filter((item) => item.status === 'ReinspectionRequested').length;
+            const closedCount = projectIssues.filter((item) => item.status === 'Closed').length;
+            return {
+              projectId: project.projectId,
+              projectCode: project.projectCode,
+              projectTitle: project.projectTitle,
+              totalCount: projectIssues.length,
+              readyCount: openCount,
+              inProgressCount: urgentCount,
+              blockedCount: overdueCount,
+              completedCount: closedCount,
+              detail: `재검사 ${reinspectionCount}건 · ${project.customerName ?? '고객사 미입력'}`,
+              inProgressTone: 'warning' as const
+            };
+          }).sort((left, right) =>
+            right.readyCount - left.readyCount
+            || right.inProgressCount - left.inProgressCount
+            || right.blockedCount - left.blockedCount
+            || left.projectCode.localeCompare(right.projectCode, 'ko-KR'))}
+          emptyMessage="조회할 프로젝트가 없습니다."
+          primaryAction={canManage ? {
+            label: '+ Pending 등록',
+            disabled: typeOptions === null || typeOptionsError,
+            onClick: () => setShowCreate(true)
+          } : undefined}
+          onOpenProject={onOpenProjectPending}
+        />
+        {feedback ? <p className="action-feedback" data-tone="success" role="status">{feedback}</p> : null}
+        {typeOptionsError ? <p className="action-feedback" data-tone="error" role="alert">Pending 유형을 불러오지 못해 신규 등록을 안전하게 차단했습니다. 새로고침해 주세요.</p> : null}
+        {showCreate ? (
+          <PendingCreateDialog
+            developmentUserKey={developmentUserKey}
+            onClose={() => setShowCreate(false)}
+            onCreated={(detail) => {
+              setShowCreate(false);
+              setFeedback(`#${padIssueNumber(detail.issue.issueNumber)} Pending이 등록되었습니다.`);
+              void load();
+              onBadgeRefresh();
+            }}
+          />
+        ) : null}
+      </>
+    );
+  }
+
+  const selectedProject = projectOptions.find((project) => project.projectId === initialProjectId);
+  const selectedProjectTitle = selectedProject?.projectTitle ?? items[0]?.projectTitle ?? 'Pending 프로젝트';
+  const selectedProjectCode = selectedProject?.projectCode ?? items[0]?.projectCode ?? '프로젝트';
+
   return (
-    <section className={isMobile ? 'page-surface pending-page mobile-first-page' : 'page-surface pending-page'} aria-labelledby="pending-title">
+    <section className={isMobile ? 'page-surface pending-page pending-page--project mobile-first-page' : 'page-surface pending-page pending-page--project'} aria-labelledby="pending-title">
       <header className={isMobile ? 'page-header pending-header mobile-page-header' : 'page-header pending-header'}>
         <div>
-          <p className="eyebrow">{isMobile ? 'URGENT ISSUE CONTROL' : 'COMMON ISSUE CONTROL'}</p>
-          <h2 id="pending-title">{isMobile ? '현장 Pending' : 'Pending List'}</h2>
-          <p className="muted-text">{isMobile ? '긴급·기한 초과 이슈부터 확인하고 바로 조치하세요.' : '관리자가 구성한 Pending 유형으로 등록하고 담당 조치부터 재검사·종결까지 추적합니다.'}</p>
+          <p className="eyebrow">PENDING · PROJECT</p>
+          <h2 id="pending-title">{selectedProjectTitle}</h2>
+          <p className="muted-text">{selectedProjectCode} · 이 프로젝트의 등록·조치·재검사·종결 이력만 표시합니다.</p>
         </div>
-        {canManage ? <button className="primary-button" type="button" disabled={typeOptions === null || typeOptionsError} onClick={() => setShowCreate(true)}>+ Pending 등록</button> : null}
+        <div className="pending-project-actions">
+          <button type="button" onClick={onBackToList}>Pending 프로젝트</button>
+          {canManage ? <button className="primary-button" type="button" disabled={typeOptions === null || typeOptionsError} onClick={() => setShowCreate(true)}>+ Pending 등록</button> : null}
+        </div>
       </header>
 
       {typeOptionsError ? <p className="action-feedback" data-tone="error" role="alert">Pending 유형을 불러오지 못해 유형 필터와 신규 등록을 안전하게 차단했습니다. 새로고침해 주세요.</p> : null}
@@ -191,14 +292,13 @@ function PendingListView({
             className="mobile-filter-trigger"
             aria-expanded={mobileFiltersOpen}
             onClick={() => {
-              setDraftProjectId(projectId);
               setDraftStatus(status);
               setDraftIssueType(issueType);
               setDraftPriority(priority);
               setMobileFiltersOpen(true);
             }}
           >
-            <span><strong>Pending 필터</strong><small>{activeFilterCount ? `${activeFilterCount}개 조건 적용 중` : '긴급도·상태·프로젝트로 찾기'}</small></span>
+            <span><strong>Pending 필터</strong><small>{activeFilterCount ? `${activeFilterCount}개 조건 적용 중` : '긴급도·상태·유형으로 찾기'}</small></span>
             <span aria-hidden="true">⌕</span>
           </button>
           <MobileSheet
@@ -211,13 +311,13 @@ function PendingListView({
             fullScreen
             footer={(
               <>
-                <button type="button" onClick={() => { setDraftProjectId(''); setDraftStatus(''); setDraftIssueType(''); setDraftPriority(''); }}>초기화</button>
+                <button type="button" onClick={() => { setDraftStatus(''); setDraftIssueType(''); setDraftPriority(''); }}>초기화</button>
                 <button type="button" onClick={() => setMobileFiltersOpen(false)}>취소</button>
                 <button
                   type="button"
                   className="primary-button"
                   onClick={() => {
-                    setProjectId(draftProjectId);
+                    setProjectId(initialProjectId);
                     setStatus(draftStatus);
                     setIssueType(draftIssueType);
                     setPriority(draftPriority);
@@ -230,20 +330,18 @@ function PendingListView({
             )}
           >
             <div className="mobile-filter-form">
-              <label><span>프로젝트</span><select data-autofocus value={draftProjectId} onChange={(event) => setDraftProjectId(event.target.value)}><option value="">전체 프로젝트</option>{projectOptions.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
-              <label><span>상태</span><select value={draftStatus} onChange={(event) => setDraftStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              <label><span>상태</span><select data-autofocus value={draftStatus} onChange={(event) => setDraftStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
               <label><span>유형</span><select disabled={typeOptions === null || typeOptionsError} value={draftIssueType} onChange={(event) => setDraftIssueType(event.target.value as PendingIssueType | '')}><option value="">전체 유형</option>{typeOptions?.map((option) => <option key={option.code} value={option.code}>{option.displayName}{option.isActive ? '' : ' · 사용 중지'}</option>)}</select></label>
               <label><span>긴급도</span><select value={draftPriority} onChange={(event) => setDraftPriority(event.target.value as PendingPriority | '')}><option value="">전체 긴급도</option><option value="Urgent">긴급</option><option value="Normal">일반</option></select></label>
             </div>
           </MobileSheet>
         </>
       ) : (
-        <div className="pending-filter-bar" aria-label="Pending 필터">
-          <label><span>프로젝트</span><select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">전체 프로젝트</option>{projectOptions.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
+        <div className="pending-filter-bar pending-filter-bar--project" aria-label="Pending 필터">
           <label><span>상태</span><select value={status} onChange={(event) => setStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <label><span>유형</span><select disabled={typeOptions === null || typeOptionsError} value={issueType} onChange={(event) => setIssueType(event.target.value as PendingIssueType | '')}><option value="">전체 유형</option>{typeOptions?.map((option) => <option key={option.code} value={option.code}>{option.displayName}{option.isActive ? '' : ' · 사용 중지'}</option>)}</select></label>
           <label><span>긴급도</span><select value={priority} onChange={(event) => setPriority(event.target.value as PendingPriority | '')}><option value="">전체 긴급도</option><option value="Urgent">긴급</option><option value="Normal">일반</option></select></label>
-          <button type="button" onClick={() => { setProjectId(''); setStatus(''); setIssueType(''); setPriority(''); }}>필터 초기화</button>
+          <button type="button" onClick={() => { setStatus(''); setIssueType(''); setPriority(''); }}>필터 초기화</button>
         </div>
       )}
 
@@ -276,20 +374,15 @@ function PendingListView({
               selectionBusy={pendingSelection.busy}
               onSelectionChange={(checked) => pendingSelection.toggle(item.pendingId, checked)}
               onOpen={() => onOpenPending(item.pendingId)}
-              onOpenProject={() => onOpenProject(item.projectId)}
             />
           ))}
         </div>
       ) : null}
 
-      <aside className="pending-attachment-note" aria-label="첨부 기능 안내">
-        <strong>첨부파일은 정책 확정 후 제공됩니다.</strong>
-        <span>저장 위치·파일 검역·접근권한·보존/복구 기준을 먼저 확정하고 안전하게 연결합니다. 현재는 코멘트에 조치 근거를 남겨 주세요.</span>
-      </aside>
-
       {showCreate ? (
         <PendingCreateDialog
           developmentUserKey={developmentUserKey}
+          initialProjectId={initialProjectId}
           onClose={() => setShowCreate(false)}
           onCreated={(detail) => {
             setShowCreate(false);
@@ -314,7 +407,7 @@ function PendingSummaryCards({ data }: { data: PendingListResponse }) {
   return <div className="pending-summary-grid">{cards.map(([label, value, tone]) => <div key={label} data-tone={tone}><span>{label}</span><strong>{value}</strong></div>)}</div>;
 }
 
-function PendingCard({ item, selected, selectionBusy, onSelectionChange, onOpen, onOpenProject }: { item: PendingIssue; selected: boolean; selectionBusy: boolean; onSelectionChange: (selected: boolean) => void; onOpen: () => void; onOpenProject: () => void }) {
+function PendingCard({ item, selected, selectionBusy, onSelectionChange, onOpen }: { item: PendingIssue; selected: boolean; selectionBusy: boolean; onSelectionChange: (selected: boolean) => void; onOpen: () => void }) {
   return (
     <article className="pending-card selected-export-row" data-priority={item.priority} data-overdue={item.isOverdue}>
       <SelectionCheckbox checked={selected} disabled={selectionBusy} label={`Pending ${item.issueNumber} 선택`} onChange={onSelectionChange} />
@@ -328,7 +421,6 @@ function PendingCard({ item, selected, selectionBusy, onSelectionChange, onOpen,
         <button className="pending-title-button" type="button" onClick={onOpen}>{item.title}</button>
         <p>{item.description}</p>
         <div className="pending-card-meta">
-          <button className="link-button" type="button" onClick={onOpenProject}>{item.projectCode} · {item.projectTitle}</button>
           <span>담당 {item.assigneeDisplayName ?? '미지정'}</span>
           {item.targetType === 'Panel' && item.targetLabel ? <span>패널 {item.targetLabel}</span> : null}
           {item.actionDepartmentCode ? <span>조치 부서 {departmentLabel(item.actionDepartmentCode)}</span> : null}
@@ -342,14 +434,16 @@ function PendingCard({ item, selected, selectionBusy, onSelectionChange, onOpen,
 
 function PendingCreateDialog({
   developmentUserKey,
+  initialProjectId,
   onClose,
   onCreated
 }: {
   developmentUserKey: string | undefined;
+  initialProjectId?: string;
   onClose: () => void;
   onCreated: (detail: PendingDetail) => void;
 }) {
-  const [form, setForm] = useState<CreatePendingRequest>(emptyCreate);
+  const [form, setForm] = useState<CreatePendingRequest>({ ...emptyCreate, projectId: initialProjectId ?? '' });
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [assignees, setAssignees] = useState<PendingAssignee[]>([]);
   const [typeOptions, setTypeOptions] = useState<PendingTypeOption[]>([]);

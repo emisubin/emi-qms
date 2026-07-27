@@ -5,7 +5,7 @@ const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const salesUserId = '50000000-0000-0000-0000-000000000002';
 const logisticsUserId = '50000000-0000-0000-0000-000000000006';
 
-test('Change 013: packing, departure and delivery finalize from one evidence-first save', async ({ page, request }) => {
+test('Change 016: packed panels can depart and deliver independently', async ({ page, request }) => {
   test.setTimeout(180_000);
   const unique = Date.now();
   const created = await request.post(`${apiBaseUrl}/api/projects`, {
@@ -48,6 +48,7 @@ test('Change 013: packing, departure and delivery finalize from one evidence-fir
   expect(bypass.status()).toBe(409);
 
   await page.getByRole('button', { name: /P01/u }).click();
+  await page.getByRole('button', { name: /P02/u }).click();
   const packingSave = page.getByRole('button', { name: '포장 저장 및 확정' });
   await expect(packingSave).toBeDisabled();
   await page.getByLabel(/포장 사진/u).setInputFiles({
@@ -61,9 +62,9 @@ test('Change 013: packing, departure and delivery finalize from one evidence-fir
   expect(packingTargetId).not.toBe('');
   await assertNoHorizontalOverflow(page);
 
-  await page.goto(`/logistics?stage=departure&project=${projectId}&unit=${packingTargetId}`);
+  await page.goto(`/logistics?stage=departure&project=${projectId}&panel=${panelIds[0]}`);
   await expect(page.getByRole('button', { name: '02 출발' })).toHaveAttribute('aria-current', 'step');
-  await expect(page.locator('.logistics-target-card')).toHaveCount(1);
+  await expect(page.locator('.logistics-target-card')).toHaveCount(2);
   await expect(page.getByText('1 선택', { exact: true })).toBeVisible();
   await page.getByLabel(/상차 사진/u).setInputFiles({
     name: 'departure.png',
@@ -74,7 +75,7 @@ test('Change 013: packing, departure and delivery finalize from one evidence-fir
   await expect(page.getByText(/출발 확정 완료/u)).toBeVisible();
   await assertNoHorizontalOverflow(page);
 
-  await page.goto(`/logistics?stage=delivery&project=${projectId}&unit=${packingTargetId}`);
+  await page.goto(`/logistics?stage=delivery&project=${projectId}&panel=${panelIds[0]}`);
   await expect(page.getByRole('button', { name: '03 납품' })).toHaveAttribute('aria-current', 'step');
   await expect(page.locator('.logistics-target-card')).toHaveCount(1);
   await expect(page.getByText('1 선택', { exact: true })).toBeVisible();
@@ -89,34 +90,20 @@ test('Change 013: packing, departure and delivery finalize from one evidence-fir
 
   expect(queryDatabase(`select count(*)::text from panel_placeholders where project_id='${projectId}' and workflow_stage='ShipmentCompleted';`)).toBe('1');
   expect(queryDatabase(`select count(*)::text from work_items where project_id='${projectId}' and workflow_stage_code='SalesSettlementCompleted' and target_type='Project';`)).toBe('0');
-  const remainingPackingQueue = await request.get(`${apiBaseUrl}/api/logistics/queue?stage=packing&projectId=${projectId}`, {
+  const remainingDepartureQueue = await request.get(`${apiBaseUrl}/api/logistics/queue?stage=departure&projectId=${projectId}`, {
     headers: devHeaders('dev-logistics')
   });
-  expect(remainingPackingQueue.ok(), await remainingPackingQueue.text()).toBeTruthy();
-  const remainingPacking = await remainingPackingQueue.json() as { projects: Array<{ items: Array<{ panelIds: string[] }> }> };
-  expect(remainingPacking.projects.flatMap((project) => project.items).flatMap((item) => item.panelIds)).toEqual([panelIds[1]]);
-
-  const secondPacking = await postJson(request, '/api/logistics/packing-units', 'dev-logistics', {
-    operationId: crypto.randomUUID(), projectId, panelIds: [panelIds[1]], note: '패널 2 개별 포장', specification: 'RPP', weightText: '10kg'
-  }) as Mutation;
-  await page.goto(`/logistics?stage=packing&project=${projectId}`);
-  await expect(page.getByText(/중간에 멈춘 물류 작업을 복구했습니다/u)).toBeVisible();
-  await expect(page.getByText('복구됨')).toBeVisible();
-  await page.getByLabel(/포장 사진/u).setInputFiles({
-    name: 'packing-recovered.png',
-    mimeType: 'image/png',
-    buffer: tinyPng()
-  });
-  await page.getByRole('button', { name: '포장 저장 및 확정' }).click();
-  await expect(page.getByText(/포장 확정 완료/u)).toBeVisible();
+  expect(remainingDepartureQueue.ok(), await remainingDepartureQueue.text()).toBeTruthy();
+  const remainingDeparture = await remainingDepartureQueue.json() as { projects: Array<{ items: Array<{ panelIds: string[] }> }> };
+  expect(remainingDeparture.projects.flatMap((project) => project.items).flatMap((item) => item.panelIds)).toEqual([panelIds[1]]);
 
   const secondDeparture = await postJson(request, '/api/logistics/departure-batches', 'dev-logistics', {
-    operationId: crypto.randomUUID(), projectId, unitIds: [secondPacking.targetId], departureDate: '2026-07-19'
+    operationId: crypto.randomUUID(), projectId, panelIds: [panelIds[1]], departureDate: '2026-07-19'
   }) as Mutation;
   let version = await uploadEvidence(request, 'departure', secondDeparture.targetId, secondDeparture.version, tinyPng(), '패널 2 상차 사진');
   await finalize(request, 'departure', secondDeparture.targetId, version);
   const secondDelivery = await postJson(request, '/api/logistics/delivery-batches', 'dev-logistics', {
-    operationId: crypto.randomUUID(), projectId, unitIds: [secondPacking.targetId], departureDate: null
+    operationId: crypto.randomUUID(), projectId, panelIds: [panelIds[1]], departureDate: null
   }) as Mutation;
   version = await uploadEvidence(request, 'delivery', secondDelivery.targetId, secondDelivery.version, Buffer.from('%PDF-1.4 panel-two'), '');
   await finalize(request, 'delivery', secondDelivery.targetId, version);

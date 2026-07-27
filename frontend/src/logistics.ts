@@ -113,6 +113,7 @@ export interface CreatePackingUnitRequest {
 export interface CreateLogisticsBatchRequest {
   operationId: string;
   projectId: string;
-  unitIds: string[];
+  unitIds?: string[];
+  panelIds: string[];
   departureDate: string | null;
 }

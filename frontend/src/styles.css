@@ -20419,8 +20419,6 @@ body {
 }
 
 /* TASK-PRODUCTION-CONTROL-001 — versioned templates and linked plan/actual view */
-.form-template-mode-switch,
-.production-control-domain-tabs,
 .production-control-version-list,
 .production-control-version-actions {
   display: flex;
@@ -20429,37 +20427,34 @@ body {
   flex-wrap: wrap;
 }
 
-.form-template-mode-switch {
-  margin: 18px 0;
-  padding: 4px;
-  border: 1px solid #111;
-  background: #fff;
-}
-
-.form-template-mode-switch button,
-.production-control-domain-tabs button,
 .production-control-version-list button {
-  border: 0;
-  border-radius: 0;
+  border: 1px solid #aaa;
   background: #fff;
   color: #111;
 }
 
-.form-template-mode-switch button.is-active,
-.production-control-domain-tabs button.is-active,
 .production-control-version-list button.is-active {
   background: #111;
   color: #fff;
 }
 
+.form-template-workspace.has-production-control {
+  grid-template-columns: minmax(210px, .52fr) minmax(0, 2.48fr);
+}
+
 .production-control-template-workspace,
 .production-control-template-loading {
   min-width: 0;
-  border: 1px solid #111;
   background: #fff;
 }
 
+.production-control-template-workspace {
+  grid-column: 2 / -1;
+  border: 0;
+}
+
 .production-control-template-loading {
+  grid-column: 2 / -1;
   padding: 24px;
 }
 
@@ -20481,11 +20476,37 @@ body {
   margin: 3px 0;
 }
 
-.production-control-template-toolbar label {
+.production-control-template-intro p {
+  margin: 4px 0 0;
+}
+
+.production-control-template-step {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.production-control-template-step > b {
+  display: grid;
+  flex: 0 0 30px;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #111;
+  background: #111;
+  color: #fff;
+}
+
+.production-control-template-step > label,
+.production-control-template-step > span {
+  display: grid;
+  gap: 5px;
   font-weight: 700;
+}
+
+.production-control-template-step small {
+  font-weight: 500;
 }
 
 .production-control-template-toolbar select {
@@ -20504,7 +20525,6 @@ body {
 }
 
 .production-control-editor > header small,
-.production-control-plan-fields label,
 .production-control-row label,
 .production-control-project-fields label {
   display: grid;
@@ -20519,27 +20539,132 @@ body {
 }
 
 .production-control-row,
-.production-control-plan-row,
 .production-control-project-rows > article {
   min-width: 0;
   border-bottom: 1px solid #bbb;
 }
 
+.production-control-row-head,
 .production-control-row {
   display: grid;
   grid-template-columns: 44px minmax(220px, 1fr) 180px 80px;
-  align-items: end;
-  gap: 12px;
-  padding: 14px 20px;
-}
-
-.production-control-plan-fields {
-  display: grid;
-  grid-template-columns: 44px minmax(220px, 1fr) 100px 80px;
   align-items: center;
   gap: 12px;
-  padding: 14px 20px;
-  border-bottom: 1px dashed #aaa;
+  padding: 10px 20px;
+}
+
+.production-control-row-head {
+  border-bottom: 1px solid #111;
+  background: #f4f4f4;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.production-control-row input,
+.production-control-row select {
+  width: 100%;
+  min-width: 0;
+}
+
+.production-control-template-plan-row {
+  border-bottom: 1px solid #aaa;
+  background: #fff;
+}
+
+.production-control-plan-summary {
+  display: grid;
+  grid-template-columns: 40px minmax(180px, 1.2fr) minmax(170px, 1fr) 58px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 68px;
+  padding: 10px 18px;
+  border: 0;
+  background: #fff;
+  text-align: left;
+}
+
+.production-control-plan-summary > b {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #111;
+}
+
+.production-control-plan-summary > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.production-control-plan-summary small {
+  overflow: hidden;
+  color: #666;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.production-control-plan-summary i {
+  justify-self: end;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.production-control-template-plan-row[data-expanded] > .production-control-plan-summary {
+  border-bottom: 1px solid #111;
+  background: #f4f4f4;
+}
+
+.production-control-plan-editor {
+  display: grid;
+  grid-template-columns: minmax(220px, .7fr) minmax(420px, 1.8fr);
+  min-width: 0;
+}
+
+.production-control-plan-basics,
+.production-control-plan-connections {
+  min-width: 0;
+  padding: 18px;
+}
+
+.production-control-plan-basics {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  border-right: 1px solid #aaa;
+}
+
+.production-control-plan-basics > header,
+.production-control-plan-connections > header {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #aaa;
+}
+
+.production-control-plan-basics > label:not(.checkbox-row) {
+  display: grid;
+  gap: 5px;
+  font-weight: 700;
+}
+
+.production-control-plan-basics input:not([type="checkbox"]) {
+  width: 100%;
+}
+
+.production-control-plan-basics .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.production-control-delete {
+  justify-self: start;
+}
+
+.production-control-plan-connections > .production-control-connections {
+  padding: 14px 0 0;
 }
 
 .production-control-connections,
@@ -20571,16 +20696,43 @@ body {
   flex-wrap: wrap;
 }
 
+.production-control-connections fieldset {
+  display: grid;
+  align-items: start;
+  min-width: min(100%, 300px);
+}
+
+.production-control-connections fieldset > legend {
+  padding: 0 4px;
+}
+
+.production-control-connections fieldset > legend strong,
+.production-control-connections fieldset > legend span {
+  display: block;
+}
+
+.production-control-connections fieldset > legend span {
+  color: #666;
+  font-weight: 500;
+}
+
+.production-control-connections fieldset > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 12px;
+}
+
+.production-control-connections fieldset > div > label,
+.production-control-source {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .production-control-connections label,
 .production-control-project-connections label {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.production-control-connections fieldset legend {
-  padding: 0 4px;
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .production-control-source span,
@@ -20842,6 +20994,10 @@ body {
 }
 
 @media (max-width: 900px) {
+  .form-template-workspace.has-production-control {
+    grid-template-columns: minmax(180px, .55fr) minmax(0, 1.45fr);
+  }
+
   .production-control-template-intro,
   .production-control-template-toolbar,
   .production-control-version-bar,
@@ -20855,16 +21011,44 @@ body {
     width: 100%;
   }
 
+  .production-control-row-head {
+    display: none;
+  }
+
   .production-control-row,
-  .production-control-plan-fields,
   .production-control-project-fields {
     grid-template-columns: 36px 1fr;
   }
 
   .production-control-row > button,
-  .production-control-plan-fields > button,
   .production-control-project-fields > button {
     grid-column: 2;
+  }
+
+  .production-control-plan-summary {
+    grid-template-columns: 34px minmax(0, 1fr) 52px;
+  }
+
+  .production-control-plan-summary > span:nth-of-type(2) {
+    grid-column: 2 / -1;
+  }
+
+  .production-control-plan-summary i {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .production-control-plan-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .production-control-plan-basics {
+    border-right: 0;
+    border-bottom: 1px solid #aaa;
+  }
+
+  .production-control-connections fieldset > div {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .production-control-mobile-cards {
@@ -20943,5 +21127,42 @@ body {
     width: 100%;
     min-height: 38px;
     border: 1px solid #ddd;
+  }
+}
+
+@media (max-width: 600px) {
+  .form-template-workspace.has-production-control {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .production-control-template-workspace,
+  .production-control-template-loading {
+    grid-column: 1;
+  }
+
+  .production-control-template-intro,
+  .production-control-template-toolbar,
+  .production-control-version-bar,
+  .production-control-editor > header,
+  .production-control-snapshot-note {
+    padding: 14px 12px;
+  }
+
+  .production-control-template-step {
+    align-items: flex-start;
+  }
+
+  .production-control-version-actions,
+  .production-control-version-actions button {
+    width: 100%;
+  }
+
+  .production-control-plan-summary {
+    padding: 10px 12px;
+  }
+
+  .production-control-plan-basics,
+  .production-control-plan-connections {
+    padding: 14px 12px;
   }
 }

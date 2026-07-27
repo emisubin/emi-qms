@@ -16,13 +16,13 @@ import type {
 type Domain = 'manufacturing' | 'planning';
 type State = { kind: 'loading' } | { kind: 'ready'; data: ProductionControlTemplateCatalog } | { kind: 'error'; message: string };
 
-export function ProductionControlTemplateWorkspace({ developmentUserKey }: { developmentUserKey: string | undefined }) {
+export function ProductionControlTemplateWorkspace({ developmentUserKey, domain }: { developmentUserKey: string | undefined; domain: Domain }) {
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [selectedProductTypeId, setSelectedProductTypeId] = useState('');
-  const [domain, setDomain] = useState<Domain>('manufacturing');
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [manufacturingRows, setManufacturingRows] = useState<ProductionControlManufacturingItem[]>([]);
   const [planRows, setPlanRows] = useState<ProductionControlPlanItem[]>([]);
+  const [expandedPlanIndex, setExpandedPlanIndex] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
 
@@ -38,8 +38,10 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey }: { dev
     setSelectedVersionId(selectedVersion?.versionId ?? '');
     if (domain === 'manufacturing') {
       setManufacturingRows((selectedVersion?.items as ProductionControlManufacturingItem[] | undefined)?.map((item) => ({ ...item })) ?? []);
+      setExpandedPlanIndex(null);
     } else {
       setPlanRows((selectedVersion?.items as ProductionControlPlanItem[] | undefined)?.map(copyPlanItem) ?? []);
+      setExpandedPlanIndex(selectedVersion?.lifecycleStatus === 'Draft' ? 0 : null);
     }
   }, [domain, selectedProductTypeId]);
 
@@ -75,8 +77,10 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey }: { dev
     setSelectedVersionId(versionId);
     if (domain === 'manufacturing') {
       setManufacturingRows((explicitVersion?.items as ProductionControlManufacturingItem[] | undefined)?.map((item) => ({ ...item })) ?? []);
+      setExpandedPlanIndex(null);
     } else {
       setPlanRows((explicitVersion?.items as ProductionControlPlanItem[] | undefined)?.map(copyPlanItem) ?? []);
+      setExpandedPlanIndex(explicitVersion?.lifecycleStatus === 'Draft' ? 0 : null);
     }
     setFeedback('');
   }
@@ -158,25 +162,30 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey }: { dev
   if (!catalog) return null;
 
   return (
-    <section className="production-control-template-workspace" aria-label="생산계획 연결 양식">
+    <section className="production-control-template-workspace" aria-label={domain === 'manufacturing' ? 'Item별 제조 양식' : '생산계획 연결 양식'}>
       <header className="production-control-template-intro">
         <div>
-          <p className="eyebrow">새 프로젝트용 버전 양식</p>
-          <h3>생산계획 · 제조 · 실적 연결</h3>
-          <p>Item마다 제조 항목과 생산계획 항목을 정하고, 각 계획 항목을 실제 부서 데이터에 연결합니다.</p>
+          <p className="eyebrow">{domain === 'manufacturing' ? '제조 양식' : '생산계획 양식'}</p>
+          <h3>{domain === 'manufacturing' ? 'Item별 제조 항목' : '생산계획·실적 연결'}</h3>
+          <p>{domain === 'manufacturing'
+            ? 'Item을 고른 뒤 제조 단계의 이름과 구분을 관리합니다.'
+            : 'Item을 고른 뒤 계획 항목을 실제 부서 실적과 연결합니다.'}</p>
         </div>
         <span className="form-manager-badge">{canManage ? '편집 가능' : '조회 전용'}</span>
       </header>
 
       <div className="production-control-template-toolbar">
-        <label>Item
+        <div className="production-control-template-step">
+          <b>1</b>
+          <label>적용 Item
           <select value={selectedProductTypeId} onChange={(event) => setSelectedProductTypeId(event.target.value)}>
             {catalog.items.map((item) => <option key={item.productTypeId} value={item.productTypeId}>{item.productTypeCode} · {item.productTypeName}</option>)}
           </select>
-        </label>
-        <div className="production-control-domain-tabs" role="tablist" aria-label="양식 영역">
-          <button type="button" className={domain === 'manufacturing' ? 'is-active' : ''} onClick={() => setDomain('manufacturing')}>1. 제조 양식</button>
-          <button type="button" className={domain === 'planning' ? 'is-active' : ''} onClick={() => setDomain('planning')}>2. 생산계획·연결</button>
+          </label>
+        </div>
+        <div className="production-control-template-step">
+          <b>2</b>
+          <span><strong>버전 선택</strong><small>사용 중 버전은 보존하고 편집 시 초안으로 복제합니다.</small></span>
         </div>
       </div>
 
@@ -190,7 +199,7 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey }: { dev
         </div>
         {canManage ? (
           <div className="production-control-version-actions">
-            {!isDraft ? <button type="button" disabled={busy} onClick={() => void createDraft()}>편집용 초안 만들기</button> : null}
+            {!isDraft ? <button type="button" className="secondary-button" disabled={busy} onClick={() => void createDraft()}>편집</button> : null}
             {isDraft ? <button type="button" className="primary-button" disabled={busy} onClick={() => void saveDraft()}>저장</button> : null}
             {isDraft ? <button type="button" disabled={busy} onClick={() => void transition('archive')}>초안 보관</button> : null}
             {isDraft ? <button type="button" className="primary-button" disabled={busy} onClick={() => void transition('activate')}>활성화</button> : null}
@@ -205,13 +214,20 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey }: { dev
       {selectedVersion && domain === 'manufacturing' ? (
         <section className="production-control-editor">
           <header><div><strong>제조 항목</strong><small>조립 단계는 일괄 단계 완료 기능과 연결됩니다.</small></div>{isDraft ? <button type="button" onClick={() => setManufacturingRows((current) => [...current, newManufacturingItem(current.length + 1)])}>항목 추가</button> : null}</header>
-          <div className="production-control-row-list">
+          <div className="production-control-row-list" role="table" aria-label="제조 항목 목록">
+            <div className="production-control-row-head" role="row">
+              <span role="columnheader">No.</span>
+              <span role="columnheader">제조 항목</span>
+              <span role="columnheader">구분</span>
+              <span role="columnheader">관리</span>
+            </div>
             {manufacturingRows.map((item, index) => (
-              <article className="production-control-row" key={item.definitionKey ?? `new-manufacturing-${index}`}>
-                <b>{index + 1}</b>
-                <label>제조 항목<input disabled={!isDraft} value={item.label} onChange={(event) => setManufacturingRows((current) => replaceAt(current, index, { ...item, label: event.target.value }))} /></label>
-                <label>구분<select disabled={!isDraft} value={item.stepRole} onChange={(event) => setManufacturingRows((current) => replaceAt(current, index, { ...item, stepRole: event.target.value as 'General' | 'Assembly' }))}><option value="General">일반</option><option value="Assembly">조립</option></select></label>
+              <article className="production-control-row" role="row" key={item.definitionKey ?? `new-manufacturing-${index}`}>
+                <b role="cell">{index + 1}</b>
+                <label role="cell"><span className="sr-only">제조 항목</span><input aria-label={`${index + 1}번 제조 항목`} disabled={!isDraft} value={item.label} onChange={(event) => setManufacturingRows((current) => replaceAt(current, index, { ...item, label: event.target.value }))} /></label>
+                <label role="cell"><span className="sr-only">구분</span><select aria-label={`${index + 1}번 구분`} disabled={!isDraft} value={item.stepRole} onChange={(event) => setManufacturingRows((current) => replaceAt(current, index, { ...item, stepRole: event.target.value as 'General' | 'Assembly' }))}><option value="General">일반</option><option value="Assembly">조립</option></select></label>
                 {isDraft ? <button type="button" onClick={() => setManufacturingRows((current) => resequenceManufacturing(current.filter((_, rowIndex) => rowIndex !== index)))}>삭제</button> : null}
+                {!isDraft ? <span aria-hidden="true">—</span> : null}
               </article>
             ))}
           </div>
@@ -223,33 +239,51 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey }: { dev
           <header><div><strong>생산계획 항목과 실적 연결</strong><small>한 계획 항목에 여러 부서 실적을 연결할 수 있으며 모두 완료되면 실적일이 확정됩니다.</small></div>{isDraft ? <button type="button" onClick={() => setPlanRows((current) => [...current, newPlanItem(current.length + 1)])}>항목 추가</button> : null}</header>
           {!activeManufacturing ? <p className="production-control-warning">먼저 제조 양식을 활성화해야 제조 단계와 LQC를 연결할 수 있습니다.</p> : null}
           <div className="production-control-plan-list">
-            {planRows.map((item, index) => (
-              <article className="production-control-plan-row" key={item.definitionKey ?? `new-plan-${index}`}>
-                <div className="production-control-plan-fields">
-                  <b>{index + 1}</b>
-                  <label>계획 항목<input disabled={!isDraft} value={item.label} onChange={(event) => setPlanRows((current) => replaceAt(current, index, { ...item, label: event.target.value }))} /></label>
-                  <label className="checkbox-row"><input type="checkbox" disabled={!isDraft} checked={item.isRequired} onChange={(event) => setPlanRows((current) => replaceAt(current, index, { ...item, isRequired: event.target.checked }))} />필수</label>
-                  {isDraft ? <button type="button" onClick={() => setPlanRows((current) => resequencePlan(current.filter((_, rowIndex) => rowIndex !== index)))}>삭제</button> : null}
-                </div>
-                <div className="production-control-connections">
-                  {catalog.sources.map((source) => source.requiresManufacturingDefinition ? (
-                    <fieldset key={source.code}>
-                      <legend>{source.departmentLabel} · {source.label}</legend>
-                      {manufacturingOptions.map((step) => {
-                        if (!step.definitionKey) return null;
-                        const checked = hasConnection(item.connections, source.code, step.definitionKey);
-                        return <label key={step.definitionKey}><input type="checkbox" disabled={!isDraft} checked={checked} onChange={(event) => setPlanRows((current) => replaceAt(current, index, { ...item, connections: toggleConnection(item.connections, source.code, step.definitionKey, event.target.checked) }))} />{step.label}</label>;
-                      })}
-                    </fieldset>
-                  ) : (
-                    <label className="production-control-source" key={source.code}>
-                      <input type="checkbox" disabled={!isDraft} checked={hasConnection(item.connections, source.code, null)} onChange={(event) => setPlanRows((current) => replaceAt(current, index, { ...item, connections: toggleConnection(item.connections, source.code, null, event.target.checked) }))} />
-                      <span><strong>{source.departmentLabel}</strong>{source.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </article>
-            ))}
+            {planRows.map((item, index) => {
+              const expanded = expandedPlanIndex === index;
+              return (
+                <article className="production-control-template-plan-row" data-expanded={expanded || undefined} key={item.definitionKey ?? `new-plan-${index}`}>
+                  <button type="button" className="production-control-plan-summary" aria-expanded={expanded} onClick={() => setExpandedPlanIndex(expanded ? null : index)}>
+                    <b>{index + 1}</b>
+                    <span><strong>{item.label || '항목명 없음'}</strong><small>{item.isRequired ? '필수 계획 항목' : '선택 계획 항목'}</small></span>
+                    <span><strong>실적 연결 {item.connections.length}개</strong><small>{connectionSummary(item, catalog.sources)}</small></span>
+                    <i>{expanded ? '접기' : isDraft ? '편집' : '보기'}</i>
+                  </button>
+                  {expanded ? (
+                    <div className="production-control-plan-editor">
+                      <section className="production-control-plan-basics" aria-label={`${item.label} 기본 정보`}>
+                        <header><strong>계획 항목 정보</strong><small>일정표에 표시할 이름과 필수 여부입니다.</small></header>
+                        <label>계획 항목명<input aria-label={`${index + 1}번 계획 항목명`} disabled={!isDraft} value={item.label} onChange={(event) => setPlanRows((current) => replaceAt(current, index, { ...item, label: event.target.value }))} /></label>
+                        <label className="checkbox-row"><input type="checkbox" disabled={!isDraft} checked={item.isRequired} onChange={(event) => setPlanRows((current) => replaceAt(current, index, { ...item, isRequired: event.target.checked }))} />필수 계획 항목</label>
+                        {isDraft ? <button type="button" className="production-control-delete" onClick={() => { setPlanRows((current) => resequencePlan(current.filter((_, rowIndex) => rowIndex !== index))); setExpandedPlanIndex(null); }}>항목 삭제</button> : null}
+                      </section>
+                      <section className="production-control-plan-connections" aria-label={`${item.label} 실적 데이터 연결`}>
+                        <header><strong>실적 데이터 연결</strong><small>선택한 실적이 모두 완료되면 이 계획 항목의 실적일이 자동 확정됩니다.</small></header>
+                        <div className="production-control-connections">
+                          {catalog.sources.map((source) => source.requiresManufacturingDefinition ? (
+                            <fieldset key={source.code}>
+                              <legend><strong>{source.departmentLabel}</strong><span>{source.label}</span></legend>
+                              <div>
+                                {manufacturingOptions.map((step) => {
+                                  if (!step.definitionKey) return null;
+                                  const checked = hasConnection(item.connections, source.code, step.definitionKey);
+                                  return <label key={step.definitionKey}><input type="checkbox" disabled={!isDraft} checked={checked} onChange={(event) => setPlanRows((current) => replaceAt(current, index, { ...item, connections: toggleConnection(item.connections, source.code, step.definitionKey, event.target.checked) }))} />{step.label}</label>;
+                                })}
+                              </div>
+                            </fieldset>
+                          ) : (
+                            <label className="production-control-source" key={source.code}>
+                              <input type="checkbox" disabled={!isDraft} checked={hasConnection(item.connections, source.code, null)} onChange={(event) => setPlanRows((current) => replaceAt(current, index, { ...item, connections: toggleConnection(item.connections, source.code, null, event.target.checked) }))} />
+                              <span><strong>{source.departmentLabel}</strong>{source.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </section>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
           </div>
         </section>
       ) : null}
@@ -288,6 +322,13 @@ function resequenceManufacturing(items: ProductionControlManufacturingItem[]) {
 
 function resequencePlan(items: ProductionControlPlanItem[]) {
   return items.map((item, index) => ({ ...item, displayOrder: index + 1 }));
+}
+
+function connectionSummary(item: ProductionControlPlanItem, sources: Array<{ code: string; departmentLabel: string }>) {
+  const departments = [...new Set(item.connections
+    .map((connection) => sources.find((source) => source.code === connection.sourceCode)?.departmentLabel)
+    .filter((department): department is string => Boolean(department)))];
+  return departments.length > 0 ? departments.join(' · ') : '연결된 실적 없음';
 }
 
 function hasConnection(connections: ProductionControlConnection[], sourceCode: string, definitionKey: string | null) {

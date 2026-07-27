@@ -31,7 +31,7 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   const [managerPanelOpen, setManagerPanelOpen] = useState(false);
   const [managers, setManagers] = useState<FormTemplateManagers | null>(null);
   const [candidateUserId, setCandidateUserId] = useState('');
-  const [workspaceMode, setWorkspaceMode] = useState<'inspection' | 'production-control'>('inspection');
+  const [workspaceMode, setWorkspaceMode] = useState<'inspection' | 'production-manufacturing' | 'production-planning'>('inspection');
   const actions = useActionFeedback();
 
   const selectedTemplate = state.kind === 'ready' ? state.items.find((item) => `${item.family}:${item.templateKey}` === selectedKey) ?? null : null;
@@ -68,6 +68,7 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   useEffect(() => { queueMicrotask(() => void load()); }, [developmentUserKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function chooseTemplate(template: FormTemplateCatalogItem) {
+    setWorkspaceMode('inspection');
     setSelectedKey(`${template.family}:${template.templateKey}`);
     actions.reset();
     await loadVersions(template);
@@ -176,21 +177,19 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
 
       {latestFeedback ? <p className="form-template-feedback" data-tone={latestFeedback.tone} role={latestFeedback.tone === 'error' ? 'alert' : 'status'}>{latestFeedback.message}</p> : null}
 
-      <div className="form-template-mode-switch" role="tablist" aria-label="양식 관리 영역">
-        <button type="button" className={workspaceMode === 'inspection' ? 'is-active' : ''} onClick={() => setWorkspaceMode('inspection')}>검사·공통 제조 양식</button>
-        <button type="button" className={workspaceMode === 'production-control' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-control')}>생산계획·Item별 제조 연결</button>
-      </div>
-
-      {workspaceMode === 'production-control'
-        ? <ProductionControlTemplateWorkspace developmentUserKey={developmentUserKey} />
-        : (
-      <>
-      <div className="form-template-workspace">
+      <div className={`form-template-workspace${workspaceMode === 'inspection' ? '' : ' has-production-control'}`}>
         <nav className="form-template-catalog" aria-label="양식 종류">
-          <header><strong>양식 종류</strong><small>{state.items.length}개</small></header>
-          {state.items.map((template) => <button key={`${template.family}:${template.templateKey}`} type="button" className={selectedKey === `${template.family}:${template.templateKey}` ? 'is-active' : ''} onClick={() => void chooseTemplate(template)}><span><b>{template.displayName}</b><small>{template.domain === 'Quality' ? '품질' : '제조'} · Active v{template.activeVersionNumber ?? '-'}</small></span>{template.draftCount > 0 ? <i>{template.draftCount}</i> : null}</button>)}
+          <header><strong>양식 종류</strong><small>{state.items.length + 2}개</small></header>
+          {state.items.map((template) => <button key={`${template.family}:${template.templateKey}`} type="button" className={workspaceMode === 'inspection' && selectedKey === `${template.family}:${template.templateKey}` ? 'is-active' : ''} onClick={() => void chooseTemplate(template)}><span><b>{template.displayName}</b><small>{template.domain === 'Quality' ? '품질' : '제조'} · Active v{template.activeVersionNumber ?? '-'}</small></span>{template.draftCount > 0 ? <i>{template.draftCount}</i> : null}</button>)}
+          <button type="button" className={workspaceMode === 'production-manufacturing' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-manufacturing')}>
+            <span><b>Item별 제조 양식</b><small>제조 · Item별 버전</small></span>
+          </button>
+          <button type="button" className={workspaceMode === 'production-planning' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-planning')}>
+            <span><b>생산계획·실적 연결</b><small>생산관리 · Item별 버전</small></span>
+          </button>
         </nav>
 
+        {workspaceMode === 'inspection' ? <>
         <section className="form-template-versions" aria-label="양식 버전">
           <header><div><strong>{versions?.displayName ?? '버전'}</strong><small>사용 중 버전은 편집할 때 안전한 초안으로 복제됩니다.</small></div></header>
           <SelectedExportTray
@@ -227,9 +226,13 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
             {selectedVersion.lifecycleStatus === 'Draft' ? <div className="form-editor-actions"><button type="button" onClick={() => setDraftItems((current) => [...current, newItem(current.length + 1, versions?.family === 'Manufacturing')])}>항목 추가</button><button type="button" onClick={() => void archiveDraft()}>초안 보관</button><button type="button" className="primary-button" onClick={() => void activateDraft()}>활성화</button></div> : null}
           </>}
         </section>
+        </> : (
+          <ProductionControlTemplateWorkspace
+            developmentUserKey={developmentUserKey}
+            domain={workspaceMode === 'production-manufacturing' ? 'manufacturing' : 'planning'}
+          />
+        )}
       </div>
-      </>
-      )}
 
       {managerPanelOpen && isSystemAdministrator ? <section className="form-manager-panel">
         <header><div><p className="eyebrow">부서장 권한</p><h3>부서 양식 관리자 지정</h3></div><button type="button" onClick={() => setManagerPanelOpen(false)}>닫기</button></header>

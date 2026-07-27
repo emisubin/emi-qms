@@ -1,6 +1,6 @@
 # TASK-PRODUCTION-CONTROL-001 구현 보고 — Item별 생산계획·자동 실적·가로 막대 일정
 
-상태: `실험 구현·자동 검증 완료 / 사용자 검수 대기 — 마지막 일괄 검수`
+상태: `실험 구현·Change 002 자동 검증 완료 / 사용자 검수 대기 — 마지막 일괄 검수`
 
 ## 기준선과 범위
 
@@ -8,6 +8,8 @@
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
 - branch: `experiment/task-home-002-personalized-shell`
 - implementationBaseline: `de8e05b`
+- latestChange: `tasks/production-control-001-change-002.md`
+- latestChangeBaseline: `f8eb6ce`
 - planningSource: `tasks/production-control-001-planning.md`
 - codexReviewSource: `tasks/production-control-001-review.md`
 - finalPlanningSource: `docs/43-production-control-plan.md`
@@ -21,17 +23,21 @@
 
 이번 구현으로 관리자는 코드 수정 없이 Item별 제조 항목과 생산계획 항목을 구성하고 한 계획 항목에 여러 부서 실적을 연결할 수 있다. 새 프로젝트는 생성 당시 양식과 연결을 복사해 보존하며, 생산관리 탭은 실제 부서 입력값을 읽어 계획 대비 실적·근거·진행률과 가로 막대 일정을 자동 표시한다.
 
+사용자 검수에서 연결형 양식이 기존 `양식 종류` 밖의 별도 전환 화면으로 분리되고 모든 계획 항목의 연결 입력이 동시에 펼쳐져 있다는 UX 결함이 확인됐다. Change 002에서 두 연결형 양식을 기존 종류 목록에 통합하고 선택한 계획 항목 하나만 펼치는 편집 구조로 보정했다.
+
 ## 구현 결과
 
 ### 양식과 권한
 
-1. 기존 양식 관리에 `생산계획·Item별 제조 연결` 영역을 추가했다.
+1. 기존 `양식 종류` 목록에 `Item별 제조 양식`, `생산계획·실적 연결`을 같은 1차 탐색 항목으로 추가했다.
 2. System Administrator와 지정된 제조/생산계획 양식 관리자가 권한 범위의 양식을 편집한다.
 3. 제조 양식과 생산계획 양식은 Item별 `Draft → Active → Archived` version으로 관리한다.
 4. 생산계획 항목 하나에 여러 source를 연결한다.
    - 제조: 해당 Item 제조 양식의 불변 `definition_key`
    - 구매·자재·품질·물류: 서버가 제공하는 고정 사건 catalog
 5. 사용 중 version은 조회 전용이며 편집용 초안을 만들어 변경한다.
+6. 생산계획 항목은 이름·필수 여부·연결 수·부서 요약을 한 줄로 표시하고, 선택한 항목 하나만 펼쳐 편집한다.
+7. 제조 항목은 `No. / 제조 항목 / 구분 / 관리` 헤더에 맞춘 행 구조로 표시한다.
 
 ### 새 프로젝트와 기존 프로젝트
 
@@ -88,6 +94,8 @@ Rollback은 destructive down migration 대신 배포 전 DB backup과 applicatio
 ## Frontend·UX
 
 - 양식 관리 화면에서 Item, 제조 양식, 생산계획·연결을 순서대로 선택한다.
+- 연결형 양식도 다른 검사·제조 양식과 같은 `양식 종류` 목록에서 선택한다.
+- 생산계획 편집은 요약 행에서 필요한 항목 하나만 `편집`해 반복 연결 목록이 화면을 점유하지 않는다.
 - 사용 중/초안 상태와 “이후 새 프로젝트부터 적용” 원칙을 화면에 고정 표시한다.
 - 프로젝트 생산관리 탭은 조회 중심이며 단일 `생산계획 수정`으로 별도 입력 상태에 진입한다.
 - 흑백 wireframe과 사각형 원칙을 유지하고 상태 의미색만 사용한다.
@@ -109,13 +117,14 @@ Rollback은 destructive down migration 대신 배포 전 DB backup과 applicatio
 2. 검사 시도가 없는 OQC source의 SQL boolean이 `NULL`이 되어 계획 조회가 500을 반환했다. 미시작을 `false`로 안전하게 projection하도록 수정했다.
 3. FAT 비필수 프로젝트에서 raw snapshot 연결명을 그대로 표시하면 분모와 연결 수가 달라 보였다. 실제 적용 근거의 고유 source명을 우선 표시하도록 정리했다.
 4. wireframe 전역 규칙이 `<i>` 기반 간트 막대 배경을 투명하게 덮었다. 정보 전달 막대만 명시적 흑백 예외로 고정했다.
+5. 양식 편집용 article과 프로젝트 조회용 row가 같은 `.production-control-plan-row` class를 사용해 조회 표의 6열 grid가 편집 화면에 잘못 적용됐다. 편집 전용 class로 분리하고, 항목 하나만 펼치는 구조로 반복 노출도 함께 제거했다.
 
 ## 주요 변경 위치
 
 - Backend: `backend/src/Emi.Qms.Api/ProductionPlanning/`, `ProjectStore.cs`, `ManufacturingStore.cs`, `QualityInspectionStore.cs`, `Ul891SetStore.cs`, `Program.cs`
 - Migration: `database/migrations/0058_production_control_linked_plans.sql`, `0059_production_control_lqc_identity.sql`
 - Frontend: `frontend/src/ProductionControlTemplateWorkspace.tsx`, `productionControlTemplates.ts`, `FormTemplateManagementPage.tsx`, `App.tsx`, `api.ts`, `projects.ts`, `styles.css`, `design-system/wireframe.css`
-- Tests: `backend/tests/Emi.Qms.Api.Tests/ProductionPlanningApiTests.cs`, `PostgreSqlMigrationTests.cs`, `frontend/tests/App.test.tsx`
+- Tests: `backend/tests/Emi.Qms.Api.Tests/ProductionPlanningApiTests.cs`, `PostgreSqlMigrationTests.cs`, `frontend/tests/App.test.tsx`, `frontend/tests/FormTemplateManagementPage.test.tsx`
 
 ## 검증 결과
 
@@ -126,7 +135,7 @@ Rollback은 destructive down migration 대신 배포 전 DB backup과 applicatio
 | Migration 전체 회귀 | PASS — fresh/existing 적용·catalog 최신 번호 `0059` 포함 `34/34` |
 | Frontend production build | PASS — 기존 500kB 초과 chunk warning만 유지 |
 | Frontend lint | PASS — error 0, 기존 `src/main.tsx` Fast Refresh warning 1 |
-| Frontend 전체 unit | PASS — 22 files, `138/138` (`testTimeout=30000`) |
+| Frontend 전체 unit | PASS — 22 files, `139/139` (`testTimeout=30000`) |
 | 실제 Backend API | PASS — template catalog, LinkedV1 계획 GET/PATCH, source 이력 없음 안전 응답 |
 | Desktop browser | PASS — 양식 관리와 프로젝트 6열 표·근거·가로 막대 |
 | Mobile 390×844 browser | PASS — 계획 카드·근거·실제 가로 막대, 가로 overflow 없음 |
@@ -149,6 +158,7 @@ Backend 전체 회귀는 5분 동안 완료 출력 없이 대기해 현재 실�
 | `PC-001-F01` | P1 | Resolved | source 이력이 없는 품질 연결의 nullable 완료값이 조회 500을 만들었다. | `NULL`을 미시작으로 projection하고 통합 회귀에 포함했다. |
 | `PC-001-F02` | P1 | Resolved | LQC와 제조 단계의 안정적 identity가 없어 이름 변경 시 잘못 연결될 수 있었다. | migration `0059`와 finalize 저장으로 불변 key를 보존한다. |
 | `PC-001-F03` | P2 | Resolved | 전역 wireframe 규칙이 계획 막대를 투명하게 만들었다. | 생산계획 간트 막대를 정보 표시 예외로 고정하고 desktop/mobile 실제 화면을 확인했다. |
+| `PC-001-F05` | P2 | Resolved | 연결형 양식이 기존 종류 밖에 분리되고 편집용 row가 조회용 6열 CSS와 충돌해 초안의 정렬과 작업 대상 구분이 무너졌다. | 양식 종류에 두 항목을 통합하고 편집 전용 class·단일 펼침 편집·정렬된 제조 표로 보정했다. |
 | `PC-001-F04` | P3 | Backlog | 대규모 프로젝트에서 조회 시 실적 projection 비용이 증가할 수 있다. | 실제 성능 측정에서 병목이 확인될 때 query 최적화 또는 파생 cache Task로 분리한다. |
 
 Open P0/P1/P2: `0/0/0`.
@@ -164,10 +174,11 @@ Open P0/P1/P2: `0/0/0`.
 ### 새 양식 준비
 
 1. 관리자 또는 지정 양식 관리자로 `양식 관리`에 들어간다.
-2. `생산계획·Item별 제조 연결`을 선택하고 Item을 고른다.
-3. 제조 양식 초안에서 제조 항목과 조립 의미 단계를 구성해 사용 시작한다.
-4. 생산계획 초안에서 항목·필수 여부를 구성하고 각 항목에 제조 단계 또는 고정 부서 사건을 하나 이상 연결해 사용 시작한다.
-5. 이후 새로 생성한 해당 Item 프로젝트부터 연결형 생산계획이 적용된다.
+2. `양식 종류`에서 `Item별 제조 양식`을 선택하고 Item을 고른다.
+3. `편집`을 눌러 제조 항목과 조립 의미 단계를 구성해 활성화한다.
+4. `양식 종류`에서 `생산계획·실적 연결`을 선택하고 같은 Item을 고른다.
+5. `편집`을 누른 뒤 필요한 계획 항목 행을 하나씩 펼쳐 이름·필수 여부와 제조 단계 또는 고정 부서 사건을 연결해 활성화한다.
+6. 이후 새로 생성한 해당 Item 프로젝트부터 연결형 생산계획이 적용된다.
 
 ### 프로젝트 계획과 실적 확인
 

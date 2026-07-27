@@ -1560,6 +1560,94 @@ public sealed class ProductionPlanningApiTests
         Assert.DoesNotContain(result.Holidays, holiday => holiday.Name == "국군의 날");
     }
 
+    [Fact]
+    public async Task ProductionControl_ActiveLinkedTemplatesApplyOnlyToNewProjects()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+
+        var legacyProjectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"PC-LEGACY-{Guid.NewGuid():N}"[..28],
+            "연결형 양식 활성화 전 프로젝트");
+
+        var manufacturingTemplateId = Guid.NewGuid();
+        var manufacturingVersionId = Guid.NewGuid();
+        var manufacturingDefinitionKey = Guid.NewGuid();
+        var planTemplateId = Guid.NewGuid();
+        var planVersionId = Guid.NewGuid();
+        var planItemId = Guid.NewGuid();
+        var planDefinitionKey = Guid.NewGuid();
+        var qualityPlanItemId = Guid.NewGuid();
+        var qualityPlanDefinitionKey = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into production_control_manufacturing_templates (id, product_type_id)
+            select '{manufacturingTemplateId}', id from production_product_types where code='UL67';
+            insert into production_control_manufacturing_versions (
+                id, template_id, version_number, lifecycle_status, activated_at_utc
+            )
+            values ('{manufacturingVersionId}', '{manufacturingTemplateId}', 1, 'Active', now());
+            insert into production_control_manufacturing_items (
+                template_version_id, definition_key, display_order, label, step_role
+            )
+            values ('{manufacturingVersionId}', '{manufacturingDefinitionKey}', 1, '프레임 조립', 'Assembly');
+
+            insert into production_control_plan_templates (id, product_type_id)
+            select '{planTemplateId}', id from production_product_types where code='UL67';
+            insert into production_control_plan_versions (
+                id, template_id, version_number, lifecycle_status, activated_at_utc
+            )
+            values ('{planVersionId}', '{planTemplateId}', 1, 'Active', now());
+            insert into production_control_plan_items (
+                id, template_version_id, definition_key, display_order, label, is_required
+            )
+            values
+                ('{planItemId}', '{planVersionId}', '{planDefinitionKey}', 1, '제조 착수', true),
+                ('{qualityPlanItemId}', '{planVersionId}', '{qualityPlanDefinitionKey}', 2, '품질 완료', true);
+            insert into production_control_plan_connections (
+                plan_item_id, source_code, source_definition_key
+            )
+            values
+                ('{planItemId}', 'MANUFACTURING_STEP_COMPLETED', '{manufacturingDefinitionKey}'),
+                ('{qualityPlanItemId}', 'OQC_PASSED', null);
+            """);
+
+        var linkedProjectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"PC-LINKED-{Guid.NewGuid():N}"[..28],
+            "연결형 양식 활성화 후 프로젝트");
+
+        Assert.Equal("LEGACY", await context.ReadScalarAsync<string>($"""
+            select model_version from project_production_plans where project_id='{legacyProjectId}';
+            """));
+        Assert.Equal("LINKED_V1", await context.ReadScalarAsync<string>($"""
+            select model_version from project_production_plans where project_id='{linkedProjectId}';
+            """));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"""
+            select count(*) from project_manufacturing_step_snapshots where project_id='{linkedProjectId}';
+            """));
+
+        using var response = await salesClient.GetAsync(
+            $"/api/projects/{linkedProjectId}/production-planning",
+            TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(response.IsSuccessStatusCode, $"Expected success but got {response.StatusCode}. Body: {body}. Logs: {context.ErrorLogs()}");
+        using var plan = JsonDocument.Parse(body);
+        Assert.Equal("LINKED_V1", plan.RootElement.GetProperty("modelVersion").GetString());
+        var items = plan.RootElement.GetProperty("items").EnumerateArray().ToList();
+        Assert.Equal(2, items.Count);
+        var item = items.Single(candidate => candidate.GetProperty("stepName").GetString() == "제조 착수");
+        Assert.Equal("제조 착수", item.GetProperty("stepName").GetString());
+        Assert.Equal("MANUFACTURING_STEP_COMPLETED", Assert.Single(item.GetProperty("connections").EnumerateArray()).GetProperty("sourceCode").GetString());
+        Assert.Equal(2, item.GetProperty("totalTargetCount").GetInt32());
+        Assert.Equal(0, item.GetProperty("progressPercent").GetInt32());
+        var qualityItem = items.Single(candidate => candidate.GetProperty("stepName").GetString() == "품질 완료");
+        Assert.Equal(0, qualityItem.GetProperty("completedTargetCount").GetInt32());
+        Assert.Equal(0, qualityItem.GetProperty("progressPercent").GetInt32());
+    }
+
     private static async Task<Guid> CreateProjectAndReadIdAsync(ProductionPlanningApiTestContext context, HttpClient client, string code, string title)
     {
         var response = await client.PostAsJsonAsync(

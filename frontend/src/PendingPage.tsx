@@ -195,7 +195,7 @@ function PendingListView({
       <>
         <OperationalProjectDashboard
           testId="pending-dashboard"
-          eyebrow="ISSUE CONTROL · PROJECT QUEUE"
+          eyebrow="이슈 관리 · 프로젝트 대기열"
           title="Pending 프로젝트"
           description="프로젝트별 진행 중·긴급·기한 초과 이슈를 확인한 뒤 한 프로젝트 안에서 조치와 재검사를 처리합니다."
           unitLabel="이슈"

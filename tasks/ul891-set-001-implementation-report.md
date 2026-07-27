@@ -256,3 +256,18 @@
 | User manual | 사용자 검수 체크리스트 Change 004 | 작성 완료 |
 | Roadmap update | `docs/00-product-roadmap.md` Decision Log | 반영 완료 |
 | User validation checklist | `tasks/ul891-set-001-user-validation-checklist.md` | 사용자 검수 대기 |
+
+## 13. Change 007 — UL891 설계 조회·수정 화면 분리 (2026-07-27)
+
+- 신규 UL891 프로젝트 상세 설계 탭은 세트 공통 사양·저장 version·실물 세트·개별 패널·QR을 조회만 한다.
+- 중복되던 일반 평면 패널 설계 영역은 UL891 상세에서 제거하고, 권한이 있는 사용자는 단일 `수정` 버튼으로 별도 전체 폭 입력 화면에 진입한다.
+- 사용자 표시 명칭은 `임시저장`·`저장`·`새 수정본 만들기`·`저장된 버전`으로 정리하고 해당 action 바로 아래에 실행 결과를 표시한다.
+- 내부 Draft/Published 계약, Backend·DB·제조 기준·QR 원자와 비-UL891 기존 설계 경로는 변경하지 않았다.
+- 상세 구현·검증·SOP·사용자 안내는 [Change 007 구현 보고](ul891-set-001-change-007-implementation-report.md)와 [사용자 검수 체크리스트](ul891-set-001-change-007-user-validation-checklist.md)를 따른다.
+
+## 14. Change 008 — 저장 오류·불필요 규격 제거 (2026-07-27)
+
+- 최종 `저장`은 현재 form의 패널명·치수를 Draft에 먼저 갱신한 뒤 같은 version을 Publish한다.
+- Publish와 패널 `설계 입력 완료` 조건에서 사용자 입력값이 아닌 규격을 제외하고 패널명·포장방식별 치수 기준으로 통일했다.
+- UL891 조회·수정·패널 세트 문맥의 규격 표시·입력칸을 제거하되 기존 API·DB 호환 필드는 유지한다.
+- 상세 구현·검증·SOP·사용자 안내는 [Change 008 구현 보고](ul891-set-001-change-008-implementation-report.md)와 [사용자 검수 체크리스트](ul891-set-001-change-008-user-validation-checklist.md)를 따른다.

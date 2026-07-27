@@ -1,5 +1,30 @@
 import type { ReactNode } from 'react';
 
+export function DsBreadcrumbs({
+  items,
+  current,
+  className = ''
+}: {
+  items: Array<{ label: string; onClick?: () => void }>;
+  current: string;
+  className?: string;
+}) {
+  return (
+    <nav className={`ds-breadcrumbs ${className}`.trim()} aria-label="현재 위치">
+      <ol>
+        {items.map((item) => (
+          <li key={item.label}>
+            {item.onClick
+              ? <button type="button" onClick={item.onClick}>{item.label}</button>
+              : <span>{item.label}</span>}
+          </li>
+        ))}
+        <li aria-current="page"><strong>{current}</strong></li>
+      </ol>
+    </nav>
+  );
+}
+
 export function DsPageHeader({
   eyebrow,
   title,
@@ -88,6 +113,105 @@ export function DsBadge({ children, tone = 'primary' }: { children: ReactNode; t
   return <span className="ds-badge" data-tone={tone}>{children}</span>;
 }
 
+export function DsReadOnlyBanner({
+  title = '조회 전용입니다.',
+  description,
+  kind = 'permission',
+  action
+}: {
+  title?: ReactNode;
+  description: ReactNode;
+  kind?: 'permission' | 'prerequisite';
+  action?: ReactNode;
+}) {
+  return (
+    <aside className="ds-readonly-banner" data-kind={kind} role="note">
+      <span className="ds-readonly-banner__mark" aria-hidden="true">{kind === 'permission' ? '보기' : '대기'}</span>
+      <div>
+        <strong>{title}</strong>
+        <p>{description}</p>
+      </div>
+      {action ? <div className="ds-readonly-banner__action">{action}</div> : null}
+    </aside>
+  );
+}
+
+export function DsEmptyState({
+  title,
+  description,
+  primaryAction,
+  secondaryAction
+}: {
+  title: ReactNode;
+  description: ReactNode;
+  primaryAction?: { label: string; onClick: () => void };
+  secondaryAction?: { label: string; onClick: () => void };
+}) {
+  return (
+    <div className="ds-empty-state" role="status">
+      <span aria-hidden="true">0</span>
+      <div>
+        <strong>{title}</strong>
+        <p>{description}</p>
+      </div>
+      {primaryAction || secondaryAction ? (
+        <div>
+          {secondaryAction ? <button type="button" onClick={secondaryAction.onClick}>{secondaryAction.label}</button> : null}
+          {primaryAction ? <button type="button" className="primary-button" onClick={primaryAction.onClick}>{primaryAction.label}</button> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function DsSecondaryTools({
+  children,
+  label = '추가 기능'
+}: {
+  children: ReactNode;
+  label?: string;
+}) {
+  return (
+    <details className="ds-secondary-tools">
+      <summary>{label}</summary>
+      <div>{children}</div>
+    </details>
+  );
+}
+
+export function DsSelectionModeBar({
+  active,
+  label,
+  selectedCount,
+  onStart,
+  onCancel,
+  children
+}: {
+  active: boolean;
+  label: string;
+  selectedCount: number;
+  onStart: () => void;
+  onCancel: () => void;
+  children?: ReactNode;
+}) {
+  if (!active) {
+    return <button type="button" className="ds-selection-mode-trigger" onClick={onStart}>{label}</button>;
+  }
+
+  return (
+    <div className="ds-selection-mode-bar" role="region" aria-label={`${label} 모드`}>
+      <div>
+        <strong>{label} 모드</strong>
+        <span>{selectedCount > 0 ? `${selectedCount}개 선택됨` : '처리할 항목을 선택하세요.'}</span>
+      </div>
+      <div>
+        {children}
+        <button type="button" onClick={onCancel}>선택 종료</button>
+      </div>
+    </div>
+  );
+}
+
 export function DsInputFlow({
   children,
   className = '',
@@ -103,7 +227,7 @@ export function DsInputFlow({
     <section className={`ds-input-flow ${className}`.trim()}>
       <header className="ds-input-flow__header">
         <div>
-          <span>QUICK INPUT</span>
+          <span>빠른 입력</span>
           <h3>{title}</h3>
           <p>{description}</p>
         </div>
@@ -124,7 +248,8 @@ export function DsInputSection({
   description,
   number,
   title,
-  actions
+  actions,
+  collapsible = false
 }: {
   children: ReactNode;
   className?: string;
@@ -132,7 +257,24 @@ export function DsInputSection({
   number: number | string;
   title: ReactNode;
   actions?: ReactNode;
+  collapsible?: boolean;
 }) {
+  if (collapsible) {
+    return (
+      <details className={`ds-input-section ds-input-section--collapsible ${className}`.trim()}>
+        <summary className="ds-input-section__header">
+          <b aria-hidden="true">{String(number).padStart(2, '0')}</b>
+          <div>
+            <h4>{title}</h4>
+            {description ? <p>{description}</p> : null}
+          </div>
+          <span className="ds-input-section__toggle" aria-hidden="true">열기</span>
+        </summary>
+        <div className="ds-input-section__content">{children}</div>
+      </details>
+    );
+  }
+
   return (
     <section className={`ds-input-section ${className}`.trim()}>
       <header className="ds-input-section__header">

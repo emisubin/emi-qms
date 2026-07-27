@@ -33,6 +33,7 @@ public sealed record ProductionPlanningResponse(
     string ProjectTitle,
     string ProjectCode,
     DateOnly? DeliveryDate,
+    string ModelVersion,
     Guid? PlanId,
     int RowVersion,
     string PlanStatus,
@@ -42,10 +43,18 @@ public sealed record ProductionPlanningResponse(
     string? ProductTypeCode,
     string? ProductTypeName,
     string? Notes,
+    IReadOnlyList<ProjectManufacturingStepResponse> ManufacturingSteps,
+    IReadOnlyList<ProductionControlSourceCatalogItemResponse> AvailableSources,
     IReadOnlyList<ProductionPlanItemResponse> Items,
     IReadOnlyList<ProjectAssigneeResponse> Assignees,
     IReadOnlyList<AssigneeCandidateResponse> AssigneeCandidates,
     IReadOnlyList<NotificationFallbackResponse> Fallbacks);
+
+public sealed record ProjectManufacturingStepResponse(
+    Guid DefinitionKey,
+    int SequenceNumber,
+    string StepName,
+    string StepRole);
 
 public sealed class ProductionPlanItemResponse
 {
@@ -55,10 +64,36 @@ public sealed class ProductionPlanItemResponse
     public string StepName { get; init; } = "";
     public bool IsRequired { get; init; }
     public bool IsCustom { get; init; }
+    public Guid? DefinitionKey { get; init; }
     public DateOnly? PlannedDate { get; init; }
+    public DateOnly? PlannedStartDate { get; init; }
+    public DateOnly? PlannedEndDate { get; init; }
+    public DateOnly? ActualStartDate { get; init; }
+    public DateOnly? ActualEndDate { get; init; }
+    public int CompletedTargetCount { get; init; }
+    public int TotalTargetCount { get; init; }
+    public int ProgressPercent { get; init; }
+    public string ScheduleStatus { get; init; } = "NotConnected";
+    public string ScheduleStatusLabel { get; init; } = "연결 안 됨";
+    public int? DelayDays { get; init; }
+    public bool IsBlocked { get; init; }
+    public IReadOnlyList<ProductionControlConnectionResponse> Connections { get; init; } = [];
+    public IReadOnlyList<ProductionPlanEvidenceResponse> Evidence { get; init; } = [];
     public string? Note { get; init; }
     public int RowVersion { get; init; }
 }
+
+public sealed record ProductionPlanEvidenceResponse(
+    string SourceCode,
+    string SourceLabel,
+    string TargetType,
+    string TargetId,
+    string TargetLabel,
+    DateOnly? StartedDate,
+    DateOnly? CompletedDate,
+    bool IsCompleted,
+    bool IsBlocked,
+    string StatusLabel);
 
 public sealed class ProjectAssigneeResponse
 {
@@ -180,8 +215,12 @@ public sealed record ProductionPlanItemUpdateRequest(
     bool? IsRequired,
     int? ExpectedRowVersion,
     DateOnly? PlannedDate,
+    DateOnly? PlannedStartDate,
+    DateOnly? PlannedEndDate,
     string? Note,
-    bool? IsDeleted);
+    bool? IsDeleted,
+    Guid? DefinitionKey,
+    IReadOnlyList<ProductionControlConnectionResponse>? Connections);
 
 public sealed record ProjectAssigneeUpdateRequest(
     string? ResponsibilityType,

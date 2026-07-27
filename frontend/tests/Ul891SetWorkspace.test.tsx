@@ -2,21 +2,64 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setRuntimeMutationAllowed } from '../src/api';
 import { Ul891SetWorkspace } from '../src/Ul891SetWorkspace';
+import type { Ul891SetStructure } from '../src/ul891Sets';
 
 describe('Ul891SetWorkspace', () => {
   beforeEach(() => setRuntimeMutationAllowed(true));
   afterEach(() => { setRuntimeMutationAllowed(false); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   it('groups physical panels under their set specification and opens the exact panel', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => json(structure())));
     const onOpenPanel = vi.fn();
-    render(<Ul891SetWorkspace developmentUserKey="dev-design" projectId="project-1" mode="design" onOpenPanel={onOpenPanel} />);
+    const onEdit = vi.fn();
+    render(<Ul891SetWorkspace developmentUserKey="dev-design" projectId="project-1" mode="design" presentation="summary" initialStructure={structure()} onEdit={onEdit} onOpenPanel={onOpenPanel} />);
 
     expect(await screen.findByText('MCC 메인 세트')).toBeInTheDocument();
     expect(screen.getByText('공통 사양 2개 · 실물 2세트')).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: '저장된 세트 공통 설계정보' })).toBeInTheDocument();
+    expect(screen.queryByText('규격')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('세트 사양명')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    expect(onEdit).toHaveBeenCalledOnce();
     const panelButton = screen.getByRole('button', { name: /A MAIN A/ });
     fireEvent.click(panelButton);
     expect(onOpenPanel).toHaveBeenCalledWith('panel-a-1');
+  });
+
+  it('uses user-facing save labels and reports temporary and final save next to the actions', async () => {
+    let published = false;
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      requests.push(`${init?.method ?? 'GET'} ${path}`);
+      if (path.endsWith('/publish')) {
+        published = true;
+        return json({ operationId: 'operation-publish', projectId: 'project-1', action: 'Published', replayed: false });
+      }
+      if (init?.method === 'PUT') {
+        return json({ operationId: 'operation-draft', projectId: 'project-1', action: 'DraftUpdated', replayed: false });
+      }
+      return json(published ? structure() : draftStructure());
+    }));
+
+    render(<Ul891SetWorkspace developmentUserKey="dev-design" projectId="project-1" mode="design" presentation="edit" initialStructure={draftStructure()} onOpenPanel={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: '임시저장' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '저장' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draft 저장' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '사양 확정' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('A 규격')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
+    expect(await screen.findByText('임시저장되었습니다. 계속 수정하거나 최종 저장할 수 있습니다.')).toBeInTheDocument();
+
+    requests.length = 0;
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(await screen.findByText('저장되었습니다. 이 사양이 적용된 패널은 제조를 시작할 수 있습니다.')).toBeInTheDocument();
+    expect(requests.slice(0, 2)).toEqual([
+      'PUT /api/projects/project-1/set-specs/spec-1/versions/version-1',
+      'POST /api/projects/project-1/set-specs/spec-1/versions/version-1/publish'
+    ]);
+    expect(screen.getAllByText('v1 저장 완료').length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows project by shipment-month billing totals without hiding the set order', async () => {
@@ -73,7 +116,17 @@ function structure() {
       ]
     }],
     orderedProcurementItems: [], recoveryCases: []
-  };
+  } as Ul891SetStructure;
+}
+
+function draftStructure() {
+  const next = structure();
+  const version = next.specs[0]?.versions[0];
+  if (version) {
+    version.status = 'Draft';
+    version.publishedAtUtc = null;
+  }
+  return next;
 }
 
 function monthlyBilling() {

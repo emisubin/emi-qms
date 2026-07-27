@@ -1051,6 +1051,7 @@ export interface ProductionPlanningResponse {
   projectTitle: string;
   projectCode: string;
   deliveryDate: string | null;
+  modelVersion: 'LEGACY' | 'LINKED_V1';
   planId: string | null;
   rowVersion: number;
   planStatus: ProductionPlanStatus;
@@ -1060,10 +1061,26 @@ export interface ProductionPlanningResponse {
   productTypeCode: string | null;
   productTypeName: string | null;
   notes: string | null;
+  manufacturingSteps: ProjectManufacturingStep[];
+  availableSources: ProductionControlSource[];
   items: ProductionPlanItem[];
   assignees: ProjectAssignee[];
   assigneeCandidates: AssigneeCandidate[];
   fallbacks: NotificationFallback[];
+}
+
+export interface ProjectManufacturingStep {
+  definitionKey: string;
+  sequenceNumber: number;
+  stepName: string;
+  stepRole: 'General' | 'Assembly';
+}
+
+export interface ProductionControlSource {
+  code: string;
+  departmentLabel: string;
+  label: string;
+  requiresManufacturingDefinition: boolean;
 }
 
 export type ProductionPlanStatus = 'NotPlanned' | 'Planning' | 'Planned';
@@ -1075,9 +1092,41 @@ export interface ProductionPlanItem {
   stepName: string;
   isRequired: boolean;
   isCustom: boolean;
+  definitionKey: string | null;
   plannedDate: string | null;
+  plannedStartDate: string | null;
+  plannedEndDate: string | null;
+  actualStartDate: string | null;
+  actualEndDate: string | null;
+  completedTargetCount: number;
+  totalTargetCount: number;
+  progressPercent: number;
+  scheduleStatus: string;
+  scheduleStatusLabel: string;
+  delayDays: number | null;
+  isBlocked: boolean;
+  connections: ProductionControlConnection[];
+  evidence: ProductionPlanEvidence[];
   note: string | null;
   rowVersion: number;
+}
+
+export interface ProductionControlConnection {
+  sourceCode: string;
+  sourceDefinitionKey: string | null;
+}
+
+export interface ProductionPlanEvidence {
+  sourceCode: string;
+  sourceLabel: string;
+  targetType: string;
+  targetId: string;
+  targetLabel: string;
+  startedDate: string | null;
+  completedDate: string | null;
+  isCompleted: boolean;
+  isBlocked: boolean;
+  statusLabel: string;
 }
 
 export interface ProjectAssignee {
@@ -1278,8 +1327,12 @@ export interface ProductionPlanItemUpdateRequest {
   isRequired: boolean;
   expectedRowVersion: number;
   plannedDate: string | null;
+  plannedStartDate: string | null;
+  plannedEndDate: string | null;
   note: string | null;
   isDeleted: boolean;
+  definitionKey: string | null;
+  connections: ProductionControlConnection[];
 }
 
 export interface ProjectAssigneeUpdateRequest {

@@ -569,7 +569,7 @@ public sealed class ManufacturingStore(
                 return ManufacturingMutationResult<ManufacturingMutationResponse>.Conflict("설계 탭에서 이 패널의 UL891 세트 사양을 먼저 확정해 주세요.");
             }
 
-            var template = await LockActiveStepTemplateAsync(connection, transaction, cancellationToken);
+            var template = await LockStepTemplateForProjectAsync(connection, transaction, request.ProjectId, cancellationToken);
             if (template is null || template.Value.Steps.Count == 0)
             {
                 await transaction.RollbackAsync(cancellationToken);
@@ -608,7 +608,8 @@ public sealed class ManufacturingStore(
                 command.Parameters.AddWithValue("project_id", request.ProjectId);
                 command.Parameters.AddWithValue("panel_id", request.PanelId);
                 command.Parameters.AddWithValue("actor_id", actorUserId);
-                command.Parameters.AddWithValue("template_version_id", template.Value.VersionId);
+                command.Parameters.Add("template_version_id", NpgsqlDbType.Uuid).Value =
+                    template.Value.LegacyVersionId ?? (object)DBNull.Value;
                 command.Parameters.AddWithValue("work_item_id", panel.WorkItemId);
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
@@ -617,12 +618,22 @@ public sealed class ManufacturingStore(
                 await using var command = connection.CreateCommand();
                 command.Transaction = transaction;
                 command.CommandText = """
-                    insert into panel_manufacturing_execution_steps (execution_id, sequence_number, step_name)
-                    values (@execution_id, @sequence_number, @step_name);
+                    insert into panel_manufacturing_execution_steps (
+                        execution_id,sequence_number,step_name,
+                        project_manufacturing_step_id,definition_key
+                    )
+                    values (
+                        @execution_id,@sequence_number,@step_name,
+                        @project_step_id,@definition_key
+                    );
                     """;
                 command.Parameters.AddWithValue("execution_id", executionId);
                 command.Parameters.AddWithValue("sequence_number", index + 1);
-                command.Parameters.AddWithValue("step_name", template.Value.Steps[index]);
+                command.Parameters.AddWithValue("step_name", template.Value.Steps[index].Label);
+                command.Parameters.Add("project_step_id", NpgsqlDbType.Uuid).Value =
+                    template.Value.Steps[index].ProjectStepId ?? (object)DBNull.Value;
+                command.Parameters.Add("definition_key", NpgsqlDbType.Uuid).Value =
+                    template.Value.Steps[index].DefinitionKey ?? (object)DBNull.Value;
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
             var lqcCreated = await InsertLqcWorkItemAsync(
@@ -1586,11 +1597,48 @@ public sealed class ManufacturingStore(
             : null;
     }
 
-    private static async Task<(Guid VersionId, IReadOnlyList<string> Steps)?> LockActiveStepTemplateAsync(
+    private static async Task<ManufacturingStepTemplateSnapshot?> LockStepTemplateForProjectAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
+        Guid projectId,
         CancellationToken cancellationToken)
     {
+        await using (var mode = connection.CreateCommand())
+        {
+            mode.Transaction = transaction;
+            mode.CommandText = """
+                select coalesce(plan.model_version,'LEGACY')
+                from projects project
+                left join project_production_plans plan on plan.project_id=project.id
+                where project.id=@project_id;
+                """;
+            mode.Parameters.AddWithValue("project_id", projectId);
+            if (string.Equals(Convert.ToString(await mode.ExecuteScalarAsync(cancellationToken)), "LINKED_V1", StringComparison.Ordinal))
+            {
+                var projectSteps = new List<ManufacturingStartStep>();
+                await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    select id,definition_key,step_name_snapshot,step_role
+                    from project_manufacturing_step_snapshots
+                    where project_id=@project_id and is_active
+                    order by sequence_number
+                    for share;
+                    """;
+                command.Parameters.AddWithValue("project_id", projectId);
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    projectSteps.Add(new(
+                        reader.GetGuid(0),
+                        reader.GetGuid(1),
+                        reader.GetString(2),
+                        reader.GetString(3)));
+                }
+                return projectSteps.Count == 0 ? null : new(null, projectSteps);
+            }
+        }
+
         Guid versionId;
         await using (var command = connection.CreateCommand())
         {
@@ -1612,7 +1660,7 @@ public sealed class ManufacturingStore(
             versionId = activeVersionId;
         }
 
-        var steps = new List<string>();
+        var steps = new List<ManufacturingStartStep>();
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
@@ -1626,11 +1674,11 @@ public sealed class ManufacturingStore(
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                steps.Add(reader.GetString(0));
+                steps.Add(new(null, null, reader.GetString(0), "General"));
             }
         }
 
-        return (versionId, steps);
+        return new(versionId, steps);
     }
 
     private static async Task<ExecutionIdentity?> ReadExecutionIdentityAsync(
@@ -1798,17 +1846,29 @@ public sealed class ManufacturingStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select case
-                when execution.template_version_id is null then null::integer
-                when count(item.id)::integer <> @snapshot_step_count then null::integer
-                when count(item.id) filter (where item.item_code = 'MANUFACTURING') <> 1 then null::integer
-                else max(item.display_order) filter (where item.item_code = 'MANUFACTURING')::integer
-            end
-            from panel_manufacturing_executions execution
-            left join manufacturing_step_template_items item
-              on item.template_version_id = execution.template_version_id
-            where execution.id = @execution_id
-            group by execution.template_version_id;
+            select coalesce(
+                (
+                    select max(step.sequence_number)::integer
+                    from panel_manufacturing_execution_steps step
+                    join project_manufacturing_step_snapshots snapshot
+                      on snapshot.id=step.project_manufacturing_step_id
+                    where step.execution_id=@execution_id
+                      and snapshot.step_role='Assembly'
+                ),
+                (
+                    select case
+                        when execution.template_version_id is null then null::integer
+                        when count(item.id)::integer <> @snapshot_step_count then null::integer
+                        when count(item.id) filter (where item.item_code='MANUFACTURING') <> 1 then null::integer
+                        else max(item.display_order) filter (where item.item_code='MANUFACTURING')::integer
+                    end
+                    from panel_manufacturing_executions execution
+                    left join manufacturing_step_template_items item
+                      on item.template_version_id=execution.template_version_id
+                    where execution.id=@execution_id
+                    group by execution.template_version_id
+                )
+            );
             """;
         command.Parameters.AddWithValue("execution_id", executionId);
         command.Parameters.AddWithValue("snapshot_step_count", snapshotStepCount);
@@ -2373,6 +2433,14 @@ public sealed class ManufacturingStore(
     private sealed record MaterialReadinessSnapshot(int ActiveItemCount, int CompletedItemCount);
     private readonly record struct ReleaseAssigneeSnapshot(Guid UserId, string ResponsibilityType, string? RoleCode);
     private sealed record ReadyPanelSnapshot(Guid PanelId, string DisplayCode, string? PanelName, string WorkflowStage, Guid WorkItemId, string WorkItemStatus);
+    private readonly record struct ManufacturingStepTemplateSnapshot(
+        Guid? LegacyVersionId,
+        IReadOnlyList<ManufacturingStartStep> Steps);
+    private sealed record ManufacturingStartStep(
+        Guid? ProjectStepId,
+        Guid? DefinitionKey,
+        string Label,
+        string StepRole);
     private sealed record ExecutionIdentity(Guid ProjectId, Guid PanelId);
     private sealed record ExecutionSnapshot(
         Guid ProjectId,

@@ -133,7 +133,9 @@ public static class ProductionPlanningDomain
         }
 
         var required = items.Where(item => item.IsRequired).ToList();
-        if (required.Count > 0 && required.All(item => item.PlannedDate is not null))
+        if (required.Count > 0 && required.All(item =>
+                item.PlannedDate is not null
+                || (item.PlannedStartDate is not null && item.PlannedEndDate is not null)))
         {
             return Planned;
         }

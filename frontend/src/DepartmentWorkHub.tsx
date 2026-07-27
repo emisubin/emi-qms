@@ -23,7 +23,7 @@ export function DepartmentWorkHub({
     >
       <header className="department-hub-header">
         <div>
-          <p className="eyebrow">{department.toUpperCase()} WORKSPACE</p>
+          <p className="eyebrow">부서 업무</p>
           <h2>{title}</h2>
           <p>{description}</p>
         </div>

@@ -28,12 +28,23 @@ type Props = {
   projectId: string;
   mode: 'sales' | 'design';
   onOpenPanel: (panelId: string) => void;
+  presentation?: 'summary' | 'edit';
+  initialStructure?: Ul891SetStructure;
+  onEdit?: () => void;
 };
 
-export function Ul891SetWorkspace({ developmentUserKey, projectId, mode, onOpenPanel }: Props) {
-  const [structure, setStructure] = useState<Ul891SetStructure | null>(null);
+export function Ul891SetWorkspace({
+  developmentUserKey,
+  projectId,
+  mode,
+  onOpenPanel,
+  presentation = 'summary',
+  initialStructure,
+  onEdit
+}: Props) {
+  const [structure, setStructure] = useState<Ul891SetStructure | null>(initialStructure ?? null);
   const [billing, setBilling] = useState<MonthlyBilling | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialStructure);
   const [message, setMessage] = useState('');
 
   const load = useCallback(async () => {
@@ -51,9 +62,17 @@ export function Ul891SetWorkspace({ developmentUserKey, projectId, mode, onOpenP
     }
   }, [developmentUserKey, mode, projectId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (initialStructure?.projectId === projectId) {
+      setStructure(initialStructure);
+      setLoading(false);
+      return;
+    }
+    void load();
+  }, [initialStructure, load, projectId]);
 
   if (loading) return <section className="subsection ul891-workspace"><p className="muted-text">UL891 세트 구성을 불러오는 중입니다.</p></section>;
+  if (!structure && message) return <section className="subsection ul891-workspace"><p className="error-text" role="alert">{message}</p></section>;
   if (!structure || structure.structureMode !== 'Ul891Set') {
     return structure?.isLegacyFlat ? (
       <section className="subsection ul891-workspace legacy"><strong>기존 UL891 면수형 프로젝트</strong><p>기존 패널 입력 구조를 유지합니다. 신규 프로젝트부터 세트 사양 구조가 적용됩니다.</p></section>
@@ -69,10 +88,15 @@ export function Ul891SetWorkspace({ developmentUserKey, projectId, mode, onOpenP
           <h3>{mode === 'sales' ? '세트 주문 구성' : '세트 사양 · 개별 패널'}</h3>
           <p>{mode === 'sales' ? '세트 사양별 주문 수량을 관리하고, 실제 제조·검사·출하는 개별 패널로 추적합니다.' : '같은 세트의 공통 사양은 한 번 입력하고 각 실물 패널은 고유 ID와 이력을 유지합니다.'}</p>
         </div>
-        <div className="ul891-hero-metrics">
-          <span><small>세트 사양</small><strong>{structure.specs.length}</strong></span>
-          <span><small>활성 세트</small><strong>{structure.specs.reduce((sum, spec) => sum + spec.activeInstanceCount, 0)}</strong></span>
-          <span><small>개별 패널</small><strong>{activePanels.length}</strong></span>
+        <div className="ul891-workspace-hero-actions">
+          <div className="ul891-hero-metrics">
+            <span><small>세트 사양</small><strong>{structure.specs.length}</strong></span>
+            <span><small>활성 세트</small><strong>{structure.specs.reduce((sum, spec) => sum + spec.activeInstanceCount, 0)}</strong></span>
+            <span><small>개별 패널</small><strong>{activePanels.length}</strong></span>
+          </div>
+          {mode === 'design' && presentation === 'summary' && structure.canEditDesign && onEdit ? (
+            <button type="button" className="primary-button" onClick={onEdit}>수정</button>
+          ) : null}
         </div>
       </header>
 
@@ -91,12 +115,13 @@ export function Ul891SetWorkspace({ developmentUserKey, projectId, mode, onOpenP
           developmentUserKey={developmentUserKey}
           projectId={projectId}
           structure={structure}
+          editable={presentation === 'edit'}
           onChanged={load}
           onMessage={setMessage}
           onOpenPanel={onOpenPanel}
         />
       )}
-      {message ? <p className={message.startsWith('완료') ? 'success-text' : 'error-text'} role="status">{message}</p> : null}
+      {mode === 'sales' && message ? <p className={message.startsWith('완료') ? 'success-text' : 'error-text'} role="status">{message}</p> : null}
     </section>
   );
 }
@@ -205,11 +230,12 @@ function SalesSetControls({ developmentUserKey, projectId, structure, billing, o
   );
 }
 
-function DesignSetControls({ developmentUserKey, projectId, structure, onChanged, onMessage, onOpenPanel }: {
+function DesignSetControls({ developmentUserKey, projectId, structure, editable, onChanged, onMessage, onOpenPanel }: {
   developmentUserKey: string; projectId: string; structure: Ul891SetStructure;
+  editable: boolean;
   onChanged: () => Promise<void>; onMessage: (value: string) => void; onOpenPanel: (panelId: string) => void;
 }) {
-  return <div className="ul891-spec-grid">{structure.specs.map((spec) => <DesignSpecCard key={spec.specId} developmentUserKey={developmentUserKey} projectId={projectId} spec={spec} canEdit={structure.canEditDesign} onChanged={onChanged} onMessage={onMessage} onOpenPanel={onOpenPanel} />)}</div>;
+  return <div className="ul891-spec-grid">{structure.specs.map((spec) => <DesignSpecCard key={spec.specId} developmentUserKey={developmentUserKey} projectId={projectId} spec={spec} canEdit={editable && structure.canEditDesign} onChanged={onChanged} onMessage={onMessage} onOpenPanel={onOpenPanel} />)}</div>;
 }
 
 function DesignSpecCard({ developmentUserKey, projectId, spec, canEdit, onChanged, onMessage, onOpenPanel }: {
@@ -223,30 +249,110 @@ function DesignSpecCard({ developmentUserKey, projectId, spec, canEdit, onChange
   const [components, setComponents] = useState<Ul891SetComponent[]>(source?.components ?? []);
   const [selectedInstances, setSelectedInstances] = useState<string[]>([]);
   const [targetVersion, setTargetVersion] = useState(published?.versionId ?? '');
-  const [saving, setSaving] = useState(false);
+  const [savingAction, setSavingAction] = useState<'temporary' | 'save' | 'new-version' | 'apply' | null>(null);
+  const [feedback, setFeedback] = useState<{ tone: 'loading' | 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => { setName(spec.name); setReason(source?.revisionReason ?? '설계 사양 입력'); setComponents(source?.components ?? []); setTargetVersion(published?.versionId ?? ''); }, [published?.versionId, source?.components, source?.revisionReason, source?.versionId, spec.name]);
-  async function run(action: () => Promise<unknown>, success: string) { setSaving(true); onMessage(''); try { await action(); onMessage(`완료 · ${success}`); await onChanged(); } catch (error) { onMessage(errorMessage(error)); } finally { setSaving(false); } }
-  async function save() {
-    if (!draft || !reason.trim() || components.some((item) => !item.componentCode.trim())) { onMessage('Draft 버전, 변경 사유와 component code를 확인해 주세요.'); return; }
-    await run(() => updateUl891Draft(developmentUserKey, projectId, spec.specId, draft.versionId, { expectedSpecVersion: spec.rowVersion, specName: name.trim(), revisionReason: reason.trim(), components: components.map((item) => ({ componentCode: item.componentCode.trim().toUpperCase(), panelName: clean(item.panelName), panelSpecification: clean(item.panelSpecification), widthMm: item.widthMm, heightMm: item.heightMm, depthMm: item.depthMm })) }), '세트 공통 사양을 저장했습니다.');
+  async function run(
+    action: () => Promise<unknown>,
+    actionName: NonNullable<typeof savingAction>,
+    loadingMessage: string,
+    successMessage: string
+  ) {
+    setSavingAction(actionName);
+    setFeedback({ tone: 'loading', message: loadingMessage });
+    onMessage('');
+    try {
+      await action();
+      setFeedback({ tone: 'success', message: successMessage });
+      await onChanged();
+    } catch (error) {
+      const message = errorMessage(error);
+      setFeedback({ tone: 'error', message });
+      onMessage(message);
+    } finally {
+      setSavingAction(null);
+    }
   }
-  async function publish() { if (!draft || !reason.trim()) return; await run(() => publishUl891Version(developmentUserKey, projectId, spec.specId, draft.versionId, reason.trim()), '사양을 확정했습니다. 제조 착수가 가능합니다.'); }
-  async function createVersion() { if (!reason.trim()) { onMessage('새 버전 생성 사유를 입력해 주세요.'); return; } await run(() => createUl891Version(developmentUserKey, projectId, spec.specId, reason.trim()), 'Published 사양에서 새 Draft를 만들었습니다.'); }
-  async function applyVersion() { if (!targetVersion || selectedInstances.length === 0 || !reason.trim()) { onMessage('적용 버전, 세트와 사유를 입력해 주세요.'); return; } await run(() => applyUl891Version(developmentUserKey, projectId, spec.specId, { expectedActiveInstanceCount: spec.activeInstanceCount, versionId: targetVersion, instanceIds: selectedInstances, reason: reason.trim() }), '선택 세트에 새 사양 snapshot을 적용했습니다.'); setSelectedInstances([]); }
+  async function save() {
+    if (!draft || !reason.trim() || components.some((item) => !item.componentCode.trim())) {
+      setFeedback({ tone: 'error', message: '임시저장할 수정본, 변경 사유와 구성 code를 확인해 주세요.' });
+      return;
+    }
+    await run(
+      () => updateUl891Draft(developmentUserKey, projectId, spec.specId, draft.versionId, { expectedSpecVersion: spec.rowVersion, specName: name.trim(), revisionReason: reason.trim(), components: components.map((item) => ({ componentCode: item.componentCode.trim().toUpperCase(), panelName: clean(item.panelName), panelSpecification: clean(item.panelSpecification), widthMm: item.widthMm, heightMm: item.heightMm, depthMm: item.depthMm })) }),
+      'temporary',
+      '임시저장 중입니다.',
+      '임시저장되었습니다. 계속 수정하거나 최종 저장할 수 있습니다.'
+    );
+  }
+  async function publish() {
+    if (!draft || !reason.trim() || components.some((item) => !item.componentCode.trim())) {
+      setFeedback({ tone: 'error', message: '저장할 수정본, 변경 사유와 구성 code를 확인해 주세요.' });
+      return;
+    }
+    await run(
+      async () => {
+        await updateUl891Draft(developmentUserKey, projectId, spec.specId, draft.versionId, {
+          expectedSpecVersion: spec.rowVersion,
+          specName: name.trim(),
+          revisionReason: reason.trim(),
+          components: components.map((item) => ({
+            componentCode: item.componentCode.trim().toUpperCase(),
+            panelName: clean(item.panelName),
+            panelSpecification: clean(item.panelSpecification),
+            widthMm: item.widthMm,
+            heightMm: item.heightMm,
+            depthMm: item.depthMm
+          }))
+        });
+        await publishUl891Version(developmentUserKey, projectId, spec.specId, draft.versionId, reason.trim());
+      },
+      'save',
+      '저장 중입니다.',
+      '저장되었습니다. 이 사양이 적용된 패널은 제조를 시작할 수 있습니다.'
+    );
+  }
+  async function createVersion() {
+    if (!reason.trim()) {
+      setFeedback({ tone: 'error', message: '새 수정본을 만드는 사유를 입력해 주세요.' });
+      return;
+    }
+    await run(
+      () => createUl891Version(developmentUserKey, projectId, spec.specId, reason.trim()),
+      'new-version',
+      '새 수정본을 만드는 중입니다.',
+      '새 수정본을 만들었습니다. 내용을 변경한 뒤 임시저장 또는 저장해 주세요.'
+    );
+  }
+  async function applyVersion() {
+    if (!targetVersion || selectedInstances.length === 0 || !reason.trim()) {
+      setFeedback({ tone: 'error', message: '적용할 저장 버전, 세트와 사유를 입력해 주세요.' });
+      return;
+    }
+    await run(
+      () => applyUl891Version(developmentUserKey, projectId, spec.specId, { expectedActiveInstanceCount: spec.activeInstanceCount, versionId: targetVersion, instanceIds: selectedInstances, reason: reason.trim() }),
+      'apply',
+      '선택 세트에 적용 중입니다.',
+      '선택한 세트에 저장된 사양을 적용했습니다.'
+    );
+    setSelectedInstances([]);
+  }
 
   return <article className="ul891-spec-card design">
     <div className="ul891-spec-heading"><span>SET {spec.specNo}</span><div><h4>{spec.name}</h4><p>공통 사양 {components.length}개 · 실물 {spec.activeInstanceCount}세트</p></div><strong>{versionLabel(spec.versions)}</strong></div>
-    <div className="ul891-version-rail">{spec.versions.map((version) => <span key={version.versionId} data-status={version.status}>v{version.versionNumber} {version.status}</span>)}</div>
+    <div className="ul891-version-rail" aria-label="사양 저장 이력">{spec.versions.map((version) => <span key={version.versionId} data-status={version.status}>v{version.versionNumber} {versionStatusLabel(version.status)}</span>)}</div>
+    {!canEdit || !draft ? <DesignComponentSummary components={source?.components ?? []} /> : null}
     {canEdit && draft ? <div className="ul891-design-form">
       <label>세트 사양명<input value={name} onChange={(event) => setName(event.target.value)} /></label>
       <label>변경 사유<input value={reason} onChange={(event) => setReason(event.target.value)} /></label>
-      <div className="ul891-component-table"><div className="head"><span>Code</span><span>패널명 / 규격</span><span>W × H × D (mm)</span></div>{components.map((component, index) => <div className="row" key={`${component.componentId}-${index}`}><input aria-label={`구성 ${index + 1} code`} value={component.componentCode} onChange={(event) => setComponents(updateComponent(components, index, { componentCode: event.target.value }))} /><span><input aria-label={`${component.componentCode} 패널명`} value={component.panelName ?? ''} onChange={(event) => setComponents(updateComponent(components, index, { panelName: event.target.value }))} /><input aria-label={`${component.componentCode} 규격`} value={component.panelSpecification ?? ''} onChange={(event) => setComponents(updateComponent(components, index, { panelSpecification: event.target.value }))} /></span><span>{(['widthMm', 'heightMm', 'depthMm'] as const).map((field) => <input key={field} type="number" min="0" value={component[field] ?? ''} onChange={(event) => setComponents(updateComponent(components, index, { [field]: event.target.value ? Number(event.target.value) : null }))} />)}</span></div>)}</div>
-      <div className="button-row"><button type="button" disabled={saving} onClick={() => setComponents([...components, blankComponent(components.length)])}>구성 추가</button><button type="button" disabled={saving} onClick={() => void save()}>Draft 저장</button><button type="button" className="primary-button" disabled={saving} onClick={() => void publish()}>사양 확정</button></div>
+      <div className="ul891-component-table"><div className="head"><span>Code</span><span>패널명</span><span>W × H × D (mm)</span></div>{components.map((component, index) => <div className="row" key={`${component.componentId}-${index}`}><input aria-label={`구성 ${index + 1} code`} value={component.componentCode} onChange={(event) => setComponents(updateComponent(components, index, { componentCode: event.target.value }))} /><input aria-label={`${component.componentCode} 패널명`} value={component.panelName ?? ''} onChange={(event) => setComponents(updateComponent(components, index, { panelName: event.target.value }))} /><span>{(['widthMm', 'heightMm', 'depthMm'] as const).map((field) => <input key={field} type="number" min="0" value={component[field] ?? ''} onChange={(event) => setComponents(updateComponent(components, index, { [field]: event.target.value ? Number(event.target.value) : null }))} />)}</span></div>)}</div>
+      <div className="button-row"><button type="button" disabled={savingAction !== null} onClick={() => setComponents([...components, blankComponent(components.length)])}>구성 추가</button><button type="button" disabled={savingAction !== null} onClick={() => void save()}>{savingAction === 'temporary' ? '임시저장 중' : '임시저장'}</button><button type="button" className="primary-button" disabled={savingAction !== null} onClick={() => void publish()}>{savingAction === 'save' ? '저장 중' : '저장'}</button></div>
     </div> : null}
-    {canEdit && !draft && published ? <div className="ul891-inline-form"><label>새 버전 사유<input value={reason} onChange={(event) => setReason(event.target.value)} /></label><button type="button" onClick={() => void createVersion()}>새 Draft 만들기</button></div> : null}
+    {canEdit && !draft && published ? <div className="ul891-inline-form"><label>새 수정본 사유<input value={reason} onChange={(event) => setReason(event.target.value)} /></label><button type="button" disabled={savingAction !== null} onClick={() => void createVersion()}>{savingAction === 'new-version' ? '만드는 중' : '새 수정본 만들기'}</button></div> : null}
     <div className="ul891-instance-list">{spec.instances.map((instance) => <article key={instance.instanceId} data-status={instance.status}><label>{canEdit && instance.status === 'Active' && !instance.hasDeliveredPanel ? <input type="checkbox" checked={selectedInstances.includes(instance.instanceId)} onChange={() => setSelectedInstances(toggle(selectedInstances, instance.instanceId))} /> : null}<span>{spec.name} · {instance.instanceNumber}번 세트</span></label><small>적용 사양 v{instance.specVersionNumber} · {instance.hasStarted ? '착수됨' : '미착수'}</small><PanelPills panels={instance.panels} onOpenPanel={onOpenPanel} /></article>)}</div>
-    {canEdit && spec.versions.some((version) => version.status === 'Published') ? <div className="ul891-inline-form"><label>Published 버전<select value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)}>{spec.versions.filter((version) => version.status === 'Published').map((version) => <option key={version.versionId} value={version.versionId}>v{version.versionNumber}</option>)}</select></label><label>적용 사유<input value={reason} onChange={(event) => setReason(event.target.value)} /></label><button type="button" disabled={saving || selectedInstances.length === 0} onClick={() => void applyVersion()}>선택 세트에 적용</button></div> : null}
+    {canEdit && spec.versions.some((version) => version.status === 'Published') ? <div className="ul891-inline-form"><label>저장된 버전<select value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)}>{spec.versions.filter((version) => version.status === 'Published').map((version) => <option key={version.versionId} value={version.versionId}>v{version.versionNumber}</option>)}</select></label><label>적용 사유<input value={reason} onChange={(event) => setReason(event.target.value)} /></label><button type="button" disabled={savingAction !== null || selectedInstances.length === 0} onClick={() => void applyVersion()}>{savingAction === 'apply' ? '적용 중' : '선택 세트에 적용'}</button></div> : null}
+    {feedback ? <p className={`ul891-action-feedback ${feedback.tone === 'error' ? 'error-text' : feedback.tone === 'success' ? 'success-text' : 'muted-text'}`} role="status" aria-live="polite">{feedback.message}</p> : null}
   </article>;
 }
 
@@ -287,9 +393,36 @@ function MonthlyBillingPanel({ developmentUserKey, projectId, billing, recoveryC
   </section>;
 }
 
+function DesignComponentSummary({ components }: { components: Ul891SetComponent[] }) {
+  if (components.length === 0) {
+    return <p className="empty-text">저장된 구성 패널 정보가 없습니다.</p>;
+  }
+  return (
+    <div className="ul891-component-summary" role="table" aria-label="저장된 세트 공통 설계정보">
+      <div className="head" role="row">
+        <span role="columnheader">Code</span>
+        <span role="columnheader">패널명</span>
+        <span role="columnheader">W × H × D (mm)</span>
+      </div>
+      {components.map((component) => (
+        <div className="row" role="row" key={component.componentId}>
+          <strong role="cell">{component.componentCode}</strong>
+          <span role="cell">{component.panelName ?? '미입력'}</span>
+          <span role="cell">{formatDimensions(component)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PanelPills({ panels, onOpenPanel }: { panels: Ul891SetSpec['instances'][number]['panels']; onOpenPanel: (panelId: string) => void }) { return <div className="ul891-panel-pills">{panels.map((panel) => <button type="button" key={panel.panelId} data-status={panel.panelStatus} aria-label={`${panel.componentCode} ${panel.panelName ?? panel.displayCode} 패널 상세`} onClick={() => onOpenPanel(panel.panelId)}><strong>{panel.componentCode}</strong><span>{panel.panelName ?? panel.displayCode}</span><small>{panel.delivered ? '출하' : panel.workflowStage}</small></button>)}</div>; }
 function toggle(values: string[], value: string) { return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]; }
-function versionLabel(versions: Ul891SetVersion[]) { const draft = versions.find((item) => item.status === 'Draft'); const published = versions.find((item) => item.status === 'Published'); return draft ? `v${draft.versionNumber} Draft` : published ? `v${published.versionNumber} 확정` : '사양 없음'; }
+function versionLabel(versions: Ul891SetVersion[]) { const draft = versions.find((item) => item.status === 'Draft'); const published = versions.find((item) => item.status === 'Published'); return draft ? `v${draft.versionNumber} 임시저장` : published ? `v${published.versionNumber} 저장 완료` : '저장된 사양 없음'; }
+function versionStatusLabel(status: Ul891SetVersion['status']) { return { Draft: '임시저장', Published: '저장 완료', Superseded: '이전 버전' }[status]; }
+function formatDimensions(component: Ul891SetComponent) {
+  if (component.widthMm === null && component.heightMm === null && component.depthMm === null) return '-';
+  return `${component.widthMm ?? '-'} × ${component.heightMm ?? '-'} × ${component.depthMm ?? '-'}`;
+}
 function updateComponent(items: Ul891SetComponent[], index: number, patch: Partial<Ul891SetComponent>) { return items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item); }
 function blankComponent(index: number): Ul891SetComponent { return { componentId: `new-${index}`, componentCode: '', panelName: null, panelSpecification: null, widthMm: null, heightMm: null, depthMm: null, sortOrder: index + 1 }; }
 function clean(value: string | null | undefined) { const normalized = value?.trim(); return normalized ? normalized : null; }

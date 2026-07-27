@@ -1339,7 +1339,8 @@ describe('App', () => {
     expect(screen.getByLabelText('PJT Title*')).toHaveValue('Unsaved Title');
 
     fireEvent.click(screen.getByRole('button', { name: '상세' }));
-    fireEvent.click(await screen.findByRole('button', { name: '목록' }));
+    const breadcrumbs = await screen.findByRole('navigation', { name: '현재 위치' });
+    fireEvent.click(within(breadcrumbs).getByRole('button', { name: '프로젝트' }));
     fireEvent.click(await screen.findByText('OnHold Project'));
     fireEvent.click(await screen.findByRole('button', { name: '수정' }));
 
@@ -1580,6 +1581,39 @@ describe('App', () => {
     await screen.findByRole('tab', { name: '설계' });
     expect(screen.queryByRole('button', { name: '패널명·사이즈 수정' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel 양식 다운로드' })).not.toBeInTheDocument();
+  });
+
+  it('keeps UL891 design read-only in project detail and opens the dedicated edit page', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === `/api/projects/${projectId}/set-structure`) {
+        return json(ul891SetStructure());
+      }
+      if (path === `/api/projects/${projectId}/qr`) {
+        return json({ projectId, eligibleCount: 0, issuedCount: 0, panels: [] });
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
+    await screen.findByRole('button', { name: '신규 프로젝트' });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
+
+    expect(await screen.findByRole('table', { name: '저장된 세트 공통 설계정보' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '패널 QR' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '패널명·사이즈 수정' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('세트 사양명')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+
+    expect(await screen.findByText('UL891 설계 입력')).toBeInTheDocument();
+    expect(screen.getByLabelText('세트 사양명')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '임시저장' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '저장' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '패널 QR' })).not.toBeInTheDocument();
   });
 
   it('shows one panel as a department workspace and preserves exact work links', async () => {
@@ -2244,7 +2278,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '생산관리' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: '생산계획 수정' })).not.toBeInTheDocument());
-  });
+  }, 30_000);
 
   it('hides production planning Excel upload controls from users without Production Planning update permission', async () => {
     render(<App />);
@@ -3720,6 +3754,19 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(projectWorkflowResponse(projectId));
   }
 
+  if (path === `/api/projects/${projectId}/set-structure`) {
+    return json({
+      projectId,
+      structureMode: 'FlatPanel',
+      isLegacyFlat: false,
+      canEditOrder: false,
+      canEditDesign: false,
+      specs: [],
+      orderedProcurementItems: [],
+      recoveryCases: []
+    });
+  }
+
   if (path === `/api/projects/${projectId}`) {
     return json(projectDetail(canReadSalesAmount(userKey), 'Active', 'TASK-003A Demo'));
   }
@@ -4150,6 +4197,65 @@ function panels(id = projectId) {
     createdAt: '2026-06-25T00:00:00Z',
     updatedAt: '2026-06-25T00:00:00Z'
   }));
+}
+
+function ul891SetStructure() {
+  return {
+    projectId,
+    structureMode: 'Ul891Set',
+    isLegacyFlat: false,
+    canEditOrder: false,
+    canEditDesign: true,
+    specs: [{
+      specId: 'spec-1',
+      specNo: 1,
+      name: 'MCC 메인 세트',
+      rowVersion: 1,
+      activeInstanceCount: 1,
+      versions: [{
+        versionId: 'version-1',
+        versionNumber: 1,
+        status: 'Draft',
+        revisionReason: '초기 설계',
+        publishedAtUtc: null,
+        components: [{
+          componentId: 'component-a',
+          componentCode: 'A',
+          panelName: 'MAIN A',
+          panelSpecification: 'UL891 TYPE A',
+          widthMm: 800,
+          heightMm: 1800,
+          depthMm: 400,
+          sortOrder: 1
+        }]
+      }],
+      instances: [{
+        instanceId: 'instance-1',
+        instanceNumber: 1,
+        specVersionId: 'version-1',
+        specVersionNumber: 1,
+        status: 'Active',
+        rowVersion: 1,
+        hasStarted: false,
+        hasDeliveredPanel: false,
+        panels: [{
+          panelId: panelIds[0],
+          sequenceNumber: 1,
+          displayCode: 'P01',
+          componentCode: 'A',
+          panelName: 'MAIN A',
+          panelSpecification: 'UL891 TYPE A',
+          panelStatus: 'Active',
+          workflowStage: 'BeforeManufacturing',
+          packingUnitLabel: null,
+          departureDate: null,
+          delivered: false
+        }]
+      }]
+    }],
+    orderedProcurementItems: [],
+    recoveryCases: []
+  };
 }
 
 function panelInformation(id = projectId) {

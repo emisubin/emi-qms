@@ -163,9 +163,9 @@ public sealed partial class ProjectRegistrationApiTests
                 revisionReason = "초도 설계 입력",
                 components = new[]
                 {
-                    new { componentCode = "A", panelName = "MAIN A", panelSpecification = "800x2000", widthMm = 800m, heightMm = 2000m, depthMm = 600m },
-                    new { componentCode = "B", panelName = "MAIN B", panelSpecification = "700x2000", widthMm = 700m, heightMm = 2000m, depthMm = 600m },
-                    new { componentCode = "C", panelName = "MAIN C", panelSpecification = "600x2000", widthMm = 600m, heightMm = 2000m, depthMm = 600m }
+                    new { componentCode = "A", panelName = "MAIN A", panelSpecification = (string?)null, widthMm = 800m, heightMm = 2000m, depthMm = 600m },
+                    new { componentCode = "B", panelName = "MAIN B", panelSpecification = (string?)null, widthMm = 700m, heightMm = 2000m, depthMm = 600m },
+                    new { componentCode = "C", panelName = "MAIN C", panelSpecification = (string?)null, widthMm = 600m, heightMm = 2000m, depthMm = 600m }
                 }
             }, TestContext.Current.CancellationToken);
         await AssertStatusAsync(updateResponse, HttpStatusCode.OK, context);
@@ -176,6 +176,8 @@ public sealed partial class ProjectRegistrationApiTests
             TestContext.Current.CancellationToken);
         await AssertStatusAsync(publishResponse, HttpStatusCode.OK, context);
         Assert.Equal("MAIN A", await context.ReadScalarAsync<string>($"select panel_name from panel_placeholders where id='{firstPanelId}';"));
+        Assert.True(await context.ReadScalarAsync<bool>($"select panel_info_completed from panel_placeholders where id='{firstPanelId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from ul891_set_spec_components where spec_version_id='{versionId}' and component_code='A' and panel_specification is null;"));
 
         using var publishedStructureResponse = await salesClient.GetAsync($"/api/projects/{projectId}/set-structure", TestContext.Current.CancellationToken);
         using var publishedJson = await ReadJsonAsync(publishedStructureResponse);

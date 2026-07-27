@@ -15,6 +15,7 @@ import { useAdaptiveLayout } from './adaptive-layout';
 import type { FormTemplateCatalogItem, FormTemplateItem, FormTemplateManagers, FormTemplateVersion, FormTemplateVersions } from './formTemplates';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useActionFeedback } from './useActionFeedback';
+import { ProductionControlTemplateWorkspace } from './ProductionControlTemplateWorkspace';
 
 type LoadState = { kind: 'loading' } | { kind: 'ready'; items: FormTemplateCatalogItem[] } | { kind: 'error'; message: string };
 
@@ -30,6 +31,7 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   const [managerPanelOpen, setManagerPanelOpen] = useState(false);
   const [managers, setManagers] = useState<FormTemplateManagers | null>(null);
   const [candidateUserId, setCandidateUserId] = useState('');
+  const [workspaceMode, setWorkspaceMode] = useState<'inspection' | 'production-control'>('inspection');
   const actions = useActionFeedback();
 
   const selectedTemplate = state.kind === 'ready' ? state.items.find((item) => `${item.family}:${item.templateKey}` === selectedKey) ?? null : null;
@@ -139,7 +141,11 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   async function assignManager() {
     const candidate = managers?.candidates.find((item) => item.userId === candidateUserId);
     if (!candidate) return;
-    const domain = candidate.departmentCode === 'quality' ? 'Quality' : 'Manufacturing';
+    const domain = candidate.departmentCode === 'quality'
+      ? 'Quality'
+      : candidate.departmentCode === 'production-planning'
+        ? 'ProductionPlanning'
+        : 'Manufacturing';
     await actions.run('manager:assign', async () => {
       setManagers(await assignFormTemplateManager(developmentUserKey, candidate.userId, domain));
       setCandidateUserId('');
@@ -164,12 +170,21 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   return (
     <section className="page-surface form-template-page" data-mobile-experience={isMobile || undefined} aria-labelledby="form-template-title">
       <header className="form-template-header">
-        <div><p className="eyebrow">NO-CODE FORM CONTROL</p><h2 id="form-template-title">양식 관리</h2><p>사용 중인 버전은 보존하고 새 초안을 활성화해 이후 업무에 적용합니다.</p></div>
+        <div><p className="eyebrow">코드 수정 없는 양식 관리</p><h2 id="form-template-title">양식 관리</h2><p>사용 중인 버전은 보존하고 새 초안을 활성화해 이후 업무에 적용합니다.</p></div>
         {isSystemAdministrator ? <button type="button" className="secondary-button" onClick={() => void openManagers()}>부서장 지정</button> : <span className="form-manager-badge">부서 양식 관리자</span>}
       </header>
 
       {latestFeedback ? <p className="form-template-feedback" data-tone={latestFeedback.tone} role={latestFeedback.tone === 'error' ? 'alert' : 'status'}>{latestFeedback.message}</p> : null}
 
+      <div className="form-template-mode-switch" role="tablist" aria-label="양식 관리 영역">
+        <button type="button" className={workspaceMode === 'inspection' ? 'is-active' : ''} onClick={() => setWorkspaceMode('inspection')}>검사·공통 제조 양식</button>
+        <button type="button" className={workspaceMode === 'production-control' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-control')}>생산계획·Item별 제조 연결</button>
+      </div>
+
+      {workspaceMode === 'production-control'
+        ? <ProductionControlTemplateWorkspace developmentUserKey={developmentUserKey} />
+        : (
+      <>
       <div className="form-template-workspace">
         <nav className="form-template-catalog" aria-label="양식 종류">
           <header><strong>양식 종류</strong><small>{state.items.length}개</small></header>
@@ -197,7 +212,7 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
         <section className="form-template-editor" aria-label="양식 항목 편집">
           {!selectedVersion ? <p>버전을 선택해 주세요.</p> : <>
             <header>
-              <div><p className="eyebrow">VERSION {selectedVersion.versionNumber}</p><h3>{selectedVersion.displayName}</h3></div>
+              <div><p className="eyebrow">버전 {selectedVersion.versionNumber}</p><h3>{selectedVersion.displayName}</h3></div>
               <div className="form-template-editor-controls">
                 <span className="form-template-version-status" data-status={selectedVersion.lifecycleStatus}>{statusLabel(selectedVersion.lifecycleStatus)}</span>
                 <div className="form-template-primary-actions">
@@ -207,23 +222,43 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
               </div>
             </header>
             {selectedVersion.lifecycleStatus !== 'Draft' ? <p className="form-version-lock">사용 중이거나 보관된 버전은 직접 바뀌지 않습니다. 편집을 누르면 사용 중 버전을 복제한 초안이 열립니다.</p> : null}
+            {selectedVersion.lifecycleStatus === 'Draft' ? <p className="form-version-editing" role="status"><strong>초안 편집 중</strong><span>입력 내용은 저장 후에도 활성화 전까지 실제 업무에 적용되지 않습니다.</span></p> : null}
             <div className="form-item-list">{draftItems.map((item, index) => <FormItemEditor key={item.itemId} item={item} index={index} editable={selectedVersion.lifecycleStatus === 'Draft'} manufacturing={versions?.family === 'Manufacturing'} onChange={(next) => setDraftItems((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? next : candidate))} onMove={(offset) => setDraftItems((current) => moveItem(current, index, offset))} onRemove={() => setDraftItems((current) => resequence(current.filter((_, candidateIndex) => candidateIndex !== index)))} />)}</div>
             {selectedVersion.lifecycleStatus === 'Draft' ? <div className="form-editor-actions"><button type="button" onClick={() => setDraftItems((current) => [...current, newItem(current.length + 1, versions?.family === 'Manufacturing')])}>항목 추가</button><button type="button" onClick={() => void archiveDraft()}>초안 보관</button><button type="button" className="primary-button" onClick={() => void activateDraft()}>활성화</button></div> : null}
           </>}
         </section>
       </div>
+      </>
+      )}
 
       {managerPanelOpen && isSystemAdministrator ? <section className="form-manager-panel">
-        <header><div><p className="eyebrow">DEPARTMENT LEADS</p><h3>부서 양식 관리자 지정</h3></div><button type="button" onClick={() => setManagerPanelOpen(false)}>닫기</button></header>
-        <div className="form-manager-assign"><select value={candidateUserId} onChange={(event) => setCandidateUserId(event.target.value)}><option value="">품질·제조 부서 사용자 선택</option>{managers?.candidates.map((candidate) => <option key={candidate.userId} value={candidate.userId}>{candidate.departmentName} · {candidate.displayName}</option>)}</select><button type="button" className="primary-button" disabled={!candidateUserId} onClick={() => void assignManager()}>부서장 지정</button></div>
-        <div className="form-manager-list">{managers?.bindings.filter((binding) => !binding.revokedAtUtc).map((binding) => <article key={binding.bindingId}><span><strong>{binding.displayName}</strong><small>{binding.departmentName} · {binding.domain === 'Quality' ? '품질 양식' : '제조 양식'}</small></span><button type="button" onClick={() => void revokeManager(binding.bindingId)}>지정 해제</button></article>)}</div>
+        <header><div><p className="eyebrow">부서장 권한</p><h3>부서 양식 관리자 지정</h3></div><button type="button" onClick={() => setManagerPanelOpen(false)}>닫기</button></header>
+        <div className="form-manager-assign"><select value={candidateUserId} onChange={(event) => setCandidateUserId(event.target.value)}><option value="">품질·제조·생산관리 부서 사용자 선택</option>{managers?.candidates.map((candidate) => <option key={candidate.userId} value={candidate.userId}>{candidate.departmentName} · {candidate.displayName}</option>)}</select><button type="button" className="primary-button" disabled={!candidateUserId} onClick={() => void assignManager()}>부서장 지정</button></div>
+        <div className="form-manager-list">{managers?.bindings.filter((binding) => !binding.revokedAtUtc).map((binding) => <article key={binding.bindingId}><span><strong>{binding.displayName}</strong><small>{binding.departmentName} · {binding.domain === 'Quality' ? '품질 양식' : binding.domain === 'ProductionPlanning' ? '생산계획 양식' : '제조 양식'}</small></span><button type="button" onClick={() => void revokeManager(binding.bindingId)}>지정 해제</button></article>)}</div>
       </section> : null}
     </section>
   );
 }
 
 function FormItemEditor({ item, index, editable, manufacturing, onChange, onMove, onRemove }: { item: FormTemplateItem; index: number; editable: boolean; manufacturing: boolean; onChange: (item: FormTemplateItem) => void; onMove: (offset: number) => void; onRemove: () => void }) {
-  return <article className="form-item-editor"><div className="form-item-order"><b>{index + 1}</b><button type="button" disabled={!editable || index === 0} onClick={() => onMove(-1)}>↑</button><button type="button" disabled={!editable} onClick={() => onMove(1)}>↓</button></div><div className="form-item-fields"><label>항목명<input disabled={!editable} value={item.label} onChange={(event) => onChange({ ...item, label: event.target.value })} /></label>{!manufacturing ? <><label>안내문<input disabled={!editable} value={item.guidance ?? ''} onChange={(event) => onChange({ ...item, guidance: event.target.value || null })} /></label><div className="form-item-options"><label>응답<select disabled={!editable} value={item.responseType} onChange={(event) => onChange({ ...item, responseType: event.target.value as 'Check' | 'Text', requiresPhoto: event.target.value === 'Text' ? false : item.requiresPhoto, maxTextLength: event.target.value === 'Text' ? (item.maxTextLength ?? 1000) : null })}><option value="Check">확인형</option><option value="Text">텍스트</option></select></label><label><input type="checkbox" disabled={!editable} checked={item.isRequired} onChange={(event) => onChange({ ...item, isRequired: event.target.checked })} />필수</label><label><input type="checkbox" disabled={!editable || item.responseType !== 'Check'} checked={item.requiresPhoto} onChange={(event) => onChange({ ...item, requiresPhoto: event.target.checked })} />사진 필수</label></div></> : null}</div>{editable ? <button type="button" className="form-item-remove" onClick={onRemove}>삭제</button> : null}</article>;
+  if (!editable) {
+    return (
+      <article className="form-item-editor form-item-preview">
+        <div className="form-item-order"><b>{index + 1}</b></div>
+        <div>
+          <strong>{item.label || '항목명 없음'}</strong>
+          {!manufacturing ? <p>{item.guidance || '별도 안내 없음'}</p> : null}
+          <dl>
+            <div><dt>응답</dt><dd>{item.responseType === 'Check' ? '확인형' : '텍스트'}</dd></div>
+            <div><dt>필수</dt><dd>{item.isRequired ? '필수' : '선택'}</dd></div>
+            {!manufacturing ? <div><dt>사진</dt><dd>{item.requiresPhoto ? '필수' : '선택'}</dd></div> : null}
+          </dl>
+        </div>
+      </article>
+    );
+  }
+
+  return <article className="form-item-editor"><div className="form-item-order"><b>{index + 1}</b><button type="button" disabled={index === 0} onClick={() => onMove(-1)}>↑</button><button type="button" onClick={() => onMove(1)}>↓</button></div><div className="form-item-fields"><label>항목명<input value={item.label} onChange={(event) => onChange({ ...item, label: event.target.value })} /></label>{!manufacturing ? <><label>안내문<input value={item.guidance ?? ''} onChange={(event) => onChange({ ...item, guidance: event.target.value || null })} /></label><div className="form-item-options"><label>응답<select value={item.responseType} onChange={(event) => onChange({ ...item, responseType: event.target.value as 'Check' | 'Text', requiresPhoto: event.target.value === 'Text' ? false : item.requiresPhoto, maxTextLength: event.target.value === 'Text' ? (item.maxTextLength ?? 1000) : null })}><option value="Check">확인형</option><option value="Text">텍스트</option></select></label><label><input type="checkbox" checked={item.isRequired} onChange={(event) => onChange({ ...item, isRequired: event.target.checked })} />필수</label><label><input type="checkbox" disabled={item.responseType !== 'Check'} checked={item.requiresPhoto} onChange={(event) => onChange({ ...item, requiresPhoto: event.target.checked })} />사진 필수</label></div></> : null}</div><button type="button" className="form-item-remove" onClick={onRemove}>삭제</button></article>;
 }
 
 function statusLabel(status: FormTemplateVersion['lifecycleStatus']) { return status === 'Draft' ? '초안' : status === 'Active' ? '사용 중' : '보관'; }

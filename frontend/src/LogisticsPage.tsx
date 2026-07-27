@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, cancelLogisticsDraft, createLogisticsBatch, createPackingUnit, finalizeLogisticsOperation, getLogisticsDraft, getLogisticsQueue, uploadLogisticsEvidence } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
-import { DsActionBar, DsInputFlow, DsInputSection } from './design-system';
+import { DsActionBar, DsInputFlow, DsInputSection, DsReadOnlyBanner } from './design-system';
 import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import type { LogisticsDraftResponse, LogisticsMutationResponse, LogisticsQueueItem, LogisticsQueueResponse, LogisticsStage } from './logistics';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
@@ -239,7 +239,7 @@ export function LogisticsPage({
     return (
       <OperationalProjectDashboard
         testId={`logistics-${stage}-dashboard`}
-        eyebrow={`LOGISTICS · ${stage.toUpperCase()}`}
+        eyebrow={`물류 · ${stageMeta[stage].label}`}
         title={`${stageMeta[stage].label} 프로젝트`}
         description={`${stageMeta[stage].label} 대상이 있는 프로젝트를 선택하면 해당 프로젝트의 처리 대상만 표시합니다.`}
         unitLabel="대상"
@@ -267,6 +267,7 @@ export function LogisticsPage({
         })}
         emptyMessage={`${stageMeta[stage].label} 대상 프로젝트가 없습니다.`}
         onBack={onBack}
+        readOnlyDescription={!canMutate ? `${stageMeta[stage].label} 대상과 처리 이력을 조회할 수 있습니다. 증빙 등록과 확정은 물류 담당자 권한이 필요합니다.` : undefined}
         onOpenProject={(projectId) => onOpenProject?.(projectId)}
       />
     );
@@ -275,9 +276,9 @@ export function LogisticsPage({
   return (
     <section className="logistics-page" data-mobile={layout.mode === 'mobile'}>
       <header className="logistics-hero">
-        <button type="button" className="logistics-back" onClick={onBack} aria-label="프로젝트로 돌아가기">←</button>
+        <button type="button" className="logistics-back" onClick={onBack}>{stageMeta[stage].label} 프로젝트</button>
         <div>
-          <span className="logistics-kicker">LOGISTICS CONTROL</span>
+          <span className="logistics-kicker">물류 처리</span>
           <h1>{stageMeta[stage].label} 처리</h1>
           <p>선택한 프로젝트의 {stageMeta[stage].label} 대상과 증빙만 처리합니다.</p>
         </div>
@@ -286,6 +287,8 @@ export function LogisticsPage({
           <span>오늘</span>
         </div>
       </header>
+
+      {!canMutate ? <DsReadOnlyBanner description={`${stageMeta[stage].label} 대상과 처리 이력을 조회할 수 있습니다. 증빙 등록과 확정은 물류 담당자에게 요청하세요.`} /> : null}
 
       <div className="logistics-priority-strip">
         <div><strong>{queue?.todayCount ?? 0}</strong><span>처리 대기</span></div>
@@ -318,7 +321,7 @@ export function LogisticsPage({
       {!loading && queue && (allItems.length > 0 || draft) ? (
         <div className="logistics-workspace">
           <section className="logistics-queue" aria-label={`${stageMeta[stage].label} 대상 선택`}>
-            <header><div><span>STEP 1</span><h2>대상 선택</h2></div><strong>{selectedCount} 선택</strong></header>
+            <header><div><span>1단계</span><h2>대상 선택</h2></div><strong>{selectedCount} 선택</strong></header>
             {allItems.length === 0 ? <p className="logistics-readonly">진행 중인 draft를 복구했습니다. 증빙과 확정을 이어서 진행하세요.</p> : null}
             {queue.projects.map((project) => (
               <article key={project.projectId} className="logistics-project-group">

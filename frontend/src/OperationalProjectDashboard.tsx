@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { DsBreadcrumbs, DsEmptyState, DsReadOnlyBanner } from './design-system';
 
 export type OperationalProjectDashboardMetric = {
   label: string;
@@ -34,6 +35,7 @@ export function OperationalProjectDashboard({
   emptyMessage,
   onBack,
   primaryAction,
+  readOnlyDescription,
   onOpenProject
 }: {
   testId: string;
@@ -57,6 +59,7 @@ export function OperationalProjectDashboard({
     disabled?: boolean;
     onClick: () => void;
   };
+  readOnlyDescription?: string;
   onOpenProject: (projectId: string) => void;
 }) {
   const { isMobile } = useAdaptiveLayout();
@@ -70,6 +73,7 @@ export function OperationalProjectDashboard({
 
   return (
     <section className={isMobile ? 'page-surface operational-dashboard operational-dashboard--mobile' : 'page-surface operational-dashboard'} data-testid={testId}>
+      {!isMobile && onBack ? <DsBreadcrumbs items={[{ label: '업무 선택', onClick: onBack }]} current={title} /> : null}
       <header className="operational-dashboard-header">
         <div>
           <p className="eyebrow">{eyebrow}</p>
@@ -83,6 +87,8 @@ export function OperationalProjectDashboard({
           </div>
         ) : null}
       </header>
+
+      {readOnlyDescription ? <DsReadOnlyBanner description={readOnlyDescription} /> : null}
 
       <div className="operational-dashboard-kpis" aria-label={`${title} KPI`}>
         {metrics.map((metric) => (
@@ -103,7 +109,11 @@ export function OperationalProjectDashboard({
       </div>
 
       {visibleProjects.length === 0 ? (
-        <div className="operational-dashboard-empty"><strong>{emptyMessage}</strong><span>검색 조건이나 앞 단계 완료 상태를 확인해 주세요.</span></div>
+        <DsEmptyState
+          title={emptyMessage}
+          description={search ? '검색어를 지우면 전체 프로젝트를 다시 확인할 수 있습니다.' : '앞 단계 완료 상태를 확인하거나 잠시 후 다시 조회해 주세요.'}
+          primaryAction={search ? { label: '검색 초기화', onClick: () => setSearch('') } : undefined}
+        />
       ) : (
         <div className="operational-project-table" role="table" aria-label={`${title} 프로젝트 목록`}>
           <div className="operational-project-head" role="row">

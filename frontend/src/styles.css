@@ -18340,6 +18340,444 @@ body {
   }
 }
 
+/* DESIGN-000 Change 004: PC user evaluation remediation. */
+.app-nav {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-nav-group-label {
+  margin: 12px 9px 4px;
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.app-nav-group-label:first-child {
+  margin-top: 2px;
+}
+
+.project-summary-compact {
+  display: grid;
+  gap: 0;
+  margin: 8px 0;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.project-summary-compact .project-summary-primary {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin: 0;
+}
+
+.project-summary-compact .project-summary-primary > div {
+  min-height: 62px;
+  padding: 9px 11px;
+  border: 0;
+  border-right: 1px solid var(--line);
+}
+
+.project-summary-compact .project-summary-primary > div:last-child {
+  border-right: 0;
+}
+
+.project-summary-compact > details {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.project-summary-compact > details > summary {
+  padding: 8px 11px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  list-style-position: inside;
+}
+
+.project-summary-compact .project-summary-more {
+  margin: 0;
+  padding: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.project-bottleneck-overview--compact {
+  grid-template-columns: minmax(300px, 1fr) minmax(250px, 0.8fr);
+  gap: 0;
+  margin: 8px 0;
+  border: 1px solid var(--line);
+}
+
+.project-bottleneck-overview--compact .project-bottleneck-hero {
+  min-height: 92px;
+  padding: 10px 12px;
+  border: 0;
+  border-right: 1px solid var(--line);
+}
+
+.project-bottleneck-overview--compact .project-bottleneck-hero .primary-button {
+  min-width: 112px;
+  white-space: nowrap;
+}
+
+.project-bottleneck-overview--compact .project-bottleneck-hero > div {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.55fr) minmax(0, 1fr);
+  gap: 3px 10px;
+  align-items: baseline;
+}
+
+.project-bottleneck-overview--compact .project-bottleneck-hero .eyebrow,
+.project-bottleneck-overview--compact .project-bottleneck-hero h3 {
+  display: none;
+}
+
+.project-bottleneck-overview--compact .project-bottleneck-hero strong {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 1rem;
+}
+
+.project-bottleneck-overview--compact .project-bottleneck-hero p,
+.project-bottleneck-overview--compact .project-bottleneck-hero small {
+  grid-column: 2;
+  margin: 0;
+}
+
+.project-bottleneck-overview--compact .project-bottleneck-pending {
+  align-content: center;
+  min-height: 92px;
+  padding: 10px 12px;
+  border: 0;
+}
+
+.project-bottleneck-overview--compact .project-bottleneck-matrix {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+
+.project-bottleneck-overview--compact .project-bottleneck-matrix button {
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-right: 1px solid var(--line);
+}
+
+.project-bottleneck-overview--compact .project-bottleneck-matrix button:last-child {
+  border-right: 0;
+}
+
+.project-department-tabs {
+  position: sticky;
+  z-index: 12;
+  top: 0;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.home-desktop-priority {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.55fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: stretch;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.home-desktop-priority > header {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 12px 14px;
+  border-right: 1px solid var(--line);
+}
+
+.home-desktop-priority h3,
+.home-desktop-priority p {
+  margin: 0;
+}
+
+.home-desktop-priority > header > span {
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.home-desktop-priority > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.app-shell .home-desktop-priority > div > button {
+  display: grid;
+  min-height: 90px;
+  gap: 3px;
+  align-content: center;
+  padding: 10px 14px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  text-align: left;
+}
+
+.app-shell .home-desktop-priority > div > button:last-child {
+  border-right: 0;
+}
+
+.home-desktop-priority button > span,
+.home-desktop-priority button > small {
+  color: var(--muted);
+  font-size: 0.67rem;
+}
+
+.home-desktop-priority button > strong {
+  font-size: 1.35rem;
+}
+
+.home-desktop-priority button[data-tone='danger'] > strong {
+  color: var(--status-danger) !important;
+}
+
+.form-version-editing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--ink);
+  background: #fafafa;
+  font-size: 0.7rem;
+}
+
+.form-version-editing span {
+  color: var(--muted);
+}
+
+.form-item-preview {
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: start;
+}
+
+.form-item-preview > div:last-child {
+  display: grid;
+  gap: 7px;
+}
+
+.form-item-preview p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.form-item-preview dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+}
+
+.form-item-preview dl > div {
+  display: flex;
+  gap: 5px;
+  font-size: 0.65rem;
+}
+
+.form-item-preview dt {
+  color: var(--muted);
+}
+
+.form-item-preview dd {
+  margin: 0;
+  font-weight: 800;
+}
+
+@media (min-width: 701px) {
+  .project-list-page,
+  .procurement-section,
+  .material-workspace,
+  .operational-dashboard {
+    padding: 16px 20px;
+  }
+
+  .material-workspace {
+    gap: 8px;
+  }
+
+  .procurement-section {
+    gap: 4px;
+  }
+
+  .project-list-page .page-header,
+  .procurement-section .page-header {
+    margin-bottom: 6px;
+    padding-bottom: 8px;
+  }
+
+  .project-list-page .page-header h2,
+  .procurement-section .page-header h2 {
+    margin-block: 2px;
+  }
+
+  .project-list-page > .toolbar,
+  .procurement-section > .toolbar {
+    min-height: 42px;
+    margin: 6px 0;
+    padding: 6px;
+  }
+
+  .project-list-page > .toolbar {
+    display: grid;
+    grid-template-columns: minmax(260px, 1.8fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) auto auto;
+    align-items: end;
+  }
+
+  .procurement-section > .toolbar {
+    display: grid;
+    grid-template-columns: minmax(250px, 1.6fr) minmax(170px, 0.75fr) minmax(170px, 0.75fr) auto auto;
+    align-items: end;
+  }
+
+  .project-list-page > .toolbar > input,
+  .project-list-page > .toolbar .date-filter-field,
+  .procurement-section > .toolbar > input,
+  .procurement-section > .toolbar .date-filter-field {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .project-list-page .dashboard-kpi-grid,
+  .procurement-section .dashboard-kpi-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0;
+    margin: 6px 0;
+    border: 1px solid var(--line);
+  }
+
+  .project-list-page .dashboard-kpi-card,
+  .procurement-section .dashboard-kpi-card {
+    min-height: 66px;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 0;
+    border-right: 1px solid var(--line);
+  }
+
+  .project-list-page .dashboard-kpi-card:last-child,
+  .procurement-section .dashboard-kpi-card:last-child {
+    border-right: 0;
+  }
+
+  .project-list-page .dashboard-kpi-card strong,
+  .procurement-section .dashboard-kpi-card strong {
+    font-size: 1.15rem;
+  }
+
+  .project-list-page .dashboard-kpi-card span,
+  .project-list-page .dashboard-kpi-card small,
+  .procurement-section .dashboard-kpi-card span,
+  .procurement-section .dashboard-kpi-card small {
+    font-size: 0.6rem;
+  }
+
+  .project-list-page > .tab-row {
+    min-height: 36px;
+    margin: 5px 0;
+  }
+
+  .project-list-page > .selected-export-tray,
+  .procurement-section > .selected-export-tray,
+  .material-workspace > .selected-export-tray {
+    min-height: 44px;
+    margin: 5px 0;
+    padding-block: 5px;
+  }
+
+  .procurement-dashboard-layout,
+  .material-project-list {
+    margin-top: 6px;
+  }
+
+  .material-hero {
+    min-height: 70px;
+    padding: 10px 14px;
+  }
+
+  .material-hero .eyebrow {
+    display: none;
+  }
+
+  .material-hero h2 {
+    margin: 0 0 3px;
+    font-size: 1.55rem;
+  }
+
+  .material-hero p:last-child {
+    font-size: 0.74rem;
+  }
+
+  .material-summary-strip {
+    min-height: 62px;
+    margin-block: 6px;
+  }
+
+  .material-search-panel,
+  .material-supply-filter {
+    margin-block: 5px;
+  }
+
+  .material-search-panel {
+    padding: 8px;
+  }
+
+  .material-search-panel label:not(.material-completed-toggle) {
+    gap: 3px;
+    font-size: 0.7rem;
+  }
+
+  .operational-dashboard {
+    gap: 10px;
+  }
+
+  .operational-dashboard-header {
+    min-height: 62px;
+    padding-bottom: 8px;
+  }
+
+  .operational-dashboard-kpis article {
+    min-height: 74px;
+    padding: 10px 12px;
+  }
+
+  .operational-dashboard-kpis strong {
+    font-size: 1.25rem;
+  }
+
+  .operational-project-row {
+    min-height: 62px;
+    padding-block: 7px;
+  }
+
+  .manufacturing-panel-list .manufacturing-panel-selectable:not(:has(.selected-export-checkbox)),
+  .quality-panel-list .quality-panel-selectable:not(:has(.selected-export-checkbox)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .home-desktop-priority,
+  .app-nav-group-label {
+    display: none;
+  }
+
+  .project-department-tabs {
+    position: static;
+  }
+}
+
 /* DESIGN-000 change-003: work → project → single-project input hierarchy */
 .department-work-hub,
 .operational-dashboard {
@@ -19877,5 +20315,633 @@ body {
     min-width: 34px;
     min-height: 34px;
     font-size: 0.68rem;
+  }
+}
+
+/* TASK-UL891-SET-001 Change 007: read-only project detail and dedicated edit page. */
+.ul891-workspace-hero-actions {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.ul891-component-summary {
+  display: grid;
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.ul891-component-summary .head,
+.ul891-component-summary .row {
+  display: grid;
+  grid-template-columns: 64px minmax(130px, 1fr) minmax(150px, 0.9fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.ul891-component-summary .head {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  background: #f7f7f7;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+
+.ul891-component-summary .row {
+  min-height: 42px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.72rem;
+}
+
+.ul891-component-summary .row:last-child {
+  border-bottom: 0;
+}
+
+.ul891-component-summary .row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ul891-action-feedback {
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border: 1px solid currentColor;
+  background: #fff;
+  font-weight: 800;
+}
+
+.ul891-design-edit-page {
+  display: grid;
+  gap: 14px;
+}
+
+.ul891-design-edit-page > .page-header {
+  margin-bottom: 0;
+}
+
+.ul891-design-edit-page > .project-context-summary {
+  margin: 0;
+}
+
+@media (max-width: 700px) {
+  .ul891-workspace-hero-actions {
+    width: 100%;
+    justify-items: stretch;
+  }
+
+  .ul891-workspace-hero-actions > .primary-button {
+    width: 100%;
+  }
+
+  .ul891-component-summary .head,
+  .ul891-component-summary .row {
+    grid-template-columns: 38px minmax(70px, 0.9fr) minmax(100px, 1.1fr);
+    gap: 5px;
+  }
+
+  .ul891-component-summary .head,
+  .ul891-component-summary .row {
+    padding-inline: 7px;
+    font-size: 0.6rem;
+  }
+
+  .ul891-design-edit-page > .page-header {
+    align-items: stretch;
+  }
+
+.ul891-design-edit-page > .page-header > button {
+    width: 100%;
+  }
+}
+
+/* TASK-PRODUCTION-CONTROL-001 — versioned templates and linked plan/actual view */
+.form-template-mode-switch,
+.production-control-domain-tabs,
+.production-control-version-list,
+.production-control-version-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.form-template-mode-switch {
+  margin: 18px 0;
+  padding: 4px;
+  border: 1px solid #111;
+  background: #fff;
+}
+
+.form-template-mode-switch button,
+.production-control-domain-tabs button,
+.production-control-version-list button {
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  color: #111;
+}
+
+.form-template-mode-switch button.is-active,
+.production-control-domain-tabs button.is-active,
+.production-control-version-list button.is-active {
+  background: #111;
+  color: #fff;
+}
+
+.production-control-template-workspace,
+.production-control-template-loading {
+  min-width: 0;
+  border: 1px solid #111;
+  background: #fff;
+}
+
+.production-control-template-loading {
+  padding: 24px;
+}
+
+.production-control-template-intro,
+.production-control-template-toolbar,
+.production-control-version-bar,
+.production-control-editor > header,
+.production-control-snapshot-note {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px;
+  border-bottom: 1px solid #111;
+}
+
+.production-control-template-intro h3,
+.production-control-gantt h4 {
+  margin: 3px 0;
+}
+
+.production-control-template-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.production-control-template-toolbar select {
+  min-width: 240px;
+}
+
+.production-control-version-bar {
+  background: #f7f7f7;
+}
+
+.production-control-template-feedback,
+.production-control-warning {
+  margin: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid #111;
+}
+
+.production-control-editor > header small,
+.production-control-plan-fields label,
+.production-control-row label,
+.production-control-project-fields label {
+  display: grid;
+  gap: 5px;
+}
+
+.production-control-row-list,
+.production-control-plan-list,
+.production-control-project-rows {
+  display: grid;
+  min-width: 0;
+}
+
+.production-control-row,
+.production-control-plan-row,
+.production-control-project-rows > article {
+  min-width: 0;
+  border-bottom: 1px solid #bbb;
+}
+
+.production-control-row {
+  display: grid;
+  grid-template-columns: 44px minmax(220px, 1fr) 180px 80px;
+  align-items: end;
+  gap: 12px;
+  padding: 14px 20px;
+}
+
+.production-control-plan-fields {
+  display: grid;
+  grid-template-columns: 44px minmax(220px, 1fr) 100px 80px;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px dashed #aaa;
+}
+
+.production-control-connections,
+.production-control-project-connections {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+}
+
+.production-control-source,
+.production-control-connections fieldset,
+.production-control-project-source,
+.production-control-project-source-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #aaa;
+  background: #fff;
+}
+
+.production-control-connections fieldset,
+.production-control-project-source-group {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.production-control-connections label,
+.production-control-project-connections label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.production-control-connections fieldset legend {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.production-control-source span,
+.production-control-project-source span {
+  display: grid;
+  gap: 2px;
+}
+
+.production-control-source strong,
+.production-control-project-source b {
+  font-size: 11px;
+}
+
+.production-control-snapshot-note {
+  border-bottom: 0;
+  align-items: flex-start;
+}
+
+.production-control-plan-table {
+  border: 1px solid #111;
+}
+
+.production-control-plan-head,
+.production-control-plan-row {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.25fr) minmax(150px, .9fr) minmax(150px, .9fr) minmax(135px, .75fr) minmax(105px, .6fr) minmax(190px, 1.2fr);
+  align-items: stretch;
+}
+
+.production-control-plan-head {
+  background: #111;
+  color: #fff;
+}
+
+.production-control-plan-head > span,
+.production-control-plan-row > span {
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid #aaa;
+}
+
+.production-control-plan-head > span:last-child,
+.production-control-plan-row > span:last-child {
+  border-right: 0;
+}
+
+.production-control-plan-row {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #bbb;
+  border-radius: 0;
+  background: #fff;
+  color: #111;
+  text-align: left;
+}
+
+.production-control-plan-row:hover {
+  background: #f5f5f5;
+}
+
+.production-control-plan-row > span {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+}
+
+.production-control-plan-row small {
+  color: #666;
+}
+
+.production-control-progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid #111;
+  background: #fff;
+}
+
+.production-control-progress > i {
+  display: block;
+  height: 100%;
+  background: #111;
+}
+
+.production-control-status {
+  display: inline-flex;
+  width: max-content;
+  padding: 3px 7px;
+  border: 1px solid currentColor;
+  font-style: normal;
+}
+
+.production-control-status[data-status="Completed"],
+.production-control-evidence i[data-status="Completed"] {
+  color: var(--status-success, #16864b);
+}
+
+.production-control-status[data-status="Blocked"],
+.production-control-status[data-status="Delayed"],
+.production-control-status[data-status="CompletedLate"],
+.production-control-evidence i[data-status="Blocked"] {
+  color: var(--status-danger, #c42d35);
+}
+
+.production-control-evidence {
+  padding: 16px 20px 20px;
+  border-bottom: 1px solid #111;
+  background: #fafafa;
+}
+
+.production-control-evidence > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.production-control-evidence > div {
+  border: 1px solid #aaa;
+}
+
+.production-control-evidence article {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 220px 100px;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 12px;
+  border-bottom: 1px solid #ddd;
+}
+
+.production-control-evidence article:last-child {
+  border-bottom: 0;
+}
+
+.production-control-evidence article > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.production-control-evidence i {
+  font-style: normal;
+  font-weight: 700;
+}
+
+.production-control-gantt {
+  margin-top: 18px;
+  padding: 18px 20px 22px;
+  border: 1px solid #111;
+  background: #fff;
+}
+
+.production-control-gantt > header,
+.production-control-gantt-legend {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.production-control-gantt-legend {
+  justify-content: flex-end;
+  margin: 12px 0 8px;
+}
+
+.production-control-gantt-legend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.production-control-gantt-legend i {
+  width: 24px;
+  height: 7px;
+}
+
+.production-control-gantt [data-bar="plan"] {
+  background: #111;
+}
+
+.production-control-gantt [data-bar="actual"] {
+  border: 1px solid #111;
+  background: #fff;
+}
+
+.production-control-gantt-body {
+  border-top: 1px solid #111;
+}
+
+.production-control-gantt-body article {
+  display: grid;
+  grid-template-columns: minmax(150px, 240px) 1fr;
+  min-height: 50px;
+  border-bottom: 1px solid #ddd;
+}
+
+.production-control-gantt-body article > strong {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-right: 1px solid #aaa;
+}
+
+.production-control-gantt-body article > div {
+  position: relative;
+  min-width: 0;
+  background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(10% - 1px), #eee calc(10% - 1px), #eee 10%);
+}
+
+.production-control-gantt-body article > div > i {
+  position: absolute;
+  height: 8px;
+}
+
+.production-control-gantt-body article > div > i[data-bar="plan"] {
+  top: 12px;
+}
+
+.production-control-gantt-body article > div > i[data-bar="actual"] {
+  top: 29px;
+}
+
+.production-control-project-fields {
+  display: grid;
+  grid-template-columns: 40px minmax(180px, 1fr) 145px 145px 80px minmax(160px, .8fr) 70px;
+  gap: 10px;
+  align-items: end;
+  padding: 14px 16px;
+  border-bottom: 1px dashed #aaa;
+}
+
+.production-control-project-connections {
+  border: 0;
+  margin: 0;
+}
+
+.production-control-project-connections > legend {
+  margin-left: 12px;
+  padding: 0 4px;
+  font-weight: 800;
+}
+
+.production-control-project-source-group > strong {
+  width: 100%;
+  font-size: 12px;
+}
+
+.production-control-project-source-group label {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.production-control-project-connections.has-error {
+  outline: 2px solid var(--status-danger, #c42d35);
+  outline-offset: -2px;
+}
+
+@media (max-width: 900px) {
+  .production-control-template-intro,
+  .production-control-template-toolbar,
+  .production-control-version-bar,
+  .production-control-snapshot-note {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .production-control-template-toolbar select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .production-control-row,
+  .production-control-plan-fields,
+  .production-control-project-fields {
+    grid-template-columns: 36px 1fr;
+  }
+
+  .production-control-row > button,
+  .production-control-plan-fields > button,
+  .production-control-project-fields > button {
+    grid-column: 2;
+  }
+
+  .production-control-mobile-cards {
+    display: grid;
+    gap: 10px;
+  }
+
+  .production-control-mobile-card {
+    padding: 14px;
+    border: 1px solid #111;
+    background: #fff;
+  }
+
+  .production-control-mobile-card > header {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #aaa;
+  }
+
+  .production-control-mobile-card dl {
+    display: grid;
+    gap: 7px;
+    margin: 10px 0;
+  }
+
+  .production-control-mobile-card dl > div {
+    display: grid;
+    grid-template-columns: 58px 1fr;
+    gap: 8px;
+  }
+
+  .production-control-mobile-card button {
+    width: 100%;
+    margin-top: 10px;
+  }
+
+  .production-control-evidence article {
+    grid-template-columns: 1fr;
+  }
+
+  .production-control-gantt {
+    overflow: visible;
+    padding: 14px;
+  }
+
+  .production-control-gantt > header {
+    align-items: flex-start;
+  }
+
+  .production-control-gantt-legend {
+    justify-content: flex-start;
+  }
+
+  .production-control-gantt-body,
+  .production-control-gantt > header,
+  .production-control-gantt-legend {
+    min-width: 0;
+  }
+
+  .production-control-gantt-body article {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 78px;
+    padding: 9px 0 10px;
+  }
+
+  .production-control-gantt-body article > strong {
+    min-width: 0;
+    padding: 0 0 7px;
+    border-right: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .production-control-gantt-body article > div {
+    width: 100%;
+    min-height: 38px;
+    border: 1px solid #ddd;
   }
 }

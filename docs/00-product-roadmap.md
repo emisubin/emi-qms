@@ -565,21 +565,26 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 - 프로젝트 단위로 관리한다.
 - Item 기준으로 생산계획 단계가 자동 생성된다.
 - Item별 생산계획 단계 설정이 가능하다.
-- Item별 설정은 최신 설정 1개만 유지한다.
-- V1, V2처럼 version을 사용자 화면에 누적 표시하지 않는다.
+- 기존 `Legacy` 생산계획 설정은 최신 설정 1개와 단일 예정일 UI를 그대로 유지한다.
+- 신규 `LinkedV1` 양식은 Item별 제조 항목·생산계획 항목·실적 연결을 version으로 관리하며 양식 관리 화면에서 사용 중/초안 version을 구분한다.
 - 설정 변경 이후 새 프로젝트에만 자동 반영한다.
 - 기존 프로젝트에는 자동 반영하지 않는다.
-- 프로젝트별 생산계획에서는 단계명과 필수 여부를 수정할 수 있다.
+- 유효한 `LinkedV1` 생산계획 양식과 제조 양식이 모두 사용 중인 Item의 새 프로젝트만 두 양식과 연결 관계를 한 세트로 snapshot한다.
+- `LinkedV1` 프로젝트별 생산계획에서는 단계명·필수 여부·계획 시작/종료·비고·다중 실적 연결을 수정할 수 있다.
 - 프로젝트별 수정은 해당 프로젝트 snapshot에만 적용된다.
 - master template에는 영향이 없다.
-- 생산계획 항목은 예정일 빠른 순으로 정렬한다.
-- 프로젝트 상세 생산관리 section에 생산계획표와 캘린더를 표시한다.
+- 제조 snapshot과 자동 실적 값은 프로젝트 생산계획 화면에서 수정하지 않는다.
+- 실적 시작·종료·진행률은 구매·자재·제조·품질·물류의 확정 원본 데이터를 조회 시점에 결정적으로 계산한다.
+- 제조·LQC 연결은 프로젝트에 snapshot된 제조 단계의 불변 `definition_key`를 사용하며 이름·순서 변경으로 재연결하지 않는다.
+- 생산계획 항목은 순서와 계획 시작일을 기준으로 표시한다.
+- 프로젝트 상세 생산관리 section에 6열 계획 대비 실적표, 근거 펼침과 계획/실적 가로 막대 일정표를 표시한다.
 - 생산계획 캘린더는 생산단계 열 sticky, 날짜 열 고정 폭을 유지한다.
 - 생산관리 목록 펼침에는 캘린더를 표시하지 않는다.
 
 생산계획 완료 기준은 다음과 같다.
 
-- 필수 단계의 예정일이 모두 입력되어야 완료다.
+- `Legacy`는 필수 단계의 단일 예정일이 모두 입력되어야 완료다.
+- `LinkedV1`은 필수 항목의 계획 시작일과 종료일이 모두 입력되어야 계획 완료다.
 - 일부만 입력되면 진행 중이다.
 - 날짜가 전혀 없으면 미등록 또는 대기 상태로 본다.
 - 담당자 지정도 workflow 완료 판정에 포함될 수 있으나, 구체 필수 담당자 기준은 TASK별로 명시한다.
@@ -934,8 +939,8 @@ Excel 출력 대상 후보:
 | 포장방식 | StretchWrap/WoodenCrate 등 기본 포장방식 | 포장방식 관리자 기준정보화 |
 | 구매정보 | 직접 입력, Excel preview/apply, 업체, 입고 완료, 완료일시 표시, grouped history | 구매처 master 또는 업체 기준정보화 |
 | 자재 | 자재 입고 입력 기반 | 자재 도착/IQC 요청/입고 확정/키팅 분리 |
-| 생산관리 | 메뉴, 목록, 프로젝트 펼침, 생산계획 조회/수정, 담당자 지정, 확장 담당자 구조, Excel 업로드 | 관리자 기준정보화 |
-| 생산계획 | Item 기반 단계, 프로젝트별 snapshot, 단계명/필수 여부 override, Excel, Business Calendar 기준 캘린더 휴일 표시 | 캘린더 UX 지속 보정, 관리자 기준정보화 |
+| 생산관리 | 메뉴, 목록, 프로젝트 펼침, 생산계획 조회/수정, 담당자 지정, 확장 담당자 구조, Excel 업로드, `LinkedV1` 프로젝트의 계획 대비 자동 실적·근거·가로 막대 일정 | 운영 양식 content 입력과 최종 사용자 검수 |
+| 생산계획 | Legacy Item 단계와 기존 프로젝트 불변 보존, Item별 versioned 제조·계획 양식, 다중 실적 연결, 프로젝트 생성 transaction snapshot, 계획 시작/종료·프로젝트 override, 구매·자재·제조·LQC/OQC/전진검수/FAT·물류 원본 기반 자동 실적 projection, desktop 6열 표·mobile 카드·계획/실적 Gantt | 대량 프로젝트 성능은 실측 후 cache/query 최적화, 운영 양식 content 입력 |
 | 구매 필수 항목 | Item별 필수 구매 항목 설정, 새 프로젝트 skeleton 자동 생성 | 업체/발주정보 입력 기준과 완료 판정 보강 |
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
 | 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 원본 구조, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed provider actual, text topic + Teams deep link, `/teams/activity` 탭과 상세, 관리자 수동 개인/업무 배정 Activity Feed, 설정 선택형 L0~L2 Activity Feed, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, Pending→Processing claim/lease, fencing, automatic retry, provider 오류 분류, attempt lineage, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, fair candidate ordering과 후보 오류 격리, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송 3모드, 수동 업무 배정 work_item 생성, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외와 Pending 재시도 | Activity Feed 자동 event coverage 확대, 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, terminal Failed 수동 재처리 신규 기능(Deferred), 기존 업무 화면 action feedback UX 확대 |
@@ -1007,6 +1012,7 @@ Excel 출력 대상 후보:
 | 3.1A | TASK-MANUFACTURING-BATCH-001 제조 선택 패널 조립 일괄 완료 | NEW_FEATURE | Experiment Complete | Fable 2-pass·local 구현·영향/전체 자동 검증·desktop/mobile 증빙·누적 experiment commit 완료 / `BATCHED_FINAL` | TASK-011A·TASK-EXPORT-001 experiment scope 완료 | 사용자 최종 일괄 검수 대기, 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 3.2 | TASK-012A 후속 품질 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-009A·011A experiment scope 완료 | 실제 LQC/OQC/FAT 양식은 template 후속 | Yes | experiment 재구현 금지; 양식 변경은 기존 Task change |
 | 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Experiment Complete | 2-pass planning·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-009A·011A·012A experiment model | 실제 운영 양식 content 입력은 후속 change | Yes | 재구현 금지; 최종 일괄 검수 |
+| 3.3A | TASK-PRODUCTION-CONTROL-001 Item별 생산계획·자동 실적·가로 막대 일정 | NEW_FEATURE | Experiment Complete | Fable interview 확인·2-pass planning·local implementation·통합/Frontend 자동 검증·desktop/mobile 증빙 완료 / `BATCHED_FINAL` | TASK-ADMIN-002·생산계획·구매·자재·제조·품질·물류 원본 데이터 | 대표 repo·main·Persistent UAT 미반영, 기존 프로젝트는 Legacy 유지 | Yes | 완료 scope 재구현 금지; 마지막 일괄 사용자 검수 |
 | 3.4 | TASK-PENDING-TYPE-001 Pending 유형 관리 | NEW_FEATURE | Experiment Complete | Fable 2-pass·local 구현·자동 검증·desktop/mobile 증빙 완료 / `BATCHED_FINAL` | TASK-007A experiment 완료·안정화 | catalog 설정 자체 Excel export는 P3 backlog, 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수. 승격은 별도 UAT Task |
 | 4.1 | TASK-013A 물류 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-012A experiment scope 완료 | 실제 포장·서명본 양식은 후속 change | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·013A experiment scope 완료 | 운영 정산 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
@@ -1015,7 +1021,7 @@ Excel 출력 대상 후보:
 | 4.3A | TASK-EXPORT-002 선택 프로젝트 Excel export | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-EXPORT-001 Phase 1 | 없음 | Yes | 재구현 금지; 최종 screenshot·파일 일괄 검수 |
 | 4.4 | TASK-QR-001 — 패널 QR 발급·인쇄·인증 스캔 랜딩 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment planning·implementation·automated validation complete / `BATCHED_FINAL` | MOBILE-001·제조 흐름·TASK-003B `qrEligible` | 대표 repo·main·Persistent UAT 미반영 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.5 | TASK-WORKFLOW-CONTINUITY-001 — 실제 담당자 부서 간 연속 인계 보정 | P2_REMEDIATION | Experiment Complete | Change 005~009 IQC·Pending·입고·알림·패널별 제조/품질/물류 인계, Change 010 실데이터 흐름·누락 인계 재조정, Change 011 LQC·OQC 원자 확정·dialog 오류 복구, Change 012 전 부서 Pending 코멘트·부적합 항목 재검사·LQC 누락 복구, Change 013 재검사 최종 전체 결과 합성·물류 증빙 선첨부 1회 확정·초안 자동 복구, Change 014 상세·전체 흐름 진행률 단일화·구매 완료 정책 정합, Change 015 체크리스트 파생 판정·재검사 실패 조치 재요청·입고 업무 요약, Change 016 패널별 출발·납품 선택과 부분 출하 상태 정합 자동 검증 완료 / `BATCHED_FINAL` | TASK-007A·008A·009A·011A·012A·013A·QR-001·E2E-FULL-SUITE-001 experiment 완료 | 최종 일괄 검수; 대표 repo·main·Persistent UAT·실제 provider 미반영 | No | Fable 0회 사용자 override; 고정 검수 runtime 42983/41166; Change 016 Backend 424/424·Frontend 135/135·Full-Stack 1/1·migration 0057; main merge 승인 0/3 |
-| 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Experiment Complete | CSS semantic token·React primitive·shell/Home/Sales adoption, Change 001 전역 black & white wireframe, Change 002 전 부서 입력 흐름 통일, Change 003 다중 업무의 `업무 선택→KPI·프로젝트→단일 프로젝트 입력` 분리·제조/품질 세로 패널 탐색·Pending KPI/프로젝트 목록과 상세 격리, Frontend 136/136·PC browser validation complete / `USER_VALIDATION_PENDING` | 기능 흐름 안정화·사용자 reference image | Figma file/library publish는 범위 밖, 대표 repo·main 미반영 | Yes | 완료 foundation 재구현 금지; Change 001~003 최종 일괄 사용자 검수 |
+| 5.1 | DESIGN-000 Design foundation | HOUSEKEEPING | Experiment Complete | CSS semantic token·React primitive·shell/Home/Sales adoption, Change 001 전역 black & white wireframe, Change 002 전 부서 입력 흐름 통일, Change 003 다중 업무의 `업무 선택→KPI·프로젝트→단일 프로젝트 입력` 분리·제조/품질 세로 패널 탐색·Pending KPI/프로젝트 목록과 상세 격리, Change 004 PC 평가 기반 첫 화면 정보 우선순위·상세 탭·조회 전용·다중 선택·입력 단계·양식 조회/편집 보정, Frontend 136/136·PC/390px browser validation complete / `USER_VALIDATION_PENDING` | 기능 흐름 안정화·사용자 reference image·Change 003 PC UX 평가 | Figma file/library publish와 App route split은 범위 밖, 대표 repo·main 미반영 | Yes | 완료 foundation 재구현 금지; Change 001~004 사용자 검수 |
 | 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Experiment Complete | Automated validation·페이지 screenshot complete / `BATCHED_FINAL` | 로그인 shell, 후속 MOBILE-002와 DESIGN-000 foundation이 보완 | 없음. Figma publish는 optional 후속 | Yes | 완료 화면 통일 재구현 금지; 최종 일괄 검수 |
 | 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment Complete | A1·A2 implementation, automated·isolated browser validation complete / `BATCHED_FINAL` | A1 공통 contract·내 업무·알림, A2 생산·구매·자재·IQC·키팅·패널·Excel 완료 | 대표 repo·main·Persistent UAT 미반영; 전역 toast/store·A2 밖 문자열 tone 정리는 제외 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004·TASK-UX-001 A1 experiment | 관리자 감사 조회 UI는 별도 후속 | Yes | 재구현 금지; 최종 일괄 검수 |
@@ -1735,6 +1741,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - DESIGN-000 Change 001은 비상태 색·그라디언트·그림자를 제거하고 카드·입력·버튼·메뉴를 사각형으로 통일했다. 성공·주의·오류·진행·미읽음처럼 판단에 필요한 상태 표시만 의미색을 유지하며 기능·권한·API·DB·workflow는 변경하지 않았다.
 - DESIGN-000 Change 002는 영업·생산관리·설계·구매·자재·제조·품질·물류·정산 입력을 `대상 확인 → 값 입력 → 저장` 순서와 번호 section·한 번 선택 control·하단 action bar로 통일했다. 기존 value·handler·API·필수값·권한·workflow는 유지했고 Frontend 134/134와 desktop·390px privacy-safe 검증을 통과했다.
 - DESIGN-000 Change 003은 생산관리·자재·품질·물류의 메뉴 진입을 업무 선택 전용 화면으로 분리하고, 업무별 KPI·프로젝트 목록 뒤에 한 프로젝트 입력만 열도록 했다. 제조와 LQC·OQC·전진검수·FAT는 선택 프로젝트의 패널을 왼쪽 세로 목록으로 탐색한다. Pending은 단일 업무 선택 단계를 제거하고 KPI·프로젝트 목록으로 시작하며 상세를 한 프로젝트 이슈로 격리했다. 기존 API·권한·저장·상태 전이와 deep link를 유지했고 Frontend 136/136과 PC browser console error 0을 통과했으며 모바일은 사용자 요청에 따라 UX/UI 평가에서 제외했다.
+- DESIGN-000 Change 004는 Change 003 PC 사용자 평가의 P1·P2를 구현했다. 1280×720에서 프로젝트·구매·자재의 실제 행을 첫 화면에 노출하고 프로젝트 상세 핵심정보·병목을 압축해 부서 탭을 첫 화면과 sticky 위치에 배치했다. 공통 breadcrumb, permission/prerequisite banner, empty state, secondary tools와 selection mode를 도입하고 제조·품질의 현재 패널 선택과 batch/export checkbox를 분리했다. 영업 Home은 당일 업무를 graph보다 먼저 표시하고, 생산계획은 접기형 단계, 양식 관리는 text preview와 draft input으로 분리했다. 기존 기능·권한·API·DB·workflow를 유지한 채 Frontend 136/136, build와 PC·390px overflow 0을 통과했다.
+- TASK-UL891-SET-001 Change 007은 신규 UL891 프로젝트 상세 설계 탭을 조회 전용으로 만들고 세트 공통 설계와 중복되던 평면 패널 설계 영역을 제거했다. 단일 `수정` 버튼으로 별도 입력 화면에 진입하고 사용자 용어를 `임시저장`·`저장`으로 정리해 action 가까이에서 진행·결과를 확인한다. QR·비-UL891 기존 설계·Backend·DB·workflow는 유지했으며 Frontend 138/138과 desktop·390px 검수를 통과했다.
+- TASK-UL891-SET-001 Change 008은 Change 007 사용자 검수에서 확인된 최종 저장 오류를 보정했다. `저장` 한 번으로 현재 form을 Draft에 갱신한 뒤 Publish하고, 규격을 Publish·패널 설계 완료 조건과 UL891 화면에서 제거했다. 기존 API·DB 호환 필드는 유지하며 Backend 실제 API 회귀·Frontend 138/138·desktop UI 검증을 통과했다.
 - DESIGN-001 화면 통일 실험은 구현·자동 검증·페이지별 screenshot을 완료해 `EXPERIMENT_COMPLETE / BATCHED_FINAL`이다. 같은 전체 화면 통일을 다시 기획하지 않는다.
 - DESIGN-000 token foundation도 `EXPERIMENT_COMPLETE / BATCHED_FINAL`이며 Figma file/library publish만 범위 밖이다. 후속 화면은 신규 임의 값보다 foundation token과 primitive를 먼저 사용한다.
 - 기능 Task에서도 loading·empty·error·success feedback, 접근성, 한글 안내와 390px/Teams narrow 기준은 선행 적용한다.
@@ -2044,9 +2053,13 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-26 | TASK-WORKFLOW-CONTINUITY-001 Change 016에서 포장 묶음은 유지하되 출발·납품 batch의 실제 membership과 queue를 패널별로 전환하고 기존 unit 기록을 backfill | 같은 Packing Unit의 모든 패널을 함께 출발·납품해야 했던 결함을 해소해 부분 출하·부분 납품을 허용하면서, 선택하지 않은 패널의 업무·상태·증빙과 마지막 패널 정산 인계를 보존하기 위함 | 4장·13장·17장·23장~25장, 27-experiment-task-ledger, TASK-WORKFLOW-CONTINUITY-001 Change 016 |
 | 2026-07-26 | DESIGN-000 Change 002에서 전 부서 입력을 `대상 확인 → 값 입력 → 저장` 순서, 번호 section, 한 번 선택 control과 하단 action bar로 통일 | 기존 기능·권한·API·상태 전이를 바꾸지 않고도 화면마다 달랐던 입력 시작·선택·저장 위치를 같은 방식으로 학습하고 Mobile에서는 한 열로 간단히 처리하게 하기 위함 | 23장~25장, 27-experiment-task-ledger, DESIGN-000 Change 002 |
 | 2026-07-27 | DESIGN-000 Change 003에서 다중 업무 부서는 업무 선택 전용 화면, 업무별 KPI·프로젝트 목록, 단일 프로젝트 입력으로 나누고 제조·패널 품질검사의 패널 탐색을 왼쪽 세로 목록으로 통일하며 Pending은 KPI·프로젝트 목록과 한 프로젝트 상세로 단순화 | 업무와 전체 프로젝트가 한 화면에 섞여 KPI 기준과 현재 입력 대상이 불명확했던 문제와 Pending의 중복 선택·프로젝트 응답 혼입 가능성을 기존 기능·권한·API·상태 전이를 바꾸지 않고 해소하기 위함. UX/UI 평가는 사용자 지시에 따라 PC만 수행 | 23장~25장, 27-experiment-task-ledger, DESIGN-000 Change 003 |
+| 2026-07-27 | DESIGN-000 Change 004에서 PC 평가서의 첫 화면 목록·상세 탭·조회 전용·다중 선택·영업 Home·생산계획·양식 관리 P1/P2 UX를 공통 component와 compact layout으로 보정 | 새 기능이나 업무 정책을 바꾸지 않고 사용자가 실제 목록과 당일 행동을 먼저 보고 권한·선행조건·현재 입력 대상·다중 선택·조회/편집 상태를 즉시 구분하게 하기 위함 | 23장~25장, 27-experiment-task-ledger, DESIGN-000 Change 004 |
 | 2026-07-24 | TASK-UL891-SET-001 Change 006에서 종결된 품질 Pending 연결을 현재 차단 표시에서 제외하고 제조·품질·물류 목록에 실제 현재 단계 열을 추가 | OQC 합격 패널이 Pending으로 오표시되고 OQC 부적합 패널이 미래 전진검수·FAT 대기처럼 보이는 사용자 검수 실패를 없애며, 핵심정보를 재해석하지 않고 부서별 현재 단계를 바로 확인하게 하기 위함 | 8장·13장·23장~25장, 27-experiment-task-ledger, TASK-UL891-SET-001 Change 006 |
+| 2026-07-27 | TASK-UL891-SET-001 Change 007에서 신규 UL891 프로젝트 상세 설계를 조회 전용으로 만들고 중복 평면 설계를 제거하며 별도 수정 화면과 `임시저장`·`저장` feedback을 제공 | 세트 공통 사양과 일반 패널 설계가 같은 화면에서 중복 입력처럼 보이고 내부 저장 용어·결과 안내가 불명확했던 사용성 문제를 Backend 계약과 QR 기능 변경 없이 해소하기 위함 | 8장·23장~25장, 27-experiment-task-ledger, TASK-UL891-SET-001 Change 007 |
+| 2026-07-27 | TASK-UL891-SET-001 Change 008에서 최종 저장을 `현재 form Draft 갱신 → Publish`로 직렬화하고 규격을 UL891 Publish·설계 완료 조건과 사용자 화면에서 제거 | 임시저장을 먼저 누르지 않으면 기존 빈 Draft가 검증되고, 확정 입력값이 아닌 규격 때문에 저장·제조 인계가 막히던 사용자 검수 실패를 기존 API·DB 호환성을 보존하면서 해소하기 위함 | 8장·13장·23장~25장, 27-experiment-task-ledger, TASK-UL891-SET-001 Change 008 |
 | 2026-07-24 | TASK-MANUFACTURING-BATCH-001에서 기존 선택 Excel checkbox로 같은 프로젝트의 제조 진행 패널을 골라 조립 의미 단계 한 건을 일괄 확인하고, 전체 흐름의 완료 중심 네 문구를 행동 중심 표시명으로 단순화 | 실제 여러 패널을 한 번에 조립하고 시스템 입력을 나중에 하는 현장 흐름의 반복 입력을 줄이되, 다른 제조 단계·제조 완료·LQC/OQC는 패널별 불변조건으로 남기고 다중 변경의 부분 저장을 막기 위함 | 4장·13장·23장~25장, docs/42, TASK-MANUFACTURING-BATCH-001 |
 | 2026-07-24 | TASK-MANUFACTURING-BATCH-001 Change 002에서 선택 패널의 조립 단계 한 건만 일괄 완료하고 조립 전·후 다른 제조 단계는 미완료로 보존 | “조립 단계까지” 누적 완료가 중간 제조 입력을 지우는 오해를 바로잡고, 실제 조립을 한꺼번에 처리했더라도 다른 제조 기록은 담당자가 나중에 단계별로 입력할 수 있게 하기 위함 | TASK-MANUFACTURING-BATCH-001 Change 002 |
+| 2026-07-27 | TASK-PRODUCTION-CONTROL-001에서 기존 프로젝트는 Legacy 생산계획을 영구 유지하고, 유효한 Item별 제조·계획 양식 활성화 뒤 생성되는 프로젝트만 `LinkedV1` snapshot과 부서 원본 기반 자동 실적을 사용 | 양식 변경이 진행 중 프로젝트를 소급 변경하지 않으면서 생산계획 항목을 자유롭게 교체하고, 생산관리 탭 하나에서 계획 시작·종료와 구매·자재·제조·품질·물류의 실제 진행 근거를 비교하기 위함 | 10장·14장·21장·23장~25장, docs/43, TASK-PRODUCTION-CONTROL-001 |
 
 ## 26. 용어 사전
 

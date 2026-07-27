@@ -15,7 +15,7 @@ import {
   uploadQualityInspectionPhoto
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
-import { DsActionBar, DsInputFlow, DsInputSection } from './design-system';
+import { DsActionBar, DsInputFlow, DsInputSection, DsReadOnlyBanner, DsSelectionModeBar } from './design-system';
 import { MobileSheet } from './MobileSheet';
 import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import { PendingInspectionContext } from './PendingInspectionContext';
@@ -85,6 +85,7 @@ export function QualityInspectionsPage({
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoAlt, setPhotoAlt] = useState('');
   const [photoItemId, setPhotoItemId] = useState('');
+  const [selectionMode, setSelectionMode] = useState(false);
   const decisionTriggerRef = useRef<HTMLButtonElement>(null);
   const operationReceipts = useRef<Record<string, OperationReceipt>>({});
   const reconciliationAttemptedForUser = useRef('');
@@ -488,7 +489,7 @@ export function QualityInspectionsPage({
     return (
       <OperationalProjectDashboard
         testId={`quality-${stage.toLowerCase()}-dashboard`}
-        eyebrow={`QUALITY · ${stage}`}
+        eyebrow={`품질 · ${stageSummary.label}`}
         title={`${stageSummary.label} 프로젝트`}
         description={`${stageSummary.label} 검사 대상이 있는 프로젝트를 선택하면 한 프로젝트의 패널만 표시합니다.`}
         unitLabel="패널"
@@ -511,6 +512,7 @@ export function QualityInspectionsPage({
         }))}
         emptyMessage={`${stageSummary.label} 대상 프로젝트가 없습니다.`}
         onBack={onBack}
+        readOnlyDescription={!canInspect ? `${stageSummary.label} 현황과 판정 결과를 조회할 수 있습니다. 검사 입력은 품질 담당자 권한이 필요합니다.` : undefined}
         onOpenProject={(projectId) => onOpenProject?.(projectId)}
       />
     );
@@ -520,7 +522,7 @@ export function QualityInspectionsPage({
     <section className={isMobile ? 'page-surface quality-inspection-page quality-inspection-page--mobile' : 'page-surface quality-inspection-page'} data-testid="quality-inspection-page">
       <header className="quality-inspection-hero">
         <div>
-          <p className="eyebrow">QUALITY · PANEL GATE</p>
+          <p className="eyebrow">패널 품질 검사</p>
           <h2>{stageSummary.label} 검사</h2>
           <p>선택한 프로젝트의 패널만 세로 목록에서 골라 검사합니다.</p>
         </div>
@@ -528,6 +530,8 @@ export function QualityInspectionsPage({
         <span className="quality-hero-circle" aria-hidden="true" />
         <span className="quality-hero-square" aria-hidden="true" />
       </header>
+
+      {!canInspect ? <DsReadOnlyBanner description={`${stageSummary.label} 현황과 판정 결과를 조회할 수 있습니다. 검사 시작·저장·확정은 품질 담당자에게 요청하세요.`} /> : null}
 
       {queueState.kind === 'loading' ? <QualityLoading label={`${stageSummary.label} 대기열 확인 중`} /> : null}
       {queueState.kind === 'error' ? (
@@ -541,11 +545,11 @@ export function QualityInspectionsPage({
         <div className="quality-workspace quality-workspace--single-project">
           {selectedProject ? (
           <aside className="quality-project-rail quality-panel-rail" aria-label={`${selectedProject.projectTitle} 검사 패널 목록`}>
-            <div className="quality-section-label"><span>PANEL QUEUE</span><strong>{selectedProject.panels.length}</strong></div>
+            <div className="quality-section-label"><span>패널 목록</span><strong>{selectedProject.panels.length}</strong></div>
             <div className="quality-panel-list">
               {selectedProject.panels.map((item) => (
                 <div className="quality-panel-selectable" key={`${item.panelId}-${item.stageCode}`}>
-                  <SelectionCheckbox checked={qualitySelection.selectedIds.has(item.panelId)} disabled={qualitySelection.busy} label={`${item.displayCode} 선택`} onChange={(checked) => qualitySelection.toggle(item.panelId, checked)} />
+                  {selectionMode ? <SelectionCheckbox checked={qualitySelection.selectedIds.has(item.panelId)} disabled={qualitySelection.busy} label={`${item.displayCode} 선택`} onChange={(checked) => qualitySelection.toggle(item.panelId, checked)} /> : null}
                   <button
                     type="button"
                     className={selectedPanelId === item.panelId ? 'quality-panel-chip active' : 'quality-panel-chip'}
@@ -573,18 +577,30 @@ export function QualityInspectionsPage({
                 </div>
               </header>
 
-              <SelectedExportTray
-                developmentUserKey={developmentUserKey}
-                screen="quality-inspections"
-                visibleIds={qualityVisibleIds}
-                selectedIds={qualitySelection.selectedIds}
-                allSelected={qualitySelection.allSelected}
-                busy={qualitySelection.busy}
-                filters={{ stage, projectId: selectedProject.projectId }}
-                onBusyChange={qualitySelection.setBusy}
-                onToggleAll={qualitySelection.toggleAll}
-                onClear={qualitySelection.clear}
+              <DsSelectionModeBar
+                active={selectionMode}
+                label="검사 패널 Excel 내보내기"
+                selectedCount={qualitySelection.selectedIds.size}
+                onStart={() => setSelectionMode(true)}
+                onCancel={() => {
+                  qualitySelection.clear();
+                  setSelectionMode(false);
+                }}
               />
+              {selectionMode ? (
+                <SelectedExportTray
+                  developmentUserKey={developmentUserKey}
+                  screen="quality-inspections"
+                  visibleIds={qualityVisibleIds}
+                  selectedIds={qualitySelection.selectedIds}
+                  allSelected={qualitySelection.allSelected}
+                  busy={qualitySelection.busy}
+                  filters={{ stage, projectId: selectedProject.projectId }}
+                  onBusyChange={qualitySelection.setBusy}
+                  onToggleAll={qualitySelection.toggleAll}
+                  onClear={qualitySelection.clear}
+                />
+              ) : null}
 
               {detailState.kind === 'loading' ? <QualityLoading label="패널 검사 불러오는 중" /> : null}
               {detailState.kind === 'error' ? <div className="quality-empty-state" role="alert"><strong>검사 상세를 열 수 없습니다.</strong><span>{detailState.message}</span></div> : null}
@@ -606,9 +622,19 @@ export function QualityInspectionsPage({
                     ) : null}
                     {panel.pendingId && detail?.reportStatus !== 'Finalized' ? <PendingInspectionContext pendingId={panel.pendingId} developmentUserKey={developmentUserKey} /> : null}
 
+                    {!canMutatePanel ? (
+                      <DsReadOnlyBanner
+                        kind={canInspect ? 'prerequisite' : 'permission'}
+                        title={canInspect ? '현재는 검사 입력을 시작할 수 없습니다' : '조회 전용 화면입니다'}
+                        description={canInspect
+                          ? '앞 제조·품질 단계, Pending 조치 또는 이미 확정된 판정 상태를 확인하세요.'
+                          : '검사 시작·항목 저장·판정 확정은 품질 담당자에게 요청하세요.'}
+                      />
+                    ) : null}
+
                     {!detail?.reportId && panel.status !== 'Completed' ? (
                       <div className="quality-start-card">
-                        <span>START CHECK</span><strong>검사 항목을 불러오고 판정 근거를 기록합니다.</strong>
+                        <span>검사 시작</span><strong>검사 항목을 불러오고 판정 근거를 기록합니다.</strong>
                         <button type="button" disabled={!canMutatePanel || savingAction === 'start'} onClick={() => void start()}>{savingAction === 'start' ? '시작 중' : `${stageSummary.label} 시작`}</button>
                       </div>
                     ) : null}
@@ -617,7 +643,7 @@ export function QualityInspectionsPage({
                       <>
                         {detail.decisionMode === 'Aggregate' ? (
                           <section className="quality-aggregate-decision" aria-label={`${stageSummary.label} 패널 통합 판정`}>
-                            <span>PANEL DECISION</span>
+                            <span>패널 통합 판정</span>
                             <strong>이 검사는 패널 전체를 한 번에 판정합니다.</strong>
                             <p>항목별 체크 없이 적합 또는 부적합을 선택합니다. 부적합이면 근거 사진이나 30자 이상의 구체적인 사유를 남기면 Pending으로 이동합니다.</p>
                           </section>
@@ -644,7 +670,7 @@ export function QualityInspectionsPage({
                         </div>}
 
                         <section className="quality-evidence-card">
-                          <header><div><span>PHOTO EVIDENCE</span><strong>사진 증빙</strong></div><em>{detail.photos.length}/5</em></header>
+                          <header><div><span>검사 근거</span><strong>사진 증빙</strong></div><em>{detail.photos.length}/5</em></header>
                           {detail.photos.length ? <div className="quality-photo-list">{detail.photos.map((photo) => <QualityPhotoEvidence key={photo.photoId} developmentUserKey={developmentUserKey} reportId={detail.reportId!} photo={photo} editable={canMutatePanel && detail.reportStatus !== 'Finalized'} onRemove={() => void removePhoto(photo.photoId)} />)}</div> : <p>사진은 선택 사항입니다. 확정 시 등록된 증빙만 snapshot에 포함됩니다.</p>}
                           {canMutatePanel && detail.reportStatus !== 'Finalized' ? (
                             <div className="quality-photo-uploader">
@@ -669,7 +695,7 @@ export function QualityInspectionsPage({
                   </article>
 
                   <aside className="quality-history-card">
-                    <div className="quality-section-label"><span>ATTEMPT LOG</span><strong>{detail?.history.length ?? 0}</strong></div>
+                    <div className="quality-section-label"><span>검사 이력</span><strong>{detail?.history.length ?? 0}</strong></div>
                     {detail?.history.length ? <ol>{detail.history.map((attempt) => <li key={attempt.attemptId} data-status={statusKey(attempt.status)}><span /><div><strong>{attempt.attemptNumber}차 · {statusLabel(attempt.status)}</strong><small>{attempt.pendingNumber ? `Pending #${attempt.pendingNumber}` : '검사 기록'}</small></div></li>)}</ol> : <p>첫 검사 기록을 준비하고 있습니다.</p>}
                   </aside>
                 </div>
@@ -682,7 +708,7 @@ export function QualityInspectionsPage({
       <MobileSheet
         open={decisionOpen}
         title={`${stageSummary.label} 판정`}
-        eyebrow="FINAL JUDGMENT"
+        eyebrow="최종 판정"
         description="판정을 확정하면 성적서가 잠기고 다음 단계 또는 Pending으로 연결됩니다."
         triggerRef={decisionTriggerRef}
         onClose={() => {

@@ -718,6 +718,14 @@ public sealed class QualityInspectionStore(
                 await ReadLqcManufacturingProgressAsync(connection, transaction, context.PanelId, cancellationToken));
         }
         if (errors.Count > 0) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Validation(errors);
+        var lqcDefinitionKeys = context.StageCode == QualityInspectionStages.Lqc
+            ? await ReadLqcDefinitionKeysAsync(
+                connection,
+                transaction,
+                context.PanelId,
+                context.TemplateVersionId,
+                cancellationToken)
+            : new Dictionary<Guid, Guid>();
 
         foreach (var item in normalized)
         {
@@ -725,14 +733,17 @@ public sealed class QualityInspectionStore(
             command.Transaction = transaction;
             command.CommandText = """
                 insert into panel_quality_report_responses (
-                    report_id, template_item_id, check_result, text_value, note, updated_by_user_id, updated_at_utc
+                    report_id, template_item_id, check_result, text_value, note,
+                    manufacturing_definition_key, updated_by_user_id, updated_at_utc
                 ) values (
-                    @report_id, @item_id, @check_result, @text_value, @note, @actor_id, now()
+                    @report_id, @item_id, @check_result, @text_value, @note,
+                    @manufacturing_definition_key, @actor_id, now()
                 )
                 on conflict (report_id, template_item_id) do update set
                     check_result = excluded.check_result,
                     text_value = excluded.text_value,
                     note = excluded.note,
+                    manufacturing_definition_key = excluded.manufacturing_definition_key,
                     updated_by_user_id = excluded.updated_by_user_id,
                     updated_at_utc = now();
                 """;
@@ -741,6 +752,10 @@ public sealed class QualityInspectionStore(
             AddNullableText(command, "check_result", item.CheckResult);
             AddNullableText(command, "text_value", item.TextValue);
             AddNullableText(command, "note", item.Note);
+            command.Parameters.Add("manufacturing_definition_key", NpgsqlDbType.Uuid).Value =
+                lqcDefinitionKeys.TryGetValue(item.TemplateItemId, out var definitionKey)
+                    ? definitionKey
+                    : DBNull.Value;
             command.Parameters.AddWithValue("actor_id", actorUserId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
@@ -1123,11 +1138,20 @@ public sealed class QualityInspectionStore(
 
         if (submittedResponses is not null)
         {
+            var lqcDefinitionKeys = context.StageCode == QualityInspectionStages.Lqc
+                ? await ReadLqcDefinitionKeysAsync(
+                    connection,
+                    transaction,
+                    context.PanelId,
+                    context.TemplateVersionId,
+                    cancellationToken)
+                : new Dictionary<Guid, Guid>();
             await ReplaceResponseRowsAsync(
                 connection,
                 transaction,
                 reportId,
                 submittedResponses,
+                lqcDefinitionKeys,
                 actorUserId,
                 cancellationToken);
         }
@@ -2480,6 +2504,7 @@ public sealed class QualityInspectionStore(
         NpgsqlTransaction transaction,
         Guid reportId,
         IReadOnlyList<SaveQualityInspectionItemRequest> responses,
+        IReadOnlyDictionary<Guid, Guid> lqcDefinitionKeys,
         Guid actorUserId,
         CancellationToken cancellationToken)
     {
@@ -2498,10 +2523,10 @@ public sealed class QualityInspectionStore(
             insert.CommandText = """
                 insert into panel_quality_report_responses (
                     report_id, template_item_id, check_result, text_value, note,
-                    updated_by_user_id, updated_at_utc
+                    manufacturing_definition_key, updated_by_user_id, updated_at_utc
                 ) values (
                     @report_id, @item_id, @check_result, @text_value, @note,
-                    @actor_id, now()
+                    @manufacturing_definition_key, @actor_id, now()
                 );
                 """;
             insert.Parameters.AddWithValue("report_id", reportId);
@@ -2509,9 +2534,59 @@ public sealed class QualityInspectionStore(
             AddNullableText(insert, "check_result", item.CheckResult);
             AddNullableText(insert, "text_value", item.TextValue);
             AddNullableText(insert, "note", item.Note);
+            insert.Parameters.Add("manufacturing_definition_key", NpgsqlDbType.Uuid).Value =
+                lqcDefinitionKeys.TryGetValue(item.TemplateItemId, out var definitionKey)
+                    ? definitionKey
+                    : DBNull.Value;
             insert.Parameters.AddWithValue("actor_id", actorUserId);
             await insert.ExecuteNonQueryAsync(cancellationToken);
         }
+    }
+
+    private static async Task<Dictionary<Guid, Guid>> ReadLqcDefinitionKeysAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid panelId,
+        Guid templateVersionId,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<Guid, Guid>();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            with lqc_items as (
+                select item.id,
+                       row_number() over (order by item.display_order, item.id) as item_rank
+                from panel_quality_template_items item
+                where item.template_version_id = @template_version_id
+                  and item.response_type = 'Check'
+            ),
+            manufacturing_steps as (
+                select step.definition_key,
+                       row_number() over (order by step.sequence_number, step.id) as step_rank
+                from panel_manufacturing_execution_steps step
+                where step.execution_id = (
+                    select execution.id
+                    from panel_manufacturing_executions execution
+                    where execution.panel_id = @panel_id
+                      and execution.status <> 'Cancelled'
+                    order by execution.started_at_utc desc, execution.id desc
+                    limit 1
+                )
+                  and step.definition_key is not null
+            )
+            select item.id, step.definition_key
+            from lqc_items item
+            join manufacturing_steps step on step.step_rank = item.item_rank;
+            """;
+        command.Parameters.AddWithValue("template_version_id", templateVersionId);
+        command.Parameters.AddWithValue("panel_id", panelId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result[reader.GetGuid(0)] = reader.GetGuid(1);
+        }
+        return result;
     }
 
     private static Dictionary<string, string[]> ValidateResponses(

@@ -356,7 +356,7 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
             validation.Transaction = transaction;
             validation.CommandText = """
                 select count(*)::integer,
-                       count(*) filter (where panel_name is not null and panel_specification is not null)::integer,
+                       count(*) filter (where panel_name is not null)::integer,
                        count(*) filter (where width_mm is not null and height_mm is not null and depth_mm is not null)::integer,
                        count(*) filter (where width_mm is null and height_mm is null and depth_mm is null)::integer
                 from ul891_set_spec_components where spec_version_id=@version_id;
@@ -372,7 +372,7 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                 || (packagingMethod == "WoodenCrate" ? total != completeDimensions : total != completeDimensions + emptyDimensions);
             if (invalid)
             {
-                return await RollbackValidation(transaction, "Components", "모든 구성 패널의 이름·규격과 포장방식에 맞는 치수를 입력해 주세요.", token);
+                return await RollbackValidation(transaction, "Components", "모든 구성 패널의 이름과 포장방식에 맞는 치수를 입력해 주세요.", token);
             }
         }
 
@@ -1048,16 +1048,33 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                 width_mm=component.width_mm,
                 height_mm=component.height_mm,
                 depth_mm=component.depth_mm,
-                panel_info_completed=(component.panel_name is not null and component.panel_specification is not null),
+                panel_info_completed=(
+                    component.panel_name is not null
+                    and (
+                        (
+                            component.width_mm is not null
+                            and component.height_mm is not null
+                            and component.depth_mm is not null
+                        )
+                        or (
+                            project.packaging_method <> 'WoodenCrate'
+                            and component.width_mm is null
+                            and component.height_mm is null
+                            and component.depth_mm is null
+                        )
+                    )
+                ),
                 qr_eligible=(panel.status='Active' and component.panel_name is not null),
                 updated_at_utc=now()
             from ul891_set_instances instance,
-                 ul891_set_spec_components component
+                 ul891_set_spec_components component,
+                 projects project
             where panel.set_instance_id=instance.id
               and instance.spec_id=@spec_id
+              and project.id=@project_id
               and component.spec_version_id=instance.spec_version_id
               and component.component_code=panel.component_code;
-            """, token, ("spec_id", specId));
+            """, token, ("spec_id", specId), ("project_id", projectId));
     }
 
     private static async Task InsertSetPanelAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, Guid instanceId, string code, int sequence, CancellationToken token)

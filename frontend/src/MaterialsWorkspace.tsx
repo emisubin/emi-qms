@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAdaptiveLayout } from './adaptive-layout';
-import { DsActionBar, DsInputFlow, DsInputSection } from './design-system';
+import { DsActionBar, DsEmptyState, DsInputFlow, DsInputSection, DsReadOnlyBanner } from './design-system';
 import {
   ApiError,
   cancelMaterialReceipt,
@@ -167,7 +167,7 @@ export function MaterialReceivingPage({
     <section className="page-surface material-workspace" data-testid="material-receiving-page">
       <header className="material-hero">
         <div>
-          <p className="eyebrow">MATERIAL FLOW</p>
+          <p className="eyebrow">자재 흐름</p>
           <h2>자재 입고 관리</h2>
           <p>도착부터 IQC, 입고 확정까지 한 흐름으로 관리합니다.</p>
           {initialProjectCode ? <p className="workspace-project-filter" role="status">현재 프로젝트: <strong>{initialProjectCode}</strong></p> : null}
@@ -179,7 +179,7 @@ export function MaterialReceivingPage({
         </div>
       </header>
 
-      {!canUpdate ? <p className="workspace-readonly-banner" role="note">조회 전용입니다. 도착 등록·입고 확정은 자재 담당 권한이 필요합니다.</p> : null}
+      {!canUpdate ? <DsReadOnlyBanner description="도착·IQC·입고 확정 현황을 조회할 수 있습니다. 도착 등록과 입고 확정은 자재 담당자에게 요청하세요." /> : null}
 
       {actions.latestFeedback && action === null ? <InlineActionFeedback feedback={actions.latestFeedback} /> : null}
 
@@ -248,7 +248,18 @@ export function MaterialReceivingPage({
       {state.kind === 'loading' ? <MaterialLoading /> : null}
       {state.kind === 'error' ? <p className="error-text" role="alert">{state.message}</p> : null}
       {state.kind === 'ready' && visibleItems.length === 0 ? (
-        <div className="material-empty-state"><strong>표시할 입고 항목이 없습니다.</strong><span>필터를 바꾸거나 도착 등록 대상을 확인해 주세요.</span></div>
+        <DsEmptyState
+          title="표시할 입고 항목이 없습니다."
+          description="필터를 초기화하거나 구매팀의 발주품 입력 여부를 확인해 주세요."
+          primaryAction={{ label: '필터 초기화', onClick: () => {
+            setSearch('');
+            setAppliedSearch('');
+            setIncludeCompleted(false);
+            setSupplyFilter('All');
+            setCustomerSupplyOverdueOnly(false);
+            setActiveFilter('all');
+          } }}
+        />
       ) : null}
 
       {state.kind === 'ready' ? (
@@ -449,7 +460,7 @@ export function MaterialIqcPage({
       <article className="iqc-request-card selected-export-row" key={item.attemptId} data-status={item.status} data-report={item.reportStatus ?? item.decisionMode} data-reinspection={item.pendingIssueId !== null || undefined}>
         <SelectionCheckbox checked={iqcSelection.selectedIds.has(item.attemptId)} disabled={iqcSelection.busy} label={`${item.projectCode} ${item.orderItem ?? '품목'} 선택`} onChange={(checked) => iqcSelection.toggle(item.attemptId, checked)} />
         <button type="button" className="iqc-request-open" onClick={() => { setSelected(item); setReason(item.reason ?? ''); }}>
-          <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.pendingIssueId ? <span className="iqc-reinspection-badge">{item.pendingIssueNumber ? `재검사 · P-${String(item.pendingIssueNumber).padStart(4, '0')}` : 'Pending 재검사'}</span> : null}{item.decisionMode === 'Legacy' ? <span className="iqc-report-badge" data-kind="legacy">LEGACY</span> : <span className="iqc-report-badge" data-kind={item.reportStatus ?? 'new'}>{item.reportStatus === 'Finalized' ? '성적서 완료' : item.reportStatus === 'Draft' ? '작성 중' : '신규 성적서'}</span>}{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
+          <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.pendingIssueId ? <span className="iqc-reinspection-badge">{item.pendingIssueNumber ? `재검사 · P-${String(item.pendingIssueNumber).padStart(4, '0')}` : 'Pending 재검사'}</span> : null}{item.decisionMode === 'Legacy' ? <span className="iqc-report-badge" data-kind="legacy">이전 양식</span> : <span className="iqc-report-badge" data-kind={item.reportStatus ?? 'new'}>{item.reportStatus === 'Finalized' ? '성적서 완료' : item.reportStatus === 'Draft' ? '작성 중' : '신규 성적서'}</span>}{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
           <b>{item.orderItem ?? '발주품목 미입력'}</b>
           <small>{item.projectTitle}</small>
           <span>{formatQuantity(item.quantity, item.unit)} · {item.attemptNumber}차 검사</span>
@@ -498,6 +509,7 @@ export function MaterialIqcPage({
         })}
         emptyMessage="IQC 대상 프로젝트가 없습니다."
         onBack={onBack}
+        readOnlyDescription={!canInspect ? 'IQC 현황과 판정 결과를 조회할 수 있습니다. 성적서 작성과 판정은 품질 담당자 권한이 필요합니다.' : undefined}
         onOpenProject={(projectId) => onOpenProject?.(projectId)}
       />
     );
@@ -507,7 +519,7 @@ export function MaterialIqcPage({
     <section className="page-surface material-workspace material-iqc-workspace" data-testid="material-iqc-page">
       <header className="material-hero material-hero--quality">
         <div>
-          <p className="eyebrow">QUALITY GATE</p>
+          <p className="eyebrow">수입검사</p>
           <h2>IQC 검사함</h2>
           <p>요청된 도착분을 확인하고 합격 또는 부적합을 기록합니다.</p>
           {initialProjectId && state.kind === 'ready' ? <p className="workspace-project-filter" role="status">선택 프로젝트: <strong>{state.data[0]?.projectCode ?? '현재 프로젝트'}</strong></p> : null}
@@ -515,7 +527,7 @@ export function MaterialIqcPage({
         <button type="button" onClick={onBack}>자재 입고로</button>
       </header>
 
-      {!canInspect ? <p className="workspace-readonly-banner" role="note">조회 전용입니다. 검사성적서 작성과 합격·부적합 판정은 품질 담당 권한이 필요합니다.</p> : null}
+      {!canInspect ? <DsReadOnlyBanner description="IQC 현황과 판정 결과를 조회할 수 있습니다. 검사성적서 작성과 합격·부적합 판정은 품질 담당자에게 요청하세요." /> : null}
       {reconciliationWarning ? <p className="warning-text" role="alert">{reconciliationWarning} 현재 검사 목록은 계속 확인할 수 있습니다.</p> : null}
 
       {actions.latestFeedback && selected === null ? <InlineActionFeedback feedback={actions.latestFeedback} /> : null}
@@ -545,19 +557,19 @@ export function MaterialIqcPage({
       {state.kind === 'ready' && state.data.length === 0 ? <div className="material-empty-state"><strong>검사 대기 항목이 없습니다.</strong><span>새 IQC 요청이 들어오면 여기에 표시됩니다.</span></div> : null}
       {state.kind === 'ready' && reinspectionItems.length > 0 ? (
         <section className="iqc-queue-section iqc-queue-section--reinspection" aria-labelledby="iqc-reinspection-queue-title">
-          <header><div><p className="eyebrow">PENDING FOLLOW-UP</p><h3 id="iqc-reinspection-queue-title">Pending 재검사</h3></div><strong>{reinspectionItems.filter((item) => item.status === 'Requested').length}건</strong></header>
+          <header><div><p className="eyebrow">부적합 후속 검사</p><h3 id="iqc-reinspection-queue-title">Pending 재검사</h3></div><strong>{reinspectionItems.filter((item) => item.status === 'Requested').length}건</strong></header>
           <div className={layout.isMobile ? 'iqc-card-list iqc-card-list--mobile' : 'iqc-card-list'}>{reinspectionItems.map(renderIqcCard)}</div>
         </section>
       ) : null}
       {state.kind === 'ready' && initialInspectionItems.length > 0 ? (
         <section className="iqc-queue-section" aria-labelledby="iqc-initial-queue-title">
-          {reinspectionItems.length > 0 ? <header><div><p className="eyebrow">STANDARD INTAKE</p><h3 id="iqc-initial-queue-title">일반 IQC</h3></div><strong>{initialInspectionItems.filter((item) => item.status === 'Requested').length}건</strong></header> : null}
+          {reinspectionItems.length > 0 ? <header><div><p className="eyebrow">일반 수입검사</p><h3 id="iqc-initial-queue-title">일반 IQC</h3></div><strong>{initialInspectionItems.filter((item) => item.status === 'Requested').length}건</strong></header> : null}
           <div className={layout.isMobile ? 'iqc-card-list iqc-card-list--mobile' : 'iqc-card-list'}>{initialInspectionItems.map(renderIqcCard)}</div>
         </section>
       ) : null}
 
       {layout.isMobile ? (
-        <MobileSheet open={selected !== null} title={selected?.decisionMode === 'Detailed' ? '디지털 검사성적서' : 'IQC 판정'} eyebrow="QUALITY CHECK" description={selected?.decisionMode === 'Detailed' ? '항목·사진·판정을 한 흐름으로 기록합니다.' : '도착분과 검사 차수를 확인한 뒤 판정합니다.'} onClose={() => { setSelected(null); actions.reset(); setReason(''); void load(); }} fullScreen>
+        <MobileSheet open={selected !== null} title={selected?.decisionMode === 'Detailed' ? '디지털 검사성적서' : 'IQC 판정'} eyebrow="수입검사" description={selected?.decisionMode === 'Detailed' ? '항목·사진·판정을 한 흐름으로 기록합니다.' : '도착분과 검사 차수를 확인한 뒤 판정합니다.'} onClose={() => { setSelected(null); actions.reset(); setReason(''); void load(); }} fullScreen>
           {inspector}
         </MobileSheet>
       ) : inspector ? <aside className={`material-action-drawer${selected?.decisionMode === 'Detailed' ? ' material-action-drawer--iqc-report' : ''}`}>{inspector}</aside> : null}

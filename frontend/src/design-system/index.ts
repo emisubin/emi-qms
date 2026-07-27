@@ -1,10 +1,15 @@
 export {
   DsActionBar,
   DsBadge,
+  DsBreadcrumbs,
   DsChoiceGroup,
+  DsEmptyState,
   DsInputFlow,
   DsInputSection,
   DsPageHeader,
+  DsReadOnlyBanner,
+  DsSecondaryTools,
+  DsSelectionModeBar,
   DsSurface,
   DsTabs,
   DsToolbar

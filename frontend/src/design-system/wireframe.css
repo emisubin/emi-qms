@@ -265,6 +265,17 @@ body,
 .app-shell .project-progress-meter[data-tone='warning'] > i > b { background-color: #b97810 !important; }
 .app-shell .project-progress-meter[data-tone='info'] > i > b { background-color: #315efb !important; }
 
+/* Production-plan bars are information-bearing marks, not decorative badges. */
+.app-shell .production-control-gantt [data-bar='plan'] {
+  background-color: var(--wire-black) !important;
+  background-image: none !important;
+}
+
+.app-shell .production-control-gantt [data-bar='actual'] {
+  background-color: var(--wire-surface) !important;
+  background-image: none !important;
+}
+
 .app-shell [role='radio'] i {
   width: 20px !important;
   height: 20px !important;
@@ -322,6 +333,214 @@ body,
 
 .app-shell :where(.sales-chart-mobile-target, .sales-chart-legend i[data-kind='target']) {
   background: #555555 !important;
+}
+
+/* DESIGN-000 Change 004: shared PC navigation, guidance, empty and selection patterns. */
+.ds-breadcrumbs {
+  margin: 0 0 10px;
+}
+
+.ds-breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-breadcrumbs li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--wire-muted);
+  font-size: 0.68rem;
+}
+
+.ds-breadcrumbs li:not(:last-child)::after {
+  content: '/';
+  color: var(--wire-faint);
+}
+
+.app-shell .ds-breadcrumbs button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--wire-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ds-breadcrumbs strong {
+  color: var(--wire-ink);
+}
+
+.ds-readonly-banner {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--wire-line-strong);
+  background: #fafafa !important;
+}
+
+.ds-readonly-banner__mark {
+  display: grid;
+  min-height: 30px;
+  place-items: center;
+  border: 1px solid var(--wire-black);
+  color: var(--wire-ink);
+  font-size: 0.64rem;
+  font-weight: 900;
+}
+
+.ds-readonly-banner[data-kind='prerequisite'] .ds-readonly-banner__mark {
+  border-style: dashed;
+}
+
+.ds-readonly-banner > div:not(.ds-readonly-banner__action) {
+  display: grid;
+  gap: 2px;
+}
+
+.ds-readonly-banner strong,
+.ds-readonly-banner p {
+  margin: 0;
+}
+
+.ds-readonly-banner strong {
+  font-size: 0.77rem;
+}
+
+.ds-readonly-banner p {
+  color: var(--wire-muted);
+  font-size: 0.68rem;
+}
+
+.ds-empty-state {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: center;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px dashed var(--wire-line-strong);
+  background: #fafafa !important;
+}
+
+.ds-empty-state > span {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid var(--wire-line-strong);
+  color: var(--wire-muted);
+  font-weight: 900;
+}
+
+.ds-empty-state > div {
+  display: grid;
+  gap: 3px;
+}
+
+.ds-empty-state strong,
+.ds-empty-state p {
+  margin: 0;
+}
+
+.ds-empty-state strong {
+  font-size: 0.82rem;
+}
+
+.ds-empty-state p {
+  color: var(--wire-muted);
+  font-size: 0.69rem;
+}
+
+.ds-empty-state > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.ds-secondary-tools {
+  position: relative;
+  width: max-content;
+  margin-left: auto;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.ds-secondary-tools > summary {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--wire-line-strong);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+  list-style: none;
+}
+
+.ds-secondary-tools > summary::after {
+  content: ' +';
+}
+
+.ds-secondary-tools[open] > summary::after {
+  content: ' −';
+}
+
+.ds-secondary-tools > div {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 5px);
+  right: 0;
+  display: grid;
+  min-width: 200px;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--wire-line-strong);
+  background: var(--wire-surface);
+}
+
+.ds-selection-mode-trigger {
+  min-height: 36px;
+  padding-inline: 12px;
+}
+
+.ds-selection-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 11px;
+  border: 1px solid var(--wire-black);
+  background: #fafafa !important;
+}
+
+.ds-selection-mode-bar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ds-selection-mode-bar strong {
+  font-size: 0.74rem;
+}
+
+.ds-selection-mode-bar span {
+  color: var(--wire-muted);
+  font-size: 0.68rem;
+}
+
+.ds-selection-mode-bar button {
+  min-height: 34px;
 }
 
 /* DESIGN-000 Change 002: one input language across department workspaces. */
@@ -483,6 +702,37 @@ body,
   margin-bottom: 0;
 }
 
+.ds-input-section--collapsible > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.ds-input-section--collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ds-input-section__toggle {
+  min-width: 52px;
+  padding: 6px 8px;
+  border: 1px solid var(--wire-line-strong);
+  color: var(--wire-muted);
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.ds-input-section--collapsible[open] .ds-input-section__toggle::before {
+  content: '접기';
+}
+
+.ds-input-section--collapsible[open] .ds-input-section__toggle {
+  font-size: 0;
+}
+
+.ds-input-section--collapsible[open] .ds-input-section__toggle::before {
+  font-size: 0.65rem;
+}
+
 .ds-field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -597,6 +847,23 @@ body,
 }
 
 @media (max-width: 700px) {
+  .ds-breadcrumbs,
+  .ds-secondary-tools {
+    display: none;
+  }
+
+  .ds-readonly-banner,
+  .ds-empty-state {
+    grid-template-columns: 36px minmax(0, 1fr);
+    padding: 9px;
+  }
+
+  .ds-readonly-banner__action,
+  .ds-empty-state > div:last-child {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+
   .ds-input-flow__header {
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;

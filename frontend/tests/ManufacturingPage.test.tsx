@@ -228,6 +228,7 @@ describe('ManufacturingPage', () => {
       </AdaptiveLayoutProvider>
     );
 
+    fireEvent.click(await screen.findByRole('button', { name: '패널 선택 작업' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'PANEL-01 선택' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'PANEL-02 선택' }));
     fireEvent.click(screen.getByRole('button', { name: '선택 패널 조립 단계 완료 (2면)' }));

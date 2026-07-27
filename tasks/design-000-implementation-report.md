@@ -141,3 +141,11 @@ experiment commit revert로 token·primitive·adoption·증빙을 함께 되돌�
 - 사용자 직접 검수: 대기
 - Figma library publish: 범위 밖 P3 후보
 - 대표 repo·main·Persistent UAT·게시: 미반영
+
+## 15. Change 004 — PC UX/UI 평가 반영
+
+- 계약: [Change 004](design-000-change-004.md)
+- 구현 보고: [Change 004 Implementation report](design-000-change-004-implementation-report.md)
+- 결과: Change 003 PC 사용자 평가의 P1·P2를 공통 breadcrumb·permission/prerequisite banner·empty state·secondary tools·selection mode와 compact PC layout으로 보정했다.
+- 검증: Frontend 136/136, typecheck, lint error 0, build, 1280×720 핵심 동선과 390×844 overflow 0.
+- 상태: `EXPERIMENT_COMPLETE / USER_VALIDATION_PENDING`

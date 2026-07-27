@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, completePanelKitting, getPanelKittingQueue } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
-import { workflowShapeRole } from './design-system';
+import { DsReadOnlyBanner, workflowShapeRole } from './design-system';
 import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import type { PanelKittingProject, PanelKittingQueueResponse } from './panelKitting';
 import { SelectedExportTray } from './SelectedExcelExport';
@@ -152,7 +152,7 @@ export function PanelKittingPage({
     return (
       <OperationalProjectDashboard
         testId="material-kitting-dashboard"
-        eyebrow="MATERIALS · PANEL HANDOFF"
+        eyebrow="자재 · 패널 인계"
         title="패널 키팅 프로젝트"
         description="키팅 완료 상태를 공유할 프로젝트를 선택하세요. 키팅은 제조 시작의 필수 조건이 아닙니다."
         unitLabel="패널"
@@ -175,6 +175,7 @@ export function PanelKittingPage({
         }))}
         emptyMessage="키팅 대상 프로젝트가 없습니다."
         onBack={onBack}
+        readOnlyDescription={!canComplete ? '패널 키팅 현황을 조회할 수 있습니다. 키팅 완료 알림은 자재 담당자 권한이 필요합니다.' : undefined}
         onOpenProject={(projectId) => onOpenProject?.(projectId)}
       />
     );
@@ -187,7 +188,7 @@ export function PanelKittingPage({
     >
       <header className="kitting-hero">
         <div className="kitting-hero-copy">
-          <p className="eyebrow">PANEL HANDOFF</p>
+          <p className="eyebrow">패널 인계</p>
           <h2>패널 키팅</h2>
           <p>실제로 키팅을 마친 패널을 선택해 생산관리와 제조팀에 자재 준비 상태를 알립니다.</p>
         </div>
@@ -252,7 +253,7 @@ export function PanelKittingPage({
               </div>
 
               {!canComplete ? (
-                <p className="kitting-permission-note">조회만 가능합니다. 키팅 완료 알림은 자재 담당 권한이 필요합니다.</p>
+                <DsReadOnlyBanner description="패널 키팅 현황을 조회할 수 있습니다. 키팅 완료 알림은 자재 담당자에게 요청하세요." />
               ) : null}
               {actions.latestFeedback ? <p className="action-feedback kitting-notice" data-tone={actions.latestFeedback.tone} role={actions.latestFeedback.tone === 'error' ? 'alert' : 'status'}>{actions.latestFeedback.message}</p> : null}
 

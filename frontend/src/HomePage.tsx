@@ -213,6 +213,7 @@ export function HomePage({
 
   const visibleWidgetCount = [myWorkState, noticesState, pendingState, notificationsState]
     .filter((state) => state.kind !== 'hidden').length;
+  const myWorkSummary = myWorkState.kind === 'ready' || myWorkState.kind === 'empty' ? myWorkState.data : null;
   const pendingSummary = pendingState.kind === 'ready' || pendingState.kind === 'empty' ? pendingState.data.summary : null;
   const notificationSummary = notificationsState.kind === 'ready' || notificationsState.kind === 'empty' ? notificationsState.data : null;
 
@@ -220,12 +221,40 @@ export function HomePage({
     <section className="page-surface home-page" aria-labelledby="home-page-title" data-mobile-experience={isMobile || undefined}>
       <header className={isMobile ? 'home-hero home-hero--mobile' : 'home-hero'}>
         <div>
-          <p className="eyebrow">{effectiveDepartmentName ?? 'EMI WORKSPACE'}</p>
+          <p className="eyebrow">{effectiveDepartmentName ?? '업무 공간'}</p>
           <h2 id="home-page-title">업무 홈</h2>
           <p>{isMobile ? `${effectiveDisplayName}님, 부서 핵심 수치와 급한 업무를 한 화면에서 확인하세요.` : `${effectiveDisplayName}님, 부서 핵심 지표와 지금 처리할 업무를 빠르게 확인하세요.`}</p>
         </div>
         <button type="button" className="primary-button" onClick={onOpenMyWork}>{isMobile ? '오늘 업무 열기' : '내 업무 시작하기'}</button>
       </header>
+
+      {!isMobile ? (
+        <section className="home-desktop-priority" aria-label="지금 처리할 업무">
+          <header>
+            <div><p className="eyebrow">오늘의 우선 업무</p><h3>지금 먼저 확인하세요</h3></div>
+            <span>현재 로그인 기준</span>
+          </header>
+          <div>
+            <button type="button" data-tone={(myWorkSummary?.blockingCount ?? 0) > 0 ? 'danger' : 'default'} onClick={onOpenMyWork}>
+              <span>내 업무</span>
+              <strong>{myWorkSummary ? myWorkSummary.requestedCount + myWorkSummary.inProgressCount : '-'}</strong>
+              <small>차단 {myWorkSummary?.blockingCount ?? '-'}건 · 업무 열기 →</small>
+            </button>
+            {canReadPending ? (
+              <button type="button" data-tone={(pendingSummary?.urgentCount ?? 0) > 0 ? 'danger' : 'default'} onClick={onOpenPending}>
+                <span>긴급 Pending</span>
+                <strong>{pendingSummary?.urgentCount ?? '-'}</strong>
+                <small>전체 {pendingSummary?.openCount ?? '-'}건 · 조치 화면 →</small>
+              </button>
+            ) : null}
+            <button type="button" data-tone={(notificationSummary?.blockingCount ?? 0) > 0 ? 'danger' : 'default'} onClick={onOpenNotifications}>
+              <span>긴급·차단 알림</span>
+              <strong>{notificationSummary?.blockingCount ?? '-'}</strong>
+              <small>읽지 않음 {notificationSummary?.unreadCount ?? '-'}건 · 알림 보기 →</small>
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {isSalesDepartment ? (
         <DsSurface className="home-sales-performance" label="영업팀 연간 매출 지표">
@@ -250,7 +279,7 @@ export function HomePage({
         <DsSurface className="home-department-panel" label="내 부서 핵심 지표">
           <header>
             <div>
-              <p className="eyebrow">DEPARTMENT FOCUS</p>
+              <p className="eyebrow">부서 핵심 지표</p>
               <h3>{effectiveDepartmentName ? `${effectiveDepartmentName} 핵심 지표` : '부서 핵심 지표'}</h3>
             </div>
             <span>현재 업무 기준</span>
@@ -285,10 +314,10 @@ export function HomePage({
         <section className="home-mobile-priority" aria-label="긴급·차단 우선 확인">
           <header>
             <div>
-              <p className="eyebrow">FIRST ATTENTION</p>
+              <p className="eyebrow">우선 확인</p>
               <h3>지금 먼저 확인하세요</h3>
             </div>
-            <span className="home-mobile-live" aria-label="실시간 업무 요약">LIVE</span>
+            <span className="home-mobile-live" aria-label="실시간 업무 요약">실시간</span>
           </header>
           <div className="home-mobile-priority-metrics">
             {canReadPending ? (
@@ -316,7 +345,7 @@ export function HomePage({
       ) : (
         <div className="home-widget-grid">
           <HomeWidget
-            eyebrow="MY WORK"
+            eyebrow="오늘의 업무"
             title="내 업무"
             state={myWorkState}
             onRetry={loadMyWork}
@@ -336,7 +365,7 @@ export function HomePage({
 
           {canReadPending && !isMobile ? (
             <HomeWidget
-              eyebrow="ISSUE CONTROL"
+              eyebrow="이슈 관리"
               title="Pending"
               state={pendingState}
               onRetry={loadPending}
@@ -357,7 +386,7 @@ export function HomePage({
 
           {!isMobile ? (
             <HomeWidget
-              eyebrow="NOTIFICATIONS"
+              eyebrow="업무 알림"
               title="알림"
               state={notificationsState}
               onRetry={loadNotifications}
@@ -375,7 +404,7 @@ export function HomePage({
           ) : null}
 
           <HomeWidget
-            eyebrow="TEAM NOTICE"
+            eyebrow="팀 공지"
             title="공지사항"
             state={noticesState}
             onRetry={loadNotices}

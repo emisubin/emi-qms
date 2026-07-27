@@ -994,7 +994,7 @@ public sealed class ProjectStore(
                     cancellationToken);
             }
 
-            await CreateInitialProductionPlanFromTemplateAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
+            await CreateInitialProductionControlSnapshotAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
             await CreateInitialProcurementItemsFromTemplateAsync(connection, transaction, projectId, input, changedByUserId, cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
@@ -1003,6 +1003,12 @@ public sealed class ProjectStore(
         {
             await transaction.RollbackAsync(cancellationToken);
             return ProjectMutationResult<ProjectDetailResponse>.Conflict("동일한 PJT Title이 이미 존재합니다.");
+        }
+        catch (ProductionControlSnapshotConfigurationException exception)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ProjectMutationResult<ProjectDetailResponse>.Validation(
+                new Dictionary<string, string[]> { [nameof(CreateProjectRequest.Item)] = [exception.Message] });
         }
 
         var detail = await GetProjectAsync(projectId, includeSalesAmount, cancellationToken);
@@ -2223,6 +2229,12 @@ public sealed class ProjectStore(
             await transaction.RollbackAsync(cancellationToken);
             return ProjectMutationResult<ProjectExcelApplyResponse>.Conflict("동일한 PJT Title이 이미 존재합니다.");
         }
+        catch (ProductionControlSnapshotConfigurationException exception)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ProjectMutationResult<ProjectExcelApplyResponse>.Validation(
+                new Dictionary<string, string[]> { ["Item"] = [exception.Message] });
+        }
 
         return ProjectMutationResult<ProjectExcelApplyResponse>.Success(new ProjectExcelApplyResponse(createdIds.Count, createdIds));
     }
@@ -2582,13 +2594,185 @@ public sealed class ProjectStore(
                 cancellationToken);
         }
 
-        await CreateInitialProductionPlanFromTemplateAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
+        await CreateInitialProductionControlSnapshotAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
         await CreateInitialProcurementItemsFromTemplateAsync(connection, transaction, projectId, input, changedByUserId, cancellationToken);
 
         return projectId;
     }
 
-    private static async Task CreateInitialProductionPlanFromTemplateAsync(
+    private static async Task CreateInitialProductionControlSnapshotAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string itemCode,
+        Guid changedByUserId,
+        CancellationToken cancellationToken)
+    {
+        Guid? productTypeId = null;
+        Guid? planVersionId = null;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select product_type.id, version.id
+                from production_product_types product_type
+                join production_control_plan_templates template
+                  on template.product_type_id=product_type.id
+                join production_control_plan_versions version
+                  on version.template_id=template.id
+                 and version.lifecycle_status='Active'
+                where upper(btrim(product_type.code))=upper(btrim(@item_code))
+                  and product_type.is_active
+                for share of version;
+                """;
+            command.Parameters.AddWithValue("item_code", itemCode);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                productTypeId = reader.GetGuid(0);
+                planVersionId = reader.GetGuid(1);
+            }
+        }
+        if (productTypeId is null || planVersionId is null)
+        {
+            await CreateInitialLegacyProductionPlanFromTemplateAsync(
+                connection, transaction, projectId, itemCode, changedByUserId, cancellationToken);
+            return;
+        }
+
+        Guid manufacturingVersionId;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select version.id
+                from production_control_manufacturing_templates template
+                join production_control_manufacturing_versions version
+                  on version.template_id=template.id
+                 and version.lifecycle_status='Active'
+                where template.product_type_id=@product_type_id
+                for share of version;
+                """;
+            command.Parameters.AddWithValue("product_type_id", productTypeId.Value);
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            if (value is not Guid id)
+            {
+                throw new ProductionControlSnapshotConfigurationException(
+                    "생산계획 양식과 연결된 활성 제조 양식이 없습니다. 양식 관리에서 제조 양식을 먼저 확인해 주세요.");
+            }
+            manufacturingVersionId = id;
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select count(*)::int
+                from production_control_plan_items plan_item
+                left join production_control_plan_connections connection
+                  on connection.plan_item_id=plan_item.id
+                left join production_control_manufacturing_items manufacturing_item
+                  on manufacturing_item.template_version_id=@manufacturing_version_id
+                 and manufacturing_item.definition_key=connection.source_definition_key
+                where plan_item.template_version_id=@plan_version_id
+                  and (
+                    (plan_item.is_required and connection.id is null)
+                    or (
+                        connection.source_code in ('MANUFACTURING_STEP_COMPLETED','LQC_PASSED')
+                        and manufacturing_item.id is null
+                    )
+                  );
+                """;
+            command.Parameters.AddWithValue("plan_version_id", planVersionId.Value);
+            command.Parameters.AddWithValue("manufacturing_version_id", manufacturingVersionId);
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) > 0)
+            {
+                throw new ProductionControlSnapshotConfigurationException(
+                    "활성 생산계획 양식의 실적 연결이 현재 제조 양식과 맞지 않습니다. 양식 관리에서 연결을 수정해 주세요.");
+            }
+        }
+
+        var planId = Guid.NewGuid();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into project_production_plans (
+                    id,project_id,product_type_id,model_version,
+                    linked_plan_template_version_id,linked_manufacturing_template_version_id,
+                    created_by_user_id,updated_by_user_id
+                )
+                values (
+                    @id,@project_id,@product_type_id,'LINKED_V1',
+                    @plan_version_id,@manufacturing_version_id,@actor_id,@actor_id
+                );
+                """;
+            command.Parameters.AddWithValue("id", planId);
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("product_type_id", productTypeId.Value);
+            command.Parameters.AddWithValue("plan_version_id", planVersionId.Value);
+            command.Parameters.AddWithValue("manufacturing_version_id", manufacturingVersionId);
+            command.Parameters.AddWithValue("actor_id", changedByUserId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into project_production_plan_items (
+                    production_plan_id,definition_key,sequence_number,step_name_snapshot,
+                    is_required,is_active
+                )
+                select @plan_id,definition_key,display_order,label,is_required,true
+                from production_control_plan_items
+                where template_version_id=@plan_version_id
+                order by display_order;
+
+                insert into project_production_plan_connections (
+                    production_plan_item_id,source_code,source_definition_key
+                )
+                select project_item.id,connection.source_code,connection.source_definition_key
+                from project_production_plan_items project_item
+                join production_control_plan_items template_item
+                  on template_item.template_version_id=@plan_version_id
+                 and template_item.definition_key=project_item.definition_key
+                join production_control_plan_connections connection
+                  on connection.plan_item_id=template_item.id
+                where project_item.production_plan_id=@plan_id;
+
+                insert into project_manufacturing_step_snapshots (
+                    project_id,source_template_version_id,definition_key,sequence_number,
+                    step_name_snapshot,step_role
+                )
+                select @project_id,@manufacturing_version_id,definition_key,display_order,label,step_role
+                from production_control_manufacturing_items
+                where template_version_id=@manufacturing_version_id
+                order by display_order;
+                """;
+            command.Parameters.AddWithValue("plan_id", planId);
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("plan_version_id", planVersionId.Value);
+            command.Parameters.AddWithValue("manufacturing_version_id", manufacturingVersionId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await InsertAuditEventAsync(
+            connection,
+            transaction,
+            projectId,
+            "ProductionPlan",
+            planId,
+            "ProductionControlSnapshotCreated",
+            "ModelVersion",
+            null,
+            "LINKED_V1",
+            null,
+            changedByUserId,
+            $"production-control:{projectId:N}",
+            false,
+            cancellationToken);
+    }
+
+    private static async Task CreateInitialLegacyProductionPlanFromTemplateAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid projectId,
@@ -3754,6 +3938,8 @@ public sealed class ProjectStore(
 
     private sealed record SelectedPanelSnapshot(Guid PanelId, string DisplayCode);
 }
+
+file sealed class ProductionControlSnapshotConfigurationException(string message) : Exception(message);
 
 public sealed record ProjectAccessRecord(Guid ProjectId, string ProjectKey);
 

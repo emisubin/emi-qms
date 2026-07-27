@@ -19,6 +19,11 @@ import type {
   SalesBillingCandidateList
 } from './salesBilling';
 import type { FormTemplateCatalog, FormTemplateManagers, FormTemplateScope, FormTemplateVersions } from './formTemplates';
+import type {
+  ProductionControlManufacturingItem,
+  ProductionControlPlanItem,
+  ProductionControlTemplateCatalog
+} from './productionControlTemplates';
 import type { AdminUsersResponse, CurrentUser, ProfilePhotoMetadata, UpdateAdminUserRequest } from './identity';
 import type { HomeMetricsResponse } from './home';
 import type { CreateNoticeRequest, NoticeDeleteResponse, NoticeDetail, NoticeListResponse } from './notices';
@@ -2504,6 +2509,69 @@ export async function updateProjectProductionPlanning(
     method: 'PATCH',
     body: JSON.stringify(request)
   });
+}
+
+export async function getProductionControlTemplateCatalog(
+  developmentUserKey: string | undefined,
+  signal?: AbortSignal
+): Promise<ProductionControlTemplateCatalog> {
+  return fetchJson<ProductionControlTemplateCatalog>('/api/production-control/templates', developmentUserKey, { signal });
+}
+
+export async function createProductionControlDraft(
+  developmentUserKey: string | undefined,
+  domain: 'manufacturing' | 'planning',
+  productTypeId: string,
+  expectedActiveRowVersion: number | null
+): Promise<ProductionControlTemplateCatalog> {
+  return fetchJson<ProductionControlTemplateCatalog>(
+    `/api/production-control/templates/${domain}/${productTypeId}/drafts`,
+    developmentUserKey,
+    { method: 'POST', body: JSON.stringify({ expectedActiveRowVersion }) }
+  );
+}
+
+export async function saveProductionControlManufacturingDraft(
+  developmentUserKey: string | undefined,
+  productTypeId: string,
+  versionId: string,
+  expectedRowVersion: number,
+  items: ProductionControlManufacturingItem[]
+): Promise<ProductionControlTemplateCatalog> {
+  return fetchJson<ProductionControlTemplateCatalog>(
+    `/api/production-control/templates/manufacturing/${productTypeId}/versions/${versionId}`,
+    developmentUserKey,
+    { method: 'PUT', body: JSON.stringify({ expectedRowVersion, items }) }
+  );
+}
+
+export async function saveProductionControlPlanDraft(
+  developmentUserKey: string | undefined,
+  productTypeId: string,
+  versionId: string,
+  expectedRowVersion: number,
+  items: ProductionControlPlanItem[]
+): Promise<ProductionControlTemplateCatalog> {
+  return fetchJson<ProductionControlTemplateCatalog>(
+    `/api/production-control/templates/planning/${productTypeId}/versions/${versionId}`,
+    developmentUserKey,
+    { method: 'PUT', body: JSON.stringify({ expectedRowVersion, items }) }
+  );
+}
+
+export async function transitionProductionControlVersion(
+  developmentUserKey: string | undefined,
+  domain: 'manufacturing' | 'planning',
+  productTypeId: string,
+  versionId: string,
+  expectedRowVersion: number,
+  action: 'activate' | 'archive'
+): Promise<ProductionControlTemplateCatalog> {
+  return fetchJson<ProductionControlTemplateCatalog>(
+    `/api/production-control/templates/${domain}/${productTypeId}/versions/${versionId}/${action}`,
+    developmentUserKey,
+    { method: 'POST', body: JSON.stringify({ expectedRowVersion }) }
+  );
 }
 
 export async function getProjectProductionPlanningHistory(

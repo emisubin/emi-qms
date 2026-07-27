@@ -12,7 +12,7 @@ import {
   stopManufacturingExecution
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
-import { DsActionBar, DsInputFlow, DsInputSection } from './design-system';
+import { DsActionBar, DsInputFlow, DsInputSection, DsReadOnlyBanner, DsSelectionModeBar } from './design-system';
 import { MobileSheet } from './MobileSheet';
 import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import type {
@@ -75,6 +75,7 @@ export function ManufacturingPage({
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [batchFeedback, setBatchFeedback] = useState<Feedback | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
   const [stopReason, setStopReason] = useState<StopReason>('Material');
   const [stopDescription, setStopDescription] = useState('');
@@ -355,7 +356,7 @@ export function ManufacturingPage({
     return (
       <OperationalProjectDashboard
         testId="manufacturing-dashboard"
-        eyebrow="MANUFACTURING · PROJECT QUEUE"
+        eyebrow="제조 프로젝트 대기열"
         title="제조 프로젝트"
         description="프로젝트를 선택하면 그 프로젝트의 패널 제조 작업만 표시합니다."
         unitLabel="패널"
@@ -378,6 +379,7 @@ export function ManufacturingPage({
         }))}
         emptyMessage="제조 대상 프로젝트가 없습니다."
         onBack={onBack}
+        readOnlyDescription={!canMutate ? '제조 현황과 패널 진행상태를 조회할 수 있습니다. 단계 처리는 제조 담당자 권한이 필요합니다.' : undefined}
         onOpenProject={(projectId) => onOpenProject?.(projectId)}
       />
     );
@@ -390,7 +392,7 @@ export function ManufacturingPage({
     >
       <header className="manufacturing-hero">
         <div>
-          <p className="eyebrow">SHOP FLOOR · PANEL FLOW</p>
+          <p className="eyebrow">패널 제조 흐름</p>
           <h2>제조 작업</h2>
           <p>패널 제조와 단계별 LQC를 함께 진행하고, 둘 다 끝나면 OQC로 자동 인계합니다.</p>
         </div>
@@ -398,6 +400,8 @@ export function ManufacturingPage({
         <span className="manufacturing-hero-disc" aria-hidden="true" />
         <span className="manufacturing-hero-angle" aria-hidden="true" />
       </header>
+
+      {!canMutate ? <DsReadOnlyBanner description="제조 현황과 패널 진행상태를 조회할 수 있습니다. 단계 처리와 일괄 작업은 제조 담당자에게 요청하세요." /> : null}
 
       {queueState.kind === 'loading' ? <ManufacturingLoading /> : null}
       {queueState.kind === 'error' ? (
@@ -419,13 +423,13 @@ export function ManufacturingPage({
           {selectedProject ? (
           <aside className="manufacturing-project-queue manufacturing-panel-rail" aria-label={`${selectedProject.projectTitle} 패널 목록`}>
             <div className="manufacturing-section-heading">
-              <p>PANEL QUEUE</p>
+              <p>패널 목록</p>
               <strong>{selectedProject.panels.length}면</strong>
             </div>
             <div className="manufacturing-panel-list">
               {selectedProject.panels.map((item) => (
                 <div className="manufacturing-panel-selectable" key={item.panelId}>
-                  <SelectionCheckbox checked={manufacturingSelection.selectedIds.has(item.panelId)} disabled={manufacturingSelection.busy || Boolean(savingAction)} label={`${item.displayCode} 선택`} onChange={(checked) => manufacturingSelection.toggle(item.panelId, checked)} />
+                  {selectionMode ? <SelectionCheckbox checked={manufacturingSelection.selectedIds.has(item.panelId)} disabled={manufacturingSelection.busy || Boolean(savingAction)} label={`${item.displayCode} 선택`} onChange={(checked) => manufacturingSelection.toggle(item.panelId, checked)} /> : null}
                   <button
                     type="button"
                     className="manufacturing-panel-chip"
@@ -458,19 +462,31 @@ export function ManufacturingPage({
                 </div>
               </section>
 
-              <SelectedExportTray
-                developmentUserKey={developmentUserKey}
-                screen="manufacturing"
-                visibleIds={manufacturingVisibleIds}
-                selectedIds={manufacturingSelection.selectedIds}
-                allSelected={manufacturingSelection.allSelected}
-                busy={manufacturingSelection.busy}
-                filters={{ projectId: selectedProject.projectId }}
-                onBusyChange={manufacturingSelection.setBusy}
-                onToggleAll={manufacturingSelection.toggleAll}
-                onClear={manufacturingSelection.clear}
+              <DsSelectionModeBar
+                active={selectionMode}
+                label={canMutate ? '패널 선택 작업' : 'Excel 내보내기 선택'}
+                selectedCount={manufacturingSelection.selectedIds.size}
+                onStart={() => setSelectionMode(true)}
+                onCancel={() => {
+                  manufacturingSelection.clear();
+                  setSelectionMode(false);
+                }}
               />
-              {canMutate ? (
+              {selectionMode ? (
+                <SelectedExportTray
+                  developmentUserKey={developmentUserKey}
+                  screen="manufacturing"
+                  visibleIds={manufacturingVisibleIds}
+                  selectedIds={manufacturingSelection.selectedIds}
+                  allSelected={manufacturingSelection.allSelected}
+                  busy={manufacturingSelection.busy}
+                  filters={{ projectId: selectedProject.projectId }}
+                  onBusyChange={manufacturingSelection.setBusy}
+                  onToggleAll={manufacturingSelection.toggleAll}
+                  onClear={manufacturingSelection.clear}
+                />
+              ) : null}
+              {canMutate && selectionMode ? (
                 <>
                   <section className="manufacturing-batch-bar" aria-label="선택 패널 일괄 작업">
                     <div>
@@ -548,7 +564,15 @@ export function ManufacturingPage({
                             ))}
                           </ol>
                         )}
-                        {!mayMutatePanel ? <p className="manufacturing-readonly-note">조회 전용입니다. 제조 시작·체크·중단·완료는 제조 담당 권한이 필요합니다.</p> : null}
+                        {!mayMutatePanel ? (
+                          <DsReadOnlyBanner
+                            kind={canMutate ? 'prerequisite' : 'permission'}
+                            title={canMutate ? '현재는 처리할 수 없는 패널입니다' : '조회 전용 화면입니다'}
+                            description={canMutate
+                              ? '완료·Pending·앞 단계 상태를 확인하세요. 조건이 충족되면 다음 제조 버튼이 자동으로 열립니다.'
+                              : '제조 시작·단계 확인·중단·완료는 제조 담당자에게 요청하세요.'}
+                          />
+                        ) : null}
                       </DsInputSection>
                       {mayMutatePanel ? (
                         <DsActionBar
@@ -596,7 +620,7 @@ export function ManufacturingPage({
 
                   <aside className="manufacturing-timeline">
                     <div className="manufacturing-section-heading">
-                      <p>EXECUTION LOG</p>
+                      <p>작업 기록</p>
                       <strong>작업 이력</strong>
                     </div>
                     {detail.events.length === 0 ? (

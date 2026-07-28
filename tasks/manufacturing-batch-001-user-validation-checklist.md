@@ -6,7 +6,7 @@
 - 자동 검증 상태: `완료`
 - 사용자 검수 상태: `대기 — 마지막 일괄 검수`
 - 대표 repo·GitHub main 반영: `없음`
-- main merge 승인: `0/3`
+- main merge 승인: `2/3`
 
 ## 자동 검증
 
@@ -42,12 +42,12 @@
 
 ## 게시·운영 Gate
 
-- [ ] Change 003 local commit — 이번 요청에 커밋 지시 없음
+- [x] Change 003 local commit — 누적 checkpoint `e6f3fa6`
 - [ ] push 승인 — 현재 없음
 - [ ] PR 승인 — 현재 없음
 - [ ] Persistent UAT migration·runtime handover 승인 — 현재 없음
-- [ ] main merge 1차 승인
-- [ ] main merge 2차 승인
+- [x] main merge 1차 승인
+- [x] main merge 2차 승인
 - [ ] main merge 3차 승인
 
 사용자 검수와 세 번의 main merge 승인은 서로 다른 Gate다. 자동 검증 완료는 게시·merge 승인이 아니다.

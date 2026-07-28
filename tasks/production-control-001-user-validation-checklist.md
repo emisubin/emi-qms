@@ -95,4 +95,4 @@
 - local experiment runtime만 검수한다.
 - 대표 repo·`main`·Persistent UAT·실제 provider는 포함하지 않는다.
 - push·PR·merge는 포함하지 않는다.
-- `main` merge 승인 상태: `0/3`.
+- `main` merge 승인 상태: `2/3` — 3차 승인 대기.

@@ -7,9 +7,9 @@
 - 기준 HEAD: `a7651b5c266d73be48e76861a02910435c1371fe`
 - 구현·자동 검증: 완료
 - 사용자 검수: `대기 — 마지막 일괄 검수`
-- local commit: `보류 — 기존 미커밋 WIP와 핵심 파일이 중첩되어 독립 commit 불가`
+- local commit: `완료 — 누적 실험 checkpoint e6f3fa6`
 - push·PR·merge·Persistent UAT·실제 provider: 미승인·미적용
-- main merge 승인: `0/3`
+- main merge 승인: `2/3 — 3차 승인 전 merge 금지`
 - Finding: Open P0 `0`, P1 `0`, P2 `0`
 
 ## 1. 해결한 업무 문제
@@ -130,7 +130,7 @@ Fable 1차 기획의 세트별 item 복제안은 Codex review에서 연결 FK·u
 
 - Open P0/P1/P2: 없음.
 - P3 `UL891-PP-P3-01`: 활성 세트 13개 이상에서 검색형 autocomplete가 아니라 native select를 사용한다. 실제 대규모 세트 사용성 측정 후 개선한다.
-- Git packaging blocker `UL891-PP-GIT-01`: `App.tsx`, ProductionPlanning Store, ProjectStore, Roadmap 등 핵심 파일에 이전 미커밋 WIP가 함께 있어 이번 Task만 독립 commit하면 기반이 누락된다. reset·부분 commit·누적 commit을 임의 수행하지 않고 보류한다.
+- Git packaging Finding `UL891-PP-GIT-01` — `RESOLVED`: 핵심 파일의 기존 WIP와 이번 Task를 분리하면 기반이 누락되는 문제를 사용자 승인 범위의 누적 checkpoint `e6f3fa6`로 함께 보존했다.
 
 ## 15. SOP
 
@@ -166,4 +166,4 @@ Fable 1차 기획의 세트별 item 복제안은 Codex review에서 연결 FK·u
 | Roadmap update | 완료 | `docs/00-product-roadmap.md` |
 | User validation checklist | 자동 검증 완료 / 사용자 검수 대기 | `tasks/ul891-production-plan-001-user-validation-checklist.md` |
 
-최종 Task 상태는 `구현·자동 검증 완료 / 사용자 검수 대기 / local commit 보류`다. 독립 commit이 생기기 전에는 종료 정책의 `EXPERIMENT_COMPLETE / BATCHED_FINAL`로 과장하지 않는다.
+최종 Task 상태는 `EXPERIMENT_COMPLETE / 사용자 검수 대기 / local checkpoint e6f3fa6`이다. 대표 repo·`main`·Persistent UAT 반영은 별도 승격 경계로 남는다.

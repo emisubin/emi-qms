@@ -8,9 +8,9 @@
 - implementation: `완료`
 - automaticValidation: `완료`
 - userValidation: `대기 — 마지막 일괄 검수`
-- latestChangeCommit: `미실행 — 이번 요청에 커밋 승인 없음`
+- latestChangeCommit: `e6f3fa6 — 누적 실험 checkpoint에 포함`
 - push / PR / merge: `미승인·미실행`
-- main merge approval: `0/3`
+- main merge approval: `2/3 — 3차 승인 전 merge 금지`
 - Persistent UAT / 실제 provider / 대표 repo 영향: `없음`
 
 ## 최신 업무 계약

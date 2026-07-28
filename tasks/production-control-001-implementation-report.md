@@ -265,10 +265,10 @@ Open P0/P1/P2: `0/0/0`.
 ## 안전·게시 경계
 
 - 고정 검수 runtime: Frontend `http://127.0.0.1:42983`, Backend `http://127.0.0.1:41166`
-- local experiment commit만 허용한다.
+- local experiment checkpoint: `e6f3fa6`
 - 대표 repo·`main`·Persistent UAT·실제 provider는 변경하지 않는다.
 - push·PR·merge는 실행하지 않는다.
-- `main` merge 승인: `0/3`.
+- `main` merge 승인: `2/3` — 3차 승인 전 merge 금지.
 
 ## 종료 산출물
 

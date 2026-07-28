@@ -1067,13 +1067,29 @@ export interface ProductionPlanningResponse {
   assignees: ProjectAssignee[];
   assigneeCandidates: AssigneeCandidate[];
   fallbacks: NotificationFallback[];
+  isSetScoped?: boolean;
+  selectedScope?: ProductionPlanSetScope | null;
+  scopes?: ProductionPlanSetScope[];
+}
+
+export interface ProductionPlanSetScope {
+  scopeId: string;
+  setInstanceId: string;
+  label: string;
+  specName: string;
+  specNumber: number;
+  instanceNumber: number;
+  status: 'Active' | 'Cancelled';
+  activePanelCount: number;
+  requiredItemCount: number;
+  plannedRequiredItemCount: number;
+  rowVersion: number;
 }
 
 export interface ProjectManufacturingStep {
   definitionKey: string;
   sequenceNumber: number;
   stepName: string;
-  stepRole: 'General' | 'Assembly';
 }
 
 export interface ProductionControlSource {
@@ -1081,6 +1097,8 @@ export interface ProductionControlSource {
   departmentLabel: string;
   label: string;
   requiresManufacturingDefinition: boolean;
+  definitionKind: 'None' | 'Manufacturing' | 'Iqc' | 'Oqc';
+  definitions: Array<{ definitionKey: string; label: string }>;
 }
 
 export type ProductionPlanStatus = 'NotPlanned' | 'Planning' | 'Planned';
@@ -1098,6 +1116,9 @@ export interface ProductionPlanItem {
   plannedEndDate: string | null;
   actualStartDate: string | null;
   actualEndDate: string | null;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  requiredHeadcount: number | null;
   completedTargetCount: number;
   totalTargetCount: number;
   progressPercent: number;
@@ -1127,6 +1148,7 @@ export interface ProductionPlanEvidence {
   isCompleted: boolean;
   isBlocked: boolean;
   statusLabel: string;
+  evidenceScope?: 'ProjectCommon' | 'SetPanel';
 }
 
 export interface ProjectAssignee {
@@ -1319,6 +1341,20 @@ export interface UpdateProductionPlanningRequest {
   assignees: ProjectAssigneeUpdateRequest[];
 }
 
+export interface UpdateProductionPlanSetScopeRequest {
+  expectedRowVersion: number;
+  reason: string | null;
+  items: Array<{
+    itemId: string;
+    expectedRowVersion: number;
+    plannedStartDate: string | null;
+    plannedEndDate: string | null;
+    assignedUserId: string | null;
+    requiredHeadcount: number | null;
+    note: string | null;
+  }>;
+}
+
 export interface ProductionPlanItemUpdateRequest {
   itemId: string | null;
   templateStepId: string | null;
@@ -1329,6 +1365,8 @@ export interface ProductionPlanItemUpdateRequest {
   plannedDate: string | null;
   plannedStartDate: string | null;
   plannedEndDate: string | null;
+  assignedUserId: string | null;
+  requiredHeadcount: number | null;
   note: string | null;
   isDeleted: boolean;
   definitionKey: string | null;

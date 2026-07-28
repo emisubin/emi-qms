@@ -6,6 +6,7 @@ using System.Text.Json;
 using Emi.Qms.Api.Logistics;
 using Emi.Qms.Api.Manufacturing;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.ProductionPlanning;
 using Emi.Qms.Api.QualityInspections;
 using Npgsql;
 using NpgsqlTypes;
@@ -214,6 +215,8 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                 values (@id,@spec_id,@instance_number,@version_id,@actor_id);
                 """, token, ("id", instanceId), ("spec_id", specId), ("instance_number", instanceNumber),
                 ("version_id", versionId), ("actor_id", actorId));
+            await ProductionPlanningStore.EnsureSetPlanScopeAsync(
+                connection, transaction, projectId, instanceId, actorId, token);
             foreach (var code in normalizedCodes)
             {
                 maxPanel++;
@@ -535,6 +538,8 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                 values (@id, @spec_id, @instance_number, @version_id, @actor_id);
                 """, token, ("id", instanceId), ("spec_id", specId), ("instance_number", maxInstance + offset),
                 ("version_id", versionId), ("actor_id", actorId));
+            await ProductionPlanningStore.EnsureSetPlanScopeAsync(
+                connection, transaction, projectId, instanceId, actorId, token);
             foreach (var code in components)
             {
                 maxPanel++;

@@ -1794,6 +1794,7 @@
 }
 
 .settlement-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.settlement-form > .ds-input-flow { grid-column: 1 / -1; }
 .settlement-form .form-field { margin: 0; }
 .settlement-form .form-field > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .settlement-form .form-field em { color: var(--brand-red-deep); font-size: 0.65rem; font-style: normal; }
@@ -2003,10 +2004,20 @@
 .logistics-loader { width: 34px; height: 34px; border: 4px solid #d9ebe6; border-top-color: var(--logistics-teal); border-radius: 50%; animation: logistics-spin .8s linear infinite; }
 @keyframes logistics-spin { to { transform: rotate(360deg); } }
 
-.logistics-workspace { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(310px, .55fr); gap: 18px; max-width: 1320px; margin: 0 auto; align-items: start; }
+.logistics-workspace { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(340px, .62fr); gap: 18px; max-width: 1320px; margin: 0 auto; align-items: start; }
 .logistics-queue, .logistics-action-panel { padding: 20px; border: 1px solid #dce8e3; background: rgba(255,255,255,.88); box-shadow: 0 16px 38px rgba(29,67,72,.08); }
 .logistics-queue { border-radius: 30px 8px 30px 30px; }
 .logistics-action-panel { position: sticky; top: 18px; border-radius: 8px 30px 30px 30px; }
+.logistics-action-panel .ds-input-flow__header {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+}
+.logistics-action-panel .ds-input-flow__header ol {
+  width: 100%;
+  min-width: 0;
+  justify-self: stretch;
+}
 .logistics-queue > header, .logistics-action-panel > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .logistics-queue > header div span, .logistics-action-panel > header span { color: var(--logistics-teal); font-size: .56rem; font-weight: 900; letter-spacing: .12em; }
 .logistics-queue h2, .logistics-action-panel h2 { margin: 2px 0 0; font-size: 1.05rem; letter-spacing: -.04em; }
@@ -6885,14 +6896,14 @@ h3 {
 .production-plan-head,
 .production-plan-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) 72px minmax(140px, 0.8fr) minmax(180px, 1fr);
+  grid-template-columns: minmax(160px, 1.25fr) 62px minmax(125px, .8fr) minmax(120px, .75fr) 88px minmax(150px, 1fr);
   gap: 8px;
   align-items: center;
 }
 
 .production-plan-head.editable,
 .production-plan-row.editable {
-  grid-template-columns: minmax(180px, 1.3fr) 72px minmax(140px, 0.8fr) minmax(180px, 1fr) minmax(88px, 0.5fr);
+  grid-template-columns: minmax(150px, 1.15fr) 58px minmax(118px, .8fr) minmax(118px, .8fr) 84px minmax(150px, 1fr) 64px;
 }
 
 .production-plan-row {
@@ -14255,6 +14266,21 @@ body {
   font-size: 1.05rem;
 }
 
+.manufacturing-batch-step-picker {
+  display: grid;
+  gap: 6px;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.manufacturing-batch-step-picker select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: #fff;
+}
+
 .manufacturing-batch-warning {
   margin: 0;
   padding: 12px;
@@ -17376,6 +17402,7 @@ body {
 .form-template-catalog,
 .form-template-versions,
 .form-template-editor { min-width: 0; padding: 16px; }
+.form-template-current-editor { grid-column: 2 / -1; }
 .form-template-catalog,
 .form-template-versions { border-right: 1px solid #e8ebf2; }
 .form-template-catalog > header { display: flex; justify-content: space-between; margin-bottom: 10px; }
@@ -17447,6 +17474,7 @@ body {
   .form-template-catalog > button small { font-size: 10px; }
   .form-template-versions,
   .form-template-editor { padding: 12px; }
+  .form-template-current-editor { grid-column: auto; }
   .form-template-editor > header { align-items: stretch; flex-direction: column; }
   .form-template-editor-controls { justify-content: space-between; }
   .form-template-primary-actions { flex: 1; justify-content: flex-end; }
@@ -20418,13 +20446,22 @@ body {
   }
 }
 
-/* TASK-PRODUCTION-CONTROL-001 — versioned templates and linked plan/actual view */
+/* TASK-PRODUCTION-CONTROL-001 — single current templates and linked plan/actual view */
 .production-control-version-list,
 .production-control-version-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.production-control-current-label {
+  display: grid;
+  gap: 4px;
+}
+
+.production-control-current-label small {
+  color: #555;
 }
 
 .production-control-version-list button {
@@ -20547,7 +20584,7 @@ body {
 .production-control-row-head,
 .production-control-row {
   display: grid;
-  grid-template-columns: 44px minmax(220px, 1fr) 180px 80px;
+  grid-template-columns: 44px minmax(220px, 1fr) 80px;
   align-items: center;
   gap: 12px;
   padding: 10px 20px;
@@ -20667,6 +20704,24 @@ body {
   padding: 14px 0 0;
 }
 
+.production-control-connection-select,
+.production-control-project-connection-select {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  font-weight: 800;
+}
+
+.production-control-connection-select {
+  margin-top: 14px;
+}
+
+.production-control-connection-select select,
+.production-control-project-connection-select select {
+  width: 100%;
+  min-height: 42px;
+}
+
 .production-control-connections,
 .production-control-project-connections {
   display: flex;
@@ -20758,13 +20813,15 @@ body {
 .production-control-plan-head,
 .production-control-plan-row {
   display: grid;
-  grid-template-columns: minmax(190px, 1.25fr) minmax(150px, .9fr) minmax(150px, .9fr) minmax(135px, .75fr) minmax(105px, .6fr) minmax(190px, 1.2fr);
+  grid-template-columns: minmax(170px, 1.15fr) minmax(125px, .82fr) minmax(125px, .82fr) minmax(115px, .72fr) minmax(95px, .58fr) minmax(110px, .72fr) 86px minmax(150px, 1fr);
   align-items: stretch;
 }
 
 .production-control-plan-head {
-  background: #111;
-  color: #fff;
+  border-bottom: 1px solid #111;
+  background: #f1f1f1;
+  color: #111;
+  font-weight: 800;
 }
 
 .production-control-plan-head > span,
@@ -20921,7 +20978,59 @@ body {
 }
 
 .production-control-gantt-body {
-  border-top: 1px solid #111;
+  border-top: 0;
+}
+
+.production-control-gantt-axis {
+  display: grid;
+  grid-template-columns: minmax(150px, 240px) 1fr;
+  min-height: 36px;
+  border: 1px solid #111;
+  border-bottom: 0;
+  background: #f7f7f7;
+}
+
+.production-control-gantt-axis > strong {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-right: 1px solid #aaa;
+}
+
+.production-control-gantt-axis > div {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.production-control-gantt-axis > div > span {
+  position: absolute;
+  inset-block: 0;
+  width: 1px;
+  background: #c9c9c9;
+}
+
+.production-control-gantt-axis > div > span > i {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  padding: 0 4px;
+  background: #f7f7f7;
+  color: #111;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.production-control-gantt-axis > div > span[data-edge="start"] > i {
+  transform: none;
+}
+
+.production-control-gantt-axis > div > span[data-edge="end"] > i {
+  transform: translateX(-100%);
 }
 
 .production-control-gantt-body article {
@@ -20941,11 +21050,20 @@ body {
 .production-control-gantt-body article > div {
   position: relative;
   min-width: 0;
-  background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(10% - 1px), #eee calc(10% - 1px), #eee 10%);
+  background: #fff;
+}
+
+.production-control-gantt-gridline {
+  position: absolute;
+  inset-block: 0;
+  width: 1px;
+  background: #e2e2e2;
+  pointer-events: none;
 }
 
 .production-control-gantt-body article > div > i {
   position: absolute;
+  z-index: 1;
   height: 8px;
 }
 
@@ -20959,11 +21077,19 @@ body {
 
 .production-control-project-fields {
   display: grid;
-  grid-template-columns: 40px minmax(180px, 1fr) 145px 145px 80px minmax(160px, .8fr) 70px;
+  grid-template-columns: 40px minmax(180px, 1fr) 145px 145px 80px minmax(150px, .8fr) 70px;
   gap: 10px;
   align-items: end;
   padding: 14px 16px;
   border-bottom: 1px dashed #aaa;
+}
+
+.production-control-project-comment {
+  grid-column: 2 / 6;
+}
+
+.production-control-project-headcount {
+  grid-column: 6 / 7;
 }
 
 .production-control-project-connections {
@@ -20993,6 +21119,135 @@ body {
   outline-offset: -2px;
 }
 
+.production-plan-set-scope,
+.production-plan-set-edit-switch,
+.production-plan-set-schedule-editor {
+  margin-bottom: 18px;
+  padding: 18px 20px;
+  border: 1px solid #111;
+  background: #fff;
+}
+
+.production-plan-set-tabs {
+  display: flex;
+  gap: 0;
+  max-width: 100%;
+  margin-top: 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid #111;
+}
+
+.production-plan-set-tabs > button,
+.production-plan-set-tabs > label {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 2px;
+  min-width: 138px;
+  padding: 10px 14px;
+  border: 0;
+  border-right: 1px solid #aaa;
+  border-radius: 0;
+  background: #fff;
+  color: #111;
+  text-align: left;
+}
+
+.production-plan-set-tabs > button.active,
+.production-plan-set-tabs > label.active {
+  background: #111;
+  color: #fff;
+}
+
+.production-plan-set-tabs small {
+  color: inherit;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.production-plan-set-tabs label select {
+  min-width: 210px;
+  border-color: currentColor;
+  background: inherit;
+  color: inherit;
+}
+
+.production-plan-set-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #aaa;
+  background: #f7f7f7;
+}
+
+.production-plan-set-summary strong {
+  margin-right: auto;
+}
+
+.production-plan-set-summary b {
+  color: var(--status-danger, #c42d35);
+}
+
+.production-plan-set-select {
+  max-width: 100%;
+  margin-top: 12px;
+}
+
+.production-plan-set-schedule-editor > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.production-plan-set-schedule-editor > header span {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+.production-plan-set-schedule-rows {
+  border: 1px solid #111;
+}
+
+.production-plan-set-schedule-rows > article {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.1fr) 145px 145px minmax(145px, .8fr) 100px minmax(180px, 1fr);
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border-bottom: 1px solid #aaa;
+}
+
+.production-plan-set-schedule-rows > article:last-child {
+  border-bottom: 0;
+}
+
+.production-plan-set-schedule-title {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 2px 8px;
+  align-items: center;
+}
+
+.production-plan-set-schedule-title small {
+  grid-column: 2;
+}
+
+.production-control-evidence article b em {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 2px 5px;
+  border: 1px solid #111;
+  color: #111;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+}
+
 @media (max-width: 900px) {
   .form-template-workspace.has-production-control {
     grid-template-columns: minmax(180px, .55fr) minmax(0, 1.45fr);
@@ -21016,12 +21271,54 @@ body {
   }
 
   .production-control-row,
-  .production-control-project-fields {
+  .production-control-project-fields,
+  .production-plan-set-schedule-rows > article {
     grid-template-columns: 36px 1fr;
+  }
+
+  .production-plan-set-schedule-title,
+  .production-plan-set-schedule-rows > article > label {
+    grid-column: 1 / -1;
+  }
+
+  .production-plan-set-scope,
+  .production-plan-set-edit-switch,
+  .production-plan-set-schedule-editor {
+    padding: 14px;
+  }
+
+  .production-plan-set-tabs {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    border: 1px solid #111;
+  }
+
+  .production-plan-set-tabs > button,
+  .production-plan-set-tabs > label {
+    width: 100%;
+    min-width: 0;
+    border-right: 0;
+    border-bottom: 1px solid #aaa;
+  }
+
+  .production-plan-set-tabs label select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .production-plan-set-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .production-control-row > button,
   .production-control-project-fields > button {
+    grid-column: 2;
+  }
+
+  .production-control-project-fields > label,
+  .production-control-project-comment,
+  .production-control-project-headcount {
     grid-column: 2;
   }
 
@@ -21105,9 +21402,24 @@ body {
   }
 
   .production-control-gantt-body,
+  .production-control-gantt-axis,
   .production-control-gantt > header,
   .production-control-gantt-legend {
     min-width: 0;
+  }
+
+  .production-control-gantt-axis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .production-control-gantt-axis > strong {
+    padding: 7px 0;
+    border-right: 0;
+    border-bottom: 1px solid #aaa;
+  }
+
+  .production-control-gantt-axis > div {
+    min-height: 34px;
   }
 
   .production-control-gantt-body article {

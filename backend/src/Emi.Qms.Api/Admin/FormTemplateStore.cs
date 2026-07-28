@@ -11,10 +11,7 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
     [
         new("IqcReport", "MATERIAL_IQC", "자재 수입검사", "Quality"),
         new("PanelQualityStage", "LQC", "LQC 검사", "Quality"),
-        new("PanelQualityStage", "OQC", "OQC 자체검수", "Quality"),
-        new("PanelQualityStage", "CustomerInspection", "전진검수", "Quality"),
-        new("PanelQualityStage", "FAT", "FAT 시험검사", "Quality"),
-        new("Manufacturing", "PANEL_MANUFACTURING", "제조 작업 단계", "Manufacturing")
+        new("PanelQualityStage", "OQC", "OQC 자체검수", "Quality")
     ];
 
     public async Task<FormTemplateScopeResponse> GetScopeAsync(Guid userId, bool isSystemAdministrator, CancellationToken token)
@@ -49,6 +46,55 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         await using var connection = await dataSource.OpenConnectionAsync(token);
         await DemandAccessAsync(connection, null, userId, isSystemAdministrator, descriptor.Domain, token);
         return await ReadVersionsAsync(connection, null, descriptor, token);
+    }
+
+    public async Task<FormTemplateVersionsResponse> GetCurrentAsync(
+        string family, string templateKey, Guid userId, bool isSystemAdministrator, CancellationToken token)
+    {
+        var descriptor = ResolveDescriptor(family, templateKey);
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(token);
+        await DemandAccessAsync(connection, null, userId, isSystemAdministrator, descriptor.Domain, token);
+        return await ReadCurrentAsync(connection, null, descriptor, token);
+    }
+
+    public async Task<FormTemplateVersionsResponse> SaveCurrentAsync(
+        string family,
+        string templateKey,
+        SaveFormTemplateItemsRequest request,
+        Guid actorUserId,
+        bool isSystemAdministrator,
+        CancellationToken token)
+    {
+        var descriptor = ResolveDescriptor(family, templateKey);
+        ValidateItems(descriptor, request.Items);
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(token);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, token);
+        await DemandAccessAsync(connection, transaction, actorUserId, isSystemAdministrator, descriptor.Domain, token);
+        var active = await LockActiveAsync(connection, transaction, descriptor, token);
+        if (active is null) throw new FormTemplateConflictException("현재 양식을 찾을 수 없습니다.");
+        if (active.Value.RowVersion != request.ExpectedRowVersion)
+            throw new FormTemplateConflictException("양식이 변경되었습니다. 새로고침해 주세요.");
+
+        var existingKeys = await ReadDefinitionKeysAsync(connection, transaction, descriptor, active.Value.Id, token);
+        ValidateDefinitionKeys(request.Items, existingKeys);
+        await EnsureRemovedDefinitionsAreUnusedAsync(
+            connection,
+            transaction,
+            descriptor,
+            existingKeys.Except(request.Items.Where(item => item.DefinitionKey is not null).Select(item => item.DefinitionKey!.Value)).ToArray(),
+            token);
+
+        var nextVersion = await NextVersionAsync(connection, transaction, descriptor, token);
+        var nextId = Guid.NewGuid();
+        await InsertDraftVersionAsync(connection, transaction, descriptor, active.Value.Id, nextId, nextVersion, actorUserId, token);
+        await ReplaceItemsAsync(connection, transaction, descriptor, nextId, request.Items, token);
+        await ArchiveActiveAsync(connection, transaction, descriptor, actorUserId, token);
+        await ActivateDraftAsync(connection, transaction, descriptor, nextId, actorUserId, 1, token);
+        await AppendAuditAsync(connection, transaction, "CurrentSaved", descriptor, nextId, null, actorUserId, new { itemCount = request.Items.Count }, token);
+        await transaction.CommitAsync(token);
+        return await GetCurrentAsync(family, templateKey, actorUserId, isSystemAdministrator, token);
     }
 
     public async Task<FormTemplateVersionsResponse> CreateDraftAsync(
@@ -317,18 +363,34 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         return new(descriptor.Family, descriptor.Key, descriptor.Name, descriptor.Domain, versions);
     }
 
+    private static async Task<FormTemplateVersionsResponse> ReadCurrentAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        TemplateDescriptor descriptor,
+        CancellationToken token)
+    {
+        var all = await ReadVersionsAsync(connection, transaction, descriptor, token);
+        return all with
+        {
+            Versions = all.Versions
+                .Where(version => version.LifecycleStatus == "Active")
+                .Take(1)
+                .ToArray()
+        };
+    }
+
     private static async Task<IReadOnlyList<FormTemplateItemResponse>> ReadItemsAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, TemplateDescriptor descriptor, Guid versionId, CancellationToken token)
     {
         var source = Source(descriptor);
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = descriptor.Family == "Manufacturing"
-            ? $"select id,item_code,display_order,label,null,'Check',true,false,null from {source.ItemTable} where template_version_id=@version_id order by display_order;"
-            : $"select id,item_code,display_order,label,guidance,response_type,is_required,requires_photo,max_text_length from {source.ItemTable} where template_version_id=@version_id order by display_order;";
+            ? $"select id,item_code,display_order,label,null,'Check',true,false,null,id from {source.ItemTable} where template_version_id=@version_id order by display_order;"
+            : $"select id,item_code,display_order,label,guidance,response_type,is_required,requires_photo,max_text_length,definition_key from {source.ItemTable} where template_version_id=@version_id order by display_order;";
         command.Parameters.AddWithValue("version_id", versionId);
         var items = new List<FormTemplateItemResponse>();
         await using var reader = await command.ExecuteReaderAsync(token);
-        while (await reader.ReadAsync(token)) items.Add(new(reader.GetGuid(0), reader.GetString(1), reader.GetInt32(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetBoolean(6), reader.GetBoolean(7), reader.IsDBNull(8) ? null : reader.GetInt32(8)));
+        while (await reader.ReadAsync(token)) items.Add(new(reader.GetGuid(0), reader.GetString(1), reader.GetInt32(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetBoolean(6), reader.GetBoolean(7), reader.IsDBNull(8) ? null : reader.GetInt32(8), reader.GetGuid(9)));
         return items;
     }
 
@@ -366,8 +428,45 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         command.Parameters.AddWithValue("draft_id", draftId); command.Parameters.AddWithValue("active_id", activeId); command.Parameters.AddWithValue("version", nextVersion); command.Parameters.AddWithValue("actor", actor); await command.ExecuteNonQueryAsync(token);
         await using var copy = connection.CreateCommand(); copy.Transaction = transaction; copy.CommandText = descriptor.Family == "Manufacturing"
             ? $"insert into {source.ItemTable}(id,template_version_id,item_code,display_order,label) select uuid_generate_v4(),@draft_id,item_code,display_order,label from {source.ItemTable} where template_version_id=@active_id;"
-            : $"insert into {source.ItemTable}(id,template_version_id,item_code,display_order,label,guidance,response_type,is_required,requires_photo,max_text_length) select uuid_generate_v4(),@draft_id,item_code,display_order,label,guidance,response_type,is_required,requires_photo,max_text_length from {source.ItemTable} where template_version_id=@active_id;";
+            : $"insert into {source.ItemTable}(id,template_version_id,item_code,display_order,label,guidance,response_type,is_required,requires_photo,max_text_length,definition_key) select uuid_generate_v4(),@draft_id,item_code,display_order,label,guidance,response_type,is_required,requires_photo,max_text_length,definition_key from {source.ItemTable} where template_version_id=@active_id;";
         copy.Parameters.AddWithValue("draft_id", draftId); copy.Parameters.AddWithValue("active_id", activeId); await copy.ExecuteNonQueryAsync(token);
+    }
+
+    private static async Task InsertDraftVersionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        TemplateDescriptor descriptor,
+        Guid activeId,
+        Guid draftId,
+        int nextVersion,
+        Guid actor,
+        CancellationToken token)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = descriptor.Family switch
+        {
+            "IqcReport" => """
+                insert into iqc_report_template_versions(
+                    id,template_id,version_number,is_active,lifecycle_status,row_version,
+                    created_by_user_id,updated_by_user_id)
+                select @draft_id,template_id,@version,false,'Draft',1,@actor,@actor
+                from iqc_report_template_versions where id=@active_id;
+                """,
+            "PanelQualityStage" => """
+                insert into panel_quality_template_versions(
+                    id,stage_code,version_number,display_name,is_active,lifecycle_status,row_version,
+                    created_by_user_id,updated_by_user_id)
+                select @draft_id,stage_code,@version,display_name,false,'Draft',1,@actor,@actor
+                from panel_quality_template_versions where id=@active_id;
+                """,
+            _ => throw new ArgumentException("현재 양식 저장을 지원하지 않는 종류입니다.", "family")
+        };
+        command.Parameters.AddWithValue("draft_id", draftId);
+        command.Parameters.AddWithValue("active_id", activeId);
+        command.Parameters.AddWithValue("version", nextVersion);
+        command.Parameters.AddWithValue("actor", actor);
+        await command.ExecuteNonQueryAsync(token);
     }
 
     private static void ValidateItems(TemplateDescriptor descriptor, IReadOnlyList<SaveFormTemplateItemRequest> items)
@@ -391,10 +490,71 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         {
             await using var insert = connection.CreateCommand(); insert.Transaction = transaction; insert.CommandText = descriptor.Family == "Manufacturing"
             ? $"insert into {source.ItemTable}(id,template_version_id,item_code,display_order,label) values(uuid_generate_v4(),@version,@code,@display_order,@label);"
-            : $"insert into {source.ItemTable}(id,template_version_id,item_code,display_order,label,guidance,response_type,is_required,requires_photo,max_text_length) values(uuid_generate_v4(),@version,@code,@display_order,@label,@guidance,@response_type,@required,@photo,@max_length);";
+            : $"insert into {source.ItemTable}(id,template_version_id,item_code,display_order,label,guidance,response_type,is_required,requires_photo,max_text_length,definition_key) values(uuid_generate_v4(),@version,@code,@display_order,@label,@guidance,@response_type,@required,@photo,@max_length,@definition_key);";
             insert.Parameters.AddWithValue("version", versionId); insert.Parameters.AddWithValue("code", item.ItemCode.Trim().ToUpperInvariant()); insert.Parameters.AddWithValue("display_order", item.DisplayOrder); insert.Parameters.AddWithValue("label", item.Label.Trim());
-            if (descriptor.Family != "Manufacturing") { insert.Parameters.Add("guidance", NpgsqlDbType.Text).Value = string.IsNullOrWhiteSpace(item.Guidance) ? DBNull.Value : item.Guidance.Trim(); insert.Parameters.AddWithValue("response_type", item.ResponseType); insert.Parameters.AddWithValue("required", item.IsRequired); insert.Parameters.AddWithValue("photo", item.RequiresPhoto); insert.Parameters.Add("max_length", NpgsqlDbType.Integer).Value = item.ResponseType == "Text" ? (item.MaxTextLength ?? 1000) : DBNull.Value; }
+            if (descriptor.Family != "Manufacturing") { insert.Parameters.Add("guidance", NpgsqlDbType.Text).Value = string.IsNullOrWhiteSpace(item.Guidance) ? DBNull.Value : item.Guidance.Trim(); insert.Parameters.AddWithValue("response_type", item.ResponseType); insert.Parameters.AddWithValue("required", item.IsRequired); insert.Parameters.AddWithValue("photo", item.RequiresPhoto); insert.Parameters.Add("max_length", NpgsqlDbType.Integer).Value = item.ResponseType == "Text" ? (item.MaxTextLength ?? 1000) : DBNull.Value; insert.Parameters.AddWithValue("definition_key", item.DefinitionKey ?? Guid.NewGuid()); }
             await insert.ExecuteNonQueryAsync(token);
+        }
+    }
+
+    private static async Task<HashSet<Guid>> ReadDefinitionKeysAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        TemplateDescriptor descriptor,
+        Guid versionId,
+        CancellationToken token)
+    {
+        var source = Source(descriptor);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"select definition_key from {source.ItemTable} where template_version_id=@version_id;";
+        command.Parameters.AddWithValue("version_id", versionId);
+        var result = new HashSet<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(token);
+        while (await reader.ReadAsync(token)) result.Add(reader.GetGuid(0));
+        return result;
+    }
+
+    private static void ValidateDefinitionKeys(
+        IReadOnlyList<SaveFormTemplateItemRequest> items,
+        IReadOnlySet<Guid> existingKeys)
+    {
+        var submitted = items.Where(item => item.DefinitionKey is not null).Select(item => item.DefinitionKey!.Value).ToArray();
+        if (submitted.Distinct().Count() != submitted.Length)
+            throw new ArgumentException("검사 항목 고유번호는 중복될 수 없습니다.", "items");
+        if (submitted.Any(key => !existingKeys.Contains(key)))
+            throw new ArgumentException("검사 항목 고유번호를 임의로 변경할 수 없습니다.", "items");
+    }
+
+    private static async Task EnsureRemovedDefinitionsAreUnusedAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        TemplateDescriptor descriptor,
+        Guid[] removedKeys,
+        CancellationToken token)
+    {
+        if (removedKeys.Length == 0 || descriptor.Key == "LQC") return;
+        var sourceCode = descriptor.Family == "IqcReport" ? "IQC_PASSED" : "OQC_PASSED";
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select exists (
+                select 1
+                from production_control_plan_connections
+                where source_code=@source_code and source_definition_key=any(@keys)
+                union all
+                select 1
+                from project_production_plan_connections
+                where source_code=@source_code and source_definition_key=any(@keys)
+            );
+            """;
+        command.Parameters.AddWithValue("source_code", sourceCode);
+        command.Parameters.AddWithValue("keys", removedKeys);
+        if (await command.ExecuteScalarAsync(token) is true)
+        {
+            throw new ArgumentException(
+                "생산계획 실적에 연결된 검사 항목은 삭제할 수 없습니다. 연결을 다른 항목으로 바꾼 뒤 다시 시도해 주세요.",
+                "items");
         }
     }
 

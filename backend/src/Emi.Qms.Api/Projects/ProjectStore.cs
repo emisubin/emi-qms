@@ -289,11 +289,40 @@ public sealed class ProjectStore(
                 where pending_issues.project_id = projects.id
             ) pending_summary on true
             left join lateral (
-                select count(items.id)::integer as item_count,
-                       count(items.id) filter (where items.is_required = true)::integer as required_item_count,
-                       count(items.id) filter (where items.is_required = true and items.planned_date is not null)::integer as planned_required_item_count
+                select case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.item_count,0) else coalesce(base_counts.item_count,0) end as item_count,
+                       case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.required_item_count,0) else coalesce(base_counts.required_item_count,0) end as required_item_count,
+                       case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.planned_required_item_count,0) else coalesce(base_counts.planned_required_item_count,0) end as planned_required_item_count
                 from project_production_plans plans
-                left join project_production_plan_items items on items.production_plan_id = plans.id and items.is_active = true
+                left join lateral (
+                    select count(items.id)::integer as item_count,
+                           count(items.id) filter (where items.is_required)::integer as required_item_count,
+                           count(items.id) filter (
+                               where items.is_required and (
+                                 (plans.model_version='LEGACY' and items.planned_date is not null)
+                                 or (plans.model_version='LINKED_V1' and items.planned_start_date is not null and items.planned_end_date is not null)
+                               )
+                           )::integer as planned_required_item_count
+                    from project_production_plan_items items
+                    where items.production_plan_id=plans.id and items.is_active
+                ) base_counts on true
+                left join lateral (
+                    select count(items.id)::integer as item_count,
+                           count(items.id) filter (where items.is_required)::integer as required_item_count,
+                           count(items.id) filter (
+                               where items.is_required
+                                 and value.planned_start_date is not null
+                                 and value.planned_end_date is not null
+                           )::integer as planned_required_item_count
+                    from project_production_plan_set_scopes scope
+                    join ul891_set_instances instance on instance.id=scope.set_instance_id and instance.status='Active'
+                    join project_production_plan_items items on items.production_plan_id=scope.production_plan_id and items.is_active
+                    left join project_production_plan_set_item_values value
+                      on value.set_scope_id=scope.id and value.production_plan_item_id=items.id
+                    where scope.production_plan_id=plans.id
+                ) set_counts on true
                 where plans.project_id = projects.id
             ) production_plan_summary on true
             left join lateral (
@@ -662,11 +691,40 @@ public sealed class ProjectStore(
                 where pending_issues.project_id = projects.id
             ) pending_summary on true
             left join lateral (
-                select count(items.id)::integer as item_count,
-                       count(items.id) filter (where items.is_required = true)::integer as required_item_count,
-                       count(items.id) filter (where items.is_required = true and items.planned_date is not null)::integer as planned_required_item_count
+                select case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.item_count,0) else coalesce(base_counts.item_count,0) end as item_count,
+                       case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.required_item_count,0) else coalesce(base_counts.required_item_count,0) end as required_item_count,
+                       case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.planned_required_item_count,0) else coalesce(base_counts.planned_required_item_count,0) end as planned_required_item_count
                 from project_production_plans plans
-                left join project_production_plan_items items on items.production_plan_id = plans.id and items.is_active = true
+                left join lateral (
+                    select count(items.id)::integer as item_count,
+                           count(items.id) filter (where items.is_required)::integer as required_item_count,
+                           count(items.id) filter (
+                               where items.is_required and (
+                                 (plans.model_version='LEGACY' and items.planned_date is not null)
+                                 or (plans.model_version='LINKED_V1' and items.planned_start_date is not null and items.planned_end_date is not null)
+                               )
+                           )::integer as planned_required_item_count
+                    from project_production_plan_items items
+                    where items.production_plan_id=plans.id and items.is_active
+                ) base_counts on true
+                left join lateral (
+                    select count(items.id)::integer as item_count,
+                           count(items.id) filter (where items.is_required)::integer as required_item_count,
+                           count(items.id) filter (
+                               where items.is_required
+                                 and value.planned_start_date is not null
+                                 and value.planned_end_date is not null
+                           )::integer as planned_required_item_count
+                    from project_production_plan_set_scopes scope
+                    join ul891_set_instances instance on instance.id=scope.set_instance_id and instance.status='Active'
+                    join project_production_plan_items items on items.production_plan_id=scope.production_plan_id and items.is_active
+                    left join project_production_plan_set_item_values value
+                      on value.set_scope_id=scope.id and value.production_plan_item_id=items.id
+                    where scope.production_plan_id=plans.id
+                ) set_counts on true
                 where plans.project_id = projects.id
             ) production_plan_summary on true
             left join lateral (
@@ -995,6 +1053,16 @@ public sealed class ProjectStore(
             }
 
             await CreateInitialProductionControlSnapshotAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
+            if (input.IsUl891Set)
+            {
+                await ProductionPlanningStore.EnsureSetPlanScopeAsync(
+                    connection,
+                    transaction,
+                    projectId,
+                    null,
+                    changedByUserId,
+                    cancellationToken);
+            }
             await CreateInitialProcurementItemsFromTemplateAsync(connection, transaction, projectId, input, changedByUserId, cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
@@ -2674,12 +2742,42 @@ public sealed class ProjectStore(
                 left join production_control_manufacturing_items manufacturing_item
                   on manufacturing_item.template_version_id=@manufacturing_version_id
                  and manufacturing_item.definition_key=connection.source_definition_key
+                left join (
+                    select quality_item.definition_key
+                    from iqc_report_templates quality_template
+                    join iqc_report_template_versions quality_version
+                      on quality_version.template_id=quality_template.id
+                     and quality_version.lifecycle_status='Active'
+                    join iqc_report_template_items quality_item
+                      on quality_item.template_version_id=quality_version.id
+                    where quality_template.template_code='MATERIAL_IQC'
+                      and quality_item.response_type='Check'
+                ) iqc on iqc.definition_key=connection.source_definition_key
+                left join (
+                    select quality_item.definition_key
+                    from panel_quality_template_versions quality_version
+                    join panel_quality_template_items quality_item
+                      on quality_item.template_version_id=quality_version.id
+                    where quality_version.stage_code='OQC'
+                      and quality_version.lifecycle_status='Active'
+                      and quality_item.response_type='Check'
+                ) oqc on oqc.definition_key=connection.source_definition_key
                 where plan_item.template_version_id=@plan_version_id
                   and (
                     (plan_item.is_required and connection.id is null)
                     or (
                         connection.source_code in ('MANUFACTURING_STEP_COMPLETED','LQC_PASSED')
                         and manufacturing_item.id is null
+                    )
+                    or (
+                        connection.source_code='IQC_PASSED'
+                        and connection.source_definition_key is not null
+                        and iqc.definition_key is null
+                    )
+                    or (
+                        connection.source_code='OQC_PASSED'
+                        and connection.source_definition_key is not null
+                        and oqc.definition_key is null
                     )
                   );
                 """;
@@ -2688,7 +2786,7 @@ public sealed class ProjectStore(
             if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) > 0)
             {
                 throw new ProductionControlSnapshotConfigurationException(
-                    "활성 생산계획 양식의 실적 연결이 현재 제조 양식과 맞지 않습니다. 양식 관리에서 연결을 수정해 주세요.");
+                    "활성 생산계획 양식의 실적 연결이 현재 제조·품질 양식과 맞지 않습니다. 양식 관리에서 연결을 수정해 주세요.");
             }
         }
 

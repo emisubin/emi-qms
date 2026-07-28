@@ -3,6 +3,8 @@ export type ProductionControlSource = {
   departmentLabel: string;
   label: string;
   requiresManufacturingDefinition: boolean;
+  definitionKind: 'None' | 'Manufacturing' | 'Iqc' | 'Oqc';
+  definitions: Array<{ definitionKey: string; label: string }>;
 };
 
 export type ProductionControlConnection = {
@@ -14,7 +16,6 @@ export type ProductionControlManufacturingItem = {
   definitionKey: string | null;
   displayOrder: number;
   label: string;
-  stepRole: 'General' | 'Assembly';
 };
 
 export type ProductionControlPlanItem = {

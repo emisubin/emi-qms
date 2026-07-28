@@ -64,14 +64,14 @@ import type {
   PanelKittingQueueResponse
 } from './panelKitting';
 import type {
-  AssemblyBatchManufacturingRequest,
-  AssemblyBatchManufacturingResponse,
   ManufacturingActionDepartment,
   ManufacturingExecutionDetail,
   ManufacturingMutationResponse,
   ManufacturingQueueResponse,
   ManufacturingReleaseQueueResponse,
   ManufacturingReleaseResponse,
+  StepBatchManufacturingRequest,
+  StepBatchManufacturingResponse,
   StopManufacturingRequest
 } from './manufacturing';
 import type {
@@ -166,6 +166,7 @@ import type {
   SystemHoliday,
   UpsertAdminCalendarHolidayRequest,
   UpdateAdminDepartmentRequest,
+  UpdateProductionPlanSetScopeRequest,
   UpdateProductionPlanningRequest,
   UpdateProductionTemplateSettingsRequest,
   UpdateProcurementRequiredItemSettingsRequest,
@@ -361,6 +362,16 @@ export async function getFormTemplateCatalog(developmentUserKey?: string): Promi
 
 export async function getFormTemplateVersions(developmentUserKey: string | undefined, family: string, templateKey: string): Promise<FormTemplateVersions> {
   return fetchJson<FormTemplateVersions>(`/api/form-templates/${family}/${templateKey}/versions`, developmentUserKey);
+}
+
+export async function getCurrentFormTemplate(developmentUserKey: string | undefined, family: string, templateKey: string): Promise<FormTemplateVersions> {
+  return fetchJson<FormTemplateVersions>(`/api/form-templates/${family}/${templateKey}/current`, developmentUserKey);
+}
+
+export async function saveCurrentFormTemplate(developmentUserKey: string | undefined, family: string, templateKey: string, expectedRowVersion: number, items: FormTemplateVersions['versions'][number]['items']): Promise<FormTemplateVersions> {
+  return fetchJson<FormTemplateVersions>(`/api/form-templates/${family}/${templateKey}/current`, developmentUserKey, {
+    method: 'PUT', body: JSON.stringify({ expectedRowVersion, items })
+  });
 }
 
 export async function createFormTemplateDraft(developmentUserKey: string | undefined, family: string, templateKey: string, expectedActiveRowVersion: number): Promise<FormTemplateVersions> {
@@ -1782,12 +1793,12 @@ export async function checkManufacturingStep(
   });
 }
 
-export async function completeManufacturingAssemblyBatch(
+export async function completeManufacturingStepBatch(
   developmentUserKey: string | undefined,
-  request: AssemblyBatchManufacturingRequest
-): Promise<AssemblyBatchManufacturingResponse> {
-  return fetchJson<AssemblyBatchManufacturingResponse>(
-    '/api/manufacturing/executions/assembly-batch',
+  request: StepBatchManufacturingRequest
+): Promise<StepBatchManufacturingResponse> {
+  return fetchJson<StepBatchManufacturingResponse>(
+    '/api/manufacturing/executions/step-batch',
     developmentUserKey,
     {
       method: 'POST',
@@ -2495,9 +2506,11 @@ export async function getBusinessCalendar(
 export async function getProjectProductionPlanning(
   developmentUserKey: string | undefined,
   projectId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  setInstanceId?: string | null
 ): Promise<ProductionPlanningResponse> {
-  return fetchJson<ProductionPlanningResponse>(`/api/projects/${projectId}/production-planning`, developmentUserKey, { signal });
+  const query = setInstanceId ? `?setInstanceId=${encodeURIComponent(setInstanceId)}` : '';
+  return fetchJson<ProductionPlanningResponse>(`/api/projects/${projectId}/production-planning${query}`, developmentUserKey, { signal });
 }
 
 export async function updateProjectProductionPlanning(
@@ -2511,6 +2524,22 @@ export async function updateProjectProductionPlanning(
   });
 }
 
+export async function updateProjectProductionPlanSetScope(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  setInstanceId: string,
+  request: UpdateProductionPlanSetScopeRequest
+): Promise<ProductionPlanningResponse> {
+  return fetchJson<ProductionPlanningResponse>(
+    `/api/projects/${projectId}/production-planning/set-scopes/${setInstanceId}`,
+    developmentUserKey,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(request)
+    }
+  );
+}
+
 export async function getProductionControlTemplateCatalog(
   developmentUserKey: string | undefined,
   signal?: AbortSignal
@@ -2518,20 +2547,20 @@ export async function getProductionControlTemplateCatalog(
   return fetchJson<ProductionControlTemplateCatalog>('/api/production-control/templates', developmentUserKey, { signal });
 }
 
-export async function createProductionControlDraft(
+export async function ensureProductionControlCurrent(
   developmentUserKey: string | undefined,
   domain: 'manufacturing' | 'planning',
   productTypeId: string,
   expectedActiveRowVersion: number | null
 ): Promise<ProductionControlTemplateCatalog> {
   return fetchJson<ProductionControlTemplateCatalog>(
-    `/api/production-control/templates/${domain}/${productTypeId}/drafts`,
+    `/api/production-control/templates/${domain}/${productTypeId}/current`,
     developmentUserKey,
     { method: 'POST', body: JSON.stringify({ expectedActiveRowVersion }) }
   );
 }
 
-export async function saveProductionControlManufacturingDraft(
+export async function saveProductionControlManufacturingCurrent(
   developmentUserKey: string | undefined,
   productTypeId: string,
   versionId: string,
@@ -2545,7 +2574,7 @@ export async function saveProductionControlManufacturingDraft(
   );
 }
 
-export async function saveProductionControlPlanDraft(
+export async function saveProductionControlPlanCurrent(
   developmentUserKey: string | undefined,
   productTypeId: string,
   versionId: string,
@@ -2556,21 +2585,6 @@ export async function saveProductionControlPlanDraft(
     `/api/production-control/templates/planning/${productTypeId}/versions/${versionId}`,
     developmentUserKey,
     { method: 'PUT', body: JSON.stringify({ expectedRowVersion, items }) }
-  );
-}
-
-export async function transitionProductionControlVersion(
-  developmentUserKey: string | undefined,
-  domain: 'manufacturing' | 'planning',
-  productTypeId: string,
-  versionId: string,
-  expectedRowVersion: number,
-  action: 'activate' | 'archive'
-): Promise<ProductionControlTemplateCatalog> {
-  return fetchJson<ProductionControlTemplateCatalog>(
-    `/api/production-control/templates/${domain}/${productTypeId}/versions/${versionId}/${action}`,
-    developmentUserKey,
-    { method: 'POST', body: JSON.stringify({ expectedRowVersion }) }
   );
 }
 
@@ -2907,7 +2921,7 @@ function chooseProblemMessage(status: number, detail?: string, title?: string, e
   }
 
   if (firstError) {
-    return status === 400 ? '입력값을 확인해 주세요.' : firstError;
+    return firstError;
   }
 
   if (title && !isEnglishProblemTitle(title)) {

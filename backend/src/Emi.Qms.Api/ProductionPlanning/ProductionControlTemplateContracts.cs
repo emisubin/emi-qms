@@ -22,29 +22,39 @@ public static class ProductionControlSourceCodes
 
     public static readonly IReadOnlyList<ProductionControlSourceCatalogItemResponse> Catalog =
     [
-        new(PurchaseOrdered, "구매", "발주 완료", false),
-        new(MaterialReceiptConfirmed, "자재", "전체 입고 확정", false),
-        new(IqcPassed, "품질", "IQC 합격", false),
-        new(ManufacturingStepCompleted, "제조", "제조 단계 완료", true),
-        new(LqcPassed, "품질", "LQC 합격", true),
-        new(OqcPassed, "품질", "OQC 합격", false),
-        new(CustomerInspectionPassed, "품질", "전진검수 합격", false),
-        new(FatPassed, "품질", "FAT 합격", false),
-        new(Packed, "물류", "포장 완료", false),
-        new(Departed, "물류", "출발 처리", false),
-        new(Delivered, "물류", "납품 완료", false)
+        new(PurchaseOrdered, "구매", "발주 완료", false, "None", []),
+        new(MaterialReceiptConfirmed, "자재", "전체 입고 확정", false, "None", []),
+        new(IqcPassed, "품질", "IQC 합격", false, "Iqc", []),
+        new(ManufacturingStepCompleted, "제조", "제조 단계 완료", true, "Manufacturing", []),
+        new(LqcPassed, "품질", "LQC 합격", true, "Manufacturing", []),
+        new(OqcPassed, "품질", "OQC 합격", false, "None", []),
+        new(CustomerInspectionPassed, "품질", "전진검수 합격", false, "None", []),
+        new(FatPassed, "품질", "FAT 합격", false, "None", []),
+        new(Packed, "물류", "포장 완료", false, "None", []),
+        new(Departed, "물류", "출발 처리", false, "None", []),
+        new(Delivered, "물류", "납품 완료", false, "None", [])
     ];
 
     public static bool IsSupported(string value) => Catalog.Any(item => item.Code == value);
     public static bool RequiresManufacturingDefinition(string value)
         => value is ManufacturingStepCompleted or LqcPassed;
+    public static bool RequiresQualityDefinition(string value)
+        => value is IqcPassed;
+    public static bool RequiresDefinition(string value)
+        => RequiresManufacturingDefinition(value) || RequiresQualityDefinition(value);
 }
 
 public sealed record ProductionControlSourceCatalogItemResponse(
     string Code,
     string DepartmentLabel,
     string Label,
-    bool RequiresManufacturingDefinition);
+    bool RequiresManufacturingDefinition,
+    string DefinitionKind,
+    IReadOnlyList<ProductionControlSourceDefinitionResponse> Definitions);
+
+public sealed record ProductionControlSourceDefinitionResponse(
+    Guid DefinitionKey,
+    string Label);
 
 public sealed record ProductionControlTemplateCatalogResponse(
     bool CanManageManufacturing,
@@ -71,8 +81,7 @@ public sealed record ProductionControlManufacturingVersionResponse(
 public sealed record ProductionControlManufacturingItemResponse(
     Guid DefinitionKey,
     int DisplayOrder,
-    string Label,
-    string StepRole);
+    string Label);
 
 public sealed record ProductionControlPlanVersionResponse(
     Guid VersionId,
@@ -103,8 +112,7 @@ public sealed record SaveProductionControlManufacturingVersionRequest(
 public sealed record SaveProductionControlManufacturingItemRequest(
     Guid? DefinitionKey,
     int DisplayOrder,
-    string Label,
-    string StepRole);
+    string Label);
 
 public sealed record SaveProductionControlPlanVersionRequest(
     int ExpectedRowVersion,

@@ -2206,7 +2206,9 @@ describe('App', () => {
     expect(assigneeSummary).not.toHaveTextContent('fallback');
     expect(within(assigneeSummary).queryByRole('combobox')).not.toBeInTheDocument();
     const planItemsTable = await screen.findByRole('table', { name: '생산계획 항목' });
-    expect(planItemsTable).toHaveTextContent('계획 항목필수예정일비고');
+    expect(planItemsTable).toHaveTextContent('계획 항목필수예정일담당자필요 인원코멘트');
+    expect(planItemsTable).toHaveTextContent('Dev Production Planning User');
+    expect(planItemsTable).toHaveTextContent('3명');
     expect(planItemsTable).not.toHaveTextContent('No');
     const calendarTable = await screen.findByRole('table', { name: '생산계획 캘린더 표' });
     expect(calendarTable).toHaveTextContent('생산단계');
@@ -2233,8 +2235,10 @@ describe('App', () => {
     expect(projectContext).toHaveTextContent('PJT-003A');
     expect(projectContext).not.toHaveTextContent('Active');
     const planEditTable = await screen.findByRole('table', { name: '생산계획 수정' });
-    expect(planEditTable).toHaveTextContent('계획 항목필수예정일비고작업');
+    expect(planEditTable).toHaveTextContent('계획 항목필수예정일담당자필요 인원생산관리 코멘트작업');
     expect(planEditTable).not.toHaveTextContent('No');
+    expect(within(planEditTable).getAllByLabelText('담당자')[0]).toHaveValue('50000000-0000-0000-0000-000000000003');
+    expect(within(planEditTable).getAllByLabelText('필요 인원')[0]).toHaveValue(3);
     expect(screen.getByRole('button', { name: 'Excel 양식 다운로드' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Excel 업로드' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Excel 업로드' }));
@@ -2705,8 +2709,7 @@ describe('App', () => {
               startedAtUtc: null,
               completedAtUtc: null,
               canMutate: true,
-              assemblyStepChecked: null,
-              assemblyStepSequence: null
+              batchSteps: []
             }]
           }]
         });
@@ -4828,6 +4831,9 @@ function productionPlanningResponse(status: 'NotPlanned' | 'Planning' | 'Planned
       stepName: step.stepName,
       isRequired: step.isRequired,
       plannedDate: planned || index === 0 || index === 2 ? `2026-07-0${index + 1}` : null,
+      assignedUserId: index === 0 ? '50000000-0000-0000-0000-000000000003' : null,
+      assignedUserName: index === 0 ? 'Dev Production Planning User' : null,
+      requiredHeadcount: index === 0 ? 3 : null,
       note: index === 0 ? '입고 확인' : null,
       rowVersion: 0
     })),

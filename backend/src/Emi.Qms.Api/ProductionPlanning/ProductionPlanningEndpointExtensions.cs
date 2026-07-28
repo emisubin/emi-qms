@@ -203,6 +203,7 @@ public static class ProductionPlanningEndpointExtensions
 
         projectApi.MapGet("/", async (
             Guid projectId,
+            Guid? setInstanceId,
             ProjectStore projectStore,
             ProductionPlanningStore store,
             ClaimsPrincipal user,
@@ -214,8 +215,13 @@ public static class ProductionPlanningEndpointExtensions
                 return access;
             }
 
-            var plan = await store.GetProjectPlanAsync(projectId, cancellationToken);
-            return plan is null ? Results.NotFound() : Results.Ok(plan);
+            var plan = await store.GetProjectPlanAsync(projectId, setInstanceId, cancellationToken);
+            return plan.Status switch
+            {
+                ProductionPlanningReadStatus.Success => Results.Ok(plan.Value),
+                ProductionPlanningReadStatus.Validation => Results.ValidationProblem(plan.Errors),
+                _ => Results.NotFound()
+            };
         })
         .RequireAuthorization()
         .WithName("GetProjectProductionPlanning");
@@ -271,6 +277,60 @@ public static class ProductionPlanningEndpointExtensions
         })
         .RequireAuthorization(QmsPolicies.ProductionPlanUpdate)
         .WithName("UpdateProjectProductionPlanning");
+
+        projectApi.MapPatch("/set-scopes/{setInstanceId:guid}", async (
+            Guid projectId,
+            Guid setInstanceId,
+            UpdateProductionPlanSetScopeRequest request,
+            ProjectStore projectStore,
+            ProductionPlanningStore store,
+            WorkflowStore workflowStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null)
+            {
+                return access;
+            }
+
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await store.UpdateSetScopeAsync(
+                projectId,
+                setInstanceId,
+                request,
+                userId.Value,
+                httpContext.TraceIdentifier,
+                cancellationToken);
+
+            if (result.Status == ProductionPlanningMutationStatus.Success && result.Value is not null)
+            {
+                await workflowStore.GenerateProductionPlanningAssigneeFollowUpsAsync(
+                    projectId,
+                    userId.Value,
+                    httpContext.TraceIdentifier,
+                    cancellationToken);
+                await workflowStore.SyncStageWorkItemsAfterSaveAsync(
+                    projectId,
+                    WorkflowStageCodes.ProductionPlanning,
+                    "ProductionPlan",
+                    result.Value.PlanId,
+                    userId.Value,
+                    httpContext.TraceIdentifier,
+                    "세트 생산계획 저장 완료",
+                    cancellationToken);
+            }
+
+            return ToResult(result, Results.Ok);
+        })
+        .RequireAuthorization(QmsPolicies.ProductionPlanUpdate)
+        .WithName("UpdateProjectProductionPlanningSetScope");
 
         projectApi.MapGet("/history", async (
             Guid projectId,

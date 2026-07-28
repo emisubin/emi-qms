@@ -5,7 +5,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
-const assemblyBatchScreenshotDirectory = path.resolve(
+const stepBatchScreenshotDirectory = path.resolve(
   process.cwd(),
   '../tasks/manufacturing-batch-001-screenshots'
 );
@@ -135,7 +135,7 @@ test('TASK-010A/011A: production releases a non-kitted panel and manufacturing c
   `)).toBe('1');
 });
 
-test('TASK-MANUFACTURING-BATCH-001: manufacturing completes assembly for selected panels atomically', async ({ page, request }) => {
+test('TASK-MANUFACTURING-BATCH-001: manufacturing completes any selected step for multiple panels atomically', async ({ page, request }) => {
   test.setTimeout(180_000);
   const unique = Date.now();
   const projectTitle = `합성 다중 조립 ${unique}`;
@@ -164,19 +164,24 @@ test('TASK-MANUFACTURING-BATCH-001: manufacturing completes assembly for selecte
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
   await page.goto(`/manufacturing/work?project=${projectId}&panel=${panelIds[0]}`);
   await expect(page.getByRole('heading', { name: '제조 작업' })).toBeVisible();
+  await page.getByRole('button', { name: '패널 선택 작업' }).click();
   const panelCheckboxes = page.locator('.manufacturing-panel-selectable > .selected-export-checkbox');
   await expect(panelCheckboxes).toHaveCount(2);
   await panelCheckboxes.nth(0).check();
   await panelCheckboxes.nth(1).check();
-  await page.getByRole('button', { name: '선택 패널 조립 단계 완료 (2면)' }).click();
+  await page.getByRole('button', { name: '완료할 단계 선택' }).click();
 
-  const confirmation = page.getByRole('dialog', { name: '조립 단계 일괄 완료' });
+  const confirmation = page.getByRole('dialog', { name: '제조 단계 일괄 완료' });
+  const targetStep = confirmation.getByLabel('완료할 제조 단계');
+  await targetStep.selectOption({ index: 1 });
+  const targetStepLabel = await targetStep.locator('option:checked').textContent();
+  expect(targetStepLabel).toContain('2단계');
   await expect(confirmation).toContainText('처리 가능2면');
-  await expect(confirmation).toContainText('조립 처리2단계');
-  await expect(confirmation).toContainText('조립 단계만 완료 처리합니다. 다른 제조 단계는 그대로 유지됩니다');
-  await fs.mkdir(assemblyBatchScreenshotDirectory, { recursive: true });
+  await expect(confirmation).toContainText('선택 단계2단계');
+  await expect(confirmation).toContainText('선택한 제조 단계 한 건만 완료 처리합니다. 앞뒤의 다른 제조 단계는 그대로 유지됩니다');
+  await fs.mkdir(stepBatchScreenshotDirectory, { recursive: true });
   await page.screenshot({
-    path: path.join(assemblyBatchScreenshotDirectory, '01-assembly-batch-confirm-desktop-1440.png'),
+    path: path.join(stepBatchScreenshotDirectory, '04-step-batch-confirm-desktop-1440.png'),
     fullPage: true
   });
 
@@ -184,16 +189,16 @@ test('TASK-MANUFACTURING-BATCH-001: manufacturing completes assembly for selecte
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
   await assertNoHorizontalOverflow(page);
   await page.screenshot({
-    path: path.join(assemblyBatchScreenshotDirectory, '02-assembly-batch-confirm-mobile-390.png'),
+    path: path.join(stepBatchScreenshotDirectory, '05-step-batch-confirm-mobile-390.png'),
     fullPage: true
   });
-  await confirmation.getByRole('button', { name: '2면 조립 단계 완료' }).click();
-  await expect(page.getByText('2면의 조립 단계만 완료했습니다. 다른 제조 단계는 유지됩니다.')).toBeVisible();
+  await confirmation.getByRole('button', { name: /2면 .* 완료/u }).click();
+  await expect(page.getByText(/2면의 .* 단계만 완료했습니다. 다른 제조 단계는 유지됩니다/u)).toBeVisible();
   await expect(panelCheckboxes.nth(0)).not.toBeChecked();
   await expect(panelCheckboxes.nth(1)).not.toBeChecked();
   await assertNoHorizontalOverflow(page);
   await page.screenshot({
-    path: path.join(assemblyBatchScreenshotDirectory, '03-assembly-batch-success-mobile-390.png'),
+    path: path.join(stepBatchScreenshotDirectory, '06-step-batch-success-mobile-390.png'),
     fullPage: true
   });
 
@@ -215,7 +220,7 @@ test('TASK-MANUFACTURING-BATCH-001: manufacturing completes assembly for selecte
     from panel_manufacturing_execution_steps step
     join panel_manufacturing_executions execution on execution.id = step.execution_id
     where execution.project_id = '${projectId}'
-      and step.sequence_number <> 3
+      and step.sequence_number <> 2
       and step.checked_at_utc is not null;
   `)).toBe('0');
   expect(queryDatabase(`
@@ -233,8 +238,8 @@ test('TASK-MANUFACTURING-BATCH-001: manufacturing completes assembly for selecte
       panel: { executionId: string; version: number };
       steps: Array<{ stepId: string; sequenceNumber: number; checked: boolean }>;
     };
-    expect(detail.steps.find((step) => step.sequenceNumber === 3)?.checked).toBeTruthy();
-    expect(detail.steps.filter((step) => step.sequenceNumber !== 3).every((step) => !step.checked)).toBeTruthy();
+    expect(detail.steps.find((step) => step.sequenceNumber === 2)?.checked).toBeTruthy();
+    expect(detail.steps.filter((step) => step.sequenceNumber !== 2).every((step) => !step.checked)).toBeTruthy();
     let expectedVersion = detail.panel.version;
     for (const remainingStep of detail.steps.filter((step) => !step.checked)) {
       const checked = await request.post(

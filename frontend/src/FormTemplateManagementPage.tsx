@@ -1,19 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  activateFormTemplateVersion,
   assignFormTemplateManager,
-  cancelFormTemplateDraft,
-  createFormTemplateDraft,
-  exportFormTemplateVersionsExcel,
   getFormTemplateCatalog,
+  getCurrentFormTemplate,
   getFormTemplateManagers,
-  getFormTemplateVersions,
   revokeFormTemplateManager,
-  saveFormTemplateItems
+  saveCurrentFormTemplate
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
-import type { FormTemplateCatalogItem, FormTemplateItem, FormTemplateManagers, FormTemplateVersion, FormTemplateVersions } from './formTemplates';
-import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
+import type { FormTemplateCatalogItem, FormTemplateItem, FormTemplateManagers, FormTemplateVersions } from './formTemplates';
 import { useActionFeedback } from './useActionFeedback';
 import { ProductionControlTemplateWorkspace } from './ProductionControlTemplateWorkspace';
 
@@ -26,8 +21,7 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   const [versions, setVersions] = useState<FormTemplateVersions | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [draftItems, setDraftItems] = useState<FormTemplateItem[]>([]);
-  const [selectedVersionIds, setSelectedVersionIds] = useState<Set<string>>(new Set());
-  const [exportBusy, setExportBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [managerPanelOpen, setManagerPanelOpen] = useState(false);
   const [managers, setManagers] = useState<FormTemplateManagers | null>(null);
   const [candidateUserId, setCandidateUserId] = useState('');
@@ -38,15 +32,14 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   const selectedVersion = versions?.versions.find((version) => version.versionId === selectedVersionId) ?? null;
 
   const loadVersions = useCallback(async (template: FormTemplateCatalogItem, preferredId?: string) => {
-    const data = await getFormTemplateVersions(developmentUserKey, template.family, template.templateKey);
+    const data = await getCurrentFormTemplate(developmentUserKey, template.family, template.templateKey);
     setVersions(data);
     const next = data.versions.find((version) => version.versionId === preferredId)
-      ?? data.versions.find((version) => version.lifecycleStatus === 'Draft')
       ?? data.versions.find((version) => version.lifecycleStatus === 'Active')
       ?? data.versions[0];
     setSelectedVersionId(next?.versionId ?? '');
     setDraftItems(next?.items.map(copyItem) ?? []);
-    setSelectedVersionIds(new Set());
+    setEditing(false);
     return true;
   }, [developmentUserKey]);
 
@@ -74,64 +67,29 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
     await loadVersions(template);
   }
 
-  async function createDraft() {
-    if (!selectedTemplate || !versions) return;
-    const active = versions.versions.find((version) => version.lifecycleStatus === 'Active');
-    if (!active) return;
-    await actions.run('template:create', async () => {
-      const result = await createFormTemplateDraft(developmentUserKey, selectedTemplate.family, selectedTemplate.templateKey, active.rowVersion);
-      setVersions(result);
-      const draft = result.versions.find((version) => version.lifecycleStatus === 'Draft');
-      setSelectedVersionId(draft?.versionId ?? '');
-      setDraftItems(draft?.items.map(copyItem) ?? []);
-    }, { loadingMessage: '새 초안을 만드는 중입니다.', successMessage: '활성 양식을 복제해 새 초안을 만들었습니다.', errorFallback: '새 초안을 만들지 못했습니다.' });
+  function beginEditing() {
+    if (!selectedVersion) return;
+    setDraftItems(selectedVersion.items.map(copyItem));
+    setEditing(true);
+    actions.setFeedback('template:edit', { tone: 'neutral', message: '현재 양식을 수정하고 있습니다.' });
   }
 
-  async function beginEditing() {
-    if (!versions || selectedVersion?.lifecycleStatus === 'Draft') return;
-    const existingDraft = versions.versions
-      .filter((version) => version.lifecycleStatus === 'Draft')
-      .sort((left, right) => right.versionNumber - left.versionNumber)[0];
-    if (existingDraft) {
-      setSelectedVersionId(existingDraft.versionId);
-      setDraftItems(existingDraft.items.map(copyItem));
-      actions.setFeedback('template:edit', { tone: 'neutral', message: '저장 중인 초안을 열었습니다.' });
-      return;
-    }
-    await createDraft();
-  }
-
-  async function saveDraft() {
-    if (!selectedTemplate || !selectedVersion || selectedVersion.lifecycleStatus !== 'Draft') return;
+  async function saveCurrent() {
+    if (!selectedTemplate || !selectedVersion || !editing) return;
     await actions.run('template:save', async () => {
-      const result = await saveFormTemplateItems(developmentUserKey, selectedTemplate.family, selectedTemplate.templateKey, selectedVersion.versionId, selectedVersion.rowVersion, draftItems);
+      const result = await saveCurrentFormTemplate(developmentUserKey, selectedTemplate.family, selectedTemplate.templateKey, selectedVersion.rowVersion, resequence(draftItems));
       setVersions(result);
-      const updated = result.versions.find((version) => version.versionId === selectedVersion.versionId);
+      const updated = result.versions.find((version) => version.lifecycleStatus === 'Active') ?? result.versions[0];
+      setSelectedVersionId(updated?.versionId ?? '');
       setDraftItems(updated?.items.map(copyItem) ?? []);
-    }, { loadingMessage: '양식 항목을 저장하는 중입니다.', successMessage: '초안 항목을 저장했습니다.', errorFallback: '양식 항목을 저장하지 못했습니다.' });
+      setEditing(false);
+    }, { loadingMessage: '현재 양식을 저장하는 중입니다.', successMessage: '현재 양식을 저장했습니다. 이후 시작되는 새 검사부터 적용됩니다.', errorFallback: '현재 양식을 저장하지 못했습니다.' });
   }
 
-  async function activateDraft() {
-    if (!selectedTemplate || !selectedVersion || selectedVersion.lifecycleStatus !== 'Draft') return;
-    if (!window.confirm('이 초안을 활성화할까요? 기존 활성 버전은 삭제되지 않고 보관됩니다.')) return;
-    await actions.run('template:activate', async () => {
-      const result = await activateFormTemplateVersion(developmentUserKey, selectedTemplate.family, selectedTemplate.templateKey, selectedVersion.versionId, selectedVersion.rowVersion);
-      setVersions(result);
-      const active = result.versions.find((version) => version.lifecycleStatus === 'Active');
-      setSelectedVersionId(active?.versionId ?? '');
-      setDraftItems(active?.items.map(copyItem) ?? []);
-    }, { loadingMessage: '새 양식을 활성화하는 중입니다.', successMessage: '새 버전을 활성화했습니다. 이후 새 업무부터 적용됩니다.', errorFallback: '양식을 활성화하지 못했습니다.' });
-  }
-
-  async function archiveDraft() {
-    if (!selectedTemplate || !selectedVersion || selectedVersion.lifecycleStatus !== 'Draft') return;
-    await actions.run('template:archive', async () => {
-      const result = await cancelFormTemplateDraft(developmentUserKey, selectedTemplate.family, selectedTemplate.templateKey, selectedVersion.versionId, selectedVersion.rowVersion);
-      setVersions(result);
-      const active = result.versions.find((version) => version.lifecycleStatus === 'Active');
-      setSelectedVersionId(active?.versionId ?? '');
-      setDraftItems(active?.items.map(copyItem) ?? []);
-    }, { loadingMessage: '초안을 보관하는 중입니다.', successMessage: '초안을 보관했습니다.', errorFallback: '초안을 보관하지 못했습니다.' });
+  function cancelEditing() {
+    setDraftItems(selectedVersion?.items.map(copyItem) ?? []);
+    setEditing(false);
+    actions.setFeedback('template:cancel', { tone: 'neutral', message: '수정 내용을 취소했습니다.' });
   }
 
   async function openManagers() {
@@ -159,10 +117,7 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
     });
   }
 
-  const visibleVersionIds = versions?.versions.map((version) => version.versionId) ?? [];
-  const allSelected = visibleVersionIds.length > 0 && visibleVersionIds.every((id) => selectedVersionIds.has(id));
   const latestFeedback = actions.latestFeedback;
-  const isEditing = selectedVersion?.lifecycleStatus === 'Draft';
   const templateActionBusy = actions.hasBusyPrefix('template:');
 
   if (state.kind === 'loading') return <section className="page-surface form-template-page"><p role="status">양식 관리 화면을 준비하는 중입니다.</p></section>;
@@ -171,7 +126,7 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   return (
     <section className="page-surface form-template-page" data-mobile-experience={isMobile || undefined} aria-labelledby="form-template-title">
       <header className="form-template-header">
-        <div><p className="eyebrow">코드 수정 없는 양식 관리</p><h2 id="form-template-title">양식 관리</h2><p>사용 중인 버전은 보존하고 새 초안을 활성화해 이후 업무에 적용합니다.</p></div>
+        <div><p className="eyebrow">코드 수정 없는 양식 관리</p><h2 id="form-template-title">양식 관리</h2><p>양식 종류를 선택해 현재 적용 내용과 항목을 관리합니다.</p></div>
         {isSystemAdministrator ? <button type="button" className="secondary-button" onClick={() => void openManagers()}>부서장 지정</button> : <span className="form-manager-badge">부서 양식 관리자</span>}
       </header>
 
@@ -180,53 +135,35 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
       <div className={`form-template-workspace${workspaceMode === 'inspection' ? '' : ' has-production-control'}`}>
         <nav className="form-template-catalog" aria-label="양식 종류">
           <header><strong>양식 종류</strong><small>{state.items.length + 2}개</small></header>
-          {state.items.map((template) => <button key={`${template.family}:${template.templateKey}`} type="button" className={workspaceMode === 'inspection' && selectedKey === `${template.family}:${template.templateKey}` ? 'is-active' : ''} onClick={() => void chooseTemplate(template)}><span><b>{template.displayName}</b><small>{template.domain === 'Quality' ? '품질' : '제조'} · Active v{template.activeVersionNumber ?? '-'}</small></span>{template.draftCount > 0 ? <i>{template.draftCount}</i> : null}</button>)}
+          {state.items.map((template) => <button key={`${template.family}:${template.templateKey}`} type="button" className={workspaceMode === 'inspection' && selectedKey === `${template.family}:${template.templateKey}` ? 'is-active' : ''} onClick={() => void chooseTemplate(template)}><span><b>{template.displayName}</b><small>품질 · 현재 양식</small></span></button>)}
           <button type="button" className={workspaceMode === 'production-manufacturing' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-manufacturing')}>
-            <span><b>Item별 제조 양식</b><small>제조 · Item별 버전</small></span>
+            <span><b>Item별 제조 양식</b><small>제조 · Item별 현재 양식</small></span>
           </button>
           <button type="button" className={workspaceMode === 'production-planning' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-planning')}>
-            <span><b>생산계획·실적 연결</b><small>생산관리 · Item별 버전</small></span>
+            <span><b>생산계획·실적 연결</b><small>생산관리 · Item별 1:1 연결</small></span>
           </button>
         </nav>
 
-        {workspaceMode === 'inspection' ? <>
-        <section className="form-template-versions" aria-label="양식 버전">
-          <header><div><strong>{versions?.displayName ?? '버전'}</strong><small>사용 중 버전은 편집할 때 안전한 초안으로 복제됩니다.</small></div></header>
-          <SelectedExportTray
-            developmentUserKey={developmentUserKey}
-            screen="form-templates"
-            visibleIds={visibleVersionIds}
-            selectedIds={selectedVersionIds}
-            allSelected={allSelected}
-            busy={exportBusy}
-            filters={{ family: versions?.family, templateKey: versions?.templateKey }}
-            exportFile={() => exportFormTemplateVersionsExcel(developmentUserKey, versions?.family ?? '', versions?.templateKey ?? '', [...selectedVersionIds])}
-            onBusyChange={setExportBusy}
-            onToggleAll={(checked) => setSelectedVersionIds(checked ? new Set(visibleVersionIds) : new Set())}
-            onClear={() => setSelectedVersionIds(new Set())}
-          />
-          <div className="form-version-list">{versions?.versions.map((version) => <button key={version.versionId} type="button" className={selectedVersionId === version.versionId ? 'is-active' : ''} onClick={() => { setSelectedVersionId(version.versionId); setDraftItems(version.items.map(copyItem)); }}><SelectionCheckbox checked={selectedVersionIds.has(version.versionId)} label={`v${version.versionNumber} 선택`} onChange={(checked) => setSelectedVersionIds((current) => { const next = new Set(current); if (checked) next.add(version.versionId); else next.delete(version.versionId); return next; })} /><span><b>v{version.versionNumber} · {version.displayName}</b><small>{version.items.length}개 항목</small></span><i data-status={version.lifecycleStatus}>{statusLabel(version.lifecycleStatus)}</i></button>)}</div>
-        </section>
-
-        <section className="form-template-editor" aria-label="양식 항목 편집">
-          {!selectedVersion ? <p>버전을 선택해 주세요.</p> : <>
+        {workspaceMode === 'inspection' ? (
+        <section className="form-template-editor form-template-current-editor" aria-label="현재 양식 항목 편집">
+          {!selectedVersion ? <p>현재 양식을 불러오지 못했습니다.</p> : <>
             <header>
-              <div><p className="eyebrow">버전 {selectedVersion.versionNumber}</p><h3>{selectedVersion.displayName}</h3></div>
+              <div><p className="eyebrow">현재 양식</p><h3>{versions?.displayName ?? selectedVersion.displayName}</h3></div>
               <div className="form-template-editor-controls">
-                <span className="form-template-version-status" data-status={selectedVersion.lifecycleStatus}>{statusLabel(selectedVersion.lifecycleStatus)}</span>
                 <div className="form-template-primary-actions">
-                  <button type="button" className="secondary-button" disabled={isEditing || templateActionBusy} onClick={() => void beginEditing()}>편집</button>
-                  <button type="button" className="primary-button" disabled={!isEditing || templateActionBusy} onClick={() => void saveDraft()}>{actions.isBusy('template:save') ? '저장 중' : '저장'}</button>
+                  {!editing ? <button type="button" className="secondary-button" disabled={templateActionBusy} onClick={beginEditing}>수정</button> : null}
+                  {editing ? <button type="button" disabled={templateActionBusy} onClick={cancelEditing}>취소</button> : null}
+                  {editing ? <button type="button" className="primary-button" disabled={templateActionBusy} onClick={() => void saveCurrent()}>{actions.isBusy('template:save') ? '저장 중' : '저장'}</button> : null}
                 </div>
               </div>
             </header>
-            {selectedVersion.lifecycleStatus !== 'Draft' ? <p className="form-version-lock">사용 중이거나 보관된 버전은 직접 바뀌지 않습니다. 편집을 누르면 사용 중 버전을 복제한 초안이 열립니다.</p> : null}
-            {selectedVersion.lifecycleStatus === 'Draft' ? <p className="form-version-editing" role="status"><strong>초안 편집 중</strong><span>입력 내용은 저장 후에도 활성화 전까지 실제 업무에 적용되지 않습니다.</span></p> : null}
-            <div className="form-item-list">{draftItems.map((item, index) => <FormItemEditor key={item.itemId} item={item} index={index} editable={selectedVersion.lifecycleStatus === 'Draft'} manufacturing={versions?.family === 'Manufacturing'} onChange={(next) => setDraftItems((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? next : candidate))} onMove={(offset) => setDraftItems((current) => moveItem(current, index, offset))} onRemove={() => setDraftItems((current) => resequence(current.filter((_, candidateIndex) => candidateIndex !== index)))} />)}</div>
-            {selectedVersion.lifecycleStatus === 'Draft' ? <div className="form-editor-actions"><button type="button" onClick={() => setDraftItems((current) => [...current, newItem(current.length + 1, versions?.family === 'Manufacturing')])}>항목 추가</button><button type="button" onClick={() => void archiveDraft()}>초안 보관</button><button type="button" className="primary-button" onClick={() => void activateDraft()}>활성화</button></div> : null}
+            {!editing ? <p className="form-version-lock">현재는 조회 상태입니다. 내용을 바꾸려면 수정 버튼을 눌러 주세요.</p> : null}
+            {editing ? <p className="form-version-editing" role="status"><strong>현재 양식 수정 중</strong><span>저장하면 이후 시작되는 새 검사부터 적용됩니다.</span></p> : null}
+            <div className="form-item-list">{draftItems.map((item, index) => <FormItemEditor key={item.definitionKey ?? item.itemId} item={item} index={index} editable={editing} manufacturing={false} onChange={(next) => setDraftItems((current) => current.map((candidate, candidateIndex) => candidateIndex === index ? next : candidate))} onMove={(offset) => setDraftItems((current) => moveItem(current, index, offset))} onRemove={() => setDraftItems((current) => resequence(current.filter((_, candidateIndex) => candidateIndex !== index)))} />)}</div>
+            {editing ? <div className="form-editor-actions"><button type="button" onClick={() => setDraftItems((current) => [...current, newItem(current.length + 1, false)])}>항목 추가</button></div> : null}
           </>}
         </section>
-        </> : (
+        ) : (
           <ProductionControlTemplateWorkspace
             developmentUserKey={developmentUserKey}
             domain={workspaceMode === 'production-manufacturing' ? 'manufacturing' : 'planning'}
@@ -264,8 +201,7 @@ function FormItemEditor({ item, index, editable, manufacturing, onChange, onMove
   return <article className="form-item-editor"><div className="form-item-order"><b>{index + 1}</b><button type="button" disabled={index === 0} onClick={() => onMove(-1)}>↑</button><button type="button" onClick={() => onMove(1)}>↓</button></div><div className="form-item-fields"><label>항목명<input value={item.label} onChange={(event) => onChange({ ...item, label: event.target.value })} /></label>{!manufacturing ? <><label>안내문<input value={item.guidance ?? ''} onChange={(event) => onChange({ ...item, guidance: event.target.value || null })} /></label><div className="form-item-options"><label>응답<select value={item.responseType} onChange={(event) => onChange({ ...item, responseType: event.target.value as 'Check' | 'Text', requiresPhoto: event.target.value === 'Text' ? false : item.requiresPhoto, maxTextLength: event.target.value === 'Text' ? (item.maxTextLength ?? 1000) : null })}><option value="Check">확인형</option><option value="Text">텍스트</option></select></label><label><input type="checkbox" checked={item.isRequired} onChange={(event) => onChange({ ...item, isRequired: event.target.checked })} />필수</label><label><input type="checkbox" disabled={item.responseType !== 'Check'} checked={item.requiresPhoto} onChange={(event) => onChange({ ...item, requiresPhoto: event.target.checked })} />사진 필수</label></div></> : null}</div><button type="button" className="form-item-remove" onClick={onRemove}>삭제</button></article>;
 }
 
-function statusLabel(status: FormTemplateVersion['lifecycleStatus']) { return status === 'Draft' ? '초안' : status === 'Active' ? '사용 중' : '보관'; }
 function copyItem(item: FormTemplateItem): FormTemplateItem { return { ...item }; }
-function newItem(order: number, manufacturing: boolean): FormTemplateItem { const id = crypto.randomUUID(); return { itemId: id, itemCode: `ITEM_${id.replaceAll('-', '').slice(0, 8).toUpperCase()}`, displayOrder: order, label: manufacturing ? '새 작업 단계' : '새 검사 항목', guidance: manufacturing ? null : '확인할 내용을 입력해 주세요.', responseType: 'Check', isRequired: true, requiresPhoto: false, maxTextLength: null }; }
+function newItem(order: number, manufacturing: boolean): FormTemplateItem { const id = crypto.randomUUID(); return { itemId: id, itemCode: `ITEM_${id.replaceAll('-', '').slice(0, 8).toUpperCase()}`, displayOrder: order, label: manufacturing ? '새 작업 단계' : '새 검사 항목', guidance: manufacturing ? null : '확인할 내용을 입력해 주세요.', responseType: 'Check', isRequired: true, requiresPhoto: false, maxTextLength: null, definitionKey: null }; }
 function resequence(items: FormTemplateItem[]) { return items.map((item, index) => ({ ...item, displayOrder: index + 1 })); }
 function moveItem(items: FormTemplateItem[], index: number, offset: number) { const target = index + offset; if (target < 0 || target >= items.length) return items; const next = [...items]; [next[index], next[target]] = [next[target], next[index]]; return resequence(next); }

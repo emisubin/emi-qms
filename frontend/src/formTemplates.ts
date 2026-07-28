@@ -7,6 +7,7 @@ export type FormTemplateCatalogItem = {
 export type FormTemplateItem = {
   itemId: string; itemCode: string; displayOrder: number; label: string; guidance: string | null;
   responseType: 'Check' | 'Text'; isRequired: boolean; requiresPhoto: boolean; maxTextLength: number | null;
+  definitionKey: string | null;
 };
 export type FormTemplateVersion = {
   versionId: string; versionNumber: number; displayName: string; lifecycleStatus: 'Draft' | 'Active' | 'Archived';

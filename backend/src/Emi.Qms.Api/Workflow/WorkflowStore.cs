@@ -1301,12 +1301,42 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             ),
             production_plan_summary as (
                 select
-                    count(pi.id)::int as item_count,
-                    count(pi.id) filter (where pi.is_required)::int as required_item_count,
-                    count(pi.id) filter (where pi.is_required and pi.planned_date is not null)::int as planned_required_item_count
-                from project_production_plans pp
-                left join project_production_plan_items pi on pi.production_plan_id = pp.id and pi.is_active = true
-                where pp.project_id = @project_id
+                    case when project.structure_mode='Ul891Set' and pp.model_version='LINKED_V1'
+                         then coalesce(set_counts.item_count,0) else coalesce(base_counts.item_count,0) end as item_count,
+                    case when project.structure_mode='Ul891Set' and pp.model_version='LINKED_V1'
+                         then coalesce(set_counts.required_item_count,0) else coalesce(base_counts.required_item_count,0) end as required_item_count,
+                    case when project.structure_mode='Ul891Set' and pp.model_version='LINKED_V1'
+                         then coalesce(set_counts.planned_required_item_count,0) else coalesce(base_counts.planned_required_item_count,0) end as planned_required_item_count
+                from projects project
+                left join project_production_plans pp on pp.project_id=project.id
+                left join lateral (
+                    select count(pi.id)::int as item_count,
+                           count(pi.id) filter (where pi.is_required)::int as required_item_count,
+                           count(pi.id) filter (
+                               where pi.is_required and (
+                                 (pp.model_version='LEGACY' and pi.planned_date is not null)
+                                 or (pp.model_version='LINKED_V1' and pi.planned_start_date is not null and pi.planned_end_date is not null)
+                               )
+                           )::int as planned_required_item_count
+                    from project_production_plan_items pi
+                    where pi.production_plan_id=pp.id and pi.is_active
+                ) base_counts on true
+                left join lateral (
+                    select count(pi.id)::int as item_count,
+                           count(pi.id) filter (where pi.is_required)::int as required_item_count,
+                           count(pi.id) filter (
+                               where pi.is_required
+                                 and value.planned_start_date is not null
+                                 and value.planned_end_date is not null
+                           )::int as planned_required_item_count
+                    from project_production_plan_set_scopes scope
+                    join ul891_set_instances instance on instance.id=scope.set_instance_id and instance.status='Active'
+                    join project_production_plan_items pi on pi.production_plan_id=scope.production_plan_id and pi.is_active
+                    left join project_production_plan_set_item_values value
+                      on value.set_scope_id=scope.id and value.production_plan_item_id=pi.id
+                    where scope.production_plan_id=pp.id
+                ) set_counts on true
+                where project.id = @project_id
             ),
             assignee_summary as (
                 select count(*) filter (

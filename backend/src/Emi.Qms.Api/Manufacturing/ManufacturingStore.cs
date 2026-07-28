@@ -50,8 +50,7 @@ public sealed class ManufacturingStore(
                 execution.started_at_utc,
                 execution.completed_at_utc,
                 completion.id is not null,
-                assembly_status.assembly_step_checked,
-                assembly_status.assembly_step_sequence
+                batch_steps.steps_json
             from projects project
             join panel_placeholders panel
               on panel.project_id = project.id
@@ -75,36 +74,21 @@ public sealed class ManufacturingStore(
                 where step.execution_id = execution.id
             ) step_counts on true
             left join lateral (
-                select
-                    case
-                        when execution.id is null or execution.template_version_id is null then null::boolean
-                        when template.item_count <> step_counts.total_count then null::boolean
-                        when template.assembly_item_count <> 1 or snapshot.assembly_step_count <> 1 then null::boolean
-                        else snapshot.assembly_step_checked
-                    end as assembly_step_checked,
-                    case
-                        when execution.id is null or execution.template_version_id is null then null::integer
-                        when template.item_count <> step_counts.total_count then null::integer
-                        when template.assembly_item_count <> 1 or snapshot.assembly_step_count <> 1 then null::integer
-                        else template.assembly_step_sequence
-                    end as assembly_step_sequence
-                from lateral (
-                    select
-                        count(*)::int as item_count,
-                        count(*) filter (where item.item_code = 'MANUFACTURING')::int as assembly_item_count,
-                        max(item.display_order) filter (where item.item_code = 'MANUFACTURING')::int as assembly_step_sequence
-                    from manufacturing_step_template_items item
-                    where item.template_version_id = execution.template_version_id
-                ) template
-                cross join lateral (
-                    select
-                        count(*)::int as assembly_step_count,
-                        bool_and(step.checked_at_utc is not null) as assembly_step_checked
-                    from panel_manufacturing_execution_steps step
-                    where step.execution_id = execution.id
-                      and step.sequence_number = template.assembly_step_sequence
-                ) snapshot
-            ) assembly_status on true
+                select coalesce(
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'SequenceNumber', step.sequence_number,
+                            'StepName', step.step_name,
+                            'Checked', step.checked_at_utc is not null
+                        )
+                        order by step.sequence_number
+                    ),
+                    '[]'::jsonb
+                )::text as steps_json
+                from panel_manufacturing_execution_steps step
+                where @include_batch_steps
+                  and step.execution_id = execution.id
+            ) batch_steps on true
             left join pending_issues pending on pending.id = execution.active_stop_pending_id
             where project.deleted_at_utc is null
               and project.status <> 'Cancelled'
@@ -114,6 +98,7 @@ public sealed class ManufacturingStore(
             """);
         command.Parameters.AddWithValue("has_read_all", accessScope.HasProjectReadAll);
         command.Parameters.AddWithValue("project_keys", accessScope.ProjectKeys.ToArray());
+        command.Parameters.AddWithValue("include_batch_steps", projectId is not null);
         if (projectId is not null)
         {
             command.Parameters.AddWithValue("project_id", projectId.Value);
@@ -151,8 +136,9 @@ public sealed class ManufacturingStore(
                 showTimes && !reader.IsDBNull(18) ? reader.GetFieldValue<DateTimeOffset>(18) : null,
                 showTimes && !reader.IsDBNull(19) ? reader.GetFieldValue<DateTimeOffset>(19) : null,
                 canMutate,
-                reader.IsDBNull(21) ? null : reader.GetBoolean(21),
-                reader.IsDBNull(22) ? null : reader.GetInt32(22)));
+                reader.IsDBNull(21)
+                    ? []
+                    : JsonSerializer.Deserialize<IReadOnlyList<ManufacturingBatchStepResponse>>(reader.GetString(21)) ?? []));
         }
 
         return new ManufacturingQueueResponse(builders.Values.Select(builder => builder.ToResponse()).ToList());
@@ -722,25 +708,28 @@ public sealed class ManufacturingStore(
                 cancellationToken);
     }
 
-    public async Task<ManufacturingMutationResult<AssemblyBatchManufacturingResponse>> CompleteAssemblyBatchAsync(
-        AssemblyBatchManufacturingRequest request,
+    public async Task<ManufacturingMutationResult<StepBatchManufacturingResponse>> CompleteStepBatchAsync(
+        StepBatchManufacturingRequest request,
         Guid actorUserId,
         ProjectAccessScope accessScope,
         CancellationToken cancellationToken)
     {
-        var errors = ValidateAssemblyBatch(request);
+        var errors = ValidateStepBatch(request);
         if (errors.Count > 0)
         {
-            return ManufacturingMutationResult<AssemblyBatchManufacturingResponse>.Validation(errors);
+            return ManufacturingMutationResult<StepBatchManufacturingResponse>.Validation(errors);
         }
 
+        var targetStepName = request.TargetStepName!.Trim();
         var requestedPanels = request.Panels!
             .OrderBy(panel => panel.PanelId)
             .ToArray();
         var panelIds = requestedPanels.Select(panel => panel.PanelId).ToArray();
         var fingerprint = Fingerprint(
-            "AssemblyBatch",
+            "StepBatch",
             request.ProjectId,
+            request.TargetStepSequence,
+            targetStepName,
             string.Join(",", requestedPanels.Select(panel =>
                 $"{panel.PanelId:D}:{panel.ExecutionId:D}:{panel.ExpectedVersion}")));
 
@@ -752,10 +741,10 @@ public sealed class ManufacturingStore(
             var project = await LockProjectAsync(connection, transaction, request.ProjectId, accessScope, cancellationToken);
             if (project is null)
             {
-                return await RollbackNotFound<AssemblyBatchManufacturingResponse>(transaction, cancellationToken);
+                return await RollbackNotFound<StepBatchManufacturingResponse>(transaction, cancellationToken);
             }
 
-            var replay = await ReadAssemblyBatchOperationAsync(
+            var replay = await ReadStepBatchOperationAsync(
                 connection,
                 transaction,
                 request.OperationId,
@@ -768,12 +757,12 @@ public sealed class ManufacturingStore(
                     || !string.Equals(replay.PayloadFingerprint, fingerprint, StringComparison.Ordinal)
                     || !replay.PanelIds.SequenceEqual(panelIds))
                 {
-                    return ManufacturingMutationResult<AssemblyBatchManufacturingResponse>.Conflict(
-                        "같은 작업 식별자를 다른 조립 완료 요청에 사용할 수 없습니다. 최신 내용을 다시 불러와 주세요.");
+                    return ManufacturingMutationResult<StepBatchManufacturingResponse>.Conflict(
+                        "같은 작업 식별자를 다른 제조 단계 완료 요청에 사용할 수 없습니다. 최신 내용을 다시 불러와 주세요.");
                 }
 
-                return ManufacturingMutationResult<AssemblyBatchManufacturingResponse>.Success(
-                    new AssemblyBatchManufacturingResponse(
+                return ManufacturingMutationResult<StepBatchManufacturingResponse>.Success(
+                    new StepBatchManufacturingResponse(
                         request.OperationId,
                         request.ProjectId,
                         replay.CompletedPanelCount,
@@ -784,12 +773,12 @@ public sealed class ManufacturingStore(
             if (!string.Equals(project.Status, "Active", StringComparison.Ordinal))
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return ManufacturingMutationResult<AssemblyBatchManufacturingResponse>.Conflict(
-                    "진행 중인 프로젝트에서만 조립 단계를 완료할 수 있습니다.");
+                return ManufacturingMutationResult<StepBatchManufacturingResponse>.Conflict(
+                    "진행 중인 프로젝트에서만 제조 단계를 완료할 수 있습니다.");
             }
 
-            var targets = new List<AssemblyBatchTarget>(requestedPanels.Length);
-            var failures = new List<AssemblyBatchFailure>();
+            var targets = new List<StepBatchTarget>(requestedPanels.Length);
+            var failures = new List<StepBatchFailure>();
             foreach (var requestedPanel in requestedPanels)
             {
                 var snapshot = await LockExecutionAsync(
@@ -801,27 +790,27 @@ public sealed class ManufacturingStore(
                     || snapshot.ProjectId != request.ProjectId
                     || snapshot.PanelId != requestedPanel.PanelId)
                 {
-                    failures.Add(new AssemblyBatchFailure("선택 패널", "NOT_FOUND_IN_PROJECT"));
+                    failures.Add(new StepBatchFailure("선택 패널", "NOT_FOUND_IN_PROJECT"));
                     continue;
                 }
                 if (!snapshot.PanelActive)
                 {
-                    failures.Add(new AssemblyBatchFailure(snapshot.DisplayCode, "NOT_FOUND_IN_PROJECT"));
+                    failures.Add(new StepBatchFailure(snapshot.DisplayCode, "NOT_FOUND_IN_PROJECT"));
                     continue;
                 }
                 if (string.Equals(snapshot.Status, ManufacturingExecutionStatuses.Blocked, StringComparison.Ordinal))
                 {
-                    failures.Add(new AssemblyBatchFailure(snapshot.DisplayCode, "BLOCKED_PENDING"));
+                    failures.Add(new StepBatchFailure(snapshot.DisplayCode, "BLOCKED_PENDING"));
                     continue;
                 }
                 if (!string.Equals(snapshot.Status, ManufacturingExecutionStatuses.InProgress, StringComparison.Ordinal))
                 {
-                    failures.Add(new AssemblyBatchFailure(snapshot.DisplayCode, "NOT_IN_PROGRESS"));
+                    failures.Add(new StepBatchFailure(snapshot.DisplayCode, "NOT_IN_PROGRESS"));
                     continue;
                 }
                 if (snapshot.Version != requestedPanel.ExpectedVersion)
                 {
-                    failures.Add(new AssemblyBatchFailure(snapshot.DisplayCode, "STALE_VERSION"));
+                    failures.Add(new StepBatchFailure(snapshot.DisplayCode, "STALE_VERSION"));
                     continue;
                 }
 
@@ -830,46 +819,36 @@ public sealed class ManufacturingStore(
                     transaction,
                     requestedPanel.ExecutionId,
                     cancellationToken);
-                var assemblySequence = await ReadAssemblyStepSequenceAsync(
-                    connection,
-                    transaction,
-                    requestedPanel.ExecutionId,
-                    steps.Count,
-                    cancellationToken);
-                if (assemblySequence is null)
+                var targetStep = steps.SingleOrDefault(step =>
+                    step.SequenceNumber == request.TargetStepSequence
+                    && string.Equals(step.StepName, targetStepName, StringComparison.Ordinal));
+                if (targetStep is null)
                 {
-                    failures.Add(new AssemblyBatchFailure(snapshot.DisplayCode, "ASSEMBLY_STEP_UNRESOLVED"));
+                    failures.Add(new StepBatchFailure(snapshot.DisplayCode, "STEP_NOT_FOUND_OR_CHANGED"));
+                    continue;
+                }
+                if (targetStep.CheckedAtUtc is not null)
+                {
+                    failures.Add(new StepBatchFailure(snapshot.DisplayCode, "STEP_ALREADY_COMPLETED"));
                     continue;
                 }
 
-                var assemblyStep = steps.SingleOrDefault(step => step.SequenceNumber == assemblySequence.Value);
-                if (assemblyStep is null)
-                {
-                    failures.Add(new AssemblyBatchFailure(snapshot.DisplayCode, "ASSEMBLY_STEP_UNRESOLVED"));
-                    continue;
-                }
-                if (assemblyStep.CheckedAtUtc is not null)
-                {
-                    failures.Add(new AssemblyBatchFailure(snapshot.DisplayCode, "ALREADY_ASSEMBLED"));
-                    continue;
-                }
-
-                targets.Add(new AssemblyBatchTarget(
+                targets.Add(new StepBatchTarget(
                     requestedPanel.ExecutionId,
                     snapshot.PanelId,
                     snapshot.DisplayCode,
-                    [assemblyStep]));
+                    targetStep));
             }
 
             if (failures.Count > 0)
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return ManufacturingMutationResult<AssemblyBatchManufacturingResponse>.Conflict(
-                    FormatAssemblyBatchFailures(failures));
+                return ManufacturingMutationResult<StepBatchManufacturingResponse>.Conflict(
+                    FormatStepBatchFailures(failures));
             }
 
-            var checkedStepCount = targets.Sum(target => target.StepsToCheck.Count);
-            await InsertAssemblyBatchOperationAsync(
+            var checkedStepCount = targets.Count;
+            await InsertStepBatchOperationAsync(
                 connection,
                 transaction,
                 request.OperationId,
@@ -883,49 +862,47 @@ public sealed class ManufacturingStore(
 
             foreach (var target in targets)
             {
-                foreach (var step in target.StepsToCheck)
+                var step = target.StepToCheck;
+                await using (var command = connection.CreateCommand())
                 {
-                    await using (var command = connection.CreateCommand())
+                    command.Transaction = transaction;
+                    command.CommandText = """
+                        update panel_manufacturing_execution_steps
+                        set checked_by_user_id = @actor_id, checked_at_utc = now()
+                        where id = @step_id and checked_at_utc is null;
+                        """;
+                    command.Parameters.AddWithValue("actor_id", actorUserId);
+                    command.Parameters.AddWithValue("step_id", step.StepId);
+                    if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
                     {
-                        command.Transaction = transaction;
-                        command.CommandText = """
-                            update panel_manufacturing_execution_steps
-                            set checked_by_user_id = @actor_id, checked_at_utc = now()
-                            where id = @step_id and checked_at_utc is null;
-                            """;
-                        command.Parameters.AddWithValue("actor_id", actorUserId);
-                        command.Parameters.AddWithValue("step_id", step.StepId);
-                        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
-                        {
-                            await transaction.RollbackAsync(cancellationToken);
-                            return ManufacturingMutationResult<AssemblyBatchManufacturingResponse>.Conflict(
-                                "다른 사용자가 먼저 제조 단계를 변경했습니다. 최신 내용을 다시 불러와 주세요.");
-                        }
+                        await transaction.RollbackAsync(cancellationToken);
+                        return ManufacturingMutationResult<StepBatchManufacturingResponse>.Conflict(
+                            "다른 사용자가 먼저 제조 단계를 변경했습니다. 최신 내용을 다시 불러와 주세요.");
                     }
-
-                    await InsertEventAsync(
-                        connection,
-                        transaction,
-                        target.ExecutionId,
-                        "StepChecked",
-                        step.StepId,
-                        null,
-                        null,
-                        null,
-                        actorUserId,
-                        cancellationToken,
-                        request.OperationId);
-                    await IncrementVersionAsync(
-                        connection,
-                        transaction,
-                        target.ExecutionId,
-                        cancellationToken);
                 }
+
+                await InsertEventAsync(
+                    connection,
+                    transaction,
+                    target.ExecutionId,
+                    "StepChecked",
+                    step.StepId,
+                    null,
+                    null,
+                    null,
+                    actorUserId,
+                    cancellationToken,
+                    request.OperationId);
+                await IncrementVersionAsync(
+                    connection,
+                    transaction,
+                    target.ExecutionId,
+                    cancellationToken);
             }
 
             await transaction.CommitAsync(cancellationToken);
-            return ManufacturingMutationResult<AssemblyBatchManufacturingResponse>.Success(
-                new AssemblyBatchManufacturingResponse(
+            return ManufacturingMutationResult<StepBatchManufacturingResponse>.Success(
+                new StepBatchManufacturingResponse(
                     request.OperationId,
                     request.ProjectId,
                     targets.Count,
@@ -935,8 +912,8 @@ public sealed class ManufacturingStore(
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
         {
             await transaction.RollbackAsync(cancellationToken);
-            return ManufacturingMutationResult<AssemblyBatchManufacturingResponse>.Conflict(
-                "다른 요청이 먼저 조립 단계를 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+            return ManufacturingMutationResult<StepBatchManufacturingResponse>.Conflict(
+                "다른 요청이 먼저 제조 단계를 변경했습니다. 최신 내용을 다시 불러와 주세요.");
         }
     }
 
@@ -1619,7 +1596,7 @@ public sealed class ManufacturingStore(
                 await using var command = connection.CreateCommand();
                 command.Transaction = transaction;
                 command.CommandText = """
-                    select id,definition_key,step_name_snapshot,step_role
+                    select id,definition_key,step_name_snapshot
                     from project_manufacturing_step_snapshots
                     where project_id=@project_id and is_active
                     order by sequence_number
@@ -1632,8 +1609,7 @@ public sealed class ManufacturingStore(
                     projectSteps.Add(new(
                         reader.GetGuid(0),
                         reader.GetGuid(1),
-                        reader.GetString(2),
-                        reader.GetString(3)));
+                        reader.GetString(2)));
                 }
                 return projectSteps.Count == 0 ? null : new(null, projectSteps);
             }
@@ -1674,7 +1650,7 @@ public sealed class ManufacturingStore(
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                steps.Add(new(null, null, reader.GetString(0), "General"));
+                steps.Add(new(null, null, reader.GetString(0)));
             }
         }
 
@@ -1808,7 +1784,7 @@ public sealed class ManufacturingStore(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task<AssemblyBatchOperationSnapshot?> ReadAssemblyBatchOperationAsync(
+    private static async Task<StepBatchOperationSnapshot?> ReadStepBatchOperationAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid operationId,
@@ -1826,7 +1802,7 @@ public sealed class ManufacturingStore(
         command.Parameters.AddWithValue("operation_id", operationId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
-            ? new AssemblyBatchOperationSnapshot(
+            ? new StepBatchOperationSnapshot(
                 reader.GetGuid(0),
                 reader.GetGuid(1),
                 reader.GetFieldValue<Guid[]>(2),
@@ -1836,47 +1812,7 @@ public sealed class ManufacturingStore(
             : null;
     }
 
-    private static async Task<int?> ReadAssemblyStepSequenceAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid executionId,
-        int snapshotStepCount,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            select coalesce(
-                (
-                    select max(step.sequence_number)::integer
-                    from panel_manufacturing_execution_steps step
-                    join project_manufacturing_step_snapshots snapshot
-                      on snapshot.id=step.project_manufacturing_step_id
-                    where step.execution_id=@execution_id
-                      and snapshot.step_role='Assembly'
-                ),
-                (
-                    select case
-                        when execution.template_version_id is null then null::integer
-                        when count(item.id)::integer <> @snapshot_step_count then null::integer
-                        when count(item.id) filter (where item.item_code='MANUFACTURING') <> 1 then null::integer
-                        else max(item.display_order) filter (where item.item_code='MANUFACTURING')::integer
-                    end
-                    from panel_manufacturing_executions execution
-                    left join manufacturing_step_template_items item
-                      on item.template_version_id=execution.template_version_id
-                    where execution.id=@execution_id
-                    group by execution.template_version_id
-                )
-            );
-            """;
-        command.Parameters.AddWithValue("execution_id", executionId);
-        command.Parameters.AddWithValue("snapshot_step_count", snapshotStepCount);
-        var value = await command.ExecuteScalarAsync(cancellationToken);
-        return value is int sequence ? sequence : null;
-    }
-
-    private static async Task InsertAssemblyBatchOperationAsync(
+    private static async Task InsertStepBatchOperationAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid operationId,
@@ -2267,13 +2203,21 @@ public sealed class ManufacturingStore(
         return errors;
     }
 
-    private static Dictionary<string, string[]> ValidateAssemblyBatch(
-        AssemblyBatchManufacturingRequest request)
+    private static Dictionary<string, string[]> ValidateStepBatch(
+        StepBatchManufacturingRequest request)
     {
         var errors = ValidateOperation(request.OperationId);
         if (request.ProjectId == Guid.Empty)
         {
             errors[nameof(request.ProjectId)] = ["프로젝트 식별자가 필요합니다."];
+        }
+        if (request.TargetStepSequence is < 1 or > 50)
+        {
+            errors[nameof(request.TargetStepSequence)] = ["완료할 제조 단계를 선택해 주세요."];
+        }
+        if (string.IsNullOrWhiteSpace(request.TargetStepName) || request.TargetStepName.Trim().Length > 100)
+        {
+            errors[nameof(request.TargetStepName)] = ["완료할 제조 단계명을 확인해 주세요."];
         }
 
         if (request.Panels is null || request.Panels.Count is < 1 or > MaxReleasePanelCount)
@@ -2300,7 +2244,7 @@ public sealed class ManufacturingStore(
         return errors;
     }
 
-    private static string FormatAssemblyBatchFailures(IReadOnlyList<AssemblyBatchFailure> failures)
+    private static string FormatStepBatchFailures(IReadOnlyList<StepBatchFailure> failures)
     {
         var labels = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -2308,8 +2252,8 @@ public sealed class ManufacturingStore(
             ["NOT_IN_PROGRESS"] = "제조 진행 중 상태가 아닙니다",
             ["BLOCKED_PENDING"] = "중단 Pending 처리가 필요합니다",
             ["STALE_VERSION"] = "다른 사용자가 먼저 변경했습니다",
-            ["ASSEMBLY_STEP_UNRESOLVED"] = "조립 단계를 식별할 수 없습니다",
-            ["ALREADY_ASSEMBLED"] = "조립 단계가 이미 완료되었습니다"
+            ["STEP_NOT_FOUND_OR_CHANGED"] = "선택한 제조 단계가 없거나 이름이 다릅니다",
+            ["STEP_ALREADY_COMPLETED"] = "선택한 제조 단계가 이미 완료되었습니다"
         };
         var visible = failures
             .Take(20)
@@ -2439,8 +2383,7 @@ public sealed class ManufacturingStore(
     private sealed record ManufacturingStartStep(
         Guid? ProjectStepId,
         Guid? DefinitionKey,
-        string Label,
-        string StepRole);
+        string Label);
     private sealed record ExecutionIdentity(Guid ProjectId, Guid PanelId);
     private sealed record ExecutionSnapshot(
         Guid ProjectId,
@@ -2460,19 +2403,19 @@ public sealed class ManufacturingStore(
     private sealed record PendingSnapshot(string Status, long IssueNumber);
     private readonly record struct AssigneeSnapshot(Guid UserId, string? RoleCode);
     private sealed record ReplaySnapshot(ManufacturingMutationResult<ManufacturingMutationResponse>? Result, string? Conflict);
-    private sealed record AssemblyBatchOperationSnapshot(
+    private sealed record StepBatchOperationSnapshot(
         Guid ProjectId,
         Guid RequestedByUserId,
         IReadOnlyList<Guid> PanelIds,
         string PayloadFingerprint,
         int CompletedPanelCount,
         int CheckedStepCount);
-    private sealed record AssemblyBatchTarget(
+    private sealed record StepBatchTarget(
         Guid ExecutionId,
         Guid PanelId,
         string DisplayCode,
-        IReadOnlyList<StepSnapshot> StepsToCheck);
-    private sealed record AssemblyBatchFailure(string PanelDisplayCode, string ReasonCode);
+        StepSnapshot StepToCheck);
+    private sealed record StepBatchFailure(string PanelDisplayCode, string ReasonCode);
     private sealed record MutationActionResult(
         ManufacturingMutationResponse? Response,
         string? ConflictMessage,

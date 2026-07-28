@@ -167,20 +167,26 @@ describe('ManufacturingPage', () => {
     expect(stepRequests).toBe(1);
   });
 
-  it('uses the Excel selection for an explicit multi-panel assembly confirmation', async () => {
+  it('uses the Excel selection to complete any chosen manufacturing step across panels', async () => {
     let capturedBody: {
       operationId: string;
       projectId: string;
+      targetStepSequence: number;
+      targetStepName: string;
       panels: Array<{ panelId: string; executionId: string; expectedVersion: number }>;
     } | null = null;
-    const first = { ...panel('InProgress'), assemblyStepChecked: false, assemblyStepSequence: 3 };
+    const batchSteps = [
+      { sequenceNumber: 1, stepName: '작업지시 확인', checked: false },
+      { sequenceNumber: 2, stepName: '배선', checked: false },
+      { sequenceNumber: 3, stepName: '자체 확인', checked: false }
+    ];
+    const first = { ...panel('InProgress'), batchSteps };
     const second = {
       ...panel('InProgress'),
       panelId: secondPanelId,
       displayCode: 'PANEL-02',
       executionId: secondExecutionId,
-      assemblyStepChecked: false,
-      assemblyStepSequence: 3
+      batchSteps
     };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
@@ -202,7 +208,7 @@ describe('ManufacturingPage', () => {
         return json({ ...detail('InProgress'), panel: first });
       }
       if (url.pathname === '/api/manufacturing/action-departments') return json([]);
-      if (url.pathname === '/api/manufacturing/executions/assembly-batch') {
+      if (url.pathname === '/api/manufacturing/executions/step-batch') {
         capturedBody = JSON.parse(String(init?.body));
         return json({
           operationId: capturedBody!.operationId,
@@ -231,20 +237,24 @@ describe('ManufacturingPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: '패널 선택 작업' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'PANEL-01 선택' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'PANEL-02 선택' }));
-    fireEvent.click(screen.getByRole('button', { name: '선택 패널 조립 단계 완료 (2면)' }));
+    fireEvent.click(screen.getByRole('button', { name: '완료할 단계 선택' }));
 
-    expect(await screen.findByRole('heading', { name: '조립 단계 일괄 완료' })).toBeInTheDocument();
-    expect(screen.getByText('2단계')).toBeInTheDocument();
-    expect(screen.getByText('선택한 패널의 조립 단계만 완료 처리합니다. 다른 제조 단계는 그대로 유지됩니다.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '2면 조립 단계 완료' }));
+    expect(await screen.findByRole('heading', { name: '제조 단계 일괄 완료' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: '완료할 제조 단계' }), {
+      target: { value: JSON.stringify([2, '배선']) }
+    });
+    expect(screen.getByText('선택한 제조 단계 한 건만 완료 처리합니다. 앞뒤의 다른 제조 단계는 그대로 유지됩니다.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '2면 배선 완료' }));
 
-    expect(await screen.findByText('2면의 조립 단계만 완료했습니다. 다른 제조 단계는 유지됩니다.')).toBeInTheDocument();
+    expect(await screen.findByText('2면의 배선 단계만 완료했습니다. 다른 제조 단계는 유지됩니다.')).toBeInTheDocument();
     expect(capturedBody).not.toBeNull();
     const submittedBody = capturedBody as unknown as {
       projectId: string;
       panels: Array<{ panelId: string; executionId: string; expectedVersion: number }>;
     };
     expect(submittedBody.projectId).toBe(projectId);
+    expect(capturedBody!.targetStepSequence).toBe(2);
+    expect(capturedBody!.targetStepName).toBe('배선');
     expect(submittedBody.panels).toEqual(expect.arrayContaining([
       { panelId, executionId, expectedVersion: 1 },
       { panelId: secondPanelId, executionId: secondExecutionId, expectedVersion: 1 }
@@ -287,8 +297,14 @@ function panel(status: 'Ready' | 'InProgress', canMutate = true) {
     startedAtUtc: status === 'Ready' ? null : '2026-07-17T01:00:00Z',
     completedAtUtc: null,
     canMutate,
-    assemblyStepChecked: status === 'InProgress' ? false : null,
-    assemblyStepSequence: status === 'InProgress' ? 3 : null
+    batchSteps: status === 'InProgress'
+      ? [
+          { sequenceNumber: 1, stepName: '작업지시·도면 확인', checked: false },
+          { sequenceNumber: 2, stepName: '자재·부품 확인', checked: false },
+          { sequenceNumber: 3, stepName: '제조 작업 수행', checked: false },
+          { sequenceNumber: 4, stepName: '자체 확인', checked: false }
+        ]
+      : []
   };
 }
 

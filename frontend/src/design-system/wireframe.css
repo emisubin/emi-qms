@@ -549,6 +549,7 @@ body,
   min-width: 0;
   border: 1px solid var(--wire-line-strong);
   background: var(--wire-surface);
+  container-type: inline-size;
 }
 
 .ds-input-flow__header {
@@ -562,6 +563,7 @@ body,
 
 .ds-input-flow__header > div {
   display: grid;
+  min-width: 0;
   gap: 4px;
 }
 
@@ -579,17 +581,21 @@ body,
 
 .ds-input-flow__header h3 {
   font-size: 1.05rem;
+  overflow-wrap: anywhere;
 }
 
 .ds-input-flow__header p {
   color: var(--wire-muted) !important;
   font-size: 0.76rem;
+  overflow-wrap: anywhere;
 }
 
 .ds-input-flow__header ol {
   display: grid;
-  grid-template-columns: repeat(3, minmax(82px, 1fr));
-  min-width: 290px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, 420px);
+  min-width: 0;
+  justify-self: end;
   margin: 0;
   padding: 0;
   border: 1px solid var(--wire-line);
@@ -621,6 +627,25 @@ body,
   background: var(--wire-black) !important;
   color: #ffffff !important;
   font-size: 0.64rem;
+}
+
+@container (max-width: 620px) {
+  .ds-input-flow__header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .ds-input-flow__header ol {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .ds-input-flow__header li {
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 5px;
+    padding-inline: 7px;
+  }
 }
 
 .ds-input-flow__body {
@@ -776,6 +801,51 @@ body,
 .app-shell .ds-choice-group > button[aria-pressed='true'] strong,
 .app-shell .ds-choice-group > button[aria-pressed='true'] small {
   color: #ffffff !important;
+}
+
+/*
+ * Dark wireframe surfaces must own their foreground contract too.
+ * Several legacy components render the dark fill on a parent while a more
+ * specific child rule keeps a dark foreground, which makes labels disappear.
+ */
+.app-shell :where(
+  .production-control-version-list button.is-active,
+  .production-plan-set-tabs > button.active,
+  .production-plan-set-tabs > label.active,
+  .production-control-template-step > b,
+  .logistics-stage-switch button[aria-current='step'],
+  .logistics-empty > span,
+  .logistics-project-heading > span,
+  .logistics-target-shape,
+  .logistics-summary-circle,
+  .logistics-confirm-box,
+  .iqc-report-panel > header > span,
+  .iqc-final-seal > i,
+  .iqc-legacy-report > span,
+  .department-workspace-heading > span,
+  .excel-export-button > span,
+  .account-photo-editor > span:last-child,
+  .form-template-catalog > button i
+) {
+  background-color: var(--wire-black) !important;
+  background-image: none !important;
+  color: #ffffff !important;
+}
+
+.app-shell :where(
+  .production-control-version-list button.is-active,
+  .production-plan-set-tabs > button.active,
+  .production-plan-set-tabs > label.active,
+  .logistics-stage-switch button[aria-current='step'],
+  .logistics-confirm-box
+) :where(span, strong, small, b, em) {
+  color: #ffffff !important;
+}
+
+.app-shell .logistics-stage-switch button[aria-current='step'] > span {
+  border-color: #ffffff !important;
+  background-color: #ffffff !important;
+  color: var(--wire-black) !important;
 }
 
 .ds-choice-group strong {

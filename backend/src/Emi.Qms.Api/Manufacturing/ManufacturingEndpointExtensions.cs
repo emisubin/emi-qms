@@ -106,8 +106,8 @@ public static class ManufacturingEndpointExtensions
         .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
         .WithName("CheckManufacturingStep");
 
-        manufacturing.MapPost("/executions/assembly-batch", async (
-            AssemblyBatchManufacturingRequest request,
+        manufacturing.MapPost("/executions/step-batch", async (
+            StepBatchManufacturingRequest request,
             ManufacturingStore store,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
@@ -115,14 +115,14 @@ public static class ManufacturingEndpointExtensions
             var actorId = GetCurrentUserId(user);
             return actorId is null
                 ? Results.Unauthorized()
-                : ToAssemblyBatchResult(await store.CompleteAssemblyBatchAsync(
+                : ToStepBatchResult(await store.CompleteStepBatchAsync(
                     request,
                     actorId.Value,
                     GetProjectAccessScope(user),
                     cancellationToken));
         })
         .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
-        .WithName("CompleteManufacturingAssemblyBatch");
+        .WithName("CompleteManufacturingStepBatch");
 
         manufacturing.MapPost("/executions/{executionId:guid}/stop", async (
             Guid executionId,
@@ -209,8 +209,8 @@ public static class ManufacturingEndpointExtensions
         };
     }
 
-    private static IResult ToAssemblyBatchResult(
-        ManufacturingMutationResult<AssemblyBatchManufacturingResponse> result)
+    private static IResult ToStepBatchResult(
+        ManufacturingMutationResult<StepBatchManufacturingResponse> result)
     {
         return result.Status switch
         {
@@ -218,7 +218,7 @@ public static class ManufacturingEndpointExtensions
             ManufacturingMutationStatus.NotFound => Results.NotFound(),
             ManufacturingMutationStatus.Validation => Results.ValidationProblem(result.Errors),
             ManufacturingMutationStatus.Conflict => Results.Problem(
-                title: result.Message ?? "선택 패널의 조립 단계를 완료할 수 없습니다.",
+                title: result.Message ?? "선택 패널의 제조 단계를 완료할 수 없습니다.",
                 statusCode: StatusCodes.Status409Conflict),
             _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
         };

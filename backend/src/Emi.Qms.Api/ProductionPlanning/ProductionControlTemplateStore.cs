@@ -46,25 +46,25 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         return new(
             domains.Contains("Manufacturing"),
             domains.Contains("ProductionPlanning"),
-            ProductionControlSourceCodes.Catalog,
+            await ReadSourceCatalogAsync(connection, null, cancellationToken),
             items);
     }
 
-    public Task<ProductionControlTemplateCatalogResponse> CreateManufacturingDraftAsync(
+    public Task<ProductionControlTemplateCatalogResponse> EnsureManufacturingCurrentAsync(
         Guid productTypeId,
         CreateProductionControlDraftRequest request,
         Guid actorUserId,
         bool isSystemAdministrator,
         CancellationToken cancellationToken)
-        => CreateDraftAsync("Manufacturing", productTypeId, request, actorUserId, isSystemAdministrator, cancellationToken);
+        => EnsureCurrentAsync("Manufacturing", productTypeId, request, actorUserId, isSystemAdministrator, cancellationToken);
 
-    public Task<ProductionControlTemplateCatalogResponse> CreatePlanDraftAsync(
+    public Task<ProductionControlTemplateCatalogResponse> EnsurePlanCurrentAsync(
         Guid productTypeId,
         CreateProductionControlDraftRequest request,
         Guid actorUserId,
         bool isSystemAdministrator,
         CancellationToken cancellationToken)
-        => CreateDraftAsync("ProductionPlanning", productTypeId, request, actorUserId, isSystemAdministrator, cancellationToken);
+        => EnsureCurrentAsync("ProductionPlanning", productTypeId, request, actorUserId, isSystemAdministrator, cancellationToken);
 
     public async Task<ProductionControlTemplateCatalogResponse> SaveManufacturingAsync(
         Guid productTypeId,
@@ -80,7 +80,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await DemandAccessAsync(connection, transaction, actorUserId, isSystemAdministrator, "Manufacturing", cancellationToken);
         var templateId = await EnsureTemplateAsync(connection, transaction, "Manufacturing", productTypeId, cancellationToken);
-        await LockDraftAsync(connection, transaction, "Manufacturing", templateId, versionId, request.ExpectedRowVersion, cancellationToken);
+        await LockCurrentAsync(connection, transaction, "Manufacturing", templateId, versionId, request.ExpectedRowVersion, cancellationToken);
         var existingKeys = await ReadDefinitionKeysAsync(connection, transaction, "Manufacturing", versionId, cancellationToken);
         await ExecuteAsync(connection, transaction,
             "delete from production_control_manufacturing_items where template_version_id=@version_id;",
@@ -100,11 +100,11 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
             command.Parameters.AddWithValue("definition_key", definitionKey);
             command.Parameters.AddWithValue("display_order", item.DisplayOrder);
             command.Parameters.AddWithValue("label", item.Label.Trim());
-            command.Parameters.AddWithValue("step_role", NormalizeStepRole(item.StepRole));
+            command.Parameters.AddWithValue("step_role", "General");
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
-        await IncrementDraftAsync(connection, transaction, "Manufacturing", versionId, request.ExpectedRowVersion, actorUserId, cancellationToken);
-        await AppendAuditAsync(connection, transaction, "DraftSaved", "Manufacturing", "ProductionControlManufacturing", productTypeId, versionId, actorUserId, new { itemCount = request.Items.Count }, cancellationToken);
+        await IncrementCurrentAsync(connection, transaction, "Manufacturing", versionId, request.ExpectedRowVersion, actorUserId, cancellationToken);
+        await AppendAuditAsync(connection, transaction, "CurrentSaved", "Manufacturing", "ProductionControlManufacturing", productTypeId, versionId, actorUserId, new { itemCount = request.Items.Count }, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return await GetCatalogAsync(actorUserId, isSystemAdministrator, cancellationToken);
     }
@@ -123,7 +123,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await DemandAccessAsync(connection, transaction, actorUserId, isSystemAdministrator, "ProductionPlanning", cancellationToken);
         var templateId = await EnsureTemplateAsync(connection, transaction, "ProductionPlanning", productTypeId, cancellationToken);
-        await LockDraftAsync(connection, transaction, "ProductionPlanning", templateId, versionId, request.ExpectedRowVersion, cancellationToken);
+        await LockCurrentAsync(connection, transaction, "ProductionPlanning", templateId, versionId, request.ExpectedRowVersion, cancellationToken);
         var existingKeys = await ReadDefinitionKeysAsync(connection, transaction, "ProductionPlanning", versionId, cancellationToken);
         await ExecuteAsync(connection, transaction,
             "delete from production_control_plan_items where template_version_id=@version_id;",
@@ -149,7 +149,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                 command.Parameters.AddWithValue("is_required", item.IsRequired);
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
-            foreach (var connectionItem in item.Connections.DistinctBy(value => (value.SourceCode, value.SourceDefinitionKey)))
+            foreach (var connectionItem in item.Connections)
             {
                 await using var command = connection.CreateCommand();
                 command.Transaction = transaction;
@@ -166,49 +166,14 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
         }
-        await IncrementDraftAsync(connection, transaction, "ProductionPlanning", versionId, request.ExpectedRowVersion, actorUserId, cancellationToken);
-        await AppendAuditAsync(connection, transaction, "DraftSaved", "ProductionPlanning", "ProductionControlPlan", productTypeId, versionId, actorUserId, new { itemCount = request.Items.Count }, cancellationToken);
+        await ValidatePlanActivationAsync(connection, transaction, productTypeId, versionId, cancellationToken);
+        await IncrementCurrentAsync(connection, transaction, "ProductionPlanning", versionId, request.ExpectedRowVersion, actorUserId, cancellationToken);
+        await AppendAuditAsync(connection, transaction, "CurrentSaved", "ProductionPlanning", "ProductionControlPlan", productTypeId, versionId, actorUserId, new { itemCount = request.Items.Count }, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return await GetCatalogAsync(actorUserId, isSystemAdministrator, cancellationToken);
     }
 
-    public Task<ProductionControlTemplateCatalogResponse> ActivateManufacturingAsync(
-        Guid productTypeId,
-        Guid versionId,
-        TransitionProductionControlVersionRequest request,
-        Guid actorUserId,
-        bool isSystemAdministrator,
-        CancellationToken cancellationToken)
-        => TransitionAsync("Manufacturing", productTypeId, versionId, request, actorUserId, isSystemAdministrator, true, cancellationToken);
-
-    public Task<ProductionControlTemplateCatalogResponse> ActivatePlanAsync(
-        Guid productTypeId,
-        Guid versionId,
-        TransitionProductionControlVersionRequest request,
-        Guid actorUserId,
-        bool isSystemAdministrator,
-        CancellationToken cancellationToken)
-        => TransitionAsync("ProductionPlanning", productTypeId, versionId, request, actorUserId, isSystemAdministrator, true, cancellationToken);
-
-    public Task<ProductionControlTemplateCatalogResponse> ArchiveManufacturingDraftAsync(
-        Guid productTypeId,
-        Guid versionId,
-        TransitionProductionControlVersionRequest request,
-        Guid actorUserId,
-        bool isSystemAdministrator,
-        CancellationToken cancellationToken)
-        => TransitionAsync("Manufacturing", productTypeId, versionId, request, actorUserId, isSystemAdministrator, false, cancellationToken);
-
-    public Task<ProductionControlTemplateCatalogResponse> ArchivePlanDraftAsync(
-        Guid productTypeId,
-        Guid versionId,
-        TransitionProductionControlVersionRequest request,
-        Guid actorUserId,
-        bool isSystemAdministrator,
-        CancellationToken cancellationToken)
-        => TransitionAsync("ProductionPlanning", productTypeId, versionId, request, actorUserId, isSystemAdministrator, false, cancellationToken);
-
-    private async Task<ProductionControlTemplateCatalogResponse> CreateDraftAsync(
+    private async Task<ProductionControlTemplateCatalogResponse> EnsureCurrentAsync(
         string domain,
         Guid productTypeId,
         CreateProductionControlDraftRequest request,
@@ -221,17 +186,39 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         await DemandAccessAsync(connection, transaction, actorUserId, isSystemAdministrator, domain, cancellationToken);
         var templateId = await EnsureTemplateAsync(connection, transaction, domain, productTypeId, cancellationToken);
+        var active = await ReadVersionAsync(connection, transaction, domain, templateId, "Active", true, cancellationToken);
+        if (active is not null)
+        {
+            if (request.ExpectedActiveRowVersion is not null
+                && active.Value.RowVersion != request.ExpectedActiveRowVersion.Value)
+            {
+                throw new ProductionControlTemplateConflictException("현재 양식이 변경되었습니다. 새로고침해 주세요.");
+            }
+            await transaction.CommitAsync(cancellationToken);
+            return await GetCatalogAsync(actorUserId, isSystemAdministrator, cancellationToken);
+        }
+
         var existingDraft = await ReadVersionAsync(connection, transaction, domain, templateId, "Draft", true, cancellationToken);
         if (existingDraft is not null)
         {
-            throw new ProductionControlTemplateConflictException("이미 편집 중인 초안이 있습니다.");
+            var versionTable = domain == "Manufacturing"
+                ? "production_control_manufacturing_versions"
+                : "production_control_plan_versions";
+            await ExecuteAsync(connection, transaction, $"""
+                update {versionTable}
+                set lifecycle_status='Active',
+                    activated_at_utc=now(),
+                    archived_at_utc=null,
+                    row_version=row_version+1,
+                    updated_by_user_id=@actor_id,
+                    updated_at_utc=now()
+                where id=@id and lifecycle_status='Draft';
+                """, [new("id", existingDraft.Value.Id), new("actor_id", actorUserId)], cancellationToken);
+            await AppendAuditAsync(connection, transaction, "CurrentCreated", domain, domain == "Manufacturing" ? "ProductionControlManufacturing" : "ProductionControlPlan", productTypeId, existingDraft.Value.Id, actorUserId, new { source = "ExistingDraft" }, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return await GetCatalogAsync(actorUserId, isSystemAdministrator, cancellationToken);
         }
-        var active = await ReadVersionAsync(connection, transaction, domain, templateId, "Active", true, cancellationToken);
-        if (request.ExpectedActiveRowVersion is not null
-            && (active is null || active.Value.RowVersion != request.ExpectedActiveRowVersion.Value))
-        {
-            throw new ProductionControlTemplateConflictException("사용 중 양식이 변경되었습니다. 새로고침해 주세요.");
-        }
+
         var versionId = Guid.NewGuid();
         var nextVersion = await NextVersionAsync(connection, transaction, domain, templateId, cancellationToken);
         await using (var command = connection.CreateCommand())
@@ -240,15 +227,15 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
             command.CommandText = domain == "Manufacturing"
                 ? """
                     insert into production_control_manufacturing_versions (
-                        id, template_id, version_number, lifecycle_status, created_by_user_id, updated_by_user_id
+                        id, template_id, version_number, lifecycle_status, activated_at_utc, created_by_user_id, updated_by_user_id
                     )
-                    values (@id, @template_id, @version_number, 'Draft', @actor_id, @actor_id);
+                    values (@id, @template_id, @version_number, 'Active', now(), @actor_id, @actor_id);
                     """
                 : """
                     insert into production_control_plan_versions (
-                        id, template_id, version_number, lifecycle_status, created_by_user_id, updated_by_user_id
+                        id, template_id, version_number, lifecycle_status, activated_at_utc, created_by_user_id, updated_by_user_id
                     )
-                    values (@id, @template_id, @version_number, 'Draft', @actor_id, @actor_id);
+                    values (@id, @template_id, @version_number, 'Active', now(), @actor_id, @actor_id);
                     """;
             command.Parameters.AddWithValue("id", versionId);
             command.Parameters.AddWithValue("template_id", templateId);
@@ -256,102 +243,8 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
             command.Parameters.AddWithValue("actor_id", actorUserId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
-        if (active is not null)
-        {
-            await CloneItemsAsync(connection, transaction, domain, active.Value.Id, versionId, cancellationToken);
-        }
-        else
-        {
-            await SeedFirstDraftAsync(connection, transaction, domain, productTypeId, versionId, cancellationToken);
-        }
-        await AppendAuditAsync(connection, transaction, "DraftCreated", domain, domain == "Manufacturing" ? "ProductionControlManufacturing" : "ProductionControlPlan", productTypeId, versionId, actorUserId, new { version = nextVersion }, cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return await GetCatalogAsync(actorUserId, isSystemAdministrator, cancellationToken);
-    }
-
-    private async Task<ProductionControlTemplateCatalogResponse> TransitionAsync(
-        string domain,
-        Guid productTypeId,
-        Guid versionId,
-        TransitionProductionControlVersionRequest request,
-        Guid actorUserId,
-        bool isSystemAdministrator,
-        bool activate,
-        CancellationToken cancellationToken)
-    {
-        await using var dataSource = CreateDataSource();
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        await DemandAccessAsync(connection, transaction, actorUserId, isSystemAdministrator, domain, cancellationToken);
-        var templateId = await EnsureTemplateAsync(connection, transaction, domain, productTypeId, cancellationToken);
-        await LockDraftAsync(connection, transaction, domain, templateId, versionId, request.ExpectedRowVersion, cancellationToken);
-        var itemCount = await CountItemsAsync(connection, transaction, domain, versionId, cancellationToken);
-        if (activate && itemCount == 0)
-        {
-            throw new ArgumentException("항목을 한 개 이상 등록해 주세요.", "items");
-        }
-        if (activate && domain == "ProductionPlanning")
-        {
-            await ValidatePlanActivationAsync(connection, transaction, productTypeId, versionId, cancellationToken);
-        }
-        if (activate && domain == "Manufacturing")
-        {
-            await ValidateManufacturingActivationAsync(connection, transaction, productTypeId, versionId, cancellationToken);
-        }
-
-        var versionTable = domain == "Manufacturing"
-            ? "production_control_manufacturing_versions"
-            : "production_control_plan_versions";
-        if (activate)
-        {
-            await using (var archive = connection.CreateCommand())
-            {
-                archive.Transaction = transaction;
-                archive.CommandText = $"""
-                    update {versionTable}
-                    set lifecycle_status='Archived',
-                        archived_at_utc=now(),
-                        row_version=row_version+1,
-                        updated_by_user_id=@actor_id,
-                        updated_at_utc=now()
-                    where template_id=@template_id and lifecycle_status='Active';
-                    """;
-                archive.Parameters.AddWithValue("actor_id", actorUserId);
-                archive.Parameters.AddWithValue("template_id", templateId);
-                await archive.ExecuteNonQueryAsync(cancellationToken);
-            }
-        }
-        await using (var transition = connection.CreateCommand())
-        {
-            transition.Transaction = transaction;
-            transition.CommandText = activate
-                ? $"""
-                    update {versionTable}
-                    set lifecycle_status='Active',
-                        activated_at_utc=now(),
-                        row_version=row_version+1,
-                        updated_by_user_id=@actor_id,
-                        updated_at_utc=now()
-                    where id=@id and lifecycle_status='Draft' and row_version=@expected;
-                    """
-                : $"""
-                    update {versionTable}
-                    set lifecycle_status='Archived',
-                        archived_at_utc=now(),
-                        row_version=row_version+1,
-                        updated_by_user_id=@actor_id,
-                        updated_at_utc=now()
-                    where id=@id and lifecycle_status='Draft' and row_version=@expected;
-                    """;
-            transition.Parameters.AddWithValue("id", versionId);
-            transition.Parameters.AddWithValue("expected", request.ExpectedRowVersion);
-            transition.Parameters.AddWithValue("actor_id", actorUserId);
-            if (await transition.ExecuteNonQueryAsync(cancellationToken) != 1)
-            {
-                throw new ProductionControlTemplateConflictException("양식이 변경되었습니다. 새로고침해 주세요.");
-            }
-        }
-        await AppendAuditAsync(connection, transaction, activate ? "VersionActivated" : "DraftArchived", domain, domain == "Manufacturing" ? "ProductionControlManufacturing" : "ProductionControlPlan", productTypeId, versionId, actorUserId, new { }, cancellationToken);
+        await SeedFirstCurrentAsync(connection, transaction, domain, productTypeId, versionId, cancellationToken);
+        await AppendAuditAsync(connection, transaction, "CurrentCreated", domain, domain == "Manufacturing" ? "ProductionControlManufacturing" : "ProductionControlPlan", productTypeId, versionId, actorUserId, new { }, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return await GetCatalogAsync(actorUserId, isSystemAdministrator, cancellationToken);
     }
@@ -392,6 +285,17 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
             left join production_control_manufacturing_items manufacturing
               on manufacturing.template_version_id=@manufacturing_version_id
              and manufacturing.definition_key=connection.source_definition_key
+            left join (
+                select quality_item.definition_key
+                from iqc_report_templates quality_template
+                join iqc_report_template_versions quality_version
+                  on quality_version.template_id=quality_template.id
+                 and quality_version.lifecycle_status='Active'
+                join iqc_report_template_items quality_item
+                  on quality_item.template_version_id=quality_version.id
+                where quality_template.template_code='MATERIAL_IQC'
+                  and quality_item.response_type='Check'
+            ) iqc on iqc.definition_key=connection.source_definition_key
             where item.template_version_id=@version_id
               and (
                 (item.is_required and connection.id is null)
@@ -399,49 +303,22 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                     connection.source_code in ('MANUFACTURING_STEP_COMPLETED','LQC_PASSED')
                     and manufacturing.id is null
                 )
+                or (
+                    connection.source_code='IQC_PASSED'
+                    and connection.source_definition_key is not null
+                    and iqc.definition_key is null
+                )
+                or (
+                    connection.source_code='OQC_PASSED'
+                    and connection.source_definition_key is not null
+                )
               );
             """;
         invalid.Parameters.AddWithValue("version_id", versionId);
         invalid.Parameters.AddWithValue("manufacturing_version_id", manufacturingVersionId);
         if (Convert.ToInt32(await invalid.ExecuteScalarAsync(cancellationToken)) > 0)
         {
-            throw new ArgumentException("필수 항목의 실적 연결 또는 제조 단계 연결을 확인해 주세요.", "connections");
-        }
-    }
-
-    private static async Task ValidateManufacturingActivationAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid productTypeId,
-        Guid manufacturingVersionId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            select count(*)::int
-            from production_control_plan_templates plan_template
-            join production_control_plan_versions plan_version
-              on plan_version.template_id=plan_template.id
-             and plan_version.lifecycle_status='Active'
-            join production_control_plan_items plan_item
-              on plan_item.template_version_id=plan_version.id
-            join production_control_plan_connections connection
-              on connection.plan_item_id=plan_item.id
-             and connection.source_code in ('MANUFACTURING_STEP_COMPLETED','LQC_PASSED')
-            left join production_control_manufacturing_items manufacturing_item
-              on manufacturing_item.template_version_id=@manufacturing_version_id
-             and manufacturing_item.definition_key=connection.source_definition_key
-            where plan_template.product_type_id=@product_type_id
-              and manufacturing_item.id is null;
-            """;
-        command.Parameters.AddWithValue("product_type_id", productTypeId);
-        command.Parameters.AddWithValue("manufacturing_version_id", manufacturingVersionId);
-        if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) > 0)
-        {
-            throw new ArgumentException(
-                "사용 중인 생산계획이 참조하는 제조 단계가 새 제조 양식에 없습니다. 생산계획 연결을 먼저 새 제조 단계에 맞게 준비해 주세요.",
-                "connections");
+            throw new ArgumentException("필수 항목의 실적 연결 또는 제조·품질 단계 연결을 확인해 주세요.", "connections");
         }
     }
 
@@ -449,7 +326,6 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
     {
         if (items.Count is < 1 or > 50) throw new ArgumentException("제조 단계는 1개부터 50개까지 등록해 주세요.", "items");
         if (items.Select(item => item.DisplayOrder).Distinct().Count() != items.Count) throw new ArgumentException("제조 단계 순서는 중복될 수 없습니다.", "items");
-        if (items.Count(item => NormalizeStepRole(item.StepRole) == "Assembly") > 1) throw new ArgumentException("일괄 조립 단계는 한 개만 지정할 수 있습니다.", "items");
         foreach (var item in items)
         {
             if (item.DisplayOrder is < 1 or > 50) throw new ArgumentException("제조 단계 순서를 확인해 주세요.", "items");
@@ -465,15 +341,51 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         {
             if (item.DisplayOrder is < 1 or > 100) throw new ArgumentException("생산계획 항목 순서를 확인해 주세요.", "items");
             if (string.IsNullOrWhiteSpace(item.Label) || item.Label.Trim().Length > 120) throw new ArgumentException("생산계획 항목명은 1자부터 120자까지 입력해 주세요.", "items");
+            if (item.Connections.Count != 1) throw new ArgumentException("각 생산계획 항목은 실적 데이터 하나를 선택해야 합니다.", "connections");
             foreach (var connection in item.Connections)
             {
                 var code = NormalizeSourceCode(connection.SourceCode);
-                if (ProductionControlSourceCodes.RequiresManufacturingDefinition(code) != (connection.SourceDefinitionKey is not null))
+                if (ProductionControlSourceCodes.RequiresDefinition(code) != (connection.SourceDefinitionKey is not null))
                 {
-                    throw new ArgumentException("제조·LQC 연결은 제조 단계를 선택해야 합니다.", "connections");
+                    throw new ArgumentException("제조·LQC·IQC는 세부 단계를 선택하고 OQC를 포함한 나머지 실적은 세부 항목 없이 선택해 주세요.", "connections");
                 }
             }
         }
+    }
+
+    internal static async Task<IReadOnlyList<ProductionControlSourceCatalogItemResponse>> ReadSourceCatalogAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        var definitions = new Dictionary<string, List<ProductionControlSourceDefinitionResponse>>(StringComparer.Ordinal)
+        {
+            [ProductionControlSourceCodes.IqcPassed] = []
+        };
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select 'IQC_PASSED', item.definition_key, item.label, item.display_order
+            from iqc_report_templates template
+            join iqc_report_template_versions version
+              on version.template_id=template.id
+             and version.lifecycle_status='Active'
+            join iqc_report_template_items item on item.template_version_id=version.id
+            where template.template_code='MATERIAL_IQC'
+              and item.response_type='Check'
+            order by item.display_order;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            definitions[reader.GetString(0)].Add(new(reader.GetGuid(1), reader.GetString(2)));
+        }
+
+        return ProductionControlSourceCodes.Catalog
+            .Select(source => definitions.TryGetValue(source.Code, out var items)
+                ? source with { Definitions = items }
+                : source)
+            .ToArray();
     }
 
     private static Guid ResolveDefinitionKey(Guid? requested, HashSet<Guid> existing)
@@ -482,9 +394,6 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         if (!existing.Contains(requested.Value)) throw new ArgumentException("항목 고유번호를 임의로 변경할 수 없습니다.", "definitionKey");
         return requested.Value;
     }
-
-    private static string NormalizeStepRole(string value)
-        => value is "General" or "Assembly" ? value : throw new ArgumentException("지원하지 않는 제조 단계 역할입니다.", "stepRole");
 
     private static string NormalizeSourceCode(string value)
     {
@@ -524,50 +433,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         }
     }
 
-    private static async Task CloneItemsAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        string domain,
-        Guid activeVersionId,
-        Guid draftVersionId,
-        CancellationToken cancellationToken)
-    {
-        if (domain == "Manufacturing")
-        {
-            await ExecuteAsync(connection, transaction, """
-                insert into production_control_manufacturing_items (
-                    template_version_id, definition_key, display_order, label, step_role
-                )
-                select @draft_id, definition_key, display_order, label, step_role
-                from production_control_manufacturing_items
-                where template_version_id=@active_id;
-                """, [new("draft_id", draftVersionId), new("active_id", activeVersionId)], cancellationToken);
-            return;
-        }
-        await ExecuteAsync(connection, transaction, """
-            with copied_items as (
-                insert into production_control_plan_items (
-                    template_version_id, definition_key, display_order, label, is_required
-                )
-                select @draft_id, definition_key, display_order, label, is_required
-                from production_control_plan_items
-                where template_version_id=@active_id
-                returning id, definition_key
-            )
-            insert into production_control_plan_connections (
-                plan_item_id, source_code, source_definition_key
-            )
-            select copied.id, connection.source_code, connection.source_definition_key
-            from copied_items copied
-            join production_control_plan_items active_item
-              on active_item.template_version_id=@active_id
-             and active_item.definition_key=copied.definition_key
-            join production_control_plan_connections connection
-              on connection.plan_item_id=active_item.id;
-            """, [new("draft_id", draftVersionId), new("active_id", activeVersionId)], cancellationToken);
-    }
-
-    private static async Task SeedFirstDraftAsync(
+    private static async Task SeedFirstCurrentAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         string domain,
@@ -585,7 +451,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                        item.id,
                        item.display_order,
                        item.label,
-                       case when item.item_code='MANUFACTURING' then 'Assembly' else 'General' end
+                       'General'
                 from manufacturing_step_template_versions version
                 join manufacturing_step_templates template on template.id=version.template_id
                 join manufacturing_step_template_items item on item.template_version_id=version.id
@@ -650,7 +516,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         return await reader.ReadAsync(cancellationToken) ? (reader.GetGuid(0), reader.GetInt32(1)) : null;
     }
 
-    private static async Task LockDraftAsync(
+    private static async Task LockCurrentAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         string domain,
@@ -664,15 +530,15 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
             : "production_control_plan_versions";
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = $"select row_version from {table} where id=@id and template_id=@template_id and lifecycle_status='Draft' for update;";
+        command.CommandText = $"select row_version from {table} where id=@id and template_id=@template_id and lifecycle_status='Active' for update;";
         command.Parameters.AddWithValue("id", versionId);
         command.Parameters.AddWithValue("template_id", templateId);
         var value = await command.ExecuteScalarAsync(cancellationToken);
-        if (value is not int rowVersion) throw new ProductionControlTemplateConflictException("편집 가능한 초안을 찾을 수 없습니다.");
+        if (value is not int rowVersion) throw new ProductionControlTemplateConflictException("편집 가능한 현재 양식을 찾을 수 없습니다.");
         if (rowVersion != expectedRowVersion) throw new ProductionControlTemplateConflictException("양식이 변경되었습니다. 새로고침해 주세요.");
     }
 
-    private static async Task IncrementDraftAsync(
+    private static async Task IncrementCurrentAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         string domain,
@@ -689,7 +555,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         command.CommandText = $"""
             update {table}
             set row_version=row_version+1,updated_by_user_id=@actor_id,updated_at_utc=now()
-            where id=@id and lifecycle_status='Draft' and row_version=@expected;
+            where id=@id and lifecycle_status='Active' and row_version=@expected;
             """;
         command.Parameters.AddWithValue("id", versionId);
         command.Parameters.AddWithValue("expected", expectedRowVersion);
@@ -715,23 +581,6 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
     }
 
-    private static async Task<int> CountItemsAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        string domain,
-        Guid versionId,
-        CancellationToken cancellationToken)
-    {
-        var table = domain == "Manufacturing"
-            ? "production_control_manufacturing_items"
-            : "production_control_plan_items";
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = $"select count(*)::int from {table} where template_version_id=@version_id;";
-        command.Parameters.AddWithValue("version_id", versionId);
-        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
-    }
-
     private static async Task<IReadOnlyList<ProductionControlManufacturingVersionResponse>> ReadManufacturingVersionsAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction? transaction,
@@ -749,7 +598,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                 from production_control_manufacturing_templates template
                 join production_control_manufacturing_versions version on version.template_id=template.id
                 where template.product_type_id=@product_type_id
-                order by version.version_number desc;
+                  and version.lifecycle_status='Active';
                 """;
             command.Parameters.AddWithValue("product_type_id", productTypeId);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -766,7 +615,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
-                select definition_key,display_order,label,step_role
+                select definition_key,display_order,label
                 from production_control_manufacturing_items
                 where template_version_id=@version_id
                 order by display_order;
@@ -774,7 +623,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
             command.Parameters.AddWithValue("version_id", row.Id);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
-                items.Add(new(reader.GetGuid(0), reader.GetInt32(1), reader.GetString(2), reader.GetString(3)));
+                items.Add(new(reader.GetGuid(0), reader.GetInt32(1), reader.GetString(2)));
             versions.Add(new(row.Id, row.Number, row.Status, row.RowVersion, row.Activated, row.Archived, items));
         }
         return versions;
@@ -797,7 +646,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                 from production_control_plan_templates template
                 join production_control_plan_versions version on version.template_id=template.id
                 where template.product_type_id=@product_type_id
-                order by version.version_number desc;
+                  and version.lifecycle_status='Active';
                 """;
             command.Parameters.AddWithValue("product_type_id", productTypeId);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);

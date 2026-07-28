@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Emi.Qms.Api.Ul891Sets;
 using Npgsql;
 using Xunit;
@@ -96,6 +97,40 @@ public sealed partial class ProjectRegistrationApiTests
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
         var suffix = Guid.NewGuid().ToString("N")[..8];
+        var manufacturingTemplateId = Guid.NewGuid();
+        var manufacturingVersionId = Guid.NewGuid();
+        var manufacturingDefinitionKey = Guid.NewGuid();
+        var planTemplateId = Guid.NewGuid();
+        var planVersionId = Guid.NewGuid();
+        var planItemId = Guid.NewGuid();
+        var planDefinitionKey = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into production_control_manufacturing_templates (id, product_type_id)
+            select '{manufacturingTemplateId}', id from production_product_types where code='UL891';
+            insert into production_control_manufacturing_versions (
+                id, template_id, version_number, lifecycle_status, activated_at_utc
+            )
+            values ('{manufacturingVersionId}', '{manufacturingTemplateId}', 1, 'Active', now());
+            insert into production_control_manufacturing_items (
+                template_version_id, definition_key, display_order, label, step_role
+            )
+            values ('{manufacturingVersionId}', '{manufacturingDefinitionKey}', 1, '조립', 'Assembly');
+
+            insert into production_control_plan_templates (id, product_type_id)
+            select '{planTemplateId}', id from production_product_types where code='UL891';
+            insert into production_control_plan_versions (
+                id, template_id, version_number, lifecycle_status, activated_at_utc
+            )
+            values ('{planVersionId}', '{planTemplateId}', 1, 'Active', now());
+            insert into production_control_plan_items (
+                id, template_version_id, definition_key, display_order, label, is_required
+            )
+            values ('{planItemId}', '{planVersionId}', '{planDefinitionKey}', 1, '제조 착수', true);
+            insert into production_control_plan_connections (
+                plan_item_id, source_code, source_definition_key
+            )
+            values ('{planItemId}', 'MANUFACTURING_STEP_COMPLETED', '{manufacturingDefinitionKey}');
+            """);
         using var createResponse = await salesClient.PostAsJsonAsync("/api/projects", new
         {
             customerName = "UL891 세트 고객",
@@ -127,6 +162,107 @@ public sealed partial class ProjectRegistrationApiTests
         Assert.Equal(2, structureJson.RootElement.GetProperty("specs").GetArrayLength());
         Assert.Equal(8L, await context.ReadScalarAsync<long>($"select count(*) from panel_placeholders where project_id='{projectId}' and status='Active';"));
         Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from ul891_set_instances instance join ul891_set_specs spec on spec.id=instance.spec_id where spec.project_id='{projectId}' and instance.status='Active';"));
+        Assert.Equal(3L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from project_production_plan_set_scopes scope
+            join project_production_plans plan on plan.id=scope.production_plan_id
+            where plan.project_id='{projectId}';
+            """));
+
+        using var productionClient = context.CreateClient("dev-production");
+        using var aggregatePlanResponse = await productionClient.GetAsync($"/api/projects/{projectId}/production-planning", TestContext.Current.CancellationToken);
+        await AssertStatusAsync(aggregatePlanResponse, HttpStatusCode.OK, context);
+        using var aggregatePlan = await ReadJsonAsync(aggregatePlanResponse);
+        Assert.True(aggregatePlan.RootElement.GetProperty("isSetScoped").GetBoolean());
+        Assert.Equal(3, aggregatePlan.RootElement.GetProperty("scopes").GetArrayLength());
+        var planScopes = aggregatePlan.RootElement.GetProperty("scopes").EnumerateArray().ToList();
+        var firstSetId = planScopes[0].GetProperty("setInstanceId").GetGuid();
+        var secondSetId = planScopes[1].GetProperty("setInstanceId").GetGuid();
+        var aggregateItem = aggregatePlan.RootElement.GetProperty("items")[0];
+
+        using var forbiddenProjectScheduleResponse = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new
+            {
+                productTypeId = aggregatePlan.RootElement.GetProperty("productTypeId").GetGuid(),
+                expectedRowVersion = aggregatePlan.RootElement.GetProperty("rowVersion").GetInt32(),
+                notes = (string?)null,
+                reason = "세트 일정 우회 입력 차단 테스트",
+                items = new[]
+                {
+                    new
+                    {
+                        itemId = aggregateItem.GetProperty("itemId").GetGuid(),
+                        templateStepId = (Guid?)null,
+                        stepName = aggregateItem.GetProperty("stepName").GetString(),
+                        sequenceNumber = aggregateItem.GetProperty("sequenceNumber").GetInt32(),
+                        isRequired = aggregateItem.GetProperty("isRequired").GetBoolean(),
+                        expectedRowVersion = aggregateItem.GetProperty("rowVersion").GetInt32(),
+                        plannedDate = (DateOnly?)null,
+                        plannedStartDate = new DateOnly(2026, 7, 1),
+                        plannedEndDate = new DateOnly(2026, 7, 2),
+                        assignedUserId = (Guid?)null,
+                        requiredHeadcount = (int?)null,
+                        note = (string?)null,
+                        isDeleted = false,
+                        definitionKey = aggregateItem.GetProperty("definitionKey").GetGuid(),
+                        connections = aggregateItem.GetProperty("connections")
+                    }
+                },
+                assignees = Array.Empty<object>()
+            },
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(forbiddenProjectScheduleResponse, HttpStatusCode.BadRequest, context);
+        using var forbiddenProjectSchedule = await ReadJsonAsync(forbiddenProjectScheduleResponse);
+        Assert.True(forbiddenProjectSchedule.RootElement
+            .GetProperty("errors")
+            .TryGetProperty("items[0].plannedStartDate", out _));
+
+        using var firstSetPlanResponse = await productionClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning?setInstanceId={firstSetId}",
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(firstSetPlanResponse, HttpStatusCode.OK, context);
+        using var firstSetPlan = await ReadJsonAsync(firstSetPlanResponse);
+        var firstSetItems = firstSetPlan.RootElement.GetProperty("items").EnumerateArray().ToList();
+        using var saveFirstSetResponse = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning/set-scopes/{firstSetId}",
+            new
+            {
+                expectedRowVersion = firstSetPlan.RootElement.GetProperty("selectedScope").GetProperty("rowVersion").GetInt32(),
+                reason = "세트별 계획 테스트",
+                items = firstSetItems.Select(item => new
+                {
+                    itemId = item.GetProperty("itemId").GetGuid(),
+                    expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
+                    plannedStartDate = new DateOnly(2026, 8, 1),
+                    plannedEndDate = new DateOnly(2026, 8, 5),
+                    assignedUserId = (Guid?)null,
+                    requiredHeadcount = 2,
+                    note = "첫 번째 실물 세트"
+                }).ToArray()
+            },
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(saveFirstSetResponse, HttpStatusCode.OK, context);
+
+        using var aggregateAfterSaveResponse = await productionClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning",
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(aggregateAfterSaveResponse, HttpStatusCode.OK, context);
+        using var aggregateAfterSave = await ReadJsonAsync(aggregateAfterSaveResponse);
+        var aggregateAfterSaveItem = aggregateAfterSave.RootElement.GetProperty("items")[0];
+        Assert.Equal("2026-08-01", aggregateAfterSaveItem.GetProperty("plannedStartDate").GetString());
+        Assert.Equal("2026-08-05", aggregateAfterSaveItem.GetProperty("plannedEndDate").GetString());
+
+        using var secondSetPlanResponse = await productionClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning?setInstanceId={secondSetId}",
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(secondSetPlanResponse, HttpStatusCode.OK, context);
+        using var secondSetPlan = await ReadJsonAsync(secondSetPlanResponse);
+        Assert.All(secondSetPlan.RootElement.GetProperty("items").EnumerateArray(), item =>
+        {
+            Assert.Equal(JsonValueKind.Null, item.GetProperty("plannedStartDate").ValueKind);
+            Assert.Equal(JsonValueKind.Null, item.GetProperty("plannedEndDate").ValueKind);
+        });
 
         var addSpecOperationId = Guid.NewGuid();
         var addSpecRequest = new
@@ -146,6 +282,12 @@ public sealed partial class ProjectRegistrationApiTests
         Assert.True(addSpecReplayJson.RootElement.GetProperty("replayed").GetBoolean());
         Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from ul891_set_specs where project_id='{projectId}';"));
         Assert.Equal(10L, await context.ReadScalarAsync<long>($"select count(*) from panel_placeholders where project_id='{projectId}' and status='Active';"));
+        Assert.Equal(4L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from project_production_plan_set_scopes scope
+            join project_production_plans plan on plan.id=scope.production_plan_id
+            where plan.project_id='{projectId}';
+            """));
 
         var firstSpec = structureJson.RootElement.GetProperty("specs")[0];
         var specId = firstSpec.GetProperty("specId").GetGuid();

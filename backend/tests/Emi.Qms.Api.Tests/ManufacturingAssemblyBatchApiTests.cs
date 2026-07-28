@@ -7,7 +7,7 @@ namespace Emi.Qms.Api.Tests;
 public sealed partial class ProjectRegistrationApiTests
 {
     [Fact]
-    public async Task ManufacturingAssemblyBatch_IsAtomicReplaySafeAndChecksOnlyThroughAssembly()
+    public async Task ManufacturingStepBatch_AllowsEveryStepAndChecksOnlyTheSelectedStep()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
@@ -87,6 +87,9 @@ public sealed partial class ProjectRegistrationApiTests
             ]);
             """);
 
+        int targetStepSequence;
+        string targetStepName;
+        (int Sequence, string Name)[] availableSteps;
         using (var queueResponse = await manufacturingClient.GetAsync(
                    $"/api/manufacturing/queue?projectId={projectId}",
                    TestContext.Current.CancellationToken))
@@ -101,9 +104,16 @@ public sealed partial class ProjectRegistrationApiTests
             Assert.Equal(3, queuePanels.Length);
             Assert.All(queuePanels, panel =>
             {
-                Assert.False(panel.GetProperty("assemblyStepChecked").GetBoolean());
-                Assert.Equal(3, panel.GetProperty("assemblyStepSequence").GetInt32());
+                Assert.NotEmpty(panel.GetProperty("batchSteps").EnumerateArray());
             });
+            availableSteps = queuePanels[0].GetProperty("batchSteps").EnumerateArray()
+                .Select(step => (
+                    step.GetProperty("sequenceNumber").GetInt32(),
+                    step.GetProperty("stepName").GetString()!))
+                .ToArray();
+            Assert.True(availableSteps.Length >= 2);
+            targetStepSequence = availableSteps[0].Sequence;
+            targetStepName = availableSteps[0].Name;
         }
 
         var operationId = Guid.NewGuid();
@@ -116,16 +126,16 @@ public sealed partial class ProjectRegistrationApiTests
             })
             .ToArray();
         using (var forbidden = await salesClient.PostAsJsonAsync(
-                   "/api/manufacturing/executions/assembly-batch",
-                   new { operationId = Guid.NewGuid(), projectId, panels = successfulPanels },
+                   "/api/manufacturing/executions/step-batch",
+                   new { operationId = Guid.NewGuid(), projectId, targetStepSequence, targetStepName, panels = successfulPanels },
                    TestContext.Current.CancellationToken))
         {
             Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
         }
 
         using var successful = await manufacturingClient.PostAsJsonAsync(
-            "/api/manufacturing/executions/assembly-batch",
-            new { operationId, projectId, panels = successfulPanels },
+            "/api/manufacturing/executions/step-batch",
+            new { operationId, projectId, targetStepSequence, targetStepName, panels = successfulPanels },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, successful.StatusCode);
         using (var successfulJson = await ReadJsonAsync(successful))
@@ -142,7 +152,7 @@ public sealed partial class ProjectRegistrationApiTests
                 '{executionIds[panelIds[0]]}'::uuid,
                 '{executionIds[panelIds[1]]}'::uuid
             ])
-              and sequence_number = 3
+              and sequence_number = {targetStepSequence}
               and checked_at_utc is not null;
             """));
         Assert.Equal(0L, await context.ReadScalarAsync<long>($"""
@@ -152,7 +162,7 @@ public sealed partial class ProjectRegistrationApiTests
                 '{executionIds[panelIds[0]]}'::uuid,
                 '{executionIds[panelIds[1]]}'::uuid
             ])
-              and sequence_number <> 3
+              and sequence_number <> {targetStepSequence}
               and checked_at_utc is not null;
             """));
         Assert.Equal(2L, await context.ReadScalarAsync<long>($"""
@@ -170,8 +180,8 @@ public sealed partial class ProjectRegistrationApiTests
             """));
 
         using var replay = await manufacturingClient.PostAsJsonAsync(
-            "/api/manufacturing/executions/assembly-batch",
-            new { operationId, projectId, panels = successfulPanels },
+            "/api/manufacturing/executions/step-batch",
+            new { operationId, projectId, targetStepSequence, targetStepName, panels = successfulPanels },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
         using (var replayJson = await ReadJsonAsync(replay))
@@ -182,15 +192,53 @@ public sealed partial class ProjectRegistrationApiTests
             select count(*) from panel_manufacturing_events where batch_operation_id = '{operationId}';
             """));
 
+        var expectedVersion = 2;
+        foreach (var step in availableSteps.Skip(1))
+        {
+            var nextOperationId = Guid.NewGuid();
+            var nextPanels = panelIds.Take(2)
+                .Select(panelId => new
+                {
+                    panelId,
+                    executionId = executionIds[panelId],
+                    expectedVersion
+                })
+                .ToArray();
+            using var nextResponse = await manufacturingClient.PostAsJsonAsync(
+                "/api/manufacturing/executions/step-batch",
+                new
+                {
+                    operationId = nextOperationId,
+                    projectId,
+                    targetStepSequence = step.Sequence,
+                    targetStepName = step.Name,
+                    panels = nextPanels
+                },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, nextResponse.StatusCode);
+            expectedVersion += 1;
+        }
+        Assert.Equal(availableSteps.Length * 2L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from panel_manufacturing_execution_steps
+            where execution_id = any(array[
+                '{executionIds[panelIds[0]]}'::uuid,
+                '{executionIds[panelIds[1]]}'::uuid
+            ])
+              and checked_at_utc is not null;
+            """));
+
         using var conflict = await manufacturingClient.PostAsJsonAsync(
-            "/api/manufacturing/executions/assembly-batch",
+            "/api/manufacturing/executions/step-batch",
             new
             {
                 operationId = Guid.NewGuid(),
                 projectId,
+                targetStepSequence,
+                targetStepName,
                 panels = new object[]
                 {
-                    new { panelId = panelIds[0], executionId = executionIds[panelIds[0]], expectedVersion = 2 },
+                    new { panelId = panelIds[0], executionId = executionIds[panelIds[0]], expectedVersion },
                     new { panelId = panelIds[2], executionId = executionIds[panelIds[2]], expectedVersion = 1 }
                 }
             },

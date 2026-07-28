@@ -42,7 +42,8 @@ public sealed record FormTemplateItemResponse(
     string ResponseType,
     bool IsRequired,
     bool RequiresPhoto,
-    int? MaxTextLength);
+    int? MaxTextLength,
+    Guid DefinitionKey);
 
 public sealed record CreateFormTemplateDraftRequest(int ExpectedActiveRowVersion);
 
@@ -58,7 +59,8 @@ public sealed record SaveFormTemplateItemRequest(
     string ResponseType,
     bool IsRequired,
     bool RequiresPhoto,
-    int? MaxTextLength);
+    int? MaxTextLength,
+    Guid? DefinitionKey = null);
 
 public sealed record TransitionFormTemplateVersionRequest(int ExpectedRowVersion);
 

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiError,
   checkManufacturingStep,
-  completeManufacturingAssemblyBatch,
+  completeManufacturingStepBatch,
   completeManufacturingExecution,
   getManufacturingPanel,
   getManufacturingQueue,
@@ -17,6 +17,7 @@ import { MobileSheet } from './MobileSheet';
 import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import type {
   ManufacturingActionDepartment,
+  ManufacturingBatchStep,
   ManufacturingExecutionDetail,
   ManufacturingPanel,
   ManufacturingQueueResponse,
@@ -75,6 +76,7 @@ export function ManufacturingPage({
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [batchFeedback, setBatchFeedback] = useState<Feedback | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [batchStepKey, setBatchStepKey] = useState('');
   const [selectionMode, setSelectionMode] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
   const [stopReason, setStopReason] = useState<StopReason>('Material');
@@ -154,11 +156,17 @@ export function ManufacturingPage({
   const selectedProject = projects.find((project) => project.projectId === selectedProjectId) ?? null;
   const manufacturingVisibleIds = selectedProject?.panels.map((item) => item.panelId) ?? [];
   const manufacturingSelection = useSelectedRows(manufacturingVisibleIds);
-  const selectedManufacturingPanels = selectedProject?.panels
-    .filter((item) => manufacturingSelection.selectedIds.has(item.panelId)) ?? [];
-  const assemblyBatchTargets = selectedManufacturingPanels.filter(isAssemblyBatchEligible);
-  const assemblyBatchExcluded = selectedManufacturingPanels.filter((item) => !isAssemblyBatchEligible(item));
-  const assemblyBatchStepCount = assemblyBatchTargets.length;
+  const selectedManufacturingPanels = useMemo(
+    () => selectedProject?.panels.filter((item) => manufacturingSelection.selectedIds.has(item.panelId)) ?? [],
+    [manufacturingSelection.selectedIds, selectedProject]
+  );
+  const batchStepOptions = useMemo(
+    () => collectBatchStepOptions(selectedManufacturingPanels),
+    [selectedManufacturingPanels]
+  );
+  const selectedBatchStep = batchStepOptions.find((item) => item.key === batchStepKey) ?? null;
+  const stepBatchTargets = selectedManufacturingPanels.filter((item) => isStepBatchEligible(item, selectedBatchStep));
+  const stepBatchExcluded = selectedManufacturingPanels.filter((item) => !isStepBatchEligible(item, selectedBatchStep));
   const selectedPanel = selectedProject?.panels.find((panel) => panel.panelId === selectedPanelId) ?? null;
   const detail = detailState.kind === 'ready' ? detailState.data : null;
   const panel = detail?.panel ?? selectedPanel;
@@ -166,6 +174,12 @@ export function ManufacturingPage({
   const allStepsChecked = Boolean(detail?.steps.length) && detail!.steps.every((step) => step.checked);
   const nextStep = detail?.steps.find((step) => !step.checked) ?? null;
   const mayMutatePanel = canMutate && panel?.canMutate === true;
+
+  const availableBatchStepKeys = batchStepOptions.map((item) => item.key).join('|');
+  useEffect(() => {
+    if (batchStepOptions.some((item) => item.key === batchStepKey)) return;
+    setBatchStepKey(batchStepOptions[0]?.key ?? '');
+  }, [availableBatchStepKeys, batchStepKey, batchStepOptions]);
 
   function operationId(action: string, fingerprint: string) {
     const current = operationReceipts.current[action];
@@ -298,10 +312,10 @@ export function ManufacturingPage({
     }
   }
 
-  async function completeAssemblyBatch() {
-    if (!selectedProject || assemblyBatchTargets.length === 0 || mutationInFlightRef.current) return;
+  async function completeStepBatch() {
+    if (!selectedProject || !selectedBatchStep || stepBatchTargets.length === 0 || mutationInFlightRef.current) return;
     mutationInFlightRef.current = true;
-    const panels = [...assemblyBatchTargets]
+    const panels = [...stepBatchTargets]
       .sort((left, right) => left.panelId.localeCompare(right.panelId))
       .map((item) => ({
         panelId: item.panelId,
@@ -311,17 +325,19 @@ export function ManufacturingPage({
     const fingerprint = panels
       .map((item) => `${item.panelId}|${item.executionId}|${item.expectedVersion}`)
       .join(',');
-    const receiptId = operationId('assembly-batch', `${selectedProject.projectId}|${fingerprint}`);
-    setSavingAction('assembly-batch');
+    const receiptId = operationId('step-batch', `${selectedProject.projectId}|${selectedBatchStep.key}|${fingerprint}`);
+    setSavingAction('step-batch');
     manufacturingSelection.setBusy(true);
-    setBatchFeedback({ tone: 'info', message: `${panels.length}면의 조립 단계를 저장하는 중입니다.` });
+    setBatchFeedback({ tone: 'info', message: `${panels.length}면의 ${selectedBatchStep.stepName} 단계를 저장하는 중입니다.` });
     try {
-      const result = await completeManufacturingAssemblyBatch(developmentUserKey, {
+      const result = await completeManufacturingStepBatch(developmentUserKey, {
         operationId: receiptId,
         projectId: selectedProject.projectId,
+        targetStepSequence: selectedBatchStep.sequenceNumber,
+        targetStepName: selectedBatchStep.stepName,
         panels
       });
-      delete operationReceipts.current['assembly-batch'];
+      delete operationReceipts.current['step-batch'];
       const queue = await getManufacturingQueue(developmentUserKey, selectedProject.projectId);
       setQueueState({ kind: 'ready', data: queue });
       if (selectedPanelId) {
@@ -331,12 +347,12 @@ export function ManufacturingPage({
       setBatchOpen(false);
       setBatchFeedback({
         tone: 'success',
-        message: `${result.completedPanelCount}면의 조립 단계만 완료했습니다. 다른 제조 단계는 유지됩니다.`
+        message: `${result.completedPanelCount}면의 ${selectedBatchStep.stepName} 단계만 완료했습니다. 다른 제조 단계는 유지됩니다.`
       });
     } catch (error) {
       setBatchFeedback({
         tone: 'error',
-        message: errorMessage(error, '선택 패널의 조립 단계를 처리하지 못했습니다. 선택은 유지됩니다.')
+        message: errorMessage(error, '선택 패널의 제조 단계를 처리하지 못했습니다. 선택은 유지됩니다.')
       });
     } finally {
       mutationInFlightRef.current = false;
@@ -490,20 +506,20 @@ export function ManufacturingPage({
                 <>
                   <section className="manufacturing-batch-bar" aria-label="선택 패널 일괄 작업">
                     <div>
-                      <strong>조립 단계 일괄 완료</strong>
+                      <strong>제조 단계 일괄 완료</strong>
                       <small>
-                        선택 {selectedManufacturingPanels.length}면 · 처리 가능 {assemblyBatchTargets.length}면
-                        {assemblyBatchExcluded.length > 0 ? ` · 제외 ${assemblyBatchExcluded.length}면` : ''}
+                        선택 {selectedManufacturingPanels.length}면 · 처리 가능 {stepBatchTargets.length}면
+                        {stepBatchExcluded.length > 0 ? ` · 제외 ${stepBatchExcluded.length}면` : ''}
                       </small>
                     </div>
                     <button
                       ref={batchTriggerRef}
                       type="button"
                       className="primary-button"
-                      disabled={assemblyBatchTargets.length === 0 || manufacturingSelection.busy || Boolean(savingAction)}
+                      disabled={selectedManufacturingPanels.length === 0 || batchStepOptions.length === 0 || manufacturingSelection.busy || Boolean(savingAction)}
                       onClick={() => setBatchOpen(true)}
                     >
-                      {savingAction === 'assembly-batch' ? '처리 중…' : `선택 패널 조립 단계 완료 (${assemblyBatchTargets.length}면)`}
+                      {savingAction === 'step-batch' ? '처리 중…' : '완료할 단계 선택'}
                     </button>
                   </section>
                   {batchFeedback ? (
@@ -649,9 +665,9 @@ export function ManufacturingPage({
 
       <MobileSheet
         open={batchOpen}
-        title="조립 단계 일괄 완료"
+        title="제조 단계 일괄 완료"
         eyebrow="MANUFACTURING · BATCH"
-        description="현장에서 함께 작업한 패널의 조립 입력을 한 번에 반영합니다."
+        description="현장에서 함께 작업한 패널에 선택한 제조 단계 한 건을 한 번에 반영합니다."
         onClose={() => {
           if (!mutationInFlightRef.current) setBatchOpen(false);
         }}
@@ -663,10 +679,12 @@ export function ManufacturingPage({
               type="button"
               className="primary-button"
               data-autofocus
-              disabled={assemblyBatchTargets.length === 0 || Boolean(savingAction)}
-              onClick={() => void completeAssemblyBatch()}
+              disabled={!selectedBatchStep || stepBatchTargets.length === 0 || Boolean(savingAction)}
+              onClick={() => void completeStepBatch()}
             >
-              {savingAction === 'assembly-batch' ? '저장 중…' : `${assemblyBatchTargets.length}면 조립 단계 완료`}
+              {savingAction === 'step-batch'
+                ? '저장 중…'
+                : `${stepBatchTargets.length}면 ${selectedBatchStep?.stepName ?? '제조 단계'} 완료`}
             </button>
           </>
         )}
@@ -674,29 +692,44 @@ export function ManufacturingPage({
         <div className="manufacturing-batch-confirm">
           <div className="manufacturing-batch-counts">
             <span><small>선택</small><strong>{selectedManufacturingPanels.length}면</strong></span>
-            <span><small>처리 가능</small><strong>{assemblyBatchTargets.length}면</strong></span>
-            <span><small>조립 처리</small><strong>{assemblyBatchStepCount}단계</strong></span>
-            <span><small>제외</small><strong>{assemblyBatchExcluded.length}면</strong></span>
+            <span><small>처리 가능</small><strong>{stepBatchTargets.length}면</strong></span>
+            <span><small>선택 단계</small><strong>{selectedBatchStep ? `${selectedBatchStep.sequenceNumber}단계` : '미선택'}</strong></span>
+            <span><small>제외</small><strong>{stepBatchExcluded.length}면</strong></span>
           </div>
+          <label className="manufacturing-batch-step-picker">
+            <span>완료할 제조 단계</span>
+            <select
+              aria-label="완료할 제조 단계"
+              value={batchStepKey}
+              disabled={Boolean(savingAction)}
+              onChange={(event) => setBatchStepKey(event.target.value)}
+            >
+              {batchStepOptions.map((item) => (
+                <option key={item.key} value={item.key}>
+                  {item.sequenceNumber}단계 · {item.stepName} ({item.availablePanelCount}면 가능)
+                </option>
+              ))}
+            </select>
+          </label>
           <p className="manufacturing-batch-warning">
-            선택한 패널의 조립 단계만 완료 처리합니다. 다른 제조 단계는 그대로 유지됩니다.
+            선택한 제조 단계 한 건만 완료 처리합니다. 앞뒤의 다른 제조 단계는 그대로 유지됩니다.
           </p>
           <section>
             <h3>처리 대상</h3>
             <ul>
-              {assemblyBatchTargets.map((item) => (
+              {stepBatchTargets.map((item) => (
                 <li key={item.panelId}><strong>{item.displayCode}</strong><span>{item.panelName ?? '패널명 미입력'}</span></li>
               ))}
             </ul>
           </section>
-          {assemblyBatchExcluded.length > 0 ? (
+          {stepBatchExcluded.length > 0 ? (
             <section>
               <h3>이번 처리에서 제외</h3>
               <ul>
-                {assemblyBatchExcluded.map((item) => (
+                {stepBatchExcluded.map((item) => (
                   <li key={item.panelId}>
                     <strong>{item.displayCode}</strong>
-                    <span>{assemblyBatchExclusionReason(item, canMutate)}</span>
+                    <span>{stepBatchExclusionReason(item, canMutate, selectedBatchStep)}</span>
                   </li>
                 ))}
               </ul>
@@ -784,24 +817,66 @@ function statusLabel(status: ManufacturingStatus) {
   }
 }
 
-function isAssemblyBatchEligible(panel: ManufacturingPanel) {
+type BatchStepOption = ManufacturingBatchStep & {
+  key: string;
+  availablePanelCount: number;
+};
+
+function batchStepKey(step: Pick<ManufacturingBatchStep, 'sequenceNumber' | 'stepName'>) {
+  return JSON.stringify([step.sequenceNumber, step.stepName]);
+}
+
+function collectBatchStepOptions(panels: ManufacturingPanel[]): BatchStepOption[] {
+  const options = new Map<string, BatchStepOption>();
+  for (const panel of panels) {
+    for (const step of panel.batchSteps ?? []) {
+      const key = batchStepKey(step);
+      const existing = options.get(key);
+      if (existing) {
+        if (!step.checked) existing.availablePanelCount += 1;
+      } else {
+        options.set(key, {
+          ...step,
+          key,
+          availablePanelCount: step.checked ? 0 : 1
+        });
+      }
+    }
+  }
+  return [...options.values()]
+    .filter((item) => item.availablePanelCount > 0)
+    .sort((left, right) =>
+      left.sequenceNumber - right.sequenceNumber || left.stepName.localeCompare(right.stepName, 'ko'));
+}
+
+function isStepBatchEligible(panel: ManufacturingPanel, target: BatchStepOption | null) {
   return panel.canMutate
     && panel.status === 'InProgress'
     && Boolean(panel.executionId)
     && panel.version > 0
-    && panel.assemblyStepSequence !== null
-    && panel.assemblyStepSequence !== undefined
-    && panel.assemblyStepChecked === false;
+    && Boolean(target)
+    && panel.batchSteps.some((step) =>
+      step.sequenceNumber === target!.sequenceNumber
+      && step.stepName === target!.stepName
+      && !step.checked);
 }
 
-function assemblyBatchExclusionReason(panel: ManufacturingPanel, canMutate: boolean) {
+function stepBatchExclusionReason(
+  panel: ManufacturingPanel,
+  canMutate: boolean,
+  target: BatchStepOption | null
+) {
   if (!canMutate || !panel.canMutate) return '조회 전용 사용자';
   if (panel.status === 'Blocked') return '중단 Pending 처리 필요';
   if (panel.status === 'Ready') return '제조 시작 전';
   if (panel.status === 'Completed' || panel.status === 'Cancelled') return '진행 중 제조 실행 아님';
   if (!panel.executionId || panel.version < 1) return '제조 실행 정보 없음';
-  if (panel.assemblyStepChecked === true) return '조립 단계 이미 완료';
-  return '조립 단계 식별 불가';
+  if (!target) return '완료할 제조 단계 미선택';
+  const matching = panel.batchSteps.find((step) =>
+    step.sequenceNumber === target.sequenceNumber && step.stepName === target.stepName);
+  if (!matching) return '선택한 단계가 이 패널에 없거나 단계명이 다름';
+  if (matching.checked) return '선택한 제조 단계 이미 완료';
+  return '일괄 처리 대상 아님';
 }
 
 function formatOperationalTime(value: string | null) {

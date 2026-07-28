@@ -18,14 +18,14 @@ public static class ProductionControlTemplateEndpointExtensions
             => await Safe(() => store.GetCatalogAsync(UserId(user), IsAdmin(user), cancellationToken)))
             .WithName("GetProductionControlTemplates");
 
-        group.MapPost("/manufacturing/{productTypeId:guid}/drafts", async (
+        group.MapPost("/manufacturing/{productTypeId:guid}/current", async (
             Guid productTypeId,
             CreateProductionControlDraftRequest request,
             ProductionControlTemplateStore store,
             ClaimsPrincipal user,
             CancellationToken cancellationToken)
-            => await Safe(() => store.CreateManufacturingDraftAsync(productTypeId, request, UserId(user), IsAdmin(user), cancellationToken)))
-            .WithName("CreateProductionControlManufacturingDraft");
+            => await Safe(() => store.EnsureManufacturingCurrentAsync(productTypeId, request, UserId(user), IsAdmin(user), cancellationToken)))
+            .WithName("EnsureProductionControlManufacturingCurrent");
 
         group.MapPut("/manufacturing/{productTypeId:guid}/versions/{versionId:guid}", async (
             Guid productTypeId,
@@ -35,36 +35,16 @@ public static class ProductionControlTemplateEndpointExtensions
             ClaimsPrincipal user,
             CancellationToken cancellationToken)
             => await Safe(() => store.SaveManufacturingAsync(productTypeId, versionId, request, UserId(user), IsAdmin(user), cancellationToken)))
-            .WithName("SaveProductionControlManufacturingDraft");
+            .WithName("SaveProductionControlManufacturingCurrent");
 
-        group.MapPost("/manufacturing/{productTypeId:guid}/versions/{versionId:guid}/activate", async (
-            Guid productTypeId,
-            Guid versionId,
-            TransitionProductionControlVersionRequest request,
-            ProductionControlTemplateStore store,
-            ClaimsPrincipal user,
-            CancellationToken cancellationToken)
-            => await Safe(() => store.ActivateManufacturingAsync(productTypeId, versionId, request, UserId(user), IsAdmin(user), cancellationToken)))
-            .WithName("ActivateProductionControlManufacturingVersion");
-
-        group.MapPost("/manufacturing/{productTypeId:guid}/versions/{versionId:guid}/archive", async (
-            Guid productTypeId,
-            Guid versionId,
-            TransitionProductionControlVersionRequest request,
-            ProductionControlTemplateStore store,
-            ClaimsPrincipal user,
-            CancellationToken cancellationToken)
-            => await Safe(() => store.ArchiveManufacturingDraftAsync(productTypeId, versionId, request, UserId(user), IsAdmin(user), cancellationToken)))
-            .WithName("ArchiveProductionControlManufacturingDraft");
-
-        group.MapPost("/planning/{productTypeId:guid}/drafts", async (
+        group.MapPost("/planning/{productTypeId:guid}/current", async (
             Guid productTypeId,
             CreateProductionControlDraftRequest request,
             ProductionControlTemplateStore store,
             ClaimsPrincipal user,
             CancellationToken cancellationToken)
-            => await Safe(() => store.CreatePlanDraftAsync(productTypeId, request, UserId(user), IsAdmin(user), cancellationToken)))
-            .WithName("CreateProductionControlPlanDraft");
+            => await Safe(() => store.EnsurePlanCurrentAsync(productTypeId, request, UserId(user), IsAdmin(user), cancellationToken)))
+            .WithName("EnsureProductionControlPlanCurrent");
 
         group.MapPut("/planning/{productTypeId:guid}/versions/{versionId:guid}", async (
             Guid productTypeId,
@@ -74,27 +54,7 @@ public static class ProductionControlTemplateEndpointExtensions
             ClaimsPrincipal user,
             CancellationToken cancellationToken)
             => await Safe(() => store.SavePlanAsync(productTypeId, versionId, request, UserId(user), IsAdmin(user), cancellationToken)))
-            .WithName("SaveProductionControlPlanDraft");
-
-        group.MapPost("/planning/{productTypeId:guid}/versions/{versionId:guid}/activate", async (
-            Guid productTypeId,
-            Guid versionId,
-            TransitionProductionControlVersionRequest request,
-            ProductionControlTemplateStore store,
-            ClaimsPrincipal user,
-            CancellationToken cancellationToken)
-            => await Safe(() => store.ActivatePlanAsync(productTypeId, versionId, request, UserId(user), IsAdmin(user), cancellationToken)))
-            .WithName("ActivateProductionControlPlanVersion");
-
-        group.MapPost("/planning/{productTypeId:guid}/versions/{versionId:guid}/archive", async (
-            Guid productTypeId,
-            Guid versionId,
-            TransitionProductionControlVersionRequest request,
-            ProductionControlTemplateStore store,
-            ClaimsPrincipal user,
-            CancellationToken cancellationToken)
-            => await Safe(() => store.ArchivePlanDraftAsync(productTypeId, versionId, request, UserId(user), IsAdmin(user), cancellationToken)))
-            .WithName("ArchiveProductionControlPlanDraft");
+            .WithName("SaveProductionControlPlanCurrent");
 
         return app;
     }

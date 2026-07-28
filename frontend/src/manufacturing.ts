@@ -66,8 +66,13 @@ export interface ManufacturingPanel {
   startedAtUtc: string | null;
   completedAtUtc: string | null;
   canMutate: boolean;
-  assemblyStepChecked: boolean | null;
-  assemblyStepSequence: number | null;
+  batchSteps: ManufacturingBatchStep[];
+}
+
+export interface ManufacturingBatchStep {
+  sequenceNumber: number;
+  stepName: string;
+  checked: boolean;
 }
 
 export interface ManufacturingExecutionDetail {
@@ -123,9 +128,11 @@ export interface ManufacturingMutationResponse {
   replayed: boolean;
 }
 
-export interface AssemblyBatchManufacturingRequest {
+export interface StepBatchManufacturingRequest {
   operationId: string;
   projectId: string;
+  targetStepSequence: number;
+  targetStepName: string;
   panels: Array<{
     panelId: string;
     executionId: string;
@@ -133,7 +140,7 @@ export interface AssemblyBatchManufacturingRequest {
   }>;
 }
 
-export interface AssemblyBatchManufacturingResponse {
+export interface StepBatchManufacturingResponse {
   operationId: string;
   projectId: string;
   completedPanelCount: number;

@@ -121,15 +121,38 @@ public sealed class HomeMetricsStore(DatabaseConnectionStringProvider connection
     {
         const string sql = """
             with visible as (
-                select p.id from projects p where p.deleted_at_utc is null and p.status='Active'
+                select p.id,p.structure_mode from projects p where p.deleted_at_utc is null and p.status='Active'
                   and (@has_read_all or p.project_key=any(@project_keys))
+            ), base_steps as (
+                select pp.id plan_id,
+                    count(pi.id) filter(where pi.is_active and pi.is_required)::int required_count,
+                    count(pi.id) filter(where pi.is_active and pi.is_required and (
+                      (pp.model_version='LEGACY' and pi.planned_date is not null)
+                      or (pp.model_version='LINKED_V1' and pi.planned_start_date is not null and pi.planned_end_date is not null)
+                    ))::int planned_count
+                from project_production_plans pp
+                left join project_production_plan_items pi on pi.production_plan_id=pp.id
+                group by pp.id
+            ), set_steps as (
+                select scope.production_plan_id plan_id,
+                    count(pi.id) filter(where pi.is_active and pi.is_required)::int required_count,
+                    count(pi.id) filter(where pi.is_active and pi.is_required
+                      and value.planned_start_date is not null and value.planned_end_date is not null)::int planned_count
+                from project_production_plan_set_scopes scope
+                join ul891_set_instances instance on instance.id=scope.set_instance_id and instance.status='Active'
+                join project_production_plan_items pi on pi.production_plan_id=scope.production_plan_id
+                left join project_production_plan_set_item_values value
+                  on value.set_scope_id=scope.id and value.production_plan_item_id=pi.id
+                group by scope.production_plan_id
             ), plan_steps as (
                 select v.id,pp.product_type_id,
-                    count(pi.id) filter(where pi.is_required)::int required_count,
-                    count(pi.id) filter(where pi.is_required and pi.planned_date is not null)::int planned_count
+                    case when v.structure_mode='Ul891Set' and pp.model_version='LINKED_V1'
+                         then coalesce(set_steps.required_count,0) else coalesce(base_steps.required_count,0) end required_count,
+                    case when v.structure_mode='Ul891Set' and pp.model_version='LINKED_V1'
+                         then coalesce(set_steps.planned_count,0) else coalesce(base_steps.planned_count,0) end planned_count
                 from visible v left join project_production_plans pp on pp.project_id=v.id
-                left join project_production_plan_items pi on pi.production_plan_id=pp.id
-                group by v.id,pp.product_type_id
+                left join base_steps on base_steps.plan_id=pp.id
+                left join set_steps on set_steps.plan_id=pp.id
             ), assignees as (
                 select v.id,count(pa.id) filter(where pa.assigned_user_id is not null)::int assigned_count
                 from visible v left join project_assignees pa on pa.project_id=v.id group by v.id

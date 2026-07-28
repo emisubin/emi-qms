@@ -48,13 +48,28 @@ public sealed record ProductionPlanningResponse(
     IReadOnlyList<ProductionPlanItemResponse> Items,
     IReadOnlyList<ProjectAssigneeResponse> Assignees,
     IReadOnlyList<AssigneeCandidateResponse> AssigneeCandidates,
-    IReadOnlyList<NotificationFallbackResponse> Fallbacks);
+    IReadOnlyList<NotificationFallbackResponse> Fallbacks,
+    bool IsSetScoped,
+    ProductionPlanSetScopeResponse? SelectedScope,
+    IReadOnlyList<ProductionPlanSetScopeResponse> Scopes);
+
+public sealed record ProductionPlanSetScopeResponse(
+    Guid ScopeId,
+    Guid SetInstanceId,
+    string Label,
+    string SpecName,
+    int SpecNumber,
+    int InstanceNumber,
+    string Status,
+    int ActivePanelCount,
+    int RequiredItemCount,
+    int PlannedRequiredItemCount,
+    int RowVersion);
 
 public sealed record ProjectManufacturingStepResponse(
     Guid DefinitionKey,
     int SequenceNumber,
-    string StepName,
-    string StepRole);
+    string StepName);
 
 public sealed class ProductionPlanItemResponse
 {
@@ -70,6 +85,9 @@ public sealed class ProductionPlanItemResponse
     public DateOnly? PlannedEndDate { get; init; }
     public DateOnly? ActualStartDate { get; init; }
     public DateOnly? ActualEndDate { get; init; }
+    public Guid? AssignedUserId { get; init; }
+    public string? AssignedUserName { get; init; }
+    public int? RequiredHeadcount { get; init; }
     public int CompletedTargetCount { get; init; }
     public int TotalTargetCount { get; init; }
     public int ProgressPercent { get; init; }
@@ -93,7 +111,8 @@ public sealed record ProductionPlanEvidenceResponse(
     DateOnly? CompletedDate,
     bool IsCompleted,
     bool IsBlocked,
-    string StatusLabel);
+    string StatusLabel,
+    string EvidenceScope = "SetPanel");
 
 public sealed class ProjectAssigneeResponse
 {
@@ -207,6 +226,20 @@ public sealed record UpdateProductionPlanningRequest(
     IReadOnlyList<ProductionPlanItemUpdateRequest>? Items,
     IReadOnlyList<ProjectAssigneeUpdateRequest>? Assignees);
 
+public sealed record UpdateProductionPlanSetScopeRequest(
+    int? ExpectedRowVersion,
+    string? Reason,
+    IReadOnlyList<ProductionPlanSetItemValueUpdateRequest>? Items);
+
+public sealed record ProductionPlanSetItemValueUpdateRequest(
+    Guid? ItemId,
+    int? ExpectedRowVersion,
+    DateOnly? PlannedStartDate,
+    DateOnly? PlannedEndDate,
+    Guid? AssignedUserId,
+    int? RequiredHeadcount,
+    string? Note);
+
 public sealed record ProductionPlanItemUpdateRequest(
     Guid? ItemId,
     Guid? TemplateStepId,
@@ -217,6 +250,8 @@ public sealed record ProductionPlanItemUpdateRequest(
     DateOnly? PlannedDate,
     DateOnly? PlannedStartDate,
     DateOnly? PlannedEndDate,
+    Guid? AssignedUserId,
+    int? RequiredHeadcount,
     string? Note,
     bool? IsDeleted,
     Guid? DefinitionKey,
@@ -304,6 +339,28 @@ public sealed record ProductionPlanningMutationResult<T>(
     public static ProductionPlanningMutationResult<T> Validation(IReadOnlyDictionary<string, string[]> errors) => new(ProductionPlanningMutationStatus.Validation, default, errors, null);
     public static ProductionPlanningMutationResult<T> NotFound() => new(ProductionPlanningMutationStatus.NotFound, default, new Dictionary<string, string[]>(), null);
     public static ProductionPlanningMutationResult<T> Conflict(string message) => new(ProductionPlanningMutationStatus.Conflict, default, new Dictionary<string, string[]>(), message);
+}
+
+public sealed record ProductionPlanningReadResult(
+    ProductionPlanningReadStatus Status,
+    ProductionPlanningResponse? Value,
+    IReadOnlyDictionary<string, string[]> Errors)
+{
+    public static ProductionPlanningReadResult Success(ProductionPlanningResponse value) =>
+        new(ProductionPlanningReadStatus.Success, value, new Dictionary<string, string[]>());
+
+    public static ProductionPlanningReadResult Validation(IReadOnlyDictionary<string, string[]> errors) =>
+        new(ProductionPlanningReadStatus.Validation, null, errors);
+
+    public static ProductionPlanningReadResult NotFound() =>
+        new(ProductionPlanningReadStatus.NotFound, null, new Dictionary<string, string[]>());
+}
+
+public enum ProductionPlanningReadStatus
+{
+    Success,
+    Validation,
+    NotFound
 }
 
 public enum ProductionPlanningMutationStatus

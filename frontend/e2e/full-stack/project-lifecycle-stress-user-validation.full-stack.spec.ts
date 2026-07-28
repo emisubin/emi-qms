@@ -89,7 +89,7 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await page.getByLabel('판매금액').fill('480000000');
   await page.getByLabel('통화').fill('KRW');
   await page.getByLabel('납품장소').fill('합성 고객 현장');
-  await page.getByLabel('FAT 필요 여부').selectOption('true');
+  await page.getByRole('group', { name: 'FAT 필요 여부' }).getByRole('button', { name: /^필요 패널별/u }).click();
   await page.getByRole('button', { name: '등록' }).click();
   await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
 
@@ -100,7 +100,7 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
 
   // 2. 생산관리 담당자가 계획 일정과 전 부서 정·부 담당자를 지정한다.
   await switchUser(page, 'dev-production');
-  await page.goto('/production-planning');
+  await page.goto('/production-planning/plans');
   await page.getByPlaceholder('프로젝트명, 고객사, Code, Item 검색').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
   const productionRow = page.getByRole('table', { name: '생산계획 프로젝트 목록' })
@@ -108,6 +108,7 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await productionRow.click();
   await page.getByLabel('선택 프로젝트 생산계획').getByRole('button', { name: '생산계획 수정' }).click();
   await page.waitForLoadState('networkidle');
+  await openInputSection(page, '생산계획표 입력');
   const planDates = page.getByRole('table', { name: '생산계획 수정' }).locator('input[type="date"]');
   const plannedDates = ['2026-07-15', '2026-07-20', '2026-08-05', '2026-08-20'];
   for (let index = 0; index < await planDates.count(); index += 1) {
@@ -126,6 +127,7 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
     ['OQC 정', qualityUserId], ['OQC 부', qualityUserId],
     ['전진검수/FAT 정', qualityUserId], ['전진검수/FAT 부', qualityUserId]
   ];
+  await openInputSection(page, '담당자 지정');
   for (const [label, userId] of assignees) await page.getByLabel(label).selectOption(userId);
   await page.getByRole('button', { name: '저장' }).click();
   await expect(page.getByText('생산계획을 저장했습니다.')).toBeVisible();
@@ -215,8 +217,7 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await captureProjectFlow(page, projectId, 'stages/08-kitting-12-completed.jpg');
 
   await switchUser(page, 'dev-production');
-  await page.goto('/production-planning');
-  await page.getByRole('tab', { name: /제조 투입/u }).click();
+  await page.goto('/production-planning/releases');
   const releaseProject = page.locator('.production-project-row').filter({ hasText: projectTitle });
   await releaseProject.click();
   const releasePanel = page.getByLabel('패널 제조 투입 요청');
@@ -312,11 +313,11 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await captureProjectFlow(page, projectId, 'stages/14-quality-12-completed.jpg');
 
   // 15~17. 물류 담당자가 12면 전체를 한 묶음으로 포장·출발·납품한다.
-  await completeLogisticsStage(page, 'packing', '포장 묶음 시작', '포장 확정', projectId, true);
+  await completeLogisticsStage(page, 'packing', projectId, true);
   await captureProjectFlow(page, projectId, 'stages/15-packing-completed.jpg');
-  await completeLogisticsStage(page, 'departure', '상차 확인 시작', '출발 확정', projectId, true);
+  await completeLogisticsStage(page, 'departure', projectId, true);
   await captureProjectFlow(page, projectId, 'stages/16-departure-completed.jpg');
-  await completeLogisticsStage(page, 'delivery', '인수 확인 시작', '납품 확정', projectId, false);
+  await completeLogisticsStage(page, 'delivery', projectId, false);
   await captureProjectFlow(page, projectId, 'stages/17-delivery-completed.jpg');
 
   // 18. 영업이 회계팀 발행요청 Excel을 만들고 회계 확인값으로 최종 완료한다.
@@ -338,7 +339,10 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await page.getByLabel('회계팀 발행 확인일 필수').fill(currentSeoulDate);
   await page.getByLabel('회계팀 세금계산서 번호').fill(`STRESS-${String(unique).slice(-6)}`);
   await page.getByLabel('회계 확인 메모').fill('회계팀 발행 완료와 12면 납품, 미결 Pending 0건을 확인했습니다.');
-  await page.getByRole('button', { name: '임시 저장' }).click();
+  await expectInputFlowReadable(page, '.settlement-form > .ds-input-flow');
+  await expectDarkSurfaceTextReadable(page);
+  await capture(page, 'stages/18b-settlement-input-layout.jpg');
+  await page.getByRole('button', { name: '발행 확인 저장' }).click();
   await page.getByRole('button', { name: '최종 완료 확인' }).click();
   await page.getByRole('button', { name: '발행 확인·프로젝트 완료' }).click();
   await expect(page.getByRole('heading', { name: '프로젝트 완료 내역' })).toBeVisible();
@@ -418,11 +422,12 @@ async function registerInspectAndConfirmReceipt(
   await action.getByLabel('도착 수량').fill(String(quantity));
   await action.getByLabel('도착일').fill(arrivalDate);
   await action.getByLabel('비고').fill(note);
-  await action.getByRole('button', { name: '저장', exact: true }).click();
+  await action.getByRole('button', { name: '도착분 저장', exact: true }).click();
   await expect(page.getByText('도착분 저장과 IQC 검사 업무 생성을 확인했습니다.')).toBeVisible();
 
   await switchUser(page, 'dev-quality');
   await page.goto('/quality/iqc');
+  await openOperationalProject(page, projectTitle);
   const iqcCard = page.locator('.iqc-request-card').filter({ hasText: itemName }).filter({ hasText: projectTitle });
   await iqcCard.click();
   await completeIqc(page.locator('.material-action-drawer--iqc-report'));
@@ -431,15 +436,16 @@ async function registerInspectAndConfirmReceipt(
   await page.goto('/materials/receipts');
   await searchMaterials(page, projectTitle);
   item = page.locator('.material-purchase-entry').filter({ hasText: itemName });
-  await item.locator('.material-purchase-main').click();
+  await item.getByText(/행을 눌러 이력 보기/u).click();
   await item.locator('.material-receipt-line').filter({ hasText: arrivalDate }).click();
-  await item.getByRole('button', { name: '입고 확정' }).click();
+  await item.getByRole('button', { name: '입고 확정', exact: true }).click();
   await expect(page.getByText('입고를 확정했습니다. 전량 확정이면 품목도 자동 완료됩니다.')).toBeVisible();
 }
 
 async function closeMaterialItem(page: Page, projectTitle: string, itemName: string) {
   await switchUser(page, 'dev-materials');
   await page.goto('/materials/receipts');
+  await page.getByLabel('완료 포함').check();
   await searchMaterials(page, projectTitle);
   const item = page.locator('.material-purchase-row').filter({ hasText: itemName });
   await expect(item).toContainText('입고 완료');
@@ -500,7 +506,11 @@ async function completeQualityStage(
   await uploader.getByRole('button', { name: '사진 등록' }).click();
   await page.getByRole('button', { name: '판정 확정' }).click();
   const decision = page.getByRole('dialog');
-  await decision.locator('button[data-result="passed"]').click();
+  if (aggregate) {
+    await decision.locator('button[data-result="passed"]').click();
+  } else {
+    await expect(decision.locator('.quality-decision-derived[data-result="passed"]')).toBeVisible();
+  }
   await decision.getByLabel('판정 사유').fill(`${sequence}번 패널 ${stageLabel} 기준 적합`);
   await decision.getByRole('button', { name: '합격 확정 및 인계' }).click();
   await expect(page.locator('.quality-finalized-card')).toContainText('PASS');
@@ -509,8 +519,6 @@ async function completeQualityStage(
 async function completeLogisticsStage(
   page: Page,
   stage: 'packing' | 'departure' | 'delivery',
-  startButton: string,
-  finalizeButton: string,
   projectId: string,
   needsAltText: boolean
 ) {
@@ -521,17 +529,17 @@ async function completeLogisticsStage(
   for (let index = 0; index < await targets.count(); index += 1) await targets.nth(index).click();
   if (stage === 'packing') await page.getByLabel('포장 메모').fill('12면 목재 포장과 방수 상태 확인');
   if (stage === 'departure') await page.getByLabel('출발일').fill(currentSeoulDate);
-  await page.getByRole('button', { name: startButton }).click();
-  await expect(page.getByText(/draft를 만들었습니다/u)).toBeVisible();
-  const evidence = page.locator('.logistics-evidence-form');
-  await evidence.locator('input[type="file"]').setInputFiles(evidenceImage);
-  if (needsAltText) await evidence.getByLabel('사진 설명').fill(`${finalizeButton} 12면 현장 증빙`);
-  const uploadButton = evidence.getByRole('button', { name: '증빙 등록' });
-  await expect(uploadButton).toBeEnabled();
-  await uploadButton.click();
-  await expect(page.getByText('증빙을 안전하게 등록했습니다. 내용을 확인하고 확정해 주세요.')).toBeVisible();
-  await page.getByRole('button', { name: finalizeButton }).click();
-  await expect(page.getByText(new RegExp(`${finalizeButton.replace(' 확정', '')} 확정 완료`))).toBeVisible();
+  await page.locator('.logistics-file-field input[type="file"]').setInputFiles(evidenceImage);
+  if (needsAltText) await page.getByLabel('사진 설명').fill(`${logisticsStageLabel(stage)} 12면 현장 증빙`);
+  await expectInputFlowReadable(page, '.logistics-action-panel .ds-input-flow');
+  await expectDarkSurfaceTextReadable(page);
+  await capture(page, `stages/logistics-${stage}-input-layout.jpg`);
+  await page.getByRole('button', { name: `${logisticsStageLabel(stage)} 저장 및 확정` }).click();
+  await expect(page.getByText(new RegExp(`${logisticsStageLabel(stage)} 확정 완료`))).toBeVisible();
+}
+
+function logisticsStageLabel(stage: 'packing' | 'departure' | 'delivery') {
+  return stage === 'packing' ? '포장' : stage === 'departure' ? '출발' : '납품';
 }
 
 async function captureHome(page: Page, userKey: DevelopmentUserKey, filename: string) {
@@ -586,6 +594,7 @@ async function captureProjectTab(
 }
 
 async function capture(page: Page, filename: string) {
+  await expectDarkSurfaceTextReadable(page);
   await page.evaluate(async () => {
     await document.fonts.ready;
     window.scrollTo(0, 0);
@@ -599,7 +608,99 @@ async function capture(page: Page, filename: string) {
 async function searchMaterials(page: Page, projectTitle: string) {
   await page.getByPlaceholder('PJT 코드, 발주품목, 업체').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
-  await expect(page.locator('.material-project-row').filter({ hasText: projectTitle }).first()).toBeVisible();
+  const project = page.locator('.material-project-row').filter({ hasText: projectTitle }).first();
+  await expect(project).toBeVisible();
+  if (await project.getAttribute('data-expanded') !== 'true') {
+    await project.locator('.material-project-toggle').click();
+  }
+  await expect(project).toHaveAttribute('data-expanded', 'true');
+}
+
+async function openOperationalProject(page: Page, projectTitle: string) {
+  const project = page.locator('.operational-project-row').filter({ hasText: projectTitle });
+  await expect(project).toBeVisible();
+  await project.click();
+}
+
+async function openInputSection(page: Page, title: string) {
+  const section = page.locator('details.ds-input-section--collapsible').filter({ hasText: title });
+  await expect(section).toBeVisible();
+  if (await section.getAttribute('open') === null) await section.locator('summary').click();
+  await expect(section).toHaveAttribute('open', '');
+}
+
+async function expectInputFlowReadable(page: Page, selector: string) {
+  const flow = page.locator(selector);
+  await expect(flow).toBeVisible();
+  await expect.poll(() => flow.locator('.ds-input-flow__header > div').evaluate((title) =>
+    title.getBoundingClientRect().width)).toBeGreaterThan(120);
+  const metrics = await flow.evaluate((flowElement) => {
+    const header = flowElement.querySelector<HTMLElement>('.ds-input-flow__header');
+    const title = flowElement.querySelector<HTMLElement>('.ds-input-flow__header > div');
+    const steps = flowElement.querySelector<HTMLElement>('.ds-input-flow__header > ol');
+    if (!header || !title || !steps) return null;
+    return {
+      headerWidth: header.getBoundingClientRect().width,
+      titleWidth: title.getBoundingClientRect().width,
+      stepsWidth: steps.getBoundingClientRect().width,
+      headerScrollWidth: header.scrollWidth
+    };
+  });
+  expect(metrics).not.toBeNull();
+  expect(metrics!.titleWidth).toBeGreaterThan(120);
+  expect(metrics!.stepsWidth).toBeLessThanOrEqual(metrics!.headerWidth + 1);
+  expect(metrics!.headerScrollWidth).toBeLessThanOrEqual(metrics!.headerWidth + 1);
+}
+
+async function expectDarkSurfaceTextReadable(page: Page) {
+  const unreadable = await page.evaluate(() => {
+    const selectors = [
+      '.production-control-version-list button.is-active',
+      '.production-plan-set-tabs > button.active',
+      '.production-plan-set-tabs > label.active',
+      '.production-control-template-step > b',
+      '.logistics-stage-switch button[aria-current="step"]',
+      '.logistics-empty > span',
+      '.logistics-project-heading > span',
+      '.logistics-target-shape',
+      '.logistics-summary-circle',
+      '.logistics-confirm-box',
+      '.iqc-report-panel > header > span',
+      '.iqc-final-seal > i',
+      '.iqc-legacy-report > span',
+      '.department-workspace-heading > span',
+      '.excel-export-button > span',
+      '.account-photo-editor > span:last-child',
+      '.form-template-catalog > button i'
+    ];
+    function luminance(value: string) {
+      const channels = value.match(/\d+(?:\.\d+)?/gu)?.slice(0, 3).map(Number) ?? [255, 255, 255];
+      const linear = channels.map((channel) => {
+        const normalized = channel / 255;
+        return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+    }
+    return Array.from(document.querySelectorAll<HTMLElement>(selectors.join(','))).flatMap((surface) => {
+      const candidates = [surface, ...Array.from(surface.querySelectorAll<HTMLElement>('span,strong,small,b,em'))];
+      const surfaceStyle = window.getComputedStyle(surface);
+      const backgroundLuminance = luminance(surfaceStyle.backgroundColor);
+      if (backgroundLuminance > 0.2) return [];
+      return candidates.flatMap((candidate) => {
+        const hasText = Array.from(candidate.childNodes).some((node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()));
+        if (!hasText) return [];
+        const candidateStyle = window.getComputedStyle(candidate);
+        const backgroundChannels = candidateStyle.backgroundColor.match(/[\d.]+/gu) ?? [];
+        const alpha = Number(backgroundChannels[3] ?? '1');
+        const effectiveBackground = alpha > 0 ? luminance(candidateStyle.backgroundColor) : backgroundLuminance;
+        const foregroundLuminance = luminance(candidateStyle.color);
+        const contrast = (Math.max(effectiveBackground, foregroundLuminance) + 0.05)
+          / (Math.min(effectiveBackground, foregroundLuminance) + 0.05);
+        return contrast < 4.5 ? [`${surface.className || surface.tagName}:${candidate.tagName}`] : [];
+      });
+    });
+  });
+  expect(unreadable).toEqual([]);
 }
 
 async function switchUser(page: Page, userKey: DevelopmentUserKey) {

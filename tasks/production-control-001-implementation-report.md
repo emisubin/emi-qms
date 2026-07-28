@@ -1,6 +1,6 @@
 # TASK-PRODUCTION-CONTROL-001 구현 보고 — Item별 생산계획·자동 실적·가로 막대 일정
 
-상태: `실험 구현·Change 002 자동 검증 완료 / 사용자 검수 대기 — 마지막 일괄 검수`
+상태: `실험 구현·Change 008 자동 검증 완료 / 사용자 검수 대기 — 마지막 일괄 검수`
 
 ## 기준선과 범위
 
@@ -8,42 +8,62 @@
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
 - branch: `experiment/task-home-002-personalized-shell`
 - implementationBaseline: `de8e05b`
-- latestChange: `tasks/production-control-001-change-002.md`
-- latestChangeBaseline: `f8eb6ce`
+- latestChange: `tasks/production-control-001-change-008.md`
+- latestChangeBaseline: `a7651b5`
 - planningSource: `tasks/production-control-001-planning.md`
 - codexReviewSource: `tasks/production-control-001-review.md`
 - finalPlanningSource: `docs/43-production-control-plan.md`
 - 사용자 확인: Fable Round 8 전체 요약 `요약 확인`
-- 포함: Item별 제조·생산계획 양식 version, 다중 실적 연결, 새 프로젝트 snapshot, 프로젝트별 계획 기간·항목·연결 수정, 부서 원본 기반 자동 실적, desktop/mobile 조회 UI
+- 포함: Item별 단일 현재 제조·생산계획 양식, 계획 항목별 1:1 실적 연결, 새 프로젝트 snapshot, 프로젝트별 계획 기간·항목·연결 수정, 부서 원본 기반 자동 실적, desktop/mobile 조회 UI
 - 제외: 기존 프로젝트 소급 전환, Persistent UAT, 실제 provider, 대표 repo·`main`, push·PR·merge, 18단계 workflow 계산 변경
 
 ## 해결한 업무 문제
 
 기존 생산계획은 항목명·필수 여부·단일 예정일 중심이라 실제 구매·자재·제조·품질·물류 입력과 연결되지 않았다. 생산관리 담당자는 각 부서 화면을 오가며 진행 상태를 수기로 대조해야 했고, 계획 기간과 실적 기간의 겹침·지연도 한눈에 확인할 수 없었다.
 
-이번 구현으로 관리자는 코드 수정 없이 Item별 제조 항목과 생산계획 항목을 구성하고 한 계획 항목에 여러 부서 실적을 연결할 수 있다. 새 프로젝트는 생성 당시 양식과 연결을 복사해 보존하며, 생산관리 탭은 실제 부서 입력값을 읽어 계획 대비 실적·근거·진행률과 가로 막대 일정을 자동 표시한다.
+이번 구현으로 관리자는 코드 수정 없이 Item별 제조 항목과 생산계획 항목을 구성하고 한 계획 항목을 실적 데이터 하나와 연결할 수 있다. 새 프로젝트는 생성 당시 양식과 연결을 복사해 보존하며, 생산관리 탭은 실제 부서 입력값을 읽어 계획 대비 실적·근거·진행률과 가로 막대 일정을 자동 표시한다.
 
 사용자 검수에서 연결형 양식이 기존 `양식 종류` 밖의 별도 전환 화면으로 분리되고 모든 계획 항목의 연결 입력이 동시에 펼쳐져 있다는 UX 결함이 확인됐다. Change 002에서 두 연결형 양식을 기존 종류 목록에 통합하고 선택한 계획 항목 하나만 펼치는 편집 구조로 보정했다.
+
+Change 003에서는 체크박스 다중 연결과 전체 양식 version 복제가 불필요하다는 사용자 정책을 반영했다.
+
+Change 004에서는 품질 양식도 사용자에게 `v1`, `v2`를 노출하지 않는 현재 양식 하나로 통일했다. 전진검수·FAT와 전역 제조 작업 단계처럼 실제 관리 대상이 아닌 중복 양식을 목록에서 제거하고, IQC·OQC 검사 항목 하나하나를 생산계획 실적에 연결할 수 있게 했다. 아래 문서에서 Change 004와 충돌하는 이전 version·검사 전체 연결 설명은 이 최신 계약으로 대체한다.
+
+Change 005에서는 Item별 제조 항목을 모두 입력해도 `입력값을 확인해 주세요.`만 표시되며 저장되지 않던 결함을 고쳤다. 원인은 현재 생산계획이 참조하는 제조 항목을 교체할 때 새 항목을 저장하기 전에 새 연결을 먼저 요구하는 순서 교착과, Frontend가 HTTP 400의 구체 field 오류를 일반 문구로 덮어쓰는 처리였다. 제조 현재 양식은 먼저 저장하고 기존 프로젝트 snapshot은 그대로 유지한다. 현재 생산계획에서 삭제·교체된 제조 identity를 참조하는 항목만 `연결 재설정 필요`로 표시하며, 이를 다시 연결하기 전까지 새 프로젝트 생성은 fail-closed로 차단한다.
+
+Change 006에서는 OQC 검사 자체의 단계별 판정과 재검사 이력은 유지하되 생산계획 실적 연결은 세부 OQC 항목이 아닌 패널별 `OQC 합격` 최종 사건 하나만 선택하도록 정책을 정리했다. 현재 양식의 OQC 세부 연결만 aggregate로 전환하고 기존 프로젝트에 snapshot된 세부 연결은 조회 호환을 위해 보존한다.
+
+Change 007에서는 연결형 생산관리 탭의 6열 헤더를 밝은 중립 배경·검은 글자로 바꿔 가독성을 회복했다. 계획·실적 일정표에는 전체 기간에서 최대 6개를 자동 산출하는 날짜 축과 동일 위치의 세로 기준선을 추가해 막대 위치를 날짜로 바로 해석할 수 있게 했다.
+
+Change 008에서는 조회 제목을 `생산계획표`로 바꾸고, 프로젝트 생산계획 항목마다 선택 담당자·필요 인원·생산관리 코멘트를 저장하고 조회할 수 있게 했다. 담당자는 활성 업무 담당자 후보 전체에서 중복 없이 선택하며, 필요 인원은 선택값이지만 입력하면 1~999명의 정수만 허용한다. 이 정보는 일정 계획용 metadata이므로 내 업무·알림 수신자·권한·실적 계산은 변경하지 않는다. 자동 실적 연결은 계속 저장·계산하되 조회 표에서는 숨기고 담당자·필요 인원·코멘트 열로 대체했다.
 
 ## 구현 결과
 
 ### 양식과 권한
 
-1. 기존 `양식 종류` 목록에 `Item별 제조 양식`, `생산계획·실적 연결`을 같은 1차 탐색 항목으로 추가했다.
+1. 양식 종류는 `자재 수입검사`, `LQC 검사`, `OQC 자체검수`, `Item별 제조 양식`, `생산계획·실적 연결` 5개만 표시한다.
+   - 전진검수와 FAT는 패널별 통합 적합/부적합 판정이므로 항목 양식에서 제거했다.
+   - 전역 `제조 작업 단계`는 Legacy 프로젝트와 최초 Item별 seed에 필요한 내부 기준만 보존하고 사용자 관리 목록에서 제거했다.
 2. System Administrator와 지정된 제조/생산계획 양식 관리자가 권한 범위의 양식을 편집한다.
-3. 제조 양식과 생산계획 양식은 Item별 `Draft → Active → Archived` version으로 관리한다.
-4. 생산계획 항목 하나에 여러 source를 연결한다.
+3. IQC·LQC·OQC와 Item별 제조·생산계획 양식은 모두 현재 양식 하나만 조회하고 `수정 → 저장/취소`로 관리한다. 사용자는 version 번호, 초안, 활성화, 보관을 다루지 않는다.
+4. 생산계획 항목 하나에는 source 하나만 1:1로 연결한다.
    - 제조: 해당 Item 제조 양식의 불변 `definition_key`
-   - 구매·자재·품질·물류: 서버가 제공하는 고정 사건 catalog
-5. 사용 중 version은 조회 전용이며 편집용 초안을 만들어 변경한다.
-6. 생산계획 항목은 이름·필수 여부·연결 수·부서 요약을 한 줄로 표시하고, 선택한 항목 하나만 펼쳐 편집한다.
+   - IQC: 현재 검사 양식의 검사 항목 `definition_key`
+   - OQC: 패널별 `OQC 합격` 최종 사건
+   - LQC: 해당 Item 제조 단계의 `definition_key`
+   - 구매·자재·전진검수·FAT·물류: 서버가 제공하는 고정 사건 catalog
+5. 기본은 조회 상태이며 `수정 → 저장/취소`로 바꾸고, 저장할 때 새 version을 생성하지 않는다.
+6. 생산계획 항목은 이름·필수 여부·연결 실적을 한 줄로 표시하고, 선택한 항목 하나만 펼쳐 드롭다운에서 실적 하나를 편집한다.
 7. 제조 항목은 `No. / 제조 항목 / 구분 / 관리` 헤더에 맞춘 행 구조로 표시한다.
+8. 품질 성적서가 참조하는 과거 내부 snapshot은 증빙 정합성을 위해 삭제하지 않는다. 이 내부 snapshot은 사용자에게 version으로 노출하지 않으며 새 검사는 저장 시점의 현재 양식을 사용한다.
+9. 제조 항목명·구분을 수정할 때 기존 행의 불변 identity를 유지하므로 생산계획 연결은 그대로 유지한다. 연결된 행 자체를 삭제하고 새 행으로 교체한 경우에만 현재 생산계획에서 다시 연결한다.
+10. 제조 양식 변경은 저장 이후 새 프로젝트에만 적용된다. 이미 생성된 프로젝트의 제조 항목과 연결은 생성 당시 snapshot으로 고정된다.
 
 ### 새 프로젝트와 기존 프로젝트
 
 1. migration 당시 기존 프로젝트는 `Legacy`로 고정한다.
 2. Item에 유효한 Active 제조 양식과 Active 생산계획 양식이 모두 있을 때만 이후 새 프로젝트를 `LinkedV1`로 생성한다.
-3. 프로젝트 생성 transaction에서 양식 두 개와 연결 유효성을 다시 확인하고 제조 항목·계획 항목·연결을 한 세트로 snapshot한다.
+3. 프로젝트 생성 transaction에서 현재 양식 두 개와 1:1 연결 유효성을 다시 확인하고 제조 항목·계획 항목·연결을 한 세트로 snapshot한다.
 4. 일부 snapshot만 남는 프로젝트는 허용하지 않는다.
 5. 기존 프로젝트, 양식이 없는 Item과 양식 활성화 전 생성 프로젝트는 기존 단일 예정일·캘린더 화면을 그대로 사용한다.
 6. bulk 생성과 UL891 생성도 같은 snapshot 규칙을 사용한다.
@@ -64,9 +84,11 @@
 3. 진행률은 완료 대상 수 / 전체 적용 대상 수로 계산한다.
 4. IQC는 구매품목 도착분, 제조·LQC·OQC·전진검수·FAT·물류는 개별 패널을 실제 처리 단위로 유지한다.
 5. LQC 결과에는 제조 단계 `definition_key`를 함께 고정해 이후 양식명·순서 변경으로 연결이 흔들리지 않게 했다.
-6. FAT 비필수 프로젝트는 FAT 연결이 snapshot에 있어도 실적 분모와 화면의 유효 연결 요약에서 제외한다.
-7. source 이력이 아직 없는 경우 500 오류가 아니라 `대기`, 0%와 근거 0건을 반환한다.
-8. 기존 18단계 workflow와 프로젝트 대표 진행률은 변경하지 않았다.
+6. IQC는 연결한 검사 항목이 적합 또는 해당 없음이고 해당 검사 전체가 합격 확정되었을 때 그 항목의 실적 완료로 계산한다.
+7. OQC는 세부 항목 수와 관계없이 패널의 OQC 전체 합격이 확정되었을 때 완료로 계산한다. 기존 프로젝트에 snapshot된 OQC 세부 항목 연결은 과거 의미를 바꾸지 않고 항목별 projection으로 계속 읽는다.
+8. FAT 비필수 프로젝트는 FAT 연결이 snapshot에 있어도 실적 분모와 화면의 유효 연결 요약에서 제외한다.
+9. source 이력이 아직 없는 경우 500 오류가 아니라 `대기`, 0%와 근거 0건을 반환한다.
+10. 기존 18단계 workflow와 프로젝트 대표 진행률은 변경하지 않았다.
 
 ## DB·Backend·API
 
@@ -79,25 +101,48 @@
 - `0059_production_control_lqc_identity.sql`
   - LQC 응답에 제조 단계 `manufacturing_definition_key` 추가
   - 기존 응답을 파괴하거나 의미를 추측해 일괄 변환하지 않음
+- `0060_production_control_single_current.sql`
+  - 제조·생산계획 양식을 Item별 현재 양식 하나로 단일화
+  - 마스터 계획 항목의 실적 연결을 최대 1개로 제한
+  - 프로젝트가 참조하지 않는 이전 version 삭제
+  - 프로젝트가 FK로 참조하는 이전 version은 작은 식별 행만 남기고 중복 항목 payload 삭제
+- `0061_quality_current_forms_and_stage_links.sql`
+  - IQC·OQC 검사 항목에 snapshot을 넘어 유지되는 불변 `definition_key` 추가
+  - 품질 양식의 남은 Draft를 정리하고 현재 Active 양식 하나만 관리 대상으로 고정
+  - 생산계획 master·project 연결이 IQC·OQC 검사 항목을 참조할 수 있도록 제약 확장
+  - 과거 전체 합격 연결과 완료 성적서 참조는 호환 보존
+- `0062_production_control_oqc_aggregate_link.sql`
+  - 현재 생산계획 양식의 OQC 세부 항목 연결을 `OQC 합격` aggregate 연결로 정리
+  - 새 현재 양식에서 OQC `source_definition_key` 저장 차단
+  - 기존 프로젝트의 OQC 세부 연결 snapshot은 변경하지 않고 조회 호환 보존
+- `0063_production_plan_item_staffing.sql`
+  - 프로젝트 생산계획 항목에 선택 담당자와 필요 인원 nullable metadata 추가
+  - 기존 프로젝트 값은 미지정으로 보존하고 필요 인원 `1~999` DB 제약과 담당자 FK 적용
 
 Rollback은 destructive down migration 대신 배포 전 DB backup과 application forward-fix를 사용한다. 이미 생성된 `LinkedV1` snapshot을 Legacy로 재해석하거나 삭제하지 않는다.
 
 ### 주요 API
 
 - `/api/production-control/templates`
-- `/api/production-control/templates/{productTypeId}/manufacturing`
-- `/api/production-control/templates/{productTypeId}/plans`
+- `/api/production-control/templates/manufacturing/{productTypeId}/current`
+- `/api/production-control/templates/planning/{productTypeId}/current`
+- `/api/production-control/templates/{domain}/{productTypeId}/versions/{versionId}` — 내부 row identity는 유지하지만 새 version은 만들지 않고 현재 행을 직접 저장
+- `/api/form-templates/{family}/{templateKey}/current` — IQC·LQC·OQC 현재 양식 조회/저장
 - 기존 `/api/projects/{projectId}/production-planning` GET/PATCH는 model version에 따라 Legacy/LinkedV1 계약을 반환한다.
 
-서버는 template 관리 권한, 프로젝트 담당자 수정 권한, Active 전 유효성, 제조 참조 존재, 중복 연결, version 충돌과 project snapshot 불변조건을 강제한다.
+서버는 template 관리 권한, 프로젝트 담당자 수정 권한, 제조 참조 존재, 정확히 1개 연결, 동시 수정 충돌과 project snapshot 불변조건을 강제한다.
 
 ## Frontend·UX
 
 - 양식 관리 화면에서 Item, 제조 양식, 생산계획·연결을 순서대로 선택한다.
 - 연결형 양식도 다른 검사·제조 양식과 같은 `양식 종류` 목록에서 선택한다.
 - 생산계획 편집은 요약 행에서 필요한 항목 하나만 `편집`해 반복 연결 목록이 화면을 점유하지 않는다.
-- 사용 중/초안 상태와 “이후 새 프로젝트부터 적용” 원칙을 화면에 고정 표시한다.
-- 프로젝트 생산관리 탭은 조회 중심이며 단일 `생산계획 수정`으로 별도 입력 상태에 진입한다.
+- 모든 사용자용 version·초안·활성화·보관 UI를 제거하고 현재 양식의 조회/수정/저장 상태와 적용 원칙을 고정 표시한다.
+- 실적 후보는 체크박스 묶음이 아니라 단일 드롭다운으로 표시한다. 제조·LQC·IQC는 세부 단계를 선택하고 OQC·전진검수·FAT는 최종 합격 사건 한 건을 선택한다.
+- 제조 입력은 빈 항목명·100자 초과를 저장 전에 행 단위의 구체 문구로 안내하며, 서버 validation도 일반 문구로 숨기지 않는다. `TASK-MANUFACTURING-BATCH-001` Change 003부터 일반/조립 사용자 구분은 제거되고 등록한 모든 제조 단계가 선택 일괄 완료 대상이다.
+- 제조 항목 교체로 현재 생산계획 연결이 끊기면 양식 저장 성공 뒤 끊긴 항목 수를 안내하고, 생산계획 요약 행과 드롭다운에 `연결 재설정 필요`를 표시한다.
+- 프로젝트 생산관리 탭은 조회 중심이며 단일 `생산계획 수정`으로 별도 입력 상태에 진입한다. 조회 제목은 `생산계획표`이고 `계획 항목·계획 기간·실적 기간·진행·상태·담당자·필요 인원·코멘트`를 표시한다.
+- 생산계획 수정은 항목별 담당자·필요 인원·생산관리 코멘트를 입력한다. 실적 연결 설정은 편집 화면에만 남아 자동 실적 계산 기준을 보존한다.
 - 흑백 wireframe과 사각형 원칙을 유지하고 상태 의미색만 사용한다.
 - 전역 wireframe 규칙이 간트 막대를 투명하게 만드는 충돌을 정보 표시 예외로 수정했다.
 
@@ -110,6 +155,10 @@ Rollback은 destructive down migration 대신 배포 전 DB backup과 applicatio
 | 프로젝트 생성 시 두 양식 원자 snapshot | 양식 변경 후에도 생성 당시 계약 유지 | 실행 시점마다 현재 Active 양식 재조회 |
 | 불변 `definition_key` 연결 | 제조 항목명·순서 전면 변경 허용 | 이름 또는 sequence 기반 연결 |
 | 기존 양식 관리 확장 | 관리자와 지정 부서장이 익숙한 권한·version 패턴 재사용 | 별도 독립 관리자 앱 |
+| 단일 현재 양식 직접 수정 | 불필요한 전체 복제와 v2·v3 누적 방지 | 편집마다 전체 version snapshot 추가 |
+| 계획 항목과 실적 1:1 | 입력 밀도와 자동 실적 기준을 명확히 함 | 모든 source를 반복 표시하는 다중 체크 |
+| 품질 이력용 내부 snapshot 보존 | 완료 성적서의 당시 항목·판정을 나중 편집으로 바꾸지 않음 | 과거 품질 template/version 물리 삭제 |
+| 전역 제조 양식 사용자 목록 제거 | 실제 신규 프로젝트는 Item별 제조 양식을 사용하므로 이중 관리 방지 | 전역·Item별 제조 양식 동시 노출 |
 
 ## 시행착오 및 폐기한 접근
 
@@ -122,7 +171,7 @@ Rollback은 destructive down migration 대신 배포 전 DB backup과 applicatio
 ## 주요 변경 위치
 
 - Backend: `backend/src/Emi.Qms.Api/ProductionPlanning/`, `ProjectStore.cs`, `ManufacturingStore.cs`, `QualityInspectionStore.cs`, `Ul891SetStore.cs`, `Program.cs`
-- Migration: `database/migrations/0058_production_control_linked_plans.sql`, `0059_production_control_lqc_identity.sql`
+- Migration: `database/migrations/0058_production_control_linked_plans.sql`, `0059_production_control_lqc_identity.sql`, `0060_production_control_single_current.sql`, `0061_quality_current_forms_and_stage_links.sql`, `0062_production_control_oqc_aggregate_link.sql`, `0063_production_plan_item_staffing.sql`
 - Frontend: `frontend/src/ProductionControlTemplateWorkspace.tsx`, `productionControlTemplates.ts`, `FormTemplateManagementPage.tsx`, `App.tsx`, `api.ts`, `projects.ts`, `styles.css`, `design-system/wireframe.css`
 - Tests: `backend/tests/Emi.Qms.Api.Tests/ProductionPlanningApiTests.cs`, `PostgreSqlMigrationTests.cs`, `frontend/tests/App.test.tsx`, `frontend/tests/FormTemplateManagementPage.test.tsx`
 
@@ -131,16 +180,28 @@ Rollback은 destructive down migration 대신 배포 전 DB backup과 applicatio
 | 검증 | 결과 |
 | --- | --- |
 | Backend Release solution build | PASS — 경고 0, 오류 0 |
-| 생산계획 API·LinkedV1 통합 회귀 | PASS — 활성화 전 Legacy, 활성화 뒤 새 프로젝트 LinkedV1, 기존 프로젝트 불변, 연결 projection 포함 `21/21` |
-| Migration 전체 회귀 | PASS — fresh/existing 적용·catalog 최신 번호 `0059` 포함 `34/34` |
+| Backend 전체 회귀 | PASS — `429/429` |
+| 생산계획 API·Migration 집중 회귀 | PASS — 단일 현재 양식 직접 저장, 1:1 검증, 새 프로젝트 snapshot과 `0060` upgrade 포함 `57/57` |
+| 품질 현재 양식·단계 연결 Backend 회귀 | PASS — 현재 양식 저장, 권한, `0061` migration, IQC·OQC 단계 연결과 기존 aggregate 호환 포함 `57/57` |
+| Backend 단일 양식 고위험 테스트 | PASS — 직접 저장·다중 연결 거부·반복 생성 시 동일 양식 유지 `1/1` |
+| Backend 제조 항목 교체·snapshot 회귀 | PASS — 제조 저장, 기존 프로젝트 불변, 재연결 전 새 프로젝트 차단, 재연결 후 신규 snapshot `1/1` |
+| Migration `0060` upgrade 테스트 | PASS — Draft/Active 단일화·이전 payload 정리·1:1 연결 `1/1` |
+| Migration `0062` OQC aggregate upgrade | PASS — 현재 양식의 OQC 세부 key는 제거하고 기존 프로젝트 snapshot은 보존 `1/1` |
+| Migration `0063` 계획 항목 인력 metadata upgrade | PASS — 기존 행 nullable 보존, 담당자 FK, 필요 인원 유효값·0 거부 `1/1` |
 | Frontend production build | PASS — 기존 500kB 초과 chunk warning만 유지 |
 | Frontend lint | PASS — error 0, 기존 `src/main.tsx` Fast Refresh warning 1 |
-| Frontend 전체 unit | PASS — 22 files, `139/139` (`testTimeout=30000`) |
-| 실제 Backend API | PASS — template catalog, LinkedV1 계획 GET/PATCH, source 이력 없음 안전 응답 |
-| Desktop browser | PASS — 양식 관리와 프로젝트 6열 표·근거·가로 막대 |
+| Frontend typecheck | PASS |
+| Frontend 전체 unit | PASS — 22 files, `140/140` (`testTimeout=30000`) |
+| Frontend 품질·생산계획 양식 집중 unit | PASS — 현재 양식 3종, 중복 양식 제거, IQC 세부 단계와 OQC aggregate 드롭다운 |
+| Frontend 제조 저장 오류 집중 unit | PASS — 구체 입력 validation, 서버 field 오류 노출, 끊긴 연결 안내·재설정 표시 `3/3` |
+| 실제 Backend API | PASS — template catalog의 OQC `definitionKind=None`·세부 정의 0건, LinkedV1 계획 GET/PATCH, source 이력 없음 안전 응답 |
+| Desktop browser | PASS — `생산계획표` 8열 표·근거·가로 막대와 항목별 담당자·필요 인원·코멘트 입력, 가로 overflow 없음 |
+| Desktop 생산계획 양식 browser | PASS — OQC 선택지 `품질 · OQC 합격` 1개, OQC 세부 선택지 0개, 전진검수·FAT aggregate 선택지 유지 |
+| Desktop 생산관리 탭 browser | PASS — 밝은 헤더 `rgb(241, 241, 241)`·검은 글자, 날짜 축 6개, 라벨 겹침·잘림·가로 overflow·console error 없음 |
 | Mobile 390×844 browser | PASS — 계획 카드·근거·실제 가로 막대, 가로 overflow 없음 |
+| Mobile 390px 일정표 browser | PASS — 날짜 축 6개, 라벨 겹침·잘림·가로 overflow 없음 |
 
-Backend 전체 회귀는 5분 동안 완료 출력 없이 대기해 현재 실행을 중단했으며 성공으로 기록하지 않는다. 대신 solution build, 생산계획 API·신규 고위험 통합 `21/21`과 migration 최신 번호 회귀를 분리 실행했다. 이 환경 문제는 제품 Finding이 아니며 대표 승격 전 clean runner 전체 회귀가 필요하다.
+Backend 전체 회귀는 통합 PostgreSQL 시나리오와 migration `0063` upgrade를 포함해 `429/429`을 통과했다. Change 008 Frontend 전체 `140/140`·실제 고정 검수 화면도 별도로 통과했으며 새 open P0/P1/P2 Finding은 남지 않았다.
 
 ## Fable 5 사용량
 
@@ -159,6 +220,13 @@ Backend 전체 회귀는 5분 동안 완료 출력 없이 대기해 현재 실�
 | `PC-001-F02` | P1 | Resolved | LQC와 제조 단계의 안정적 identity가 없어 이름 변경 시 잘못 연결될 수 있었다. | migration `0059`와 finalize 저장으로 불변 key를 보존한다. |
 | `PC-001-F03` | P2 | Resolved | 전역 wireframe 규칙이 계획 막대를 투명하게 만들었다. | 생산계획 간트 막대를 정보 표시 예외로 고정하고 desktop/mobile 실제 화면을 확인했다. |
 | `PC-001-F05` | P2 | Resolved | 연결형 양식이 기존 종류 밖에 분리되고 편집용 row가 조회용 6열 CSS와 충돌해 초안의 정렬과 작업 대상 구분이 무너졌다. | 양식 종류에 두 항목을 통합하고 편집 전용 class·단일 펼침 편집·정렬된 제조 표로 보정했다. |
+| `PC-001-F06` | P2 | Resolved | 계획 항목마다 모든 source 체크박스가 반복되고 편집할 때 전체 양식 version이 계속 누적됐다. | 1:1 드롭다운과 단일 현재 양식 직접 저장으로 변경하고 이전 중복 payload를 migration에서 정리했다. |
+| `PC-001-F07` | P2 | Resolved | IQC·LQC·OQC에 version 관리가 남고 전진검수·FAT·전역 제조 양식이 함께 노출되어 관리 대상이 중복됐다. | 품질 현재 양식 UX로 통일하고 실제 편집 대상 5개만 양식 종류에 남겼다. |
+| `PC-001-F08` | P1 | Resolved | IQC·OQC 생산계획 연결이 검사 전체 합격만 지원해 당시 요청한 항목별 계획 실적을 계산할 수 없었다. | 품질 항목 불변 key와 단계별 projection을 추가했다. 이후 OQC 연결 정책은 `PC-001-F10`에서 aggregate로 변경했다. |
+| `PC-001-F09` | P1 | Resolved | 연결된 제조 항목 교체 시 제조 저장 전에 생산계획 재연결을 요구하는 순서 교착이 발생했고, Frontend가 구체 validation을 일반 문구로 숨겼다. | 제조 양식을 먼저 저장하고 현재 계획의 끊긴 연결을 명시적으로 재설정하게 했으며, 기존 프로젝트 snapshot과 새 프로젝트 fail-closed 경계를 회귀 검증했다. |
+| `PC-001-F10` | P2 | Resolved | OQC 내부 검사 항목이 생산계획 연결 option으로 모두 노출되어 전진검수·FAT와 다른 과도한 입력을 요구했다. | OQC를 패널별 최종 합격 단일 사건으로 바꾸고 현재 양식만 migration으로 정리했으며 기존 프로젝트 세부 snapshot은 호환 보존했다. |
+| `PC-001-F11` | P2 | Resolved | 계획 대비 실적 헤더의 검은 채움이 표 가독성을 낮추고 일정 막대에는 위치를 해석할 날짜 축이 없었다. | 밝은 중립 헤더와 최대 6개 날짜 축·동일 위치 세로 기준선을 추가하고 desktop·390px 겹침·잘림·overflow를 검증했다. |
+| `PC-001-F12` | P2 | Resolved | 생산계획 항목의 계획 담당자·필요 인원을 기록할 수 없고 조회 표가 내부 실적 연결 설정을 노출해 현장 배치 계획을 바로 읽기 어려웠다. | nullable 담당자·필요 인원 metadata와 생산관리 코멘트를 저장·이력화하고, 조회 표는 8열 생산계획표로 바꾸되 자동 실적 연결 계약은 유지했다. |
 | `PC-001-F04` | P3 | Backlog | 대규모 프로젝트에서 조회 시 실적 projection 비용이 증가할 수 있다. | 실제 성능 측정에서 병목이 확인될 때 query 최적화 또는 파생 cache Task로 분리한다. |
 
 Open P0/P1/P2: `0/0/0`.
@@ -175,24 +243,24 @@ Open P0/P1/P2: `0/0/0`.
 
 1. 관리자 또는 지정 양식 관리자로 `양식 관리`에 들어간다.
 2. `양식 종류`에서 `Item별 제조 양식`을 선택하고 Item을 고른다.
-3. `편집`을 눌러 제조 항목과 조립 의미 단계를 구성해 활성화한다.
+3. `수정`을 눌러 제조 항목과 조립 의미 단계를 구성하고 `저장`한다.
 4. `양식 종류`에서 `생산계획·실적 연결`을 선택하고 같은 Item을 고른다.
-5. `편집`을 누른 뒤 필요한 계획 항목 행을 하나씩 펼쳐 이름·필수 여부와 제조 단계 또는 고정 부서 사건을 연결해 활성화한다.
+5. `수정`을 누른 뒤 필요한 계획 항목 행을 하나씩 펼쳐 이름·필수 여부를 정하고, 드롭다운에서 제조·LQC·IQC 세부 단계 또는 `OQC 합격`을 포함한 고정 부서 사건 하나를 선택한 뒤 `저장`한다.
 6. 이후 새로 생성한 해당 Item 프로젝트부터 연결형 생산계획이 적용된다.
 
 ### 프로젝트 계획과 실적 확인
 
 1. 프로젝트 상세의 `생산관리` 탭을 연다.
-2. `생산계획 수정`에서 각 항목의 계획 시작·종료와 필요한 프로젝트 전용 연결을 저장한다.
-3. 조회 화면에서 계획 기간, 자동 실적 기간, 진행률과 상태를 확인한다.
+2. `생산계획 수정`에서 각 항목의 계획 시작·종료, 담당자, 필요 인원, 생산관리 코멘트와 필요한 프로젝트 전용 연결을 저장한다.
+3. 조회 화면의 `생산계획표`에서 계획·실적 기간, 진행률, 상태, 담당자, 필요 인원과 코멘트를 확인한다.
 4. 행 또는 모바일 `근거 N건`을 눌러 어떤 품목·패널이 완료 또는 대기인지 확인한다.
-5. 하단 가로 막대에서 계획과 실적의 겹침·지연을 비교한다.
+5. 하단 가로 막대 위 날짜 축을 기준으로 계획과 실적의 겹침·지연을 비교한다.
 
 ## 사용자 검수 결과와 남은 항목
 
 - 자동 검증과 합성 데이터 브라우저 검수는 완료했다.
 - 사용자 직접 검수는 실험 branch 정책에 따라 마지막 일괄 검수로 남긴다.
-- 운영 양식 content 입력, Persistent UAT migration, clean runner Backend 전체 회귀와 대표 repo 승격은 현재 Task 범위 밖이다.
+- 운영 양식 content 입력, Persistent UAT migration과 대표 repo 승격은 현재 Task 범위 밖이다.
 
 ## 안전·게시 경계
 

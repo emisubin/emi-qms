@@ -20,16 +20,79 @@ using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.QualityInspections;
 using Emi.Qms.Api.ReviewSafe;
 using Emi.Qms.Api.Sales;
+using Emi.Qms.Api.Security;
 using Emi.Qms.Api.Ul891Sets;
 using Emi.Qms.Api.Workflow;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.HostFiltering;
+using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration.AddKeyPerFile("/run/secrets", optional: true);
 
 ReviewSafeMode.ThrowIfInvalidActivation(builder.Environment, builder.Configuration);
 var reviewSafeEnabled = ReviewSafeMode.IsEnabled(builder.Configuration);
 var mutationWorkerActivation = MutationWorkerActivationPolicy.Evaluate(builder.Configuration, reviewSafeEnabled);
+var uploadSecurityConfiguration = builder.Configuration
+    .GetSection(UploadSecurityOptions.SectionName)
+    .Get<UploadSecurityOptions>()
+    ?? new UploadSecurityOptions();
 
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+
+builder.Services.AddHostFiltering(options =>
+{
+    var hosts = builder.Configuration["AllowedHosts"]
+        ?.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        ?? ["localhost", "127.0.0.1"];
+    options.AllowedHosts = hosts.Length == 0 ? ["localhost", "127.0.0.1"] : hosts;
+    options.AllowEmptyHosts = false;
+    options.IncludeFailureMessage = false;
+});
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor
+        | ForwardedHeaders.XForwardedHost
+        | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.RequireHeaderSymmetry = true;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+
+    var configuredProxies = builder.Configuration["ReverseProxy:KnownProxies"]
+        ?.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        ?? [];
+    foreach (var configuredProxy in configuredProxies)
+    {
+        if (IPAddress.TryParse(configuredProxy, out var address))
+        {
+            options.KnownProxies.Add(address);
+        }
+    }
+});
+builder.Services.AddHsts(options =>
+{
+    options.IncludeSubDomains = true;
+    options.Preload = true;
+    options.MaxAge = TimeSpan.FromDays(365);
+});
+builder.Services.AddQmsRateLimiting(builder.Configuration);
+builder.Services.Configure<UploadSecurityOptions>(
+    builder.Configuration.GetSection(UploadSecurityOptions.SectionName));
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit =
+        Math.Max(1024, uploadSecurityConfiguration.MaximumFileBytes + (2 * 1024 * 1024));
+});
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize =
+        Math.Max(1024, uploadSecurityConfiguration.MaximumFileBytes + (2 * 1024 * 1024));
+});
+builder.Services.AddSingleton<IUploadMalwareScanner, ClamAvUploadMalwareScanner>();
 
 builder.Services.AddCors(options =>
 {
@@ -164,6 +227,16 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
     DevelopmentFeaturePolicy.EvaluateAdminUserSwitch(app.Environment, app.Configuration),
     app.Environment);
 QmsAuthenticationModePolicy.ThrowIfInvalidConfiguration(app.Environment, app.Configuration);
+ProductionSecurityPolicy.ThrowIfInvalid(app.Environment, app.Configuration);
+
+app.UseForwardedHeaders();
+app.UseMiddleware<HostFilteringMiddleware>();
+if (app.Environment.IsProduction())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
+app.UseMiddleware<SecurityHeadersMiddleware>();
 
 app.UseExceptionHandler(exceptionApp =>
 {
@@ -192,8 +265,13 @@ app.UseExceptionHandler(exceptionApp =>
 app.UseCors("FrontendDevelopment");
 app.UseMiddleware<ReviewSafeMutationGuardMiddleware>();
 app.UseAuthentication();
+if (builder.Configuration.GetValue("RateLimiting:Enabled", true))
+{
+    app.UseRateLimiter();
+}
 app.UseMiddleware<AdminUserSwitchGuardMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<UploadSecurityMiddleware>();
 
 if (!reviewSafeEnabled
     && (builder.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup")
@@ -225,11 +303,10 @@ app.MapGet("/health/ready", async (DatabaseHealthChecker databaseHealthChecker, 
         var reviewStatus = await app.Services
             .GetRequiredService<ReviewSafeStatusService>()
             .CheckAsync(cancellationToken);
-        var response = new ReviewSafeReadyHealthResponse(
+        var response = new ReadyHealthResponse(
             "ready",
             reviewStatus.Ready ? "ok" : "degraded",
-            new DatabaseHealthResult(reviewStatus.Ready, reviewStatus.Reason),
-            reviewStatus,
+            new DatabaseHealthResult(reviewStatus.Ready, reviewStatus.Ready ? "ready" : "not_ready"),
             timeProvider.GetUtcNow());
 
         return reviewStatus.Ready
@@ -240,7 +317,11 @@ app.MapGet("/health/ready", async (DatabaseHealthChecker databaseHealthChecker, 
     var database = await databaseHealthChecker.CheckAsync(cancellationToken);
     var status = database.IsReady ? "ok" : "degraded";
 
-    return Results.Ok(new ReadyHealthResponse("ready", status, database, timeProvider.GetUtcNow()));
+    return Results.Ok(new ReadyHealthResponse(
+        "ready",
+        status,
+        new DatabaseHealthResult(database.IsReady, database.IsReady ? "ready" : "not_ready"),
+        timeProvider.GetUtcNow()));
 })
 .AllowAnonymous()
 .WithName("ReadyHealth");
@@ -249,7 +330,7 @@ app.MapGet("/api/runtime-mode", async (ReviewSafeStatusService statusService, Ca
 {
     return Results.Ok(await statusService.CheckAsync(cancellationToken));
 })
-.AllowAnonymous()
+.RequireAuthorization()
 .WithName("RuntimeMode");
 
 app.MapIdentityEndpoints();

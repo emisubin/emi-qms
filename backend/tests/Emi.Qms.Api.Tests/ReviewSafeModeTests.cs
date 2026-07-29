@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Emi.Qms.Api.Admin;
+using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.ProductionPlanning;
@@ -100,6 +101,12 @@ public sealed class ReviewSafeModeTests
             includeDefaultDevelopmentAuthentication: true);
         using var client = factory.CreateClient();
 
+        using var anonymousResponse = await client.GetAsync(
+            "/api/runtime-mode",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousResponse.StatusCode);
+
+        client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-admin");
         using var response = await client.GetAsync("/api/runtime-mode", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
         var status = await response.Content.ReadFromJsonAsync<ReviewSafeRuntimeStatus>(TestContext.Current.CancellationToken);
@@ -120,10 +127,11 @@ public sealed class ReviewSafeModeTests
 
         using var readyResponse = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, readyResponse.StatusCode);
-        Assert.Contains(
-            "database_not_configured",
-            await readyResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
-            StringComparison.Ordinal);
+        var readyBody = await readyResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("not_ready", readyBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("database_not_configured", readyBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("migration", readyBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("environment", readyBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

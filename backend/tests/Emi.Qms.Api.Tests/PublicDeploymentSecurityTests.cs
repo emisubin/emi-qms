@@ -1,0 +1,437 @@
+using System.Net;
+using System.Text.RegularExpressions;
+using Emi.Qms.Api.Security;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace Emi.Qms.Api.Tests;
+
+public sealed class PublicDeploymentSecurityTests
+{
+    [Fact]
+    public void ProductionPolicy_AcceptsCompleteSyntheticConfiguration()
+    {
+        var now = DateTimeOffset.Parse("2026-07-29T00:00:00Z");
+        var configuration = Configuration(ValidProductionValues(now));
+
+        var errors = ProductionSecurityPolicy.Evaluate(configuration, now);
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void ProductionStartup_FailsClosedWhenSecurityReadinessIsMissing()
+    {
+        using var factory = QmsWebApplicationFactory.Create(
+            "Production",
+            new Dictionary<string, string?>
+            {
+                ["Authentication:Mode"] = "EntraId",
+                ["AzureAd:Instance"] = "https://login.microsoftonline.com/",
+                ["AzureAd:TenantId"] = "11111111-1111-1111-1111-111111111111",
+                ["AzureAd:ClientId"] = "22222222-2222-2222-2222-222222222222",
+                ["AzureAd:Audience"] = "api://22222222-2222-2222-2222-222222222222"
+            });
+
+        var exception = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+        Assert.Contains(
+            "Production security configuration is incomplete",
+            exception.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidProductionConfigurations))]
+    public void ProductionPolicy_RejectsUnsafeConfiguration(
+        string key,
+        string? value,
+        string expectedError)
+    {
+        var now = DateTimeOffset.Parse("2026-07-29T00:00:00Z");
+        var values = ValidProductionValues(now);
+        values[key] = value;
+
+        var errors = ProductionSecurityPolicy.Evaluate(Configuration(values), now);
+
+        Assert.Contains(errors, error =>
+            error.Contains(expectedError, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Responses_IncludeBrowserSecurityHeaders()
+    {
+        using var factory = QmsWebApplicationFactory.Create(
+            "Testing",
+            new Dictionary<string, string?> { ["RateLimiting:Enabled"] = "true" });
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync(
+            "/health/live",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.Contains("Content-Security-Policy"));
+        Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal(
+            "strict-origin-when-cross-origin",
+            response.Headers.GetValues("Referrer-Policy").Single());
+        Assert.True(response.Headers.Contains("Permissions-Policy"));
+        var cacheControl = response.Headers.CacheControl;
+        Assert.NotNull(cacheControl);
+        Assert.True(cacheControl.Private);
+        Assert.True(cacheControl.NoStore);
+        Assert.Equal(TimeSpan.Zero, cacheControl.MaxAge);
+        Assert.Contains(
+            response.Headers.Pragma,
+            directive => string.Equals(
+                directive.Name,
+                "no-cache",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ProductionArtifacts_UseImmutableExternalReferences()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var dockerfiles = new[]
+        {
+            Path.Combine(repositoryRoot, "backend", "Dockerfile.production"),
+            Path.Combine(repositoryRoot, "frontend", "Dockerfile.production")
+        };
+
+        var dockerfileImageReferences = dockerfiles
+            .SelectMany(File.ReadLines)
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("FROM ", StringComparison.Ordinal))
+            .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries)[1]);
+        var productionComposePath = Path.Combine(
+            repositoryRoot,
+            "infrastructure",
+            "docker-compose.production.yml");
+        var composeImageReferences = File.ReadLines(productionComposePath)
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("image: ", StringComparison.Ordinal))
+            .Select(line => line["image: ".Length..]);
+
+        Assert.All(
+            dockerfileImageReferences.Concat(composeImageReferences),
+            reference => Assert.Matches(
+                @"^[^@\s]+@sha256:[0-9a-f]{64}$",
+                reference));
+
+        var workflowPath = Path.Combine(repositoryRoot, ".github", "workflows", "ci.yml");
+        var workflowLines = File.ReadAllLines(workflowPath);
+        var actionReferences = workflowLines
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("- uses: actions/", StringComparison.Ordinal))
+            .Select(line => line.Split('#', 2)[0]["- uses: ".Length..].Trim());
+
+        Assert.NotEmpty(actionReferences);
+        Assert.All(
+            actionReferences,
+            reference => Assert.Matches(
+                @"^actions/[^@\s]+@[0-9a-f]{40}$",
+                reference));
+
+        var postgresReference = workflowLines
+            .Select(line => line.Trim())
+            .Single(line => line.StartsWith("image: postgres:", StringComparison.Ordinal))
+            ["image: ".Length..];
+        Assert.Matches(
+            @"^postgres:[^@\s]+@sha256:[0-9a-f]{64}$",
+            postgresReference);
+        Assert.Contains("permissions:", workflowLines);
+        Assert.Equal(
+            actionReferences.Count(reference =>
+                reference.StartsWith("actions/checkout@", StringComparison.Ordinal)),
+            workflowLines.Count(line => line.Trim() == "persist-credentials: false"));
+    }
+
+    [Fact]
+    public void ProductionNginx_PreservesSecurityHeaderInheritanceForAssets()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var nginx = File.ReadAllText(
+            Path.Combine(repositoryRoot, "infrastructure", "production", "nginx.conf.template"));
+        var assetsLocation = Regex.Match(
+            nginx,
+            @"location /assets/ \{(?<body>.*?)^\s*\}",
+            RegexOptions.Multiline | RegexOptions.Singleline);
+        var shellLocation = Regex.Match(
+            nginx,
+            @"location / \{(?<body>.*?)^\s*\}",
+            RegexOptions.Multiline | RegexOptions.Singleline);
+
+        Assert.True(assetsLocation.Success);
+        Assert.Contains("expires 1y;", assetsLocation.Groups["body"].Value);
+        Assert.DoesNotContain("add_header", assetsLocation.Groups["body"].Value);
+        Assert.True(shellLocation.Success);
+        Assert.Contains("expires -1;", shellLocation.Groups["body"].Value);
+    }
+
+    [Fact]
+    public async Task HostFiltering_RejectsUnknownHost()
+    {
+        using var factory = QmsWebApplicationFactory.Create("Testing");
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/health/live");
+        request.Headers.Host = "attacker.invalid";
+
+        var response = await client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RateLimiting_Returns429AndRetryAfter()
+    {
+        using var factory = QmsWebApplicationFactory.Create(
+            "Testing",
+            new Dictionary<string, string?>
+            {
+                ["RateLimiting:Enabled"] = "true",
+                ["RateLimiting:HealthRequestsPerMinute"] = "1"
+            });
+        using var client = factory.CreateClient();
+
+        var first = await client.GetAsync(
+            "/health/live",
+            TestContext.Current.CancellationToken);
+        var second = await client.GetAsync(
+            "/health/live",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, second.StatusCode);
+        Assert.True(second.Headers.Contains("Retry-After"));
+    }
+
+    [Theory]
+    [InlineData(UploadMalwareScanStatus.Infected, HttpStatusCode.UnprocessableEntity)]
+    [InlineData(UploadMalwareScanStatus.Unavailable, HttpStatusCode.ServiceUnavailable)]
+    public async Task UploadSecurity_BlocksUnsafeOrUnscannableFiles(
+        UploadMalwareScanStatus status,
+        HttpStatusCode expectedStatus)
+    {
+        using var factory = UploadFactory(status);
+        using var client = CreateUploadClient(factory);
+        using var content = Multipart([1, 2, 3, 4]);
+
+        var response = await client.PostAsync(
+            "/missing-upload-target",
+            content,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UploadSecurity_AllowsCleanFileToReachEndpointRouting()
+    {
+        using var factory = UploadFactory(UploadMalwareScanStatus.Clean);
+        using var client = CreateUploadClient(factory);
+        using var content = Multipart([1, 2, 3, 4]);
+
+        var response = await client.PostAsync(
+            "/missing-upload-target",
+            content,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UploadSecurity_BlocksJpegExifBeforeMalwareScanner()
+    {
+        var scanner = new FixedUploadMalwareScanner(UploadMalwareScanStatus.Clean);
+        using var factory = UploadFactory(scanner);
+        using var client = CreateUploadClient(factory);
+        byte[] jpegWithExif =
+        [
+            0xff, 0xd8,
+            0xff, 0xe1, 0x00, 0x08,
+            (byte)'E', (byte)'x', (byte)'i', (byte)'f', 0x00, 0x00,
+            0xff, 0xd9
+        ];
+        using var content = Multipart(jpegWithExif);
+
+        var response = await client.PostAsync(
+            "/missing-upload-target",
+            content,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(0, scanner.CallCount);
+    }
+
+    [Fact]
+    public async Task UploadSecurity_InspectsPngMetadataBeyondFirstMegabyte()
+    {
+        var scanner = new FixedUploadMalwareScanner(UploadMalwareScanStatus.Clean);
+        using var factory = UploadFactory(scanner);
+        using var client = CreateUploadClient(factory);
+        const int dataLength = 1024 * 1024;
+        byte[] png = new byte[8 + 8 + dataLength + 4 + 8];
+        byte[] signature = [137, 80, 78, 71, 13, 10, 26, 10];
+        signature.CopyTo(png, 0);
+        png[8] = 0x00;
+        png[9] = 0x10;
+        png[10] = 0x00;
+        png[11] = 0x00;
+        "IDAT"u8.CopyTo(png.AsSpan(12, 4));
+        var metadataOffset = 8 + 8 + dataLength + 4;
+        "tEXt"u8.CopyTo(png.AsSpan(metadataOffset + 4, 4));
+        using var content = Multipart(png);
+
+        var response = await client.PostAsync(
+            "/missing-upload-target",
+            content,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(0, scanner.CallCount);
+    }
+
+    public static TheoryData<string, string?, string> InvalidProductionConfigurations()
+    {
+        return new TheoryData<string, string?, string>
+        {
+            { "AllowedHosts", "*", "exact production DNS" },
+            { "Frontend:Origin", "http://qms.example.com", "public HTTPS origin" },
+            { "FRONTEND_ORIGIN", "http://attacker.invalid", "public HTTPS origin" },
+            { "Frontend:RedirectUri", "https://other.example.com", "exact Frontend:Origin" },
+            { "ReverseProxy:KnownProxies", "", "proxy IP" },
+            { "AzureAd:Domain", "", "Entra tenant" },
+            { "RateLimiting:Enabled", "false", "Rate limiting" },
+            { "RateLimiting:ReadRequestsPerMinute", "999999", "Rate limiting" },
+            { "UploadSecurity:Enabled", "false", "malware scanning" },
+            { "UploadSecurity:RejectImageMetadata", "false", "malware scanning" },
+            {
+                "ConnectionStrings:QmsDatabase",
+                "Host=db.example.com;Database=emi;Username=app;Password=test;SSL Mode=Require",
+                "VerifyFull"
+            },
+            { "Authentication:BootstrapAdminEmails", "one@example.com", "two distinct" },
+            { "AUTHENTICATION_BOOTSTRAP_ADMIN_EMAILS", "one@example.com", "two distinct" },
+            { "Operations:Monitoring:Enabled", "false", "Security monitoring" },
+            { "Operations:Backup:RestoreVerifiedAtUtc", "2025-01-01T00:00:00Z", "last 90 days" }
+        };
+    }
+
+    private static Dictionary<string, string?> ValidProductionValues(DateTimeOffset now)
+    {
+        return new Dictionary<string, string?>
+        {
+            ["AllowedHosts"] = "qms.emi.co.kr",
+            ["Frontend:Origin"] = "https://qms.emi.co.kr",
+            ["Frontend:RedirectUri"] = "https://qms.emi.co.kr",
+            ["ReverseProxy:KnownProxies"] = "172.30.0.10",
+            ["Authentication:Mode"] = "EntraId",
+            ["Authentication:BootstrapAdminEmails"] =
+                "breakglass-one@example.com;breakglass-two@example.com",
+            ["AzureAd:TenantId"] = "11111111-1111-1111-1111-111111111111",
+            ["AzureAd:ClientId"] = "22222222-2222-2222-2222-222222222222",
+            ["AzureAd:Audience"] = "api://22222222-2222-2222-2222-222222222222",
+            ["AzureAd:Domain"] = "emi.co.kr",
+            ["RateLimiting:Enabled"] = "true",
+            ["RateLimiting:ReadRequestsPerMinute"] = "3000",
+            ["RateLimiting:MutationRequestsPerMinute"] = "600",
+            ["RateLimiting:UploadRequestsPerMinute"] = "60",
+            ["RateLimiting:HealthRequestsPerMinute"] = "600",
+            ["UploadSecurity:Enabled"] = "true",
+            ["UploadSecurity:FailClosed"] = "true",
+            ["UploadSecurity:ScannerHost"] = "clamav",
+            ["UploadSecurity:ScannerPort"] = "3310",
+            ["UploadSecurity:TimeoutSeconds"] = "20",
+            ["UploadSecurity:MaximumFileBytes"] = "33554432",
+            ["UploadSecurity:RejectImageMetadata"] = "true",
+            ["ConnectionStrings:QmsDatabase"] =
+                "Host=db.example.com;Database=emi;Username=app;Password=test;SSL Mode=VerifyFull",
+            ["Operations:Monitoring:Enabled"] = "true",
+            ["Operations:Monitoring:SecurityAlertSink"] = "synthetic-security-sink",
+            ["Operations:Backup:RestoreVerifiedAtUtc"] =
+                now.AddDays(-1).ToString("O")
+        };
+    }
+
+    private static IConfiguration Configuration(
+        IReadOnlyDictionary<string, string?> values)
+    {
+        return new ConfigurationBuilder()
+            .AddInMemoryCollection(values)
+            .Build();
+    }
+
+    private static QmsWebApplicationFactory UploadFactory(UploadMalwareScanStatus status)
+    {
+        return UploadFactory(new FixedUploadMalwareScanner(status));
+    }
+
+    private static QmsWebApplicationFactory UploadFactory(IUploadMalwareScanner scanner)
+    {
+        return QmsWebApplicationFactory.Create(
+            "Testing",
+            new Dictionary<string, string?>
+            {
+                ["UploadSecurity:Enabled"] = "true",
+                ["UploadSecurity:FailClosed"] = "true",
+                ["UploadSecurity:RejectImageMetadata"] = "true"
+            },
+            includeDefaultDevelopmentAuthentication: true,
+            configureTestServices: services =>
+            {
+                var descriptor = services.Single(
+                    service => service.ServiceType == typeof(IUploadMalwareScanner));
+                services.Remove(descriptor);
+                services.AddSingleton(scanner);
+            });
+    }
+
+    private static HttpClient CreateUploadClient(QmsWebApplicationFactory factory)
+    {
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Dev-User", "dev-admin");
+        return client;
+    }
+
+    private static MultipartFormDataContent Multipart(byte[] bytes)
+    {
+        var content = new MultipartFormDataContent();
+        content.Add(new ByteArrayContent(bytes), "file", "upload.bin");
+        return content;
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            if (Directory.Exists(Path.Combine(current.FullName, "database", "migrations")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+    private sealed class FixedUploadMalwareScanner(UploadMalwareScanStatus status)
+        : IUploadMalwareScanner
+    {
+        public int CallCount { get; private set; }
+
+        public Task<UploadMalwareScanResult> ScanAsync(
+            Stream content,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            return Task.FromResult(new UploadMalwareScanResult(status, status.ToString()));
+        }
+    }
+}

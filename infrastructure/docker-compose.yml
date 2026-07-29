@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${DATABASE_USER:?DATABASE_USER is required}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${DATABASE_PORT:?DATABASE_PORT is required}:5432"
     volumes:
       - emi-qms-postgres-data:/var/lib/postgresql
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro

@@ -4,7 +4,10 @@ using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Emi.Qms.Api.Tests;
@@ -48,6 +51,79 @@ public sealed class AuthorizationEndpointTests(QmsWebApplicationFactory factory)
         var response = await client.GetAsync("/api/me", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public void FallbackPolicy_FailsClosedForAuthenticatedOperationalUsers()
+    {
+        var options = factory.Services
+            .GetRequiredService<IOptions<AuthorizationOptions>>()
+            .Value;
+        var fallbackPolicy = Assert.IsType<AuthorizationPolicy>(options.FallbackPolicy);
+
+        Assert.Contains(
+            fallbackPolicy.Requirements,
+            requirement => requirement is DenyAnonymousAuthorizationRequirement);
+        Assert.Contains(
+            fallbackPolicy.Requirements,
+            requirement => requirement is OperationalUserRequirement);
+    }
+
+    [Fact]
+    public void EndpointMetadata_AllowsAnonymousOnlyForMinimalHealthRoutes()
+    {
+        var endpoints = factory.Services
+            .GetRequiredService<EndpointDataSource>()
+            .Endpoints
+            .OfType<RouteEndpoint>()
+            .ToArray();
+        var anonymousRoutes = endpoints
+            .Where(endpoint => endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+            .Select(endpoint => endpoint.RoutePattern.RawText!)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(["/health/live", "/health/ready"], anonymousRoutes);
+
+        var apiEndpointsWithoutAuthorization = endpoints
+            .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith("/api/", StringComparison.Ordinal) == true)
+            .Where(endpoint => endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Count == 0)
+            .Select(endpoint => endpoint.RoutePattern.RawText!)
+            .ToArray();
+        Assert.Empty(apiEndpointsWithoutAuthorization);
+    }
+
+    [Fact]
+    public async Task RuntimeMode_RequiresAuthenticationAndAllowsOperationalUsers()
+    {
+        using var anonymousClient = factory.CreateClient();
+        using var operationalClient = CreateClientFor("dev-sales");
+
+        using var anonymousResponse = await anonymousClient.GetAsync(
+            "/api/runtime-mode",
+            TestContext.Current.CancellationToken);
+        using var operationalResponse = await operationalClient.GetAsync(
+            "/api/runtime-mode",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, operationalResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task PublicReadyHealth_DoesNotExposeRuntimeOrMigrationDetails()
+    {
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain("migration", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("environment", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("worker", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("provider", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("password", body, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

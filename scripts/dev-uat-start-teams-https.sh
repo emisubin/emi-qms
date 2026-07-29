@@ -22,7 +22,9 @@ MSG
 fi
 
 export UAT_FRONTEND_HTTPS=true
-export UAT_LOAD_NOTIFY_LOCAL_ENV=true
+export UAT_AUTH_MODE="${UAT_AUTH_MODE:-EntraId}"
+export UAT_ENV_FILE="${UAT_ENV_FILE:-${REPO_ROOT}/.env.entra-local}"
+export UAT_LOAD_NOTIFY_LOCAL_ENV="${UAT_LOAD_NOTIFY_LOCAL_ENV:-false}"
 export VITE_DEV_HTTPS=true
 export VITE_DEV_HTTPS_CERT="${CERT_PATH}"
 export VITE_DEV_HTTPS_KEY="${KEY_PATH}"

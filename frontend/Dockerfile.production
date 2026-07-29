@@ -1,0 +1,36 @@
+FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS build
+WORKDIR /workspace
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY frontend/package.json frontend/package.json
+RUN pnpm install --frozen-lockfile --filter emi-qms-frontend...
+
+COPY frontend frontend
+
+ARG VITE_AZURE_TENANT_ID
+ARG VITE_AZURE_CLIENT_ID
+ARG VITE_AZURE_API_SCOPE
+ARG VITE_AZURE_REDIRECT_URI
+ENV VITE_API_BASE_URL= \
+    VITE_AZURE_TENANT_ID=${VITE_AZURE_TENANT_ID} \
+    VITE_AZURE_CLIENT_ID=${VITE_AZURE_CLIENT_ID} \
+    VITE_AZURE_API_SCOPE=${VITE_AZURE_API_SCOPE} \
+    VITE_AZURE_REDIRECT_URI=${VITE_AZURE_REDIRECT_URI}
+
+RUN node --input-type=module -e ' \
+      const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu; \
+      const tenant = process.env.VITE_AZURE_TENANT_ID ?? ""; \
+      const client = process.env.VITE_AZURE_CLIENT_ID ?? ""; \
+      const scope = process.env.VITE_AZURE_API_SCOPE ?? ""; \
+      const redirect = new URL(process.env.VITE_AZURE_REDIRECT_URI ?? "http://invalid"); \
+      const reserved = /(^|\\.)(example\\.com|example|invalid|test)$/iu.test(redirect.hostname); \
+      if (!guid.test(tenant) || !guid.test(client) || /^0{8}-0{4}-0{4}-0{4}-0{12}$/u.test(tenant) || /^0{8}-0{4}-0{4}-0{4}-0{12}$/u.test(client) || !scope.startsWith("api://") || redirect.protocol !== "https:" || reserved) process.exit(1); \
+    ' \
+    && pnpm --dir frontend build
+
+FROM nginxinc/nginx-unprivileged:1.31.3-alpine3.24@sha256:59ccf0943b0b8e8d9e6ea9039a39555730f544701a655c596f7df7d096c593f5
+USER 101
+COPY infrastructure/production/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /workspace/frontend/dist /usr/share/nginx/html
+EXPOSE 8443

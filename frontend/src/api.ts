@@ -495,8 +495,8 @@ export async function getReadyHealth(): Promise<ReadyHealth> {
   return fetchJson<ReadyHealth>('/health/ready');
 }
 
-export async function getRuntimeMode(): Promise<RuntimeMode> {
-  return fetchJson<RuntimeMode>('/api/runtime-mode');
+export async function getRuntimeMode(developmentUserKey?: string): Promise<RuntimeMode> {
+  return fetchJson<RuntimeMode>('/api/runtime-mode', developmentUserKey);
 }
 
 export async function getCurrentUser(developmentUserKey?: string): Promise<CurrentUser> {

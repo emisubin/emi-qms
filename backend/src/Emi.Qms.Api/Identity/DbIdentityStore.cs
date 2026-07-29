@@ -53,6 +53,16 @@ public sealed class DbIdentityStore(
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
+        await using (var lockCommand = connection.CreateCommand())
+        {
+            lockCommand.Transaction = transaction;
+            lockCommand.CommandText = """
+                select pg_advisory_xact_lock(hashtextextended(@entra_object_id, 0));
+                """;
+            lockCommand.Parameters.AddWithValue("entra_object_id", normalizedObjectId);
+            await lockCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         Guid userId;
         await using (var command = connection.CreateCommand())
         {

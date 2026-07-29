@@ -164,3 +164,47 @@ Development actual 설정이 구성돼 있어도 delivery 생성과 발송은 �
 Design experiment worktree는 자동 동기화되지 않는다. 디자인 변경을 독립 commit으로 고정한 뒤 main 변경을 디자인 branch에 merge하면 디자인을 유지하면서 나머지 변경을 가져올 수 있다. 같은 줄의 충돌은 수동 검수해야 하며, commit·merge는 별도 승인 전 수행하지 않는다.
 
 현재 Backend 5081은 Notification Delivery Worker만 활성이고 Escalation·Purge worker는 비활성이다. Teams Activity channel은 actual mode로 활성화돼 있다. 기존 `TeamsActivityDisabled` terminal 2건은 audit로 보존했고 신규 ManualTest delivery 1건은 두 번의 설정 누락 retry 뒤 같은 delivery의 세 번째 시도에서 Microsoft Graph `Sent`로 완료됐다. 사용자가 Teams client Activity Feed의 실제 알림 표시까지 확인했다.
+
+## 18. Change 004 공개 서비스 보안 안내
+
+상태: `Checklist 작성됨`, `자동 검증 완료`, `실제 운영 환경 검수 대기`.
+
+- 평소 사용자는 기존과 같이 Microsoft 365로 로그인한다.
+- 너무 많은 요청을 짧은 시간에 반복하면 `요청이 너무 많습니다` 안내가 나오며 잠시 후 다시 시도한다.
+- 업로드 파일에서 악성코드가 발견되거나 안전 검사를 수행할 수 없으면 파일은 업무 데이터로 저장되지 않는다.
+- 촬영 위치·기기 정보가 남은 이미지는 차단될 수 있다. 휴대폰에서 위치 정보를 제거하거나 새로 내보낸 뒤 다시 업로드한다.
+- 운영 서비스는 등록된 HTTPS domain으로만 사용한다. IP 주소, HTTP 주소와 개발용 port로 접속하지 않는다.
+- scanner, DB, Entra 또는 보안 모니터링 준비가 불완전하면 운영 서비스가 시작되지 않는 것이 정상이다.
+
+실제 운영 검수에서는 로그인, 주요 조회·수정, 파일 upload, 차단 안내, rate-limit 복구와 로그 경보 수신을 확인한다. 실제 domain·certificate·Entra·managed DB·SIEM이 아직 전달되지 않았으므로 이 항목은 운영 전환 Task에서 완료한다.
+
+자동 검증 완료 항목:
+
+- [x] 잘못된 운영 설정과 만료 임박 인증서 시작 전 차단
+- [x] Host·보안 header·rate limit·upload 안전 검사
+- [x] Backend·Frontend·실제 스택 전체 회귀
+- [x] Production container와 dependency 취약점 검사
+
+실제 운영 환경 검수 대기 항목:
+
+- [ ] 실제 HTTPS domain과 Microsoft 365 로그인
+- [ ] managed DB TLS와 restore 증빙
+- [ ] SIEM 경보 수신과 비상 관리자 접근
+- [ ] 실제 주요 업무 조회·수정·upload·rate-limit 복구
+
+## 19. Change 005 공유 PC와 업데이트 보안 안내
+
+상태: `Checklist 작성됨`, `자동 검증 완료`, `사용자 검수 대기`.
+
+- 로그인한 사용자의 업무 응답은 브라우저 cache에 보관하지 않도록 변경됐다.
+- 화면 프로그램 파일은 빠른 표시를 위해 cache할 수 있지만, 새 버전이 배포되면 첫 HTML에서 최신 버전을 확인한다.
+- 로그아웃 뒤 브라우저의 뒤로 가기를 눌러도 이전 업무 내용이 다시 보여서는 안 된다.
+- 이 변경은 화면 기능, 입력 방식, 권한과 업무 data를 바꾸지 않는다.
+
+사용자 검수:
+
+- [ ] Microsoft 365 로그인 후 Dashboard와 주요 업무 화면이 정상 표시됨
+- [ ] 조회·수정·파일 업로드·알림이 기존과 같이 동작함
+- [ ] 로그아웃 뒤 뒤로 가기에서 보호된 업무 내용이 다시 표시되지 않음
+- [ ] 새 배포 뒤 강제 새로고침 없이 최신 HTML과 정상 asset이 표시됨
+- [ ] 실제 운영 domain 검수는 운영 전환 Task에서 별도로 완료함

@@ -1235,16 +1235,17 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-UAT-001: HTTPS Development UAT 안정화
 
-- 상태/다음 순서: 최초 Task 구현·검수·PR #23 merge 완료 / Change 001 HTTPS-only runtime·로그인 유지·재인증·기존 알림 조회·Teams Activity Graph actual·Teams client 수신 사용자 검수 완료 / PR #48 squash merge 승인
-- 목적: Teams Activity 검수를 위한 HTTPS Development UAT의 frontend strict port, process ownership, protocol readiness, notification env와 master-data transaction을 안정화하고 Change 001에서 로그인·일반 기능·알림을 HTTPS 5174 하나로 통일한다.
-- 포함 범위: 5174 strict port/ownership/PID, repo 경로 boundary, protocol mismatch 판정, literal notify dotenv loading, worker/provider Development 설정, master-data transaction, HTTPS UAT health와 화면 검수, E2E isolation 연계
-- 제외 범위: read-only Review mode, dependency security, notification claim/lease, escalation starvation, 마지막 관리자 동시성
+- 상태/다음 순서: 최초 Task와 Change 001 merge 완료 / Change 002 Entra 로그인·fail-closed authorization 완료 / Change 003 공개 노출 P0 해소 / Change 004 공개 배포 P1 방어선 구현 / Change 005 공개 배포 P2 cache·header·공급망 보정 및 자동 검증 완료, 실제 운영 환경 검수 대기 / 다음 Gate는 운영 전환 Scope Review
+- 목적: HTTPS Development UAT를 안정화하고, 로그인·source/DB 노출·운영 request/upload/hosting 경계를 공개 배포 전에 fail-closed한다.
+- 포함 범위: 기존 UAT 안정화 범위, Entra HTTPS 로그인과 익명 API 차단, Vite/DB loopback, security header, Host/trusted proxy, rate limit, upload malware/metadata 검사, static TLS reverse proxy, secret/DB TLS/restore/SIEM/break-glass Production startup gate
+- 제외 범위: actual 운영 domain·certificate·Entra app 변경, managed DB·backup provider 설정, SIEM receiver 설정, 실제 외부 알림 발송과 운영 runtime handover
 - 선행조건: TASK-E2E-ISOLATION-001 완료, persistent UAT와 HTTPS server 보존
 - 예상 migration: 없음
-- 핵심 검수 기준: HTTPS/Teams route 200, HTTP 5174 실패, strict 5174, Backend/Review-safe/design preview 비재시작, UAT DB 보존, 사용자 로그인·알림 검수와 5종 산출물 확정
+- 핵심 검수 기준: 기존 UAT 계약 보존, 공개 Development/DB listener 없음, unsafe Production 설정 startup 실패, 안전 synthetic Production policy 통과, host/header/rate/upload 회귀와 production container build·Compose 검증, actual 운영값은 별도 handover
+- Change 005 자동 검증: Production security 27/27, Backend 461/461, Frontend 143/143, Mock UI 4/4, Full-Stack E2E 55/55, dependency 취약점 0, Backend·TLS validator image 전 심각도 0, Frontend·ClamAV image Critical/High/Medium 0. Open P0/P1/P2/P3 `0/0/0/1`; 수정본이 없는 libxml2 Low 2건은 `SEC-PUBLIC-014` P3로 재검사하고 scanner Unspecified 2건은 영향 실행 파일 부재를 확인해 `SEC-PUBLIC-015 RESOLVED_NOT_AFFECTED`로 닫았다. 코드 게시 품질 gate `GO`, actual 운영 domain·Entra·managed DB·restore·SIEM handover는 `NO_GO_EXTERNAL`
 - Change 001 자동·사용자 검증: trusted HTTPS root/notification/Teams/API/health 200, desktop/390px 6/6, console/request/overflow 0, PostgreSQL·Review-safe·design runtime 보존, obsolete isolated container/network 3/3 정리. 5081 Delivery worker만 활성화하고 기존 `TeamsActivityDisabled` terminal 2건을 audit로 보존했으며 신규 ManualTest 1건은 retry lineage `RetryScheduled/RetryScheduled/Sent`와 Teams client 실제 표시를 확인했다.
 - 산출물: [Task 정의와 검수 체크리스트](../tasks/uat-001-https-dev-stability.md), [Implementation report](../tasks/uat-001-implementation-report.md), [SOP](../tasks/uat-001-sop.md), [User manual](../tasks/uat-001-user-manual.md), 이 Roadmap update
-- 주요 위험: Development actual provider 오발송, UAT worker 자연 변경과 E2E 영향 혼동, 사용자 검수 전 완료 오판. 자동 검증에서는 신규 실제 발송과 저장·수정을 수행하지 않음
+- 주요 위험: Development actual provider 오발송, UAT worker 자연 변경과 E2E 영향 혼동, code readiness를 actual 운영 준비로 오판하는 위험. actual domain·Entra·certificate·managed DB·restore·SIEM 검수 전 공개 배포는 금지한다.
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 
@@ -2075,6 +2076,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-28 | TASK-UL891-PRODUCTION-PLAN-001에서 Ul891Set+LinkedV1 생산계획을 실제 실물 세트별 overlay로 분리하고 전체는 활성 세트 read-only 집계로 제공 | 세트마다 다른 생산 일정·담당 인력을 기록하면서도 프로젝트 공통 항목·실적 연결을 복제하지 않고, 제조 이후 실적은 해당 세트 패널만 계산해 프로젝트 14면과 세트 7면을 구분하기 위함 | 10장·13장·23장~25장, docs/44, TASK-UL891-PRODUCTION-PLAN-001 |
 | 2026-07-27 | TASK-PRODUCTION-CONTROL-001에서 기존 프로젝트는 Legacy 또는 생성 당시 snapshot을 영구 유지하고, 유효한 Item별 단일 현재 제조·계획 양식 저장 뒤 생성되는 프로젝트만 `LinkedV1` snapshot과 부서 원본 기반 자동 실적을 사용 | 양식 변경이 진행 중 프로젝트를 소급 변경하지 않으면서 생산계획 항목을 자유롭게 교체하고, 생산관리 탭 하나에서 계획 시작·종료와 구매·자재·제조·품질·물류의 실제 진행 근거를 비교하기 위함 | 10장·14장·21장·23장~25장, docs/43, TASK-PRODUCTION-CONTROL-001 |
 | 2026-07-29 | 실험 계보 사용자 검수 완료와 `main` merge 승인 `3/3`을 기록하고, 기존 공식 UAT DB를 보존 격리한 뒤 fresh 공식 DB와 experiment DB에 migration `0001`~`0064`를 적용해 Ready PR 승격을 진행 | 사용자가 기존 업무 데이터를 사용하지 않고 새로 시작하기로 확정한 상태에서 데이터 유출·혼입 없이 검증된 실험 기능을 공식 기준선으로 옮기되, Persistent UAT rollback과 실제 provider 비활성 경계를 보존하기 위함 | 23장~25장, 27-experiment-task-ledger, TASK-EXPERIMENT-PROMOTION-001 |
+| 2026-07-29 | TASK-UAT-001 Change 005에서 Backend 업무 응답 cache를 전역 차단하고 Nginx HTML/asset cache와 보안 header 상속을 분리하며 Production·CI 외부 artifact를 digest/full SHA로 고정 | 공유 단말의 민감 응답 잔존, asset 응답의 보안 header 누락과 재실행 때 외부 artifact가 바뀌는 P2 위험을 닫고 검증된 공급망 기준을 재현하기 위함. Frontend 가변 package 설치는 고정 TLS validator로 대체했고 수정본이 없는 libxml2 Low 2건은 `SEC-PUBLIC-014` P3로 운영 handover 전에 재검사 | 23장~25장, TASK-UAT-001 Change 005 |
 
 ## 26. 용어 사전
 

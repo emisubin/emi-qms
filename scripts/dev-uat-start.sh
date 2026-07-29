@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
+UAT_ENV_FILE="${UAT_ENV_FILE:-${REPO_ROOT}/.env}"
+UAT_NOTIFY_ENV_FILE="${UAT_NOTIFY_ENV_FILE:-${REPO_ROOT}/.env.notify-local}"
 
 load_dotenv_file() {
   local env_file="$1"
@@ -40,12 +42,12 @@ load_dotenv_file() {
   done < "${env_file}"
 }
 
-if [[ -f .env ]]; then
-  load_dotenv_file .env
+if [[ -f "${UAT_ENV_FILE}" ]]; then
+  load_dotenv_file "${UAT_ENV_FILE}"
 fi
 
-if [[ "${UAT_LOAD_NOTIFY_LOCAL_ENV:-false}" == "true" && -f .env.notify-local ]]; then
-  load_dotenv_file .env.notify-local "Notifications__"
+if [[ "${UAT_LOAD_NOTIFY_LOCAL_ENV:-false}" == "true" && -f "${UAT_NOTIFY_ENV_FILE}" ]]; then
+  load_dotenv_file "${UAT_NOTIFY_ENV_FILE}" "Notifications__"
 fi
 
 export DATABASE_HOST="${DATABASE_HOST:-localhost}"
@@ -58,15 +60,79 @@ if [[ "${FRONTEND_PORT}" != "5174" ]]; then
   exit 1
 fi
 export ASPNETCORE_ENVIRONMENT="Development"
-export AUTH_MODE="Dev"
-export Authentication__Mode="Dev"
 export ASPNETCORE_URLS="http://127.0.0.1:5081"
-export DEV_AUTHENTICATION_ENABLED="${DEV_AUTHENTICATION_ENABLED:-true}"
 export DEV_DATA_SEED_ENABLED="${DEV_DATA_SEED_ENABLED:-true}"
-export VITE_AUTH_MODE="Dev"
 export VITE_DEV_USER_KEY="${VITE_DEV_USER_KEY:-dev-production}"
 export UAT_FRONTEND_HTTPS="${UAT_FRONTEND_HTTPS:-false}"
 UAT_FRONTEND_HTTPS_NORMALIZED="$(printf '%s' "${UAT_FRONTEND_HTTPS}" | tr '[:upper:]' '[:lower:]')"
+UAT_AUTH_MODE="${UAT_AUTH_MODE:-Dev}"
+UAT_AUTH_MODE_NORMALIZED="$(printf '%s' "${UAT_AUTH_MODE}" | tr '[:upper:]' '[:lower:]')"
+
+case "${UAT_AUTH_MODE_NORMALIZED}" in
+  dev)
+    export AUTH_MODE="Dev"
+    export Authentication__Mode="Dev"
+    export DEV_AUTHENTICATION_ENABLED="${DEV_AUTHENTICATION_ENABLED:-true}"
+    export VITE_AUTH_MODE="Dev"
+    ;;
+  entraid)
+    if [[ "${UAT_FRONTEND_HTTPS_NORMALIZED}" != "true" && "${UAT_FRONTEND_HTTPS}" != "1" ]]; then
+      echo "EntraId manual UAT requires HTTPS on https://localhost:${FRONTEND_PORT}." >&2
+      exit 1
+    fi
+
+    RESOLVED_ENTRA_TENANT_ID="${ENTRA_TENANT_ID:-${AzureAd__TenantId:-${VITE_AZURE_TENANT_ID:-}}}"
+    RESOLVED_ENTRA_CLIENT_ID="${ENTRA_CLIENT_ID:-${AzureAd__ClientId:-${VITE_AZURE_CLIENT_ID:-}}}"
+    for tenant_candidate in \
+      "${ENTRA_TENANT_ID:-}" \
+      "${AzureAd__TenantId:-}" \
+      "${VITE_AZURE_TENANT_ID:-}"; do
+      if [[ -n "${tenant_candidate}" && "${tenant_candidate}" != "${RESOLVED_ENTRA_TENANT_ID}" ]]; then
+        echo "EntraId manual UAT found conflicting tenant identifiers in the approved environment." >&2
+        exit 1
+      fi
+    done
+    for client_candidate in \
+      "${ENTRA_CLIENT_ID:-}" \
+      "${AzureAd__ClientId:-}" \
+      "${VITE_AZURE_CLIENT_ID:-}"; do
+      if [[ -n "${client_candidate}" && "${client_candidate}" != "${RESOLVED_ENTRA_CLIENT_ID}" ]]; then
+        echo "EntraId manual UAT found conflicting client identifiers in the approved environment." >&2
+        exit 1
+      fi
+    done
+    if [[ -z "${RESOLVED_ENTRA_TENANT_ID}" || -z "${RESOLVED_ENTRA_CLIENT_ID}" ]]; then
+      echo "EntraId manual UAT requires ENTRA_TENANT_ID and ENTRA_CLIENT_ID in the approved environment file." >&2
+      exit 1
+    fi
+    if [[ "${RESOLVED_ENTRA_TENANT_ID}" == "00000000-0000-0000-0000-000000000000" ||
+          "${RESOLVED_ENTRA_CLIENT_ID}" == "00000000-0000-0000-0000-000000000000" ]]; then
+      echo "EntraId manual UAT requires real tenant and client identifiers; example placeholder values are not accepted." >&2
+      exit 1
+    fi
+    export ENTRA_TENANT_ID="${RESOLVED_ENTRA_TENANT_ID}"
+    export ENTRA_CLIENT_ID="${RESOLVED_ENTRA_CLIENT_ID}"
+
+    export AUTH_MODE="EntraId"
+    export Authentication__Mode="EntraId"
+    export DEV_AUTHENTICATION_ENABLED="false"
+    export VITE_AUTH_MODE="EntraId"
+    export AzureAd__TenantId="${AzureAd__TenantId:-${ENTRA_TENANT_ID}}"
+    export AzureAd__ClientId="${AzureAd__ClientId:-${ENTRA_CLIENT_ID}}"
+    export AzureAd__Instance="${AzureAd__Instance:-https://login.microsoftonline.com/}"
+    export AzureAd__Audience="${AzureAd__Audience:-api://${ENTRA_CLIENT_ID}}"
+    export AzureAd__ValidAudience="${AzureAd__ValidAudience:-${ENTRA_CLIENT_ID}}"
+    export VITE_AZURE_TENANT_ID="${VITE_AZURE_TENANT_ID:-${ENTRA_TENANT_ID}}"
+    export VITE_AZURE_CLIENT_ID="${VITE_AZURE_CLIENT_ID:-${ENTRA_CLIENT_ID}}"
+    export VITE_AZURE_API_SCOPE="${VITE_AZURE_API_SCOPE:-api://${ENTRA_CLIENT_ID}/access_as_user}"
+    export VITE_AZURE_REDIRECT_URI="${VITE_AZURE_REDIRECT_URI:-https://localhost:${FRONTEND_PORT}}"
+    ;;
+  *)
+    echo "Unsupported UAT_AUTH_MODE=${UAT_AUTH_MODE}. Use Dev or EntraId." >&2
+    exit 1
+    ;;
+esac
+
 if [[ "${UAT_FRONTEND_HTTPS_NORMALIZED}" == "true" || "${UAT_FRONTEND_HTTPS}" == "1" ]]; then
   FRONTEND_BASE_URL="https://localhost:${FRONTEND_PORT}"
   FRONTEND_WRONG_PROTOCOL_URL="http://localhost:${FRONTEND_PORT}"
@@ -106,6 +172,23 @@ report_env_key_state() {
   fi
 }
 
+echo "Authentication Development environment status (values hidden)"
+echo "  mode: ${AUTH_MODE}"
+if [[ "${UAT_AUTH_MODE_NORMALIZED}" == "entraid" ]]; then
+  for auth_key in \
+    AzureAd__TenantId \
+    AzureAd__ClientId \
+    AzureAd__Instance \
+    AzureAd__Audience \
+    AzureAd__ValidAudience \
+    VITE_AZURE_TENANT_ID \
+    VITE_AZURE_CLIENT_ID \
+    VITE_AZURE_API_SCOPE \
+    VITE_AZURE_REDIRECT_URI; do
+    report_env_key_state "${auth_key}"
+  done
+fi
+
 if [[ "${UAT_LOAD_NOTIFY_LOCAL_ENV:-false}" == "true" ]]; then
   echo "Notification Development environment status (values hidden)"
   for notify_key in \
@@ -125,29 +208,58 @@ if [[ "${UAT_LOAD_NOTIFY_LOCAL_ENV:-false}" == "true" ]]; then
   done
 fi
 
+if [[ "${UAT_AUTH_CONFIG_CHECK_ONLY:-false}" == "true" ]]; then
+  echo "Authentication configuration check passed."
+  exit 0
+fi
+
 if [[ -z "${DATABASE_PASSWORD:-}" ]]; then
   echo "DATABASE_PASSWORD is required. Set it in .env or the shell environment." >&2
   exit 1
 fi
 
-echo "Starting PostgreSQL container for manual UAT..."
-if [[ -f .env ]]; then
-  docker compose --env-file .env -f infrastructure/docker-compose.yml up -d postgres
+UAT_SKIP_DATABASE_SETUP_NORMALIZED="$(printf '%s' "${UAT_SKIP_DATABASE_SETUP:-false}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${UAT_SKIP_DATABASE_SETUP_NORMALIZED}" == "true" || "${UAT_SKIP_DATABASE_SETUP:-false}" == "1" ]]; then
+  if [[ "$(docker inspect -f '{{.State.Health.Status}}' emi-qms-postgres 2>/dev/null || true)" != "healthy" ]]; then
+    echo "UAT_SKIP_DATABASE_SETUP requires the existing PostgreSQL container to be healthy." >&2
+    exit 1
+  fi
+  RUNNING_DATABASE_PASSWORD="$(
+    docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' emi-qms-postgres 2>/dev/null \
+      | sed -n 's/^POSTGRES_PASSWORD=//p' \
+      | tail -n 1
+  )"
+  if [[ -z "${RUNNING_DATABASE_PASSWORD}" ]]; then
+    echo "UAT_SKIP_DATABASE_SETUP could not resolve the running PostgreSQL password without changing the database." >&2
+    exit 1
+  fi
+  export DATABASE_PASSWORD="${RUNNING_DATABASE_PASSWORD}"
+  unset RUNNING_DATABASE_PASSWORD
+  if ! docker exec emi-qms-postgres psql -U "${DATABASE_USER}" -d postgres -tAc \
+    "select 1 from pg_database where datname = '${DATABASE_NAME}'" | grep -q 1; then
+    echo "UAT_SKIP_DATABASE_SETUP requires the existing manual UAT database." >&2
+    exit 1
+  fi
+  echo "Preserving the existing manual UAT database without setup or migration changes."
 else
-  docker compose -f infrastructure/docker-compose.yml up -d postgres
-fi
+  echo "Starting PostgreSQL container for manual UAT..."
+  if [[ -f "${UAT_ENV_FILE}" ]]; then
+    docker compose --env-file "${UAT_ENV_FILE}" -f infrastructure/docker-compose.yml up -d postgres
+  else
+    docker compose -f infrastructure/docker-compose.yml up -d postgres
+  fi
 
-echo "Waiting for PostgreSQL health..."
-until [[ "$(docker inspect -f '{{.State.Health.Status}}' emi-qms-postgres 2>/dev/null || true)" == "healthy" ]]; do
-  sleep 2
-done
+  echo "Waiting for PostgreSQL health..."
+  until [[ "$(docker inspect -f '{{.State.Health.Status}}' emi-qms-postgres 2>/dev/null || true)" == "healthy" ]]; do
+    sleep 2
+  done
 
-if ! docker exec emi-qms-postgres psql -U "${DATABASE_USER}" -d postgres -tAc "select 1 from pg_database where datname = '${DATABASE_NAME}'" | grep -q 1; then
-  echo "Creating manual UAT database ${DATABASE_NAME}..."
-  docker exec emi-qms-postgres createdb -U "${DATABASE_USER}" "${DATABASE_NAME}"
-fi
+  if ! docker exec emi-qms-postgres psql -U "${DATABASE_USER}" -d postgres -tAc "select 1 from pg_database where datname = '${DATABASE_NAME}'" | grep -q 1; then
+    echo "Creating manual UAT database ${DATABASE_NAME}..."
+    docker exec emi-qms-postgres createdb -U "${DATABASE_USER}" "${DATABASE_NAME}"
+  fi
 
-echo "Applying migrations to manual UAT database..."
+  echo "Applying migrations to manual UAT database..."
 docker exec -i emi-qms-postgres psql -v ON_ERROR_STOP=1 -U "${DATABASE_USER}" -d "${DATABASE_NAME}" >/dev/null <<'SQL'
 create table if not exists schema_migrations (
     version text primary key,
@@ -401,6 +513,7 @@ on conflict (template_id, sequence_number) do nothing;
 
 commit;
 SQL
+fi
 
 echo "Manual UAT fixed environment"
 echo "  Backend:  http://127.0.0.1:5081"

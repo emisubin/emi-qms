@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@11.8.0",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 5173",
+    "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc -b && vite build",
     "e2e": "pnpm run e2e:mock",
     "e2e:mock": "playwright test --config playwright.config.ts",
@@ -24,7 +24,7 @@
     "vite": "7.3.6"
   },
   "devDependencies": {
-    "@eslint/js": "9.39.2",
+    "@eslint/js": "10.0.1",
     "@playwright/test": "1.57.0",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.0",
@@ -32,13 +32,13 @@
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "esbuild": "0.28.1",
-    "eslint": "9.39.2",
-    "eslint-plugin-react-hooks": "7.0.1",
-    "eslint-plugin-react-refresh": "0.4.24",
+    "eslint": "10.8.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.3",
     "globals": "16.5.0",
     "jsdom": "27.3.0",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.50.0",
+    "typescript-eslint": "8.65.0",
     "vitest": "4.1.0"
   },
   "engines": {

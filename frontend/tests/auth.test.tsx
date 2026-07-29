@@ -31,6 +31,22 @@ describe('authentication modes', () => {
     expect(headers.get('Authorization')).toBeNull();
   });
 
+  it('authenticates the protected runtime mode endpoint in Dev API mode', async () => {
+    const fetchMock = vi.fn((...args: Parameters<typeof fetch>) => {
+      void args;
+      return Promise.resolve(json({ mode: 'Development', mutationAllowed: true }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { getRuntimeMode } = await import('../src/api');
+
+    await getRuntimeMode('dev-sales');
+
+    const [, init] = fetchMock.mock.calls[0];
+    const headers = init?.headers as Headers;
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:5080/api/runtime-mode');
+    expect(headers.get('X-Dev-User')).toBe('dev-sales');
+  });
+
   it('uses Authorization Bearer in EntraId API mode', async () => {
     const fetchMock = vi.fn((...args: Parameters<typeof fetch>) => {
       void args;

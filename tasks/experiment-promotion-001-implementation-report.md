@@ -18,6 +18,7 @@
 3. 물류 포장·출발·납품 확정 직후 성공 경로가 아직 남아 있는 draft를 즉시 다시 선택해 중간 상태처럼 보이던 경쟁 조건을 제거했다.
 4. 모바일 compact 프로젝트 병목·업무 표면의 가로 넘침을 보정했다.
 5. Full-Stack·Mock UI E2E를 현재 업무 선택→프로젝트 선택→단일 프로젝트 입력 계약에 맞췄다. 12면 stress 동선은 출발·납품 대상 12개가 실제로 모두 선택됐는지 확정 전에 검증한다.
+6. GitHub CI restore가 새 보안 advisory에 따라 간접 의존성 `System.Security.Cryptography.Xml 10.0.7`을 차단했다. `Microsoft.Identity.Web`을 호환되는 최신 minor `4.14.0`으로 올려 간접 의존성을 `10.0.10`으로 갱신했다.
 
 ### 데이터베이스 handover
 
@@ -55,6 +56,7 @@
 | 검증 | 결과 |
 | --- | --- |
 | Backend Release 전체 | `430/430` 통과 |
+| Backend package restore·취약성 검사 | 통과, 취약 package `0` |
 | Frontend unit 전체 | `142/142` 통과 |
 | Frontend lint | 오류 `0`, 기존 Fast Refresh warning `1` |
 | Frontend typecheck | 통과 |

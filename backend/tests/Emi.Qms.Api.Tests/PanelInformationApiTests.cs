@@ -5,9 +5,13 @@ using System.Text.Json;
 using ClosedXML.Excel;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.PanelInformation;
+using Emi.Qms.Api.PanelQr;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
+using ZXing;
 
 namespace Emi.Qms.Api.Tests;
 
@@ -118,7 +122,7 @@ public sealed class PanelInformationApiTests
         Assert.Equal(1, partialJson.RootElement.GetProperty("panelInfoCompletedCount").GetInt32());
         using var partialWorkflow = await ReadJsonAsync(await designClient.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
         var partialDesignStage = partialWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "DesignPanelInfo");
-        Assert.Equal("InProgress", partialDesignStage.GetProperty("status").GetString());
+        Assert.Equal("PartiallyCompleted", partialDesignStage.GetProperty("status").GetString());
 
         var updatedRows = partialJson.RootElement.GetProperty("panels").EnumerateArray().ToList();
         var complete = await designClient.PatchAsJsonAsync(
@@ -1036,6 +1040,275 @@ public sealed class PanelInformationApiTests
         Assert.True(gate.Wait(TimeSpan.Zero, TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task PanelQr_IssueIsIdempotent_RendersImages_AndRotatesOnlyForAdmin()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var adminClient = context.CreateClient("dev-admin");
+        using var created = await CreateProjectAsync(salesClient, "QR-ISSUE-001", "QR Issue", "StretchWrap", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        var panel = (await ReadPanelInformationAsync(designClient, projectId)).RootElement.GetProperty("panels")[0];
+        var panelId = panel.GetProperty("panelId").GetGuid();
+
+        using var ineligible = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/panels/{panelId}/qr",
+            new { },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, ineligible.StatusCode);
+
+        using var named = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                Panels = new[]
+                {
+                    new
+                    {
+                        PanelId = panelId,
+                        ExpectedPanelInfoVersion = panel.GetProperty("panelInfoVersion").GetInt32(),
+                        PanelNameUpdate = new { IsChanged = true, Value = "QR-PANEL-01" }
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, named.StatusCode);
+
+        var issueTasks = Enumerable.Range(0, 2)
+            .Select(_ => designClient.PostAsJsonAsync(
+                $"/api/projects/{projectId}/panels/{panelId}/qr",
+                new { },
+                TestContext.Current.CancellationToken))
+            .ToArray();
+        var issuedResponses = await Task.WhenAll(issueTasks);
+        Assert.All(issuedResponses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+        using var firstIssued = await ReadJsonAsync(issuedResponses[0]);
+        using var secondIssued = await ReadJsonAsync(issuedResponses[1]);
+        var firstUrl = firstIssued.RootElement.GetProperty("scanUrl").GetString();
+        var secondUrl = secondIssued.RootElement.GetProperty("scanUrl").GetString();
+        Assert.Equal(firstUrl, secondUrl);
+        Assert.Equal(1, await context.CountActivePanelQrsAsync(panelId));
+
+        using var issuedList = await designClient.GetAsync($"/api/projects/{projectId}/qr", TestContext.Current.CancellationToken);
+        Assert.True(
+            issuedList.StatusCode == HttpStatusCode.OK,
+            $"Expected QR list OK, got {issuedList.StatusCode}. Logs: {context.FullLogs}");
+        using var issuedListJson = await ReadJsonAsync(issuedList);
+        Assert.Equal(1, issuedListJson.RootElement.GetProperty("issuedCount").GetInt32());
+
+        using var svg = await designClient.GetAsync(
+            $"/api/projects/{projectId}/panels/{panelId}/qr/image?format=svg",
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            svg.StatusCode == HttpStatusCode.OK,
+            $"Expected SVG OK, got {svg.StatusCode}. Logs: {context.FullLogs}");
+        Assert.Equal("image/svg+xml", svg.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("<svg", await svg.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.True(svg.Headers.CacheControl?.NoStore);
+        Assert.True(svg.Headers.CacheControl?.Private);
+
+        using var png = await designClient.GetAsync(
+            $"/api/projects/{projectId}/panels/{panelId}/qr/image?format=png",
+            TestContext.Current.CancellationToken);
+        var pngBytes = await png.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, png.StatusCode);
+        Assert.Equal("image/png", png.Content.Headers.ContentType?.MediaType);
+        Assert.True(pngBytes.Length > 8);
+        Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, pngBytes[..8]);
+
+        using var forbiddenRotation = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/panels/{panelId}/qr/rotate",
+            new { Reason = "분실 라벨 교체" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenRotation.StatusCode);
+
+        using var invalidRotation = await adminClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/panels/{panelId}/qr/rotate",
+            new { Reason = " " },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidRotation.StatusCode);
+
+        using var rotated = await adminClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/panels/{panelId}/qr/rotate",
+            new { Reason = "현장 라벨 훼손으로 교체" },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, rotated.StatusCode);
+        using var rotatedJson = await ReadJsonAsync(rotated);
+        var rotatedUrl = rotatedJson.RootElement.GetProperty("scanUrl").GetString();
+        Assert.NotEqual(firstUrl, rotatedUrl);
+        Assert.Equal(1, await context.CountActivePanelQrsAsync(panelId));
+        Assert.Equal(1, await context.CountRevokedPanelQrsAsync(panelId));
+
+        var oldToken = new Uri(firstUrl!).Segments[^1];
+        using var oldResolve = await adminClient.PostAsJsonAsync(
+            "/api/qr/resolve",
+            new { Token = oldToken },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Gone, oldResolve.StatusCode);
+        Assert.DoesNotContain(oldToken, string.Join('\n', context.LogMessages), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PanelQr_BatchIssue_IsAtomicAndIdempotentForEligiblePanels()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var created = await CreateProjectAsync(salesClient, "QR-BATCH-001", "QR Batch", "StretchWrap", 3);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        var panelInfo = await ReadPanelInformationAsync(designClient, projectId);
+        var panels = panelInfo.RootElement.GetProperty("panels").EnumerateArray().ToList();
+        var panelIds = panels.Select(panel => panel.GetProperty("panelId").GetGuid()).ToArray();
+
+        using var partiallyNamed = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                panels = panels.Take(2).Select((panel, index) => new
+                {
+                    panelId = panel.GetProperty("panelId").GetGuid(),
+                    expectedPanelInfoVersion = panel.GetProperty("panelInfoVersion").GetInt32(),
+                    panelNameUpdate = new { isChanged = true, value = $"BATCH-{index + 1:00}" }
+                }).ToArray()
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, partiallyNamed.StatusCode);
+
+        using var rejected = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/qr/issue-batch",
+            new { panelIds },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        foreach (var panelId in panelIds)
+        {
+            Assert.Equal(0, await context.CountActivePanelQrsAsync(panelId));
+        }
+
+        using var namedLast = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                panels = new[]
+                {
+                    new
+                    {
+                        panelId = panelIds[2],
+                        expectedPanelInfoVersion = panels[2].GetProperty("panelInfoVersion").GetInt32(),
+                        panelNameUpdate = new { isChanged = true, value = "BATCH-03" }
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, namedLast.StatusCode);
+
+        using var issued = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/qr/issue-batch",
+            new { panelIds },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, issued.StatusCode);
+        using var issuedJson = await ReadJsonAsync(issued);
+        Assert.Equal(3, issuedJson.RootElement.GetProperty("requestedCount").GetInt32());
+        Assert.Equal(3, issuedJson.RootElement.GetProperty("newlyIssuedCount").GetInt32());
+        Assert.Equal(0, issuedJson.RootElement.GetProperty("alreadyIssuedCount").GetInt32());
+
+        using var replay = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/qr/issue-batch",
+            new { panelIds },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        using var replayJson = await ReadJsonAsync(replay);
+        Assert.Equal(0, replayJson.RootElement.GetProperty("newlyIssuedCount").GetInt32());
+        Assert.Equal(3, replayJson.RootElement.GetProperty("alreadyIssuedCount").GetInt32());
+        foreach (var panelId in panelIds)
+        {
+            Assert.Equal(1, await context.CountActivePanelQrsAsync(panelId));
+        }
+    }
+
+    [Fact]
+    public async Task PanelQr_PrintSheetRejectsStaleSelection_AndResolveRequiresAuthentication()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var anonymousClient = context.Factory.CreateClient();
+        using var created = await CreateProjectAsync(salesClient, "QR-PRINT-001", "QR Print", "StretchWrap", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        var panel = (await ReadPanelInformationAsync(designClient, projectId)).RootElement.GetProperty("panels")[0];
+        var panelId = panel.GetProperty("panelId").GetGuid();
+        using var named = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                Panels = new[]
+                {
+                    new
+                    {
+                        PanelId = panelId,
+                        ExpectedPanelInfoVersion = panel.GetProperty("panelInfoVersion").GetInt32(),
+                        PanelNameUpdate = new { IsChanged = true, Value = "PRINT-01" }
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, named.StatusCode);
+        using var issued = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/panels/{panelId}/qr",
+            new { },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, issued.StatusCode);
+        using var issuedJson = await ReadJsonAsync(issued);
+        var token = new Uri(issuedJson.RootElement.GetProperty("scanUrl").GetString()!).Segments[^1];
+
+        using var anonymousResolve = await anonymousClient.PostAsJsonAsync(
+            "/api/qr/resolve",
+            new { Token = token },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousResolve.StatusCode);
+
+        using var validPrint = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/qr/print-sheet",
+            new { PanelIds = new[] { panelId } },
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            validPrint.StatusCode == HttpStatusCode.OK,
+            $"Expected print sheet OK, got {validPrint.StatusCode}. Logs: {context.FullLogs}");
+        using var validPrintJson = await ReadJsonAsync(validPrint);
+        Assert.Equal(1, validPrintJson.RootElement.GetProperty("itemCount").GetInt32());
+
+        using var stalePrint = await designClient.PostAsJsonAsync(
+            $"/api/projects/{projectId}/qr/print-sheet",
+            new { PanelIds = new[] { panelId, Guid.NewGuid() } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, stalePrint.StatusCode);
+    }
+
+    [Fact]
+    public void PanelQrRenderer_PngDecodesToExactConfiguredScanUrl()
+    {
+        const string scanUrl = "https://qms.example.test/q/0123456789abcdefghijklmnopqrstuvwxyz_ABCDEF";
+        var renderer = new PanelQrRenderer();
+        using var image = Image.Load<Rgba32>(renderer.RenderPng(scanUrl));
+        var reader = new ZXing.ImageSharp.BarcodeReader<Rgba32>
+        {
+            Options =
+            {
+                PossibleFormats = [BarcodeFormat.QR_CODE],
+                TryHarder = true
+            }
+        };
+
+        var decoded = reader.Decode(image);
+
+        Assert.NotNull(decoded);
+        Assert.Equal(BarcodeFormat.QR_CODE, decoded.BarcodeFormat);
+        Assert.Equal(scanUrl, decoded.Text);
+    }
+
     private static async Task<HttpResponseMessage> CreateProjectAsync(
         HttpClient client,
         string projectCode,
@@ -1184,7 +1457,9 @@ public sealed class PanelInformationApiTests
         }
 
         private PostgreSqlTestDatabase Database { get; }
-        private QmsWebApplicationFactory Factory { get; }
+        public QmsWebApplicationFactory Factory { get; }
+        public IReadOnlyList<string> LogMessages => Factory.Logs.Entries.Select(entry => entry.Message).ToList();
+        public string FullLogs => string.Join(" | ", Factory.Logs.Entries.Select(entry => $"{entry.Message} {entry.Exception}"));
 
         public static async Task<PanelInfoTestContext> CreateAsync()
         {
@@ -1253,6 +1528,20 @@ public sealed class PanelInformationApiTests
                 where project_id = @project_id;
                 """,
                 projectId);
+        }
+
+        public async Task<int> CountActivePanelQrsAsync(Guid panelId)
+        {
+            return await ReadScalarAsync<int>(
+                "select count(*)::integer from panel_qr_codes where panel_id = @project_id and status = 'Active';",
+                panelId);
+        }
+
+        public async Task<int> CountRevokedPanelQrsAsync(Guid panelId)
+        {
+            return await ReadScalarAsync<int>(
+                "select count(*)::integer from panel_qr_codes where panel_id = @project_id and status = 'Revoked';",
+                panelId);
         }
 
         public async Task<bool> ExcelBinaryColumnExistsAsync()

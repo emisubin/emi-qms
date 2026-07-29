@@ -32,6 +32,9 @@
 | 수동 UAT | 5081 | 5174 | `emi_qms_uat_005a` |
 | Full-Stack E2E | 5082 | 5175 | `emi_qms_e2e_*` |
 | Figma 디자인 검증 | N/A | 5176 | N/A |
+| 현재 `experiment/*` 사용자 검수 | 41166 | 42983 | `emi_qms_experiment_validation_41164` |
+
+현재 `experiment/*` 사용자 검수 주소는 Backend `http://127.0.0.1:41166`, Frontend `http://127.0.0.1:42983`으로 고정한다. Task 종료 때 새 검수 포트를 만들지 않고 이 runtime을 최신 source로 재검증해 계속 열어 둔다. 포트가 점유됐거나 runtime 교체가 실패하면 다른 주소로 자동 우회하지 말고 ownership과 실패 원인을 보고한다. Full-Stack E2E의 실행별 임시 포트는 이 사용자 검수 주소가 아니며 완료 후 정리한다. DB 이름의 `41164` suffix는 기존 실험 데이터를 보존하기 위한 historical label일 뿐 현재 Backend port를 뜻하지 않는다.
 
 ## Script 검증
 

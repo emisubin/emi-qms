@@ -2,13 +2,25 @@ using Emi.Qms.Api;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Calendar;
+using Emi.Qms.Api.DataExports;
+using Emi.Qms.Api.Home;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Logistics;
+using Emi.Qms.Api.Manufacturing;
+using Emi.Qms.Api.Materials;
 using Emi.Qms.Api.Notifications;
+using Emi.Qms.Api.Notices;
 using Emi.Qms.Api.PanelInformation;
+using Emi.Qms.Api.PanelQr;
+using Emi.Qms.Api.Pending;
+using Emi.Qms.Api.PendingTypes;
 using Emi.Qms.Api.Procurement;
 using Emi.Qms.Api.ProductionPlanning;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.QualityInspections;
 using Emi.Qms.Api.ReviewSafe;
+using Emi.Qms.Api.Sales;
+using Emi.Qms.Api.Ul891Sets;
 using Emi.Qms.Api.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -34,7 +46,7 @@ builder.Services.AddCors(options =>
             .WithOrigins(frontendOrigins.Length == 0 ? ["http://localhost:5173"] : frontendOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .WithExposedHeaders("Content-Disposition");
+            .WithExposedHeaders("Content-Disposition", "X-Export-Row-Count");
     });
 });
 
@@ -46,19 +58,46 @@ builder.Services.AddSingleton<MigrationLedgerInspector>();
 builder.Services.AddSingleton<DatabaseMigrationRunner>();
 builder.Services.AddSingleton<ReviewSafeStatusService>();
 builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
+builder.Services.AddSingleton<UserProfilePhotoStore>();
+builder.Services.AddSingleton<HomeMetricsStore>();
+builder.Services.AddSingleton<NoticeStore>();
 builder.Services.AddSingleton<IProjectDeletionGuard, ProjectDeletionGuard>();
 builder.Services.AddSingleton<ProjectExcelParser>();
 builder.Services.AddSingleton<ProjectStore>();
+builder.Services.AddSingleton<ExcelWorkbookBuilder>();
+builder.Services.AddSingleton<ExcelExportConcurrencyGate>();
+builder.Services.AddSingleton<DataExportAuditStore>();
+builder.Services.AddSingleton<ExcelExportService>();
+builder.Services.AddSingleton<SelectedExcelExportService>();
 builder.Services.AddSingleton<PanelInformationExcelParser>();
 builder.Services.AddSingleton<PanelInformationStore>();
+builder.Services.AddSingleton<PanelQrStore>();
+builder.Services.AddSingleton<PanelQrRenderer>();
+builder.Services.AddSingleton<PendingStore>();
+builder.Services.AddSingleton<PendingTypeStore>();
 builder.Services.AddSingleton<ProcurementExcelParser>();
 builder.Services.AddSingleton<ProcurementStore>();
+builder.Services.AddSingleton<MaterialsStore>();
+builder.Services.AddSingleton<PanelKittingStore>();
+builder.Services.AddSingleton<ManufacturingStore>();
+builder.Services.AddSingleton<LogisticsStore>();
+builder.Services.AddSingleton<SalesSettlementStore>();
+builder.Services.AddSingleton<SalesBillingRequestStore>();
+builder.Services.AddSingleton<SalesKpiStore>();
+builder.Services.AddSingleton<Ul891SetStore>();
+builder.Services.AddSingleton<MonthlyBillingStore>();
+builder.Services.AddSingleton<IqcPdfRenderer>();
+builder.Services.AddSingleton<IqcReportStore>();
+builder.Services.AddSingleton<QualityInspectionPdfRenderer>();
+builder.Services.AddSingleton<QualityInspectionStore>();
 builder.Services.AddSingleton<ProductionPlanningStore>();
+builder.Services.AddSingleton<ProductionControlTemplateStore>();
 builder.Services.AddSingleton<SystemHolidayStore>();
 builder.Services.AddSingleton<BusinessCalendarStore>();
 builder.Services.AddSingleton<AdminCalendarHolidayStore>();
 builder.Services.AddSingleton<CalendarHolidayExcelParser>();
 builder.Services.AddSingleton<AdminMasterDataStore>();
+builder.Services.AddSingleton<FormTemplateStore>();
 builder.Services.AddSingleton<AdminScheduledDeletionService>();
 builder.Services.AddSingleton<IAdminDeletionPurgeService>(services =>
     services.GetRequiredService<AdminScheduledDeletionService>());
@@ -72,6 +111,8 @@ builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<Noti
 builder.Services.AddOptions<NotificationOptions>().ValidateOnStart();
 builder.Services.AddSingleton<NotificationWorkerIdentity>();
 builder.Services.AddSingleton<NotificationDeliveryStore>();
+builder.Services.AddSingleton<NotificationPreferenceStore>();
+builder.Services.AddSingleton<NotificationPreferenceAuditStore>();
 builder.Services.AddSingleton<NotificationDispatcher>();
 builder.Services.AddSingleton<WorkItemEscalationStore>();
 builder.Services.AddSingleton<NotificationEscalationService>();
@@ -128,6 +169,16 @@ app.UseExceptionHandler(exceptionApp =>
 {
     exceptionApp.Run(async context =>
     {
+        var exception = context.Features
+            .Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?
+            .Error;
+        if (exception is not null)
+        {
+            context.RequestServices
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("Emi.Qms.Api.UnhandledException")
+                .LogError(exception, "Unhandled API exception for {Method} {Path}.", context.Request.Method, context.Request.Path);
+        }
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         context.Response.ContentType = "application/problem+json";
         await Results.Problem(
@@ -202,16 +253,35 @@ app.MapGet("/api/runtime-mode", async (ReviewSafeStatusService statusService, Ca
 .WithName("RuntimeMode");
 
 app.MapIdentityEndpoints();
+app.MapHomeMetricsEndpoints();
+app.MapNoticeEndpoints();
 app.MapProjectEndpoints();
 app.MapPanelInformationEndpoints();
+app.MapPanelQrEndpoints();
+app.MapPendingEndpoints();
+app.MapPendingTypeEndpoints();
 app.MapProcurementEndpoints();
+app.MapMaterialsEndpoints();
+app.MapPanelKittingEndpoints();
+app.MapManufacturingEndpoints();
+app.MapLogisticsEndpoints();
+app.MapSalesSettlementEndpoints();
+app.MapSalesBillingRequestEndpoints();
+app.MapSalesKpiEndpoints();
+app.MapUl891SetEndpoints();
+app.MapQualityInspectionEndpoints();
 app.MapProductionPlanningEndpoints();
+app.MapProductionControlTemplateEndpoints();
 app.MapBusinessCalendarEndpoints();
 app.MapAdminCalendarHolidayEndpoints();
 app.MapAdminMasterDataEndpoints();
+app.MapFormTemplateEndpoints();
 app.MapWorkflowEndpoints();
+app.MapDataExportEndpoints();
 app.MapNotificationDeliveryEndpoints();
 app.MapNotificationEscalationEndpoints();
+app.MapNotificationPreferenceEndpoints();
+app.MapNotificationPreferenceAuditEndpoints();
 
 app.Run();
 

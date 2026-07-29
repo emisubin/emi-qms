@@ -34,6 +34,201 @@ public sealed class NotificationDeliveryTests
     }
 
     [Fact]
+    public async Task NotificationPreferences_SaveNoOpConflictResetAndAdminAuthorization_AreEnforced()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
+
+        var initial = await salesClient.GetFromJsonAsync<NotificationPreferenceResponse>(
+            "/api/my/notification-preferences",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(initial);
+        Assert.Equal(0, initial.Version);
+        Assert.True(initial.IsDefault);
+        Assert.Equal(7, initial.Items.Count);
+        Assert.Equal(3, initial.Items.Count(item => item.CanChange));
+
+        var disabledItems = initial.Items
+            .Where(item => item.CanChange)
+            .Select(item => new NotificationPreferenceUpdateItem(
+                item.DeliveryType,
+                item.Channel,
+                item.DeliveryType == NotificationDeliveryTypes.WorkItemCreated))
+            .ToArray();
+        var savedResponse = await salesClient.PutAsJsonAsync(
+            "/api/my/notification-preferences",
+            new UpdateNotificationPreferencesRequest(0, disabledItems),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, savedResponse.StatusCode);
+        var saved = await savedResponse.Content.ReadFromJsonAsync<NotificationPreferenceResponse>(TestContext.Current.CancellationToken);
+        Assert.NotNull(saved);
+        Assert.True(saved.Changed);
+        Assert.Equal(1, saved.Version);
+        Assert.False(saved.IsDefault);
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("select count(*) from user_notification_preferences where user_id = '50000000-0000-0000-0000-000000000002';"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("select count(*) from user_notification_preference_audit_events where target_user_id = '50000000-0000-0000-0000-000000000002';"));
+
+        var noOpResponse = await salesClient.PutAsJsonAsync(
+            "/api/my/notification-preferences",
+            new UpdateNotificationPreferencesRequest(1, disabledItems),
+            TestContext.Current.CancellationToken);
+        var noOp = await noOpResponse.Content.ReadFromJsonAsync<NotificationPreferenceResponse>(TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, noOpResponse.StatusCode);
+        Assert.NotNull(noOp);
+        Assert.False(noOp.Changed);
+        Assert.Equal(1, noOp.Version);
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("select count(*) from user_notification_preference_audit_events where target_user_id = '50000000-0000-0000-0000-000000000002';"));
+
+        var staleResponse = await salesClient.PostAsJsonAsync(
+            "/api/my/notification-preferences/reset",
+            new ResetNotificationPreferencesRequest(0),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, staleResponse.StatusCode);
+
+        var lockedResponse = await salesClient.PutAsJsonAsync(
+            "/api/my/notification-preferences",
+            new UpdateNotificationPreferencesRequest(1,
+            [
+                new NotificationPreferenceUpdateItem(
+                    NotificationDeliveryTypes.UrgentBlocking,
+                    NotificationDeliveryChannels.Mail,
+                    false)
+            ]),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, lockedResponse.StatusCode);
+
+        var forbidden = await salesClient.GetAsync(
+            $"/api/admin/users/{DevAdminUserId}/notification-preferences",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+        var adminRead = await adminClient.GetAsync(
+            $"/api/admin/users/{DevSalesUserId}/notification-preferences",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, adminRead.StatusCode);
+
+        var resetResponse = await salesClient.PostAsJsonAsync(
+            "/api/my/notification-preferences/reset",
+            new ResetNotificationPreferencesRequest(1),
+            TestContext.Current.CancellationToken);
+        var reset = await resetResponse.Content.ReadFromJsonAsync<NotificationPreferenceResponse>(TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, resetResponse.StatusCode);
+        Assert.NotNull(reset);
+        Assert.True(reset.Changed);
+        Assert.True(reset.IsDefault);
+        Assert.Equal(2, reset.Version);
+        Assert.Equal(4L, await context.ReadScalarAsync<long>("select count(*) from user_notification_preference_audit_events where target_user_id = '50000000-0000-0000-0000-000000000002';"));
+    }
+
+    [Fact]
+    public async Task NotificationPreferences_SuppressOnlyConfiguredAutomaticDeliveries()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:DailyDigest:Enabled"] = "true",
+            ["Notifications:DailyDigest:Time"] = "09:00",
+            ["Notifications:DailyDigest:TimeZone"] = "Asia/Seoul",
+            ["Notifications:Escalation:Enabled"] = "true",
+            ["Notifications:Escalation:TeamsPersonalDryRun"] = "true",
+            ["Notifications:Escalation:MailEnabled"] = "true"
+        });
+        using var salesClient = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
+
+        var salesSave = await salesClient.PutAsJsonAsync(
+            "/api/my/notification-preferences",
+            new UpdateNotificationPreferencesRequest(0,
+            [
+                new NotificationPreferenceUpdateItem(NotificationDeliveryTypes.WorkItemCreated, NotificationDeliveryChannels.TeamsDirectMessage, false),
+                new NotificationPreferenceUpdateItem(NotificationDeliveryTypes.DailyDigest, NotificationDeliveryChannels.Mail, false)
+            ]),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, salesSave.StatusCode);
+        var adminSave = await adminClient.PutAsJsonAsync(
+            "/api/my/notification-preferences",
+            new UpdateNotificationPreferencesRequest(0,
+            [
+                new NotificationPreferenceUpdateItem(NotificationDeliveryTypes.DueSoonL0, NotificationDeliveryChannels.TeamsDirectMessage, false)
+            ]),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, adminSave.StatusCode);
+
+        await context.InsertNotificationAsync(
+            "preference-work-item",
+            "Info",
+            "Info",
+            "생산 단계 업무 생성",
+            "자동 단계 업무가 생성되었습니다.",
+            DevSalesUserId);
+        await context.DeliveryStore.CreateImmediateDeliveriesAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken);
+        await context.DeliveryStore.CreateDailyDigestDeliveriesIfDueAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken);
+        await context.InsertWorkItemAsync(
+            "ProductionPlanning",
+            "ProductionPlanningPrimary",
+            DevAdminUserId,
+            "2026-07-06",
+            "preference-l0");
+        await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"""
+            select count(*) from notification_deliveries
+            where recipient_user_id = '{DevSalesUserId}'
+              and delivery_type = 'WorkItemCreated'
+              and status = 'Suppressed'
+              and error_code = 'SuppressedByUserPreference'
+              and attempt_count = 0
+              and next_attempt_at_utc is null;
+            """));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"""
+            select count(*) from notification_deliveries
+            where recipient_user_id = '{DevSalesUserId}'
+              and delivery_type = 'DailyDigest'
+              and status = 'Suppressed'
+              and error_code = 'SuppressedByUserPreference'
+              and attempt_count = 0
+              and next_attempt_at_utc is null;
+            """));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"""
+            select count(*) from notification_deliveries
+            where recipient_user_id = '{DevAdminUserId}'
+              and delivery_type = 'DueSoonL0'
+              and status = 'Suppressed'
+              and error_code = 'SuppressedByUserPreference'
+              and attempt_count = 0
+              and next_attempt_at_utc is null;
+            """));
+        Assert.Equal(0L, await context.ReadProviderStartedAttemptCountAsync());
+    }
+
+    [Fact]
+    public async Task NotificationPreferences_ConcurrentFirstSave_SerializesAndRejectsStaleWriter()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        using var firstClient = context.CreateClient("dev-sales");
+        using var secondClient = context.CreateClient("dev-sales");
+        var request = new UpdateNotificationPreferencesRequest(0,
+        [
+            new NotificationPreferenceUpdateItem(
+                NotificationDeliveryTypes.DailyDigest,
+                NotificationDeliveryChannels.Mail,
+                false)
+        ]);
+
+        var responses = await Task.WhenAll(
+            firstClient.PutAsJsonAsync("/api/my/notification-preferences", request, TestContext.Current.CancellationToken),
+            secondClient.PutAsJsonAsync("/api/my/notification-preferences", request, TestContext.Current.CancellationToken));
+
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select version from user_notification_preference_profiles where user_id = '50000000-0000-0000-0000-000000000002';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from user_notification_preference_audit_events where target_user_id = '50000000-0000-0000-0000-000000000002';"));
+    }
+
+    [Fact]
     public async Task Dispatcher_CreatesDryRunTeamsAndMailDeliveries_ForUrgentNotification()
     {
         await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
@@ -2599,6 +2794,177 @@ public sealed class NotificationDeliveryTests
             Assert.Contains(levels, item => item.GetProperty("level").GetString() == "L1" && item.GetProperty("count").GetInt32() == 1);
             Assert.Contains(levels, item => item.GetProperty("level").GetString() == "L0" && item.GetProperty("count").GetInt32() == 0);
         }
+    }
+
+    [Fact]
+    public async Task NotificationPreferenceAudit_IsAdminOnlyAndReturnsSharedSummaryLabels()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var adminClient = context.CreateClient("dev-admin");
+
+        var save = await salesClient.PutAsJsonAsync(
+            "/api/my/notification-preferences",
+            new UpdateNotificationPreferencesRequest(
+                0,
+                [new NotificationPreferenceUpdateItem(NotificationDeliveryTypes.DueSoonL0, NotificationDeliveryChannels.TeamsDirectMessage, false)]),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, save.StatusCode);
+
+        var forbidden = await salesClient.GetAsync(
+            "/api/admin/notification-preference-audit?from=2026-07-03&to=2026-07-03&page=1&pageSize=50",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+
+        var response = await adminClient.GetAsync(
+            "/api/admin/notification-preference-audit?from=2026-07-03&to=2026-07-03&action=Save&deliveryType=DueSoonL0&search=Sales&page=1&pageSize=50",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(1, body.RootElement.GetProperty("totalCount").GetInt32());
+        Assert.Equal(1, body.RootElement.GetProperty("summary").GetProperty("totalChanges").GetInt32());
+        Assert.Equal(1, body.RootElement.GetProperty("summary").GetProperty("userChanges").GetInt32());
+        Assert.Equal(1, body.RootElement.GetProperty("summary").GetProperty("turnedOffChanges").GetInt32());
+        var item = Assert.Single(body.RootElement.GetProperty("items").EnumerateArray().ToArray());
+        Assert.Equal("사용자 직접 변경", item.GetProperty("actionLabel").GetString());
+        Assert.Equal("예정일 임박 D-1", item.GetProperty("deliveryTypeLabel").GetString());
+        Assert.Equal("켬 → 끔", item.GetProperty("changeLabel").GetString());
+        Assert.Contains("현재 계정 정보", body.RootElement.GetProperty("identityNotice").GetString());
+
+        var export = await adminClient.PostAsJsonAsync(
+            "/api/data-exports/selected",
+            new
+            {
+                screen = "admin-notification-preference-audit",
+                ids = new[] { item.GetProperty("auditEventId").GetGuid() },
+                filters = new Dictionary<string, string?>()
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, export.StatusCode);
+        Assert.Equal("1", export.Headers.GetValues("X-Export-Row-Count").Single());
+
+        var invalid = await adminClient.GetAsync(
+            "/api/admin/notification-preference-audit?from=2026-07-03&to=2026-07-03&pageSize=30",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, invalid.StatusCode);
+    }
+
+    [Fact]
+    public async Task FailedReprocess_CreatesNewGenerationAndPreservesGlobalAttemptLineage()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        using var salesClient = context.CreateClient("dev-sales");
+        var deliveryId = await context.ReadScalarAsync<Guid>("""
+            insert into notification_deliveries (
+                channel, delivery_type, status, attempt_count, generation_attempt_count,
+                current_generation, error_code, error_message, dedupe_key, display_title
+            )
+            values (
+                'TeamsChannel', 'ManualTest', 'Failed', 3, 3, 1,
+                'SyntheticTerminalFailure', '격리 테스트 최종 실패', 'reprocess-generation-test', '재처리 테스트'
+            )
+            returning id;
+            """);
+        var request = new NotificationDeliveryReprocessRequest(
+            [new NotificationDeliveryReprocessItemRequest(deliveryId, 1)],
+            "격리 테스트에서 장애 원인을 확인한 뒤 다시 처리합니다.",
+            true);
+
+        var forbidden = await salesClient.PostAsJsonAsync(
+            "/api/admin/notification-deliveries/reprocess-failed", request, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+
+        var response = await adminClient.PostAsJsonAsync(
+            "/api/admin/notification-deliveries/reprocess-failed", request, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Pending", await context.ReadScalarAsync<string>($"select status from notification_deliveries where id = '{deliveryId}';"));
+        Assert.Equal(2, await context.ReadScalarAsync<int>($"select current_generation from notification_deliveries where id = '{deliveryId}';"));
+        Assert.Equal(0, await context.ReadScalarAsync<int>($"select generation_attempt_count from notification_deliveries where id = '{deliveryId}';"));
+        Assert.Equal(3, await context.ReadScalarAsync<int>($"select attempt_count from notification_deliveries where id = '{deliveryId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from notification_delivery_reprocess_events where delivery_id = '{deliveryId}';"));
+
+        var stale = await adminClient.PostAsJsonAsync(
+            "/api/admin/notification-deliveries/reprocess-failed", request, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+
+        var claimed = await context.DeliveryStore.ClaimDeliveryAsync(
+            deliveryId, 3, "generation-test-worker", TimeSpan.FromMinutes(5), TestContext.Current.CancellationToken);
+        Assert.NotNull(claimed);
+        Assert.Equal(4, claimed.AttemptNumber);
+        Assert.Equal(2, await context.ReadScalarAsync<int>($"select generation from notification_delivery_attempts where delivery_id = '{deliveryId}' and attempt_no = 4;"));
+        Assert.Equal(1, await context.ReadScalarAsync<int>($"select generation_attempt_count from notification_deliveries where id = '{deliveryId}';"));
+    }
+
+    [Fact]
+    public async Task FailedReprocess_BatchValidationIsAllOrNothing()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        var failedId = await context.ReadScalarAsync<Guid>("""
+            insert into notification_deliveries (
+                channel, delivery_type, status, attempt_count, generation_attempt_count,
+                current_generation, error_code, dedupe_key
+            )
+            values ('Mail', 'ManualTest', 'Failed', 1, 1, 1, 'SyntheticFailure', 'reprocess-atomic-failed')
+            returning id;
+            """);
+        var pendingId = await context.ReadScalarAsync<Guid>("""
+            insert into notification_deliveries (
+                channel, delivery_type, status, current_generation, dedupe_key, next_attempt_at_utc
+            )
+            values ('Mail', 'ManualTest', 'Pending', 1, 'reprocess-atomic-pending', now())
+            returning id;
+            """);
+
+        var response = await adminClient.PostAsJsonAsync(
+            "/api/admin/notification-deliveries/reprocess-failed",
+            new NotificationDeliveryReprocessRequest(
+                [
+                    new NotificationDeliveryReprocessItemRequest(failedId, 1),
+                    new NotificationDeliveryReprocessItemRequest(pendingId, 1)
+                ],
+                "배치 원자성 검증을 위한 충분히 긴 재처리 사유입니다.",
+                true),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("Failed", await context.ReadScalarAsync<string>($"select status from notification_deliveries where id = '{failedId}';"));
+        Assert.Equal(1, await context.ReadScalarAsync<int>($"select current_generation from notification_deliveries where id = '{failedId}';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from notification_delivery_reprocess_events where delivery_id = '{failedId}';"));
+    }
+
+    [Fact]
+    public async Task FailedReprocess_ConcurrentRequestsCreateExactlyOneGeneration()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        using var firstAdminClient = context.CreateClient("dev-admin");
+        using var secondAdminClient = context.CreateClient("dev-admin");
+        var deliveryId = await context.ReadScalarAsync<Guid>("""
+            insert into notification_deliveries (
+                channel, delivery_type, status, attempt_count, generation_attempt_count,
+                current_generation, error_code, dedupe_key
+            )
+            values ('Mail', 'ManualTest', 'Failed', 3, 3, 1, 'SyntheticFailure', 'reprocess-concurrent-failed')
+            returning id;
+            """);
+        var request = new NotificationDeliveryReprocessRequest(
+            [new NotificationDeliveryReprocessItemRequest(deliveryId, 1)],
+            "동시 관리자 재처리 요청 중 하나만 성공해야 합니다.",
+            true);
+
+        var responses = await Task.WhenAll(
+            firstAdminClient.PostAsJsonAsync(
+                "/api/admin/notification-deliveries/reprocess-failed", request, TestContext.Current.CancellationToken),
+            secondAdminClient.PostAsJsonAsync(
+                "/api/admin/notification-deliveries/reprocess-failed", request, TestContext.Current.CancellationToken));
+
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+        Assert.Equal(2, await context.ReadScalarAsync<int>($"select current_generation from notification_deliveries where id = '{deliveryId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from notification_delivery_reprocess_events where delivery_id = '{deliveryId}';"));
     }
 
     private static MailDeliveryPayload CreateMailPayload()

@@ -2,8 +2,11 @@ using System.Data;
 using System.Globalization;
 using System.Text.Json;
 using ClosedXML.Excel;
+using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
+using Emi.Qms.Api.Projects;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -22,6 +25,9 @@ public sealed class ProcurementStore(
         "OrderDate",
         "ExpectedReceiptDate",
         "IssueNote",
+        "SupplyType",
+        "OrderQuantity",
+        "OrderUnit",
         "ReceiptCompleted",
         "ReceiptCompletedAtUtc",
         "ReceiptCompletionNote"
@@ -108,14 +114,31 @@ public sealed class ProcurementStore(
         string? search,
         DateOnly? expectedReceiptDateFrom,
         DateOnly? expectedReceiptDateTo,
+        ProjectAccessScope accessScope,
+        int maximumRows,
         CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumRows, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(maximumRows, 10_000);
+
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
         command.Parameters.AddWithValue("today", today);
         var where = "where p.deleted_at_utc is null and p.status <> 'Completed'";
+        if (!accessScope.HasProjectReadAll)
+        {
+            if (accessScope.ProjectKeys.Count == 0)
+            {
+                where += " and false";
+            }
+            else
+            {
+                where += " and p.project_key = any(@project_keys)";
+                command.Parameters.AddWithValue("project_keys", accessScope.ProjectKeys.ToArray());
+            }
+        }
         if (!string.IsNullOrWhiteSpace(search))
         {
             where += " and (p.project_title ilike @search or p.customer_name ilike @search or p.project_code ilike @search or p.item ilike @search or exists (select 1 from project_procurement_items si where si.project_id = p.id and si.status = 'Active' and (si.order_item ilike @search or si.supplier_name ilike @search or si.technical_owner ilike @search)))";
@@ -162,8 +185,9 @@ public sealed class ProcurementStore(
             left join procurement_by_project pb on pb.project_id = p.id
             {where}
             order by p.project_title, p.id
-            limit 500;
+            limit @row_limit;
             """;
+        command.Parameters.AddWithValue("row_limit", maximumRows + 1);
 
         var projects = new List<ProcurementProjectSummaryResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -189,12 +213,14 @@ public sealed class ProcurementStore(
 
         await reader.DisposeAsync();
 
+        var truncated = projects.Count > maximumRows;
+        var visibleProjects = truncated ? projects.Take(maximumRows).ToList() : projects;
         var summary = new ProcurementDashboardSummaryResponse(
-            projects.Sum(project => project.ProcurementItemCount - project.ReceiptCompletedCount),
-            projects.Sum(project => project.ReceiptCompletedCount),
-            projects.Sum(project => project.PastExpectedReceiptDateCount));
+            visibleProjects.Sum(project => project.ProcurementItemCount - project.ReceiptCompletedCount),
+            visibleProjects.Sum(project => project.ReceiptCompletedCount),
+            visibleProjects.Sum(project => project.PastExpectedReceiptDateCount));
 
-        return new ProcurementDashboardResponse(summary, projects);
+        return new ProcurementDashboardResponse(summary, visibleProjects, truncated);
     }
 
     public async Task<ProcurementListResponse> GetMaterialReceiptsAsync(
@@ -236,8 +262,36 @@ public sealed class ProcurementStore(
                    i.source_project_text, i.source_project_code_text, i.standard_lead_time, i.order_item,
                    i.supplier_name, i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
-                   u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
-                   i.source_group_sequence, i.row_match_key, i.status
+                   u.display_name,
+                   coalesce(
+                       i.receipt_completion_note,
+                       case
+                           when not i.receipt_completed
+                            and i.order_quantity is not null
+                            and coalesce((
+                                select sum(receipt.quantity)
+                                from material_receipts receipt
+                                where receipt.procurement_item_id = i.id
+                                  and receipt.status = 'Confirmed'
+                            ), 0) > 0
+                           then concat(
+                               '부분 입고 ',
+                               to_char(coalesce((
+                                   select sum(receipt.quantity)
+                                   from material_receipts receipt
+                                   where receipt.procurement_item_id = i.id
+                                     and receipt.status = 'Confirmed'
+                               ), 0), 'FM999999999999990.###'),
+                               '/',
+                               to_char(i.order_quantity, 'FM999999999999990.###'),
+                               case when i.order_unit is null then '' else ' ' || i.order_unit end
+                           )
+                           else null
+                       end
+                   ) as receipt_completion_note,
+                   i.row_version, i.source_excel_row_number,
+                   i.source_group_sequence, i.row_match_key, i.status,
+                   i.supply_type, i.order_quantity, i.order_unit
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -566,7 +620,6 @@ public sealed class ProcurementStore(
             return ProcurementMutationResult<ProcurementExcelPreviewResponse>.Validation(
                 new Dictionary<string, string[]> { ["File"] = parsed.FileErrors.ToArray() });
         }
-
         await using var dataSource = CreateDataSource();
         var projects = await ReadProjectsForMatchingAsync(dataSource, cancellationToken);
         var selected = selections.ToDictionary(item => item.SourceGroupSequence, item => item.ProjectId);
@@ -595,7 +648,6 @@ public sealed class ProcurementStore(
             return ProcurementMutationResult<ProcurementListResponse>.Validation(
                 new Dictionary<string, string[]> { ["File"] = parsed.FileErrors.ToArray() });
         }
-
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
@@ -667,13 +719,30 @@ public sealed class ProcurementStore(
                 {
                     continue;
                 }
+                var project = projects.Single(item => item.ProjectId == row.ProjectId.Value);
 
                 if (row.ItemId is null)
                 {
                     var inserted = await InsertItemAsync(connection, transaction, row.ProjectId.Value, parsedRow, changedByUserId, cancellationToken);
-                    foreach (var change in CollectNewItemChanges(inserted))
+                    var changes = CollectNewItemChanges(inserted);
+                    foreach (var change in changes)
                     {
                         await InsertAuditAsync(connection, transaction, inserted.ProjectId, inserted.ItemId, change.FieldName, null, change.NewValue, reason, changedByUserId, correlationId, "Excel", batchId, null, change.OriginalInputValue, cancellationToken);
+                    }
+                    if (!await CreateMaterialsItemHandoffAsync(
+                        connection,
+                        transaction,
+                        project,
+                        inserted.ItemId,
+                        inserted.RowVersion,
+                        inserted.OrderItem,
+                        "신규",
+                        changes,
+                        changedByUserId,
+                        cancellationToken))
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return MaterialsHandoffValidation<ProcurementListResponse>();
                     }
                 }
                 else
@@ -695,6 +764,21 @@ public sealed class ProcurementStore(
                     foreach (var change in changes)
                     {
                         await InsertAuditAsync(connection, transaction, current.ProjectId, current.ItemId, change.FieldName, change.OldValue, change.NewValue, reason, changedByUserId, correlationId, "Excel", batchId, null, change.OriginalInputValue, cancellationToken);
+                    }
+                    if (!await CreateMaterialsItemHandoffAsync(
+                        connection,
+                        transaction,
+                        project,
+                        current.ItemId,
+                        current.RowVersion + 1,
+                        ProcurementDomain.TrimToNull(parsedRow.OrderItem) ?? current.OrderItem,
+                        "변경",
+                        changes,
+                        changedByUserId,
+                        cancellationToken))
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return MaterialsHandoffValidation<ProcurementListResponse>();
                     }
                 }
             }
@@ -812,18 +896,73 @@ public sealed class ProcurementStore(
         var nextSequence = existing.Count == 0 ? 1 : existing.Max(item => item.SequenceNumber) + 1;
         foreach (var update in updates)
         {
+            var requestedSupplyType = NormalizeSupplyType(update.SupplyType);
+            if (update.SupplyType is not null && requestedSupplyType is null)
+            {
+                return SupplyValidation<ProcurementResponse>("SupplyType", "공급 유형은 일반 구매 또는 사급(고객 제공)이어야 합니다.");
+            }
+
             if (update.ItemId is null)
             {
+                if (update.ReceiptCompleted == true
+                    || update.ReceiptCompletedAtUtc is not null
+                    || !string.IsNullOrWhiteSpace(update.ReceiptCompletionNote))
+                {
+                    return DerivedReceiptProjectionValidation<ProcurementResponse>();
+                }
                 if (IsEmptyNewDirectRow(update))
                 {
                     continue;
                 }
 
+                var newSupplyType = requestedSupplyType ?? ProcurementSupplyTypes.Purchased;
+                var newOrderUnit = NormalizeOptionalUnit(update.OrderUnit);
+                if (update.OrderUnit is not null && newOrderUnit is null)
+                {
+                    return SupplyValidation<ProcurementResponse>("OrderUnit", "단위를 1~20자로 입력해 주세요.");
+                }
+                if (newSupplyType == ProcurementSupplyTypes.CustomerSupplied
+                    && (update.OrderQuantity is null or <= 0 || newOrderUnit is null))
+                {
+                    return SupplyValidation<ProcurementResponse>("OrderQuantity", "사급 품목은 제공 예정 수량과 단위를 함께 입력해 주세요.");
+                }
+                if (newSupplyType == ProcurementSupplyTypes.Purchased
+                    && ((update.OrderQuantity is null) != (newOrderUnit is null)
+                        || update.OrderQuantity is <= 0))
+                {
+                    return SupplyValidation<ProcurementResponse>("OrderQuantity", "일반 구매품의 발주 수량과 단위는 함께 입력하거나 모두 비워 주세요.");
+                }
+
                 var row = new ParsedProcurementExcelRow(0, 0, project.ProjectTitle, project.ProjectCode, update.StandardLeadTime, update.OrderItem, update.SupplierName, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, false, []);
-                var inserted = await InsertItemAsync(connection, transaction, project.ProjectId, row, changedByUserId, cancellationToken, nextSequence++);
-                foreach (var change in CollectNewItemChanges(inserted))
+                var inserted = await InsertItemAsync(
+                    connection,
+                    transaction,
+                    project.ProjectId,
+                    row,
+                    changedByUserId,
+                    cancellationToken,
+                    nextSequence++,
+                    newSupplyType,
+                    update.OrderQuantity,
+                    newOrderUnit);
+                var newItemChanges = CollectNewItemChanges(inserted);
+                foreach (var change in newItemChanges)
                 {
                     await InsertAuditAsync(connection, transaction, project.ProjectId, inserted.ItemId, change.FieldName, null, change.NewValue, reason, changedByUserId, correlationId, "Direct", null, null, null, cancellationToken);
+                }
+                if (!await CreateMaterialsItemHandoffAsync(
+                    connection,
+                    transaction,
+                    project,
+                    inserted.ItemId,
+                    inserted.RowVersion,
+                    inserted.OrderItem,
+                    "신규",
+                    newItemChanges,
+                    changedByUserId,
+                    cancellationToken))
+                {
+                    return MaterialsHandoffValidation<ProcurementResponse>();
                 }
 
                 continue;
@@ -833,6 +972,13 @@ public sealed class ProcurementStore(
             {
                 return ProcurementMutationResult<ProcurementResponse>.Validation(
                     new Dictionary<string, string[]> { ["Items"] = ["대상 구매 항목은 해당 프로젝트에 속해야 합니다."] });
+            }
+
+            if ((update.ReceiptCompleted is not null && update.ReceiptCompleted != current.ReceiptCompleted)
+                || (update.ReceiptCompletedAtUtc is not null && NormalizeUtc(update.ReceiptCompletedAtUtc) != NormalizeUtc(current.ReceiptCompletedAtUtc))
+                || (update.ReceiptCompletionNote is not null && !string.Equals(update.ReceiptCompletionNote.Trim(), current.ReceiptCompletionNote?.Trim(), StringComparison.Ordinal)))
+            {
+                return DerivedReceiptProjectionValidation<ProcurementResponse>();
             }
 
             if (update.ExpectedRowVersion is not null && current.RowVersion != update.ExpectedRowVersion)
@@ -846,6 +992,52 @@ public sealed class ProcurementStore(
                 continue;
             }
 
+            var supplyChanges = changes.Where(change => change.FieldName is "SupplyType" or "OrderQuantity" or "OrderUnit").ToList();
+            if (supplyChanges.Count > 0)
+            {
+                var normalizedReason = ProcurementDomain.TrimToNull(reason);
+                if (normalizedReason is null || normalizedReason.Length is < 3 or > 500)
+                {
+                    return SupplyValidation<ProcurementResponse>("Reason", "공급 유형 또는 제공 예정량 변경 사유를 3~500자로 입력해 주세요.");
+                }
+
+                var nextSupplyType = requestedSupplyType ?? current.SupplyType;
+                var nextOrderQuantity = update.OrderQuantity ?? current.OrderQuantity;
+                var nextOrderUnit = update.OrderUnit is null ? current.OrderUnit : NormalizeOptionalUnit(update.OrderUnit);
+                if (update.OrderUnit is not null && nextOrderUnit is null)
+                {
+                    return SupplyValidation<ProcurementResponse>("OrderUnit", "단위를 1~20자로 입력해 주세요.");
+                }
+                if (nextSupplyType == ProcurementSupplyTypes.CustomerSupplied
+                    && (nextOrderQuantity is null or <= 0 || nextOrderUnit is null))
+                {
+                    return SupplyValidation<ProcurementResponse>("OrderQuantity", "사급 품목은 제공 예정 수량과 단위를 함께 입력해 주세요.");
+                }
+                if (nextSupplyType == ProcurementSupplyTypes.Purchased
+                    && ((nextOrderQuantity is null) != (nextOrderUnit is null)
+                        || nextOrderQuantity is <= 0))
+                {
+                    return SupplyValidation<ProcurementResponse>("OrderQuantity", "일반 구매품의 발주 수량과 단위는 함께 입력하거나 모두 비워 주세요.");
+                }
+
+                var receiptAggregate = await ReadMaterialReceiptAggregateAsync(connection, transaction, current.ItemId, cancellationToken);
+                if (!string.Equals(nextSupplyType, current.SupplyType, StringComparison.Ordinal)
+                    && receiptAggregate.ActiveReceiptCount > 0)
+                {
+                    return SupplyValidation<ProcurementResponse>("SupplyType", "도착 이력이 있는 품목은 공급 유형을 변경할 수 없습니다.");
+                }
+                if (nextOrderQuantity is not null && nextOrderQuantity < receiptAggregate.ArrivedQuantity)
+                {
+                    return SupplyValidation<ProcurementResponse>("OrderQuantity", $"발주·제공 예정 수량은 누적 도착 수량({receiptAggregate.ArrivedQuantity:0.###})보다 작을 수 없습니다.");
+                }
+                if (receiptAggregate.ActiveReceiptCount > 0
+                    && update.OrderUnit is not null
+                    && !string.Equals(nextOrderUnit, current.OrderUnit, StringComparison.OrdinalIgnoreCase))
+                {
+                    return SupplyValidation<ProcurementResponse>("OrderUnit", "도착 이력이 있는 품목은 단위를 변경할 수 없습니다.");
+                }
+            }
+
             await UpdateItemDirectAsync(connection, transaction, current, update, changedByUserId, cancellationToken);
             var auditReason = string.IsNullOrWhiteSpace(reason) && current.ReceiptCompleted && update.ReceiptCompleted == false
                 ? "입고 완료 체크 해제"
@@ -853,6 +1045,20 @@ public sealed class ProcurementStore(
             foreach (var change in changes)
             {
                 await InsertAuditAsync(connection, transaction, project.ProjectId, current.ItemId, change.FieldName, change.OldValue, change.NewValue, auditReason, changedByUserId, correlationId, "Direct", null, null, null, cancellationToken);
+            }
+            if (!await CreateMaterialsItemHandoffAsync(
+                connection,
+                transaction,
+                project,
+                current.ItemId,
+                current.RowVersion + 1,
+                ProcurementDomain.TrimToNull(update.OrderItem) ?? current.OrderItem,
+                "변경",
+                changes,
+                changedByUserId,
+                cancellationToken))
+            {
+                return MaterialsHandoffValidation<ProcurementResponse>();
             }
         }
 
@@ -868,9 +1074,265 @@ public sealed class ProcurementStore(
             && update.OrderDate is null
             && update.ExpectedReceiptDate is null
             && string.IsNullOrWhiteSpace(update.IssueNote)
+            && update.SupplyType is null
+            && update.OrderQuantity is null
+            && update.OrderUnit is null
             && update.ReceiptCompleted is null
             && update.ReceiptCompletedAtUtc is null
             && string.IsNullOrWhiteSpace(update.ReceiptCompletionNote);
+    }
+
+    private static async Task<bool> CreateMaterialsItemHandoffAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ProcurementProjectSnapshot project,
+        Guid itemId,
+        int rowVersion,
+        string? orderItem,
+        string changeKind,
+        IReadOnlyList<Change> changes,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var assignees = await ResolveProjectAssigneesAsync(
+            connection,
+            transaction,
+            project.ProjectId,
+            ["MaterialsPrimary", "MaterialsSecondary"],
+            QmsPermissions.MaterialReceiptUpdate,
+            cancellationToken);
+        if (assignees.Count == 0)
+        {
+            return false;
+        }
+
+        var title = $"구매품 {changeKind} 확인 · {orderItem ?? "품목명 미입력"}";
+        var changeDetails = BuildMaterialsChangeDetails(changeKind, changes);
+        var summary = $"{project.ProjectCode} 구매품 {changeKind} 내용을 확인하고 입고 계획에 반영해 주세요.";
+        var description = $"{summary}\n\n상세 내용\n{changeDetails}";
+        var linkUrl = $"/materials/receipts?project={Uri.EscapeDataString(project.ProjectCode)}";
+        var idempotencyPrefix = $"procurement:materials:{itemId:N}:v{rowVersion}";
+        var workItemIds = new List<Guid>();
+        foreach (var assignee in assignees)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into work_items (
+                    project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                    assigned_user_id, assigned_role_code, title, description, status, priority,
+                    idempotency_key, created_by_user_id
+                ) values (
+                    @project_id, 'ProcurementItem', @item_id, 'MaterialArrived', @responsibility_type,
+                    @assignee_id, null, @title, @description, 'Requested', 'Normal',
+                    @idempotency_key, @actor_id
+                )
+                on conflict (idempotency_key) do update
+                set title=excluded.title, description=excluded.description
+                returning id;
+                """;
+            command.Parameters.AddWithValue("project_id", project.ProjectId);
+            command.Parameters.AddWithValue("item_id", itemId);
+            command.Parameters.AddWithValue("responsibility_type", assignee.ResponsibilityType);
+            command.Parameters.AddWithValue("assignee_id", assignee.UserId);
+            command.Parameters.AddWithValue("title", title);
+            command.Parameters.AddWithValue("description", $"{description} {linkUrl}");
+            command.Parameters.AddWithValue("idempotency_key", $"{idempotencyPrefix}:{assignee.UserId:N}");
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            workItemIds.Add((Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty));
+        }
+
+        await WorkAssignmentNotificationWriter.UpsertAsync(
+            connection,
+            transaction,
+            project.ProjectId,
+            workItemIds[0],
+            assignees[0].UserId,
+            ["MaterialsSecondary"],
+            title,
+            description,
+            linkUrl,
+            $"{idempotencyPrefix}:notification",
+            cancellationToken);
+        return true;
+    }
+
+    private static string BuildMaterialsChangeDetails(string changeKind, IReadOnlyList<Change> changes)
+    {
+        if (changes.Count == 0)
+        {
+            return "상세 변경 없음";
+        }
+
+        return string.Join(
+            "\n",
+            changes.Select(change =>
+            {
+                var label = MaterialsChangeFieldLabel(change.FieldName);
+                var next = FormatMaterialsChangeValue(change.FieldName, change.NewValue);
+                return changeKind == "신규"
+                    ? $"{label} {next}"
+                    : $"{label} 변경 {FormatMaterialsChangeValue(change.FieldName, change.OldValue)} → {next}";
+            }));
+    }
+
+    private static string MaterialsChangeFieldLabel(string fieldName) => fieldName switch
+    {
+        "StandardLeadTime" => "통상납기",
+        "OrderItem" => "발주품목",
+        "SupplierName" => "업체",
+        "TechnicalOwner" => "기술 담당자",
+        "OrderDate" => "발주일",
+        "ExpectedReceiptDate" => "입고예정일",
+        "IssueNote" => "이슈사항",
+        "SupplyType" => "공급 방식",
+        "OrderQuantity" => "발주·제공 예정 수량",
+        "OrderUnit" => "단위",
+        _ => fieldName
+    };
+
+    private static string FormatMaterialsChangeValue(string fieldName, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+
+        if (fieldName is "OrderDate" or "ExpectedReceiptDate"
+            && DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            return date.ToString("M/d", CultureInfo.InvariantCulture);
+        }
+
+        if (fieldName == "SupplyType")
+        {
+            return value == ProcurementSupplyTypes.CustomerSupplied ? "사급 자재" : "도급 구매품";
+        }
+
+        return value.Replace('\r', ' ').Replace('\n', ' ').Trim();
+    }
+
+    private static ProcurementMutationResult<T> MaterialsHandoffValidation<T>()
+    {
+        return ProcurementMutationResult<T>.Validation(new Dictionary<string, string[]>
+        {
+            ["MaterialsAssignee"] = ["자재 담당자가 없어 구매품을 인계할 수 없습니다. 생산관리에서 자재 정·부 담당자를 지정한 뒤 다시 저장해 주세요."]
+        });
+    }
+
+    private static async Task<IReadOnlyList<ProjectHandoffAssignee>> ResolveProjectAssigneesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string[] responsibilityTypes,
+        string fallbackPermission,
+        CancellationToken cancellationToken)
+    {
+        var assignees = new List<ProjectHandoffAssignee>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select selected.assigned_user_id, selected.responsibility_type
+                from (
+                    select distinct on (assignee.assigned_user_id)
+                           assignee.assigned_user_id, assignee.responsibility_type,
+                           array_position(@responsibility_types, assignee.responsibility_type) as responsibility_order
+                    from project_assignees assignee
+                    join qms_users users on users.id=assignee.assigned_user_id and users.is_active=true
+                    where assignee.project_id=@project_id
+                      and assignee.responsibility_type=any(@responsibility_types)
+                    order by assignee.assigned_user_id,
+                             array_position(@responsibility_types, assignee.responsibility_type)
+                ) selected
+                order by selected.responsibility_order, selected.assigned_user_id;
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("responsibility_types", responsibilityTypes);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                assignees.Add(new ProjectHandoffAssignee(reader.GetGuid(0), reader.GetString(1)));
+            }
+        }
+
+        if (assignees.Count > 0)
+        {
+            return assignees;
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select users.id
+                from qms_users users
+                join user_roles user_role on user_role.user_id=users.id
+                join roles role on role.id=user_role.role_id
+                join role_permissions role_permission on role_permission.role_id=user_role.role_id
+                join permissions permission on permission.id=role_permission.permission_id
+                where users.is_active=true
+                  and permission.code=@permission_code
+                  and role.code not in ('system-administrator', 'read-only')
+                  and not exists (
+                      select 1
+                      from user_roles excluded_user_role
+                      join roles excluded_role on excluded_role.id=excluded_user_role.role_id
+                      where excluded_user_role.user_id=users.id
+                        and excluded_role.code in ('system-administrator', 'read-only')
+                  )
+                order by case when role.code='materials' then 0 else 1 end,
+                         role.code,
+                         users.id
+                limit 1;
+                """;
+            command.Parameters.AddWithValue("permission_code", fallbackPermission);
+            var fallback = await command.ExecuteScalarAsync(cancellationToken);
+            if (fallback is Guid userId)
+            {
+                assignees.Add(new ProjectHandoffAssignee(userId, responsibilityTypes[0]));
+            }
+        }
+
+        return assignees;
+    }
+
+    private static string? NormalizeSupplyType(string? value)
+    {
+        var normalized = ProcurementDomain.TrimToNull(value);
+        return ProcurementSupplyTypes.IsValid(normalized) ? normalized : null;
+    }
+
+    private static string? NormalizeOptionalUnit(string? value)
+    {
+        var normalized = ProcurementDomain.TrimToNull(value);
+        return normalized is { Length: <= 20 } ? normalized : null;
+    }
+
+    private static ProcurementMutationResult<T> SupplyValidation<T>(string field, string message)
+    {
+        return ProcurementMutationResult<T>.Validation(new Dictionary<string, string[]> { [field] = [message] });
+    }
+
+    private static async Task<MaterialReceiptAggregate> ReadMaterialReceiptAggregateAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid itemId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select
+                count(*) filter (where status <> 'Cancelled')::int,
+                coalesce(sum(quantity) filter (where status <> 'Cancelled'), 0)
+            from material_receipts
+            where procurement_item_id = @item_id;
+            """;
+        command.Parameters.AddWithValue("item_id", itemId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+        return new MaterialReceiptAggregate(reader.GetInt32(0), reader.GetDecimal(1));
     }
 
     private async Task<ProcurementExcelPreviewResponse> BuildExcelPreviewAsync(
@@ -952,12 +1414,19 @@ public sealed class ProcurementStore(
 
             if (current is null)
             {
-                rows.Add(ToPreviewRow(row, "New", match.MatchedProjectId, null, []));
+                rows.Add(row.ReceiptCompleted == true
+                    ? ToPreviewRow(row, "Error", match.MatchedProjectId, null, ["입고 완료값은 자재 입고 흐름에서만 자동 계산됩니다."])
+                    : ToPreviewRow(row, "New", match.MatchedProjectId, null, []));
                 continue;
             }
 
             touchedItemIds.Add(current.ItemId);
             var changes = CollectExcelChanges(current, row);
+            if (changes.Any(change => change.FieldName == "ReceiptCompleted"))
+            {
+                rows.Add(ToPreviewRow(row, "Error", match.MatchedProjectId, current, ["Excel에서는 입고 완료값을 변경할 수 없습니다."]));
+                continue;
+            }
             if (changes.Count > 0 && !IsReceiptCompletedUncheckOnly(changes))
             {
                 reasonRequired = true;
@@ -1160,6 +1629,14 @@ public sealed class ProcurementStore(
         return NpgsqlDataSource.Create(connectionString);
     }
 
+    private static ProcurementMutationResult<T> DerivedReceiptProjectionValidation<T>()
+    {
+        return ProcurementMutationResult<T>.Validation(new Dictionary<string, string[]>
+        {
+            ["ReceiptCompleted"] = ["입고 완료값은 자재 도착, IQC 판정, 입고 확정 흐름에서만 자동 변경됩니다."]
+        });
+    }
+
     private static ProcurementResponse BuildProjectResponse(ProcurementProjectSnapshot project, IReadOnlyList<ProcurementItemSnapshot> items)
     {
         return new ProcurementResponse(
@@ -1170,7 +1647,15 @@ public sealed class ProcurementStore(
             items.OrderBy(item => item.SequenceNumber).Select(ToResponse).ToList());
     }
 
-    private ProcurementItemSnapshot ToSnapshotWithComputedReceipt(ParsedProcurementExcelRow row, Guid projectId, int sequence, Guid changedByUserId, Guid itemId)
+    private ProcurementItemSnapshot ToSnapshotWithComputedReceipt(
+        ParsedProcurementExcelRow row,
+        Guid projectId,
+        int sequence,
+        Guid changedByUserId,
+        Guid itemId,
+        string supplyType,
+        decimal? orderQuantity,
+        string? orderUnit)
     {
         var completed = row.ReceiptCompleted == true;
         return new ProcurementItemSnapshot(
@@ -1198,7 +1683,10 @@ public sealed class ProcurementStore(
             row.ExcelRowNumber == 0 ? null : row.ExcelRowNumber,
             row.SourceGroupSequence == 0 ? null : row.SourceGroupSequence,
             row.RowMatchKey,
-            "Active");
+            "Active",
+            supplyType,
+            orderQuantity,
+            orderUnit);
     }
 
     private static ProcurementItemResponse ToResponse(ProcurementItemSnapshot item)
@@ -1221,6 +1709,9 @@ public sealed class ProcurementStore(
             OrderDate = item.OrderDate,
             ExpectedReceiptDate = item.ExpectedReceiptDate,
             IssueNote = item.IssueNote,
+            SupplyType = item.SupplyType,
+            OrderQuantity = item.OrderQuantity,
+            OrderUnit = item.OrderUnit,
             ReceiptCompleted = item.ReceiptCompleted,
             ReceiptCompletedAtUtc = item.ReceiptCompletedAtUtc,
             ReceiptCompletedByUserId = item.ReceiptCompletedByUserId,
@@ -1262,7 +1753,7 @@ public sealed class ProcurementStore(
             select id, project_title, project_code, project_key, delivery_date, status, deleted_at_utc
             from projects
             where id = @project_id
-            for update;
+            for no key update;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1341,8 +1832,36 @@ public sealed class ProcurementStore(
                    i.source_project_text, i.source_project_code_text, i.standard_lead_time, i.order_item,
                    i.supplier_name, i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
-                   u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
-                   i.source_group_sequence, i.row_match_key, i.status
+                   u.display_name,
+                   coalesce(
+                       i.receipt_completion_note,
+                       case
+                           when not i.receipt_completed
+                            and i.order_quantity is not null
+                            and coalesce((
+                                select sum(receipt.quantity)
+                                from material_receipts receipt
+                                where receipt.procurement_item_id = i.id
+                                  and receipt.status = 'Confirmed'
+                            ), 0) > 0
+                           then concat(
+                               '부분 입고 ',
+                               to_char(coalesce((
+                                   select sum(receipt.quantity)
+                                   from material_receipts receipt
+                                   where receipt.procurement_item_id = i.id
+                                     and receipt.status = 'Confirmed'
+                               ), 0), 'FM999999999999990.###'),
+                               '/',
+                               to_char(i.order_quantity, 'FM999999999999990.###'),
+                               case when i.order_unit is null then '' else ' ' || i.order_unit end
+                           )
+                           else null
+                       end
+                   ) as receipt_completion_note,
+                   i.row_version, i.source_excel_row_number,
+                   i.source_group_sequence, i.row_match_key, i.status,
+                   i.supply_type, i.order_quantity, i.order_unit
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -1380,7 +1899,8 @@ public sealed class ProcurementStore(
                    i.supplier_name, i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
                    u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
-                   i.source_group_sequence, i.row_match_key, i.status
+                   i.source_group_sequence, i.row_match_key, i.status,
+                   i.supply_type, i.order_quantity, i.order_unit
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -1414,7 +1934,8 @@ public sealed class ProcurementStore(
                    i.supplier_name, i.technical_owner, i.order_date, i.expected_receipt_date, i.issue_note,
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
                    u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
-                   i.source_group_sequence, i.row_match_key, i.status
+                   i.source_group_sequence, i.row_match_key, i.status,
+                   i.supply_type, i.order_quantity, i.order_unit
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -1445,11 +1966,14 @@ public sealed class ProcurementStore(
         ParsedProcurementExcelRow row,
         Guid changedByUserId,
         CancellationToken cancellationToken,
-        int? sequenceNumber = null)
+        int? sequenceNumber = null,
+        string supplyType = ProcurementSupplyTypes.Purchased,
+        decimal? orderQuantity = null,
+        string? orderUnit = null)
     {
         var itemId = Guid.NewGuid();
         var sequence = sequenceNumber ?? await NextSequenceAsync(connection, transaction, projectId, cancellationToken);
-        var snapshot = ToSnapshotWithComputedReceipt(row, projectId, sequence, changedByUserId, itemId);
+        var snapshot = ToSnapshotWithComputedReceipt(row, projectId, sequence, changedByUserId, itemId, supplyType, orderQuantity, orderUnit);
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -1459,17 +1983,22 @@ public sealed class ProcurementStore(
                 issue_note, receipt_completed, receipt_completed_at_utc,
                 receipt_completed_by_user_id, receipt_completion_note, row_version,
                 source_excel_row_number, source_group_sequence, row_match_key,
-                source_type, is_confirmed, created_by_user_id, updated_by_user_id)
+                source_type, is_confirmed, created_by_user_id, updated_by_user_id,
+                supply_type, order_quantity, order_unit)
             values (
                 @id, @project_id, @sequence_number, @source_project_text, @source_project_code_text,
                 @standard_lead_time, @order_item, @supplier_name, @technical_owner, @order_date, @expected_receipt_date,
                 @issue_note, @receipt_completed, @receipt_completed_at_utc,
                 @receipt_completed_by_user_id, @receipt_completion_note, 1,
                 @source_excel_row_number, @source_group_sequence, @row_match_key,
-                @source_type, true, @user_id, @user_id);
+                @source_type, true, @user_id, @user_id,
+                @supply_type, @order_quantity, @order_unit);
             """;
         AddItemParameters(command, snapshot, changedByUserId);
         command.Parameters.AddWithValue("source_type", row.ExcelRowNumber > 0 ? "Excel" : "Direct");
+        command.Parameters.AddWithValue("supply_type", snapshot.SupplyType);
+        command.Parameters.AddWithValue("order_quantity", (object?)snapshot.OrderQuantity ?? DBNull.Value);
+        command.Parameters.AddWithValue("order_unit", (object?)snapshot.OrderUnit ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
         return snapshot;
     }
@@ -1501,21 +2030,46 @@ public sealed class ProcurementStore(
             update.ReceiptCompleted,
             false,
             []);
-        await UpdateItemFromParsedAsync(connection, transaction, current, parsed, NormalizeUtc(update.ReceiptCompletedAtUtc), update.ReceiptCompletionNote, keepExistingWhenNull: false, changedByUserId, cancellationToken);
+        await UpdateItemFromParsedAsync(
+            connection,
+            transaction,
+            current,
+            parsed,
+            keepExistingWhenNull: false,
+            update.SupplyType is null ? current.SupplyType : NormalizeSupplyType(update.SupplyType)!,
+            update.OrderQuantity ?? current.OrderQuantity,
+            update.OrderUnit is null ? current.OrderUnit : NormalizeOptionalUnit(update.OrderUnit),
+            changedByUserId,
+            cancellationToken);
     }
 
     private static async Task UpdateItemFromExcelAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, ProcurementItemSnapshot current, ParsedProcurementExcelRow row, Guid changedByUserId, CancellationToken cancellationToken)
     {
-        await UpdateItemFromParsedAsync(connection, transaction, current, row, null, null, keepExistingWhenNull: true, changedByUserId, cancellationToken);
+        await UpdateItemFromParsedAsync(
+            connection,
+            transaction,
+            current,
+            row,
+            keepExistingWhenNull: true,
+            current.SupplyType,
+            current.OrderQuantity,
+            current.OrderUnit,
+            changedByUserId,
+            cancellationToken);
     }
 
-    private static async Task UpdateItemFromParsedAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, ProcurementItemSnapshot current, ParsedProcurementExcelRow row, DateTimeOffset? explicitReceiptAt, string? explicitReceiptNote, bool keepExistingWhenNull, Guid changedByUserId, CancellationToken cancellationToken)
+    private static async Task UpdateItemFromParsedAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ProcurementItemSnapshot current,
+        ParsedProcurementExcelRow row,
+        bool keepExistingWhenNull,
+        string supplyType,
+        decimal? orderQuantity,
+        string? orderUnit,
+        Guid changedByUserId,
+        CancellationToken cancellationToken)
     {
-        var completed = row.ReceiptCompleted ?? current.ReceiptCompleted;
-        DateTimeOffset? completedAt = completed
-            ? NormalizeUtc(explicitReceiptAt) ?? NormalizeUtc(current.ReceiptCompletedAtUtc) ?? DateTimeOffset.UtcNow
-            : null;
-        Guid? completedBy = completed ? changedByUserId : null;
         var standardLeadTime = keepExistingWhenNull && row.StandardLeadTime is null ? current.StandardLeadTime : row.StandardLeadTime;
         var orderItem = keepExistingWhenNull && row.OrderItem is null ? current.OrderItem : row.OrderItem;
         var supplierName = keepExistingWhenNull && row.SupplierName is null ? current.SupplierName : row.SupplierName;
@@ -1523,7 +2077,6 @@ public sealed class ProcurementStore(
         var orderDate = keepExistingWhenNull && row.OrderDate is null ? current.OrderDate : row.OrderDate;
         var expectedReceiptDate = keepExistingWhenNull && row.ExpectedReceiptDate is null ? current.ExpectedReceiptDate : row.ExpectedReceiptDate;
         var issueNote = keepExistingWhenNull && row.IssueNote is null ? current.IssueNote : row.IssueNote;
-        var receiptCompletionNote = keepExistingWhenNull && explicitReceiptNote is null ? current.ReceiptCompletionNote : ProcurementDomain.TrimToNull(explicitReceiptNote);
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -1535,6 +2088,9 @@ public sealed class ProcurementStore(
                 order_date = @order_date,
                 expected_receipt_date = @expected_receipt_date,
                 issue_note = @issue_note,
+                supply_type = @supply_type,
+                order_quantity = @order_quantity,
+                order_unit = @order_unit,
                 receipt_completed = @receipt_completed,
                 receipt_completed_at_utc = @receipt_completed_at_utc,
                 receipt_completed_by_user_id = @receipt_completed_by_user_id,
@@ -1557,10 +2113,13 @@ public sealed class ProcurementStore(
         AddDateParameter(command, "order_date", orderDate);
         AddDateParameter(command, "expected_receipt_date", expectedReceiptDate);
         command.Parameters.AddWithValue("issue_note", (object?)issueNote ?? DBNull.Value);
-        command.Parameters.AddWithValue("receipt_completed", completed);
-        command.Parameters.AddWithValue("receipt_completed_at_utc", (object?)NormalizeUtc(completedAt) ?? DBNull.Value);
-        command.Parameters.AddWithValue("receipt_completed_by_user_id", (object?)completedBy ?? DBNull.Value);
-        command.Parameters.AddWithValue("receipt_completion_note", (object?)receiptCompletionNote ?? DBNull.Value);
+        command.Parameters.AddWithValue("supply_type", supplyType);
+        command.Parameters.AddWithValue("order_quantity", (object?)orderQuantity ?? DBNull.Value);
+        command.Parameters.AddWithValue("order_unit", (object?)orderUnit ?? DBNull.Value);
+        command.Parameters.AddWithValue("receipt_completed", current.ReceiptCompleted);
+        command.Parameters.AddWithValue("receipt_completed_at_utc", (object?)NormalizeUtc(current.ReceiptCompletedAtUtc) ?? DBNull.Value);
+        command.Parameters.AddWithValue("receipt_completed_by_user_id", (object?)current.ReceiptCompletedByUserId ?? DBNull.Value);
+        command.Parameters.AddWithValue("receipt_completion_note", (object?)current.ReceiptCompletionNote ?? DBNull.Value);
         command.Parameters.AddWithValue("source_excel_row_number", (object?)(row.ExcelRowNumber == 0 ? null : row.ExcelRowNumber) ?? DBNull.Value);
         command.Parameters.AddWithValue("source_group_sequence", (object?)(row.SourceGroupSequence == 0 ? null : row.SourceGroupSequence) ?? DBNull.Value);
         command.Parameters.AddWithValue("row_match_key", (object?)row.RowMatchKey ?? DBNull.Value);
@@ -1693,7 +2252,24 @@ public sealed class ProcurementStore(
     private static List<Change> CollectDirectChanges(ProcurementItemSnapshot current, ProcurementItemUpdateRequest update)
     {
         var next = new ParsedProcurementExcelRow(0, current.SourceGroupSequence ?? 0, current.SourceProjectText, current.SourceProjectCodeText, update.StandardLeadTime, update.OrderItem, update.SupplierName, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, false, []);
-        return CollectChanges(current, next, NormalizeUtc(update.ReceiptCompletedAtUtc), update.ReceiptCompletionNote, keepExistingWhenNull: false);
+        var changes = CollectChanges(current, next, NormalizeUtc(update.ReceiptCompletedAtUtc), update.ReceiptCompletionNote, keepExistingWhenNull: false);
+        if (update.SupplyType is not null)
+        {
+            AddText(changes, "SupplyType", current.SupplyType, NormalizeSupplyType(update.SupplyType), update.SupplyType, keepExistingWhenNull: false);
+        }
+        if (update.OrderQuantity is not null && current.OrderQuantity != update.OrderQuantity)
+        {
+            changes.Add(new Change(
+                "OrderQuantity",
+                current.OrderQuantity?.ToString("0.###", CultureInfo.InvariantCulture),
+                update.OrderQuantity.Value.ToString("0.###", CultureInfo.InvariantCulture),
+                update.OrderQuantity.Value.ToString("0.###", CultureInfo.InvariantCulture)));
+        }
+        if (update.OrderUnit is not null)
+        {
+            AddText(changes, "OrderUnit", current.OrderUnit, NormalizeOptionalUnit(update.OrderUnit), update.OrderUnit, keepExistingWhenNull: false);
+        }
+        return changes;
     }
 
     private static List<Change> CollectExcelChanges(ProcurementItemSnapshot current, ParsedProcurementExcelRow row)
@@ -1766,6 +2342,12 @@ public sealed class ProcurementStore(
         AddNew(changes, "OrderDate", item.OrderDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         AddNew(changes, "ExpectedReceiptDate", item.ExpectedReceiptDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         AddNew(changes, "IssueNote", item.IssueNote);
+        if (item.SupplyType == ProcurementSupplyTypes.CustomerSupplied)
+        {
+            AddNew(changes, "SupplyType", item.SupplyType);
+        }
+        AddNew(changes, "OrderQuantity", item.OrderQuantity?.ToString("0.###", CultureInfo.InvariantCulture));
+        AddNew(changes, "OrderUnit", item.OrderUnit);
         if (item.ReceiptCompleted)
         {
             AddNew(changes, "ReceiptCompleted", "True");
@@ -1836,7 +2418,10 @@ public sealed class ProcurementStore(
             reader.IsDBNull(21) ? null : reader.GetInt32(21),
             reader.IsDBNull(22) ? null : reader.GetInt32(22),
             reader.IsDBNull(23) ? null : reader.GetString(23),
-            reader.GetString(24));
+            reader.GetString(24),
+            reader.GetString(25),
+            reader.IsDBNull(26) ? null : reader.GetDecimal(26),
+            reader.IsDBNull(27) ? null : reader.GetString(27));
     }
 
     private static void AddItemParameters(NpgsqlCommand command, ProcurementItemSnapshot item, Guid userId)
@@ -2140,6 +2725,7 @@ public sealed class ProcurementStore(
     }
 
     private sealed record Change(string FieldName, string? OldValue, string? NewValue, string? OriginalInputValue);
+    private sealed record ProjectHandoffAssignee(Guid UserId, string ResponsibilityType);
 
     private sealed record HistoryEvent(
         Guid AuditId,
@@ -2156,4 +2742,5 @@ public sealed class ProcurementStore(
         Guid? ImportBatchId,
         string? ImportFileName,
         int? SequenceNumber);
+    private sealed record MaterialReceiptAggregate(int ActiveReceiptCount, decimal ArrivedQuantity);
 }

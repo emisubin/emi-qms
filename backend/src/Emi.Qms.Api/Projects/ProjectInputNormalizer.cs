@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Emi.Qms.Api.Ul891Sets;
 
 namespace Emi.Qms.Api.Projects;
 
@@ -109,7 +110,16 @@ public sealed record NormalizedCreateProjectInput(
     decimal? SalesAmount,
     string? CurrencyCode,
     string? DeliveryLocation,
-    bool FatRequired);
+    bool FatRequired,
+    IReadOnlyList<NormalizedUl891SetSpecInput> Ul891SetSpecs)
+{
+    public bool IsUl891Set => Ul891SetSpecs.Count > 0;
+}
+
+public sealed record NormalizedUl891SetSpecInput(
+    string Name,
+    int Quantity,
+    IReadOnlyList<string> ComponentCodes);
 
 public sealed record NormalizedUpdateProjectInput(
     string CustomerName,
@@ -144,7 +154,10 @@ public static partial class ProjectRequestValidator
         var item = ProjectInputNormalizer.NormalizeItemCode(RequiredText(request.Item, nameof(request.Item), ProjectInputNormalizer.ItemMaxLength, validation));
         var projectCode = RequiredText(request.ProjectCode, nameof(request.ProjectCode), ProjectInputNormalizer.ProjectCodeMaxLength, validation);
         var projectTitle = RequiredText(request.ProjectTitle, nameof(request.ProjectTitle), ProjectInputNormalizer.ProjectTitleMaxLength, validation);
-        var panelCount = RequiredPanelCount(request.PanelCount, nameof(request.PanelCount), validation);
+        var setSpecs = ValidateUl891SetSpecs(item, request.Ul891SetSpecs, validation);
+        var panelCount = setSpecs.Count > 0
+            ? setSpecs.Sum(spec => spec.Quantity * spec.ComponentCodes.Count)
+            : RequiredPanelCount(request.PanelCount, nameof(request.PanelCount), validation);
         var deliveryDate = RequiredDate(request.DeliveryDate, nameof(request.DeliveryDate), validation);
         var salesOwnerUserId = RequiredGuid(request.SalesOwnerUserId, nameof(request.SalesOwnerUserId), validation);
         var packagingMethod = RequiredPackagingMethod(request.PackagingMethod, nameof(request.PackagingMethod), validation);
@@ -180,8 +193,93 @@ public static partial class ProjectRequestValidator
                 salesAmount,
                 currencyCode,
                 deliveryLocation,
-                fatRequired),
+                fatRequired,
+                setSpecs),
             validation);
+    }
+
+    private static IReadOnlyList<NormalizedUl891SetSpecInput> ValidateUl891SetSpecs(
+        string? item,
+        IReadOnlyList<CreateUl891SetSpecRequest>? requested,
+        ProjectValidationResult validation)
+    {
+        if (requested is null || requested.Count == 0)
+        {
+            return [];
+        }
+
+        if (!string.Equals(item, "UL891", StringComparison.Ordinal))
+        {
+            validation.Add(nameof(CreateProjectRequest.Ul891SetSpecs), "UL891 Item에서만 세트 구성을 입력할 수 있습니다.");
+            return [];
+        }
+
+        if (requested.Count > 50)
+        {
+            validation.Add(nameof(CreateProjectRequest.Ul891SetSpecs), "세트 사양은 프로젝트당 최대 50개까지 입력할 수 있습니다.");
+            return [];
+        }
+
+        var result = new List<NormalizedUl891SetSpecInput>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var totalPanels = 0;
+        for (var index = 0; index < requested.Count; index++)
+        {
+            var source = requested[index];
+            var name = ProjectInputNormalizer.TrimToNull(source.Name);
+            if (name is null || name.Length > 120)
+            {
+                validation.Add($"Ul891SetSpecs[{index}].Name", "세트 사양명은 1자 이상 120자 이하로 입력해 주세요.");
+                continue;
+            }
+
+            if (!names.Add(name))
+            {
+                validation.Add($"Ul891SetSpecs[{index}].Name", "같은 세트 사양명을 중복 입력할 수 없습니다.");
+                continue;
+            }
+
+            if (source.Quantity is null or < 1 or > 999)
+            {
+                validation.Add($"Ul891SetSpecs[{index}].Quantity", "주문 수량은 1 이상 999 이하로 입력해 주세요.");
+                continue;
+            }
+
+            if (source.Components is null || source.Components.Count == 0 || source.Components.Count > 200)
+            {
+                validation.Add($"Ul891SetSpecs[{index}].Components", "구성 패널 code를 1개 이상 200개 이하로 입력해 주세요.");
+                continue;
+            }
+
+            var codes = new List<string>();
+            var codeSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var componentIndex = 0; componentIndex < source.Components.Count; componentIndex++)
+            {
+                var code = ProjectInputNormalizer.TrimToNull(source.Components[componentIndex].ComponentCode)?.ToUpperInvariant();
+                if (code is null || code.Length > 30)
+                {
+                    validation.Add($"Ul891SetSpecs[{index}].Components[{componentIndex}].ComponentCode", "구성 code는 1자 이상 30자 이하로 입력해 주세요.");
+                    continue;
+                }
+
+                if (!codeSet.Add(code))
+                {
+                    validation.Add($"Ul891SetSpecs[{index}].Components[{componentIndex}].ComponentCode", "한 사양 안에서 구성 code를 중복 입력할 수 없습니다.");
+                    continue;
+                }
+                codes.Add(code);
+            }
+
+            totalPanels += source.Quantity.Value * codes.Count;
+            result.Add(new NormalizedUl891SetSpecInput(name, source.Quantity.Value, codes));
+        }
+
+        if (totalPanels > ProjectDomainRules.MaxPanelsPerProject)
+        {
+            validation.Add(nameof(CreateProjectRequest.Ul891SetSpecs), $"세트 구성으로 생성되는 전체 패널은 {ProjectDomainRules.MaxPanelsPerProject}개를 초과할 수 없습니다.");
+        }
+
+        return result;
     }
 
     public static (NormalizedUpdateProjectInput? Input, ProjectValidationResult Validation) ValidateUpdate(

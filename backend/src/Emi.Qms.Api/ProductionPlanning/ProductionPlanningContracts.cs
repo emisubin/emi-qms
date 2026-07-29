@@ -33,6 +33,7 @@ public sealed record ProductionPlanningResponse(
     string ProjectTitle,
     string ProjectCode,
     DateOnly? DeliveryDate,
+    string ModelVersion,
     Guid? PlanId,
     int RowVersion,
     string PlanStatus,
@@ -42,10 +43,33 @@ public sealed record ProductionPlanningResponse(
     string? ProductTypeCode,
     string? ProductTypeName,
     string? Notes,
+    IReadOnlyList<ProjectManufacturingStepResponse> ManufacturingSteps,
+    IReadOnlyList<ProductionControlSourceCatalogItemResponse> AvailableSources,
     IReadOnlyList<ProductionPlanItemResponse> Items,
     IReadOnlyList<ProjectAssigneeResponse> Assignees,
     IReadOnlyList<AssigneeCandidateResponse> AssigneeCandidates,
-    IReadOnlyList<NotificationFallbackResponse> Fallbacks);
+    IReadOnlyList<NotificationFallbackResponse> Fallbacks,
+    bool IsSetScoped,
+    ProductionPlanSetScopeResponse? SelectedScope,
+    IReadOnlyList<ProductionPlanSetScopeResponse> Scopes);
+
+public sealed record ProductionPlanSetScopeResponse(
+    Guid ScopeId,
+    Guid SetInstanceId,
+    string Label,
+    string SpecName,
+    int SpecNumber,
+    int InstanceNumber,
+    string Status,
+    int ActivePanelCount,
+    int RequiredItemCount,
+    int PlannedRequiredItemCount,
+    int RowVersion);
+
+public sealed record ProjectManufacturingStepResponse(
+    Guid DefinitionKey,
+    int SequenceNumber,
+    string StepName);
 
 public sealed class ProductionPlanItemResponse
 {
@@ -55,10 +79,40 @@ public sealed class ProductionPlanItemResponse
     public string StepName { get; init; } = "";
     public bool IsRequired { get; init; }
     public bool IsCustom { get; init; }
+    public Guid? DefinitionKey { get; init; }
     public DateOnly? PlannedDate { get; init; }
+    public DateOnly? PlannedStartDate { get; init; }
+    public DateOnly? PlannedEndDate { get; init; }
+    public DateOnly? ActualStartDate { get; init; }
+    public DateOnly? ActualEndDate { get; init; }
+    public Guid? AssignedUserId { get; init; }
+    public string? AssignedUserName { get; init; }
+    public int? RequiredHeadcount { get; init; }
+    public int CompletedTargetCount { get; init; }
+    public int TotalTargetCount { get; init; }
+    public int ProgressPercent { get; init; }
+    public string ScheduleStatus { get; init; } = "NotConnected";
+    public string ScheduleStatusLabel { get; init; } = "연결 안 됨";
+    public int? DelayDays { get; init; }
+    public bool IsBlocked { get; init; }
+    public IReadOnlyList<ProductionControlConnectionResponse> Connections { get; init; } = [];
+    public IReadOnlyList<ProductionPlanEvidenceResponse> Evidence { get; init; } = [];
     public string? Note { get; init; }
     public int RowVersion { get; init; }
 }
+
+public sealed record ProductionPlanEvidenceResponse(
+    string SourceCode,
+    string SourceLabel,
+    string TargetType,
+    string TargetId,
+    string TargetLabel,
+    DateOnly? StartedDate,
+    DateOnly? CompletedDate,
+    bool IsCompleted,
+    bool IsBlocked,
+    string StatusLabel,
+    string EvidenceScope = "SetPanel");
 
 public sealed class ProjectAssigneeResponse
 {
@@ -172,6 +226,20 @@ public sealed record UpdateProductionPlanningRequest(
     IReadOnlyList<ProductionPlanItemUpdateRequest>? Items,
     IReadOnlyList<ProjectAssigneeUpdateRequest>? Assignees);
 
+public sealed record UpdateProductionPlanSetScopeRequest(
+    int? ExpectedRowVersion,
+    string? Reason,
+    IReadOnlyList<ProductionPlanSetItemValueUpdateRequest>? Items);
+
+public sealed record ProductionPlanSetItemValueUpdateRequest(
+    Guid? ItemId,
+    int? ExpectedRowVersion,
+    DateOnly? PlannedStartDate,
+    DateOnly? PlannedEndDate,
+    Guid? AssignedUserId,
+    int? RequiredHeadcount,
+    string? Note);
+
 public sealed record ProductionPlanItemUpdateRequest(
     Guid? ItemId,
     Guid? TemplateStepId,
@@ -180,8 +248,14 @@ public sealed record ProductionPlanItemUpdateRequest(
     bool? IsRequired,
     int? ExpectedRowVersion,
     DateOnly? PlannedDate,
+    DateOnly? PlannedStartDate,
+    DateOnly? PlannedEndDate,
+    Guid? AssignedUserId,
+    int? RequiredHeadcount,
     string? Note,
-    bool? IsDeleted);
+    bool? IsDeleted,
+    Guid? DefinitionKey,
+    IReadOnlyList<ProductionControlConnectionResponse>? Connections);
 
 public sealed record ProjectAssigneeUpdateRequest(
     string? ResponsibilityType,
@@ -265,6 +339,28 @@ public sealed record ProductionPlanningMutationResult<T>(
     public static ProductionPlanningMutationResult<T> Validation(IReadOnlyDictionary<string, string[]> errors) => new(ProductionPlanningMutationStatus.Validation, default, errors, null);
     public static ProductionPlanningMutationResult<T> NotFound() => new(ProductionPlanningMutationStatus.NotFound, default, new Dictionary<string, string[]>(), null);
     public static ProductionPlanningMutationResult<T> Conflict(string message) => new(ProductionPlanningMutationStatus.Conflict, default, new Dictionary<string, string[]>(), message);
+}
+
+public sealed record ProductionPlanningReadResult(
+    ProductionPlanningReadStatus Status,
+    ProductionPlanningResponse? Value,
+    IReadOnlyDictionary<string, string[]> Errors)
+{
+    public static ProductionPlanningReadResult Success(ProductionPlanningResponse value) =>
+        new(ProductionPlanningReadStatus.Success, value, new Dictionary<string, string[]>());
+
+    public static ProductionPlanningReadResult Validation(IReadOnlyDictionary<string, string[]> errors) =>
+        new(ProductionPlanningReadStatus.Validation, null, errors);
+
+    public static ProductionPlanningReadResult NotFound() =>
+        new(ProductionPlanningReadStatus.NotFound, null, new Dictionary<string, string[]>());
+}
+
+public enum ProductionPlanningReadStatus
+{
+    Success,
+    Validation,
+    NotFound
 }
 
 public enum ProductionPlanningMutationStatus

@@ -174,6 +174,12 @@ public static class AuthorizationServiceCollectionExtensions
                 policy.AddRequirements(new PermissionRequirement(QmsPermissions.MaterialReceiptUpdate));
             });
 
+            options.AddPolicy(QmsPolicies.QualityInspect, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.QualityInspect));
+            });
+
             options.AddPolicy(QmsPolicies.ProductionPlanUpdate, policy =>
             {
                 policy.RequireAuthenticatedUser();
@@ -184,6 +190,24 @@ public static class AuthorizationServiceCollectionExtensions
             {
                 policy.RequireAuthenticatedUser();
                 policy.AddRequirements(new PermissionRequirement(QmsPermissions.ManufacturingUpdate));
+            });
+
+            options.AddPolicy(QmsPolicies.LogisticsShip, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.LogisticsShip));
+            });
+
+            options.AddPolicy(QmsPolicies.SalesSettle, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.SalesSettle));
+            });
+
+            options.AddPolicy(QmsPolicies.SalesTargetManage, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new PermissionRequirement(QmsPermissions.SalesTargetManage));
             });
 
             options.AddPolicy(QmsPolicies.ProjectSalesAmountRead, policy =>

@@ -9,6 +9,14 @@ e2e_require_safe_database_name "${E2E_DATABASE_NAME:-}"
 e2e_assert_dedicated_postgres
 e2e_disable_external_providers
 
+# Selected end-to-end scenarios verify that notification outbox rows are created.
+# External providers remain disabled/dry-run, so enabling the dispatcher here never
+# calls Teams or mail outside the isolated test environment.
+if [[ "${E2E_SAFE_NOTIFICATION_DISPATCH:-false}" == "true" ]]; then
+  export Notifications__Dispatch__Enabled="true"
+  export Notifications__Dispatch__WorkerIntervalSeconds="5"
+fi
+
 export ASPNETCORE_ENVIRONMENT=Testing
 export AUTH_MODE=Dev
 export Authentication__Mode=Dev

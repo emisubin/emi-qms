@@ -1,0 +1,524 @@
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ApiError, getHomeDepartmentMetrics, getMyWorkSummary, getNotificationSummary, getSalesKpi, listNotices, listPendingIssues } from './api';
+import { useAdaptiveLayout } from './adaptive-layout';
+import { DsBadge, DsSurface } from './design-system';
+import type { HomeMetricsResponse } from './home';
+import type { NoticeListResponse } from './notices';
+import type { PendingListResponse } from './pending';
+import type { MyWorkSummary, NotificationSummary } from './projects';
+import type { SalesKpiResponse } from './salesKpi';
+import { SalesKpiChart } from './SalesKpiChart';
+import { formatMoney } from './salesKpiFormat';
+
+type WidgetState<T> =
+  | { kind: 'loading' }
+  | { kind: 'ready'; data: T }
+  | { kind: 'empty'; data: T }
+  | { kind: 'hidden' }
+  | { kind: 'error'; message: string };
+
+type HomePageProps = {
+  developmentUserKey: string | undefined;
+  requestContextKey: string;
+  effectiveDisplayName?: string;
+  effectiveDepartmentCode?: string | null;
+  effectiveDepartmentName?: string | null;
+  canReadPending: boolean;
+  canReadSalesAmount?: boolean;
+  onOpenMyWork: () => void;
+  onOpenNotices: () => void;
+  onOpenNotice: (noticeId: string) => void;
+  onCreateNotice: () => void;
+  onOpenPending: () => void;
+  onOpenNotifications: () => void;
+  onOpenSalesKpi?: (year: number, currency: string) => void;
+  onOpenDepartmentMetric?: (destinationKey: string) => void;
+};
+
+export function HomePage({
+  developmentUserKey,
+  requestContextKey,
+  effectiveDisplayName = '사용자',
+  effectiveDepartmentCode = null,
+  effectiveDepartmentName = null,
+  canReadPending,
+  canReadSalesAmount = false,
+  onOpenMyWork,
+  onOpenNotices,
+  onOpenNotice,
+  onCreateNotice,
+  onOpenPending,
+  onOpenNotifications,
+  onOpenSalesKpi = () => undefined,
+  onOpenDepartmentMetric = () => undefined
+}: HomePageProps) {
+  const { isMobile } = useAdaptiveLayout();
+  const [myWorkState, setMyWorkState] = useState<WidgetState<MyWorkSummary>>({ kind: 'loading' });
+  const [noticesState, setNoticesState] = useState<WidgetState<NoticeListResponse>>({ kind: 'loading' });
+  const [pendingState, setPendingState] = useState<WidgetState<PendingListResponse>>(
+    canReadPending ? { kind: 'loading' } : { kind: 'hidden' }
+  );
+  const [notificationsState, setNotificationsState] = useState<WidgetState<NotificationSummary>>({ kind: 'loading' });
+  const [departmentState, setDepartmentState] = useState<WidgetState<HomeMetricsResponse>>({ kind: 'loading' });
+  const [salesState, setSalesState] = useState<WidgetState<SalesKpiResponse>>({ kind: 'loading' });
+  const myWorkGeneration = useRef(0);
+  const noticesGeneration = useRef(0);
+  const pendingGeneration = useRef(0);
+  const notificationsGeneration = useRef(0);
+  const departmentGeneration = useRef(0);
+  const salesGeneration = useRef(0);
+  const isSalesDepartment = effectiveDepartmentCode === 'sales';
+
+  const loadDepartmentMetrics = useCallback(async () => {
+    const generation = ++departmentGeneration.current;
+    setDepartmentState({ kind: 'loading' });
+    try {
+      const data = await getHomeDepartmentMetrics(developmentUserKey);
+      if (generation !== departmentGeneration.current) return;
+      setDepartmentState({ kind: data.metrics.length === 0 ? 'empty' : 'ready', data });
+    } catch (error) {
+      if (generation !== departmentGeneration.current) return;
+      setDepartmentState(widgetError(error, '부서 핵심 지표를 불러올 수 없습니다.'));
+    }
+  }, [developmentUserKey]);
+
+  const loadSalesKpi = useCallback(async () => {
+    const generation = ++salesGeneration.current;
+    if (!isSalesDepartment || !canReadSalesAmount) {
+      setSalesState({ kind: 'hidden' });
+      return;
+    }
+    setSalesState({ kind: 'loading' });
+    try {
+      const data = await getSalesKpi(developmentUserKey);
+      if (generation !== salesGeneration.current) return;
+      setSalesState({ kind: 'ready', data });
+    } catch (error) {
+      if (generation !== salesGeneration.current) return;
+      setSalesState(widgetError(error, '영업 매출 지표를 불러올 수 없습니다.'));
+    }
+  }, [canReadSalesAmount, developmentUserKey, isSalesDepartment]);
+
+  const loadMyWork = useCallback(async () => {
+    const generation = ++myWorkGeneration.current;
+    setMyWorkState({ kind: 'loading' });
+    try {
+      const data = await getMyWorkSummary(developmentUserKey);
+      if (generation !== myWorkGeneration.current) return;
+      const isEmpty = data.requestedCount + data.inProgressCount + data.blockingCount + data.assignedProjectCount === 0;
+      setMyWorkState({ kind: isEmpty ? 'empty' : 'ready', data });
+    } catch (error) {
+      if (generation !== myWorkGeneration.current) return;
+      setMyWorkState(widgetError(error, '내 업무 요약을 불러올 수 없습니다.'));
+    }
+  }, [developmentUserKey]);
+
+  const loadNotices = useCallback(async () => {
+    const generation = ++noticesGeneration.current;
+    setNoticesState({ kind: 'loading' });
+    try {
+      const data = await listNotices(developmentUserKey, 1, 5);
+      if (generation !== noticesGeneration.current) return;
+      setNoticesState({ kind: data.items.length === 0 ? 'empty' : 'ready', data });
+    } catch (error) {
+      if (generation !== noticesGeneration.current) return;
+      setNoticesState(widgetError(error, '공지사항을 불러올 수 없습니다.'));
+    }
+  }, [developmentUserKey]);
+
+  const loadPending = useCallback(async () => {
+    const generation = ++pendingGeneration.current;
+    if (!canReadPending) {
+      setPendingState({ kind: 'hidden' });
+      return;
+    }
+
+    setPendingState({ kind: 'loading' });
+    try {
+      const data = await listPendingIssues(developmentUserKey);
+      if (generation !== pendingGeneration.current) return;
+      setPendingState({ kind: data.summary.openCount === 0 ? 'empty' : 'ready', data });
+    } catch (error) {
+      if (generation !== pendingGeneration.current) return;
+      setPendingState(widgetError(error, 'Pending 요약을 불러올 수 없습니다.'));
+    }
+  }, [canReadPending, developmentUserKey]);
+
+  const loadNotifications = useCallback(async () => {
+    const generation = ++notificationsGeneration.current;
+    setNotificationsState({ kind: 'loading' });
+    try {
+      const data = await getNotificationSummary(developmentUserKey);
+      if (generation !== notificationsGeneration.current) return;
+      setNotificationsState({ kind: data.unreadCount === 0 && data.blockingCount === 0 ? 'empty' : 'ready', data });
+    } catch (error) {
+      if (generation !== notificationsGeneration.current) return;
+      setNotificationsState(widgetError(error, '알림 요약을 불러올 수 없습니다.'));
+    }
+  }, [developmentUserKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadDepartmentMetrics(); });
+    return () => {
+      cancelled = true;
+      departmentGeneration.current += 1;
+    };
+  }, [loadDepartmentMetrics, requestContextKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadSalesKpi(); });
+    return () => {
+      cancelled = true;
+      salesGeneration.current += 1;
+    };
+  }, [loadSalesKpi, requestContextKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadMyWork(); });
+    return () => {
+      cancelled = true;
+      myWorkGeneration.current += 1;
+    };
+  }, [loadMyWork, requestContextKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadNotices(); });
+    return () => {
+      cancelled = true;
+      noticesGeneration.current += 1;
+    };
+  }, [loadNotices, requestContextKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadPending(); });
+    return () => {
+      cancelled = true;
+      pendingGeneration.current += 1;
+    };
+  }, [loadPending, requestContextKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadNotifications(); });
+    return () => {
+      cancelled = true;
+      notificationsGeneration.current += 1;
+    };
+  }, [loadNotifications, requestContextKey]);
+
+  const visibleWidgetCount = [myWorkState, noticesState, pendingState, notificationsState]
+    .filter((state) => state.kind !== 'hidden').length;
+  const myWorkSummary = myWorkState.kind === 'ready' || myWorkState.kind === 'empty' ? myWorkState.data : null;
+  const pendingSummary = pendingState.kind === 'ready' || pendingState.kind === 'empty' ? pendingState.data.summary : null;
+  const notificationSummary = notificationsState.kind === 'ready' || notificationsState.kind === 'empty' ? notificationsState.data : null;
+
+  return (
+    <section className="page-surface home-page" aria-labelledby="home-page-title" data-mobile-experience={isMobile || undefined}>
+      <header className={isMobile ? 'home-hero home-hero--mobile' : 'home-hero'}>
+        <div>
+          <p className="eyebrow">{effectiveDepartmentName ?? '업무 공간'}</p>
+          <h2 id="home-page-title">업무 홈</h2>
+          <p>{isMobile ? `${effectiveDisplayName}님, 부서 핵심 수치와 급한 업무를 한 화면에서 확인하세요.` : `${effectiveDisplayName}님, 부서 핵심 지표와 지금 처리할 업무를 빠르게 확인하세요.`}</p>
+        </div>
+        <button type="button" className="primary-button" onClick={onOpenMyWork}>{isMobile ? '오늘 업무 열기' : '내 업무 시작하기'}</button>
+      </header>
+
+      {!isMobile ? (
+        <section className="home-desktop-priority" aria-label="지금 처리할 업무">
+          <header>
+            <div><p className="eyebrow">오늘의 우선 업무</p><h3>지금 먼저 확인하세요</h3></div>
+            <span>현재 로그인 기준</span>
+          </header>
+          <div>
+            <button type="button" data-tone={(myWorkSummary?.blockingCount ?? 0) > 0 ? 'danger' : 'default'} onClick={onOpenMyWork}>
+              <span>내 업무</span>
+              <strong>{myWorkSummary ? myWorkSummary.requestedCount + myWorkSummary.inProgressCount : '-'}</strong>
+              <small>차단 {myWorkSummary?.blockingCount ?? '-'}건 · 업무 열기 →</small>
+            </button>
+            {canReadPending ? (
+              <button type="button" data-tone={(pendingSummary?.urgentCount ?? 0) > 0 ? 'danger' : 'default'} onClick={onOpenPending}>
+                <span>긴급 Pending</span>
+                <strong>{pendingSummary?.urgentCount ?? '-'}</strong>
+                <small>전체 {pendingSummary?.openCount ?? '-'}건 · 조치 화면 →</small>
+              </button>
+            ) : null}
+            <button type="button" data-tone={(notificationSummary?.blockingCount ?? 0) > 0 ? 'danger' : 'default'} onClick={onOpenNotifications}>
+              <span>긴급·차단 알림</span>
+              <strong>{notificationSummary?.blockingCount ?? '-'}</strong>
+              <small>읽지 않음 {notificationSummary?.unreadCount ?? '-'}건 · 알림 보기 →</small>
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {isSalesDepartment ? (
+        <DsSurface className="home-sales-performance" label="영업팀 연간 매출 지표">
+          <header>
+            <div><p className="eyebrow">영업 성과</p><h3>연간 매출 성과</h3><p>월 실적과 목표, 달성률을 함께 비교합니다.</p></div>
+            {salesState.kind === 'ready' ? <button type="button" onClick={() => onOpenSalesKpi(salesState.data.year, salesState.data.currency)}>영업 KPI 전체 보기 →</button> : null}
+          </header>
+          {!canReadSalesAmount ? <div className="home-department-status" role="alert">영업 금액 지표 권한을 확인해 주세요.</div> : null}
+          {salesState.kind === 'loading' ? <p className="home-department-status" role="status">연간 매출 지표를 불러오는 중입니다.</p> : null}
+          {salesState.kind === 'error' ? <div className="home-department-status" role="alert"><span>{salesState.message}</span><button type="button" onClick={() => void loadSalesKpi()}>다시 시도</button></div> : null}
+          {salesState.kind === 'ready' ? <>
+            <DsBadge>{salesState.data.currency}</DsBadge>
+            <SalesKpiChart months={salesState.data.months} currency={salesState.data.currency} year={salesState.data.year} compact mobile={isMobile} />
+            <div className="home-sales-kpis">
+              <article><span>연간 확정 매출</span><strong>{formatMoney(salesState.data.kpi.revenueTotal, salesState.data.currency)}</strong></article>
+              <article><span>목표 달성률</span><strong>{salesState.data.kpi.achievementRate === null ? '목표 미등록' : `${salesState.data.kpi.achievementRate}%`}</strong></article>
+              {!isMobile ? <article><span>잔여 목표</span><strong>{formatMoney(salesState.data.kpi.remainingTargetAmount, salesState.data.currency)}</strong></article> : null}
+            </div>
+          </> : null}
+        </DsSurface>
+      ) : departmentState.kind !== 'empty' ? (
+        <DsSurface className="home-department-panel" label="내 부서 핵심 지표">
+          <header>
+            <div>
+              <p className="eyebrow">부서 핵심 지표</p>
+              <h3>{effectiveDepartmentName ? `${effectiveDepartmentName} 핵심 지표` : '부서 핵심 지표'}</h3>
+            </div>
+            <span>현재 업무 기준</span>
+          </header>
+          {departmentState.kind === 'loading' ? <p className="home-department-status" role="status">부서 지표를 불러오는 중입니다.</p> : null}
+          {departmentState.kind === 'error' ? (
+            <div className="home-department-status" role="alert">
+              <span>{departmentState.message}</span>
+              <button type="button" onClick={() => void loadDepartmentMetrics()}>다시 시도</button>
+            </div>
+          ) : null}
+          {departmentState.kind === 'ready' ? (
+            <div className="home-department-metrics">
+              {departmentState.data.metrics.map((metric) => (
+                <button
+                  type="button"
+                  key={metric.id}
+                  data-tone={metric.tone}
+                  onClick={() => onOpenDepartmentMetric(metric.destinationKey)}
+                >
+                  <span>{metric.label}</span>
+                  <strong>{metric.count}</strong>
+                  <small>{metric.actionLabel} →</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </DsSurface>
+      ) : null}
+
+      {isMobile ? (
+        <section className="home-mobile-priority" aria-label="긴급·차단 우선 확인">
+          <header>
+            <div>
+              <p className="eyebrow">우선 확인</p>
+              <h3>지금 먼저 확인하세요</h3>
+            </div>
+            <span className="home-mobile-live" aria-label="실시간 업무 요약">실시간</span>
+          </header>
+          <div className="home-mobile-priority-metrics">
+            {canReadPending ? (
+              <button type="button" data-source-status={pendingState.kind} onClick={onOpenPending}>
+                <span>긴급 Pending</span>
+                <strong>{pendingSummary?.urgentCount ?? '-'}</strong>
+                <small>{pendingState.kind === 'error' ? 'Pending 요약 오류 · 아래에서 재시도' : '조치 화면 열기 →'}</small>
+              </button>
+            ) : null}
+            <button type="button" data-source-status={notificationsState.kind} onClick={onOpenNotifications}>
+              <span>긴급·차단 알림</span>
+              <strong>{notificationSummary?.blockingCount ?? '-'}</strong>
+              <small>{notificationsState.kind === 'error' ? '알림 요약 오류 · 아래에서 재시도' : '알림 확인하기 →'}</small>
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {visibleWidgetCount === 0 ? (
+        <section className="home-empty" role="status">
+          <strong>표시할 수 있는 요약이 없습니다.</strong>
+          <p>현재 허용된 메뉴에서 업무를 계속 확인할 수 있습니다.</p>
+          <button type="button" onClick={onOpenNotices}>공지사항으로 이동</button>
+        </section>
+      ) : (
+        <div className="home-widget-grid">
+          <HomeWidget
+            eyebrow="오늘의 업무"
+            title="내 업무"
+            state={myWorkState}
+            onRetry={loadMyWork}
+            onOpen={onOpenMyWork}
+            openLabel="내 업무 전체 보기"
+            emptyMessage="대기 중이거나 진행 중인 업무가 없습니다."
+          >
+            {(data) => (
+              <div className="home-metric-grid">
+                <HomeMetric label="시작 전" value={data.requestedCount} tone={data.requestedCount > 0 ? 'danger' : undefined} />
+                <HomeMetric label="진행 중" value={data.inProgressCount} />
+                <HomeMetric label="차단" value={data.blockingCount} tone={data.blockingCount > 0 ? 'danger' : undefined} />
+                <HomeMetric label="담당 프로젝트" value={data.assignedProjectCount} />
+              </div>
+            )}
+          </HomeWidget>
+
+          {canReadPending && !isMobile ? (
+            <HomeWidget
+              eyebrow="이슈 관리"
+              title="Pending"
+              state={pendingState}
+              onRetry={loadPending}
+              onOpen={onOpenPending}
+              openLabel="Pending 전체 보기"
+              emptyMessage="열린 Pending이 없습니다."
+            >
+              {(data) => (
+                <div className="home-metric-grid">
+                  <HomeMetric label="Open" value={data.summary.openCount} tone={data.summary.openCount > 0 ? 'danger' : undefined} />
+                  <HomeMetric label="긴급" value={data.summary.urgentCount} tone={data.summary.urgentCount > 0 ? 'danger' : undefined} />
+                  <HomeMetric label="기한 초과" value={data.summary.overdueCount} />
+                  <HomeMetric label="재검사" value={data.summary.reinspectionCount} />
+                </div>
+              )}
+            </HomeWidget>
+          ) : null}
+
+          {!isMobile ? (
+            <HomeWidget
+              eyebrow="업무 알림"
+              title="알림"
+              state={notificationsState}
+              onRetry={loadNotifications}
+              onOpen={onOpenNotifications}
+              openLabel="알림 전체 보기"
+              emptyMessage="읽지 않은 알림이 없습니다."
+            >
+              {(data) => (
+                <div className="home-metric-grid home-metric-grid--two">
+                  <HomeMetric label="읽지 않음" value={data.unreadCount} tone={data.unreadCount > 0 ? 'danger' : undefined} />
+                  <HomeMetric label="긴급·차단" value={data.blockingCount} tone={data.blockingCount > 0 ? 'danger' : undefined} />
+                </div>
+              )}
+            </HomeWidget>
+          ) : null}
+
+          <HomeWidget
+            eyebrow="팀 공지"
+            title="공지사항"
+            state={noticesState}
+            onRetry={loadNotices}
+            onOpen={onOpenNotices}
+            openLabel="공지 전체 보기"
+            secondaryLabel="공지 작성"
+            onSecondary={onCreateNotice}
+            emptyMessage="아직 등록된 공지가 없습니다."
+            wide
+          >
+            {(data) => (
+              <div className="home-notice-list">
+                {data.items.map((notice) => (
+                  <button type="button" key={notice.noticeId} className="home-notice-item" onClick={() => onOpenNotice(notice.noticeId)}>
+                    <span className="home-notice-mark" aria-hidden="true">N</span>
+                    <span>
+                      <strong>{notice.title}</strong>
+                      <small>{notice.preview}</small>
+                    </span>
+                    <span className="home-notice-meta">
+                      <b>{notice.authorDisplayName}</b>
+                      <small>{notice.authorDepartmentName ?? '소속 없음'} · {formatNoticeDate(notice.createdAtUtc)}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </HomeWidget>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatNoticeDate(value: string) {
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul'
+  }).format(new Date(value));
+}
+
+function HomeWidget<T>({
+  eyebrow,
+  title,
+  state,
+  onRetry,
+  onOpen,
+  openLabel,
+  secondaryLabel,
+  onSecondary,
+  emptyMessage,
+  wide = false,
+  children
+}: {
+  eyebrow: string;
+  title: string;
+  state: WidgetState<T>;
+  onRetry: () => void | Promise<void>;
+  onOpen: () => void;
+  openLabel: string;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
+  emptyMessage: string;
+  wide?: boolean;
+  children: (data: T) => ReactNode;
+}) {
+  if (state.kind === 'hidden') {
+    return null;
+  }
+
+  return (
+    <section className={wide ? 'home-widget home-widget--wide' : 'home-widget'} aria-label={`${title} 요약`}>
+      <header className="home-widget-header">
+        <div>
+          <p className="eyebrow">{eyebrow}</p>
+          <h3>{title}</h3>
+        </div>
+        <div className="home-widget-actions">
+          <button type="button" className="home-widget-link" onClick={onOpen}>{openLabel}</button>
+          {secondaryLabel && onSecondary ? <button type="button" className="primary-button" onClick={onSecondary}>{secondaryLabel}</button> : null}
+        </div>
+      </header>
+
+      {state.kind === 'loading' ? <p className="home-widget-status" role="status">요약을 불러오는 중입니다.</p> : null}
+      {state.kind === 'error' ? (
+        <div className="home-widget-status home-widget-status--error" role="alert">
+          <p>{state.message}</p>
+          <button type="button" onClick={() => void onRetry()}>다시 시도</button>
+        </div>
+      ) : null}
+      {state.kind === 'empty' ? (
+        <div className="home-widget-status">
+          <p>{emptyMessage}</p>
+          <button type="button" onClick={onOpen}>원본 화면 열기</button>
+        </div>
+      ) : null}
+      {state.kind === 'ready' ? children(state.data) : null}
+    </section>
+  );
+}
+
+function HomeMetric({ label, value, tone }: { label: string; value: number; tone?: 'danger' }) {
+  return (
+    <div className="home-metric" data-tone={tone}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function widgetError<T>(error: unknown, message: string): WidgetState<T> {
+  return {
+    kind: 'error',
+    message: error instanceof ApiError && error.status === 403
+      ? '현재 권한으로 이 요약을 확인할 수 없습니다. 다시 로그인하거나 관리자에게 문의해 주세요.'
+      : message
+  };
+}

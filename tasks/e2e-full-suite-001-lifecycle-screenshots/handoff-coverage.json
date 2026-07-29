@@ -1,0 +1,190 @@
+{
+  "projectCode": "LIFE-62548292",
+  "projectTitle": "합성 전체업무 검수 1784462548292",
+  "projectStatus": "Completed",
+  "openPendingCount": 0,
+  "succeededWorkflowEventCount": 15,
+  "completedWorkflowStageCount": 14,
+  "evidence": [
+    {
+      "checkpoint": "01-project-created",
+      "userKey": "dev-admin",
+      "notificationProjectVisible": false,
+      "myWorkProjectVisible": null
+    },
+    {
+      "checkpoint": "01-project-created",
+      "userKey": "dev-sales",
+      "notificationProjectVisible": false,
+      "myWorkProjectVisible": null
+    },
+    {
+      "checkpoint": "01-project-created",
+      "userKey": "dev-production",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": null
+    },
+    {
+      "checkpoint": "01-project-created",
+      "userKey": "dev-design",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": null
+    },
+    {
+      "checkpoint": "01-project-created",
+      "userKey": "dev-procurement",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": null
+    },
+    {
+      "checkpoint": "01-project-created",
+      "userKey": "dev-materials",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": null
+    },
+    {
+      "checkpoint": "01-project-created",
+      "userKey": "dev-manufacturing",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": null
+    },
+    {
+      "checkpoint": "01-project-created",
+      "userKey": "dev-quality",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": null
+    },
+    {
+      "checkpoint": "01-project-created",
+      "userKey": "dev-logistics",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": null
+    },
+    {
+      "checkpoint": "01-project-created",
+      "userKey": "dev-viewer",
+      "notificationProjectVisible": false,
+      "myWorkProjectVisible": null
+    },
+    {
+      "checkpoint": "01-to-production",
+      "userKey": "dev-production",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": false
+    },
+    {
+      "checkpoint": "02-to-design",
+      "userKey": "dev-design",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "02-to-procurement",
+      "userKey": "dev-procurement",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "03-to-procurement",
+      "userKey": "dev-procurement",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "04-to-materials",
+      "userKey": "dev-materials",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "05-to-quality-iqc",
+      "userKey": "dev-quality",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": false
+    },
+    {
+      "checkpoint": "06-to-material-receipt",
+      "userKey": "dev-materials",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "07-to-kitting",
+      "userKey": "dev-materials",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "08-to-manufacturing",
+      "userKey": "dev-manufacturing",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "09a-pending-to-production",
+      "userKey": "dev-production",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": false
+    },
+    {
+      "checkpoint": "09b-pending-back-to-manufacturing",
+      "userKey": "dev-manufacturing",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": false
+    },
+    {
+      "checkpoint": "09-to-lqc",
+      "userKey": "dev-quality",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "10-to-manufacturing-confirmation",
+      "userKey": "dev-manufacturing",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "11-to-oqc",
+      "userKey": "dev-quality",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "12-to-customer-inspection",
+      "userKey": "dev-quality",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "13-to-fat",
+      "userKey": "dev-quality",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "14-to-packing",
+      "userKey": "dev-logistics",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "15-to-departure",
+      "userKey": "dev-logistics",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "16-to-delivery",
+      "userKey": "dev-logistics",
+      "notificationProjectVisible": true,
+      "myWorkProjectVisible": true
+    },
+    {
+      "checkpoint": "17-to-sales-settlement",
+      "userKey": "dev-sales",
+      "notificationProjectVisible": false,
+      "myWorkProjectVisible": true
+    }
+  ]
+}

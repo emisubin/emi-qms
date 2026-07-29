@@ -55,7 +55,11 @@ public static class SeedIdentityData
         new(new Guid("30000000-0000-0000-0000-000000000021"), QmsPermissions.ProcurementPlanUpdate, "Update procurement plan"),
         new(new Guid("30000000-0000-0000-0000-000000000022"), QmsPermissions.MaterialReceiptUpdate, "Update material receipt completion"),
         new(new Guid("30000000-0000-0000-0000-000000000023"), QmsPermissions.ProductionPlanUpdate, "Update production planning"),
-        new(new Guid("30000000-0000-0000-0000-000000000025"), QmsPermissions.AdminHistoryRead, "Read administrator history")
+        new(new Guid("30000000-0000-0000-0000-000000000025"), QmsPermissions.AdminHistoryRead, "Read administrator history"),
+        new(new Guid("30000000-0000-0000-0000-000000000026"), QmsPermissions.PendingRead, "Read pending issues"),
+        new(new Guid("30000000-0000-0000-0000-000000000027"), QmsPermissions.PendingManage, "Manage pending issues"),
+        new(new Guid("30000000-0000-0000-0000-000000000028"), QmsPermissions.SalesSettle, "Complete sales settlement"),
+        new(new Guid("30000000-0000-0000-0000-000000000045"), QmsPermissions.PendingTypeManage, "Manage pending issue types")
     ];
 
     public static readonly IReadOnlyList<QmsProject> Projects =
@@ -99,7 +103,9 @@ public static class SeedIdentityData
                 QmsPermissions.UsersManage,
                 QmsPermissions.ProjectDeletedRead,
                 QmsPermissions.AuditReadAll,
-                QmsPermissions.AdminHistoryRead
+                QmsPermissions.AdminHistoryRead,
+                QmsPermissions.PendingRead,
+                QmsPermissions.PendingTypeManage
             ],
             [QmsRoles.Sales] =
             [
@@ -114,13 +120,18 @@ public static class SeedIdentityData
                 QmsPermissions.ProjectDeletedRead,
                 QmsPermissions.ProjectSalesAmountRead,
                 QmsPermissions.ManufacturingWorkTimeRead,
-                QmsPermissions.PanelInfoUpdate
+                QmsPermissions.PanelInfoUpdate,
+                QmsPermissions.PendingRead,
+                QmsPermissions.PendingManage,
+                QmsPermissions.SalesSettle
             ],
             [QmsRoles.Design] =
             [
                 QmsPermissions.ProjectRead,
                 QmsPermissions.ProjectReadAll,
-                QmsPermissions.PanelInfoUpdate
+                QmsPermissions.PanelInfoUpdate,
+                QmsPermissions.PendingRead,
+                QmsPermissions.PendingManage
             ],
             [QmsRoles.ProductionPlanning] =
             [
@@ -128,44 +139,57 @@ public static class SeedIdentityData
                 QmsPermissions.ProjectReadAll,
                 QmsPermissions.ProductionPlan,
                 QmsPermissions.ProductionPlanUpdate,
-                QmsPermissions.PanelInfoUpdate
+                QmsPermissions.PanelInfoUpdate,
+                QmsPermissions.PendingRead,
+                QmsPermissions.PendingManage
             ],
             [QmsRoles.Procurement] =
             [
                 QmsPermissions.ProjectRead,
                 QmsPermissions.ProjectReadAll,
                 QmsPermissions.ProcurementPlanUpdate,
-                QmsPermissions.MaterialReceiptUpdate
+                QmsPermissions.MaterialReceiptUpdate,
+                QmsPermissions.PendingRead,
+                QmsPermissions.PendingManage
             ],
             [QmsRoles.Materials] =
             [
                 QmsPermissions.ProjectRead,
                 QmsPermissions.ProjectReadAll,
-                QmsPermissions.MaterialReceiptUpdate
+                QmsPermissions.MaterialReceiptUpdate,
+                QmsPermissions.PendingRead,
+                QmsPermissions.PendingManage
             ],
             [QmsRoles.Manufacturing] =
             [
                 QmsPermissions.ProjectRead,
                 QmsPermissions.ProjectReadAll,
-                QmsPermissions.ManufacturingUpdate
+                QmsPermissions.ManufacturingUpdate,
+                QmsPermissions.PendingRead,
+                QmsPermissions.PendingManage
             ],
             [QmsRoles.Quality] =
             [
                 QmsPermissions.ProjectRead,
                 QmsPermissions.ProjectReadAll,
                 QmsPermissions.QualityInspect,
-                QmsPermissions.QualityApprove
+                QmsPermissions.QualityApprove,
+                QmsPermissions.PendingRead,
+                QmsPermissions.PendingManage
             ],
             [QmsRoles.Logistics] =
             [
                 QmsPermissions.ProjectRead,
                 QmsPermissions.ProjectReadAll,
-                QmsPermissions.LogisticsShip
+                QmsPermissions.LogisticsShip,
+                QmsPermissions.PendingRead,
+                QmsPermissions.PendingManage
             ],
             [QmsRoles.ReadOnly] =
             [
                 QmsPermissions.ProjectRead,
-                QmsPermissions.ProjectReadAll
+                QmsPermissions.ProjectReadAll,
+                QmsPermissions.PendingRead
             ]
         };
 

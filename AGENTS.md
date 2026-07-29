@@ -10,9 +10,10 @@
 
 1. 현재 경로에 적용되는 `AGENTS.md` 계층
 2. [Product Roadmap](docs/00-product-roadmap.md)의 제품 방향, Task 상태와 선행 의존성
-3. [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)의 Finding·검수·게시 gate
-4. 실제 코드, migration, 설정과 tests
-5. 현재 branch, worktree, runtime과 DB 상태
+3. `experiment/*`에서는 [실험 브랜치 Task 완료 원장](docs/27-experiment-task-ledger.md)의 완료 scope·남은 scope와 중복 실행 방지 상태
+4. [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)의 Finding·검수·게시 gate
+5. 실제 코드, migration, 설정과 tests
+6. 현재 branch, worktree, runtime과 DB 상태
 
 대화 기록이나 기억을 canonical source로 사용하지 않는다. 문서끼리 또는 문서와 구현 사이에 의미 있는 충돌이 있으면 한쪽을 임의 선택하거나 수정하지 말고 위치, 영향과 선택지를 보고한 뒤 중단한다.
 
@@ -45,6 +46,20 @@ Roadmap 순서는 단순 번호가 아니라 status, dependencies, external bloc
 일반적인 Roadmap 단계명, 상태명 또는 “P2 Gate” 같은 설명을 Task ID로 합성하지 않는다. Base branch, Roadmap, instruction file 또는 관련 PR 상태가 바뀌면 이 gate를 다시 실행한다. `roadmapSequenceMatch=true` 또는 `explicitRoadmapOverrideApproved=true`가 아니면 `PASS_REUSE`와 `PASS_CREATE`로 판정하지 않는다. Gate 결과가 두 PASS 상태 중 하나가 아니면 Fable 호출, 조사용 mutation, branch/worktree 생성과 파일 작성을 시작하지 않는다.
 
 이 gate는 instruction chain, Task 유형 라우터, Finding·검수·게시 gate와 영역별 `AGENTS.md`를 대체하지 않고 추가한다. 새 Codex 채팅과 분리된 session도 현재 Repository 안에서 이 모든 지침을 다시 읽은 뒤 동일한 gate를 수행한다.
+
+### `experiment/*` 완료 원장 gate
+
+- `experiment/*`에서 새 Task·다음 Task·Fable 기획·구현을 선택하기 전에 [실험 브랜치 Task 완료 원장](docs/27-experiment-task-ledger.md)을 반드시 읽는다.
+- 사용자가 이 대화와 branch에 대해 인터뷰·중간 승인 생략, Fable 권장안 자동 채택과 결과까지의 연속 진행을 standing instruction으로 명시했다면, “다음 작업 시작”은 완료 원장의 우선순위가 가장 높은 이름 있는 미완료 제품 Task를 선택하고 그 Task의 `experiment/*` fast-track을 실행하라는 명시적 지시다. 이 경우 `roadmapSequenceMatch=true`로 기록하며 별도 승인·확인 질문을 만들지 않는다.
+- 위 standing instruction 아래의 `DEFERRED / POLICY_INPUT`은 사용자 승인 대기가 아니라 Fable 1차 기획에서 선택지·권장안을 만들고 Codex review를 거쳐 Fable 2차 기획이 확정할 비차단 입력이다. 권장안이 기존 보안·권한·workflow 불변조건을 보존하고 2차 기획의 blocking decision이 0이면 자동 채택해 구현까지 이어간다.
+- 같은 목적 후보가 둘 이상이거나, 이름 있는 다음 Task를 하나로 확정할 수 없거나, Repository source끼리 의미 있게 충돌하거나, 대표 repo·`main`·Persistent UAT·실제 provider·destructive operation처럼 fast-track 제외 경계를 넘어야 하는 경우에만 중단한다. 단순히 Task ID가 아직 없거나 제품 정책 선택지가 남았다는 이유만으로 사용자 승인을 다시 요청하지 않는다.
+- 완료 원장·Roadmap·change를 갱신할 때 이 standing instruction을 약화해 “다음 작업”을 다시 승인 대기로 바꾸는 문구를 추가하지 않는다. 일반 branch의 승인 흐름과 `main` merge 승인 3회 경계는 그대로 유지한다.
+- 원장의 `EXPERIMENT_COMPLETE` scope와 같은 목적이면 사용자 검수 대기, 대표 repo 미반영, UAT 미적용 또는 P3 backlog를 이유로 Fable planning·새 Task·재구현을 시작하지 않는다. 새 기능 요청이 아니라면 `BLOCKED_ALREADY_COMPLETED`로 먼저 보고한다.
+- 사용자가 완료 기능의 수정을 요청하면 새 Task ID를 만들지 않고 기존 canonical Task의 다음 `change-###` 또는 확인된 결함의 `BUGFIX`를 사용한다. 신규 사용자 능력·상태·권한·외부 연동이면 별도 `NEW_FEATURE`로 분류한다.
+- `EXPERIMENT_SLICE_COMPLETE`는 완료 slice를 다시 열지 않는다. purpose identity와 변경 allowlist는 원장에 이름이 적힌 후속 slice만 포함해야 한다.
+- `BATCHED_FINAL`은 사용자 검수 완료를 뜻하지 않는다. 실험 개발의 다음 Task 선택에서만 완료로 취급하며 checklist에는 `사용자 검수 대기 — 마지막 일괄 검수`를 유지한다. 사용자 검수 실패가 기록된 경우에만 기존 Task를 재개한다.
+- 실험 완료, 사용자 검수 완료, 대표 repo·`main` 반영, Persistent UAT 적용과 게시·merge 상태를 서로 대체하지 않는다. 승격이 필요하면 기능 재구현이 아니라 별도 통합·UAT Task로 처리하며 `main` merge 승인 3회 경계를 유지한다.
+- Product Roadmap과 완료 원장이 충돌하면 완료된 experiment scope를 자동 재선택하지 않는다. 제품 source와 implementation report를 대조해 `DOCS_GOVERNANCE`로 상태를 동기화한 뒤 다음 Task를 선택한다.
 
 ## 작업 격리와 범위
 
@@ -79,7 +94,7 @@ Codex는 작업을 시작하기 전에 실제 요청과 Repository 상태를 기
 - `HOUSEKEEPING`: 승인된 branch, worktree, candidate, backup과 임시 자원을 정리한다.
 - `POLICY_DECISION`: 기존 기능 범위 안에서 사용자 정책 선택이 필요하다.
 
-`NEW_FEATURE`만 Fable 5 신규 기능 기획 흐름으로 보낸다. 제품 source 구현은 계속 Codex-only이며 `APPROVED_FEATURE_IMPLEMENTATION`에서 Fable을 다시 호출하지 않는다. Fable은 사용자 확인이 끝난 interview를 바탕으로 primary draft 전문을 한 번 작성하고 Codex가 내용 관점에서 한 번 review하면 기획 작성 흐름을 종료한다. 별도 사용자-facing 문서가 primary draft로 승인된 경우에만 `docs/` target을 사용하며 planning과 preview를 중복 생성하지 않는다.
+`NEW_FEATURE`만 Fable 5 신규 기능 기획 흐름으로 보낸다. 제품 source 구현은 계속 Codex-only이며 `APPROVED_FEATURE_IMPLEMENTATION`에서 Fable을 다시 호출하지 않는다. 일반 branch에서는 Fable이 사용자 확인이 끝난 interview를 바탕으로 primary draft 전문을 한 번 작성하고 Codex가 내용 관점에서 한 번 review하면 기획 작성 흐름을 종료한다. 별도 사용자-facing 문서가 primary draft로 승인된 경우에만 `docs/` target을 사용하며 planning과 preview를 중복 생성하지 않는다. 명시적으로 승인된 `experiment/*` fast-track은 아래의 2-pass 예외 계약을 따른다.
 
 Codex-only 조사 중 신규 제품 능력이나 기존 확정 정책을 바꾸는 설계가 필요해지면 구현을 중단한다. 신규 능력이면 `NEW_FEATURE`, 기존 범위의 정책 선택이면 `POLICY_DECISION`으로 재분류하고 사용자 승인을 다시 받는다.
 
@@ -101,6 +116,24 @@ Codex-only 조사 중 신규 제품 능력이나 기존 확정 정책을 바꾸�
 12. 구현 세션과 분리된 Codex 검증 세션이 계약, diff와 검증 결과를 read-only로 재검토한다.
 13. 사용자 검수와 별도 게시·merge 승인을 받는다.
 
+### `experiment/*` Fable 2-pass fast-track
+
+사용자가 실험 branch의 반복 개발에 대해 인터뷰·중간 승인 생략과 권장안 자동 채택을 명시하고, 대표 repo·`main`·Persistent UAT·실제 provider를 제외한 경우에만 다음 예외를 적용한다.
+
+1. 사용자-facing deep-interview를 진행하지 않는다. Codex는 사용자의 standing instruction, Roadmap의 확정 정책과 직접 관련된 기존 계약만 `tasks/<task-id>-interview.md`에 기록한다. 미확정 정책은 임의 확정하지 않고 Fable 1차 기획의 권장안 대상으로 남긴다. Repository 충돌이나 안전상 blocking decision은 fast-track으로 우회하지 않는다.
+2. Fable 1차 기획 직전·직후 Claude `/usage`의 5시간 현재 세션과 주간 전체 모델·Fable 사용·잔여 비율 및 초기화 시각을 측정해 change와 Implementation report에 기록한다.
+3. `bash scripts/run-fable-readonly.sh planning tasks/<task-id>-interview.md`로 Fable 1차 기획 원문을 `tasks/<task-id>-planning.md`에 기록한다.
+4. Codex가 1차 기획을 내용·제품 방향·실제 Repository 경계 관점에서 한 번 review하고 `tasks/<task-id>-review.md`에 유지·추가·보류·제거와 resolution을 기록한다.
+5. Fable 2차 기획 직전·직후 같은 5시간 현재 세션·주간 전체 모델·Fable 사용량을 측정한다. 최신 change에 사용자 standing rule, exact target과 아래 marker를 기록한 뒤 `bash scripts/run-fable-readonly.sh second-planning tasks/<task-id>-interview.md docs/<approved-target>.md`를 호출한다.
+   - `fableSecondPlanningApproved: true`
+   - `fableSecondPlanningSource: USER_EXPLICIT_EXPERIMENT_RULE`
+   - `fableSecondPlanningTarget: docs/<approved-target>.md`
+6. `second-planning`은 `experiment/*`에서만 허용한다. Runner는 1차 planning, Codex review, 최신 approval change와 exact target을 fail-closed로 확인하고 Fable이 1차 기획·review·현재 Repository를 직접 다시 읽게 한다. 결과는 기존 target을 덮어쓰지 않는 별도 파일에 byte-for-byte로 기록한다.
+7. 2차 기획은 해당 실험 Task의 최종 구현 source of truth다. 1차 기획과 Codex review는 삭제·수정하지 않고 판단 이력으로 보존한다. 2차 기획의 blocking decision이 0이면 별도 사용자 확인 없이 Codex 구현·검증·페이지별 desktop/mobile screenshot·Implementation report·local commit까지 이어간다.
+8. fast-track은 local experiment commit만 승인한다. 대표 repo, `main`, push, PR, merge, Persistent UAT migration·runtime handover와 실제 provider는 포함하지 않는다. `main` merge는 사용자가 요청하더라도 서로 분리된 승인 3회가 기록되기 전까지 금지한다.
+
+일반 branch의 deep-interview·단일 Fable draft·사용자 승인 계약과 `revise` one-time approval은 이 예외로 변경되지 않는다.
+
 ### Codex 내용 Review 계약
 
 - Review의 첫 목적은 문법·코드 결함 탐지가 아니라 기획 품질 판단이다.
@@ -108,7 +141,7 @@ Codex-only 조사 중 신규 제품 능력이나 기존 확정 정책을 바꾸�
 - 기능은 가능한 경우 `유지`, `추가`, `보류`, `제거`로 분류하고 근거와 권장 개발 순서를 제시한다.
 - 현재 코드·API·DB·권한 대조는 “지금 가능한가”, “기존 계약과 충돌하는가”, “예상 비용이 큰가”를 판단하는 보조 근거로만 사용한다. Code와 정확히 일치한다는 사실만으로 좋은 기획이라고 판정하지 않는다.
 - Review는 Fable 원문과 별도 파일에 작성하고 원문을 patch하지 않는다.
-- 기본 review는 한 번으로 끝낸다. Review Finding을 이유로 Codex와 Fable이 자동 수정·재검토 round를 반복하지 않는다.
+- 기본 review는 한 번으로 끝낸다. 일반 branch에서는 Review Finding을 이유로 Codex와 Fable이 자동 수정·재검토 round를 반복하지 않는다. `experiment/*` fast-track에서는 같은 review 한 번을 입력으로 Fable 2차 기획 한 번만 수행하며 추가 loop는 만들지 않는다.
 
 ### Fable 5 deep-interview Gate
 
@@ -138,7 +171,7 @@ Codex-only 조사 중 신규 제품 능력이나 기존 확정 정책을 바꾸�
 
 현재 Claude CLI에서는 최소한 `--safe-mode`, `--model fable`, `--permission-mode plan`, `--tools "Read,Glob,Grep"`, `--disable-slash-commands`, `--strict-mcp-config`와 빈 `--mcp-config`를 함께 사용한다. 새 Task session에는 runner가 생성한 UUID를 `--session-id`로 전달하고, 검증된 후속 호출은 같은 UUID를 `--resume`으로 재개한다. Safe mode에서는 `CLAUDE.md`가 자동 로드되지 않으므로 첫 기준선 prompt가 `CLAUDE.md`와 적용되는 `AGENTS.md`를 먼저 읽도록 명시한다. subprocess를 생성할 때부터 stdout/stderr를 private 임시 파일로 redirect하며, 이 옵션 중 하나라도 지원되지 않으면 실행하지 않는다.
 
-Codex는 임의 shell wrapper와 redirect를 조합하지 않고 `bash scripts/run-fable-readonly.sh interview tasks/<task-id>-interview.md <round>`, `planning ...`, `draft ... docs/<approved-target>.md`, 명시적 사용자 redraft용 `revise ... docs/<approved-target>.md` 또는 `cleanup ...`만 사용한다. 이 script는 고정 prompt, Task interview·승인·target 경로, CLI option, session 소유권·drift, private artifact, direct-write byte equality와 출력 상태 계약을 fail-closed로 검증한다. `docs/` primary draft는 최신 change의 `fablePrimaryDraftApproved`, `fablePrimaryDraftSource`와 exact `fablePrimaryDraftTarget`을 요구하며 planning을 먼저 만들거나 planning·review의 implementation 승인값을 요구하지 않는다. `planning`과 `draft`는 atomic exclusive create로 기존 target·symlink를 덮어쓰지 않는다. `revise`는 최신 change의 `fableRedraftApproved`, `fableRedraftSource`, exact `fableRedraftTarget`과 기존 target·review가 모두 있을 때만 전문을 교체하고, approval change identity·digest별 private receipt를 atomic claim·consume해 같은 승인을 두 번 사용할 수 없게 한다. Generic `draft|revise`는 H1·작성 상태·Task·작성 모델만 검증하고 특정 업무의 section·diagram·journey를 강제하지 않는다. 기존 `TASK-USER-FLOW-001` redraft의 H1·metadata·review path만 exact Task·target 조합에 한정한 historical compatibility contract로 유지한다. Task session cleanup은 이 one-time receipt를 삭제하지 않는다. Project Rules의 허용 범위는 이 script prefix에만 적용하며 일반 `bash -lc`, `zsh -c`와 `sh -c` prompt 규칙은 유지한다.
+Codex는 임의 shell wrapper와 redirect를 조합하지 않고 `bash scripts/run-fable-readonly.sh interview tasks/<task-id>-interview.md <round>`, `planning ...`, 실험 전용 `second-planning ... docs/<approved-target>.md`, `draft ... docs/<approved-target>.md`, 명시적 사용자 redraft용 `revise ... docs/<approved-target>.md` 또는 `cleanup ...`만 사용한다. 이 script는 고정 prompt, Task interview·승인·target 경로, CLI option, session 소유권·drift, private artifact, direct-write byte equality와 출력 상태 계약을 fail-closed로 검증한다. `second-planning`은 `experiment/*` branch, 기존 1차 planning·Codex review, 최신 change의 `fableSecondPlanningApproved`, `fableSecondPlanningSource`와 exact `fableSecondPlanningTarget`을 모두 요구한다. `docs/` primary draft는 최신 change의 `fablePrimaryDraftApproved`, `fablePrimaryDraftSource`와 exact `fablePrimaryDraftTarget`을 요구하며 planning을 먼저 만들거나 planning·review의 implementation 승인값을 요구하지 않는다. `planning`, `second-planning`과 `draft`는 atomic exclusive create로 기존 target·symlink를 덮어쓰지 않는다. `revise`는 최신 change의 `fableRedraftApproved`, `fableRedraftSource`, exact `fableRedraftTarget`과 기존 target·review가 모두 있을 때만 전문을 교체하고, approval change identity·digest별 private receipt를 atomic claim·consume해 같은 승인을 두 번 사용할 수 없게 한다. Generic `draft|revise`는 H1·작성 상태·Task·작성 모델만 검증하고 특정 업무의 section·diagram·journey를 강제하지 않는다. 기존 `TASK-USER-FLOW-001` redraft의 H1·metadata·review path만 exact Task·target 조합에 한정한 historical compatibility contract로 유지한다. Task session cleanup은 이 one-time receipt를 삭제하지 않는다. Project Rules의 허용 범위는 이 script prefix에만 적용하며 일반 `bash -lc`, `zsh -c`와 `sh -c` prompt 규칙은 유지한다.
 
 기본 interview 위치는 `tasks/<task-id>-interview.md`, planning 위치는 `tasks/<task-id>-planning.md`, Codex review 위치는 `tasks/<task-id>-review.md`다. `docs/tasks/`를 새로 만들지 않는다. Fable 도구에는 Repository 쓰기 권한을 주지 않지만, 질문·요약·planning·승인된 기획 전문의 작성자는 Fable이다. Runner는 Fable stdout을 fixed target에 byte-for-byte로 운반할 뿐 내용을 편집하지 않으며 Codex는 Fable 작성 파일을 수정하지 않는다.
 

@@ -17,6 +17,9 @@
 - Change 010: Fable primary draft 1회·Codex 내용 review 1회·명시적 사용자 요청 없는 revise 차단
 - Change 011: 대표 clone의 5174 branch-following·조건부 재시작과 작업 현황 보고 경계 추가
 - Change 012: Fable 정책·USER-FLOW WIP를 로컬 보존 커밋으로 고정한 뒤 대표 clone에 선별 이식하고 임시 worktree를 정리
+- Change 014: `experiment/*` 전용 Fable 2-pass fast-track과 review 직접 참조 `second-planning` runner 추가
+- Change 015: experiment 완료 원장, 마지막 일괄 사용자 검수 상태와 완료 scope 재선택 방지 gate 추가
+- Change 016: experiment “다음 작업” 실행 의미, 비차단 Fable 권장안 자동 채택과 재승인 질문 방지 gate 추가
 
 Backend, Frontend, migration, dependency, runtime과 Persistent UAT source diff는 없다. Change 007~012는 governance shell script 1개와 관련 governance·기획 문서·Git worktree만 변경한다.
 
@@ -447,12 +450,70 @@ Reporting 문서는 최초 Task의 과거 완료 증빙과 Change 001의 현재 
 - 사용자 검수: 완료
 - Push·PR·merge: 독립 재검증 PASS 뒤 승인
 
+## 10.14 Change 014 — 실험 branch Fable 2-pass fast-track
+
+사용자는 이 실험 worktree의 신규 기능에서 중간 interview·승인 왕복 없이 `Fable 1차 기획 → Codex review → review 기반 Fable 2차 기획 → 2차 기획 기준 Codex 구현`을 기본 규칙으로 사용하도록 요청했다. 기존 일반 계약은 Fable draft 1회와 Codex review에서 종료하며, `draft` mode는 review를 필수 source로 확인하지 않아 이 흐름을 영구적으로 보장하지 못했다.
+
+변경 계약은 다음과 같다.
+
+- Root 지침에 `experiment/*`에서만 적용하는 fast-track을 추가하고 일반 branch의 deep-interview·단일 draft·사용자 승인 계약을 보존했다.
+- 각 Fable planning 직전·직후 Claude `/usage`의 전체 모델과 Fable 사용·잔여 비율을 Task change와 report에 기록한다.
+- Runner에 `second-planning` mode를 추가했다. 현재 branch가 `experiment/*`인지, confirmed interview·1차 planning·Codex review·최신 change marker·exact target이 모두 있는지 확인한다.
+- Fable prompt는 1차 planning과 Codex review를 직접 완전히 읽고 review resolution을 별도 2차 기획에 통합하도록 고정했다. 기존 target과 symlink는 atomic exclusive create로 덮어쓰지 않는다.
+- 2차 기획이 blocking decision 0이면 Codex 구현·검증·desktop/mobile screenshot·Implementation report·local commit까지 이어간다.
+- 대표 repo·`main`·push·PR·merge·Persistent UAT·실제 provider는 제외하며 main merge 승인 `0/3`을 유지한다.
+
+자동 검증 결과:
+
+- Bash syntax·ShellCheck: `PASS/PASS`
+- `second-planning` static contract: `9/9 PASS`
+- fail-closed: 일반 `main` branch 차단, experiment approval marker 누락 차단, invalid mode 차단 `3/3 PASS`
+- 기존 mode 회귀: planning existing target, draft existing target, revise approval missing `3/3 PASS`
+- Markdown file/local link/missing/duplicate heading: `6/124/0/0`
+- 전체 파일의 credential-like 기존 서술 후보 1건은 과거 report 본문이며 추가 diff 후보는 `0`; 추가 diff의 email/UUID/private key/absolute user path도 `0/0/0/0`
+- `git diff --check`: `PASS`
+- 제품 Backend·Frontend·database diff: `0`
+
+제품 Backend·Frontend·API·DB·migration·dependency·runtime 변경은 없다.
+
+Git 결과: Change 014 allowlist 7개 파일을 local experiment commit으로 기록했다. push·PR·merge는 실행하지 않았고 대표 repo와 `main`은 그대로다.
+
+## 10.15 Change 015 — 실험 Task 완료 원장과 중복 실행 방지
+
+사용자는 현재 experiment에서 사용자 직접 검수를 마지막에 몰아서 수행하되, 구현·자동 검증이 끝난 Task를 완료로 인정하고 다시 만들지 않도록 요청했다. 실제 감사에서는 Roadmap 실행 큐가 대표 repo 기준 `TASK-007A Reordered Pending`을 유지하는 반면 `TASK-007A`부터 `TASK-NOTIFY-005`까지의 implementation report가 experiment 구현·자동 검증 완료를 기록해 두 상태가 Task selection에서 충돌했다.
+
+변경 결과는 다음과 같다.
+
+- `docs/27-experiment-task-ledger.md`에 19개 완료 scope, 별도 남은 제품 Task, 조건부 P3 backlog와 승격 경계를 기록했다. `TASK-UX-001 A1`은 완료 slice, A2는 후속으로 분리했다.
+- `EXPERIMENT_COMPLETE / BATCHED_FINAL`은 다음 개발 Task 선택에서는 완료지만 user validation checklist는 마지막 일괄 검수 대기임을 고정했다.
+- Root instruction chain과 Task Identity Gate가 experiment 완료 원장을 먼저 읽고, 같은 purpose의 Fable planning·새 Task·재구현을 차단하도록 보강했다.
+- Roadmap 실행 큐에서 대표 repo 기준 Pending과 experiment Complete를 한 상태 문자열에 함께 표시하고, 과거 `canonical TASK-007A Gate` 문구가 experiment 재구현 지시가 아님을 명시했다.
+- `TASK-010A`의 당시 미실행 Full-Stack 항목은 후속 `TASK-E2E-FULL-SUITE-001`의 panel-kitting 포함 `35/35 PASS`로 보완된 것을 확인했다.
+- 최신 누적 기준선은 Backend `391/391`, Frontend `101/101`, fresh migration `0041`이며 제품 source를 변경하지 않았다.
+- 문서 검증은 완료 scope `19`, 남은 named 범위 `10`, local link missing `0`, duplicate heading `0`, privacy/secret 후보 `0`, `git diff --check` PASS와 제품 source·migration·dependency·runtime diff `0`을 확인했다.
+
+Open P0/P1/P2는 `0/0/0`이다. `EXPERIMENT_COMPLETED_TASK_RESELECTED`는 완료 원장과 재선택 gate로 `RESOLVED`했다. 사용자 최종 일괄 검수, 대표 repo·`main`, Persistent UAT, provider, push·PR·merge는 실행하지 않았고 main merge 승인 `0/3`을 유지했다.
+
+## 10.16 Change 016 — 실험 다음 작업 재승인 방지
+
+사용자는 이 experiment branch에서 인터뷰·중간 승인·권장안 채택 확인 없이 신규 기능을 결과까지 연속 진행하도록 반복해 명시했다. 그런데 Change 015 이후 Product Roadmap과 완료 원장의 Pending 유형 관리자 화면에 `DEFERRED / POLICY_INPUT`과 “단순 다음 작업만으로 임의 정책을 확정하지 않는다”는 문장이 추가됐고, 후속 session이 이를 Change 014의 standing instruction보다 강한 사용자 승인 gate로 해석했다.
+
+변경 결과는 다음과 같다.
+
+- “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task를 선택하는 명시적 실행 지시로 고정했다.
+- Task ID가 미정이거나 비차단 제품 정책 선택지가 남았어도 identity 검색 뒤 Fable 1차 기획·Codex review·Fable 2차 기획에서 권장안을 자동 확정하도록 했다.
+- 재승인 질문 없이 구현·검증·screenshot·local commit까지 이어가되 canonical purpose ambiguity, Repository 충돌, 보안·권한 불변조건과 대표 repo·`main`·Persistent UAT·실제 provider·destructive operation 경계만 차단한다.
+- 일반 branch 승인 흐름, 완료 기능 재선택 금지와 main merge 승인 `0/3`은 유지했다.
+- `EXPERIMENT_FAST_TRACK_REAPPROVAL_PROMPTED`를 `RESOLVED_IN_CHANGE_016`으로 기록했다.
+
+제품 Backend·Frontend·API·DB·migration·dependency·runtime 변경은 없다. 변경 문서 `8`, local link missing `0`, duplicate heading `0`, `git diff --check` PASS, 제품 source·migration·dependency·runtime diff `0`을 확인했다. Local commit만 수행하며 push·PR·merge와 main merge 승인 `0/3`은 유지한다.
+
 ## 11. 5종 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | 이 문서 | Change 007~013 통합·P2 보정·자동·독립 검증 완료 / merge 승인 |
-| SOP | `tasks/gov-codex-002.md` 8장 | 작성됨 |
-| User manual | `tasks/gov-codex-002.md` 9장 | 작성됨 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 007~013와 대표·디자인 2-worktree 운영 반영·독립 검증 완료 / merge 승인 |
-| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 001~013 자동·독립 검증·사용자 검수·merge 승인 완료 |
+| Implementation report | 이 문서 | Change 007~016 기록 |
+| SOP | `tasks/gov-codex-002.md` 8장, Root `AGENTS.md` | fast-track·완료 원장·다음 작업 자동 선택 절차 |
+| User manual | `tasks/gov-codex-002.md` 9장, `docs/27-experiment-task-ledger.md` | 완료·남은·검수·승격 상태 안내 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 016 experiment 다음 Task·재승인 방지 gate 동기화 |
+| User validation checklist | `tasks/gov-codex-002.md` 13장 | Change 016 정책 승인·문서 검증 완료 / 제품 화면 검수는 마지막 일괄 대기 |

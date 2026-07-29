@@ -72,6 +72,7 @@ public static class ProjectEndpointExtensions
                 query,
                 GetProjectAccessScope(user),
                 CanReadSalesAmount(user),
+                HasPermission(user, QmsPermissions.PendingRead),
                 cancellationToken);
 
             return Results.Ok(result);
@@ -307,7 +308,11 @@ public static class ProjectEndpointExtensions
                 return access;
             }
 
-            var project = await projectStore.GetProjectAsync(projectId, CanReadSalesAmount(user), cancellationToken);
+            var project = await projectStore.GetProjectAsync(
+                projectId,
+                CanReadSalesAmount(user),
+                HasPermission(user, QmsPermissions.PendingRead),
+                cancellationToken);
             return project is null ? Results.NotFound() : Results.Ok(project);
         })
         .RequireAuthorization()
@@ -628,7 +633,7 @@ public static class ProjectEndpointExtensions
         return null;
     }
 
-    private static ProjectListQuery ParseProjectListQuery(HttpRequest request)
+    internal static ProjectListQuery ParseProjectListQuery(HttpRequest request)
     {
         return new ProjectListQuery(
             request.Query["search"].ToString(),
@@ -679,7 +684,7 @@ public static class ProjectEndpointExtensions
             []);
     }
 
-    private static ProjectDateRange ParseDateRange(HttpRequest request, string fromKey, string toKey)
+    internal static ProjectDateRange ParseDateRange(HttpRequest request, string fromKey, string toKey)
     {
         var errors = new Dictionary<string, string[]>();
         var fromRaw = request.Query[fromKey].ToString();
@@ -735,7 +740,7 @@ public static class ProjectEndpointExtensions
         };
     }
 
-    private static ProjectAccessScope GetProjectAccessScope(ClaimsPrincipal user)
+    internal static ProjectAccessScope GetProjectAccessScope(ClaimsPrincipal user)
     {
         return new ProjectAccessScope(
             HasPermission(user, QmsPermissions.ProjectReadAll),
@@ -748,18 +753,18 @@ public static class ProjectEndpointExtensions
             || user.FindAll(QmsClaimTypes.Project).Any(claim => string.Equals(claim.Value, projectKey, StringComparison.Ordinal));
     }
 
-    private static bool CanReadSalesAmount(ClaimsPrincipal user)
+    internal static bool CanReadSalesAmount(ClaimsPrincipal user)
     {
         return HasPermission(user, QmsPermissions.ProjectSalesAmountRead);
     }
 
-    private static bool HasPermission(ClaimsPrincipal user, string permissionCode)
+    internal static bool HasPermission(ClaimsPrincipal user, string permissionCode)
     {
         return user.Identity?.IsAuthenticated == true
             && user.HasClaim(QmsClaimTypes.Permission, permissionCode);
     }
 
-    private static Guid? GetCurrentUserId(ClaimsPrincipal user)
+    internal static Guid? GetCurrentUserId(ClaimsPrincipal user)
     {
         var value = user.FindFirst(QmsClaimTypes.UserId)?.Value;
         return Guid.TryParse(value, out var userId) ? userId : null;
@@ -785,7 +790,7 @@ public static class ProjectEndpointExtensions
         string? ExpectedFileSha256,
         IReadOnlyList<string> Errors);
 
-    private sealed record ProjectDateRange(
+    internal sealed record ProjectDateRange(
         DateOnly? From,
         DateOnly? To,
         IReadOnlyDictionary<string, string[]> Errors);

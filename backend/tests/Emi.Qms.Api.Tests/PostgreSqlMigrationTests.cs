@@ -1,7 +1,11 @@
 using System.Net;
+using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.Home;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.ReviewSafe;
+using Emi.Qms.Api.Sales;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
@@ -234,7 +238,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(10, counts.Roles);
-        Assert.Equal(24, counts.Permissions);
+        Assert.Equal(29, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
@@ -248,6 +252,899 @@ public sealed class PostgreSqlMigrationTests
         await AssertWorkflowAlignmentSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertMicrosoft365IdentitySchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         await AssertAdminMasterDataSchemaAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_class
+            where oid in (
+                to_regclass('public.material_receipts'),
+                to_regclass('public.material_iqc_attempts'),
+                to_regclass('public.material_receipt_events')
+            );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'project_procurement_items'
+              and column_name in (
+                  'order_quantity', 'order_unit',
+                  'material_arrivals_closed_at_utc', 'material_arrivals_closed_by_user_id'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'user_profile_photos',
+                  'user_profile_photo_audit_events'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_trigger
+            where tgname = 'trg_guard_user_profile_photo_audit'
+              and not tgisinternal;
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_trigger
+            where tgname = 'trg_guard_material_receipt_projection_write'
+              and not tgisinternal;
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from information_schema.tables
+            where table_schema='public'
+              and table_name in ('sales_monthly_targets','sales_monthly_target_audit_events');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(5L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from information_schema.tables
+            where table_schema='public' and table_name in (
+              'manufacturing_step_templates','manufacturing_step_template_versions',
+              'manufacturing_step_template_items','form_template_manager_bindings','form_template_audit_events');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from information_schema.tables
+            where table_schema='public' and table_name='logistics_batch_panels';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from pg_indexes
+            where schemaname='public' and indexname='ux_logistics_batch_panels_active_stage';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from pg_indexes
+            where schemaname='public' and indexname='ux_logistics_batch_units_active_stage';
+            """,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task PendingTypeCatalogMigration_AddsLeastPrivilegeCatalogAndDatabaseFences()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from pending_issue_type_catalog where is_system and is_active;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from role_permissions rp
+            join roles r on r.id=rp.role_id
+            join permissions p on p.id=rp.permission_id
+            where p.code='PendingType.Manage' and r.code='system-administrator';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from role_permissions rp
+            join roles r on r.id=rp.role_id
+            join permissions p on p.id=rp.permission_id
+            where p.code='PendingType.Manage' and r.code<>'system-administrator';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from pg_constraint where conname='fk_pending_issues_issue_type_catalog';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*) from pg_trigger
+            where tgname in ('trg_guard_pending_issue_type_catalog','trg_guard_pending_issue_type_audit')
+              and not tgisinternal;
+            """,
+            TestContext.Current.CancellationToken));
+
+        var disableOther = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+            provider,
+            "update pending_issue_type_catalog set is_manual_enabled=false,row_version=row_version+1 where code='Other';",
+            TestContext.Current.CancellationToken));
+        Assert.IsType<PostgresException>(disableOther);
+
+        var deleteSystem = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+            provider,
+            "delete from pending_issue_type_catalog where code='Punch';",
+            TestContext.Current.CancellationToken));
+        Assert.IsType<PostgresException>(deleteSystem);
+    }
+
+    [Fact]
+    public async Task PendingTypeCatalogMigration_Upgrades0044DataWithoutChangingIssueTypeCodes()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration(
+            new Dictionary<string, string?> { ["DevelopmentData:SeedEnabled"] = "true" });
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        var previousMigrations = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0044-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql").Where(path => string.CompareOrdinal(Path.GetFileName(path), "0045_") < 0))
+            {
+                File.Copy(source, Path.Combine(previousMigrations.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(previousMigrations.FullName),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await CreateSeeder(database.RepositoryRoot, "Testing", configuration, provider)
+                .SeedAsync(TestContext.Current.CancellationToken);
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into pending_issues (
+                    id,project_id,target_type,target_id,issue_type,title,description,status,priority,
+                    created_by_user_id,updated_by_user_id)
+                values (
+                    '85000000-0000-0000-0000-000000000045',
+                    '40000000-0000-0000-0000-000000000001',
+                    'Project','40000000-0000-0000-0000-000000000001','Punch',
+                    '0045 upgrade PUNCH','기존 Pending 유형 코드를 그대로 보존하는 마이그레이션 검증입니다.',
+                    'Registered','Normal',
+                    '50000000-0000-0000-0000-000000000005','50000000-0000-0000-0000-000000000005');
+                """,
+                TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("Punch", await ReadScalarAsync<string>(
+                provider,
+                "select issue_type from pending_issues where id='85000000-0000-0000-0000-000000000045';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal("PUNCH", await ReadScalarAsync<string>(
+                provider,
+                """
+                select catalog.display_name
+                from pending_issues issue
+                join pending_issue_type_catalog catalog on catalog.code=issue.issue_type
+                where issue.id='85000000-0000-0000-0000-000000000045';
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal("0064_ul891_set_production_plans", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            previousMigrations.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SalesAndFormTemplateMigrations_UpgradeFrom0042()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var previousMigrations = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0042-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql").Where(path => string.CompareOrdinal(Path.GetFileName(path), "0043_") < 0))
+            {
+                File.Copy(source, Path.Combine(previousMigrations.FullName, Path.GetFileName(source)));
+            }
+
+            var configuration = new ConfigurationBuilder().Build();
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(previousMigrations.FullName),
+                configuration,
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal(Directory.GetFiles(migrationSource, "*.sql").LongLength, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(7L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*) from information_schema.tables
+                where table_schema='public' and table_name in (
+                  'sales_monthly_targets','sales_monthly_target_audit_events',
+                  'manufacturing_step_templates','manufacturing_step_template_versions',
+                  'manufacturing_step_template_items','form_template_manager_bindings','form_template_audit_events');
+                """,
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            previousMigrations.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProductionControlSingleCurrentMigration_CollapsesVersionsAndPlanConnections()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration(
+            new Dictionary<string, string?> { ["DevelopmentData:SeedEnabled"] = "true" });
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        var previousMigrations = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0059-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql").Where(path => string.CompareOrdinal(Path.GetFileName(path), "0060_") < 0))
+            {
+                File.Copy(source, Path.Combine(previousMigrations.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(previousMigrations.FullName),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await CreateSeeder(database.RepositoryRoot, "Testing", configuration, provider)
+                .SeedAsync(TestContext.Current.CancellationToken);
+
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into production_control_manufacturing_templates (id, product_type_id)
+                select '91000000-0000-0000-0000-000000000001', id
+                from production_product_types where code='UL67';
+                insert into production_control_manufacturing_versions (
+                    id,template_id,version_number,lifecycle_status,activated_at_utc
+                )
+                values
+                    ('91000000-0000-0000-0000-000000000011','91000000-0000-0000-0000-000000000001',1,'Active',now()),
+                    ('91000000-0000-0000-0000-000000000012','91000000-0000-0000-0000-000000000001',2,'Draft',null);
+                insert into production_control_manufacturing_items (
+                    template_version_id,definition_key,display_order,label,step_role
+                )
+                values
+                    ('91000000-0000-0000-0000-000000000011','91000000-0000-0000-0000-000000000021',1,'이전 제조','Assembly'),
+                    ('91000000-0000-0000-0000-000000000012','91000000-0000-0000-0000-000000000022',1,'현재 제조','Assembly');
+
+                insert into production_control_plan_templates (id, product_type_id)
+                select '92000000-0000-0000-0000-000000000001', id
+                from production_product_types where code='UL67';
+                insert into production_control_plan_versions (
+                    id,template_id,version_number,lifecycle_status,activated_at_utc
+                )
+                values
+                    ('92000000-0000-0000-0000-000000000011','92000000-0000-0000-0000-000000000001',1,'Active',now()),
+                    ('92000000-0000-0000-0000-000000000012','92000000-0000-0000-0000-000000000001',2,'Draft',null);
+                insert into production_control_plan_items (
+                    id,template_version_id,definition_key,display_order,label,is_required
+                )
+                values
+                    ('92000000-0000-0000-0000-000000000021','92000000-0000-0000-0000-000000000011','92000000-0000-0000-0000-000000000031',1,'이전 계획',true),
+                    ('92000000-0000-0000-0000-000000000022','92000000-0000-0000-0000-000000000012','92000000-0000-0000-0000-000000000032',1,'현재 계획',true);
+                insert into production_control_plan_connections (
+                    plan_item_id,source_code,source_definition_key
+                )
+                values
+                    ('92000000-0000-0000-0000-000000000022','PURCHASE_ORDERED',null),
+                    ('92000000-0000-0000-0000-000000000022','OQC_PASSED',null);
+                """,
+                TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from production_control_manufacturing_versions where template_id='91000000-0000-0000-0000-000000000001';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal("91000000-0000-0000-0000-000000000012", await ReadScalarAsync<string>(
+                provider,
+                "select id::text from production_control_manufacturing_versions where lifecycle_status='Active' and template_id='91000000-0000-0000-0000-000000000001';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from production_control_plan_versions where template_id='92000000-0000-0000-0000-000000000001';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal("OQC_PASSED", await ReadScalarAsync<string>(
+                provider,
+                """
+                select connection.source_code
+                from production_control_plan_connections connection
+                join production_control_plan_items item on item.id=connection.plan_item_id
+                where item.template_version_id='92000000-0000-0000-0000-000000000012';
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from pg_indexes where indexname='ux_production_control_plan_connections_one_to_one';",
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            previousMigrations.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProductionControlOqcAggregateMigration_NormalizesCurrentTemplateAndPreservesProjectSnapshot()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration(
+            new Dictionary<string, string?> { ["DevelopmentData:SeedEnabled"] = "true" });
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        var migrationsThrough0061 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0061-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql")
+                         .Where(path => string.CompareOrdinal(Path.GetFileName(path), "0062_") < 0))
+            {
+                File.Copy(source, Path.Combine(migrationsThrough0061.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0061.FullName),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await CreateSeeder(database.RepositoryRoot, "Testing", configuration, provider)
+                .SeedAsync(TestContext.Current.CancellationToken);
+
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into production_control_plan_templates (id, product_type_id)
+                select '93000000-0000-0000-0000-000000000001', id
+                from production_product_types where code='UL67';
+                insert into production_control_plan_versions (
+                    id,template_id,version_number,lifecycle_status,activated_at_utc
+                )
+                values (
+                    '93000000-0000-0000-0000-000000000011',
+                    '93000000-0000-0000-0000-000000000001',
+                    1,'Active',now()
+                );
+                insert into production_control_plan_items (
+                    id,template_version_id,definition_key,display_order,label,is_required
+                )
+                values (
+                    '93000000-0000-0000-0000-000000000021',
+                    '93000000-0000-0000-0000-000000000011',
+                    '93000000-0000-0000-0000-000000000031',
+                    1,'OQC 완료',true
+                );
+                insert into production_control_plan_connections (
+                    plan_item_id,source_code,source_definition_key
+                )
+                values (
+                    '93000000-0000-0000-0000-000000000021',
+                    'OQC_PASSED',
+                    '93000000-0000-0000-0000-000000000041'
+                );
+
+                insert into project_production_plans (
+                    id,project_id,model_version
+                )
+                select
+                    '93000000-0000-0000-0000-000000000051',
+                    project.id,
+                    'LEGACY'
+                from projects project
+                where not exists (
+                    select 1 from project_production_plans plan where plan.project_id=project.id
+                )
+                order by project.id
+                limit 1;
+                insert into project_production_plan_items (
+                    id,production_plan_id,sequence_number,step_name_snapshot,is_required,is_active
+                )
+                values (
+                    '93000000-0000-0000-0000-000000000052',
+                    '93000000-0000-0000-0000-000000000051',
+                    1,'기존 프로젝트 OQC 연결',true,true
+                );
+                insert into project_production_plan_connections (
+                    production_plan_item_id,source_code,source_definition_key
+                )
+                values (
+                    '93000000-0000-0000-0000-000000000052',
+                    'OQC_PASSED',
+                    '93000000-0000-0000-0000-000000000042'
+                );
+                """,
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*)
+                from project_production_plan_connections
+                where source_code='OQC_PASSED'
+                  and source_definition_key='93000000-0000-0000-0000-000000000042';
+                """,
+                TestContext.Current.CancellationToken));
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("0064_ul891_set_production_plans", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*)
+                from production_control_plan_connections
+                where plan_item_id='93000000-0000-0000-0000-000000000021'
+                  and source_code='OQC_PASSED'
+                  and source_definition_key is null;
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*)
+                from project_production_plan_connections
+                where source_code='OQC_PASSED'
+                  and source_definition_key='93000000-0000-0000-0000-000000000042';
+                """,
+                TestContext.Current.CancellationToken));
+
+            var invalidCurrentOqcDetail = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+                provider,
+                """
+                update production_control_plan_connections
+                set source_definition_key='93000000-0000-0000-0000-000000000043'
+                where plan_item_id='93000000-0000-0000-0000-000000000021';
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.IsType<PostgresException>(invalidCurrentOqcDetail);
+        }
+        finally
+        {
+            migrationsThrough0061.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProductionPlanItemStaffingMigration_AddsNullableStaffingAndValidatesHeadcount()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration(
+            new Dictionary<string, string?> { ["DevelopmentData:SeedEnabled"] = "true" });
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        var migrationsThrough0062 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0062-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql")
+                         .Where(path => string.CompareOrdinal(Path.GetFileName(path), "0063_") < 0))
+            {
+                File.Copy(source, Path.Combine(migrationsThrough0062.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0062.FullName),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await CreateSeeder(database.RepositoryRoot, "Testing", configuration, provider)
+                .SeedAsync(TestContext.Current.CancellationToken);
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into project_production_plans (id,project_id,model_version)
+                select
+                    '94000000-0000-0000-0000-000000000001',
+                    project.id,
+                    'LEGACY'
+                from projects project
+                where not exists (
+                    select 1 from project_production_plans plan where plan.project_id=project.id
+                )
+                order by project.id
+                limit 1;
+                insert into project_production_plan_items (
+                    id,production_plan_id,sequence_number,step_name_snapshot,is_required,is_active
+                )
+                select
+                    '94000000-0000-0000-0000-000000000002',
+                    plan.id,
+                    1,
+                    '기존 생산계획 항목',
+                    true,
+                    true
+                from project_production_plans plan
+                order by plan.id
+                limit 1;
+                """,
+                TestContext.Current.CancellationToken);
+
+            Assert.True(await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from project_production_plan_items;",
+                TestContext.Current.CancellationToken) > 0);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("0064_ul891_set_production_plans", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(2L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*)
+                from information_schema.columns
+                where table_schema='public'
+                  and table_name='project_production_plan_items'
+                  and column_name in ('assigned_user_id','required_headcount');
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal(0L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*)
+                from project_production_plan_items
+                where assigned_user_id is not null or required_headcount is not null;
+                """,
+                TestContext.Current.CancellationToken));
+
+            await ExecuteSqlAsync(
+                provider,
+                """
+                update project_production_plan_items
+                set assigned_user_id=(select id from qms_users where is_active order by id limit 1),
+                    required_headcount=3
+                where id=(select id from project_production_plan_items order by id limit 1);
+                """,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(3, await ReadScalarAsync<int>(
+                provider,
+                """
+                select required_headcount
+                from project_production_plan_items
+                where required_headcount is not null
+                limit 1;
+                """,
+                TestContext.Current.CancellationToken));
+
+            var invalidHeadcount = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+                provider,
+                """
+                update project_production_plan_items
+                set required_headcount=0
+                where id=(select id from project_production_plan_items order by id limit 1);
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.IsType<PostgresException>(invalidHeadcount);
+        }
+        finally
+        {
+            migrationsThrough0062.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Ul891SetProductionPlanMigration_AddsSetScopeAndValueOverlays()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal("0064_ul891_set_production_plans", await ReadScalarAsync<string>(
+            provider,
+            "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema='public'
+              and table_name in (
+                'project_production_plan_set_scopes',
+                'project_production_plan_set_item_values'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from pg_indexes
+            where schemaname='public'
+              and indexname in (
+                'ux_project_production_plan_set_scopes_plan_instance',
+                'ux_project_production_plan_set_item_values_scope_item'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SalesKpiStore_AggregatesMonthlyRevenueTargetsAndPipeline()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        var actorId = new Guid("76000000-0000-0000-0000-000000000043");
+        await ExecuteSqlAsync(provider, $"""
+            insert into departments (id,code,name,sort_order)
+            values ('76000000-0000-0000-0000-000000000051','sales','Sales',20)
+            on conflict (code) do nothing;
+
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values ('{actorId}','sales-kpi-test','Sales KPI Test',(select id from departments where code='sales'),true);
+
+            insert into projects (
+                id,project_key,project_number,name,project_code,project_title,project_title_normalized,
+                status,sales_amount,currency_code)
+            values
+              ('76000000-0000-0000-0000-000000000044','sales-kpi-jan','SALES-KPI-001','January Revenue','SALES-KPI-001','January Revenue','JANUARY REVENUE','Completed',120000000,'KRW'),
+              ('76000000-0000-0000-0000-000000000045','sales-kpi-mar','SALES-KPI-002','March Revenue','SALES-KPI-002','March Revenue','MARCH REVENUE','Completed',80000000,'KRW'),
+              ('76000000-0000-0000-0000-000000000046','sales-kpi-pipeline','SALES-KPI-003','Active Pipeline','SALES-KPI-003','Active Pipeline','ACTIVE PIPELINE','Active',300000000,'KRW');
+
+            insert into sales_settlements (
+                id,project_id,status,invoice_issued_date,version,created_by_user_id,updated_by_user_id,
+                completed_by_user_id,completed_at_utc)
+            values
+              ('76000000-0000-0000-0000-000000000047','76000000-0000-0000-0000-000000000044','Completed','2026-01-15',1,'{actorId}','{actorId}','{actorId}',now()),
+              ('76000000-0000-0000-0000-000000000048','76000000-0000-0000-0000-000000000045','Completed','2026-03-20',1,'{actorId}','{actorId}','{actorId}',now());
+            """, TestContext.Current.CancellationToken);
+
+        var store = new SalesKpiStore(provider, TimeProvider.System);
+        var targets = await store.SaveTargetsAsync(
+            new SaveSalesTargetsRequest(2026, "krw", [
+                new SaveSalesTargetMonthRequest(1, 100000000m, null),
+                new SaveSalesTargetMonthRequest(2, 100000000m, null),
+                new SaveSalesTargetMonthRequest(3, 100000000m, null)
+            ]), actorId, TestContext.Current.CancellationToken);
+        var response = await store.GetAsync(2026, "KRW", new ProjectAccessScope(true, []), TestContext.Current.CancellationToken);
+
+        Assert.Equal(12, response.Months.Count);
+        Assert.Equal(120000000m, response.Months[0].RevenueAmount);
+        Assert.Equal(0m, response.Months[1].RevenueAmount);
+        Assert.Equal(80000000m, response.Months[2].RevenueAmount);
+        Assert.Equal(200000000m, response.Kpi.RevenueTotal);
+        Assert.Equal(300000000m, response.Kpi.TargetTotal);
+        Assert.Equal(66.7m, response.Kpi.AchievementRate);
+        Assert.Equal(100000000m, response.Kpi.RemainingTargetAmount);
+        Assert.Equal(300000000m, response.Pipeline.Amount);
+        Assert.Equal(3, targets.Months.Count(month => month.Amount.HasValue));
+        Assert.Equal(3L, await ReadScalarAsync<long>(provider,
+            "select count(*) from sales_monthly_target_audit_events;",
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task FormTemplateStore_SavesOneCurrentQualityFormAndKeepsDepartmentManagerFence()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        var adminId = new Guid("76000000-0000-0000-0000-000000000049");
+        var qualityManagerId = new Guid("76000000-0000-0000-0000-000000000050");
+        await ExecuteSqlAsync(provider, $"""
+            insert into departments (id,code,name,sort_order)
+            values
+              ('76000000-0000-0000-0000-000000000052','quality','Quality',80),
+              ('76000000-0000-0000-0000-000000000053','manufacturing','Manufacturing',70)
+            on conflict (code) do nothing;
+
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values
+              ('{adminId}','form-admin-test','Form Admin Test',(select id from departments where code='design'),true),
+              ('{qualityManagerId}','form-quality-test','Quality Manager Test',(select id from departments where code='quality'),true);
+            """, TestContext.Current.CancellationToken);
+
+        var store = new FormTemplateStore(provider);
+        var catalog = await store.GetCatalogAsync(adminId, true, TestContext.Current.CancellationToken);
+        Assert.Equal(3, catalog.Templates.Count);
+        Assert.DoesNotContain(catalog.Templates, template => template.TemplateKey is "CustomerInspection" or "FAT" or "PANEL_MANUFACTURING");
+        var original = await store.GetCurrentAsync("IqcReport", "MATERIAL_IQC", adminId, true, TestContext.Current.CancellationToken);
+        var active = Assert.Single(original.Versions);
+        var edited = active.Items.Select((item, index) => new SaveFormTemplateItemRequest(
+            item.ItemCode, index + 1, index == 0 ? "관리 화면에서 변경한 검사 항목" : item.Label,
+            item.Guidance, item.ResponseType, item.IsRequired, item.RequiresPhoto, item.MaxTextLength,
+            item.DefinitionKey)).ToArray();
+        var saved = await store.SaveCurrentAsync(
+            "IqcReport", "MATERIAL_IQC",
+            new SaveFormTemplateItemsRequest(active.RowVersion, edited), adminId, true,
+            TestContext.Current.CancellationToken);
+        var current = Assert.Single(saved.Versions);
+        Assert.Equal("Active", current.LifecycleStatus);
+        Assert.NotEqual(active.VersionId, current.VersionId);
+        Assert.Equal(active.Items[0].DefinitionKey, current.Items[0].DefinitionKey);
+        Assert.Equal("관리 화면에서 변경한 검사 항목", current.Items[0].Label);
+        Assert.Equal(2, (await store.GetVersionsAsync(
+            "IqcReport", "MATERIAL_IQC", adminId, true,
+            TestContext.Current.CancellationToken)).Versions.Count);
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(provider,
+            $"update iqc_report_template_items set label='forbidden' where template_version_id='{active.VersionId}';",
+            TestContext.Current.CancellationToken));
+
+        var managers = await store.AssignManagerAsync(
+            new AssignFormTemplateManagerRequest(qualityManagerId, "Quality"), adminId, true,
+            TestContext.Current.CancellationToken);
+        Assert.Single(managers.Bindings, binding => binding.UserId == qualityManagerId && binding.RevokedAtUtc is null);
+        Assert.True((await store.GetScopeAsync(qualityManagerId, false, TestContext.Current.CancellationToken)).CanManage);
+        await ExecuteSqlAsync(provider,
+            $"update qms_users set department_id=(select id from departments where code='manufacturing') where id='{qualityManagerId}';",
+            TestContext.Current.CancellationToken);
+        Assert.False((await store.GetScopeAsync(qualityManagerId, false, TestContext.Current.CancellationToken)).CanManage);
+        await Assert.ThrowsAsync<FormTemplateForbiddenException>(() => store.RecordExportAsync(
+            "IqcReport", "MATERIAL_IQC", qualityManagerId, false, 1,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ProfilePhotoStoreAndDepartmentHomeQueries_RunAgainstFreshSchema()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot, connectionStringProvider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+        var userId = new Guid("76000000-0000-0000-0000-000000000042");
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            $"""
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '{userId}',
+                'profile-home-query-test',
+                'Profile Home Query Test',
+                (select id from departments where code='sales'),
+                true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+
+        var profileStore = new UserProfilePhotoStore(connectionStringProvider);
+        var firstPhoto = CreateStructurallyValidPng(64, 32);
+        var secondPhoto = CreateStructurallyValidPng(96, 48);
+        var first = await profileStore.SaveAsync(userId, firstPhoto, TestContext.Current.CancellationToken);
+        var second = await profileStore.SaveAsync(userId, secondPhoto, TestContext.Current.CancellationToken);
+        var stored = await profileStore.GetAsync(userId, TestContext.Current.CancellationToken);
+
+        Assert.Equal("image/png", first.NormalizedMime);
+        Assert.NotEqual(first.ProfilePhotoVersion, second.ProfilePhotoVersion);
+        Assert.NotNull(stored);
+        Assert.Equal(secondPhoto, stored.Content);
+        Assert.True(await profileStore.RemoveAsync(userId, TestContext.Current.CancellationToken));
+        Assert.Null(await profileStore.GetAsync(userId, TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from user_profile_photo_audit_events where profile_user_id='76000000-0000-0000-0000-000000000042';",
+            TestContext.Current.CancellationToken));
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into projects (id, project_key, project_number, name)
+            values ('76000000-0000-0000-0000-000000000052', 'home-material-risk', 'HOME-MATERIAL-001', 'Home Material Risk');
+
+            insert into project_procurement_items (
+                id, project_id, sequence_number, supply_type, order_quantity, order_unit, expected_receipt_date)
+            values (
+                '76000000-0000-0000-0000-000000000053',
+                '76000000-0000-0000-0000-000000000052',
+                1, 'CustomerSupplied', 12, 'EA', current_date - 3);
+
+            insert into material_receipts (
+                id, procurement_item_id, quantity, unit, arrival_date, status)
+            values (
+                '76000000-0000-0000-0000-000000000054',
+                '76000000-0000-0000-0000-000000000053',
+                6, 'EA', current_date, 'Arrived');
+            """,
+            TestContext.Current.CancellationToken);
+
+        var permissions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            QmsPermissions.ProjectRead,
+            QmsPermissions.PanelInfoUpdate,
+            QmsPermissions.ProductionPlanUpdate,
+            QmsPermissions.ProcurementPlanUpdate,
+            QmsPermissions.MaterialReceiptUpdate,
+            QmsPermissions.ManufacturingUpdate,
+            QmsPermissions.QualityInspect,
+            QmsPermissions.LogisticsShip
+        };
+        var metricsStore = new HomeMetricsStore(connectionStringProvider);
+        var scope = new ProjectAccessScope(true, []);
+        string[] departments =
+        [
+            "administration", "sales", "design", "production-planning", "procurement",
+            "materials", "manufacturing", "quality", "logistics"
+        ];
+
+        foreach (var department in departments)
+        {
+            var response = await metricsStore.GetAsync(
+                department,
+                department,
+                userId,
+                permissions,
+                department == "administration",
+                scope,
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(3, response.Metrics.Count);
+            Assert.All(response.Metrics, metric => Assert.True(metric.Count >= 0));
+            if (department == "materials")
+            {
+                var riskMetric = Assert.Single(response.Metrics, metric => metric.Id == "materials-customer-supply-overdue");
+                Assert.Equal(1, riskMetric.Count);
+                Assert.Equal("materials-customer-supply-overdue", riskMetric.DestinationKey);
+            }
+        }
     }
 
     [Fact]
@@ -260,13 +1157,262 @@ public sealed class PostgreSqlMigrationTests
 
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(28L, await ReadScalarAsync<long>(
-            connectionStringProvider,
-            "select count(*) from schema_migrations;",
-            TestContext.Current.CancellationToken));
-        Assert.Equal("0028_notification_delivery_claim_lease", await ReadScalarAsync<string>(
+        Assert.Equal(
+            Directory.GetFiles(Path.Combine(database.RepositoryRoot, "database", "migrations"), "*.sql").LongLength,
+            await ReadScalarAsync<long>(
+                connectionStringProvider,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        Assert.Equal("0064_ul891_set_production_plans", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from information_schema.tables where table_schema='public' and table_name='notification_delivery_reprocess_events';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema='public'
+              and (
+                (table_name='notification_deliveries' and column_name in ('current_generation','generation_attempt_count'))
+                or (table_name='notification_delivery_attempts' and column_name='generation')
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'user_notification_preference_profiles',
+                  'user_notification_preferences',
+                  'user_notification_preference_audit_events'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_constraint
+            where conname = 'ck_user_notification_preferences_sparse_opt_out';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name = 'data_export_events';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Contains("ProjectsSelected", await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_data_export_events_kind';
+            """,
+            TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Contains("QualityInspectionsSelected", await ReadScalarAsync<string>(
+            connectionStringProvider,
+            """
+            select pg_get_constraintdef(oid)
+            from pg_constraint
+            where conname = 'ck_data_export_events_kind';
+            """,
+            TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_trigger
+            where tgname = 'trg_guard_data_export_event'
+              and not tgisinternal;
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'panel_manufacturing_executions',
+                  'panel_manufacturing_execution_steps',
+                  'panel_manufacturing_events',
+                  'panel_manufacturing_operations'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name = 'panel_manufacturing_assembly_batch_operations';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'panel_manufacturing_events'
+              and column_name = 'batch_operation_id';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'pending_issues'
+              and column_name = 'action_department_code';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(18L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from panel_quality_template_items;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(9L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'panel_quality_template_versions', 'panel_quality_template_items',
+                  'panel_quality_inspection_attempts', 'panel_quality_reports',
+                  'panel_quality_report_responses', 'panel_quality_report_photos',
+                  'panel_quality_report_pdf_artifacts',
+                  'panel_manufacturing_completion_confirmations', 'panel_quality_operations'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*) from pg_trigger
+            where tgname in (
+                'trg_guard_panel_quality_pdf_artifact_immutable',
+                'trg_guard_finalized_panel_quality_responses',
+                'trg_guard_finalized_panel_quality_photos'
+            ) and not tgisinternal;
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(6L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from iqc_report_template_items;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'material_iqc_attempts'
+              and column_name = 'decision_mode'
+              and is_nullable = 'NO'
+              and column_default like '%Detailed%';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(7L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (
+                  'iqc_report_templates', 'iqc_report_template_versions', 'iqc_report_template_items',
+                  'iqc_reports', 'iqc_report_responses', 'iqc_report_photos', 'iqc_report_pdf_artifacts'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_trigger
+            where tgname = 'trg_guard_iqc_report_pdf_artifact_immutable'
+              and not tgisinternal;
+            """,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'project_procurement_items'
+              and column_name = 'supply_type'
+              and is_nullable = 'NO'
+              and column_default like '%Purchased%';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_constraint
+            where conrelid = 'public.project_procurement_items'::regclass
+              and conname in (
+                  'ck_project_procurement_items_supply_type',
+                  'ck_project_procurement_items_customer_supply_measurement'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_indexes
+            where schemaname = 'public'
+              and indexname = 'ix_project_procurement_items_supply_type';
+            """,
+            TestContext.Current.CancellationToken));
+
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into projects (id, project_key, project_number, name)
+            values ('88000000-0000-0000-0000-000000000031', 'migration-0031', 'migration-0031', 'Migration 0031');
+            """,
+            TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into project_procurement_items (project_id, sequence_number, supply_type)
+            values ('88000000-0000-0000-0000-000000000031', 1, 'CustomerSupplied');
+            """,
+            TestContext.Current.CancellationToken));
+        await ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            insert into project_procurement_items (
+                project_id, sequence_number, supply_type, order_quantity, order_unit)
+            values (
+                '88000000-0000-0000-0000-000000000031', 1, 'CustomerSupplied', 5, 'EA');
+            """,
+            TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            connectionStringProvider,
+            """
+            update project_procurement_items
+            set order_unit = null
+            where project_id = '88000000-0000-0000-0000-000000000031';
+            """,
             TestContext.Current.CancellationToken));
 
         await ExecuteSqlAsync(
@@ -338,6 +1484,70 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task LogisticsMigration_AddsExecutionEvidenceConcurrencyAndImmutabilitySchema()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var runner = CreateMigrationRunner(database.RepositoryRoot, provider);
+
+        await runner.ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(8L, await ReadScalarAsync<long>(provider, """
+            select count(*) from information_schema.tables
+            where table_schema='public' and table_name in (
+              'logistics_packing_units','logistics_packing_unit_panels','logistics_batches',
+              'logistics_batch_units','logistics_batch_panels','logistics_evidence','logistics_delivery_results','logistics_operations'
+            );
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(provider, """
+            select count(*) from pg_indexes where schemaname='public'
+              and indexname in ('ux_logistics_packing_unit_panels_active_panel','ux_logistics_batch_panels_active_stage');
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(6L, await ReadScalarAsync<long>(provider, """
+            select count(*) from pg_trigger where not tgisinternal and tgname in (
+              'trg_guard_finalized_logistics_packing_unit','trg_guard_finalized_logistics_batch',
+              'trg_guard_logistics_packing_unit_panel','trg_guard_logistics_batch_unit',
+              'trg_guard_logistics_batch_panel','trg_guard_logistics_evidence'
+            );
+            """, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SalesSettlementMigration_AddsLeastPrivilegeLifecycleAndRaceFences()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2L, await ReadScalarAsync<long>(provider, """
+            select count(*) from information_schema.tables
+            where table_schema='public' and table_name in ('sales_settlements','sales_settlement_operations');
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(provider, """
+            select count(*) from information_schema.columns
+            where table_schema='public' and table_name='projects'
+              and column_name in ('completed_by_user_id','completed_at_utc');
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(provider, """
+            select count(*) from pg_trigger where not tgisinternal and tgname in (
+              'trg_guard_completed_sales_settlement','trg_guard_sales_settlement_operation','trg_guard_pending_project_lifecycle');
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(provider, """
+            select count(*) from roles role
+            join role_permissions assignment on assignment.role_id=role.id
+            join permissions permission on permission.id=assignment.permission_id
+            where permission.code='sales.settle' and role.code='sales';
+            """, TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(provider, """
+            select count(*) from roles role
+            join role_permissions assignment on assignment.role_id=role.id
+            join permissions permission on permission.id=assignment.permission_id
+            where permission.code='sales.settle' and role.code<>'sales';
+            """, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task SchemaMigration_AssignsConfirmedProjectAndSensitivePermissions()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -348,6 +1558,67 @@ public sealed class PostgreSqlMigrationTests
         await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
         await AssertPermissionScopeAlignmentAsync(connectionStringProvider, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task PendingListFoundationMigration_AddsSchemaAndLeastPrivilegePermissions()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+
+        await CreateMigrationRunner(database.RepositoryRoot, connectionStringProvider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in ('pending_issues', 'pending_comments', 'pending_history');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(10L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'Pending.Read';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(8L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'Pending.Manage';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from roles
+            join role_permissions on role_permissions.role_id = roles.id
+            join permissions on permissions.id = role_permissions.permission_id
+            where permissions.code = 'Pending.Manage'
+              and roles.code in ('system-administrator', 'read-only');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from pg_indexes
+            where schemaname = 'public'
+              and indexname in ('ix_pending_issues_open_priority', 'ix_pending_issues_project', 'ix_pending_issues_assignee');
+            """,
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -1839,6 +3110,19 @@ public sealed class PostgreSqlMigrationTests
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var command = dataSource.CreateCommand(await File.ReadAllTextAsync(migrationFile, cancellationToken));
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static byte[] CreateStructurallyValidPng(byte width, byte height)
+    {
+        var content = new byte[45];
+        byte[] signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        signature.CopyTo(content, 0);
+        content[11] = 13;
+        "IHDR"u8.CopyTo(content.AsSpan(12, 4));
+        content[19] = width;
+        content[23] = height;
+        "IEND"u8.CopyTo(content.AsSpan(content.Length - 8, 4));
+        return content;
     }
 
     private static async Task ExecuteSqlAsync(

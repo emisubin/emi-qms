@@ -26,6 +26,11 @@ public static class QmsPermissions
     public const string QualityInspect = "quality.inspect";
     public const string QualityApprove = "quality.approve";
     public const string LogisticsShip = "logistics.ship";
+    public const string SalesSettle = "sales.settle";
+    public const string SalesTargetManage = "Sales.Target.Manage";
     public const string UsersManage = "users.manage";
     public const string AdminHistoryRead = "admin-history.read";
+    public const string PendingRead = "Pending.Read";
+    public const string PendingManage = "Pending.Manage";
+    public const string PendingTypeManage = "PendingType.Manage";
 }

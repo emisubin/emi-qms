@@ -1,6 +1,11 @@
 using System.Data;
+using Emi.Qms.Api.Manufacturing;
+using Emi.Qms.Api.Logistics;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
+using Emi.Qms.Api.QualityInspections;
+using Emi.Qms.Api.Sales;
+using Emi.Qms.Api.Ul891Sets;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -69,16 +74,93 @@ public sealed class ProjectStore(
         return owners;
     }
 
+    public Task<ProjectListResponse> ListProjectsAsync(
+        ProjectListQuery query,
+        ProjectAccessScope accessScope,
+        bool includeSalesAmount,
+        CancellationToken cancellationToken)
+    {
+        return ListProjectsAsync(query, accessScope, includeSalesAmount, false, cancellationToken);
+    }
+
     public async Task<ProjectListResponse> ListProjectsAsync(
         ProjectListQuery query,
         ProjectAccessScope accessScope,
         bool includeSalesAmount,
+        bool includePendingInsights,
+        CancellationToken cancellationToken)
+    {
+        return await ListProjectsAsync(
+            query,
+            accessScope,
+            includeSalesAmount,
+            includePendingInsights,
+            100,
+            null,
+            cancellationToken);
+    }
+
+    public Task<ProjectListResponse> ListProjectsForExportAsync(
+        ProjectListQuery query,
+        ProjectAccessScope accessScope,
+        bool includeSalesAmount,
+        int rowLimit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(rowLimit, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(rowLimit, 10_001);
+
+        return ListProjectsAsync(
+            query with { Page = 1, PageSize = rowLimit },
+            accessScope,
+            includeSalesAmount,
+            false,
+            rowLimit,
+            null,
+            cancellationToken);
+    }
+
+    public Task<ProjectListResponse> ListSelectedProjectsForExportAsync(
+        IReadOnlyList<Guid> projectIds,
+        ProjectAccessScope accessScope,
+        bool includeSalesAmount,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(projectIds.Count, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(projectIds.Count, 100);
+
+        return ListProjectsAsync(
+            new ProjectListQuery(null, "All", null, null, null, false, 1, projectIds.Count),
+            accessScope,
+            includeSalesAmount,
+            false,
+            projectIds.Count,
+            projectIds,
+            cancellationToken);
+    }
+
+    private async Task<ProjectListResponse> ListProjectsAsync(
+        ProjectListQuery query,
+        ProjectAccessScope accessScope,
+        bool includeSalesAmount,
+        bool includePendingInsights,
+        int maximumPageSize,
+        IReadOnlyList<Guid>? projectIds,
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
         var where = new List<string>();
         var parameters = new List<NpgsqlParameter>();
         where.Add("projects.deleted_at_utc is null");
+
+        if (projectIds is not null)
+        {
+            where.Add("projects.id = any(@project_ids)");
+            parameters.Add(new NpgsqlParameter("project_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+            {
+                Value = projectIds.ToArray()
+            });
+        }
 
         if (!string.IsNullOrWhiteSpace(query.Status) && !string.Equals(query.Status, "All", StringComparison.OrdinalIgnoreCase))
         {
@@ -121,7 +203,7 @@ public sealed class ProjectStore(
 
         var whereSql = where.Count == 0 ? "" : $"where {string.Join(" and ", where)}";
         var page = Math.Max(1, query.Page);
-        var pageSize = Math.Clamp(query.PageSize, 1, 100);
+        var pageSize = Math.Clamp(query.PageSize, 1, maximumPageSize);
         var offset = (page - 1) * pageSize;
 
         await using var command = dataSource.CreateCommand($"""
@@ -145,7 +227,18 @@ public sealed class ProjectStore(
                 project_workflow.project_work_status,
                 project_workflow.project_progress_percent,
                 projects.fat_required,
-                count(*) over() as total_count
+                count(*) over() as total_count,
+                coalesce(active_panels.before_manufacturing_count, 0),
+                coalesce(active_panels.manufacturing_in_progress_count, 0),
+                coalesce(active_panels.manufacturing_completed_count, 0),
+                coalesce(active_panels.inspection_in_progress_count, 0),
+                coalesce(active_panels.inspection_completed_count, 0),
+                coalesce(active_panels.packing_completed_count, 0),
+                coalesce(active_panels.shipment_completed_count, 0),
+                coalesce(active_panels.unknown_workflow_stage_count, 0),
+                coalesce(pending_summary.open_count, 0),
+                coalesce(pending_summary.reinspection_count, 0),
+                coalesce(pending_summary.urgent_count, 0)
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
@@ -157,17 +250,79 @@ public sealed class ProjectStore(
                               or width_mm is not null
                               or height_mm is not null
                               or depth_mm is not null
-                       )::integer as panel_info_touched_count
+                       )::integer as panel_info_touched_count,
+                       count(*) filter (where workflow_stage = 'BeforeManufacturing')::integer as before_manufacturing_count,
+                       count(*) filter (where workflow_stage = 'ManufacturingInProgress')::integer as manufacturing_in_progress_count,
+                       count(*) filter (where workflow_stage = 'ManufacturingCompleted')::integer as manufacturing_completed_count,
+                       count(*) filter (where workflow_stage = 'InspectionInProgress')::integer as inspection_in_progress_count,
+                       count(*) filter (where workflow_stage = 'InspectionCompleted')::integer as inspection_completed_count,
+                       count(*) filter (where workflow_stage = 'PackingCompleted')::integer as packing_completed_count,
+                       count(*) filter (where workflow_stage = 'ShipmentCompleted')::integer as shipment_completed_count,
+                       count(*) filter (where workflow_stage not in (
+                           'BeforeManufacturing',
+                           'ManufacturingInProgress',
+                           'ManufacturingCompleted',
+                           'InspectionInProgress',
+                           'InspectionCompleted',
+                           'PackingCompleted',
+                           'ShipmentCompleted'
+                       ))::integer as unknown_workflow_stage_count,
+                       min(case workflow_stage
+                           when 'BeforeManufacturing' then 0
+                           when 'ManufacturingInProgress' then 1
+                           when 'ManufacturingCompleted' then 2
+                           when 'InspectionInProgress' then 3
+                           when 'InspectionCompleted' then 4
+                           when 'PackingCompleted' then 5
+                           when 'ShipmentCompleted' then 6
+                           else 99
+                       end)::integer as minimum_workflow_rank
                 from panel_placeholders
                 where panel_placeholders.project_id = projects.id
                   and panel_placeholders.status = 'Active'
             ) active_panels on true
             left join lateral (
-                select count(items.id)::integer as item_count,
-                       count(items.id) filter (where items.is_required = true)::integer as required_item_count,
-                       count(items.id) filter (where items.is_required = true and items.planned_date is not null)::integer as planned_required_item_count
+                select count(*) filter (where status <> 'Closed')::integer as open_count,
+                       count(*) filter (where status = 'ReinspectionRequested')::integer as reinspection_count,
+                       count(*) filter (where status <> 'Closed' and priority = 'Urgent')::integer as urgent_count
+                from pending_issues
+                where pending_issues.project_id = projects.id
+            ) pending_summary on true
+            left join lateral (
+                select case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.item_count,0) else coalesce(base_counts.item_count,0) end as item_count,
+                       case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.required_item_count,0) else coalesce(base_counts.required_item_count,0) end as required_item_count,
+                       case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.planned_required_item_count,0) else coalesce(base_counts.planned_required_item_count,0) end as planned_required_item_count
                 from project_production_plans plans
-                left join project_production_plan_items items on items.production_plan_id = plans.id and items.is_active = true
+                left join lateral (
+                    select count(items.id)::integer as item_count,
+                           count(items.id) filter (where items.is_required)::integer as required_item_count,
+                           count(items.id) filter (
+                               where items.is_required and (
+                                 (plans.model_version='LEGACY' and items.planned_date is not null)
+                                 or (plans.model_version='LINKED_V1' and items.planned_start_date is not null and items.planned_end_date is not null)
+                               )
+                           )::integer as planned_required_item_count
+                    from project_production_plan_items items
+                    where items.production_plan_id=plans.id and items.is_active
+                ) base_counts on true
+                left join lateral (
+                    select count(items.id)::integer as item_count,
+                           count(items.id) filter (where items.is_required)::integer as required_item_count,
+                           count(items.id) filter (
+                               where items.is_required
+                                 and value.planned_start_date is not null
+                                 and value.planned_end_date is not null
+                           )::integer as planned_required_item_count
+                    from project_production_plan_set_scopes scope
+                    join ul891_set_instances instance on instance.id=scope.set_instance_id and instance.status='Active'
+                    join project_production_plan_items items on items.production_plan_id=scope.production_plan_id and items.is_active
+                    left join project_production_plan_set_item_values value
+                      on value.set_scope_id=scope.id and value.production_plan_item_id=items.id
+                    where scope.production_plan_id=plans.id
+                ) set_counts on true
                 where plans.project_id = projects.id
             ) production_plan_summary on true
             left join lateral (
@@ -192,7 +347,27 @@ public sealed class ProjectStore(
             ) assignee_summary on true
             left join lateral (
                 select count(*)::integer as item_count,
-                       count(*) filter (where order_item is not null and btrim(order_item) <> '')::integer as named_item_count
+                       count(*) filter (
+                           where nullif(btrim(coalesce(order_item, '')), '') is not null
+                             and expected_receipt_date is not null
+                             and (
+                                 (supply_type = 'Purchased'
+                                  and nullif(btrim(coalesce(supplier_name, '')), '') is not null
+                                  and order_date is not null)
+                                 or
+                                 (supply_type = 'CustomerSupplied'
+                                  and order_quantity > 0
+                                  and nullif(btrim(coalesce(order_unit, '')), '') is not null)
+                             )
+                       )::integer as completed_item_count,
+                       exists (
+                           select 1
+                           from project_workflow_events event
+                           where event.project_id = projects.id
+                             and event.stage_code = 'ProcurementInfo'
+                             and event.event_type = 'StageCompleted'
+                             and event.event_status = 'Succeeded'
+                       ) as has_completed_stage_event
                 from project_procurement_items
                 where project_procurement_items.project_id = projects.id
                   and project_procurement_items.status = 'Active'
@@ -232,10 +407,14 @@ public sealed class ProjectStore(
                                and active_panels.panel_info_completed_count = active_panels.active_panel_count
                            ) then 'DesignPanelInfo'
                            when not (
-                               case
+                               procurement_summary.has_completed_stage_event
+                               or case
                                    when coalesce(procurement_required_summary.required_item_count, 0) > 0
-                                       then procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count
-                                   else procurement_summary.item_count > 0 and procurement_summary.named_item_count = procurement_summary.item_count
+                                       then procurement_summary.item_count > 0
+                                        and procurement_summary.completed_item_count = procurement_summary.item_count
+                                        and procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count
+                                   else procurement_summary.item_count > 0
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count
                                end
                            ) then 'ProcurementInfo'
                            else 'MaterialArrived'
@@ -259,11 +438,14 @@ public sealed class ProjectStore(
                                    else 0
                                  end
                                + case
+                                   when procurement_summary.has_completed_stage_event then 1
                                    when coalesce(procurement_required_summary.required_item_count, 0) > 0
+                                    and procurement_summary.item_count > 0
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count
                                     and procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count then 1
                                    when coalesce(procurement_required_summary.required_item_count, 0) = 0
                                     and procurement_summary.item_count > 0
-                                    and procurement_summary.named_item_count = procurement_summary.item_count then 1
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count then 1
                                    else 0
                                  end
                            )::numeric * 100 / case when projects.fat_required then 18 else 17 end)::integer
@@ -278,6 +460,14 @@ public sealed class ProjectStore(
                     when 'Cancelled' then 3
                     else 4
                 end,
+                case when @include_pending_insights and coalesce(pending_summary.open_count, 0) > 0 then 0 else 1 end,
+                case project_workflow.project_work_status
+                    when 'SalesProjectCreated' then 1
+                    when 'ProductionPlanning' then 2
+                    when 'DesignPanelInfo' then 3
+                    when 'ProcurementInfo' then 4
+                    else 5 + coalesce(active_panels.minimum_workflow_rank, 90)
+                end,
                 projects.delivery_date asc nulls last,
                 projects.created_at_utc desc
             limit @limit offset @offset;
@@ -290,6 +480,7 @@ public sealed class ProjectStore(
 
         command.Parameters.AddWithValue("limit", pageSize);
         command.Parameters.AddWithValue("offset", offset);
+        command.Parameters.AddWithValue("include_pending_insights", includePendingInsights);
 
         var items = new List<ProjectListItemResponse>();
         long totalCount = 0;
@@ -297,7 +488,7 @@ public sealed class ProjectStore(
         while (await reader.ReadAsync(cancellationToken))
         {
             totalCount = reader.GetInt64(19);
-            items.Add(ReadProjectListItem(reader, includeSalesAmount));
+            items.Add(ReadProjectListItem(reader, includeSalesAmount, 20, includePendingInsights));
         }
 
         return new ProjectListResponse(items, page, pageSize, totalCount);
@@ -391,9 +582,18 @@ public sealed class ProjectStore(
             reader.GetInt32(9));
     }
 
+    public Task<ProjectDetailResponse?> GetProjectAsync(
+        Guid projectId,
+        bool includeSalesAmount,
+        CancellationToken cancellationToken)
+    {
+        return GetProjectAsync(projectId, includeSalesAmount, false, cancellationToken);
+    }
+
     public async Task<ProjectDetailResponse?> GetProjectAsync(
         Guid projectId,
         bool includeSalesAmount,
+        bool includePendingInsights,
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
@@ -418,7 +618,39 @@ public sealed class ProjectStore(
                 project_workflow.project_work_status,
                 project_workflow.project_progress_percent,
                 projects.fat_required,
-                projects.status_reason
+                projects.status_reason,
+                coalesce(active_panels.before_manufacturing_count, 0),
+                coalesce(active_panels.manufacturing_in_progress_count, 0),
+                coalesce(active_panels.manufacturing_completed_count, 0),
+                coalesce(active_panels.inspection_in_progress_count, 0),
+                coalesce(active_panels.inspection_completed_count, 0),
+                coalesce(active_panels.packing_completed_count, 0),
+                coalesce(active_panels.shipment_completed_count, 0),
+                coalesce(active_panels.unknown_workflow_stage_count, 0),
+                coalesce(pending_summary.open_count, 0),
+                coalesce(pending_summary.reinspection_count, 0),
+                coalesce(pending_summary.urgent_count, 0),
+                coalesce((
+                    select count(item.id)::integer
+                    from manufacturing_step_templates template
+                    join manufacturing_step_template_versions version
+                      on version.template_id = template.id
+                     and version.lifecycle_status = 'Active'
+                     and version.is_active = true
+                    join manufacturing_step_template_items item
+                      on item.template_version_id = version.id
+                    where template.template_code = 'PANEL_MANUFACTURING'
+                ), 0) as manufacturing_step_count,
+                coalesce((
+                    select count(item.id)::integer
+                    from panel_quality_template_versions version
+                    join panel_quality_template_items item
+                      on item.template_version_id = version.id
+                     and item.response_type = 'Check'
+                    where version.stage_code = 'OQC'
+                      and version.lifecycle_status = 'Active'
+                      and version.is_active = true
+                ), 0) as oqc_step_count
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
@@ -430,17 +662,69 @@ public sealed class ProjectStore(
                               or width_mm is not null
                               or height_mm is not null
                               or depth_mm is not null
-                       )::integer as panel_info_touched_count
+                       )::integer as panel_info_touched_count,
+                       count(*) filter (where workflow_stage = 'BeforeManufacturing')::integer as before_manufacturing_count,
+                       count(*) filter (where workflow_stage = 'ManufacturingInProgress')::integer as manufacturing_in_progress_count,
+                       count(*) filter (where workflow_stage = 'ManufacturingCompleted')::integer as manufacturing_completed_count,
+                       count(*) filter (where workflow_stage = 'InspectionInProgress')::integer as inspection_in_progress_count,
+                       count(*) filter (where workflow_stage = 'InspectionCompleted')::integer as inspection_completed_count,
+                       count(*) filter (where workflow_stage = 'PackingCompleted')::integer as packing_completed_count,
+                       count(*) filter (where workflow_stage = 'ShipmentCompleted')::integer as shipment_completed_count,
+                       count(*) filter (where workflow_stage not in (
+                           'BeforeManufacturing',
+                           'ManufacturingInProgress',
+                           'ManufacturingCompleted',
+                           'InspectionInProgress',
+                           'InspectionCompleted',
+                           'PackingCompleted',
+                           'ShipmentCompleted'
+                       ))::integer as unknown_workflow_stage_count
                 from panel_placeholders
                 where panel_placeholders.project_id = projects.id
                   and panel_placeholders.status = 'Active'
             ) active_panels on true
             left join lateral (
-                select count(items.id)::integer as item_count,
-                       count(items.id) filter (where items.is_required = true)::integer as required_item_count,
-                       count(items.id) filter (where items.is_required = true and items.planned_date is not null)::integer as planned_required_item_count
+                select count(*) filter (where status <> 'Closed')::integer as open_count,
+                       count(*) filter (where status = 'ReinspectionRequested')::integer as reinspection_count,
+                       count(*) filter (where status <> 'Closed' and priority = 'Urgent')::integer as urgent_count
+                from pending_issues
+                where pending_issues.project_id = projects.id
+            ) pending_summary on true
+            left join lateral (
+                select case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.item_count,0) else coalesce(base_counts.item_count,0) end as item_count,
+                       case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.required_item_count,0) else coalesce(base_counts.required_item_count,0) end as required_item_count,
+                       case when projects.structure_mode='Ul891Set' and plans.model_version='LINKED_V1'
+                            then coalesce(set_counts.planned_required_item_count,0) else coalesce(base_counts.planned_required_item_count,0) end as planned_required_item_count
                 from project_production_plans plans
-                left join project_production_plan_items items on items.production_plan_id = plans.id and items.is_active = true
+                left join lateral (
+                    select count(items.id)::integer as item_count,
+                           count(items.id) filter (where items.is_required)::integer as required_item_count,
+                           count(items.id) filter (
+                               where items.is_required and (
+                                 (plans.model_version='LEGACY' and items.planned_date is not null)
+                                 or (plans.model_version='LINKED_V1' and items.planned_start_date is not null and items.planned_end_date is not null)
+                               )
+                           )::integer as planned_required_item_count
+                    from project_production_plan_items items
+                    where items.production_plan_id=plans.id and items.is_active
+                ) base_counts on true
+                left join lateral (
+                    select count(items.id)::integer as item_count,
+                           count(items.id) filter (where items.is_required)::integer as required_item_count,
+                           count(items.id) filter (
+                               where items.is_required
+                                 and value.planned_start_date is not null
+                                 and value.planned_end_date is not null
+                           )::integer as planned_required_item_count
+                    from project_production_plan_set_scopes scope
+                    join ul891_set_instances instance on instance.id=scope.set_instance_id and instance.status='Active'
+                    join project_production_plan_items items on items.production_plan_id=scope.production_plan_id and items.is_active
+                    left join project_production_plan_set_item_values value
+                      on value.set_scope_id=scope.id and value.production_plan_item_id=items.id
+                    where scope.production_plan_id=plans.id
+                ) set_counts on true
                 where plans.project_id = projects.id
             ) production_plan_summary on true
             left join lateral (
@@ -465,7 +749,27 @@ public sealed class ProjectStore(
             ) assignee_summary on true
             left join lateral (
                 select count(*)::integer as item_count,
-                       count(*) filter (where order_item is not null and btrim(order_item) <> '')::integer as named_item_count
+                       count(*) filter (
+                           where nullif(btrim(coalesce(order_item, '')), '') is not null
+                             and expected_receipt_date is not null
+                             and (
+                                 (supply_type = 'Purchased'
+                                  and nullif(btrim(coalesce(supplier_name, '')), '') is not null
+                                  and order_date is not null)
+                                 or
+                                 (supply_type = 'CustomerSupplied'
+                                  and order_quantity > 0
+                                  and nullif(btrim(coalesce(order_unit, '')), '') is not null)
+                             )
+                       )::integer as completed_item_count,
+                       exists (
+                           select 1
+                           from project_workflow_events event
+                           where event.project_id = projects.id
+                             and event.stage_code = 'ProcurementInfo'
+                             and event.event_type = 'StageCompleted'
+                             and event.event_status = 'Succeeded'
+                       ) as has_completed_stage_event
                 from project_procurement_items
                 where project_procurement_items.project_id = projects.id
                   and project_procurement_items.status = 'Active'
@@ -505,10 +809,14 @@ public sealed class ProjectStore(
                                and active_panels.panel_info_completed_count = active_panels.active_panel_count
                            ) then 'DesignPanelInfo'
                            when not (
-                               case
+                               procurement_summary.has_completed_stage_event
+                               or case
                                    when coalesce(procurement_required_summary.required_item_count, 0) > 0
-                                       then procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count
-                                   else procurement_summary.item_count > 0 and procurement_summary.named_item_count = procurement_summary.item_count
+                                       then procurement_summary.item_count > 0
+                                        and procurement_summary.completed_item_count = procurement_summary.item_count
+                                        and procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count
+                                   else procurement_summary.item_count > 0
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count
                                end
                            ) then 'ProcurementInfo'
                            else 'MaterialArrived'
@@ -532,11 +840,14 @@ public sealed class ProjectStore(
                                    else 0
                                  end
                                + case
+                                   when procurement_summary.has_completed_stage_event then 1
                                    when coalesce(procurement_required_summary.required_item_count, 0) > 0
+                                    and procurement_summary.item_count > 0
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count
                                     and procurement_required_summary.matched_required_item_count >= procurement_required_summary.required_item_count then 1
                                    when coalesce(procurement_required_summary.required_item_count, 0) = 0
                                     and procurement_summary.item_count > 0
-                                    and procurement_summary.named_item_count = procurement_summary.item_count then 1
+                                    and procurement_summary.completed_item_count = procurement_summary.item_count then 1
                                    else 0
                                  end
                            )::numeric * 100 / case when projects.fat_required then 18 else 17 end)::integer
@@ -553,8 +864,10 @@ public sealed class ProjectStore(
             return null;
         }
 
-        var baseItem = ReadProjectListItem(reader, includeSalesAmount);
+        var baseItem = ReadProjectListItem(reader, includeSalesAmount, 20, includePendingInsights);
         var statusReason = reader.IsDBNull(19) ? null : reader.GetString(19);
+        var manufacturingStepCount = reader.GetInt32(31);
+        var oqcStepCount = reader.GetInt32(32);
         await reader.DisposeAsync();
         var panelInfoSummary = await ReadPanelInformationSummaryAsync(dataSource, projectId, cancellationToken);
         return new ProjectDetailResponse
@@ -574,6 +887,7 @@ public sealed class ProjectStore(
             Status = baseItem.Status,
             ProjectWorkStatus = baseItem.ProjectWorkStatus,
             ProjectProgressPercent = baseItem.ProjectProgressPercent,
+            Bottleneck = baseItem.Bottleneck,
             CreatedAt = baseItem.CreatedAt,
             UpdatedAt = baseItem.UpdatedAt,
             SalesAmount = baseItem.SalesAmount,
@@ -585,7 +899,9 @@ public sealed class ProjectStore(
             ManufacturingCompletedCount = panelInfoSummary.ManufacturingCompletedCount,
             InspectionCompletedCount = panelInfoSummary.InspectionCompletedCount,
             DuplicatePanelNameGroupCount = panelInfoSummary.DuplicatePanelNameGroupCount,
-            ProjectPanelInformationCompleted = panelInfoSummary.ProjectPanelInformationCompleted
+            ProjectPanelInformationCompleted = panelInfoSummary.ProjectPanelInformationCompleted,
+            ManufacturingStepCount = manufacturingStepCount,
+            OqcStepCount = oqcStepCount
         };
     }
 
@@ -654,6 +970,7 @@ public sealed class ProjectStore(
                         currency_code,
                         delivery_location,
                         fat_required,
+                        structure_mode,
                         status,
                         created_by_user_id,
                         updated_at_utc
@@ -675,12 +992,14 @@ public sealed class ProjectStore(
                         @currency_code,
                         @delivery_location,
                         @fat_required,
+                        @structure_mode,
                         'Active',
                         @created_by_user_id,
                         now()
                     );
                     """;
                 AddProjectParameters(command, projectId, projectKey, input, changedByUserId);
+                command.Parameters.Add("structure_mode", NpgsqlDbType.Text).Value = input.IsUl891Set ? "Ul891Set" : (object)DBNull.Value;
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
@@ -700,7 +1019,18 @@ public sealed class ProjectStore(
                 false,
                 cancellationToken);
 
-            for (var sequence = 1; sequence <= input.PanelCount; sequence++)
+            if (input.IsUl891Set)
+            {
+                await Ul891SetStore.CreateInitialStructureAsync(
+                    connection,
+                    transaction,
+                    projectId,
+                    input.Ul891SetSpecs,
+                    changedByUserId,
+                    correlationId,
+                    cancellationToken);
+            }
+            else for (var sequence = 1; sequence <= input.PanelCount; sequence++)
             {
                 var panelId = Guid.NewGuid();
                 var displayCode = ProjectInputNormalizer.FormatPanelDisplayCode(sequence);
@@ -722,7 +1052,17 @@ public sealed class ProjectStore(
                     cancellationToken);
             }
 
-            await CreateInitialProductionPlanFromTemplateAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
+            await CreateInitialProductionControlSnapshotAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
+            if (input.IsUl891Set)
+            {
+                await ProductionPlanningStore.EnsureSetPlanScopeAsync(
+                    connection,
+                    transaction,
+                    projectId,
+                    null,
+                    changedByUserId,
+                    cancellationToken);
+            }
             await CreateInitialProcurementItemsFromTemplateAsync(connection, transaction, projectId, input, changedByUserId, cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
@@ -731,6 +1071,12 @@ public sealed class ProjectStore(
         {
             await transaction.RollbackAsync(cancellationToken);
             return ProjectMutationResult<ProjectDetailResponse>.Conflict("동일한 PJT Title이 이미 존재합니다.");
+        }
+        catch (ProductionControlSnapshotConfigurationException exception)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ProjectMutationResult<ProjectDetailResponse>.Validation(
+                new Dictionary<string, string[]> { [nameof(CreateProjectRequest.Item)] = [exception.Message] });
         }
 
         var detail = await GetProjectAsync(projectId, includeSalesAmount, cancellationToken);
@@ -760,6 +1106,18 @@ public sealed class ProjectStore(
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return ProjectMutationResult<ProjectDetailResponse>.NotFound();
+            }
+
+            if (existing.Status == "Completed")
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ProjectMutationResult<ProjectDetailResponse>.Conflict("완료된 프로젝트는 수정할 수 없습니다.");
+            }
+
+            if (existing.StructureMode == "Ul891Set" && !string.Equals(existing.Item, input.Item, StringComparison.Ordinal))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ProjectMutationResult<ProjectDetailResponse>.Conflict("세트 데이터가 생성된 UL891 프로젝트의 Item은 변경할 수 없습니다.");
             }
 
             if (!await IsActiveSalesUserAsync(connection, transaction, input.SalesOwnerUserId, cancellationToken))
@@ -870,10 +1228,16 @@ public sealed class ProjectStore(
                 return ProjectMutationResult<ProjectDetailResponse>.Conflict(ProjectDomainRules.PanelCountConcurrencyMessage);
             }
 
-            if (snapshot.Status == "Cancelled")
+            if (snapshot.Status is "Cancelled" or "Completed")
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return ProjectMutationResult<ProjectDetailResponse>.Conflict("취소된 프로젝트의 면수는 변경할 수 없습니다.");
+                return ProjectMutationResult<ProjectDetailResponse>.Conflict("취소되거나 완료된 프로젝트의 면수는 변경할 수 없습니다.");
+            }
+
+            if (snapshot.StructureMode == "Ul891Set")
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ProjectMutationResult<ProjectDetailResponse>.Conflict("UL891 세트 프로젝트의 수량은 영업 탭에서 세트 인스턴스 단위로 변경해 주세요.");
             }
 
             if (snapshot.ActivePanelCount == input.PanelCount)
@@ -934,6 +1298,25 @@ public sealed class ProjectStore(
 
                 foreach (var panel in selectedPanels)
                 {
+                    await ManufacturingStore.CancelActiveExecutionAsync(
+                        connection,
+                        transaction,
+                        panel.PanelId,
+                        changedByUserId,
+                        cancellationToken);
+                    await QualityInspectionStore.CancelPanelInspectionsAsync(
+                        connection,
+                        transaction,
+                        panel.PanelId,
+                        changedByUserId,
+                        cancellationToken);
+                    await LogisticsStore.CancelPanelDraftsAsync(
+                        connection,
+                        transaction,
+                        panel.PanelId,
+                        changedByUserId,
+                        cancellationToken);
+
                     await using var command = connection.CreateCommand();
                     command.Transaction = transaction;
                     command.CommandText = """
@@ -949,6 +1332,22 @@ public sealed class ProjectStore(
                     command.Parameters.AddWithValue("reason", input.Reason);
                     command.Parameters.AddWithValue("panel_id", panel.PanelId);
                     await command.ExecuteNonQueryAsync(cancellationToken);
+
+                    await using (var workItemCommand = connection.CreateCommand())
+                    {
+                        workItemCommand.Transaction = transaction;
+                        workItemCommand.CommandText = """
+                            update work_items
+                            set status = 'Cancelled',
+                                cancelled_at_utc = coalesce(cancelled_at_utc, now())
+                            where target_type = 'Panel'
+                              and target_id = @panel_id
+                              and workflow_stage_code = 'ManufacturingWork'
+                              and status in ('Requested', 'InProgress');
+                            """;
+                        workItemCommand.Parameters.AddWithValue("panel_id", panel.PanelId);
+                        await workItemCommand.ExecuteNonQueryAsync(cancellationToken);
+                    }
 
                     await InsertAuditEventAsync(
                         connection,
@@ -1036,6 +1435,34 @@ public sealed class ProjectStore(
         {
             await transaction.RollbackAsync(cancellationToken);
             return ProjectMutationResult<ProjectDetailResponse>.Conflict("현재 상태에서는 요청한 상태 전이를 수행할 수 없습니다.");
+        }
+
+        if (string.Equals(targetStatus, "Cancelled", StringComparison.Ordinal))
+        {
+            await ManufacturingStore.CancelProjectExecutionsAsync(
+                connection,
+                transaction,
+                projectId,
+                changedByUserId,
+                cancellationToken);
+            await QualityInspectionStore.CancelProjectInspectionsAsync(
+                connection,
+                transaction,
+                projectId,
+                changedByUserId,
+                cancellationToken);
+            await LogisticsStore.CancelProjectDraftsAsync(
+                connection,
+                transaction,
+                projectId,
+                changedByUserId,
+                cancellationToken);
+            await SalesSettlementStore.CancelProjectDraftAsync(
+                connection,
+                transaction,
+                projectId,
+                changedByUserId,
+                cancellationToken);
         }
 
         await using (var command = connection.CreateCommand())
@@ -1870,6 +2297,12 @@ public sealed class ProjectStore(
             await transaction.RollbackAsync(cancellationToken);
             return ProjectMutationResult<ProjectExcelApplyResponse>.Conflict("동일한 PJT Title이 이미 존재합니다.");
         }
+        catch (ProductionControlSnapshotConfigurationException exception)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ProjectMutationResult<ProjectExcelApplyResponse>.Validation(
+                new Dictionary<string, string[]> { ["Item"] = [exception.Message] });
+        }
 
         return ProjectMutationResult<ProjectExcelApplyResponse>.Success(new ProjectExcelApplyResponse(createdIds.Count, createdIds));
     }
@@ -2229,13 +2662,215 @@ public sealed class ProjectStore(
                 cancellationToken);
         }
 
-        await CreateInitialProductionPlanFromTemplateAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
+        await CreateInitialProductionControlSnapshotAsync(connection, transaction, projectId, input.Item, changedByUserId, cancellationToken);
         await CreateInitialProcurementItemsFromTemplateAsync(connection, transaction, projectId, input, changedByUserId, cancellationToken);
 
         return projectId;
     }
 
-    private static async Task CreateInitialProductionPlanFromTemplateAsync(
+    private static async Task CreateInitialProductionControlSnapshotAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string itemCode,
+        Guid changedByUserId,
+        CancellationToken cancellationToken)
+    {
+        Guid? productTypeId = null;
+        Guid? planVersionId = null;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select product_type.id, version.id
+                from production_product_types product_type
+                join production_control_plan_templates template
+                  on template.product_type_id=product_type.id
+                join production_control_plan_versions version
+                  on version.template_id=template.id
+                 and version.lifecycle_status='Active'
+                where upper(btrim(product_type.code))=upper(btrim(@item_code))
+                  and product_type.is_active
+                for share of version;
+                """;
+            command.Parameters.AddWithValue("item_code", itemCode);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                productTypeId = reader.GetGuid(0);
+                planVersionId = reader.GetGuid(1);
+            }
+        }
+        if (productTypeId is null || planVersionId is null)
+        {
+            await CreateInitialLegacyProductionPlanFromTemplateAsync(
+                connection, transaction, projectId, itemCode, changedByUserId, cancellationToken);
+            return;
+        }
+
+        Guid manufacturingVersionId;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select version.id
+                from production_control_manufacturing_templates template
+                join production_control_manufacturing_versions version
+                  on version.template_id=template.id
+                 and version.lifecycle_status='Active'
+                where template.product_type_id=@product_type_id
+                for share of version;
+                """;
+            command.Parameters.AddWithValue("product_type_id", productTypeId.Value);
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            if (value is not Guid id)
+            {
+                throw new ProductionControlSnapshotConfigurationException(
+                    "생산계획 양식과 연결된 활성 제조 양식이 없습니다. 양식 관리에서 제조 양식을 먼저 확인해 주세요.");
+            }
+            manufacturingVersionId = id;
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select count(*)::int
+                from production_control_plan_items plan_item
+                left join production_control_plan_connections connection
+                  on connection.plan_item_id=plan_item.id
+                left join production_control_manufacturing_items manufacturing_item
+                  on manufacturing_item.template_version_id=@manufacturing_version_id
+                 and manufacturing_item.definition_key=connection.source_definition_key
+                left join (
+                    select quality_item.definition_key
+                    from iqc_report_templates quality_template
+                    join iqc_report_template_versions quality_version
+                      on quality_version.template_id=quality_template.id
+                     and quality_version.lifecycle_status='Active'
+                    join iqc_report_template_items quality_item
+                      on quality_item.template_version_id=quality_version.id
+                    where quality_template.template_code='MATERIAL_IQC'
+                      and quality_item.response_type='Check'
+                ) iqc on iqc.definition_key=connection.source_definition_key
+                left join (
+                    select quality_item.definition_key
+                    from panel_quality_template_versions quality_version
+                    join panel_quality_template_items quality_item
+                      on quality_item.template_version_id=quality_version.id
+                    where quality_version.stage_code='OQC'
+                      and quality_version.lifecycle_status='Active'
+                      and quality_item.response_type='Check'
+                ) oqc on oqc.definition_key=connection.source_definition_key
+                where plan_item.template_version_id=@plan_version_id
+                  and (
+                    (plan_item.is_required and connection.id is null)
+                    or (
+                        connection.source_code in ('MANUFACTURING_STEP_COMPLETED','LQC_PASSED')
+                        and manufacturing_item.id is null
+                    )
+                    or (
+                        connection.source_code='IQC_PASSED'
+                        and connection.source_definition_key is not null
+                        and iqc.definition_key is null
+                    )
+                    or (
+                        connection.source_code='OQC_PASSED'
+                        and connection.source_definition_key is not null
+                        and oqc.definition_key is null
+                    )
+                  );
+                """;
+            command.Parameters.AddWithValue("plan_version_id", planVersionId.Value);
+            command.Parameters.AddWithValue("manufacturing_version_id", manufacturingVersionId);
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) > 0)
+            {
+                throw new ProductionControlSnapshotConfigurationException(
+                    "활성 생산계획 양식의 실적 연결이 현재 제조·품질 양식과 맞지 않습니다. 양식 관리에서 연결을 수정해 주세요.");
+            }
+        }
+
+        var planId = Guid.NewGuid();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into project_production_plans (
+                    id,project_id,product_type_id,model_version,
+                    linked_plan_template_version_id,linked_manufacturing_template_version_id,
+                    created_by_user_id,updated_by_user_id
+                )
+                values (
+                    @id,@project_id,@product_type_id,'LINKED_V1',
+                    @plan_version_id,@manufacturing_version_id,@actor_id,@actor_id
+                );
+                """;
+            command.Parameters.AddWithValue("id", planId);
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("product_type_id", productTypeId.Value);
+            command.Parameters.AddWithValue("plan_version_id", planVersionId.Value);
+            command.Parameters.AddWithValue("manufacturing_version_id", manufacturingVersionId);
+            command.Parameters.AddWithValue("actor_id", changedByUserId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into project_production_plan_items (
+                    production_plan_id,definition_key,sequence_number,step_name_snapshot,
+                    is_required,is_active
+                )
+                select @plan_id,definition_key,display_order,label,is_required,true
+                from production_control_plan_items
+                where template_version_id=@plan_version_id
+                order by display_order;
+
+                insert into project_production_plan_connections (
+                    production_plan_item_id,source_code,source_definition_key
+                )
+                select project_item.id,connection.source_code,connection.source_definition_key
+                from project_production_plan_items project_item
+                join production_control_plan_items template_item
+                  on template_item.template_version_id=@plan_version_id
+                 and template_item.definition_key=project_item.definition_key
+                join production_control_plan_connections connection
+                  on connection.plan_item_id=template_item.id
+                where project_item.production_plan_id=@plan_id;
+
+                insert into project_manufacturing_step_snapshots (
+                    project_id,source_template_version_id,definition_key,sequence_number,
+                    step_name_snapshot,step_role
+                )
+                select @project_id,@manufacturing_version_id,definition_key,display_order,label,step_role
+                from production_control_manufacturing_items
+                where template_version_id=@manufacturing_version_id
+                order by display_order;
+                """;
+            command.Parameters.AddWithValue("plan_id", planId);
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("plan_version_id", planVersionId.Value);
+            command.Parameters.AddWithValue("manufacturing_version_id", manufacturingVersionId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await InsertAuditEventAsync(
+            connection,
+            transaction,
+            projectId,
+            "ProductionPlan",
+            planId,
+            "ProductionControlSnapshotCreated",
+            "ModelVersion",
+            null,
+            "LINKED_V1",
+            null,
+            changedByUserId,
+            $"production-control:{projectId:N}",
+            false,
+            cancellationToken);
+    }
+
+    private static async Task CreateInitialLegacyProductionPlanFromTemplateAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid projectId,
@@ -2396,8 +3031,26 @@ public sealed class ProjectStore(
         parameters.Add(new NpgsqlParameter<string[]>("project_keys", accessScope.ProjectKeys.ToArray()));
     }
 
-    private static ProjectListItemResponse ReadProjectListItem(NpgsqlDataReader reader, bool includeSalesAmount)
+    private static ProjectListItemResponse ReadProjectListItem(
+        NpgsqlDataReader reader,
+        bool includeSalesAmount,
+        int? bottleneckStartIndex = null,
+        bool includePendingInsights = false)
     {
+        var bottleneck = bottleneckStartIndex is null
+            ? null
+            : ProjectBottleneckDomain.Build(
+                reader.GetString(11),
+                reader.GetString(16),
+                Enumerable.Range(bottleneckStartIndex.Value, 7).Select(reader.GetInt32).ToList(),
+                reader.GetInt32(bottleneckStartIndex.Value + 7),
+                includePendingInsights
+                    ? new PendingBottleneckCounts(
+                        reader.GetInt32(bottleneckStartIndex.Value + 8),
+                        reader.GetInt32(bottleneckStartIndex.Value + 9),
+                        reader.GetInt32(bottleneckStartIndex.Value + 10))
+                    : null);
+
         return new ProjectListItemResponse
         {
             ProjectId = reader.GetGuid(0),
@@ -2414,6 +3067,7 @@ public sealed class ProjectStore(
             Status = reader.GetString(11),
             ProjectWorkStatus = reader.GetString(16),
             ProjectProgressPercent = reader.IsDBNull(17) ? null : reader.GetInt32(17),
+            Bottleneck = bottleneck,
             FatRequired = !reader.IsDBNull(18) && reader.GetBoolean(18),
             CreatedAt = reader.GetFieldValue<DateTimeOffset>(12),
             UpdatedAt = reader.GetFieldValue<DateTimeOffset>(13),
@@ -2969,7 +3623,9 @@ public sealed class ProjectStore(
                    sales_amount,
                    currency_code,
                    delivery_location,
-                   fat_required
+                   fat_required,
+                   status,
+                   structure_mode
             from projects
             where id = @project_id
               and deleted_at_utc is null
@@ -3002,7 +3658,9 @@ public sealed class ProjectStore(
             reader.IsDBNull(10) ? null : reader.GetDecimal(10),
             reader.IsDBNull(11) ? null : reader.GetString(11),
             reader.IsDBNull(12) ? null : reader.GetString(12),
-            !reader.IsDBNull(13) && reader.GetBoolean(13));
+            !reader.IsDBNull(13) && reader.GetBoolean(13),
+            reader.GetString(14),
+            reader.IsDBNull(15) ? null : reader.GetString(15));
     }
 
     private static async Task<ProjectLockSnapshot?> LockProjectForUpdateAsync(
@@ -3014,7 +3672,7 @@ public sealed class ProjectStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select status
+            select status, structure_mode
             from projects
             where id = @project_id
               and deleted_at_utc is null
@@ -3022,10 +3680,16 @@ public sealed class ProjectStore(
             """;
         command.Parameters.AddWithValue("project_id", projectId);
 
-        var value = await command.ExecuteScalarAsync(cancellationToken);
-        if (value is not string status)
+        string status;
+        string? structureMode;
+        await using (var projectReader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return null;
+            if (!await projectReader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+            status = projectReader.GetString(0);
+            structureMode = projectReader.IsDBNull(1) ? null : projectReader.GetString(1);
         }
 
         await using var panelCommand = connection.CreateCommand();
@@ -3041,10 +3705,10 @@ public sealed class ProjectStore(
         await using var reader = await panelCommand.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
-            return new ProjectLockSnapshot(status, 0, 0);
+            return new ProjectLockSnapshot(status, structureMode, 0, 0);
         }
 
-        return new ProjectLockSnapshot(status, reader.GetInt32(0), reader.GetInt32(1));
+        return new ProjectLockSnapshot(status, structureMode, reader.GetInt32(0), reader.GetInt32(1));
     }
 
     private static async Task<ProjectDeletionSnapshot?> LockProjectDeletionSnapshotAsync(
@@ -3130,7 +3794,9 @@ public sealed class ProjectStore(
         decimal? SalesAmount,
         string? CurrencyCode,
         string? DeliveryLocation,
-        bool FatRequired)
+        bool FatRequired,
+        string Status,
+        string? StructureMode)
     {
         public IReadOnlyList<ProjectFieldChange> CollectChanges(NormalizedUpdateProjectInput input)
         {
@@ -3284,10 +3950,36 @@ public sealed class ProjectStore(
             return;
         }
 
+        await ExecutePurgeCommandAsync(connection, transaction, "select set_config('emi_qms.project_purge', 'on', true) where cardinality(@project_ids) >= 0;", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from project_audit_events where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batch_projects where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from procurement_excel_import_batches where cardinality(@project_ids) >= 0 and not exists (select 1 from procurement_excel_import_batch_projects bp where bp.import_batch_id = procurement_excel_import_batches.id) and not exists (select 1 from project_audit_events a where a.procurement_import_batch_id = procurement_excel_import_batches.id);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_information_excel_import_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_evidence where packing_unit_id in (select id from logistics_packing_units where project_id = any(@project_ids)) or batch_id in (select id from logistics_batches where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_delivery_results where batch_id in (select id from logistics_batches where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_batch_panels where batch_id in (select id from logistics_batches where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_batch_units where batch_id in (select id from logistics_batches where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_packing_unit_panels where packing_unit_id in (select id from logistics_packing_units where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from logistics_packing_units where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from sales_settlement_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from sales_settlements where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_completion_confirmations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_release_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_report_pdf_artifacts where report_id in (select report.id from panel_quality_reports report join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id where attempt.project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_report_photos where report_id in (select report.id from panel_quality_reports report join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id where attempt.project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_report_responses where report_id in (select report.id from panel_quality_reports report join panel_quality_inspection_attempts attempt on attempt.id = report.attempt_id where attempt.project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_reports where attempt_id in (select id from panel_quality_inspection_attempts where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_quality_inspection_attempts where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_events where execution_id in (select id from panel_manufacturing_executions where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_assembly_batch_operations where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_execution_steps where execution_id in (select id from panel_manufacturing_executions where project_id = any(@project_ids));", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_manufacturing_executions where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_kitting_completions where project_id = any(@project_ids);", projectIds, cancellationToken);
+        await ExecutePurgeCommandAsync(connection, transaction, "delete from panel_kitting_batches where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from project_assignees where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from project_production_plans where project_id = any(@project_ids);", projectIds, cancellationToken);
         await ExecutePurgeCommandAsync(connection, transaction, "delete from project_procurement_items where project_id = any(@project_ids);", projectIds, cancellationToken);
@@ -3333,7 +4025,7 @@ public sealed class ProjectStore(
         }
     }
 
-    private sealed record ProjectLockSnapshot(string Status, int ActivePanelCount, int MaxSequenceNumber);
+    private sealed record ProjectLockSnapshot(string Status, string? StructureMode, int ActivePanelCount, int MaxSequenceNumber);
 
     private sealed record ProjectDeletionSnapshot(
         string Status,
@@ -3344,6 +4036,8 @@ public sealed class ProjectStore(
 
     private sealed record SelectedPanelSnapshot(Guid PanelId, string DisplayCode);
 }
+
+file sealed class ProductionControlSnapshotConfigurationException(string message) : Exception(message);
 
 public sealed record ProjectAccessRecord(Guid ProjectId, string ProjectKey);
 

@@ -520,6 +520,13 @@ public sealed class WorkItemEscalationStore(
         if (level is WorkItemEscalationLevels.L0 or WorkItemEscalationLevels.L1 or WorkItemEscalationLevels.L2)
         {
             var personalDelivery = ResolveTeamsPersonalDelivery(options);
+            var preferenceDisabled = level == WorkItemEscalationLevels.L0
+                && await IsPreferenceDisabledAsync(
+                    connection,
+                    transaction,
+                    recipient.UserId,
+                    NotificationDeliveryTypes.DueSoonL0,
+                    cancellationToken);
             count += await InsertDeliveryAsync(
                 connection,
                 transaction,
@@ -530,8 +537,8 @@ public sealed class WorkItemEscalationStore(
                 recipient,
                 personalDelivery.Channel,
                 DeliveryTypeForLevel(level),
-                personalDelivery.Status,
-                personalDelivery.ProviderMessageId,
+                preferenceDisabled ? NotificationDeliveryStatuses.Suppressed : personalDelivery.Status,
+                preferenceDisabled ? null : personalDelivery.ProviderMessageId,
                 now,
                 cancellationToken);
         }
@@ -603,6 +610,9 @@ public sealed class WorkItemEscalationStore(
                 attempt_count,
                 next_attempt_at_utc,
                 sent_at_utc,
+                suppressed_at_utc,
+                error_code,
+                error_message,
                 dedupe_key,
                 group_key,
                 provider_message_id,
@@ -628,6 +638,9 @@ public sealed class WorkItemEscalationStore(
                 case when @status = 'DryRunSent' then 1 else 0 end,
                 case when @status = 'Pending' then @now else null end,
                 case when @status = 'DryRunSent' then @now else null end,
+                case when @status = 'Suppressed' then @now else null end,
+                case when @status = 'Suppressed' then 'SuppressedByUserPreference' else null end,
+                case when @status = 'Suppressed' then '사용자 알림 설정에 따라 예정일 임박 알림을 보내지 않았습니다.' else null end,
                 @dedupe_key,
                 @group_key,
                 @provider_message_id,
@@ -664,6 +677,30 @@ public sealed class WorkItemEscalationStore(
         command.Parameters.AddWithValue("display_recipient_kind", recipient is null ? "TeamsChannel" : "User");
         command.Parameters.AddWithValue("display_channel_target", channel == NotificationDeliveryChannels.TeamsChannel ? "Teams 채널" : DBNull.Value);
         return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<bool> IsPreferenceDisabledAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid userId,
+        string deliveryType,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select exists (
+                select 1
+                from user_notification_preferences
+                where user_id = @user_id
+                  and delivery_type = @delivery_type
+                  and channel = 'TeamsDirectMessage'
+                  and is_enabled = false
+            );
+            """;
+        command.Parameters.AddWithValue("user_id", userId);
+        command.Parameters.AddWithValue("delivery_type", deliveryType);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
     private static async Task MarkLevelSentAsync(

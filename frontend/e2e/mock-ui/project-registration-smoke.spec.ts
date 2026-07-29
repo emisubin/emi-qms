@@ -49,18 +49,18 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
   const store = createStore();
   await routeApi(page, store);
 
-  await page.goto('/');
-  await page.getByLabel('개발 사용자').selectOption('dev-sales');
+  await page.goto('/projects');
 
   await page.getByRole('button', { name: '신규 프로젝트' }).click();
   await fillProjectForm(page, 'PJT-003A', 'TASK-003A E2E', '4');
   await page.getByRole('button', { name: '등록' }).click();
 
   await expect(page.getByRole('heading', { name: 'TASK-003A E2E' })).toBeVisible();
+  await page.getByRole('tab', { name: '설계' }).click();
   await expect(page.getByRole('table', { name: '설계' })).toContainText('제조 전');
   await expect(page.getByRole('table', { name: '설계' })).toContainText('생성 불가');
 
-  await page.getByRole('button', { name: '목록' }).click();
+  await page.getByRole('navigation', { name: '현재 위치' }).getByRole('button', { name: '프로젝트', exact: true }).click();
   await page.getByRole('button', { name: '신규 프로젝트' }).click();
   await fillProjectForm(page, 'PJT-DUP', ' task-003a   e2e ', '2');
   await page.getByRole('button', { name: '등록' }).click();
@@ -68,16 +68,19 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
 
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
   await page.locator('.project-list-row').filter({ hasText: 'TASK-003A E2E' }).click();
+  await page.getByRole('tab', { name: '설계' }).click();
   await expect(page.getByRole('table', { name: '설계' })).toContainText('미입력');
   await expect(page.getByText('KRW 1,250,000.5')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '수정', exact: true })).toHaveCount(0);
 
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await page.locator('.project-list-row').filter({ hasText: 'TASK-003A E2E' }).click();
+  await page.getByRole('tab', { name: '설계' }).click();
   await page.getByRole('button', { name: '수정', exact: true }).click();
   await page.getByLabel('면수*').fill('5');
   await page.getByLabel('수정사유*').fill('추가 발주 면수 반영');
   await page.getByRole('button', { name: '저장' }).click();
+  await page.getByRole('tab', { name: '설계' }).click();
   await expect(page.getByRole('table', { name: '설계' })).toContainText('5');
 
   await page.getByRole('button', { name: '보류' }).click();
@@ -236,6 +239,19 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
       return fulfillJson(route, filterProject(store.project, userKey));
     }
 
+    if (path === `/api/projects/${projectId}/set-structure` && method === 'GET') {
+      return fulfillJson(route, {
+        projectId,
+        structureMode: 'FlatPanel',
+        isLegacyFlat: false,
+        canEditOrder: false,
+        canEditDesign: userKey === 'dev-sales',
+        specs: [],
+        orderedProcurementItems: [],
+        recoveryCases: []
+      });
+    }
+
     if (path === `/api/projects/${projectId}/change-panel-count` && method === 'POST') {
       const body = await request.postDataJSON() as { panelCount: number; expectedActivePanelCount: number };
       const project = requireProject(store);
@@ -344,13 +360,31 @@ function currentUser(userKey: string) {
     permissions.push('Project.Deleted.Read', 'Project.SalesAmount.Read');
   }
 
-  return {
+  const principal = {
+    userId: userKey === 'dev-sales'
+      ? '50000000-0000-0000-0000-000000000002'
+      : '50000000-0000-0000-0000-000000000011',
     developmentUserKey: userKey,
     displayName: userKey,
+    email: null,
+    authProvider: 'Dev',
+    isActive: true,
+    approvalPending: false,
     department: 'test',
-    roles: [userKey.replace('dev-', '')],
+    departmentName: '합성 테스트',
+    profilePhotoVersion: null,
+    roles: [userKey.replace('dev-', '')]
+  };
+
+  return {
+    ...principal,
     permissions,
-    projectAccess: []
+    projectAccess: [],
+    isTestUserSwitch: false,
+    testUserKey: null,
+    canUseAdminTestUserSwitch: false,
+    actualUser: principal,
+    effectiveUser: principal
   };
 }
 

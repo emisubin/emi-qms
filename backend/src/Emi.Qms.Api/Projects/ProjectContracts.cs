@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Emi.Qms.Api.Ul891Sets;
 
 namespace Emi.Qms.Api.Projects;
 
@@ -14,7 +15,8 @@ public sealed record CreateProjectRequest(
     decimal? SalesAmount,
     string? CurrencyCode,
     string? DeliveryLocation,
-    bool? FatRequired);
+    bool? FatRequired,
+    IReadOnlyList<CreateUl891SetSpecRequest>? Ul891SetSpecs = null);
 
 public sealed record UpdateProjectRequest(
     string? CustomerName,
@@ -112,6 +114,7 @@ public class ProjectListItemResponse
     public string Status { get; init; } = "";
     public string ProjectWorkStatus { get; init; } = "";
     public int? ProjectProgressPercent { get; init; }
+    public ProjectBottleneckResponse? Bottleneck { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
 
@@ -121,6 +124,28 @@ public class ProjectListItemResponse
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? CurrencyCode { get; init; }
 }
+
+public sealed record ProjectBottleneckResponse(
+    string Kind,
+    string Label,
+    string? StageCode,
+    string? StageLabel,
+    int? PanelCount,
+    int StageRank,
+    string NextAction,
+    string NextActionLabel,
+    string SortReason,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? OpenPendingCount,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ReinspectionPendingCount,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? UrgentPendingCount,
+    IReadOnlyList<PanelStageDistributionResponse> PanelDistribution);
+
+public sealed record PanelStageDistributionResponse(
+    string StageCode,
+    string StageLabel,
+    int StageRank,
+    int PanelCount,
+    bool IsBottleneck);
 
 public sealed class ProjectDetailResponse : ProjectListItemResponse
 {
@@ -132,6 +157,8 @@ public sealed class ProjectDetailResponse : ProjectListItemResponse
     public int InspectionCompletedCount { get; init; }
     public int DuplicatePanelNameGroupCount { get; init; }
     public bool ProjectPanelInformationCompleted { get; init; }
+    public int ManufacturingStepCount { get; init; }
+    public int OqcStepCount { get; init; }
 }
 
 public class DeletedProjectListItemResponse : ProjectListItemResponse

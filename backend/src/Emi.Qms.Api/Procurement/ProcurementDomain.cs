@@ -124,7 +124,10 @@ internal sealed record ProcurementItemSnapshot(
     int? SourceExcelRowNumber,
     int? SourceGroupSequence,
     string? RowMatchKey,
-    string Status);
+    string Status,
+    string SupplyType,
+    decimal? OrderQuantity,
+    string? OrderUnit);
 
 internal sealed record ProcurementProjectSnapshot(
     Guid ProjectId,

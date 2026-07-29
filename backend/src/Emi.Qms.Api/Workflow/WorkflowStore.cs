@@ -12,8 +12,6 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         [WorkflowStageCodes.ProcurementInfo] = WorkflowStageCodes.MaterialArrived,
         [WorkflowStageCodes.MaterialArrived] = WorkflowStageCodes.IQC,
         [WorkflowStageCodes.IQC] = WorkflowStageCodes.ReceiptConfirmed,
-        [WorkflowStageCodes.ReceiptConfirmed] = WorkflowStageCodes.KittingCompleted,
-        [WorkflowStageCodes.KittingCompleted] = WorkflowStageCodes.ManufacturingWork,
         [WorkflowStageCodes.ManufacturingWork] = WorkflowStageCodes.LQC,
         [WorkflowStageCodes.LQC] = WorkflowStageCodes.ManufacturingCompleted,
         [WorkflowStageCodes.ManufacturingCompleted] = WorkflowStageCodes.OQC,
@@ -45,6 +43,106 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         [WorkflowStageCodes.DeliveryCompleted] = new("LogisticsPrimary", "LogisticsSecondary", ["Logistics"]),
         [WorkflowStageCodes.SalesSettlementCompleted] = new("SalesPrimary", "SalesSecondary", [])
     };
+
+    internal static async Task<Guid?> EnsureEffectiveKittingStageCompletedAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string sourceType,
+        Guid sourceId,
+        Guid operationId,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        Guid? eventId;
+        await using (var insert = connection.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                insert into project_workflow_events (
+                    project_id, stage_code, event_type, event_status, source_type, source_id,
+                    correlation_id, created_by_user_id, note
+                )
+                select
+                    @project_id, 'KittingCompleted', 'StageCompleted', 'Succeeded',
+                    @source_type, @source_id, @correlation_id, @actor_id,
+                    '모든 활성 패널이 키팅 완료 또는 생산관리 제조 투입 요청됨'
+                where (
+                    select count(*)
+                    from panel_placeholders panel
+                    where panel.project_id = @project_id
+                      and panel.status = 'Active'
+                ) > 0
+                  and (
+                    select count(*)
+                    from panel_placeholders panel
+                    where panel.project_id = @project_id
+                      and panel.status = 'Active'
+                      and (
+                          exists (
+                              select 1 from panel_kitting_completions completion
+                              where completion.panel_id = panel.id
+                          )
+                          or exists (
+                              select 1 from panel_manufacturing_release_operations release
+                              where release.project_id = @project_id
+                                and panel.id = any(release.panel_ids)
+                          )
+                      )
+                ) = (
+                    select count(*)
+                    from panel_placeholders panel
+                    where panel.project_id = @project_id
+                      and panel.status = 'Active'
+                )
+                  and not exists (
+                      select 1
+                      from project_workflow_events event
+                      where event.project_id = @project_id
+                        and event.stage_code = 'KittingCompleted'
+                        and event.event_type = 'StageCompleted'
+                        and event.event_status = 'Succeeded'
+                  )
+                returning id;
+                """;
+            insert.Parameters.AddWithValue("project_id", projectId);
+            insert.Parameters.AddWithValue("source_type", sourceType);
+            insert.Parameters.AddWithValue("source_id", sourceId);
+            insert.Parameters.AddWithValue("correlation_id", operationId.ToString("D"));
+            insert.Parameters.AddWithValue("actor_id", actorUserId);
+            eventId = (Guid?)await insert.ExecuteScalarAsync(cancellationToken);
+        }
+
+        if (eventId is null)
+        {
+            await using var existing = connection.CreateCommand();
+            existing.Transaction = transaction;
+            existing.CommandText = """
+                select id
+                from project_workflow_events
+                where project_id = @project_id
+                  and stage_code = 'KittingCompleted'
+                  and event_type = 'StageCompleted'
+                  and event_status = 'Succeeded'
+                order by created_at_utc
+                limit 1;
+                """;
+            existing.Parameters.AddWithValue("project_id", projectId);
+            eventId = (Guid?)await existing.ExecuteScalarAsync(cancellationToken);
+        }
+
+        if (eventId is not null)
+        {
+            await MarkStageWorkItemsCompletedAsync(
+                connection,
+                transaction,
+                projectId,
+                WorkflowStageCodes.KittingCompleted,
+                cancellationToken);
+        }
+
+        return eventId;
+    }
 
     public async Task CompleteStageAsync(
         Guid projectId,
@@ -82,12 +180,17 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             note,
             cancellationToken);
 
-        if (StageToNextStage.TryGetValue(stageCode, out var nextStageCode)
-            && StageResponsibilities.TryGetValue(nextStageCode, out var target))
+        if (!string.Equals(stageCode, WorkflowStageCodes.SalesProjectCreated, StringComparison.Ordinal)
+            && StageToNextStage.TryGetValue(stageCode, out var nextStageCode))
         {
-            var stage = await ReadStageAsync(connection, transaction, nextStageCode, cancellationToken);
-            if (stage is not null)
+            var nextStageCodes = string.Equals(stageCode, WorkflowStageCodes.ProductionPlanning, StringComparison.Ordinal)
+                ? new[] { nextStageCode, WorkflowStageCodes.ProcurementInfo }
+                : new[] { nextStageCode };
+            foreach (var activatedStageCode in nextStageCodes)
             {
+                if (!StageResponsibilities.TryGetValue(activatedStageCode, out var target)) continue;
+                var stage = await ReadStageAsync(connection, transaction, activatedStageCode, cancellationToken);
+                if (stage is null) continue;
                 var assignee = await ResolveAssigneeAsync(connection, transaction, project, target, cancellationToken);
                 if (assignee.UserId is not null)
                 {
@@ -95,7 +198,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                         connection,
                         transaction,
                         projectId,
-                        nextStageCode,
+                        activatedStageCode,
                         target.Primary,
                         assignee.UserId.Value,
                         assignee.RoleCode,
@@ -103,7 +206,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                         BuildWorkDescription(stage, assignee),
                         eventId,
                         createdByUserId,
-                        $"project:{projectId}:stage:{nextStageCode}:work:{target.Primary}",
+                        $"project:{projectId}:stage:{activatedStageCode}:work:{target.Primary}",
                         cancellationToken);
                 }
 
@@ -187,37 +290,38 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 cancellationToken);
         }
 
-        foreach (var target in new[]
+        var target = (
+            StageCode: WorkflowStageCodes.ProductionPlanning,
+            Responsibility: StageResponsibilities[WorkflowStageCodes.ProductionPlanning]);
+        var stage = await ReadStageAsync(connection, transaction, target.StageCode, cancellationToken);
+        if (stage is not null)
         {
-            (StageCode: WorkflowStageCodes.DesignPanelInfo, Responsibility: StageResponsibilities[WorkflowStageCodes.DesignPanelInfo]),
-            (StageCode: WorkflowStageCodes.ProcurementInfo, Responsibility: StageResponsibilities[WorkflowStageCodes.ProcurementInfo])
-        })
-        {
-            var stage = await ReadStageAsync(connection, transaction, target.StageCode, cancellationToken);
-            if (stage is null)
-            {
-                continue;
-            }
-
             var assignee = await ResolveAssigneeAsync(connection, transaction, project, target.Responsibility, cancellationToken);
-            if (assignee.UserId is null)
+            if (assignee.UserId is not null)
             {
-                continue;
+                await CreateWorkItemAsync(
+                    connection,
+                    transaction,
+                    projectId,
+                    target.StageCode,
+                    target.Responsibility.Primary,
+                    assignee.UserId.Value,
+                    assignee.RoleCode,
+                    WorkItemTitleForStage(stage.StageCode),
+                    BuildWorkDescription(stage, assignee),
+                    eventId,
+                    changedByUserId,
+                    $"project:{projectId}:assignee-save:stage:{target.StageCode}:work:{target.Responsibility.Primary}:{assignee.UserId.Value}",
+                    cancellationToken);
             }
 
-            await CreateWorkItemAsync(
+            await CreateSecondaryReferenceNotificationAsync(
                 connection,
                 transaction,
-                projectId,
-                target.StageCode,
-                target.Responsibility.Primary,
-                assignee.UserId.Value,
-                assignee.RoleCode,
-                WorkItemTitleForStage(stage.StageCode),
-                BuildWorkDescription(stage, assignee),
+                project,
+                stage,
+                target.Responsibility,
                 eventId,
-                changedByUserId,
-                $"project:{projectId}:assignee-save:stage:{target.StageCode}:work:{target.Responsibility.Primary}:{assignee.UserId.Value}",
                 cancellationToken);
         }
 
@@ -421,6 +525,26 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     public async Task<MyWorkListResponse> GetMyWorkItemsAsync(Guid userId, string? status, CancellationToken cancellationToken)
     {
+        return await GetMyWorkItemsAsync(userId, status, null, cancellationToken);
+    }
+
+    public Task<MyWorkListResponse> GetMyWorkItemsForExportAsync(
+        Guid userId,
+        string? status,
+        int rowLimit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(rowLimit, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(rowLimit, 10_001);
+        return GetMyWorkItemsAsync(userId, status, rowLimit, cancellationToken);
+    }
+
+    private async Task<MyWorkListResponse> GetMyWorkItemsAsync(
+        Guid userId,
+        string? status,
+        int? rowLimit,
+        CancellationToken cancellationToken)
+    {
         await using var dataSource = CreateDataSource();
         var statusFilter = NormalizeWorkStatusFilter(status);
         await using var command = dataSource.CreateCommand($"""
@@ -441,7 +565,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 wi.due_date,
                 wi.created_at_utc,
                 wi.started_at_utc,
-                wi.completed_at_utc
+                wi.completed_at_utc,
+                wi.target_type,
+                wi.target_id
             from work_items wi
             join projects p on p.id = wi.project_id
             join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
@@ -450,12 +576,17 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
               {(statusFilter is null ? "" : "and wi.status = @status")}
             order by
                 case wi.status when 'Requested' then 0 when 'InProgress' then 1 when 'Completed' then 2 else 3 end,
-                wi.created_at_utc desc;
+                wi.created_at_utc desc
+            {(rowLimit is null ? ";" : "limit @row_limit;")}
             """);
         command.Parameters.AddWithValue("user_id", userId);
         if (statusFilter is not null)
         {
             command.Parameters.AddWithValue("status", statusFilter);
+        }
+        if (rowLimit is not null)
+        {
+            command.Parameters.AddWithValue("row_limit", rowLimit.Value);
         }
 
         var items = new List<MyWorkItemResponse>();
@@ -938,6 +1069,47 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         return await GetNotificationSummaryAsync(userId, cancellationToken);
     }
 
+    public async Task<NotificationSummaryResponse> MarkProjectNotificationsReadAsync(
+        Guid projectId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using (var insert = dataSource.CreateCommand("""
+            insert into notification_recipients (notification_id, user_id)
+            select n.id, @user_id
+            from notifications n
+            where n.project_id = @project_id
+              and n.visibility_scope = 'Authenticated'
+              and exists (
+                    select 1
+                    from qms_users u
+                    where u.id = @user_id
+                      and u.is_active = true
+                )
+            on conflict (notification_id, user_id) do nothing;
+            """))
+        {
+            insert.Parameters.AddWithValue("project_id", projectId);
+            insert.Parameters.AddWithValue("user_id", userId);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var command = dataSource.CreateCommand("""
+            update notification_recipients nr
+            set read_at_utc = coalesce(nr.read_at_utc, now())
+            from notifications n
+            where nr.notification_id = n.id
+              and nr.user_id = @user_id
+              and n.project_id = @project_id
+              and nr.read_at_utc is null;
+            """);
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("user_id", userId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        return await GetNotificationSummaryAsync(userId, cancellationToken);
+    }
+
     private async Task<WorkflowMutationResult<MyWorkItemResponse>> TransitionWorkItemAsync(
         Guid workItemId,
         Guid userId,
@@ -946,6 +1118,58 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
     {
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+
+        await using (var guard = connection.CreateCommand())
+        {
+            guard.CommandText = """
+                select assigned_user_id, target_type, workflow_stage_code, project_id
+                from work_items
+                where id = @id;
+                """;
+            guard.Parameters.AddWithValue("id", workItemId);
+
+            await using var reader = await guard.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return WorkflowMutationResult<MyWorkItemResponse>.NotFound();
+            }
+
+            if (reader.IsDBNull(0) || reader.GetGuid(0) != userId)
+            {
+                return WorkflowMutationResult<MyWorkItemResponse>.Forbidden();
+            }
+
+            if (string.Equals(reader.GetString(1), "Pending", StringComparison.Ordinal))
+            {
+                return WorkflowMutationResult<MyWorkItemResponse>.Conflict("Pending 상세에서 상태를 변경해 주세요.");
+            }
+
+            var stageCode = reader.GetString(2);
+            if (string.Equals(reader.GetString(1), "Project", StringComparison.Ordinal)
+                && stageCode == WorkflowStageCodes.SalesSettlementCompleted)
+            {
+                return WorkflowMutationResult<MyWorkItemResponse>.Conflict($"프로젝트 정산 화면에서 작업을 진행해 주세요. /projects/{reader.GetGuid(3)}/settlement");
+            }
+
+            if (string.Equals(reader.GetString(1), "Panel", StringComparison.Ordinal)
+                && stageCode is WorkflowStageCodes.ManufacturingWork
+                    or WorkflowStageCodes.LQC
+                    or WorkflowStageCodes.ManufacturingCompleted
+                    or WorkflowStageCodes.OQC
+                    or WorkflowStageCodes.CustomerInspection
+                    or WorkflowStageCodes.FAT
+                    or WorkflowStageCodes.PackingCompleted
+                    or WorkflowStageCodes.DepartureProcessed
+                    or WorkflowStageCodes.DeliveryCompleted)
+            {
+                var destination = stageCode is WorkflowStageCodes.ManufacturingWork or WorkflowStageCodes.ManufacturingCompleted
+                    ? "/manufacturing/work"
+                    : stageCode is WorkflowStageCodes.PackingCompleted or WorkflowStageCodes.DepartureProcessed or WorkflowStageCodes.DeliveryCompleted
+                        ? "/logistics"
+                        : "/quality/inspections";
+                return WorkflowMutationResult<MyWorkItemResponse>.Conflict($"전용 화면에서 작업을 진행해 주세요. {destination}");
+            }
+        }
 
         await using (var command = connection.CreateCommand())
         {
@@ -1028,7 +1252,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 wi.due_date,
                 wi.created_at_utc,
                 wi.started_at_utc,
-                wi.completed_at_utc
+                wi.completed_at_utc,
+                wi.target_type,
+                wi.target_id
             from work_items wi
             join projects p on p.id = wi.project_id
             join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
@@ -1075,12 +1301,42 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             ),
             production_plan_summary as (
                 select
-                    count(pi.id)::int as item_count,
-                    count(pi.id) filter (where pi.is_required)::int as required_item_count,
-                    count(pi.id) filter (where pi.is_required and pi.planned_date is not null)::int as planned_required_item_count
-                from project_production_plans pp
-                left join project_production_plan_items pi on pi.production_plan_id = pp.id and pi.is_active = true
-                where pp.project_id = @project_id
+                    case when project.structure_mode='Ul891Set' and pp.model_version='LINKED_V1'
+                         then coalesce(set_counts.item_count,0) else coalesce(base_counts.item_count,0) end as item_count,
+                    case when project.structure_mode='Ul891Set' and pp.model_version='LINKED_V1'
+                         then coalesce(set_counts.required_item_count,0) else coalesce(base_counts.required_item_count,0) end as required_item_count,
+                    case when project.structure_mode='Ul891Set' and pp.model_version='LINKED_V1'
+                         then coalesce(set_counts.planned_required_item_count,0) else coalesce(base_counts.planned_required_item_count,0) end as planned_required_item_count
+                from projects project
+                left join project_production_plans pp on pp.project_id=project.id
+                left join lateral (
+                    select count(pi.id)::int as item_count,
+                           count(pi.id) filter (where pi.is_required)::int as required_item_count,
+                           count(pi.id) filter (
+                               where pi.is_required and (
+                                 (pp.model_version='LEGACY' and pi.planned_date is not null)
+                                 or (pp.model_version='LINKED_V1' and pi.planned_start_date is not null and pi.planned_end_date is not null)
+                               )
+                           )::int as planned_required_item_count
+                    from project_production_plan_items pi
+                    where pi.production_plan_id=pp.id and pi.is_active
+                ) base_counts on true
+                left join lateral (
+                    select count(pi.id)::int as item_count,
+                           count(pi.id) filter (where pi.is_required)::int as required_item_count,
+                           count(pi.id) filter (
+                               where pi.is_required
+                                 and value.planned_start_date is not null
+                                 and value.planned_end_date is not null
+                           )::int as planned_required_item_count
+                    from project_production_plan_set_scopes scope
+                    join ul891_set_instances instance on instance.id=scope.set_instance_id and instance.status='Active'
+                    join project_production_plan_items pi on pi.production_plan_id=scope.production_plan_id and pi.is_active
+                    left join project_production_plan_set_item_values value
+                      on value.set_scope_id=scope.id and value.production_plan_item_id=pi.id
+                    where scope.production_plan_id=pp.id
+                ) set_counts on true
+                where project.id = @project_id
             ),
             assignee_summary as (
                 select count(*) filter (
@@ -1105,7 +1361,20 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             procurement_summary as (
                 select
                     count(*)::int as item_count,
-                    count(*) filter (where nullif(btrim(coalesce(order_item, '')), '') is not null)::int as named_item_count
+                    count(*) filter (where nullif(btrim(coalesce(order_item, '')), '') is not null)::int as named_item_count,
+                    count(*) filter (
+                        where nullif(btrim(coalesce(order_item, '')), '') is not null
+                          and expected_receipt_date is not null
+                          and (
+                              (supply_type = 'Purchased'
+                               and nullif(btrim(coalesce(supplier_name, '')), '') is not null
+                               and order_date is not null)
+                              or
+                              (supply_type = 'CustomerSupplied'
+                               and order_quantity > 0
+                               and nullif(btrim(coalesce(order_unit, '')), '') is not null)
+                          )
+                    )::int as complete_item_count
                 from project_procurement_items
                 where project_id = @project_id
                   and status = 'Active'
@@ -1134,6 +1403,191 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                   on upper(btrim(templates.item_code)) = project_context.item_code
                  and templates.is_active = true
                 join procurement_required_item_template_rows rows on rows.template_id = templates.id
+            ),
+            iqc_summary as (
+                select
+                    count(receipt.id) filter (where receipt.status <> 'Cancelled')::int as receipt_count,
+                    count(receipt.id) filter (where receipt.status in ('Passed', 'Confirmed'))::int as passed_count,
+                    count(receipt.id) filter (where receipt.status in ('IqcRequested', 'Passed', 'FailedBlocked', 'Confirmed'))::int as started_count,
+                    count(receipt.id) filter (where receipt.status = 'FailedBlocked')::int as failed_count
+                from project_procurement_items item
+                join material_receipts receipt on receipt.procurement_item_id = item.id
+                where item.project_id = @project_id and item.status = 'Active'
+            ),
+            material_summary as (
+                select
+                    count(*)::int as active_item_count,
+                    count(*) filter (
+                        where exists (
+                            select 1 from material_receipts receipt
+                            where receipt.procurement_item_id = item.id
+                              and receipt.status <> 'Cancelled'
+                        )
+                    )::int as arrived_item_count,
+                    count(*) filter (
+                        where item.material_arrivals_closed_at_utc is not null
+                    )::int as arrival_closed_item_count,
+                    count(*) filter (
+                        where item.receipt_completed = true
+                           or (
+                               item.order_quantity is not null
+                               and coalesce((
+                                   select sum(receipt.quantity)
+                                   from material_receipts receipt
+                                   where receipt.procurement_item_id = item.id
+                                     and receipt.status = 'Confirmed'
+                                     and receipt.quantity is not null
+                               ), 0) >= item.order_quantity
+                           )
+                    )::int as receipt_confirmed_item_count
+                from project_procurement_items item
+                where item.project_id = @project_id
+                  and item.status = 'Active'
+            ),
+            kitting_summary as (
+                select count(*) filter (
+                    where exists (
+                        select 1 from panel_kitting_completions completion
+                        where completion.panel_id = panel.id
+                    )
+                    or exists (
+                        select 1 from panel_manufacturing_release_operations release
+                        where release.project_id = @project_id
+                          and panel.id = any(release.panel_ids)
+                    )
+                )::int as ready_panel_count
+                from panel_placeholders panel
+                where panel.project_id = @project_id
+                  and panel.status = 'Active'
+            ),
+            manufacturing_summary as (
+                select
+                    count(distinct execution.panel_id) filter (
+                        where execution.status in ('InProgress', 'Blocked', 'Completed')
+                    )::int as started_panel_count,
+                    count(distinct execution.panel_id) filter (
+                        where execution.status = 'Completed'
+                    )::int as completed_panel_count,
+                    count(distinct execution.panel_id) filter (
+                        where execution.status = 'Blocked'
+                    )::int as blocked_panel_count
+                from panel_manufacturing_executions execution
+                join panel_placeholders panel
+                  on panel.id = execution.panel_id
+                 and panel.status = 'Active'
+                where execution.project_id = @project_id
+            ),
+            latest_quality_attempts as (
+                select distinct on (attempt.panel_id, attempt.stage_code)
+                    attempt.panel_id,
+                    attempt.stage_code,
+                    attempt.status
+                from panel_quality_inspection_attempts attempt
+                join panel_placeholders panel
+                  on panel.id = attempt.panel_id
+                 and panel.status = 'Active'
+                where attempt.project_id = @project_id
+                  and attempt.status <> 'Cancelled'
+                order by attempt.panel_id, attempt.stage_code, attempt.attempt_number desc, attempt.created_at_utc desc
+            ),
+            quality_summary as (
+                select
+                    count(*) filter (where stage_code = 'LQC')::int as lqc_started_count,
+                    count(*) filter (where stage_code = 'LQC' and status = 'Passed')::int as lqc_passed_count,
+                    count(*) filter (where stage_code = 'LQC' and status = 'Failed')::int as lqc_failed_count,
+                    count(*) filter (where stage_code = 'OQC')::int as oqc_started_count,
+                    count(*) filter (where stage_code = 'OQC' and status = 'Passed')::int as oqc_passed_count,
+                    count(*) filter (where stage_code = 'OQC' and status = 'Failed')::int as oqc_failed_count,
+                    count(*) filter (where stage_code = 'CustomerInspection')::int as customer_started_count,
+                    count(*) filter (where stage_code = 'CustomerInspection' and status = 'Passed')::int as customer_passed_count,
+                    count(*) filter (where stage_code = 'CustomerInspection' and status = 'Failed')::int as customer_failed_count,
+                    count(*) filter (where stage_code = 'FAT')::int as fat_started_count,
+                    count(*) filter (where stage_code = 'FAT' and status = 'Passed')::int as fat_passed_count,
+                    count(*) filter (where stage_code = 'FAT' and status = 'Failed')::int as fat_failed_count
+                from latest_quality_attempts
+            ),
+            manufacturing_confirmation_summary as (
+                select count(distinct ready.panel_id)::int as ready_panel_count
+                from (
+                    select execution.panel_id
+                    from panel_manufacturing_executions execution
+                    where execution.project_id = @project_id
+                      and execution.status = 'Completed'
+                    intersect
+                    select attempt.panel_id
+                    from latest_quality_attempts attempt
+                    where attempt.stage_code = 'LQC'
+                      and attempt.status = 'Passed'
+                ) ready
+            ),
+            logistics_summary as (
+                select
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_packing_unit_panels membership
+                            join logistics_packing_units unit on unit.id = membership.packing_unit_id
+                            where membership.panel_id = panel.id
+                              and membership.active
+                              and unit.status <> 'Cancelled'
+                        )
+                    )::int as packing_started_count,
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_packing_unit_panels membership
+                            join logistics_packing_units unit on unit.id = membership.packing_unit_id
+                            where membership.panel_id = panel.id
+                              and membership.active
+                              and unit.status = 'Finalized'
+                        )
+                    )::int as packing_completed_count,
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_batch_panels membership
+                            join logistics_batches batch
+                              on batch.id = membership.batch_id
+                             and batch.stage_code = 'DepartureProcessed'
+                             and batch.status <> 'Cancelled'
+                            where membership.panel_id = panel.id
+                              and membership.active
+                        )
+                    )::int as departure_started_count,
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_batch_panels membership
+                            join logistics_batches batch
+                              on batch.id = membership.batch_id
+                             and batch.stage_code = 'DepartureProcessed'
+                             and batch.status = 'Finalized'
+                            where membership.panel_id = panel.id
+                              and membership.active
+                        )
+                    )::int as departure_completed_count,
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_batch_panels membership
+                            join logistics_batches batch
+                              on batch.id = membership.batch_id
+                             and batch.stage_code = 'DeliveryCompleted'
+                             and batch.status <> 'Cancelled'
+                            where membership.panel_id = panel.id
+                              and membership.active
+                        )
+                    )::int as delivery_started_count,
+                    count(*) filter (
+                        where exists (
+                            select 1
+                            from logistics_delivery_results result
+                            where result.panel_id = panel.id
+                        )
+                    )::int as delivery_completed_count
+                from panel_placeholders panel
+                where panel.project_id = @project_id
+                  and panel.status = 'Active'
             )
             select
                 coalesce(ps.active_panel_count, 0),
@@ -1145,21 +1599,60 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 coalesce(a.assigned_count, 0),
                 coalesce(pr.item_count, 0),
                 coalesce(pr.named_item_count, 0),
+                coalesce(pr.complete_item_count, 0),
                 coalesce(prs.required_item_count, 0),
-                coalesce(prs.matched_required_item_count, 0)
+                coalesce(prs.matched_required_item_count, 0),
+                coalesce(iqc.receipt_count, 0),
+                coalesce(iqc.passed_count, 0),
+                coalesce(iqc.started_count, 0),
+                coalesce(iqc.failed_count, 0),
+                coalesce(material.active_item_count, 0),
+                coalesce(material.arrived_item_count, 0),
+                coalesce(material.arrival_closed_item_count, 0),
+                coalesce(material.receipt_confirmed_item_count, 0),
+                coalesce(kitting.ready_panel_count, 0),
+                coalesce(manufacturing.started_panel_count, 0),
+                coalesce(manufacturing.completed_panel_count, 0),
+                coalesce(manufacturing.blocked_panel_count, 0),
+                coalesce(quality.lqc_started_count, 0),
+                coalesce(quality.lqc_passed_count, 0),
+                coalesce(quality.lqc_failed_count, 0),
+                coalesce(confirmation.ready_panel_count, 0),
+                coalesce(quality.oqc_started_count, 0),
+                coalesce(quality.oqc_passed_count, 0),
+                coalesce(quality.oqc_failed_count, 0),
+                coalesce(quality.customer_started_count, 0),
+                coalesce(quality.customer_passed_count, 0),
+                coalesce(quality.customer_failed_count, 0),
+                coalesce(quality.fat_started_count, 0),
+                coalesce(quality.fat_passed_count, 0),
+                coalesce(quality.fat_failed_count, 0),
+                coalesce(logistics.packing_started_count, 0),
+                coalesce(logistics.packing_completed_count, 0),
+                coalesce(logistics.departure_started_count, 0),
+                coalesce(logistics.departure_completed_count, 0),
+                coalesce(logistics.delivery_started_count, 0),
+                coalesce(logistics.delivery_completed_count, 0)
             from (select 1) anchor
             left join panel_summary ps on true
             left join production_plan_summary pps on true
             left join assignee_summary a on true
             left join procurement_summary pr on true
-            left join procurement_required_summary prs on true;
+            left join procurement_required_summary prs on true
+            left join iqc_summary iqc on true
+            left join material_summary material on true
+            left join kitting_summary kitting on true
+            left join manufacturing_summary manufacturing on true
+            left join quality_summary quality on true
+            left join manufacturing_confirmation_summary confirmation on true
+            left join logistics_summary logistics on true;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
-            return new WorkflowCompletionFacts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            return new WorkflowCompletionFacts();
         }
 
         return new WorkflowCompletionFacts(
@@ -1173,7 +1666,39 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetInt32(7),
             reader.GetInt32(8),
             reader.GetInt32(9),
-            reader.GetInt32(10));
+            reader.GetInt32(10),
+            reader.GetInt32(11),
+            reader.GetInt32(12),
+            reader.GetInt32(13),
+            reader.GetInt32(14),
+            reader.GetInt32(15),
+            reader.GetInt32(16),
+            reader.GetInt32(17),
+            reader.GetInt32(18),
+            reader.GetInt32(19),
+            reader.GetInt32(20),
+            reader.GetInt32(21),
+            reader.GetInt32(22),
+            reader.GetInt32(23),
+            reader.GetInt32(24),
+            reader.GetInt32(25),
+            reader.GetInt32(26),
+            reader.GetInt32(27),
+            reader.GetInt32(28),
+            reader.GetInt32(29),
+            reader.GetInt32(30),
+            reader.GetInt32(31),
+            reader.GetInt32(32),
+            reader.GetInt32(33),
+            reader.GetInt32(34),
+            reader.GetInt32(35),
+            reader.GetInt32(36),
+            reader.GetInt32(37),
+            reader.GetInt32(38),
+            reader.GetInt32(39),
+            reader.GetInt32(40),
+            reader.GetInt32(41),
+            reader.GetInt32(42));
     }
 
     private static async Task<ProjectWorkflowSnapshot?> ReadProjectAsync(
@@ -1284,25 +1809,39 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            insert into work_items (
-                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
-                assigned_user_id, assigned_role_code, title, description, status, priority,
-                generated_by_event_id, idempotency_key, created_by_user_id
+            with inserted as (
+                insert into work_items (
+                    project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                    assigned_user_id, assigned_role_code, title, description, status, priority,
+                    generated_by_event_id, idempotency_key, created_by_user_id
+                )
+                select
+                    @project_id, 'Project', @project_id, @stage_code, @responsibility_type,
+                    @assigned_user_id, @assigned_role_code, @title, @description, 'Requested', 'Normal',
+                    @event_id, @idempotency_key, @created_by_user_id
+                where not exists (
+                    select 1
+                    from work_items
+                    where project_id = @project_id
+                      and workflow_stage_code = @stage_code
+                      and responsibility_type = @responsibility_type
+                      and assigned_user_id = @assigned_user_id
+                      and status <> 'Cancelled'
+                )
+                on conflict (idempotency_key) do update set title = excluded.title
+                returning id
             )
-            select
-                @project_id, 'Project', @project_id, @stage_code, @responsibility_type,
-                @assigned_user_id, @assigned_role_code, @title, @description, 'Requested', 'Normal',
-                @event_id, @idempotency_key, @created_by_user_id
-            where not exists (
-                select 1
-                from work_items
-                where project_id = @project_id
-                  and workflow_stage_code = @stage_code
-                  and responsibility_type = @responsibility_type
-                  and assigned_user_id = @assigned_user_id
-                  and status <> 'Cancelled'
-            )
-            on conflict (idempotency_key) do nothing;
+            select id from inserted
+            union all
+            select id
+            from work_items
+            where project_id = @project_id
+              and workflow_stage_code = @stage_code
+              and responsibility_type = @responsibility_type
+              and assigned_user_id = @assigned_user_id
+              and status <> 'Cancelled'
+            order by id
+            limit 1;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("stage_code", stageCode);
@@ -1314,7 +1853,74 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         command.Parameters.AddWithValue("event_id", eventId);
         command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
         command.Parameters.AddWithValue("created_by_user_id", createdByUserId);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        var workItemId = (Guid?)(await command.ExecuteScalarAsync(cancellationToken));
+        if (workItemId is not null)
+        {
+            await CreateWorkAssignmentNotificationAsync(
+                connection,
+                transaction,
+                projectId,
+                stageCode,
+                assignedUserId,
+                title,
+                description,
+                eventId,
+                workItemId.Value,
+                $"{idempotencyKey}:notification",
+                cancellationToken);
+        }
+    }
+
+    private static async Task CreateWorkAssignmentNotificationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string stageCode,
+        Guid assignedUserId,
+        string title,
+        string description,
+        Guid eventId,
+        Guid workItemId,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into notifications (
+                project_id, notification_type, severity, title, message, link_url,
+                generated_by_event_id, idempotency_key, visibility_scope, source_kind, work_item_id
+            )
+            values (
+                @project_id, 'Info', 'Info', @title, @message, @link_url,
+                @event_id, @idempotency_key, 'RecipientOnly', 'WorkAssignment', @work_item_id
+            )
+            on conflict (idempotency_key) do update
+            set title = excluded.title,
+                message = excluded.message,
+                link_url = excluded.link_url,
+                work_item_id = excluded.work_item_id
+            returning id;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("title", $"새 업무 · {title}");
+        command.Parameters.AddWithValue("message", description);
+        command.Parameters.AddWithValue("link_url", LinkUrlForStage(projectId, stageCode));
+        command.Parameters.AddWithValue("event_id", eventId);
+        command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+        command.Parameters.AddWithValue("work_item_id", workItemId);
+        var notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
+
+        await using var recipientCommand = connection.CreateCommand();
+        recipientCommand.Transaction = transaction;
+        recipientCommand.CommandText = """
+            insert into notification_recipients (notification_id, user_id)
+            values (@notification_id, @user_id)
+            on conflict (notification_id, user_id) do nothing;
+            """;
+        recipientCommand.Parameters.AddWithValue("notification_id", notificationId);
+        recipientCommand.Parameters.AddWithValue("user_id", assignedUserId);
+        await recipientCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<ResolvedAssignee> ResolveAssigneeAsync(
@@ -1464,7 +2070,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         var recipients = await ReadActiveUsersForRolesAsync(
             connection,
             transaction,
-            ["design", "production-planning", "procurement", "materials", "manufacturing", "quality", "logistics"],
+            ["sales", "design", "production-planning", "procurement", "materials", "manufacturing", "quality", "logistics"],
             cancellationToken);
 
         await CreateNotificationAsync(
@@ -1538,7 +2144,14 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             join user_roles ur on ur.user_id = u.id
             join roles r on r.id = ur.role_id
             where u.is_active = true
-              and r.code = any(@role_codes);
+              and r.code = any(@role_codes)
+              and not exists (
+                  select 1
+                  from user_roles excluded_user_role
+                  join roles excluded_role on excluded_role.id=excluded_user_role.role_id
+                  where excluded_user_role.user_id=u.id
+                    and excluded_role.code in ('system-administrator', 'read-only')
+              );
             """;
         command.Parameters.AddWithValue("role_codes", roleCodes.ToArray());
 
@@ -1709,7 +2322,11 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetFieldValue<DateTimeOffset>(14),
             reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
             reader.IsDBNull(16) ? null : reader.GetFieldValue<DateTimeOffset>(16),
-            LinkUrlForStage(projectId, reader.GetString(6)));
+            LinkUrlForWorkItem(
+                projectId,
+                reader.GetString(6),
+                reader.GetString(17),
+                reader.IsDBNull(18) ? null : reader.GetGuid(18)));
     }
 
     private static NotificationResponse ReadNotification(NpgsqlDataReader reader)
@@ -1760,7 +2377,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.MaterialArrived => "자재 도착 등록",
             WorkflowStageCodes.IQC => "수입검사 입력",
             WorkflowStageCodes.ReceiptConfirmed => "입고 확정 입력",
-            WorkflowStageCodes.KittingCompleted => "키팅 완료 입력",
+            WorkflowStageCodes.KittingCompleted => "키팅 완료 알림",
             WorkflowStageCodes.ManufacturingWork => "제조 작업 입력",
             WorkflowStageCodes.LQC => "LQC 입력",
             WorkflowStageCodes.ManufacturingCompleted => "제조 완료 입력",
@@ -1770,7 +2387,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.PackingCompleted => "포장 완료 입력",
             WorkflowStageCodes.DepartureProcessed => "출발 처리 입력",
             WorkflowStageCodes.DeliveryCompleted => "납품 완료 입력",
-            WorkflowStageCodes.SalesSettlementCompleted => "세금계산서, 완료 처리",
+            WorkflowStageCodes.SalesSettlementCompleted => "세금계산서 발행 요청 준비",
             _ => "업무 입력"
         };
     }
@@ -1820,6 +2437,79 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.ProductionPlanning => ProductionPlanningStatus(facts, currentStatus),
             WorkflowStageCodes.DesignPanelInfo => DesignPanelInfoStatus(facts, currentStatus),
             WorkflowStageCodes.ProcurementInfo => ProcurementStatus(facts, currentStatus),
+            WorkflowStageCodes.MaterialArrived => AggregateStageStatus(
+                facts.ActiveMaterialItemCount,
+                facts.ArrivedMaterialItemCount,
+                facts.ArrivalClosedMaterialItemCount,
+                0,
+                currentStatus),
+            WorkflowStageCodes.IQC => IqcStatus(facts, currentStatus),
+            WorkflowStageCodes.ReceiptConfirmed => AggregateStageStatus(
+                facts.ActiveMaterialItemCount,
+                facts.ArrivedMaterialItemCount,
+                facts.ReceiptConfirmedMaterialItemCount,
+                0,
+                currentStatus),
+            WorkflowStageCodes.KittingCompleted => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.EffectiveKittingReadyPanelCount,
+                facts.EffectiveKittingReadyPanelCount,
+                0,
+                currentStatus),
+            WorkflowStageCodes.ManufacturingWork => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.ManufacturingStartedPanelCount,
+                facts.ManufacturingCompletedPanelCount,
+                facts.ManufacturingBlockedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.LQC => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.LqcStartedPanelCount,
+                facts.LqcPassedPanelCount,
+                facts.LqcFailedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.ManufacturingCompleted => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.ManufacturingCompletedPanelCount,
+                facts.ManufacturingLqcReadyPanelCount,
+                facts.ManufacturingBlockedPanelCount + facts.LqcFailedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.OQC => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.OqcStartedPanelCount,
+                facts.OqcPassedPanelCount,
+                facts.OqcFailedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.CustomerInspection => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.CustomerInspectionStartedPanelCount,
+                facts.CustomerInspectionPassedPanelCount,
+                facts.CustomerInspectionFailedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.FAT => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.FatStartedPanelCount,
+                facts.FatPassedPanelCount,
+                facts.FatFailedPanelCount,
+                currentStatus),
+            WorkflowStageCodes.PackingCompleted => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.PackingStartedPanelCount,
+                facts.PackingCompletedPanelCount,
+                0,
+                currentStatus),
+            WorkflowStageCodes.DepartureProcessed => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.DepartureStartedPanelCount,
+                facts.DepartureCompletedPanelCount,
+                0,
+                currentStatus),
+            WorkflowStageCodes.DeliveryCompleted => AggregateStageStatus(
+                facts.ActivePanelCount,
+                facts.DeliveryStartedPanelCount,
+                facts.DeliveryCompletedPanelCount,
+                0,
+                currentStatus),
             _ => currentStatus
         };
     }
@@ -1852,7 +2542,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
         if (facts.TouchedPanelCount > 0)
         {
-            return "InProgress";
+            return facts.CompletedPanelCount > 0 ? WorkflowStatuses.PartiallyCompleted : "InProgress";
         }
 
         return currentStatus;
@@ -1860,32 +2550,91 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     private static string ProcurementStatus(WorkflowCompletionFacts facts, string currentStatus)
     {
+        if (string.Equals(currentStatus, "Completed", StringComparison.Ordinal))
+        {
+            return currentStatus;
+        }
+
+        var allActiveItemsComplete = facts.ProcurementItemCount > 0
+            && facts.CompletedProcurementItemCount >= facts.ProcurementItemCount;
         if (facts.RequiredProcurementItemCount > 0)
         {
-            if (facts.MatchedRequiredProcurementItemCount >= facts.RequiredProcurementItemCount)
+            if (allActiveItemsComplete
+                && facts.MatchedRequiredProcurementItemCount >= facts.RequiredProcurementItemCount)
             {
                 return "Completed";
             }
 
             if (facts.ProcurementItemCount > 0)
             {
-                return "InProgress";
+                return facts.CompletedProcurementItemCount > 0
+                    ? WorkflowStatuses.PartiallyCompleted
+                    : "InProgress";
             }
 
             return currentStatus;
         }
 
-        if (facts.ProcurementItemCount > 0 && facts.NamedProcurementItemCount >= facts.ProcurementItemCount)
+        if (allActiveItemsComplete)
         {
             return "Completed";
         }
 
         if (facts.ProcurementItemCount > 0)
         {
-            return "InProgress";
+            return facts.CompletedProcurementItemCount > 0
+                ? WorkflowStatuses.PartiallyCompleted
+                : "InProgress";
         }
 
         return currentStatus;
+    }
+
+    private static string IqcStatus(WorkflowCompletionFacts facts, string currentStatus)
+    {
+        return AggregateStageStatus(
+            facts.IqcReceiptCount,
+            facts.IqcStartedCount,
+            facts.IqcPassedCount,
+            facts.IqcFailedCount,
+            currentStatus);
+    }
+
+    private static string AggregateStageStatus(
+        int totalCount,
+        int startedCount,
+        int completedCount,
+        int failedCount,
+        string currentStatus)
+    {
+        if (failedCount > 0 || string.Equals(currentStatus, "Blocked", StringComparison.Ordinal))
+        {
+            return "Blocked";
+        }
+
+        if (totalCount <= 0)
+        {
+            return currentStatus;
+        }
+
+        if (completedCount >= totalCount)
+        {
+            return "Completed";
+        }
+
+        if (completedCount > 0)
+        {
+            return WorkflowStatuses.PartiallyCompleted;
+        }
+
+        if (startedCount > 0)
+        {
+            return "InProgress";
+        }
+
+        return string.Equals(currentStatus, "Completed", StringComparison.Ordinal)
+            ? "NotStarted"
+            : currentStatus;
     }
 
     private static string WorkflowStatusLabel(string status)
@@ -1893,6 +2642,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         return status switch
         {
             "Completed" => "완료",
+            WorkflowStatuses.PartiallyCompleted => "부분 완료",
             "InProgress" => "진행 중",
             "Requested" => "내 업무 생성됨",
             "Blocked" => "차단",
@@ -1908,8 +2658,60 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.ProductionPlanning => $"/projects/{projectId}/production-planning/edit",
             WorkflowStageCodes.DesignPanelInfo => $"/projects/{projectId}/panel-information/edit",
             WorkflowStageCodes.ProcurementInfo => $"/projects/{projectId}/procurement/edit",
+            WorkflowStageCodes.KittingCompleted => $"/materials/kitting?project={projectId}",
             _ => $"/projects/{projectId}?section=workflow"
         };
+    }
+
+    private static string LinkUrlForWorkItem(Guid projectId, string stageCode, string targetType, Guid? targetId)
+    {
+        if (stageCode == WorkflowStageCodes.IQC
+            && string.Equals(targetType, "Inspection", StringComparison.Ordinal)
+            && targetId is not null)
+        {
+            return $"/quality/iqc?request={targetId.Value}";
+        }
+
+        if (stageCode == WorkflowStageCodes.SalesSettlementCompleted
+            && string.Equals(targetType, "Project", StringComparison.Ordinal))
+        {
+            return $"/projects/{projectId}/settlement";
+        }
+
+        if (string.Equals(targetType, "Pending", StringComparison.Ordinal) && targetId is not null)
+        {
+            return $"/pending/{targetId.Value}";
+        }
+
+        if (stageCode is WorkflowStageCodes.ManufacturingWork or WorkflowStageCodes.ManufacturingCompleted
+            && string.Equals(targetType, "Panel", StringComparison.Ordinal)
+            && targetId is not null)
+        {
+            return $"/manufacturing/work?project={projectId}&panel={targetId.Value}";
+        }
+
+        if (stageCode is WorkflowStageCodes.LQC or WorkflowStageCodes.OQC
+                or WorkflowStageCodes.CustomerInspection or WorkflowStageCodes.FAT
+            && string.Equals(targetType, "Panel", StringComparison.Ordinal)
+            && targetId is not null)
+        {
+            return $"/quality/inspections?stage={stageCode}&project={projectId}&panel={targetId.Value}";
+        }
+
+        if (stageCode is WorkflowStageCodes.PackingCompleted or WorkflowStageCodes.DepartureProcessed or WorkflowStageCodes.DeliveryCompleted
+            && string.Equals(targetType, "Panel", StringComparison.Ordinal)
+            && targetId is not null)
+        {
+            var logisticsStage = stageCode switch
+            {
+                WorkflowStageCodes.PackingCompleted => "packing",
+                WorkflowStageCodes.DepartureProcessed => "departure",
+                _ => "delivery"
+            };
+            return $"/logistics?stage={logisticsStage}&project={projectId}&panel={targetId.Value}";
+        }
+
+        return LinkUrlForStage(projectId, stageCode);
     }
 
     private static string WorkItemStatusLabel(string status)
@@ -2053,6 +2855,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             "QualityOQCSecondary" => "OQC 부",
             "QualityCustomerInspection" => "전진검수/FAT 정",
             "QualityCustomerInspectionSecondary" => "전진검수/FAT 부",
+            "PendingAction" => "Pending 조치",
             _ => responsibilityType
         };
     }
@@ -2076,17 +2879,49 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         bool SalesOwnerIsActive);
 
     private sealed record WorkflowCompletionFacts(
-        int ActivePanelCount,
-        int CompletedPanelCount,
-        int TouchedPanelCount,
-        int ProductionPlanItemCount,
-        int RequiredPlanItemCount,
-        int PlannedRequiredPlanItemCount,
-        int RequiredPrimaryAssigneeCount,
-        int ProcurementItemCount,
-        int NamedProcurementItemCount,
-        int RequiredProcurementItemCount,
-        int MatchedRequiredProcurementItemCount);
+        int ActivePanelCount = 0,
+        int CompletedPanelCount = 0,
+        int TouchedPanelCount = 0,
+        int ProductionPlanItemCount = 0,
+        int RequiredPlanItemCount = 0,
+        int PlannedRequiredPlanItemCount = 0,
+        int RequiredPrimaryAssigneeCount = 0,
+        int ProcurementItemCount = 0,
+        int NamedProcurementItemCount = 0,
+        int CompletedProcurementItemCount = 0,
+        int RequiredProcurementItemCount = 0,
+        int MatchedRequiredProcurementItemCount = 0,
+        int IqcReceiptCount = 0,
+        int IqcPassedCount = 0,
+        int IqcStartedCount = 0,
+        int IqcFailedCount = 0,
+        int ActiveMaterialItemCount = 0,
+        int ArrivedMaterialItemCount = 0,
+        int ArrivalClosedMaterialItemCount = 0,
+        int ReceiptConfirmedMaterialItemCount = 0,
+        int EffectiveKittingReadyPanelCount = 0,
+        int ManufacturingStartedPanelCount = 0,
+        int ManufacturingCompletedPanelCount = 0,
+        int ManufacturingBlockedPanelCount = 0,
+        int LqcStartedPanelCount = 0,
+        int LqcPassedPanelCount = 0,
+        int LqcFailedPanelCount = 0,
+        int ManufacturingLqcReadyPanelCount = 0,
+        int OqcStartedPanelCount = 0,
+        int OqcPassedPanelCount = 0,
+        int OqcFailedPanelCount = 0,
+        int CustomerInspectionStartedPanelCount = 0,
+        int CustomerInspectionPassedPanelCount = 0,
+        int CustomerInspectionFailedPanelCount = 0,
+        int FatStartedPanelCount = 0,
+        int FatPassedPanelCount = 0,
+        int FatFailedPanelCount = 0,
+        int PackingStartedPanelCount = 0,
+        int PackingCompletedPanelCount = 0,
+        int DepartureStartedPanelCount = 0,
+        int DepartureCompletedPanelCount = 0,
+        int DeliveryStartedPanelCount = 0,
+        int DeliveryCompletedPanelCount = 0);
 
     private sealed record StageSnapshot(
         string StageCode,

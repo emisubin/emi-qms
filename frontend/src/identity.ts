@@ -7,6 +7,8 @@ export interface CurrentUser {
   isActive: boolean;
   approvalPending: boolean;
   department: string | null;
+  departmentName: string | null;
+  profilePhotoVersion: string | null;
   roles: string[];
   permissions: string[];
   projectAccess: ProjectAccess[];
@@ -26,7 +28,15 @@ export interface CurrentUserPrincipal {
   isActive: boolean;
   approvalPending: boolean;
   department: string | null;
+  departmentName: string | null;
+  profilePhotoVersion: string | null;
   roles: string[];
+}
+
+export interface ProfilePhotoMetadata {
+  profilePhotoVersion: string;
+  normalizedMime: 'image/jpeg' | 'image/png';
+  byteSize: number;
 }
 
 export interface ProjectAccess {

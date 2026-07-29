@@ -9,6 +9,8 @@ import {
   setRememberSessionPreference
 } from './auth';
 import './styles.css';
+import './design-system/tokens.css';
+import './design-system/wireframe.css';
 
 const root = createRoot(document.getElementById('root')!);
 

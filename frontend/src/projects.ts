@@ -70,10 +70,38 @@ export interface ProjectListItem {
   status: ProjectStatus;
   projectWorkStatus: ProjectWorkStatus;
   projectProgressPercent: number | null;
+  bottleneck: ProjectBottleneck | null;
   createdAt: string;
   updatedAt: string;
   salesAmount?: number;
   currencyCode?: string;
+}
+
+export type ProjectBottleneckKind = 'ProjectStage' | 'PanelStage' | 'Completed' | 'NoData' | 'Uncertain' | 'Inactive';
+export type ProjectBottleneckNextAction = 'Pending' | 'Panels' | 'Workflow' | 'None';
+
+export interface ProjectBottleneck {
+  kind: ProjectBottleneckKind;
+  label: string;
+  stageCode: string | null;
+  stageLabel: string | null;
+  panelCount: number | null;
+  stageRank: number;
+  nextAction: ProjectBottleneckNextAction;
+  nextActionLabel: string;
+  sortReason: string;
+  openPendingCount?: number;
+  reinspectionPendingCount?: number;
+  urgentPendingCount?: number;
+  panelDistribution: PanelStageDistribution[];
+}
+
+export interface PanelStageDistribution {
+  stageCode: ProductWorkflowStage;
+  stageLabel: string;
+  stageRank: number;
+  panelCount: number;
+  isBottleneck: boolean;
 }
 
 export interface ProjectDetail extends ProjectListItem {
@@ -85,6 +113,8 @@ export interface ProjectDetail extends ProjectListItem {
   inspectionCompletedCount: number;
   duplicatePanelNameGroupCount: number;
   projectPanelInformationCompleted: boolean;
+  manufacturingStepCount: number;
+  oqcStepCount: number;
 }
 
 export type ProjectStatus = 'Active' | 'OnHold' | 'Cancelled' | 'Completed';
@@ -314,6 +344,8 @@ export interface AdminNotificationDelivery {
   claimedAtUtc: string | null;
   claimExpiresAtUtc: string | null;
   claimIsStale: boolean;
+  currentGeneration: number;
+  generationAttemptCount: number;
   createdAtUtc: string;
   updatedAtUtc: string;
 }
@@ -335,6 +367,26 @@ export interface AdminNotificationDeliveryActionItem {
   deliveryId: string;
   status: string;
   message: string;
+}
+
+export interface AdminNotificationDeliveryReprocessRequest {
+  items: Array<{ deliveryId: string; expectedGeneration: number }>;
+  reason: string;
+  duplicateRiskAcknowledged: boolean;
+}
+
+export interface AdminNotificationDeliveryReprocessResponse {
+  requestedCount: number;
+  reprocessedCount: number;
+  status: string;
+  message: string;
+  items: Array<{
+    deliveryId: string;
+    priorGeneration: number;
+    newGeneration: number;
+    status: string;
+    message: string;
+  }>;
 }
 
 export interface AdminManualNotificationSendRequest {
@@ -402,11 +454,15 @@ export interface AdminNotificationDeliveryDetail {
   claimExpiresAtUtc: string | null;
   claimIsStale: boolean;
   claimedByInstance: string | null;
+  currentGeneration: number;
+  generationAttemptCount: number;
   attempts: AdminNotificationDeliveryAttempt[];
+  reprocessEvents: AdminNotificationDeliveryReprocessEvent[];
 }
 
 export interface AdminNotificationDeliveryAttempt {
   attemptNumber: number;
+  generation: number;
   workerInstance: string;
   claimedAtUtc: string;
   leaseExpiresAtUtc: string;
@@ -416,6 +472,19 @@ export interface AdminNotificationDeliveryAttempt {
   errorCode: string | null;
   errorMessage: string | null;
   providerMessageId: string | null;
+}
+
+export interface AdminNotificationDeliveryReprocessEvent {
+  eventId: string;
+  priorGeneration: number;
+  newGeneration: number;
+  actorDisplayName: string;
+  reason: string;
+  duplicateRiskAcknowledged: boolean;
+  priorErrorCode: string | null;
+  priorAdminHandlingStatus: string | null;
+  priorAdminHandlingNote: string | null;
+  occurredAtUtc: string;
 }
 
 export interface AdminWorkItemEscalationListResponse {
@@ -522,7 +591,7 @@ export interface CreateProjectRequest {
   item: string;
   projectCode: string;
   projectTitle: string;
-  panelCount: number;
+  panelCount: number | null;
   deliveryDate: string;
   salesOwnerUserId: string;
   packagingMethod: PackagingMethod | null;
@@ -530,6 +599,7 @@ export interface CreateProjectRequest {
   currencyCode: string | null;
   deliveryLocation: string | null;
   fatRequired: boolean;
+  ul891SetSpecs?: import('./ul891Sets').CreateUl891SetSpecInput[];
 }
 
 export interface UpdateProjectRequest {
@@ -740,6 +810,8 @@ export interface ProcurementResponse {
   items: ProcurementItem[];
 }
 
+export type ProcurementSupplyType = 'Purchased' | 'CustomerSupplied';
+
 export interface ProcurementItem {
   itemId: string;
   projectId: string;
@@ -757,6 +829,9 @@ export interface ProcurementItem {
   orderDate: string | null;
   expectedReceiptDate: string | null;
   issueNote: string | null;
+  supplyType: ProcurementSupplyType;
+  orderQuantity: number | null;
+  orderUnit: string | null;
   receiptCompleted: boolean;
   receiptCompletedAtUtc: string | null;
   receiptCompletedByUserId: string | null;
@@ -781,9 +856,12 @@ export interface ProcurementItemUpdateRequest {
   orderDate: string | null;
   expectedReceiptDate: string | null;
   issueNote: string | null;
-  receiptCompleted: boolean | null;
-  receiptCompletedAtUtc: string | null;
-  receiptCompletionNote: string | null;
+  supplyType?: ProcurementSupplyType | null;
+  orderQuantity?: number | null;
+  orderUnit?: string | null;
+  receiptCompleted?: boolean | null;
+  receiptCompletedAtUtc?: string | null;
+  receiptCompletionNote?: string | null;
 }
 
 export interface ProcurementReceiptBulkUpdateRequest {
@@ -915,6 +993,7 @@ export interface ProcurementListResponse {
 export interface ProcurementDashboardResponse {
   summary: ProcurementDashboardSummary;
   projects: ProcurementProjectSummary[];
+  truncated: boolean;
 }
 
 export interface ProcurementDashboardSummary {
@@ -972,6 +1051,7 @@ export interface ProductionPlanningResponse {
   projectTitle: string;
   projectCode: string;
   deliveryDate: string | null;
+  modelVersion: 'LEGACY' | 'LINKED_V1';
   planId: string | null;
   rowVersion: number;
   planStatus: ProductionPlanStatus;
@@ -981,10 +1061,44 @@ export interface ProductionPlanningResponse {
   productTypeCode: string | null;
   productTypeName: string | null;
   notes: string | null;
+  manufacturingSteps: ProjectManufacturingStep[];
+  availableSources: ProductionControlSource[];
   items: ProductionPlanItem[];
   assignees: ProjectAssignee[];
   assigneeCandidates: AssigneeCandidate[];
   fallbacks: NotificationFallback[];
+  isSetScoped?: boolean;
+  selectedScope?: ProductionPlanSetScope | null;
+  scopes?: ProductionPlanSetScope[];
+}
+
+export interface ProductionPlanSetScope {
+  scopeId: string;
+  setInstanceId: string;
+  label: string;
+  specName: string;
+  specNumber: number;
+  instanceNumber: number;
+  status: 'Active' | 'Cancelled';
+  activePanelCount: number;
+  requiredItemCount: number;
+  plannedRequiredItemCount: number;
+  rowVersion: number;
+}
+
+export interface ProjectManufacturingStep {
+  definitionKey: string;
+  sequenceNumber: number;
+  stepName: string;
+}
+
+export interface ProductionControlSource {
+  code: string;
+  departmentLabel: string;
+  label: string;
+  requiresManufacturingDefinition: boolean;
+  definitionKind: 'None' | 'Manufacturing' | 'Iqc' | 'Oqc';
+  definitions: Array<{ definitionKey: string; label: string }>;
 }
 
 export type ProductionPlanStatus = 'NotPlanned' | 'Planning' | 'Planned';
@@ -996,9 +1110,45 @@ export interface ProductionPlanItem {
   stepName: string;
   isRequired: boolean;
   isCustom: boolean;
+  definitionKey: string | null;
   plannedDate: string | null;
+  plannedStartDate: string | null;
+  plannedEndDate: string | null;
+  actualStartDate: string | null;
+  actualEndDate: string | null;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  requiredHeadcount: number | null;
+  completedTargetCount: number;
+  totalTargetCount: number;
+  progressPercent: number;
+  scheduleStatus: string;
+  scheduleStatusLabel: string;
+  delayDays: number | null;
+  isBlocked: boolean;
+  connections: ProductionControlConnection[];
+  evidence: ProductionPlanEvidence[];
   note: string | null;
   rowVersion: number;
+}
+
+export interface ProductionControlConnection {
+  sourceCode: string;
+  sourceDefinitionKey: string | null;
+}
+
+export interface ProductionPlanEvidence {
+  sourceCode: string;
+  sourceLabel: string;
+  targetType: string;
+  targetId: string;
+  targetLabel: string;
+  startedDate: string | null;
+  completedDate: string | null;
+  isCompleted: boolean;
+  isBlocked: boolean;
+  statusLabel: string;
+  evidenceScope?: 'ProjectCommon' | 'SetPanel';
 }
 
 export interface ProjectAssignee {
@@ -1191,6 +1341,20 @@ export interface UpdateProductionPlanningRequest {
   assignees: ProjectAssigneeUpdateRequest[];
 }
 
+export interface UpdateProductionPlanSetScopeRequest {
+  expectedRowVersion: number;
+  reason: string | null;
+  items: Array<{
+    itemId: string;
+    expectedRowVersion: number;
+    plannedStartDate: string | null;
+    plannedEndDate: string | null;
+    assignedUserId: string | null;
+    requiredHeadcount: number | null;
+    note: string | null;
+  }>;
+}
+
 export interface ProductionPlanItemUpdateRequest {
   itemId: string | null;
   templateStepId: string | null;
@@ -1199,8 +1363,14 @@ export interface ProductionPlanItemUpdateRequest {
   isRequired: boolean;
   expectedRowVersion: number;
   plannedDate: string | null;
+  plannedStartDate: string | null;
+  plannedEndDate: string | null;
+  assignedUserId: string | null;
+  requiredHeadcount: number | null;
   note: string | null;
   isDeleted: boolean;
+  definitionKey: string | null;
+  connections: ProductionControlConnection[];
 }
 
 export interface ProjectAssigneeUpdateRequest {

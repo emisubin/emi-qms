@@ -222,8 +222,14 @@ public static class ProcurementEndpointExtensions
             HttpRequest request,
             string? search,
             ProcurementStore procurementStore,
+            ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
+            if (!HasPermission(user, QmsPermissions.ProjectRead))
+            {
+                return Results.Forbid();
+            }
+
             var dateRange = ParseDateRange(request, "expectedReceiptDateFrom", "expectedReceiptDateTo");
             if (dateRange.Errors.Count > 0)
             {
@@ -234,57 +240,12 @@ public static class ProcurementEndpointExtensions
                 search,
                 dateRange.From,
                 dateRange.To,
+                GetProjectAccessScope(user),
+                500,
                 cancellationToken));
         })
         .RequireAuthorization()
         .WithName("GetProcurementDashboard");
-
-        var materialApi = app.MapGroup("/api/materials/receipts");
-        materialApi.MapGet("/", async (
-            HttpRequest request,
-            string? search,
-            bool? includeCompleted,
-            ProcurementStore procurementStore,
-            CancellationToken cancellationToken) =>
-        {
-            var dateRange = ParseDateRange(request, "expectedReceiptDateFrom", "expectedReceiptDateTo");
-            if (dateRange.Errors.Count > 0)
-            {
-                return Results.ValidationProblem(dateRange.Errors);
-            }
-
-            return Results.Ok(await procurementStore.GetMaterialReceiptsAsync(
-                search,
-                includeCompleted == true,
-                dateRange.From,
-                dateRange.To,
-                cancellationToken));
-        })
-        .RequireAuthorization(QmsPolicies.MaterialReceiptUpdate)
-        .WithName("GetMaterialReceipts");
-
-        materialApi.MapPatch("/", async (
-            ProcurementReceiptBulkUpdateRequest request,
-            ProcurementStore procurementStore,
-            ClaimsPrincipal user,
-            HttpContext httpContext,
-            CancellationToken cancellationToken) =>
-        {
-            var userId = GetCurrentUserId(user);
-            if (userId is null)
-            {
-                return Results.Unauthorized();
-            }
-
-            var result = await procurementStore.UpdateMaterialReceiptsAsync(
-                request,
-                userId.Value,
-                httpContext.TraceIdentifier,
-                cancellationToken);
-            return ToResult(result, Results.Ok);
-        })
-        .RequireAuthorization(QmsPolicies.MaterialReceiptUpdate)
-        .WithName("UpdateMaterialReceipts");
 
         return app;
     }
@@ -353,6 +314,13 @@ public static class ProcurementEndpointExtensions
         return Guid.TryParse(value, out var userId) ? userId : null;
     }
 
+    private static ProjectAccessScope GetProjectAccessScope(ClaimsPrincipal user)
+    {
+        return new ProjectAccessScope(
+            HasPermission(user, QmsPermissions.ProjectReadAll),
+            user.FindAll(QmsClaimTypes.Project).Select(claim => claim.Value).ToList());
+    }
+
     private static IResult ToResult<T>(ProcurementMutationResult<T> result, Func<T, IResult> success)
     {
         return result.Status switch
@@ -368,7 +336,7 @@ public static class ProcurementEndpointExtensions
         };
     }
 
-    private static ProcurementDateRange ParseDateRange(HttpRequest request, string fromKey, string toKey)
+    internal static ProcurementDateRange ParseDateRange(HttpRequest request, string fromKey, string toKey)
     {
         var errors = new Dictionary<string, string[]>();
         var fromRaw = request.Query[fromKey].ToString();
@@ -416,7 +384,7 @@ public static class ProcurementEndpointExtensions
         string? ExpectedVersions,
         IReadOnlyList<string> Errors);
 
-    private sealed record ProcurementDateRange(
+    internal sealed record ProcurementDateRange(
         DateOnly? From,
         DateOnly? To,
         IReadOnlyDictionary<string, string[]> Errors);

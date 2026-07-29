@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 
 describe('authentication modes', () => {
   afterEach(() => {
+    window.history.replaceState(null, '', '/');
     vi.restoreAllMocks();
     vi.doUnmock('@azure/msal-react');
     vi.unstubAllGlobals();
@@ -239,6 +240,7 @@ describe('authentication modes', () => {
   });
 
   it('renders the project list after cached Entra account restoration and /api/me approval', async () => {
+    window.history.pushState(null, '', '/projects');
     vi.stubEnv('VITE_AUTH_MODE', 'EntraId');
     vi.stubEnv('VITE_AZURE_TENANT_ID', '11111111-1111-1111-1111-111111111111');
     vi.stubEnv('VITE_AZURE_CLIENT_ID', '22222222-2222-2222-2222-222222222222');

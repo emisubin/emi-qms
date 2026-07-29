@@ -71,6 +71,25 @@ user validation checklist는 자동 검증과 사용자 직접 확인 항목을 
 
 체크리스트가 존재한다는 이유만으로 사용자 검수 완료로 기록하지 않는다. 미체크 항목이 남은 checklist는 완료가 아니며, 사용자 검수 실패 또는 대기 상태를 성공으로 바꾸지 않는다. 사용자 검수 대기 중 PR이 필요하면 상태를 명시한 draft PR만 허용하고 Task 완료·merge는 별도 gate를 따른다.
 
+### 4.1 실험 개발 완료와 마지막 일괄 검수
+
+사용자가 `experiment/*`에서 사용자 직접 검수를 마지막에 일괄 수행하고, 그 전에는 개발 흐름을 계속하도록 명시한 경우 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)의 `EXPERIMENT_COMPLETE / BATCHED_FINAL` 상태를 사용할 수 있다.
+
+이 상태는 다음 조건을 모두 충족해야 한다.
+
+- 승인된 실험 scope의 구현과 Validation Matrix상 필수 자동 검증이 완료됨
+- Open P0/P1/P2가 없음
+- UI Task는 요구된 desktop/mobile screenshot 또는 동등한 privacy-safe 시각 증빙이 있음
+- Implementation report와 5종 종료 산출물의 상태·위치를 추적할 수 있음
+- 결과 commit이 현재 experiment 계보에서 reachable함
+- 미실행 항목, P3 backlog, 제외 범위와 사용자 검수 대기를 명시함
+
+`EXPERIMENT_COMPLETE`는 실험 개발의 다음 Task 선택을 위한 완료 판정이다. user validation checklist는 계속 `사용자 검수 대기 — 마지막 일괄 검수`이며 `사용자 검수 완료`로 바꾸지 않는다. 대표 repo·`main` 반영, UAT 적용, 실제 provider 검수, push·PR·merge 완료를 의미하지도 않는다.
+
+같은 목적은 다시 기획하거나 구현하지 않는다. 사용자 최종 검수에서 실패가 발견되면 기존 Task의 change 또는 bugfix로 재개하고, 신규 능력이 필요한 경우에만 별도 `NEW_FEATURE`를 만든다. P3·optional scope·운영 승격은 완료 Task를 자동으로 다시 여는 사유가 아니며 각각 후속 backlog나 별도 승격 Task로 추적한다.
+
+사용자가 해당 experiment 대화·branch에 인터뷰와 중간 승인 생략, Fable 권장안 자동 채택과 연속 구현을 standing instruction으로 지정했다면 “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task를 선택하는 실행 지시로 처리한다. `DEFERRED / POLICY_INPUT`의 비차단 정책은 Fable 2-pass에서 확정하며 사용자에게 승인·채택·확인을 다시 요구하지 않는다. 단, 후보가 둘 이상이라 canonical purpose를 확정할 수 없는 경우, Repository 충돌, 보안·권한 불변조건 위반 또는 대표 repo·`main`·Persistent UAT·실제 provider·destructive operation 경계는 자동 진행 대상이 아니다.
+
 ## 5. Finding gate
 
 Finding은 P0/P1/P2/P3로 관리하고 다음 gate를 적용한다.
@@ -116,7 +135,7 @@ Git/GitHub, browser, API와 DB 검증 증빙의 허용 projection, output guard�
 
 ### 표준 종료 절차
 
-1. Task 시작 전 instruction chain gate, branch, HEAD, working tree, remote와 기존 동일 목적 작업을 확인한다.
+1. Task 시작 전 instruction chain gate, branch, HEAD, working tree, remote와 기존 동일 목적 작업을 확인한다. `experiment/*`에서는 완료 원장의 같은 purpose와 완료 slice도 먼저 확인한다.
 2. 조사·기획에서 범위, 제외 범위, 선행조건, 위험과 검수 기준을 확정한다.
 3. 승인된 범위만 구현하고 Task 범위와 실제 변경 범위를 대조한다.
 4. 관련 자동 테스트를 실행하고 결과 및 미실행 항목을 기록한다.

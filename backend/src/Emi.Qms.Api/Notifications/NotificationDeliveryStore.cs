@@ -57,6 +57,14 @@ public sealed class NotificationDeliveryStore(
                 select u.id as user_id,
                        u.email,
                        u.display_name,
+                       exists (
+                           select 1
+                           from user_notification_preferences preference
+                           where preference.user_id = u.id
+                             and preference.delivery_type = 'DailyDigest'
+                             and preference.channel = 'Mail'
+                             and preference.is_enabled = false
+                       ) as preference_disabled,
                        concat('daily-digest:', @digest_date, ':', u.id::text, ':mail') as dedupe_key
                 from qms_users u
                 where u.is_active = true
@@ -102,13 +110,21 @@ public sealed class NotificationDeliveryStore(
                 user_id,
                 'Mail',
                 'DailyDigest',
-                case when email is null or btrim(email) = '' then 'Suppressed' else 'Pending' end,
-                case when email is null or btrim(email) = '' then @now else null end,
-                case when email is null or btrim(email) = '' then 'RecipientEmailMissing' else null end,
-                case when email is null or btrim(email) = '' then '사용자 이메일이 없어 일일 요약 메일을 보내지 않았습니다.' else null end,
+                case when preference_disabled or email is null or btrim(email) = '' then 'Suppressed' else 'Pending' end,
+                case when preference_disabled or email is null or btrim(email) = '' then @now else null end,
+                case
+                    when preference_disabled then 'SuppressedByUserPreference'
+                    when email is null or btrim(email) = '' then 'RecipientEmailMissing'
+                    else null
+                end,
+                case
+                    when preference_disabled then '사용자 알림 설정에 따라 일일 업무 요약을 보내지 않았습니다.'
+                    when email is null or btrim(email) = '' then '사용자 이메일이 없어 일일 요약 메일을 보내지 않았습니다.'
+                    else null
+                end,
                 dedupe_key,
                 concat('daily-digest:', @digest_date),
-                @now,
+                case when preference_disabled or email is null or btrim(email) = '' then null else @now end,
                 concat(@digest_date, ' 업무 요약'),
                 '일일 업무 요약 알림입니다.',
                 '여러 프로젝트',
@@ -229,7 +245,7 @@ public sealed class NotificationDeliveryStore(
                     updated_at_utc = @now
                 where status = 'Processing'
                   and claim_expires_at_utc <= @now
-                  and attempt_count >= @max_attempt_count;
+                  and generation_attempt_count >= @max_attempt_count;
                 """;
             finalizeExhausted.Parameters.AddWithValue("now", now);
             finalizeExhausted.Parameters.AddWithValue("max_attempt_count", maxAttempts);
@@ -255,7 +271,7 @@ public sealed class NotificationDeliveryStore(
                       )
                   )
                   and coalesce(admin_handling_status, 'Open') = 'Open'
-                  and attempt_count < @max_attempt_count
+                  and generation_attempt_count < @max_attempt_count
                 order by coalesce(next_attempt_at_utc, claim_expires_at_utc, created_at_utc), created_at_utc, id
                 for update skip locked
                 limit @limit;
@@ -284,6 +300,7 @@ public sealed class NotificationDeliveryStore(
                 update notification_deliveries
                 set status = 'Processing',
                     attempt_count = attempt_count + 1,
+                    generation_attempt_count = generation_attempt_count + 1,
                     next_attempt_at_utc = null,
                     last_attempt_at_utc = @now,
                     error_code = null,
@@ -309,6 +326,7 @@ public sealed class NotificationDeliveryStore(
                 insert into notification_delivery_attempts (
                     delivery_id,
                     attempt_no,
+                    generation,
                     claim_token,
                     worker_instance_id,
                     claimed_at_utc,
@@ -318,6 +336,7 @@ public sealed class NotificationDeliveryStore(
                 select
                     id,
                     attempt_count,
+                    current_generation,
                     claim_token,
                     claimed_by_instance_id,
                     claimed_at_utc,
@@ -392,7 +411,9 @@ public sealed class NotificationDeliveryStore(
                 nd.claim_token,
                 nd.claimed_at_utc,
                 nd.claim_expires_at_utc,
-                nd.claimed_by_instance_id
+                nd.claimed_by_instance_id,
+                nd.current_generation,
+                nd.generation_attempt_count
             from notification_deliveries nd
             left join qms_users u on u.id = nd.recipient_user_id
             left join notifications n on n.id = nd.notification_id
@@ -469,14 +490,14 @@ public sealed class NotificationDeliveryStore(
         command.CommandText = """
             update notification_deliveries
             set status = case
-                    when @result_status = 'Failed' and not @terminal_result and attempt_count < @retry_count then 'Pending'
+                    when @result_status = 'Failed' and not @terminal_result and generation_attempt_count < @retry_count then 'Pending'
                     else @result_status
                 end,
                 last_attempt_at_utc = @now,
                 sent_at_utc = case when @result_status in ('Sent', 'DryRunSent') then @now else sent_at_utc end,
                 suppressed_at_utc = case when @result_status in ('Suppressed', 'Disabled') then @now else suppressed_at_utc end,
                 next_attempt_at_utc = case
-                    when @result_status = 'Failed' and not @terminal_result and attempt_count < @retry_count then @next_attempt_at_utc
+                    when @result_status = 'Failed' and not @terminal_result and generation_attempt_count < @retry_count then @next_attempt_at_utc
                     else null
                 end,
                 error_code = @error_code,
@@ -645,7 +666,9 @@ public sealed class NotificationDeliveryStore(
                 nd.claim_token,
                 nd.claimed_at_utc,
                 nd.claim_expires_at_utc,
-                nd.claimed_by_instance_id
+                nd.claimed_by_instance_id,
+                nd.current_generation,
+                nd.generation_attempt_count
             from notification_deliveries nd
             left join qms_users u on u.id = nd.recipient_user_id
             left join notifications n on n.id = nd.notification_id
@@ -745,7 +768,9 @@ public sealed class NotificationDeliveryStore(
                 nd.claim_token,
                 nd.claimed_at_utc,
                 nd.claim_expires_at_utc,
-                nd.claimed_by_instance_id
+                nd.claimed_by_instance_id,
+                nd.current_generation,
+                nd.generation_attempt_count
             from notification_deliveries nd
             left join qms_users u on u.id = nd.recipient_user_id
             left join notifications n on n.id = nd.notification_id
@@ -773,7 +798,8 @@ public sealed class NotificationDeliveryStore(
         }
 
         var attempts = await ListDeliveryAttemptsAsync(dataSource, deliveryId, cancellationToken);
-        return ToDetailResponse(row, attempts, timeProvider.GetUtcNow());
+        var reprocessEvents = await ListDeliveryReprocessEventsAsync(dataSource, deliveryId, cancellationToken);
+        return ToDetailResponse(row, attempts, reprocessEvents, timeProvider.GetUtcNow());
     }
 
     public async Task<ManualNotificationProjectSnapshot?> GetProjectSnapshotAsync(Guid projectId, CancellationToken cancellationToken)
@@ -896,6 +922,206 @@ public sealed class NotificationDeliveryStore(
             },
             cancellationToken);
     }
+
+    public async Task<NotificationDeliveryReprocessResponse> ReprocessFailedDeliveriesAsync(
+        IReadOnlyList<NotificationDeliveryReprocessItemRequest>? items,
+        string? reason,
+        bool duplicateRiskAcknowledged,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        if (items is null || items.Count == 0)
+        {
+            return ReprocessFailure("Invalid", "재처리할 실패 알림을 한 건 이상 선택해 주세요.");
+        }
+
+        if (items.Count > 100)
+        {
+            return ReprocessFailure("Invalid", "실패 알림은 한 번에 최대 100건까지 재처리할 수 있습니다.");
+        }
+
+        if (items.Any(item => item.DeliveryId == Guid.Empty || item.ExpectedGeneration < 1)
+            || items.Select(item => item.DeliveryId).Distinct().Count() != items.Count)
+        {
+            return ReprocessFailure("Invalid", "중복되지 않은 알림과 현재 generation을 확인해 주세요.");
+        }
+
+        var normalizedReason = string.IsNullOrWhiteSpace(reason)
+            ? null
+            : string.Join(' ', reason.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (normalizedReason is null || normalizedReason.Length is < 10 or > 500)
+        {
+            return ReprocessFailure("Invalid", "재처리 사유를 10자 이상 500자 이하로 입력해 주세요.");
+        }
+
+        if (!duplicateRiskAcknowledged)
+        {
+            return ReprocessFailure("Invalid", "외부 provider에 이미 전달되었을 가능성을 확인해야 재처리할 수 있습니다.");
+        }
+
+        var requested = items.OrderBy(item => item.DeliveryId).ToArray();
+        var requestedIds = requested.Select(item => item.DeliveryId).ToArray();
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        var candidates = new Dictionary<Guid, NotificationDeliveryReprocessCandidate>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select id,
+                       status,
+                       current_generation,
+                       attempt_count,
+                       generation_attempt_count,
+                       error_code,
+                       admin_handling_status,
+                       admin_handling_note,
+                       claim_token
+                from notification_deliveries
+                where id = any(@ids)
+                order by id
+                for update;
+                """;
+            command.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = requestedIds });
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var candidate = new NotificationDeliveryReprocessCandidate(
+                    reader.GetGuid(0),
+                    reader.GetString(1),
+                    reader.GetInt32(2),
+                    reader.GetInt32(3),
+                    reader.GetInt32(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetString(6),
+                    reader.IsDBNull(7) ? null : reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetGuid(8));
+                candidates[candidate.DeliveryId] = candidate;
+            }
+        }
+
+        foreach (var item in requested)
+        {
+            if (!candidates.TryGetValue(item.DeliveryId, out var candidate))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ReprocessFailure("Conflict", "선택한 알림 중 조회할 수 없는 항목이 있어 아무 항목도 재처리하지 않았습니다.");
+            }
+
+            if (candidate.Status != NotificationDeliveryStatuses.Failed || candidate.ClaimToken is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ReprocessFailure("Conflict", "최종 실패 상태가 아닌 항목이 있어 아무 항목도 재처리하지 않았습니다.");
+            }
+
+            if (candidate.CurrentGeneration != item.ExpectedGeneration)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ReprocessFailure("Conflict", "다른 관리자가 먼저 재처리한 항목이 있습니다. 목록을 새로고침해 주세요.");
+            }
+
+            if (candidate.CurrentGeneration >= 5)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ReprocessFailure("Conflict", "최대 재처리 generation에 도달한 항목이 있어 아무 항목도 재처리하지 않았습니다.");
+            }
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var responses = new List<NotificationDeliveryReprocessItemResponse>();
+        foreach (var item in requested)
+        {
+            var candidate = candidates[item.DeliveryId];
+            var nextGeneration = candidate.CurrentGeneration + 1;
+            await using (var insertEvent = connection.CreateCommand())
+            {
+                insertEvent.Transaction = transaction;
+                insertEvent.CommandText = """
+                    insert into notification_delivery_reprocess_events (
+                        delivery_id, actor_user_id, prior_generation, new_generation,
+                        prior_status, prior_attempt_count, prior_generation_attempt_count,
+                        prior_error_code, prior_admin_handling_status, prior_admin_handling_note,
+                        reason, duplicate_risk_acknowledged, occurred_at_utc
+                    )
+                    values (
+                        @delivery_id, @actor_user_id, @prior_generation, @new_generation,
+                        @prior_status, @prior_attempt_count, @prior_generation_attempt_count,
+                        @prior_error_code, @prior_admin_handling_status, @prior_admin_handling_note,
+                        @reason, true, @occurred_at_utc
+                    );
+                    """;
+                insertEvent.Parameters.AddWithValue("delivery_id", candidate.DeliveryId);
+                insertEvent.Parameters.AddWithValue("actor_user_id", actorUserId);
+                insertEvent.Parameters.AddWithValue("prior_generation", candidate.CurrentGeneration);
+                insertEvent.Parameters.AddWithValue("new_generation", nextGeneration);
+                insertEvent.Parameters.AddWithValue("prior_status", candidate.Status);
+                insertEvent.Parameters.AddWithValue("prior_attempt_count", candidate.AttemptCount);
+                insertEvent.Parameters.AddWithValue("prior_generation_attempt_count", candidate.GenerationAttemptCount);
+                insertEvent.Parameters.AddWithValue("prior_error_code", (object?)candidate.ErrorCode ?? DBNull.Value);
+                insertEvent.Parameters.AddWithValue("prior_admin_handling_status", (object?)candidate.AdminHandlingStatus ?? DBNull.Value);
+                insertEvent.Parameters.AddWithValue("prior_admin_handling_note", (object?)candidate.AdminHandlingNote ?? DBNull.Value);
+                insertEvent.Parameters.AddWithValue("reason", normalizedReason);
+                insertEvent.Parameters.AddWithValue("occurred_at_utc", now);
+                await insertEvent.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText = """
+                    update notification_deliveries
+                    set current_generation = @new_generation,
+                        generation_attempt_count = 0,
+                        status = 'Pending',
+                        next_attempt_at_utc = @now,
+                        last_attempt_at_utc = null,
+                        sent_at_utc = null,
+                        suppressed_at_utc = null,
+                        error_code = null,
+                        error_message = null,
+                        provider_message_id = null,
+                        admin_handling_status = 'Open',
+                        admin_handled_at_utc = null,
+                        admin_handled_by_user_id = null,
+                        admin_handling_note = null,
+                        updated_at_utc = @now
+                    where id = @delivery_id
+                      and status = 'Failed'
+                      and current_generation = @expected_generation
+                      and claim_token is null;
+                    """;
+                update.Parameters.AddWithValue("delivery_id", candidate.DeliveryId);
+                update.Parameters.AddWithValue("expected_generation", candidate.CurrentGeneration);
+                update.Parameters.AddWithValue("new_generation", nextGeneration);
+                update.Parameters.AddWithValue("now", now);
+                if (await update.ExecuteNonQueryAsync(cancellationToken) != 1)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ReprocessFailure("Conflict", "재처리 중 상태가 변경되어 아무 항목도 재처리하지 않았습니다.");
+                }
+            }
+
+            responses.Add(new NotificationDeliveryReprocessItemResponse(
+                candidate.DeliveryId,
+                candidate.CurrentGeneration,
+                nextGeneration,
+                "Succeeded",
+                $"Generation {nextGeneration} 재처리 대기열에 등록했습니다."));
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return new NotificationDeliveryReprocessResponse(
+            requested.Length,
+            requested.Length,
+            "Succeeded",
+            $"최종 실패 알림 {requested.Length}건을 새 generation으로 재처리 대기열에 등록했습니다.",
+            responses);
+    }
+
+    private static NotificationDeliveryReprocessResponse ReprocessFailure(string status, string message) =>
+        new(0, 0, status, message, []);
 
     public async Task<Guid> CreateManualTestMailDeliveryAsync(
         NotificationDeliveryDisplaySnapshot? snapshot,
@@ -1703,7 +1929,7 @@ public sealed class NotificationDeliveryStore(
                 'Teams 채널'
             from notifications n
             left join projects p on p.id = n.project_id
-            where (n.notification_type = 'Blocking' or n.severity = 'Critical')
+            where (n.notification_type = 'Blocking' or n.severity = 'Critical' or n.source_kind = 'PendingAssignment')
               and not exists (
                   select 1
                   from notification_deliveries existing
@@ -1754,7 +1980,7 @@ public sealed class NotificationDeliveryStore(
             join notification_recipients nr on nr.notification_id = n.id
             join qms_users u on u.id = nr.user_id
             left join projects p on p.id = n.project_id
-            where (n.notification_type = 'Blocking' or n.severity = 'Critical')
+            where (n.notification_type = 'Blocking' or n.severity = 'Critical' or n.source_kind = 'PendingAssignment')
               and not exists (
                   select 1
                   from notification_deliveries existing
@@ -1781,7 +2007,8 @@ public sealed class NotificationDeliveryStore(
         command.CommandText = """
             insert into notification_deliveries (
                 notification_id, notification_recipient_id, recipient_user_id, project_id,
-                channel, delivery_type, dedupe_key, group_key, next_attempt_at_utc,
+                channel, delivery_type, status, suppressed_at_utc, error_code, error_message,
+                dedupe_key, group_key, next_attempt_at_utc,
                 display_title, display_message, display_project_name,
                 display_recipient_name, display_recipient_email, display_recipient_kind
             )
@@ -1792,9 +2019,13 @@ public sealed class NotificationDeliveryStore(
                 n.project_id,
                 'TeamsDirectMessage',
                 'WorkItemCreated',
+                case when preference.disabled then 'Suppressed' else 'Pending' end,
+                case when preference.disabled then @now else null end,
+                case when preference.disabled then 'SuppressedByUserPreference' else null end,
+                case when preference.disabled then '사용자 알림 설정에 따라 자동 단계 업무 생성 알림을 보내지 않았습니다.' else null end,
                 concat('notification:', n.id::text, ':teams-dm:', nr.user_id::text, ':work-item-created'),
                 concat('work-item:', coalesce(n.project_id::text, n.id::text), ':', floor(extract(epoch from n.created_at_utc) / @batch_window_seconds)::bigint),
-                @now,
+                case when preference.disabled then null else @now end,
                 n.title,
                 n.message,
                 p.project_title,
@@ -1805,6 +2036,16 @@ public sealed class NotificationDeliveryStore(
             join notification_recipients nr on nr.notification_id = n.id
             join qms_users u on u.id = nr.user_id
             left join projects p on p.id = n.project_id
+            cross join lateral (
+                select exists (
+                    select 1
+                    from user_notification_preferences setting
+                    where setting.user_id = nr.user_id
+                      and setting.delivery_type = 'WorkItemCreated'
+                      and setting.channel = 'TeamsDirectMessage'
+                      and setting.is_enabled = false
+                ) as disabled
+            ) preference
             where n.title like '%업무%생성%'
               and not exists (
                   select 1
@@ -2215,6 +2456,8 @@ public sealed class NotificationDeliveryStore(
             row.ClaimedAtUtc,
             row.ClaimExpiresAtUtc,
             row.Status == NotificationDeliveryStatuses.Processing && row.ClaimExpiresAtUtc <= now,
+            row.CurrentGeneration,
+            row.GenerationAttemptCount,
             row.CreatedAtUtc,
             row.UpdatedAtUtc);
     }
@@ -2222,6 +2465,7 @@ public sealed class NotificationDeliveryStore(
     private static NotificationDeliveryDetailResponse ToDetailResponse(
         NotificationDeliveryRecord row,
         IReadOnlyList<NotificationDeliveryAttemptResponse> attempts,
+        IReadOnlyList<NotificationDeliveryReprocessEventResponse> reprocessEvents,
         DateTimeOffset now)
     {
         var handlingStatus = string.IsNullOrWhiteSpace(row.AdminHandlingStatus)
@@ -2257,7 +2501,10 @@ public sealed class NotificationDeliveryStore(
             row.ClaimExpiresAtUtc,
             row.Status == NotificationDeliveryStatuses.Processing && row.ClaimExpiresAtUtc <= now,
             MaskWorkerInstanceId(row.ClaimedByInstanceId),
-            attempts);
+            row.CurrentGeneration,
+            row.GenerationAttemptCount,
+            attempts,
+            reprocessEvents);
     }
 
     private static async Task<IReadOnlyList<NotificationDeliveryAttemptResponse>> ListDeliveryAttemptsAsync(
@@ -2268,6 +2515,7 @@ public sealed class NotificationDeliveryStore(
         await using var command = dataSource.CreateCommand("""
             select
                 attempt_no,
+                generation,
                 worker_instance_id,
                 claimed_at_utc,
                 lease_expires_at_utc,
@@ -2289,18 +2537,62 @@ public sealed class NotificationDeliveryStore(
         {
             attempts.Add(new NotificationDeliveryAttemptResponse(
                 reader.GetInt32(0),
-                MaskWorkerInstanceId(reader.GetString(1)) ?? "opaque",
-                reader.GetFieldValue<DateTimeOffset>(2),
+                reader.GetInt32(1),
+                MaskWorkerInstanceId(reader.GetString(2)) ?? "opaque",
                 reader.GetFieldValue<DateTimeOffset>(3),
-                reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
+                reader.GetFieldValue<DateTimeOffset>(4),
                 reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5),
-                reader.GetString(6),
-                reader.IsDBNull(7) ? null : reader.GetString(7),
-                reader.IsDBNull(8) ? null : SanitizeError(reader.GetString(8)),
-                reader.IsDBNull(9) ? null : MaskProviderMessageId(reader.GetString(9))));
+                reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
+                reader.GetString(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.IsDBNull(9) ? null : SanitizeError(reader.GetString(9)),
+                reader.IsDBNull(10) ? null : MaskProviderMessageId(reader.GetString(10))));
         }
 
         return attempts;
+    }
+
+    private static async Task<IReadOnlyList<NotificationDeliveryReprocessEventResponse>> ListDeliveryReprocessEventsAsync(
+        NpgsqlDataSource dataSource,
+        Guid deliveryId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand("""
+            select event.id,
+                   event.prior_generation,
+                   event.new_generation,
+                   coalesce(actor.display_name, '알 수 없는 관리자'),
+                   event.reason,
+                   event.duplicate_risk_acknowledged,
+                   event.prior_error_code,
+                   event.prior_admin_handling_status,
+                   event.prior_admin_handling_note,
+                   event.occurred_at_utc
+            from notification_delivery_reprocess_events event
+            left join qms_users actor on actor.id = event.actor_user_id
+            where event.delivery_id = @delivery_id
+            order by event.occurred_at_utc desc, event.id desc;
+            """);
+        command.Parameters.AddWithValue("delivery_id", deliveryId);
+
+        var events = new List<NotificationDeliveryReprocessEventResponse>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            events.Add(new NotificationDeliveryReprocessEventResponse(
+                reader.GetGuid(0),
+                reader.GetInt32(1),
+                reader.GetInt32(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.GetBoolean(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.GetFieldValue<DateTimeOffset>(9)));
+        }
+
+        return events;
     }
 
     private static string ResolveCategoryLabel(NotificationDeliveryRecord row)
@@ -2652,7 +2944,9 @@ public sealed class NotificationDeliveryStore(
             reader.IsDBNull(53) ? null : reader.GetGuid(53),
             reader.IsDBNull(54) ? null : reader.GetFieldValue<DateTimeOffset>(54),
             reader.IsDBNull(55) ? null : reader.GetFieldValue<DateTimeOffset>(55),
-            reader.IsDBNull(56) ? null : reader.GetString(56));
+            reader.IsDBNull(56) ? null : reader.GetString(56),
+            reader.GetInt32(57),
+            reader.GetInt32(58));
     }
 
     private NpgsqlDataSource CreateDataSource()
@@ -2671,4 +2965,15 @@ public sealed class NotificationDeliveryStore(
         string ProjectTitle,
         DateOnly? DeliveryDate,
         IReadOnlyList<string> ResponsibilityTypes);
+
+    private sealed record NotificationDeliveryReprocessCandidate(
+        Guid DeliveryId,
+        string Status,
+        int CurrentGeneration,
+        int AttemptCount,
+        int GenerationAttemptCount,
+        string? ErrorCode,
+        string? AdminHandlingStatus,
+        string? AdminHandlingNote,
+        Guid? ClaimToken);
 }

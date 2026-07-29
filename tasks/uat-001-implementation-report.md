@@ -568,5 +568,5 @@ Open Finding은 P0/P1/P2/P3 `0/0/0/1`이다.
 
 - 실제 identifier, token, password와 사용자 업무 원문을 출력하거나 변경하지 않았다.
 - DB schema/data와 실제 알림 provider를 변경하지 않았다.
-- 자동 검증은 완료했고 실제 Microsoft 365 로그인과 사용자 업무 저장·로그아웃 cache 검수는 사용자 검수 대기다.
-- PR #58은 변경을 추가 반영하기 전 Draft이며 `main`은 미병합 상태다.
+- 자동 검증을 완료했고 사용자가 2026-07-30 실제 Microsoft 365 로그인, 사용자 업무 조회·저장과 로그아웃 cache 검수를 완료했다고 확인했다.
+- PR #58의 `main` merge 승인이 기록됐다. 실제 PR·merge 상태는 GitHub를 authoritative source로 사용한다.

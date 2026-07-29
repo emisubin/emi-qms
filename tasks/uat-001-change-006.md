@@ -65,6 +65,6 @@
 - 통합 wrapper로 Backend 5081·Frontend 5174 기동, root·health proxy·Backend health 200
 - 익명 `/api/me` 401, 로그인 shell Microsoft 365 action 표시, console error 0
 - 기존 UAT DB setup·migration·seed 미실행, 실제 identifier·provider 미변경
-- 사용자 검수: 대기
-- PR #58: Draft, 변경 추가 반영 전
-- `main`: 미병합
+- 사용자 검수: 완료 — 2026-07-30
+- PR #58: 변경 반영·사용자 merge 승인 완료
+- 실제 PR·`main` 상태: GitHub 실행 상태를 authoritative source로 사용

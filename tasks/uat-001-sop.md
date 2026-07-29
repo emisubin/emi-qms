@@ -265,6 +265,7 @@ corepack pnpm --filter emi-qms-frontend run e2e:full-stack
 - 2026-07-29: Change 004에서 Host·trusted proxy·security header·rate limit·upload malware/metadata·Production Entra·secret·DB TLS·restore·SIEM·비상 관리자 gate와 production TLS static hosting을 추가했다. 자동 검증은 완료했고 실제 운영 handover는 대기 상태다.
 - 2026-07-29: Change 005에서 Backend 업무 응답의 private no-store, Nginx HTML/asset cache 분리와 header 상속, Production·CI 외부 artifact digest/full SHA 고정을 추가했다. Open P0/P1/P2는 0이며 수정본이 없는 image Low 2건은 P3 재검사 대상으로 남겼다.
 - 2026-07-30: Change 006에서 분리된 Entra API·SPA app registration을 통합 실행기가 정상 수용하고, 명시한 Backend 5081 proxy를 Vite가 우선하도록 복구했다. HTTPS wrapper는 기본적으로 기존 healthy UAT DB를 migration·seed 없이 보존하며 candidate 5084는 소유권 확인 종료 모드를 제공한다.
+- 2026-07-30: Change 005·006의 실제 Microsoft 365 로그인, 주요 업무 조회·저장, 알림·내 업무와 로그아웃 뒤 cache 차단 사용자 검수를 완료하고 PR #58의 `main` merge를 승인했다. 실제 운영 domain·managed DB·SIEM 검수는 운영 전환 Gate로 유지한다.
 
 ## 22. Change 005 Cache·공급망 운영 절차
 

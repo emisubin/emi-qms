@@ -2078,6 +2078,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-29 | 실험 계보 사용자 검수 완료와 `main` merge 승인 `3/3`을 기록하고, 기존 공식 UAT DB를 보존 격리한 뒤 fresh 공식 DB와 experiment DB에 migration `0001`~`0064`를 적용해 Ready PR 승격을 진행 | 사용자가 기존 업무 데이터를 사용하지 않고 새로 시작하기로 확정한 상태에서 데이터 유출·혼입 없이 검증된 실험 기능을 공식 기준선으로 옮기되, Persistent UAT rollback과 실제 provider 비활성 경계를 보존하기 위함 | 23장~25장, 27-experiment-task-ledger, TASK-EXPERIMENT-PROMOTION-001 |
 | 2026-07-29 | TASK-UAT-001 Change 005에서 Backend 업무 응답 cache를 전역 차단하고 Nginx HTML/asset cache와 보안 header 상속을 분리하며 Production·CI 외부 artifact를 digest/full SHA로 고정 | 공유 단말의 민감 응답 잔존, asset 응답의 보안 header 누락과 재실행 때 외부 artifact가 바뀌는 P2 위험을 닫고 검증된 공급망 기준을 재현하기 위함. Frontend 가변 package 설치는 고정 TLS validator로 대체했고 수정본이 없는 libxml2 Low 2건은 `SEC-PUBLIC-014` P3로 운영 handover 전에 재검사 | 23장~25장, TASK-UAT-001 Change 005 |
 | 2026-07-30 | TASK-UAT-001 Change 006에서 Entra API·SPA 분리 app registration과 HTTPS 5174/Backend 5081 통합 실행을 복구 | 정상적인 분리 client ID를 오류로 거절하고 Vite가 명시한 5081 대신 candidate 5084를 강제하던 검수 실행 drift를 없애며, 기존 UAT DB·실제 identifier·provider를 보존한 사용자 검수 주소를 제공하기 위함 | 23장~25장, TASK-UAT-001 Change 006 |
+| 2026-07-30 | TASK-UAT-001 Change 005·006 사용자 검수를 완료하고 PR #58의 `main` merge를 승인 | 실제 Microsoft 365 로그인, 주요 업무 조회·저장, 알림·내 업무와 로그아웃 cache 차단을 확인하고 열린 P0/P1/P2가 없는 공개 배포 보안 변경을 제품 기준선에 반영하기 위함. 실제 운영 domain·managed DB·SIEM handover는 별도 Gate로 유지 | 23장~25장, TASK-UAT-001 Change 005·006, PR #58 |
 
 ## 26. 용어 사전
 

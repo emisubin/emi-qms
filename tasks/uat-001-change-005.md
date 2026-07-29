@@ -71,8 +71,9 @@
 
 - User validation checklist: `Checklist 작성됨`
 - 자동 검증: `완료`
-- 사용자 검수: `사용자 검수 대기`
-- Commit·Push·PR·Merge: `미완료`
+- 사용자 검수: `완료 — 2026-07-30`
+- Commit·Push·PR: `완료 — PR #58`
+- Merge: `사용자 승인 완료 — GitHub 실행 상태 기준`
 - 실제 공개 배포: `NO_GO_EXTERNAL`
 - Change 004까지의 P1 운영 hosting·security header·Host/forwarded proxy·rate limit·upload quarantine·Production Entra·backup/monitoring 방어선은 유지됐다.
 - 이번 범위의 Open P0/P1/P2는 `0/0/0`이다. 고정 image의 upstream Low 2건은 수정 배포본이 없어 `SEC-PUBLIC-014` P3로 추적한다.

@@ -55,7 +55,7 @@ test('TASK-MOBILE-002 Change 005: mobile workspaces use one shape for each seman
   await capture(page, '02-project-list-mobile-390.png');
 
   await selectMobileDevelopmentUser(page, 'dev-production');
-  await page.goto('/production-planning');
+  await page.goto('/production-planning/plans');
   await page.getByPlaceholder('프로젝트명, 고객사, Code, Item 검색').fill(projectTitle);
   await page.getByRole('button', { name: '검색', exact: true }).click();
   const productionProjectCard = page.locator('.production-planning-mobile .procurement-project-card').filter({ hasText: projectTitle });
@@ -89,22 +89,25 @@ test('TASK-MOBILE-002 Change 005: mobile workspaces use one shape for each seman
 
   await page.goto(`/projects/${projectId}`);
   await page.getByRole('tab', { name: '구매' }).click();
-  await expect(page.locator('[data-testid="procurement-mobile"] .mobile-priority-grid')).toBeVisible();
+  await page.getByRole('tab', { name: /사급 자재/ }).click();
+  await expect(page.locator('[data-testid="procurement-mobile"]')).toBeVisible();
   await assertCompactMobilePage(page);
   await capture(page, '05-project-procurement-mobile-390.png');
 
   await page.goto(`/projects/${projectId}/procurement/edit`);
-  await expect(page.getByRole('heading', { name: '구매정보 수정' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '구매정보 입력' })).toBeVisible();
+  await page.getByRole('tab', { name: /사급 자재/ }).click();
   await expect(page.locator('[data-testid="procurement-mobile"]')).toBeVisible();
   await assertCompactMobilePage(page);
   await capture(page, '06-procurement-edit-mobile-390.png');
 
   await selectMobileDevelopmentUser(page, 'dev-materials');
   await page.goto('/materials/receipts');
+  await page.getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
   const materialCard = page.locator('.material-purchase-row').first();
   await expect(materialCard).toBeVisible();
   await expect(materialCard.locator('.material-purchase-status')).toBeVisible();
-  await expect(page.locator('.material-project-toggle')).toBeVisible();
+  await expect(page.locator('.material-project-toggle').filter({ hasText: projectTitle })).toBeVisible();
   const materialCardRadiusCount = await page.locator('.material-purchase-row').evaluateAll((elements) =>
     new Set(elements.map((element) => getComputedStyle(element).borderRadius)).size
   );
@@ -113,7 +116,7 @@ test('TASK-MOBILE-002 Change 005: mobile workspaces use one shape for each seman
   await capture(page, '07-material-receiving-mobile-390.png');
 
   await selectMobileDevelopmentUser(page, 'dev-quality');
-  await page.goto('/quality/iqc');
+  await page.goto(`/quality/iqc?project=${projectId}`);
   await expect(page.locator('.iqc-request-card').filter({ hasText: projectTitle })).toBeVisible();
   await assertCompactMobilePage(page);
   await capture(page, '08-iqc-mobile-390.png');

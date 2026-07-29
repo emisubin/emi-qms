@@ -89,14 +89,10 @@ test('TASK-WORKFLOW-CONTINUITY-001: manufacturing opens step-aligned LQC and joi
   await page.goto(`/quality/inspections?stage=LQC&project=${projectId}&panel=${panelId}`);
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
   await page.goto(`/quality/inspections?stage=LQC&project=${projectId}&panel=${panelId}`);
-  await expect(page.getByRole('heading', { name: '품질 검사' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'LQC 검사' })).toBeVisible();
   await expect(page.locator('.quality-focus-card')).toBeVisible();
   await expect(page.locator('.quality-photo-list img')).toBeVisible();
   await expect(page.getByRole('button', { name: '판정 확정' })).toBeEnabled();
-  await expect(page.locator('.quality-project-card.active')).toHaveAttribute('data-shape-role', 'active');
-  expect(await page.locator('.quality-stage-tab').evaluateAll((elements) =>
-    new Set(elements.map((element) => getComputedStyle(element).borderRadius)).size
-  )).toBe(1);
   await page.screenshot({ path: '../tasks/012a-screenshots/quality-inspections-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/quality/inspections?stage=LQC&project=${projectId}&panel=${panelId}`);
@@ -153,8 +149,8 @@ test('TASK-WORKFLOW-CONTINUITY-001: manufacturing opens step-aligned LQC and joi
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/quality/inspections?stage=OQC&project=${projectId}&panel=${panelId}`);
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
-  await expect(page.getByRole('heading', { name: '품질 검사' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'OQC 자체검수 패널' })).toHaveClass(/active/u);
+  await expect(page.getByRole('heading', { name: 'OQC 자체검수 검사' })).toBeVisible();
+  await expect(page.locator('.quality-panel-chip').filter({ hasText: 'P01' })).toHaveClass(/active/u);
   await expect(page.getByRole('button', { name: 'OQC 자체검수 시작' })).toBeVisible();
   await assertNoHorizontalOverflow(page);
 

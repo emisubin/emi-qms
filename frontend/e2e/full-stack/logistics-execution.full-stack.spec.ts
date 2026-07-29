@@ -39,7 +39,7 @@ test('Change 016: packed panels can depart and deliver independently', async ({ 
   await page.getByLabel('개발 사용자').selectOption('dev-logistics');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/logistics?stage=packing&project=${projectId}`);
-  await expect(page.getByRole('heading', { name: '물류 실행' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '포장 처리' })).toBeVisible();
   await expect(page.locator('.logistics-target-card')).toHaveCount(2);
   await assertNoHorizontalOverflow(page);
 
@@ -63,7 +63,7 @@ test('Change 016: packed panels can depart and deliver independently', async ({ 
   await assertNoHorizontalOverflow(page);
 
   await page.goto(`/logistics?stage=departure&project=${projectId}&panel=${panelIds[0]}`);
-  await expect(page.getByRole('button', { name: '02 출발' })).toHaveAttribute('aria-current', 'step');
+  await expect(page.getByRole('heading', { name: '출발 처리' })).toBeVisible();
   await expect(page.locator('.logistics-target-card')).toHaveCount(2);
   await expect(page.getByText('1 선택', { exact: true })).toBeVisible();
   await page.getByLabel(/상차 사진/u).setInputFiles({
@@ -76,7 +76,7 @@ test('Change 016: packed panels can depart and deliver independently', async ({ 
   await assertNoHorizontalOverflow(page);
 
   await page.goto(`/logistics?stage=delivery&project=${projectId}&panel=${panelIds[0]}`);
-  await expect(page.getByRole('button', { name: '03 납품' })).toHaveAttribute('aria-current', 'step');
+  await expect(page.getByRole('heading', { name: '납품 처리' })).toBeVisible();
   await expect(page.locator('.logistics-target-card')).toHaveCount(1);
   await expect(page.getByText('1 선택', { exact: true })).toBeVisible();
   await page.getByLabel(/서명 명세서/u).setInputFiles({
@@ -111,6 +111,18 @@ test('Change 016: packed panels can depart and deliver independently', async ({ 
   expect(queryDatabase(`select count(*)::text from panel_placeholders where project_id='${projectId}' and workflow_stage='ShipmentCompleted';`)).toBe('2');
   expect(queryDatabase(`select count(*)::text from project_workflow_events where project_id='${projectId}' and stage_code in ('PackingCompleted','DepartureProcessed','DeliveryCompleted') and event_type='StageCompleted';`)).toBe('3');
   expect(queryDatabase(`select count(*)::text from work_items where project_id='${projectId}' and workflow_stage_code='SalesSettlementCompleted' and target_type='Project';`)).toBe('1');
+
+  const lastDepartureDate = queryDatabase(`select max(departure_date)::text from logistics_batches where project_id='${projectId}' and stage_code='DepartureProcessed' and status='Finalized';`);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByLabel('개발 사용자').selectOption('dev-sales');
+  await page.goto('/sales/billing-requests');
+  await page.getByLabel('시작일').fill(lastDepartureDate);
+  await page.getByLabel('종료일').fill(lastDepartureDate);
+  await page.getByRole('button', { name: '조회' }).click();
+  const blockedBillingRow = page.locator('.billing-table tbody tr').filter({ hasText: `LOG-${unique}` });
+  await expect(blockedBillingRow).toBeVisible();
+  await expect(blockedBillingRow).toContainText('판매금액을 입력한 뒤 요청해 주세요.');
+  await expect(blockedBillingRow.getByRole('checkbox')).toBeDisabled();
 });
 
 type Mutation = { targetId: string; version: number; replayed: boolean };

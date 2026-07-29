@@ -1,11 +1,10 @@
-import { expect, test, type APIRequestContext, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = path.resolve(process.cwd(), '../tasks/design-000-screenshots');
 
-test('DESIGN-000 + SALES-KPI-001 Change 002: token foundation and adaptive decision chart', async ({ page, request }) => {
+test('DESIGN-000 + SALES-KPI-001 Change 002: token foundation and adaptive decision chart', async ({ page }) => {
   await page.route('**/api/sales/kpi**', mockSalesKpi);
 
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -33,15 +32,16 @@ test('DESIGN-000 + SALES-KPI-001 Change 002: token foundation and adaptive decis
   await assertNoHorizontalOverflow(page);
   await capture(page, '04-sales-home-mobile-390.png');
 
-  await createIqcDraft(request);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
   await page.getByLabel('개발 사용자').selectOption('dev-admin');
   await page.goto('/form-templates');
   await expect(page.getByRole('heading', { name: '양식 관리' })).toBeVisible();
   await expect(page.getByRole('button', { name: '부서장 지정' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '자재 수입검사 v2' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '편집' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '자재 수입검사' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '수정' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '저장' })).toHaveCount(0);
+  await page.getByRole('button', { name: '수정' }).click();
   await expect(page.getByRole('button', { name: '저장' })).toBeVisible();
   await expect(page.getByRole('button', { name: '저장' })).toBeEnabled();
   await capture(page, '05-form-templates-desktop-1440.png');
@@ -53,20 +53,6 @@ test('DESIGN-000 + SALES-KPI-001 Change 002: token foundation and adaptive decis
   await assertNoHorizontalOverflow(page);
   await capture(page, '06-form-templates-mobile-390.png');
 });
-
-async function createIqcDraft(request: APIRequestContext) {
-  const headers = { 'X-Dev-User': 'dev-admin' };
-  const list = await request.get(`${apiBaseUrl}/api/form-templates/IqcReport/MATERIAL_IQC/versions`, { headers });
-  expect(list.ok()).toBeTruthy();
-  const body = await list.json() as { versions: Array<{ lifecycleStatus: string; rowVersion: number }> };
-  const active = body.versions.find((version) => version.lifecycleStatus === 'Active');
-  expect(active).toBeTruthy();
-  const created = await request.post(`${apiBaseUrl}/api/form-templates/IqcReport/MATERIAL_IQC/versions`, {
-    headers,
-    data: { expectedActiveRowVersion: active!.rowVersion }
-  });
-  expect(created.ok()).toBeTruthy();
-}
 
 async function mockSalesKpi(route: Route) {
   const url = new URL(route.request().url());

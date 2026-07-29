@@ -525,8 +525,12 @@ async function completeLogisticsStage(
   await switchUser(page, 'dev-logistics');
   await page.goto(`/logistics?stage=${stage}&project=${projectId}`);
   const targets = page.locator('.logistics-target-card');
-  await expect(targets.first()).toBeVisible();
-  for (let index = 0; index < await targets.count(); index += 1) await targets.nth(index).click();
+  await expect(targets).toHaveCount(panelCount);
+  for (let index = 0; index < panelCount; index += 1) {
+    await targets.nth(index).click();
+    await expect(targets.nth(index)).toHaveAttribute('aria-pressed', 'true');
+  }
+  await expect(page.getByText(`${panelCount} 선택`, { exact: true })).toBeVisible();
   if (stage === 'packing') await page.getByLabel('포장 메모').fill('12면 목재 포장과 방수 상태 확인');
   if (stage === 'departure') await page.getByLabel('출발일').fill(currentSeoulDate);
   await page.locator('.logistics-file-field input[type="file"]').setInputFiles(evidenceImage);

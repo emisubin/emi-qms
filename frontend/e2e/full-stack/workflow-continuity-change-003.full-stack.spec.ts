@@ -28,7 +28,7 @@ test('WORKFLOW-CONTINUITY-001 Change 003: exact purchase error, assignee handoff
   await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-procurement');
   await page.goto(`/projects/${projectId}/procurement/edit`);
-  await expect(page.getByRole('heading', { name: '구매정보 수정' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '구매정보 입력' })).toBeVisible();
   await page.getByRole('button', { name: '도급 구매품 행 추가' }).click();
   const purchaseRow = page.getByRole('table', { name: '구매정보 수정' }).locator('.procurement-table-row.editable').last();
   const rowInputs = purchaseRow.locator('input');
@@ -72,26 +72,27 @@ test('WORKFLOW-CONTINUITY-001 Change 003: exact purchase error, assignee handoff
   await expectNotificationCount(request, 'dev-procurement', projectId, '구매품 변경 확인', 1);
 
   const hubRoutes = [
-    { route: '/materials', testId: 'department-project-hub-materials', file: '02-materials-project-hub-desktop.png' },
-    { route: '/manufacturing', testId: 'department-project-hub-manufacturing', file: '03-manufacturing-project-hub-desktop.png' },
-    { route: '/quality', testId: 'department-project-hub-quality', file: '04-quality-project-hub-desktop.png' },
-    { route: '/logistics', testId: 'department-project-hub-logistics', file: '05-logistics-project-hub-desktop.png' },
-    { route: '/pending', testId: 'department-project-hub-pending', file: '06-pending-project-hub-desktop.png' }
+    { route: '/materials', testId: 'department-work-hub-materials', file: '02-materials-project-hub-desktop.png' },
+    { route: '/quality', testId: 'department-work-hub-quality', file: '04-quality-project-hub-desktop.png' },
+    { route: '/logistics', testId: 'department-work-hub-logistics', file: '05-logistics-project-hub-desktop.png' }
   ];
   for (const hub of hubRoutes) {
     await page.goto(hub.route);
     await expect(page.getByTestId(hub.testId)).toBeVisible();
-    await expect(page.getByTestId(hub.testId).getByRole('button', { name: new RegExp(projectTitle, 'u') })).toBeVisible();
     await capture(page, hub.file);
   }
+  await page.goto('/manufacturing');
+  await expect(page.getByTestId('manufacturing-dashboard')).toBeVisible();
+  await capture(page, '03-manufacturing-project-hub-desktop.png');
+  await page.goto('/pending');
+  await expect(page.getByTestId('pending-dashboard').getByRole('button', { name: new RegExp(projectTitle, 'u') })).toBeVisible();
+  await capture(page, '06-pending-project-hub-desktop.png');
 
   await page.getByLabel('개발 사용자').selectOption('dev-materials', { force: true });
-  await page.goto('/materials');
-  const materialsHub = page.getByTestId('department-project-hub-materials');
-  const projectButton = materialsHub.getByRole('button', { name: new RegExp(projectTitle, 'u') });
-  await expect(projectButton).toBeDisabled();
-  await materialsHub.getByRole('radio', { name: /입고 관리/u }).click();
-  await projectButton.click();
+  await page.goto('/materials/receipts');
+  await page.getByPlaceholder('PJT 코드, 발주품목, 업체').fill(projectTitle);
+  await page.getByRole('button', { name: '검색' }).click();
+  await page.getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
   await expect(page.getByRole('heading', { name: '자재 입고 관리' })).toBeVisible();
   const materialCard = page.locator('.material-purchase-row').filter({ hasText: orderItem });
   await materialCard.getByRole('button', { name: '도착입력' }).click();
@@ -105,8 +106,8 @@ test('WORKFLOW-CONTINUITY-001 Change 003: exact purchase error, assignee handoff
   const orphanReceiptId = randomUUID();
   createOrphanArrival(orphanReceiptId, item!.itemId);
   await page.getByLabel('개발 사용자').selectOption('dev-quality', { force: true });
-  await page.goto('/quality');
-  const qualityHub = page.getByTestId('department-project-hub-quality');
+  await page.goto('/quality/iqc');
+  const qualityHub = page.getByTestId('quality-iqc-dashboard');
   await qualityHub.getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
   await expect(page.getByRole('heading', { name: 'IQC 검사함' })).toBeVisible();
   const iqcCards = page.locator('.iqc-request-card').filter({ hasText: orderItem });
@@ -120,13 +121,13 @@ test('WORKFLOW-CONTINUITY-001 Change 003: exact purchase error, assignee handoff
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByLabel('개발 사용자').selectOption('dev-materials', { force: true });
   await page.goto('/materials');
-  await expect(page.getByTestId('department-project-hub-materials')).toBeVisible();
+  await expect(page.getByTestId('department-work-hub-materials')).toBeVisible();
   expect(await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - window.innerWidth))).toBe(0);
   await capture(page, '08-materials-project-hub-mobile-390.png');
 
   await page.getByLabel('개발 사용자').selectOption('dev-quality', { force: true });
-  await page.goto('/quality');
-  await page.getByTestId('department-project-hub-quality').getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
+  await page.goto('/quality/iqc');
+  await page.getByTestId('quality-iqc-dashboard').getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
   await expect(page.locator('.iqc-request-card').filter({ hasText: orderItem })).toHaveCount(2);
   expect(await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - window.innerWidth))).toBe(0);
   await capture(page, '09-quality-iqc-recovered-mobile-390.png');

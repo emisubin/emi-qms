@@ -56,7 +56,6 @@ test('TASK-007B: server sorting, Pending drill-down, and project bottleneck deta
 
   await blockedRow.getByRole('button', { name: 'Pending 확인' }).click();
   await expect(page).toHaveURL(new RegExp(`/pending\\?projectId=${blockedProjectId}$`));
-  await expect(page.getByLabel('Pending 필터').getByLabel('프로젝트')).toHaveValue(blockedProjectId);
   await expect(page.getByRole('button', { name: `Urgent blocker ${unique}` })).toBeVisible();
 
   await page.goto('/projects');
@@ -68,15 +67,30 @@ test('TASK-007B: server sorting, Pending drill-down, and project bottleneck deta
   const bottleneckOverview = page.getByLabel('프로젝트 병목 현황');
   await expect(bottleneckOverview).toContainText('다음 확인 대상');
   await expect(bottleneckOverview).toContainText('생산관리 단계');
-  await expect(bottleneckOverview).toContainText('open Pending 차단을 우선해 정렬했습니다.');
+  await expect(bottleneckOverview).toContainText('열린 Pending을 먼저 표시합니다.');
   await expect(bottleneckOverview.getByRole('button', { name: '프로젝트 Pending 열기' })).toBeVisible();
   await expect(bottleneckOverview.getByRole('button', { name: /제조 전 패널 3면/ })).toBeVisible();
   await expect(bottleneckOverview.getByRole('button', { name: /납품 완료 패널 0면/ })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
   await expect(bottleneckOverview).toBeVisible();
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  expect(overflow).toBe(0);
+  const overflowState = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    offenders: Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          selector: `${element.tagName.toLowerCase()}.${element.className}`,
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width)
+        };
+      })
+      .filter((item) => item.right > document.documentElement.clientWidth + 1)
+      .slice(0, 12)
+  }));
+  expect(overflowState.overflow, JSON.stringify(overflowState.offenders)).toBe(0);
 });
 
 async function createProject(

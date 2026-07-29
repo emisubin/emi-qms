@@ -12163,12 +12163,35 @@ body {
 }
 
 .app-shell[data-layout-mode='mobile'] .project-bottleneck-overview {
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  max-width: 100%;
   margin: 0;
   border: 0;
   border-radius: 20px;
   background: linear-gradient(150deg, #2e2325, #541317);
   color: #ffffff;
   padding: 17px;
+}
+
+.app-shell[data-layout-mode='mobile'] .project-bottleneck-overview > * {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.app-shell[data-layout-mode='mobile'] .project-bottleneck-overview--compact .project-bottleneck-hero {
+  border-right: 0;
+}
+
+.app-shell[data-layout-mode='mobile'] .project-bottleneck-overview--compact .project-bottleneck-hero > div {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app-shell[data-layout-mode='mobile'] .project-bottleneck-overview--compact .project-bottleneck-hero strong,
+.app-shell[data-layout-mode='mobile'] .project-bottleneck-overview--compact .project-bottleneck-hero p,
+.app-shell[data-layout-mode='mobile'] .project-bottleneck-overview--compact .project-bottleneck-hero small {
+  grid-column: 1;
+  grid-row: auto;
 }
 
 .app-shell[data-layout-mode='mobile'] .project-bottleneck-hero strong,
@@ -12188,6 +12211,8 @@ body {
 }
 
 .app-shell[data-layout-mode='mobile'] .project-bottleneck-matrix {
+  width: 100%;
+  max-width: 100%;
   margin: 0 -4px;
   padding-bottom: 8px;
 }

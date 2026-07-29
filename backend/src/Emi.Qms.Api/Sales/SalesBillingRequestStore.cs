@@ -390,7 +390,7 @@ public sealed class SalesBillingRequestStore(
                 reader.IsDBNull(5) ? null : reader.GetString(5), reader.GetFieldValue<DateOnly>(6), reader.GetFieldValue<DateOnly>(7),
                 reader.GetInt32(8), reader.GetInt32(9), openPending,
                 canReadSalesAmount && hasAmount ? reader.GetDecimal(11) : null,
-                reader.GetString(12), reader.GetString(13), requested,
+                reader.IsDBNull(12) ? "" : reader.GetString(12), reader.GetString(13), requested,
                 requested ? reader.GetGuid(14) : null, requested ? reader.GetInt64(15) : null,
                 requested ? reader.GetFieldValue<DateTimeOffset>(16) : null,
                 blockedReason is null, blockedReason));

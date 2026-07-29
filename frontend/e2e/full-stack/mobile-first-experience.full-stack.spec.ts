@@ -25,7 +25,6 @@ test('TASK-MOBILE-002: mobile-first composition covers the seven core field rout
   await page.goto('/my-work');
   await expect(page.getByRole('heading', { name: '오늘 처리할 업무' })).toBeVisible();
   await expect(page.getByLabel('오늘 업무 요약')).toBeVisible();
-  await assertTouchTarget(page.getByRole('button', { name: '새로고침' }));
   await assertMobileShell(page, '내 업무');
   await capture(page, '02-my-work-mobile-390.png');
 
@@ -53,14 +52,13 @@ test('TASK-MOBILE-002: mobile-first composition covers the seven core field rout
   await assertStickyActionInsideViewport(page, page.locator('.project-bottleneck-hero .primary-button'));
   await capture(page, '05-project-detail-mobile-390.png');
 
-  await page.goto('/pending');
-  await expect(page.getByRole('heading', { name: '현장 Pending' })).toBeVisible();
+  await page.goto(`/pending?projectId=${projectId}`);
+  await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
   await expect(page.getByRole('button', { name: pending.title })).toBeVisible();
   const pendingFilterTrigger = page.getByRole('button', { name: /Pending 필터/ });
   await pendingFilterTrigger.click();
   const pendingFilterSheet = page.getByRole('dialog', { name: 'Pending 필터' });
   await expect(pendingFilterSheet).toBeVisible();
-  await expect(pendingFilterSheet.getByLabel('프로젝트')).toBeFocused();
   await capture(page, '06-pending-filter-sheet-mobile-390.png');
   const priorityFilter = pendingFilterSheet.getByLabel('긴급도');
   await priorityFilter.click();
@@ -106,7 +104,8 @@ test('TASK-MOBILE-002: mobile-first composition covers the seven core field rout
   await page.goto('/');
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'desktop');
   await expect(page.getByRole('heading', { name: '업무 홈' })).toBeVisible();
-  await expect(page.getByRole('button', { name: projectTitle })).toBeVisible();
+  await expect(page.getByLabel('지금 처리할 업무')).toBeVisible();
+  await expect(page.getByLabel('내 부서 핵심 지표')).toBeVisible();
   await expect(page.getByRole('navigation', { name: '공통 메뉴' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: '모바일 공통 메뉴' })).toBeHidden();
   await capture(page, '12-home-desktop-reference-1440.png');

@@ -40,6 +40,7 @@ test('TASK-008B: customer-supplied material keeps one quantity truth across proc
   await overdueMetric.click();
   await expect(page).toHaveURL(/\/materials\/receipts\?risk=customer-supply-overdue$/);
   await expect(page.getByRole('button', { name: '제공 지연' })).toHaveAttribute('data-active', 'true');
+  await page.getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
   const materialCard = page.locator('.material-purchase-row').filter({ hasText: item!.orderItem ?? '' });
   await expect(materialCard).toBeVisible();
   await saveEvidence(page, 'home-002-change-003-customer-supply-overdue.jpg');
@@ -56,7 +57,7 @@ test('TASK-008B: customer-supplied material keeps one quantity truth across proc
   });
 
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
-  await page.goto('/quality/iqc');
+  await page.goto(`/quality/iqc?project=${projectId}`);
   const iqcCard = page.locator('.iqc-request-card').filter({ hasText: projectTitle });
   await expect(iqcCard).toContainText('사급 · 고객 제공');
   await expect(iqcCard).toContainText('4 EA');
@@ -75,13 +76,18 @@ test('TASK-008B: customer-supplied material keeps one quantity truth across proc
   });
   expect(earlyClose.status()).toBe(409);
 
+  const currentProcurementItem = await procurementItem(request, projectId, item!.itemId);
   const corrected = await updateProcurement(request, projectId, {
     reason: '실제 고객 제공 예정량 정정',
     items: [{
       itemId: item!.itemId,
-      expectedRowVersion: partial.rowVersion,
+      expectedRowVersion: currentProcurementItem.rowVersion,
+      orderItem: 'Customer Busbar',
+      supplierName: 'Reference Vendor',
       expectedReceiptDate: '2020-01-01',
-      orderQuantity: 4
+      supplyType: 'CustomerSupplied',
+      orderQuantity: 4,
+      orderUnit: 'EA'
     }]
   });
   const correctedItem = corrected.items.find((candidate) => candidate.itemId === item!.itemId);
@@ -127,7 +133,7 @@ async function createProject(request: APIRequestContext, projectCode: string, pr
       fatRequired: false
     }
   });
-  expect(response.ok()).toBeTruthy();
+  expect(response.ok(), await response.text()).toBeTruthy();
   return (await response.json() as { projectId: string }).projectId;
 }
 
@@ -136,8 +142,9 @@ async function updateProcurement(request: APIRequestContext, projectId: string, 
     headers: devHeaders('dev-procurement'),
     data
   });
-  expect(response.ok()).toBeTruthy();
-  return await response.json() as {
+  const responseBody = await response.text();
+  expect(response.ok(), responseBody).toBeTruthy();
+  return JSON.parse(responseBody) as {
     items: Array<{
       itemId: string;
       orderItem: string | null;
@@ -214,6 +221,15 @@ async function materialItem(request: APIRequestContext, itemId: string) {
       rowVersion: number;
     }>;
   };
+  return body.items.find((candidate) => candidate.itemId === itemId)!;
+}
+
+async function procurementItem(request: APIRequestContext, projectId: string, itemId: string) {
+  const response = await request.get(`${apiBaseUrl}/api/projects/${projectId}/procurement`, {
+    headers: devHeaders('dev-procurement')
+  });
+  expect(response.ok()).toBeTruthy();
+  const body = await response.json() as { items: Array<{ itemId: string; rowVersion: number }> };
   return body.items.find((candidate) => candidate.itemId === itemId)!;
 }
 

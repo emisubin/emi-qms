@@ -2035,8 +2035,6 @@ public sealed class ProcurementStore(
             transaction,
             current,
             parsed,
-            NormalizeUtc(update.ReceiptCompletedAtUtc),
-            update.ReceiptCompletionNote,
             keepExistingWhenNull: false,
             update.SupplyType is null ? current.SupplyType : NormalizeSupplyType(update.SupplyType)!,
             update.OrderQuantity ?? current.OrderQuantity,
@@ -2052,8 +2050,6 @@ public sealed class ProcurementStore(
             transaction,
             current,
             row,
-            null,
-            null,
             keepExistingWhenNull: true,
             current.SupplyType,
             current.OrderQuantity,
@@ -2067,8 +2063,6 @@ public sealed class ProcurementStore(
         NpgsqlTransaction transaction,
         ProcurementItemSnapshot current,
         ParsedProcurementExcelRow row,
-        DateTimeOffset? explicitReceiptAt,
-        string? explicitReceiptNote,
         bool keepExistingWhenNull,
         string supplyType,
         decimal? orderQuantity,
@@ -2076,11 +2070,6 @@ public sealed class ProcurementStore(
         Guid changedByUserId,
         CancellationToken cancellationToken)
     {
-        var completed = row.ReceiptCompleted ?? current.ReceiptCompleted;
-        DateTimeOffset? completedAt = completed
-            ? NormalizeUtc(explicitReceiptAt) ?? NormalizeUtc(current.ReceiptCompletedAtUtc) ?? DateTimeOffset.UtcNow
-            : null;
-        Guid? completedBy = completed ? changedByUserId : null;
         var standardLeadTime = keepExistingWhenNull && row.StandardLeadTime is null ? current.StandardLeadTime : row.StandardLeadTime;
         var orderItem = keepExistingWhenNull && row.OrderItem is null ? current.OrderItem : row.OrderItem;
         var supplierName = keepExistingWhenNull && row.SupplierName is null ? current.SupplierName : row.SupplierName;
@@ -2088,7 +2077,6 @@ public sealed class ProcurementStore(
         var orderDate = keepExistingWhenNull && row.OrderDate is null ? current.OrderDate : row.OrderDate;
         var expectedReceiptDate = keepExistingWhenNull && row.ExpectedReceiptDate is null ? current.ExpectedReceiptDate : row.ExpectedReceiptDate;
         var issueNote = keepExistingWhenNull && row.IssueNote is null ? current.IssueNote : row.IssueNote;
-        var receiptCompletionNote = keepExistingWhenNull && explicitReceiptNote is null ? current.ReceiptCompletionNote : ProcurementDomain.TrimToNull(explicitReceiptNote);
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -2128,10 +2116,10 @@ public sealed class ProcurementStore(
         command.Parameters.AddWithValue("supply_type", supplyType);
         command.Parameters.AddWithValue("order_quantity", (object?)orderQuantity ?? DBNull.Value);
         command.Parameters.AddWithValue("order_unit", (object?)orderUnit ?? DBNull.Value);
-        command.Parameters.AddWithValue("receipt_completed", completed);
-        command.Parameters.AddWithValue("receipt_completed_at_utc", (object?)NormalizeUtc(completedAt) ?? DBNull.Value);
-        command.Parameters.AddWithValue("receipt_completed_by_user_id", (object?)completedBy ?? DBNull.Value);
-        command.Parameters.AddWithValue("receipt_completion_note", (object?)receiptCompletionNote ?? DBNull.Value);
+        command.Parameters.AddWithValue("receipt_completed", current.ReceiptCompleted);
+        command.Parameters.AddWithValue("receipt_completed_at_utc", (object?)NormalizeUtc(current.ReceiptCompletedAtUtc) ?? DBNull.Value);
+        command.Parameters.AddWithValue("receipt_completed_by_user_id", (object?)current.ReceiptCompletedByUserId ?? DBNull.Value);
+        command.Parameters.AddWithValue("receipt_completion_note", (object?)current.ReceiptCompletionNote ?? DBNull.Value);
         command.Parameters.AddWithValue("source_excel_row_number", (object?)(row.ExcelRowNumber == 0 ? null : row.ExcelRowNumber) ?? DBNull.Value);
         command.Parameters.AddWithValue("source_group_sequence", (object?)(row.SourceGroupSequence == 0 ? null : row.SourceGroupSequence) ?? DBNull.Value);
         command.Parameters.AddWithValue("row_match_key", (object?)row.RowMatchKey ?? DBNull.Value);

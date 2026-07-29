@@ -76,6 +76,18 @@ async function routeApi(page: Page) {
     if (routePath === '/api/notifications/summary') return fulfillJson(route, { unreadCount: 0, blockingCount: 0 });
     if (routePath === '/api/production-planning/product-types') return fulfillJson(route, []);
     if (routePath === `/api/projects/${projectId}`) return fulfillJson(route, project());
+    if (routePath === `/api/projects/${projectId}/set-structure`) {
+      return fulfillJson(route, {
+        projectId,
+        structureMode: 'FlatPanel',
+        isLegacyFlat: false,
+        canEditOrder: false,
+        canEditDesign: true,
+        specs: [],
+        orderedProcurementItems: [],
+        recoveryCases: []
+      });
+    }
     if (routePath === `/api/projects/${projectId}/panel-information`) return fulfillJson(route, panelInformation());
     return fulfillJson(route, { title: 'not found' }, 404);
   });

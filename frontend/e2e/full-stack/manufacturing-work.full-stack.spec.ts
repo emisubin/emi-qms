@@ -21,11 +21,10 @@ test('TASK-010A/011A: production releases a non-kitted panel and manufacturing c
   );
 
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/production-planning');
+  await page.goto('/production-planning/releases');
   await page.getByLabel('개발 사용자').selectOption('dev-production');
-  await page.goto('/production-planning');
+  await page.goto('/production-planning/releases');
   await expect(page.getByRole('heading', { name: '생산관리' })).toBeVisible();
-  await page.getByRole('tab', { name: /제조 투입/u }).click();
   const projectRow = page.locator('.production-project-row').filter({ hasText: projectTitle });
   await expect(projectRow).toBeVisible();
   await projectRow.click();
@@ -77,7 +76,7 @@ test('TASK-010A/011A: production releases a non-kitted panel and manufacturing c
     button.click();
     button.click();
   });
-  await expect(page.locator('.manufacturing-actions .primary-button')).toBeDisabled();
+  await expect(page.getByRole('button', { name: '확인 중…' })).toBeDisabled();
   await expect(page.getByText('제조 단계를 저장하는 중입니다. 완료될 때까지 잠시 기다려 주세요.')).toBeVisible();
   await fs.mkdir('/tmp/emi-qms-p2-remediation-evidence', { recursive: true });
   await page.screenshot({
@@ -107,7 +106,7 @@ test('TASK-010A/011A: production releases a non-kitted panel and manufacturing c
   await stopDialog.getByLabel('조치 담당 부서').selectOption({ index: 1 });
   await stopDialog.getByRole('button', { name: '작업 중단 · 긴급 Pending 생성' }).click();
   await expect(page.getByRole('button', { name: /긴급 Pending/u })).toBeVisible();
-  await expect(page.locator('.manufacturing-project-card')).toHaveAttribute('data-shape-role', 'warning');
+  await expect(page.locator('.manufacturing-focus-card')).toHaveAttribute('data-status', 'blocked');
 
   const pendingId = queryDatabase(`
     select id::text
@@ -124,7 +123,6 @@ test('TASK-010A/011A: production releases a non-kitted panel and manufacturing c
   await page.getByRole('button', { name: '제조 완료' }).click();
   await expect(page.getByText(/제조를 완료했습니다/u)).toBeVisible();
   await expect(page.locator('.manufacturing-focus-card')).toHaveAttribute('data-status', 'completed');
-  await expect(page.locator('.manufacturing-project-card')).toHaveAttribute('data-shape-role', 'success');
   await assertNoHorizontalOverflow(page);
 
   expect(queryDatabase(`

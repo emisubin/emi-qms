@@ -36,7 +36,6 @@ test('TASK-010A: material user shares optional kitting completion without creati
   await page.goto(`/materials/kitting?project=${readyProject.projectId}`);
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
   await expect(page.getByRole('button', { name: '메뉴 열기' })).toBeVisible();
-  await expect(page.locator('.kitting-project-list')).toHaveCSS('overflow-x', 'auto');
   await expect(page.locator('.kitting-panel-grid')).toBeVisible();
   expect((await page.locator('.kitting-panel-card').evaluateAll((cards) =>
     Array.from(new Set(cards.map((card) => card.getAttribute('data-shape-role')))).sort()

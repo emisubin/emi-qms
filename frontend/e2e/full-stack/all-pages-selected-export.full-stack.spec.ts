@@ -12,7 +12,7 @@ const columnPickerScreenshotDirectory = path.resolve(process.cwd(), '../tasks/ex
 const pages = [
   { route: '/projects', name: '01-projects', userKey: 'dev-sales' },
   { route: '/my-work', name: '02-my-work', userKey: 'dev-design' },
-  { route: '/production-planning', name: '03-production-planning', userKey: 'dev-production' },
+  { route: '/production-planning/plans', name: '03-production-planning', userKey: 'dev-production' },
   { route: '/procurement', name: '04-procurement', userKey: 'dev-procurement' },
   { route: '/materials/receipts', name: '05-material-receipts', userKey: 'dev-materials' },
   { route: '/materials/kitting', name: '06-material-kitting', userKey: 'dev-materials' },
@@ -41,6 +41,15 @@ test('TASK-EXPORT-001 change-003: every selected export page uses the server col
   seedExternalAdminUser();
   const syntheticProject = await createQualityReadyProject(request, Date.now());
   await completeManufacturing(request, syntheticProject.projectId, syntheticProject.panelId);
+  const targetPages = pages.map((target) => {
+    if (target.name === '06-material-kitting') return { ...target, route: `/materials/kitting?project=${syntheticProject.projectId}` };
+    if (target.name === '07-manufacturing') return { ...target, route: `/manufacturing/work?project=${syntheticProject.projectId}&panel=${syntheticProject.panelId}` };
+    if (target.name === '08-material-iqc') return { ...target, route: `/quality/iqc?project=${syntheticProject.projectId}` };
+    if (target.name === '09-quality-inspections') return { ...target, route: `/quality/inspections?stage=LQC&project=${syntheticProject.projectId}&panel=${syntheticProject.panelId}` };
+    if (target.name === '10-logistics') return { ...target, route: `/logistics?stage=packing&project=${syntheticProject.projectId}` };
+    if (target.name === '11-pending') return { ...target, route: `/pending?projectId=${syntheticProject.projectId}` };
+    return target;
+  });
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/projects');
@@ -50,7 +59,7 @@ test('TASK-EXPORT-001 change-003: every selected export page uses the server col
   let pickerScreenshotCount = 0;
   let customColumnSelectionCount = 0;
   const emptyDesktopRoutes: string[] = [];
-  for (const target of pages) {
+  for (const target of targetPages) {
     await selectDevelopmentUser(page, target.userKey);
     await page.goto(target.route);
     await waitForPageData(page);
@@ -111,12 +120,15 @@ test('TASK-EXPORT-001 change-003: every selected export page uses the server col
     `${JSON.stringify(emptyDesktopRoutes, null, 2)}\n`,
     'utf8'
   );
-  expect(downloadedWorkbookCount).toBeGreaterThanOrEqual(10);
-  expect(pickerScreenshotCount).toBe(20);
+  expect(downloadedWorkbookCount).toBeGreaterThanOrEqual(9);
+  expect(emptyDesktopRoutes).toHaveLength(2);
+  expect(emptyDesktopRoutes.some((route) => route.startsWith('/manufacturing/work?'))).toBeTruthy();
+  expect(emptyDesktopRoutes.some((route) => route.startsWith('/quality/inspections?'))).toBeTruthy();
+  expect(pickerScreenshotCount).toBe(18);
   expect(customColumnSelectionCount).toBe(2);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const target of pages) {
+  for (const target of targetPages) {
     await selectDevelopmentUser(page, target.userKey);
     await page.goto(target.route);
     await waitForPageData(page);
@@ -216,6 +228,12 @@ async function createQualityReadyProject(request: APIRequestContext, unique: num
     set panel_name = 'EXPORT-PANEL', width_mm = 600, height_mm = 1800, depth_mm = 400,
         panel_info_completed = true
     where project_id = '${projectId}' and status = 'Active';
+    insert into project_assignees(project_id,responsibility_type,assigned_user_id,assigned_by_user_id,assigned_at_utc)
+    values
+      ('${projectId}','ProductionPlanningPrimary','50000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000003',now()),
+      ('${projectId}','ManufacturingPrimary','50000000-0000-0000-0000-000000000004','50000000-0000-0000-0000-000000000003',now())
+    on conflict(project_id,responsibility_type) do update
+    set assigned_user_id=excluded.assigned_user_id,assigned_by_user_id=excluded.assigned_by_user_id,assigned_at_utc=excluded.assigned_at_utc;
     begin;
     select set_config('emi_qms.material_receipt_write', 'allowed', true);
     update project_procurement_items
@@ -232,6 +250,11 @@ async function createQualityReadyProject(request: APIRequestContext, unique: num
     data: { operationId: crypto.randomUUID(), projectId, panelIds: [panelId] }
   });
   expect(kitting.ok(), await kitting.text()).toBeTruthy();
+  const released = await request.post(`${apiBaseUrl}/api/manufacturing/releases`, {
+    headers: devHeaders('dev-production'),
+    data: { operationId: crypto.randomUUID(), projectId, panelIds: [panelId] }
+  });
+  expect(released.ok(), await released.text()).toBeTruthy();
   return { projectId, panelId };
 }
 

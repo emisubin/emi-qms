@@ -46,9 +46,10 @@ test('WORKFLOW-CONTINUITY-001 Change 004: purchase-owned quantity, Materials fal
   await capture(page, '03-materials-notification-after-purchase-desktop.png');
 
   await page.goto('/materials');
-  const materialsHub = page.getByTestId('department-project-hub-materials');
-  await materialsHub.getByRole('radio', { name: /입고 관리/u }).click();
-  await materialsHub.getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
+  await page.getByTestId('department-work-hub-materials').getByRole('button', { name: /입고 관리/u }).click();
+  await page.getByPlaceholder('PJT 코드, 발주품목, 업체').fill(projectTitle);
+  await page.getByRole('button', { name: '검색' }).click();
+  await page.getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
   const materialCard = page.locator('.material-purchase-row').filter({ hasText: orderItem });
   await materialCard.getByRole('button', { name: '도착입력' }).click();
   const arrivalForm = page.locator('.material-action-form').filter({ hasText: orderItem });
@@ -62,8 +63,8 @@ test('WORKFLOW-CONTINUITY-001 Change 004: purchase-owned quantity, Materials fal
 
   createOrphanArrival(randomUUID(), itemId);
   await page.getByLabel('개발 사용자').selectOption('dev-quality', { force: true });
-  await page.goto('/quality');
-  await page.getByTestId('department-project-hub-quality').getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
+  await page.goto('/quality/iqc');
+  await page.getByTestId('quality-iqc-dashboard').getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
   await expect(page.getByRole('heading', { name: 'IQC 검사함' })).toBeVisible();
   await expect(page.locator('.iqc-request-card').filter({ hasText: orderItem })).toHaveCount(2);
   expect(await countMyWork(request, 'dev-quality', projectId, 'IQC')).toBe(2);
@@ -71,8 +72,8 @@ test('WORKFLOW-CONTINUITY-001 Change 004: purchase-owned quantity, Materials fal
   await capture(page, '05-quality-iqc-current-and-recovered-desktop.png');
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/quality');
-  await page.getByTestId('department-project-hub-quality').getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
+  await page.goto('/quality/iqc');
+  await page.getByTestId('quality-iqc-dashboard').getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();
   await expect(page.locator('.iqc-request-card').filter({ hasText: orderItem })).toHaveCount(2);
   expect(await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - window.innerWidth))).toBe(0);
   await capture(page, '06-quality-iqc-current-and-recovered-mobile-390.png');

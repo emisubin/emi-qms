@@ -171,7 +171,6 @@ export function LogisticsPage({
             departureDate: stage === 'departure' ? departureDate : null
           });
         setDraft(workingDraft);
-        onLocationChange(stage, workingDraft.targetId);
       }
       if (file) {
         workingDraft = await uploadLogisticsEvidence(

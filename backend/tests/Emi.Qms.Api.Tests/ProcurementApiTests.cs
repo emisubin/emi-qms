@@ -1160,15 +1160,69 @@ public sealed class ProcurementApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Conflict, earlyClose.StatusCode);
 
-        Assert.Equal(HttpStatusCode.OK, (await materialsClient.PostAsJsonAsync(
-            $"/api/materials/items/{itemId}/receipts",
-            new { quantity = 8m, unit = "EA", arrivalDate = pastDate },
-            TestContext.Current.CancellationToken)).StatusCode);
-        var fullyArrived = await FindMaterialItemAsync(materialsClient, itemId);
-        Assert.Equal(12m, fullyArrived.GetProperty("arrivedQuantity").GetDecimal());
-        Assert.Equal(8m, fullyArrived.GetProperty("remainingQuantity").GetDecimal());
-        Assert.Equal(8m, fullyArrived.GetProperty("processingQuantity").GetDecimal());
-        Assert.False(fullyArrived.GetProperty("customerSupplyOverdue").GetBoolean());
+        var currentProcurement = await procurementClient.GetAsync(
+            $"/api/projects/{projectId}/procurement",
+            TestContext.Current.CancellationToken);
+        using var currentProcurementJson = await ReadJsonAsync(currentProcurement);
+        var currentProcurementItem = currentProcurementJson.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("itemId").GetGuid() == itemId);
+        var correctedQuantity = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                reason = "실제 고객 제공 예정량 정정",
+                items = new[]
+                {
+                    new
+                    {
+                        itemId,
+                        expectedRowVersion = currentProcurementItem.GetProperty("rowVersion").GetInt32(),
+                        orderItem = "Customer Busbar",
+                        supplierName = "Reference Vendor",
+                        supplyType = "CustomerSupplied",
+                        orderQuantity = 4m,
+                        orderUnit = "EA",
+                        expectedReceiptDate = pastDate
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            correctedQuantity.StatusCode == HttpStatusCode.OK,
+            await correctedQuantity.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)
+            + Environment.NewLine
+            + string.Join(Environment.NewLine, context.Logs.Where(entry => entry.Exception is not null).Select(entry => entry.Exception)));
+        using (var correctedQuantityJson = await ReadJsonAsync(correctedQuantity))
+        {
+            var correctedItem = correctedQuantityJson.RootElement.GetProperty("items").EnumerateArray()
+                .Single(item => item.GetProperty("itemId").GetGuid() == itemId);
+            Assert.Equal(4m, correctedItem.GetProperty("orderQuantity").GetDecimal());
+            Assert.Equal("Customer Busbar", correctedItem.GetProperty("orderItem").GetString());
+            Assert.Equal("Reference Vendor", correctedItem.GetProperty("supplierName").GetString());
+            Assert.Equal("CustomerSupplied", correctedItem.GetProperty("supplyType").GetString());
+            Assert.Equal("EA", correctedItem.GetProperty("orderUnit").GetString());
+
+            var correctedClose = await materialsClient.PostAsJsonAsync(
+                $"/api/materials/items/{itemId}/close-arrivals",
+                new
+                {
+                    expectedRowVersion = correctedItem.GetProperty("rowVersion").GetInt32(),
+                    reason = "정정 수량 전량 입고 완료"
+                },
+                TestContext.Current.CancellationToken);
+            Assert.True(
+                correctedClose.StatusCode == HttpStatusCode.OK,
+                await correctedClose.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        }
+
+        var correctedMaterial = await FindMaterialItemAsync(materialsClient, itemId);
+        Assert.Equal(4m, correctedMaterial.GetProperty("orderQuantity").GetDecimal());
+        Assert.Equal(4m, correctedMaterial.GetProperty("arrivedQuantity").GetDecimal());
+        Assert.Equal(0m, correctedMaterial.GetProperty("remainingQuantity").GetDecimal());
+        Assert.Equal(0m, correctedMaterial.GetProperty("processingQuantity").GetDecimal());
+        Assert.True(correctedMaterial.GetProperty("arrivalsClosed").GetBoolean());
+        Assert.True(correctedMaterial.GetProperty("receiptCompleted").GetBoolean());
+        Assert.False(correctedMaterial.GetProperty("customerSupplyOverdue").GetBoolean());
     }
 
     [Fact]

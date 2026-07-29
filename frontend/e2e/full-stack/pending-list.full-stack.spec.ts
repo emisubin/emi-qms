@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const productionUserId = '50000000-0000-0000-0000-000000000003';
@@ -10,8 +10,8 @@ test('TASK-007A Pending: create, assign, act, reinspect, close, and audit', asyn
 
   await page.goto('/');
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
-  await page.goto('/pending');
-  await expect(page.getByRole('heading', { name: 'Pending List' })).toBeVisible();
+  await page.goto(`/pending?projectId=${projectId}`);
+  await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
   await page.getByRole('button', { name: '+ Pending 등록' }).click();
   await page.getByLabel('프로젝트 *').selectOption(projectId);
   await page.getByLabel('유형 *').selectOption('ManufacturingStop');
@@ -27,7 +27,7 @@ test('TASK-007A Pending: create, assign, act, reinspect, close, and audit', asyn
   await expect(page.getByText('Pending이 등록되었습니다.')).toBeVisible();
   await page.getByRole('button', { name: '제조 치수 확인 전 작업 중단' }).click();
   await expect(page.getByRole('heading', { name: '제조 치수 확인 전 작업 중단' })).toBeVisible();
-  await expect(page.getByText('조치 요청', { exact: true })).toBeVisible();
+  await expect(page.locator('.pending-detail-header .status-badge').filter({ hasText: '조치 요청' })).toBeVisible();
   const detailUrl = page.url();
 
   const myWorkResponse = await request.get(`${apiBaseUrl}/api/my-work?status=Requested`, {
@@ -50,25 +50,25 @@ test('TASK-007A Pending: create, assign, act, reinspect, close, and audit', asyn
   await expect(pendingWorkRow.getByRole('button', { name: 'Pending 열기' })).toBeVisible();
   await expect(pendingWorkRow.getByRole('button', { name: '작업 완료' })).toHaveCount(0);
   await pendingWorkRow.getByRole('button', { name: 'Pending 열기' }).click();
-  await expect(page.getByText('조치 요청', { exact: true })).toBeVisible();
-  await page.getByLabel('상태 변경 사유').fill('도면과 측정값 비교를 시작합니다.');
+  await expect(page.locator('.pending-detail-header .status-badge').filter({ hasText: '조치 요청' })).toBeVisible();
+  await page.getByLabel('처리 내용').fill('도면과 측정값 비교를 시작합니다.');
   await page.getByRole('button', { name: '조치 시작' }).click();
-  await expect(page.getByText('조치 중', { exact: true })).toBeVisible();
-  await page.getByLabel('새 코멘트').fill('현장 측정값을 재확인했고 설계 기준과 비교 중입니다.');
+  await expect(page.locator('.pending-detail-header .status-badge').filter({ hasText: '조치 중' })).toBeVisible();
+  await page.getByLabel('처리 활동 코멘트').fill('현장 측정값을 재확인했고 설계 기준과 비교 중입니다.');
   await page.getByRole('button', { name: '코멘트 등록' }).click();
   await expect(page.getByText('현장 측정값을 재확인했고 설계 기준과 비교 중입니다.')).toBeVisible();
-  await page.getByLabel('상태 변경 사유').fill('조치 완료 후 재검사를 요청합니다.');
-  await page.getByRole('button', { name: '재검사 요청' }).click();
-  await expect(page.getByText('재검사 요청 상태로 변경되었습니다.')).toBeVisible();
+  await page.getByLabel('처리 내용').fill('조치 완료 후 재검사를 요청합니다.');
+  await page.getByRole('button', { name: '조치 완료' }).click();
+  await expect(page.getByText('조치를 완료하고 품질 재검사 업무를 생성했습니다.')).toBeVisible();
   await expect(page.locator('.pending-detail-header .status-badge').filter({ hasText: '재검사 요청' })).toBeVisible();
 
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
   await page.goto(detailUrl);
-  await page.getByLabel('상태 변경 사유').fill('재검사 적합을 확인했습니다.');
+  await page.getByLabel('처리 내용').fill('재검사 적합을 확인했습니다.');
   await page.getByRole('button', { name: '종결' }).click();
   await expect(page.getByText('종결 상태로 변경되었습니다.')).toBeVisible();
   await expect(page.locator('.pending-detail-header .status-badge').filter({ hasText: '종결' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '변경 이력' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '코멘트와 처리 이력' })).toBeVisible();
 
   const viewerMutation = await request.post(`${apiBaseUrl}/api/pending`, {
     headers: { 'X-Dev-User': 'dev-viewer' },
@@ -99,8 +99,9 @@ test('TASK-007A Pending: 390px workspace has no page overflow', async ({ page })
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await selectMobileDevelopmentUser(page, 'dev-quality');
-  await page.goto('/pending');
-  await expect(page.getByRole('heading', { name: '현장 Pending' })).toBeVisible();
+  const projectId = await createProjectForMobile(page);
+  await page.goto(`/pending?projectId=${projectId}`);
+  await expect(page.getByRole('button', { name: '+ Pending 등록' })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBe(0);
 });
@@ -110,6 +111,29 @@ async function selectMobileDevelopmentUser(page: Page, userKey: string) {
   const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
   await drawer.getByLabel('개발 사용자').selectOption(userKey);
   await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+}
+
+async function createProjectForMobile(page: Page) {
+  const unique = Date.now();
+  const response = await page.request.post(`${apiBaseUrl}/api/projects`, {
+    headers: { 'X-Dev-User': 'dev-sales' },
+    data: {
+      customerName: 'Synthetic Customer',
+      item: 'RPP',
+      projectCode: `PEND-M-${unique}`,
+      projectTitle: `Pending Mobile ${unique}`,
+      panelCount: 1,
+      deliveryDate: '2026-12-31',
+      salesOwnerUserId: '50000000-0000-0000-0000-000000000002',
+      packagingMethod: 'WoodenCrate',
+      salesAmount: 1000,
+      currencyCode: 'KRW',
+      deliveryLocation: 'Synthetic Site',
+      fatRequired: false
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json() as { projectId: string }).projectId;
 }
 
 async function createProject(request: APIRequestContext, projectCode: string, projectTitle: string) {

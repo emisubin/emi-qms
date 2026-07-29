@@ -61,7 +61,7 @@ test('TASK-014A: project settlement atomically completes the project and remains
   await page.goto(`/projects/${projectId}/settlement`);
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await page.goto(`/projects/${projectId}/settlement`);
-  await expect(page.getByRole('heading', { name: '정산하고 완료하기' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '발행 확인 후 완료하기' })).toBeVisible();
   await expect(page.getByText('2/2')).toBeVisible();
   await expect(page.getByText('임시 저장 v1')).toBeVisible();
   await assertNoHorizontalOverflow(page);
@@ -69,7 +69,7 @@ test('TASK-014A: project settlement atomically completes the project and remains
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(page.getByRole('heading', { name: '정산하고 완료하기' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '발행 확인 후 완료하기' })).toBeVisible();
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: '/tmp/task-014a-sales-settlement-mobile.png', fullPage: true });
 
@@ -122,15 +122,18 @@ test('TASK-014A: concurrent completion has one winner and zero-panel completion 
   const concurrentProject = await createSyntheticProject(request, `RACE-${unique}`, `합성 동시 정산 ${unique}`);
   const concurrentPanels = queryDatabase(`select string_agg(id::text, ',' order by sequence_number) from panel_placeholders where project_id='${concurrentProject.projectId}' and status='Active';`).split(',');
   seedDeliveredProject(concurrentProject.projectId, concurrentPanels);
+  await putJson(request, `/api/projects/${concurrentProject.projectId}/settlement/draft`, 'dev-sales', {
+    expectedVersion: 0, invoiceIssuedDate: currentSeoulDate, invoiceNumber: null, note: '합성 동시 정산'
+  });
 
   const attempts = await Promise.all([
     request.post(`${apiBaseUrl}/api/projects/${concurrentProject.projectId}/settlement/complete`, {
       headers: devHeaders('dev-sales'),
-      data: { operationId: crypto.randomUUID(), expectedVersion: 0, invoiceIssuedDate: currentSeoulDate, invoiceNumber: 'RACE-A', note: null }
+      data: { operationId: crypto.randomUUID(), expectedVersion: 1, invoiceIssuedDate: currentSeoulDate, invoiceNumber: 'RACE-A', note: null }
     }),
     request.post(`${apiBaseUrl}/api/projects/${concurrentProject.projectId}/settlement/complete`, {
       headers: devHeaders('dev-sales'),
-      data: { operationId: crypto.randomUUID(), expectedVersion: 0, invoiceIssuedDate: currentSeoulDate, invoiceNumber: 'RACE-B', note: null }
+      data: { operationId: crypto.randomUUID(), expectedVersion: 1, invoiceIssuedDate: currentSeoulDate, invoiceNumber: 'RACE-B', note: null }
     })
   ]);
   expect(attempts.map((response) => response.status()).sort()).toEqual([200, 409]);
@@ -173,6 +176,7 @@ async function createSyntheticProject(request: APIRequestContext, projectCode: s
 function seedDeliveredProject(projectId: string, panelIds: string[]) {
   const unitId = crypto.randomUUID();
   const batchId = crypto.randomUUID();
+  const billingBatchId = crypto.randomUUID();
   queryDatabase(`
     insert into project_assignees(project_id,responsibility_type,assigned_user_id,assigned_by_user_id,assigned_at_utc)
     values ('${projectId}','SalesPrimary','${salesUserId}','${salesUserId}',now())
@@ -186,10 +190,27 @@ function seedDeliveredProject(projectId: string, panelIds: string[]) {
     values ('${batchId}','${projectId}','DeliveryCompleted',1,'Draft',1,'${salesUserId}');
     insert into logistics_batch_units(batch_id,packing_unit_id,stage_code,active,added_by_user_id)
     values ('${batchId}','${unitId}','DeliveryCompleted',true,'${salesUserId}');
+    insert into logistics_batch_panels(batch_id,packing_unit_id,panel_id,stage_code,active,added_by_user_id)
+    values ('${batchId}','${unitId}','${panelIds[0]}','DeliveryCompleted',true,'${salesUserId}'),
+           ('${batchId}','${unitId}','${panelIds[1]}','DeliveryCompleted',true,'${salesUserId}');
     insert into logistics_delivery_results(batch_id,packing_unit_id,panel_id,delivered_by_user_id)
     values ('${batchId}','${unitId}','${panelIds[0]}','${salesUserId}'),('${batchId}','${unitId}','${panelIds[1]}','${salesUserId}');
     update logistics_packing_units set status='Finalized',finalized_by_user_id='${salesUserId}',finalized_at_utc=now() where id='${unitId}';
     update logistics_batches set status='Finalized',finalized_by_user_id='${salesUserId}',finalized_at_utc=now() where id='${batchId}';
+    insert into sales_billing_request_batches(
+      id,period_start,period_end,project_count,workbook_file_name,workbook_size,
+      workbook_sha256,workbook_content,created_by_user_id)
+    values (
+      '${billingBatchId}',current_date,current_date,1,'synthetic-settlement.xlsx',1,
+      repeat('0',64),decode('00','hex'),'${salesUserId}');
+    insert into sales_billing_request_items(
+      batch_id,project_id,row_number,project_code,project_title,customer_name,item_name,
+      first_departure_date,last_departure_date,active_panel_count,departed_panel_count,
+      sales_amount,currency_code,sales_owner_name)
+    select
+      '${billingBatchId}',id,1,project_code,project_title,customer_name,item,
+      current_date,current_date,2,2,coalesce(sales_amount,0),coalesce(currency_code,'KRW'),'Synthetic Sales Owner'
+    from projects where id='${projectId}';
     insert into work_items(project_id,target_type,target_id,workflow_stage_code,responsibility_type,assigned_user_id,assigned_role_code,title,description,status,priority,idempotency_key,created_by_user_id)
     values ('${projectId}','Project','${projectId}','SalesSettlementCompleted','SalesPrimary','${salesUserId}','sales','영업 정산 처리','합성 정산 업무','Requested','Normal','e2e:settlement:${projectId}','${salesUserId}');
   `);

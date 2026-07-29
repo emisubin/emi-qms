@@ -17,7 +17,6 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
 
   await page.goto('/my-work');
   await expect(page.getByRole('heading', { name: '오늘 처리할 업무' })).toBeVisible();
-  await assertTouchTarget(page.getByRole('button', { name: '새로고침' }));
   await assertMobileNavigation(page, '내 업무');
   await capture(page, '01-my-work-mobile-390.png');
 
@@ -36,8 +35,8 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
   await assertMobileNavigation(page, '프로젝트');
   await capture(page, '03-project-detail-mobile-390.png');
 
-  await page.goto('/pending');
-  await expect(page.getByRole('heading', { name: '현장 Pending' })).toBeVisible();
+  await page.goto(`/pending?projectId=${projectId}`);
+  await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
   await expect(page.getByRole('button', { name: pending.title })).toBeVisible();
   await assertTouchTarget(page.getByRole('button', { name: '+ Pending 등록' }));
   await assertMobileNavigation(page, 'Pending');

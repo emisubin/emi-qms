@@ -23,7 +23,7 @@ test('TASK-009A: mobile-first IQC report captures checklist, photo, immutable re
 
   await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-quality');
-  await page.goto('/quality/iqc');
+  await page.goto(`/quality/iqc?project=${projectId}`);
   await expect(page.getByRole('heading', { name: 'IQC 검사함' })).toBeVisible();
   await expect(page.locator('.iqc-request-card')).toHaveCount(2);
   await assertDesktopContentClearOfSidebar(page);
@@ -66,7 +66,8 @@ test('TASK-009A: mobile-first IQC report captures checklist, photo, immutable re
   await page.getByRole('button', { name: '메뉴 열기' }).click();
   const mobileMenu = page.getByRole('dialog', { name: '전체 업무 메뉴' });
   await mobileMenu.getByRole('button', { name: '품질' }).click();
-  await page.getByTestId('department-project-hub-quality')
+  await page.getByRole('button', { name: /수입검사\(IQC\)/u }).click();
+  await page.getByTestId('quality-iqc-dashboard')
     .getByRole('button', { name: new RegExp(projectTitle, 'u') })
     .click();
   await expect(page.getByRole('heading', { name: 'IQC 검사함' })).toBeVisible();

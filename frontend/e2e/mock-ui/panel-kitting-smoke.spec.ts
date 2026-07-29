@@ -57,16 +57,14 @@ test('TASK-010A Change 004 mock visual: production planning and manufacturing re
   await routeApi(page, store);
 
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/production-planning');
+  await page.goto('/production-planning/plans');
   await page.getByLabel('개발 사용자').selectOption('dev-production');
-  await page.goto('/production-planning');
+  await page.goto('/production-planning/plans');
   await expect(page.getByRole('heading', { name: '생산관리', exact: true })).toBeVisible();
-  await expect(page.getByRole('tab', { name: /생산계획/u })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByLabel('생산계획 요약')).toBeVisible();
   await capture(page, '01-production-planning-tab-desktop-1440.jpg', change004ScreenshotDirectory);
 
-  await page.getByRole('tab', { name: /제조 투입/u }).click();
-  await expect(page.getByRole('tab', { name: /제조 투입/u })).toHaveAttribute('aria-selected', 'true');
+  await page.goto('/production-planning/releases');
   await expect(page.getByLabel('생산계획 요약')).toHaveCount(0);
   await page.getByRole('row', { name: /합성 제조 투입 프로젝트/u }).click();
   const releasePanel = page.getByLabel('패널 제조 투입 요청');
@@ -81,10 +79,10 @@ test('TASK-010A Change 004 mock visual: production planning and manufacturing re
   await capture(page, '03-manufacturing-release-success-desktop-1440.jpg', change004ScreenshotDirectory);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/production-planning');
-  await expect(page.getByRole('tab', { name: /생산계획/u })).toHaveAttribute('aria-selected', 'true');
+  await page.goto('/production-planning/plans');
+  await expect(page.getByLabel('생산계획 요약')).toBeVisible();
   await capture(page, '04-production-planning-tab-mobile-390.jpg', change004ScreenshotDirectory, true);
-  await page.getByRole('tab', { name: /제조 투입/u }).click();
+  await page.goto('/production-planning/releases');
   await page.getByRole('button', { name: '투입 패널 보기' }).click();
   await expect(page.getByLabel('패널 제조 투입 요청')).toBeVisible();
   await assertNoHorizontalOverflow(page);

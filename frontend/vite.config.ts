@@ -11,7 +11,7 @@ const hmrClientPort = process.env.VITE_HMR_CLIENT_PORT
   ? Number(process.env.VITE_HMR_CLIENT_PORT)
   : undefined;
 const devServerPort = Number(process.env.VITE_DEV_SERVER_PORT ?? '5173');
-const proxyTarget = process.env.VITE_DEV_PROXY_TARGET ?? 'http://localhost:5080';
+const configuredProxyTarget = process.env.VITE_DEV_PROXY_TARGET;
 const localEntraEnvPath = path.resolve(configDir, '../.env.entra-local');
 const loopbackHost = '127.0.0.1';
 const allowedDevelopmentFileRoots = [
@@ -147,6 +147,8 @@ function loadHttpsOptions() {
 
 const localEntraFrontendConfig = loadLocalEntraFrontendConfig();
 const useLocalEntraFrontend = Object.keys(localEntraFrontendConfig).length > 0;
+const proxyTarget = configuredProxyTarget
+  ?? (useLocalEntraFrontend ? 'http://127.0.0.1:5084' : 'http://localhost:5080');
 const runtimeDefine = useLocalEntraFrontend
   ? Object.fromEntries([
       ...Object.entries(localEntraFrontendConfig).map(([key, value]) => [
@@ -172,11 +174,11 @@ export default defineConfig({
     https: loadHttpsOptions(),
     proxy: {
       '/api': {
-        target: useLocalEntraFrontend ? 'http://127.0.0.1:5084' : proxyTarget,
+        target: proxyTarget,
         changeOrigin: true
       },
       '/health': {
-        target: useLocalEntraFrontend ? 'http://127.0.0.1:5084' : proxyTarget,
+        target: proxyTarget,
         changeOrigin: true
       }
     },

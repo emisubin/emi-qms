@@ -531,3 +531,42 @@ Open Finding은 P0/P1/P2/P3 `0/0/0/1`이다.
 - User manual/checklist: [TASK-UAT-001 User Manual 19장](uat-001-user-manual.md#19-change-005-공유-pc와-업데이트-보안-안내)
 - Roadmap update: [Product Roadmap TASK-UAT-001](../docs/00-product-roadmap.md#task-uat-001-https-development-uat-안정화)
 - User validation checklist: `작성됨` / 자동 검증 완료 / 사용자 검수 대기
+
+## 27. Change 006 — Entra 통합 검수 실행기 복구
+
+### 확인된 원인
+
+- `dev-uat-start.sh`가 API app의 `AzureAd__ClientId`와 SPA app의 `VITE_AZURE_CLIENT_ID`가 같아야 한다고 잘못 판단했다.
+- Vite는 `.env.entra-local`이 있으면 wrapper가 명시한 `VITE_DEV_PROXY_TARGET=5081`을 무시하고 candidate 5084를 강제했다.
+- Candidate screen을 종료해도 하위 Backend listener가 5084에 남을 수 있었다.
+
+### 구현
+
+- 단일 app용 legacy `ENTRA_CLIENT_ID`와 분리 app용 API·SPA identifier를 구분했다.
+- tenant, API 역할 alias, SPA 역할 alias와 legacy/split 충돌을 각각 fail-closed한다.
+- Backend audience와 delegated scope는 API client ID에서 파생하고, Frontend 로그인 client는 SPA client ID를 사용한다.
+- Vite는 명시적 proxy target을 최우선으로 사용하며, 별도 candidate를 직접 실행할 때만 기본 5084를 사용한다.
+- HTTPS wrapper는 기존 UAT container가 중지돼 있으면 동일 container만 다시 시작하고 DB를 보존하며 recreation·migration·seed·reset을 실행하지 않는다.
+- Candidate 종료는 listener의 Repository cwd와 API command를 확인한 뒤 SIGTERM만 사용한다.
+
+### 자동·runtime 검증
+
+| 검사 | 결과 |
+| --- | --- |
+| Bash syntax | 통과 |
+| UAT auth config 단일·분리·실패 회귀 | 12/12 통과 |
+| Frontend lint | error 0, 기존 Fast Refresh warning 1 |
+| Frontend typecheck·unit·build | 통과, 143/143, 통과 |
+| 통합 wrapper DB 보존 gate | 기존 DB·container 사용, recreation·setup·migration·seed 미실행 |
+| Backend 5081·Frontend 5174 | listener·health 200 |
+| Frontend health proxy → 5081 | 200 |
+| 익명 `/api/me` | 401 |
+| 로그인 shell | Microsoft 365 action 표시, console error 0 |
+| Candidate 5084 cleanup | Repository-owned listener 종료, 잔여 listener 0 |
+
+### 상태
+
+- 실제 identifier, token, password와 사용자 업무 원문을 출력하거나 변경하지 않았다.
+- DB schema/data와 실제 알림 provider를 변경하지 않았다.
+- 자동 검증은 완료했고 실제 Microsoft 365 로그인과 사용자 업무 저장·로그아웃 cache 검수는 사용자 검수 대기다.
+- PR #58은 변경을 추가 반영하기 전 Draft이며 `main`은 미병합 상태다.

@@ -82,7 +82,11 @@ case "${UAT_AUTH_MODE_NORMALIZED}" in
     fi
 
     RESOLVED_ENTRA_TENANT_ID="${ENTRA_TENANT_ID:-${AzureAd__TenantId:-${VITE_AZURE_TENANT_ID:-}}}"
-    RESOLVED_ENTRA_CLIENT_ID="${ENTRA_CLIENT_ID:-${AzureAd__ClientId:-${VITE_AZURE_CLIENT_ID:-}}}"
+    LEGACY_ENTRA_CLIENT_ID="${ENTRA_CLIENT_ID:-}"
+    EXPLICIT_ENTRA_API_CLIENT_ID="${ENTRA_API_CLIENT_ID:-${AzureAd__ClientId:-}}"
+    EXPLICIT_ENTRA_SPA_CLIENT_ID="${ENTRA_SPA_CLIENT_ID:-${VITE_AZURE_CLIENT_ID:-}}"
+    RESOLVED_ENTRA_API_CLIENT_ID="${EXPLICIT_ENTRA_API_CLIENT_ID:-${LEGACY_ENTRA_CLIENT_ID:-${EXPLICIT_ENTRA_SPA_CLIENT_ID:-}}}"
+    RESOLVED_ENTRA_SPA_CLIENT_ID="${EXPLICIT_ENTRA_SPA_CLIENT_ID:-${LEGACY_ENTRA_CLIENT_ID:-${EXPLICIT_ENTRA_API_CLIENT_ID:-}}}"
     for tenant_candidate in \
       "${ENTRA_TENANT_ID:-}" \
       "${AzureAd__TenantId:-}" \
@@ -92,39 +96,66 @@ case "${UAT_AUTH_MODE_NORMALIZED}" in
         exit 1
       fi
     done
-    for client_candidate in \
-      "${ENTRA_CLIENT_ID:-}" \
-      "${AzureAd__ClientId:-}" \
-      "${VITE_AZURE_CLIENT_ID:-}"; do
-      if [[ -n "${client_candidate}" && "${client_candidate}" != "${RESOLVED_ENTRA_CLIENT_ID}" ]]; then
-        echo "EntraId manual UAT found conflicting client identifiers in the approved environment." >&2
+    for api_client_candidate in \
+      "${ENTRA_API_CLIENT_ID:-}" \
+      "${AzureAd__ClientId:-}"; do
+      if [[ -n "${api_client_candidate}" &&
+            -n "${EXPLICIT_ENTRA_API_CLIENT_ID}" &&
+            "${api_client_candidate}" != "${EXPLICIT_ENTRA_API_CLIENT_ID}" ]]; then
+        echo "EntraId manual UAT found conflicting API client identifiers in the approved environment." >&2
         exit 1
       fi
     done
-    if [[ -z "${RESOLVED_ENTRA_TENANT_ID}" || -z "${RESOLVED_ENTRA_CLIENT_ID}" ]]; then
-      echo "EntraId manual UAT requires ENTRA_TENANT_ID and ENTRA_CLIENT_ID in the approved environment file." >&2
+    for spa_client_candidate in \
+      "${ENTRA_SPA_CLIENT_ID:-}" \
+      "${VITE_AZURE_CLIENT_ID:-}"; do
+      if [[ -n "${spa_client_candidate}" &&
+            -n "${EXPLICIT_ENTRA_SPA_CLIENT_ID}" &&
+            "${spa_client_candidate}" != "${EXPLICIT_ENTRA_SPA_CLIENT_ID}" ]]; then
+        echo "EntraId manual UAT found conflicting SPA client identifiers in the approved environment." >&2
+        exit 1
+      fi
+    done
+    if [[ -n "${LEGACY_ENTRA_CLIENT_ID}" &&
+          -n "${EXPLICIT_ENTRA_API_CLIENT_ID}" &&
+          "${LEGACY_ENTRA_CLIENT_ID}" != "${EXPLICIT_ENTRA_API_CLIENT_ID}" ]]; then
+      echo "EntraId manual UAT found a legacy client identifier that conflicts with the API client identifier." >&2
+      exit 1
+    fi
+    if [[ -n "${LEGACY_ENTRA_CLIENT_ID}" &&
+          -n "${EXPLICIT_ENTRA_SPA_CLIENT_ID}" &&
+          "${LEGACY_ENTRA_CLIENT_ID}" != "${EXPLICIT_ENTRA_SPA_CLIENT_ID}" ]]; then
+      echo "EntraId manual UAT found a legacy client identifier that conflicts with split API or SPA identifiers." >&2
+      exit 1
+    fi
+    if [[ -z "${RESOLVED_ENTRA_TENANT_ID}" ||
+          -z "${RESOLVED_ENTRA_API_CLIENT_ID}" ||
+          -z "${RESOLVED_ENTRA_SPA_CLIENT_ID}" ]]; then
+      echo "EntraId manual UAT requires tenant, API client, and SPA client identifiers in the approved environment file." >&2
       exit 1
     fi
     if [[ "${RESOLVED_ENTRA_TENANT_ID}" == "00000000-0000-0000-0000-000000000000" ||
-          "${RESOLVED_ENTRA_CLIENT_ID}" == "00000000-0000-0000-0000-000000000000" ]]; then
-      echo "EntraId manual UAT requires real tenant and client identifiers; example placeholder values are not accepted." >&2
+          "${RESOLVED_ENTRA_API_CLIENT_ID}" == "00000000-0000-0000-0000-000000000000" ||
+          "${RESOLVED_ENTRA_SPA_CLIENT_ID}" == "00000000-0000-0000-0000-000000000000" ]]; then
+      echo "EntraId manual UAT requires real tenant, API client, and SPA client identifiers; example placeholder values are not accepted." >&2
       exit 1
     fi
     export ENTRA_TENANT_ID="${RESOLVED_ENTRA_TENANT_ID}"
-    export ENTRA_CLIENT_ID="${RESOLVED_ENTRA_CLIENT_ID}"
+    export ENTRA_API_CLIENT_ID="${RESOLVED_ENTRA_API_CLIENT_ID}"
+    export ENTRA_SPA_CLIENT_ID="${RESOLVED_ENTRA_SPA_CLIENT_ID}"
 
     export AUTH_MODE="EntraId"
     export Authentication__Mode="EntraId"
     export DEV_AUTHENTICATION_ENABLED="false"
     export VITE_AUTH_MODE="EntraId"
     export AzureAd__TenantId="${AzureAd__TenantId:-${ENTRA_TENANT_ID}}"
-    export AzureAd__ClientId="${AzureAd__ClientId:-${ENTRA_CLIENT_ID}}"
+    export AzureAd__ClientId="${AzureAd__ClientId:-${ENTRA_API_CLIENT_ID}}"
     export AzureAd__Instance="${AzureAd__Instance:-https://login.microsoftonline.com/}"
-    export AzureAd__Audience="${AzureAd__Audience:-api://${ENTRA_CLIENT_ID}}"
-    export AzureAd__ValidAudience="${AzureAd__ValidAudience:-${ENTRA_CLIENT_ID}}"
+    export AzureAd__Audience="${AzureAd__Audience:-api://${ENTRA_API_CLIENT_ID}}"
+    export AzureAd__ValidAudience="${AzureAd__ValidAudience:-${ENTRA_API_CLIENT_ID}}"
     export VITE_AZURE_TENANT_ID="${VITE_AZURE_TENANT_ID:-${ENTRA_TENANT_ID}}"
-    export VITE_AZURE_CLIENT_ID="${VITE_AZURE_CLIENT_ID:-${ENTRA_CLIENT_ID}}"
-    export VITE_AZURE_API_SCOPE="${VITE_AZURE_API_SCOPE:-api://${ENTRA_CLIENT_ID}/access_as_user}"
+    export VITE_AZURE_CLIENT_ID="${VITE_AZURE_CLIENT_ID:-${ENTRA_SPA_CLIENT_ID}}"
+    export VITE_AZURE_API_SCOPE="${VITE_AZURE_API_SCOPE:-api://${ENTRA_API_CLIENT_ID}/access_as_user}"
     export VITE_AZURE_REDIRECT_URI="${VITE_AZURE_REDIRECT_URI:-https://localhost:${FRONTEND_PORT}}"
     ;;
   *)
@@ -220,10 +251,23 @@ fi
 
 UAT_SKIP_DATABASE_SETUP_NORMALIZED="$(printf '%s' "${UAT_SKIP_DATABASE_SETUP:-false}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${UAT_SKIP_DATABASE_SETUP_NORMALIZED}" == "true" || "${UAT_SKIP_DATABASE_SETUP:-false}" == "1" ]]; then
-  if [[ "$(docker inspect -f '{{.State.Health.Status}}' emi-qms-postgres 2>/dev/null || true)" != "healthy" ]]; then
-    echo "UAT_SKIP_DATABASE_SETUP requires the existing PostgreSQL container to be healthy." >&2
+  if ! docker inspect emi-qms-postgres >/dev/null 2>&1; then
+    echo "UAT_SKIP_DATABASE_SETUP requires the existing PostgreSQL container; no container was created." >&2
     exit 1
   fi
+  if [[ "$(docker inspect -f '{{.State.Status}}' emi-qms-postgres 2>/dev/null || true)" != "running" ]]; then
+    echo "Starting the existing manual UAT PostgreSQL container without recreating it..."
+    docker start emi-qms-postgres >/dev/null
+  fi
+  database_health_attempt=0
+  while [[ "$(docker inspect -f '{{.State.Health.Status}}' emi-qms-postgres 2>/dev/null || true)" != "healthy" ]]; do
+    if (( database_health_attempt >= 60 )); then
+      echo "The existing manual UAT PostgreSQL container did not become healthy; no setup or recreation was attempted." >&2
+      exit 1
+    fi
+    sleep 0.5
+    database_health_attempt=$((database_health_attempt + 1))
+  done
   RUNNING_DATABASE_PASSWORD="$(
     docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' emi-qms-postgres 2>/dev/null \
       | sed -n 's/^POSTGRES_PASSWORD=//p' \

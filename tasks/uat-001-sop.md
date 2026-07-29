@@ -13,11 +13,11 @@
 ### Change 002 전환 게이트
 
 - HTTPS wrapper는 명시적 override가 없으면 `EntraId` mode를 선택한다.
-- `.env`의 `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`는 실제 Entra app identifier여야 한다. 빈 값과 `.env.example`의 all-zero placeholder는 시작 전에 거절한다.
+- `.env.entra-local`의 tenant와 client identifier는 실제 Entra app identifier여야 한다. 하나의 app registration을 함께 쓰면 `ENTRA_CLIENT_ID`, API와 SPA를 분리하면 `AzureAd__ClientId`·`VITE_AZURE_CLIENT_ID` 또는 `ENTRA_API_CLIENT_ID`·`ENTRA_SPA_CLIENT_ID`를 사용한다. 분리된 API·SPA ID가 서로 다른 것은 정상이며, 같은 역할의 alias가 서로 다르거나 legacy `ENTRA_CLIENT_ID`와 분리 ID가 충돌하면 시작 전에 거절한다.
 - 표준 app registration은 SPA redirect URI `https://localhost:5174`와 delegated scope `access_as_user`를 가져야 한다.
 - 비표준 identifier URI/scope는 `AzureAd__Audience`, `AzureAd__ValidAudience`, `VITE_AZURE_API_SCOPE`로 명시한다.
 - 값을 확인할 때는 `UAT_AUTH_CONFIG_CHECK_ONLY=true`를 사용하며 identifier 원문을 출력하지 않는다.
-- 기존 UAT DB를 보존한 runtime-only handover는 `UAT_SKIP_DATABASE_SETUP=true`를 사용한다. 이 mode는 기존 PostgreSQL health와 DB 존재를 read-only로 확인하고 compose, migration, master-data seed를 실행하지 않는다.
+- 기존 UAT DB를 보존한 runtime-only handover는 `UAT_SKIP_DATABASE_SETUP=true`를 사용한다. 이 mode는 기존 PostgreSQL container가 중지돼 있으면 같은 container만 다시 시작하고 health와 DB 존재를 확인하며 compose recreation, migration과 master-data seed를 실행하지 않는다. 기존 container가 없으면 새로 만들지 않고 중단한다.
 - 5174 local Entra SPA redirect URI는 Entra app registration과 동일한 `https://localhost:5174`여야 한다. HTTP, 다른 origin과 `/auth/callback` 같은 추가 path는 시작 전에 거절한다.
 - 실제 Microsoft 로그인과 인증된 API 호출이 성공하기 전에는 Entra 전환을 완료로 표시하지 않는다.
 - Entra UAT는 기본적으로 worktree-local ignored `.env.entra-local`을 읽는다. 새 worktree에서는 대표 저장소의 local file이 자동 공유되지 않으므로 값 원문을 출력하지 않는 안전한 복사와 mode `600`, Git ignored 확인이 필요하다.
@@ -264,6 +264,7 @@ corepack pnpm --filter emi-qms-frontend run e2e:full-stack
 - 2026-07-29: Change 003에서 Vite non-loopback bind와 Repository `/@fs` 노출을 fail-closed하고 PostgreSQL publish를 `127.0.0.1:5432`로 제한했다. 동일 named volume·credential을 승계한 data-preserving container handover 뒤 aggregate·health를 확인해 공개 배포 P0 두 건을 해소했다.
 - 2026-07-29: Change 004에서 Host·trusted proxy·security header·rate limit·upload malware/metadata·Production Entra·secret·DB TLS·restore·SIEM·비상 관리자 gate와 production TLS static hosting을 추가했다. 자동 검증은 완료했고 실제 운영 handover는 대기 상태다.
 - 2026-07-29: Change 005에서 Backend 업무 응답의 private no-store, Nginx HTML/asset cache 분리와 header 상속, Production·CI 외부 artifact digest/full SHA 고정을 추가했다. Open P0/P1/P2는 0이며 수정본이 없는 image Low 2건은 P3 재검사 대상으로 남겼다.
+- 2026-07-30: Change 006에서 분리된 Entra API·SPA app registration을 통합 실행기가 정상 수용하고, 명시한 Backend 5081 proxy를 Vite가 우선하도록 복구했다. HTTPS wrapper는 기본적으로 기존 healthy UAT DB를 migration·seed 없이 보존하며 candidate 5084는 소유권 확인 종료 모드를 제공한다.
 
 ## 22. Change 005 Cache·공급망 운영 절차
 
@@ -286,3 +287,36 @@ corepack pnpm --filter emi-qms-frontend run e2e:full-stack
 현재 `SEC-PUBLIC-014` P3는 Frontend·ClamAV image의 동일 libxml2 Low 2건이다. 2026-07-29 scanner 기준 수정 버전이 없으며 실제 운영 handover 전에 재검사해야 한다.
 
 `SEC-PUBLIC-015`의 scanner Unspecified 2건은 영향 실행 파일인 `xmlcatalog`과 `nghttpx`가 final image에 없어 `RESOLVED_NOT_AFFECTED`다. Image 구성이 바뀌면 실행 파일 부재와 upstream 범위를 다시 확인한다. TLS 인증서 검사는 Frontend 내부의 가변 package 설치가 아니라 고정 digest one-shot validator가 수행한다.
+
+## 23. Change 006 Entra 통합 실행 절차
+
+### 시작
+
+```bash
+bash scripts/dev-uat-start-teams-https.sh
+```
+
+이 명령은 다음을 한 번에 수행한다.
+
+- 기존 `emi_qms_uat_005a` DB와 container credential을 값 비노출로 사용한다. Container가 중지돼 있으면 동일 container만 다시 시작한다.
+- migration, seed와 master-data setup을 기본적으로 실행하지 않는다.
+- Backend를 `127.0.0.1:5081`, Frontend를 `https://localhost:5174`에 고정한다.
+- Frontend `/api`와 `/health`를 Backend 5081로 연결한다.
+- 실제 알림 provider local env는 별도 발송 승인이 없으면 로드하지 않는다.
+
+### Entra identifier
+
+- 단일 app registration: `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`
+- 분리 app registration:
+  - API: `AzureAd__ClientId` 또는 `ENTRA_API_CLIENT_ID`
+  - SPA: `VITE_AZURE_CLIENT_ID` 또는 `ENTRA_SPA_CLIENT_ID`
+- delegated API scope 기본값은 API client ID에서 파생한다.
+- API ID와 SPA ID는 달라도 되지만 같은 역할의 alias끼리는 같아야 한다.
+- 실제 identifier는 startup output, 문서와 Git diff에 기록하지 않는다.
+
+### 확인
+
+1. `https://localhost:5174`가 로그인 화면을 표시하는지 확인한다.
+2. `https://localhost:5174/health/live`가 200인지 확인한다.
+3. Backend 5081 listener와 Frontend 5174 listener가 현재 Repository 소유인지 확인한다.
+4. 5084 candidate가 남았으면 `bash scripts/dev-uat-entra-backend-candidate.sh stop`을 사용한다. 이 명령은 Repository cwd와 API command가 모두 일치하지 않으면 어떤 프로세스도 종료하지 않는다.

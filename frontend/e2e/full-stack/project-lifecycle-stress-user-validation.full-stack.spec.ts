@@ -336,14 +336,19 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await capture(page, 'stages/18a-billing-request-created.jpg');
 
   await page.goto(`/projects/${projectId}/settlement`);
-  await page.getByLabel('회계팀 발행 확인일 필수').fill(currentSeoulDate);
+  const invoiceIssuedDateInput = page.getByLabel('회계팀 발행 확인일 필수');
+  await invoiceIssuedDateInput.fill(currentSeoulDate);
+  await expect(invoiceIssuedDateInput).toHaveValue(currentSeoulDate);
   await page.getByLabel('회계팀 세금계산서 번호').fill(`STRESS-${String(unique).slice(-6)}`);
   await page.getByLabel('회계 확인 메모').fill('회계팀 발행 완료와 12면 납품, 미결 Pending 0건을 확인했습니다.');
   await expectInputFlowReadable(page, '.settlement-form > .ds-input-flow');
   await expectDarkSurfaceTextReadable(page);
   await capture(page, 'stages/18b-settlement-input-layout.jpg');
   await page.getByRole('button', { name: '발행 확인 저장' }).click();
-  await page.getByRole('button', { name: '최종 완료 확인' }).click();
+  await expect(page.getByText('회계팀 발행 확인 정보를 임시 저장했습니다.')).toBeVisible();
+  const completeButton = page.getByRole('button', { name: '최종 완료 확인' });
+  await expect(completeButton).toBeEnabled();
+  await completeButton.click();
   await page.getByRole('button', { name: '발행 확인·프로젝트 완료' }).click();
   await expect(page.getByRole('heading', { name: '프로젝트 완료 내역' })).toBeVisible();
   await captureProjectFlow(page, projectId, 'stages/18-project-completed.jpg');

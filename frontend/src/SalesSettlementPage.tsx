@@ -33,6 +33,7 @@ export function SalesSettlementPage({
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const feedbackRef = useRef<HTMLDivElement>(null);
+  const loadGenerationRef = useRef(0);
 
   const applyDetail = useCallback((detail: SalesSettlementDetail) => {
     setState({ kind: 'ready', data: detail });
@@ -42,10 +43,15 @@ export function SalesSettlementPage({
   }, []);
 
   const load = useCallback(async (quiet = false) => {
+    const generation = loadGenerationRef.current + 1;
+    loadGenerationRef.current = generation;
     if (!quiet) setState({ kind: 'loading' });
     try {
-      applyDetail(await getSalesSettlement(developmentUserKey, projectId));
+      const detail = await getSalesSettlement(developmentUserKey, projectId);
+      if (generation !== loadGenerationRef.current) return;
+      applyDetail(detail);
     } catch (error) {
+      if (generation !== loadGenerationRef.current) return;
       setState({ kind: 'error', message: messageOf(error, '정산 정보를 불러오지 못했습니다.') });
     }
   }, [applyDetail, developmentUserKey, projectId]);

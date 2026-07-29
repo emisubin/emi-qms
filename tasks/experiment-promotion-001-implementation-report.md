@@ -19,6 +19,7 @@
 4. 모바일 compact 프로젝트 병목·업무 표면의 가로 넘침을 보정했다.
 5. Full-Stack·Mock UI E2E를 현재 업무 선택→프로젝트 선택→단일 프로젝트 입력 계약에 맞췄다. 12면 stress 동선은 출발·납품 대상 12개가 실제로 모두 선택됐는지 확정 전에 검증한다.
 6. GitHub CI restore가 새 보안 advisory에 따라 간접 의존성 `System.Security.Cryptography.Xml 10.0.7`을 차단했다. `Microsoft.Identity.Web`을 호환되는 최신 minor `4.14.0`으로 올려 간접 의존성을 `10.0.10`으로 갱신했다.
+7. GitHub Full-Stack stress에서 정산 화면의 중복 초기 조회 중 늦은 응답이 사용자가 입력한 발행 확인일을 빈 값으로 덮어쓰는 경쟁 조건을 재현했다. 조회 generation을 적용해 최신 응답만 반영하고, stress 검증도 날짜 유지·임시 저장 성공·최종 버튼 활성화를 순서대로 확인한다.
 
 ### 데이터베이스 handover
 

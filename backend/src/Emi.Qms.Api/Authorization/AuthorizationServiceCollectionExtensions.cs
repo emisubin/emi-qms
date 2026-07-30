@@ -85,14 +85,17 @@ public static class AuthorizationServiceCollectionExtensions
 
         services.AddAuthorization(options =>
         {
+            var operationalUserPolicy = new AuthorizationPolicyBuilder(QmsAuthenticationSchemes.Auto)
+                .RequireAuthenticatedUser()
+                .AddRequirements(new OperationalUserRequirement())
+                .Build();
+
             options.AddPolicy("AuthenticatedIdentity", policy =>
             {
                 policy.RequireAuthenticatedUser();
             });
-            options.DefaultPolicy = new AuthorizationPolicyBuilder(QmsAuthenticationSchemes.Auto)
-                .RequireAuthenticatedUser()
-                .AddRequirements(new OperationalUserRequirement())
-                .Build();
+            options.DefaultPolicy = operationalUserPolicy;
+            options.FallbackPolicy = operationalUserPolicy;
 
             options.AddPolicy(QmsPolicies.ProjectRead, policy =>
             {

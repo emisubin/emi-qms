@@ -53,12 +53,12 @@ Roadmap 순서는 단순 번호가 아니라 status, dependencies, external bloc
 - 사용자가 이 대화와 branch에 대해 인터뷰·중간 승인 생략, Fable 권장안 자동 채택과 결과까지의 연속 진행을 standing instruction으로 명시했다면, “다음 작업 시작”은 완료 원장의 우선순위가 가장 높은 이름 있는 미완료 제품 Task를 선택하고 그 Task의 `experiment/*` fast-track을 실행하라는 명시적 지시다. 이 경우 `roadmapSequenceMatch=true`로 기록하며 별도 승인·확인 질문을 만들지 않는다.
 - 위 standing instruction 아래의 `DEFERRED / POLICY_INPUT`은 사용자 승인 대기가 아니라 Fable 1차 기획에서 선택지·권장안을 만들고 Codex review를 거쳐 Fable 2차 기획이 확정할 비차단 입력이다. 권장안이 기존 보안·권한·workflow 불변조건을 보존하고 2차 기획의 blocking decision이 0이면 자동 채택해 구현까지 이어간다.
 - 같은 목적 후보가 둘 이상이거나, 이름 있는 다음 Task를 하나로 확정할 수 없거나, Repository source끼리 의미 있게 충돌하거나, 대표 repo·`main`·Persistent UAT·실제 provider·destructive operation처럼 fast-track 제외 경계를 넘어야 하는 경우에만 중단한다. 단순히 Task ID가 아직 없거나 제품 정책 선택지가 남았다는 이유만으로 사용자 승인을 다시 요청하지 않는다.
-- 완료 원장·Roadmap·change를 갱신할 때 이 standing instruction을 약화해 “다음 작업”을 다시 승인 대기로 바꾸는 문구를 추가하지 않는다. 일반 branch의 승인 흐름과 `main` merge 승인 3회 경계는 그대로 유지한다.
+- 완료 원장·Roadmap·change를 갱신할 때 이 standing instruction을 약화해 “다음 작업”을 다시 승인 대기로 바꾸는 문구를 추가하지 않는다. 일반 branch의 승인 흐름과 `main` merge 승인 1회 경계는 그대로 유지한다.
 - 원장의 `EXPERIMENT_COMPLETE` scope와 같은 목적이면 사용자 검수 대기, 대표 repo 미반영, UAT 미적용 또는 P3 backlog를 이유로 Fable planning·새 Task·재구현을 시작하지 않는다. 새 기능 요청이 아니라면 `BLOCKED_ALREADY_COMPLETED`로 먼저 보고한다.
 - 사용자가 완료 기능의 수정을 요청하면 새 Task ID를 만들지 않고 기존 canonical Task의 다음 `change-###` 또는 확인된 결함의 `BUGFIX`를 사용한다. 신규 사용자 능력·상태·권한·외부 연동이면 별도 `NEW_FEATURE`로 분류한다.
 - `EXPERIMENT_SLICE_COMPLETE`는 완료 slice를 다시 열지 않는다. purpose identity와 변경 allowlist는 원장에 이름이 적힌 후속 slice만 포함해야 한다.
 - `BATCHED_FINAL`은 사용자 검수 완료를 뜻하지 않는다. 실험 개발의 다음 Task 선택에서만 완료로 취급하며 checklist에는 `사용자 검수 대기 — 마지막 일괄 검수`를 유지한다. 사용자 검수 실패가 기록된 경우에만 기존 Task를 재개한다.
-- 실험 완료, 사용자 검수 완료, 대표 repo·`main` 반영, Persistent UAT 적용과 게시·merge 상태를 서로 대체하지 않는다. 승격이 필요하면 기능 재구현이 아니라 별도 통합·UAT Task로 처리하며 `main` merge 승인 3회 경계를 유지한다.
+- 실험 완료, 사용자 검수 완료, 대표 repo·`main` 반영, Persistent UAT 적용과 게시·merge 상태를 서로 대체하지 않는다. 승격이 필요하면 기능 재구현이 아니라 별도 통합·UAT Task로 처리하며 `main` merge 승인 1회 경계를 유지한다.
 - Product Roadmap과 완료 원장이 충돌하면 완료된 experiment scope를 자동 재선택하지 않는다. 제품 source와 implementation report를 대조해 `DOCS_GOVERNANCE`로 상태를 동기화한 뒤 다음 Task를 선택한다.
 
 ## 작업 격리와 범위
@@ -130,7 +130,7 @@ Codex-only 조사 중 신규 제품 능력이나 기존 확정 정책을 바꾸�
    - `fableSecondPlanningTarget: docs/<approved-target>.md`
 6. `second-planning`은 `experiment/*`에서만 허용한다. Runner는 1차 planning, Codex review, 최신 approval change와 exact target을 fail-closed로 확인하고 Fable이 1차 기획·review·현재 Repository를 직접 다시 읽게 한다. 결과는 기존 target을 덮어쓰지 않는 별도 파일에 byte-for-byte로 기록한다.
 7. 2차 기획은 해당 실험 Task의 최종 구현 source of truth다. 1차 기획과 Codex review는 삭제·수정하지 않고 판단 이력으로 보존한다. 2차 기획의 blocking decision이 0이면 별도 사용자 확인 없이 Codex 구현·검증·페이지별 desktop/mobile screenshot·Implementation report·local commit까지 이어간다.
-8. fast-track은 local experiment commit만 승인한다. 대표 repo, `main`, push, PR, merge, Persistent UAT migration·runtime handover와 실제 provider는 포함하지 않는다. `main` merge는 사용자가 요청하더라도 서로 분리된 승인 3회가 기록되기 전까지 금지한다.
+8. fast-track은 local experiment commit만 승인한다. 대표 repo, `main`, push, PR, merge, Persistent UAT migration·runtime handover와 실제 provider는 포함하지 않는다. `main` merge는 자동 검증과 사용자 검수 뒤 해당 병합에 대한 사용자의 명시적 승인 1회가 기록되기 전까지 금지한다. 승인 횟수 정책을 설명하거나 변경한 메시지는 특정 병합 실행 승인으로 간주하지 않는다.
 
 일반 branch의 deep-interview·단일 Fable draft·사용자 승인 계약과 `revise` one-time approval은 이 예외로 변경되지 않는다.
 

@@ -419,6 +419,30 @@ public sealed class IdentityInfrastructureTests
     }
 
     [Fact]
+    public async Task ConcurrentEntraJitRequestsReturnTheSameUserWithoutUniqueConstraintFailures()
+    {
+        await using var context = await IdentityTestContext.CreateAsync();
+        var store = context.Services.GetRequiredService<DbIdentityStore>();
+        const string objectId = "concurrent-entra-object";
+
+        var profiles = await Task.WhenAll(
+            Enumerable.Range(0, 8)
+                .Select(index => store.GetOrCreateEntraProfileAsync(
+                    objectId,
+                    $"Concurrent Entra User {index}",
+                    "concurrent.entra@example.com",
+                    TestContext.Current.CancellationToken)));
+
+        Assert.All(profiles, Assert.NotNull);
+        Assert.Single(profiles.Select(profile => profile!.User.Id).Distinct());
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from qms_users
+            where entra_object_id = '{objectId}';
+            """));
+    }
+
+    [Fact]
     public async Task BootstrapAdminAndUserAdministrationRespectPendingAndLastAdminProtection()
     {
         await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>

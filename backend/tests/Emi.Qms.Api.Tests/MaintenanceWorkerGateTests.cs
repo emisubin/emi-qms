@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Emi.Qms.Api.Admin;
+using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.ReviewSafe;
 using Microsoft.Extensions.Configuration;
@@ -126,6 +127,7 @@ public sealed class MaintenanceWorkerGateTests
     {
         await using var factory = Factory(PhaseAConfiguration());
         using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-admin");
         using var response = await client.GetAsync("/api/runtime-mode", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

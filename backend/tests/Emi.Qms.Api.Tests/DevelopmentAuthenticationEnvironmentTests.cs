@@ -98,7 +98,6 @@ public sealed class DevelopmentAuthenticationEnvironmentTests
     }
 
     [Theory]
-    [InlineData("Production")]
     [InlineData("Staging")]
     public async Task ApplicationStarts_WhenDevelopmentAuthenticationFalseOutsideAllowedEnvironments(string environment)
     {

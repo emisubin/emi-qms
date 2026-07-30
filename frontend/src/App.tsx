@@ -1570,7 +1570,7 @@ function QmsAppShellContent({
 
   const loadShell = useCallback(() => {
     setRuntimeMutationAllowed(false);
-    getRuntimeMode()
+    getRuntimeMode(developmentUserKey)
       .then((data) => {
         setRuntimeMutationAllowed(data.mutationAllowed);
         setRuntimeMode({ kind: 'ready', data });

@@ -25,3 +25,18 @@ export type FormTemplateManagers = {
     userId: string; displayName: string; departmentId: string; departmentCode: string; departmentName: string;
   }>;
 };
+
+export type MaterialCategory = {
+  categoryId: string;
+  code: string;
+  displayName: string;
+  requiresIqc: boolean;
+  isActive: boolean;
+  displayOrder: number;
+  rowVersion: number;
+};
+
+export type MaterialCategoryCatalog = {
+  canManage: boolean;
+  items: MaterialCategory[];
+};

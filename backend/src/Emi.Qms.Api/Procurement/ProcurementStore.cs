@@ -291,7 +291,9 @@ public sealed class ProcurementStore(
                    ) as receipt_completion_note,
                    i.row_version, i.source_excel_row_number,
                    i.source_group_sequence, i.row_match_key, i.status,
-                   i.supply_type, i.order_quantity, i.order_unit
+                   i.supply_type, i.order_quantity, i.order_unit,
+                   i.material_category_id, i.material_category_code_snapshot,
+                   i.material_category_name_snapshot, i.material_category_requires_iqc_snapshot
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -544,10 +546,10 @@ public sealed class ProcurementStore(
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Procurement Plan");
         worksheet.Cell(1, 1).Value = "PS 사업부 PJT 발주 관리";
-        worksheet.Range(1, 1, 1, 10).Merge().Style.Font.Bold = true;
+        worksheet.Range(1, 1, 1, 11).Merge().Style.Font.Bold = true;
         worksheet.Cell(2, 1).Value = "구매정보는 필수 입력값이 없습니다. 일부 값만 입력해도 저장할 수 있습니다.";
-        worksheet.Range(2, 1, 2, 10).Merge().Style.Font.Italic = true;
-        var headers = new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "업체", "기술 담당자", "발주일", "입고예정일", "이슈사항", "입고 완료" };
+        worksheet.Range(2, 1, 2, 11).Merge().Style.Font.Italic = true;
+        var headers = new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "구분", "업체", "기술 담당자", "발주일", "입고예정일", "이슈사항", "입고 완료" };
         for (var i = 0; i < headers.Length; i++)
         {
             worksheet.Cell(3, i + 1).Value = headers[i];
@@ -563,22 +565,23 @@ public sealed class ProcurementStore(
             worksheet.Cell(rowNumber, 2).Value = item.SourceProjectCodeText ?? projectCode ?? "";
             worksheet.Cell(rowNumber, 3).Value = item.StandardLeadTime ?? "";
             worksheet.Cell(rowNumber, 4).Value = item.OrderItem ?? "";
-            worksheet.Cell(rowNumber, 5).Value = item.SupplierName ?? "";
-            worksheet.Cell(rowNumber, 6).Value = item.TechnicalOwner ?? "";
+            worksheet.Cell(rowNumber, 5).Value = item.MaterialCategoryName ?? "";
+            worksheet.Cell(rowNumber, 6).Value = item.SupplierName ?? "";
+            worksheet.Cell(rowNumber, 7).Value = item.TechnicalOwner ?? "";
             if (item.OrderDate is not null)
             {
-                worksheet.Cell(rowNumber, 7).Value = item.OrderDate.Value.ToDateTime(TimeOnly.MinValue);
-                worksheet.Cell(rowNumber, 7).Style.DateFormat.Format = "yyyy-mm-dd";
+                worksheet.Cell(rowNumber, 8).Value = item.OrderDate.Value.ToDateTime(TimeOnly.MinValue);
+                worksheet.Cell(rowNumber, 8).Style.DateFormat.Format = "yyyy-mm-dd";
             }
 
             if (item.ExpectedReceiptDate is not null)
             {
-                worksheet.Cell(rowNumber, 8).Value = item.ExpectedReceiptDate.Value.ToDateTime(TimeOnly.MinValue);
-                worksheet.Cell(rowNumber, 8).Style.DateFormat.Format = "yyyy-mm-dd";
+                worksheet.Cell(rowNumber, 9).Value = item.ExpectedReceiptDate.Value.ToDateTime(TimeOnly.MinValue);
+                worksheet.Cell(rowNumber, 9).Style.DateFormat.Format = "yyyy-mm-dd";
             }
 
-            worksheet.Cell(rowNumber, 9).Value = item.IssueNote ?? "";
-            worksheet.Cell(rowNumber, 10).Value = item.ReceiptCompleted ? "Y" : "";
+            worksheet.Cell(rowNumber, 10).Value = item.IssueNote ?? "";
+            worksheet.Cell(rowNumber, 11).Value = item.ReceiptCompleted ? "Y" : "";
             rowNumber++;
         }
 
@@ -587,14 +590,14 @@ public sealed class ProcurementStore(
         {
             var min = column switch
             {
-                4 or 9 => 20,
-                7 or 8 => 13,
+                4 or 10 => 20,
+                8 or 9 => 13,
                 _ => 14
             };
             var max = column switch
             {
                 4 => 36,
-                9 => 42,
+                10 => 42,
                 _ => 24
             };
             worksheet.Column(column).Width = Math.Clamp(worksheet.Column(column).Width + 2, min, max);
@@ -720,10 +723,46 @@ public sealed class ProcurementStore(
                     continue;
                 }
                 var project = projects.Single(item => item.ProjectId == row.ProjectId.Value);
+                ProcurementMaterialCategorySnapshot? materialCategory = null;
+                if (project.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased)
+                {
+                    materialCategory = string.IsNullOrWhiteSpace(parsedRow.MaterialCategoryName)
+                        ? null
+                        : (await ReadActiveMaterialCategoriesAsync(connection, transaction, cancellationToken))
+                            .FirstOrDefault(category => string.Equals(
+                                ProcurementDomain.NormalizeProjectKey(category.DisplayName),
+                                ProcurementDomain.NormalizeProjectKey(parsedRow.MaterialCategoryName),
+                                StringComparison.Ordinal));
+                    if (!string.IsNullOrWhiteSpace(parsedRow.MaterialCategoryName) && materialCategory is null)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return ProcurementMutationResult<ProcurementListResponse>.Validation(
+                            new Dictionary<string, string[]>
+                            {
+                                ["Rows"] = [$"Excel {parsedRow.ExcelRowNumber}행의 구분이 비활성화되었거나 삭제되었습니다. 미리보기를 다시 실행해 주세요."]
+                            });
+                    }
+                }
 
                 if (row.ItemId is null)
                 {
-                    var inserted = await InsertItemAsync(connection, transaction, row.ProjectId.Value, parsedRow, changedByUserId, cancellationToken);
+                    if (project.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased && materialCategory is null)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return ProcurementMutationResult<ProcurementListResponse>.Validation(
+                            new Dictionary<string, string[]>
+                            {
+                                ["Rows"] = [$"Excel {parsedRow.ExcelRowNumber}행의 구분을 입력해 주세요."]
+                            });
+                    }
+                    var inserted = await InsertItemAsync(
+                        connection,
+                        transaction,
+                        row.ProjectId.Value,
+                        parsedRow,
+                        changedByUserId,
+                        cancellationToken,
+                        materialCategory: materialCategory);
                     var changes = CollectNewItemChanges(inserted);
                     foreach (var change in changes)
                     {
@@ -760,7 +799,31 @@ public sealed class ProcurementStore(
                         continue;
                     }
 
-                    await UpdateItemFromExcelAsync(connection, transaction, current, parsedRow, changedByUserId, cancellationToken);
+                    if (project.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased
+                        && materialCategory is not null
+                        && materialCategory.CategoryId != current.MaterialCategoryId)
+                    {
+                        var receiptAggregate = await ReadMaterialReceiptAggregateAsync(
+                            connection,
+                            transaction,
+                            current.ItemId,
+                            cancellationToken);
+                        if (receiptAggregate.ActiveReceiptCount > 0)
+                        {
+                            await transaction.RollbackAsync(cancellationToken);
+                            return ProcurementMutationResult<ProcurementListResponse>.Conflict(
+                                $"Excel {parsedRow.ExcelRowNumber}행은 도착 등록이 시작되어 구분을 변경할 수 없습니다.");
+                        }
+                    }
+
+                    materialCategory ??= current.MaterialCategoryId is null
+                        ? null
+                        : new ProcurementMaterialCategorySnapshot(
+                            current.MaterialCategoryId.Value,
+                            current.MaterialCategoryCode!,
+                            current.MaterialCategoryName!,
+                            current.MaterialCategoryRequiresIqc ?? false);
+                    await UpdateItemFromExcelAsync(connection, transaction, current, parsedRow, materialCategory, changedByUserId, cancellationToken);
                     foreach (var change in changes)
                     {
                         await InsertAuditAsync(connection, transaction, current.ProjectId, current.ItemId, change.FieldName, change.OldValue, change.NewValue, reason, changedByUserId, correlationId, "Excel", batchId, null, change.OriginalInputValue, cancellationToken);
@@ -933,7 +996,26 @@ public sealed class ProcurementStore(
                     return SupplyValidation<ProcurementResponse>("OrderQuantity", "일반 구매품의 발주 수량과 단위는 함께 입력하거나 모두 비워 주세요.");
                 }
 
-                var row = new ParsedProcurementExcelRow(0, 0, project.ProjectTitle, project.ProjectCode, update.StandardLeadTime, update.OrderItem, update.SupplierName, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, false, []);
+                ProcurementMaterialCategorySnapshot? materialCategory = null;
+                if (project.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased)
+                {
+                    if (update.MaterialCategoryId is null)
+                    {
+                        return MaterialCategoryValidation<ProcurementResponse>("구분을 선택해 주세요.");
+                    }
+
+                    materialCategory = await ReadActiveMaterialCategoryAsync(
+                        connection,
+                        transaction,
+                        update.MaterialCategoryId.Value,
+                        cancellationToken);
+                    if (materialCategory is null)
+                    {
+                        return MaterialCategoryValidation<ProcurementResponse>("선택한 구분이 없거나 비활성화되었습니다.");
+                    }
+                }
+
+                var row = new ParsedProcurementExcelRow(0, 0, project.ProjectTitle, project.ProjectCode, update.StandardLeadTime, update.OrderItem, update.SupplierName, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, materialCategory?.DisplayName, false, []);
                 var inserted = await InsertItemAsync(
                     connection,
                     transaction,
@@ -944,7 +1026,8 @@ public sealed class ProcurementStore(
                     nextSequence++,
                     newSupplyType,
                     update.OrderQuantity,
-                    newOrderUnit);
+                    newOrderUnit,
+                    materialCategory);
                 var newItemChanges = CollectNewItemChanges(inserted);
                 foreach (var change in newItemChanges)
                 {
@@ -986,7 +1069,55 @@ public sealed class ProcurementStore(
                 return ProcurementMutationResult<ProcurementResponse>.Conflict(ProcurementDomain.StaleVersionMessage);
             }
 
+            ProcurementMaterialCategorySnapshot? nextMaterialCategory = current.MaterialCategoryId is null
+                ? null
+                : new ProcurementMaterialCategorySnapshot(
+                    current.MaterialCategoryId.Value,
+                    current.MaterialCategoryCode!,
+                    current.MaterialCategoryName!,
+                    current.MaterialCategoryRequiresIqc ?? false);
+            if (project.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased)
+            {
+                if (update.MaterialCategoryId is null && current.MaterialCategoryId is null)
+                {
+                    return MaterialCategoryValidation<ProcurementResponse>("구분을 선택해 주세요.");
+                }
+
+                if (update.MaterialCategoryId is Guid requestedCategoryId)
+                {
+                    nextMaterialCategory = await ReadActiveMaterialCategoryAsync(
+                        connection,
+                        transaction,
+                        requestedCategoryId,
+                        cancellationToken);
+                    if (nextMaterialCategory is null)
+                    {
+                        return MaterialCategoryValidation<ProcurementResponse>("선택한 구분이 없거나 비활성화되었습니다.");
+                    }
+
+                    if (current.MaterialCategoryId != requestedCategoryId)
+                    {
+                        var receiptAggregate = await ReadMaterialReceiptAggregateAsync(connection, transaction, current.ItemId, cancellationToken);
+                        if (receiptAggregate.ActiveReceiptCount > 0)
+                        {
+                            return MaterialCategoryValidation<ProcurementResponse>("도착 이력이 있는 품목은 구분을 변경할 수 없습니다.");
+                        }
+                    }
+                }
+            }
+
             var changes = CollectDirectChanges(current, update);
+            if (nextMaterialCategory is not null
+                && (current.MaterialCategoryId != nextMaterialCategory.CategoryId
+                    || !string.Equals(current.MaterialCategoryName, nextMaterialCategory.DisplayName, StringComparison.Ordinal)
+                    || current.MaterialCategoryRequiresIqc != nextMaterialCategory.RequiresIqc))
+            {
+                changes.Add(new Change(
+                    "MaterialCategory",
+                    current.MaterialCategoryName,
+                    nextMaterialCategory.DisplayName,
+                    nextMaterialCategory.DisplayName));
+            }
             if (changes.Count == 0)
             {
                 continue;
@@ -1038,7 +1169,7 @@ public sealed class ProcurementStore(
                 }
             }
 
-            await UpdateItemDirectAsync(connection, transaction, current, update, changedByUserId, cancellationToken);
+            await UpdateItemDirectAsync(connection, transaction, current, update, nextMaterialCategory, changedByUserId, cancellationToken);
             var auditReason = string.IsNullOrWhiteSpace(reason) && current.ReceiptCompleted && update.ReceiptCompleted == false
                 ? "입고 완료 체크 해제"
                 : reason;
@@ -1062,7 +1193,7 @@ public sealed class ProcurementStore(
             }
         }
 
-        return ProcurementMutationResult<ProcurementResponse>.Success(new ProcurementResponse(project.ProjectId, project.ProjectTitle, project.ProjectCode, project.DeliveryDate, []));
+        return ProcurementMutationResult<ProcurementResponse>.Success(new ProcurementResponse(project.ProjectId, project.ProjectTitle, project.ProjectCode, project.DeliveryDate, project.IqcRoutingPolicy, []));
     }
 
     private static bool IsEmptyNewDirectRow(ProcurementItemUpdateRequest update)
@@ -1074,6 +1205,7 @@ public sealed class ProcurementStore(
             && update.OrderDate is null
             && update.ExpectedReceiptDate is null
             && string.IsNullOrWhiteSpace(update.IssueNote)
+            && update.MaterialCategoryId is null
             && update.SupplyType is null
             && update.OrderQuantity is null
             && update.OrderUnit is null
@@ -1180,6 +1312,7 @@ public sealed class ProcurementStore(
     {
         "StandardLeadTime" => "통상납기",
         "OrderItem" => "발주품목",
+        "MaterialCategory" => "구분",
         "SupplierName" => "업체",
         "TechnicalOwner" => "기술 담당자",
         "OrderDate" => "발주일",
@@ -1314,6 +1447,63 @@ public sealed class ProcurementStore(
         return ProcurementMutationResult<T>.Validation(new Dictionary<string, string[]> { [field] = [message] });
     }
 
+    private static ProcurementMutationResult<T> MaterialCategoryValidation<T>(string message)
+    {
+        return ProcurementMutationResult<T>.Validation(new Dictionary<string, string[]> { ["MaterialCategoryId"] = [message] });
+    }
+
+    private static async Task<ProcurementMaterialCategorySnapshot?> ReadActiveMaterialCategoryAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid categoryId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select id, code, display_name, requires_iqc
+            from material_categories
+            where id = @category_id
+              and is_active = true;
+            """;
+        command.Parameters.AddWithValue("category_id", categoryId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? new ProcurementMaterialCategorySnapshot(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetBoolean(3))
+            : null;
+    }
+
+    private static async Task<IReadOnlyList<ProcurementMaterialCategorySnapshot>> ReadActiveMaterialCategoriesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select id, code, display_name, requires_iqc
+            from material_categories
+            where is_active = true
+            order by display_order, display_name;
+            """;
+        var result = new List<ProcurementMaterialCategorySnapshot>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new ProcurementMaterialCategorySnapshot(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetBoolean(3)));
+        }
+
+        return result;
+    }
+
     private static async Task<MaterialReceiptAggregate> ReadMaterialReceiptAggregateAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -1377,6 +1567,11 @@ public sealed class ProcurementStore(
             .ToDictionary(group => group.Key, group => group.Single());
 
         var rows = new List<ProcurementExcelPreviewRowResponse>();
+        var activeCategories = await ReadActiveMaterialCategoriesAsync(connection, transaction, cancellationToken);
+        var categoriesByName = activeCategories.ToDictionary(
+            category => ProcurementDomain.NormalizeProjectKey(category.DisplayName),
+            category => category,
+            StringComparer.Ordinal);
         var touchedItemIds = new HashSet<Guid>();
         var reasonRequired = false;
         foreach (var row in parsed.Rows)
@@ -1410,6 +1605,28 @@ public sealed class ProcurementStore(
             else if (row.RowMatchKey is not null && uniqueMatchKey.TryGetValue((match.MatchedProjectId.Value, row.RowMatchKey), out var byKey))
             {
                 current = byKey;
+            }
+
+            var matchedProject = projects.Single(project => project.ProjectId == match.MatchedProjectId.Value);
+            if (matchedProject.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased)
+            {
+                ProcurementMaterialCategorySnapshot? selectedCategory = null;
+                if (!string.IsNullOrWhiteSpace(row.MaterialCategoryName))
+                {
+                    categoriesByName.TryGetValue(
+                        ProcurementDomain.NormalizeProjectKey(row.MaterialCategoryName),
+                        out selectedCategory);
+                    if (selectedCategory is null)
+                    {
+                        rows.Add(ToPreviewRow(row, "Error", match.MatchedProjectId, current, [$"구분 '{row.MaterialCategoryName}'을(를) 찾을 수 없습니다. 양식 관리의 활성 구분을 확인해 주세요."]));
+                        continue;
+                    }
+                }
+                else if (current?.MaterialCategoryId is null)
+                {
+                    rows.Add(ToPreviewRow(row, "Error", match.MatchedProjectId, current, ["구분을 입력해 주세요."]));
+                    continue;
+                }
             }
 
             if (current is null)
@@ -1448,6 +1665,7 @@ public sealed class ProcurementStore(
                 SourceProjectCodeText = missing.SourceProjectCodeText,
                 StandardLeadTime = missing.StandardLeadTime,
                 OrderItem = missing.OrderItem,
+                MaterialCategoryName = missing.MaterialCategoryName,
                 SupplierName = missing.SupplierName,
                 TechnicalOwner = missing.TechnicalOwner,
                 OrderDate = missing.OrderDate,
@@ -1607,6 +1825,7 @@ public sealed class ProcurementStore(
             SourceProjectCodeText = row.SourceProjectCodeText,
             StandardLeadTime = row.StandardLeadTime,
             OrderItem = row.OrderItem,
+            MaterialCategoryName = row.MaterialCategoryName ?? current?.MaterialCategoryName,
             SupplierName = row.SupplierName,
             TechnicalOwner = row.TechnicalOwner,
             OrderDate = row.OrderDate,
@@ -1644,6 +1863,7 @@ public sealed class ProcurementStore(
             project.ProjectTitle,
             project.ProjectCode,
             project.DeliveryDate,
+            project.IqcRoutingPolicy,
             items.OrderBy(item => item.SequenceNumber).Select(ToResponse).ToList());
     }
 
@@ -1655,7 +1875,8 @@ public sealed class ProcurementStore(
         Guid itemId,
         string supplyType,
         decimal? orderQuantity,
-        string? orderUnit)
+        string? orderUnit,
+        ProcurementMaterialCategorySnapshot? materialCategory)
     {
         var completed = row.ReceiptCompleted == true;
         return new ProcurementItemSnapshot(
@@ -1686,7 +1907,11 @@ public sealed class ProcurementStore(
             "Active",
             supplyType,
             orderQuantity,
-            orderUnit);
+            orderUnit,
+            materialCategory?.CategoryId,
+            materialCategory?.Code,
+            materialCategory?.DisplayName,
+            materialCategory?.RequiresIqc);
     }
 
     private static ProcurementItemResponse ToResponse(ProcurementItemSnapshot item)
@@ -1704,6 +1929,10 @@ public sealed class ProcurementStore(
             SourceProjectCodeText = item.SourceProjectCodeText,
             StandardLeadTime = item.StandardLeadTime,
             OrderItem = item.OrderItem,
+            MaterialCategoryId = item.MaterialCategoryId,
+            MaterialCategoryCode = item.MaterialCategoryCode,
+            MaterialCategoryName = item.MaterialCategoryName,
+            MaterialCategoryRequiresIqc = item.MaterialCategoryRequiresIqc,
             SupplierName = item.SupplierName,
             TechnicalOwner = item.TechnicalOwner,
             OrderDate = item.OrderDate,
@@ -1733,7 +1962,8 @@ public sealed class ProcurementStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select id, project_title, project_code, project_key, delivery_date, status, deleted_at_utc
+            select id, project_title, project_code, project_key, delivery_date, status, deleted_at_utc,
+                   iqc_routing_policy
             from projects
             where id = @project_id and (@include_deleted or deleted_at_utc is null);
             """;
@@ -1750,7 +1980,8 @@ public sealed class ProcurementStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select id, project_title, project_code, project_key, delivery_date, status, deleted_at_utc
+            select id, project_title, project_code, project_key, delivery_date, status, deleted_at_utc,
+                   iqc_routing_policy
             from projects
             where id = @project_id
             for no key update;
@@ -1771,7 +2002,8 @@ public sealed class ProcurementStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select id, project_title, project_code, project_key, delivery_date, status, deleted_at_utc
+            select id, project_title, project_code, project_key, delivery_date, status, deleted_at_utc,
+                   iqc_routing_policy
             from projects
             where deleted_at_utc is null
             order by project_title;
@@ -1809,7 +2041,8 @@ public sealed class ProcurementStore(
             reader.GetString(3),
             reader.GetFieldValue<DateOnly>(4),
             reader.GetString(5),
-            reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6));
+            reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
+            reader.GetString(7));
     }
 
     private async Task<IReadOnlyList<ProcurementItemSnapshot>> ReadItemsForProjectsAsync(NpgsqlDataSource dataSource, Guid[] projectIds, CancellationToken cancellationToken)
@@ -1861,7 +2094,9 @@ public sealed class ProcurementStore(
                    ) as receipt_completion_note,
                    i.row_version, i.source_excel_row_number,
                    i.source_group_sequence, i.row_match_key, i.status,
-                   i.supply_type, i.order_quantity, i.order_unit
+                   i.supply_type, i.order_quantity, i.order_unit,
+                   i.material_category_id, i.material_category_code_snapshot,
+                   i.material_category_name_snapshot, i.material_category_requires_iqc_snapshot
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -1900,7 +2135,9 @@ public sealed class ProcurementStore(
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
                    u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
                    i.source_group_sequence, i.row_match_key, i.status,
-                   i.supply_type, i.order_quantity, i.order_unit
+                   i.supply_type, i.order_quantity, i.order_unit,
+                   i.material_category_id, i.material_category_code_snapshot,
+                   i.material_category_name_snapshot, i.material_category_requires_iqc_snapshot
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -1935,7 +2172,9 @@ public sealed class ProcurementStore(
                    i.receipt_completed, i.receipt_completed_at_utc, i.receipt_completed_by_user_id,
                    u.display_name, i.receipt_completion_note, i.row_version, i.source_excel_row_number,
                    i.source_group_sequence, i.row_match_key, i.status,
-                   i.supply_type, i.order_quantity, i.order_unit
+                   i.supply_type, i.order_quantity, i.order_unit,
+                   i.material_category_id, i.material_category_code_snapshot,
+                   i.material_category_name_snapshot, i.material_category_requires_iqc_snapshot
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -1969,11 +2208,21 @@ public sealed class ProcurementStore(
         int? sequenceNumber = null,
         string supplyType = ProcurementSupplyTypes.Purchased,
         decimal? orderQuantity = null,
-        string? orderUnit = null)
+        string? orderUnit = null,
+        ProcurementMaterialCategorySnapshot? materialCategory = null)
     {
         var itemId = Guid.NewGuid();
         var sequence = sequenceNumber ?? await NextSequenceAsync(connection, transaction, projectId, cancellationToken);
-        var snapshot = ToSnapshotWithComputedReceipt(row, projectId, sequence, changedByUserId, itemId, supplyType, orderQuantity, orderUnit);
+        var snapshot = ToSnapshotWithComputedReceipt(
+            row,
+            projectId,
+            sequence,
+            changedByUserId,
+            itemId,
+            supplyType,
+            orderQuantity,
+            orderUnit,
+            materialCategory);
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -1984,7 +2233,9 @@ public sealed class ProcurementStore(
                 receipt_completed_by_user_id, receipt_completion_note, row_version,
                 source_excel_row_number, source_group_sequence, row_match_key,
                 source_type, is_confirmed, created_by_user_id, updated_by_user_id,
-                supply_type, order_quantity, order_unit)
+                supply_type, order_quantity, order_unit,
+                material_category_id, material_category_code_snapshot,
+                material_category_name_snapshot, material_category_requires_iqc_snapshot)
             values (
                 @id, @project_id, @sequence_number, @source_project_text, @source_project_code_text,
                 @standard_lead_time, @order_item, @supplier_name, @technical_owner, @order_date, @expected_receipt_date,
@@ -1992,13 +2243,23 @@ public sealed class ProcurementStore(
                 @receipt_completed_by_user_id, @receipt_completion_note, 1,
                 @source_excel_row_number, @source_group_sequence, @row_match_key,
                 @source_type, true, @user_id, @user_id,
-                @supply_type, @order_quantity, @order_unit);
+                @supply_type, @order_quantity, @order_unit,
+                @material_category_id, @material_category_code,
+                @material_category_name, @material_category_requires_iqc);
             """;
         AddItemParameters(command, snapshot, changedByUserId);
         command.Parameters.AddWithValue("source_type", row.ExcelRowNumber > 0 ? "Excel" : "Direct");
         command.Parameters.AddWithValue("supply_type", snapshot.SupplyType);
         command.Parameters.AddWithValue("order_quantity", (object?)snapshot.OrderQuantity ?? DBNull.Value);
         command.Parameters.AddWithValue("order_unit", (object?)snapshot.OrderUnit ?? DBNull.Value);
+        command.Parameters.Add("material_category_id", NpgsqlDbType.Uuid).Value =
+            snapshot.MaterialCategoryId ?? (object)DBNull.Value;
+        command.Parameters.Add("material_category_code", NpgsqlDbType.Text).Value =
+            snapshot.MaterialCategoryCode ?? (object)DBNull.Value;
+        command.Parameters.Add("material_category_name", NpgsqlDbType.Text).Value =
+            snapshot.MaterialCategoryName ?? (object)DBNull.Value;
+        command.Parameters.Add("material_category_requires_iqc", NpgsqlDbType.Boolean).Value =
+            snapshot.MaterialCategoryRequiresIqc ?? (object)DBNull.Value;
         await command.ExecuteNonQueryAsync(cancellationToken);
         return snapshot;
     }
@@ -2012,7 +2273,14 @@ public sealed class ProcurementStore(
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
     }
 
-    private static async Task UpdateItemDirectAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, ProcurementItemSnapshot current, ProcurementItemUpdateRequest update, Guid changedByUserId, CancellationToken cancellationToken)
+    private static async Task UpdateItemDirectAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ProcurementItemSnapshot current,
+        ProcurementItemUpdateRequest update,
+        ProcurementMaterialCategorySnapshot? materialCategory,
+        Guid changedByUserId,
+        CancellationToken cancellationToken)
     {
         var parsed = new ParsedProcurementExcelRow(
             current.SourceExcelRowNumber ?? 0,
@@ -2028,6 +2296,7 @@ public sealed class ProcurementStore(
             null,
             ProcurementDomain.TrimToNull(update.IssueNote),
             update.ReceiptCompleted,
+            materialCategory?.DisplayName,
             false,
             []);
         await UpdateItemFromParsedAsync(
@@ -2039,11 +2308,19 @@ public sealed class ProcurementStore(
             update.SupplyType is null ? current.SupplyType : NormalizeSupplyType(update.SupplyType)!,
             update.OrderQuantity ?? current.OrderQuantity,
             update.OrderUnit is null ? current.OrderUnit : NormalizeOptionalUnit(update.OrderUnit),
+            materialCategory,
             changedByUserId,
             cancellationToken);
     }
 
-    private static async Task UpdateItemFromExcelAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, ProcurementItemSnapshot current, ParsedProcurementExcelRow row, Guid changedByUserId, CancellationToken cancellationToken)
+    private static async Task UpdateItemFromExcelAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ProcurementItemSnapshot current,
+        ParsedProcurementExcelRow row,
+        ProcurementMaterialCategorySnapshot? materialCategory,
+        Guid changedByUserId,
+        CancellationToken cancellationToken)
     {
         await UpdateItemFromParsedAsync(
             connection,
@@ -2054,6 +2331,7 @@ public sealed class ProcurementStore(
             current.SupplyType,
             current.OrderQuantity,
             current.OrderUnit,
+            materialCategory,
             changedByUserId,
             cancellationToken);
     }
@@ -2067,6 +2345,7 @@ public sealed class ProcurementStore(
         string supplyType,
         decimal? orderQuantity,
         string? orderUnit,
+        ProcurementMaterialCategorySnapshot? materialCategory,
         Guid changedByUserId,
         CancellationToken cancellationToken)
     {
@@ -2091,6 +2370,10 @@ public sealed class ProcurementStore(
                 supply_type = @supply_type,
                 order_quantity = @order_quantity,
                 order_unit = @order_unit,
+                material_category_id = @material_category_id,
+                material_category_code_snapshot = @material_category_code,
+                material_category_name_snapshot = @material_category_name,
+                material_category_requires_iqc_snapshot = @material_category_requires_iqc,
                 receipt_completed = @receipt_completed,
                 receipt_completed_at_utc = @receipt_completed_at_utc,
                 receipt_completed_by_user_id = @receipt_completed_by_user_id,
@@ -2116,6 +2399,14 @@ public sealed class ProcurementStore(
         command.Parameters.AddWithValue("supply_type", supplyType);
         command.Parameters.AddWithValue("order_quantity", (object?)orderQuantity ?? DBNull.Value);
         command.Parameters.AddWithValue("order_unit", (object?)orderUnit ?? DBNull.Value);
+        command.Parameters.Add("material_category_id", NpgsqlDbType.Uuid).Value =
+            materialCategory?.CategoryId ?? current.MaterialCategoryId ?? (object)DBNull.Value;
+        command.Parameters.Add("material_category_code", NpgsqlDbType.Text).Value =
+            materialCategory?.Code ?? current.MaterialCategoryCode ?? (object)DBNull.Value;
+        command.Parameters.Add("material_category_name", NpgsqlDbType.Text).Value =
+            materialCategory?.DisplayName ?? current.MaterialCategoryName ?? (object)DBNull.Value;
+        command.Parameters.Add("material_category_requires_iqc", NpgsqlDbType.Boolean).Value =
+            materialCategory?.RequiresIqc ?? current.MaterialCategoryRequiresIqc ?? (object)DBNull.Value;
         command.Parameters.AddWithValue("receipt_completed", current.ReceiptCompleted);
         command.Parameters.AddWithValue("receipt_completed_at_utc", (object?)NormalizeUtc(current.ReceiptCompletedAtUtc) ?? DBNull.Value);
         command.Parameters.AddWithValue("receipt_completed_by_user_id", (object?)current.ReceiptCompletedByUserId ?? DBNull.Value);
@@ -2251,7 +2542,7 @@ public sealed class ProcurementStore(
 
     private static List<Change> CollectDirectChanges(ProcurementItemSnapshot current, ProcurementItemUpdateRequest update)
     {
-        var next = new ParsedProcurementExcelRow(0, current.SourceGroupSequence ?? 0, current.SourceProjectText, current.SourceProjectCodeText, update.StandardLeadTime, update.OrderItem, update.SupplierName, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, false, []);
+        var next = new ParsedProcurementExcelRow(0, current.SourceGroupSequence ?? 0, current.SourceProjectText, current.SourceProjectCodeText, update.StandardLeadTime, update.OrderItem, update.SupplierName, update.TechnicalOwner, update.OrderDate, update.ExpectedReceiptDate, null, update.IssueNote, update.ReceiptCompleted, current.MaterialCategoryName, false, []);
         var changes = CollectChanges(current, next, NormalizeUtc(update.ReceiptCompletedAtUtc), update.ReceiptCompletionNote, keepExistingWhenNull: false);
         if (update.SupplyType is not null)
         {
@@ -2274,7 +2565,14 @@ public sealed class ProcurementStore(
 
     private static List<Change> CollectExcelChanges(ProcurementItemSnapshot current, ParsedProcurementExcelRow row)
     {
-        return CollectChanges(current, row, null, null, keepExistingWhenNull: true);
+        var changes = CollectChanges(current, row, null, null, keepExistingWhenNull: true);
+        if (!string.IsNullOrWhiteSpace(row.MaterialCategoryName)
+            && !string.Equals(current.MaterialCategoryName, row.MaterialCategoryName.Trim(), StringComparison.Ordinal))
+        {
+            changes.Add(new Change("MaterialCategory", current.MaterialCategoryName, row.MaterialCategoryName.Trim(), row.MaterialCategoryName));
+        }
+
+        return changes;
     }
 
     private static List<Change> CollectReceiptChanges(ProcurementItemSnapshot current, ProcurementReceiptUpdateRequest update)
@@ -2337,6 +2635,7 @@ public sealed class ProcurementStore(
         var changes = new List<Change>();
         AddNew(changes, "StandardLeadTime", item.StandardLeadTime);
         AddNew(changes, "OrderItem", item.OrderItem);
+        AddNew(changes, "MaterialCategory", item.MaterialCategoryName);
         AddNew(changes, "SupplierName", item.SupplierName);
         AddNew(changes, "TechnicalOwner", item.TechnicalOwner);
         AddNew(changes, "OrderDate", item.OrderDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
@@ -2421,7 +2720,11 @@ public sealed class ProcurementStore(
             reader.GetString(24),
             reader.GetString(25),
             reader.IsDBNull(26) ? null : reader.GetDecimal(26),
-            reader.IsDBNull(27) ? null : reader.GetString(27));
+            reader.IsDBNull(27) ? null : reader.GetString(27),
+            reader.IsDBNull(28) ? null : reader.GetGuid(28),
+            reader.IsDBNull(29) ? null : reader.GetString(29),
+            reader.IsDBNull(30) ? null : reader.GetString(30),
+            reader.IsDBNull(31) ? null : reader.GetBoolean(31));
     }
 
     private static void AddItemParameters(NpgsqlCommand command, ProcurementItemSnapshot item, Guid userId)

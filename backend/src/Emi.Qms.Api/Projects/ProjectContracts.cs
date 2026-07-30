@@ -3,6 +3,12 @@ using Emi.Qms.Api.Ul891Sets;
 
 namespace Emi.Qms.Api.Projects;
 
+public static class ProjectIqcRoutingPolicies
+{
+    public const string AllReceipts = "AllReceipts";
+    public const string CategoryBased = "CategoryBased";
+}
+
 public sealed record CreateProjectRequest(
     string? CustomerName,
     string? Item,
@@ -149,6 +155,7 @@ public sealed record PanelStageDistributionResponse(
 
 public sealed class ProjectDetailResponse : ProjectListItemResponse
 {
+    public string IqcRoutingPolicy { get; init; } = ProjectIqcRoutingPolicies.AllReceipts;
     public string? StatusReason { get; init; }
     public int PanelInfoCompletedCount { get; init; }
     public int PanelInfoPendingCount { get; init; }

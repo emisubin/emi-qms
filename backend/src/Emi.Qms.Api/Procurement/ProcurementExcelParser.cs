@@ -14,6 +14,7 @@ public sealed class ProcurementExcelParser
         ["PJT CODE"] = "pjt code",
         ["통상납기"] = "통상납기",
         ["발주품목"] = "발주품목",
+        ["구분"] = "구분",
         ["업체"] = "업체",
         ["기술 담당자"] = "기술 담당자",
         ["발주일"] = "발주일",
@@ -144,6 +145,7 @@ public sealed class ProcurementExcelParser
                 var pjtCode = ReadText(worksheet, rowNumber, header.Columns, "pjt code", rowErrors);
                 var standardLeadTime = ReadText(worksheet, rowNumber, header.Columns, "통상납기", rowErrors);
                 var orderItem = ReadText(worksheet, rowNumber, header.Columns, "발주품목", rowErrors);
+                var materialCategoryName = ReadText(worksheet, rowNumber, header.Columns, "구분", rowErrors);
                 var supplierName = ReadText(worksheet, rowNumber, header.Columns, "업체", rowErrors);
                 var owner = ReadText(worksheet, rowNumber, header.Columns, "기술 담당자", rowErrors);
                 var shipmentText = ReadText(worksheet, rowNumber, header.Columns, "납품예정일", rowErrors);
@@ -161,7 +163,7 @@ public sealed class ProcurementExcelParser
 
                 var hasData = new[]
                 {
-                    pjt, pjtCode, standardLeadTime, orderItem, supplierName, owner, shipmentText, issue, receiptRaw
+                    pjt, pjtCode, standardLeadTime, orderItem, materialCategoryName, supplierName, owner, shipmentText, issue, receiptRaw
                 }.Any(value => !string.IsNullOrWhiteSpace(value)) || orderDate is not null || expectedReceiptDate is not null;
 
                 if (!hasData)
@@ -171,6 +173,7 @@ public sealed class ProcurementExcelParser
                         Math.Max(sourceGroupSequence, 0),
                         currentProject,
                         currentCode,
+                        null,
                         null,
                         null,
                         null,
@@ -210,6 +213,7 @@ public sealed class ProcurementExcelParser
                     ProcurementDomain.TrimToNull(shipmentText),
                     ProcurementDomain.TrimToNull(issue),
                     receiptCompleted,
+                    ProcurementDomain.TrimToNull(materialCategoryName),
                     IsSkipped: false,
                     rowErrors));
             }

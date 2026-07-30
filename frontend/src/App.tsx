@@ -65,6 +65,7 @@ import {
   getAdminWorkItemHistory,
   getCurrentUser,
   getFormTemplateScope,
+  getMaterialCategories,
   getOwnProfilePhoto,
   listProjectPanelQrs,
   getAdminUsers,
@@ -155,6 +156,7 @@ import {
   updateProjectProcurement,
   updateProject
 } from './api';
+import type { MaterialCategory } from './formTemplates';
 import type { RuntimeMode } from './api';
 import {
   acquireAccessToken,
@@ -282,13 +284,13 @@ type View =
   | { kind: 'edit'; projectId: string }
   | { kind: 'panel-info-edit'; projectId: string }
   | { kind: 'production-planning-edit'; projectId: string }
-  | { kind: 'production-planning-dashboard'; workspace?: 'planning' | 'release' }
+  | { kind: 'production-planning-dashboard'; workspace?: 'planning' | 'release'; projectId?: string }
   | { kind: 'production-planning-settings' }
   | { kind: 'procurement-edit'; projectId: string }
   | { kind: 'procurement-dashboard' }
   | { kind: 'procurement-settings' }
   | { kind: 'operational-hub'; area: OperationalHubArea }
-  | { kind: 'materials-receipts'; projectCode?: string; risk?: 'customer-supply-overdue' }
+  | { kind: 'materials-receipts'; projectCode?: string; projectId?: string; receiptId?: string; risk?: 'customer-supply-overdue' }
   | { kind: 'materials-kitting'; projectId?: string; panelId?: string }
   | { kind: 'manufacturing-work'; projectId?: string; panelId?: string }
   | { kind: 'logistics'; stage?: LogisticsStage; projectId?: string; panelId?: string; unitId?: string; draftId?: string }
@@ -684,6 +686,8 @@ function initialViewFromLocation(): View {
     return {
       kind: 'materials-receipts',
       projectCode: params.get('project') ?? undefined,
+      projectId: params.get('projectId') ?? undefined,
+      receiptId: params.get('receipt') ?? undefined,
       risk: params.get('risk') === 'customer-supply-overdue' ? 'customer-supply-overdue' : undefined
     };
   }
@@ -745,11 +749,13 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/production-planning/plans') {
-    return { kind: 'production-planning-dashboard', workspace: 'planning' };
+    const params = new URLSearchParams(window.location.search);
+    return { kind: 'production-planning-dashboard', workspace: 'planning', projectId: params.get('project') ?? undefined };
   }
 
   if (window.location.pathname === '/production-planning/releases') {
-    return { kind: 'production-planning-dashboard', workspace: 'release' };
+    const params = new URLSearchParams(window.location.search);
+    return { kind: 'production-planning-dashboard', workspace: 'release', projectId: params.get('project') ?? undefined };
   }
 
   if (window.location.pathname === '/production-planning/settings') {
@@ -913,7 +919,13 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
   try {
     const url = new URL(linkUrl, window.location.origin);
     if (url.pathname === '/materials/receipts') {
-      return { kind: 'detail', projectId, section: 'workflow' };
+      return {
+        kind: 'materials-receipts',
+        projectCode: url.searchParams.get('project') ?? undefined,
+        projectId: url.searchParams.get('projectId') ?? projectId,
+        receiptId: url.searchParams.get('receipt') ?? undefined,
+        risk: url.searchParams.get('risk') === 'customer-supply-overdue' ? 'customer-supply-overdue' : undefined
+      };
     }
 
     if (url.pathname === '/materials/kitting') {
@@ -929,6 +941,14 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
         kind: 'manufacturing-work',
         projectId: url.searchParams.get('project') ?? projectId,
         panelId: url.searchParams.get('panel') ?? undefined
+      };
+    }
+
+    if (url.pathname === '/production-planning/releases') {
+      return {
+        kind: 'production-planning-dashboard',
+        workspace: 'release',
+        projectId: url.searchParams.get('project') ?? projectId
       };
     }
 
@@ -1070,7 +1090,10 @@ function pathForView(view: View) {
     case 'production-planning-edit':
       return `/projects/${view.projectId}/production-planning/edit`;
     case 'production-planning-dashboard':
-      return view.workspace === 'release' ? '/production-planning/releases' : '/production-planning/plans';
+      {
+        const path = view.workspace === 'release' ? '/production-planning/releases' : '/production-planning/plans';
+        return view.projectId ? `${path}?project=${encodeURIComponent(view.projectId)}` : path;
+      }
     case 'production-planning-settings':
       return '/production-planning/settings';
     case 'operational-hub':
@@ -1083,6 +1106,8 @@ function pathForView(view: View) {
     case 'materials-receipts': {
       const params = new URLSearchParams();
       if (view.projectCode) params.set('project', view.projectCode);
+      if (view.projectId) params.set('projectId', view.projectId);
+      if (view.receiptId) params.set('receipt', view.receiptId);
       if (view.risk) params.set('risk', view.risk);
       const query = params.toString();
       return `/materials/receipts${query ? `?${query}` : ''}`;
@@ -1783,6 +1808,7 @@ function QmsAppShellContent({
   const canManagePendingTypes = permissions.includes('PendingType.Manage');
   const canSettleSales = permissions.includes('sales.settle');
   const canViewSalesProjectTab = user?.effectiveUser.department === 'sales';
+  const canManageMaterialCategories = user?.effectiveUser.department === 'quality';
   const canManageSalesTargets = permissions.includes('Sales.Target.Manage');
   const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
@@ -1837,7 +1863,7 @@ function QmsAppShellContent({
     ...departmentNavigationItems
       .filter((item) => item.label !== departmentNavigationLabel)
       .map((item) => ({ ...item, group: '공통 조회' as const })),
-    ...(formTemplateScope?.canManage ? [
+    ...(formTemplateScope?.canManage || canManageMaterialCategories ? [
       { label: '양식 관리', view: { kind: 'form-templates' } as View, active: view.kind === 'form-templates', group: '관리' as const }
     ] : []),
     ...(canManagePendingTypes ? [
@@ -2305,6 +2331,7 @@ function QmsAppShellContent({
           developmentUserKey={developmentUserKey}
           canUpdateProductionPlanning={canUpdateProductionPlanning}
           workspace={view.workspace ?? 'planning'}
+          initialProjectId={view.projectId}
           onBack={() => setView({ kind: 'operational-hub', area: 'production' })}
           onOpenSettings={() => setView({ kind: 'production-planning-settings' })}
           onOpenProject={(projectId) => setView({ kind: 'detail', projectId, section: 'production-planning' })}
@@ -2344,6 +2371,8 @@ function QmsAppShellContent({
           developmentUserKey={developmentUserKey}
           canUpdate={canUpdateMaterialReceipt}
           initialProjectCode={view.projectCode}
+          initialProjectId={view.projectId}
+          initialReceiptId={view.receiptId}
           initialRisk={view.risk}
           onBack={() => setView({ kind: 'operational-hub', area: 'materials' })}
           onOpenIqc={(requestId) => setView({ kind: 'quality-iqc', requestId })}
@@ -6840,7 +6869,10 @@ function MyWorkPage({
                               <strong>{item.title}</strong>
                               <small>{displayWorkflowStageName(item.workflowStageCode, item.workflowStageName)}</small>
                             </div>
-                            <StatusBadge label={item.priority === 'Blocking' ? '긴급' : item.statusLabel} tone={workItemStatusTone(item)} />
+                            <div className="status-badge-row">
+                              <StatusBadge label={item.statusLabel} tone={workItemStateTone(item.status)} />
+                              {item.priority === 'Blocking' ? <StatusBadge label="긴급" tone="danger" /> : null}
+                            </div>
                           </div>
                           <OperationalDetailText
                             value={item.description}
@@ -6874,6 +6906,7 @@ function MyWorkPage({
                             <th>단계</th>
                             <th>업무 제목</th>
                             <th>상태</th>
+                            <th>긴급도</th>
                             <th>생성일</th>
                             <th>작업</th>
                             <th className="workflow-detail-column">상세 내용</th>
@@ -6885,7 +6918,8 @@ function MyWorkPage({
                               <td><SelectionCheckbox checked={workSelection.selectedIds.has(item.workItemId)} disabled={workSelection.busy} label={`${item.title} 선택`} onChange={(checked) => workSelection.toggle(item.workItemId, checked)} /></td>
                               <td><span className="workflow-stage-badge" data-department={departmentForStageCode(item.workflowStageCode)}>{displayWorkflowStageName(item.workflowStageCode, item.workflowStageName)}</span></td>
                               <td><strong>{item.title}</strong></td>
-                              <td><StatusBadge label={item.priority === 'Blocking' ? '긴급' : item.statusLabel} tone={workItemStatusTone(item)} /></td>
+                              <td><StatusBadge label={item.statusLabel} tone={workItemStateTone(item.status)} /></td>
+                              <td>{item.priority === 'Blocking' ? <StatusBadge label="긴급" tone="danger" /> : <span className="muted-text">일반</span>}</td>
                               <td>{formatDateTime(item.createdAtUtc)}</td>
                               <td>
                                 <div className="button-row">
@@ -7147,7 +7181,10 @@ function TeamsActivityPage({
                         <strong>{item.title}</strong>
                         <small>{displayWorkflowStageName(item.workflowStageCode, item.workflowStageName)} · {item.responsibilityLabel}</small>
                       </div>
-                      <StatusBadge label={item.priority === 'Blocking' ? '긴급' : item.statusLabel} tone={workItemStatusTone(item)} />
+                      <div className="status-badge-row">
+                        <StatusBadge label={item.statusLabel} tone={workItemStateTone(item.status)} />
+                        {item.priority === 'Blocking' ? <StatusBadge label="긴급" tone="danger" /> : null}
+                      </div>
                     </div>
                     <OperationalDetailText
                       value={item.description}
@@ -7802,12 +7839,8 @@ function stripTrailingInternalLink(value: string) {
   return value.replace(/\s+\/[a-z0-9][^\s]*$/iu, '').trim();
 }
 
-function workItemStatusTone(item: { status: string; priority: string }): StatusTone {
-  if (item.priority === 'Blocking') {
-    return 'danger';
-  }
-
-  switch (item.status) {
+function workItemStateTone(status: string): StatusTone {
+  switch (status) {
     case 'Requested':
       return 'warning';
     case 'InProgress':
@@ -10680,6 +10713,7 @@ function materialReceiptStatusLabel(value: string) {
     Arrived: '도착 등록',
     IqcRequested: 'IQC 요청',
     Passed: 'IQC 합격',
+    InspectionNotRequired: 'IQC 비대상 · 확정 대기',
     FailedBlocked: 'IQC 부적합',
     Confirmed: '입고 확정',
     Cancelled: '취소'
@@ -10928,6 +10962,8 @@ type ProcurementRowForm = {
   sourceProjectCodeText: string;
   standardLeadTime: string;
   orderItem: string;
+  materialCategoryId: string;
+  materialCategoryName: string;
   supplierName: string;
   technicalOwner: string;
   orderDate: string;
@@ -10945,7 +10981,7 @@ type ProcurementRowForm = {
 
 type ProcurementValidationIssue = {
   rowIndex: number;
-  field: 'supplyType' | 'orderQuantity' | 'orderUnit' | 'reason' | 'items';
+  field: 'materialCategoryId' | 'supplyType' | 'orderQuantity' | 'orderUnit' | 'reason' | 'items';
   message: string;
 };
 
@@ -11005,6 +11041,7 @@ function ProductionPlanningDashboardPage({
   developmentUserKey,
   canUpdateProductionPlanning,
   workspace,
+  initialProjectId,
   onBack,
   onOpenSettings,
   onOpenProject,
@@ -11013,6 +11050,7 @@ function ProductionPlanningDashboardPage({
   developmentUserKey: string;
   canUpdateProductionPlanning: boolean;
   workspace: 'planning' | 'release';
+  initialProjectId?: string;
   onBack: () => void;
   onOpenSettings: () => void;
   onOpenProject: (projectId: string) => void;
@@ -11022,7 +11060,7 @@ function ProductionPlanningDashboardPage({
   const [search, setSearch] = useState('');
   const [summaryState, setSummaryState] = useState<LoadState<ProductionPlanningSummary>>({ kind: 'loading' });
   const [state, setState] = useState<LoadState<ProductionPlanningProjectListResponse>>({ kind: 'loading' });
-  const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
+  const [expandedProjectId, setExpandedProjectId] = useState<string | null>(initialProjectId ?? null);
   const [expandedPlanState, setExpandedPlanState] = useState<LoadState<ProductionPlanningResponse>>({ kind: 'empty' });
   const [showExcelDialog, setShowExcelDialog] = useState(false);
   const [excelMessage, setExcelMessage] = useState('');
@@ -11040,13 +11078,16 @@ function ProductionPlanningDashboardPage({
       .then(([summary, projects]) => {
         setSummaryState({ kind: 'ready', data: summary });
         setState({ kind: 'ready', data: projects });
-        setExpandedProjectId((current) => current && projects.projects.some((project) => project.projectId === current) ? current : null);
+        setExpandedProjectId((current) => {
+          const requested = current ?? initialProjectId ?? null;
+          return requested && projects.projects.some((project) => project.projectId === requested) ? requested : null;
+        });
       })
       .catch((error: unknown) => {
         setSummaryState(toLoadError(error, '생산계획 요약을 불러올 수 없습니다.'));
         setState(toLoadError(error, '생산계획 프로젝트 목록을 불러올 수 없습니다.'));
       });
-  }, [developmentUserKey, search]);
+  }, [developmentUserKey, initialProjectId, search]);
 
   useEffect(() => {
     queueMicrotask(load);
@@ -12163,6 +12204,12 @@ function ProductionPlanningReadOnly({
         <StatusChip label="계획 상태" value={plan.planStatusLabel} />
         <StatusChip label="필수 일정" value={`${plan.items.filter((item) => item.isRequired && item.plannedDate).length}/${plan.items.filter((item) => item.isRequired).length}`} />
       </div>
+      {plan.notes ? (
+        <aside className="production-plan-shared-note" aria-label="생산관리 전체 전달사항">
+          <strong>생산관리 전체 전달사항</strong>
+          <p>{plan.notes}</p>
+        </aside>
+      ) : null}
       <section className="production-schedule-priority" aria-label="생산계획 일정">
         <div className="production-priority-heading">
           <div><span>PRODUCTION SCHEDULE</span><h4>계획 항목과 일정</h4></div>
@@ -12353,6 +12400,12 @@ function ProductionControlLinkedPlanReadOnly({
         <StatusChip label="필수 완료" value={`${completed}/${required.length}`} />
         <StatusChip label="Pending" value={`${blocked}건`} />
       </div>
+      {plan.notes ? (
+        <aside className="production-plan-shared-note" aria-label="생산관리 전체 전달사항">
+          <strong>생산관리 전체 전달사항</strong>
+          <p>{plan.notes}</p>
+        </aside>
+      ) : null}
 
       <section className="production-schedule-priority" aria-label="연결형 생산계획 일정">
         <div className="production-priority-heading">
@@ -12937,7 +12990,7 @@ function ProductionPlanningEditPage({
             <DsInputSection
               number={1}
               title="기본 조건"
-              description="프로젝트 Item을 확인하고 생산관리 공통 코멘트를 입력합니다."
+              description="프로젝트 Item을 확인하고 생산계획 전체에 공유할 전달사항을 입력합니다."
               actions={(
                 <>
                   {plan.modelVersion === 'LEGACY' ? <button type="button" onClick={downloadTemplate} disabled={!initialDataReady || isDownloading || !selectedProductTypeId}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button> : null}
@@ -12953,7 +13006,7 @@ function ProductionPlanningEditPage({
                   <FieldErrorMessage field="productTypeId" message={fieldError(errors, 'productTypeId')} />
                 </div>
                 <label className="form-field">
-                  <span>생산관리 공통 코멘트</span>
+                  <span>생산관리 전체 전달사항</span>
                   <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
                 </label>
                 <label className={fieldError(errors, 'reason') ? 'form-field panel-reason-field has-error' : 'form-field panel-reason-field'}>
@@ -13909,6 +13962,7 @@ function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
         <div className="procurement-table-head" role="row">
           <span>통상납기</span>
           <span>발주품목</span>
+          <span>구분</span>
           <span>업체</span>
           <span>기술 담당자</span>
           <span>발주일</span>
@@ -13921,6 +13975,7 @@ function ProcurementReadOnlyList({ items }: { items: ProcurementItem[] }) {
           <div className="procurement-table-row" role="row" key={item.itemId}>
             <span>{emptyDash(item.standardLeadTime)}</span>
             <span className="order-item-badge">{emptyDash(item.orderItem)}</span>
+            <span>{emptyDash(item.materialCategoryName)}</span>
             <span>{emptyDash(item.supplierName)}</span>
             <span>{emptyDash(item.technicalOwner)}</span>
             <span>{emptyDash(item.orderDate)}</span>
@@ -13992,6 +14047,7 @@ function procurementIssueSummary(rows: ProcurementRowForm[], rowIndex: number, i
 
 function procurementValidationFieldLabel(field: ProcurementValidationIssue['field'], supplyType?: ProcurementSupplyType) {
   return ({
+    materialCategoryId: '구매품 구분',
     supplyType: '공급 방식',
     orderQuantity: supplyType === 'CustomerSupplied' ? '제공 예정 수량' : '발주 수량',
     orderUnit: supplyType === 'CustomerSupplied' ? '제공 예정 단위' : '발주 단위',
@@ -14019,7 +14075,9 @@ function procurementIssueFromApiError(
   const normalized = path.replaceAll('$', '').toLowerCase();
   const field: ProcurementValidationIssue['field'] = normalized.includes('reason')
     ? 'reason'
-    : normalized.includes('supplytype')
+    : normalized.includes('materialcategory')
+      ? 'materialCategoryId'
+      : normalized.includes('supplytype')
       ? 'supplyType'
       : normalized.includes('orderunit')
         ? 'orderUnit'
@@ -14089,6 +14147,7 @@ function ProcurementEditPage({
   const [isDownloading, setIsDownloading] = useState(false);
   const [showExcel, setShowExcel] = useState(false);
   const [activeSupplyType, setActiveSupplyType] = useState<ProcurementSupplyType>('Purchased');
+  const [materialCategories, setMaterialCategories] = useState<MaterialCategory[]>([]);
   const [validationIssue, setValidationIssue] = useState<ProcurementValidationIssue | null>(null);
   const loadRequestIdRef = useRef(0);
   const originalRowsRef = useRef<ProcurementRowForm[]>([]);
@@ -14103,13 +14162,17 @@ function ProcurementEditPage({
       getProjectProcurement(developmentUserKey, projectId),
       getProject(developmentUserKey, projectId)
     ])
-      .then(([response, project]) => {
+      .then(async ([response, project]) => {
+        const categories = response.iqcRoutingPolicy === 'CategoryBased'
+          ? await getMaterialCategories(developmentUserKey)
+          : { items: [] };
         if (requestId !== loadRequestIdRef.current) {
           return;
         }
 
         setState({ kind: 'ready', data: response });
         setProjectState({ kind: 'ready', data: project });
+        setMaterialCategories(categories.items);
         const loadedRows = response.items.map(procurementItemToForm);
         originalRowsRef.current = loadedRows;
         setRows(loadedRows);
@@ -14145,6 +14208,22 @@ function ProcurementEditPage({
 
   async function save() {
     setValidationIssue(null);
+    if (state.kind === 'ready' && state.data.iqcRoutingPolicy === 'CategoryBased') {
+      const missingCategoryIndex = rows.findIndex((row) => !row.materialCategoryId);
+      if (missingCategoryIndex >= 0) {
+        const issue: ProcurementValidationIssue = {
+          rowIndex: missingCategoryIndex,
+          field: 'materialCategoryId',
+          message: '구매품 구분을 선택해 주세요.'
+        };
+        setValidationIssue(issue);
+        setActiveSupplyType(rows[missingCategoryIndex].supplyType);
+        setMessageTone('error');
+        setMessage(procurementIssueSummary(rows, missingCategoryIndex, issue));
+        focusProcurementIssue(issue);
+        return;
+      }
+    }
     const invalidMeasurementIndex = rows.findIndex((row) => {
       const quantityEntered = row.orderQuantity.trim().length > 0;
       const unitEntered = row.orderUnit.trim().length > 0;
@@ -14255,7 +14334,7 @@ function ProcurementEditPage({
           {state.kind === 'ready' ? (
             <>
               {validationIssue ? <ProcurementIssuePanel row={rows[validationIssue.rowIndex]} rowNumber={rows.slice(0, validationIssue.rowIndex + 1).filter((row) => row.supplyType === rows[validationIssue.rowIndex]?.supplyType).length} issue={validationIssue} /> : null}
-              <ProcurementEditableList rows={rows} onChange={updateRow} activeSupplyType={activeSupplyType} onActiveSupplyTypeChange={setActiveSupplyType} validationIssue={validationIssue} />
+              <ProcurementEditableList rows={rows} onChange={updateRow} activeSupplyType={activeSupplyType} onActiveSupplyTypeChange={setActiveSupplyType} validationIssue={validationIssue} materialCategories={materialCategories} categoryBased={state.data.iqcRoutingPolicy === 'CategoryBased'} />
             </>
           ) : null}
         </DsInputSection>
@@ -14292,13 +14371,17 @@ function ProcurementEditableList({
   onChange,
   activeSupplyType,
   onActiveSupplyTypeChange,
-  validationIssue
+  validationIssue,
+  materialCategories,
+  categoryBased
 }: {
   rows: ProcurementRowForm[];
   onChange: (index: number, next: Partial<ProcurementRowForm>) => void;
   activeSupplyType: ProcurementSupplyType;
   onActiveSupplyTypeChange: (supplyType: ProcurementSupplyType) => void;
   validationIssue: ProcurementValidationIssue | null;
+  materialCategories: MaterialCategory[];
+  categoryBased: boolean;
 }) {
   const isMobile = useIsMobileViewport();
   const visibleRows = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.supplyType === activeSupplyType);
@@ -14306,12 +14389,13 @@ function ProcurementEditableList({
     <div className="procurement-supply-groups">
       <ProcurementSupplyTabs items={rows} activeSupplyType={activeSupplyType} onChange={onActiveSupplyTypeChange} />
       {visibleRows.length === 0 ? <p className="empty-text">등록된 {procurementSupplyGroupLabel(activeSupplyType)}이 없습니다. 위 버튼으로 행을 추가해 주세요.</p> : isMobile
-        ? <ProcurementCards items={visibleRows.map(({ row }) => row)} editable onChange={(index, next) => onChange(visibleRows[index].index, next)} rowIndexes={visibleRows.map(({ index }) => index)} validationIssue={validationIssue} />
+        ? <ProcurementCards items={visibleRows.map(({ row }) => row)} editable onChange={(index, next) => onChange(visibleRows[index].index, next)} rowIndexes={visibleRows.map(({ index }) => index)} validationIssue={validationIssue} materialCategories={materialCategories} categoryBased={categoryBased} />
         : (
       <div className="procurement-table procurement-desktop" role="table" aria-label="구매정보 수정">
         <div className="procurement-table-head editable" role="row">
           <span>통상납기</span>
           <span>발주품목</span>
+          <span>구분</span>
           <span>업체</span>
           <span>기술 담당자</span>
           <span>발주일</span>
@@ -14324,6 +14408,10 @@ function ProcurementEditableList({
           <div className={validationIssue?.rowIndex === index ? 'procurement-table-row editable has-error' : 'procurement-table-row editable'} role="row" key={row.itemId ?? `new-${index}`} data-procurement-error-row={validationIssue?.rowIndex === index}>
             <input value={row.standardLeadTime} onChange={(event) => onChange(index, { standardLeadTime: event.target.value })} />
             <input className="order-item-input" value={row.orderItem} onChange={(event) => onChange(index, { orderItem: event.target.value })} />
+            <select data-procurement-row={index} data-procurement-field="materialCategoryId" aria-invalid={validationIssue?.rowIndex === index && validationIssue.field === 'materialCategoryId'} aria-label="구매품 구분" disabled={!categoryBased} value={row.materialCategoryId} onChange={(event) => onChange(index, { materialCategoryId: event.target.value, materialCategoryName: materialCategories.find((category) => category.categoryId === event.target.value)?.displayName ?? '' })}>
+              <option value="">{categoryBased ? '구분 선택' : '기존 프로젝트'}</option>
+              {materialCategories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.displayName}{category.requiresIqc ? ' · IQC' : ''}</option>)}
+            </select>
             <input value={row.supplierName} onChange={(event) => onChange(index, { supplierName: event.target.value })} />
             <input value={row.technicalOwner} onChange={(event) => onChange(index, { technicalOwner: event.target.value })} />
             <input type="date" value={row.orderDate} onChange={(event) => onChange(index, { orderDate: event.target.value })} />
@@ -14358,6 +14446,8 @@ function ProcurementCards({
   onChange,
   rowIndexes,
   validationIssue,
+  materialCategories = [],
+  categoryBased = false,
   receiptConfirmationOnly = false
 }: {
   items: ProcurementItem[] | ProcurementRowForm[];
@@ -14365,6 +14455,8 @@ function ProcurementCards({
   onChange: (index: number, next: Partial<ProcurementRowForm>) => void;
   rowIndexes?: number[];
   validationIssue?: ProcurementValidationIssue | null;
+  materialCategories?: MaterialCategory[];
+  categoryBased?: boolean;
   receiptConfirmationOnly?: boolean;
 }) {
   return (
@@ -14378,6 +14470,12 @@ function ProcurementCards({
             {editable ? (
               <>
                 <FormField label="발주품목"><input className="order-item-input" value={row.orderItem} onChange={(event) => onChange(index, { orderItem: event.target.value })} /></FormField>
+                <FormField label="구분" error={issue?.field === 'materialCategoryId' ? issue.message : undefined}>
+                  <select data-procurement-row={sourceRowIndex} data-procurement-field="materialCategoryId" aria-invalid={issue?.field === 'materialCategoryId'} disabled={!categoryBased} value={row.materialCategoryId} onChange={(event) => onChange(index, { materialCategoryId: event.target.value, materialCategoryName: materialCategories.find((category) => category.categoryId === event.target.value)?.displayName ?? '' })}>
+                    <option value="">{categoryBased ? '구분 선택' : '기존 프로젝트'}</option>
+                    {materialCategories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.displayName}{category.requiresIqc ? ' · IQC' : ''}</option>)}
+                  </select>
+                </FormField>
                 <FormField label="업체"><input value={row.supplierName} onChange={(event) => onChange(index, { supplierName: event.target.value })} /></FormField>
                 <FormField label="기술 담당자"><input value={row.technicalOwner} onChange={(event) => onChange(index, { technicalOwner: event.target.value })} /></FormField>
                 <FormField label="통상납기"><input value={row.standardLeadTime} onChange={(event) => onChange(index, { standardLeadTime: event.target.value })} /></FormField>
@@ -14407,6 +14505,7 @@ function ProcurementCards({
                   <h3 className="order-item-badge">{emptyDash(row.orderItem)}</h3>
                   <SupplyTypeBadge supplyType={row.supplyType} />
                 </div>
+                {row.materialCategoryName ? <p className="info-text">구분 · {row.materialCategoryName}</p> : null}
                 <dl className="mobile-priority-grid mobile-priority-grid--procurement">
                   <div><dt>입고예정</dt><dd>{emptyDash(row.expectedReceiptDate)}</dd></div>
                   <div><dt>{receiptConfirmationOnly ? '입고 확정' : '입고 상태'}</dt><dd><ReceiptCompletionBadge completed={row.receiptCompleted} completedAtUtc={row.receiptCompletedAtUtc} completionNote={row.receiptCompletionNote} confirmationOnly={receiptConfirmationOnly} /></dd></div>
@@ -18306,7 +18405,9 @@ function formatWorkflowStage(stage: ProductWorkflowStage) {
 }
 
 function displayWorkflowStageName(stageCode: string, stageName: string) {
-  return stageCode === 'DesignPanelInfo' ? '패널명·사이즈' : stageName;
+  if (stageCode === 'DesignPanelInfo') return '패널명·사이즈';
+  if (stageCode === 'KittingCompleted') return '제조 요청';
+  return stageName;
 }
 
 function hasImplementedStageInput(stageCode: string) {
@@ -18320,8 +18421,11 @@ function displayWorkflowStageLabel(departmentLabel: string, stageCode: string, s
     return departmentLabel;
   }
 
+  if (stageCode === 'KittingCompleted') {
+    return '생산관리 / 제조 요청';
+  }
+
   const workflowBoardName = {
-    KittingCompleted: '제조 요청',
     PackingCompleted: '포장',
     DeliveryCompleted: '납품',
     SalesSettlementCompleted: '세금계산서'
@@ -18609,6 +18713,8 @@ function procurementItemToForm(item: ProcurementItem): ProcurementRowForm {
     sourceProjectCodeText: item.sourceProjectCodeText ?? item.projectCode,
     standardLeadTime: item.standardLeadTime ?? '',
     orderItem: item.orderItem ?? '',
+    materialCategoryId: item.materialCategoryId ?? '',
+    materialCategoryName: item.materialCategoryName ?? '',
     supplierName: item.supplierName ?? '',
     technicalOwner: item.technicalOwner ?? '',
     orderDate: item.orderDate ?? '',
@@ -18633,6 +18739,8 @@ function emptyProcurementRow(projectDeliveryDate: string | null = null): Procure
     sourceProjectCodeText: '',
     standardLeadTime: '',
     orderItem: '',
+    materialCategoryId: '',
+    materialCategoryName: '',
     supplierName: '',
     technicalOwner: '',
     orderDate: '',
@@ -18655,6 +18763,7 @@ function procurementFormToRequest(row: ProcurementRowForm) {
     expectedRowVersion: row.rowVersion,
     standardLeadTime: row.standardLeadTime.trim() || null,
     orderItem: row.orderItem.trim() || null,
+    materialCategoryId: row.materialCategoryId || null,
     supplierName: row.supplierName.trim() || null,
     technicalOwner: row.technicalOwner.trim() || null,
     orderDate: row.orderDate || null,

@@ -1,3 +1,5 @@
+using Emi.Qms.Api.Pending;
+
 namespace Emi.Qms.Api.QualityInspections;
 
 public static class QualityInspectionStages
@@ -58,7 +60,8 @@ public sealed record QualityInspectionDetailResponse(
     IReadOnlyList<QualityInspectionTemplateItemResponse> Items,
     IReadOnlyList<QualityInspectionItemValueResponse> Responses,
     IReadOnlyList<QualityInspectionPhotoResponse> Photos,
-    IReadOnlyList<QualityInspectionAttemptHistoryResponse> History);
+    IReadOnlyList<QualityInspectionAttemptHistoryResponse> History,
+    ReinspectionEvidenceResponse? ReinspectionEvidence);
 
 public sealed record QualityInspectionTemplateItemResponse(
     Guid ItemId,
@@ -68,6 +71,7 @@ public sealed record QualityInspectionTemplateItemResponse(
     string? Guidance,
     string ResponseType,
     bool IsRequired,
+    bool RequiresPhoto,
     int? MaxTextLength,
     bool IsAvailable = true,
     string? AvailabilityMessage = null,

@@ -58,6 +58,7 @@ export interface QualityInspectionDetail {
   responses: QualityInspectionItemValue[];
   photos: QualityInspectionPhoto[];
   history: QualityInspectionAttemptHistory[];
+  reinspectionEvidence?: ReinspectionEvidence | null;
 }
 
 export interface QualityInspectionTemplateItem {
@@ -68,6 +69,7 @@ export interface QualityInspectionTemplateItem {
   guidance: string | null;
   responseType: 'Check' | 'Text';
   isRequired: boolean;
+  requiresPhoto?: boolean;
   maxTextLength: number | null;
   isAvailable: boolean;
   availabilityMessage: string | null;
@@ -154,3 +156,4 @@ export interface FinalizeQualityInspectionRequest {
   assigneeUserId: string | null;
   responses: QualityInspectionItemValue[] | null;
 }
+import type { ReinspectionEvidence } from './pending';

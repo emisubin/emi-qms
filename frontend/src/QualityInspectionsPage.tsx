@@ -17,6 +17,7 @@ import {
 import { useAdaptiveLayout } from './adaptive-layout';
 import { DsActionBar, DsInputFlow, DsInputSection, DsReadOnlyBanner, DsSelectionModeBar } from './design-system';
 import { MobileSheet } from './MobileSheet';
+import { EvidencePhoto } from './EvidencePhoto';
 import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import { PendingInspectionContext } from './PendingInspectionContext';
 import type {
@@ -214,7 +215,9 @@ export function QualityInspectionsPage({
   const requiredItems = detail?.decisionMode === 'Checklist' ? detail.items.filter((item) => item.isRequired) : [];
   const completedRequired = requiredItems.filter((item) => {
     const value = draft[item.itemId];
-    return item.responseType === 'Check' ? Boolean(value?.checkResult) : Boolean(value?.textValue.trim());
+    const responseComplete = item.responseType === 'Check' ? Boolean(value?.checkResult) : Boolean(value?.textValue.trim());
+    const photoComplete = !item.requiresPhoto || Boolean(detail?.photos.some((photo) => photo.templateItemId === item.itemId));
+    return responseComplete && photoComplete;
   }).length;
   const progress = requiredItems.length ? Math.round((completedRequired / requiredItems.length) * 100) : 0;
   const hasUnavailableRequired = requiredItems.some((item) => item.isAvailable === false);
@@ -390,20 +393,36 @@ export function QualityInspectionsPage({
     }
   }
 
-  async function uploadPhoto() {
-    if (!detail?.reportId || !detail.reportVersion || !photoFile || !photoItemId || !photoAlt.trim() || !canMutatePanel) return;
-    const fingerprint = [detail.reportId, detail.reportVersion, photoItemId, photoAlt.trim(), photoFile.name, photoFile.size, photoFile.lastModified].join('|');
+  async function uploadPhoto(
+    itemId = photoItemId,
+    file = photoFile,
+    altText = photoAlt
+  ) {
+    if (!detail?.reportId || !detail.reportVersion || !file || !itemId || !altText.trim() || !canMutatePanel) return;
+    const fingerprint = [detail.reportId, detail.reportVersion, itemId, altText.trim(), file.name, file.size, file.lastModified].join('|');
     setSavingAction('photo');
     setFeedback(null);
     try {
+      let expectedReportVersion = detail.reportVersion;
+      if (detail.decisionMode === 'Checklist') {
+        const responses = responsePayload();
+        const saveFingerprint = `${detail.reportId}|${detail.reportVersion}|${JSON.stringify(responses)}|inline-photo`;
+        const saved = await saveQualityInspectionResponses(developmentUserKey, detail.reportId, {
+          operationId: operationId('photo-save', saveFingerprint),
+          expectedReportVersion: detail.reportVersion,
+          responses
+        });
+        delete operationReceipts.current['photo-save'];
+        expectedReportVersion = saved.version;
+      }
       const result = await uploadQualityInspectionPhoto(
         developmentUserKey,
         detail.reportId,
         operationId('photo', fingerprint),
-        photoItemId,
-        detail.reportVersion,
-        photoAlt.trim(),
-        photoFile
+        itemId,
+        expectedReportVersion,
+        altText.trim(),
+        file
       );
       delete operationReceipts.current.photo;
       setPhotoFile(null);
@@ -411,6 +430,13 @@ export function QualityInspectionsPage({
       await refresh(result.projectId, result.panelId);
       setFeedback({ tone: 'success', message: '사진 증빙을 등록했습니다.' });
     } catch (error) {
+      if (selectedProject && panel) {
+        try {
+          await refresh(selectedProject.projectId, panel.panelId);
+        } catch {
+          // Keep the original upload error as the actionable message.
+        }
+      }
       setFeedback({ tone: 'error', message: errorMessage(error, '사진 증빙을 등록하지 못했습니다.') });
     } finally {
       setSavingAction('');
@@ -621,6 +647,7 @@ export function QualityInspectionsPage({
                       </button>
                     ) : null}
                     {panel.pendingId && detail?.reportStatus !== 'Finalized' ? <PendingInspectionContext pendingId={panel.pendingId} developmentUserKey={developmentUserKey} /> : null}
+                    {detail?.reinspectionEvidence ? <QualityReinspectionEvidence evidence={detail.reinspectionEvidence} developmentUserKey={developmentUserKey} /> : null}
 
                     {!canMutatePanel ? (
                       <DsReadOnlyBanner
@@ -652,7 +679,7 @@ export function QualityInspectionsPage({
                             const value = draft[item.itemId] ?? { checkResult: null, textValue: '', note: '' };
                             return (
                               <section key={item.itemId} className="quality-item" data-result={value.checkResult?.toLowerCase() ?? 'empty'} data-available={item.isAvailable === false ? 'false' : 'true'}>
-                                <header><span>{String(item.displayOrder).padStart(2, '0')}</span><div><strong>{item.label}</strong><small>{item.availabilityMessage ?? item.guidance ?? (item.isRequired ? '필수 확인' : '선택 입력')}</small></div>{item.isAvailable === false ? <em>제조 대기</em> : item.isRequired ? <em>필수</em> : null}</header>
+                                <header><span>{String(item.displayOrder).padStart(2, '0')}</span><div><strong>{item.label}</strong><small>{item.availabilityMessage ?? item.guidance ?? (item.isRequired ? '필수 확인' : '선택 입력')}</small></div>{item.isAvailable === false ? <em>제조 대기</em> : item.requiresPhoto ? <em>사진 필수</em> : item.isRequired ? <em>필수</em> : null}</header>
                                 {item.isReinspectionTarget ? <div className="quality-reinspection-evidence"><strong>{detail.reportStatus === 'Finalized' && detail.result === 'Passed' ? '재검사 적합 완료' : '이 항목만 재검사'}</strong><span>이전 부적합 근거</span><p>{item.previousFailureEvidence ?? '이전 검사에서 부적합으로 판정된 항목입니다.'}</p></div> : null}
                                 {item.responseType === 'Check' ? (
                                   <div className="quality-choice-row" role="group" aria-label={`${item.label} 결과`}>
@@ -664,23 +691,33 @@ export function QualityInspectionsPage({
                                   <textarea value={value.textValue} maxLength={item.maxTextLength ?? 1000} disabled={!canMutatePanel || detail.reportStatus === 'Finalized' || item.isAvailable === false} placeholder="측정값·특이사항을 입력하세요." onChange={(event) => setDraft((current) => ({ ...current, [item.itemId]: { ...value, textValue: event.target.value } }))} />
                                 )}
                                 {item.responseType === 'Check' && value.checkResult === 'NotApplicable' ? <input value={value.note} disabled={!canMutatePanel || detail.reportStatus === 'Finalized' || item.isAvailable === false} placeholder="해당없음 사유" onChange={(event) => setDraft((current) => ({ ...current, [item.itemId]: { ...value, note: event.target.value } }))} /> : null}
+                                {item.requiresPhoto ? (
+                                  <QualityItemPhotoEditor
+                                    itemLabel={item.label}
+                                    photos={detail.photos.filter((photo) => photo.templateItemId === item.itemId)}
+                                    reportId={detail.reportId!}
+                                    developmentUserKey={developmentUserKey}
+                                    disabled={!canMutatePanel || detail.reportStatus === 'Finalized' || item.isAvailable === false || Boolean(savingAction)}
+                                    onUpload={(file, altText) => uploadPhoto(item.itemId, file, altText)}
+                                    onRemove={removePhoto}
+                                  />
+                                ) : null}
                               </section>
                             );
                           })}
                         </div>}
 
-                        <section className="quality-evidence-card">
+                        {detail.decisionMode === 'Aggregate' ? <section className="quality-evidence-card">
                           <header><div><span>검사 근거</span><strong>사진 증빙</strong></div><em>{detail.photos.length}/5</em></header>
                           {detail.photos.length ? <div className="quality-photo-list">{detail.photos.map((photo) => <QualityPhotoEvidence key={photo.photoId} developmentUserKey={developmentUserKey} reportId={detail.reportId!} photo={photo} editable={canMutatePanel && detail.reportStatus !== 'Finalized'} onRemove={() => void removePhoto(photo.photoId)} />)}</div> : <p>사진은 선택 사항입니다. 확정 시 등록된 증빙만 snapshot에 포함됩니다.</p>}
                           {canMutatePanel && detail.reportStatus !== 'Finalized' ? (
                             <div className="quality-photo-uploader">
-                              {detail.decisionMode === 'Checklist' ? <label><span>연결 항목</span><select value={photoItemId} onChange={(event) => setPhotoItemId(event.target.value)}>{detail.items.filter((item) => item.isAvailable !== false).map((item) => <option key={item.itemId} value={item.itemId}>{item.displayOrder}. {item.label}</option>)}</select></label> : null}
                               <label className="quality-photo-file"><input type="file" accept="image/jpeg,image/png" capture="environment" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} /><span>{photoFile ? photoFile.name : '카메라 또는 사진 선택'}</span><small>JPEG·PNG / 장당 5MB 이하</small></label>
                               <label><span>사진 설명</span><input value={photoAlt} maxLength={200} placeholder="예: 배선 체결 상태" onChange={(event) => setPhotoAlt(event.target.value)} /></label>
                               <button type="button" disabled={!photoFile || !photoItemId || !photoAlt.trim() || Boolean(savingAction)} onClick={() => void uploadPhoto()}>{savingAction === 'photo' ? '등록 중' : '사진 등록'}</button>
                             </div>
                           ) : null}
-                        </section>
+                        </section> : null}
 
                         {detail.reportStatus !== 'Finalized' ? (
                           <div className="quality-actions">
@@ -747,6 +784,89 @@ export function QualityInspectionsPage({
           </DsInputFlow>
         </div>
       </MobileSheet>
+    </section>
+  );
+}
+
+function QualityReinspectionEvidence({
+  evidence,
+  developmentUserKey
+}: {
+  evidence: NonNullable<QualityInspectionDetail['reinspectionEvidence']>;
+  developmentUserKey: string;
+}) {
+  const actionRound = evidence.latestActionRound;
+  return (
+    <section className="quality-reinspection-flow" aria-label="재검사 근거 비교">
+      <article>
+        <span>1. 최초 부적합 근거와 사진</span>
+        {evidence.originalFailurePhotos.length > 0
+          ? <div className="reinspection-evidence-photo-grid">{evidence.originalFailurePhotos.map((photo) => <EvidencePhoto key={photo.photoId} developmentUserKey={developmentUserKey} photo={photo} />)}</div>
+          : <p>등록된 부적합 사진이 없습니다. 아래 부적합 항목의 근거를 확인해 주세요.</p>}
+      </article>
+      <article>
+        <span>2. 조치 내용과 사진</span>
+        <strong>{actionRound?.actionReasonSnapshot ?? 'Pending 조치 이력에서 내용을 확인해 주세요.'}</strong>
+        {actionRound ? <small>{actionRound.actionRound}차 조치 · {actionRound.confirmedByDisplayName}</small> : null}
+        {actionRound?.photos.length
+          ? <div className="reinspection-evidence-photo-grid">{actionRound.photos.map((photo) => <EvidencePhoto key={photo.photoId} developmentUserKey={developmentUserKey} photo={photo} />)}</div>
+          : <p>등록된 조치 사진이 없습니다.</p>}
+      </article>
+      <p><strong>3. 아래 부적합 항목만 재검사 판정</strong></p>
+    </section>
+  );
+}
+
+function QualityItemPhotoEditor({
+  itemLabel,
+  photos,
+  reportId,
+  developmentUserKey,
+  disabled,
+  onUpload,
+  onRemove
+}: {
+  itemLabel: string;
+  photos: QualityInspectionPhoto[];
+  reportId: string;
+  developmentUserKey: string;
+  disabled: boolean;
+  onUpload: (file: File, altText: string) => Promise<void>;
+  onRemove: (photoId: string) => Promise<void>;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [altText, setAltText] = useState(`${itemLabel} 사진`);
+  return (
+    <section className="quality-item-photo" aria-label={`${itemLabel} 사진 첨부`}>
+      <header>
+        <div><strong>사진 첨부</strong><span>필수</span></div>
+        <em>{photos.length}장</em>
+      </header>
+      {photos.length > 0 ? (
+        <div className="quality-photo-list">
+          {photos.map((photo) => (
+            <QualityPhotoEvidence
+              key={photo.photoId}
+              developmentUserKey={developmentUserKey}
+              reportId={reportId}
+              photo={photo}
+              editable={!disabled}
+              onRemove={() => void onRemove(photo.photoId)}
+            />
+          ))}
+        </div>
+      ) : <p>이 항목을 확정하려면 사진을 바로 등록해야 합니다.</p>}
+      {!disabled ? (
+        <div className="quality-photo-uploader">
+          <label className="quality-photo-file">
+            <input type="file" accept="image/jpeg,image/png" capture="environment" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+            <span>{file ? file.name : '카메라 또는 사진 선택'}</span>
+            <small>JPEG·PNG / 장당 5MB 이하</small>
+          </label>
+          <label><span>사진 설명</span><input value={altText} maxLength={200} onChange={(event) => setAltText(event.target.value)} /></label>
+          <button type="button" disabled={!file || !altText.trim()} onClick={() => void onUpload(file!, altText.trim()).then(() => setFile(null))}>이 항목에 사진 등록</button>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -834,6 +954,11 @@ function validateDecision(
       if (item.responseType === 'Check' && !value?.checkResult) return `${item.label}: 필수 검사 결과를 입력해 주세요.`;
       if (item.responseType === 'Text' && !value?.textValue.trim()) return `${item.label}: 필수 측정값을 입력해 주세요.`;
       if (value?.checkResult === 'NotApplicable' && !value.note.trim()) return `${item.label}: 해당없음 사유를 입력해 주세요.`;
+    }
+    for (const item of detail.items.filter((candidate) => candidate.requiresPhoto && candidate.isAvailable !== false)) {
+      if (!detail.photos.some((photo) => photo.templateItemId === item.itemId)) {
+        return `${item.label}: 사진 필수 항목의 사진을 등록해 주세요.`;
+      }
     }
 
     const hasFail = detail.items.some((item) => item.isAvailable !== false && draft[item.itemId]?.checkResult === 'Fail');

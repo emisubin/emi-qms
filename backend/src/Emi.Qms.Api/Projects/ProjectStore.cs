@@ -650,7 +650,8 @@ public sealed class ProjectStore(
                     where version.stage_code = 'OQC'
                       and version.lifecycle_status = 'Active'
                       and version.is_active = true
-                ), 0) as oqc_step_count
+                ), 0) as oqc_step_count,
+                projects.iqc_routing_policy
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
@@ -868,6 +869,7 @@ public sealed class ProjectStore(
         var statusReason = reader.IsDBNull(19) ? null : reader.GetString(19);
         var manufacturingStepCount = reader.GetInt32(31);
         var oqcStepCount = reader.GetInt32(32);
+        var iqcRoutingPolicy = reader.GetString(33);
         await reader.DisposeAsync();
         var panelInfoSummary = await ReadPanelInformationSummaryAsync(dataSource, projectId, cancellationToken);
         return new ProjectDetailResponse
@@ -892,6 +894,7 @@ public sealed class ProjectStore(
             UpdatedAt = baseItem.UpdatedAt,
             SalesAmount = baseItem.SalesAmount,
             CurrencyCode = baseItem.CurrencyCode,
+            IqcRoutingPolicy = iqcRoutingPolicy,
             StatusReason = statusReason,
             PanelInfoCompletedCount = panelInfoSummary.CompletedCount,
             PanelInfoPendingCount = panelInfoSummary.PendingCount,
@@ -971,6 +974,7 @@ public sealed class ProjectStore(
                         delivery_location,
                         fat_required,
                         structure_mode,
+                        iqc_routing_policy,
                         status,
                         created_by_user_id,
                         updated_at_utc
@@ -993,6 +997,7 @@ public sealed class ProjectStore(
                         @delivery_location,
                         @fat_required,
                         @structure_mode,
+                        'CategoryBased',
                         'Active',
                         @created_by_user_id,
                         now()
@@ -2594,6 +2599,7 @@ public sealed class ProjectStore(
                     currency_code,
                     delivery_location,
                     fat_required,
+                    iqc_routing_policy,
                     status,
                     created_by_user_id,
                     updated_at_utc
@@ -2615,6 +2621,7 @@ public sealed class ProjectStore(
                     @currency_code,
                     @delivery_location,
                     @fat_required,
+                    'CategoryBased',
                     'Active',
                     @created_by_user_id,
                     now()

@@ -461,7 +461,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0064_ul891_set_production_plans", await ReadScalarAsync<string>(
+            Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -724,7 +724,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0064_ul891_set_production_plans", await ReadScalarAsync<string>(
+            Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -827,7 +827,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0064_ul891_set_production_plans", await ReadScalarAsync<string>(
+            Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -893,7 +893,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0064_ul891_set_production_plans", await ReadScalarAsync<string>(
+        Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1148,6 +1148,97 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task PendingActionPhotoMigration_AddsBoundedEvidenceAndAppendOnlyGuards()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
+            provider,
+            "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema='public'
+              and table_name in ('pending_action_photos','pending_photo_operations');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from pg_trigger
+            where not tgisinternal
+              and tgname in (
+                'trg_guard_pending_action_photo_evidence',
+                'trg_guard_pending_photo_operation_append_only'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from pg_constraint
+            where conname='uq_pending_action_photos_content';
+            """,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task MaterialCategoryScanIqcMigration_PreservesExistingProjectsAndAddsImmutableEvidence()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
+            provider,
+            "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(5L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from material_categories where is_active;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from material_categories where code='ENCLOSURE' and requires_iqc;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from projects where iqc_routing_policy <> 'AllReceipts';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema='public'
+              and table_name in ('material_iqc_scan_reports','material_iqc_scan_attachments');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from pg_trigger
+            where not tgisinternal
+              and tgname in (
+                'trg_guard_project_iqc_routing_policy_immutable',
+                'trg_guard_finalized_material_iqc_scan_report',
+                'trg_guard_finalized_material_iqc_scan_attachment'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task NotificationDeliveryClaimLeaseMigration_AddsProcessingClaimsAttemptsAndIndexes()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -1163,7 +1254,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0064_ul891_set_production_plans", await ReadScalarAsync<string>(
+        Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

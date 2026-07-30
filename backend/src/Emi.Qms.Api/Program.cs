@@ -161,6 +161,7 @@ builder.Services.AddSingleton<AdminCalendarHolidayStore>();
 builder.Services.AddSingleton<CalendarHolidayExcelParser>();
 builder.Services.AddSingleton<AdminMasterDataStore>();
 builder.Services.AddSingleton<FormTemplateStore>();
+builder.Services.AddSingleton<MaterialCategoryStore>();
 builder.Services.AddSingleton<AdminScheduledDeletionService>();
 builder.Services.AddSingleton<IAdminDeletionPurgeService>(services =>
     services.GetRequiredService<AdminScheduledDeletionService>());

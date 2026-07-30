@@ -19,6 +19,7 @@ public sealed record ProcurementItemUpdateRequest(
     int? ExpectedRowVersion,
     string? StandardLeadTime,
     string? OrderItem,
+    Guid? MaterialCategoryId,
     string? SupplierName,
     string? TechnicalOwner,
     DateOnly? OrderDate,
@@ -55,6 +56,7 @@ public sealed record ProcurementResponse(
     string ProjectTitle,
     string ProjectCode,
     DateOnly? ProjectDeliveryDate,
+    string IqcRoutingPolicy,
     IReadOnlyList<ProcurementItemResponse> Items);
 
 public sealed class ProcurementItemResponse
@@ -70,6 +72,10 @@ public sealed class ProcurementItemResponse
     public string? SourceProjectCodeText { get; init; }
     public string? StandardLeadTime { get; init; }
     public string? OrderItem { get; init; }
+    public Guid? MaterialCategoryId { get; init; }
+    public string? MaterialCategoryCode { get; init; }
+    public string? MaterialCategoryName { get; init; }
+    public bool? MaterialCategoryRequiresIqc { get; init; }
     public string? SupplierName { get; init; }
     public string? TechnicalOwner { get; init; }
     public DateOnly? OrderDate { get; init; }
@@ -192,6 +198,7 @@ public sealed class ProcurementExcelPreviewRowResponse
     public string? SourceProjectCodeText { get; init; }
     public string? StandardLeadTime { get; init; }
     public string? OrderItem { get; init; }
+    public string? MaterialCategoryName { get; init; }
     public string? SupplierName { get; init; }
     public string? TechnicalOwner { get; init; }
     public DateOnly? OrderDate { get; init; }

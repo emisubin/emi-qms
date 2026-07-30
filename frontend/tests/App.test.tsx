@@ -2181,7 +2181,7 @@ describe('App', () => {
     const workflowBoard = workflowHeading.closest('section');
     expect(workflowBoard).not.toBeNull();
     expect(workflowBoard!.querySelectorAll('.workflow-stage-item')).toHaveLength(6);
-    expect(workflowBoard).toHaveTextContent('자재 / 제조 요청');
+    expect(workflowBoard).toHaveTextContent('생산관리 / 제조 요청');
     expect(workflowBoard).not.toHaveTextContent('자재 / 제조 요청 (선택)');
     expect(workflowBoard).toHaveTextContent('물류 / 포장');
     expect(workflowBoard).toHaveTextContent('물류 / 납품');

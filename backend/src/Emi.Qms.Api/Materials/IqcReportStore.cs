@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Emi.Qms.Api.Pending;
 using Emi.Qms.Api.Projects;
 using Npgsql;
 using NpgsqlTypes;
@@ -16,6 +17,8 @@ public sealed class IqcReportStore(
     private const int MaxPhotoBytes = 5 * 1024 * 1024;
     private const int MaxReportPhotoBytes = 15 * 1024 * 1024;
     private const int MaxPhotos = 5;
+    private const int MaxScanAttachmentBytes = 10 * 1024 * 1024;
+    private const int MaxScanAttachments = 10;
 
     public async Task<IqcReportResponse?> GetAsync(
         Guid attemptId,
@@ -24,6 +27,11 @@ public sealed class IqcReportStore(
     {
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var decisionMode = await ReadDecisionModeAsync(connection, attemptId, accessScope, cancellationToken);
+        if (decisionMode == IqcDecisionModes.ScanBased)
+        {
+            return await BuildScanResponseAsync(connection, attemptId, accessScope, cancellationToken);
+        }
         var context = await ReadAttemptContextAsync(connection, attemptId, accessScope, cancellationToken);
         return context is null
             ? null
@@ -40,6 +48,7 @@ public sealed class IqcReportStore(
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
+        string decisionMode;
         await using (var gate = connection.CreateCommand())
         {
             gate.Transaction = transaction;
@@ -60,9 +69,10 @@ public sealed class IqcReportStore(
             {
                 return MaterialsMutationResult<IqcReportResponse>.NotFound();
             }
-            if (reader.GetString(1) != IqcDecisionModes.Detailed)
+            decisionMode = reader.GetString(1);
+            if (decisionMode is not (IqcDecisionModes.Detailed or IqcDecisionModes.ScanBased))
             {
-                return MaterialsMutationResult<IqcReportResponse>.Conflict("기존 간편 판정 건에는 상세 성적서를 만들 수 없습니다.");
+                return MaterialsMutationResult<IqcReportResponse>.Conflict("기존 간편 판정 건에는 검사 기록을 만들 수 없습니다.");
             }
             if (reader.GetString(0) != "Requested")
             {
@@ -70,19 +80,35 @@ public sealed class IqcReportStore(
             }
         }
 
-        await using (var command = connection.CreateCommand())
+        if (decisionMode == IqcDecisionModes.ScanBased)
         {
+            await using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
-                insert into iqc_reports (
-                    attempt_id, template_version_id, created_by_user_id, updated_by_user_id
+                insert into material_iqc_scan_reports (
+                    attempt_id, created_by_user_id, updated_by_user_id
                 )
-                select @attempt_id, version.id, @actor_id, @actor_id
-                from iqc_report_template_versions version
-                join iqc_report_templates template on template.id = version.template_id
-                where template.template_code = 'MATERIAL_IQC' and version.is_active
+                values (@attempt_id, @actor_id, @actor_id)
                 on conflict (attempt_id) do nothing;
                 """;
+            command.Parameters.AddWithValue("attempt_id", attemptId);
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        else
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                    insert into iqc_reports (
+                        attempt_id, template_version_id, created_by_user_id, updated_by_user_id
+                    )
+                    select @attempt_id, version.id, @actor_id, @actor_id
+                    from iqc_report_template_versions version
+                    join iqc_report_templates template on template.id = version.template_id
+                    where template.template_code = 'MATERIAL_IQC' and version.is_active
+                    on conflict (attempt_id) do nothing;
+                    """;
             command.Parameters.AddWithValue("attempt_id", attemptId);
             command.Parameters.AddWithValue("actor_id", actorUserId);
             if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
@@ -102,6 +128,246 @@ public sealed class IqcReportStore(
         return response is null
             ? MaterialsMutationResult<IqcReportResponse>.NotFound()
             : MaterialsMutationResult<IqcReportResponse>.Success(response);
+    }
+
+    public async Task<MaterialsMutationResult<IqcReportResponse>> AddScanAttachmentAsync(
+        Guid reportId,
+        int? expectedReportVersion,
+        string originalFileName,
+        byte[] content,
+        Guid actorUserId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        var safeName = Path.GetFileName(originalFileName).Trim();
+        var normalizedMime = DetectScanMime(content);
+        var errors = new Dictionary<string, string[]>();
+        if (expectedReportVersion is null or < 1)
+        {
+            errors[nameof(expectedReportVersion)] = ["최신 검사 기록 version이 필요합니다."];
+        }
+        if (safeName.Length is < 1 or > 180)
+        {
+            errors["file"] = ["파일명은 1~180자여야 합니다."];
+        }
+        if (content.Length is < 1 or > MaxScanAttachmentBytes)
+        {
+            errors["file"] = ["파일은 개별 10MB 이하여야 합니다."];
+        }
+        if (normalizedMime is null)
+        {
+            errors["file"] = ["실제 내용이 PDF, JPEG 또는 PNG인 파일만 등록할 수 있습니다."];
+        }
+        if (errors.Count > 0)
+        {
+            return MaterialsMutationResult<IqcReportResponse>.Validation(errors);
+        }
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var context = await ReadScanReportForUpdateAsync(connection, transaction, reportId, accessScope, cancellationToken);
+        if (context is null)
+        {
+            return MaterialsMutationResult<IqcReportResponse>.NotFound();
+        }
+        var stateError = ValidateScanDraftState<IqcReportResponse>(context, expectedReportVersion!.Value);
+        if (stateError is not null)
+        {
+            return stateError;
+        }
+
+        await using (var countCommand = connection.CreateCommand())
+        {
+            countCommand.Transaction = transaction;
+            countCommand.CommandText = "select count(*)::int from material_iqc_scan_attachments where scan_report_id=@report_id;";
+            countCommand.Parameters.AddWithValue("report_id", reportId);
+            if (Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken), System.Globalization.CultureInfo.InvariantCulture) >= MaxScanAttachments)
+            {
+                return Validation<IqcReportResponse>("file", $"검사 회차당 파일은 최대 {MaxScanAttachments}개까지 등록할 수 있습니다.");
+            }
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into material_iqc_scan_attachments (
+                    scan_report_id, original_file_name, normalized_mime, byte_size,
+                    sha256, content, created_by_user_id
+                )
+                values (
+                    @report_id, @file_name, @mime, @byte_size,
+                    @sha256, @content, @actor_id
+                );
+
+                update material_iqc_scan_reports
+                set version=version + 1,
+                    updated_by_user_id=@actor_id,
+                    updated_at_utc=now()
+                where id=@report_id and status='Draft' and version=@expected_version;
+                """;
+            command.Parameters.AddWithValue("report_id", reportId);
+            command.Parameters.AddWithValue("file_name", safeName);
+            command.Parameters.AddWithValue("mime", normalizedMime!);
+            command.Parameters.AddWithValue("byte_size", content.Length);
+            command.Parameters.AddWithValue("sha256", Hash(content));
+            command.Parameters.Add("content", NpgsqlDbType.Bytea).Value = content;
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("expected_version", expectedReportVersion.Value);
+            if (await command.ExecuteNonQueryAsync(cancellationToken) != 2)
+            {
+                return MaterialsMutationResult<IqcReportResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+            }
+        }
+        await transaction.CommitAsync(cancellationToken);
+        return await ReloadResultAsync(context.AttemptId, accessScope, cancellationToken);
+    }
+
+    public async Task<MaterialsMutationResult<IqcReportResponse>> DeleteScanAttachmentAsync(
+        Guid reportId,
+        Guid attachmentId,
+        int? expectedReportVersion,
+        Guid actorUserId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        if (expectedReportVersion is null or < 1)
+        {
+            return Validation<IqcReportResponse>(nameof(expectedReportVersion), "최신 검사 기록 version이 필요합니다.");
+        }
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var context = await ReadScanReportForUpdateAsync(connection, transaction, reportId, accessScope, cancellationToken);
+        if (context is null)
+        {
+            return MaterialsMutationResult<IqcReportResponse>.NotFound();
+        }
+        var stateError = ValidateScanDraftState<IqcReportResponse>(context, expectedReportVersion.Value);
+        if (stateError is not null)
+        {
+            return stateError;
+        }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                delete from material_iqc_scan_attachments
+                where id=@attachment_id and scan_report_id=@report_id;
+
+                update material_iqc_scan_reports
+                set version=version + 1,
+                    updated_by_user_id=@actor_id,
+                    updated_at_utc=now()
+                where id=@report_id and status='Draft' and version=@expected_version;
+                """;
+            command.Parameters.AddWithValue("attachment_id", attachmentId);
+            command.Parameters.AddWithValue("report_id", reportId);
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("expected_version", expectedReportVersion.Value);
+            if (await command.ExecuteNonQueryAsync(cancellationToken) != 2)
+            {
+                return MaterialsMutationResult<IqcReportResponse>.Conflict("파일을 찾을 수 없거나 다른 사용자가 먼저 변경했습니다.");
+            }
+        }
+        await transaction.CommitAsync(cancellationToken);
+        return await ReloadResultAsync(context.AttemptId, accessScope, cancellationToken);
+    }
+
+    public async Task<MaterialsMutationResult<IqcPhotoContentResult>> GetScanAttachmentContentAsync(
+        Guid reportId,
+        Guid attachmentId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            select attachment.content, attachment.normalized_mime, attachment.original_file_name
+            from material_iqc_scan_attachments attachment
+            join material_iqc_scan_reports report on report.id=attachment.scan_report_id
+            join material_iqc_attempts attempt on attempt.id=report.attempt_id
+            join material_receipts receipt on receipt.id=attempt.material_receipt_id
+            join project_procurement_items item on item.id=receipt.procurement_item_id and item.status='Active'
+            join projects project on project.id=item.project_id and project.deleted_at_utc is null
+            where report.id=@report_id
+              and attachment.id=@attachment_id
+              and (@has_read_all or project.project_key=any(@project_keys));
+            """);
+        command.Parameters.AddWithValue("report_id", reportId);
+        command.Parameters.AddWithValue("attachment_id", attachmentId);
+        AddScope(command, accessScope);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? MaterialsMutationResult<IqcPhotoContentResult>.Success(new IqcPhotoContentResult(
+                reader.GetFieldValue<byte[]>(0),
+                reader.GetString(1),
+                reader.GetString(2)))
+            : MaterialsMutationResult<IqcPhotoContentResult>.NotFound();
+    }
+
+    public async Task<MaterialsMutationResult<IqcReportResponse>> FinalizeScanAsync(
+        Guid reportId,
+        FinalizeIqcReportRequest request,
+        Guid actorUserId,
+        string? correlationId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        var errors = ValidateFinalizeRequest(request);
+        if (errors.Count > 0)
+        {
+            return MaterialsMutationResult<IqcReportResponse>.Validation(errors);
+        }
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var context = await ReadScanReportForUpdateAsync(connection, transaction, reportId, accessScope, cancellationToken);
+        if (context is null)
+        {
+            return MaterialsMutationResult<IqcReportResponse>.NotFound();
+        }
+        var stateError = ValidateScanDraftState<IqcReportResponse>(context, request.ExpectedReportVersion!.Value);
+        if (stateError is not null)
+        {
+            return stateError;
+        }
+        var attachments = await ReadScanAttachmentsAsync(connection, reportId, cancellationToken, transaction);
+        if (attachments.Count == 0)
+        {
+            return Validation<IqcReportResponse>("files", "서명된 외함 수입검사서 스캔본을 1개 이상 등록해 주세요.");
+        }
+        var attachmentSnapshotRows = await ReadScanAttachmentSnapshotRowsAsync(
+            connection,
+            reportId,
+            cancellationToken,
+            transaction);
+        var snapshotSource = string.Join(
+            "\n",
+            attachmentSnapshotRows)
+            + $"\n{request.Result}|{request.Reason!.Trim()}";
+        var result = await materialsStore.FinalizeScanIqcAsync(
+            connection,
+            transaction,
+            context.AttemptId,
+            reportId,
+            request,
+            Hash(Encoding.UTF8.GetBytes(snapshotSource)),
+            timeProvider.GetUtcNow(),
+            actorUserId,
+            correlationId,
+            cancellationToken);
+        if (result.Status != MaterialsMutationStatus.Success)
+        {
+            return result.Status switch
+            {
+                MaterialsMutationStatus.NotFound => MaterialsMutationResult<IqcReportResponse>.NotFound(),
+                MaterialsMutationStatus.Validation => MaterialsMutationResult<IqcReportResponse>.Validation(result.Errors),
+                _ => MaterialsMutationResult<IqcReportResponse>.Conflict(result.Message ?? "검사 기록을 확정할 수 없습니다.")
+            };
+        }
+        await transaction.CommitAsync(cancellationToken);
+        return await ReloadResultAsync(context.AttemptId, accessScope, cancellationToken);
     }
 
     public async Task<MaterialsMutationResult<IqcReportResponse>> SaveResponsesAsync(
@@ -827,7 +1093,9 @@ public sealed class IqcReportStore(
             responses,
             photos,
             context.FinalizedAtUtc,
-            context.FinalizedBy);
+            context.FinalizedBy,
+            [],
+            []);
     }
 
     private static IReadOnlyList<IqcTemplateItemResponse> SelectReinspectionItems(
@@ -842,6 +1110,281 @@ public sealed class IqcReportStore(
         return items.Where(item => failedCodes.Contains(item.ItemCode)).ToList();
     }
 
+    private static async Task<string?> ReadDecisionModeAsync(
+        NpgsqlConnection connection,
+        Guid attemptId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select attempt.decision_mode
+            from material_iqc_attempts attempt
+            join material_receipts receipt on receipt.id=attempt.material_receipt_id
+            join project_procurement_items item on item.id=receipt.procurement_item_id and item.status='Active'
+            join projects project on project.id=item.project_id and project.deleted_at_utc is null
+            where attempt.id=@attempt_id
+              and (@has_read_all or project.project_key=any(@project_keys));
+            """;
+        command.Parameters.AddWithValue("attempt_id", attemptId);
+        AddScope(command, accessScope);
+        return Convert.ToString(
+            await command.ExecuteScalarAsync(cancellationToken),
+            System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static async Task<IqcReportResponse?> BuildScanResponseAsync(
+        NpgsqlConnection connection,
+        Guid attemptId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        ScanResponseContext? context = null;
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                select attempt.id, receipt.id, project.id, project.project_code, project.project_title,
+                       item.order_item, receipt.quantity, receipt.unit, attempt.attempt_number,
+                       receipt.version, attempt.status, attempt.decision_mode,
+                       report.id, report.status, report.version, report.result,
+                       coalesce(report.reason, attempt.reason), report.finalized_at_utc, actor.display_name
+                from material_iqc_attempts attempt
+                join material_receipts receipt on receipt.id=attempt.material_receipt_id
+                join project_procurement_items item on item.id=receipt.procurement_item_id and item.status='Active'
+                join projects project on project.id=item.project_id and project.deleted_at_utc is null
+                left join material_iqc_scan_reports report on report.attempt_id=attempt.id
+                left join qms_users actor on actor.id=report.finalized_by_user_id
+                where attempt.id=@attempt_id
+                  and attempt.decision_mode='ScanBased'
+                  and (@has_read_all or project.project_key=any(@project_keys));
+                """;
+            command.Parameters.AddWithValue("attempt_id", attemptId);
+            AddScope(command, accessScope);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+            context = new ScanResponseContext(
+                reader.GetGuid(0),
+                reader.GetGuid(1),
+                reader.GetGuid(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetDecimal(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.GetInt32(8),
+                reader.GetInt32(9),
+                reader.GetString(10),
+                reader.GetString(11),
+                reader.IsDBNull(12) ? null : reader.GetGuid(12),
+                reader.IsDBNull(13) ? null : reader.GetString(13),
+                reader.IsDBNull(14) ? null : reader.GetInt32(14),
+                reader.IsDBNull(15) ? null : reader.GetString(15),
+                reader.IsDBNull(16) ? null : reader.GetString(16),
+                reader.IsDBNull(17) ? null : reader.GetFieldValue<DateTimeOffset>(17),
+                reader.IsDBNull(18) ? null : reader.GetString(18));
+        }
+
+        var attachments = context.ReportId is null
+            ? []
+            : await ReadScanAttachmentsAsync(connection, context.ReportId.Value, cancellationToken);
+        var history = await ReadScanHistoryAsync(connection, context.ReceiptId, context.AttemptNumber, cancellationToken);
+        return new IqcReportResponse(
+            context.AttemptId,
+            context.ReceiptId,
+            context.ProjectId,
+            context.ProjectCode,
+            context.ProjectTitle,
+            context.OrderItem,
+            context.Quantity,
+            context.Unit,
+            context.AttemptNumber,
+            context.ReceiptVersion,
+            context.AttemptStatus,
+            context.DecisionMode,
+            context.ReportId,
+            context.ReportStatus,
+            context.ReportVersion,
+            context.Result,
+            context.Reason,
+            null,
+            null,
+            0,
+            context.AttemptStatus == "Requested" && context.ReportStatus != IqcReportStatuses.Finalized,
+            null,
+            [],
+            [],
+            [],
+            context.FinalizedAtUtc,
+            context.FinalizedBy,
+            attachments,
+            history);
+    }
+
+    private static async Task<IReadOnlyList<IqcScanAttachmentResponse>> ReadScanAttachmentsAsync(
+        NpgsqlConnection connection,
+        Guid reportId,
+        CancellationToken cancellationToken,
+        NpgsqlTransaction? transaction = null)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select id, original_file_name, normalized_mime, byte_size, created_at_utc
+            from material_iqc_scan_attachments
+            where scan_report_id=@report_id
+            order by created_at_utc, id;
+            """;
+        command.Parameters.AddWithValue("report_id", reportId);
+        var result = new List<IqcScanAttachmentResponse>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new IqcScanAttachmentResponse(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetInt32(3),
+                reader.GetFieldValue<DateTimeOffset>(4)));
+        }
+        return result;
+    }
+
+    private static async Task<IReadOnlyList<string>> ReadScanAttachmentSnapshotRowsAsync(
+        NpgsqlConnection connection,
+        Guid reportId,
+        CancellationToken cancellationToken,
+        NpgsqlTransaction? transaction = null)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select id, original_file_name, normalized_mime, byte_size, sha256
+            from material_iqc_scan_attachments
+            where scan_report_id=@report_id
+            order by id;
+            """;
+        command.Parameters.AddWithValue("report_id", reportId);
+        var rows = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add($"{reader.GetGuid(0):N}|{reader.GetString(1)}|{reader.GetString(2)}|{reader.GetInt32(3)}|{reader.GetString(4)}");
+        }
+        return rows;
+    }
+
+    private static async Task<IReadOnlyList<IqcScanAttemptHistoryResponse>> ReadScanHistoryAsync(
+        NpgsqlConnection connection,
+        Guid receiptId,
+        int currentAttemptNumber,
+        CancellationToken cancellationToken)
+    {
+        var histories = new List<(Guid ReportId, int AttemptNumber, string Result, string Reason, string? ActionReason, DateTimeOffset FinalizedAtUtc, string? FinalizedBy)>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                select report.id, attempt.attempt_number, report.result, report.reason,
+                       (
+                           select history.reason
+                           from pending_history history
+                           where history.pending_issue_id=attempt.pending_issue_id
+                             and history.to_status='ReinspectionRequested'
+                           order by history.created_at_utc desc, history.id desc
+                           limit 1
+                       ) as action_reason,
+                       report.finalized_at_utc, actor.display_name
+                from material_iqc_attempts attempt
+                join material_iqc_scan_reports report on report.attempt_id=attempt.id and report.status='Finalized'
+                left join qms_users actor on actor.id=report.finalized_by_user_id
+                where attempt.material_receipt_id=@receipt_id
+                  and attempt.attempt_number < @attempt_number
+                order by attempt.attempt_number desc;
+                """;
+            command.Parameters.AddWithValue("receipt_id", receiptId);
+            command.Parameters.AddWithValue("attempt_number", currentAttemptNumber);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                histories.Add((
+                    reader.GetGuid(0),
+                    reader.GetInt32(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.GetFieldValue<DateTimeOffset>(5),
+                    reader.IsDBNull(6) ? null : reader.GetString(6)));
+            }
+        }
+        var result = new List<IqcScanAttemptHistoryResponse>();
+        foreach (var history in histories)
+        {
+            result.Add(new IqcScanAttemptHistoryResponse(
+                history.ReportId,
+                history.AttemptNumber,
+                history.Result,
+                history.Reason,
+                history.ActionReason,
+                history.FinalizedAtUtc,
+                history.FinalizedBy,
+                await ReadScanAttachmentsAsync(connection, history.ReportId, cancellationToken)));
+        }
+        return result;
+    }
+
+    private static async Task<ScanReportContext?> ReadScanReportForUpdateAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid reportId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select report.id, report.attempt_id, report.status, report.version,
+                   receipt.version, attempt.status, attempt.decision_mode
+            from material_iqc_scan_reports report
+            join material_iqc_attempts attempt on attempt.id=report.attempt_id
+            join material_receipts receipt on receipt.id=attempt.material_receipt_id
+            join project_procurement_items item on item.id=receipt.procurement_item_id and item.status='Active'
+            join projects project on project.id=item.project_id and project.deleted_at_utc is null
+            where report.id=@report_id
+              and (@has_read_all or project.project_key=any(@project_keys))
+            for update of report, attempt, receipt, item;
+            """;
+        command.Parameters.AddWithValue("report_id", reportId);
+        AddScope(command, accessScope);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? new ScanReportContext(
+                reader.GetGuid(0),
+                reader.GetGuid(1),
+                reader.GetString(2),
+                reader.GetInt32(3),
+                reader.GetInt32(4),
+                reader.GetString(5),
+                reader.GetString(6))
+            : null;
+    }
+
+    private static MaterialsMutationResult<T>? ValidateScanDraftState<T>(ScanReportContext context, int expectedVersion)
+    {
+        if (context.DecisionMode != IqcDecisionModes.ScanBased || context.AttemptStatus != "Requested")
+        {
+            return MaterialsMutationResult<T>.Conflict("현재 IQC 요청은 스캔 검사 기록을 수정할 수 없습니다.");
+        }
+        if (context.Status != IqcReportStatuses.Draft)
+        {
+            return MaterialsMutationResult<T>.Conflict("확정된 검사 기록은 수정할 수 없습니다.");
+        }
+        return context.Version == expectedVersion
+            ? null
+            : MaterialsMutationResult<T>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+    }
+
     private static async Task<IqcReinspectionSourceResponse?> ReadReinspectionSourceAsync(
         NpgsqlConnection connection,
         ReportContext context,
@@ -854,6 +1397,7 @@ public sealed class IqcReportStore(
         }
 
         Guid previousAttemptId;
+        Guid? previousReportId;
         Guid? pendingId;
         int previousAttemptNumber;
         string failureReason;
@@ -863,7 +1407,7 @@ public sealed class IqcReportStore(
             command.CommandText = """
                 select previous.id, previous.attempt_number,
                        coalesce(previous_report.reason, previous.reason, '이전 검사 부적합'),
-                       current.pending_issue_id
+                       current.pending_issue_id, previous_report.id
                 from material_iqc_attempts current
                 join lateral (
                     select candidate.id, candidate.attempt_number, candidate.reason
@@ -887,6 +1431,7 @@ public sealed class IqcReportStore(
             previousAttemptNumber = reader.GetInt32(1);
             failureReason = reader.GetString(2);
             pendingId = reader.IsDBNull(3) ? null : reader.GetGuid(3);
+            previousReportId = reader.IsDBNull(4) ? null : reader.GetGuid(4);
         }
 
         var failures = new List<IqcReinspectionFailureResponse>();
@@ -917,24 +1462,59 @@ public sealed class IqcReportStore(
             return null;
         }
 
-        string? actionReason = null;
-        if (pendingId is not null)
+        var originalFailurePhotos = new List<EvidencePhotoReferenceResponse>();
+        if (previousReportId is not null)
         {
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
-                select reason
-                from pending_history
-                where pending_issue_id = @pending_id
-                  and to_status = 'ReinspectionRequested'
-                order by created_at_utc desc, id desc
-                limit 1;
+                select id, display_name, normalized_mime, byte_size, alt_text
+                from iqc_report_photos
+                where report_id = @report_id
+                order by created_at_utc, id;
                 """;
-            command.Parameters.AddWithValue("pending_id", pendingId.Value);
-            actionReason = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken), System.Globalization.CultureInfo.InvariantCulture);
+            command.Parameters.AddWithValue("report_id", previousReportId.Value);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                originalFailurePhotos.Add(new EvidencePhotoReferenceResponse(
+                    "IqcReport", previousReportId.Value, reader.GetGuid(0), reader.GetString(1),
+                    reader.GetString(2), reader.GetInt32(3), reader.GetString(4)));
+            }
         }
 
-        return new IqcReinspectionSourceResponse(previousAttemptNumber, failureReason, actionReason, failures);
+        string? actionReason = null;
+        PendingActionRoundEvidenceResponse? actionRound = null;
+        if (pendingId is not null)
+        {
+            actionRound = await PendingStore.ReadLatestConfirmedActionRoundAsync(
+                connection, transaction, pendingId.Value, cancellationToken);
+            actionReason = actionRound?.ActionReasonSnapshot;
+            if (actionReason is null)
+            {
+                await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    select reason
+                    from pending_history
+                    where pending_issue_id = @pending_id
+                      and to_status = 'ReinspectionRequested'
+                    order by created_at_utc desc, id desc
+                    limit 1;
+                    """;
+                command.Parameters.AddWithValue("pending_id", pendingId.Value);
+                actionReason = Convert.ToString(
+                    await command.ExecuteScalarAsync(cancellationToken),
+                    System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        return new IqcReinspectionSourceResponse(
+            previousAttemptNumber,
+            failureReason,
+            actionReason,
+            failures,
+            new ReinspectionEvidenceResponse(originalFailurePhotos, actionRound));
     }
 
     private static async Task<ReportContext?> ReadAttemptContextAsync(
@@ -1178,6 +1758,16 @@ public sealed class IqcReportStore(
         return content.AsSpan().StartsWith(png) ? "image/png" : null;
     }
 
+    private static string? DetectScanMime(byte[] content)
+    {
+        ReadOnlySpan<byte> pdf = [0x25, 0x50, 0x44, 0x46, 0x2D];
+        if (content.AsSpan().StartsWith(pdf))
+        {
+            return "application/pdf";
+        }
+        return DetectImageMime(content);
+    }
+
     private static string Hash(byte[] content)
         => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
 
@@ -1235,6 +1825,36 @@ public sealed class IqcReportStore(
         int TemplateVersion,
         DateTimeOffset? FinalizedAtUtc,
         string? FinalizedBy);
+
+    private sealed record ScanResponseContext(
+        Guid AttemptId,
+        Guid ReceiptId,
+        Guid ProjectId,
+        string ProjectCode,
+        string ProjectTitle,
+        string? OrderItem,
+        decimal? Quantity,
+        string? Unit,
+        int AttemptNumber,
+        int ReceiptVersion,
+        string AttemptStatus,
+        string DecisionMode,
+        Guid? ReportId,
+        string? ReportStatus,
+        int? ReportVersion,
+        string? Result,
+        string? Reason,
+        DateTimeOffset? FinalizedAtUtc,
+        string? FinalizedBy);
+
+    private sealed record ScanReportContext(
+        Guid ReportId,
+        Guid AttemptId,
+        string Status,
+        int Version,
+        int ReceiptVersion,
+        string AttemptStatus,
+        string DecisionMode);
 
     private sealed record SnapshotPhoto(
         Guid PhotoId,

@@ -127,7 +127,11 @@ internal sealed record ProcurementItemSnapshot(
     string Status,
     string SupplyType,
     decimal? OrderQuantity,
-    string? OrderUnit);
+    string? OrderUnit,
+    Guid? MaterialCategoryId,
+    string? MaterialCategoryCode,
+    string? MaterialCategoryName,
+    bool? MaterialCategoryRequiresIqc);
 
 internal sealed record ProcurementProjectSnapshot(
     Guid ProjectId,
@@ -136,7 +140,14 @@ internal sealed record ProcurementProjectSnapshot(
     string ProjectKey,
     DateOnly? DeliveryDate,
     string Status,
-    DateTimeOffset? DeletedAtUtc);
+    DateTimeOffset? DeletedAtUtc,
+    string IqcRoutingPolicy);
+
+internal sealed record ProcurementMaterialCategorySnapshot(
+    Guid CategoryId,
+    string Code,
+    string DisplayName,
+    bool RequiresIqc);
 
 internal sealed record ParsedProcurementExcelFile(
     string FileSha256,
@@ -158,6 +169,7 @@ internal sealed record ParsedProcurementExcelRow(
     string? ShipmentText,
     string? IssueNote,
     bool? ReceiptCompleted,
+    string? MaterialCategoryName,
     bool IsSkipped,
     IReadOnlyList<string> ErrorMessages)
 {

@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { markProjectAsLegacyIqc } from './legacy-iqc-fixture';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
@@ -10,6 +11,7 @@ test('TASK-008B: customer-supplied material keeps one quantity truth across proc
   const unique = Date.now();
   const projectTitle = `사급 흐름 검수 ${unique}`;
   const projectId = await createProject(request, `CS-${unique}`, projectTitle);
+  markProjectAsLegacyIqc(projectId);
   const procurement = await updateProcurement(request, projectId, {
     items: [{
       orderItem: 'Customer Busbar',

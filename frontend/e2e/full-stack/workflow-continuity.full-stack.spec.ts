@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import { markProjectAsLegacyIqc, uploadRequiredIqcPhotos } from './legacy-iqc-fixture';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = '/tmp/workflow-continuity-001-screenshots';
@@ -12,6 +13,7 @@ test('WORKFLOW-CONTINUITY-001: arrival, IQC pending, automatic reinspection, and
   const projectTitle = `IQC 연속흐름 ${unique}`;
   const projectCode = `CONT-${String(unique).slice(-8)}`;
   const projectId = await createProject(request, projectCode, projectTitle);
+  markProjectAsLegacyIqc(projectId);
   const itemId = await createProcurementItem(request, projectId);
   const arrival = await registerArrival(request, itemId);
 
@@ -126,16 +128,15 @@ async function finalizeDetailedIqc(scope: Locator, result: 'Passed' | 'Failed', 
     }
   }
   if (expectedCardCount === 1) {
-    await scope.getByRole('button', { name: '저장하고 최종확인' }).click();
+    await uploadRequiredIqcPhotos(scope, evidenceImage);
+    await scope.getByRole('button', { name: '검사항목·사진 저장 후 최종확인' }).click();
     await scope.locator('textarea[data-field="iqc-report-reason"]').fill('교환품 조치 결과를 확인했고 재검사 항목이 적합합니다.');
     await scope.getByRole('button', { name: result === 'Passed' ? '합격 · Pending 해제' : '불합격 · 재조치 요청' }).click();
     return;
   }
-  await scope.getByRole('button', { name: '저장하고 사진 등록' }).click();
-  await scope.locator('input[type="file"]').setInputFiles(evidenceImage);
-  await scope.getByRole('button', { name: '사진 등록' }).click();
+  await uploadRequiredIqcPhotos(scope, evidenceImage);
   await expect(scope.locator('.iqc-photo-evidence')).toHaveCount(1);
-  await scope.getByRole('button', { name: '최종확인으로' }).click();
+  await scope.getByRole('button', { name: '검사항목·사진 저장 후 최종확인' }).click();
   await scope.getByLabel('종합 판정 사유').fill(result === 'Failed'
     ? '외관 균열과 눌림 흔적이 확인되어 조립 전 교환과 재검사가 필요합니다.'
     : '교환품의 외관, 수량, 식별 정보를 다시 확인했고 모든 항목이 적합합니다.');

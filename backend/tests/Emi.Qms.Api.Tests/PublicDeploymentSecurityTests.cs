@@ -150,6 +150,30 @@ public sealed class PublicDeploymentSecurityTests
     }
 
     [Fact]
+    public void ProductionArtifacts_RequireSplitEntraClientsAndIndependentMigration()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var compose = File.ReadAllText(
+            Path.Combine(repositoryRoot, "infrastructure", "docker-compose.production.yml"));
+        var frontendDockerfile = File.ReadAllText(
+            Path.Combine(repositoryRoot, "frontend", "Dockerfile.production"));
+        var backendDockerfile = File.ReadAllText(
+            Path.Combine(repositoryRoot, "backend", "Dockerfile.production"));
+        var program = File.ReadAllText(
+            Path.Combine(repositoryRoot, "backend", "src", "Emi.Qms.Api", "Program.cs"));
+
+        Assert.Contains("${ENTRA_API_CLIENT_ID:", compose, StringComparison.Ordinal);
+        Assert.Contains("${ENTRA_SPA_CLIENT_ID:", compose, StringComparison.Ordinal);
+        Assert.DoesNotContain("${ENTRA_CLIENT_ID:", compose, StringComparison.Ordinal);
+        Assert.Contains("AzureAd__SpaClientId", compose, StringComparison.Ordinal);
+        Assert.Contains("VITE_AZURE_API_CLIENT_ID", frontendDockerfile, StringComparison.Ordinal);
+        Assert.Contains("client === apiClient", frontendDockerfile, StringComparison.Ordinal);
+        Assert.Contains("COPY database/migrations database/migrations", backendDockerfile, StringComparison.Ordinal);
+        Assert.Contains("command:\n      - --migrate-only", compose, StringComparison.Ordinal);
+        Assert.Contains("--migrate-only", program, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProductionNginx_PreservesSecurityHeaderInheritanceForAssets()
     {
         var repositoryRoot = FindRepositoryRoot();
@@ -306,6 +330,8 @@ public sealed class PublicDeploymentSecurityTests
             { "Frontend:RedirectUri", "https://other.example.com", "exact Frontend:Origin" },
             { "ReverseProxy:KnownProxies", "", "proxy IP" },
             { "AzureAd:Domain", "", "Entra tenant" },
+            { "AzureAd:SpaClientId", "", "distinct API and SPA" },
+            { "AzureAd:SpaClientId", "22222222-2222-2222-2222-222222222222", "distinct API and SPA" },
             { "RateLimiting:Enabled", "false", "Rate limiting" },
             { "RateLimiting:ReadRequestsPerMinute", "999999", "Rate limiting" },
             { "UploadSecurity:Enabled", "false", "malware scanning" },
@@ -335,6 +361,7 @@ public sealed class PublicDeploymentSecurityTests
                 "breakglass-one@example.com;breakglass-two@example.com",
             ["AzureAd:TenantId"] = "11111111-1111-1111-1111-111111111111",
             ["AzureAd:ClientId"] = "22222222-2222-2222-2222-222222222222",
+            ["AzureAd:SpaClientId"] = "33333333-3333-3333-3333-333333333333",
             ["AzureAd:Audience"] = "api://22222222-2222-2222-2222-222222222222",
             ["AzureAd:Domain"] = "emi.co.kr",
             ["RateLimiting:Enabled"] = "true",

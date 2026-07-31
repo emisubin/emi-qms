@@ -31,7 +31,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         [WorkflowStageCodes.MaterialArrived] = new("MaterialsPrimary", "MaterialsSecondary", []),
         [WorkflowStageCodes.IQC] = new("QualityIQC", "QualityIQCSecondary", ["Quality"]),
         [WorkflowStageCodes.ReceiptConfirmed] = new("MaterialsPrimary", "MaterialsSecondary", []),
-        [WorkflowStageCodes.KittingCompleted] = new("MaterialsPrimary", "MaterialsSecondary", []),
+        // The persisted stage code is kept for migration compatibility. Its product meaning is
+        // now the production-planning manufacturing request, not mandatory material kitting.
+        [WorkflowStageCodes.KittingCompleted] = new("ProductionPlanningPrimary", "ProductionPlanningSecondary", ["ProductionPlanning"]),
         [WorkflowStageCodes.ManufacturingWork] = new("ManufacturingPrimary", "ManufacturingSecondary", ["Manufacturing"]),
         [WorkflowStageCodes.LQC] = new("QualityLQC", "QualityLQCSecondary", ["Quality"]),
         [WorkflowStageCodes.ManufacturingCompleted] = new("ManufacturingPrimary", "ManufacturingSecondary", ["Manufacturing"]),
@@ -66,7 +68,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 select
                     @project_id, 'KittingCompleted', 'StageCompleted', 'Succeeded',
                     @source_type, @source_id, @correlation_id, @actor_id,
-                    '모든 활성 패널이 키팅 완료 또는 생산관리 제조 투입 요청됨'
+                    '모든 활성 패널에 생산관리 제조 투입 요청됨'
                 where (
                     select count(*)
                     from panel_placeholders panel
@@ -78,16 +80,10 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                     from panel_placeholders panel
                     where panel.project_id = @project_id
                       and panel.status = 'Active'
-                      and (
-                          exists (
-                              select 1 from panel_kitting_completions completion
-                              where completion.panel_id = panel.id
-                          )
-                          or exists (
-                              select 1 from panel_manufacturing_release_operations release
-                              where release.project_id = @project_id
-                                and panel.id = any(release.panel_ids)
-                          )
+                      and exists (
+                          select 1 from panel_manufacturing_release_operations release
+                          where release.project_id = @project_id
+                            and panel.id = any(release.panel_ids)
                       )
                 ) = (
                     select count(*)
@@ -567,7 +563,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 wi.started_at_utc,
                 wi.completed_at_utc,
                 wi.target_type,
-                wi.target_id
+                wi.target_id,
+                wi.link_url
             from work_items wi
             join projects p on p.id = wi.project_id
             join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
@@ -1254,7 +1251,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 wi.started_at_utc,
                 wi.completed_at_utc,
                 wi.target_type,
-                wi.target_id
+                wi.target_id,
+                wi.link_url
             from work_items wi
             join projects p on p.id = wi.project_id
             join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
@@ -1444,13 +1442,18 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 where item.project_id = @project_id
                   and item.status = 'Active'
             ),
+            confirmed_receipt_summary as (
+                select count(receipt.id)::int as confirmed_receipt_count
+                from project_procurement_items item
+                join material_receipts receipt
+                  on receipt.procurement_item_id = item.id
+                 and receipt.status = 'Confirmed'
+                where item.project_id = @project_id
+                  and item.status = 'Active'
+            ),
             kitting_summary as (
                 select count(*) filter (
                     where exists (
-                        select 1 from panel_kitting_completions completion
-                        where completion.panel_id = panel.id
-                    )
-                    or exists (
                         select 1 from panel_manufacturing_release_operations release
                         where release.project_id = @project_id
                           and panel.id = any(release.panel_ids)
@@ -1610,6 +1613,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 coalesce(material.arrived_item_count, 0),
                 coalesce(material.arrival_closed_item_count, 0),
                 coalesce(material.receipt_confirmed_item_count, 0),
+                coalesce(confirmed_receipt.confirmed_receipt_count, 0),
                 coalesce(kitting.ready_panel_count, 0),
                 coalesce(manufacturing.started_panel_count, 0),
                 coalesce(manufacturing.completed_panel_count, 0),
@@ -1641,6 +1645,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             left join procurement_required_summary prs on true
             left join iqc_summary iqc on true
             left join material_summary material on true
+            left join confirmed_receipt_summary confirmed_receipt on true
             left join kitting_summary kitting on true
             left join manufacturing_summary manufacturing on true
             left join quality_summary quality on true
@@ -1698,7 +1703,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetInt32(39),
             reader.GetInt32(40),
             reader.GetInt32(41),
-            reader.GetInt32(42));
+            reader.GetInt32(42),
+            reader.GetInt32(43));
     }
 
     private static async Task<ProjectWorkflowSnapshot?> ReadProjectAsync(
@@ -2322,11 +2328,13 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetFieldValue<DateTimeOffset>(14),
             reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
             reader.IsDBNull(16) ? null : reader.GetFieldValue<DateTimeOffset>(16),
-            LinkUrlForWorkItem(
-                projectId,
-                reader.GetString(6),
-                reader.GetString(17),
-                reader.IsDBNull(18) ? null : reader.GetGuid(18)));
+            reader.IsDBNull(19)
+                ? LinkUrlForWorkItem(
+                    projectId,
+                    reader.GetString(6),
+                    reader.GetString(17),
+                    reader.IsDBNull(18) ? null : reader.GetGuid(18))
+                : reader.GetString(19));
     }
 
     private static NotificationResponse ReadNotification(NpgsqlDataReader reader)
@@ -2377,7 +2385,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.MaterialArrived => "자재 도착 등록",
             WorkflowStageCodes.IQC => "수입검사 입력",
             WorkflowStageCodes.ReceiptConfirmed => "입고 확정 입력",
-            WorkflowStageCodes.KittingCompleted => "키팅 완료 알림",
+            WorkflowStageCodes.KittingCompleted => "제조 투입 검토·요청",
             WorkflowStageCodes.ManufacturingWork => "제조 작업 입력",
             WorkflowStageCodes.LQC => "LQC 입력",
             WorkflowStageCodes.ManufacturingCompleted => "제조 완료 입력",
@@ -2394,8 +2402,13 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     private static string StageDisplayName(string stageCode, string stageName)
     {
-        return string.Equals(stageCode, WorkflowStageCodes.DesignPanelInfo, StringComparison.Ordinal)
-            ? "패널명·사이즈"
+        if (string.Equals(stageCode, WorkflowStageCodes.DesignPanelInfo, StringComparison.Ordinal))
+        {
+            return "패널명·사이즈";
+        }
+
+        return string.Equals(stageCode, WorkflowStageCodes.KittingCompleted, StringComparison.Ordinal)
+            ? "제조 요청"
             : stageName;
     }
 
@@ -2450,12 +2463,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 facts.ReceiptConfirmedMaterialItemCount,
                 0,
                 currentStatus),
-            WorkflowStageCodes.KittingCompleted => AggregateStageStatus(
-                facts.ActivePanelCount,
-                facts.EffectiveKittingReadyPanelCount,
-                facts.EffectiveKittingReadyPanelCount,
-                0,
-                currentStatus),
+            WorkflowStageCodes.KittingCompleted => ManufacturingRequestStatus(facts, currentStatus),
             WorkflowStageCodes.ManufacturingWork => AggregateStageStatus(
                 facts.ActivePanelCount,
                 facts.ManufacturingStartedPanelCount,
@@ -2600,6 +2608,29 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             currentStatus);
     }
 
+    private static string ManufacturingRequestStatus(WorkflowCompletionFacts facts, string currentStatus)
+    {
+        if (facts.ActivePanelCount > 0
+            && facts.ManufacturingReleasedPanelCount >= facts.ActivePanelCount)
+        {
+            return "Completed";
+        }
+
+        if (facts.ManufacturingReleasedPanelCount > 0)
+        {
+            return WorkflowStatuses.PartiallyCompleted;
+        }
+
+        if (facts.ConfirmedReceiptCount > 0)
+        {
+            return "InProgress";
+        }
+
+        return string.Equals(currentStatus, "Completed", StringComparison.Ordinal)
+            ? "NotStarted"
+            : currentStatus;
+    }
+
     private static string AggregateStageStatus(
         int totalCount,
         int startedCount,
@@ -2658,7 +2689,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             WorkflowStageCodes.ProductionPlanning => $"/projects/{projectId}/production-planning/edit",
             WorkflowStageCodes.DesignPanelInfo => $"/projects/{projectId}/panel-information/edit",
             WorkflowStageCodes.ProcurementInfo => $"/projects/{projectId}/procurement/edit",
-            WorkflowStageCodes.KittingCompleted => $"/materials/kitting?project={projectId}",
+            WorkflowStageCodes.KittingCompleted => $"/production-planning/releases?project={projectId}",
             _ => $"/projects/{projectId}?section=workflow"
         };
     }
@@ -2709,6 +2740,16 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 _ => "delivery"
             };
             return $"/logistics?stage={logisticsStage}&project={projectId}&panel={targetId.Value}";
+        }
+
+        if (stageCode == WorkflowStageCodes.ReceiptConfirmed)
+        {
+            return $"/materials/receipts?projectId={projectId}";
+        }
+
+        if (stageCode == WorkflowStageCodes.MaterialArrived)
+        {
+            return $"/materials/receipts?projectId={projectId}";
         }
 
         return LinkUrlForStage(projectId, stageCode);
@@ -2899,7 +2940,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         int ArrivedMaterialItemCount = 0,
         int ArrivalClosedMaterialItemCount = 0,
         int ReceiptConfirmedMaterialItemCount = 0,
-        int EffectiveKittingReadyPanelCount = 0,
+        int ConfirmedReceiptCount = 0,
+        int ManufacturingReleasedPanelCount = 0,
         int ManufacturingStartedPanelCount = 0,
         int ManufacturingCompletedPanelCount = 0,
         int ManufacturingBlockedPanelCount = 0,

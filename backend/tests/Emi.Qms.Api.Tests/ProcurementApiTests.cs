@@ -27,10 +27,10 @@ public sealed class ProcurementApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
         using var qualityClient = context.CreateClient("dev-quality");
-        var projectId = await CreateProjectAsync(salesClient, "PROC-IQC-REPORT", "IQC Report Flow");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-IQC-REPORT", "IQC Report Flow");
         Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Synthetic Enclosure", orderQuantity = 1, orderUnit = "EA" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Synthetic Enclosure", orderQuantity = 1, orderUnit = "EA" } } },
             TestContext.Current.CancellationToken)).StatusCode);
         var item = (await ReadProcurementAsync(procurementClient, projectId)).RootElement.GetProperty("items")[0];
         var itemId = item.GetProperty("itemId").GetGuid();
@@ -189,10 +189,10 @@ public sealed class ProcurementApiTests
         using var materialsClient = context.CreateClient("dev-materials");
         using var qualityClient = context.CreateClient("dev-quality");
         using var coordinatorClient = context.CreateClient("dev-production");
-        var projectId = await CreateProjectAsync(salesClient, "PROC-IQC-RECHECK", "IQC Reinspection Scope");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-IQC-RECHECK", "IQC Reinspection Scope");
         Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Nameplate", orderQuantity = 2, orderUnit = "EA" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Nameplate", orderQuantity = 2, orderUnit = "EA" } } },
             TestContext.Current.CancellationToken)).StatusCode);
         var procurementItem = (await ReadProcurementAsync(procurementClient, projectId)).RootElement.GetProperty("items")[0];
         var itemId = procurementItem.GetProperty("itemId").GetGuid();
@@ -312,6 +312,308 @@ public sealed class ProcurementApiTests
     }
 
     [Fact]
+    public async Task CategoryBasedIqc_RoutesOnlySnapshottedIqcItemsAndKeepsSignedScanImmutable()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        using var qualityClient = context.CreateClient("dev-quality");
+        var projectId = await CreateProjectAsync(salesClient, "PROC-CATEGORY-IQC", "Category IQC Routing");
+
+        var missingCategory = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new { items = new[] { new { orderItem = "구분 누락 품목", orderQuantity = 1, orderUnit = "EA" } } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, missingCategory.StatusCode);
+
+        var save = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                items = new object[]
+                {
+                    new
+                    {
+                        materialCategoryId = "67000000-0000-0000-0000-000000000001",
+                        orderItem = "외함",
+                        orderQuantity = 1,
+                        orderUnit = "EA"
+                    },
+                    new
+                    {
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005",
+                        orderItem = "차단기",
+                        orderQuantity = 1,
+                        orderUnit = "EA"
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, save.StatusCode);
+
+        using var procurement = await ReadProcurementAsync(procurementClient, projectId);
+        Assert.Equal("CategoryBased", procurement.RootElement.GetProperty("iqcRoutingPolicy").GetString());
+        var enclosure = procurement.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("orderItem").GetString() == "외함");
+        var breaker = procurement.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("orderItem").GetString() == "차단기");
+        Assert.True(enclosure.GetProperty("materialCategoryRequiresIqc").GetBoolean());
+        Assert.False(breaker.GetProperty("materialCategoryRequiresIqc").GetBoolean());
+
+        using (var categories = await ReadJsonAsync(await qualityClient.GetAsync(
+                   "/api/form-templates/material-categories?includeInactive=true",
+                   TestContext.Current.CancellationToken)))
+        {
+            Assert.True(categories.RootElement.GetProperty("canManage").GetBoolean());
+            var enclosureCategory = categories.RootElement.GetProperty("items").EnumerateArray()
+                .Single(item => item.GetProperty("code").GetString() == "ENCLOSURE");
+            var masterUpdate = await qualityClient.PutAsJsonAsync(
+                $"/api/form-templates/material-categories/{enclosureCategory.GetProperty("categoryId").GetGuid()}",
+                new
+                {
+                    expectedRowVersion = enclosureCategory.GetProperty("rowVersion").GetInt32(),
+                    displayName = "외함",
+                    requiresIqc = false,
+                    isActive = true,
+                    displayOrder = enclosureCategory.GetProperty("displayOrder").GetInt32()
+                },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, masterUpdate.StatusCode);
+        }
+
+        using var unchangedSnapshot = await ReadProcurementAsync(procurementClient, projectId);
+        Assert.True(unchangedSnapshot.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("orderItem").GetString() == "외함")
+            .GetProperty("materialCategoryRequiresIqc").GetBoolean());
+
+        using var breakerArrival = await ReadJsonAsync(await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{breaker.GetProperty("itemId").GetGuid()}/receipts",
+            new { quantity = 1, unit = "EA", arrivalDate = "2026-07-30" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("InspectionNotRequired", breakerArrival.RootElement.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, breakerArrival.RootElement.GetProperty("iqcAttemptId").ValueKind);
+        Assert.Equal(HttpStatusCode.OK, (await materialsClient.PostAsJsonAsync(
+            $"/api/materials/receipts/{breakerArrival.RootElement.GetProperty("receiptId").GetGuid()}/confirm",
+            new { expectedVersion = 2 },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        using var enclosureArrival = await ReadJsonAsync(await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{enclosure.GetProperty("itemId").GetGuid()}/receipts",
+            new { quantity = 1, unit = "EA", arrivalDate = "2026-07-30" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("IqcRequested", enclosureArrival.RootElement.GetProperty("status").GetString());
+        var attemptId = enclosureArrival.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        using var initialized = await ReadJsonAsync(await qualityClient.PostAsync(
+            $"/api/quality/iqc/{attemptId}/reports",
+            null,
+            TestContext.Current.CancellationToken));
+        Assert.Equal("ScanBased", initialized.RootElement.GetProperty("decisionMode").GetString());
+        Assert.Empty(initialized.RootElement.GetProperty("items").EnumerateArray());
+        var scanReportId = initialized.RootElement.GetProperty("reportId").GetGuid();
+        var scanVersion = initialized.RootElement.GetProperty("reportVersion").GetInt32();
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/scan-reports/{scanReportId}/finalize",
+            new
+            {
+                expectedReportVersion = scanVersion,
+                expectedReceiptVersion = 2,
+                result = "Passed",
+                reason = "서명 검사서 확인 완료"
+            },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var png = await File.ReadAllBytesAsync(
+            Path.Combine(context.RepositoryRoot, "..", "frontend", "src", "assets", "emi-logo.png"),
+            TestContext.Current.CancellationToken);
+        Guid attachmentId;
+        using (var scanForm = new MultipartFormDataContent())
+        {
+            scanForm.Add(new StringContent(scanVersion.ToString(CultureInfo.InvariantCulture)), "expectedReportVersion");
+            var scanContent = new ByteArrayContent(png);
+            scanContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            scanForm.Add(scanContent, "file", "signed-enclosure-iqc.png");
+            using var uploaded = await ReadJsonAsync(await qualityClient.PostAsync(
+                $"/api/quality/iqc/scan-reports/{scanReportId}/attachments",
+                scanForm,
+                TestContext.Current.CancellationToken));
+            scanVersion = uploaded.RootElement.GetProperty("reportVersion").GetInt32();
+            attachmentId = Assert.Single(uploaded.RootElement.GetProperty("scanAttachments").EnumerateArray())
+                .GetProperty("attachmentId").GetGuid();
+        }
+        Assert.Equal(HttpStatusCode.OK, (await qualityClient.GetAsync(
+            $"/api/quality/iqc/scan-reports/{scanReportId}/attachments/{attachmentId}/content",
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        using var finalized = await ReadJsonAsync(await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/scan-reports/{scanReportId}/finalize",
+            new
+            {
+                expectedReportVersion = scanVersion,
+                expectedReceiptVersion = 2,
+                result = "Passed",
+                reason = "서명 검사서와 외함 상태 적합 확인"
+            },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("Finalized", finalized.RootElement.GetProperty("reportStatus").GetString());
+        Assert.False(finalized.RootElement.GetProperty("canEdit").GetBoolean());
+        Assert.Equal(HttpStatusCode.Conflict, (await qualityClient.DeleteAsync(
+            $"/api/quality/iqc/scan-reports/{scanReportId}/attachments/{attachmentId}?expectedReportVersion={finalized.RootElement.GetProperty("reportVersion").GetInt32()}",
+            TestContext.Current.CancellationToken)).StatusCode);
+    }
+
+    [Fact]
+    public async Task CategoryBasedScanIqc_FailureCreatesPendingAndReinspectionPreservesEverySignedScan()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        using var qualityClient = context.CreateClient("dev-quality");
+        using var coordinatorClient = context.CreateClient("dev-production");
+        var projectId = await CreateProjectAsync(salesClient, "PROC-SCAN-REINSPECTION", "Scan IQC Reinspection");
+
+        Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                items = new[]
+                {
+                    new
+                    {
+                        materialCategoryId = "67000000-0000-0000-0000-000000000001",
+                        orderItem = "외함 재검사품",
+                        orderQuantity = 1,
+                        orderUnit = "EA"
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken)).StatusCode);
+        using var procurement = await ReadProcurementAsync(procurementClient, projectId);
+        var itemId = procurement.RootElement.GetProperty("items")[0].GetProperty("itemId").GetGuid();
+        using var arrival = await ReadJsonAsync(await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{itemId}/receipts",
+            new { quantity = 1, unit = "EA", arrivalDate = "2026-07-30" },
+            TestContext.Current.CancellationToken));
+        var receiptId = arrival.RootElement.GetProperty("receiptId").GetGuid();
+        var firstAttemptId = arrival.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        using var firstReport = await ReadJsonAsync(await qualityClient.PostAsync(
+            $"/api/quality/iqc/{firstAttemptId}/reports",
+            null,
+            TestContext.Current.CancellationToken));
+        var firstReportId = firstReport.RootElement.GetProperty("reportId").GetGuid();
+        var firstReportVersion = firstReport.RootElement.GetProperty("reportVersion").GetInt32();
+        var png = await File.ReadAllBytesAsync(
+            Path.Combine(context.RepositoryRoot, "..", "frontend", "src", "assets", "emi-logo.png"),
+            TestContext.Current.CancellationToken);
+
+        using (var firstScanForm = new MultipartFormDataContent())
+        {
+            firstScanForm.Add(new StringContent(firstReportVersion.ToString(CultureInfo.InvariantCulture)), "expectedReportVersion");
+            var firstScanContent = new ByteArrayContent(png);
+            firstScanContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            firstScanForm.Add(firstScanContent, "file", "first-signed-iqc.png");
+            using var uploaded = await ReadJsonAsync(await qualityClient.PostAsync(
+                $"/api/quality/iqc/scan-reports/{firstReportId}/attachments",
+                firstScanForm,
+                TestContext.Current.CancellationToken));
+            firstReportVersion = uploaded.RootElement.GetProperty("reportVersion").GetInt32();
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/scan-reports/{firstReportId}/finalize",
+            new
+            {
+                expectedReportVersion = firstReportVersion,
+                expectedReceiptVersion = 2,
+                result = "Failed",
+                reason = "외함 도어 변형으로 재조치가 필요합니다."
+            },
+            TestContext.Current.CancellationToken)).StatusCode);
+        var pendingId = Guid.Parse(await context.ReadTextAsync(
+            "select id::text from pending_issues where project_id=@project_id;",
+            projectId));
+
+        using var assignees = await ReadJsonAsync(await coordinatorClient.GetAsync(
+            "/api/pending/assignees",
+            TestContext.Current.CancellationToken));
+        var assigneeId = assignees.RootElement[0].GetProperty("userId").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await coordinatorClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/assign",
+            new { assigneeUserId = assigneeId, expectedVersion = 1, reason = "외함 변형 조치 담당 지정" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await coordinatorClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/transition",
+            new { toStatus = "InProgress", expectedVersion = 2, reason = "외함 변형 조치 시작" },
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await coordinatorClient.PostAsJsonAsync(
+            $"/api/pending/{pendingId}/transition",
+            new { toStatus = "ReinspectionRequested", expectedVersion = 3, reason = "외함 도어 교정 완료" },
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        using var reinspection = await ReadJsonAsync(await materialsClient.PostAsJsonAsync(
+            $"/api/materials/receipts/{receiptId}/reinspection",
+            new { expectedVersion = 3 },
+            TestContext.Current.CancellationToken));
+        var secondAttemptId = reinspection.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        using var secondReport = await ReadJsonAsync(await qualityClient.PostAsync(
+            $"/api/quality/iqc/{secondAttemptId}/reports",
+            null,
+            TestContext.Current.CancellationToken));
+        var secondReportId = secondReport.RootElement.GetProperty("reportId").GetGuid();
+        var secondReportVersion = secondReport.RootElement.GetProperty("reportVersion").GetInt32();
+        var receiptVersion = secondReport.RootElement.GetProperty("receiptVersion").GetInt32();
+        var history = Assert.Single(secondReport.RootElement.GetProperty("scanHistory").EnumerateArray());
+        Assert.Equal(firstReportId, history.GetProperty("reportId").GetGuid());
+        Assert.Equal("Failed", history.GetProperty("result").GetString());
+        Assert.Equal("외함 도어 교정 완료", history.GetProperty("actionReason").GetString());
+        var historicAttachment = Assert.Single(history.GetProperty("attachments").EnumerateArray());
+        Assert.Equal(HttpStatusCode.OK, (await qualityClient.GetAsync(
+            $"/api/quality/iqc/scan-reports/{firstReportId}/attachments/{historicAttachment.GetProperty("attachmentId").GetGuid()}/content",
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/scan-reports/{secondReportId}/finalize",
+            new
+            {
+                expectedReportVersion = secondReportVersion,
+                expectedReceiptVersion = receiptVersion,
+                result = "Passed",
+                reason = "재검사 적합"
+            },
+            TestContext.Current.CancellationToken)).StatusCode);
+        using (var secondScanForm = new MultipartFormDataContent())
+        {
+            secondScanForm.Add(new StringContent(secondReportVersion.ToString(CultureInfo.InvariantCulture)), "expectedReportVersion");
+            var secondScanContent = new ByteArrayContent(png);
+            secondScanContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            secondScanForm.Add(secondScanContent, "file", "second-signed-iqc.png");
+            using var uploaded = await ReadJsonAsync(await qualityClient.PostAsync(
+                $"/api/quality/iqc/scan-reports/{secondReportId}/attachments",
+                secondScanForm,
+                TestContext.Current.CancellationToken));
+            secondReportVersion = uploaded.RootElement.GetProperty("reportVersion").GetInt32();
+        }
+        using var passed = await ReadJsonAsync(await qualityClient.PostAsJsonAsync(
+            $"/api/quality/iqc/scan-reports/{secondReportId}/finalize",
+            new
+            {
+                expectedReportVersion = secondReportVersion,
+                expectedReceiptVersion = receiptVersion,
+                result = "Passed",
+                reason = "외함 도어 교정과 재검사 결과 적합합니다."
+            },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("Passed", passed.RootElement.GetProperty("result").GetString());
+        Assert.Single(passed.RootElement.GetProperty("scanHistory").EnumerateArray());
+        using var closedPending = await ReadJsonAsync(await qualityClient.GetAsync(
+            $"/api/pending/{pendingId}",
+            TestContext.Current.CancellationToken));
+        Assert.Equal("Closed", closedPending.RootElement.GetProperty("issue").GetProperty("status").GetString());
+    }
+
+    [Fact]
     public async Task ProcurementAuthorization_EnforcesReadUpdateReceiptAndHistoryPolicies()
     {
         await using var context = await ProcurementApiTestContext.CreateAsync();
@@ -337,7 +639,7 @@ public sealed class ProcurementApiTests
             new
             {
                 reason = "initial procurement",
-                items = new[] { new { orderItem = "MCCB" } }
+                items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "MCCB" } }
             },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, procurementUpdate.StatusCode);
@@ -384,7 +686,7 @@ public sealed class ProcurementApiTests
             using var client = context.CreateClient(userKey);
             var denied = await client.PatchAsJsonAsync(
                 $"/api/projects/{projectId}/procurement",
-                new { items = new[] { new { orderItem = "SHOULD-NOT-SAVE" } } },
+                new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "SHOULD-NOT-SAVE" } } },
                 TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
         }
@@ -440,7 +742,7 @@ public sealed class ProcurementApiTests
         using var salesClient = context.CreateClient("dev-sales");
         using var procurementClient = context.CreateClient("dev-procurement");
         using var adminClient = context.CreateClient("dev-admin");
-        var projectId = await CreateProjectAsync(salesClient, "PROC-DIRECT", "Proc Direct");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-DIRECT", "Proc Direct");
 
         var response = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
@@ -450,7 +752,7 @@ public sealed class ProcurementApiTests
                 items = new object[]
                 {
                     new { standardLeadTime = "4W" },
-                    new { orderItem = "Cable" },
+                    new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Cable" },
                     new { supplierName = "Vendor A" },
                     new { technicalOwner = "Engineer A" },
                     new { orderDate = "2026-07-01" },
@@ -509,7 +811,7 @@ public sealed class ProcurementApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
         using var qualityClient = context.CreateClient("dev-quality");
-        var projectId = await CreateProjectAsync(salesClient, "PROC-PURCHASED-TRACE", "Purchased Material Trace");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-PURCHASED-TRACE", "Purchased Material Trace");
         await context.ExecuteSqlAsync($"""
             insert into project_assignees (project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc)
             values
@@ -521,7 +823,7 @@ public sealed class ProcurementApiTests
 
         var missingUnit = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Incomplete Purchased Item", supplyType = "Purchased", orderQuantity = 10m } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Incomplete Purchased Item", supplyType = "Purchased", orderQuantity = 10m } } },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.BadRequest, missingUnit.StatusCode);
 
@@ -533,7 +835,7 @@ public sealed class ProcurementApiTests
                 {
                     new
                     {
-                        orderItem = "Purchased Busbar",
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Purchased Busbar",
                         supplierName = "Vendor P",
                         supplyType = "Purchased",
                         orderQuantity = 10m,
@@ -584,7 +886,7 @@ public sealed class ProcurementApiTests
                         itemId,
                         expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
                         standardLeadTime = "3W",
-                        orderItem = "Purchased Busbar",
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Purchased Busbar",
                         supplierName = "Vendor P",
                         supplyType = "Purchased",
                         orderQuantity = 10m,
@@ -738,11 +1040,11 @@ public sealed class ProcurementApiTests
         using var salesClient = context.CreateClient("dev-sales");
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
-        var projectId = await CreateProjectAsync(salesClient, "PROC-OWNER-QTY", "Purchase Owner Quantity");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-OWNER-QTY", "Purchase Owner Quantity");
 
         var draft = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Purchased Draft" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Purchased Draft" } } },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, draft.StatusCode);
         using var draftJson = await ReadJsonAsync(draft);
@@ -814,7 +1116,7 @@ public sealed class ProcurementApiTests
             """);
         var procurementSave = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Legacy Orphan", supplyType = "Purchased", orderQuantity = 2m, orderUnit = "EA" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Legacy Orphan", supplyType = "Purchased", orderQuantity = 2m, orderUnit = "EA" } } },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, procurementSave.StatusCode);
         using var procurement = await ReadJsonAsync(procurementSave);
@@ -880,10 +1182,10 @@ public sealed class ProcurementApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
         using var qualityClient = context.CreateClient("dev-quality");
-        var projectId = await CreateProjectAsync(salesClient, "PROC-RECEIPT", "Proc Receipt");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-RECEIPT", "Proc Receipt");
         var procurementSave = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Terminal Block", orderQuantity = 10.5m, orderUnit = "EA" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Terminal Block", orderQuantity = 10.5m, orderUnit = "EA" } } },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, procurementSave.StatusCode);
         var item = (await ReadProcurementAsync(procurementClient, projectId)).RootElement.GetProperty("items")[0];
@@ -990,12 +1292,12 @@ public sealed class ProcurementApiTests
         using var materialsClient = context.CreateClient("dev-materials");
         using var qualityClient = context.CreateClient("dev-quality");
         using var adminClient = context.CreateClient("dev-admin");
-        var projectId = await CreateProjectAsync(salesClient, "PROC-CUSTOMER-SUPPLY", "Customer Supply");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-CUSTOMER-SUPPLY", "Customer Supply");
         const string pastDate = "2020-01-01";
 
         var missingPair = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Invalid Customer Supply", supplyType = "CustomerSupplied" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Invalid Customer Supply", supplyType = "CustomerSupplied" } } },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.BadRequest, missingPair.StatusCode);
 
@@ -1007,7 +1309,7 @@ public sealed class ProcurementApiTests
                 {
                     new
                     {
-                        orderItem = "Customer Busbar",
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Customer Busbar",
                         supplierName = "Reference Vendor",
                         supplyType = "CustomerSupplied",
                         orderQuantity = 10m,
@@ -1177,7 +1479,7 @@ public sealed class ProcurementApiTests
                     {
                         itemId,
                         expectedRowVersion = currentProcurementItem.GetProperty("rowVersion").GetInt32(),
-                        orderItem = "Customer Busbar",
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Customer Busbar",
                         supplierName = "Reference Vendor",
                         supplyType = "CustomerSupplied",
                         orderQuantity = 4m,
@@ -1236,7 +1538,7 @@ public sealed class ProcurementApiTests
         var projectId = await CreateProjectAsync(salesClient, "PROC-RECEIPT-RACE", "Proc Receipt Race");
         Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Busbar Support", orderQuantity = 10m, orderUnit = "EA" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Busbar Support", orderQuantity = 10m, orderUnit = "EA" } } },
             TestContext.Current.CancellationToken)).StatusCode);
         var itemId = (await ReadProcurementAsync(procurementClient, projectId)).RootElement
             .GetProperty("items")[0].GetProperty("itemId").GetGuid();
@@ -1263,7 +1565,7 @@ public sealed class ProcurementApiTests
         var projectId = await CreateProjectAsync(salesClient, "PROC-CUSTOMER-SUPPLY-RACE", "Customer Supply Race");
         var create = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Race Item", orderQuantity = 10m, orderUnit = "EA" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Race Item", orderQuantity = 10m, orderUnit = "EA" } } },
             TestContext.Current.CancellationToken);
         using var createJson = await ReadJsonAsync(create);
         var item = createJson.RootElement.GetProperty("items")[0];
@@ -1323,10 +1625,10 @@ public sealed class ProcurementApiTests
         using var materialsClient = context.CreateClient("dev-materials");
         using var qualityClient = context.CreateClient("dev-quality");
         using var coordinatorClient = context.CreateClient("dev-production");
-        var projectId = await CreateProjectAsync(salesClient, "PROC-IQC-FAIL", "Proc IQC Failure");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-IQC-FAIL", "Proc IQC Failure");
         Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Contactor", orderQuantity = 4, orderUnit = "EA" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Contactor", orderQuantity = 4, orderUnit = "EA" } } },
             TestContext.Current.CancellationToken)).StatusCode);
         var item = (await ReadProcurementAsync(procurementClient, projectId)).RootElement.GetProperty("items")[0];
         var itemId = item.GetProperty("itemId").GetGuid();
@@ -1359,13 +1661,26 @@ public sealed class ProcurementApiTests
             $"/api/quality/iqc/{firstAttemptId}/result",
             new { expectedReceiptVersion = 2, result = "Failed", reason = "단자 외관의 균열과 눌림 흔적이 확인되어 조립 안전성 검토가 필요합니다." },
             TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, failed.StatusCode);
+        var failedBody = await failed.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(
+            failed.StatusCode == HttpStatusCode.OK,
+            $"Expected OK but received {failed.StatusCode}: {failedBody}{Environment.NewLine}"
+            + string.Join(Environment.NewLine, context.Logs.Where(entry => entry.Exception is not null).Select(entry => entry.Exception)));
         using var failedJson = await ReadJsonAsync(failed);
         var pendingId = failedJson.RootElement.GetProperty("pendingIssueId").GetGuid();
 
         using var pending = await ReadJsonAsync(await coordinatorClient.GetAsync($"/api/pending/{pendingId}", TestContext.Current.CancellationToken));
         Assert.Equal("ActionRequested", pending.RootElement.GetProperty("issue").GetProperty("status").GetString());
         Assert.Equal("Urgent", pending.RootElement.GetProperty("issue").GetProperty("priority").GetString());
+        Assert.True(await context.ReadCountAsync(
+            """
+            select count(*)
+            from notification_recipients recipient
+            join notifications notification on notification.id = recipient.notification_id
+            where notification.project_id = @project_id
+              and notification.idempotency_key like 'pending:%:notification:%';
+            """,
+            projectId) >= 4L);
         using var assignees = await ReadJsonAsync(await coordinatorClient.GetAsync("/api/pending/assignees", TestContext.Current.CancellationToken));
         var assigneeId = assignees.RootElement[0].GetProperty("userId").GetGuid();
         Assert.Equal(HttpStatusCode.OK, (await coordinatorClient.PostAsJsonAsync(
@@ -1456,7 +1771,7 @@ public sealed class ProcurementApiTests
               and idempotency_key like 'pending:%:reopened:v%';
             """,
             projectId));
-        Assert.Equal(1L, await context.ReadCountAsync(
+        Assert.True(await context.ReadCountAsync(
             """
             select count(*)
             from notification_recipients recipient
@@ -1464,7 +1779,7 @@ public sealed class ProcurementApiTests
             where notification.project_id = @project_id
               and notification.idempotency_key like 'pending:%:reopened:v%';
             """,
-            projectId));
+            projectId) >= 3L);
 
         Assert.Equal(HttpStatusCode.OK, (await coordinatorClient.PostAsJsonAsync(
             $"/api/pending/{pendingId}/transition",
@@ -1500,7 +1815,7 @@ public sealed class ProcurementApiTests
         await using var context = await ProcurementApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
         using var procurementClient = context.CreateClient("dev-procurement");
-        var projectId = await CreateProjectAsync(salesClient, "PROC-DDAY", "Proc Dday");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-DDAY", "Proc Dday");
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         var save = await procurementClient.PatchAsJsonAsync(
@@ -1509,7 +1824,7 @@ public sealed class ProcurementApiTests
             {
                 items = new object[]
                 {
-                    new { orderItem = "No date" },
+                    new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "No date" },
                     new { expectedReceiptDate = today.AddDays(3).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) },
                     new { expectedReceiptDate = today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) },
                     new { expectedReceiptDate = today.AddDays(-2).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }
@@ -1553,7 +1868,10 @@ public sealed class ProcurementApiTests
         Assert.Equal("Matched", preview.RootElement.GetProperty("projectMatches")[0].GetProperty("matchStatus").GetString());
 
         var apply = await ApplyExcelAsync(procurementClient, firstFile, "procurement.xlsx", preview, reason: null);
-        Assert.Equal(HttpStatusCode.OK, apply.StatusCode);
+        Assert.True(
+            apply.StatusCode == HttpStatusCode.OK,
+            $"{await apply.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)}{Environment.NewLine}"
+            + string.Join(Environment.NewLine, context.Logs.Where(entry => entry.Exception is not null).Select(entry => entry.Exception)));
         var saved = await ReadProcurementAsync(procurementClient, projectId);
         Assert.Equal(2, saved.RootElement.GetProperty("items").GetArrayLength());
         Assert.Equal("Vendor X", saved.RootElement.GetProperty("items")[0].GetProperty("supplierName").GetString());
@@ -1679,7 +1997,10 @@ public sealed class ProcurementApiTests
             && row.GetProperty("errorMessages").EnumerateArray().Any(message => message.GetString() == "등록되지 않은 프로젝트입니다."));
 
         var apply = await ApplyExcelAsync(procurementClient, mixedFile, "partial.xlsx", preview, reason: null);
-        Assert.Equal(HttpStatusCode.OK, apply.StatusCode);
+        Assert.True(
+            apply.StatusCode == HttpStatusCode.OK,
+            $"{await apply.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)}{Environment.NewLine}"
+            + string.Join(Environment.NewLine, context.Logs.Where(entry => entry.Exception is not null).Select(entry => entry.Exception)));
         using var applyJson = await ReadJsonAsync(apply);
         Assert.Single(applyJson.RootElement.GetProperty("items").EnumerateArray());
 
@@ -1708,7 +2029,7 @@ public sealed class ProcurementApiTests
                     new
                     {
                         standardLeadTime = "3W",
-                        orderItem = "Relay",
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Relay",
                         technicalOwner = "Owner",
                         orderDate = "2026-07-01",
                         expectedReceiptDate = "2026-07-10",
@@ -1739,17 +2060,18 @@ public sealed class ProcurementApiTests
         var worksheet = workbook.Worksheet("Procurement Plan");
         Assert.Equal("PS 사업부 PJT 발주 관리", worksheet.Cell(1, 1).GetString());
         Assert.Contains("필수 입력값이 없습니다", worksheet.Cell(2, 1).GetString());
-        Assert.Equal(new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "업체", "기술 담당자", "발주일", "입고예정일", "이슈사항", "입고 완료" },
-            Enumerable.Range(1, 10).Select(column => worksheet.Cell(3, column).GetString()).ToArray());
+        Assert.Equal(new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "구분", "업체", "기술 담당자", "발주일", "입고예정일", "이슈사항", "입고 완료" },
+            Enumerable.Range(1, 11).Select(column => worksheet.Cell(3, column).GetString()).ToArray());
         Assert.Equal("Proc Template", worksheet.Cell(4, 1).GetString());
         Assert.Equal("Relay", worksheet.Cell(4, 4).GetString());
-        Assert.Equal("none", worksheet.Cell(4, 9).GetString());
-        Assert.Equal("", worksheet.Cell(4, 10).GetString());
+        Assert.Equal("기타", worksheet.Cell(4, 5).GetString());
+        Assert.Equal("none", worksheet.Cell(4, 10).GetString());
+        Assert.Equal("", worksheet.Cell(4, 11).GetString());
         Assert.True(worksheet.SheetView.SplitRow >= 3);
         Assert.True(worksheet.AutoFilter.IsEnabled);
         Assert.True(worksheet.Column(4).Width >= 18);
-        Assert.True(worksheet.Column(10).Width >= worksheet.Column(6).Width);
-        for (var column = 1; column <= 10; column++)
+        Assert.True(worksheet.Column(11).Width >= worksheet.Column(7).Width);
+        for (var column = 1; column <= 11; column++)
         {
             Assert.True(worksheet.Column(column).Width >= 12);
             Assert.True(worksheet.Column(column).Width <= 42);
@@ -1767,7 +2089,7 @@ public sealed class ProcurementApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
         using var qualityClient = context.CreateClient("dev-quality");
-        var projectId = await CreateProjectAsync(salesClient, "PROC-DASH", "Proc Dashboard");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-DASH", "Proc Dashboard");
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var futureReceiptDate = today.AddDays(30).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         var pastReceiptDate = today.AddDays(-30).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
@@ -1779,9 +2101,9 @@ public sealed class ProcurementApiTests
                 reason = "dashboard setup",
                 items = new object[]
                 {
-                    new { orderItem = "Pending Item", expectedReceiptDate = futureReceiptDate },
-                    new { orderItem = "Past Pending Item", expectedReceiptDate = pastReceiptDate },
-                    new { orderItem = "Completed Item", expectedReceiptDate = pastReceiptDate, orderQuantity = 1, orderUnit = "EA" }
+                    new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Pending Item", expectedReceiptDate = futureReceiptDate },
+                    new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Past Pending Item", expectedReceiptDate = pastReceiptDate },
+                    new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Completed Item", expectedReceiptDate = pastReceiptDate, orderQuantity = 1, orderUnit = "EA" }
                 }
             },
             TestContext.Current.CancellationToken);
@@ -1935,7 +2257,7 @@ public sealed class ProcurementApiTests
                 {
                     new
                     {
-                        orderItem = " 차단기 ",
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = " 차단기 ",
                         supplierName = "필수품목 공급사",
                         orderDate = "2026-07-01",
                         expectedReceiptDate = "2026-07-15"
@@ -1961,14 +2283,14 @@ public sealed class ProcurementApiTests
                     {
                         itemId = existing.GetProperty("itemId").GetGuid(),
                         expectedRowVersion = existing.GetProperty("rowVersion").GetInt32(),
-                        orderItem = "차단기",
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "차단기",
                         supplierName = "필수품목 공급사",
                         orderDate = "2026-07-01",
                         expectedReceiptDate = "2026-07-15"
                     },
                     new
                     {
-                        orderItem = "외함",
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "외함",
                         supplierName = "필수품목 공급사",
                         orderDate = "2026-07-02",
                         expectedReceiptDate = "2026-07-16"
@@ -1994,7 +2316,7 @@ public sealed class ProcurementApiTests
 
         Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Kitting Material" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Kitting Material" } } },
             TestContext.Current.CancellationToken)).StatusCode);
 
         using (var blockedQueue = await ReadJsonAsync(await materialsClient.GetAsync(
@@ -2050,8 +2372,8 @@ public sealed class ProcurementApiTests
         {
             var kittingStage = partialWorkflow.RootElement.GetProperty("stages").EnumerateArray()
                 .Single(stage => stage.GetProperty("stageCode").GetString() == "KittingCompleted");
-            Assert.Equal("PartiallyCompleted", kittingStage.GetProperty("status").GetString());
-            Assert.Equal("부분 완료", kittingStage.GetProperty("statusLabel").GetString());
+            Assert.Equal("NotStarted", kittingStage.GetProperty("status").GetString());
+            Assert.Equal("미시작", kittingStage.GetProperty("statusLabel").GetString());
         }
 
         var replay = await materialsClient.PostAsJsonAsync(
@@ -2111,7 +2433,7 @@ public sealed class ProcurementApiTests
         Assert.Equal(0L, await context.ReadCountAsync(
             "select count(*) from work_items where project_id = @project_id and workflow_stage_code = 'ManufacturingWork';",
             projectId));
-        Assert.Equal(1L, await context.ReadCountAsync(
+        Assert.Equal(0L, await context.ReadCountAsync(
             "select count(*) from project_workflow_events where project_id = @project_id and stage_code = 'KittingCompleted' and event_status = 'Succeeded';",
             projectId));
         Assert.Equal(2L, await context.ReadCountAsync(
@@ -2123,7 +2445,7 @@ public sealed class ProcurementApiTests
         {
             var kittingStage = completedWorkflow.RootElement.GetProperty("stages").EnumerateArray()
                 .Single(stage => stage.GetProperty("stageCode").GetString() == "KittingCompleted");
-            Assert.Equal("Completed", kittingStage.GetProperty("status").GetString());
+            Assert.Equal("NotStarted", kittingStage.GetProperty("status").GetString());
         }
 
         await context.ExecuteSqlAsync($"update projects set status='Completed' where id='{projectId}';");
@@ -2407,11 +2729,56 @@ public sealed class ProcurementApiTests
             new { toStatus = "InProgress", expectedVersion = 1, reason = "부적합 항목 조치를 시작합니다." },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, inProgress.StatusCode);
+
+        var actionPhotoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(context.RepositoryRoot, "..", "frontend", "src", "assets", "emi-logo.png"),
+            TestContext.Current.CancellationToken);
+        Guid actionPhotoId;
+        using (var actionPhotoForm = new MultipartFormDataContent())
+        {
+            actionPhotoForm.Add(new StringContent(Guid.NewGuid().ToString("D")), "operationId");
+            actionPhotoForm.Add(new StringContent("2"), "expectedPendingVersion");
+            actionPhotoForm.Add(new StringContent("부적합 조치 완료 사진"), "altText");
+            var actionPhotoContent = new ByteArrayContent(actionPhotoBytes);
+            actionPhotoContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            actionPhotoForm.Add(actionPhotoContent, "photo", "action-evidence.png");
+            using var actionPhoto = await ReadJsonAsync(await manufacturingClient.PostAsync(
+                $"/api/pending/{pendingId}/photos",
+                actionPhotoForm,
+                TestContext.Current.CancellationToken));
+            actionPhotoId = actionPhoto.RootElement.GetProperty("photoId").GetGuid();
+            var actionDetail = actionPhoto.RootElement.GetProperty("detail");
+            Assert.Equal(3, actionDetail.GetProperty("issue").GetProperty("version").GetInt32());
+            Assert.Single(actionDetail.GetProperty("actionEvidence").GetProperty("draftPhotos").EnumerateArray());
+        }
+        using (var qualityPendingBeforeConfirmation = await ReadJsonAsync(await qualityClient.GetAsync(
+                   $"/api/pending/{pendingId}",
+                   TestContext.Current.CancellationToken)))
+        {
+            Assert.Equal(
+                JsonValueKind.Null,
+                qualityPendingBeforeConfirmation.RootElement.GetProperty("actionEvidence").GetProperty("draftPhotos").ValueKind);
+        }
+
         var requested = await manufacturingClient.PostAsJsonAsync(
             $"/api/pending/{pendingId}/transition",
-            new { toStatus = "ReinspectionRequested", expectedVersion = 2, reason = "부적합 항목 조치를 완료했습니다." },
+            new { toStatus = "ReinspectionRequested", expectedVersion = 3, reason = "부적합 항목 조치를 완료했습니다." },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, requested.StatusCode);
+        using (var requestedJson = await ReadJsonAsync(requested))
+        {
+            var round = Assert.Single(requestedJson.RootElement
+                .GetProperty("actionEvidence")
+                .GetProperty("confirmedRounds")
+                .EnumerateArray());
+            Assert.Equal("부적합 항목 조치를 완료했습니다.", round.GetProperty("actionReasonSnapshot").GetString());
+            Assert.Equal(actionPhotoId, Assert.Single(round.GetProperty("photos").EnumerateArray()).GetProperty("photoId").GetGuid());
+        }
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await qualityClient.GetAsync(
+                $"/api/pending/{pendingId}/photos/{actionPhotoId}/content",
+                TestContext.Current.CancellationToken)).StatusCode);
 
         using var reinspection = await ReadJsonAsync(await qualityClient.GetAsync(
             $"/api/quality/inspections/panels/{panelId}?stage={stageCode}",
@@ -2422,6 +2789,13 @@ public sealed class ProcurementApiTests
         Assert.Equal(failedItemId, reinspectionItem.GetProperty("itemId").GetGuid());
         Assert.True(reinspectionItem.GetProperty("isReinspectionTarget").GetBoolean());
         Assert.Contains("재조치", reinspectionItem.GetProperty("previousFailureEvidence").GetString(), StringComparison.Ordinal);
+        Assert.Equal(
+            actionPhotoId,
+            Assert.Single(reinspection.RootElement
+                .GetProperty("reinspectionEvidence")
+                .GetProperty("latestActionRound")
+                .GetProperty("photos")
+                .EnumerateArray()).GetProperty("photoId").GetGuid());
 
         var outOfScope = await qualityClient.PutAsJsonAsync(
             $"/api/quality/inspections/reports/{reinspectionReportId}/responses",
@@ -2462,17 +2836,17 @@ public sealed class ProcurementApiTests
                        TestContext.Current.CancellationToken)))
             {
                 Assert.Equal("ActionRequested", reopened.RootElement.GetProperty("issue").GetProperty("status").GetString());
-                Assert.Equal(4, reopened.RootElement.GetProperty("issue").GetProperty("version").GetInt32());
+                Assert.Equal(5, reopened.RootElement.GetProperty("issue").GetProperty("version").GetInt32());
             }
 
             var inProgressAgain = await manufacturingClient.PostAsJsonAsync(
                 $"/api/pending/{pendingId}/transition",
-                new { toStatus = "InProgress", expectedVersion = 4, reason = "추가 재조치를 시작합니다." },
+                new { toStatus = "InProgress", expectedVersion = 5, reason = "추가 재조치를 시작합니다." },
                 TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, inProgressAgain.StatusCode);
             var requestedAgain = await manufacturingClient.PostAsJsonAsync(
                 $"/api/pending/{pendingId}/transition",
-                new { toStatus = "ReinspectionRequested", expectedVersion = 5, reason = "추가 재조치를 완료했습니다." },
+                new { toStatus = "ReinspectionRequested", expectedVersion = 6, reason = "추가 재조치를 완료했습니다." },
                 TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, requestedAgain.StatusCode);
             using var secondReinspection = await ReadJsonAsync(await qualityClient.GetAsync(
@@ -2550,7 +2924,7 @@ public sealed class ProcurementApiTests
 
         Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Kitting Material" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Kitting Material" } } },
             TestContext.Current.CancellationToken)).StatusCode);
         await context.PreparePanelKittingAsync(projectId);
         await context.ExecuteSqlAsync("""
@@ -2660,7 +3034,7 @@ public sealed class ProcurementApiTests
 
         Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Manufacturing Material" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Manufacturing Material" } } },
             TestContext.Current.CancellationToken)).StatusCode);
         await context.PreparePanelKittingAsync(projectId);
         await context.ExecuteSqlAsync($"""
@@ -2986,7 +3360,7 @@ public sealed class ProcurementApiTests
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Procurement Plan");
         worksheet.Cell(1, 1).Value = "PS 사업부 PJT 발주 관리";
-        var headers = new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "업체", "기술 담당자", "발주일", "입고예정일", "이슈사항", "입고 완료" };
+        var headers = new[] { "PJT", "PJT CODE", "통상납기", "발주품목", "구분", "업체", "기술 담당자", "발주일", "입고예정일", "이슈사항", "입고 완료" };
         for (var column = 0; column < headers.Length; column++)
         {
             worksheet.Cell(3, column + 1).Value = headers[column];
@@ -3015,7 +3389,21 @@ public sealed class ProcurementApiTests
 
     private static string[] NormalizeProcurementExcelRow(string[] row)
     {
-        return row;
+        if (row.Length >= 11)
+        {
+            return row;
+        }
+
+        var normalized = Enumerable.Repeat(string.Empty, 11).ToArray();
+        for (var index = 0; index < row.Length && index < 10; index++)
+        {
+            normalized[index <= 3 ? index : index + 1] = row[index];
+        }
+        if (row.Any(value => !string.IsNullOrWhiteSpace(value)))
+        {
+            normalized[4] = "기타";
+        }
+        return normalized;
     }
 
     private static byte[] CreateZipWithEntry(string entryName)
@@ -3181,6 +3569,37 @@ public sealed class ProcurementApiTests
             await using var dataSource = NpgsqlDataSource.Create(connectionString!);
             await using var command = dataSource.CreateCommand(sql);
             await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        public async Task<Guid> CreateLegacyProjectAsync(string projectCode, string projectTitle)
+        {
+            var projectId = Guid.NewGuid();
+            var provider = new DatabaseConnectionStringProvider(Database.CreateConfiguration());
+            var connectionString = provider.GetConnectionString();
+            Assert.False(string.IsNullOrWhiteSpace(connectionString));
+            await using var dataSource = NpgsqlDataSource.Create(connectionString!);
+            await using var command = dataSource.CreateCommand("""
+                insert into projects (
+                    id, project_key, project_number, name, customer_name, item,
+                    project_code, project_title, project_title_normalized,
+                    packaging_method, delivery_date, sales_owner_user_id,
+                    iqc_routing_policy, status
+                )
+                values (
+                    @id, @project_key, @project_code, @project_title,
+                    'Procurement Test Customer', 'UL67',
+                    @project_code, @project_title, upper(@project_title),
+                    'StretchWrap', '2026-10-10',
+                    '50000000-0000-0000-0000-000000000002',
+                    'AllReceipts', 'Active'
+                );
+                """);
+            command.Parameters.AddWithValue("id", projectId);
+            command.Parameters.AddWithValue("project_key", projectId.ToString("N"));
+            command.Parameters.AddWithValue("project_code", projectCode);
+            command.Parameters.AddWithValue("project_title", projectTitle);
+            Assert.Equal(1, await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+            return projectId;
         }
 
         public async ValueTask DisposeAsync()

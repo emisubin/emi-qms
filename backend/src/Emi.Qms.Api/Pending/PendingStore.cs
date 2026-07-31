@@ -1,5 +1,9 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Emi.Qms.Api.Materials;
 using Emi.Qms.Api.QualityInspections;
+using Emi.Qms.Api.Projects;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -7,6 +11,12 @@ namespace Emi.Qms.Api.Pending;
 
 public sealed class PendingStore(DatabaseConnectionStringProvider connectionStringProvider)
 {
+    private const int MaxActionPhotoBytes = 5 * 1024 * 1024;
+    private const int MaxActionRoundBytes = 15 * 1024 * 1024;
+    private const int MaxActionRoundPhotos = 5;
+    private const int MaxActionPendingPhotos = 25;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     private static readonly IReadOnlyDictionary<string, string> NextStatuses = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         [PendingStatuses.Registered] = PendingStatuses.ActionRequested,
@@ -105,7 +115,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         var history = await ReadHistoryAsync(connection, pendingId, cancellationToken);
         var isInspectionPending = await IsQualityInspectionPendingAsync(connection, null, pendingId, cancellationToken);
         var reinspection = await ReadPendingReinspectionAsync(connection, pendingId, cancellationToken);
-        return BuildDetail(issue, comments, history, actor, isInspectionPending, reinspection);
+        var actionEvidence = await ReadActionEvidenceAsync(connection, null, issue, actor, cancellationToken);
+        return BuildDetail(issue, comments, history, actor, isInspectionPending, reinspection, actionEvidence);
     }
 
     public async Task<IReadOnlyList<PendingAssigneeResponse>> ListAssigneesAsync(CancellationToken cancellationToken)
@@ -293,6 +304,12 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 1,
                 cancellationToken);
         }
+        else
+        {
+            await CreateReferenceNotificationAsync(
+                connection, transaction, pendingId, projectId, title, description,
+                priority, 1, cancellationToken);
+        }
 
         await transaction.CommitAsync(cancellationToken);
         var detail = await GetDetailAsync(pendingId, actor, cancellationToken);
@@ -385,6 +402,13 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         await SyncWorkItemStatusAsync(connection, transaction, pendingId, toStatus!, cancellationToken);
         if (string.Equals(toStatus, PendingStatuses.ReinspectionRequested, StringComparison.Ordinal))
         {
+            await ConfirmDraftActionPhotosAsync(
+                connection,
+                transaction,
+                pendingId,
+                actor.UserId,
+                reason!,
+                cancellationToken);
             var materialAttemptId = await MaterialsStore.EnsurePendingReinspectionAsync(
                 connection, transaction, pendingId, actor.UserId, cancellationToken);
             if (materialAttemptId is null)
@@ -593,6 +617,198 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             : PendingMutationResult<PendingDetailResponse>.Success(detail);
     }
 
+    public async Task<PendingMutationResult<PendingPhotoMutationResponse>> AddActionPhotoAsync(
+        Guid pendingId,
+        Guid operationId,
+        int? expectedPendingVersion,
+        string? altText,
+        byte[] content,
+        PendingActor actor,
+        CancellationToken cancellationToken)
+    {
+        var normalizedAlt = string.IsNullOrWhiteSpace(altText) ? null : altText.Trim();
+        var normalizedMime = DetectImageMime(content);
+        var errors = new Dictionary<string, string[]>();
+        if (operationId == Guid.Empty) errors["operationId"] = ["요청 식별자가 필요합니다."];
+        if (expectedPendingVersion is null or < 1) errors["expectedPendingVersion"] = ["최신 Pending version이 필요합니다."];
+        if (normalizedAlt is null || normalizedAlt.Length > 200) errors["altText"] = ["사진 설명을 1~200자로 입력해 주세요."];
+        if (content.Length is < 1 or > MaxActionPhotoBytes || normalizedMime is null)
+        {
+            errors["photo"] = ["사진은 5MB 이하의 올바른 JPEG 또는 PNG 파일이어야 합니다."];
+        }
+        if (errors.Count > 0) return PendingMutationResult<PendingPhotoMutationResponse>.Validation(errors);
+
+        var contentHash = Hash(content);
+        var fingerprint = Fingerprint("AddPhoto", pendingId, expectedPendingVersion, normalizedAlt, contentHash);
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var issue = await ReadIssueForUpdateAsync(connection, transaction, pendingId, cancellationToken);
+        if (issue is null) return PendingMutationResult<PendingPhotoMutationResponse>.NotFound();
+        var replay = await ReadPhotoReplayAsync(connection, transaction, operationId, "AddPhoto", fingerprint, cancellationToken);
+        if (replay.ConflictMessage is not null)
+        {
+            return PendingMutationResult<PendingPhotoMutationResponse>.Conflict(replay.ConflictMessage);
+        }
+        if (replay.Projection is not null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return await BuildPhotoMutationResultAsync(replay.Projection with { Replayed = true }, actor, cancellationToken);
+        }
+
+        if (issue.Version != expectedPendingVersion)
+        {
+            return PendingMutationResult<PendingPhotoMutationResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+        }
+        if (issue.Status != PendingStatuses.InProgress || issue.AssigneeUserId != actor.UserId)
+        {
+            return PendingMutationResult<PendingPhotoMutationResponse>.Forbidden();
+        }
+
+        var draftPhotos = await ReadDraftPhotoStatsAsync(connection, transaction, pendingId, cancellationToken);
+        if (draftPhotos.Count >= MaxActionRoundPhotos)
+        {
+            return ValidationPhoto("photo", "한 조치 회차에는 사진을 최대 5장까지 등록할 수 있습니다.");
+        }
+        if (draftPhotos.TotalBytes + content.Length > MaxActionRoundBytes)
+        {
+            return ValidationPhoto("photo", "한 조치 회차의 사진 전체 용량은 15MB를 초과할 수 없습니다.");
+        }
+        if (draftPhotos.TotalPendingCount >= MaxActionPendingPhotos)
+        {
+            return ValidationPhoto("photo", "한 Pending에는 조치 사진을 최대 25장까지 등록할 수 있습니다.");
+        }
+        if (await HasActionPhotoHashAsync(connection, transaction, pendingId, contentHash, cancellationToken))
+        {
+            return PendingMutationResult<PendingPhotoMutationResponse>.Conflict("같은 사진이 이미 등록되어 있습니다.");
+        }
+
+        var extension = normalizedMime == "image/jpeg" ? "jpg" : "png";
+        var slot = Enumerable.Range(1, MaxActionRoundPhotos)
+            .First(number => !draftPhotos.DisplayNames.Contains($"photo-{number}.jpg")
+                && !draftPhotos.DisplayNames.Contains($"photo-{number}.png"));
+        var photoId = Guid.NewGuid();
+        await using (var insert = connection.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                insert into pending_action_photos (
+                    id, pending_issue_id, display_name, normalized_mime, byte_size,
+                    sha256, alt_text, content, created_by_user_id
+                ) values (
+                    @id, @pending_id, @display_name, @mime, @byte_size,
+                    @sha256, @alt_text, @content, @actor_id
+                );
+                """;
+            insert.Parameters.AddWithValue("id", photoId);
+            insert.Parameters.AddWithValue("pending_id", pendingId);
+            insert.Parameters.AddWithValue("display_name", $"photo-{slot}.{extension}");
+            insert.Parameters.AddWithValue("mime", normalizedMime!);
+            insert.Parameters.AddWithValue("byte_size", content.Length);
+            insert.Parameters.AddWithValue("sha256", contentHash);
+            insert.Parameters.AddWithValue("alt_text", normalizedAlt!);
+            insert.Parameters.Add("content", NpgsqlDbType.Bytea).Value = content;
+            insert.Parameters.AddWithValue("actor_id", actor.UserId);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+        var resultingVersion = await IncrementPendingVersionAsync(
+            connection, transaction, pendingId, expectedPendingVersion.Value, actor.UserId, cancellationToken);
+        var projection = new PendingPhotoOperationProjection(operationId, pendingId, resultingVersion, photoId, false);
+        await InsertPhotoOperationAsync(
+            connection, transaction, pendingId, actor.UserId, "AddPhoto", fingerprint, projection, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return await BuildPhotoMutationResultAsync(projection, actor, cancellationToken);
+    }
+
+    public async Task<PendingMutationResult<PendingPhotoMutationResponse>> RemoveActionPhotoAsync(
+        Guid pendingId,
+        Guid photoId,
+        Guid operationId,
+        int? expectedPendingVersion,
+        PendingActor actor,
+        CancellationToken cancellationToken)
+    {
+        if (operationId == Guid.Empty || photoId == Guid.Empty || expectedPendingVersion is null or < 1)
+        {
+            return ValidationPhoto("photo", "삭제할 사진과 최신 Pending version을 확인해 주세요.");
+        }
+        var fingerprint = Fingerprint("RemovePhoto", pendingId, photoId, expectedPendingVersion.Value);
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var issue = await ReadIssueForUpdateAsync(connection, transaction, pendingId, cancellationToken);
+        if (issue is null) return PendingMutationResult<PendingPhotoMutationResponse>.NotFound();
+        var replay = await ReadPhotoReplayAsync(connection, transaction, operationId, "RemovePhoto", fingerprint, cancellationToken);
+        if (replay.ConflictMessage is not null)
+        {
+            return PendingMutationResult<PendingPhotoMutationResponse>.Conflict(replay.ConflictMessage);
+        }
+        if (replay.Projection is not null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return await BuildPhotoMutationResultAsync(replay.Projection with { Replayed = true }, actor, cancellationToken);
+        }
+        if (issue.Version != expectedPendingVersion)
+        {
+            return PendingMutationResult<PendingPhotoMutationResponse>.Conflict("다른 사용자가 먼저 변경했습니다. 최신 내용을 다시 불러와 주세요.");
+        }
+        if (issue.Status != PendingStatuses.InProgress || issue.AssigneeUserId != actor.UserId)
+        {
+            return PendingMutationResult<PendingPhotoMutationResponse>.Forbidden();
+        }
+        await using (var delete = connection.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = """
+                delete from pending_action_photos
+                where id = @photo_id and pending_issue_id = @pending_id and status = 'Draft';
+                """;
+            delete.Parameters.AddWithValue("photo_id", photoId);
+            delete.Parameters.AddWithValue("pending_id", pendingId);
+            if (await delete.ExecuteNonQueryAsync(cancellationToken) == 0)
+            {
+                return PendingMutationResult<PendingPhotoMutationResponse>.NotFound();
+            }
+        }
+        var resultingVersion = await IncrementPendingVersionAsync(
+            connection, transaction, pendingId, expectedPendingVersion.Value, actor.UserId, cancellationToken);
+        var projection = new PendingPhotoOperationProjection(operationId, pendingId, resultingVersion, photoId, false);
+        await InsertPhotoOperationAsync(
+            connection, transaction, pendingId, actor.UserId, "RemovePhoto", fingerprint, projection, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return await BuildPhotoMutationResultAsync(projection, actor, cancellationToken);
+    }
+
+    public async Task<PendingMutationResult<PendingPhotoContentResult>> GetActionPhotoContentAsync(
+        Guid pendingId,
+        Guid photoId,
+        Guid actorUserId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            select photo.content, photo.normalized_mime, photo.display_name
+            from pending_action_photos photo
+            join pending_issues issue on issue.id = photo.pending_issue_id
+            join projects project on project.id = issue.project_id and project.deleted_at_utc is null
+            where photo.pending_issue_id = @pending_id
+              and photo.id = @photo_id
+              and (@has_read_all or project.project_code = any(@project_keys))
+              and (photo.status = 'Confirmed' or issue.assignee_user_id = @actor_id);
+            """);
+        command.Parameters.AddWithValue("pending_id", pendingId);
+        command.Parameters.AddWithValue("photo_id", photoId);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        command.Parameters.AddWithValue("has_read_all", accessScope.HasProjectReadAll);
+        command.Parameters.AddWithValue("project_keys", accessScope.ProjectKeys.ToArray());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? PendingMutationResult<PendingPhotoContentResult>.Success(new PendingPhotoContentResult(
+                reader.GetFieldValue<byte[]>(0), reader.GetString(1), reader.GetString(2)))
+            : PendingMutationResult<PendingPhotoContentResult>.NotFound();
+    }
+
     public async Task<Guid> CreateOrReuseMaterialNonconformanceAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -691,6 +907,12 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 1,
                 cancellationToken);
         }
+        else
+        {
+            await CreateReferenceNotificationAsync(
+                connection, transaction, pendingId, projectId, title, description,
+                PendingPriorities.Urgent, 1, cancellationToken);
+        }
         return pendingId;
     }
 
@@ -776,6 +998,12 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 actorUserId,
                 1,
                 cancellationToken);
+        }
+        else
+        {
+            await CreateReferenceNotificationAsync(
+                connection, transaction, pendingId, projectId, title, pendingDescription,
+                PendingPriorities.Urgent, 1, cancellationToken);
         }
 
         return new ManufacturingStopPendingResult(pendingId, issueNumber);
@@ -870,6 +1098,12 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 actorUserId,
                 1,
                 cancellationToken);
+        }
+        else
+        {
+            await CreateReferenceNotificationAsync(
+                connection, transaction, pendingId, projectId, title, pendingDescription,
+                PendingPriorities.Urgent, 1, cancellationToken);
         }
 
         return new PanelQualityPendingResult(pendingId, issueNumber);
@@ -1244,7 +1478,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         IReadOnlyList<PendingHistoryResponse> history,
         PendingActor actor,
         bool isInspectionPending,
-        PendingReinspectionResponse? reinspection)
+        PendingReinspectionResponse? reinspection,
+        PendingActionEvidenceResponse actionEvidence)
     {
         var allowed = AllowedTransitions(issue, actor)
             .Where(status => !isInspectionPending || status != PendingStatuses.Closed)
@@ -1256,7 +1491,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             allowed,
             issue.Status != PendingStatuses.Closed && actor.CanComment,
             issue.Status != PendingStatuses.Closed && actor.IsCoordinator,
-            reinspection);
+            reinspection,
+            actionEvidence);
     }
 
     private static async Task<PendingReinspectionResponse?> ReadPendingReinspectionAsync(
@@ -1634,14 +1870,17 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 insert into work_items (
                     id, project_id, target_type, target_id, workflow_stage_code,
                     responsibility_type, assigned_user_id, title, description, status,
-                    priority, due_date, idempotency_key, created_by_user_id
+                    priority, due_date, link_url, idempotency_key, created_by_user_id
                 )
                 values (
                     @id, @project_id, 'Pending', @pending_id, @stage_code,
                     'PendingAction', @assignee_user_id, @title, @description, 'Requested',
-                    @priority, @due_date, @idempotency_key, @created_by_user_id
+                    @priority, @due_date, @link_url, @idempotency_key, @created_by_user_id
                 )
-                on conflict (idempotency_key) do update set title = excluded.title
+                on conflict (idempotency_key) do update
+                set title = excluded.title,
+                    description = excluded.description,
+                    link_url = excluded.link_url
                 returning id;
                 """;
             command.Parameters.AddWithValue("id", workItemId);
@@ -1653,6 +1892,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             command.Parameters.AddWithValue("description", description);
             command.Parameters.AddWithValue("priority", priority == PendingPriorities.Urgent ? "Blocking" : "Normal");
             AddNullableDate(command, "due_date", dueDate);
+            command.Parameters.AddWithValue("link_url", $"/pending/{pendingId}");
             command.Parameters.AddWithValue("idempotency_key", $"pending:{pendingId}:assignment:{assigneeUserId}:v{version}");
             command.Parameters.AddWithValue("created_by_user_id", createdByUserId);
             workItemId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? workItemId);
@@ -1689,21 +1929,20 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? notificationId);
         }
 
-        await using (var command = connection.CreateCommand())
+        var recipientIds = await ReadPendingNotificationRecipientIdsAsync(
+            connection,
+            transaction,
+            pendingId,
+            projectId,
+            stageCode,
+            cancellationToken);
+        recipientIds.Add(assigneeUserId);
+        if (secondaryUserId is not null)
         {
-            command.Transaction = transaction;
-            command.CommandText = """
-                insert into notification_recipients (notification_id, user_id)
-                select @notification_id, @user_id
-                where exists (select 1 from notifications where id = @notification_id)
-                on conflict (notification_id, user_id) do nothing;
-                """;
-            command.Parameters.AddWithValue("notification_id", notificationId);
-            command.Parameters.AddWithValue("user_id", assigneeUserId);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            recipientIds.Add(secondaryUserId.Value);
         }
 
-        if (secondaryUserId is not null && secondaryUserId != assigneeUserId)
+        foreach (var recipientId in recipientIds.Distinct())
         {
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
@@ -1714,9 +1953,240 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 on conflict (notification_id, user_id) do nothing;
                 """;
             command.Parameters.AddWithValue("notification_id", notificationId);
-            command.Parameters.AddWithValue("user_id", secondaryUserId.Value);
+            command.Parameters.AddWithValue("user_id", recipientId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+    }
+
+    private static async Task<List<Guid>> ReadPendingNotificationRecipientIdsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        Guid projectId,
+        string currentStageCode,
+        CancellationToken cancellationToken)
+    {
+        var qualityResponsibilities = await ReadPendingQualityResponsibilitiesAsync(
+            connection,
+            transaction,
+            pendingId,
+            currentStageCode,
+            cancellationToken);
+        var responsibilityTypes = new List<string>
+        {
+            "ProductionPlanningPrimary",
+            "ProductionPlanningSecondary",
+            "ProductionPlanning",
+            "SalesPrimary",
+            "SalesSecondary"
+        };
+        responsibilityTypes.AddRange(qualityResponsibilities);
+
+        var recipientIds = new List<Guid>();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            with exact_recipients as (
+                select distinct assignee.assigned_user_id as user_id
+                from project_assignees assignee
+                join qms_users users
+                  on users.id = assignee.assigned_user_id
+                 and users.is_active = true
+                where assignee.project_id = @project_id
+                  and assignee.responsibility_type = any(@responsibility_types)
+
+                union
+
+                select project.sales_owner_user_id
+                from projects project
+                join qms_users users
+                  on users.id = project.sales_owner_user_id
+                 and users.is_active = true
+                where project.id = @project_id
+
+                union
+
+                select issue.created_by_user_id
+                from pending_issues issue
+                join qms_users users
+                  on users.id = issue.created_by_user_id
+                 and users.is_active = true
+                join departments user_department
+                  on user_department.id = users.department_id
+                 and user_department.code = 'quality'
+                where issue.id = @pending_id
+            ),
+            missing_department_fallback as (
+                select users.id as user_id
+                from qms_users users
+                join departments user_department on user_department.id = users.department_id
+                where users.is_active = true
+                  and (
+                    (
+                      user_department.code = 'production-planning'
+                      and not exists (
+                        select 1
+                        from project_assignees assignee
+                        where assignee.project_id = @project_id
+                          and assignee.responsibility_type = any(array[
+                            'ProductionPlanningPrimary',
+                            'ProductionPlanningSecondary',
+                            'ProductionPlanning'
+                          ])
+                      )
+                    )
+                    or (
+                      user_department.code = 'sales'
+                      and not exists (
+                        select 1
+                        from exact_recipients exact
+                        join qms_users exact_user on exact_user.id = exact.user_id
+                        join departments exact_department on exact_department.id = exact_user.department_id
+                        where exact_department.code = 'sales'
+                      )
+                    )
+                    or (
+                      user_department.code = 'quality'
+                      and not exists (
+                        select 1
+                        from exact_recipients exact
+                        join qms_users exact_user on exact_user.id = exact.user_id
+                        join departments exact_department on exact_department.id = exact_user.department_id
+                        where exact_department.code = 'quality'
+                      )
+                    )
+                  )
+            )
+            select user_id
+            from exact_recipients
+            union
+            select user_id
+            from missing_department_fallback
+            order by user_id;
+            """;
+        command.Parameters.AddWithValue("pending_id", pendingId);
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("responsibility_types", responsibilityTypes.Distinct().ToArray());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            recipientIds.Add(reader.GetGuid(0));
+        }
+        return recipientIds;
+    }
+
+    private static async Task CreateReferenceNotificationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        Guid projectId,
+        string title,
+        string description,
+        string priority,
+        int version,
+        CancellationToken cancellationToken)
+    {
+        var stageCode = await ReadCurrentWorkflowStageCodeAsync(connection, transaction, projectId, cancellationToken);
+        var recipientIds = await ReadPendingNotificationRecipientIdsAsync(
+            connection,
+            transaction,
+            pendingId,
+            projectId,
+            stageCode,
+            cancellationToken);
+        if (recipientIds.Count == 0)
+        {
+            return;
+        }
+
+        Guid notificationId;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into notifications (
+                    project_id, notification_type, severity, title, message, link_url,
+                    idempotency_key, visibility_scope, source_kind
+                )
+                values (
+                    @project_id, @notification_type, @severity, @title, @message, @link_url,
+                    @idempotency_key, 'RecipientOnly', 'PendingAssignment'
+                )
+                on conflict (idempotency_key) do update
+                set title=excluded.title,
+                    message=excluded.message,
+                    link_url=excluded.link_url
+                returning id;
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("notification_type", priority == PendingPriorities.Urgent ? "Blocking" : "Info");
+            command.Parameters.AddWithValue("severity", priority == PendingPriorities.Urgent ? "Critical" : "Info");
+            command.Parameters.AddWithValue("title", priority == PendingPriorities.Urgent ? $"긴급 Pending · {title}" : $"Pending 등록 · {title}");
+            command.Parameters.AddWithValue("message", description.Length > 200 ? description[..200] : description);
+            command.Parameters.AddWithValue("link_url", $"/pending/{pendingId}");
+            command.Parameters.AddWithValue("idempotency_key", $"pending:{pendingId}:reference:v{version}");
+            notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
+        }
+
+        foreach (var recipientId in recipientIds.Distinct())
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into notification_recipients (notification_id, user_id)
+                values (@notification_id, @user_id)
+                on conflict (notification_id, user_id) do nothing;
+                """;
+            command.Parameters.AddWithValue("notification_id", notificationId);
+            command.Parameters.AddWithValue("user_id", recipientId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static async Task<IReadOnlyList<string>> ReadPendingQualityResponsibilitiesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        string currentStageCode,
+        CancellationToken cancellationToken)
+    {
+        string? qualityStage = null;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select source.stage_code
+                from (
+                    select 'IQC'::text as stage_code, attempt.requested_at_utc as occurred_at
+                    from material_iqc_attempts attempt
+                    where attempt.pending_issue_id = @pending_id
+                    union all
+                    select attempt.stage_code, attempt.created_at_utc
+                    from panel_quality_inspection_attempts attempt
+                    where attempt.linked_pending_issue_id = @pending_id
+                ) source
+                order by source.occurred_at desc
+                limit 1;
+                """;
+            command.Parameters.AddWithValue("pending_id", pendingId);
+            qualityStage = (string?)(await command.ExecuteScalarAsync(cancellationToken));
+        }
+        qualityStage ??= currentStageCode;
+
+        return qualityStage switch
+        {
+            "IQC" => ["QualityIQC", "QualityIQCSecondary"],
+            "LQC" => ["QualityLQC", "QualityLQCSecondary"],
+            "OQC" => ["QualityOQC", "QualityOQCSecondary"],
+            "CustomerInspection" or "FAT" => ["QualityCustomerInspection", "QualityCustomerInspectionSecondary"],
+            _ => [
+                "QualityIQC", "QualityIQCSecondary",
+                "QualityLQC", "QualityLQCSecondary",
+                "QualityOQC", "QualityOQCSecondary",
+                "QualityCustomerInspection", "QualityCustomerInspectionSecondary",
+                "Quality"
+            ]
+        };
     }
 
     private static async Task NotifyActionAssigneesOfFailedReinspectionAsync(
@@ -1736,10 +2206,6 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 cancellationToken)
             : new PendingAssigneePair(null, null);
         var primaryUserId = issue.AssigneeUserId ?? resolvedAssignees.PrimaryUserId;
-        if (primaryUserId is null)
-        {
-            return;
-        }
 
         Guid? workItemId;
         await using (var workItemCommand = connection.CreateCommand())
@@ -1789,7 +2255,19 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             notificationId = (Guid)(await notificationCommand.ExecuteScalarAsync(cancellationToken) ?? notificationId);
         }
 
-        var recipients = new HashSet<Guid> { primaryUserId.Value };
+        var currentStageCode = await ReadCurrentWorkflowStageCodeAsync(
+            connection, transaction, issue.ProjectId, cancellationToken);
+        var recipients = (await ReadPendingNotificationRecipientIdsAsync(
+            connection,
+            transaction,
+            issue.PendingId,
+            issue.ProjectId,
+            currentStageCode,
+            cancellationToken)).ToHashSet();
+        if (primaryUserId is not null)
+        {
+            recipients.Add(primaryUserId.Value);
+        }
         if (resolvedAssignees.SecondaryUserId is not null)
         {
             recipients.Add(resolvedAssignees.SecondaryUserId.Value);
@@ -1927,6 +2405,336 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task<PendingActionEvidenceResponse> ReadActionEvidenceAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        PendingListItemResponse issue,
+        PendingActor actor,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select
+                photo.id, photo.display_name, photo.normalized_mime, photo.byte_size,
+                photo.alt_text, photo.status, photo.action_round, photo.action_reason_snapshot,
+                photo.created_by_user_id, creator.display_name, photo.created_at_utc,
+                photo.confirmed_by_user_id, confirmer.display_name, photo.confirmed_at_utc
+            from pending_action_photos photo
+            join qms_users creator on creator.id = photo.created_by_user_id
+            left join qms_users confirmer on confirmer.id = photo.confirmed_by_user_id
+            where photo.pending_issue_id = @pending_id
+            order by photo.action_round nulls first, photo.created_at_utc, photo.id;
+            """;
+        command.Parameters.AddWithValue("pending_id", issue.PendingId);
+        var rows = new List<ActionPhotoRow>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new ActionPhotoRow(
+                reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3),
+                reader.GetString(4), reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.GetGuid(8), reader.GetString(9), reader.GetFieldValue<DateTimeOffset>(10),
+                reader.IsDBNull(11) ? null : reader.GetGuid(11),
+                reader.IsDBNull(12) ? null : reader.GetString(12),
+                reader.IsDBNull(13) ? null : reader.GetFieldValue<DateTimeOffset>(13)));
+        }
+
+        var canManageDraft = issue.Status == PendingStatuses.InProgress && issue.AssigneeUserId == actor.UserId;
+        var draftRows = rows.Where(row => row.Status == "Draft").ToList();
+        var confirmedRows = rows.Where(row => row.Status == "Confirmed").ToList();
+        var confirmedRounds = confirmedRows
+            .GroupBy(row => row.ActionRound!.Value)
+            .OrderByDescending(group => group.Key)
+            .Select(group =>
+            {
+                var first = group.First();
+                return new PendingActionPhotoRoundResponse(
+                    group.Key,
+                    first.ActionReasonSnapshot!,
+                    first.ConfirmedByUserId!.Value,
+                    first.ConfirmedByDisplayName!,
+                    first.ConfirmedAtUtc!.Value,
+                    group.Select(ToPhotoResponse).ToList());
+            })
+            .ToList();
+        return new PendingActionEvidenceResponse(
+            canManageDraft,
+            MaxActionRoundPhotos,
+            MaxActionRoundBytes,
+            MaxActionPendingPhotos,
+            Math.Max(0, MaxActionRoundPhotos - draftRows.Count),
+            Math.Max(0, MaxActionRoundBytes - draftRows.Sum(row => row.ByteSize)),
+            Math.Max(0, MaxActionPendingPhotos - rows.Count),
+            canManageDraft ? draftRows.Select(ToPhotoResponse).ToList() : null,
+            confirmedRounds);
+    }
+
+    internal static async Task<PendingActionRoundEvidenceResponse?> ReadLatestConfirmedActionRoundAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid pendingId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select
+                photo.action_round, photo.action_reason_snapshot, confirmer.display_name,
+                photo.confirmed_at_utc, photo.id, photo.display_name, photo.normalized_mime,
+                photo.byte_size, photo.alt_text
+            from pending_action_photos photo
+            join qms_users confirmer on confirmer.id = photo.confirmed_by_user_id
+            where photo.pending_issue_id = @pending_id
+              and photo.status = 'Confirmed'
+              and photo.confirmed_at_utc >= coalesce((
+                  select max(history.created_at_utc)
+                  from pending_history history
+                  where history.pending_issue_id = @pending_id
+                    and history.to_status = 'ReinspectionRequested'
+              ), photo.confirmed_at_utc)
+              and photo.action_round = (
+                  select max(action_round)
+                  from pending_action_photos
+                  where pending_issue_id = @pending_id and status = 'Confirmed'
+              )
+            order by photo.created_at_utc, photo.id;
+            """;
+        command.Parameters.AddWithValue("pending_id", pendingId);
+        var photos = new List<EvidencePhotoReferenceResponse>();
+        int? round = null;
+        string? reason = null;
+        string? confirmer = null;
+        DateTimeOffset? confirmedAt = null;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            round ??= reader.GetInt32(0);
+            reason ??= reader.GetString(1);
+            confirmer ??= reader.GetString(2);
+            confirmedAt ??= reader.GetFieldValue<DateTimeOffset>(3);
+            photos.Add(new EvidencePhotoReferenceResponse(
+                "PendingAction", pendingId, reader.GetGuid(4), reader.GetString(5),
+                reader.GetString(6), reader.GetInt32(7), reader.GetString(8)));
+        }
+        return round is null
+            ? null
+            : new PendingActionRoundEvidenceResponse(
+                round.Value, reason!, confirmer!, confirmedAt!.Value, photos);
+    }
+
+    private static PendingActionPhotoResponse ToPhotoResponse(ActionPhotoRow row) => new(
+        row.PhotoId,
+        row.DisplayName,
+        row.NormalizedMime,
+        row.ByteSize,
+        row.AltText,
+        row.CreatedByUserId,
+        row.CreatedByDisplayName,
+        row.CreatedAtUtc);
+
+    private static async Task ConfirmDraftActionPhotosAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        Guid actorUserId,
+        string actionReason,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            with next_round as (
+                select count(*)::int + 1 as value
+                from pending_history
+                where pending_issue_id = @pending_id
+                  and to_status = 'ReinspectionRequested'
+            )
+            update pending_action_photos
+            set status = 'Confirmed',
+                action_round = next_round.value,
+                action_reason_snapshot = @reason,
+                confirmed_by_user_id = @actor_id,
+                confirmed_at_utc = now()
+            from next_round
+            where pending_issue_id = @pending_id
+              and status = 'Draft';
+            """;
+        command.Parameters.AddWithValue("pending_id", pendingId);
+        command.Parameters.AddWithValue("reason", actionReason);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<DraftPhotoStats> ReadDraftPhotoStatsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select display_name, byte_size, status
+            from pending_action_photos
+            where pending_issue_id = @pending_id
+            for update;
+            """;
+        command.Parameters.AddWithValue("pending_id", pendingId);
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var draftCount = 0;
+        var draftBytes = 0;
+        var totalCount = 0;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            totalCount++;
+            if (reader.GetString(2) != "Draft") continue;
+            draftCount++;
+            draftBytes += reader.GetInt32(1);
+            names.Add(reader.GetString(0));
+        }
+        return new DraftPhotoStats(draftCount, draftBytes, totalCount, names);
+    }
+
+    private static async Task<bool> HasActionPhotoHashAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        string sha256,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select exists (
+                select 1 from pending_action_photos
+                where pending_issue_id = @pending_id and sha256 = @sha256
+            );
+            """;
+        command.Parameters.AddWithValue("pending_id", pendingId);
+        command.Parameters.AddWithValue("sha256", sha256);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
+    }
+
+    private static async Task<int> IncrementPendingVersionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        int expectedVersion,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            update pending_issues
+            set version = version + 1, updated_by_user_id = @actor_id, updated_at_utc = now()
+            where id = @pending_id and version = @expected_version
+            returning version;
+            """;
+        command.Parameters.AddWithValue("pending_id", pendingId);
+        command.Parameters.AddWithValue("expected_version", expectedVersion);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        return (int?)await command.ExecuteScalarAsync(cancellationToken)
+            ?? throw new InvalidOperationException("Pending version 갱신에 실패했습니다.");
+    }
+
+    private static async Task<PhotoReplayRead> ReadPhotoReplayAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid operationId,
+        string action,
+        string fingerprint,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select action, payload_fingerprint, result_projection::text
+            from pending_photo_operations
+            where operation_id = @operation_id;
+            """;
+        command.Parameters.AddWithValue("operation_id", operationId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return new PhotoReplayRead(null, null);
+        if (reader.GetString(0) != action || reader.GetString(1) != fingerprint)
+        {
+            return new PhotoReplayRead(null, "같은 요청 식별자를 다른 내용으로 재사용할 수 없습니다.");
+        }
+        var projection = JsonSerializer.Deserialize<PendingPhotoOperationProjection>(reader.GetString(2), JsonOptions)
+            ?? throw new InvalidOperationException("저장된 Pending 사진 요청 결과를 읽을 수 없습니다.");
+        return new PhotoReplayRead(projection, null);
+    }
+
+    private static async Task InsertPhotoOperationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid pendingId,
+        Guid actorUserId,
+        string action,
+        string fingerprint,
+        PendingPhotoOperationProjection projection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into pending_photo_operations (
+                operation_id, pending_issue_id, action, requested_by_user_id,
+                payload_fingerprint, result_projection
+            ) values (
+                @operation_id, @pending_id, @action, @actor_id,
+                @fingerprint, @projection::jsonb
+            );
+            """;
+        command.Parameters.AddWithValue("operation_id", projection.OperationId);
+        command.Parameters.AddWithValue("pending_id", pendingId);
+        command.Parameters.AddWithValue("action", action);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        command.Parameters.AddWithValue("fingerprint", fingerprint);
+        command.Parameters.AddWithValue("projection", JsonSerializer.Serialize(projection, JsonOptions));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task<PendingMutationResult<PendingPhotoMutationResponse>> BuildPhotoMutationResultAsync(
+        PendingPhotoOperationProjection projection,
+        PendingActor actor,
+        CancellationToken cancellationToken)
+    {
+        var detail = await GetDetailAsync(projection.PendingId, actor, cancellationToken);
+        return detail is null
+            ? PendingMutationResult<PendingPhotoMutationResponse>.NotFound()
+            : PendingMutationResult<PendingPhotoMutationResponse>.Success(new PendingPhotoMutationResponse(
+                projection.OperationId,
+                projection.ResultingPendingVersion,
+                projection.PhotoId,
+                projection.Replayed,
+                detail));
+    }
+
+    private static PendingMutationResult<PendingPhotoMutationResponse> ValidationPhoto(string field, string message)
+        => PendingMutationResult<PendingPhotoMutationResponse>.Validation(
+            new Dictionary<string, string[]> { [field] = [message] });
+
+    private static string? DetectImageMime(byte[] content)
+    {
+        if (content.Length >= 3 && content[0] == 0xFF && content[1] == 0xD8 && content[2] == 0xFF)
+        {
+            return "image/jpeg";
+        }
+        ReadOnlySpan<byte> png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        return content.AsSpan().StartsWith(png) ? "image/png" : null;
+    }
+
+    private static string Fingerprint(params object?[] values)
+        => Hash(Encoding.UTF8.GetBytes(string.Join('|', values.Select(value => value?.ToString() ?? "<null>"))));
+
+    private static string Hash(byte[] content)
+        => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
+
     private NpgsqlDataSource CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
@@ -1939,6 +2747,23 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
     }
 
     private sealed record PendingAssigneePair(Guid? PrimaryUserId, Guid? SecondaryUserId);
+    private sealed record DraftPhotoStats(int Count, int TotalBytes, int TotalPendingCount, IReadOnlySet<string> DisplayNames);
+    private sealed record PhotoReplayRead(PendingPhotoOperationProjection? Projection, string? ConflictMessage);
+    private sealed record ActionPhotoRow(
+        Guid PhotoId,
+        string DisplayName,
+        string NormalizedMime,
+        int ByteSize,
+        string AltText,
+        string Status,
+        int? ActionRound,
+        string? ActionReasonSnapshot,
+        Guid CreatedByUserId,
+        string CreatedByDisplayName,
+        DateTimeOffset CreatedAtUtc,
+        Guid? ConfirmedByUserId,
+        string? ConfirmedByDisplayName,
+        DateTimeOffset? ConfirmedAtUtc);
 
     private static void AddNullableText(NpgsqlCommand command, string name, string? value)
     {

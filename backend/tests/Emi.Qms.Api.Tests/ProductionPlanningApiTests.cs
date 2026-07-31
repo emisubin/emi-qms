@@ -167,7 +167,7 @@ public sealed class ProductionPlanningApiTests
                 {
                     new
                     {
-                        orderItem = "차단기",
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "차단기",
                         orderQuantity = 10m,
                         orderUnit = "EA",
                         supplierName = "테스트 업체",

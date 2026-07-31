@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   assignFormTemplateManager,
+  createMaterialCategory,
   getFormTemplateCatalog,
   getCurrentFormTemplate,
   getFormTemplateManagers,
+  getMaterialCategories,
   revokeFormTemplateManager,
-  saveCurrentFormTemplate
+  saveCurrentFormTemplate,
+  updateMaterialCategory
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
-import type { FormTemplateCatalogItem, FormTemplateItem, FormTemplateManagers, FormTemplateVersions } from './formTemplates';
+import type { FormTemplateCatalogItem, FormTemplateItem, FormTemplateManagers, FormTemplateVersions, MaterialCategory, MaterialCategoryCatalog } from './formTemplates';
 import { useActionFeedback } from './useActionFeedback';
 import { ProductionControlTemplateWorkspace } from './ProductionControlTemplateWorkspace';
 
@@ -25,7 +28,7 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   const [managerPanelOpen, setManagerPanelOpen] = useState(false);
   const [managers, setManagers] = useState<FormTemplateManagers | null>(null);
   const [candidateUserId, setCandidateUserId] = useState('');
-  const [workspaceMode, setWorkspaceMode] = useState<'inspection' | 'production-manufacturing' | 'production-planning'>('inspection');
+  const [workspaceMode, setWorkspaceMode] = useState<'inspection' | 'production-manufacturing' | 'production-planning' | 'material-categories'>('inspection');
   const actions = useActionFeedback();
 
   const selectedTemplate = state.kind === 'ready' ? state.items.find((item) => `${item.family}:${item.templateKey}` === selectedKey) ?? null : null;
@@ -54,7 +57,13 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
         await loadVersions(first);
       }
     } catch (error) {
-      setState({ kind: 'error', message: error instanceof Error ? error.message : '양식 목록을 불러오지 못했습니다.' });
+      try {
+        await getMaterialCategories(developmentUserKey, true);
+        setState({ kind: 'ready', items: [] });
+        setWorkspaceMode('material-categories');
+      } catch {
+        setState({ kind: 'error', message: error instanceof Error ? error.message : '양식 목록을 불러오지 못했습니다.' });
+      }
     }
   }, [developmentUserKey, loadVersions, selectedKey]);
 
@@ -134,13 +143,16 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
 
       <div className={`form-template-workspace${workspaceMode === 'inspection' ? '' : ' has-production-control'}`}>
         <nav className="form-template-catalog" aria-label="양식 종류">
-          <header><strong>양식 종류</strong><small>{state.items.length + 2}개</small></header>
+          <header><strong>양식 종류</strong><small>{state.items.length + (state.items.length > 0 ? 3 : 1)}개</small></header>
           {state.items.map((template) => <button key={`${template.family}:${template.templateKey}`} type="button" className={workspaceMode === 'inspection' && selectedKey === `${template.family}:${template.templateKey}` ? 'is-active' : ''} onClick={() => void chooseTemplate(template)}><span><b>{template.displayName}</b><small>품질 · 현재 양식</small></span></button>)}
-          <button type="button" className={workspaceMode === 'production-manufacturing' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-manufacturing')}>
+          {state.items.length > 0 ? <button type="button" className={workspaceMode === 'production-manufacturing' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-manufacturing')}>
             <span><b>Item별 제조 양식</b><small>제조 · Item별 현재 양식</small></span>
-          </button>
-          <button type="button" className={workspaceMode === 'production-planning' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-planning')}>
+          </button> : null}
+          {state.items.length > 0 ? <button type="button" className={workspaceMode === 'production-planning' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-planning')}>
             <span><b>생산계획·실적 연결</b><small>생산관리 · Item별 1:1 연결</small></span>
+          </button> : null}
+          <button type="button" className={workspaceMode === 'material-categories' ? 'is-active' : ''} onClick={() => setWorkspaceMode('material-categories')}>
+            <span><b>구매품 구분·IQC 연결</b><small>품질 · 구분별 검사 필요 여부</small></span>
           </button>
         </nav>
 
@@ -163,6 +175,8 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
             {editing ? <div className="form-editor-actions"><button type="button" onClick={() => setDraftItems((current) => [...current, newItem(current.length + 1, false)])}>항목 추가</button></div> : null}
           </>}
         </section>
+        ) : workspaceMode === 'material-categories' ? (
+          <MaterialCategoryWorkspace developmentUserKey={developmentUserKey} />
         ) : (
           <ProductionControlTemplateWorkspace
             developmentUserKey={developmentUserKey}
@@ -205,3 +219,89 @@ function copyItem(item: FormTemplateItem): FormTemplateItem { return { ...item }
 function newItem(order: number, manufacturing: boolean): FormTemplateItem { const id = crypto.randomUUID(); return { itemId: id, itemCode: `ITEM_${id.replaceAll('-', '').slice(0, 8).toUpperCase()}`, displayOrder: order, label: manufacturing ? '새 작업 단계' : '새 검사 항목', guidance: manufacturing ? null : '확인할 내용을 입력해 주세요.', responseType: 'Check', isRequired: true, requiresPhoto: false, maxTextLength: null, definitionKey: null }; }
 function resequence(items: FormTemplateItem[]) { return items.map((item, index) => ({ ...item, displayOrder: index + 1 })); }
 function moveItem(items: FormTemplateItem[], index: number, offset: number) { const target = index + offset; if (target < 0 || target >= items.length) return items; const next = [...items]; [next[index], next[target]] = [next[target], next[index]]; return resequence(next); }
+
+function MaterialCategoryWorkspace({ developmentUserKey }: { developmentUserKey: string | undefined }) {
+  const [catalog, setCatalog] = useState<MaterialCategoryCatalog | null>(null);
+  const [drafts, setDrafts] = useState<MaterialCategory[]>([]);
+  const [newName, setNewName] = useState('');
+  const [newRequiresIqc, setNewRequiresIqc] = useState(false);
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const next = await getMaterialCategories(developmentUserKey, true);
+      setCatalog(next);
+      setDrafts(next.items.map((item) => ({ ...item })));
+      setMessage('');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '구매품 구분을 불러오지 못했습니다.');
+    }
+  }, [developmentUserKey]);
+
+  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
+
+  async function save(item: MaterialCategory) {
+    setSaving(true);
+    try {
+      const next = await updateMaterialCategory(developmentUserKey, item.categoryId, {
+        expectedRowVersion: item.rowVersion,
+        displayName: item.displayName,
+        requiresIqc: item.requiresIqc,
+        isActive: item.isActive,
+        displayOrder: item.displayOrder
+      });
+      setCatalog(next);
+      setDrafts(next.items.map((value) => ({ ...value })));
+      setMessage(`${item.displayName} 구분을 저장했습니다. 이미 저장된 구매품의 구분은 바뀌지 않습니다.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '구분을 저장하지 못했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function add() {
+    if (!newName.trim()) return;
+    setSaving(true);
+    try {
+      const nextOrder = Math.max(0, ...drafts.map((item) => item.displayOrder)) + 10;
+      const next = await createMaterialCategory(developmentUserKey, newName.trim(), newRequiresIqc, nextOrder);
+      setCatalog(next);
+      setDrafts(next.items.map((value) => ({ ...value })));
+      setNewName('');
+      setNewRequiresIqc(false);
+      setMessage('새 구매품 구분을 추가했습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '구분을 추가하지 못했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!catalog) return <section className="form-template-editor"><p role="status">{message || '구매품 구분을 불러오는 중입니다.'}</p></section>;
+  return (
+    <section className="form-template-editor material-category-editor" aria-labelledby="material-category-title">
+      <header><div><p className="eyebrow">구매품 분류</p><h3 id="material-category-title">구매품 구분·IQC 연결</h3></div></header>
+      <p className="form-version-lock">구매팀이 선택할 구분과 IQC 필요 여부를 관리합니다. 변경 내용은 이후 저장되는 구매품에만 스냅샷으로 적용됩니다.</p>
+      {message ? <p className="form-template-feedback" role="status">{message}</p> : null}
+      <div className="form-item-list">
+        {drafts.map((item, index) => (
+          <article className="form-item-editor" key={item.categoryId}>
+            <div className="form-item-order"><b>{index + 1}</b></div>
+            <div className="form-item-fields">
+              <label>구분명<input disabled={!catalog.canManage || saving} value={item.displayName} onChange={(event) => setDrafts((current) => current.map((value) => value.categoryId === item.categoryId ? { ...value, displayName: event.target.value } : value))} /></label>
+              <div className="form-item-options">
+                <label><input type="checkbox" disabled={!catalog.canManage || saving} checked={item.requiresIqc} onChange={(event) => setDrafts((current) => current.map((value) => value.categoryId === item.categoryId ? { ...value, requiresIqc: event.target.checked } : value))} />IQC 필요</label>
+                <label><input type="checkbox" disabled={!catalog.canManage || saving} checked={item.isActive} onChange={(event) => setDrafts((current) => current.map((value) => value.categoryId === item.categoryId ? { ...value, isActive: event.target.checked } : value))} />구매 입력에 표시</label>
+                <label>순서<input type="number" min={1} max={1000} disabled={!catalog.canManage || saving} value={item.displayOrder} onChange={(event) => setDrafts((current) => current.map((value) => value.categoryId === item.categoryId ? { ...value, displayOrder: Number(event.target.value) } : value))} /></label>
+              </div>
+            </div>
+            {catalog.canManage ? <button type="button" className="secondary-button" disabled={saving} onClick={() => void save(item)}>저장</button> : null}
+          </article>
+        ))}
+      </div>
+      {catalog.canManage ? <div className="form-editor-actions material-category-add"><input aria-label="새 구매품 구분명" placeholder="새 구분명" value={newName} onChange={(event) => setNewName(event.target.value)} /><label><input type="checkbox" checked={newRequiresIqc} onChange={(event) => setNewRequiresIqc(event.target.checked)} />IQC 필요</label><button type="button" disabled={saving || !newName.trim()} onClick={() => void add()}>구분 추가</button></div> : null}
+    </section>
+  );
+}

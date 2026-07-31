@@ -31,6 +31,25 @@ export type IqcPhoto = {
   createdAtUtc: string;
 };
 
+export type IqcScanAttachment = {
+  attachmentId: string;
+  originalFileName: string;
+  normalizedMime: 'application/pdf' | 'image/jpeg' | 'image/png';
+  byteSize: number;
+  createdAtUtc: string;
+};
+
+export type IqcScanAttemptHistory = {
+  reportId: string;
+  attemptNumber: number;
+  result: 'Passed' | 'Failed';
+  reason: string;
+  actionReason: string | null;
+  finalizedAtUtc: string;
+  finalizedBy: string | null;
+  attachments: IqcScanAttachment[];
+};
+
 export type IqcReinspectionFailure = {
   itemCode: string;
   label: string;
@@ -42,6 +61,7 @@ export type IqcReinspectionSource = {
   failureReason: string;
   actionReason: string | null;
   failures: IqcReinspectionFailure[];
+  evidence?: ReinspectionEvidence;
 };
 
 export type IqcReport = {
@@ -56,7 +76,7 @@ export type IqcReport = {
   attemptNumber: number;
   receiptVersion: number;
   attemptStatus: 'Requested' | 'Passed' | 'Failed';
-  decisionMode: 'Legacy' | 'Detailed';
+  decisionMode: 'Legacy' | 'Detailed' | 'ScanBased';
   reportId: string | null;
   reportStatus: IqcReportStatus | null;
   reportVersion: number | null;
@@ -72,6 +92,8 @@ export type IqcReport = {
   photos: IqcPhoto[];
   finalizedAtUtc: string | null;
   finalizedBy: string | null;
+  scanAttachments?: IqcScanAttachment[];
+  scanHistory?: IqcScanAttemptHistory[];
 };
 
 export type SaveIqcItemResponse = {
@@ -80,3 +102,4 @@ export type SaveIqcItemResponse = {
   textValue: string | null;
   note: string | null;
 };
+import type { ReinspectionEvidence } from './pending';

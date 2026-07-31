@@ -22,6 +22,28 @@ public static class FormTemplateEndpointExtensions
         group.MapGet("/managers", async (FormTemplateStore store, ClaimsPrincipal user, CancellationToken token) => await Safe(() => store.GetManagersAsync(IsAdmin(user), token))).WithName("GetFormTemplateManagers");
         group.MapPost("/managers", async (AssignFormTemplateManagerRequest request, FormTemplateStore store, ClaimsPrincipal user, CancellationToken token) => await Safe(() => store.AssignManagerAsync(request, UserId(user), IsAdmin(user), token))).WithName("AssignFormTemplateManager");
         group.MapPost("/managers/{bindingId:guid}/revoke", async (Guid bindingId, FormTemplateStore store, ClaimsPrincipal user, CancellationToken token) => await Safe(() => store.RevokeManagerAsync(bindingId, UserId(user), IsAdmin(user), token))).WithName("RevokeFormTemplateManager");
+        group.MapGet("/material-categories", async (
+            bool? includeInactive,
+            MaterialCategoryStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+            await Safe(() => store.ListAsync(UserId(user), IsAdmin(user), includeInactive == true, token)))
+            .WithName("ListMaterialCategories");
+        group.MapPost("/material-categories", async (
+            CreateMaterialCategoryRequest request,
+            MaterialCategoryStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+            await Safe(() => store.CreateAsync(request, UserId(user), IsAdmin(user), token)))
+            .WithName("CreateMaterialCategory");
+        group.MapPut("/material-categories/{categoryId:guid}", async (
+            Guid categoryId,
+            UpdateMaterialCategoryRequest request,
+            MaterialCategoryStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+            await Safe(() => store.UpdateAsync(categoryId, request, UserId(user), IsAdmin(user), token)))
+            .WithName("UpdateMaterialCategory");
         group.MapPost("/export", async (ExportFormTemplateVersionsRequest request, FormTemplateStore store, ExcelWorkbookBuilder workbookBuilder, ClaimsPrincipal user, HttpContext context, CancellationToken token) =>
         {
             if (request.VersionIds.Count is < 1 or > 1000 || request.VersionIds.Distinct().Count() != request.VersionIds.Count)

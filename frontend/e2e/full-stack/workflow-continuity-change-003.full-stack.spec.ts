@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { markProjectAsLegacyIqc } from './legacy-iqc-fixture';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = '/tmp/workflow-continuity-change-003-screenshots';
@@ -22,6 +23,7 @@ test('WORKFLOW-CONTINUITY-001 Change 003: exact purchase error, assignee handoff
   page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
 
   const projectId = await createProject(request, projectCode, projectTitle);
+  markProjectAsLegacyIqc(projectId);
   assignProjectOwners(projectId);
 
   await page.setViewportSize({ width: 1440, height: 960 });

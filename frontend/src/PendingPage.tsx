@@ -6,12 +6,15 @@ import {
   createPendingIssue,
   getMaterialIqcQueue,
   getPendingIssue,
+  getPendingActionPhotoBlob,
   listPendingAssignees,
   listPendingIssues,
   listPendingTypeFilterOptions,
   listPendingTypeManualOptions,
   listProjects,
-  transitionPendingIssue
+  transitionPendingIssue,
+  uploadPendingActionPhoto,
+  removePendingActionPhoto
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
 import { MobileSheet } from './MobileSheet';
@@ -21,6 +24,8 @@ import type {
   CreatePendingRequest,
   PendingAssignee,
   PendingDetail,
+  PendingActionEvidence as PendingActionEvidenceModel,
+  PendingActionPhoto,
   PendingIssue,
   PendingIssueType,
   PendingListResponse,
@@ -523,7 +528,7 @@ function PendingCreateDialog({
           <label className="form-field"><span>조치 기한</span><input type="date" value={form.dueDate ?? ''} onChange={(event) => setForm({ ...form, dueDate: event.target.value || null })} /></label>
           <label className="form-field pending-full-field"><span>제목 *</span><input maxLength={160} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="무엇이 업무를 막고 있는지 한 줄로 입력" /></label>
           <label className="form-field pending-full-field"><span>상세 내용 *</span><textarea maxLength={2000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="발생 위치, 현상, 영향, 필요한 조치를 입력해 주세요." /></label>
-          <div className="pending-attachment-note pending-full-field"><strong>파일 첨부 준비 중</strong><span>보안 저장·검역 정책 확정 전에는 파일을 받지 않습니다. 필요한 근거는 우선 상세 내용과 코멘트로 남겨 주세요.</span></div>
+          <div className="pending-attachment-note pending-full-field"><strong>사진 첨부 안내</strong><span>조치 근거 사진은 담당자가 조치를 시작한 뒤 Pending 상세에서 등록할 수 있습니다.</span></div>
           {error ? <p className="action-feedback pending-full-field" data-tone="error" role="alert">{error}</p> : null}
           <div className="dialog-actions pending-full-field"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={submitting || loadingOptions || typeOptions.length === 0} type="submit">{submitting ? '등록 중…' : 'Pending 등록'}</button></div>
         </form>
@@ -550,6 +555,8 @@ function PendingDetailView({
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [discoveredReinspection, setDiscoveredReinspection] = useState<PendingReinspection | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoAlt, setPhotoAlt] = useState('');
 
   const load = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -613,6 +620,51 @@ function PendingDetailView({
     }
   }
 
+  async function uploadActionPhoto() {
+    if (!detail || !photoFile || !photoAlt.trim()) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const result = await uploadPendingActionPhoto(
+        developmentUserKey,
+        pendingId,
+        crypto.randomUUID(),
+        detail.issue.version,
+        photoAlt.trim(),
+        photoFile
+      );
+      setState({ kind: 'ready', data: result.detail });
+      setPhotoFile(null);
+      setPhotoAlt('');
+      setFeedback('조치 사진을 등록했습니다. 조치 완료 시 변경할 수 없는 근거로 확정됩니다.');
+    } catch (error) {
+      setFeedback(messageForError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeActionPhoto(photoId: string) {
+    if (!detail) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const result = await removePendingActionPhoto(
+        developmentUserKey,
+        pendingId,
+        photoId,
+        crypto.randomUUID(),
+        detail.issue.version
+      );
+      setState({ kind: 'ready', data: result.detail });
+      setFeedback('확정 전 조치 사진을 삭제했습니다.');
+    } catch (error) {
+      setFeedback(messageForError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (state.kind === 'loading') return <section className="page-surface pending-page"><PendingLoading /></section>;
   if (state.kind === 'error') return <section className="page-surface pending-page"><PendingError message={state.message} onRetry={load} /><button type="button" onClick={onBackToList}>목록으로</button></section>;
   if (!detail) return null;
@@ -654,12 +706,133 @@ function PendingDetailView({
 
           {canManage && detail.canAssign ? <section className="pending-section"><h3>담당 변경</h3><div className="pending-inline-action"><select aria-label="새 조치 담당" value={nextAssignee} onChange={(event) => setNextAssignee(event.target.value)}><option value="">새 담당자 선택</option>{assignees.filter((item) => item.userId !== issue.assigneeUserId).map((item) => <option key={item.userId} value={item.userId}>{item.displayName} · {departmentLabel(item.departmentCode)}</option>)}</select><input aria-label="담당 변경 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="변경 사유 (3자 이상)" /><button disabled={busy || !nextAssignee || reason.trim().length < 3} type="button" onClick={() => void runMutation(() => assignPendingIssue(developmentUserKey, pendingId, nextAssignee, issue.version, reason), '조치 담당자가 변경되었습니다.', () => { setReason(''); setNextAssignee(''); })}>담당 변경</button></div></section> : null}
 
+          <PendingActionEvidence
+            pendingId={pendingId}
+            evidence={detail.actionEvidence}
+            developmentUserKey={developmentUserKey}
+            busy={busy}
+            photoFile={photoFile}
+            photoAlt={photoAlt}
+            onPhotoFile={setPhotoFile}
+            onPhotoAlt={setPhotoAlt}
+            onUpload={() => void uploadActionPhoto()}
+            onRemove={(photoId) => void removeActionPhoto(photoId)}
+          />
+
           {nextTransition ? <section className="pending-section pending-next-action"><div><p className="eyebrow">NEXT ACTION</p><h3>{transitionLabels[nextTransition]}</h3><p>{completingAction ? '처리 내용을 남기고 완료하면 품질 재검사 업무와 알림이 자동 생성됩니다.' : '현재 상태를 확인하고 처리 내용을 남겨 다음 단계로 넘깁니다.'}</p></div><div className="pending-transition-control"><input aria-label="처리 내용" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="처리 내용 또는 확인 결과 (3자 이상)" /><button className="primary-button" disabled={busy || reason.trim().length < 3} type="button" onClick={() => void runMutation(() => transitionPendingIssue(developmentUserKey, pendingId, nextTransition, issue.version, reason), completingAction ? '조치를 완료하고 품질 재검사 업무를 생성했습니다.' : `${transitionLabels[nextTransition]} 상태로 변경되었습니다.`, () => setReason(''))}>{transitionLabels[nextTransition]}</button></div></section> : null}
         </div>
 
-        <section className="pending-timeline"><div className="subsection-header"><div><p className="eyebrow">ACTIVITY</p><h3>코멘트와 처리 이력</h3></div><span>{timeline.length}건</span></div>{detail.canComment ? <form className="pending-comment-form pending-timeline-composer" onSubmit={(event) => { event.preventDefault(); if (comment.trim()) void runMutation(() => addPendingComment(developmentUserKey, pendingId, comment), '코멘트와 처리 이력에 추가했습니다.', () => setComment('')); }}><label><span>새 코멘트</span><textarea aria-label="처리 활동 코멘트" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="조치 내용, 확인 결과 또는 다음 담당자에게 전달할 내용을 남겨 주세요." /></label><button className="primary-button" disabled={busy || !comment.trim()} type="submit">코멘트 등록</button></form> : null}<div className="pending-timeline-list">{timeline.map((event) => <article key={event.key}><span className="pending-timeline-dot" /><div><strong>{event.title}</strong>{event.summary ? <p>{event.summary}</p> : null}{event.detail ? <p>{event.detail}</p> : null}{event.note ? <p>{event.note}</p> : null}<small>{event.actor} · {formatDateTime(event.createdAtUtc)}</small></div></article>)}</div><div className="pending-attachment-note"><strong>첨부파일 보류</strong><span>보안 정책 확정 후 이 타임라인에 파일 audit를 함께 표시합니다.</span></div></section>
+        <section className="pending-timeline"><div className="subsection-header"><div><p className="eyebrow">ACTIVITY</p><h3>코멘트와 처리 이력</h3></div><span>{timeline.length}건</span></div>{detail.canComment ? <form className="pending-comment-form pending-timeline-composer" onSubmit={(event) => { event.preventDefault(); if (comment.trim()) void runMutation(() => addPendingComment(developmentUserKey, pendingId, comment), '코멘트와 처리 이력에 추가했습니다.', () => setComment('')); }}><label><span>새 코멘트</span><textarea aria-label="처리 활동 코멘트" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="조치 내용, 확인 결과 또는 다음 담당자에게 전달할 내용을 남겨 주세요." /></label><button className="primary-button" disabled={busy || !comment.trim()} type="submit">코멘트 등록</button></form> : null}<div className="pending-timeline-list">{timeline.map((event) => <article key={event.key}><span className="pending-timeline-dot" /><div><strong>{event.title}</strong>{event.summary ? <p>{event.summary}</p> : null}{event.detail ? <p>{event.detail}</p> : null}{event.note ? <p>{event.note}</p> : null}<small>{event.actor} · {formatDateTime(event.createdAtUtc)}</small></div></article>)}</div></section>
       </div>
     </section>
+  );
+}
+
+function PendingActionEvidence({
+  pendingId,
+  evidence,
+  developmentUserKey,
+  busy,
+  photoFile,
+  photoAlt,
+  onPhotoFile,
+  onPhotoAlt,
+  onUpload,
+  onRemove
+}: {
+  pendingId: string;
+  evidence: PendingActionEvidenceModel;
+  developmentUserKey: string | undefined;
+  busy: boolean;
+  photoFile: File | null;
+  photoAlt: string;
+  onPhotoFile: (file: File | null) => void;
+  onPhotoAlt: (value: string) => void;
+  onUpload: () => void;
+  onRemove: (photoId: string) => void;
+}) {
+  const drafts = evidence.draftPhotos ?? [];
+  return (
+    <section className="pending-section pending-action-evidence" aria-labelledby="pending-action-evidence-title">
+      <header>
+        <div>
+          <p className="eyebrow">ACTION EVIDENCE</p>
+          <h3 id="pending-action-evidence-title">조치 내용과 사진</h3>
+        </div>
+        <span>{evidence.confirmedRounds.reduce((sum, round) => sum + round.photos.length, 0)}장 확정</span>
+      </header>
+
+      {evidence.canManageDraft ? (
+        <div className="pending-action-photo-editor">
+          <p>사진은 선택 사항입니다. <strong>조치 완료</strong>를 누르면 현재 사진이 확정되어 수정·삭제할 수 없습니다.</p>
+          <div className="pending-action-photo-limits">
+            <span>이번 회차 {evidence.remainingPhotosThisRound}/{evidence.maxPhotosPerRound}장 남음</span>
+            <span>{formatBytes(evidence.remainingBytesThisRound)} 남음</span>
+            <span>Pending 전체 {evidence.remainingPhotosForPending}/{evidence.maxPhotosPerPending}장 남음</span>
+          </div>
+          <div className="pending-action-photo-inputs">
+            <label><span>조치 사진</span><input type="file" accept="image/jpeg,image/png" capture="environment" disabled={busy || evidence.remainingPhotosThisRound < 1 || evidence.remainingPhotosForPending < 1} onChange={(event) => onPhotoFile(event.target.files?.[0] ?? null)} /><small>{photoFile?.name ?? 'JPEG·PNG / 장당 5MB 이하'}</small></label>
+            <label><span>사진 설명</span><input value={photoAlt} maxLength={200} disabled={busy} placeholder="예: 교체 후 체결 상태" onChange={(event) => onPhotoAlt(event.target.value)} /></label>
+            <button className="primary-button" type="button" disabled={busy || !photoFile || photoAlt.trim().length === 0} onClick={onUpload}>사진 등록</button>
+          </div>
+          {drafts.length > 0 ? <div className="pending-action-photo-grid" aria-label="확정 전 조치 사진">{drafts.map((photo) => <PendingActionPhotoFigure key={photo.photoId} pendingId={pendingId} photo={photo} developmentUserKey={developmentUserKey} editable={!busy} onRemove={() => onRemove(photo.photoId)} />)}</div> : <p className="muted-text">아직 등록한 조치 사진이 없습니다.</p>}
+        </div>
+      ) : <p className="pending-action-photo-privacy">조치 중 사진은 담당자에게만 보이며, 조치 완료 시 확정 근거로 공개됩니다.</p>}
+
+      {evidence.confirmedRounds.length > 0 ? (
+        <div className="pending-action-rounds">
+          {evidence.confirmedRounds.map((round, index) => (
+            <details key={round.actionRound} open={index === 0}>
+              <summary><strong>{round.actionRound}차 조치 완료</strong><span>{round.photos.length}장 · {formatDateTime(round.confirmedAtUtc)}</span></summary>
+              <div className="pending-action-reason"><span>조치 내용</span><strong>{round.actionReasonSnapshot}</strong><small>{round.confirmedByDisplayName}</small></div>
+              <div className="pending-action-photo-grid">{round.photos.map((photo) => <PendingActionPhotoFigure key={photo.photoId} pendingId={pendingId} photo={photo} developmentUserKey={developmentUserKey} editable={false} />)}</div>
+            </details>
+          ))}
+        </div>
+      ) : <p className="muted-text">확정된 조치 사진이 없습니다. 사진 없이 조치를 완료해도 기존 흐름은 그대로 진행됩니다.</p>}
+    </section>
+  );
+}
+
+function PendingActionPhotoFigure({
+  pendingId,
+  photo,
+  developmentUserKey,
+  editable,
+  onRemove
+}: {
+  pendingId: string;
+  photo: PendingActionPhoto;
+  developmentUserKey: string | undefined;
+  editable: boolean;
+  onRemove?: () => void;
+}) {
+  const [source, setSource] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    void getPendingActionPhotoBlob(developmentUserKey, pendingId, photo.photoId)
+      .then((blob) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSource(objectUrl);
+        setFailed(false);
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [developmentUserKey, pendingId, photo.photoId]);
+  return (
+    <figure className="pending-action-photo">
+      {source ? <img src={source} alt={photo.altText} /> : <div className="pending-action-photo-placeholder">{failed ? '사진을 불러오지 못함' : '사진 불러오는 중'}</div>}
+      <figcaption><strong>{photo.altText}</strong><span>{formatBytes(photo.byteSize)}</span></figcaption>
+      {editable && onRemove ? <button type="button" onClick={onRemove}>삭제</button> : null}
+    </figure>
   );
 }
 
@@ -697,6 +870,7 @@ function pendingStatusTone(status: PendingStatus) {
 }
 
 function padIssueNumber(value: number) { return String(value).padStart(4, '0'); }
+function formatBytes(value: number) { return value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)}MB` : `${Math.ceil(value / 1024)}KB`; }
 function formatDate(value: string) { return new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(`${value}T00:00:00`)); }
 function formatDateTime(value: string) { return new Intl.DateTimeFormat('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
 function departmentLabel(value: string) { return ({ sales: '영업', design: '설계', procurement: '구매', materials: '자재', 'production-planning': '생산관리', manufacturing: '제조', quality: '품질', logistics: '물류' } as Record<string, string>)[value] ?? value; }

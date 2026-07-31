@@ -5,6 +5,7 @@ COPY backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj backend/src/Emi.Qms.Api/
 RUN dotnet restore backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj
 
 COPY backend/src/Emi.Qms.Api backend/src/Emi.Qms.Api
+COPY database/migrations database/migrations
 RUN dotnet publish backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj \
     --configuration Release \
     --no-restore \
@@ -13,6 +14,7 @@ RUN dotnet publish backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-azurelinux3.0-distroless-extra@sha256:1e70cdf79d1ab86b19e10956407d1f57eb8d9052089c14f2e878f70622713834 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
+COPY --from=build /src/database/migrations ./database/migrations
 
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080

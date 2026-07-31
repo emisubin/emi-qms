@@ -52,6 +52,70 @@ export interface PendingDetail {
   canComment: boolean;
   canAssign: boolean;
   reinspection?: PendingReinspection | null;
+  actionEvidence: PendingActionEvidence;
+}
+
+export interface PendingActionEvidence {
+  canManageDraft: boolean;
+  maxPhotosPerRound: number;
+  maxBytesPerRound: number;
+  maxPhotosPerPending: number;
+  remainingPhotosThisRound: number;
+  remainingBytesThisRound: number;
+  remainingPhotosForPending: number;
+  draftPhotos: PendingActionPhoto[] | null;
+  confirmedRounds: PendingActionPhotoRound[];
+}
+
+export interface PendingActionPhotoRound {
+  actionRound: number;
+  actionReasonSnapshot: string;
+  confirmedByUserId: string;
+  confirmedByDisplayName: string;
+  confirmedAtUtc: string;
+  photos: PendingActionPhoto[];
+}
+
+export interface PendingActionPhoto {
+  photoId: string;
+  displayName: string;
+  normalizedMime: 'image/jpeg' | 'image/png';
+  byteSize: number;
+  altText: string;
+  createdByUserId: string;
+  createdByDisplayName: string;
+  createdAtUtc: string;
+}
+
+export interface EvidencePhotoReference {
+  sourceKind: 'PanelQualityReport' | 'IqcReport' | 'PendingAction';
+  sourceId: string;
+  photoId: string;
+  displayName: string;
+  normalizedMime: 'image/jpeg' | 'image/png';
+  byteSize: number;
+  altText: string;
+}
+
+export interface PendingActionRoundEvidence {
+  actionRound: number;
+  actionReasonSnapshot: string;
+  confirmedByDisplayName: string;
+  confirmedAtUtc: string;
+  photos: EvidencePhotoReference[];
+}
+
+export interface ReinspectionEvidence {
+  originalFailurePhotos: EvidencePhotoReference[];
+  latestActionRound: PendingActionRoundEvidence | null;
+}
+
+export interface PendingPhotoMutationResponse {
+  operationId: string;
+  resultingPendingVersion: number;
+  photoId: string | null;
+  replayed: boolean;
+  detail: PendingDetail;
 }
 
 export interface PendingReinspection {

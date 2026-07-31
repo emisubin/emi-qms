@@ -161,6 +161,7 @@ builder.Services.AddSingleton<AdminCalendarHolidayStore>();
 builder.Services.AddSingleton<CalendarHolidayExcelParser>();
 builder.Services.AddSingleton<AdminMasterDataStore>();
 builder.Services.AddSingleton<FormTemplateStore>();
+builder.Services.AddSingleton<MaterialCategoryStore>();
 builder.Services.AddSingleton<AdminScheduledDeletionService>();
 builder.Services.AddSingleton<IAdminDeletionPurgeService>(services =>
     services.GetRequiredService<AdminScheduledDeletionService>());
@@ -228,6 +229,17 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
     app.Environment);
 QmsAuthenticationModePolicy.ThrowIfInvalidConfiguration(app.Environment, app.Configuration);
 ProductionSecurityPolicy.ThrowIfInvalid(app.Environment, app.Configuration);
+
+if (args.Contains("--migrate-only", StringComparer.Ordinal))
+{
+    var inspection = await app.Services
+        .GetRequiredService<DatabaseMigrationRunner>()
+        .ApplyAndVerifyAsync(CancellationToken.None);
+    app.Logger.LogInformation(
+        "Database migration completed with {ExpectedMigrationCount} verified migrations.",
+        inspection.ExpectedMigrationCount);
+    return;
+}
 
 app.UseForwardedHeaders();
 app.UseMiddleware<HostFilteringMiddleware>();

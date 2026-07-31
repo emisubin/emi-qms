@@ -7,6 +7,7 @@ public static class MaterialReceiptStatuses
     public const string Arrived = "Arrived";
     public const string IqcRequested = "IqcRequested";
     public const string Passed = "Passed";
+    public const string InspectionNotRequired = "InspectionNotRequired";
     public const string FailedBlocked = "FailedBlocked";
     public const string Confirmed = "Confirmed";
     public const string Cancelled = "Cancelled";
@@ -16,6 +17,7 @@ public static class IqcDecisionModes
 {
     public const string Legacy = "Legacy";
     public const string Detailed = "Detailed";
+    public const string ScanBased = "ScanBased";
 }
 
 public sealed record MaterialReceiptSummaryResponse(
@@ -38,6 +40,8 @@ public sealed class MaterialReceivingItemResponse
     public string ProjectTitle { get; init; } = "";
     public string ProjectCode { get; init; } = "";
     public string? OrderItem { get; init; }
+    public string? MaterialCategoryName { get; init; }
+    public bool? MaterialCategoryRequiresIqc { get; init; }
     public string? SupplierName { get; init; }
     public string SupplyType { get; init; } = ProcurementSupplyTypes.Purchased;
     public DateOnly? ExpectedReceiptDate { get; init; }

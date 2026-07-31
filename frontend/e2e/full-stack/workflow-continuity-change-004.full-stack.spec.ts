@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { markProjectAsLegacyIqc } from './legacy-iqc-fixture';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = '/tmp/workflow-continuity-change-004-screenshots';
@@ -14,6 +15,7 @@ test('WORKFLOW-CONTINUITY-001 Change 004: purchase-owned quantity, Materials fal
   const projectTitle = `발주 수량 IQC 복구 ${unique}`;
   const orderItem = `도급 차단기 ${String(unique).slice(-5)}`;
   const projectId = await createProject(request, projectCode, projectTitle);
+  markProjectAsLegacyIqc(projectId);
 
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.goto('/projects');

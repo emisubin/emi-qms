@@ -5,7 +5,8 @@ services:
       dockerfile: frontend/Dockerfile.production
       args:
         VITE_AZURE_TENANT_ID: ${ENTRA_TENANT_ID:?ENTRA_TENANT_ID is required}
-        VITE_AZURE_CLIENT_ID: ${ENTRA_CLIENT_ID:?ENTRA_CLIENT_ID is required}
+        VITE_AZURE_CLIENT_ID: ${ENTRA_SPA_CLIENT_ID:?ENTRA_SPA_CLIENT_ID is required}
+        VITE_AZURE_API_CLIENT_ID: ${ENTRA_API_CLIENT_ID:?ENTRA_API_CLIENT_ID is required}
         VITE_AZURE_API_SCOPE: ${ENTRA_API_SCOPE:?ENTRA_API_SCOPE is required}
         VITE_AZURE_REDIRECT_URI: https://${PUBLIC_HOST:?PUBLIC_HOST is required}
     environment:
@@ -88,7 +89,8 @@ services:
       Authentication__Mode: EntraId
       AzureAd__Instance: https://login.microsoftonline.com/
       AzureAd__TenantId: ${ENTRA_TENANT_ID:?ENTRA_TENANT_ID is required}
-      AzureAd__ClientId: ${ENTRA_CLIENT_ID:?ENTRA_CLIENT_ID is required}
+      AzureAd__ClientId: ${ENTRA_API_CLIENT_ID:?ENTRA_API_CLIENT_ID is required}
+      AzureAd__SpaClientId: ${ENTRA_SPA_CLIENT_ID:?ENTRA_SPA_CLIENT_ID is required}
       AzureAd__Audience: ${ENTRA_API_AUDIENCE:?ENTRA_API_AUDIENCE is required}
       AzureAd__Domain: ${ENTRA_DOMAIN:?ENTRA_DOMAIN is required}
       Frontend__Origin: https://${PUBLIC_HOST:?PUBLIC_HOST is required}
@@ -132,6 +134,64 @@ services:
         syslog-tls-ca-cert: ${SECURITY_SYSLOG_CA_CERT:?SECURITY_SYSLOG_CA_CERT is required}
         syslog-format: rfc5424micro
         tag: emi-qms-backend
+
+  migration:
+    profiles:
+      - operations
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile.production
+    command:
+      - --migrate-only
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      AllowedHosts: ${PUBLIC_HOST:?PUBLIC_HOST is required}
+      Authentication__Mode: EntraId
+      AzureAd__Instance: https://login.microsoftonline.com/
+      AzureAd__TenantId: ${ENTRA_TENANT_ID:?ENTRA_TENANT_ID is required}
+      AzureAd__ClientId: ${ENTRA_API_CLIENT_ID:?ENTRA_API_CLIENT_ID is required}
+      AzureAd__SpaClientId: ${ENTRA_SPA_CLIENT_ID:?ENTRA_SPA_CLIENT_ID is required}
+      AzureAd__Audience: ${ENTRA_API_AUDIENCE:?ENTRA_API_AUDIENCE is required}
+      AzureAd__Domain: ${ENTRA_DOMAIN:?ENTRA_DOMAIN is required}
+      Frontend__Origin: https://${PUBLIC_HOST:?PUBLIC_HOST is required}
+      Frontend__RedirectUri: https://${PUBLIC_HOST:?PUBLIC_HOST is required}
+      ReverseProxy__KnownProxies: 172.30.0.10
+      RateLimiting__Enabled: "true"
+      UploadSecurity__Enabled: "true"
+      UploadSecurity__FailClosed: "true"
+      UploadSecurity__ScannerHost: clamav
+      UploadSecurity__ScannerPort: "3310"
+      UploadSecurity__RejectImageMetadata: "true"
+      Database__ApplyMigrationsOnStartup: "false"
+      DevelopmentData__SeedEnabled: "false"
+      DevAuthentication__Enabled: "false"
+      AdminUserSwitch__Enabled: "false"
+      Operations__Backup__RestoreVerifiedAtUtc: ${RESTORE_VERIFIED_AT_UTC:?RESTORE_VERIFIED_AT_UTC is required}
+      Operations__Monitoring__Enabled: "true"
+      Operations__Monitoring__SecurityAlertSink: ${SECURITY_ALERT_SINK:?SECURITY_ALERT_SINK is required}
+    secrets:
+      - source: database_connection_string
+        target: ConnectionStrings__QmsDatabase
+      - source: bootstrap_admin_emails
+        target: Authentication__BootstrapAdminEmails
+    networks:
+      qms_internal:
+        ipv4_address: 172.30.0.40
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    logging:
+      driver: syslog
+      options:
+        syslog-address: ${SECURITY_SYSLOG_ADDRESS:?SECURITY_SYSLOG_ADDRESS is required}
+        syslog-tls-ca-cert: ${SECURITY_SYSLOG_CA_CERT:?SECURITY_SYSLOG_CA_CERT is required}
+        syslog-format: rfc5424micro
+        tag: emi-qms-migration
 
   clamav:
     image: clamav/clamav:1.4@sha256:6b7c8e09559250f25b0184516b0a2ae805136e57485260e16c780c9fd6e6aba9

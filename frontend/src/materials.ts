@@ -2,6 +2,7 @@ export type MaterialReceiptStatus =
   | 'Arrived'
   | 'IqcRequested'
   | 'Passed'
+  | 'InspectionNotRequired'
   | 'FailedBlocked'
   | 'Confirmed'
   | 'Cancelled';
@@ -10,7 +11,7 @@ export type MaterialIqcAttempt = {
   attemptId: string;
   attemptNumber: number;
   status: 'Requested' | 'Passed' | 'Failed';
-  decisionMode: 'Legacy' | 'Detailed';
+  decisionMode: 'Legacy' | 'Detailed' | 'ScanBased';
   reason: string | null;
   pendingIssueId: string | null;
   requestedAtUtc: string;
@@ -41,6 +42,8 @@ export type MaterialReceivingItem = {
   projectTitle: string;
   projectCode: string;
   orderItem: string | null;
+  materialCategoryName: string | null;
+  materialCategoryRequiresIqc: boolean | null;
   supplierName: string | null;
   supplyType: 'Purchased' | 'CustomerSupplied';
   expectedReceiptDate: string | null;
@@ -85,7 +88,7 @@ export type MaterialIqcQueueItem = {
   receiptVersion: number;
   supplyType: 'Purchased' | 'CustomerSupplied';
   status: 'Requested' | 'Passed' | 'Failed';
-  decisionMode: 'Legacy' | 'Detailed';
+  decisionMode: 'Legacy' | 'Detailed' | 'ScanBased';
   requestedAtUtc: string;
   decidedAtUtc: string | null;
   pendingIssueId: string | null;

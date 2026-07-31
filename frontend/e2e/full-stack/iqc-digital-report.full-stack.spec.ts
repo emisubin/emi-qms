@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { markProjectAsLegacyIqc, uploadRequiredIqcPhotos } from './legacy-iqc-fixture';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = process.env.TASK009A_SCREENSHOT_DIR?.trim() || null;
@@ -10,6 +11,7 @@ test('TASK-009A: mobile-first IQC report captures checklist, photo, immutable re
   const unique = Date.now();
   const projectTitle = `IQC 디지털 성적서 ${unique}`;
   const projectId = await createProject(request, `IQC-${unique}`, projectTitle);
+  markProjectAsLegacyIqc(projectId);
   const procurement = await updateProcurement(request, projectId, [
     { orderItem: 'Desktop Enclosure', supplierName: 'Synthetic Vendor', orderQuantity: 2, orderUnit: 'EA' },
     { orderItem: 'Mobile Control Unit', supplierName: 'Synthetic Vendor', orderQuantity: 1, orderUnit: 'SET' }
@@ -38,13 +40,10 @@ test('TASK-009A: mobile-first IQC report captures checklist, photo, immutable re
   await expect(desktopDrawer.getByRole('heading', { name: '검사항목' })).toBeVisible();
   await completeChecklist(desktopDrawer);
   await capture(page, '03-iqc-checklist-desktop.png');
-  await desktopDrawer.getByRole('button', { name: '저장하고 사진 등록' }).click();
-  await expect(desktopDrawer.getByRole('heading', { name: '외함 사진' })).toBeVisible();
-  await desktopDrawer.locator('input[type="file"]').setInputFiles(path.resolve('src/assets/emi-logo.png'));
-  await desktopDrawer.getByRole('button', { name: '사진 등록' }).click();
+  await uploadRequiredIqcPhotos(desktopDrawer, path.resolve('src/assets/emi-logo.png'));
   await expect(desktopDrawer.locator('.iqc-photo-evidence')).toHaveCount(1);
   await capture(page, '04-iqc-photo-desktop.png');
-  await desktopDrawer.getByRole('button', { name: '최종확인으로' }).click();
+  await desktopDrawer.getByRole('button', { name: '검사항목·사진 저장 후 최종확인' }).click();
   await desktopDrawer.getByLabel('종합 판정 사유').fill('검사항목과 외함 사진을 모두 확인했습니다.');
   await desktopDrawer.getByRole('button', { name: '합격 · 성적서 확정' }).click();
   await expect(desktopDrawer.getByText('출력본 준비 완료')).toBeVisible();
@@ -84,10 +83,9 @@ test('TASK-009A: mobile-first IQC report captures checklist, photo, immutable re
   await capture(page, '07-iqc-checklist-mobile-390.png');
 
   await completeChecklist(mobileSheet);
-  await mobileSheet.getByRole('button', { name: '저장하고 사진 등록' }).click();
-  await mobileSheet.locator('input[type="file"]').setInputFiles(path.resolve('src/assets/emi-logo.png'));
-  await mobileSheet.getByRole('button', { name: '사진 등록' }).click();
+  await uploadRequiredIqcPhotos(mobileSheet, path.resolve('src/assets/emi-logo.png'));
   await expect(mobileSheet.locator('.iqc-photo-evidence')).toHaveCount(1);
+  await mobileSheet.getByRole('button', { name: '검사항목·사진 저장 후 최종확인' }).click();
   await assertNoHorizontalOverflow(page);
   await capture(page, '08-iqc-photo-mobile-390.png');
 

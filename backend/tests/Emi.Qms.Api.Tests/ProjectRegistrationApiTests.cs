@@ -1118,9 +1118,9 @@ public sealed partial class ProjectRegistrationApiTests
         using var requiredWorkflow = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
         var requiredFatStage = requiredWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "FAT");
         Assert.NotEqual("Skipped", requiredFatStage.GetProperty("status").GetString());
-        Assert.Equal(17, requiredWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
-        var optionalKittingStage = requiredWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "KittingCompleted");
-        Assert.True(optionalKittingStage.GetProperty("isOptional").GetBoolean());
+        Assert.Equal(18, requiredWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
+        var manufacturingRequestStage = requiredWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "KittingCompleted");
+        Assert.False(manufacturingRequestStage.GetProperty("isOptional").GetBoolean());
 
         var update = await client.PatchAsJsonAsync(
             $"/api/projects/{projectId}",
@@ -1133,7 +1133,7 @@ public sealed partial class ProjectRegistrationApiTests
         using var optionalWorkflow = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
         var optionalFatStage = optionalWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "FAT");
         Assert.Equal("Skipped", optionalFatStage.GetProperty("status").GetString());
-        Assert.Equal(16, optionalWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
+        Assert.Equal(17, optionalWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
         Assert.False((await ReadSingleProjectListItemAsync(client, "FAT Required Project")).GetProperty("fatRequired").GetBoolean());
     }
 
@@ -2208,7 +2208,7 @@ public sealed partial class ProjectRegistrationApiTests
 
         var procurement = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
-            new { items = new[] { new { orderItem = "Purge Item" } } },
+            new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Purge Item" } } },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, procurement.StatusCode);
 

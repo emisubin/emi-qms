@@ -18,7 +18,7 @@ import type {
   SalesBillingBatchList,
   SalesBillingCandidateList
 } from './salesBilling';
-import type { FormTemplateCatalog, FormTemplateManagers, FormTemplateScope, FormTemplateVersions } from './formTemplates';
+import type { FormTemplateCatalog, FormTemplateManagers, FormTemplateScope, FormTemplateVersions, MaterialCategoryCatalog } from './formTemplates';
 import type {
   ProductionControlManufacturingItem,
   ProductionControlPlanItem,
@@ -41,10 +41,12 @@ import type {
 import type { NotificationPreferenceAuditFilters, NotificationPreferenceAuditList } from './notificationPreferenceAudit';
 import type {
   CreatePendingRequest,
+  EvidencePhotoReference,
   PendingAssignee,
   PendingDetail,
   PendingIssueType,
   PendingListResponse,
+  PendingPhotoMutationResponse,
   PendingPriority,
   PendingStatus
 } from './pending';
@@ -402,6 +404,45 @@ export async function assignFormTemplateManager(developmentUserKey: string | und
 
 export async function revokeFormTemplateManager(developmentUserKey: string | undefined, bindingId: string): Promise<FormTemplateManagers> {
   return fetchJson<FormTemplateManagers>(`/api/form-templates/managers/${bindingId}/revoke`, developmentUserKey, { method: 'POST' });
+}
+
+export async function getMaterialCategories(
+  developmentUserKey?: string,
+  includeInactive = false
+): Promise<MaterialCategoryCatalog> {
+  return fetchJson<MaterialCategoryCatalog>(
+    `/api/form-templates/material-categories?includeInactive=${includeInactive}`,
+    developmentUserKey
+  );
+}
+
+export async function createMaterialCategory(
+  developmentUserKey: string | undefined,
+  displayName: string,
+  requiresIqc: boolean,
+  displayOrder: number
+): Promise<MaterialCategoryCatalog> {
+  return fetchJson<MaterialCategoryCatalog>('/api/form-templates/material-categories', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ displayName, requiresIqc, displayOrder })
+  });
+}
+
+export async function updateMaterialCategory(
+  developmentUserKey: string | undefined,
+  categoryId: string,
+  request: {
+    expectedRowVersion: number;
+    displayName: string;
+    requiresIqc: boolean;
+    isActive: boolean;
+    displayOrder: number;
+  }
+): Promise<MaterialCategoryCatalog> {
+  return fetchJson<MaterialCategoryCatalog>(`/api/form-templates/material-categories/${categoryId}`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify(request)
+  });
 }
 
 export async function exportFormTemplateVersionsExcel(
@@ -1190,6 +1231,72 @@ export async function addPendingComment(
     method: 'POST',
     body: JSON.stringify({ body })
   });
+}
+
+export async function uploadPendingActionPhoto(
+  developmentUserKey: string | undefined,
+  pendingId: string,
+  operationId: string,
+  expectedPendingVersion: number,
+  altText: string,
+  photo: File
+): Promise<PendingPhotoMutationResponse> {
+  const form = new FormData();
+  form.set('operationId', operationId);
+  form.set('expectedPendingVersion', String(expectedPendingVersion));
+  form.set('altText', altText);
+  form.set('photo', photo);
+  return fetchJson<PendingPhotoMutationResponse>(`/api/pending/${pendingId}/photos`, developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function removePendingActionPhoto(
+  developmentUserKey: string | undefined,
+  pendingId: string,
+  photoId: string,
+  operationId: string,
+  expectedPendingVersion: number
+): Promise<PendingPhotoMutationResponse> {
+  const query = new URLSearchParams({
+    operationId,
+    expectedPendingVersion: String(expectedPendingVersion)
+  });
+  return fetchJson<PendingPhotoMutationResponse>(
+    `/api/pending/${pendingId}/photos/${photoId}?${query.toString()}`,
+    developmentUserKey,
+    { method: 'DELETE' }
+  );
+}
+
+export async function getPendingActionPhotoBlob(
+  developmentUserKey: string | undefined,
+  pendingId: string,
+  photoId: string
+): Promise<Blob> {
+  const response = await fetchWithAuth(
+    `/api/pending/${pendingId}/photos/${photoId}/content`,
+    developmentUserKey
+  );
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  return response.blob();
+}
+
+export async function getEvidencePhotoBlob(
+  developmentUserKey: string | undefined,
+  photo: EvidencePhotoReference
+): Promise<Blob> {
+  if (photo.sourceKind === 'IqcReport') {
+    return getIqcPhotoBlob(developmentUserKey, photo.sourceId, photo.photoId);
+  }
+  if (photo.sourceKind === 'PanelQualityReport') {
+    return getQualityInspectionPhotoBlob(developmentUserKey, photo.sourceId, photo.photoId);
+  }
+  return getPendingActionPhotoBlob(developmentUserKey, photo.sourceId, photo.photoId);
 }
 
 export async function getMyWorkSummary(
@@ -2251,6 +2358,64 @@ export async function deleteIqcPhoto(
     developmentUserKey,
     { method: 'DELETE' }
   );
+}
+
+export async function uploadIqcScanAttachment(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  expectedReportVersion: number,
+  file: File
+) {
+  const form = new FormData();
+  form.set('expectedReportVersion', String(expectedReportVersion));
+  form.set('file', file);
+  return fetchJson<IqcReport>(`/api/quality/iqc/scan-reports/${reportId}/attachments`, developmentUserKey, {
+    method: 'POST',
+    body: form
+  });
+}
+
+export async function deleteIqcScanAttachment(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  attachmentId: string,
+  expectedReportVersion: number
+) {
+  return fetchJson<IqcReport>(
+    `/api/quality/iqc/scan-reports/${reportId}/attachments/${attachmentId}?expectedReportVersion=${expectedReportVersion}`,
+    developmentUserKey,
+    { method: 'DELETE' }
+  );
+}
+
+export async function getIqcScanAttachmentBlob(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  attachmentId: string
+) {
+  const response = await fetchWithAuth(
+    `/api/quality/iqc/scan-reports/${reportId}/attachments/${attachmentId}/content`,
+    developmentUserKey
+  );
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  return response.blob();
+}
+
+export async function finalizeIqcScanReport(
+  developmentUserKey: string | undefined,
+  reportId: string,
+  expectedReportVersion: number,
+  expectedReceiptVersion: number,
+  result: 'Passed' | 'Failed',
+  reason: string
+) {
+  return fetchJson<IqcReport>(`/api/quality/iqc/scan-reports/${reportId}/finalize`, developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ expectedReportVersion, expectedReceiptVersion, result, reason })
+  });
 }
 
 export async function finalizeIqcReport(

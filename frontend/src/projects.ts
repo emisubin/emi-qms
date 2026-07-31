@@ -807,6 +807,7 @@ export interface ProcurementResponse {
   projectTitle: string;
   projectCode: string;
   projectDeliveryDate: string | null;
+  iqcRoutingPolicy: 'AllReceipts' | 'CategoryBased';
   items: ProcurementItem[];
 }
 
@@ -824,6 +825,10 @@ export interface ProcurementItem {
   sourceProjectCodeText: string | null;
   standardLeadTime: string | null;
   orderItem: string | null;
+  materialCategoryId: string | null;
+  materialCategoryCode: string | null;
+  materialCategoryName: string | null;
+  materialCategoryRequiresIqc: boolean | null;
   supplierName: string | null;
   technicalOwner: string | null;
   orderDate: string | null;
@@ -851,6 +856,7 @@ export interface ProcurementItemUpdateRequest {
   expectedRowVersion: number | null;
   standardLeadTime: string | null;
   orderItem: string | null;
+  materialCategoryId?: string | null;
   supplierName: string | null;
   technicalOwner: string | null;
   orderDate: string | null;

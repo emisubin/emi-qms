@@ -108,7 +108,76 @@ public sealed record PendingDetailResponse(
     IReadOnlyList<string> AllowedTransitions,
     bool CanComment,
     bool CanAssign,
-    PendingReinspectionResponse? Reinspection);
+    PendingReinspectionResponse? Reinspection,
+    PendingActionEvidenceResponse ActionEvidence);
+
+public sealed record PendingActionEvidenceResponse(
+    bool CanManageDraft,
+    int MaxPhotosPerRound,
+    int MaxBytesPerRound,
+    int MaxPhotosPerPending,
+    int RemainingPhotosThisRound,
+    int RemainingBytesThisRound,
+    int RemainingPhotosForPending,
+    IReadOnlyList<PendingActionPhotoResponse>? DraftPhotos,
+    IReadOnlyList<PendingActionPhotoRoundResponse> ConfirmedRounds);
+
+public sealed record PendingActionPhotoRoundResponse(
+    int ActionRound,
+    string ActionReasonSnapshot,
+    Guid ConfirmedByUserId,
+    string ConfirmedByDisplayName,
+    DateTimeOffset ConfirmedAtUtc,
+    IReadOnlyList<PendingActionPhotoResponse> Photos);
+
+public sealed record PendingActionPhotoResponse(
+    Guid PhotoId,
+    string DisplayName,
+    string NormalizedMime,
+    int ByteSize,
+    string AltText,
+    Guid CreatedByUserId,
+    string CreatedByDisplayName,
+    DateTimeOffset CreatedAtUtc);
+
+public sealed record PendingPhotoMutationResponse(
+    Guid OperationId,
+    int ResultingPendingVersion,
+    Guid? PhotoId,
+    bool Replayed,
+    PendingDetailResponse Detail);
+
+public sealed record PendingPhotoOperationProjection(
+    Guid OperationId,
+    Guid PendingId,
+    int ResultingPendingVersion,
+    Guid? PhotoId,
+    bool Replayed);
+
+public sealed record PendingPhotoContentResult(
+    byte[] Content,
+    string NormalizedMime,
+    string DisplayName);
+
+public sealed record EvidencePhotoReferenceResponse(
+    string SourceKind,
+    Guid SourceId,
+    Guid PhotoId,
+    string DisplayName,
+    string NormalizedMime,
+    int ByteSize,
+    string AltText);
+
+public sealed record PendingActionRoundEvidenceResponse(
+    int ActionRound,
+    string ActionReasonSnapshot,
+    string ConfirmedByDisplayName,
+    DateTimeOffset ConfirmedAtUtc,
+    IReadOnlyList<EvidencePhotoReferenceResponse> Photos);
+
+public sealed record ReinspectionEvidenceResponse(
+    IReadOnlyList<EvidencePhotoReferenceResponse> OriginalFailurePhotos,
+    PendingActionRoundEvidenceResponse? LatestActionRound);
 
 public sealed record PendingReinspectionResponse(
     Guid AttemptId,

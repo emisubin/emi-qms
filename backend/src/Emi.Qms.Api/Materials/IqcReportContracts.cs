@@ -1,3 +1,5 @@
+using Emi.Qms.Api.Pending;
+
 namespace Emi.Qms.Api.Materials;
 
 public static class IqcReportStatuses
@@ -39,6 +41,23 @@ public sealed record IqcPhotoResponse(
     string AltText,
     DateTimeOffset CreatedAtUtc);
 
+public sealed record IqcScanAttachmentResponse(
+    Guid AttachmentId,
+    string OriginalFileName,
+    string NormalizedMime,
+    int ByteSize,
+    DateTimeOffset CreatedAtUtc);
+
+public sealed record IqcScanAttemptHistoryResponse(
+    Guid ReportId,
+    int AttemptNumber,
+    string Result,
+    string Reason,
+    string? ActionReason,
+    DateTimeOffset FinalizedAtUtc,
+    string? FinalizedBy,
+    IReadOnlyList<IqcScanAttachmentResponse> Attachments);
+
 public sealed record IqcReinspectionFailureResponse(
     string ItemCode,
     string Label,
@@ -48,7 +67,8 @@ public sealed record IqcReinspectionSourceResponse(
     int PreviousAttemptNumber,
     string FailureReason,
     string? ActionReason,
-    IReadOnlyList<IqcReinspectionFailureResponse> Failures);
+    IReadOnlyList<IqcReinspectionFailureResponse> Failures,
+    ReinspectionEvidenceResponse Evidence);
 
 public sealed record IqcReportResponse(
     Guid AttemptId,
@@ -77,7 +97,9 @@ public sealed record IqcReportResponse(
     IReadOnlyList<IqcItemResponseValue> Responses,
     IReadOnlyList<IqcPhotoResponse> Photos,
     DateTimeOffset? FinalizedAtUtc,
-    string? FinalizedBy);
+    string? FinalizedBy,
+    IReadOnlyList<IqcScanAttachmentResponse> ScanAttachments,
+    IReadOnlyList<IqcScanAttemptHistoryResponse> ScanHistory);
 
 public sealed record SaveIqcResponsesRequest(
     int? ExpectedReportVersion,

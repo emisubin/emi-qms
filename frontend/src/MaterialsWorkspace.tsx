@@ -40,6 +40,8 @@ export function MaterialReceivingPage({
   developmentUserKey,
   canUpdate,
   initialProjectCode,
+  initialProjectId,
+  initialReceiptId,
   initialRisk,
   onBack,
   onOpenIqc,
@@ -49,6 +51,8 @@ export function MaterialReceivingPage({
   developmentUserKey: string;
   canUpdate: boolean;
   initialProjectCode?: string;
+  initialProjectId?: string;
+  initialReceiptId?: string;
   initialRisk?: 'customer-supply-overdue';
   onBack: () => void;
   onOpenIqc: (requestId?: string) => void;
@@ -58,7 +62,7 @@ export function MaterialReceivingPage({
   const [state, setState] = useState<LoadState<MaterialReceiptListResponse>>({ kind: 'loading' });
   const [search, setSearch] = useState(initialProjectCode ?? '');
   const [appliedSearch, setAppliedSearch] = useState(initialProjectCode ?? '');
-  const [includeCompleted, setIncludeCompleted] = useState(Boolean(initialProjectCode));
+  const [includeCompleted, setIncludeCompleted] = useState(Boolean(initialProjectCode || initialProjectId || initialReceiptId));
   const [supplyFilter, setSupplyFilter] = useState<'All' | 'Purchased' | 'CustomerSupplied'>(initialRisk ? 'CustomerSupplied' : 'All');
   const [customerSupplyOverdueOnly, setCustomerSupplyOverdueOnly] = useState(initialRisk === 'customer-supply-overdue');
   const [activeFilter, setActiveFilter] = useState<'all' | 'iqc' | 'blocked' | 'confirm'>('all');
@@ -75,8 +79,11 @@ export function MaterialReceivingPage({
       const data = await getMaterialReceipts(developmentUserKey, appliedSearch, includeCompleted, '', '', supplyFilter);
       if (generation !== loadGenerationRef.current) return false;
       setState({ kind: 'ready', data });
-      if (!preserve && initialProjectCode) {
-        setExpandedProjectId(data.items.find((item) => item.projectCode === initialProjectCode)?.projectId ?? null);
+      if (!preserve && (initialProjectCode || initialProjectId)) {
+        setExpandedProjectId(
+          initialProjectId
+          ?? data.items.find((item) => item.projectCode === initialProjectCode)?.projectId
+          ?? null);
       }
       return true;
     } catch (error) {
@@ -84,7 +91,7 @@ export function MaterialReceivingPage({
       if (!preserve) setState({ kind: 'error', message: errorMessage(error, '자재 입고 현황을 불러오지 못했습니다.') });
       return false;
     }
-  }, [appliedSearch, developmentUserKey, includeCompleted, initialProjectCode, supplyFilter]);
+  }, [appliedSearch, developmentUserKey, includeCompleted, initialProjectCode, initialProjectId, supplyFilter]);
 
   useEffect(() => {
     queueMicrotask(() => void load());
@@ -94,7 +101,7 @@ export function MaterialReceivingPage({
     if (state.kind !== 'ready') {
       return;
     }
-    const receiptId = new URLSearchParams(window.location.search).get('receipt');
+    const receiptId = initialReceiptId ?? new URLSearchParams(window.location.search).get('receipt');
     if (!receiptId) {
       return;
     }
@@ -105,7 +112,7 @@ export function MaterialReceivingPage({
         break;
       }
     }
-  }, [state]);
+  }, [initialReceiptId, state]);
 
   const visibleItems = useMemo(() => {
     if (state.kind !== 'ready') {
@@ -115,10 +122,12 @@ export function MaterialReceivingPage({
       ? state.data.items.filter((item) => item.customerSupplyOverdue)
       : state.data.items;
     if (activeFilter === 'all') return riskFilteredItems;
-    const statusByFilter: Record<Exclude<typeof activeFilter, 'all'>, MaterialReceiptStatus> = {
+    if (activeFilter === 'confirm') {
+      return riskFilteredItems.filter((item) => item.receipts.some((receipt) => receipt.status === 'Passed' || receipt.status === 'InspectionNotRequired'));
+    }
+    const statusByFilter: Record<Exclude<typeof activeFilter, 'all' | 'confirm'>, MaterialReceiptStatus> = {
       iqc: 'IqcRequested',
-      blocked: 'FailedBlocked',
-      confirm: 'Passed'
+      blocked: 'FailedBlocked'
     };
     return riskFilteredItems.filter((item) => item.receipts.some((receipt) => receipt.status === statusByFilter[activeFilter]));
   }, [activeFilter, customerSupplyOverdueOnly, state]);
@@ -268,7 +277,7 @@ export function MaterialReceivingPage({
             const expanded = expandedProjectId === project.projectId;
             const completedCount = project.items.filter((item) => item.receiptCompleted).length;
             const partialCount = project.items.filter((item) => !item.receiptCompleted && (item.confirmedQuantity ?? 0) > 0).length;
-            const confirmCount = project.items.flatMap((item) => item.receipts).filter((receipt) => receipt.status === 'Passed').length;
+            const confirmCount = project.items.flatMap((item) => item.receipts).filter((receipt) => receipt.status === 'Passed' || receipt.status === 'InspectionNotRequired').length;
             return (
               <article className="material-project-row" key={project.projectId} role="listitem" data-expanded={expanded}>
                 <button
@@ -460,7 +469,7 @@ export function MaterialIqcPage({
       <article className="iqc-request-card selected-export-row" key={item.attemptId} data-status={item.status} data-report={item.reportStatus ?? item.decisionMode} data-reinspection={item.pendingIssueId !== null || undefined}>
         <SelectionCheckbox checked={iqcSelection.selectedIds.has(item.attemptId)} disabled={iqcSelection.busy} label={`${item.projectCode} ${item.orderItem ?? '품목'} 선택`} onChange={(checked) => iqcSelection.toggle(item.attemptId, checked)} />
         <button type="button" className="iqc-request-open" onClick={() => { setSelected(item); setReason(item.reason ?? ''); }}>
-          <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.pendingIssueId ? <span className="iqc-reinspection-badge">{item.pendingIssueNumber ? `재검사 · P-${String(item.pendingIssueNumber).padStart(4, '0')}` : 'Pending 재검사'}</span> : null}{item.decisionMode === 'Legacy' ? <span className="iqc-report-badge" data-kind="legacy">이전 양식</span> : <span className="iqc-report-badge" data-kind={item.reportStatus ?? 'new'}>{item.reportStatus === 'Finalized' ? '성적서 완료' : item.reportStatus === 'Draft' ? '작성 중' : '신규 성적서'}</span>}{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
+          <span className="iqc-request-top"><strong>{item.projectCode}</strong><span className="material-card-badges">{item.pendingIssueId ? <span className="iqc-reinspection-badge">{item.pendingIssueNumber ? `재검사 · P-${String(item.pendingIssueNumber).padStart(4, '0')}` : 'Pending 재검사'}</span> : null}{item.decisionMode === 'Legacy' ? <span className="iqc-report-badge" data-kind="legacy">이전 양식</span> : <span className="iqc-report-badge" data-kind={item.reportStatus ?? 'new'}>{item.decisionMode === 'ScanBased' ? (item.reportStatus === 'Finalized' ? '스캔 검사 완료' : item.reportStatus === 'Draft' ? '스캔 등록 중' : '외함 스캔 검사') : item.reportStatus === 'Finalized' ? '성적서 완료' : item.reportStatus === 'Draft' ? '작성 중' : '신규 성적서'}</span>}{item.supplyType === 'CustomerSupplied' ? <SupplyBadge overdue={false} /> : null}<StatusBadge status={item.status === 'Requested' ? 'IqcRequested' : item.status === 'Passed' ? 'Passed' : 'FailedBlocked'} /></span></span>
           <b>{item.orderItem ?? '발주품목 미입력'}</b>
           <small>{item.projectTitle}</small>
           <span>{formatQuantity(item.quantity, item.unit)} · {item.attemptNumber}차 검사</span>
@@ -569,10 +578,10 @@ export function MaterialIqcPage({
       ) : null}
 
       {layout.isMobile ? (
-        <MobileSheet open={selected !== null} title={selected?.decisionMode === 'Detailed' ? '디지털 검사성적서' : 'IQC 판정'} eyebrow="수입검사" description={selected?.decisionMode === 'Detailed' ? '항목·사진·판정을 한 흐름으로 기록합니다.' : '도착분과 검사 차수를 확인한 뒤 판정합니다.'} onClose={() => { setSelected(null); actions.reset(); setReason(''); void load(); }} fullScreen>
+        <MobileSheet open={selected !== null} title={selected?.decisionMode === 'Detailed' ? '디지털 검사성적서' : selected?.decisionMode === 'ScanBased' ? '외함 스캔 IQC' : 'IQC 판정'} eyebrow="수입검사" description={selected?.decisionMode === 'Detailed' ? '항목·사진·판정을 한 흐름으로 기록합니다.' : selected?.decisionMode === 'ScanBased' ? '서명 검사서를 등록하고 적합·부적합을 확정합니다.' : '도착분과 검사 차수를 확인한 뒤 판정합니다.'} onClose={() => { setSelected(null); actions.reset(); setReason(''); void load(); }} fullScreen>
           {inspector}
         </MobileSheet>
-      ) : inspector ? <aside className={`material-action-drawer${selected?.decisionMode === 'Detailed' ? ' material-action-drawer--iqc-report' : ''}`}>{inspector}</aside> : null}
+      ) : inspector ? <aside className={`material-action-drawer${selected?.decisionMode !== 'Legacy' ? ' material-action-drawer--iqc-report' : ''}`}>{inspector}</aside> : null}
     </section>
   );
 }
@@ -592,7 +601,7 @@ function MaterialPurchaseRow({ item, canUpdate, onAction, selected, selectionBus
     ? '입고 완료'
     : (item.confirmedQuantity ?? 0) > 0
       ? '부분 입고'
-      : item.receipts.some((receipt) => receipt.status === 'Passed')
+      : item.receipts.some((receipt) => receipt.status === 'Passed' || receipt.status === 'InspectionNotRequired')
         ? '입고 확정 대기'
         : item.receipts.some((receipt) => receipt.status === 'FailedBlocked')
           ? 'IQC 부적합'
@@ -691,11 +700,16 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
           arrivalDate,
           note: note.trim() || null
         });
-        if (!response.iqcAttemptId || response.status !== 'IqcRequested') {
+        if (response.status === 'IqcRequested' && !response.iqcAttemptId) {
           throw new ApiError(409, '도착분은 저장됐지만 IQC 검사 업무 생성이 확인되지 않았습니다. 품질 검사함에서 누락 복구 후 다시 확인해 주세요.');
         }
+        if (response.status !== 'IqcRequested' && response.status !== 'InspectionNotRequired') {
+          throw new ApiError(409, '도착분의 다음 업무 상태를 확인하지 못했습니다. 목록을 새로고침해 주세요.');
+        }
         return response;
-      }, '도착분 저장과 IQC 검사 업무 생성을 확인했습니다.');
+      }, action.item.materialCategoryRequiresIqc === false
+        ? '도착분을 저장하고 입고 확정 업무를 생성했습니다.'
+        : '도착분 저장과 IQC 검사 업무 생성을 확인했습니다.');
     }
     return (
       <form className="material-action-form" onSubmit={submit}>
@@ -739,10 +753,10 @@ function MaterialActionPanel({ action, canUpdate, feedback, onClose, onOpenIqc, 
       {receipt.note ? <div className="material-action-notice"><strong>도착 메모</strong><span>{receipt.note}</span></div> : null}
       {feedback ? <InlineActionFeedback feedback={feedback} /> : null}
       <div className="material-action-buttons material-action-buttons--stack">
-        {receipt.status === 'Arrived' ? <><textarea aria-label="취소 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="취소 사유 3자 이상" /><button type="button" disabled={!canUpdate || saving || reason.trim().length < 3} onClick={() => void guarded(`material:${receipt.receiptId}:cancel`, () => cancelMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version, reason), '도착 등록을 취소했습니다.')}>도착 취소</button></> : null}
+        {receipt.status === 'Arrived' || receipt.status === 'InspectionNotRequired' ? <><textarea aria-label="취소 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="취소 사유 3자 이상" /><button type="button" disabled={!canUpdate || saving || reason.trim().length < 3} onClick={() => void guarded(`material:${receipt.receiptId}:cancel`, () => cancelMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version, reason), '도착 등록을 취소했습니다.')}>도착 취소</button></> : null}
         {receipt.status === 'IqcRequested' ? <button type="button" className="primary-button" onClick={() => onOpenIqc(requestedAttemptId)}>이 IQC 검사 열기</button> : null}
         {receipt.status === 'FailedBlocked' && pendingId ? <button type="button" onClick={() => onOpenPending(pendingId)}>연결된 Pending 열기</button> : null}
-        {receipt.status === 'Passed' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(`material:${receipt.receiptId}:confirm`, () => confirmMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version), '입고를 확정했습니다. 전량 확정이면 품목도 자동 완료됩니다.')}>입고 확정</button> : null}
+        {receipt.status === 'Passed' || receipt.status === 'InspectionNotRequired' ? <button type="button" className="primary-button" disabled={!canUpdate || saving} onClick={() => void guarded(`material:${receipt.receiptId}:confirm`, () => confirmMaterialReceipt(developmentUserKey, receipt.receiptId, receipt.version), '입고를 확정했습니다. 전량 확정이면 품목도 자동 완료됩니다.')}>입고 확정</button> : null}
         {receipt.status === 'Confirmed' ? <div className="material-success-panel"><strong>입고 확정 완료</strong><span>{formatDateTime(receipt.confirmedAtUtc)}</span></div> : null}
         {receipt.status === 'Cancelled' ? <div className="material-action-notice"><strong>취소된 도착분</strong><span>{receipt.cancellationReason}</span></div> : null}
       </div>
@@ -787,13 +801,14 @@ function SummaryButton({ label, value, active, tone, onClick }: { label: string;
 }
 
 function ReceiptSteps({ status }: { status: MaterialReceiptStatus }) {
+  const noInspection = status === 'InspectionNotRequired';
   const stages: Array<{ value: MaterialReceiptStatus; label: string }> = [
     { value: 'Arrived', label: '도착' },
-    { value: 'IqcRequested', label: 'IQC' },
-    { value: 'Passed', label: '합격' },
+    { value: 'IqcRequested', label: noInspection ? 'IQC 비대상' : 'IQC' },
+    { value: 'Passed', label: noInspection ? '확정 대기' : '합격' },
     { value: 'Confirmed', label: '확정' }
   ];
-  const current = status === 'FailedBlocked' ? 1 : status === 'Cancelled' ? 0 : stages.findIndex((stage) => stage.value === status);
+  const current = noInspection ? 2 : status === 'FailedBlocked' ? 1 : status === 'Cancelled' ? 0 : stages.findIndex((stage) => stage.value === status);
   return <ol className="receipt-stepper" data-status={status}>{stages.map((stage, index) => <li key={stage.value} data-complete={index <= current}><i /><span>{stage.label}</span></li>)}</ol>;
 }
 
@@ -828,7 +843,7 @@ function InlineActionFeedback({ feedback }: { feedback: ActionFeedbackState }) {
 }
 
 function receiptStatusLabel(status: MaterialReceiptStatus) {
-  return ({ Arrived: '도착 등록', IqcRequested: 'IQC 대기', Passed: 'IQC 합격', FailedBlocked: '부적합 차단', Confirmed: '입고 확정', Cancelled: '취소' } as const)[status];
+  return ({ Arrived: '도착 등록', IqcRequested: 'IQC 대기', Passed: 'IQC 합격', InspectionNotRequired: 'IQC 비대상 · 확정 대기', FailedBlocked: '부적합 차단', Confirmed: '입고 확정', Cancelled: '취소' } as const)[status];
 }
 
 function formatQuantity(quantity: number | null | undefined, unit: string | null | undefined) {

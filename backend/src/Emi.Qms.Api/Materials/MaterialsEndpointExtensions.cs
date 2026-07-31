@@ -302,6 +302,112 @@ public static class MaterialsEndpointExtensions
         .RequireAuthorization(QmsPolicies.QualityInspect)
         .WithName("FinalizeMaterialIqcReport");
 
+        quality.MapPost("/scan-reports/{reportId:guid}/attachments", async (
+            Guid reportId,
+            [FromForm] int expectedReportVersion,
+            [FromForm] IFormFile file,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+            if (file.Length is < 1 or > 10 * 1024 * 1024)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["file"] = ["파일은 개별 10MB 이하 PDF, JPEG 또는 PNG여야 합니다."]
+                });
+            }
+            await using var stream = file.OpenReadStream();
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory, cancellationToken);
+            return ToResult(await store.AddScanAttachmentAsync(
+                reportId,
+                expectedReportVersion,
+                file.FileName,
+                memory.ToArray(),
+                userId.Value,
+                GetProjectAccessScope(user),
+                cancellationToken));
+        })
+        .WithMetadata(new RequestSizeLimitAttribute(11 * 1024 * 1024))
+        .DisableAntiforgery()
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("UploadMaterialIqcScanAttachment");
+
+        quality.MapDelete("/scan-reports/{reportId:guid}/attachments/{attachmentId:guid}", async (
+            Guid reportId,
+            Guid attachmentId,
+            int? expectedReportVersion,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            return userId is null
+                ? Results.Unauthorized()
+                : ToResult(await store.DeleteScanAttachmentAsync(
+                    reportId,
+                    attachmentId,
+                    expectedReportVersion,
+                    userId.Value,
+                    GetProjectAccessScope(user),
+                    cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("DeleteMaterialIqcScanAttachment");
+
+        quality.MapGet("/scan-reports/{reportId:guid}/attachments/{attachmentId:guid}/content", async (
+            Guid reportId,
+            Guid attachmentId,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            HttpContext context,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await store.GetScanAttachmentContentAsync(
+                reportId,
+                attachmentId,
+                GetProjectAccessScope(user),
+                cancellationToken);
+            if (result.Status == MaterialsMutationStatus.NotFound || result.Value is null)
+            {
+                return Results.NotFound();
+            }
+            context.Response.Headers.CacheControl = "private, no-store";
+            return Results.File(result.Value.Content, result.Value.NormalizedMime, result.Value.DisplayName);
+        })
+        .RequireAuthorization(policy => policy
+            .RequireAuthenticatedUser()
+            .AddRequirements(new PermissionRequirement(QmsPermissions.ProjectRead)))
+        .WithName("DownloadMaterialIqcScanAttachment");
+
+        quality.MapPost("/scan-reports/{reportId:guid}/finalize", async (
+            Guid reportId,
+            FinalizeIqcReportRequest request,
+            IqcReportStore store,
+            ClaimsPrincipal user,
+            HttpContext context,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = GetCurrentUserId(user);
+            return userId is null
+                ? Results.Unauthorized()
+                : ToResult(await store.FinalizeScanAsync(
+                    reportId,
+                    request,
+                    userId.Value,
+                    context.TraceIdentifier,
+                    GetProjectAccessScope(user),
+                    cancellationToken));
+        })
+        .RequireAuthorization(QmsPolicies.QualityInspect)
+        .WithName("FinalizeMaterialIqcScanReport");
+
         quality.MapGet("/reports/{reportId:guid}/photos/{photoId:guid}/content", async (
             Guid reportId,
             Guid photoId,

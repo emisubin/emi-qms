@@ -505,13 +505,21 @@ public sealed class QualityInspectionStore(
 
         if (panel.AttemptId is null)
         {
-            return new QualityInspectionDetailResponse(panel, DecisionMode(normalizedStage), null, null, null, null, null, null, [], [], [], []);
+            return new QualityInspectionDetailResponse(panel, DecisionMode(normalizedStage), null, null, null, null, null, null, [], [], [], [], null);
         }
 
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var report = await ReadReportViewAsync(connection, panel.AttemptId.Value, cancellationToken);
         var history = await ReadHistoryAsync(connection, panel.PanelId, normalizedStage, cancellationToken);
+        var reinspectionEvidence = panel.PendingId is not null && panel.AttemptNumber > 1
+            ? await ReadReinspectionEvidenceAsync(
+                connection,
+                panel.PendingId.Value,
+                panel.StageCode,
+                panel.AttemptNumber,
+                cancellationToken)
+            : null;
         return new QualityInspectionDetailResponse(
             panel,
             report?.DecisionMode ?? DecisionMode(normalizedStage),
@@ -524,7 +532,8 @@ public sealed class QualityInspectionStore(
             report?.Items ?? [],
             report?.Responses ?? [],
             report?.Photos ?? [],
-            history);
+            history,
+            reinspectionEvidence);
     }
 
     public async Task<IReadOnlyList<QualityActionDepartmentResponse>> ListActionDepartmentsAsync(CancellationToken cancellationToken)
@@ -2015,6 +2024,61 @@ public sealed class QualityInspectionStore(
         return result;
     }
 
+    private static async Task<ReinspectionEvidenceResponse> ReadReinspectionEvidenceAsync(
+        NpgsqlConnection connection,
+        Guid pendingId,
+        string stageCode,
+        int currentAttemptNumber,
+        CancellationToken cancellationToken)
+    {
+        var photos = new List<EvidencePhotoReferenceResponse>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                select report.id, photo.id, photo.display_name, photo.normalized_mime,
+                       photo.byte_size, photo.alt_text
+                from panel_quality_inspection_attempts attempt
+                join panel_quality_reports report
+                  on report.attempt_id = attempt.id
+                 and report.status = 'Finalized'
+                 and report.result = 'Failed'
+                join panel_quality_report_photos photo on photo.report_id = report.id
+                where attempt.linked_pending_issue_id = @pending_id
+                  and attempt.stage_code = @stage_code
+                  and attempt.attempt_number = (
+                      select max(previous.attempt_number)
+                      from panel_quality_inspection_attempts previous
+                      join panel_quality_reports previous_report
+                        on previous_report.attempt_id = previous.id
+                       and previous_report.status = 'Finalized'
+                       and previous_report.result = 'Failed'
+                      where previous.linked_pending_issue_id = @pending_id
+                        and previous.stage_code = @stage_code
+                        and previous.attempt_number < @attempt_number
+                  )
+                order by photo.created_at_utc, photo.id;
+                """;
+            command.Parameters.AddWithValue("pending_id", pendingId);
+            command.Parameters.AddWithValue("stage_code", stageCode);
+            command.Parameters.AddWithValue("attempt_number", currentAttemptNumber);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                photos.Add(new EvidencePhotoReferenceResponse(
+                    "PanelQualityReport",
+                    reader.GetGuid(0),
+                    reader.GetGuid(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.GetInt32(4),
+                    reader.GetString(5)));
+            }
+        }
+        var actionRound = await PendingStore.ReadLatestConfirmedActionRoundAsync(
+            connection, null, pendingId, cancellationToken);
+        return new ReinspectionEvidenceResponse(photos, actionRound);
+    }
+
     private static async Task<IReadOnlyList<QualityInspectionAttemptHistoryResponse>> ReadHistoryAsync(
         NpgsqlConnection connection, Guid panelId, string stageCode, CancellationToken cancellationToken)
     {
@@ -2220,7 +2284,7 @@ public sealed class QualityInspectionStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select id, item_code, display_order, label, guidance, response_type, is_required, max_text_length
+            select id, item_code, display_order, label, guidance, response_type, is_required, requires_photo, max_text_length
             from panel_quality_template_items where template_version_id = @version_id order by display_order;
             """;
         command.Parameters.AddWithValue("version_id", versionId);
@@ -2230,7 +2294,7 @@ public sealed class QualityInspectionStore(
             result.Add(new TemplateRow(
                 reader.GetGuid(0), reader.GetString(1), reader.GetInt32(2), reader.GetString(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetBoolean(6),
-                reader.IsDBNull(7) ? null : reader.GetInt32(7)));
+                reader.GetBoolean(7), reader.IsDBNull(8) ? null : reader.GetInt32(8)));
         }
         return result;
     }
@@ -2651,6 +2715,14 @@ public sealed class QualityInspectionStore(
                 errors[$"items.{item.ItemId}"] = ["필수 검사 결과를 입력해 주세요."];
             if (response.CheckResult == "NotApplicable" && string.IsNullOrWhiteSpace(response.Note))
                 errors[$"items.{item.ItemId}.note"] = ["해당없음 사유를 입력해 주세요."];
+        }
+        var photographedItemIds = photos.Select(photo => photo.TemplateItemId).ToHashSet();
+        foreach (var item in items.Where(item => item.RequiresPhoto))
+        {
+            if (!photographedItemIds.Contains(item.ItemId))
+            {
+                errors[$"items.{item.ItemId}.photo"] = ["사진 필수 검사 항목에 사진을 등록해 주세요."];
+            }
         }
         var hasFail = responses.Any(item => item.CheckResult == "Fail");
         if (result == "Passed" && hasFail) errors["result"] = ["부적합 항목이 있어 합격으로 확정할 수 없습니다."];
@@ -3264,7 +3336,7 @@ public sealed class QualityInspectionStore(
     private sealed record FailedAttemptSnapshot(
         Guid ProjectId, Guid PanelId, string StageCode, int AttemptNumber, Guid WorkItemId,
         string PanelDisplayCode, string PendingStatus, int PendingVersion, long PendingNumber);
-    private sealed record TemplateRow(Guid ItemId, string ItemCode, int DisplayOrder, string Label, string? Guidance, string ResponseType, bool IsRequired, int? MaxTextLength)
+    private sealed record TemplateRow(Guid ItemId, string ItemCode, int DisplayOrder, string Label, string? Guidance, string ResponseType, bool IsRequired, bool RequiresPhoto, int? MaxTextLength)
     {
         public QualityInspectionTemplateItemResponse ToResponse(ReinspectionScope? scope = null)
         {
@@ -3278,6 +3350,7 @@ public sealed class QualityInspectionStore(
                 Guidance,
                 ResponseType,
                 IsRequired,
+                RequiresPhoto,
                 MaxTextLength,
                 IsReinspectionTarget: isTarget,
                 PreviousFailureEvidence: isTarget ? evidence : null);

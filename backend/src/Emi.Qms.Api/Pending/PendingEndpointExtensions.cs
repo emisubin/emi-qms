@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Projects;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Emi.Qms.Api.Pending;
 
@@ -126,6 +128,84 @@ public static class PendingEndpointExtensions
             return ToResult(result, Results.Ok);
         })
         .WithName("AddPendingComment");
+
+        api.MapPost("/{pendingId:guid}/photos", async (
+            Guid pendingId,
+            [FromForm] Guid operationId,
+            [FromForm] int expectedPendingVersion,
+            [FromForm] string altText,
+            [FromForm] IFormFile photo,
+            PendingStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var denied = AuthorizeMutation(user);
+            if (denied is not null) return denied;
+            if (photo.Length is < 1 or > 5 * 1024 * 1024)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["photo"] = ["사진은 5MB 이하 JPEG 또는 PNG 파일이어야 합니다."]
+                });
+            }
+            await using var stream = photo.OpenReadStream();
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory, cancellationToken);
+            return ToResult(await store.AddActionPhotoAsync(
+                pendingId,
+                operationId,
+                expectedPendingVersion,
+                altText,
+                memory.ToArray(),
+                GetActor(user)!,
+                cancellationToken), Results.Ok);
+        })
+        .WithMetadata(new RequestSizeLimitAttribute(6 * 1024 * 1024))
+        .DisableAntiforgery()
+        .WithName("UploadPendingActionPhoto");
+
+        api.MapDelete("/{pendingId:guid}/photos/{photoId:guid}", async (
+            Guid pendingId,
+            Guid photoId,
+            Guid operationId,
+            int? expectedPendingVersion,
+            PendingStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var denied = AuthorizeMutation(user);
+            return denied ?? ToResult(await store.RemoveActionPhotoAsync(
+                pendingId,
+                photoId,
+                operationId,
+                expectedPendingVersion,
+                GetActor(user)!,
+                cancellationToken), Results.Ok);
+        })
+        .WithName("DeletePendingActionPhoto");
+
+        api.MapGet("/{pendingId:guid}/photos/{photoId:guid}/content", async (
+            Guid pendingId,
+            Guid photoId,
+            PendingStore store,
+            ClaimsPrincipal user,
+            HttpContext context,
+            CancellationToken cancellationToken) =>
+        {
+            if (!HasPermission(user, QmsPermissions.PendingRead)) return Results.Forbid();
+            var actor = GetActor(user);
+            if (actor is null) return Results.Unauthorized();
+            var result = await store.GetActionPhotoContentAsync(
+                pendingId,
+                photoId,
+                actor.UserId,
+                ProjectEndpointExtensions.GetProjectAccessScope(user),
+                cancellationToken);
+            if (result.Status == PendingMutationStatus.NotFound || result.Value is null) return Results.NotFound();
+            context.Response.Headers.CacheControl = "private, no-store";
+            return Results.File(result.Value.Content, result.Value.NormalizedMime, result.Value.DisplayName);
+        })
+        .WithName("DownloadPendingActionPhoto");
 
         return app;
     }

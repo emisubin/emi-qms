@@ -1,6 +1,6 @@
 # TASK-QUALITY-OPERATING-MODEL-001 구현 보고
 
-상태: `IMPLEMENTED / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_COMPLETE / MAIN_MERGE_APPROVED / PROMOTION_VALIDATION_COMPLETE`
+상태: `IMPLEMENTED / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_COMPLETE / PROMOTION_VALIDATION_COMPLETE / LOCAL_MAIN_MERGED / REMOTE_UNPUBLISHED`
 
 ## 해결한 업무 문제
 
@@ -137,6 +137,6 @@ Open P0/P1/P2: `0/0/0`.
 
 ## 변경·게시 경계
 
-- 현재 experiment worktree에서 구현·자동 검증·사용자 검수를 완료했다.
-- 2026-07-31 사용자가 local commit과 `main` 병합을 명시적으로 승인했다.
+- experiment worktree에서 구현·자동 검증·사용자 검수를 완료했다.
+- 2026-07-31 사용자가 local commit과 `main` 병합을 명시적으로 승인했고, 최신 `origin/main` 기준 promotion 검증 뒤 local `main` fast-forward 병합을 완료했다.
 - Remote push·Persistent UAT와 실제 provider는 승인 범위에 포함되지 않는다.

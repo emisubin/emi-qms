@@ -25,11 +25,16 @@
 - mainMergeApprovalSource: `USER_EXPLICIT_MERGE_REQUEST`
 - approvalCountRequired: 1
 - approvalCountSatisfied: 1
+- mainMergeCompleted: true
+- mainMergeCompletedAt: `2026-07-31`
+- promotionValidatedCommit: `763a73d29320960b2c43c6006d64ec3ea47ca6c3`
 - pushApproved: false
 - persistentUatApproved: false
 - externalProviderApproved: false
 
 사용자는 `TASK-QUALITY-OPERATING-MODEL-001`의 사용자 검수를 완료했다고 명시하고 현재 변경을 `main`에 병합하도록 승인했다. 이 승인은 local `main` 병합과 그에 필요한 선택 staging·commit·통합 검증을 포함하며, remote push·Persistent UAT migration·runtime handover·실제 외부 provider 활성화는 포함하지 않는다.
+
+최신 `origin/main` 기준 promotion 검증과 local `main` fast-forward 병합을 완료했다. Remote push·PR·Persistent UAT·실제 외부 provider 상태는 변경하지 않았다.
 
 ## 병합 범위
 

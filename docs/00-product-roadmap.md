@@ -1031,7 +1031,7 @@ Excel 출력 대상 후보:
 | 5.4 | TASK-NOTIFY-005 사용자별 알림 | NEW_FEATURE | Experiment Complete | Automated validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004·TASK-UX-001 A1 experiment | 관리자 감사 조회 UI는 별도 후속 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.5 | TASK-NOTIFY-AUDIT-001 관리자 preference 감사 조회 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-005 audit 원장 | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
-| 6.1 | 운영 전환 (Task ID 미정) | UAT_RUNTIME | Deferred | Scope Review Required | 기능·P2·design gate 완료 | hosting/domain, redirect URI, Teams catalog, provider, 교육 | Yes | 운영 전환 Task와 rollback 승인 |
+| 6.1 | TASK-AZURE-PILOT-001 — 서비스 중립 공개 파일럿 준비 | UAT_RUNTIME | Implementation Complete / User Validation Pending / Draft PR Required | Entra API·SPA 분리, one-shot migration·ledger gate, Production preflight·ARM64/AMD64 image 검증 완료 | TASK-UAT-001, local main 승인 기능과 사용자 P1 구현 승인 | Azure hosting·managed DB·domain·WAF·SIEM·registry/OIDC·실제 restore/rollback 서비스 미선정 | Yes | 사용자 검수·Draft PR → Azure 서비스 선정과 provider-specific 운영 전환 Scope Review |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
 
@@ -1248,6 +1248,19 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - Change 001 자동·사용자 검증: trusted HTTPS root/notification/Teams/API/health 200, desktop/390px 6/6, console/request/overflow 0, PostgreSQL·Review-safe·design runtime 보존, obsolete isolated container/network 3/3 정리. 5081 Delivery worker만 활성화하고 기존 `TeamsActivityDisabled` terminal 2건을 audit로 보존했으며 신규 ManualTest 1건은 retry lineage `RetryScheduled/RetryScheduled/Sent`와 Teams client 실제 표시를 확인했다.
 - 산출물: [Task 정의와 검수 체크리스트](../tasks/uat-001-https-dev-stability.md), [Implementation report](../tasks/uat-001-implementation-report.md), [SOP](../tasks/uat-001-sop.md), [User manual](../tasks/uat-001-user-manual.md), 이 Roadmap update
 - 주요 위험: Development actual provider 오발송, UAT worker 자연 변경과 E2E 영향 혼동, code readiness를 actual 운영 준비로 오판하는 위험. actual domain·Entra·certificate·managed DB·restore·SIEM 검수 전 공개 배포는 금지한다.
+
+### TASK-AZURE-PILOT-001: 서비스 중립 공개 파일럿 준비
+
+- 상태/다음 순서: 구현·자동 검증 완료 / 사용자 검수·Draft PR 대기 / 실제 공개 배포 `NO_GO_EXTERNAL`
+- 목적: 특정 Azure 서비스를 선택하기 전에 GitHub 게시 후보, Production Entra API·SPA 분리, application과 분리된 migration과 preflight P1을 닫는다.
+- 포함 범위: `ENTRA_API_CLIENT_ID`·`ENTRA_SPA_CLIENT_ID` 분리와 fail-closed build/startup, `--migrate-only`, PostgreSQL advisory lock·transaction·ledger/schema 재검증, Production Compose operations profile, privacy-safe preflight와 disposable Production image fresh/existing migration 검증
+- 제외 범위: Azure hosting·managed DB·domain·WAF·SIEM·registry/OIDC·provider release/rollback workflow 선정, 실제 cloud mutation, traffic cutover, Teams·메일 actual 발송, Persistent UAT 변경과 `main` merge
+- 선행조건: TASK-UAT-001 Change 005·006 사용자 검수 완료, local `main` 승인 제품 commit, 사용자 P1 구현 승인
+- 예상 migration: 없음. 기존 migration 67개를 Production image에 포함해 별도 실행하며 migration SQL은 수정하지 않음
+- 자동 검증: Backend 469/469, Production security 30/30, Frontend 144/144·lint/typecheck/build, Mock UI 4/4, isolated Full-Stack 55/55, preflight 4/4, Production image fresh/existing apply와 ledger Exact, ARM64·AMD64 Backend/Frontend build·Critical/High 0
+- Finding: `OPS-PILOT-003`, `OPS-PILOT-MIGRATION-001` P1 Resolved. `OPS-PILOT-001`은 GitHub `main` merge 전 Open. `OPS-PILOT-002`·`OPS-PILOT-004`는 사용자 서비스 선정 보류에 따라 Open/`DEFERRED_USER_DECISION`
+- 산출물: [Identity Gate](../tasks/azure-pilot-001-identity-gate.md), [Change 001](../tasks/azure-pilot-001-change-001.md), [Implementation report](../tasks/azure-pilot-001-implementation-report.md), [SOP](../tasks/azure-pilot-001-sop.md), [User manual](../tasks/azure-pilot-001-user-manual.md), [User validation checklist](../tasks/azure-pilot-001-user-validation-checklist.md), 이 Roadmap update
+- 다음 Gate: 사용자 검수와 Draft PR 뒤 Azure 서비스·domain·DB·WAF·SIEM·rollback 정책을 확정하고 provider-specific 운영 전환 Task를 승인한다.
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 
@@ -1836,8 +1849,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 68 | Mutation worker maintenance gate | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-MAINTENANCE-001 | purge 기본 true·explicit disable, 세 mutation worker 조건부 DI와 runtime projection, Phase A isolated 검증. Persistent UAT/0028 무변경 |
 | 69 | Escalation fair-ordering controlled UAT | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-NOTIFY-ESC-001 | Phase A forecast, escalation-only Phase B poll 2회, latest-main Phase C poll 3회와 Development 5174/5081 복구. Live candidate 0, DB/provider delta 0, Preview 5185 DOWN. PR #35 |
 | 70 | Fable 5 신규 기능·Codex-only 작업 라우터 | Change 001~013 merge 완료 / Change 014 fast-track·Change 015 완료 원장 local 구현 | 개발 | TASK-GOV-CODEX-002 | 일반 branch single-pass 보존. experiment 완료 scope 재선택 금지, `BATCHED_FINAL` 검수 분리, 대표 repo·main·게시 제외 |
-| 71 | 운영 hosting·domain 확정 | 미확정 | 사용자/운영 | 운영 전환 Task | 공식 hosting, domain, 인증·CORS·TLS 경계를 운영 전 확정 |
-| 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 미확정 | 사용자/운영 | 운영 전환 Task | 운영 redirect URI·Teams manifest URL·조직 catalog 게시를 함께 검수 |
+| 71 | 운영 hosting·domain 확정 | 사용자 서비스 선정 보류 / P1 Open | 사용자/운영 | TASK-AZURE-PILOT-001 후속 provider-specific 운영 전환 | 서비스 중립 Entra·migration·preflight는 완료. 공식 hosting, managed DB, domain, WAF·SIEM, 인증·CORS·TLS와 rollback 경계를 다음 Gate에서 확정 |
+| 72 | Teams 앱 catalog 게시와 운영 URL 전환 | 사용자 서비스 선정 보류 | 사용자/운영 | TASK-AZURE-PILOT-001 후속 provider-specific 운영 전환 | 운영 redirect URI·Teams manifest URL·조직 catalog 게시와 actual provider smoke를 service/domain 확정 뒤 함께 검수 |
 | 73 | 첨부 storage·backup·restore 정책 | 미확정 | 사용자/운영/보안 | TASK-007A·MOBILE-001 | 업로드 보안, 보존 기간, restore rehearsal과 운영 storage를 기능 planning 전에 확정 |
 | 74 | terminal Failed delivery 수동 재처리 범위 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/개발/운영 | TASK-NOTIFY-REPROCESS-001 | terminal Failed만 generation 기반 CAS·원자 배치·사유·중복 위험 확인·append-only audit로 재처리. migration `0049`; 실제 provider·Persistent UAT 미적용 |
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
@@ -2083,6 +2096,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-29 | TASK-UAT-001 Change 005에서 Backend 업무 응답 cache를 전역 차단하고 Nginx HTML/asset cache와 보안 header 상속을 분리하며 Production·CI 외부 artifact를 digest/full SHA로 고정 | 공유 단말의 민감 응답 잔존, asset 응답의 보안 header 누락과 재실행 때 외부 artifact가 바뀌는 P2 위험을 닫고 검증된 공급망 기준을 재현하기 위함. Frontend 가변 package 설치는 고정 TLS validator로 대체했고 수정본이 없는 libxml2 Low 2건은 `SEC-PUBLIC-014` P3로 운영 handover 전에 재검사 | 23장~25장, TASK-UAT-001 Change 005 |
 | 2026-07-30 | TASK-UAT-001 Change 006에서 Entra API·SPA 분리 app registration과 HTTPS 5174/Backend 5081 통합 실행을 복구 | 정상적인 분리 client ID를 오류로 거절하고 Vite가 명시한 5081 대신 candidate 5084를 강제하던 검수 실행 drift를 없애며, 기존 UAT DB·실제 identifier·provider를 보존한 사용자 검수 주소를 제공하기 위함 | 23장~25장, TASK-UAT-001 Change 006 |
 | 2026-07-30 | TASK-UAT-001 Change 005·006 사용자 검수를 완료하고 PR #58의 `main` merge를 승인 | 실제 Microsoft 365 로그인, 주요 업무 조회·저장, 알림·내 업무와 로그아웃 cache 차단을 확인하고 열린 P0/P1/P2가 없는 공개 배포 보안 변경을 제품 기준선에 반영하기 위함. 실제 운영 domain·managed DB·SIEM handover는 별도 Gate로 유지 | 23장~25장, TASK-UAT-001 Change 005·006, PR #58 |
+| 2026-07-31 | TASK-AZURE-PILOT-001에서 Azure 서비스 선정이 필요 없는 P1만 구현하고 hosting·managed DB·domain·WAF·SIEM·registry/OIDC·실제 rollback 선정은 사용자 결정까지 보류 | 파일럿 준비 속도를 유지하면서 미선정 provider를 코드로 임의 확정하지 않고, Entra API·SPA 분리·one-shot migration·preflight·GitHub 게시 후보를 서비스 중립 계약으로 먼저 검증하기 위함 | 23장~25장, TASK-AZURE-PILOT-001 |
 
 ## 26. 용어 사전
 

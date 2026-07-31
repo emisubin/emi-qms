@@ -19,6 +19,34 @@ namespace Emi.Qms.Api.Tests;
 public sealed class PostgreSqlMigrationTests
 {
     [Fact]
+    public async Task DatabaseMigrationRunner_SerializesConcurrentRuns_AndVerifiesExactLedger()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var connectionStringProvider = new DatabaseConnectionStringProvider(configuration);
+        var firstRunner = CreateMigrationRunner(database.RepositoryRoot, connectionStringProvider);
+        var secondRunner = CreateMigrationRunner(database.RepositoryRoot, connectionStringProvider);
+
+        var inspections = await Task.WhenAll(
+            firstRunner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken),
+            secondRunner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+
+        Assert.All(inspections, inspection =>
+        {
+            Assert.True(inspection.MigrationLedgerReady);
+            Assert.Equal(MigrationLedgerInspector.ExactStatus, inspection.Status);
+            Assert.Equal(inspection.ExpectedMigrationCount, inspection.ActualMigrationCount);
+        });
+
+        Assert.Equal(
+            (long)inspections[0].ExpectedMigrationCount,
+            await ReadScalarAsync<long>(
+                connectionStringProvider,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task ReviewSafeDatabaseSession_IsReadOnlyAcrossPoolReuse_AndReportsSchemaState()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);

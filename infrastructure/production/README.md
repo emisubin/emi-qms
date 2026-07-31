@@ -5,7 +5,7 @@
 ## 배포 전 필수 조건
 
 1. `PUBLIC_HOST`의 DNS와 공인 TLS 인증서를 준비한다. 인증서의 SAN이 domain과 일치하고 private key가 짝이 맞아야 하며, 만료가 30일보다 적게 남으면 container가 시작되지 않는다.
-2. Entra SPA redirect URI를 정확히 `https://PUBLIC_HOST`로 등록하고 tenant, client, audience, delegated scope와 verified domain을 입력한다.
+2. Entra API app과 SPA app을 서로 다른 registration으로 준비한다. SPA에는 `https://PUBLIC_HOST` redirect URI를, API에는 `access_as_user` delegated scope를 등록한다. `ENTRA_API_CLIENT_ID`와 `ENTRA_SPA_CLIENT_ID`가 같거나 scope가 API app과 일치하지 않으면 preflight와 Production startup이 거절한다.
 3. application DB 계정은 최소 권한으로 만들고 connection string에 `SSL Mode=VerifyFull`을 사용한다.
 4. 최근 90일 안에 실제 backup으로 별도 환경 restore를 성공시킨 뒤 그 UTC 시각을 `RESTORE_VERIFIED_AT_UTC`에 기록한다.
 5. 서로 다른 두 비상 관리자 email을 secret file 한 줄에 쉼표 또는 세미콜론으로 기록한다.
@@ -14,16 +14,41 @@
 
 위 조건 중 하나라도 빠지면 Compose 환경 확장 또는 Backend Production startup이 실패한다. 이 실패를 설정을 끄는 방식으로 우회하면 안 된다.
 
+Azure hosting·managed DB·WAF·SIEM 제품은 아직 선정하지 않았다. 이 Compose는 특정 Azure 서비스를 확정하는 계약이 아니며, 실제 provider의 네트워크·secret·로그·backup·rollback 구조는 별도 운영 서비스 선정 Task에서 승인한다.
+
 ## 검증
+
+```sh
+bash scripts/production-preflight.sh /secure/path/emi-qms-production.env
+```
+
+이 검사는 identifier 원문을 출력하지 않고 API·SPA 분리, delegated scope, Compose 확장과 독립 migration service 존재를 확인한다. TLS 파일까지 준비된 환경에서는 다음과 같이 인증서 hostname·만료·key 일치도 함께 확인한다.
+
+```sh
+PRODUCTION_PREFLIGHT_VALIDATE_TLS=true \
+  bash scripts/production-preflight.sh /secure/path/emi-qms-production.env
+```
+
+## Migration과 기동 순서
+
+Backend는 Production에서 startup migration을 실행하지 않는다. 새 release image로 one-shot migration을 먼저 실행하고 ledger가 `Exact` 또는 Repository에서 명시적으로 승인한 historical-compatible 상태이며 schema compatibility가 준비된 경우에만 application을 시작한다.
 
 ```sh
 docker compose \
   --env-file /secure/path/emi-qms-production.env \
   -f infrastructure/docker-compose.production.yml \
-  config
+  --profile operations \
+  run --rm migration
+
+docker compose \
+  --env-file /secure/path/emi-qms-production.env \
+  -f infrastructure/docker-compose.production.yml \
+  up -d --wait
 ```
 
-실제 기동 뒤에는 허용된 host의 HTTPS root와 `/health/live`, `/health/ready`만 확인한다. 잘못된 Host, HTTP, scanner 장애 upload와 허용량 초과 요청은 각각 차단되어야 한다. 실제 Teams·Mail 발송, migration과 data reset은 별도 운영 승인 대상이다.
+Migration runner는 PostgreSQL advisory lock으로 동시 실행을 직렬화하고, 각 파일과 ledger 기록을 같은 transaction으로 적용한 뒤 전체 catalog·ledger·핵심 schema compatibility를 다시 검증한다. 실패하면 application release를 진행하지 않는다. 이미 적용된 migration을 되돌리지 않으며 문제는 additive forward-fix로 복구한다.
+
+실제 기동 뒤에는 허용된 host의 HTTPS root와 `/health/live`, `/health/ready`만 확인한다. 잘못된 Host, HTTP, scanner 장애 upload와 허용량 초과 요청은 각각 차단되어야 한다. 실제 Teams·Mail 발송, 운영 DB migration과 data reset은 각각 명시적인 운영 승인 대상이다.
 
 ## Cache와 보안 header 기준
 

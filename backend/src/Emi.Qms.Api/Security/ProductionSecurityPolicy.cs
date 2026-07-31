@@ -89,9 +89,9 @@ public static class ProductionSecurityPolicy
         var proxies = Split(configuration["ReverseProxy:KnownProxies"]);
         if (proxies.Count == 0
             || proxies.Any(proxy => !IPAddress.TryParse(proxy, out var address)
-                || IPAddress.IsLoopback(address)
                 || address.Equals(IPAddress.Any)
-                || address.Equals(IPAddress.IPv6Any)))
+                || address.Equals(IPAddress.IPv6Any)
+                || IPAddress.IsLoopback(address)))
         {
             errors.Add("ReverseProxy:KnownProxies must contain exact non-loopback proxy IP addresses.");
         }
@@ -108,11 +108,14 @@ public static class ProductionSecurityPolicy
             || tenantId == Guid.Empty
             || !Guid.TryParse(configuration["AzureAd:ClientId"], out var clientId)
             || clientId == Guid.Empty
+            || !Guid.TryParse(configuration["AzureAd:SpaClientId"], out var spaClientId)
+            || spaClientId == Guid.Empty
+            || spaClientId == clientId
             || string.IsNullOrWhiteSpace(configuration["AzureAd:Audience"])
             || string.IsNullOrWhiteSpace(configuration["AzureAd:Domain"])
             || IsReservedExampleHost(configuration["AzureAd:Domain"]!))
         {
-            errors.Add("Production Entra tenant, client, audience, and domain are required.");
+            errors.Add("Production Entra tenant, distinct API and SPA clients, audience, and domain are required.");
         }
     }
 

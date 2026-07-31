@@ -230,6 +230,17 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
 QmsAuthenticationModePolicy.ThrowIfInvalidConfiguration(app.Environment, app.Configuration);
 ProductionSecurityPolicy.ThrowIfInvalid(app.Environment, app.Configuration);
 
+if (args.Contains("--migrate-only", StringComparer.Ordinal))
+{
+    var inspection = await app.Services
+        .GetRequiredService<DatabaseMigrationRunner>()
+        .ApplyAndVerifyAsync(CancellationToken.None);
+    app.Logger.LogInformation(
+        "Database migration completed with {ExpectedMigrationCount} verified migrations.",
+        inspection.ExpectedMigrationCount);
+    return;
+}
+
 app.UseForwardedHeaders();
 app.UseMiddleware<HostFilteringMiddleware>();
 if (app.Environment.IsProduction())

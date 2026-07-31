@@ -10,11 +10,13 @@ COPY frontend frontend
 
 ARG VITE_AZURE_TENANT_ID
 ARG VITE_AZURE_CLIENT_ID
+ARG VITE_AZURE_API_CLIENT_ID
 ARG VITE_AZURE_API_SCOPE
 ARG VITE_AZURE_REDIRECT_URI
 ENV VITE_API_BASE_URL= \
     VITE_AZURE_TENANT_ID=${VITE_AZURE_TENANT_ID} \
     VITE_AZURE_CLIENT_ID=${VITE_AZURE_CLIENT_ID} \
+    VITE_AZURE_API_CLIENT_ID=${VITE_AZURE_API_CLIENT_ID} \
     VITE_AZURE_API_SCOPE=${VITE_AZURE_API_SCOPE} \
     VITE_AZURE_REDIRECT_URI=${VITE_AZURE_REDIRECT_URI}
 
@@ -22,10 +24,12 @@ RUN node --input-type=module -e ' \
       const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu; \
       const tenant = process.env.VITE_AZURE_TENANT_ID ?? ""; \
       const client = process.env.VITE_AZURE_CLIENT_ID ?? ""; \
+      const apiClient = process.env.VITE_AZURE_API_CLIENT_ID ?? ""; \
       const scope = process.env.VITE_AZURE_API_SCOPE ?? ""; \
       const redirect = new URL(process.env.VITE_AZURE_REDIRECT_URI ?? "http://invalid"); \
       const reserved = /(^|\\.)(example\\.com|example|invalid|test)$/iu.test(redirect.hostname); \
-      if (!guid.test(tenant) || !guid.test(client) || /^0{8}-0{4}-0{4}-0{4}-0{12}$/u.test(tenant) || /^0{8}-0{4}-0{4}-0{4}-0{12}$/u.test(client) || !scope.startsWith("api://") || redirect.protocol !== "https:" || reserved) process.exit(1); \
+      const zero = /^0{8}-0{4}-0{4}-0{4}-0{12}$/u; \
+      if (!guid.test(tenant) || !guid.test(client) || !guid.test(apiClient) || zero.test(tenant) || zero.test(client) || zero.test(apiClient) || client === apiClient || !scope.startsWith(`api://${apiClient}/`) || redirect.protocol !== "https:" || reserved) process.exit(1); \
     ' \
     && pnpm --dir frontend build
 

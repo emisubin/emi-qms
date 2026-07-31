@@ -9,7 +9,15 @@ public sealed class DatabaseMigrationRunner(
     IConfiguration configuration,
     ILogger<DatabaseMigrationRunner> logger)
 {
+    private const long MigrationAdvisoryLockKey = 2026073101L;
+
     public async Task ApplyAsync(CancellationToken cancellationToken)
+    {
+        _ = await ApplyAndVerifyAsync(cancellationToken);
+    }
+
+    public async Task<MigrationLedgerInspection> ApplyAndVerifyAsync(
+        CancellationToken cancellationToken)
     {
         if (ReviewSafeMode.IsEnabled(configuration))
         {
@@ -27,47 +35,83 @@ public sealed class DatabaseMigrationRunner(
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
 
-        await using (var command = connection.CreateCommand())
+        await using (var lockCommand = connection.CreateCommand())
         {
-            command.CommandText = """
-                create table if not exists schema_migrations (
-                    version text primary key,
-                    applied_at_utc timestamptz not null default now()
-                );
-                """;
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            lockCommand.CommandText = "select pg_advisory_lock(@lock_key);";
+            lockCommand.Parameters.AddWithValue("lock_key", MigrationAdvisoryLockKey);
+            await lockCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        foreach (var migrationFile in migrationFiles)
+        try
         {
-            var version = Path.GetFileNameWithoutExtension(migrationFile);
-
-            if (await IsMigrationAppliedAsync(connection, version, cancellationToken))
+            await using (var command = connection.CreateCommand())
             {
-                continue;
-            }
-
-            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-            await using (var migrationCommand = connection.CreateCommand())
-            {
-                migrationCommand.Transaction = transaction;
-                migrationCommand.CommandText = await File.ReadAllTextAsync(migrationFile, cancellationToken);
-                await migrationCommand.ExecuteNonQueryAsync(cancellationToken);
-            }
-
-            await using (var recordCommand = connection.CreateCommand())
-            {
-                recordCommand.Transaction = transaction;
-                recordCommand.CommandText = """
-                    insert into schema_migrations (version)
-                    values (@version);
+                command.CommandText = """
+                    create table if not exists schema_migrations (
+                        version text primary key,
+                        applied_at_utc timestamptz not null default now()
+                    );
                     """;
-                recordCommand.Parameters.AddWithValue("version", version);
-                await recordCommand.ExecuteNonQueryAsync(cancellationToken);
+                await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
-            await transaction.CommitAsync(cancellationToken);
-            logger.LogInformation("Applied database migration {MigrationVersion}.", version);
+            foreach (var migrationFile in migrationFiles)
+            {
+                var version = Path.GetFileNameWithoutExtension(migrationFile);
+
+                if (await IsMigrationAppliedAsync(connection, version, cancellationToken))
+                {
+                    continue;
+                }
+
+                await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+                await using (var migrationCommand = connection.CreateCommand())
+                {
+                    migrationCommand.Transaction = transaction;
+                    migrationCommand.CommandText = await File.ReadAllTextAsync(migrationFile, cancellationToken);
+                    await migrationCommand.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                await using (var recordCommand = connection.CreateCommand())
+                {
+                    recordCommand.Transaction = transaction;
+                    recordCommand.CommandText = """
+                        insert into schema_migrations (version)
+                        values (@version);
+                        """;
+                    recordCommand.Parameters.AddWithValue("version", version);
+                    await recordCommand.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                await transaction.CommitAsync(cancellationToken);
+                logger.LogInformation("Applied database migration {MigrationVersion}.", version);
+            }
+
+            var inspection = await new MigrationLedgerInspector(migrationCatalog)
+                .InspectAsync(connection, cancellationToken);
+            if (!inspection.MigrationLedgerReady)
+            {
+                throw new InvalidOperationException(
+                    $"Database migration verification failed: {inspection.Reason}.");
+            }
+
+            return inspection;
+        }
+        finally
+        {
+            try
+            {
+                await using var unlockCommand = connection.CreateCommand();
+                unlockCommand.CommandText = "select pg_advisory_unlock(@lock_key);";
+                unlockCommand.Parameters.AddWithValue("lock_key", MigrationAdvisoryLockKey);
+                await unlockCommand.ExecuteNonQueryAsync(CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(
+                    "The database migration advisory lock could not be explicitly released ({ExceptionType}); connection disposal will release it.",
+                    exception.GetType().Name);
+            }
         }
     }
 

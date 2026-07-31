@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { markProjectAsLegacyIqc, uploadRequiredIqcPhotos } from './legacy-iqc-fixture';
 
 const screenshotDirectory = path.resolve(
   process.env.STRESS_LIFECYCLE_SCREENSHOT_DIR?.trim() || '/tmp/emi-qms-stress-lifecycle-evidence'
@@ -94,6 +95,7 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
 
   const projectId = queryDatabase(`select id::text from projects where project_code='${projectCode}';`);
+  markProjectAsLegacyIqc(projectId);
   const panelIds = queryDatabase(`select string_agg(id::text, ',' order by sequence_number) from panel_placeholders where project_id='${projectId}' and status='Active';`).split(',');
   expect(panelIds).toHaveLength(panelCount);
   await captureProjectFlow(page, projectId, 'stages/01-project-created.jpg');
@@ -259,7 +261,7 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
     join notifications n on n.id=d.notification_id
     where n.project_id='${projectId}' and n.source_kind='PendingAssignment'
       and d.channel in ('TeamsChannel','Mail');
-  `)), { timeout: 30_000 }).toBe(12);
+  `)), { timeout: 30_000 }).toBe(24);
 
   // 생산관리 담당자가 6개 Pending을 모두 실제 상태 전이로 종결한다.
   for (const pendingUrl of pendingUrls) {
@@ -469,10 +471,8 @@ async function completeIqc(scope: Locator) {
       await card.locator('textarea').fill('수량·외관·식별 상태 정상');
     }
   }
-  await scope.getByRole('button', { name: '저장하고 사진 등록' }).click();
-  await scope.locator('input[type="file"]').setInputFiles(evidenceImage);
-  await scope.getByRole('button', { name: '사진 등록' }).click();
-  await scope.getByRole('button', { name: '최종확인으로' }).click();
+  await uploadRequiredIqcPhotos(scope, evidenceImage);
+  await scope.getByRole('button', { name: '검사항목·사진 저장 후 최종확인' }).click();
   await scope.getByLabel('종합 판정 사유').fill('사급·구매품 입고 검사 기준 적합을 확인했습니다.');
   await scope.getByRole('button', { name: '합격 · 성적서 확정' }).click();
   await expect(scope.getByText('IQC 합격 성적서를 확정했습니다.')).toBeVisible();
@@ -505,10 +505,20 @@ async function completeQualityStage(
     }
     await page.getByRole('button', { name: '임시 저장' }).click();
   }
-  const uploader = page.locator('.quality-photo-uploader');
-  await uploader.locator('input[type="file"]').setInputFiles(evidenceImage);
-  await uploader.getByPlaceholder('예: 배선 체결 상태').fill(`${sequence}번 패널 ${stageLabel} 증빙`);
-  await uploader.getByRole('button', { name: '사진 등록' }).click();
+  if (aggregate) {
+    const uploader = page.locator('.quality-photo-uploader');
+    await uploader.locator('input[type="file"]').setInputFiles(evidenceImage);
+    await uploader.getByPlaceholder('예: 배선 체결 상태').fill(`${sequence}번 패널 ${stageLabel} 증빙`);
+    await uploader.getByRole('button', { name: '사진 등록' }).click();
+  } else {
+    const itemPhotoEditors = page.locator('.quality-item-photo');
+    for (let index = 0; index < await itemPhotoEditors.count(); index += 1) {
+      const editor = itemPhotoEditors.nth(index);
+      await editor.locator('input[type="file"]').setInputFiles(evidenceImage);
+      await editor.getByRole('button', { name: '이 항목에 사진 등록' }).click();
+      await editor.locator('.quality-photo-list img').waitFor();
+    }
+  }
   await page.getByRole('button', { name: '판정 확정' }).click();
   const decision = page.getByRole('dialog');
   if (aggregate) {

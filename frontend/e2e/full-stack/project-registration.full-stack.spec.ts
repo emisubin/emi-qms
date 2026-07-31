@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, type APIRequestContext, type Locator, type Page, test } from '@playwright/test';
+import { markProjectAsLegacyIqc, uploadRequiredIqcPhotos } from './legacy-iqc-fixture';
 
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
@@ -14,10 +15,8 @@ async function completeDetailedIqc(scope: Locator) {
   }
   const notes = scope.getByLabel('측정값·특이사항');
   if (await notes.count()) await notes.fill('합성 측정값 정상');
-  await scope.getByRole('button', { name: '저장하고 사진 등록' }).click();
-  await scope.locator('input[type="file"]').setInputFiles('src/assets/emi-logo.png');
-  await scope.getByRole('button', { name: '사진 등록' }).click();
-  await scope.getByRole('button', { name: '최종확인으로' }).click();
+  await uploadRequiredIqcPhotos(scope, 'src/assets/emi-logo.png');
+  await scope.getByRole('button', { name: '검사항목·사진 저장 후 최종확인' }).click();
   await scope.getByLabel('종합 판정 사유').fill('검사항목과 외함 사진을 모두 확인했습니다.');
   await scope.getByRole('button', { name: '합격 · 성적서 확정' }).click();
 }
@@ -498,6 +497,7 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   const unique = Date.now();
   const projectTitle = `TASK 004A Direct ${unique}`;
   const projectId = await createProjectByApi(request, `FS-4A-DIRECT-${unique}`, projectTitle, 'StretchWrap', 1);
+  markProjectAsLegacyIqc(projectId);
 
   await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-procurement');
@@ -618,8 +618,8 @@ test('TASK-004A B/C/E: procurement Excel matching, apply, reupload changed previ
   const projectId = await createProjectByApi(request, `FS-4A-EXCEL-${unique}`, projectTitle, 'StretchWrap', 1);
   const firstWorkbook = testInfo.outputPath('procurement-first.xlsx');
   writeProcurementWorkbook(firstWorkbook, [
-    [projectTitle, `FS-4A-EXCEL-${unique}`, '4W', 'MCCB', '', 'Owner A', '2026-07-01', '2026-07-10', 'First', ''],
-    ['', '', '5W', 'Cable', '', 'Owner B', '2026-07-02', '2026-07-11', '', '']
+    [projectTitle, `FS-4A-EXCEL-${unique}`, '4W', 'MCCB', '기타', '', 'Owner A', '2026-07-01', '2026-07-10', 'First', ''],
+    ['', '', '5W', 'Cable', '기타', '', 'Owner B', '2026-07-02', '2026-07-11', '', '']
   ]);
 
   await page.goto('/projects');
@@ -657,8 +657,8 @@ test('TASK-004A B/C/E: procurement Excel matching, apply, reupload changed previ
 
   const secondWorkbook = testInfo.outputPath('procurement-second.xlsx');
   writeProcurementWorkbook(secondWorkbook, [
-    [projectTitle, `FS-4A-EXCEL-${unique}`, '4W', 'MCCB', '', 'Owner A', '2026-07-01', '2026-07-10', 'First changed', ''],
-    ['', '', '6W', 'New item', '', 'Owner C', '2026-07-03', '2026-07-12', 'New', 'N']
+    [projectTitle, `FS-4A-EXCEL-${unique}`, '4W', 'MCCB', '기타', '', 'Owner A', '2026-07-01', '2026-07-10', 'First changed', ''],
+    ['', '', '6W', 'New item', '기타', '', 'Owner C', '2026-07-03', '2026-07-12', 'New', 'N']
   ]);
 
   await page.getByRole('button', { name: '구매정보 수정' }).click();
@@ -1510,9 +1510,9 @@ with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
 
 function writeProcurementWorkbook(filePath: string, rows: string[][]) {
   const allRows = [
-    ['PS 사업부 PJT 발주 관리', '', '', '', '', '', '', '', '', ''],
-    ['', '', '', '', '', '', '', '', '', ''],
-    ['PJT', 'PJT CODE', '통상납기', '발주품목', '업체', '기술 담당자', '발주일', '입고예정일', '이슈사항', '입고 완료'],
+    ['PS 사업부 PJT 발주 관리', '', '', '', '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', '', ''],
+    ['PJT', 'PJT CODE', '통상납기', '발주품목', '구분', '업체', '기술 담당자', '발주일', '입고예정일', '이슈사항', '입고 완료'],
     ...rows
   ];
   const rowXml = allRows.map((row, rowIndex) => {

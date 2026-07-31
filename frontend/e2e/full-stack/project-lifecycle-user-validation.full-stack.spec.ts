@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { markProjectAsLegacyIqc, uploadRequiredIqcPhotos } from './legacy-iqc-fixture';
 
 const screenshotDirectory = path.resolve(
   process.env.LIFECYCLE_SCREENSHOT_DIR?.trim() || '/tmp/emi-qms-lifecycle-evidence'
@@ -88,6 +89,7 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
   const projectId = queryDatabase(`select id::text from projects where project_code='${projectCode}';`);
   const panelId = queryDatabase(`select id::text from panel_placeholders where project_id='${projectId}' and status='Active';`);
   expect(projectId).toMatch(/^[0-9a-f-]{36}$/u);
+  markProjectAsLegacyIqc(projectId);
   expect(panelId).toMatch(/^[0-9a-f-]{36}$/u);
   await captureProjectDetail(page, projectId, '01-project-created.jpg');
   const creationEvidence: HandoffEvidence[] = [];
@@ -579,10 +581,8 @@ async function completeIqc(scope: Locator) {
   }
   const notes = scope.getByLabel('측정값·특이사항');
   if (await notes.count()) await notes.fill('외관과 치수 측정값 정상');
-  await scope.getByRole('button', { name: '저장하고 사진 등록' }).click();
-  await scope.locator('input[type="file"]').setInputFiles(evidenceImage);
-  await scope.getByRole('button', { name: '사진 등록' }).click();
-  await scope.getByRole('button', { name: '최종확인으로' }).click();
+  await uploadRequiredIqcPhotos(scope, evidenceImage);
+  await scope.getByRole('button', { name: '검사항목·사진 저장 후 최종확인' }).click();
   await scope.getByLabel('종합 판정 사유').fill('체크 항목과 외함 사진을 확인했습니다.');
   await scope.getByRole('button', { name: '합격 · 성적서 확정' }).click();
 }
@@ -616,11 +616,21 @@ async function completeQualityStage(
     await page.getByRole('button', { name: '임시 저장' }).click();
     await expect(page.getByText('검사 항목을 저장했습니다.')).toBeVisible();
   }
-  const uploader = page.locator('.quality-photo-uploader');
-  await uploader.locator('input[type="file"]').setInputFiles(evidenceImage);
-  await uploader.getByPlaceholder('예: 배선 체결 상태').fill(`${stageLabel} 사진 증빙`);
-  await uploader.getByRole('button', { name: '사진 등록' }).click();
-  await expect(page.getByText('사진 증빙을 등록했습니다.')).toBeVisible();
+  if (aggregate) {
+    const uploader = page.locator('.quality-photo-uploader');
+    await uploader.locator('input[type="file"]').setInputFiles(evidenceImage);
+    await uploader.getByPlaceholder('예: 배선 체결 상태').fill(`${stageLabel} 사진 증빙`);
+    await uploader.getByRole('button', { name: '사진 등록' }).click();
+    await expect(page.getByText('사진 증빙을 등록했습니다.')).toBeVisible();
+  } else {
+    const itemPhotoEditors = page.locator('.quality-item-photo');
+    for (let index = 0; index < await itemPhotoEditors.count(); index += 1) {
+      const editor = itemPhotoEditors.nth(index);
+      await editor.locator('input[type="file"]').setInputFiles(evidenceImage);
+      await editor.getByRole('button', { name: '이 항목에 사진 등록' }).click();
+      await editor.locator('.quality-photo-list img').waitFor();
+    }
+  }
   await page.getByRole('button', { name: '판정 확정' }).click();
   const decision = page.getByRole('dialog');
   if (aggregate) {

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { markProjectAsLegacyIqc } from './legacy-iqc-fixture';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = '/tmp/procurement-material-trace-001-screenshots';
@@ -11,6 +12,7 @@ test('WORKFLOW-CONTINUITY-001 Change 002: procurement quantity, split arrivals, 
   const projectTitle = `구매 자재 추적 ${unique}`;
   const projectCode = `TRACE-${String(unique).slice(-8)}`;
   const projectId = await createProject(request, projectCode, projectTitle);
+  markProjectAsLegacyIqc(projectId);
   const procurement = await saveProcurement(request, projectId);
   const purchased = procurement.items.find((item) => item.supplyType === 'Purchased')!;
 

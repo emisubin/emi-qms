@@ -17,13 +17,12 @@ test('TASK-MOBILE-002 Change 005: mobile workspaces use one shape for each seman
   const procurement = await updateProcurement(request, projectId);
   const item = procurement.items[0];
 
-  const arrival = await postJson<{ receiptId: string }>(request, 'dev-materials', `/api/materials/items/${item.itemId}/receipts`, {
+  await postJson<{ receiptId: string; iqcAttemptId: string }>(request, 'dev-materials', `/api/materials/items/${item.itemId}/receipts`, {
     quantity: 3,
     unit: 'EA',
     arrivalDate: '2026-07-17',
     note: 'synthetic mobile evidence'
   });
-  await postJson(request, 'dev-materials', `/api/materials/receipts/${arrival.receiptId}/iqc-requests`, { expectedVersion: 1 });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/projects');
@@ -183,6 +182,7 @@ async function updateProcurement(request: APIRequestContext, projectId: string) 
       reason: 'synthetic mobile evidence',
       items: [{
         orderItem: 'Synthetic Customer Busbar',
+        materialCategoryId: '67000000-0000-0000-0000-000000000001',
         supplierName: 'Synthetic Reference Vendor',
         technicalOwner: 'Synthetic Engineer',
         standardLeadTime: '14 days',

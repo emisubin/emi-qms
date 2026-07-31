@@ -219,7 +219,12 @@ async function createQualityReadyProject(request: APIRequestContext, unique: num
 
   const procurement = await request.patch(`${apiBaseUrl}/api/projects/${projectId}/procurement`, {
     headers: devHeaders('dev-procurement'),
-    data: { items: [{ orderItem: 'Synthetic Selected Export Material' }] }
+    data: {
+      items: [{
+        orderItem: 'Synthetic Selected Export Material',
+        materialCategoryId: '67000000-0000-0000-0000-000000000005'
+      }]
+    }
   });
   expect(procurement.ok(), await procurement.text()).toBeTruthy();
 

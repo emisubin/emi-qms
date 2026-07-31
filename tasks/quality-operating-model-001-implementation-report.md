@@ -1,6 +1,6 @@
 # TASK-QUALITY-OPERATING-MODEL-001 구현 보고
 
-상태: `IMPLEMENTED / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_COMPLETE / MAIN_MERGE_APPROVED`
+상태: `IMPLEMENTED / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_COMPLETE / MAIN_MERGE_APPROVED / PROMOTION_VALIDATION_COMPLETE`
 
 ## 해결한 업무 문제
 
@@ -80,6 +80,8 @@ Fable 2차 기획은 구분 관리 권한을 기존 양식 관리 `CanManage` �
 | `QOM-001-F03` | P1 | Resolved | 종이 검사서를 다시 시스템 체크리스트로 입력하는 이중 작업이 있었다. | 외함은 한 건 적합/부적합 + 다중 서명 스캔본 방식으로 분리했다. |
 | `QOM-001-F04` | P1 | Resolved | 확정 검사서와 재검사 근거가 덮어써질 수 있었다. | 회차별 report·attachment와 이중 불변 제어, 새 회차 재검사를 적용했다. |
 | `QOM-001-F05` | P2 | Resolved | 비검사품을 IQC 합격으로 표현하면 실제 검사 여부가 왜곡된다. | `InspectionNotRequired` 상태와 별도 문구·집계를 추가했다. |
+| `QOM-PROMO-F01` | P1 | Resolved | 최신 `main` 승격 검증에서 Backend 성적서 PDF 테스트가 Repository root를 Backend 하위 root로 해석해 Frontend 증빙 파일을 찾지 못했다. 제품 경로에는 영향이 없지만 전체 회귀가 실패했다. | 테스트 경로를 Backend root의 상위 Repository에 명시적으로 맞췄다. |
+| `QOM-PROMO-F02` | P1 | Resolved | 기존 Full-Stack fixture가 신규 프로젝트의 필수 구매품 구분과 항목 바로 아래 사진 첨부 UX를 반영하지 않아 18개 회귀가 실패했다. | 신규 프로젝트 fixture에는 구분 snapshot을 넣고, 과거 상세 IQC 회귀는 격리 DB에서 명시적으로 `AllReceipts` 프로젝트로 고정했으며, 사진 필수 항목의 inline 첨부 계약으로 E2E를 갱신했다. |
 
 Open P0/P1/P2: `0/0/0`.
 
@@ -87,13 +89,18 @@ Open P0/P1/P2: `0/0/0`.
 
 - Backend Release build: 오류 0, 경고 0.
 - Backend 격리 집중 회귀: 신규 routing·migration·기존 상세 IQC `4/4` 통과.
-- Backend 전체 격리 회귀: `464/464` 통과.
+- Backend 전체 격리 회귀: `465/465` 통과.
 - Backend 스캔형 IQC 부적합 → Pending → 재검사 회차·서명본 보존 집중 회귀: `1/1` 통과.
 - Frontend 전체 unit: 22 files, `144/144` 통과.
 - Frontend 스캔형 IQC 집중 unit: `3/3` 통과.
 - Frontend typecheck: 통과.
 - Frontend lint: error 0, 기존 `frontend/src/main.tsx` Fast Refresh warning 1.
 - Frontend production build: 통과. 기존 큰 chunk 안내만 남았다.
+- Mock UI smoke: `4/4` 통과.
+- Isolated Full-Stack E2E: `55/55` 통과.
+  - 일반 역할별 프로젝트 등록→세금계산서 요청 18단계 완료.
+  - 12면·사급 분할입고 6회·제조 Pending 6건·전체 흐름 18단계·열린 Pending 0건·프로젝트 완료.
+  - 신규 `CategoryBased` 구분 fixture와 기존 `AllReceipts` 상세 IQC 회귀를 분리해 함께 검증했다.
 - migration `0067`: fresh 적용과 기존 migration 계약 검사를 격리 PostgreSQL에서 통과했다.
 - Browser desktop/mobile:
   - 품질팀 일반 사용자에게 구매품 구분 관리가 노출되고 편집 가능한 것을 확인했다.

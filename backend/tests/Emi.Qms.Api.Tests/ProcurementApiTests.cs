@@ -127,7 +127,7 @@ public sealed class ProcurementApiTests
         }
 
         var png = await File.ReadAllBytesAsync(
-            Path.Combine(context.RepositoryRoot, "frontend", "src", "assets", "emi-logo.png"),
+            Path.Combine(context.RepositoryRoot, "..", "frontend", "src", "assets", "emi-logo.png"),
             TestContext.Current.CancellationToken);
         using var photoForm = new MultipartFormDataContent();
         photoForm.Add(new StringContent(enclosureItemId.ToString("D")), "templateItemId");

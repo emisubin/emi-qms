@@ -88,6 +88,7 @@ async function createKittingProject(
       reason: 'synthetic kitting evidence',
       items: [{
         orderItem: 'Synthetic Kitting Material',
+        materialCategoryId: '67000000-0000-0000-0000-000000000005',
         supplierName: 'Synthetic Vendor'
       }]
     }

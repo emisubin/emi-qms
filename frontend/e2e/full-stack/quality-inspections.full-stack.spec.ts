@@ -91,14 +91,14 @@ test('TASK-WORKFLOW-CONTINUITY-001: manufacturing opens step-aligned LQC and joi
   await page.goto(`/quality/inspections?stage=LQC&project=${projectId}&panel=${panelId}`);
   await expect(page.getByRole('heading', { name: 'LQC 검사' })).toBeVisible();
   await expect(page.locator('.quality-focus-card')).toBeVisible();
-  await expect(page.locator('.quality-photo-list img')).toBeVisible();
+  await expect(page.locator('.quality-item-photo')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '판정 확정' })).toBeEnabled();
   await page.screenshot({ path: '../tasks/012a-screenshots/quality-inspections-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/quality/inspections?stage=LQC&project=${projectId}&panel=${panelId}`);
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
   await expect(page.locator('.quality-focus-card')).toBeVisible();
-  await expect(page.locator('.quality-photo-list img')).toBeVisible();
+  await expect(page.locator('.quality-item-photo')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '판정 확정' })).toBeEnabled();
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: '../tasks/012a-screenshots/quality-inspections-mobile.png', fullPage: true });
@@ -637,7 +637,12 @@ async function createManufacturingReadyProject(
   const projectId = (await created.json() as { projectId: string }).projectId;
   const procurement = await request.patch(`${apiBaseUrl}/api/projects/${projectId}/procurement`, {
     headers: devHeaders('dev-procurement'),
-    data: { items: [{ orderItem: 'Synthetic Quality Material' }] }
+    data: {
+      items: [{
+        orderItem: 'Synthetic Quality Material',
+        materialCategoryId: '67000000-0000-0000-0000-000000000005'
+      }]
+    }
   });
   expect(procurement.ok(), await procurement.text()).toBeTruthy();
   queryDatabase(`

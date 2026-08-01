@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "frontDoorProfileName": {
+      "value": "FROM_FOUNDATION_OUTPUT"
+    },
+    "frontDoorEndpointName": {
+      "value": "FROM_FOUNDATION_OUTPUT"
+    },
+    "wafPolicyId": {
+      "value": "FROM_FOUNDATION_OUTPUT"
+    },
+    "frontendFqdn": {
+      "value": "FROM_WORKLOADS_OUTPUT"
+    },
+    "publicHost": {
+      "value": "pms.example.org"
+    }
+  }
+}

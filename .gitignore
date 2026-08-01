@@ -52,3 +52,8 @@ uploads/
 # Generated documents
 artifacts/*
 !artifacts/.gitkeep
+
+# Generated deployment packages
+infrastructure/teams/build/
+infrastructure/azure-pilot/*.local.json
+infrastructure/azure-pilot/deployment-outputs/

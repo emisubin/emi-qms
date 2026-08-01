@@ -1,0 +1,91 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "__APP_VERSION__",
+  "id": "__TEAMS_MANIFEST_ID__",
+  "packageName": "com.pms.projectmanagement",
+  "developer": {
+    "name": "PMS",
+    "websiteUrl": "https://__PUBLIC_HOST__/",
+    "privacyUrl": "https://__PUBLIC_HOST__/privacy",
+    "termsOfUseUrl": "https://__PUBLIC_HOST__/terms"
+  },
+  "name": {
+    "short": "PMS",
+    "full": "프로젝트 통합관리시스템"
+  },
+  "description": {
+    "short": "프로젝트 업무와 알림을 한 곳에서 확인합니다.",
+    "full": "프로젝트 생성부터 생산관리, 구매, 제조, 품질, 물류와 정산까지 부서별 업무와 알림을 연결하는 프로젝트 통합관리시스템입니다."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#111111",
+  "staticTabs": [
+    {
+      "entityId": "home",
+      "name": "PMS",
+      "contentUrl": "https://__PUBLIC_HOST__/",
+      "websiteUrl": "https://__PUBLIC_HOST__/",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity"
+  ],
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        {
+          "name": "TeamsActivity.Send.User",
+          "type": "Application"
+        }
+      ]
+    }
+  },
+  "validDomains": [
+    "__PUBLIC_HOST__"
+  ],
+  "webApplicationInfo": {
+    "id": "__TEAMS_ACTIVITY_CLIENT_ID__",
+    "resource": "__TEAMS_WEB_APP_RESOURCE__"
+  },
+  "activities": {
+    "activityTypes": [
+      {
+        "type": "workItemAssigned",
+        "description": "새 업무가 배정되었습니다.",
+        "templateText": "{actor}님이 {taskName} 업무를 배정했습니다."
+      },
+      {
+        "type": "deadlineApproaching",
+        "description": "업무 예정일이 임박했습니다.",
+        "templateText": "{taskName} 업무의 {dueDate}이 임박했습니다."
+      },
+      {
+        "type": "deadlineOverdue",
+        "description": "업무 예정일이 지났습니다.",
+        "templateText": "{escalationLevel} 단계: {taskName} 업무의 예정일이 지났습니다."
+      },
+      {
+        "type": "urgentPending",
+        "description": "긴급 Pending 조치가 필요합니다.",
+        "templateText": "{pendingType} Pending: {title}"
+      },
+      {
+        "type": "dailyDigest",
+        "description": "오늘의 업무 요약입니다.",
+        "templateText": "{title}"
+      },
+      {
+        "type": "projectCompleted",
+        "description": "프로젝트가 완료되었습니다.",
+        "templateText": "{projectName} 프로젝트가 완료되었습니다."
+      }
+    ]
+  }
+}

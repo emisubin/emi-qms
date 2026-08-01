@@ -10,14 +10,17 @@ public static class ProductionSecurityPolicy
 {
     private static readonly TimeSpan MaximumRestoreVerificationAge = TimeSpan.FromDays(90);
 
-    public static void ThrowIfInvalid(IHostEnvironment environment, IConfiguration configuration)
+    public static void ThrowIfInvalid(
+        IHostEnvironment environment,
+        IConfiguration configuration,
+        bool requireRestoreVerification = true)
     {
         if (!environment.IsProduction())
         {
             return;
         }
 
-        var errors = Evaluate(configuration, DateTimeOffset.UtcNow);
+        var errors = Evaluate(configuration, DateTimeOffset.UtcNow, requireRestoreVerification);
         if (errors.Count > 0)
         {
             throw new InvalidOperationException(
@@ -27,7 +30,8 @@ public static class ProductionSecurityPolicy
 
     public static IReadOnlyList<string> Evaluate(
         IConfiguration configuration,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        bool requireRestoreVerification = true)
     {
         var errors = new List<string>();
 
@@ -37,7 +41,7 @@ public static class ProductionSecurityPolicy
         ValidateEntra(configuration, errors);
         ValidateRequestDefenses(configuration, errors);
         ValidateDatabase(configuration, errors);
-        ValidateOperations(configuration, now, errors);
+        ValidateOperations(configuration, now, requireRestoreVerification, errors);
 
         return errors;
     }
@@ -86,14 +90,10 @@ public static class ProductionSecurityPolicy
 
     private static void ValidateTrustedProxy(IConfiguration configuration, ICollection<string> errors)
     {
-        var proxies = Split(configuration["ReverseProxy:KnownProxies"]);
-        if (proxies.Count == 0
-            || proxies.Any(proxy => !IPAddress.TryParse(proxy, out var address)
-                || address.Equals(IPAddress.Any)
-                || address.Equals(IPAddress.IPv6Any)
-                || IPAddress.IsLoopback(address)))
+        if (!TrustedProxyConfiguration.IsValid(configuration))
         {
-            errors.Add("ReverseProxy:KnownProxies must contain exact non-loopback proxy IP addresses.");
+            errors.Add(
+                "ReverseProxy must contain exact non-loopback proxy IP addresses or bounded proxy networks.");
         }
     }
 
@@ -175,6 +175,7 @@ public static class ProductionSecurityPolicy
     private static void ValidateOperations(
         IConfiguration configuration,
         DateTimeOffset now,
+        bool requireRestoreVerification,
         ICollection<string> errors)
     {
         var administratorConfiguration =
@@ -195,13 +196,14 @@ public static class ProductionSecurityPolicy
             errors.Add("Security monitoring and an alert sink are required.");
         }
 
-        if (!DateTimeOffset.TryParse(
+        if (requireRestoreVerification
+            && (!DateTimeOffset.TryParse(
                 configuration["Operations:Backup:RestoreVerifiedAtUtc"],
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal,
                 out var restoredAt)
-            || restoredAt > now
-            || now - restoredAt > MaximumRestoreVerificationAge)
+                || restoredAt > now
+                || now - restoredAt > MaximumRestoreVerificationAge))
         {
             errors.Add("A successful database restore verification from the last 90 days is required.");
         }

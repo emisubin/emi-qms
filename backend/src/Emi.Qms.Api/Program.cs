@@ -62,15 +62,14 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownIPNetworks.Clear();
     options.KnownProxies.Clear();
 
-    var configuredProxies = builder.Configuration["ReverseProxy:KnownProxies"]
-        ?.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        ?? [];
-    foreach (var configuredProxy in configuredProxies)
+    foreach (var address in TrustedProxyConfiguration.ReadKnownProxies(builder.Configuration))
     {
-        if (IPAddress.TryParse(configuredProxy, out var address))
-        {
-            options.KnownProxies.Add(address);
-        }
+        options.KnownProxies.Add(address);
+    }
+
+    foreach (var network in TrustedProxyConfiguration.ReadKnownNetworks(builder.Configuration))
+    {
+        options.KnownIPNetworks.Add(network);
     }
 });
 builder.Services.AddHsts(options =>
@@ -228,9 +227,13 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
     DevelopmentFeaturePolicy.EvaluateAdminUserSwitch(app.Environment, app.Configuration),
     app.Environment);
 QmsAuthenticationModePolicy.ThrowIfInvalidConfiguration(app.Environment, app.Configuration);
-ProductionSecurityPolicy.ThrowIfInvalid(app.Environment, app.Configuration);
+var migrateOnly = args.Contains("--migrate-only", StringComparer.Ordinal);
+ProductionSecurityPolicy.ThrowIfInvalid(
+    app.Environment,
+    app.Configuration,
+    requireRestoreVerification: !migrateOnly);
 
-if (args.Contains("--migrate-only", StringComparer.Ordinal))
+if (migrateOnly)
 {
     var inspection = await app.Services
         .GetRequiredService<DatabaseMigrationRunner>()

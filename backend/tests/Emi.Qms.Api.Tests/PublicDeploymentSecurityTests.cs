@@ -21,6 +21,52 @@ public sealed class PublicDeploymentSecurityTests
     }
 
     [Fact]
+    public void ProductionPolicy_AcceptsBoundedTrustedProxyNetwork()
+    {
+        var now = DateTimeOffset.Parse("2026-07-29T00:00:00Z");
+        var values = ValidProductionValues(now);
+        values["ReverseProxy:KnownProxies"] = "";
+        values["ReverseProxy:KnownNetworks"] = "10.42.0.0/23";
+
+        var errors = ProductionSecurityPolicy.Evaluate(Configuration(values), now);
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void ProductionPolicy_AllowsMigrationOnlyBeforeRestoreRehearsal()
+    {
+        var now = DateTimeOffset.Parse("2026-07-29T00:00:00Z");
+        var values = ValidProductionValues(now);
+        values["Operations:Backup:RestoreVerifiedAtUtc"] = "";
+
+        var errors = ProductionSecurityPolicy.Evaluate(
+            Configuration(values),
+            now,
+            requireRestoreVerification: false);
+
+        Assert.Empty(errors);
+    }
+
+    [Theory]
+    [InlineData("0.0.0.0/0")]
+    [InlineData("::/0")]
+    [InlineData("127.0.0.0/8")]
+    [InlineData("not-a-network")]
+    public void ProductionPolicy_RejectsUnsafeTrustedProxyNetwork(string network)
+    {
+        var now = DateTimeOffset.Parse("2026-07-29T00:00:00Z");
+        var values = ValidProductionValues(now);
+        values["ReverseProxy:KnownProxies"] = "";
+        values["ReverseProxy:KnownNetworks"] = network;
+
+        var errors = ProductionSecurityPolicy.Evaluate(Configuration(values), now);
+
+        Assert.Contains(errors, error =>
+            error.Contains("proxy IP", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void ProductionStartup_FailsClosedWhenSecurityReadinessIsMissing()
     {
         using var factory = QmsWebApplicationFactory.Create(
@@ -171,6 +217,26 @@ public sealed class PublicDeploymentSecurityTests
         Assert.Contains("COPY database/migrations database/migrations", backendDockerfile, StringComparison.Ordinal);
         Assert.Contains("command:\n      - --migrate-only", compose, StringComparison.Ordinal);
         Assert.Contains("--migrate-only", program, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AzureFrontend_RequiresFrontDoorIdentityAndOriginVerification()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var dockerfile = File.ReadAllText(
+            Path.Combine(repositoryRoot, "frontend", "Dockerfile.azure"));
+        var nginx = File.ReadAllText(
+            Path.Combine(repositoryRoot, "infrastructure", "azure-pilot", "nginx.conf.template"));
+
+        Assert.Contains("@sha256:", dockerfile, StringComparison.Ordinal);
+        Assert.Contains("EXPOSE 8080", dockerfile, StringComparison.Ordinal);
+        Assert.Contains("VITE_AZURE_API_CLIENT_ID", dockerfile, StringComparison.Ordinal);
+        Assert.Contains("client === apiClient", dockerfile, StringComparison.Ordinal);
+        Assert.Contains("$http_x_azure_fdid", nginx, StringComparison.Ordinal);
+        Assert.Contains("$http_x_pms_origin_verify", nginx, StringComparison.Ordinal);
+        Assert.Contains("return 403;", nginx, StringComparison.Ordinal);
+        Assert.Contains("$http_x_azure_clientip", nginx, StringComparison.Ordinal);
+        Assert.DoesNotContain("ssl_certificate", nginx, StringComparison.Ordinal);
     }
 
     [Fact]

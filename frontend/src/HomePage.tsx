@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, getHomeDepartmentMetrics, getMyWorkSummary, getNotificationSummary, getSalesKpi, listNotices, listPendingIssues } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
-import { DsBadge, DsSurface } from './design-system';
+import { DsBadge, DsKpiCard, DsKpiGrid, DsSurface } from './design-system';
 import type { HomeMetricsResponse } from './home';
 import type { NoticeListResponse } from './notices';
 import type { PendingListResponse } from './pending';
@@ -354,12 +354,12 @@ export function HomePage({
             emptyMessage="대기 중이거나 진행 중인 업무가 없습니다."
           >
             {(data) => (
-              <div className="home-metric-grid">
+              <DsKpiGrid className="home-metric-grid">
                 <HomeMetric label="시작 전" value={data.requestedCount} tone={data.requestedCount > 0 ? 'danger' : undefined} />
                 <HomeMetric label="진행 중" value={data.inProgressCount} />
                 <HomeMetric label="차단" value={data.blockingCount} tone={data.blockingCount > 0 ? 'danger' : undefined} />
                 <HomeMetric label="담당 프로젝트" value={data.assignedProjectCount} />
-              </div>
+              </DsKpiGrid>
             )}
           </HomeWidget>
 
@@ -374,12 +374,12 @@ export function HomePage({
               emptyMessage="열린 Pending이 없습니다."
             >
               {(data) => (
-                <div className="home-metric-grid">
+                <DsKpiGrid className="home-metric-grid">
                   <HomeMetric label="Open" value={data.summary.openCount} tone={data.summary.openCount > 0 ? 'danger' : undefined} />
                   <HomeMetric label="긴급" value={data.summary.urgentCount} tone={data.summary.urgentCount > 0 ? 'danger' : undefined} />
                   <HomeMetric label="기한 초과" value={data.summary.overdueCount} />
                   <HomeMetric label="재검사" value={data.summary.reinspectionCount} />
-                </div>
+                </DsKpiGrid>
               )}
             </HomeWidget>
           ) : null}
@@ -395,10 +395,10 @@ export function HomePage({
               emptyMessage="읽지 않은 알림이 없습니다."
             >
               {(data) => (
-                <div className="home-metric-grid home-metric-grid--two">
+                <DsKpiGrid className="home-metric-grid home-metric-grid--two">
                   <HomeMetric label="읽지 않음" value={data.unreadCount} tone={data.unreadCount > 0 ? 'danger' : undefined} />
                   <HomeMetric label="긴급·차단" value={data.blockingCount} tone={data.blockingCount > 0 ? 'danger' : undefined} />
-                </div>
+                </DsKpiGrid>
               )}
             </HomeWidget>
           ) : null}
@@ -506,12 +506,7 @@ function HomeWidget<T>({
 }
 
 function HomeMetric({ label, value, tone }: { label: string; value: number; tone?: 'danger' }) {
-  return (
-    <div className="home-metric" data-tone={tone}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
+  return <DsKpiCard as="div" className="home-metric" label={label} value={value} tone={tone} />;
 }
 
 function widgetError<T>(error: unknown, message: string): WidgetState<T> {

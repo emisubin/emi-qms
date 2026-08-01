@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError, getAdminNotificationPreferenceAudit } from './api';
+import { DsPageHeader } from './design-system';
 import type {
   NotificationPreferenceAuditFilters,
   NotificationPreferenceAuditList
@@ -99,14 +100,13 @@ export function NotificationPreferenceAuditPage({ developmentUserKey }: Props) {
 
   return (
     <section className="panel-section notification-audit-page">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">System · Audit</p>
-          <h2>알림 설정 변경 이력</h2>
-          <p className="muted-text">누가 누구의 알림을 언제 켜거나 껐는지 확인합니다.</p>
-        </div>
-        <button type="button" onClick={() => void load(filters)}>새로고침</button>
-      </div>
+      <DsPageHeader
+        className="page-header"
+        eyebrow="System · Audit"
+        title="알림 설정 변경 이력"
+        description="누가 누구의 알림을 언제 켜거나 껐는지 확인합니다."
+        actions={<button type="button" onClick={() => void load(filters)}>새로고침</button>}
+      />
 
       {state.kind === 'ready' ? (
         <div className="audit-summary-grid" aria-label="변경 이력 요약">

@@ -179,16 +179,21 @@ import type { CreateUl891SetSpecInput, Ul891SetStructure } from './ul891Sets';
 import { PendingPage } from './PendingPage';
 import { PendingTypeManagementPage } from './PendingTypeManagementPage';
 import type { DepartmentWorkspaceOption } from './DepartmentProjectHub';
-import { DepartmentWorkHub } from './DepartmentWorkHub';
 import {
   DsActionBar,
+  DsActionFeedback as ActionFeedback,
   DsBreadcrumbs,
   DsChoiceGroup,
+  DsDialog,
   DsEmptyState,
   DsInputFlow,
   DsInputSection,
+  DsKpiCard,
+  DsKpiGrid,
+  DsPageHeader,
   DsReadOnlyBanner,
-  DsSecondaryTools
+  DsSecondaryTools,
+  DsStatePanel
 } from './design-system';
 import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
 import { maxPanelsPerProject } from './projects';
@@ -495,6 +500,56 @@ const operationalHubConfigs: Record<OperationalHubArea, {
     ]
   }
 };
+
+/* One workspace→view mapping shared by the hub tiles and the navigation
+ * accordion children, so both always target identical routes. */
+function workspaceViewForArea(area: OperationalHubArea, workspace: string): View {
+  if (area === 'production') {
+    return { kind: 'production-planning-dashboard', workspace: workspace === 'release' ? 'release' : 'planning' };
+  }
+  if (area === 'materials') {
+    return workspace === 'kitting' ? { kind: 'materials-kitting' } : { kind: 'materials-receipts' };
+  }
+  if (area === 'quality') {
+    return workspace === 'iqc'
+      ? { kind: 'quality-iqc' }
+      : { kind: 'quality-inspections', stage: workspace as QualityInspectionStage };
+  }
+  return { kind: 'logistics', stage: workspace as LogisticsStage };
+}
+
+function workspaceActiveForArea(area: OperationalHubArea, workspace: string, view: View): boolean {
+  if (area === 'production') {
+    return view.kind === 'production-planning-dashboard'
+      && (view.workspace === 'release') === (workspace === 'release');
+  }
+  if (area === 'materials') {
+    return workspace === 'kitting' ? view.kind === 'materials-kitting' : view.kind === 'materials-receipts';
+  }
+  if (area === 'quality') {
+    return workspace === 'iqc'
+      ? view.kind === 'quality-iqc'
+      : view.kind === 'quality-inspections' && view.stage === workspace;
+  }
+  return view.kind === 'logistics' && view.stage === workspace;
+}
+
+function departmentWorkspaceChildren(area: OperationalHubArea, view: View): NavigationChild[] {
+  return operationalHubConfigs[area].workspaces.map((workspace) => ({
+    key: workspace.key,
+    label: workspace.label,
+    view: workspaceViewForArea(area, workspace.key),
+    active: workspaceActiveForArea(area, workspace.key, view)
+  }));
+}
+
+function OperationalHubRedirect({ area, onRedirect }: { area: OperationalHubArea; onRedirect: (view: View) => void }) {
+  useEffect(() => {
+    onRedirect(workspaceViewForArea(area, operationalHubConfigs[area].workspaces[0].key));
+  }, [area, onRedirect]);
+
+  return null;
+}
 
 function initialViewFromLocation(): View {
   if (typeof window === 'undefined') {
@@ -1584,6 +1639,21 @@ function QmsAppShellContent({
     }
   }, []);
 
+  // Redirect with replace semantics so the back button does not loop through
+  // the legacy department-root URL. Declared beside setView, before any
+  // conditional return, to keep the hook order stable.
+  const replaceView = useCallback((nextView: View) => {
+    setViewState(nextView);
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const nextPath = pathForView(nextView);
+    if (`${window.location.pathname}${window.location.search}` !== nextPath) {
+      window.history.replaceState(null, '', nextPath);
+    }
+  }, []);
+
   const returnToProjectWithFeedback = useCallback((
     projectId: string,
     section: ProjectDetailSection,
@@ -1834,13 +1904,19 @@ function QmsAppShellContent({
     setView({ kind: 'home' });
   };
   const departmentNavigationLabel = navigationLabelForDepartment(user?.effectiveUser.department);
+  // Department parents route straight to their first workspace; the old
+  // work-selection hub is no longer part of the navigation flow.
+  const productionChildren = departmentWorkspaceChildren('production', view);
+  const materialsChildren = departmentWorkspaceChildren('materials', view);
+  const qualityChildren = departmentWorkspaceChildren('quality', view);
+  const logisticsChildren = departmentWorkspaceChildren('logistics', view);
   const departmentNavigationItems: NavigationItem[] = [
-    { label: '생산관리', view: { kind: 'operational-hub', area: 'production' }, active: isProductionPlanningWorkspace(view) || (view.kind === 'operational-hub' && view.area === 'production') },
+    { label: '생산관리', view: productionChildren[0].view, active: isProductionPlanningWorkspace(view) || (view.kind === 'operational-hub' && view.area === 'production'), children: productionChildren },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
-    { label: '자재', view: { kind: 'operational-hub', area: 'materials' }, active: (view.kind === 'operational-hub' && view.area === 'materials') || view.kind === 'materials-receipts' || view.kind === 'materials-kitting' },
+    { label: '자재', view: materialsChildren[0].view, active: (view.kind === 'operational-hub' && view.area === 'materials') || view.kind === 'materials-receipts' || view.kind === 'materials-kitting', children: materialsChildren },
     { label: '제조', view: { kind: 'manufacturing-work' }, active: view.kind === 'manufacturing-work' },
-    { label: '품질', view: { kind: 'operational-hub', area: 'quality' }, active: (view.kind === 'operational-hub' && view.area === 'quality') || view.kind === 'quality-iqc' || view.kind === 'quality-inspections' },
-    { label: '물류', view: { kind: 'operational-hub', area: 'logistics' }, active: (view.kind === 'operational-hub' && view.area === 'logistics') || view.kind === 'logistics' },
+    { label: '품질', view: qualityChildren[0].view, active: (view.kind === 'operational-hub' && view.area === 'quality') || view.kind === 'quality-iqc' || view.kind === 'quality-inspections', children: qualityChildren },
+    { label: '물류', view: logisticsChildren[0].view, active: (view.kind === 'operational-hub' && view.area === 'logistics') || view.kind === 'logistics', children: logisticsChildren },
     ...(canReadSalesAmount ? [
       { label: '영업', view: { kind: 'sales-kpi' } as View, active: view.kind === 'sales-kpi' || view.kind === 'sales-billing' }
     ] : [])
@@ -1887,25 +1963,6 @@ function QmsAppShellContent({
       onResetAdminTestUser={resetAdminTestUser}
     />
   );
-  const openOperationalWorkspace = (area: OperationalHubArea, workspace: string) => {
-    if (area === 'production') {
-      setView({ kind: 'production-planning-dashboard', workspace: workspace === 'release' ? 'release' : 'planning' });
-      return;
-    }
-    if (area === 'materials') {
-      setView(workspace === 'kitting' ? { kind: 'materials-kitting' } : { kind: 'materials-receipts' });
-      return;
-    }
-    if (area === 'quality') {
-      setView(workspace === 'iqc'
-        ? { kind: 'quality-iqc' }
-        : { kind: 'quality-inspections', stage: workspace as QualityInspectionStage });
-      return;
-    }
-    if (area === 'logistics') {
-      setView({ kind: 'logistics', stage: workspace as LogisticsStage });
-    }
-  };
 
   return (
     <main
@@ -2148,11 +2205,10 @@ function QmsAppShellContent({
         <PendingTypeManagementPage developmentUserKey={developmentUserKey} canManage={canManagePendingTypes} />
       ) : null}
 
+      {/* Legacy department-root deep links land here and are redirected to the
+          department's first workspace; the work-selection hub page is gone. */}
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'operational-hub' ? (
-        <DepartmentWorkHub
-          {...operationalHubConfigs[view.area]}
-          onOpenWorkspace={(workspace) => openOperationalWorkspace(view.area, workspace)}
-        />
+        <OperationalHubRedirect area={view.area} onRedirect={replaceView} />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'my-work' ? (
@@ -2328,11 +2384,11 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'production-planning-dashboard' ? (
         <ProductionPlanningDashboardPage
+          key={view.workspace ?? 'planning'}
           developmentUserKey={developmentUserKey}
           canUpdateProductionPlanning={canUpdateProductionPlanning}
           workspace={view.workspace ?? 'planning'}
           initialProjectId={view.projectId}
-          onBack={() => setView({ kind: 'operational-hub', area: 'production' })}
           onOpenSettings={() => setView({ kind: 'production-planning-settings' })}
           onOpenProject={(projectId) => setView({ kind: 'detail', projectId, section: 'production-planning' })}
           onEditProject={(projectId) => setView({ kind: 'production-planning-edit', projectId })}
@@ -2374,7 +2430,6 @@ function QmsAppShellContent({
           initialProjectId={view.projectId}
           initialReceiptId={view.receiptId}
           initialRisk={view.risk}
-          onBack={() => setView({ kind: 'operational-hub', area: 'materials' })}
           onOpenIqc={(requestId) => setView({ kind: 'quality-iqc', requestId })}
           onOpenKitting={() => setView({ kind: 'materials-kitting' })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
@@ -2387,7 +2442,7 @@ function QmsAppShellContent({
           canComplete={canUpdateMaterialReceipt}
           initialProjectId={view.projectId}
           initialPanelId={view.panelId}
-          onBack={() => setView(view.projectId ? { kind: 'materials-kitting' } : { kind: 'operational-hub', area: 'materials' })}
+          onBack={() => setView({ kind: 'materials-kitting' })}
           onOpenProject={(projectId) => setView({ kind: 'materials-kitting', projectId })}
           onOpenReceipts={() => setView({ kind: 'materials-receipts' })}
         />
@@ -2411,7 +2466,7 @@ function QmsAppShellContent({
           canInspect={canInspectQuality}
           initialProjectId={view.projectId}
           initialRequestId={view.requestId}
-          onBack={() => setView(view.projectId ? { kind: 'quality-iqc' } : { kind: 'operational-hub', area: 'quality' })}
+          onBack={() => setView({ kind: 'quality-iqc' })}
           onOpenProject={(projectId) => setView({ kind: 'quality-iqc', projectId })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
@@ -2424,9 +2479,7 @@ function QmsAppShellContent({
           initialStage={view.stage}
           initialProjectId={view.projectId}
           initialPanelId={view.panelId}
-          onBack={() => setView(view.projectId
-            ? { kind: 'quality-inspections', stage: view.stage }
-            : { kind: 'operational-hub', area: 'quality' })}
+          onBack={() => setView({ kind: 'quality-inspections', stage: view.stage })}
           onOpenProject={(projectId) => setView({ kind: 'quality-inspections', stage: view.stage ?? 'LQC', projectId })}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
         />
@@ -2447,9 +2500,7 @@ function QmsAppShellContent({
             projectId: view.projectId,
             draftId
           })}
-          onBack={() => setView(view.projectId
-            ? { kind: 'logistics', stage: view.stage }
-            : { kind: 'operational-hub', area: 'logistics' })}
+          onBack={() => setView({ kind: 'logistics', stage: view.stage })}
           onOpenProject={(projectId) => setView({ kind: 'logistics', stage: view.stage ?? 'packing', projectId })}
         />
       ) : null}
@@ -2617,6 +2668,14 @@ type NavigationItem = {
   active: boolean;
   badge?: number;
   group?: '내 업무' | '부서 업무' | '공통 조회' | '관리';
+  children?: NavigationChild[];
+};
+
+type NavigationChild = {
+  key: string;
+  label: string;
+  view: View;
+  active: boolean;
 };
 
 function navigationLabelForDepartment(department?: string | null) {
@@ -2667,6 +2726,10 @@ function AppNavigation({
   onNavigate: (view: View) => void;
   footer?: ReactNode;
 }) {
+  // Departments start collapsed; the whole parent row is the disclosure and
+  // at most one department is open. Child navigation keeps its parent open.
+  const [expandedLabel, setExpandedLabel] = useState<string | null>(null);
+
   return (
     <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">
       <div className="app-brand-lockup">
@@ -2678,20 +2741,48 @@ function AppNavigation({
         <strong>업무 메뉴</strong>
       </div>
       <div className="app-nav">
-        {items.map((item, index) => (
-          <Fragment key={item.label}>
-            {item.group && item.group !== items[index - 1]?.group ? <p className="app-nav-group-label">{item.group}</p> : null}
-            <button
-              type="button"
-              className={item.active ? 'app-nav-button active' : 'app-nav-button'}
-              aria-current={item.active ? 'page' : undefined}
-              onClick={() => onNavigate(item.view)}
-            >
-              <span className="app-nav-label"><NavigationIcon label={item.label} /><span>{item.label}</span></span>
-              {item.badge && item.badge > 0 ? <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span> : null}
-            </button>
-          </Fragment>
-        ))}
+        {items.map((item, index) => {
+          const childListId = `app-nav-children-${index}`;
+          const expanded = item.children ? expandedLabel === item.label : false;
+
+          return (
+            <Fragment key={item.label}>
+              {item.group && item.group !== items[index - 1]?.group ? <p className="app-nav-group-label">{item.group}</p> : null}
+              <button
+                type="button"
+                className={item.active ? 'app-nav-button active' : 'app-nav-button'}
+                aria-current={item.active ? 'page' : undefined}
+                aria-expanded={item.children ? expanded : undefined}
+                aria-controls={item.children ? childListId : undefined}
+                onClick={item.children
+                  ? () => setExpandedLabel(expanded ? null : item.label)
+                  : () => onNavigate(item.view)}
+              >
+                <span className="app-nav-label"><NavigationIcon label={item.label} /><span>{item.label}</span></span>
+                {item.children
+                  ? <span className="app-nav-disclosure" aria-hidden="true">⌄</span>
+                  : item.badge && item.badge > 0
+                    ? <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span>
+                    : null}
+              </button>
+              {item.children && expanded ? (
+                <div id={childListId} className="app-nav-children">
+                  {item.children.map((child) => (
+                    <button
+                      key={child.key}
+                      type="button"
+                      className={child.active ? 'app-nav-child-button active' : 'app-nav-child-button'}
+                      aria-current={child.active ? 'page' : undefined}
+                      onClick={() => onNavigate(child.view)}
+                    >
+                      {child.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </Fragment>
+          );
+        })}
       </div>
       {footer ? <footer className="app-sidebar-footer">{footer}</footer> : null}
     </aside>
@@ -2709,6 +2800,7 @@ function AppMobileNavigation({
 }) {
   const { isMobile } = useAdaptiveLayout();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [expandedLabel, setExpandedLabel] = useState<string | null>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
   const firstMenuItemRef = useRef<HTMLButtonElement>(null);
@@ -2787,7 +2879,12 @@ function AppMobileNavigation({
         aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'}
         aria-expanded={menuOpen}
         aria-controls="app-mobile-menu-drawer"
-        onClick={() => setMenuOpen((open) => !open)}
+        onClick={() => {
+          if (!menuOpen) {
+            setExpandedLabel(null);
+          }
+          setMenuOpen((open) => !open);
+        }}
       >
         <span className="mobile-menu-trigger-lines" aria-hidden="true"><i /><i /><i /></span>
       </button>
@@ -2820,33 +2917,63 @@ function AppMobileNavigation({
               </button>
             </header>
             <nav className="mobile-menu-list" aria-label="모바일 공통 메뉴">
-              {items.map((item, index) => (
-                <button
-                  key={item.label}
-                  ref={index === 0 ? firstMenuItemRef : undefined}
-                  type="button"
-                  className={item.active ? 'mobile-menu-item active' : 'mobile-menu-item'}
-                  aria-label={item.badge && item.badge > 0 ? `${item.label} ${item.badge}건` : item.label}
-                  aria-current={item.active ? 'page' : undefined}
-                  onClick={() => navigate(item)}
-                >
-                  <span
-                    className="mobile-menu-item-shape"
-                    data-shape-role={item.active ? 'active' : 'control'}
-                    aria-hidden="true"
-                  ><NavigationIcon label={item.label} /></span>
-                  <span className="mobile-menu-item-copy">
-                    <strong>{item.label}</strong>
-                    <small>{mobileNavigationHints[item.label] ?? '업무 화면'}</small>
-                  </span>
-                  {item.badge && item.badge > 0 ? (
-                    <>
-                      <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span>
-                      <span className="sr-only">{item.badge}건</span>
-                    </>
-                  ) : <span className="mobile-menu-arrow" aria-hidden="true">→</span>}
-                </button>
-              ))}
+              {items.map((item, index) => {
+                const childListId = `mobile-menu-children-${index}`;
+                const expanded = item.children ? expandedLabel === item.label : false;
+
+                return (
+                  <Fragment key={item.label}>
+                    <button
+                      ref={index === 0 ? firstMenuItemRef : undefined}
+                      type="button"
+                      className={item.active ? 'mobile-menu-item active' : 'mobile-menu-item'}
+                      aria-label={item.badge && item.badge > 0 ? `${item.label} ${item.badge}건` : item.label}
+                      aria-current={item.active ? 'page' : undefined}
+                      aria-expanded={item.children ? expanded : undefined}
+                      aria-controls={item.children ? childListId : undefined}
+                      onClick={item.children
+                        ? () => setExpandedLabel(expanded ? null : item.label)
+                        : () => navigate(item)}
+                    >
+                      <span
+                        className="mobile-menu-item-shape"
+                        data-shape-role={item.active ? 'active' : 'control'}
+                        aria-hidden="true"
+                      ><NavigationIcon label={item.label} /></span>
+                      <span className="mobile-menu-item-copy">
+                        <strong>{item.label}</strong>
+                        <small>{mobileNavigationHints[item.label] ?? '업무 화면'}</small>
+                      </span>
+                      {item.children ? (
+                        <span className="mobile-menu-arrow mobile-menu-arrow--disclosure" aria-hidden="true">⌄</span>
+                      ) : item.badge && item.badge > 0 ? (
+                        <>
+                          <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span>
+                          <span className="sr-only">{item.badge}건</span>
+                        </>
+                      ) : <span className="mobile-menu-arrow" aria-hidden="true">→</span>}
+                    </button>
+                    {item.children && expanded ? (
+                      <div id={childListId} className="mobile-menu-children">
+                        {item.children.map((child) => (
+                          <button
+                            key={child.key}
+                            type="button"
+                            className={child.active ? 'mobile-menu-child-item active' : 'mobile-menu-child-item'}
+                            aria-current={child.active ? 'page' : undefined}
+                            onClick={() => {
+                              onNavigate(child.view);
+                              closeMenu();
+                            }}
+                          >
+                            {child.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
             </nav>
             <footer className="mobile-menu-footer">
               {footer ?? <p>필요한 화면을 선택하면 메뉴가 자동으로 닫힙니다.</p>}
@@ -3326,13 +3453,12 @@ function AuthenticationRequiredPage({ user, message, onLogout }: { user?: Curren
 function ApprovalPendingPage({ user, onLogout }: { user: CurrentUser; onLogout?: () => void }) {
   return (
     <section className="panel-section">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">승인 대기</p>
-          <h2>사용자 승인이 필요합니다.</h2>
-        </div>
-        {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
-      </div>
+      <DsPageHeader
+        className="page-header"
+        eyebrow="승인 대기"
+        title="사용자 승인이 필요합니다."
+        actions={onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
+      />
       <p className="muted-text">
         {user.displayName}{user.email ? ` (${user.email})` : ''} 계정은 아직 역할이 부여되지 않았습니다.
         System Administrator가 역할을 1개 이상 부여하면 업무 화면을 사용할 수 있습니다.
@@ -3626,13 +3752,12 @@ function AdminUsersPage({
 
   return (
     <section className={`panel-section admin-mobile-page${showAllMobileFields ? ' admin-mobile-page--all-fields' : ''}`}>
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">System Administrator</p>
-          <h2>사용자 관리</h2>
-        </div>
-        <button type="button" onClick={load}>새로고침</button>
-      </div>
+      <DsPageHeader
+        className="page-header"
+        eyebrow="System Administrator"
+        title="사용자 관리"
+        actions={<button type="button" onClick={load}>새로고침</button>}
+      />
       <p className="muted-text">EntraId 사용자의 부서, 역할, 활성 상태만 수정할 수 있습니다. Dev 사용자는 읽기 전용입니다.</p>
       {isMobile ? (
         <button
@@ -4057,12 +4182,11 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
 
   return (
     <section className="panel-section">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">System Administrator</p>
-          <h2>휴일 관리</h2>
-        </div>
-        <div className="button-row">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="System Administrator"
+        title="휴일 관리"
+        actions={<div className="button-row">
           <label className="compact-field">
             <span>연도</span>
             <input
@@ -4074,8 +4198,8 @@ function AdminCalendarHolidaysPage({ developmentUserKey }: { developmentUserKey:
             />
           </label>
           <button type="button" onClick={load}>새로고침</button>
-        </div>
-      </div>
+        </div>}
+      />
       <p className="muted-text">토요일, 일요일과 활성 상태의 국가공휴일, 대체공휴일, 임시공휴일, 회사휴일은 비영업일로 계산됩니다.</p>
       <ActionFeedback message={message} tone={message.includes('없습니다') || message.includes('수 없습니다') ? 'error' : message ? 'success' : 'neutral'} />
 
@@ -4355,56 +4479,41 @@ function AdminDashboardPage({
 
   return (
     <section className="panel-section">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">System Administrator</p>
-          <h2>관리자</h2>
-        </div>
-        <button type="button" onClick={load}>새로고침</button>
-      </div>
+      <DsPageHeader
+        className="page-header"
+        eyebrow="System Administrator"
+        title="관리자"
+        actions={<button type="button" onClick={load}>새로고침</button>}
+      />
       <p className="muted-text">관리자 기능은 서버 권한으로 강제됩니다. 기존 업무 입력 권한을 관리자 권한으로 우회하지 않습니다.</p>
       {state.kind === 'loading' ? <p>대시보드를 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
-        <div className="admin-dashboard-grid">
-          <article className="admin-dashboard-card">
-            <span>승인 대기 사용자</span>
-            <strong>{state.data.pendingUserCount}건</strong>
+        <DsKpiGrid className="admin-dashboard-grid">
+          <DsKpiCard className="admin-dashboard-card" label="승인 대기 사용자" value={<>{state.data.pendingUserCount}건</>}>
             <p>역할이 부여되지 않은 Entra 사용자입니다.</p>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-users' })}>사용자 관리</button>
-          </article>
-          <article className="admin-dashboard-card" data-tone="danger">
-            <span>발송 실패</span>
-            <strong>{state.data.failedDeliveryCount}건</strong>
+          </DsKpiCard>
+          <DsKpiCard className="admin-dashboard-card" tone="danger" label="발송 실패" value={<>{state.data.failedDeliveryCount}건</>}>
             <p>외부 알림 발송이 실패한 건입니다. 상세에서 실패 채널, 수신자, 오류 사유를 확인하세요.</p>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Failed' })}>실패 알림 보기</button>
-          </article>
-          <article className="admin-dashboard-card" data-tone="warning">
-            <span>발송 대기</span>
-            <strong>{state.data.pendingDeliveryCount}건</strong>
+          </DsKpiCard>
+          <DsKpiCard className="admin-dashboard-card" tone="warning" label="발송 대기" value={<>{state.data.pendingDeliveryCount}건</>}>
             <p>아직 worker가 처리하지 않았거나 다음 재시도 시각을 기다리는 외부 알림입니다.</p>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Pending' })}>대기 알림 보기</button>
-          </article>
-          <article className="admin-dashboard-card" data-tone="warning">
-            <span>발송 처리 중</span>
-            <strong>{state.data.processingDeliveryCount}건</strong>
+          </DsKpiCard>
+          <DsKpiCard className="admin-dashboard-card" tone="warning" label="발송 처리 중" value={<>{state.data.processingDeliveryCount}건</>}>
             <p>한 worker가 claim lease 안에서 처리 중인 외부 알림입니다.</p>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Processing' })}>처리 중 알림 보기</button>
-          </article>
-          <article className="admin-dashboard-card">
-            <span>발송 완료</span>
-            <strong>{state.data.sentDeliveryCount}건</strong>
+          </DsKpiCard>
+          <DsKpiCard className="admin-dashboard-card" label="발송 완료" value={<>{state.data.sentDeliveryCount}건</>}>
             <p>외부 provider가 요청을 수락해 완료된 알림입니다.</p>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Sent' })}>완료 알림 보기</button>
-          </article>
-          <article className="admin-dashboard-card">
-            <span>마지막 일일 요약</span>
-            <strong>{formatNullableDateTime(state.data.lastDailyDigestSentAtUtc)}</strong>
+          </DsKpiCard>
+          <DsKpiCard className="admin-dashboard-card" label="마지막 일일 요약" value={formatNullableDateTime(state.data.lastDailyDigestSentAtUtc)}>
             <p>Daily Digest가 마지막으로 발송 또는 dry-run 처리된 시각입니다.</p>
-          </article>
-          <article className="admin-dashboard-card admin-dashboard-card-wide" data-tone="warning">
-            <span>진행 중 에스컬레이션</span>
-            <strong>{state.data.activeEscalationCount}건</strong>
+          </DsKpiCard>
+          <DsKpiCard className="admin-dashboard-card admin-dashboard-card-wide" tone="warning" label="진행 중 에스컬레이션" value={<>{state.data.activeEscalationCount}건</>}>
             <p>예정일 임박 또는 초과 상태로 아직 해소되지 않은 업무입니다. 완료/취소 시 해소됩니다.</p>
             <div className="escalation-level-breakdown" aria-label="에스컬레이션 단계별 건수">
               {dashboardEscalationLevels(state.data.activeEscalationLevels).map((item) => (
@@ -4419,14 +4528,12 @@ function AdminDashboardPage({
               ))}
             </div>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-work-item-escalations', status: 'Active' })}>진행 중 에스컬레이션 보기</button>
-          </article>
-          <article className="admin-dashboard-card">
-            <span>최근 기준정보 변경</span>
-            <strong>{state.data.recentMasterChangeCount}건</strong>
+          </DsKpiCard>
+          <DsKpiCard className="admin-dashboard-card" label="최근 기준정보 변경" value={<>{state.data.recentMasterChangeCount}건</>}>
             <p>최근 7일 기준정보 변경 이력입니다.</p>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-master-change-logs' })}>변경 이력 보기</button>
-          </article>
-        </div>
+          </DsKpiCard>
+        </DsKpiGrid>
       ) : null}
       <AdminSectionNav onNavigate={onNavigate} />
       <section className="subsection">
@@ -6362,13 +6469,12 @@ function AdminPageShell({
 
   return (
     <section className={`panel-section admin-mobile-page${showAllMobileFields ? ' admin-mobile-page--all-fields' : ''}`}>
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">{eyebrow}</p>
-          <h2>{title}</h2>
-        </div>
-        {onRefresh ? <button type="button" onClick={onRefresh}>새로고침</button> : null}
-      </div>
+      <DsPageHeader
+        className="page-header"
+        eyebrow={eyebrow}
+        title={title}
+        actions={onRefresh ? <button type="button" onClick={onRefresh}>새로고침</button> : null}
+      />
       {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
       {isMobile ? (
         <button
@@ -6751,16 +6857,15 @@ function MyWorkPage({
 
   return (
     <section className={isMobile ? 'page-surface workflow-page mobile-first-page' : 'page-surface workflow-page'}>
-      <div className={isMobile ? 'page-header mobile-page-header' : 'page-header'}>
-        <div>
-          <p className="eyebrow">{isMobile ? 'TODAY ACTIONS' : 'My Work'}</p>
-          <h2>{isMobile ? '오늘 처리할 업무' : '내 업무'}</h2>
-          {isMobile ? <p>긴급 업무부터 확인하고 카드 안에서 바로 처리하세요.</p> : null}
-        </div>
-        <div className="button-row page-export-actions">
+      <DsPageHeader
+        className={isMobile ? 'page-header mobile-page-header' : 'page-header'}
+        eyebrow={isMobile ? 'TODAY ACTIONS' : 'My Work'}
+        title={isMobile ? '오늘 처리할 업무' : '내 업무'}
+        description={isMobile ? '긴급 업무부터 확인하고 카드 안에서 바로 처리하세요.' : undefined}
+        actions={<div className="button-row page-export-actions">
           <button type="button" onClick={refresh}>새로고침</button>
-        </div>
-      </div>
+        </div>}
+      />
 
       {isMobile ? (
         <section className="mobile-focus-summary" aria-label="오늘 업무 요약">
@@ -6899,7 +7004,7 @@ function MyWorkPage({
                     </div>
                   ) : (
                     <div className="table-wrapper">
-                      <table>
+                      <table className="workflow-desktop-table">
                         <thead>
                           <tr>
                             <th>선택</th>
@@ -7001,17 +7106,16 @@ function TeamsActivityAuthFallback({
 
   return (
     <section className="page-surface workflow-page teams-activity-page">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Teams</p>
-          <h2>EMI 프로젝트 통합관리시스템 알림</h2>
-        </div>
-        <div className="button-row">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="Teams"
+        title="EMI 프로젝트 통합관리시스템 알림"
+        actions={<div className="button-row">
           <button type="button" onClick={onRetry}>다시 시도</button>
           {onLogin ? <button type="button" onClick={onLogin}>Microsoft 365 로그인</button> : null}
           {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
-        </div>
-      </div>
+        </div>}
+      />
       <div className="teams-activity-guide" role="note">
         <strong>Teams 알림 화면</strong>
         <p>{message}</p>
@@ -7080,17 +7184,16 @@ function TeamsActivityPage({
 
   return (
     <section className={isMobile ? 'page-surface workflow-page teams-activity-page mobile-operations-page' : 'page-surface workflow-page teams-activity-page'}>
-      <div className={isMobile ? 'page-header mobile-operations-header' : 'page-header'}>
-        <div>
-          <p className="eyebrow">{isMobile ? 'QUICK FEED' : 'Teams'}</p>
-          <h2>{isMobile ? '업무 피드' : 'EMI 프로젝트 통합관리시스템 알림'}</h2>
-          {isMobile ? <p>읽지 않은 알림과 미완료 업무를 한 번에 확인하세요.</p> : null}
-        </div>
-        <div className="button-row">
+      <DsPageHeader
+        className={isMobile ? 'page-header mobile-operations-header' : 'page-header'}
+        eyebrow={isMobile ? 'QUICK FEED' : 'Teams'}
+        title={isMobile ? '업무 피드' : 'EMI 프로젝트 통합관리시스템 알림'}
+        description={isMobile ? '읽지 않은 알림과 미완료 업무를 한 번에 확인하세요.' : undefined}
+        actions={<div className="button-row">
           <button type="button" onClick={onOpenHome}>시스템 홈</button>
           <button type="button" onClick={load}>새로고침</button>
-        </div>
-      </div>
+        </div>}
+      />
 
       <div className="teams-activity-guide" role="note">
         <strong>상세 안내</strong>
@@ -7251,16 +7354,15 @@ function TeamsActivityNotificationDetailPage({
 
   return (
     <section className="page-surface workflow-page teams-activity-page">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Teams</p>
-          <h2>알림 상세</h2>
-        </div>
-        <div className="button-row">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="Teams"
+        title="알림 상세"
+        actions={<div className="button-row">
           <button type="button" onClick={onBack}>전체 알림으로 돌아가기</button>
           <button type="button" onClick={load}>새로고침</button>
-        </div>
-      </div>
+        </div>}
+      />
 
       {state.kind === 'loading' ? <p className="muted-text">알림 상세를 불러오는 중입니다.</p> : null}
       {message ? <ActionFeedback message={message} tone={message.includes('실패') ? 'error' : 'success'} /> : null}
@@ -7345,16 +7447,15 @@ function TeamsActivityDeliveryDetailPage({
 
   return (
     <section className="page-surface workflow-page teams-activity-page">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Teams</p>
-          <h2>알림 상세</h2>
-        </div>
-        <div className="button-row">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="Teams"
+        title="알림 상세"
+        actions={<div className="button-row">
           <button type="button" onClick={onBack}>전체 알림으로 돌아가기</button>
           <button type="button" onClick={load}>새로고침</button>
-        </div>
-      </div>
+        </div>}
+      />
 
       {state.kind === 'loading' ? <p className="muted-text">알림 상세를 불러오는 중입니다.</p> : null}
       {state.kind !== 'ready' && state.kind !== 'loading' ? (
@@ -7548,13 +7649,12 @@ function NotificationsPage({
 
   return (
     <section className={isMobile ? 'page-surface workflow-page mobile-first-page' : 'page-surface workflow-page'}>
-      <div className={isMobile ? 'page-header mobile-page-header' : 'page-header'}>
-        <div>
-          <p className="eyebrow">{isMobile ? 'FIELD SIGNALS' : 'Notifications'}</p>
-          <h2>{isMobile ? '업무 알림' : '알림'}</h2>
-          {isMobile ? <p>읽지 않은 긴급 신호를 먼저 확인하세요.</p> : null}
-        </div>
-        <div className="page-action-cluster">
+      <DsPageHeader
+        className={isMobile ? 'page-header mobile-page-header' : 'page-header'}
+        eyebrow={isMobile ? 'FIELD SIGNALS' : 'Notifications'}
+        title={isMobile ? '업무 알림' : '알림'}
+        description={isMobile ? '읽지 않은 긴급 신호를 먼저 확인하세요.' : undefined}
+        actions={<div className="page-action-cluster">
           <div className="button-row">
             <button type="button" className="secondary-button" onClick={onOpenPreferences}>알림 설정</button>
             <button type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>
@@ -7563,8 +7663,8 @@ function NotificationsPage({
             <button type="button" onClick={refresh}>새로고침</button>
           </div>
           {allNotificationsFeedback ? <ActionFeedback message={allNotificationsFeedback.message} tone={allNotificationsFeedback.tone} focusOnAttention /> : null}
-        </div>
-      </div>
+        </div>}
+      />
 
       {isMobile ? (
         <section className="mobile-focus-summary mobile-focus-summary--notifications" aria-label="알림 우선순위">
@@ -7678,7 +7778,7 @@ function NotificationsPage({
                 </div>
               ) : (
                 <div className="table-wrapper">
-                  <table>
+                  <table className="notification-desktop-table">
                     <thead>
                       <tr>
                         <th>선택</th>
@@ -7757,12 +7857,7 @@ function NotificationStatusBadges({ item }: { item: NotificationItem }) {
 }
 
 function KpiCard({ label, value, tone }: { label: string; value: string; tone?: 'danger' }) {
-  return (
-    <article className="dashboard-kpi-card" data-variant={tone === 'danger' ? 'warning' : undefined}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
-  );
+  return <DsKpiCard className="dashboard-kpi-card" label={label} value={value} tone={tone} />;
 }
 
 type StatusTone = 'danger' | 'warning' | 'info' | 'success' | 'neutral';
@@ -7771,40 +7866,7 @@ function StatusBadge({ label, tone }: { label: string; tone?: StatusTone }) {
   return <span className="status-badge" data-tone={tone}>{label}</span>;
 }
 
-function ActionFeedback({
-  message,
-  tone = 'neutral',
-  focusOnAttention = false
-}: {
-  message: string;
-  tone?: ActionFeedbackTone;
-  focusOnAttention?: boolean;
-}) {
-  const feedbackRef = useRef<HTMLParagraphElement>(null);
-
-  useEffect(() => {
-    if (focusOnAttention && message && (tone === 'error' || tone === 'partial')) {
-      feedbackRef.current?.focus();
-    }
-  }, [focusOnAttention, message, tone]);
-
-  if (!message) {
-    return null;
-  }
-
-  return (
-    <p
-      ref={feedbackRef}
-      className="action-feedback"
-      data-tone={tone}
-      role={tone === 'error' ? 'alert' : 'status'}
-      aria-live={tone === 'error' ? 'assertive' : 'polite'}
-      tabIndex={focusOnAttention ? -1 : undefined}
-    >
-      {message}
-    </p>
-  );
-}
+/* ActionFeedback now lives in the design system (imported above as ActionFeedback). */
 
 function formatBadgeCount(value: number) {
   return value > 99 ? '99+' : String(value);
@@ -8187,13 +8249,12 @@ function ProjectListPage({
 
   return (
     <section className={isMobile ? 'page-surface project-list-page mobile-first-page mobile-project-list-page' : 'page-surface project-list-page'}>
-      <div className={isMobile ? 'page-header mobile-page-header' : 'page-header'}>
-        <div>
-          <p className="eyebrow">{isMobile ? 'FIELD PROJECTS' : '프로젝트 관리'}</p>
-          <h2>{isMobile ? '현장 프로젝트' : '프로젝트 목록'}</h2>
-          {isMobile ? <p>병목과 납기를 먼저 보고 필요한 프로젝트를 선택하세요.</p> : null}
-        </div>
-        <div className={isMobile ? 'mobile-page-actions page-export-actions' : 'button-row page-export-actions'}>
+      <DsPageHeader
+        className={isMobile ? 'page-header mobile-page-header' : 'page-header'}
+        eyebrow={isMobile ? 'FIELD PROJECTS' : '프로젝트 관리'}
+        title={isMobile ? '현장 프로젝트' : '프로젝트 목록'}
+        description={isMobile ? '병목과 납기를 먼저 보고 필요한 프로젝트를 선택하세요.' : undefined}
+        actions={<div className={isMobile ? 'mobile-page-actions page-export-actions' : 'button-row page-export-actions'}>
           {canCreate ? (
             isMobile ? (
               <>
@@ -8218,8 +8279,8 @@ function ProjectListPage({
               </>
             )
           ) : null}
-        </div>
-      </div>
+        </div>}
+      />
 
       {isMobile ? (
         <>
@@ -8487,7 +8548,7 @@ function ProjectExcelDialog({
   const canApply = !disabledReason;
 
   return (
-    <DialogBackdrop ariaLabel="프로젝트 Excel 업로드" onClose={onClose} closeDisabled={isPreviewing || isApplying}>
+    <DsDialog label="프로젝트 Excel 업로드" onClose={onClose} closeDisabled={isPreviewing || isApplying}>
       <div className="dialog wide-dialog">
         <div className="subsection-header">
           <h3>프로젝트 Excel 업로드</h3>
@@ -8521,37 +8582,11 @@ function ProjectExcelDialog({
         ) : null}
         {message ? <p role="alert" className="error-text">{message}</p> : null}
       </div>
-    </DialogBackdrop>
+    </DsDialog>
   );
 }
 
-function DialogBackdrop({
-  ariaLabel,
-  closeDisabled = false,
-  onClose,
-  children
-}: {
-  ariaLabel: string;
-  closeDisabled?: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="dialog-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-label={ariaLabel}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !closeDisabled) {
-          onClose();
-        }
-      }}
-    >
-      {children}
-    </div>
-  );
-}
+/* DialogBackdrop now lives in the design system as DsDialog. */
 
 function ProjectExcelPreviewDesktop({ rows }: { rows: ProjectExcelPreviewResponse['rows'] }) {
   return (
@@ -9159,13 +9194,12 @@ function ProjectCreatePage({
 
   return (
     <section className="page-surface">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Sales</p>
-          <h2>프로젝트 등록</h2>
-        </div>
-        <button type="button" onClick={onCancel}>목록</button>
-      </div>
+      <DsPageHeader
+        className="page-header"
+        eyebrow="Sales"
+        title="프로젝트 등록"
+        actions={<button type="button" onClick={onCancel}>목록</button>}
+      />
       <ProjectForm
         form={form}
         owners={owners}
@@ -9494,7 +9528,7 @@ function ProjectDetailPage({
   }
 
   if (projectState.kind === 'loading') {
-    return <section className="page-surface"><p className="muted-text">Loading</p></section>;
+    return <section className="page-surface"><DsStatePanel kind="loading" description="Loading" /></section>;
   }
 
   if (projectState.kind !== 'ready') {
@@ -11042,7 +11076,6 @@ function ProductionPlanningDashboardPage({
   canUpdateProductionPlanning,
   workspace,
   initialProjectId,
-  onBack,
   onOpenSettings,
   onOpenProject,
   onEditProject
@@ -11051,7 +11084,6 @@ function ProductionPlanningDashboardPage({
   canUpdateProductionPlanning: boolean;
   workspace: 'planning' | 'release';
   initialProjectId?: string;
-  onBack: () => void;
   onOpenSettings: () => void;
   onOpenProject: (projectId: string) => void;
   onEditProject: (projectId: string) => void;
@@ -11139,15 +11171,13 @@ function ProductionPlanningDashboardPage({
 
   return (
     <section className={isMobile ? 'page-surface production-dashboard-page mobile-operations-page production-mobile-page' : 'page-surface production-dashboard-page'}>
-      {!isMobile ? <DsBreadcrumbs items={[{ label: '업무 선택', onClick: onBack }]} current={workspaceTab === 'planning' ? '생산계획' : '제조 투입'} /> : null}
-      <div className={isMobile ? 'page-header mobile-operations-header' : 'page-header'}>
-        <div>
-          <p className="eyebrow">{isMobile ? 'PRODUCTION CONTROL' : '생산관리'}</p>
-          <h2>생산관리</h2>
-          <p>{workspaceTab === 'planning' ? '일정과 담당자를 관리합니다.' : '실제 투입할 패널을 선택해 제조팀에 전달합니다.'}</p>
-        </div>
-        <div className="button-row">
-          {isMobile ? <button type="button" onClick={onBack}>업무 선택</button> : null}
+      {!isMobile ? <DsBreadcrumbs items={[{ label: '생산관리' }]} current={workspaceTab === 'planning' ? '생산계획' : '제조 투입'} /> : null}
+      <DsPageHeader
+        className={isMobile ? 'page-header mobile-operations-header' : 'page-header'}
+        eyebrow={isMobile ? 'PRODUCTION CONTROL' : '생산관리'}
+        title="생산관리"
+        description={workspaceTab === 'planning' ? '일정과 담당자를 관리합니다.' : '실제 투입할 패널을 선택해 제조팀에 전달합니다.'}
+        actions={<div className="button-row">
           {workspaceTab === 'planning' && canUpdateProductionPlanning && !isMobile ? (
             <DsSecondaryTools>
               <button type="button" onClick={onOpenSettings}>생산계획 단계 설정</button>
@@ -11155,8 +11185,8 @@ function ProductionPlanningDashboardPage({
               <button type="button" onClick={() => setShowExcelDialog(true)}>Excel 업로드</button>
             </DsSecondaryTools>
           ) : null}
-        </div>
-      </div>
+        </div>}
+      />
 
       {!canUpdateProductionPlanning ? <DsReadOnlyBanner description={`${workspaceTab === 'planning' ? '생산계획' : '제조 투입'} 현황을 조회할 수 있습니다. 입력과 수정은 생산관리 담당자에게 요청하세요.`} /> : null}
 
@@ -11623,16 +11653,15 @@ function ProductionPlanningSettingsPage({
 
   return (
     <section className="page-surface">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Production Planning</p>
-          <h2>생산계획 단계 설정</h2>
-        </div>
-        <div className="button-row">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="Production Planning"
+        title="생산계획 단계 설정"
+        actions={<div className="button-row">
           <button type="button" onClick={onBack}>생산관리</button>
           <button type="button" className="primary-button" disabled={isSaving || !selected} onClick={save}>{isSaving ? '저장 중' : '저장'}</button>
-        </div>
-      </div>
+        </div>}
+      />
       <p className="info-text">
         생산계획 단계 설정은 이후 새로 작성되는 생산계획부터 적용됩니다. 이미 작성된 프로젝트 생산계획은 자동으로 변경되지 않습니다.
       </p>
@@ -11808,16 +11837,15 @@ function ProcurementRequiredItemSettingsPage({
 
   return (
     <section className="page-surface production-settings-page">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Procurement Settings</p>
-          <h2>구매 필수 항목 설정</h2>
-        </div>
-        <div className="button-row">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="Procurement Settings"
+        title="구매 필수 항목 설정"
+        actions={<div className="button-row">
           <button type="button" onClick={onBack}>구매 페이지</button>
           {canUpdateProcurement ? <button type="button" className="primary-button" onClick={save}>저장</button> : null}
-        </div>
-      </div>
+        </div>}
+      />
 
       <p className="info-text">
         Item별 필수 구매 항목 설정은 이후 새 프로젝트의 구매정보 기본 row와 구매정보 완료 여부 판단에 사용됩니다. 기존 프로젝트 구매 row는 자동으로 변경되지 않습니다.
@@ -11988,7 +12016,7 @@ function ProductionPlanningExcelDialog({
   const canApply = preview !== null && preview.saveableCount > 0 && !isApplying;
 
   return (
-    <DialogBackdrop ariaLabel="생산계획 Excel 업로드" onClose={onClose} closeDisabled={isPreviewing || isApplying}>
+    <DsDialog label="생산계획 Excel 업로드" onClose={onClose} closeDisabled={isPreviewing || isApplying}>
       <div className="dialog wide-dialog production-excel-dialog">
         <div className="subsection-header">
           <div>
@@ -12022,7 +12050,7 @@ function ProductionPlanningExcelDialog({
         ) : null}
         {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
       </div>
-    </DialogBackdrop>
+    </DsDialog>
   );
 }
 
@@ -13593,13 +13621,12 @@ function ProcurementDashboardPage({
   return (
     <section className={isMobile ? 'page-surface procurement-section mobile-operations-page procurement-mobile-page' : 'page-surface procurement-section'}>
       {!isMobile ? <DsBreadcrumbs items={[{ label: '프로젝트', onClick: onBack }]} current="구매" /> : null}
-      <div className={isMobile ? 'page-header mobile-operations-header' : 'page-header'}>
-        <div>
-          <p className="eyebrow">{isMobile ? 'SUPPLY WATCH' : '구매 프로젝트'}</p>
-          <h2>구매</h2>
-          {isMobile ? <p>입고 지연과 미완료 품목을 먼저 확인하세요.</p> : null}
-        </div>
-        <div className="button-row">
+      <DsPageHeader
+        className={isMobile ? 'page-header mobile-operations-header' : 'page-header'}
+        eyebrow={isMobile ? 'SUPPLY WATCH' : '구매 프로젝트'}
+        title="구매"
+        description={isMobile ? '입고 지연과 미완료 품목을 먼저 확인하세요.' : undefined}
+        actions={<div className="button-row">
           {isMobile ? <button type="button" onClick={onBack}>프로젝트 목록</button> : null}
           {canUpdateProcurement && !isMobile ? (
             <DsSecondaryTools>
@@ -13610,8 +13637,8 @@ function ProcurementDashboardPage({
               <button type="button" className="primary-button" onClick={() => setShowExcel(true)}>Excel 업로드</button>
             </DsSecondaryTools>
           ) : null}
-        </div>
-      </div>
+        </div>}
+      />
       {!canUpdateProcurement ? <DsReadOnlyBanner description="구매정보를 조회할 수 있습니다. 신규 입력과 수정은 구매 담당자에게 요청하세요." /> : null}
       {downloadMessage ? <p className="form-message">{downloadMessage}</p> : null}
       {state.kind === 'ready' && state.data.truncated ? (
@@ -14629,7 +14656,7 @@ function ProcurementExcelDialog({
   }, [preview, reason]);
 
   return (
-    <DialogBackdrop ariaLabel="구매 Excel 업로드" onClose={onClose} closeDisabled={isPreviewing || isApplying}>
+    <DsDialog label="구매 Excel 업로드" onClose={onClose} closeDisabled={isPreviewing || isApplying}>
       <div
         className="dialog wide-dialog"
         style={{ '--excel-action-bar-offset': `${actionBarOffset}px` } as React.CSSProperties}
@@ -14686,7 +14713,7 @@ function ProcurementExcelDialog({
         ) : null}
         {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
       </div>
-    </DialogBackdrop>
+    </DsDialog>
   );
 }
 
@@ -15118,7 +15145,7 @@ function PanelInformationEditPage({
   }, [developmentUserKey, projectId]);
 
   if (targetState.kind === 'loading') {
-    return <section className="page-surface"><p className="muted-text">설계 수정 화면을 불러오는 중입니다.</p></section>;
+    return <section className="page-surface"><DsStatePanel kind="loading" description="설계 수정 화면을 불러오는 중입니다." /></section>;
   }
 
   if (targetState.kind !== 'ready') {
@@ -15145,14 +15172,13 @@ function PanelInformationEditPage({
   return (
     <section className="page-surface ul891-design-edit-page">
       <DsBreadcrumbs items={[{ label: '프로젝트 설계', onClick: onBack }]} current="UL891 세트 설계 수정" />
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">UL891 설계 입력</p>
-          <h2>{targetState.data.project.projectTitle}</h2>
-          <p>세트 사양별 공통 패널정보를 수정합니다. 임시저장은 계속 편집할 수 있고, 저장하면 제조 시작 기준으로 반영됩니다.</p>
-        </div>
-        <button type="button" onClick={onBack}>설계 탭으로 돌아가기</button>
-      </div>
+      <DsPageHeader
+        className="page-header"
+        eyebrow="UL891 설계 입력"
+        title={targetState.data.project.projectTitle}
+        description="세트 사양별 공통 패널정보를 수정합니다. 임시저장은 계속 편집할 수 있고, 저장하면 제조 시작 기준으로 반영됩니다."
+        actions={<button type="button" onClick={onBack}>설계 탭으로 돌아가기</button>}
+      />
       <ProjectContextSummary project={targetState.data.project} />
       {!canEdit ? <DsReadOnlyBanner description="현재 프로젝트 상태에서는 설계정보를 수정할 수 없습니다." /> : null}
       <Ul891SetWorkspace
@@ -15360,7 +15386,7 @@ function FlatPanelInformationEditPage({
   }
 
   if (projectState.kind === 'loading' || state.kind === 'loading') {
-    return <section className="page-surface"><p className="muted-text">Loading</p></section>;
+    return <section className="page-surface"><DsStatePanel kind="loading" description="Loading" /></section>;
   }
 
   if (projectState.kind !== 'ready') {
@@ -15654,7 +15680,7 @@ function PanelDuplicateNameConfirmDialog({
   onConfirm: () => void;
 }) {
   return (
-    <DialogBackdrop ariaLabel="중복 패널명 확인" onClose={onCancel} closeDisabled={isSaving}>
+    <DsDialog label="중복 패널명 확인" onClose={onCancel} closeDisabled={isSaving}>
       <div className="dialog" data-testid="duplicate-panel-name-dialog">
         <div className="subsection-header">
           <h3>중복된 패널명이 있습니다.</h3>
@@ -15678,7 +15704,7 @@ function PanelDuplicateNameConfirmDialog({
           </button>
         </div>
       </div>
-    </DialogBackdrop>
+    </DsDialog>
   );
 }
 
@@ -15788,7 +15814,7 @@ function PanelInformationExcelDialog({
   const applyDisabledReason = panelExcelApplyDisabledReason(preview, file, reason, isApplying);
 
   return (
-    <DialogBackdrop ariaLabel="Excel 업로드" onClose={onClose} closeDisabled={isPreviewing || isApplying}>
+    <DsDialog label="Excel 업로드" onClose={onClose} closeDisabled={isPreviewing || isApplying}>
       <div className="dialog wide-dialog">
         <div className="subsection-header">
           <h3>Excel 업로드</h3>
@@ -15845,7 +15871,7 @@ function PanelInformationExcelDialog({
         ) : null}
         {message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : null}
       </div>
-    </DialogBackdrop>
+    </DsDialog>
   );
 }
 
@@ -16020,7 +16046,7 @@ function ProjectEditPage({
   }
 
   if (projectState.kind === 'loading') {
-    return <section className="page-surface"><p className="muted-text">프로젝트 정보를 불러오는 중입니다.</p></section>;
+    return <section className="page-surface"><DsStatePanel kind="loading" description="프로젝트 정보를 불러오는 중입니다." /></section>;
   }
 
   if (projectState.kind !== 'ready') {
@@ -16034,13 +16060,12 @@ function ProjectEditPage({
 
   return (
     <section className="page-surface">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Sales</p>
-          <h2>프로젝트 수정</h2>
-        </div>
-        <button type="button" onClick={onCancel}>상세</button>
-      </div>
+      <DsPageHeader
+        className="page-header"
+        eyebrow="Sales"
+        title="프로젝트 수정"
+        actions={<button type="button" onClick={onCancel}>상세</button>}
+      />
 
       <ProjectForm
         form={form}
@@ -16176,13 +16201,12 @@ function PanelPlaceholderDetailPage({
 
   return (
     <section className="page-surface panel-workspace-page">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">PANEL WORKSPACE</p>
-          <h2>{state.kind === 'ready' ? `${state.data.panel.displayCode} 패널 상세` : '패널 상세'}</h2>
-        </div>
-        <button type="button" onClick={onBack}>프로젝트</button>
-      </div>
+      <DsPageHeader
+        className="page-header"
+        eyebrow="PANEL WORKSPACE"
+        title={state.kind === 'ready' ? `${state.data.panel.displayCode} 패널 상세` : '패널 상세'}
+        actions={<button type="button" onClick={onBack}>프로젝트</button>}
+      />
       {state.kind === 'loading' ? <p className="muted-text">패널 업무 데이터를 불러오는 중입니다.</p> : null}
       {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
       {ready && panelRecords ? (
@@ -16492,7 +16516,7 @@ function DeletedProjectDetailPage({
   }, [developmentUserKey, projectId]);
 
   if (state.kind === 'loading') {
-    return <section className="page-surface"><p className="muted-text">Loading</p></section>;
+    return <section className="page-surface"><DsStatePanel kind="loading" description="Loading" /></section>;
   }
 
   if (state.kind !== 'ready') {
@@ -16533,13 +16557,12 @@ function DeletedProjectDetailPage({
 
   return (
     <section className="page-surface deleted-surface">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Deleted Archive</p>
-          <h2>{project.projectTitle}</h2>
-        </div>
-        <button type="button" onClick={onBack}>목록</button>
-      </div>
+      <DsPageHeader
+        className="page-header"
+        eyebrow="Deleted Archive"
+        title={project.projectTitle}
+        actions={<button type="button" onClick={onBack}>목록</button>}
+      />
 
       <ProjectSummary project={project} canReadSalesAmount={canReadSalesAmount} />
       <dl className="detail-grid">
@@ -17257,7 +17280,7 @@ function StatusReasonDialog({
   }[action];
 
   return (
-    <DialogBackdrop ariaLabel={title} onClose={onCancel} closeDisabled={isSaving}>
+    <DsDialog label={title} onClose={onCancel} closeDisabled={isSaving}>
       <div className="dialog">
         <h3>{title}</h3>
         <label className="form-field">
@@ -17272,7 +17295,7 @@ function StatusReasonDialog({
           </button>
         </div>
       </div>
-    </DialogBackdrop>
+    </DsDialog>
   );
 }
 
@@ -17298,7 +17321,7 @@ function DeleteProjectDialog({
   onSubmit: () => void;
 }) {
   return (
-    <DialogBackdrop ariaLabel="프로젝트 삭제" onClose={onCancel} closeDisabled={isSaving}>
+    <DsDialog label="프로젝트 삭제" onClose={onCancel} closeDisabled={isSaving}>
       <div className="dialog">
         <h3>프로젝트 삭제</h3>
         <p className="warning-text">
@@ -17321,7 +17344,7 @@ function DeleteProjectDialog({
           </button>
         </div>
       </div>
-    </DialogBackdrop>
+    </DsDialog>
   );
 }
 
@@ -17518,15 +17541,15 @@ function StatusChip({ label, value, tone }: { label: string; value: string; tone
 
 function StateMessage<T>({ state }: { state: LoadState<T> }) {
   if (state.kind === 'forbidden') {
-    return <p role="alert" className="error-text">권한이 없습니다.</p>;
+    return <DsStatePanel kind="forbidden" description="권한이 없습니다." />;
   }
 
   if (state.kind === 'not-found') {
-    return <p role="alert" className="error-text">대상을 찾을 수 없습니다.</p>;
+    return <DsStatePanel kind="not-found" description="대상을 찾을 수 없습니다." />;
   }
 
   if (state.kind === 'error') {
-    return <p role="alert" className="error-text">{state.message}</p>;
+    return <DsStatePanel kind="error" description={state.message} />;
   }
 
   return null;

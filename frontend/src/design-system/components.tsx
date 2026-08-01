@@ -1,4 +1,181 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+
+export type DsStatePanelKind = 'loading' | 'empty' | 'error' | 'forbidden' | 'not-found';
+
+const statePanelMarks: Record<DsStatePanelKind, string> = {
+  loading: '…',
+  empty: '—',
+  error: '!',
+  forbidden: '!',
+  'not-found': '!'
+};
+
+export function DsStatePanel({
+  kind,
+  title,
+  description,
+  action,
+  className = ''
+}: {
+  kind: DsStatePanelKind;
+  title?: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
+  className?: string;
+}) {
+  const isAlert = kind === 'error' || kind === 'forbidden' || kind === 'not-found';
+
+  return (
+    <div
+      className={`ds-state-panel ${className}`.trim()}
+      data-kind={kind}
+      role={isAlert ? undefined : 'status'}
+    >
+      <span className="ds-state-panel__mark" aria-hidden="true">{statePanelMarks[kind]}</span>
+      <div className="ds-state-panel__copy">
+        {title ? <strong className="ds-state-panel__title">{title}</strong> : null}
+        {description !== undefined && description !== null
+          ? isAlert
+            ? <p role="alert" className="ds-state-panel__message error-text">{description}</p>
+            : <p className="ds-state-panel__message">{description}</p>
+          : null}
+        {kind === 'loading'
+          ? <span className="ds-state-panel__bars" aria-hidden="true"><i /><i /><i /></span>
+          : null}
+      </div>
+      {action ? <div className="ds-state-panel__action">{action}</div> : null}
+    </div>
+  );
+}
+
+/*
+ * Modal shell shared by every dialog: scrimmed backdrop that closes on
+ * outside mousedown (unless closeDisabled), role/aria-modal on the backdrop,
+ * name via aria-label or aria-labelledby. Children provide the .dialog box.
+ */
+export function DsDialog({
+  label,
+  labelledBy,
+  onClose,
+  closeDisabled = false,
+  className = '',
+  children
+}: {
+  label?: string;
+  labelledBy?: string;
+  onClose: () => void;
+  closeDisabled?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`dialog-backdrop ${className}`.trim()}
+      role="dialog"
+      aria-modal="true"
+      aria-label={label}
+      aria-labelledby={labelledBy}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !closeDisabled) {
+          onClose();
+        }
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function DsKpiGrid({
+  children,
+  className = '',
+  label
+}: {
+  children: ReactNode;
+  className?: string;
+  label?: string;
+}) {
+  return <div className={`ds-kpi-grid ${className}`.trim()} aria-label={label}>{children}</div>;
+}
+
+export function DsKpiCard({
+  label,
+  value,
+  hint,
+  tone,
+  onClick,
+  as = 'article',
+  className = '',
+  children
+}: {
+  label: ReactNode;
+  value: ReactNode;
+  hint?: ReactNode;
+  tone?: string;
+  onClick?: () => void;
+  as?: 'article' | 'div';
+  className?: string;
+  children?: ReactNode;
+}) {
+  const body = (
+    <>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {hint ? <small className="ds-kpi-card__hint">{hint}</small> : null}
+      {children}
+    </>
+  );
+  const cardClassName = `ds-kpi-card ${className}`.trim();
+
+  if (onClick) {
+    return <button type="button" className={cardClassName} data-tone={tone} onClick={onClick}>{body}</button>;
+  }
+
+  if (as === 'div') {
+    return <div className={cardClassName} data-tone={tone}>{body}</div>;
+  }
+
+  return <article className={cardClassName} data-tone={tone}>{body}</article>;
+}
+
+export type DsActionFeedbackTone = 'neutral' | 'loading' | 'success' | 'error' | 'partial' | 'info';
+
+export function DsActionFeedback({
+  message,
+  tone = 'neutral',
+  focusOnAttention = false,
+  className = ''
+}: {
+  message: string;
+  tone?: DsActionFeedbackTone;
+  focusOnAttention?: boolean;
+  className?: string;
+}) {
+  const feedbackRef = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    if (focusOnAttention && message && (tone === 'error' || tone === 'partial')) {
+      feedbackRef.current?.focus();
+    }
+  }, [focusOnAttention, message, tone]);
+
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <p
+      ref={feedbackRef}
+      className={`action-feedback ${className}`.trim()}
+      data-tone={tone}
+      role={tone === 'error' ? 'alert' : 'status'}
+      aria-live={tone === 'error' ? 'assertive' : 'polite'}
+      tabIndex={focusOnAttention ? -1 : undefined}
+    >
+      {message}
+    </p>
+  );
+}
 
 export function DsBreadcrumbs({
   items,
@@ -148,19 +325,18 @@ export function DsEmptyState({
   secondaryAction?: { label: string; onClick: () => void };
 }) {
   return (
-    <div className="ds-empty-state" role="status">
-      <span aria-hidden="true">0</span>
-      <div>
-        <strong>{title}</strong>
-        <p>{description}</p>
-      </div>
-      {primaryAction || secondaryAction ? (
-        <div>
+    <DsStatePanel
+      kind="empty"
+      className="ds-empty-state--legacy"
+      title={title}
+      description={description}
+      action={primaryAction || secondaryAction ? (
+        <>
           {secondaryAction ? <button type="button" onClick={secondaryAction.onClick}>{secondaryAction.label}</button> : null}
           {primaryAction ? <button type="button" className="primary-button" onClick={primaryAction.onClick}>{primaryAction.label}</button> : null}
-        </div>
-      ) : null}
-    </div>
+        </>
+      ) : undefined}
+    />
   );
 }
 

@@ -1,14 +1,44 @@
-/* DESIGN-000 Change 001: monochrome, square wireframe presentation layer. */
+/*
+ * FABLE Graphite — precision monochrome wireframe, generation 2.
+ * Replaces DESIGN-000 Change 001 flattening with an intentional system:
+ * hairline structure, confident black, compact radii, tabular numerals,
+ * depth only on floating layers, and color reserved for semantic status.
+ * This file is the single visual authority; it loads last in the cascade.
+ */
+
+/* ── 00 · Tokens ─────────────────────────────────────────────────────── */
 :root {
   --wire-black: #111111;
-  --wire-ink: #1f1f1f;
-  --wire-muted: #666666;
-  --wire-faint: #8a8a8a;
-  --wire-line: #c8c8c8;
-  --wire-line-strong: #8f8f8f;
-  --wire-canvas: #f4f4f4;
+  --wire-ink: #1a1a1a;
+  --wire-muted: #555555;
+  --wire-faint: #757575;
+  --wire-line: #e4e4e4;
+  --wire-line-strong: #d0d0d0;
+  --wire-hairline: #eeeeee;
+  --wire-canvas: #fafafa;
   --wire-surface: #ffffff;
-  --wire-subtle: #eeeeee;
+  --wire-subtle: #f5f5f5;
+
+  --wire-radius-tag: 4px;
+  --wire-radius-control: 6px;
+  --wire-radius-surface: 10px;
+  --wire-radius-overlay: 14px;
+  --wire-shadow-menu: 0 8px 24px rgb(17 17 17 / 10%);
+  --wire-shadow-overlay: 0 24px 64px rgb(17 17 17 / 16%);
+  --wire-scrim: rgb(17 17 17 / 44%);
+
+  --wire-status-success-bg: #f0f8f3;
+  --wire-status-success-line: #cbe5d4;
+  --wire-status-success-text: #1d6f45;
+  --wire-status-danger-bg: #fcf1f2;
+  --wire-status-danger-line: #eecdd2;
+  --wire-status-danger-text: #ab2231;
+  --wire-status-warning-bg: #fbf5e6;
+  --wire-status-warning-line: #e8d9b0;
+  --wire-status-warning-text: #7d5a10;
+  --wire-status-info-bg: #f0f4fb;
+  --wire-status-info-line: #ccd9ee;
+  --wire-status-info-text: #2f5591;
 
   --auth-brand: var(--wire-black);
   --auth-brand-glow: #3a3a3a;
@@ -21,21 +51,21 @@
   --brand-red-wash: #f7f7f7;
   --canvas: var(--wire-canvas);
   --surface: var(--wire-surface);
-  --surface-subtle: #fafafa;
+  --surface-subtle: #fcfcfc;
   --ink: var(--wire-ink);
   --muted: var(--wire-muted);
   --line: var(--wire-line);
   --line-strong: var(--wire-line-strong);
   --shadow-soft: none;
   --shadow-card: none;
-  --radius-shell: 0;
-  --radius-card: 0;
-  --radius-control: 0;
+  --radius-shell: var(--wire-radius-surface);
+  --radius-card: 8px;
+  --radius-control: var(--wire-radius-control);
 
   --ds-color-canvas: var(--wire-canvas);
   --ds-color-surface: var(--wire-surface);
-  --ds-color-surface-subtle: #fafafa;
-  --ds-color-surface-active: #e5e5e5;
+  --ds-color-surface-subtle: #fcfcfc;
+  --ds-color-surface-active: #efefef;
   --ds-color-primary: var(--wire-black);
   --ds-color-primary-hover: #2b2b2b;
   --ds-color-primary-strong: #000000;
@@ -45,18 +75,29 @@
   --ds-color-text-faint: var(--wire-faint);
   --ds-color-border: var(--wire-line);
   --ds-color-border-strong: var(--wire-line-strong);
-  --ds-radius-xs: 0;
-  --ds-radius-sm: 0;
-  --ds-radius-md: 0;
-  --ds-radius-lg: 0;
-  --ds-radius-pill: 2px;
-  --ds-shape-surface-radius: 0;
-  --ds-shape-control-radius: 0;
-  --ds-shape-active-radius: 0;
+  --ds-color-danger: var(--wire-status-danger-text);
+  --ds-color-danger-soft: var(--wire-status-danger-bg);
+  --ds-color-warning: var(--wire-status-warning-text);
+  --ds-color-warning-soft: var(--wire-status-warning-bg);
+  --ds-color-success: var(--wire-status-success-text);
+  --ds-color-success-soft: var(--wire-status-success-bg);
+  --ds-radius-xs: 4px;
+  --ds-radius-sm: 6px;
+  --ds-radius-md: 8px;
+  --ds-radius-lg: 10px;
+  --ds-radius-pill: 999px;
+  --ds-shape-surface-radius: 10px;
+  --ds-shape-control-radius: 6px;
+  --ds-shape-active-radius: 10px;
+  --ds-shape-warning-cut: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
   --ds-shadow-surface: none;
-  --ds-shadow-overlay: none;
+  --ds-shadow-overlay: var(--wire-shadow-overlay);
+  --ds-sidebar-width: 208px;
+  --ds-topbar-height: 56px;
+  --ds-font-size-title: 20px;
 }
 
+/* ── 01 · Canvas and base typography ─────────────────────────────────── */
 html,
 body,
 #root {
@@ -80,20 +121,23 @@ body,
   --preference-soft: var(--wire-subtle);
   --logistics-coral: #555555;
   --logistics-ink: var(--wire-ink);
-  --logistics-mint: #ededed;
+  --logistics-mint: #f0f0f0;
   --logistics-navy: var(--wire-black);
-  --logistics-sand: #f4f4f4;
+  --logistics-sand: var(--wire-canvas);
   --logistics-teal: #444444;
   color: var(--wire-ink);
   background: var(--wire-canvas);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-/* A wireframe uses borders, not elevation or decorative color, for hierarchy. */
 .app-shell *,
 .auth-gate * {
   text-shadow: none !important;
 }
 
+/* ── 02 · Blanket monochrome normalization ───────────────────────────── */
+/* Graphite uses hairlines and tone, not decorative color, for hierarchy. */
 .app-shell * {
   border-color: var(--wire-line) !important;
   border-radius: 0 !important;
@@ -103,6 +147,14 @@ body,
 
 .app-shell :where(p, small, label, .eyebrow, [class*='muted'], [class*='description'], [class*='meta']) {
   color: var(--wire-muted) !important;
+}
+
+.app-shell :where(.eyebrow, [class*='eyebrow']) {
+  color: var(--wire-faint) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .app-shell :where(
@@ -131,10 +183,31 @@ body,
   [class*='hero']
 ) {
   border-color: var(--wire-line) !important;
-  border-radius: 0 !important;
   background-color: var(--wire-surface) !important;
   background-image: none !important;
   box-shadow: none !important;
+}
+
+/* Compact radius scale, assigned by role (later rules win over the reset). */
+.app-shell :where(
+  article,
+  section,
+  aside,
+  fieldset,
+  details,
+  dialog,
+  [class*='card'],
+  [class*='panel'],
+  [class*='surface'],
+  [class*='workspace'],
+  [class*='toolbar'],
+  [class*='hero'],
+  [class*='banner'],
+  [class*='widget'],
+  [class*='guidance'],
+  [class*='note']
+) {
+  border-radius: var(--wire-radius-surface) !important;
 }
 
 .app-shell :where(
@@ -149,8 +222,50 @@ body,
   [class*='pill'],
   [class*='toggle']
 ) {
-  border-radius: 0 !important;
+  border-radius: var(--wire-radius-control) !important;
   box-shadow: none !important;
+}
+
+.app-shell :where(span, i, em, b) {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+.app-shell :where(h1, h2, h3, h4) {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.app-shell :where(h3) {
+  font-size: 16px;
+}
+
+.app-shell :where(h4) {
+  font-size: 14px;
+}
+
+.app-shell :where(.muted-text, .empty-text) {
+  color: var(--wire-muted) !important;
+  font-weight: 400 !important;
+}
+
+.app-shell :where(.error-text) {
+  color: var(--wire-status-danger-text) !important;
+  font-weight: 600 !important;
+}
+
+.app-shell ::selection {
+  background: var(--wire-black);
+  color: #ffffff;
+}
+
+/* ── 03 · Controls ───────────────────────────────────────────────────── */
+.app-shell button,
+.app-shell input,
+.app-shell select,
+.app-shell textarea {
+  min-height: 38px;
+  font-weight: 500;
 }
 
 .app-shell :where(input, select, textarea) {
@@ -172,9 +287,21 @@ body,
 }
 
 .app-shell button:hover:not(:disabled) {
-  border-color: var(--wire-black);
+  border-color: #a3a3a3;
   background-color: var(--wire-subtle);
   color: var(--wire-black);
+}
+
+.app-shell button:active:not(:disabled) {
+  background-color: #eeeeee;
+}
+
+.app-shell button:disabled {
+  border-color: var(--wire-line) !important;
+  background-color: #f6f6f6 !important;
+  background-image: none !important;
+  color: #9e9e9e !important;
+  opacity: 1;
 }
 
 .app-shell :where(
@@ -224,78 +351,90 @@ body,
   color: #ffffff !important;
 }
 
-.app-shell :where(
-  .app-sidebar,
-  .mobile-app-bar,
-  .mobile-menu-drawer,
-  .topbar,
-  .page-header,
-  .ds-page-header,
-  .ds-toolbar,
-  .ds-surface
-) {
-  border-color: var(--wire-line) !important;
+.app-shell .primary-button {
+  font-weight: 600;
+}
+
+.app-shell .danger-button:not(:disabled) {
+  border-color: var(--wire-status-danger-text) !important;
+  background-color: var(--wire-status-danger-text) !important;
+  color: #ffffff !important;
+}
+
+.app-shell .danger-button:hover:not(:disabled) {
+  border-color: #8f1c29 !important;
+  background-color: #8f1c29 !important;
+}
+
+/* Underline tabs stay flat inside their strip. */
+.app-shell .ds-tabs button,
+.app-shell :where(.panel-workspace-tabs button, .ds-choice-group > button) {
   border-radius: 0 !important;
-  background: var(--wire-surface) !important;
-  box-shadow: none !important;
-}
-
-.app-shell :where(.page-surface, .app-content, main) {
-  background: transparent !important;
-}
-
-.app-shell :where(span, i, em, b) {
-  background-color: transparent !important;
-  background-image: none !important;
-}
-
-/* Progress fill is semantic status, so it must remain visible in wireframe mode. */
-.app-shell .project-progress-meter > i {
-  background-color: var(--wire-subtle) !important;
-  background-image: none !important;
-}
-
-.app-shell .project-progress-meter > i > b {
-  background-color: var(--wire-black) !important;
-  background-image: none !important;
-}
-
-.app-shell .project-progress-meter[data-tone='success'] > i > b { background-color: #238455 !important; }
-.app-shell .project-progress-meter[data-tone='danger'] > i > b { background-color: #c83e4d !important; }
-.app-shell .project-progress-meter[data-tone='warning'] > i > b { background-color: #b97810 !important; }
-.app-shell .project-progress-meter[data-tone='info'] > i > b { background-color: #315efb !important; }
-
-/* Production-plan bars are information-bearing marks, not decorative badges. */
-.app-shell .production-control-gantt [data-bar='plan'] {
-  background-color: var(--wire-black) !important;
-  background-image: none !important;
-}
-
-.app-shell .production-control-gantt [data-bar='actual'] {
-  background-color: var(--wire-surface) !important;
-  background-image: none !important;
-}
-
-.app-shell [role='radio'] i {
-  width: 20px !important;
-  height: 20px !important;
-  border: 2px solid var(--wire-black) !important;
-  border-radius: 0 !important;
-  background: var(--wire-surface) !important;
-  box-shadow: none !important;
-}
-
-.app-shell [role='radio'][aria-checked='true'] i {
-  background: var(--wire-black) !important;
 }
 
 .app-shell :where(a, .link-button) {
   color: var(--wire-ink);
   text-decoration-color: var(--wire-line-strong);
+  text-underline-offset: 3px;
 }
 
 .app-shell :where(hr, [class*='divider']) {
-  border-color: var(--wire-line) !important;
+  border-color: var(--wire-hairline) !important;
+}
+
+.app-shell :where(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--wire-black) !important;
+  outline-offset: 2px;
+}
+
+.app-shell [role='radio'] i {
+  width: 20px !important;
+  height: 20px !important;
+  border: 1.5px solid var(--wire-line-strong) !important;
+  border-radius: 50% !important;
+  background: var(--wire-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell [role='radio'][aria-checked='true'] i {
+  border-color: var(--wire-black) !important;
+  background: var(--wire-black) !important;
+}
+
+/* ── 04 · Tables: one editorial system ───────────────────────────────── */
+.app-shell thead th:not(.production-calendar-stage-cell):not(.production-calendar-date-cell):not(.calendar-company-holiday):not(.calendar-red-day) {
+  border-bottom: 1px solid var(--wire-ink) !important;
+  background-color: var(--wire-surface) !important;
+  color: var(--wire-muted) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.app-shell :where(tbody td) {
+  border-bottom-color: var(--wire-hairline) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell :where(tbody tr:hover > td) {
+  background-color: #f7f7f7 !important;
+}
+
+@media (min-width: 861px) {
+  .app-shell :where(tbody td) {
+    font-size: 13px;
+  }
+}
+
+/* Calendar day semantics keep quiet tints instead of full flattening. */
+.app-shell :where(td, th).calendar-company-holiday {
+  background-color: var(--wire-subtle) !important;
+}
+
+.app-shell :where(td, th).calendar-red-day {
+  background-color: var(--wire-status-danger-bg) !important;
+  color: var(--wire-status-danger-text) !important;
 }
 
 .app-shell :where(
@@ -310,13 +449,592 @@ body,
   color: var(--wire-ink) !important;
 }
 
+.app-shell :where(tr[aria-selected='true'] > td, tr[data-selected='true'] > td) {
+  background-color: var(--wire-subtle) !important;
+}
+
+/* ── 05 · Desktop shell ──────────────────────────────────────────────── */
+.app-shell :where(
+  .app-sidebar,
+  .mobile-app-bar,
+  .mobile-menu-drawer,
+  .topbar,
+  .page-header,
+  .ds-page-header,
+  .ds-toolbar,
+  .ds-surface
+) {
+  border-color: var(--wire-line) !important;
+  background: var(--wire-surface) !important;
+  box-shadow: none !important;
+}
+
+.app-shell :where(.page-surface, .app-content, main) {
+  background: transparent !important;
+}
+
+.app-shell .page-surface {
+  border-top-width: 1px !important;
+  background-color: var(--wire-surface) !important;
+}
+
+/* Red-era decorative shapes (orbits, rotated blocks, corner glows) are noise
+ * in a monochrome system; structure carries the hierarchy instead. */
+.app-shell .topbar::before,
+.app-shell .topbar::after,
+.app-shell .app-sidebar::after,
+.app-shell .kitting-hero-orbit,
+.app-shell .kitting-hero-block {
+  display: none !important;
+}
+
+@media (min-width: 861px) {
+  .app-shell {
+    width: 100%;
+    max-width: none;
+    gap: 0;
+    padding: 0;
+  }
+
+  .app-sidebar {
+    position: sticky;
+    top: 0;
+    min-height: 100vh;
+    max-height: 100vh;
+    overflow-y: auto;
+    border: 0 !important;
+    border-right: 1px solid var(--wire-line) !important;
+    border-radius: 0 !important;
+    padding: 20px 14px 16px;
+  }
+
+  .app-brand-lockup {
+    border-bottom: 1px solid var(--wire-hairline) !important;
+    padding: 0 4px 16px;
+  }
+
+  .app-brand-lockup img {
+    width: 118px;
+    border-radius: var(--wire-radius-control) !important;
+    background: var(--wire-black) !important;
+    padding: 7px 9px;
+  }
+
+  .app-brand-lockup span {
+    color: var(--wire-faint) !important;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+  }
+
+  .app-sidebar-heading {
+    padding: 2px 4px 0;
+  }
+
+  .app-sidebar-heading strong {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .app-nav-button {
+    min-height: 36px;
+    border-color: transparent !important;
+    border-radius: var(--wire-radius-control) !important;
+    background: transparent;
+    color: var(--wire-muted) !important;
+    padding: 0 10px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .app-nav-button:hover:not(:disabled) {
+    border-color: transparent !important;
+    background: var(--wire-subtle);
+    color: var(--wire-ink) !important;
+  }
+
+  .app-nav-group-label {
+    margin: 10px 4px 2px;
+    color: var(--wire-faint) !important;
+    font-size: 10.5px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Department parents are whole-row disclosures; the chevron is visual only. */
+  .app-nav-disclosure {
+    display: inline-block;
+    color: var(--wire-faint) !important;
+    font-size: 13px;
+    line-height: 1;
+    transition: transform 120ms ease;
+  }
+
+  .app-nav-button[aria-expanded='true'] .app-nav-disclosure {
+    transform: rotate(180deg);
+  }
+
+  .app-nav-children {
+    display: grid;
+    gap: 2px;
+    margin: 2px 0 4px;
+    padding-left: 22px;
+  }
+
+  .app-shell .app-nav-child-button {
+    min-height: 32px;
+    padding: 0 10px;
+    border: 0 !important;
+    border-left: 1px solid var(--wire-line) !important;
+    border-radius: 0 var(--wire-radius-control) var(--wire-radius-control) 0 !important;
+    background: transparent !important;
+    color: var(--wire-muted) !important;
+    font-size: 12.5px;
+    font-weight: 500;
+    text-align: left;
+  }
+
+  .app-shell .app-nav-child-button:hover:not(:disabled) {
+    background: var(--wire-subtle) !important;
+    color: var(--wire-ink) !important;
+  }
+
+  .app-shell .app-nav-child-button.active {
+    background: var(--wire-subtle) !important;
+    color: var(--wire-black) !important;
+    font-weight: 600;
+  }
+
+  .app-content {
+    padding: 0 28px 40px;
+  }
+
+  .topbar {
+    min-height: 56px;
+    margin: 0 -28px 20px;
+    align-items: center;
+    border: 0 !important;
+    border-bottom: 1px solid var(--wire-line) !important;
+    border-radius: 0 !important;
+    padding: 8px 28px;
+  }
+
+  .app-shell .page-surface {
+    padding: 24px;
+  }
+
+  .app-shell .system-strip {
+    margin-bottom: 12px;
+  }
+
+  .topbar h1 {
+    color: var(--wire-muted) !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .app-shell .account-identity-trigger {
+    min-width: 176px;
+    min-height: 38px;
+  }
+}
+
+/* ── 06 · Page scaffold: headers, toolbars, tabs ─────────────────────── */
+.app-shell :where(.page-header, .ds-page-header, .subsection-header) {
+  border: 0 !important;
+  border-bottom: 1px solid var(--wire-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell :where(.page-header, .ds-page-header, .mobile-page-header, .mobile-operations-header) :where(h1, h2) {
+  font-size: var(--ds-font-size-title) !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* Legacy hero regions carried oversized clamp() titles; one title scale now. */
+.app-shell [class*='hero'] :where(h1, h2) {
+  font-size: var(--ds-font-size-title) !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.app-shell :where(.page-header, .ds-page-header) > div > p:not(.eyebrow),
+.ds-page-header p {
+  color: var(--wire-muted) !important;
+  font-size: 12.5px;
+}
+
+.app-shell .ds-toolbar {
+  min-height: 44px;
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background: var(--wire-surface) !important;
+  padding: 8px;
+}
+
+.app-shell :where(.button-row, .page-export-actions, .ds-page-header__actions, .page-action-cluster) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.app-shell .ds-tabs {
+  border-bottom: 1px solid var(--wire-line) !important;
+}
+
+.app-shell .ds-tabs button {
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  background: transparent !important;
+  color: var(--wire-muted) !important;
+  font-weight: 600;
+}
+
+.app-shell .ds-tabs button[aria-selected='true'] {
+  border-bottom-color: var(--wire-black) !important;
+  background: transparent !important;
+  color: var(--wire-black) !important;
+}
+
+/* ── 07 · KPI summaries: one anatomy everywhere ──────────────────────── */
+.app-shell :where(
+  .dashboard-kpi-card,
+  .admin-dashboard-card,
+  .pending-summary-grid > div,
+  .home-metric,
+  .home-department-metrics button,
+  .home-sales-kpis article,
+  .sales-kpi-cards article,
+  .manufacturing-metrics > span,
+  .material-summary-strip button,
+  .mobile-focus-summary > div > button,
+  .home-mobile-priority-metrics button,
+  .status-chip,
+  .ds-kpi-card
+) {
+  min-height: 84px;
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background-color: var(--wire-surface) !important;
+  background-image: none !important;
+  padding: 14px 16px;
+  box-shadow: none !important;
+}
+
+.app-shell :where(
+  .dashboard-kpi-card,
+  .admin-dashboard-card,
+  .pending-summary-grid > div,
+  .home-metric,
+  .home-department-metrics button,
+  .home-sales-kpis article,
+  .sales-kpi-cards article,
+  .material-summary-strip button,
+  .mobile-focus-summary > div > button,
+  .home-mobile-priority-metrics button,
+  .status-chip,
+  .ds-kpi-card
+) :where(span, small) {
+  color: var(--wire-muted) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em;
+}
+
+.app-shell :where(
+  .dashboard-kpi-card,
+  .admin-dashboard-card,
+  .pending-summary-grid > div,
+  .home-metric,
+  .home-department-metrics button,
+  .home-sales-kpis article,
+  .sales-kpi-cards article,
+  .material-summary-strip button,
+  .mobile-focus-summary > div > button,
+  .home-mobile-priority-metrics button,
+  .status-chip,
+  .ds-kpi-card
+) strong {
+  color: var(--wire-ink) !important;
+  font-size: 22px !important;
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.app-shell .dashboard-kpi-card::before {
+  display: none !important;
+}
+
+.app-shell .dashboard-kpi-card[data-variant='positive'] strong,
+.app-shell .admin-dashboard-card[data-tone='success'] strong {
+  color: var(--wire-status-success-text) !important;
+}
+
+.app-shell .dashboard-kpi-card[data-variant='warning'] strong,
+.app-shell .dashboard-kpi-card[data-tone='danger'] strong,
+.app-shell .admin-dashboard-card[data-tone='danger'] strong,
+.app-shell .home-mobile-priority-metrics button[data-tone='danger'] strong {
+  color: var(--wire-status-danger-text) !important;
+}
+
+/* Zero-specificity default so legacy grid classes keep their own layout. */
+:where(.ds-kpi-grid) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.app-shell .ds-kpi-card {
+  display: grid;
+  gap: 4px;
+  align-content: center;
+  text-align: left;
+}
+
+.app-shell .ds-kpi-card .ds-kpi-card__hint {
+  color: var(--wire-faint) !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+}
+
+/* Mosaic summary keeps flat tiles separated by a 1px seam. */
+.app-shell .panel-workspace-summary-grid {
+  background-color: var(--wire-line) !important;
+}
+
+.app-shell .panel-workspace-summary-grid button {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background-color: var(--wire-surface) !important;
+}
+
+/* ── 08 · Semantic status: the only colored layer ────────────────────── */
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .customer-supply-badge,
+  .supply-type-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge,
+  [data-shape-role='status'],
+  [data-shape-role='success'],
+  [data-shape-role='warning']
+) {
+  border-radius: var(--wire-radius-tag) !important;
+  box-shadow: none !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .customer-supply-badge,
+  .supply-type-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+) {
+  min-height: 22px;
+  border: 1px solid var(--wire-line) !important;
+  background-color: var(--wire-subtle) !important;
+  color: var(--wire-muted) !important;
+  padding: 3px 8px;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 1.3;
+}
+
+.nav-badge,
+.app-shell [aria-label*='읽지 않음'] {
+  border: 0 !important;
+  border-radius: 999px !important;
+  background-color: #b52f40 !important;
+  color: #ffffff !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-tone='success'],
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-status='Completed'],
+.app-shell .material-status-badge[data-status='Passed'],
+.app-shell .material-status-badge[data-status='Confirmed'],
+.app-shell .receipt-completion-badge[data-completed='true'],
+.app-shell [data-status='Active'],
+.app-shell [data-status='Published'],
+.app-shell [data-status='Completed'],
+.app-shell [data-status='Passed'],
+.app-shell [data-status='Confirmed'],
+.app-shell [data-shape-role='success'] {
+  border-color: var(--wire-status-success-line) !important;
+  background-color: var(--wire-status-success-bg) !important;
+  color: var(--wire-status-success-text) !important;
+}
+
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-tone='danger'],
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-tone='error'],
+.app-shell .material-status-badge[data-status='FailedBlocked'],
+.app-shell [data-status='Cancelled'],
+.app-shell [data-status='Failed'],
+.app-shell [data-status='FailedBlocked'],
+.app-shell [data-status='AdjustmentRequired'],
+.app-shell [data-status='blocked'],
+.app-shell [data-shape-role='warning'] {
+  border-color: var(--wire-status-danger-line) !important;
+  background-color: var(--wire-status-danger-bg) !important;
+  color: var(--wire-status-danger-text) !important;
+}
+
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-tone='warning'],
+.app-shell .status-badge[data-status='OnHold'],
+.app-shell .material-status-badge[data-status='IqcRequested'],
+.app-shell .iqc-report-badge[data-kind='Draft'],
+.app-shell [data-status='OnHold'],
+.app-shell [data-status='Draft'],
+.app-shell [data-status='Requested'],
+.app-shell [data-status='PartiallyCompleted'] {
+  border-color: var(--wire-status-warning-line) !important;
+  background-color: var(--wire-status-warning-bg) !important;
+  color: var(--wire-status-warning-text) !important;
+}
+
+.app-shell :where(
+  .status-badge,
+  .material-status-badge,
+  .receipt-completion-badge,
+  .order-item-badge,
+  .iqc-report-badge,
+  .kitting-panel-status,
+  .ds-badge
+)[data-tone='info'],
+.app-shell .material-status-badge[data-status='IqcRequested'] {
+  border-color: var(--wire-status-info-line) !important;
+  background-color: var(--wire-status-info-bg) !important;
+  color: var(--wire-status-info-text) !important;
+}
+
+.app-shell :where(.pending-type-badges [data-tone='active']) {
+  border-radius: var(--wire-radius-tag) !important;
+}
+
+.app-shell :where(.quality-choice-row, .quality-decision-options, .iqc-check-options) button[data-active='true'][data-result='Pass'] {
+  border-color: #238551 !important;
+  background-color: #238551 !important;
+  color: #ffffff !important;
+}
+
+.app-shell :where(.quality-choice-row, .quality-decision-options, .iqc-check-options) button[data-active='true'][data-result='Fail'],
+.app-shell :where(.quality-choice-row, .quality-decision-options, .iqc-check-options) button[data-active='true'][data-result='failed'] {
+  border-color: #b52f40 !important;
+  background-color: #b52f40 !important;
+  color: #ffffff !important;
+}
+
+/* Progress fill is semantic status, so it must remain visible. */
+.app-shell .project-progress-meter > i {
+  border-radius: 999px !important;
+  background-color: #ededed !important;
+  background-image: none !important;
+  overflow: hidden;
+}
+
+.app-shell .project-progress-meter > i > b {
+  border-radius: 999px !important;
+  background-color: var(--wire-black) !important;
+  background-image: none !important;
+}
+
+.app-shell .project-progress-meter[data-tone='success'] > i > b { background-color: #238455 !important; }
+.app-shell .project-progress-meter[data-tone='danger'] > i > b { background-color: #c83e4d !important; }
+.app-shell .project-progress-meter[data-tone='warning'] > i > b { background-color: #b97810 !important; }
+.app-shell .project-progress-meter[data-tone='info'] > i > b { background-color: #3a5bb8 !important; }
+
+/* Production-plan bars are information-bearing marks, not decoration. */
+.app-shell .production-control-gantt [data-bar='plan'] {
+  background-color: var(--wire-black) !important;
+  background-image: none !important;
+}
+
+.app-shell .production-control-gantt [data-bar='actual'] {
+  border-color: var(--wire-line-strong) !important;
+  background-color: var(--wire-surface) !important;
+  background-image: none !important;
+}
+
+/* ── 09 · Charts: monochrome data ink ────────────────────────────────── */
 .app-shell :where(svg, canvas, [class*='chart'], [class*='graph']) {
   filter: grayscale(1);
 }
 
+.app-shell .sales-chart-grid { stroke: #f0f0f0; }
+.app-shell .sales-chart-axis-label { fill: var(--wire-faint); font-size: 10px; }
+.app-shell .sales-chart-axis-label--percent { fill: var(--wire-muted); font-weight: 600; }
+.app-shell .sales-chart-bar--revenue { fill: var(--wire-black); }
+.app-shell .sales-chart-bar--target { fill: #d9d9d9; }
+.app-shell .sales-chart g.is-selected .sales-chart-bar--revenue { fill: #000000; }
+.app-shell .sales-chart g.is-selected .sales-chart-bar--target { fill: #b5b5b5; }
+.app-shell .sales-chart-attainment-reference { stroke: #c9c9c9; }
+.app-shell .sales-chart-attainment-line { stroke: var(--wire-faint); stroke-width: 2; }
+.app-shell .sales-chart-attainment-dot { stroke: var(--wire-muted); fill: #ffffff; }
+.app-shell .sales-chart-label { fill: var(--wire-faint); }
+.app-shell .sales-chart-legend i { background: var(--wire-black) !important; }
+.app-shell .sales-chart-legend i[data-kind='target'] { background: #d9d9d9 !important; }
+.app-shell .sales-chart-legend i[data-kind='attainment'] { background: var(--wire-faint) !important; }
+
 .app-shell :where(.sales-chart-bar, .sales-chart-mobile-bar) {
-  fill: #bcbcbc !important;
-  background: #bcbcbc !important;
+  fill: #d9d9d9 !important;
+  background: #d9d9d9 !important;
 }
 
 .app-shell .sales-chart-bar.is-selected {
@@ -324,18 +1042,18 @@ body,
 }
 
 .app-shell :where(.sales-chart-target-line, .sales-chart-target-dot) {
-  stroke: #555555 !important;
+  stroke: var(--wire-muted) !important;
 }
 
 .app-shell :where(.sales-chart-target-dot) {
   fill: #ffffff !important;
 }
 
-.app-shell :where(.sales-chart-mobile-target, .sales-chart-legend i[data-kind='target']) {
-  background: #555555 !important;
+.app-shell :where(.sales-chart-mobile-target) {
+  background: var(--wire-muted) !important;
 }
 
-/* DESIGN-000 Change 004: shared PC navigation, guidance, empty and selection patterns. */
+/* ── 10 · Shared guidance patterns ───────────────────────────────────── */
 .ds-breadcrumbs {
   margin: 0 0 10px;
 }
@@ -354,13 +1072,13 @@ body,
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--wire-muted);
-  font-size: 0.68rem;
+  color: var(--wire-faint);
+  font-size: 11px;
 }
 
 .ds-breadcrumbs li:not(:last-child)::after {
   content: '/';
-  color: var(--wire-faint);
+  color: var(--wire-line-strong);
 }
 
 .app-shell .ds-breadcrumbs button {
@@ -369,37 +1087,41 @@ body,
   border: 0;
   background: transparent;
   color: var(--wire-muted);
+  font-weight: 500;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
 .ds-breadcrumbs strong {
   color: var(--wire-ink);
+  font-weight: 600;
 }
 
 .ds-readonly-banner {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   margin: 0 0 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--wire-line-strong);
-  background: #fafafa !important;
+  padding: 12px 14px;
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background: var(--wire-canvas) !important;
 }
 
 .ds-readonly-banner__mark {
   display: grid;
-  min-height: 30px;
+  min-height: 32px;
   place-items: center;
-  border: 1px solid var(--wire-black);
+  border: 1px solid var(--wire-ink) !important;
+  border-radius: var(--wire-radius-control) !important;
   color: var(--wire-ink);
-  font-size: 0.64rem;
-  font-weight: 900;
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .ds-readonly-banner[data-kind='prerequisite'] .ds-readonly-banner__mark {
-  border-style: dashed;
+  border-style: dashed !important;
 }
 
 .ds-readonly-banner > div:not(.ds-readonly-banner__action) {
@@ -413,23 +1135,25 @@ body,
 }
 
 .ds-readonly-banner strong {
-  font-size: 0.77rem;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .ds-readonly-banner p {
   color: var(--wire-muted);
-  font-size: 0.68rem;
+  font-size: 12px;
 }
 
 .ds-empty-state {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) auto;
-  gap: 13px;
+  gap: 14px;
   align-items: center;
   min-height: 96px;
-  padding: 16px;
-  border: 1px dashed var(--wire-line-strong);
-  background: #fafafa !important;
+  padding: 18px 20px;
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background: var(--wire-canvas) !important;
 }
 
 .ds-empty-state > span {
@@ -437,9 +1161,16 @@ body,
   width: 40px;
   height: 40px;
   place-items: center;
-  border: 1px solid var(--wire-line-strong);
-  color: var(--wire-muted);
-  font-weight: 900;
+  border: 1px solid var(--wire-line-strong) !important;
+  border-radius: 50% !important;
+  color: var(--wire-faint) !important;
+  font-size: 0 !important;
+  font-weight: 600;
+}
+
+.ds-empty-state > span::before {
+  content: '—';
+  font-size: 14px;
 }
 
 .ds-empty-state > div {
@@ -453,19 +1184,108 @@ body,
 }
 
 .ds-empty-state strong {
-  font-size: 0.82rem;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .ds-empty-state p {
   color: var(--wire-muted);
-  font-size: 0.69rem;
+  font-size: 12px;
 }
 
 .ds-empty-state > div:last-child {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   justify-content: flex-end;
+}
+
+/* Unified async/permission state panel (DsStatePanel). */
+.ds-state-panel {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 96px;
+  padding: 18px 20px;
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background: var(--wire-canvas) !important;
+}
+
+.ds-state-panel__mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid var(--wire-line-strong) !important;
+  border-radius: 50% !important;
+  color: var(--wire-faint) !important;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ds-state-panel[data-kind='error'] .ds-state-panel__mark,
+.ds-state-panel[data-kind='forbidden'] .ds-state-panel__mark,
+.ds-state-panel[data-kind='not-found'] .ds-state-panel__mark {
+  border-color: var(--wire-status-danger-line) !important;
+  background: var(--wire-status-danger-bg) !important;
+  color: var(--wire-status-danger-text) !important;
+}
+
+.ds-state-panel__copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ds-state-panel__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.app-shell .ds-state-panel p.ds-state-panel__message {
+  margin: 0;
+  color: var(--wire-muted) !important;
+  font-size: 12.5px;
+  font-weight: 400 !important;
+}
+
+.app-shell .ds-state-panel[data-kind='error'] p.ds-state-panel__message,
+.app-shell .ds-state-panel[data-kind='forbidden'] p.ds-state-panel__message,
+.app-shell .ds-state-panel[data-kind='not-found'] p.ds-state-panel__message {
+  color: var(--wire-status-danger-text) !important;
+  font-weight: 500 !important;
+}
+
+.ds-state-panel__action {
+  display: flex;
+  gap: 8px;
+}
+
+.ds-state-panel__bars {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.app-shell .ds-state-panel__bars i {
+  display: block;
+  height: 8px;
+  border-radius: 4px !important;
+  background: linear-gradient(90deg, #ededed 25%, #f7f7f7 50%, #ededed 75%) !important;
+  background-size: 200% 100% !important;
+  animation: ds-state-shimmer 1.4s ease infinite;
+}
+
+.app-shell .ds-state-panel__bars i:nth-child(1) { width: 82%; }
+.app-shell .ds-state-panel__bars i:nth-child(2) { width: 64%; }
+.app-shell .ds-state-panel__bars i:nth-child(3) { width: 46%; }
+
+@keyframes ds-state-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
 }
 
 .ds-secondary-tools {
@@ -481,30 +1301,33 @@ body,
   padding: 8px 12px;
   border: 1px solid var(--wire-line-strong);
   cursor: pointer;
-  font-size: 0.72rem;
-  font-weight: 800;
+  font-size: 12px;
+  font-weight: 500;
   list-style: none;
 }
 
 .ds-secondary-tools > summary::after {
   content: ' +';
+  color: var(--wire-faint);
 }
 
 .ds-secondary-tools[open] > summary::after {
   content: ' −';
 }
 
-.ds-secondary-tools > div {
+.app-shell .ds-secondary-tools > div {
   position: absolute;
   z-index: 20;
-  top: calc(100% + 5px);
+  top: calc(100% + 6px);
   right: 0;
   display: grid;
-  min-width: 200px;
+  min-width: 210px;
   gap: 6px;
   padding: 8px;
-  border: 1px solid var(--wire-line-strong);
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-overlay) !important;
   background: var(--wire-surface);
+  box-shadow: var(--wire-shadow-menu) !important;
 }
 
 .ds-selection-mode-trigger {
@@ -518,9 +1341,10 @@ body,
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  padding: 9px 11px;
-  border: 1px solid var(--wire-black);
-  background: #fafafa !important;
+  padding: 10px 12px;
+  border: 1px solid var(--wire-black) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background: var(--wire-canvas) !important;
 }
 
 .ds-selection-mode-bar > div {
@@ -531,24 +1355,33 @@ body,
 }
 
 .ds-selection-mode-bar strong {
-  font-size: 0.74rem;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .ds-selection-mode-bar span {
   color: var(--wire-muted);
-  font-size: 0.68rem;
+  font-size: 12px;
 }
 
 .ds-selection-mode-bar button {
   min-height: 34px;
 }
 
-/* DESIGN-000 Change 002: one input language across department workspaces. */
+.app-shell .bulk-action-bar {
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background: var(--wire-canvas) !important;
+}
+
+/* ── 11 · Department input system ────────────────────────────────────── */
 .ds-input-flow {
   display: grid;
   min-width: 0;
-  border: 1px solid var(--wire-line-strong);
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
   background: var(--wire-surface);
+  overflow: hidden;
   container-type: inline-size;
 }
 
@@ -558,7 +1391,7 @@ body,
   gap: 24px;
   align-items: center;
   padding: 18px 20px;
-  border-bottom: 1px solid var(--wire-line-strong);
+  border-bottom: 1px solid var(--wire-line) !important;
 }
 
 .ds-input-flow__header > div {
@@ -568,10 +1401,11 @@ body,
 }
 
 .ds-input-flow__header > div > span {
-  color: var(--wire-muted) !important;
-  font-size: 0.66rem;
-  font-weight: 900;
+  color: var(--wire-faint) !important;
+  font-size: 10.5px;
+  font-weight: 600;
   letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .ds-input-flow__header h3,
@@ -580,13 +1414,13 @@ body,
 }
 
 .ds-input-flow__header h3 {
-  font-size: 1.05rem;
+  font-size: 16px;
   overflow-wrap: anywhere;
 }
 
 .ds-input-flow__header p {
   color: var(--wire-muted) !important;
-  font-size: 0.76rem;
+  font-size: 12.5px;
   overflow-wrap: anywhere;
 }
 
@@ -598,7 +1432,9 @@ body,
   justify-self: end;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--wire-line);
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-control) !important;
+  overflow: hidden;
   list-style: none;
 }
 
@@ -609,13 +1445,13 @@ body,
   gap: 7px;
   min-height: 38px;
   padding: 6px 9px;
-  border-right: 1px solid var(--wire-line);
-  font-size: 0.68rem;
-  font-weight: 800;
+  border-right: 1px solid var(--wire-hairline) !important;
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
 .ds-input-flow__header li:last-child {
-  border-right: 0;
+  border-right: 0 !important;
 }
 
 .ds-input-flow__header li b {
@@ -623,10 +1459,12 @@ body,
   width: 22px;
   height: 22px;
   place-items: center;
-  border: 1px solid var(--wire-black);
+  border: 1px solid var(--wire-black) !important;
+  border-radius: var(--wire-radius-tag) !important;
   background: var(--wire-black) !important;
   color: #ffffff !important;
-  font-size: 0.64rem;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 @container (max-width: 620px) {
@@ -656,32 +1494,35 @@ body,
 .ds-input-section {
   display: grid;
   min-width: 0;
-  border-bottom: 1px solid var(--wire-line);
+  border-bottom: 1px solid var(--wire-line) !important;
   background: var(--wire-surface);
 }
 
 .ds-input-section:last-child {
-  border-bottom: 0;
+  border-bottom: 0 !important;
 }
 
 .ds-input-section__header {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  min-height: 58px;
+  min-height: 56px;
   padding: 11px 16px;
-  border-bottom: 1px solid var(--wire-line);
-  background: #fafafa !important;
+  border-bottom: 1px solid var(--wire-hairline) !important;
+  background: var(--wire-canvas) !important;
 }
 
 .ds-input-section__header > b {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   place-items: center;
-  border: 1px solid var(--wire-black);
-  font-size: 0.67rem;
+  border: 1px solid var(--wire-black) !important;
+  border-radius: var(--wire-radius-control) !important;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .ds-input-section__header > div:not(.ds-input-section__actions) {
@@ -695,12 +1536,12 @@ body,
 }
 
 .ds-input-section__header h4 {
-  font-size: 0.85rem;
+  font-size: 14px;
 }
 
 .ds-input-section__header p {
   color: var(--wire-muted) !important;
-  font-size: 0.7rem;
+  font-size: 12px;
 }
 
 .ds-input-section__actions,
@@ -740,9 +1581,10 @@ body,
   min-width: 52px;
   padding: 6px 8px;
   border: 1px solid var(--wire-line-strong);
+  border-radius: var(--wire-radius-control);
   color: var(--wire-muted);
-  font-size: 0.65rem;
-  font-weight: 800;
+  font-size: 11px;
+  font-weight: 600;
   text-align: center;
 }
 
@@ -755,7 +1597,7 @@ body,
 }
 
 .ds-input-section--collapsible[open] .ds-input-section__toggle::before {
-  font-size: 0.65rem;
+  font-size: 11px;
 }
 
 .ds-field-grid {
@@ -775,7 +1617,9 @@ body,
 .ds-choice-group {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
-  border: 1px solid var(--wire-line-strong);
+  border: 1px solid var(--wire-line-strong) !important;
+  border-radius: var(--wire-radius-control) !important;
+  overflow: hidden;
 }
 
 .app-shell .ds-choice-group > button {
@@ -785,13 +1629,13 @@ body,
   align-content: center;
   padding: 9px 12px;
   border: 0;
-  border-right: 1px solid var(--wire-line-strong);
+  border-right: 1px solid var(--wire-line-strong) !important;
   background: var(--wire-surface);
   text-align: left;
 }
 
 .app-shell .ds-choice-group > button:last-child {
-  border-right: 0;
+  border-right: 0 !important;
 }
 
 .app-shell .ds-choice-group > button[aria-pressed='true'] {
@@ -848,13 +1692,63 @@ body,
   color: var(--wire-black) !important;
 }
 
+/* The kitting selection bar is a dark emphasis surface; it owns a light
+ * foreground so the count and actions stay readable on the ink fill. */
+.app-shell .kitting-selection-bar {
+  border-color: var(--wire-black) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background-color: var(--wire-black) !important;
+}
+
+.app-shell .kitting-selection-bar :where(span, small, b, strong) {
+  color: #ffffff !important;
+}
+
+.app-shell .kitting-selection-count {
+  color: #ffffff !important;
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .kitting-selection-actions button:not(.primary-button):not(:disabled) {
+  border-color: rgb(255 255 255 / 45%) !important;
+  background-color: transparent !important;
+  color: #ffffff !important;
+}
+
+.app-shell .kitting-selection-actions button:not(.primary-button):hover:not(:disabled) {
+  border-color: #ffffff !important;
+  background-color: rgb(255 255 255 / 16%) !important;
+  color: #ffffff !important;
+}
+
+.app-shell .kitting-selection-actions button:disabled {
+  border-color: rgb(255 255 255 / 25%) !important;
+  background-color: rgb(255 255 255 / 12%) !important;
+  color: rgb(255 255 255 / 60%) !important;
+}
+
+.app-shell .kitting-selection-bar .primary-button:not(:disabled) {
+  border-color: #ffffff !important;
+  background-color: #ffffff !important;
+  color: var(--wire-black) !important;
+}
+
+.app-shell .kitting-selection-bar .primary-button:hover:not(:disabled) {
+  border-color: #f0f0f0 !important;
+  background-color: #f0f0f0 !important;
+  color: var(--wire-black) !important;
+}
+
 .ds-choice-group strong {
-  font-size: 0.78rem;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .ds-choice-group small {
   color: var(--wire-muted) !important;
-  font-size: 0.65rem;
+  font-size: 11px;
 }
 
 .ds-action-bar {
@@ -865,11 +1759,13 @@ body,
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
-  min-height: 68px;
+  min-height: 64px;
   margin-top: 16px;
   padding: 11px 14px;
-  border: 1px solid var(--wire-line-strong);
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
   background: rgba(255, 255, 255, 0.97) !important;
+  box-shadow: 0 -8px 24px rgb(17 17 17 / 6%) !important;
 }
 
 .ds-action-bar__copy {
@@ -879,12 +1775,13 @@ body,
 }
 
 .ds-action-bar__copy > strong {
-  font-size: 0.78rem;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .ds-action-bar__copy > span {
   color: var(--wire-muted) !important;
-  font-size: 0.68rem;
+  font-size: 12px;
 }
 
 .ds-action-bar__feedback > .action-feedback {
@@ -894,7 +1791,7 @@ body,
 .ds-action-bar__buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 8px;
   justify-content: flex-end;
 }
 
@@ -904,7 +1801,7 @@ body,
 }
 
 .app-shell .ds-input-flow :where(input, select, textarea) {
-  min-height: 42px;
+  min-height: 40px;
 }
 
 .app-shell .ds-input-flow textarea {
@@ -916,6 +1813,570 @@ body,
   gap: 6px;
 }
 
+/* ── 12 · Feedback and mode banners ──────────────────────────────────── */
+.app-shell :where(.action-feedback, .account-action-feedback) {
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-control) !important;
+  background: var(--wire-surface) !important;
+  color: var(--wire-muted) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+.app-shell :where(.action-feedback, .account-action-feedback)[data-tone='loading'] {
+  border-color: var(--wire-line) !important;
+  background: var(--wire-subtle) !important;
+  color: var(--wire-muted) !important;
+}
+
+.app-shell :where(.action-feedback, .account-action-feedback)[data-tone='success'] {
+  border-color: var(--wire-status-success-line) !important;
+  background: var(--wire-status-success-bg) !important;
+  color: var(--wire-status-success-text) !important;
+}
+
+.app-shell :where(.action-feedback, .account-action-feedback)[data-tone='error'] {
+  border-color: var(--wire-status-danger-line) !important;
+  background: var(--wire-status-danger-bg) !important;
+  color: var(--wire-status-danger-text) !important;
+}
+
+.app-shell :where(.action-feedback, .account-action-feedback)[data-tone='partial'] {
+  border-color: var(--wire-status-warning-line) !important;
+  background: var(--wire-status-warning-bg) !important;
+  color: var(--wire-status-warning-text) !important;
+}
+
+.app-shell :where(.action-feedback, .account-action-feedback)[data-tone='info'] {
+  border-color: var(--wire-status-info-line) !important;
+  background: var(--wire-status-info-bg) !important;
+  color: var(--wire-status-info-text) !important;
+}
+
+.app-shell .review-safe-banner {
+  border: 1px solid var(--wire-status-warning-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background: var(--wire-status-warning-bg) !important;
+  color: var(--wire-status-warning-text) !important;
+  font-weight: 500;
+}
+
+.app-shell .review-safe-banner :where(strong, span) {
+  color: var(--wire-status-warning-text) !important;
+}
+
+.app-shell .review-safe-banner strong {
+  font-weight: 600;
+}
+
+.app-shell .review-safe-banner--checking {
+  border-color: var(--wire-status-info-line) !important;
+  background: var(--wire-status-info-bg) !important;
+  color: var(--wire-status-info-text) !important;
+}
+
+.app-shell .review-safe-banner--error {
+  border-color: var(--wire-status-danger-line) !important;
+  background: var(--wire-status-danger-bg) !important;
+  color: var(--wire-status-danger-text) !important;
+}
+
+.app-shell .review-safe-banner .review-safe-ledger-warning {
+  color: var(--wire-status-danger-text) !important;
+  font-weight: 600;
+}
+
+.app-shell .test-user-banner {
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background: var(--wire-surface) !important;
+  color: var(--wire-ink) !important;
+  font-weight: 500;
+}
+
+/* ── 13 · Overlays: dialogs, sheets, menus ───────────────────────────── */
+.app-shell :where(.dialog-backdrop, .mobile-sheet-backdrop) {
+  background: var(--wire-scrim) !important;
+  backdrop-filter: none !important;
+}
+
+.app-shell .dialog {
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-overlay) !important;
+  background: var(--wire-surface) !important;
+  box-shadow: var(--wire-shadow-overlay) !important;
+}
+
+.app-shell .dialog :where(h2, h3) {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.app-shell .dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.app-shell .mobile-sheet {
+  border: 1px solid var(--wire-line) !important;
+  border-radius: 16px 16px 0 0 !important;
+  background: var(--wire-surface) !important;
+  box-shadow: var(--wire-shadow-overlay) !important;
+}
+
+.app-shell .mobile-sheet--full {
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+.app-shell .mobile-sheet-header {
+  border-bottom: 1px solid var(--wire-line) !important;
+}
+
+.app-shell .mobile-sheet-header h2 {
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+}
+
+.app-shell .mobile-sheet-close {
+  border: 1px solid var(--wire-line-strong) !important;
+  border-radius: 50% !important;
+  background: var(--wire-surface) !important;
+  color: var(--wire-ink) !important;
+}
+
+.app-shell .mobile-sheet-footer {
+  border-top: 1px solid var(--wire-line) !important;
+  background: rgba(255, 255, 255, 0.97) !important;
+  box-shadow: none !important;
+}
+
+/* ── 14 · Imagery and identity ───────────────────────────────────────── */
+.app-shell img,
+.auth-gate img {
+  filter: grayscale(1) contrast(1.08);
+}
+
+.app-shell :where(.app-brand-lockup img, .mobile-app-brand img, .mobile-menu-brand-logo) {
+  border-radius: var(--wire-radius-control) !important;
+  background: var(--wire-black) !important;
+}
+
+/* Identity photos remain circular because the shape denotes a person. */
+.app-shell :where(.profile-avatar, .profile-avatar img) {
+  border-radius: 50% !important;
+}
+
+/* ── 15 · Auth gate ──────────────────────────────────────────────────── */
+.auth-gate,
+.auth-login-canvas,
+.auth-gate[data-auth-layout='login'] {
+  background: var(--wire-canvas) !important;
+  background-image: none !important;
+}
+
+.auth-brand-panel,
+.auth-gate[data-auth-layout='login'] .auth-brand-panel {
+  background: #0f0f0f !important;
+  background-image: none !important;
+}
+
+.auth-gate-panel,
+.auth-gate[data-auth-layout='login'] .auth-gate-panel {
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-overlay) !important;
+  background: var(--wire-surface) !important;
+  box-shadow: none !important;
+}
+
+.auth-brand-panel::before,
+.auth-brand-panel::after,
+.auth-login-canvas::before,
+.auth-brand-effect,
+.auth-brand-dots {
+  display: none !important;
+}
+
+.auth-loading-indicator::before,
+.auth-gate[data-auth-layout='login'] .auth-loading-indicator::before {
+  border-radius: 50% !important;
+}
+
+.auth-primary-button,
+.auth-secondary-button,
+.auth-gate[data-auth-layout='login'] .auth-primary-button,
+.auth-gate[data-auth-layout='login'] .remember-session-option input {
+  border-radius: var(--wire-radius-control) !important;
+  box-shadow: none !important;
+}
+
+.auth-primary-button,
+.auth-gate[data-auth-layout='login'] .auth-primary-button {
+  border: 1px solid var(--wire-black) !important;
+  background: var(--wire-black) !important;
+  color: #ffffff !important;
+}
+
+.auth-secondary-button {
+  border-color: var(--wire-line-strong) !important;
+  background: var(--wire-surface) !important;
+  color: var(--wire-ink) !important;
+}
+
+.auth-primary-button:focus-visible,
+.auth-secondary-button:focus-visible,
+.remember-session-option input:focus-visible {
+  outline: 2px solid var(--wire-black) !important;
+  outline-offset: 2px;
+}
+
+/* ── 16 · Mobile shell (≤860px) ──────────────────────────────────────── */
+@media (max-width: 860px) {
+  .app-shell[data-layout-mode='mobile'],
+  .app-shell[data-layout-mode='mobile'] .mobile-app-bar {
+    background: var(--wire-surface) !important;
+    box-shadow: none !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-app-bar {
+    border-bottom: 1px solid var(--wire-line) !important;
+    backdrop-filter: none !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-trigger {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    border: 1px solid var(--wire-line-strong) !important;
+    border-radius: var(--wire-radius-surface) !important;
+    background: var(--wire-surface) !important;
+    background-image: none !important;
+    box-shadow: none !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-trigger::after {
+    display: none;
+  }
+
+  .mobile-menu-trigger-lines i {
+    height: 1.5px;
+    border-radius: 999px !important;
+    background: var(--wire-ink) !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-account-trigger {
+    border-color: var(--wire-line-strong) !important;
+    background: var(--wire-surface) !important;
+  }
+
+  /* The drawer renders through a portal, so bare selectors are required. */
+  .mobile-menu-backdrop {
+    background: var(--wire-scrim) !important;
+    backdrop-filter: none !important;
+  }
+
+  .mobile-menu-drawer {
+    border: 0 !important;
+    border-right: 1px solid var(--wire-line) !important;
+    border-radius: 0 !important;
+    background: var(--wire-surface) !important;
+    box-shadow: var(--wire-shadow-overlay) !important;
+  }
+
+  .mobile-menu-header {
+    border-bottom: 1px solid var(--wire-line) !important;
+    background: var(--wire-surface) !important;
+  }
+
+  .mobile-menu-header .eyebrow {
+    color: var(--wire-faint) !important;
+    font-size: 10.5px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .mobile-menu-header h2 {
+    color: var(--wire-ink) !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.01em;
+  }
+
+  .mobile-menu-brand-logo {
+    border-radius: var(--wire-radius-control) !important;
+    background: var(--wire-black) !important;
+    filter: grayscale(1) contrast(1.08);
+  }
+
+  .mobile-menu-close {
+    border: 1px solid var(--wire-line-strong) !important;
+    border-radius: 50% !important;
+    background: var(--wire-surface) !important;
+    color: var(--wire-ink) !important;
+    box-shadow: none !important;
+  }
+
+  .mobile-menu-list {
+    background: var(--wire-surface) !important;
+  }
+
+  .mobile-menu-item {
+    border: 1px solid transparent !important;
+    border-radius: var(--ds-shape-surface-radius) !important;
+    background: var(--wire-surface) !important;
+    color: var(--wire-ink) !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  .mobile-menu-item strong {
+    color: var(--wire-ink) !important;
+    font-weight: 600;
+  }
+
+  .mobile-menu-item small {
+    color: var(--wire-muted) !important;
+  }
+
+  .mobile-menu-arrow {
+    color: var(--wire-faint) !important;
+  }
+
+  .mobile-menu-item.active,
+  .mobile-menu-item[aria-current='page'] {
+    border-color: var(--wire-black) !important;
+    background: var(--wire-black) !important;
+  }
+
+  .mobile-menu-item.active :where(strong, small, .mobile-menu-arrow),
+  .mobile-menu-item[aria-current='page'] :where(strong, small, .mobile-menu-arrow) {
+    color: #ffffff !important;
+  }
+
+  .mobile-menu-item-shape[data-shape-role] {
+    display: grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border-radius: var(--ds-semantic-radius, var(--wire-radius-control)) !important;
+    clip-path: var(--ds-semantic-clip, none);
+    background: var(--wire-subtle) !important;
+    color: var(--wire-ink) !important;
+  }
+
+  .mobile-menu-item-shape[data-shape-role='active'] {
+    background: var(--wire-black) !important;
+    color: #ffffff !important;
+  }
+
+  .mobile-menu-item.active .mobile-menu-item-shape,
+  .mobile-menu-item[aria-current='page'] .mobile-menu-item-shape {
+    background: #ffffff !important;
+    color: var(--wire-black) !important;
+  }
+
+  .mobile-menu-drawer .nav-badge {
+    border: 0 !important;
+    border-radius: 999px !important;
+    background-color: #b52f40 !important;
+    color: #ffffff !important;
+  }
+
+  /* Drawer department parents are whole-row disclosures (portal: bare
+   * selectors required). */
+  .mobile-menu-arrow--disclosure {
+    transition: transform 120ms ease;
+  }
+
+  .mobile-menu-item[aria-expanded='true'] .mobile-menu-arrow--disclosure {
+    transform: rotate(180deg);
+  }
+
+  .mobile-menu-children {
+    display: grid;
+    gap: 2px;
+    margin: 0 0 4px;
+    padding-left: 48px;
+  }
+
+  .mobile-menu-child-item {
+    min-height: 48px;
+    padding: 0 12px;
+    border: 0 !important;
+    border-left: 1px solid var(--wire-line) !important;
+    border-radius: 0 var(--wire-radius-control) var(--wire-radius-control) 0 !important;
+    background: transparent !important;
+    color: var(--wire-muted) !important;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+  }
+
+  .mobile-menu-child-item.active {
+    background: var(--wire-subtle) !important;
+    color: var(--wire-black) !important;
+    font-weight: 600;
+  }
+
+  .mobile-menu-drawer :where(button, [tabindex]):focus-visible {
+    outline: 2px solid var(--wire-black) !important;
+    outline-offset: 2px;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-filter-trigger {
+    border: 1px solid var(--wire-line-strong) !important;
+    border-radius: var(--wire-radius-surface) !important;
+    background: var(--wire-surface) !important;
+    box-shadow: none !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-filter-trigger strong {
+    font-weight: 600;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-filter-trigger small {
+    color: var(--wire-muted) !important;
+  }
+
+  /* Role-driven geometry, never list-position-driven. */
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item:nth-child(n):not(.active),
+  .app-shell[data-layout-mode='mobile'] .home-hero--mobile,
+  .app-shell[data-layout-mode='mobile'] .home-mobile-priority,
+  .app-shell[data-layout-mode='mobile'] .home-widget:nth-of-type(n),
+  .app-shell[data-layout-mode='mobile'] .procurement-project-card:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .material-item-card:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .teams-activity-card:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .detail-grid > div:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .mobile-detail-list > div:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .material-item-meta--priority div:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .quality-stage-tab:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .quality-panel-chip:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .quality-item:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .quality-choice-row button:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .quality-decision-options button:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .manufacturing-step-list li:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .sales-kpi-cards article:nth-child(n) {
+    border-radius: var(--ds-shape-surface-radius) !important;
+    clip-path: none;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .page-header,
+  .app-shell[data-layout-mode='mobile'] .mobile-page-header,
+  .app-shell[data-layout-mode='mobile'] .mobile-operations-header {
+    border-radius: 0 !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item.active,
+  .app-shell[data-layout-mode='mobile'] .mobile-menu-item[aria-current='page'] {
+    border-radius: var(--ds-shape-active-radius) !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .kitting-panel-card[data-shape-role],
+  .app-shell[data-layout-mode='mobile'] .manufacturing-project-card[data-shape-role],
+  .app-shell[data-layout-mode='mobile'] .quality-project-card[data-shape-role],
+  .app-shell[data-layout-mode='mobile'] .settlement-condition-card[data-shape-role],
+  .app-shell[data-layout-mode='mobile'] .sales-kpi-cards article[data-shape-role] {
+    border-radius: var(--ds-shape-surface-radius) !important;
+    clip-path: none;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .kitting-panel-card[data-shape-role='warning'],
+  .app-shell[data-layout-mode='mobile'] .manufacturing-project-card[data-shape-role='warning'],
+  .app-shell[data-layout-mode='mobile'] .quality-project-card[data-shape-role='warning'] {
+    border-radius: var(--wire-radius-tag) !important;
+    clip-path: var(--ds-shape-warning-cut);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .kitting-panel-card[data-shape-role='success'] .kitting-panel-check,
+  .app-shell[data-layout-mode='mobile'] .settlement-condition-icon[data-shape-role='success'] {
+    border-radius: 50% !important;
+    background: var(--wire-status-success-bg) !important;
+    color: var(--wire-status-success-text) !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .settlement-condition-icon[data-shape-role='warning'] {
+    border-radius: var(--wire-radius-tag) !important;
+    clip-path: var(--ds-shape-warning-cut);
+    background: var(--wire-status-danger-bg) !important;
+    color: var(--wire-status-danger-text) !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .dashboard-kpi-card:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .pending-summary-grid > div:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .admin-dashboard-card:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .mobile-focus-summary > div > button:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .home-mobile-priority-metrics button:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .material-summary-strip button:nth-child(n),
+  .app-shell[data-layout-mode='mobile'] .manufacturing-metrics > span:nth-child(n) {
+    border-radius: var(--ds-shape-surface-radius) !important;
+    clip-path: none;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .dashboard-kpi-card[data-variant='warning'],
+  .app-shell[data-layout-mode='mobile'] .dashboard-kpi-card[data-tone='danger'],
+  .app-shell[data-layout-mode='mobile'] .admin-dashboard-card[data-tone='danger'],
+  .app-shell[data-layout-mode='mobile'] .home-mobile-priority-metrics button[data-tone='danger'],
+  .app-shell[data-layout-mode='mobile'] .manufacturing-metrics > span[data-tone='blocked'] {
+    border-radius: var(--wire-radius-tag) !important;
+    clip-path: var(--ds-shape-warning-cut);
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-project-dday,
+  .app-shell[data-layout-mode='mobile'] .status-badge,
+  .app-shell[data-layout-mode='mobile'] .material-status-badge,
+  .app-shell[data-layout-mode='mobile'] .receipt-completion-badge,
+  .app-shell[data-layout-mode='mobile'] .order-item-badge,
+  .app-shell[data-layout-mode='mobile'] .ds-badge {
+    border-radius: var(--wire-radius-tag) !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .nav-badge,
+  .app-shell[data-layout-mode='mobile'] .quality-section-label strong,
+  .app-shell[data-layout-mode='mobile'] .quality-item > header > span,
+  .app-shell[data-layout-mode='mobile'] .manufacturing-step-list li > span {
+    border-radius: 50% !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .kpi-strong,
+  .app-shell[data-layout-mode='mobile'] :where(
+    .dashboard-kpi-card,
+    .admin-dashboard-card,
+    .pending-summary-grid > div,
+    .home-metric,
+    .home-department-metrics button,
+    .home-sales-kpis article,
+    .sales-kpi-cards article,
+    .material-summary-strip button,
+    .mobile-focus-summary > div > button,
+    .home-mobile-priority-metrics button,
+    .ds-kpi-card
+  ) strong {
+    font-size: 17px !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] :where(
+    .dashboard-kpi-card,
+    .admin-dashboard-card,
+    .pending-summary-grid > div,
+    .home-metric,
+    .home-department-metrics button,
+    .home-sales-kpis article,
+    .sales-kpi-cards article,
+    .material-summary-strip button,
+    .mobile-focus-summary > div > button,
+    .home-mobile-priority-metrics button,
+    .ds-kpi-card
+  ) {
+    min-height: 64px;
+    padding: 10px 12px;
+  }
+}
+
+/* ── 17 · Small-screen guidance behavior (≤700px) ────────────────────── */
 @media (max-width: 700px) {
   .ds-breadcrumbs,
   .ds-secondary-tools {
@@ -923,13 +2384,15 @@ body,
   }
 
   .ds-readonly-banner,
-  .ds-empty-state {
+  .ds-empty-state,
+  .ds-state-panel {
     grid-template-columns: 36px minmax(0, 1fr);
-    padding: 9px;
+    padding: 12px;
   }
 
   .ds-readonly-banner__action,
-  .ds-empty-state > div:last-child {
+  .ds-empty-state > div:last-child,
+  .ds-state-panel__action {
     grid-column: 1 / -1;
     justify-content: stretch;
   }
@@ -950,24 +2413,24 @@ body,
     gap: 5px;
     min-height: 34px;
     padding: 5px 6px;
-    font-size: 0.58rem;
+    font-size: 10px;
   }
 
   .ds-input-flow__header li b {
     width: 19px;
     height: 19px;
-    font-size: 0.57rem;
+    font-size: 10px;
   }
 
   .ds-input-section__header {
-    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-columns: 30px minmax(0, 1fr);
     gap: 9px;
     padding: 10px;
   }
 
   .ds-input-section__header > b {
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
   }
 
   .ds-input-section__actions {
@@ -998,8 +2461,8 @@ body,
   .app-shell .ds-choice-group > button {
     min-height: 48px;
     padding: 8px 9px;
-    border-right: 1px solid var(--wire-line-strong);
-    border-bottom: 1px solid var(--wire-line-strong);
+    border-right: 1px solid var(--wire-line-strong) !important;
+    border-bottom: 1px solid var(--wire-line-strong) !important;
   }
 
   .ds-action-bar {
@@ -1024,236 +2487,314 @@ body,
   }
 }
 
-.app-shell img,
-.auth-gate img {
-  filter: grayscale(1) contrast(1.08);
-}
+/* ── 19 · Long-tail surfaces: logistics, IQC, UL891, pending ─────────── */
+/* Red/teal/amber-era leftovers that the blanket cannot reach (tinted
+ * backgrounds on unclassified elements, decorative discs, micro type). */
 
-.app-shell :where(.app-brand-lockup img, .mobile-app-brand img, .mobile-menu-brand-logo) {
-  border-radius: 0 !important;
+/* Logistics stages */
+.app-shell .logistics-today {
+  border: 0 !important;
+  border-radius: 50% !important;
   background: var(--wire-black) !important;
+  color: #ffffff !important;
 }
 
-.app-shell .mobile-menu-trigger {
+.app-shell .logistics-today :where(span, small, strong, b) {
+  color: #ffffff !important;
+}
+
+.app-shell .logistics-priority-strip > div {
+  border: 1px solid var(--wire-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
+}
+
+.app-shell .logistics-feedback[data-kind='success'] {
+  border-color: var(--wire-status-success-line) !important;
+  background: var(--wire-status-success-bg) !important;
+  color: var(--wire-status-success-text) !important;
+}
+
+.app-shell .logistics-feedback[data-kind='error'],
+.app-shell .logistics-inline-error {
+  border-color: var(--wire-status-danger-line) !important;
+  background: var(--wire-status-danger-bg) !important;
+  color: var(--wire-status-danger-text) !important;
+}
+
+.app-shell .logistics-readonly {
+  background: var(--wire-subtle) !important;
+  color: var(--wire-muted) !important;
+}
+
+.app-shell .logistics-draft-token {
+  border: 1px dashed var(--wire-line-strong) !important;
+  border-radius: var(--wire-radius-control) !important;
+  background: var(--wire-canvas) !important;
+}
+
+.app-shell .logistics-draft-token span {
+  border-radius: var(--wire-radius-tag) !important;
+  background: var(--wire-black) !important;
+  color: #ffffff !important;
+  font-size: 10px !important;
+}
+
+.app-shell .logistics-file-field {
+  border: 1px dashed var(--wire-line-strong) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background: var(--wire-canvas) !important;
+}
+
+.app-shell .logistics-target-status {
+  border-radius: 999px !important;
+  background: var(--wire-subtle) !important;
+  color: var(--wire-muted) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+}
+
+.app-shell .logistics-target-card:hover:not(:disabled),
+.app-shell .logistics-target-card[data-selected='true'] {
   border-color: var(--wire-black) !important;
-  background-color: var(--wire-black) !important;
-  background-image: none !important;
-  color: #ffffff !important;
+  background: var(--wire-subtle) !important;
 }
 
-/* Identity photos remain circular because the shape denotes a person, not a control. */
-.app-shell :where(.profile-avatar, .profile-avatar img) {
-  border-radius: 50% !important;
-}
-
-.app-shell :where(button, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--wire-black) !important;
-  outline-offset: 2px;
-}
-
-/* Semantic status is the only colored layer in the product. */
-.app-shell :where(
-  .status-badge,
-  .material-status-badge,
-  .receipt-completion-badge,
-  .order-item-badge,
-  .customer-supply-badge,
-  .supply-type-badge,
-  .iqc-report-badge,
-  .kitting-panel-status,
-  .ds-badge,
-  [data-shape-role='status'],
-  [data-shape-role='success'],
-  [data-shape-role='warning']
-) {
-  border-radius: 2px !important;
-  box-shadow: none !important;
-}
-
-.app-shell :where(.nav-badge, [aria-label*='읽지 않음']) {
-  border-color: #e1a7ae !important;
-  border-radius: 2px !important;
-  background-color: #b52f40 !important;
-  color: #ffffff !important;
-}
-
-.app-shell :where(
-  .status-badge,
-  .material-status-badge,
-  .receipt-completion-badge,
-  .order-item-badge,
-  .iqc-report-badge,
-  .kitting-panel-status,
-  .ds-badge
-)[data-tone='success'],
-.app-shell :where(
-  .status-badge,
-  .material-status-badge,
-  .receipt-completion-badge,
-  .order-item-badge,
-  .iqc-report-badge,
-  .kitting-panel-status,
-  .ds-badge
-)[data-status='Completed'],
-.app-shell .material-status-badge[data-status='Passed'],
-.app-shell .material-status-badge[data-status='Confirmed'],
-.app-shell .receipt-completion-badge[data-completed='true'],
-.app-shell [data-status='Active'],
-.app-shell [data-status='Published'],
-.app-shell [data-status='Completed'],
-.app-shell [data-status='Passed'],
-.app-shell [data-status='Confirmed'],
-.app-shell [data-shape-role='success'] {
-  border-color: #9bcfb2 !important;
-  background-color: #e8f7ee !important;
-  color: #176b3b !important;
-}
-
-.app-shell :where(
-  .status-badge,
-  .material-status-badge,
-  .receipt-completion-badge,
-  .order-item-badge,
-  .iqc-report-badge,
-  .kitting-panel-status,
-  .ds-badge
-)[data-tone='danger'],
-.app-shell :where(
-  .status-badge,
-  .material-status-badge,
-  .receipt-completion-badge,
-  .order-item-badge,
-  .iqc-report-badge,
-  .kitting-panel-status,
-  .ds-badge
-)[data-tone='error'],
-.app-shell .material-status-badge[data-status='FailedBlocked'],
-.app-shell [data-status='Cancelled'],
-.app-shell [data-status='Failed'],
-.app-shell [data-status='FailedBlocked'],
-.app-shell [data-status='AdjustmentRequired'],
-.app-shell [data-status='blocked'],
-.app-shell [data-shape-role='warning'] {
-  border-color: #e1a7ae !important;
-  background-color: #fff0f2 !important;
-  color: #a52939 !important;
-}
-
-.app-shell :where(
-  .status-badge,
-  .material-status-badge,
-  .receipt-completion-badge,
-  .order-item-badge,
-  .iqc-report-badge,
-  .kitting-panel-status,
-  .ds-badge
-)[data-tone='warning'],
-.app-shell .status-badge[data-status='OnHold'],
-.app-shell .material-status-badge[data-status='IqcRequested'],
-.app-shell .iqc-report-badge[data-kind='Draft'],
-.app-shell [data-status='OnHold'],
-.app-shell [data-status='Draft'],
-.app-shell [data-status='Requested'],
-.app-shell [data-status='PartiallyCompleted'] {
-  border-color: #e4c27c !important;
-  background-color: #fff6df !important;
-  color: #875b08 !important;
-}
-
-.app-shell :where(
-  .status-badge,
-  .material-status-badge,
-  .receipt-completion-badge,
-  .order-item-badge,
-  .iqc-report-badge,
-  .kitting-panel-status,
-  .ds-badge
-)[data-tone='info'],
-.app-shell .material-status-badge[data-status='IqcRequested'] {
-  border-color: #aebde5 !important;
-  background-color: #edf2ff !important;
-  color: #2f55a4 !important;
-}
-
-.app-shell :where(.pending-type-badges [data-tone='active']) {
-  border-radius: 2px !important;
-}
-
-.app-shell :where(.quality-choice-row, .quality-decision-options, .iqc-check-options) button[data-active='true'][data-result='Pass'] {
-  border-color: #238551 !important;
-  background-color: #238551 !important;
-  color: #ffffff !important;
-}
-
-.app-shell :where(.quality-choice-row, .quality-decision-options, .iqc-check-options) button[data-active='true'][data-result='Fail'],
-.app-shell :where(.quality-choice-row, .quality-decision-options, .iqc-check-options) button[data-active='true'][data-result='failed'] {
-  border-color: #b52f40 !important;
-  background-color: #b52f40 !important;
-  color: #ffffff !important;
-}
-
-/* Login follows the same wireframe foundation without changing its layout. */
-.auth-gate,
-.auth-login-canvas,
-.auth-brand-panel,
-.auth-gate[data-auth-layout='login'],
-.auth-gate[data-auth-layout='login'] .auth-brand-panel {
-  background: var(--wire-black) !important;
-  background-image: none !important;
-}
-
-.auth-gate-panel,
-.auth-gate[data-auth-layout='login'] .auth-gate-panel {
-  border-radius: 0 !important;
+.app-shell .logistics-page[data-mobile='true'] {
   background: var(--wire-surface) !important;
-  box-shadow: none !important;
 }
 
-.auth-brand-panel::before,
-.auth-brand-panel::after,
-.auth-login-canvas::before,
-.auth-brand-effect,
-.auth-brand-dots {
-  display: none !important;
+/* IQC digital report */
+.app-shell .iqc-final-seal {
+  border-color: var(--wire-status-success-line) !important;
+  border-radius: var(--wire-radius-surface) !important;
+  background: var(--wire-status-success-bg) !important;
+  color: var(--wire-status-success-text) !important;
 }
 
-.auth-loading-indicator::before,
-.auth-gate[data-auth-layout='login'] .auth-loading-indicator::before {
-  border-radius: 50% !important;
+.app-shell .iqc-final-seal :where(span, strong, small, div) {
+  color: var(--wire-status-success-text) !important;
 }
 
-.auth-primary-button,
-.auth-secondary-button,
-.auth-gate[data-auth-layout='login'] .auth-primary-button,
-.auth-gate[data-auth-layout='login'] .remember-session-option input {
-  border-radius: 0 !important;
-  box-shadow: none !important;
+.app-shell .iqc-final-seal[data-result='Failed'] {
+  border-color: var(--wire-status-danger-line) !important;
+  background: var(--wire-status-danger-bg) !important;
+  color: var(--wire-status-danger-text) !important;
 }
 
-.auth-primary-button,
-.auth-gate[data-auth-layout='login'] .auth-primary-button {
-  border: 1px solid var(--wire-black) !important;
+.app-shell .iqc-final-seal[data-result='Failed'] :where(span, strong, small, div) {
+  color: var(--wire-status-danger-text) !important;
+}
+
+/* The seal disc follows the seal's semantic color instead of plain ink. */
+.app-shell .iqc-final-seal > i {
+  background-color: currentColor !important;
+}
+
+/* UL891 legacy workspace */
+.app-shell .ul891-derived-field {
+  border: 1px dashed var(--wire-line-strong) !important;
+  border-radius: var(--wire-radius-control) !important;
+  background: var(--wire-canvas) !important;
+}
+
+.app-shell .panel-set-context p {
+  background: var(--wire-subtle) !important;
+}
+
+.app-shell :where(.ul891-order-specs article header span, .ul891-spec-heading > span) {
+  border-radius: var(--wire-radius-control) !important;
   background: var(--wire-black) !important;
   color: #ffffff !important;
 }
 
-.auth-secondary-button {
-  border-color: var(--wire-line-strong) !important;
-  background: var(--wire-surface) !important;
+.app-shell .ul891-panel-pills strong {
+  border-radius: 50% !important;
+  background: var(--wire-subtle) !important;
   color: var(--wire-ink) !important;
 }
 
-.auth-primary-button:focus-visible,
-.auth-secondary-button:focus-visible,
-.remember-session-option input:focus-visible {
-  outline: 2px solid var(--wire-black) !important;
-  outline-offset: 2px;
+.app-shell :where(.ul891-hero-metrics span, .ul891-order-editor-summary span, .ul891-billing-totals span) {
+  border-radius: var(--wire-radius-control) !important;
 }
 
+.app-shell .ul891-version-rail span {
+  border-radius: var(--wire-radius-tag) !important;
+}
+
+/* Pending summary: uniform KPI anatomy with semantic value colors. */
+.app-shell .pending-summary-grid > div::before {
+  display: none !important;
+}
+
+.app-shell .pending-summary-grid > div[data-tone='urgent'] strong,
+.app-shell .pending-summary-grid > div[data-tone='overdue'] strong {
+  color: var(--wire-status-danger-text) !important;
+}
+
+.app-shell .pending-summary-grid > div[data-tone='reinspection'] strong {
+  color: var(--wire-status-info-text) !important;
+}
+
+/* ── 20 · 390px sweep: flat sheet, readable micro type ───────────────── */
 @media (max-width: 860px) {
-  .app-shell[data-layout-mode='mobile'],
-  .app-shell[data-layout-mode='mobile'] .mobile-app-bar {
-    background: var(--wire-surface) !important;
+  .app-shell[data-layout-mode='mobile'] .page-surface {
+    border: 0 !important;
+    border-radius: 0 !important;
     box-shadow: none !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-app-brand small {
+    color: var(--wire-faint) !important;
+    letter-spacing: 0.08em;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-secondary-actions > summary {
+    border: 1px solid var(--wire-line-strong) !important;
+    border-radius: var(--wire-radius-control) !important;
+    background: var(--wire-surface) !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-back-button {
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--wire-muted) !important;
+    font-weight: 600;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .logistics-stage-switch {
+    border: 1px solid var(--wire-line) !important;
+    border-radius: var(--wire-radius-control) !important;
+    overflow: hidden;
+    background: var(--wire-surface) !important;
+  }
+}
+
+/* ── 22 · Desktop table density contracts ────────────────────────────── */
+/* Page-specific: production planning/release grid and the My Work /
+ * Notifications raw tables. Healthy operational, procurement, receiving and
+ * project-list tables intentionally match none of these selectors. */
+
+/* Production planning + manufacturing release grid (role=table div grid).
+ * Column templates, sticky header, and expansion behavior stay untouched;
+ * both header and rows receive the same inline padding so columns align. */
+.app-shell .production-project-head {
+  min-height: 38px;
+  align-content: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--wire-ink) !important;
+  background: var(--wire-surface) !important;
+  color: var(--wire-muted) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.app-shell .production-project-row {
+  min-height: 48px;
+  padding-inline: 12px;
+  border-top: 1px solid var(--wire-hairline) !important;
+}
+
+/* My Work (8 columns) and Notifications (7 columns) desktop tables:
+ * fill the wrapper, fixed layout so every project/notification group renders
+ * identical column boundaries. Data cells keep 6px block padding because the
+ * action cells contain 38px buttons (≈50px normal rows); multiline detail
+ * grows naturally. Mobile renders cards and never mounts these tables. */
+.app-shell .table-wrapper > .workflow-desktop-table,
+.app-shell .table-wrapper > .notification-desktop-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.app-shell :where(.workflow-desktop-table, .notification-desktop-table) th {
+  padding: 10px 12px;
+}
+
+.app-shell :where(.workflow-desktop-table, .notification-desktop-table) td {
+  padding: 6px 12px;
+  vertical-align: middle;
+}
+
+.app-shell :where(.workflow-desktop-table, .notification-desktop-table) th:first-child {
+  width: 44px;
+}
+
+.app-shell :where(.workflow-desktop-table, .notification-desktop-table) th:nth-child(4) {
+  width: 110px; /* 상태 */
+}
+
+.app-shell :where(.workflow-desktop-table, .notification-desktop-table) th:nth-last-child(3) {
+  width: 150px; /* 생성일 */
+}
+
+.app-shell :where(.workflow-desktop-table, .notification-desktop-table) th:nth-last-child(2) {
+  width: 200px; /* 작업 */
+}
+
+/* The legacy .workflow-detail-column rule pins min-width 260px / max-width
+ * 420px on header AND data cells; the fixed-layout contract releases both so
+ * the 26% column width is the single source of truth. */
+.app-shell :where(.workflow-desktop-table, .notification-desktop-table) .workflow-detail-column {
+  min-width: 0;
+  max-width: none;
+}
+
+.app-shell :where(.workflow-desktop-table, .notification-desktop-table) th.workflow-detail-column {
+  width: 26%;
+}
+
+.app-shell .workflow-desktop-table th:nth-child(2) {
+  width: 112px; /* 단계 */
+}
+
+.app-shell .workflow-desktop-table th:nth-child(5) {
+  width: 84px; /* 긴급도 */
+}
+
+.app-shell .notification-desktop-table th:nth-child(3) {
+  width: 140px; /* 유형 */
+}
+
+/* ── 23 · No decorative left rails ───────────────────────────────────── */
+/* Legacy accent rails (border-left ≥ 2px) survive the blanket because only
+ * the color is normalized. Widths collapse to a uniform 1px here; tone and
+ * text carry the emphasis. Structural verticals (timeline connectors, table
+ * dividers, gantt axes) are untouched. */
+.app-shell :where(
+  .procurement-error-panel,
+  .project-material-item-summary > span,
+  .quality-inspection-hero,
+  .quality-start-card,
+  .iqc-progress-strip,
+  .iqc-final-report blockquote,
+  .project-selection-tray,
+  .assignee-card,
+  .logistics-priority-strip > p
+) {
+  border-left-width: 1px !important;
+}
+
+.app-shell .sales-kpi-cards article:first-child {
+  border-left: 1px solid var(--wire-line) !important;
+}
+
+/* ── 21 · Motion ─────────────────────────────────────────────────────── */
+.app-shell :where(button, a, input, select, textarea, summary) {
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell :where(button, a, input, select, textarea, summary) {
+    transition: none;
+  }
+
+  .app-nav-disclosure,
+  .mobile-menu-arrow--disclosure {
+    transition: none;
+  }
+
+  .app-shell .ds-state-panel__bars i {
+    animation: none;
   }
 }

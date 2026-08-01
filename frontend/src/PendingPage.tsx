@@ -17,6 +17,7 @@ import {
   removePendingActionPhoto
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { DsActionFeedback, DsDialog, DsKpiCard, DsKpiGrid, DsPageHeader } from './design-system';
 import { MobileSheet } from './MobileSheet';
 import { OperationalProjectDashboard } from './OperationalProjectDashboard';
 import type { ProjectListItem } from './projects';
@@ -249,8 +250,8 @@ function PendingListView({
           } : undefined}
           onOpenProject={onOpenProjectPending}
         />
-        {feedback ? <p className="action-feedback" data-tone="success" role="status">{feedback}</p> : null}
-        {typeOptionsError ? <p className="action-feedback" data-tone="error" role="alert">Pending 유형을 불러오지 못해 신규 등록을 안전하게 차단했습니다. 새로고침해 주세요.</p> : null}
+        {feedback ? <DsActionFeedback tone="success" message={feedback} /> : null}
+        {typeOptionsError ? <DsActionFeedback tone="error" message="Pending 유형을 불러오지 못해 신규 등록을 안전하게 차단했습니다. 새로고침해 주세요." /> : null}
         {showCreate ? (
           <PendingCreateDialog
             developmentUserKey={developmentUserKey}
@@ -273,19 +274,19 @@ function PendingListView({
 
   return (
     <section className={isMobile ? 'page-surface pending-page pending-page--project mobile-first-page' : 'page-surface pending-page pending-page--project'} aria-labelledby="pending-title">
-      <header className={isMobile ? 'page-header pending-header mobile-page-header' : 'page-header pending-header'}>
-        <div>
-          <p className="eyebrow">PENDING · PROJECT</p>
-          <h2 id="pending-title">{selectedProjectTitle}</h2>
-          <p className="muted-text">{selectedProjectCode} · 이 프로젝트의 등록·조치·재검사·종결 이력만 표시합니다.</p>
-        </div>
-        <div className="pending-project-actions">
+      <DsPageHeader
+        className={isMobile ? 'page-header pending-header mobile-page-header' : 'page-header pending-header'}
+        eyebrow="PENDING · PROJECT"
+        title={selectedProjectTitle}
+        titleId="pending-title"
+        description={<>{selectedProjectCode} · 이 프로젝트의 등록·조치·재검사·종결 이력만 표시합니다.</>}
+        actions={<div className="pending-project-actions">
           <button type="button" onClick={onBackToList}>Pending 프로젝트</button>
           {canManage ? <button className="primary-button" type="button" disabled={typeOptions === null || typeOptionsError} onClick={() => setShowCreate(true)}>+ Pending 등록</button> : null}
-        </div>
-      </header>
+        </div>}
+      />
 
-      {typeOptionsError ? <p className="action-feedback" data-tone="error" role="alert">Pending 유형을 불러오지 못해 유형 필터와 신규 등록을 안전하게 차단했습니다. 새로고침해 주세요.</p> : null}
+      {typeOptionsError ? <DsActionFeedback tone="error" message="Pending 유형을 불러오지 못해 유형 필터와 신규 등록을 안전하게 차단했습니다. 새로고침해 주세요." /> : null}
 
       {state.kind === 'ready' ? <PendingSummaryCards data={state.data} /> : null}
 
@@ -365,7 +366,7 @@ function PendingListView({
         />
       ) : null}
 
-      {feedback ? <p className="action-feedback" data-tone="success" role="status">{feedback}</p> : null}
+      {feedback ? <DsActionFeedback tone="success" message={feedback} /> : null}
       {state.kind === 'loading' ? <PendingLoading /> : null}
       {state.kind === 'error' ? <PendingError message={state.message} onRetry={load} /> : null}
       {state.kind === 'ready' && items.length === 0 ? <PendingEmpty canManage={canManage} onCreate={() => setShowCreate(true)} /> : null}
@@ -409,7 +410,7 @@ function PendingSummaryCards({ data }: { data: PendingListResponse }) {
     ['재검사 대기', data.summary.reinspectionCount, 'reinspection'],
     ['종결', data.summary.closedCount, 'closed']
   ] as const;
-  return <div className="pending-summary-grid">{cards.map(([label, value, tone]) => <div key={label} data-tone={tone}><span>{label}</span><strong>{value}</strong></div>)}</div>;
+  return <DsKpiGrid className="pending-summary-grid">{cards.map(([label, value, tone]) => <DsKpiCard as="div" key={label} tone={tone} label={label} value={value} />)}</DsKpiGrid>;
 }
 
 function PendingCard({ item, selected, selectionBusy, onSelectionChange, onOpen }: { item: PendingIssue; selected: boolean; selectionBusy: boolean; onSelectionChange: (selected: boolean) => void; onOpen: () => void }) {
@@ -516,8 +517,8 @@ function PendingCreateDialog({
   }
 
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="dialog pending-create-dialog" role="dialog" aria-modal="true" aria-labelledby="pending-create-title">
+    <DsDialog labelledBy="pending-create-title" onClose={onClose}>
+      <section className="dialog pending-create-dialog">
         <header className="page-header"><div><p className="eyebrow">NEW ISSUE</p><h2 id="pending-create-title">Pending 등록</h2></div><button type="button" onClick={onClose}>닫기</button></header>
         <form className="pending-create-form" onSubmit={submit}>
           <label className="form-field"><span>프로젝트 *</span><select disabled={loadingOptions} value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value })}><option value="">프로젝트 선택</option>{projects.map((project) => <option key={project.projectId} value={project.projectId}>{project.projectCode} · {project.projectTitle}</option>)}</select></label>
@@ -529,11 +530,11 @@ function PendingCreateDialog({
           <label className="form-field pending-full-field"><span>제목 *</span><input maxLength={160} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="무엇이 업무를 막고 있는지 한 줄로 입력" /></label>
           <label className="form-field pending-full-field"><span>상세 내용 *</span><textarea maxLength={2000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="발생 위치, 현상, 영향, 필요한 조치를 입력해 주세요." /></label>
           <div className="pending-attachment-note pending-full-field"><strong>사진 첨부 안내</strong><span>조치 근거 사진은 담당자가 조치를 시작한 뒤 Pending 상세에서 등록할 수 있습니다.</span></div>
-          {error ? <p className="action-feedback pending-full-field" data-tone="error" role="alert">{error}</p> : null}
+          {error ? <DsActionFeedback tone="error" className="pending-full-field" message={error} /> : null}
           <div className="dialog-actions pending-full-field"><button type="button" onClick={onClose}>취소</button><button className="primary-button" disabled={submitting || loadingOptions || typeOptions.length === 0} type="submit">{submitting ? '등록 중…' : 'Pending 등록'}</button></div>
         </form>
       </section>
-    </div>
+    </DsDialog>
   );
 }
 

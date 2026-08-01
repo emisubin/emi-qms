@@ -8,6 +8,7 @@ import {
   updatePendingType
 } from './api';
 import { useAdaptiveLayout } from './adaptive-layout';
+import { DsActionFeedback, DsDialog, DsPageHeader } from './design-system';
 import type { PendingTypeCatalog, PendingTypeCatalogItem } from './pendingTypes';
 
 type PageState =
@@ -89,14 +90,14 @@ export function PendingTypeManagementPage({ developmentUserKey, canManage }: { d
 
   return (
     <section className={`page-surface pending-type-page${isMobile ? ' mobile-first-page pending-type-page--mobile' : ''}`} aria-labelledby="pending-type-title">
-      <header className={isMobile ? 'page-header mobile-page-header pending-type-header' : 'page-header pending-type-header'}>
-        <div>
-          <p className="eyebrow">MASTER DATA · PENDING</p>
-          <h2 id="pending-type-title">Pending 유형 관리</h2>
-          <p className="muted-text">업무 코드는 유지하고 화면 표시명·수동 등록 노출·정렬 순서를 관리합니다.</p>
-        </div>
-        {!isMobile && state.kind === 'ready' ? <button className="primary-button" type="button" disabled={busy} onClick={() => setShowCreate(true)}>+ 사용자 유형 추가</button> : null}
-      </header>
+      <DsPageHeader
+        className={isMobile ? 'page-header mobile-page-header pending-type-header' : 'page-header pending-type-header'}
+        eyebrow="MASTER DATA · PENDING"
+        title="Pending 유형 관리"
+        titleId="pending-type-title"
+        description="업무 코드는 유지하고 화면 표시명·수동 등록 노출·정렬 순서를 관리합니다."
+        actions={!isMobile && state.kind === 'ready' ? <button className="primary-button" type="button" disabled={busy} onClick={() => setShowCreate(true)}>+ 사용자 유형 추가</button> : null}
+      />
 
       {state.kind === 'ready' ? (
         <div className="pending-type-kpi-grid" aria-label="Pending 유형 요약">
@@ -107,7 +108,7 @@ export function PendingTypeManagementPage({ developmentUserKey, canManage }: { d
         </div>
       ) : null}
 
-      {feedback ? <p className="action-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}>{feedback.message}</p> : null}
+      {feedback ? <DsActionFeedback tone={feedback.tone} message={feedback.message} /> : null}
       {state.kind === 'loading' ? <div className="pending-type-state" role="status">Pending 유형을 불러오는 중입니다…</div> : null}
       {state.kind === 'error' ? <div className="pending-type-state" role="alert"><strong>유형 목록을 불러오지 못했습니다.</strong><p>{state.message}</p><button type="button" onClick={() => void load()}>다시 시도</button></div> : null}
 
@@ -167,7 +168,7 @@ function CreatePendingTypeDialog({ busy, onClose, onCreate }: { busy: boolean; o
     event.preventDefault();
     if (displayName.trim().length >= 2) onCreate(displayName.trim(), description.trim() || null);
   }
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="dialog pending-type-dialog" role="dialog" aria-modal="true" aria-labelledby="pending-type-create-title"><header className="page-header"><div><p className="eyebrow">NEW PENDING TYPE</p><h2 id="pending-type-create-title">사용자 유형 추가</h2><p className="muted-text">내부 코드는 서버가 자동으로 만들며 이후 변경되지 않습니다.</p></div><button type="button" onClick={onClose}>닫기</button></header><form onSubmit={submit}><label className="form-field"><span>표시명 *</span><input autoFocus maxLength={80} value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="예: 설계 변경" /></label><label className="form-field"><span>설명</span><textarea maxLength={300} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="어떤 상황에 사용하는 유형인지 입력" /></label><div className="dialog-actions"><button type="button" onClick={onClose}>취소</button><button className="primary-button" type="submit" disabled={busy || displayName.trim().length < 2}>{busy ? '추가 중…' : '유형 추가'}</button></div></form></section></div>;
+  return <DsDialog labelledBy="pending-type-create-title" onClose={onClose}><section className="dialog pending-type-dialog"><header className="page-header"><div><p className="eyebrow">NEW PENDING TYPE</p><h2 id="pending-type-create-title">사용자 유형 추가</h2><p className="muted-text">내부 코드는 서버가 자동으로 만들며 이후 변경되지 않습니다.</p></div><button type="button" onClick={onClose}>닫기</button></header><form onSubmit={submit}><label className="form-field"><span>표시명 *</span><input autoFocus maxLength={80} value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="예: 설계 변경" /></label><label className="form-field"><span>설명</span><textarea maxLength={300} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="어떤 상황에 사용하는 유형인지 입력" /></label><div className="dialog-actions"><button type="button" onClick={onClose}>취소</button><button className="primary-button" type="submit" disabled={busy || displayName.trim().length < 2}>{busy ? '추가 중…' : '유형 추가'}</button></div></form></section></DsDialog>;
 }
 
 function errorMessage(error: unknown) {

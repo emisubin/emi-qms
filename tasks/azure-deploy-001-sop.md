@@ -41,6 +41,8 @@
 
 ## 4. 배포 Gate
 
+Git에 검증된 배포 코드를 먼저 merge한다. 이 merge는 Azure resource 생성이나 public traffic 활성화를 의미하지 않는다.
+
 1. Foundation 생성과 Key Vault 입력
 2. image digest 고정
 3. Inactive workload 생성
@@ -53,6 +55,8 @@
 10. actual Teams·Gmail smoke
 
 한 단계가 실패하면 다음 단계로 넘어가지 않는다.
+
+DB 복구, edge·인증과 actual provider smoke는 `PRE_TRAFFIC_GATE`다. Git merge 후에 실행하되, 세 Gate가 모두 PASS가 되기 전에는 public traffic과 external notification을 활성화하지 않는다.
 
 ## 5. 개인정보 안전 증빙
 

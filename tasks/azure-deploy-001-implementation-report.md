@@ -10,7 +10,7 @@
 - Public traffic: `미전환`
 - 사용자 검수: `대기`
 - Commit: `Local 배포 준비본 커밋 완료`
-- Push / PR / Merge: `미실행`
+- Push / PR / Merge: `사용자 승인 / 게시 진행`
 
 이 보고서는 비용이 발생하지 않는 local 준비 단계의 완료를 기록한다. Azure resource 생성, image push, migration·restore rehearsal, DNS·TLS, 실제 provider 발송과 public traffic 전환을 완료로 주장하지 않는다.
 
@@ -195,18 +195,27 @@ Frontend build에는 기존 large bundle warning이 있었으나 build 실패나
 - 실제 값은 ignored `*.local.json`, Azure Portal secure parameter와 Key Vault에만 둔다.
 - 검증 로그는 status, count와 aggregate만 남기도록 구성했다.
 
-## 10. Finding
+## 10. Finding과 Pre-traffic Gate
+
+### Finding
 
 | ID | 등급 | 상태 | 내용과 영향 | 해소·후속 |
 | --- | --- | --- | --- | --- |
 | `AZURE-COST-GATE-001` | External gate | `OPEN` | 실제 Azure resource가 없어 public pilot은 아직 시작되지 않았다. | 사용자가 비용·credit 확인과 budget 설정 후 foundation부터 직접 실행 |
-| `AZURE-RESTORE-001` | P1 operational gate | `OPEN` | 실제 PITR restore가 60분 안에 완료되는지 검증되지 않았다. Public traffic 활성화 금지. | PostgreSQL 생성·migration 후 SOP 순서로 restore rehearsal |
-| `AZURE-EDGE-AUTH-001` | P1 operational gate | `OPEN` | 실제 DNS/TLS/Entra callback과 origin 차단은 cloud runtime에서 확인되지 않았다. Public traffic 활성화 금지. | edge 배포 뒤 체크리스트 검수 |
-| `AZURE-PROVIDER-001` | P1 operational gate | `OPEN` | 실제 Teams·Gmail 전송이 검증되지 않았다. | Key Vault 입력과 workload 활성화 후 각각 1건 privacy-safe smoke |
 | `AZURE-APM-001` | P3 | `BACKLOG` | Application Insights resource 정의는 있으나 Backend SDK APM 계측은 아직 없다. Log Analytics container log는 사용 가능하다. | 시범 운영에서 request trace 필요성을 확인한 뒤 별도 계측 |
 | `FRONTEND-BUNDLE-001` | P3 | `BACKLOG` | Production build의 기존 large bundle warning이 유지된다. 기능 오류는 아니다. | 정식 운영 성능 점검에서 route chunk 분할 검토 |
 
-`AZURE-RESTORE-001`, `AZURE-EDGE-AUTH-001`, `AZURE-PROVIDER-001`은 local implementation artifact의 자동 검증 실패는 아니지만, Task 완료·public traffic·Git 게시와 merge를 막는 운영 Gate다.
+Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 backlog에 연결한다.
+
+### Pre-traffic operational gate
+
+| ID | 상태 | Public 활성화 전 필수 검증 |
+| --- | --- | --- |
+| `AZURE-RESTORE-001` | `OPEN` | 실제 PITR restore가 60분 안에 완료되고 migration ledger·aggregate가 일치해야 함 |
+| `AZURE-EDGE-AUTH-001` | `OPEN` | DNS·managed TLS·Entra callback·Front Door 200·origin 403을 실제 runtime에서 확인해야 함 |
+| `AZURE-PROVIDER-001` | `OPEN` | Teams·Gmail을 각각 1건 actual smoke로 확인해야 함 |
+
+이 세 Gate는 Change 002에 따라 Git merge를 막지 않지만 모두 PASS 전에 public traffic과 external notification 활성화를 금지한다.
 
 ## 11. Rollback과 복구
 
@@ -239,7 +248,7 @@ Frontend build에는 기존 large bundle warning이 있었으나 build 실패나
 
 - 변경사항: 검증된 local 배포 준비본을 현재 Task branch의 이 커밋으로 보존
 - Commit: 완료
-- Push: 미실행
-- PR: 미실행
-- Merge: 미실행
+- Push: 사용자 승인 / 게시 진행
+- PR: 사용자 승인 / 게시 진행
+- Merge: 사용자 승인 / CI Gate 통과 후 실행
 - 실제 Azure 적용과 Git 게시는 각각 별도 사용자 실행·승인이 필요하다.

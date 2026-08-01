@@ -1032,7 +1032,7 @@ Excel 출력 대상 후보:
 | 5.5 | TASK-NOTIFY-AUDIT-001 관리자 preference 감사 조회 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-005 audit 원장 | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | TASK-AZURE-PILOT-001 — 서비스 중립 공개 파일럿 준비 | UAT_RUNTIME | Main Merged / User Validation Complete | Entra API·SPA 분리, one-shot migration·ledger gate, Production preflight·ARM64/AMD64 image 검증과 PR #59 merge 완료 | TASK-UAT-001, local main 승인 기능과 사용자 P1 구현 승인 | provider-specific 실제 runtime은 TASK-AZURE-DEPLOY-001로 이관 | Yes | 완료 scope 재구현 금지 |
-| 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | UAT_RUNTIME | Local Commit Complete / Cost Gate Pending | Front Door Standard·Container Apps Consumption·PostgreSQL B2s·ACR Basic·Azure Files·Key Vault·Log Analytics provider-specific 코드, Teams manifest와 자동 검증 완료 | TASK-AZURE-PILOT-001 main merge, 사용자 20일 구성 승인 | 비용 관련 Azure resource 생성·image push·restore·DNS·traffic은 사용자 직접 실행 | Yes | 비용·생성 목록 보고 → 사용자 Azure 실행 → 실제 복구·보안·provider 검수 |
+| 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | UAT_RUNTIME | Main Merge Approved / Cost Gate Pending | Front Door Standard·Container Apps Consumption·PostgreSQL B2s·ACR Basic·Azure Files·Key Vault·Log Analytics provider-specific 코드, Teams manifest와 자동 검증 완료 | TASK-AZURE-PILOT-001 main merge, 사용자 20일 구성·Change 002 merge 승인 | 비용 관련 Azure resource 생성·image push·restore·DNS·traffic은 사용자 직접 실행 | Yes | main 병합 → 사용자 Azure 실행 → pre-traffic 복구·보안·provider 검수 |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
 
@@ -1265,15 +1265,15 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-AZURE-DEPLOY-001: 20일 Azure 시범 배포
 
-- 상태/다음 순서: 비용 없는 local implementation·자동 검증·commit 완료 / Azure resource 생성 비용 Gate 대기
+- 상태/다음 순서: 비용 없는 local implementation·자동 검증·commit 완료, main merge 사용자 승인 / Azure resource 생성 비용 Gate 대기
 - 목적: 승인된 Azure 시범 사양을 provider-specific 배포 artifact, migration·restore·traffic gate와 Teams manifest로 전환해 3개 프로젝트를 20일 동안 안전하게 시범 운영한다.
 - 포함 범위: Front Door Standard custom rate limit, Container Apps Consumption Frontend/API/ClamAV, one-shot migration job, private PostgreSQL Flexible Server B2s 32 GB·PITR 14일, ACR Basic, Azure Files 5 GB, Key Vault, Log Analytics 1 GB/day cap, Application Insights, 최종 hostname·Entra·Teams manifest handover
 - 제외 범위: 기존 PostgreSQL 첨부의 Blob 이관, HA, Front Door Premium managed WAF, 실제 비용 resource의 Codex 자동 생성, 사용자 승인 없는 traffic·provider 발송, 정식 운영 사양 확정
 - 선행조건: TASK-AZURE-PILOT-001 PR #59 main merge, 사용자 20일 시범 구성과 비용 owner 결정
 - 예상 migration: 신규 SQL 없음. 기존 67개 migration을 inactive workload의 one-shot job으로 적용하고 Exact 전에는 application을 활성화하지 않음
 - 자동 검증: Backend 보안 집중 37/37·전체 격리 회귀 476/476, migration image ledger 67 Exact, Azure Frontend image·origin 403 smoke, Bicep compile, Teams package와 static deployment invariant 완료
-- Finding: `OPS-PILOT-002`는 provider artifact 완료와 실제 revision rollback 증빙 뒤 해소. `OPS-PILOT-004`는 실제 DNS·managed TLS·private DB restore·monitoring·origin 차단 증빙 뒤 해소
-- 산출물: [Identity Gate](../tasks/azure-deploy-001-identity-gate.md), [Change 001](../tasks/azure-deploy-001-change-001.md), [Implementation report](../tasks/azure-deploy-001-implementation-report.md), [SOP](../tasks/azure-deploy-001-sop.md), [User validation checklist](../tasks/azure-deploy-001-user-validation-checklist.md), [Azure pilot infrastructure](../infrastructure/azure-pilot/README.md)
+- Finding: Open P0/P1/P2 code Finding `0`. `OPS-PILOT-002`·`OPS-PILOT-004`의 실제 revision rollback·DNS·managed TLS·private DB restore·monitoring·origin 차단·provider smoke는 Git merge 후 `PRE_TRAFFIC_GATE`로 검증
+- 산출물: [Identity Gate](../tasks/azure-deploy-001-identity-gate.md), [Change 001](../tasks/azure-deploy-001-change-001.md), [Change 002](../tasks/azure-deploy-001-change-002.md), [Implementation report](../tasks/azure-deploy-001-implementation-report.md), [SOP](../tasks/azure-deploy-001-sop.md), [User validation checklist](../tasks/azure-deploy-001-user-validation-checklist.md), [Azure pilot infrastructure](../infrastructure/azure-pilot/README.md)
 - 다음 Gate: 비용·생성 목록을 사용자에게 먼저 보고하고, 사용자가 budget·resource 생성·PITR restore·DNS·traffic을 직접 실행한다.
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
@@ -1870,6 +1870,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
 | 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수·PR #50 merge·public 재개 완료 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. Backup 삭제는 별도 결정 |
+| 78 | Azure Application Insights APM 계측 | P3 Backlog / 시범 실측 후 재평가 | 개발/운영 | AZURE-APM-001 | 현재는 Log Analytics container log를 사용. Request trace가 필요하면 Backend SDK 계측을 별도 시작 |
+| 79 | Frontend production bundle 분할 | P3 Backlog / 정식 운영 성능 점검 | 개발 | FRONTEND-BUNDLE-001 | 현재 large bundle warning은 기능·build 실패가 아님. 실제 로딩 측정 후 route chunk 분할 결정 |
 | 78 | Task instruction chain·완료 보고 형식 | 최초 Task merge 완료 / Change 001 상태 충돌 P2 Resolved·자동·독립 검증·사용자 검수 완료 / merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 최초 Task 완료와 현재 Change 상태를 분리하고 작업 현황·Git 게시·중단 Task·Roadmap next·Finding identity를 보존 |
 | 79 | Full-Stack E2E 구매정보 동적 행 timing | 본체 병합 완료 / Change 001 experiment `BATCHED_FINAL` | 개발/품질 | TASK-E2E-RELIABILITY-001 | 최신 load만 edit state에 반영하고, Change 001에서 초기 load 중 행 추가·저장·Excel을 잠그는 readiness 계약까지 보정. deterministic unit·isolated E2E 통과 |
 | 80 | Backend import-order format debt | 구현·자동·독립 검증·사용자 검수·merge 완료 | 개발/품질 | TASK-BACKEND-FORMAT-001 | 정확한 Backend C# 9개 파일의 `IMPORTS=9`를 diagnostic 0으로 정리. 실행 코드·API·DB·runtime 변경 0 |
@@ -2112,6 +2114,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-07-30 | TASK-UAT-001 Change 005·006 사용자 검수를 완료하고 PR #58의 `main` merge를 승인 | 실제 Microsoft 365 로그인, 주요 업무 조회·저장, 알림·내 업무와 로그아웃 cache 차단을 확인하고 열린 P0/P1/P2가 없는 공개 배포 보안 변경을 제품 기준선에 반영하기 위함. 실제 운영 domain·managed DB·SIEM handover는 별도 Gate로 유지 | 23장~25장, TASK-UAT-001 Change 005·006, PR #58 |
 | 2026-07-31 | TASK-AZURE-PILOT-001에서 Azure 서비스 선정이 필요 없는 P1만 구현하고 hosting·managed DB·domain·WAF·SIEM·registry/OIDC·실제 rollback 선정은 사용자 결정까지 보류 | 파일럿 준비 속도를 유지하면서 미선정 provider를 코드로 임의 확정하지 않고, Entra API·SPA 분리·one-shot migration·preflight·GitHub 게시 후보를 서비스 중립 계약으로 먼저 검증하기 위함 | 23장~25장, TASK-AZURE-PILOT-001 |
 | 2026-07-31 | TASK-AZURE-DEPLOY-001에서 20일 시범을 Front Door Standard·Container Apps Consumption·PostgreSQL B2s·ACR Basic·Azure Files·Key Vault·Log Analytics로 구성하고 비용 관련 Azure 실행은 사용자가 직접 담당 | 3개 프로젝트의 작은 사용량에 HA·Premium WAF·Blob을 넣지 않으면서 migration·restore·origin 보호와 최종 hostname을 실제 provider 계약으로 검증하고, 무료 credit과 비용 통제 권한을 사용자에게 유지하기 위함 | 23장~25장, TASK-AZURE-DEPLOY-001 |
+| 2026-08-01 | TASK-AZURE-DEPLOY-001 Change 002에서 검증된 배포 코드의 Git merge와 Azure runtime에서만 실행 가능한 DB 복구·edge/인증·actual provider smoke를 분리 | 커밋된 배포 코드를 기준으로 Azure를 생성하되, 공개 traffic과 external notification은 세 `PRE_TRAFFIC_GATE` PASS 전에 fail-closed로 유지하기 위함 | 23장~25장, TASK-AZURE-DEPLOY-001 Change 002 |
 
 ## 26. 용어 사전
 

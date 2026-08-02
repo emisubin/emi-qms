@@ -1,0 +1,702 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "16417543243822638615"
+    }
+  },
+  "parameters": {
+    "prefix": {
+      "type": "string",
+      "defaultValue": "pms-pilot",
+      "minLength": 3,
+      "maxLength": 18,
+      "metadata": {
+        "description": "Short lowercase prefix used for Azure resource names."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for the 20-day pilot."
+      }
+    },
+    "postgresAdministratorLogin": {
+      "type": "string",
+      "metadata": {
+        "description": "PostgreSQL administrator login. Do not use a personal identifier."
+      }
+    },
+    "postgresAdministratorPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "PostgreSQL administrator password."
+      }
+    },
+    "frontDoorOriginVerifyToken": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Random value sent by Front Door and verified by the origin."
+      }
+    },
+    "virtualNetworkAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.42.0.0/21"
+    },
+    "containerAppsSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.42.0.0/23"
+    },
+    "postgresSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.42.4.0/28"
+    }
+  },
+  "variables": {
+    "suffix": "[take(uniqueString(subscription().id, resourceGroup().id, parameters('prefix')), 8)]",
+    "compactPrefix": "[replace(parameters('prefix'), '-', '')]",
+    "names": {
+      "logWorkspace": "[format('{0}-logs-{1}', parameters('prefix'), variables('suffix'))]",
+      "appInsights": "[format('{0}-insights-{1}', parameters('prefix'), variables('suffix'))]",
+      "virtualNetwork": "[format('{0}-vnet-{1}', parameters('prefix'), variables('suffix'))]",
+      "privateDnsZone": "privatelink.postgres.database.azure.com",
+      "environment": "[format('{0}-env-{1}', parameters('prefix'), variables('suffix'))]",
+      "registry": "[take(format('{0}acr{1}', variables('compactPrefix'), variables('suffix')), 50)]",
+      "storageAccount": "[take(format('{0}st{1}', variables('compactPrefix'), variables('suffix')), 24)]",
+      "keyVault": "[take(format('{0}-kv-{1}', parameters('prefix'), variables('suffix')), 24)]",
+      "backendIdentity": "[format('{0}-backend-{1}', parameters('prefix'), variables('suffix'))]",
+      "frontendIdentity": "[format('{0}-frontend-{1}', parameters('prefix'), variables('suffix'))]",
+      "migrationIdentity": "[format('{0}-migration-{1}', parameters('prefix'), variables('suffix'))]",
+      "databaseBootstrapIdentity": "[format('{0}-db-bootstrap-{1}', parameters('prefix'), variables('suffix'))]",
+      "postgres": "[format('{0}-pg-{1}', parameters('prefix'), variables('suffix'))]",
+      "frontDoorProfile": "[format('{0}-afd-{1}', parameters('prefix'), variables('suffix'))]",
+      "frontDoorEndpoint": "[format('{0}-{1}', variables('compactPrefix'), variables('suffix'))]",
+      "frontDoorRuleSet": "originverification",
+      "wafPolicy": "[take(format('{0}waf{1}', variables('compactPrefix'), variables('suffix')), 128)]"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('names').logWorkspace]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "retentionInDays": 30,
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "workspaceCapping": {
+          "dailyQuotaGb": 1
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('names').appInsights]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace)]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2024-05-01",
+      "name": "[variables('names').virtualNetwork]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters('virtualNetworkAddressPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "container-apps",
+            "properties": {
+              "addressPrefix": "[parameters('containerAppsSubnetPrefix')]",
+              "delegations": [
+                {
+                  "name": "container-apps-delegation",
+                  "properties": {
+                    "serviceName": "Microsoft.App/environments"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "postgres",
+            "properties": {
+              "addressPrefix": "[parameters('postgresSubnetPrefix')]",
+              "delegations": [
+                {
+                  "name": "postgres-delegation",
+                  "properties": {
+                    "serviceName": "Microsoft.DBforPostgreSQL/flexibleServers"
+                  }
+                }
+              ],
+              "privateEndpointNetworkPolicies": "Disabled"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2024-06-01",
+      "name": "[variables('names').privateDnsZone]",
+      "location": "global"
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2024-06-01",
+      "name": "[format('{0}/{1}', variables('names').privateDnsZone, format('{0}-postgres-link', parameters('prefix')))]",
+      "location": "global",
+      "properties": {
+        "registrationEnabled": false,
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('names').virtualNetwork)]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('names').privateDnsZone)]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('names').virtualNetwork)]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('names').environment]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "log-analytics",
+          "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace), '2023-09-01').customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace), '2023-09-01').primarySharedKey]"
+          }
+        },
+        "zoneRedundant": false,
+        "vnetConfiguration": {
+          "infrastructureSubnetId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('names').virtualNetwork, 'container-apps')]",
+          "internal": false
+        },
+        "workloadProfiles": [
+          {
+            "name": "Consumption",
+            "workloadProfileType": "Consumption"
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace)]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('names').virtualNetwork)]"
+      ]
+    },
+    {
+      "type": "Microsoft.ContainerRegistry/registries",
+      "apiVersion": "2023-11-01-preview",
+      "name": "[variables('names').registry]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Basic"
+      },
+      "properties": {
+        "adminUserEnabled": false,
+        "anonymousPullEnabled": false,
+        "dataEndpointEnabled": false,
+        "publicNetworkAccess": "Enabled",
+        "zoneRedundancy": "Disabled"
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('names').storageAccount]",
+      "location": "[parameters('location')]",
+      "kind": "StorageV2",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "properties": {
+        "accessTier": "Hot",
+        "allowBlobPublicAccess": false,
+        "allowSharedKeyAccess": true,
+        "defaultToOAuthAuthentication": false,
+        "minimumTlsVersion": "TLS1_2",
+        "publicNetworkAccess": "Enabled",
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('names').storageAccount, 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storageAccount)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').storageAccount, 'default', 'clamav-signatures')]",
+      "properties": {
+        "accessTier": "TransactionOptimized",
+        "enabledProtocols": "SMB",
+        "shareQuota": 5
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', variables('names').storageAccount, 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments/storages",
+      "apiVersion": "2024-03-01",
+      "name": "[format('{0}/{1}', variables('names').environment, 'clamavsignatures')]",
+      "properties": {
+        "azureFile": {
+          "accessMode": "ReadWrite",
+          "accountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('names').storageAccount), '2023-05-01').keys[0].value]",
+          "accountName": "[variables('names').storageAccount]",
+          "shareName": "clamav-signatures"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', variables('names').storageAccount, 'default', 'clamav-signatures')]",
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').environment)]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storageAccount)]"
+      ]
+    },
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('names').backendIdentity]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('names').frontendIdentity]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('names').migrationIdentity]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('names').databaseBootstrapIdentity]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry)]",
+      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').backendIdentity), 'AcrPull')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').backendIdentity), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').backendIdentity)]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry)]",
+      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').frontendIdentity), 'AcrPull')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').frontendIdentity), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').frontendIdentity)]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry)]",
+      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').migrationIdentity), 'AcrPull')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').migrationIdentity), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').migrationIdentity)]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry)]",
+      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').databaseBootstrapIdentity), 'AcrPull')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').databaseBootstrapIdentity), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').databaseBootstrapIdentity)]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry)]"
+      ]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2023-07-01",
+      "name": "[variables('names').keyVault]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "accessPolicies": [],
+        "enablePurgeProtection": true,
+        "enableRbacAuthorization": true,
+        "enableSoftDelete": true,
+        "publicNetworkAccess": "Enabled",
+        "sku": {
+          "family": "A",
+          "name": "standard"
+        },
+        "softDeleteRetentionInDays": 7,
+        "tenantId": "[subscription().tenantId]"
+      }
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+      "apiVersion": "2024-08-01",
+      "name": "[variables('names').postgres]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_B2s",
+        "tier": "Burstable"
+      },
+      "properties": {
+        "administratorLogin": "[parameters('postgresAdministratorLogin')]",
+        "administratorLoginPassword": "[parameters('postgresAdministratorPassword')]",
+        "authConfig": {
+          "activeDirectoryAuth": "Disabled",
+          "passwordAuth": "Enabled"
+        },
+        "availabilityZone": "1",
+        "backup": {
+          "backupRetentionDays": 14,
+          "geoRedundantBackup": "Disabled"
+        },
+        "createMode": "Create",
+        "highAvailability": {
+          "mode": "Disabled"
+        },
+        "network": {
+          "delegatedSubnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('names').virtualNetwork, 'postgres')]",
+          "privateDnsZoneArmResourceId": "[resourceId('Microsoft.Network/privateDnsZones', variables('names').privateDnsZone)]",
+          "publicNetworkAccess": "Disabled"
+        },
+        "storage": {
+          "autoGrow": "Enabled",
+          "storageSizeGB": 32
+        },
+        "version": "16"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', variables('names').privateDnsZone, format('{0}-postgres-link', parameters('prefix')))]",
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('names').privateDnsZone)]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('names').virtualNetwork)]"
+      ]
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/databases",
+      "apiVersion": "2024-08-01",
+      "name": "[format('{0}/{1}', variables('names').postgres, 'emi_qms')]",
+      "properties": {
+        "charset": "UTF8",
+        "collation": "en_US.utf8"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('names').postgres)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles",
+      "apiVersion": "2024-09-01",
+      "name": "[variables('names').frontDoorProfile]",
+      "location": "global",
+      "sku": {
+        "name": "Standard_AzureFrontDoor"
+      }
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/afdEndpoints",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}', variables('names').frontDoorProfile, variables('names').frontDoorEndpoint)]",
+      "location": "global",
+      "properties": {
+        "enabledState": "Enabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('names').frontDoorProfile)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/ruleSets",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}', variables('names').frontDoorProfile, variables('names').frontDoorRuleSet)]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('names').frontDoorProfile)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/ruleSets/rules",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').frontDoorProfile, variables('names').frontDoorRuleSet, 'addoriginverification')]",
+      "properties": {
+        "actions": [
+          {
+            "name": "ModifyRequestHeader",
+            "parameters": {
+              "headerAction": "Overwrite",
+              "headerName": "X-Pms-Origin-Verify",
+              "typeName": "DeliveryRuleHeaderActionParameters",
+              "value": "[parameters('frontDoorOriginVerifyToken')]"
+            }
+          }
+        ],
+        "conditions": [],
+        "matchProcessingBehavior": "Continue",
+        "order": 1
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/ruleSets', variables('names').frontDoorProfile, variables('names').frontDoorRuleSet)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/FrontDoorWebApplicationFirewallPolicies",
+      "apiVersion": "2024-02-01",
+      "name": "[variables('names').wafPolicy]",
+      "location": "global",
+      "sku": {
+        "name": "Standard_AzureFrontDoor"
+      },
+      "properties": {
+        "customRules": {
+          "rules": [
+            {
+              "action": "Block",
+              "enabledState": "Enabled",
+              "matchConditions": [
+                {
+                  "matchValue": [
+                    "192.0.2.0/24"
+                  ],
+                  "matchVariable": "RemoteAddr",
+                  "negateCondition": true,
+                  "operator": "IPMatch"
+                }
+              ],
+              "name": "GlobalRateLimit",
+              "priority": 1,
+              "rateLimitDurationInMinutes": 1,
+              "rateLimitThreshold": 300,
+              "ruleType": "RateLimitRule"
+            }
+          ]
+        },
+        "policySettings": {
+          "enabledState": "Enabled",
+          "mode": "Prevention",
+          "requestBodyCheck": "Enabled"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault)]",
+      "name": "send-to-pilot-workspace",
+      "properties": {
+        "logs": [
+          {
+            "categoryGroup": "allLogs",
+            "enabled": true
+          }
+        ],
+        "metrics": [
+          {
+            "category": "AllMetrics",
+            "enabled": true
+          }
+        ],
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace)]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault)]",
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('names').postgres)]",
+      "name": "send-to-pilot-workspace",
+      "properties": {
+        "logs": [
+          {
+            "categoryGroup": "allLogs",
+            "enabled": true
+          }
+        ],
+        "metrics": [
+          {
+            "category": "AllMetrics",
+            "enabled": true
+          }
+        ],
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace)]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace)]",
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('names').postgres)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.Cdn/profiles', variables('names').frontDoorProfile)]",
+      "name": "send-to-pilot-workspace",
+      "properties": {
+        "logs": [
+          {
+            "categoryGroup": "allLogs",
+            "enabled": true
+          }
+        ],
+        "metrics": [
+          {
+            "category": "AllMetrics",
+            "enabled": true
+          }
+        ],
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace)]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('names').frontDoorProfile)]",
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logWorkspace)]"
+      ]
+    }
+  ],
+  "outputs": {
+    "containerAppsEnvironmentName": {
+      "type": "string",
+      "value": "[variables('names').environment]"
+    },
+    "containerAppsEnvironmentId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.App/managedEnvironments', variables('names').environment)]"
+    },
+    "containerAppsSubnetPrefix": {
+      "type": "string",
+      "value": "[parameters('containerAppsSubnetPrefix')]"
+    },
+    "registryName": {
+      "type": "string",
+      "value": "[variables('names').registry]"
+    },
+    "registryServer": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('names').registry), '2023-11-01-preview').loginServer]"
+    },
+    "backendIdentityId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').backendIdentity)]"
+    },
+    "frontendIdentityId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').frontendIdentity)]"
+    },
+    "migrationIdentityId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').migrationIdentity)]"
+    },
+    "databaseBootstrapIdentityId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').databaseBootstrapIdentity)]"
+    },
+    "keyVaultName": {
+      "type": "string",
+      "value": "[variables('names').keyVault]"
+    },
+    "keyVaultUri": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('names').keyVault), '2023-07-01').vaultUri]"
+    },
+    "postgresHost": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('names').postgres), '2024-08-01').fullyQualifiedDomainName]"
+    },
+    "postgresDatabaseName": {
+      "type": "string",
+      "value": "emi_qms"
+    },
+    "applicationInsightsConnectionString": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/components', variables('names').appInsights), '2020-02-02').ConnectionString]"
+    },
+    "frontDoorProfileName": {
+      "type": "string",
+      "value": "[variables('names').frontDoorProfile]"
+    },
+    "frontDoorEndpointName": {
+      "type": "string",
+      "value": "[variables('names').frontDoorEndpoint]"
+    },
+    "frontDoorEndpointHost": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').frontDoorProfile, variables('names').frontDoorEndpoint), '2024-09-01').hostName]"
+    },
+    "frontDoorId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Cdn/profiles', variables('names').frontDoorProfile), '2024-09-01').frontDoorId]"
+    },
+    "frontDoorRuleSetId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Cdn/profiles/ruleSets', variables('names').frontDoorProfile, variables('names').frontDoorRuleSet)]"
+    },
+    "wafPolicyId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Network/FrontDoorWebApplicationFirewallPolicies', variables('names').wafPolicy)]"
+    },
+    "requiredKeyVaultSecretNames": {
+      "type": "array",
+      "value": [
+        "database-admin-connection-string",
+        "database-migration-connection-string",
+        "database-runtime-connection-string",
+        "bootstrap-administrator-emails",
+        "front-door-origin-verify-token",
+        "gmail-username",
+        "gmail-app-password",
+        "teams-activity-client-secret"
+      ]
+    }
+  }
+}

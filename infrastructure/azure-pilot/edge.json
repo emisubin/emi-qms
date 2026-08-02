@@ -1,0 +1,195 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "4008660909279744317"
+    }
+  },
+  "parameters": {
+    "frontDoorProfileName": {
+      "type": "string",
+      "metadata": {
+        "description": "Front Door profile name from foundation.bicep."
+      }
+    },
+    "frontDoorEndpointName": {
+      "type": "string",
+      "metadata": {
+        "description": "Front Door endpoint name from foundation.bicep."
+      }
+    },
+    "frontDoorRuleSetName": {
+      "type": "string",
+      "defaultValue": "originverification",
+      "metadata": {
+        "description": "Front Door rule set name from foundation.bicep."
+      }
+    },
+    "wafPolicyId": {
+      "type": "string",
+      "metadata": {
+        "description": "WAF policy resource ID from foundation.bicep."
+      }
+    },
+    "frontendFqdn": {
+      "type": "string",
+      "metadata": {
+        "description": "Frontend Container App fully qualified domain name from workloads.bicep."
+      }
+    },
+    "publicHost": {
+      "type": "string",
+      "metadata": {
+        "description": "Exact public hostname. Pass at deployment time; do not commit the real value."
+      }
+    },
+    "customDomainResourceName": {
+      "type": "string",
+      "defaultValue": "pms-domain",
+      "metadata": {
+        "description": "Stable Azure resource name for the custom domain."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Cdn/profiles/originGroups",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}', parameters('frontDoorProfileName'), 'frontend')]",
+      "properties": {
+        "healthProbeSettings": {
+          "probeIntervalInSeconds": 30,
+          "probePath": "/health/live",
+          "probeProtocol": "Https",
+          "probeRequestType": "HEAD"
+        },
+        "loadBalancingSettings": {
+          "additionalLatencyInMilliseconds": 50,
+          "sampleSize": 4,
+          "successfulSamplesRequired": 3
+        },
+        "sessionAffinityState": "Disabled"
+      }
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/originGroups/origins",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}/{2}', parameters('frontDoorProfileName'), 'frontend', 'container-app-frontend')]",
+      "properties": {
+        "enabledState": "Enabled",
+        "enforceCertificateNameCheck": true,
+        "hostName": "[parameters('frontendFqdn')]",
+        "httpPort": 80,
+        "httpsPort": 443,
+        "originHostHeader": "[parameters('frontendFqdn')]",
+        "priority": 1,
+        "weight": 1000
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/originGroups', parameters('frontDoorProfileName'), 'frontend')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/customDomains",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}', parameters('frontDoorProfileName'), parameters('customDomainResourceName'))]",
+      "properties": {
+        "hostName": "[parameters('publicHost')]",
+        "tlsSettings": {
+          "certificateType": "ManagedCertificate",
+          "minimumTlsVersion": "TLS12"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/afdEndpoints/routes",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}/{2}', parameters('frontDoorProfileName'), parameters('frontDoorEndpointName'), 'public')]",
+      "properties": {
+        "cacheConfiguration": null,
+        "customDomains": [
+          {
+            "id": "[resourceId('Microsoft.Cdn/profiles/customDomains', parameters('frontDoorProfileName'), parameters('customDomainResourceName'))]"
+          }
+        ],
+        "enabledState": "Enabled",
+        "forwardingProtocol": "HttpsOnly",
+        "httpsRedirect": "Enabled",
+        "linkToDefaultDomain": "Disabled",
+        "originGroup": {
+          "id": "[resourceId('Microsoft.Cdn/profiles/originGroups', parameters('frontDoorProfileName'), 'frontend')]"
+        },
+        "patternsToMatch": [
+          "/*"
+        ],
+        "ruleSets": [
+          {
+            "id": "[resourceId('Microsoft.Cdn/profiles/ruleSets', parameters('frontDoorProfileName'), parameters('frontDoorRuleSetName'))]"
+          }
+        ],
+        "supportedProtocols": [
+          "Http",
+          "Https"
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/customDomains', parameters('frontDoorProfileName'), parameters('customDomainResourceName'))]",
+        "[resourceId('Microsoft.Cdn/profiles/originGroups/origins', parameters('frontDoorProfileName'), 'frontend', 'container-app-frontend')]",
+        "[resourceId('Microsoft.Cdn/profiles/originGroups', parameters('frontDoorProfileName'), 'frontend')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/securityPolicies",
+      "apiVersion": "2024-09-01",
+      "name": "[format('{0}/{1}', parameters('frontDoorProfileName'), 'public-waf')]",
+      "properties": {
+        "parameters": {
+          "associations": [
+            {
+              "domains": [
+                {
+                  "id": "[resourceId('Microsoft.Cdn/profiles/customDomains', parameters('frontDoorProfileName'), parameters('customDomainResourceName'))]"
+                }
+              ],
+              "patternsToMatch": [
+                "/*"
+              ]
+            }
+          ],
+          "type": "WebApplicationFirewall",
+          "wafPolicy": {
+            "id": "[parameters('wafPolicyId')]"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/customDomains', parameters('frontDoorProfileName'), parameters('customDomainResourceName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "customDomainId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Cdn/profiles/customDomains', parameters('frontDoorProfileName'), parameters('customDomainResourceName'))]"
+    },
+    "customDomainHost": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Cdn/profiles/customDomains', parameters('frontDoorProfileName'), parameters('customDomainResourceName')), '2024-09-01').hostName]"
+    },
+    "customDomainValidationToken": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Cdn/profiles/customDomains', parameters('frontDoorProfileName'), parameters('customDomainResourceName')), '2024-09-01').validationProperties.validationToken]"
+    },
+    "routeId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Cdn/profiles/afdEndpoints/routes', parameters('frontDoorProfileName'), parameters('frontDoorEndpointName'), 'public')]"
+    },
+    "securityPolicyId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Cdn/profiles/securityPolicies', parameters('frontDoorProfileName'), 'public-waf')]"
+    }
+  }
+}

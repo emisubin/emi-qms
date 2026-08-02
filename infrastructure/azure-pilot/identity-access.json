@@ -1,0 +1,164 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "11313446679020921058"
+    }
+  },
+  "parameters": {
+    "backendIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "Backend managed identity resource ID from foundation.bicep."
+      }
+    },
+    "frontendIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "Frontend managed identity resource ID from foundation.bicep."
+      }
+    },
+    "migrationIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "Migration managed identity resource ID from foundation.bicep."
+      }
+    },
+    "databaseBootstrapIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "Database bootstrap managed identity resource ID from foundation.bicep."
+      }
+    },
+    "keyVaultName": {
+      "type": "string",
+      "metadata": {
+        "description": "Key Vault name from foundation.bicep. All required secrets must exist before this deployment."
+      }
+    }
+  },
+  "variables": {
+    "keyVaultSecretsUserRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-runtime-connection-string')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-runtime-connection-string'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'bootstrap-administrator-emails')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'bootstrap-administrator-emails'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'gmail-username')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'gmail-username'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'gmail-app-password')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'gmail-app-password'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'teams-activity-client-secret')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'teams-activity-client-secret'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'front-door-origin-verify-token')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'front-door-origin-verify-token'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-migration-connection-string')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-migration-connection-string'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-admin-connection-string')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-admin-connection-string'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-migration-connection-string')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-migration-connection-string'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-runtime-connection-string')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-runtime-connection-string'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    }
+  ],
+  "outputs": {
+    "secretScopedRoleAssignmentCount": {
+      "type": "int",
+      "value": 10
+    }
+  }
+}

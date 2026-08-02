@@ -14,7 +14,16 @@
     "registryServer": {
       "value": "FROM_FOUNDATION_OUTPUT"
     },
-    "runtimeIdentityId": {
+    "backendIdentityId": {
+      "value": "FROM_FOUNDATION_OUTPUT"
+    },
+    "frontendIdentityId": {
+      "value": "FROM_FOUNDATION_OUTPUT"
+    },
+    "migrationIdentityId": {
+      "value": "FROM_FOUNDATION_OUTPUT"
+    },
+    "databaseBootstrapIdentityId": {
       "value": "FROM_FOUNDATION_OUTPUT"
     },
     "keyVaultName": {

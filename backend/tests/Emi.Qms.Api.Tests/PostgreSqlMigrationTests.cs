@@ -19,6 +19,108 @@ namespace Emi.Qms.Api.Tests;
 public sealed class PostgreSqlMigrationTests
 {
     [Fact]
+    public async Task DatabaseRoles_SeparateBootstrapMigrationAndRuntimePrivileges()
+    {
+        var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var adminProvider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var adminConnection = new NpgsqlConnectionStringBuilder(adminProvider.GetConnectionString()!);
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        var migrationRole = $"qms_migration_{suffix}";
+        var runtimeRole = $"qms_runtime_{suffix}";
+        var migrationConnection = new NpgsqlConnectionStringBuilder(adminConnection.ConnectionString)
+        {
+            Username = migrationRole,
+            Password = $"Migration-{Guid.NewGuid():N}",
+            Pooling = false
+        };
+        var runtimeConnection = new NpgsqlConnectionStringBuilder(adminConnection.ConnectionString)
+        {
+            Username = runtimeRole,
+            Password = $"Runtime-{Guid.NewGuid():N}",
+            Pooling = false
+        };
+        var bootstrapConfiguration = Configuration(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:QmsDatabaseAdmin"] = adminConnection.ConnectionString,
+            ["ConnectionStrings:QmsDatabaseMigration"] = migrationConnection.ConnectionString,
+            ["ConnectionStrings:QmsDatabaseRuntime"] = runtimeConnection.ConnectionString
+        });
+        var privilegeManager = new DatabaseRuntimePrivilegeManager();
+        var bootstrapper = new DatabaseRoleBootstrapper(
+            bootstrapConfiguration,
+            privilegeManager,
+            NullLogger<DatabaseRoleBootstrapper>.Instance);
+
+        try
+        {
+            await bootstrapper.BootstrapAsync(TestContext.Current.CancellationToken);
+
+            var migrationConfiguration = Configuration(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:QmsDatabase"] = migrationConnection.ConnectionString,
+                ["Database:MigrationRoleName"] = migrationRole,
+                ["Database:RuntimeRoleName"] = runtimeRole
+            });
+            var migrationProvider = new DatabaseConnectionStringProvider(migrationConfiguration);
+            await CreateMigrationRunner(database.RepositoryRoot, migrationProvider, migrationConfiguration)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            await using var runtimeDataSource = NpgsqlDataSource.Create(runtimeConnection.ConnectionString);
+            await using var runtimeSession = await runtimeDataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
+            Assert.True(Convert.ToInt64(
+                await ScalarAsync(runtimeSession, "select count(*) from departments;"),
+                System.Globalization.CultureInfo.InvariantCulture) > 0);
+            Assert.Equal("True", (await ScalarAsync(
+                runtimeSession,
+                $"select has_table_privilege(current_user, 'schema_migrations', 'select');"))?.ToString());
+            Assert.Equal("False", (await ScalarAsync(
+                runtimeSession,
+                $"select has_table_privilege(current_user, 'schema_migrations', 'insert');"))?.ToString());
+            Assert.Equal("False", (await ScalarAsync(
+                runtimeSession,
+                $"select has_schema_privilege(current_user, 'public', 'create');"))?.ToString());
+            Assert.Equal("False", (await ScalarAsync(
+                runtimeSession,
+                "select has_database_privilege(current_user, current_database(), 'temporary');"))?.ToString());
+
+            await ExecuteAsync(
+                runtimeSession,
+                "insert into departments(id, code, name, sort_order) values (@id, @code, @name, @sort_order);",
+                new Dictionary<string, object>
+                {
+                    ["id"] = Guid.NewGuid(),
+                    ["code"] = $"runtime-{suffix}",
+                    ["name"] = "Runtime privilege probe",
+                    ["sort_order"] = 9999
+                });
+            await ExecuteAsync(
+                runtimeSession,
+                "delete from departments where code = @code;",
+                new Dictionary<string, object> { ["code"] = $"runtime-{suffix}" });
+
+            await AssertInsufficientPrivilegeAsync(
+                runtimeSession,
+                "create table runtime_must_not_create_schema (id integer primary key);");
+            await AssertInsufficientPrivilegeAsync(
+                runtimeSession,
+                "insert into schema_migrations(version) values ('runtime-bypass');");
+            await AssertInsufficientPrivilegeAsync(
+                runtimeSession,
+                $"create role runtime_must_not_create_roles_{suffix};");
+        }
+        finally
+        {
+            await database.DisposeAsync();
+            var serverAdminConnection = new NpgsqlConnectionStringBuilder(adminConnection.ConnectionString)
+            {
+                Database = "postgres"
+            };
+            await DropRoleAsync(serverAdminConnection.ConnectionString, runtimeRole);
+            await DropRoleAsync(serverAdminConnection.ConnectionString, migrationRole);
+        }
+    }
+
+    [Fact]
     public async Task DatabaseMigrationRunner_SerializesConcurrentRuns_AndVerifiesExactLedger()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -452,6 +554,7 @@ public sealed class PostgreSqlMigrationTests
             var previousRunner = new DatabaseMigrationRunner(
                 provider,
                 Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(previousMigrations.FullName),
+                new DatabaseRuntimePrivilegeManager(),
                 new ConfigurationBuilder().Build(),
                 NullLogger<DatabaseMigrationRunner>.Instance);
             await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
@@ -518,6 +621,7 @@ public sealed class PostgreSqlMigrationTests
             var previousRunner = new DatabaseMigrationRunner(
                 provider,
                 Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(previousMigrations.FullName),
+                new DatabaseRuntimePrivilegeManager(),
                 configuration,
                 NullLogger<DatabaseMigrationRunner>.Instance);
             await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
@@ -565,6 +669,7 @@ public sealed class PostgreSqlMigrationTests
             var previousRunner = new DatabaseMigrationRunner(
                 provider,
                 Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(previousMigrations.FullName),
+                new DatabaseRuntimePrivilegeManager(),
                 new ConfigurationBuilder().Build(),
                 NullLogger<DatabaseMigrationRunner>.Instance);
             await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
@@ -669,6 +774,7 @@ public sealed class PostgreSqlMigrationTests
             var previousRunner = new DatabaseMigrationRunner(
                 provider,
                 Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0061.FullName),
+                new DatabaseRuntimePrivilegeManager(),
                 new ConfigurationBuilder().Build(),
                 NullLogger<DatabaseMigrationRunner>.Instance);
             await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
@@ -812,6 +918,7 @@ public sealed class PostgreSqlMigrationTests
             var previousRunner = new DatabaseMigrationRunner(
                 provider,
                 Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0062.FullName),
+                new DatabaseRuntimePrivilegeManager(),
                 new ConfigurationBuilder().Build(),
                 NullLogger<DatabaseMigrationRunner>.Instance);
             await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
@@ -2623,14 +2730,61 @@ public sealed class PostgreSqlMigrationTests
 
     private static DatabaseMigrationRunner CreateMigrationRunner(
         string repositoryRoot,
-        DatabaseConnectionStringProvider connectionStringProvider)
+        DatabaseConnectionStringProvider connectionStringProvider,
+        IConfiguration? configuration = null)
     {
         var environment = new TestWebHostEnvironment(repositoryRoot);
         return new DatabaseMigrationRunner(
             connectionStringProvider,
             new Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog(environment),
-            new ConfigurationBuilder().Build(),
+            new DatabaseRuntimePrivilegeManager(),
+            configuration ?? new ConfigurationBuilder().Build(),
             NullLogger<DatabaseMigrationRunner>.Instance);
+    }
+
+    private static IConfiguration Configuration(IReadOnlyDictionary<string, string?> values)
+    {
+        return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+    }
+
+    private static async Task<object?> ScalarAsync(NpgsqlConnection connection, string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return await command.ExecuteScalarAsync(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task ExecuteAsync(
+        NpgsqlConnection connection,
+        string sql,
+        IReadOnlyDictionary<string, object> parameters)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        foreach (var parameter in parameters)
+        {
+            command.Parameters.AddWithValue(parameter.Key, parameter.Value);
+        }
+
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task AssertInsufficientPrivilegeAsync(NpgsqlConnection connection, string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        var exception = await Assert.ThrowsAsync<PostgresException>(
+            () => command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, exception.SqlState);
+    }
+
+    private static async Task DropRoleAsync(string adminConnectionString, string roleName)
+    {
+        await using var dataSource = NpgsqlDataSource.Create(adminConnectionString);
+        await using var connection = await dataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"drop role if exists {new NpgsqlCommandBuilder().QuoteIdentifier(roleName)};";
+        await command.ExecuteNonQueryAsync();
     }
 
     private static async Task<string?> ReadConnectionScalarAsync(

@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Emi.Qms.Api.Security;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Xunit;
 
 namespace Emi.Qms.Api.Tests;
@@ -31,6 +32,46 @@ public sealed class PublicDeploymentSecurityTests
         var errors = ProductionSecurityPolicy.Evaluate(Configuration(values), now);
 
         Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void DatabaseOperationPolicy_AcceptsSplitLeastPrivilegedRoles()
+    {
+        var values = ValidDatabaseOperationValues();
+
+        Assert.Empty(DatabaseOperationSecurityPolicy.Evaluate(
+            Configuration(values),
+            DatabaseOperationMode.RoleBootstrap));
+
+        values["ConnectionStrings:QmsDatabase"] = values["ConnectionStrings:QmsDatabaseMigration"];
+        values["Database:MigrationRoleName"] = DatabaseOperationSecurityPolicy.MigrationRoleName;
+        values["Database:RuntimeRoleName"] = DatabaseOperationSecurityPolicy.RuntimeRoleName;
+        Assert.Empty(DatabaseOperationSecurityPolicy.Evaluate(
+            Configuration(values),
+            DatabaseOperationMode.Migration));
+    }
+
+    [Fact]
+    public void DatabaseOperationPolicy_RejectsSharedOrPrivilegedRuntimeConnections()
+    {
+        var values = ValidDatabaseOperationValues();
+        values["ConnectionStrings:QmsDatabaseRuntime"] = values["ConnectionStrings:QmsDatabaseAdmin"];
+
+        var bootstrapErrors = DatabaseOperationSecurityPolicy.Evaluate(
+            Configuration(values),
+            DatabaseOperationMode.RoleBootstrap);
+
+        Assert.NotEmpty(bootstrapErrors);
+
+        values["ConnectionStrings:QmsDatabase"] = values["ConnectionStrings:QmsDatabaseAdmin"];
+        values["Database:MigrationRoleName"] = DatabaseOperationSecurityPolicy.MigrationRoleName;
+        values["Database:RuntimeRoleName"] = DatabaseOperationSecurityPolicy.RuntimeRoleName;
+        var migrationErrors = DatabaseOperationSecurityPolicy.Evaluate(
+            Configuration(values),
+            DatabaseOperationMode.Migration);
+
+        Assert.Contains(migrationErrors, error =>
+            error.Contains("fixed least-privileged role", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -240,6 +281,45 @@ public sealed class PublicDeploymentSecurityTests
     }
 
     [Fact]
+    public void AzureArtifacts_UseSplitIdentitiesAndSecretScopedKeyVaultAccess()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var azureRoot = Path.Combine(repositoryRoot, "infrastructure", "azure-pilot");
+        var foundation = File.ReadAllText(Path.Combine(azureRoot, "foundation.bicep"));
+        var identityAccess = File.ReadAllText(Path.Combine(azureRoot, "identity-access.bicep"));
+        var workloads = File.ReadAllText(Path.Combine(azureRoot, "workloads.bicep"));
+
+        foreach (var identity in new[]
+        {
+            "backendIdentity",
+            "frontendIdentity",
+            "migrationIdentity",
+            "databaseBootstrapIdentity"
+        })
+        {
+            Assert.Contains(identity, foundation, StringComparison.Ordinal);
+            Assert.Contains(identity, identityAccess, StringComparison.Ordinal);
+            Assert.Contains(identity, workloads, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain("runtimeIdentity", foundation, StringComparison.Ordinal);
+        Assert.DoesNotContain("runtimeIdentity", workloads, StringComparison.Ordinal);
+        Assert.DoesNotContain("scope: keyVault\n", identityAccess, StringComparison.Ordinal);
+        Assert.Equal(
+            10,
+            Regex.Matches(identityAccess, @"scope: \w+Secret\r?$", RegexOptions.Multiline).Count);
+
+        Assert.Contains("database-runtime-connection-string", workloads, StringComparison.Ordinal);
+        Assert.Contains("database-migration-connection-string", workloads, StringComparison.Ordinal);
+        Assert.Contains("database-admin-connection-string", workloads, StringComparison.Ordinal);
+        Assert.Contains("--bootstrap-database-roles", workloads, StringComparison.Ordinal);
+        Assert.Contains("--migrate-only", workloads, StringComparison.Ordinal);
+        Assert.Contains("value: 'pms_migrator'", workloads, StringComparison.Ordinal);
+        Assert.Contains("value: 'pms_app'", workloads, StringComparison.Ordinal);
+        Assert.DoesNotContain("database-connection-string", workloads, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProductionNginx_PreservesSecurityHeaderInheritanceForAssets()
     {
         var repositoryRoot = FindRepositoryRoot();
@@ -407,6 +487,11 @@ public sealed class PublicDeploymentSecurityTests
                 "Host=db.example.com;Database=emi;Username=app;Password=test;SSL Mode=Require",
                 "VerifyFull"
             },
+            {
+                "ConnectionStrings:QmsDatabase",
+                "Host=db.example.com;Database=emi;Username=administrator;Password=test;SSL Mode=VerifyFull",
+                "runtime role"
+            },
             { "Authentication:BootstrapAdminEmails", "one@example.com", "two distinct" },
             { "AUTHENTICATION_BOOTSTRAP_ADMIN_EMAILS", "one@example.com", "two distinct" },
             { "Operations:Monitoring:Enabled", "false", "Security monitoring" },
@@ -443,11 +528,39 @@ public sealed class PublicDeploymentSecurityTests
             ["UploadSecurity:MaximumFileBytes"] = "33554432",
             ["UploadSecurity:RejectImageMetadata"] = "true",
             ["ConnectionStrings:QmsDatabase"] =
-                "Host=db.example.com;Database=emi;Username=app;Password=test;SSL Mode=VerifyFull",
+                "Host=db.example.com;Database=emi;Username=pms_app;Password=test;SSL Mode=VerifyFull",
+            ["Database:RuntimeRoleName"] = "pms_app",
             ["Operations:Monitoring:Enabled"] = "true",
             ["Operations:Monitoring:SecurityAlertSink"] = "synthetic-security-sink",
             ["Operations:Backup:RestoreVerifiedAtUtc"] =
                 now.AddDays(-1).ToString("O")
+        };
+    }
+
+    private static Dictionary<string, string?> ValidDatabaseOperationValues()
+    {
+        static string Connection(string username, char passwordCharacter)
+        {
+            return new NpgsqlConnectionStringBuilder
+            {
+                Host = "pms-postgres.example.org",
+                Port = 5432,
+                Database = "emi_qms",
+                Username = username,
+                Password = new string(passwordCharacter, 40),
+                SslMode = SslMode.VerifyFull
+            }.ConnectionString;
+        }
+
+        return new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:QmsDatabaseAdmin"] = Connection("pms_admin", 'A'),
+            ["ConnectionStrings:QmsDatabaseMigration"] = Connection(
+                DatabaseOperationSecurityPolicy.MigrationRoleName,
+                'M'),
+            ["ConnectionStrings:QmsDatabaseRuntime"] = Connection(
+                DatabaseOperationSecurityPolicy.RuntimeRoleName,
+                'R')
         };
     }
 

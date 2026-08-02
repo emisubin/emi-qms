@@ -6,11 +6,10 @@ namespace Emi.Qms.Api;
 public sealed class DatabaseMigrationRunner(
     DatabaseConnectionStringProvider connectionStringProvider,
     DatabaseMigrationCatalog migrationCatalog,
+    DatabaseRuntimePrivilegeManager runtimePrivilegeManager,
     IConfiguration configuration,
     ILogger<DatabaseMigrationRunner> logger)
 {
-    private const long MigrationAdvisoryLockKey = 2026073101L;
-
     public async Task ApplyAsync(CancellationToken cancellationToken)
     {
         _ = await ApplyAndVerifyAsync(cancellationToken);
@@ -38,7 +37,9 @@ public sealed class DatabaseMigrationRunner(
         await using (var lockCommand = connection.CreateCommand())
         {
             lockCommand.CommandText = "select pg_advisory_lock(@lock_key);";
-            lockCommand.Parameters.AddWithValue("lock_key", MigrationAdvisoryLockKey);
+            lockCommand.Parameters.AddWithValue(
+                "lock_key",
+                DatabaseRuntimePrivilegeManager.MaintenanceAdvisoryLockKey);
             await lockCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -95,6 +96,12 @@ public sealed class DatabaseMigrationRunner(
                     $"Database migration verification failed: {inspection.Reason}.");
             }
 
+            await runtimePrivilegeManager.ReconcileAfterMigrationAsync(
+                connection,
+                configuration["Database:MigrationRoleName"],
+                configuration["Database:RuntimeRoleName"],
+                cancellationToken);
+
             return inspection;
         }
         finally
@@ -103,7 +110,9 @@ public sealed class DatabaseMigrationRunner(
             {
                 await using var unlockCommand = connection.CreateCommand();
                 unlockCommand.CommandText = "select pg_advisory_unlock(@lock_key);";
-                unlockCommand.Parameters.AddWithValue("lock_key", MigrationAdvisoryLockKey);
+                unlockCommand.Parameters.AddWithValue(
+                    "lock_key",
+                    DatabaseRuntimePrivilegeManager.MaintenanceAdvisoryLockKey);
                 await unlockCommand.ExecuteNonQueryAsync(CancellationToken.None);
             }
             catch (Exception exception)

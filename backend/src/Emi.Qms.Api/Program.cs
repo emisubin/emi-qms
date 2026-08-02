@@ -117,7 +117,9 @@ builder.Services.AddSingleton<DatabaseConnectionStringProvider>();
 builder.Services.AddSingleton<DatabaseHealthChecker>();
 builder.Services.AddSingleton<DatabaseMigrationCatalog>();
 builder.Services.AddSingleton<MigrationLedgerInspector>();
+builder.Services.AddSingleton<DatabaseRuntimePrivilegeManager>();
 builder.Services.AddSingleton<DatabaseMigrationRunner>();
+builder.Services.AddSingleton<DatabaseRoleBootstrapper>();
 builder.Services.AddSingleton<ReviewSafeStatusService>();
 builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
 builder.Services.AddSingleton<UserProfilePhotoStore>();
@@ -226,12 +228,46 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
 DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
     DevelopmentFeaturePolicy.EvaluateAdminUserSwitch(app.Environment, app.Configuration),
     app.Environment);
-QmsAuthenticationModePolicy.ThrowIfInvalidConfiguration(app.Environment, app.Configuration);
 var migrateOnly = args.Contains("--migrate-only", StringComparer.Ordinal);
-ProductionSecurityPolicy.ThrowIfInvalid(
-    app.Environment,
-    app.Configuration,
-    requireRestoreVerification: !migrateOnly);
+var bootstrapDatabaseRolesOnly = args.Contains("--bootstrap-database-roles", StringComparer.Ordinal);
+var splitDatabaseRolesEnabled = !string.IsNullOrWhiteSpace(app.Configuration["Database:MigrationRoleName"])
+    || !string.IsNullOrWhiteSpace(app.Configuration["Database:RuntimeRoleName"]);
+if (migrateOnly && bootstrapDatabaseRolesOnly)
+{
+    throw new InvalidOperationException("Only one database operation mode can be selected.");
+}
+
+if (migrateOnly && splitDatabaseRolesEnabled)
+{
+    DatabaseOperationSecurityPolicy.ThrowIfInvalid(
+        app.Environment,
+        app.Configuration,
+        DatabaseOperationMode.Migration);
+}
+else if (bootstrapDatabaseRolesOnly)
+{
+    DatabaseOperationSecurityPolicy.ThrowIfInvalid(
+        app.Environment,
+        app.Configuration,
+        DatabaseOperationMode.RoleBootstrap);
+}
+else
+{
+    QmsAuthenticationModePolicy.ThrowIfInvalidConfiguration(app.Environment, app.Configuration);
+    ProductionSecurityPolicy.ThrowIfInvalid(
+        app.Environment,
+        app.Configuration,
+        requireRestoreVerification: !migrateOnly);
+}
+
+if (bootstrapDatabaseRolesOnly)
+{
+    await app.Services
+        .GetRequiredService<DatabaseRoleBootstrapper>()
+        .BootstrapAsync(CancellationToken.None);
+    app.Logger.LogInformation("Database role bootstrap completed.");
+    return;
+}
 
 if (migrateOnly)
 {

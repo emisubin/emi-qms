@@ -16,9 +16,11 @@ required_files=(
   "${repository_root}/frontend/Dockerfile.azure"
   "${azure_directory}/nginx.conf.template"
   "${azure_directory}/foundation.bicep"
+  "${azure_directory}/identity-access.bicep"
   "${azure_directory}/workloads.bicep"
   "${azure_directory}/edge.bicep"
   "${azure_directory}/foundation.parameters.example.json"
+  "${azure_directory}/identity-access.parameters.example.json"
   "${azure_directory}/workloads.parameters.example.json"
   "${azure_directory}/edge.parameters.example.json"
   "${repository_root}/infrastructure/teams/manifest.template.json"
@@ -41,6 +43,7 @@ const azure = process.env.AZURE_DIRECTORY;
 const root = process.env.REPOSITORY_ROOT;
 const read = path => readFileSync(path, 'utf8');
 const foundation = read(join(azure, 'foundation.bicep'));
+const identityAccess = read(join(azure, 'identity-access.bicep'));
 const workloads = read(join(azure, 'workloads.bicep'));
 const edge = read(join(azure, 'edge.bicep'));
 const nginx = read(join(azure, 'nginx.conf.template'));
@@ -48,6 +51,7 @@ const dockerfile = read(join(root, 'frontend', 'Dockerfile.azure'));
 
 for (const name of [
   'foundation.parameters.example.json',
+  'identity-access.parameters.example.json',
   'workloads.parameters.example.json',
   'edge.parameters.example.json'
 ]) {
@@ -65,11 +69,22 @@ const checks = [
   [foundation, "name: 'Basic'"],
   [foundation, "name: 'Standard_AzureFrontDoor'"],
   [foundation, "publicNetworkAccess: 'Disabled'"],
+  [foundation, 'backendIdentityId'],
+  [foundation, 'frontendIdentityId'],
+  [foundation, 'migrationIdentityId'],
+  [foundation, 'databaseBootstrapIdentityId'],
+  [identityAccess, 'scope: databaseRuntimeSecret'],
+  [identityAccess, 'scope: databaseMigrationSecret'],
+  [identityAccess, 'scope: databaseAdminSecret'],
+  [identityAccess, 'scope: originVerificationSecret'],
   [workloads, "external: false"],
   [workloads, 'minReplicas: minimumReplicaCount'],
   [workloads, "value: 'false'"],
   [workloads, "keyVaultUrl:"],
   [workloads, "workloadProfileName: 'Consumption'"],
+  [workloads, "name: 'database-role-bootstrap'"],
+  [workloads, "'--bootstrap-database-roles'"],
+  [workloads, "'--migrate-only'"],
   [edge, "linkToDefaultDomain: 'Disabled'"],
   [edge, "certificateType: 'ManagedCertificate'"],
   [nginx, '$http_x_azure_fdid'],
@@ -89,6 +104,17 @@ if (workloads.includes('external: true') && !workloads.includes("name: 'frontend
   process.exit(1);
 }
 
+if (identityAccess.includes("scope: keyVault\n")
+  || workloads.includes('runtimeIdentity')
+  || workloads.includes('database-connection-string')) {
+  process.exit(1);
+}
+
+const secretScopes = identityAccess.match(/scope: \w+Secret$/gmu) ?? [];
+if (secretScopes.length !== 10) {
+  process.exit(1);
+}
+
 const fromLines = dockerfile
   .split('\n')
   .map(line => line.trim())
@@ -100,6 +126,7 @@ if (fromLines.length === 0
 
 const trackedDeploymentSource = [
   foundation,
+  identityAccess,
   workloads,
   edge,
   read(join(root, 'infrastructure', 'teams', 'manifest.template.json'))
@@ -115,6 +142,7 @@ if [[ "${compile_templates}" == 'true' ]]; then
   temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/pms-bicep-build.XXXXXX")"
   cleanup() {
     rm -f "${temporary_directory}/foundation.json" \
+      "${temporary_directory}/identity-access.json" \
       "${temporary_directory}/workloads.json" \
       "${temporary_directory}/edge.json"
     rmdir "${temporary_directory}" 2>/dev/null || true
@@ -123,10 +151,12 @@ if [[ "${compile_templates}" == 'true' ]]; then
 
   if command -v bicep >/dev/null 2>&1; then
     bicep build "${azure_directory}/foundation.bicep" --outfile "${temporary_directory}/foundation.json"
+    bicep build "${azure_directory}/identity-access.bicep" --outfile "${temporary_directory}/identity-access.json"
     bicep build "${azure_directory}/workloads.bicep" --outfile "${temporary_directory}/workloads.json"
     bicep build "${azure_directory}/edge.bicep" --outfile "${temporary_directory}/edge.json"
   elif command -v az >/dev/null 2>&1; then
     az bicep build --file "${azure_directory}/foundation.bicep" --outfile "${temporary_directory}/foundation.json"
+    az bicep build --file "${azure_directory}/identity-access.bicep" --outfile "${temporary_directory}/identity-access.json"
     az bicep build --file "${azure_directory}/workloads.bicep" --outfile "${temporary_directory}/workloads.json"
     az bicep build --file "${azure_directory}/edge.bicep" --outfile "${temporary_directory}/edge.json"
   else

@@ -12,8 +12,17 @@ param containerAppsSubnetPrefix string
 @description('Container Registry login server from foundation.bicep.')
 param registryServer string
 
-@description('User-assigned managed identity resource ID from foundation.bicep.')
-param runtimeIdentityId string
+@description('Backend user-assigned managed identity resource ID from foundation.bicep.')
+param backendIdentityId string
+
+@description('Frontend user-assigned managed identity resource ID from foundation.bicep.')
+param frontendIdentityId string
+
+@description('Migration user-assigned managed identity resource ID from foundation.bicep.')
+param migrationIdentityId string
+
+@description('Database bootstrap user-assigned managed identity resource ID from foundation.bicep.')
+param databaseBootstrapIdentityId string
 
 @description('Key Vault name from foundation.bicep.')
 param keyVaultName string
@@ -81,8 +90,20 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01'
   name: containerAppsEnvironmentName
 }
 
-resource runtimeIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
-  name: last(split(runtimeIdentityId, '/'))
+resource backendIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
+  name: last(split(backendIdentityId, '/'))
+}
+
+resource frontendIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
+  name: last(split(frontendIdentityId, '/'))
+}
+
+resource migrationIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
+  name: last(split(migrationIdentityId, '/'))
+}
+
+resource databaseBootstrapIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
+  name: last(split(databaseBootstrapIdentityId, '/'))
 }
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
@@ -90,40 +111,58 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
 }
 
 var keyVaultSecretBase = '${keyVault.properties.vaultUri}secrets/'
-var registryConfiguration = [
+var backendRegistryConfiguration = [
   {
-    identity: runtimeIdentity.id
+    identity: backendIdentity.id
     server: registryServer
   }
 ]
-var commonSecrets = [
+var frontendRegistryConfiguration = [
   {
-    identity: runtimeIdentity.id
-    keyVaultUrl: '${keyVaultSecretBase}database-connection-string'
-    name: 'database-connection-string'
+    identity: frontendIdentity.id
+    server: registryServer
+  }
+]
+var migrationRegistryConfiguration = [
+  {
+    identity: migrationIdentity.id
+    server: registryServer
+  }
+]
+var databaseBootstrapRegistryConfiguration = [
+  {
+    identity: databaseBootstrapIdentity.id
+    server: registryServer
+  }
+]
+var backendSecrets = [
+  {
+    identity: backendIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}database-runtime-connection-string'
+    name: 'database-runtime-connection-string'
   }
   {
-    identity: runtimeIdentity.id
+    identity: backendIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}bootstrap-administrator-emails'
     name: 'bootstrap-administrator-emails'
   }
   {
-    identity: runtimeIdentity.id
+    identity: backendIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}gmail-username'
     name: 'gmail-username'
   }
   {
-    identity: runtimeIdentity.id
+    identity: backendIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}gmail-app-password'
     name: 'gmail-app-password'
   }
   {
-    identity: runtimeIdentity.id
+    identity: backendIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}teams-activity-client-secret'
     name: 'teams-activity-client-secret'
   }
 ]
-var commonBackendEnvironment = [
+var servingBackendEnvironment = [
   {
     name: 'ASPNETCORE_ENVIRONMENT'
     value: 'Production'
@@ -209,6 +248,10 @@ var commonBackendEnvironment = [
     value: 'false'
   }
   {
+    name: 'Database__RuntimeRoleName'
+    value: 'pms_app'
+  }
+  {
     name: 'DevelopmentData__SeedEnabled'
     value: 'false'
   }
@@ -234,7 +277,7 @@ var commonBackendEnvironment = [
   }
   {
     name: 'ConnectionStrings__QmsDatabase'
-    secretRef: 'database-connection-string'
+    secretRef: 'database-runtime-connection-string'
   }
   {
     name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
@@ -326,6 +369,70 @@ var commonBackendEnvironment = [
   }
 ]
 
+var migrationSecrets = [
+  {
+    identity: migrationIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}database-migration-connection-string'
+    name: 'database-migration-connection-string'
+  }
+]
+
+var migrationEnvironment = [
+  {
+    name: 'ASPNETCORE_ENVIRONMENT'
+    value: 'Production'
+  }
+  {
+    name: 'ConnectionStrings__QmsDatabase'
+    secretRef: 'database-migration-connection-string'
+  }
+  {
+    name: 'Database__MigrationRoleName'
+    value: 'pms_migrator'
+  }
+  {
+    name: 'Database__RuntimeRoleName'
+    value: 'pms_app'
+  }
+]
+
+var databaseBootstrapSecrets = [
+  {
+    identity: databaseBootstrapIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}database-admin-connection-string'
+    name: 'database-admin-connection-string'
+  }
+  {
+    identity: databaseBootstrapIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}database-migration-connection-string'
+    name: 'database-migration-connection-string'
+  }
+  {
+    identity: databaseBootstrapIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}database-runtime-connection-string'
+    name: 'database-runtime-connection-string'
+  }
+]
+
+var databaseBootstrapEnvironment = [
+  {
+    name: 'ASPNETCORE_ENVIRONMENT'
+    value: 'Production'
+  }
+  {
+    name: 'ConnectionStrings__QmsDatabaseAdmin'
+    secretRef: 'database-admin-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsDatabaseMigration'
+    secretRef: 'database-migration-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsDatabaseRuntime'
+    secretRef: 'database-runtime-connection-string'
+  }
+]
+
 resource clamAv 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'clamav'
   location: location
@@ -410,7 +517,7 @@ resource backend 'Microsoft.App/containerApps@2024-03-01' = {
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${runtimeIdentity.id}': {}
+      '${backendIdentity.id}': {}
     }
   }
   properties: {
@@ -429,13 +536,13 @@ resource backend 'Microsoft.App/containerApps@2024-03-01' = {
         ]
         transport: 'http'
       }
-      registries: registryConfiguration
-      secrets: commonSecrets
+      registries: backendRegistryConfiguration
+      secrets: backendSecrets
     }
     template: {
       containers: [
         {
-          env: commonBackendEnvironment
+          env: servingBackendEnvironment
           image: backendImage
           name: 'backend'
           probes: [
@@ -495,7 +602,7 @@ resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${runtimeIdentity.id}': {}
+      '${migrationIdentity.id}': {}
     }
   }
   properties: {
@@ -505,10 +612,10 @@ resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
         parallelism: 1
         replicaCompletionCount: 1
       }
-      registries: registryConfiguration
+      registries: migrationRegistryConfiguration
       replicaRetryLimit: 0
       replicaTimeout: 1800
-      secrets: commonSecrets
+      secrets: migrationSecrets
       triggerType: 'Manual'
     }
     template: {
@@ -517,12 +624,54 @@ resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
           args: [
             '--migrate-only'
           ]
-          env: commonBackendEnvironment
+          env: migrationEnvironment
           image: backendImage
           name: 'migration'
           resources: {
             cpu: json('1.0')
             memory: '2Gi'
+          }
+        }
+      ]
+    }
+    workloadProfileName: 'Consumption'
+  }
+}
+
+resource databaseBootstrapJob 'Microsoft.App/jobs@2024-03-01' = {
+  name: 'database-role-bootstrap'
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${databaseBootstrapIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: containerAppsEnvironment.id
+    configuration: {
+      manualTriggerConfig: {
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+      registries: databaseBootstrapRegistryConfiguration
+      replicaRetryLimit: 0
+      replicaTimeout: 900
+      secrets: databaseBootstrapSecrets
+      triggerType: 'Manual'
+    }
+    template: {
+      containers: [
+        {
+          args: [
+            '--bootstrap-database-roles'
+          ]
+          env: databaseBootstrapEnvironment
+          image: backendImage
+          name: 'database-role-bootstrap'
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
           }
         }
       ]
@@ -542,7 +691,7 @@ resource frontend 'Microsoft.App/containerApps@2024-03-01' = {
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${runtimeIdentity.id}': {}
+      '${frontendIdentity.id}': {}
     }
   }
   properties: {
@@ -561,10 +710,10 @@ resource frontend 'Microsoft.App/containerApps@2024-03-01' = {
         ]
         transport: 'http'
       }
-      registries: registryConfiguration
+      registries: frontendRegistryConfiguration
       secrets: [
         {
-          identity: runtimeIdentity.id
+          identity: frontendIdentity.id
           keyVaultUrl: originVerifySecret.properties.secretUri
           name: 'origin-verify-token'
         }
@@ -644,5 +793,6 @@ output clamAvFqdn string = clamAv.properties.configuration.ingress.fqdn
 output frontendName string = frontend.name
 output frontendFqdn string = frontend.properties.configuration.ingress.fqdn
 output migrationJobName string = migrationJob.name
+output databaseBootstrapJobName string = databaseBootstrapJob.name
 output workloadsActivated bool = activateWorkloads
 output externalNotificationsEnabled bool = enableExternalNotifications

@@ -2,17 +2,62 @@
 
 ## 현재 상태
 
-- Task 유형: `UAT_RUNTIME`
-- 기준 SHA: `c02499d`
-- 작업 branch: `feat/task-azure-deploy-001-planning`
-- Local deployment artifact: `구현 및 자동 검증 완료`
+- Task 유형: `UAT_RUNTIME` / Change 003 `SECURITY_HARDENING`
+- 기준 SHA: `4d15b7cee0d97f1846a1838500f9c9edf11b68bf`
+- 작업 branch: `fix/task-azure-deploy-001-p1-hardening`
+- Local deployment artifact: `Change 003 구현 및 자동 검증 완료`
 - Azure resource와 비용 발생 작업: `사용자 실행 대기`
 - Public traffic: `미전환`
-- 사용자 검수: `대기`
-- Commit: `Local 배포 준비본 커밋 완료`
-- Push / PR / Merge: `사용자 승인 / 게시 진행`
+- 사용자 검수: `Change 003 완료`
+- Commit: `Change 003 미커밋`
+- Push / PR / Merge: `사용자 승인 완료 / 미수행`
 
 이 보고서는 비용이 발생하지 않는 local 준비 단계의 완료를 기록한다. Azure resource 생성, image push, migration·restore rehearsal, DNS·TLS, 실제 provider 발송과 public traffic 전환을 완료로 주장하지 않는다.
+
+## Change 003 — P1 최소 권한 보정
+
+### 해결한 Finding
+
+| ID | 등급 | 상태 | Root cause | 해결 |
+| --- | --- | --- | --- | --- |
+| `AZURE-IDENTITY-001` | P1 | `RESOLVED_LOCAL` | 공개 Frontend, Backend와 migration이 하나의 managed identity와 vault-scope secret read를 공유 | 네 identity로 분리하고 Key Vault read를 secret resource scope 10개로 제한. vault-scope workload assignment 제거 |
+| `AZURE-DB-ROLE-001` | P1 | `RESOLVED_LOCAL` | Backend와 migration이 관리자급 PostgreSQL 연결을 공유할 수 있었고 별도 runtime role 생성·검증 단계가 없음 | 관리자·`pms_migrator`·`pms_app` 연결 분리, manual bootstrap job과 최소 권한 reconciler, Production fail-closed connection policy 추가 |
+
+### 실제 구현
+
+1. Foundation이 Backend, Frontend, migration, database bootstrap user-assigned identity를 각각 만든다.
+2. 신규 `identity-access.bicep`은 Backend 5개, Frontend 1개, migration 1개, database bootstrap 3개 조합에만 secret-scope `Key Vault Secrets User`를 부여한다.
+3. Backend는 runtime DB와 실제 알림에 필요한 secret만, migration은 migration DB 하나만, Frontend는 origin token 하나만 참조한다.
+4. `database-role-bootstrap` manual job은 관리자 DB secret을 사용해 두 제한 role을 idempotent하게 생성하고 password rotation을 반영한다.
+5. `pms_migrator`는 DB connect·temporary, public schema create·usage와 migration object ownership을 가진다. role/database 관리 권한은 없다.
+6. `pms_app`은 DB connect, public schema usage, 업무 table CRUD, sequence usage/select, trigger/function execute와 `schema_migrations` select만 가진다. schema·role·temporary table 생성과 ledger mutation은 거부된다.
+7. migration 성공 뒤 migration role이 기존 table·sequence·자체 function과 default privilege를 runtime role에 다시 맞춘다.
+8. Production database bootstrap/migration command는 세 연결의 TLS `VerifyFull`, 고정 username, 32자 이상·상호 다른 password와 동일 endpoint를 fail-closed로 검증한다.
+
+### 자동 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Bicep 4종 foundation/identity-access/workloads/edge compile | `PASS` |
+| Azure artifact static invariant와 Teams package | `PASS` |
+| Backend build, warning | `PASS`, `0` |
+| P1 보안 집중 test | `42/42 PASS` |
+| PostgreSQL 실제 role·권한 test | runtime 업무 CRUD 성공, schema·role·temporary·ledger mutation 거부 `PASS` |
+| Backend 전체 격리 회귀 | `481/481 PASS`, 11분 45초 |
+| Production Backend image | `PASS` |
+| Production migration image fresh/existing | migration `67/67 Exact`, 두 실행 `PASS` |
+| Backend NuGet known vulnerability | `0` |
+| ShellCheck / Git whitespace | `PASS` |
+| 변경·신규 파일 high-confidence secret pattern | `0` |
+| 독립 diff 재검토: identity/secret matrix, API role fail-closed, migration/bootstrap 직렬화, 문서·parameter 정합성 | `PASS`, 신규 P0/P1/P2 `0` |
+| 임시 DB·container·network cleanup | `PASS` |
+
+### 미실행과 경계
+
+- 실제 Azure identity, role assignment와 Key Vault access probe는 resource가 아직 없어 실행하지 않았다.
+- 실제 Azure PostgreSQL role bootstrap, migration, PITR와 serving session user 확인은 비용·runtime Gate로 남는다.
+- 이 변경은 Azure resource 생성, image push, DNS, traffic 또는 실제 Teams·Gmail 발송을 수행하지 않았다.
+- 실제 배포에서는 Foundation → 8개 secret 입력 → secret-scope RBAC → inactive workload → DB role bootstrap → migration → restore → active workload → edge 순서를 지켜야 한다.
 
 ## 1. 해결한 업무 문제
 
@@ -165,7 +210,7 @@
 | Production migration image fresh/existing apply | `PASS`, ledger `67 Exact` |
 | Azure Frontend Production image build | `PASS` |
 | Frontend origin smoke | health `200`, direct `403`, partial header `403`, trusted edge `200` |
-| Bicep compile | foundation/workloads/edge `PASS` |
+| Bicep compile | foundation/identity-access/workloads/edge `PASS` |
 | Azure artifact static validation | `PASS` |
 | Teams manifest/package test | `2/2 PASS` |
 | Shell syntax와 ShellCheck | `PASS` |
@@ -201,6 +246,8 @@ Frontend build에는 기존 large bundle warning이 있었으나 build 실패나
 
 | ID | 등급 | 상태 | 내용과 영향 | 해소·후속 |
 | --- | --- | --- | --- | --- |
+| `AZURE-IDENTITY-001` | P1 | `RESOLVED_LOCAL` | workload identity와 Key Vault 권한 공유로 침해 범위가 전체 secret으로 확대될 수 있었다. | 네 identity와 secret-scope assignment 10개로 분리. 실제 Azure access probe는 pre-traffic에서 검증 |
+| `AZURE-DB-ROLE-001` | P1 | `RESOLVED_LOCAL` | API와 migration의 DB 관리자 권한 공유 가능성이 있었다. | `pms_app`·`pms_migrator`·admin 분리와 실제 PostgreSQL negative privilege test 통과 |
 | `AZURE-COST-GATE-001` | External gate | `OPEN` | 실제 Azure resource가 없어 public pilot은 아직 시작되지 않았다. | 사용자가 비용·credit 확인과 budget 설정 후 foundation부터 직접 실행 |
 | `AZURE-APM-001` | P3 | `BACKLOG` | Application Insights resource 정의는 있으나 Backend SDK APM 계측은 아직 없다. Log Analytics container log는 사용 가능하다. | 시범 운영에서 request trace 필요성을 확인한 뒤 별도 계측 |
 | `FRONTEND-BUNDLE-001` | P3 | `BACKLOG` | Production build의 기존 large bundle warning이 유지된다. 기능 오류는 아니다. | 정식 운영 성능 점검에서 route chunk 분할 검토 |
@@ -229,26 +276,26 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 
 - Checklist: `작성됨`
 - 자동 검증: `완료`
-- 사용자 검수: `대기`
+- 사용자 검수: `Change 003 완료 — 2026-08-02`
 - Azure resource와 public URL: `없음`
-- 다음 Gate: 사용자가 예상 비용, 무료 credit과 budget alert를 확인한 뒤 Foundation을 생성한다.
+- 다음 Gate: Change 003 commit·게시·merge 뒤 사용자가 예상 비용, 무료 credit과 budget alert를 확인하고 Foundation을 생성한다.
 - 비용 발생 전에 생성 대상, 사양, 예상 20일 비용과 삭제·rollback 영향을 다시 보고해야 한다.
 
 ## 13. 종료 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Local 단계 작성 완료 |
-| SOP | `tasks/azure-deploy-001-sop.md` | 작성 완료 |
-| User manual | `infrastructure/azure-pilot/README.md` | Deployment operator manual 작성 완료 |
-| Roadmap update | `docs/00-product-roadmap.md` | 비용 Gate 상태 반영 |
-| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | 작성됨 / 사용자 검수 대기 |
+| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 003 반영 완료 |
+| SOP | `tasks/azure-deploy-001-sop.md` | identity·DB role 분리 순서 반영 완료 |
+| User manual | `infrastructure/azure-pilot/README.md` | identity 접근표·DB 역할 운영 절차 반영 완료 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 003 local 완료와 비용 Gate 반영 |
+| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | Change 003 사용자 검수 완료 / Azure 운영 검수 대기 |
 
 ## 14. Git와 게시 상태
 
-- 변경사항: 검증된 local 배포 준비본을 현재 Task branch의 이 커밋으로 보존
-- Commit: 완료
-- Push: 사용자 승인 / 게시 진행
-- PR: 사용자 승인 / 게시 진행
-- Merge: 사용자 승인 / CI Gate 통과 후 실행
-- 실제 Azure 적용과 Git 게시는 각각 별도 사용자 실행·승인이 필요하다.
+- 변경사항: Change 003 검증본이 전용 Task branch에 미커밋 상태로 존재
+- Commit: 미수행 — 사용자 요청 없음
+- Push: 미수행 — 사용자 승인 완료
+- PR: 미수행 — 사용자 승인 완료
+- Merge: 미수행 — 사용자 승인 완료
+- 실제 Azure 적용은 별도 비용 Gate와 사용자 직접 실행이 필요하다.

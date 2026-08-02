@@ -614,7 +614,7 @@ Open Finding은 P0/P1/P2/P3 `0/0/0/1`이다.
 
 - Frontend route, Pending 상세 render boundary와 tests만 변경했다. Backend/API 권한·workflow·DB/migration·Excel/PDF·첨부 저장 계약은 변경하지 않았다.
 - 실제 사용자명·프로젝트 원문·identifier·token·password·connection string·인증서 key를 tracked 산출물에 기록하지 않았다. Browser 증빙은 역할·건수·결과만 projection했다.
-- 5174는 fix branch의 HMR을 반영하지만 Commit·Push·PR·Merge는 모두 미실행이다.
+- 구현 commit `db9cb34`와 local `main` fast-forward merge를 완료했고, 5174가 local `main`의 동일 수정본을 반영한다. Push·PR·remote merge·배포는 미실행이다.
 
 ### Finding closure
 
@@ -632,7 +632,7 @@ Open Finding은 P0/P1/P2/P3 `0/0/0/1`이다.
 - Codex actual browser smoke: 완료 — 로그인된 5174에서 dashboard·프로젝트·상세·복귀 동선을 확인했다.
 - User validation checklist: [Change 007 8장](uat-001-change-007.md#8-사용자-검수-checklist) — `사용자 검수 완료`, 2026-08-02
 - 조치 사진 실제 활성화는 migration·5081 handover 별도 승인 전까지 실행하지 않는다.
-- 사용자 검수 완료는 Commit·Push·PR·Merge 승인과 분리한다.
+- 사용자 승인에 따라 구현 commit과 local `main` fast-forward merge를 완료했다. 원격 게시와 배포 승인은 분리한다.
 
 ### Rollback과 5종 산출물
 

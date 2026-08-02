@@ -1238,7 +1238,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-UAT-001: HTTPS Development UAT 안정화
 
-- 상태/다음 순서: 최초 Task와 Change 001~006 완료 / Change 007 Pending 상세 mixed-version blank 복구·자동 검증·actual 5174 smoke·사용자 검수 완료 / 조치 사진 current-source 5081 handover는 migration 승인 전 보류 / 다음 Gate는 TASK-AZURE-DEPLOY-001 비용 Gate
+- 상태/다음 순서: 최초 Task와 Change 001~006 완료 / Change 007 Pending 상세 mixed-version blank 복구·자동 검증·actual 5174 smoke·사용자 검수·local `main` merge 완료, 원격 미게시 / 조치 사진 current-source 5081 handover는 migration 승인 전 보류 / 다음 Gate는 TASK-AZURE-DEPLOY-001 비용 Gate
 - 목적: HTTPS Development UAT를 안정화하고, 로그인·source/DB 노출·운영 request/upload/hosting 경계를 공개 배포 전에 fail-closed한다.
 - 포함 범위: 기존 UAT 안정화 범위, Entra HTTPS 로그인과 익명 API 차단, Vite/DB loopback, security header, Host/trusted proxy, rate limit, upload malware/metadata 검사, static TLS reverse proxy, secret/DB TLS/restore/SIEM/break-glass Production startup gate
 - 제외 범위: actual 운영 domain·certificate·Entra app 변경, managed DB·backup provider 설정, SIEM receiver 설정, 실제 외부 알림 발송과 운영 runtime handover
@@ -2121,6 +2121,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-01 | DESIGN-000 Change 006 사용자 검수를 완료하고 local `main` merge `f1f94ed`로 반영하되 원격 push·PR·배포는 보류 | 업무 선택 전용 page 삭제, 부서 행 click disclosure, 장식용 왼쪽 강조 rail 제거와 Graphite 표 밀도를 제품 기준선에 반영하고 다음 실행 순서를 TASK-AZURE-DEPLOY-001 비용 Gate로 복귀시키기 위함 | 23장~25장, 27-experiment-task-ledger, DESIGN-000 Change 006 |
 | 2026-08-02 | TASK-UAT-001 Change 007에서 Pending 상세 mixed-version blank를 Frontend section 격리로 복구하고 current-source Backend handover는 보류 | live UAT ledger 64개에 source의 조치 사진 schema가 없어 승인되지 않은 migration을 실행하지 않으면서도 제목·발생 내용·담당·기한·이력을 즉시 복구하고, 조치 사진 활성화는 별도 controlled migration·5081 handover로 분리하기 위함 | 23장~25장, TASK-UAT-001 Change 007 |
 | 2026-08-02 | TASK-UAT-001 Change 007 Pending 상세 복구의 사용자 검수를 완료 | 실제 5174에서 목록·상세·복귀 동선과 핵심 상세 표시를 확인해 blank 복구를 닫되, 사용자 검수 완료를 Git 게시나 조치 사진 migration 승인으로 확대하지 않기 위함 | 23장~25장, TASK-UAT-001 Change 007 |
+| 2026-08-02 | TASK-UAT-001 Change 007을 구현 commit `db9cb34`와 local `main` fast-forward로 병합 | 사용자 검수 완료 뒤 승인된 Pending 상세 복구를 local 제품 기준선에 반영하되 Push·PR·remote merge·배포와 조치 사진 migration은 별도 승인 경계로 유지하기 위함 | 23장~25장, TASK-UAT-001 Change 007 |
 
 ## 26. 용어 사전
 

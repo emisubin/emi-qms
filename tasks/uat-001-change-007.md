@@ -93,4 +93,6 @@ Open Finding은 P0/P1/P2/P3 `0/0/0/1`이다.
 - code quality gate: `GO`
 - runtime migration/handover gate: `NO_GO_UNAPPROVED` — 조치 사진 활성화에 필요한 schema 변경 승인이 없음
 - 사용자 검수: 완료 — 2026-08-02
-- Commit·Push·PR·Merge: 모두 미실행. 사용자 검수 완료는 Git 게시 승인으로 해석하지 않는다.
+- 구현 commit: `db9cb34` 완료
+- local `main` fast-forward merge: 완료 — 2026-08-02
+- Push·PR·remote merge·배포: 미실행. 사용자의 local `main` 병합 승인을 원격 게시 승인으로 확대하지 않는다.

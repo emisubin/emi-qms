@@ -1,0 +1,902 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "3076335332773238676"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region used by the foundation deployment."
+      }
+    },
+    "containerAppsEnvironmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "Container Apps managed environment name from foundation.bicep."
+      }
+    },
+    "containerAppsSubnetPrefix": {
+      "type": "string",
+      "metadata": {
+        "description": "Container Apps infrastructure subnet CIDR trusted by the API proxy middleware."
+      }
+    },
+    "registryServer": {
+      "type": "string",
+      "metadata": {
+        "description": "Container Registry login server from foundation.bicep."
+      }
+    },
+    "backendIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "Backend user-assigned managed identity resource ID from foundation.bicep."
+      }
+    },
+    "frontendIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "Frontend user-assigned managed identity resource ID from foundation.bicep."
+      }
+    },
+    "migrationIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "Migration user-assigned managed identity resource ID from foundation.bicep."
+      }
+    },
+    "databaseBootstrapIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "Database bootstrap user-assigned managed identity resource ID from foundation.bicep."
+      }
+    },
+    "keyVaultName": {
+      "type": "string",
+      "metadata": {
+        "description": "Key Vault name from foundation.bicep."
+      }
+    },
+    "applicationInsightsConnectionString": {
+      "type": "string",
+      "metadata": {
+        "description": "Application Insights connection string from foundation.bicep."
+      }
+    },
+    "frontDoorId": {
+      "type": "string",
+      "metadata": {
+        "description": "Front Door profile identifier used to reject direct origin requests."
+      }
+    },
+    "backendImage": {
+      "type": "string",
+      "metadata": {
+        "description": "Complete immutable Backend image reference in ACR."
+      }
+    },
+    "frontendImage": {
+      "type": "string",
+      "metadata": {
+        "description": "Complete immutable Azure Frontend image reference in ACR."
+      }
+    },
+    "clamAvImage": {
+      "type": "string",
+      "defaultValue": "clamav/clamav:1.4@sha256:6b7c8e09559250f25b0184516b0a2ae805136e57485260e16c780c9fd6e6aba9",
+      "metadata": {
+        "description": "Immutable ClamAV image reference."
+      }
+    },
+    "publicHost": {
+      "type": "string",
+      "metadata": {
+        "description": "Exact public hostname. Pass at deployment time; do not commit the real value."
+      }
+    },
+    "entraTenantId": {
+      "type": "string",
+      "metadata": {
+        "description": "Entra tenant identifier."
+      }
+    },
+    "entraApiClientId": {
+      "type": "string",
+      "metadata": {
+        "description": "Entra API application client identifier."
+      }
+    },
+    "entraSpaClientId": {
+      "type": "string",
+      "metadata": {
+        "description": "Entra SPA application client identifier."
+      }
+    },
+    "entraApiAudience": {
+      "type": "string",
+      "metadata": {
+        "description": "Entra API audience."
+      }
+    },
+    "entraDomain": {
+      "type": "string",
+      "metadata": {
+        "description": "Entra verified domain."
+      }
+    },
+    "restoreVerifiedAtUtc": {
+      "type": "string",
+      "metadata": {
+        "description": "ISO-8601 time of the most recent successful managed database restore rehearsal."
+      }
+    },
+    "securityAlertSink": {
+      "type": "string",
+      "defaultValue": "azure-monitor-pilot",
+      "metadata": {
+        "description": "Privacy-safe monitoring sink label, not an email address."
+      }
+    },
+    "teamsActivityClientId": {
+      "type": "string",
+      "metadata": {
+        "description": "Teams activity application client identifier."
+      }
+    },
+    "teamsCatalogAppId": {
+      "type": "string",
+      "metadata": {
+        "description": "Teams catalog application identifier."
+      }
+    },
+    "teamsManifestExternalId": {
+      "type": "string",
+      "metadata": {
+        "description": "Teams manifest external identifier."
+      }
+    },
+    "enableExternalNotifications": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable actual Teams and Gmail delivery after provider smoke succeeds."
+      }
+    },
+    "activateWorkloads": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Activate minimum replicas only after migration and readiness gates pass."
+      }
+    }
+  },
+  "variables": {
+    "enabled": "[if(parameters('enableExternalNotifications'), 'true', 'false')]",
+    "disabled": "[if(parameters('enableExternalNotifications'), 'false', 'true')]",
+    "minimumReplicaCount": "[if(parameters('activateWorkloads'), 1, 0)]",
+    "publicOrigin": "[format('https://{0}', parameters('publicHost'))]",
+    "backendRegistryConfiguration": [
+      {
+        "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
+        "server": "[parameters('registryServer')]"
+      }
+    ],
+    "frontendRegistryConfiguration": [
+      {
+        "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/')))]",
+        "server": "[parameters('registryServer')]"
+      }
+    ],
+    "migrationRegistryConfiguration": [
+      {
+        "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/')))]",
+        "server": "[parameters('registryServer')]"
+      }
+    ],
+    "databaseBootstrapRegistryConfiguration": [
+      {
+        "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/')))]",
+        "server": "[parameters('registryServer')]"
+      }
+    ],
+    "migrationEnvironment": [
+      {
+        "name": "ASPNETCORE_ENVIRONMENT",
+        "value": "Production"
+      },
+      {
+        "name": "ConnectionStrings__QmsDatabase",
+        "secretRef": "database-migration-connection-string"
+      },
+      {
+        "name": "Database__MigrationRoleName",
+        "value": "pms_migrator"
+      },
+      {
+        "name": "Database__RuntimeRoleName",
+        "value": "pms_app"
+      }
+    ],
+    "databaseBootstrapEnvironment": [
+      {
+        "name": "ASPNETCORE_ENVIRONMENT",
+        "value": "Production"
+      },
+      {
+        "name": "ConnectionStrings__QmsDatabaseAdmin",
+        "secretRef": "database-admin-connection-string"
+      },
+      {
+        "name": "ConnectionStrings__QmsDatabaseMigration",
+        "secretRef": "database-migration-connection-string"
+      },
+      {
+        "name": "ConnectionStrings__QmsDatabaseRuntime",
+        "secretRef": "database-runtime-connection-string"
+      }
+    ]
+  },
+  "resources": [
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "clamav",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "None"
+      },
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName'))]",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "allowInsecure": false,
+            "exposedPort": 3310,
+            "external": false,
+            "targetPort": 3310,
+            "traffic": [
+              {
+                "latestRevision": true,
+                "weight": 100
+              }
+            ],
+            "transport": "tcp"
+          }
+        },
+        "template": {
+          "containers": [
+            {
+              "image": "[parameters('clamAvImage')]",
+              "name": "clamav",
+              "probes": [
+                {
+                  "failureThreshold": 12,
+                  "initialDelaySeconds": 20,
+                  "periodSeconds": 10,
+                  "tcpSocket": {
+                    "port": 3310
+                  },
+                  "timeoutSeconds": 5,
+                  "type": "Startup"
+                },
+                {
+                  "failureThreshold": 3,
+                  "periodSeconds": 30,
+                  "tcpSocket": {
+                    "port": 3310
+                  },
+                  "timeoutSeconds": 5,
+                  "type": "Liveness"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('2.0')]",
+                "memory": "4Gi"
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/lib/clamav",
+                  "volumeName": "clamav-signatures"
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "maxReplicas": 1,
+            "minReplicas": "[variables('minimumReplicaCount')]"
+          },
+          "volumes": [
+            {
+              "name": "clamav-signatures",
+              "storageName": "clamavsignatures",
+              "storageType": "AzureFile"
+            }
+          ]
+        },
+        "workloadProfileName": "Consumption"
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "backend",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))))]": {}
+        }
+      },
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName'))]",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "allowInsecure": false,
+            "external": false,
+            "targetPort": 8080,
+            "traffic": [
+              {
+                "latestRevision": true,
+                "weight": 100
+              }
+            ],
+            "transport": "http"
+          },
+          "registries": "[variables('backendRegistryConfiguration')]",
+          "secrets": [
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}database-runtime-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "database-runtime-connection-string"
+            },
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}bootstrap-administrator-emails', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "bootstrap-administrator-emails"
+            },
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}gmail-username', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "gmail-username"
+            },
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}gmail-app-password', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "gmail-app-password"
+            },
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}teams-activity-client-secret', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "teams-activity-client-secret"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "ASPNETCORE_ENVIRONMENT",
+                  "value": "Production"
+                },
+                {
+                  "name": "ASPNETCORE_URLS",
+                  "value": "http://+:8080"
+                },
+                {
+                  "name": "AllowedHosts",
+                  "value": "[parameters('publicHost')]"
+                },
+                {
+                  "name": "Authentication__Mode",
+                  "value": "EntraId"
+                },
+                {
+                  "name": "Authentication__BootstrapAdminEmails",
+                  "secretRef": "bootstrap-administrator-emails"
+                },
+                {
+                  "name": "AzureAd__Instance",
+                  "value": "[environment().authentication.loginEndpoint]"
+                },
+                {
+                  "name": "AzureAd__TenantId",
+                  "value": "[parameters('entraTenantId')]"
+                },
+                {
+                  "name": "AzureAd__ClientId",
+                  "value": "[parameters('entraApiClientId')]"
+                },
+                {
+                  "name": "AzureAd__SpaClientId",
+                  "value": "[parameters('entraSpaClientId')]"
+                },
+                {
+                  "name": "AzureAd__Audience",
+                  "value": "[parameters('entraApiAudience')]"
+                },
+                {
+                  "name": "AzureAd__Domain",
+                  "value": "[parameters('entraDomain')]"
+                },
+                {
+                  "name": "Frontend__Origin",
+                  "value": "[variables('publicOrigin')]"
+                },
+                {
+                  "name": "Frontend__RedirectUri",
+                  "value": "[variables('publicOrigin')]"
+                },
+                {
+                  "name": "ReverseProxy__KnownNetworks",
+                  "value": "[parameters('containerAppsSubnetPrefix')]"
+                },
+                {
+                  "name": "RateLimiting__Enabled",
+                  "value": "true"
+                },
+                {
+                  "name": "UploadSecurity__Enabled",
+                  "value": "true"
+                },
+                {
+                  "name": "UploadSecurity__FailClosed",
+                  "value": "true"
+                },
+                {
+                  "name": "UploadSecurity__ScannerHost",
+                  "value": "[reference(resourceId('Microsoft.App/containerApps', 'clamav'), '2024-03-01').configuration.ingress.fqdn]"
+                },
+                {
+                  "name": "UploadSecurity__ScannerPort",
+                  "value": "3310"
+                },
+                {
+                  "name": "UploadSecurity__RejectImageMetadata",
+                  "value": "true"
+                },
+                {
+                  "name": "Database__ApplyMigrationsOnStartup",
+                  "value": "false"
+                },
+                {
+                  "name": "Database__RuntimeRoleName",
+                  "value": "pms_app"
+                },
+                {
+                  "name": "DevelopmentData__SeedEnabled",
+                  "value": "false"
+                },
+                {
+                  "name": "DevAuthentication__Enabled",
+                  "value": "false"
+                },
+                {
+                  "name": "AdminUserSwitch__Enabled",
+                  "value": "false"
+                },
+                {
+                  "name": "Operations__Backup__RestoreVerifiedAtUtc",
+                  "value": "[parameters('restoreVerifiedAtUtc')]"
+                },
+                {
+                  "name": "Operations__Monitoring__Enabled",
+                  "value": "true"
+                },
+                {
+                  "name": "Operations__Monitoring__SecurityAlertSink",
+                  "value": "[parameters('securityAlertSink')]"
+                },
+                {
+                  "name": "ConnectionStrings__QmsDatabase",
+                  "secretRef": "database-runtime-connection-string"
+                },
+                {
+                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                  "value": "[parameters('applicationInsightsConnectionString')]"
+                },
+                {
+                  "name": "Notifications__Links__BaseUrl",
+                  "value": "[variables('publicOrigin')]"
+                },
+                {
+                  "name": "Notifications__Dispatch__Enabled",
+                  "value": "[variables('enabled')]"
+                },
+                {
+                  "name": "Notifications__TeamsActivity__Enabled",
+                  "value": "[variables('enabled')]"
+                },
+                {
+                  "name": "Notifications__TeamsActivity__DryRun",
+                  "value": "[variables('disabled')]"
+                },
+                {
+                  "name": "Notifications__TeamsActivity__TenantId",
+                  "value": "[parameters('entraTenantId')]"
+                },
+                {
+                  "name": "Notifications__TeamsActivity__ClientId",
+                  "value": "[parameters('teamsActivityClientId')]"
+                },
+                {
+                  "name": "Notifications__TeamsActivity__ClientSecret",
+                  "secretRef": "teams-activity-client-secret"
+                },
+                {
+                  "name": "Notifications__TeamsActivity__ManifestId",
+                  "value": "[parameters('teamsManifestExternalId')]"
+                },
+                {
+                  "name": "Notifications__TeamsActivity__TeamsManifestExternalId",
+                  "value": "[parameters('teamsManifestExternalId')]"
+                },
+                {
+                  "name": "Notifications__TeamsActivity__TeamsAppId",
+                  "value": "[parameters('teamsActivityClientId')]"
+                },
+                {
+                  "name": "Notifications__TeamsActivity__TeamsCatalogAppId",
+                  "value": "[parameters('teamsCatalogAppId')]"
+                },
+                {
+                  "name": "Notifications__TeamsActivity__TopicWebUrl",
+                  "value": "[variables('publicOrigin')]"
+                },
+                {
+                  "name": "Notifications__Mail__Enabled",
+                  "value": "[variables('enabled')]"
+                },
+                {
+                  "name": "Notifications__Mail__DryRun",
+                  "value": "[variables('disabled')]"
+                },
+                {
+                  "name": "Notifications__Mail__Provider",
+                  "value": "Smtp"
+                },
+                {
+                  "name": "Notifications__Mail__SenderAddress",
+                  "secretRef": "gmail-username"
+                },
+                {
+                  "name": "Notifications__Mail__Smtp__Host",
+                  "value": "smtp.gmail.com"
+                },
+                {
+                  "name": "Notifications__Mail__Smtp__Port",
+                  "value": "587"
+                },
+                {
+                  "name": "Notifications__Mail__Smtp__Security",
+                  "value": "StartTls"
+                },
+                {
+                  "name": "Notifications__Mail__Smtp__Username",
+                  "secretRef": "gmail-username"
+                },
+                {
+                  "name": "Notifications__Mail__Smtp__Password",
+                  "secretRef": "gmail-app-password"
+                }
+              ],
+              "image": "[parameters('backendImage')]",
+              "name": "backend",
+              "probes": [
+                {
+                  "failureThreshold": 12,
+                  "httpGet": {
+                    "path": "/health/live",
+                    "port": 8080,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 5,
+                  "timeoutSeconds": 3,
+                  "type": "Startup"
+                },
+                {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/health/live",
+                    "port": 8080,
+                    "scheme": "HTTP"
+                  },
+                  "periodSeconds": 20,
+                  "timeoutSeconds": 3,
+                  "type": "Liveness"
+                },
+                {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/health/ready",
+                    "port": 8080,
+                    "scheme": "HTTP"
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 5,
+                  "type": "Readiness"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('1.0')]",
+                "memory": "2Gi"
+              }
+            }
+          ],
+          "scale": {
+            "maxReplicas": 1,
+            "minReplicas": "[variables('minimumReplicaCount')]"
+          }
+        },
+        "workloadProfileName": "Consumption"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', 'clamav')]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2024-03-01",
+      "name": "migration",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))))]": {}
+        }
+      },
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName'))]",
+        "configuration": {
+          "manualTriggerConfig": {
+            "parallelism": 1,
+            "replicaCompletionCount": 1
+          },
+          "registries": "[variables('migrationRegistryConfiguration')]",
+          "replicaRetryLimit": 0,
+          "replicaTimeout": 1800,
+          "secrets": [
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "database-migration-connection-string"
+            }
+          ],
+          "triggerType": "Manual"
+        },
+        "template": {
+          "containers": [
+            {
+              "args": [
+                "--migrate-only"
+              ],
+              "env": "[variables('migrationEnvironment')]",
+              "image": "[parameters('backendImage')]",
+              "name": "migration",
+              "resources": {
+                "cpu": "[json('1.0')]",
+                "memory": "2Gi"
+              }
+            }
+          ]
+        },
+        "workloadProfileName": "Consumption"
+      }
+    },
+    {
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2024-03-01",
+      "name": "database-role-bootstrap",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))))]": {}
+        }
+      },
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName'))]",
+        "configuration": {
+          "manualTriggerConfig": {
+            "parallelism": 1,
+            "replicaCompletionCount": 1
+          },
+          "registries": "[variables('databaseBootstrapRegistryConfiguration')]",
+          "replicaRetryLimit": 0,
+          "replicaTimeout": 900,
+          "secrets": [
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}database-admin-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "database-admin-connection-string"
+            },
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "database-migration-connection-string"
+            },
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}database-runtime-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "database-runtime-connection-string"
+            }
+          ],
+          "triggerType": "Manual"
+        },
+        "template": {
+          "containers": [
+            {
+              "args": [
+                "--bootstrap-database-roles"
+              ],
+              "env": "[variables('databaseBootstrapEnvironment')]",
+              "image": "[parameters('backendImage')]",
+              "name": "database-role-bootstrap",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              }
+            }
+          ]
+        },
+        "workloadProfileName": "Consumption"
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "frontend",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/'))))]": {}
+        }
+      },
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName'))]",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "allowInsecure": false,
+            "external": true,
+            "targetPort": 8080,
+            "traffic": [
+              {
+                "latestRevision": true,
+                "weight": 100
+              }
+            ],
+            "transport": "http"
+          },
+          "registries": "[variables('frontendRegistryConfiguration')]",
+          "secrets": [
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/')))]",
+              "keyVaultUrl": "[reference(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'front-door-origin-verify-token'), '2023-07-01').secretUri]",
+              "name": "origin-verify-token"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "PUBLIC_HOST",
+                  "value": "[parameters('publicHost')]"
+                },
+                {
+                  "name": "BACKEND_FQDN",
+                  "value": "[reference(resourceId('Microsoft.App/containerApps', 'backend'), '2024-03-01').configuration.ingress.fqdn]"
+                },
+                {
+                  "name": "FRONT_DOOR_ID",
+                  "value": "[parameters('frontDoorId')]"
+                },
+                {
+                  "name": "ORIGIN_VERIFY_TOKEN",
+                  "secretRef": "origin-verify-token"
+                },
+                {
+                  "name": "NGINX_ENVSUBST_FILTER",
+                  "value": "^(PUBLIC_HOST|BACKEND_FQDN|FRONT_DOOR_ID|ORIGIN_VERIFY_TOKEN)$"
+                }
+              ],
+              "image": "[parameters('frontendImage')]",
+              "name": "frontend",
+              "probes": [
+                {
+                  "failureThreshold": 12,
+                  "httpGet": {
+                    "path": "/health/live",
+                    "port": 8080,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 2,
+                  "periodSeconds": 5,
+                  "timeoutSeconds": 3,
+                  "type": "Startup"
+                },
+                {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/health/live",
+                    "port": 8080,
+                    "scheme": "HTTP"
+                  },
+                  "periodSeconds": 20,
+                  "timeoutSeconds": 3,
+                  "type": "Liveness"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('0.25')]",
+                "memory": "0.5Gi"
+              }
+            }
+          ],
+          "scale": {
+            "maxReplicas": 2,
+            "minReplicas": "[variables('minimumReplicaCount')]"
+          }
+        },
+        "workloadProfileName": "Consumption"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', 'backend')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "backendName": {
+      "type": "string",
+      "value": "backend"
+    },
+    "backendFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.App/containerApps', 'backend'), '2024-03-01').configuration.ingress.fqdn]"
+    },
+    "clamAvName": {
+      "type": "string",
+      "value": "clamav"
+    },
+    "clamAvFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.App/containerApps', 'clamav'), '2024-03-01').configuration.ingress.fqdn]"
+    },
+    "frontendName": {
+      "type": "string",
+      "value": "frontend"
+    },
+    "frontendFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.App/containerApps', 'frontend'), '2024-03-01').configuration.ingress.fqdn]"
+    },
+    "migrationJobName": {
+      "type": "string",
+      "value": "migration"
+    },
+    "databaseBootstrapJobName": {
+      "type": "string",
+      "value": "database-role-bootstrap"
+    },
+    "workloadsActivated": {
+      "type": "bool",
+      "value": "[parameters('activateWorkloads')]"
+    },
+    "externalNotificationsEnabled": {
+      "type": "bool",
+      "value": "[parameters('enableExternalNotifications')]"
+    }
+  }
+}

@@ -9,10 +9,20 @@
 
 ## Azure 생성 전
 
-- [ ] 20일 예상 비용과 남은 credit을 확인했다.
-- [ ] Budget 알림 3단계를 사용자가 직접 설정했다.
+- [x] 20일 예상 비용과 남은 credit을 확인했다. (사용자 확인, 2026-08-02)
+- [x] Budget 알림 3단계를 사용자가 직접 설정했다. (사용자 확인, 2026-08-02)
 - [ ] 실제 hostname·identifier·email·secret이 Git diff에 없음을 확인했다.
 - [ ] DB 관리자·`pms_migrator`·`pms_app` password가 서로 다르고 각각 32자 이상이다.
+
+## Change 004 — 터미널 없는 Portal·GitHub 준비
+
+- [x] ARM JSON 4개가 JSON parse와 Bicep 재compile 구조 동등성 검사를 통과했다.
+- [x] GitHub 수동 image workflow가 actionlint, ShellCheck와 정상·negative 입력 검사를 통과했다.
+- [x] Workflow가 `workflow_dispatch`, Environment 승인, 비용 확인 checkbox와 `main` 포함 full SHA만 허용한다.
+- [x] Azure client secret, mutable `latest` tag와 자동 Container Apps 배포가 없음을 자동 확인했다.
+- [x] Azure Portal `로드 파일`용 JSON 4개와 GitHub 웹 실행 절차를 사용자가 확인하고 main 병합을 승인했다. (2026-08-02)
+- [ ] 실제 GitHub Environment·OIDC·ACR 권한은 Foundation 생성 후 웹 화면에서 설정한다.
+- [ ] 실제 GitHub Actions image push는 별도 비용 확인 후 사용자가 실행한다.
 
 ## 배포와 복구
 

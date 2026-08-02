@@ -13,6 +13,75 @@
 | `nginx.conf.template` | Front Door ID와 별도 origin verification header를 함께 검사하고 직접 origin 요청을 403으로 차단 | image build |
 | `*.parameters.example.json` | 실제 값이 없는 입력 예시. `.local.json` 복사본만 실제 배포에 사용 | 배포 전 |
 
+## 터미널 없는 웹 배포 준비물
+
+각 Bicep 원본과 같은 폴더의 `foundation.json`, `identity-access.json`, `workloads.json`, `edge.json`은 Azure Portal의 **사용자 지정 템플릿 배포 → 편집기에서 사용자 고유의 템플릿 빌드 → 로드 파일**에서 사용하는 ARM JSON이다. 생성기 version과 template hash를 제외한 실제 template 구조가 Bicep 원본과 같은지는 `scripts/validate-azure-pilot-artifacts.sh --compile`이 검사한다.
+
+Portal 업로드 순서는 다음과 같다.
+
+1. `foundation.json`
+2. Key Vault에 secret 8개 직접 입력
+3. `identity-access.json`
+4. GitHub Actions에서 Backend·Frontend image 게시
+5. `workloads.json`을 `activateWorkloads=false`, `enableExternalNotifications=false`로 배포
+6. DB role bootstrap, migration과 PITR restore 검증
+7. `workloads.json`을 검증된 restore 시각과 `activateWorkloads=true`로 다시 배포
+8. `edge.json`
+
+ARM JSON에 실제 값을 직접 적어 다시 저장하지 않는다. Portal이 표시하는 parameter 입력란 또는 GitHub Environment secret을 사용한다. `검토 + 만들기`의 최종 `만들기`는 실제 Azure resource 또는 사용량을 만들 수 있으므로 사용자가 비용을 확인한 뒤 직접 누른다.
+
+## GitHub 웹 화면에서 image 게시 준비
+
+`.github/workflows/azure-pilot-images.yml`은 자동 실행되지 않는다. `main`에 포함된 full commit SHA와 명시적인 비용 확인을 입력하고 GitHub Environment 승인을 통과해야 Backend·Frontend image 두 개를 ACR에 게시한다. Azure client secret 대신 GitHub OIDC의 짧은 수명 token을 사용한다.
+
+### 1. GitHub Environment
+
+GitHub Repository의 **Settings → Environments → New environment**에서 `azure-pilot-image-publish`를 만든다.
+
+- Required reviewers에 시범 배포 책임자를 지정한다.
+- Deployment branches and tags는 `main`만 허용한다.
+- 아래 값은 Repository secret이 아니라 이 Environment의 secret으로 등록한다.
+
+| Environment secret | 의미 |
+| --- | --- |
+| `AZURE_CLIENT_ID` | image 게시 전용 Entra application client identifier |
+| `AZURE_TENANT_ID` | Azure tenant identifier |
+| `AZURE_SUBSCRIPTION_ID` | 시범 resource가 있는 subscription identifier |
+| `AZURE_ACR_NAME` | Foundation이 만든 ACR resource 이름 |
+| `AZURE_ACR_LOGIN_SERVER` | Foundation output의 ACR login server |
+| `PMS_PUBLIC_HOSTNAME` | 최종 PMS hostname. `https://`는 제외 |
+| `ENTRA_API_CLIENT_ID` | 운영 API app identifier |
+| `ENTRA_SPA_CLIENT_ID` | 운영 SPA app identifier |
+| `ENTRA_API_SCOPE` | `api://<API app identifier>/access_as_user` 형식의 scope |
+
+실제 값은 issue, PR, commit, workflow input, screenshot과 문서에 넣지 않는다.
+
+### 2. Azure Portal OIDC 신뢰
+
+Azure Portal의 **Microsoft Entra ID → 앱 등록**에서 image 게시 전용 application을 만든다. 그 application의 **인증서 및 비밀 → 페더레이션된 자격 증명 추가**에서 GitHub Actions 시나리오를 선택한다.
+
+- Organization: 이 Repository의 GitHub organization 또는 owner
+- Repository: 이 Repository
+- Entity type: `Environment`
+- Environment: `azure-pilot-image-publish`
+- Audience: Azure가 권장하는 기본 token exchange audience
+
+Client secret은 만들지 않는다. ACR의 **액세스 제어(IAM) → 역할 할당 추가**에서 이 application의 service principal에 해당 ACR resource 범위의 `AcrPush`만 부여한다. Subscription 또는 resource group `Contributor`는 부여하지 않는다.
+
+### 3. GitHub Actions 실행
+
+Foundation과 ACR이 실제로 생성되고 비용 실행을 결정한 뒤에만 진행한다.
+
+1. GitHub Repository의 **Actions**를 연다.
+2. **Azure Pilot Images (Manual)**을 선택한다.
+3. **Run workflow**에서 `main`을 선택한다.
+4. `source_sha`에 `main`에 포함된 full 40자리 commit SHA를 입력한다.
+5. ACR image 두 개가 게시되어 비용이 발생할 수 있음을 확인하는 checkbox를 선택한다.
+6. **Run workflow**를 누른 뒤 Environment reviewer가 배포를 승인한다.
+7. 완료된 run의 Summary에서 Backend·Frontend digest가 각각 `sha256:` 형식인지 확인한다.
+
+Workflow는 입력 SHA가 `origin/main`의 조상이 아니면 Azure 로그인 전에 실패한다. `latest` tag를 만들지 않고 SHA tag만 push하며, 결과 digest를 `workloads.json`의 Backend·Frontend image parameter에 `registry/repository@sha256:...` 형식으로 사용한다. Workflow는 Container Apps를 배포하거나 활성화하지 않는다.
+
 ## 왜 네 단계인가
 
 Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력하고, `identity-access.bicep`이 secret 하나 단위의 read 권한만 연결한다. 그 다음 inactive workload를 만든다. DB role bootstrap, migration job, PostgreSQL restore rehearsal과 Backend readiness가 확인되기 전에는 앱 minimum replica와 public route를 활성화하지 않는다. Migration이 실패해도 기존 application traffic이나 schema를 임의로 되돌리지 않고 additive forward-fix를 적용한다.

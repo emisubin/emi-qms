@@ -3,6 +3,8 @@
 ## 1. 현재 판정
 
 - Local deployment code: 구현·자동 검증 완료
+- Portal ARM JSON 4개: 구현·자동 검증 완료
+- GitHub 웹 수동 image 게시 workflow: 구현·자동 검증 완료 / 실제 실행 안 함
 - Azure resource: 생성 안 함
 - 공개 traffic: 전환 안 함
 - 실제 Teams·Gmail: 발송 안 함
@@ -24,6 +26,21 @@
 | Application Insights | workspace based | 추후 application telemetry 연결 지점 |
 
 실제 실행 직전 20일 예상 비용과 무료 credit 잔액을 다시 확인한다. Budget 알림은 100, 150, 180달러 지점에 둔다.
+
+## 2.1 터미널 없는 웹 실행 Gate
+
+사용자가 Terminal 또는 Cloud Shell을 사용하지 않는 경우 다음 두 웹 화면만 사용한다.
+
+1. Azure Portal `사용자 지정 템플릿 배포 → 편집기 → 로드 파일`
+2. GitHub `Actions → Azure Pilot Images (Manual) → Run workflow`
+
+Portal에는 `foundation.json → identity-access.json → workloads.json → edge.json` 순으로 업로드한다. 각 JSON은 같은 이름의 Bicep 원본에서 생성되며 generator metadata를 제외한 구조 동등성을 자동 검사한다.
+
+GitHub image 게시 전에는 `azure-pilot-image-publish` Environment에 required reviewer, `main` branch 제한과 Environment secret 9개를 설정한다. Azure Portal의 전용 Entra application에는 Environment subject의 federated credential을 만들고 해당 ACR resource 범위 `AcrPush`만 부여한다. Client secret과 subscription/resource group `Contributor`는 사용하지 않는다.
+
+Workflow는 full 40자리 source SHA가 `origin/main`에 포함됐는지 검증하고, 비용 확인 checkbox가 선택된 경우에만 Azure OIDC login과 ACR push를 실행한다. Backend·Frontend는 source SHA tag와 digest만 사용하고 `latest` tag를 만들지 않는다. Workflow 자체는 Container Apps deployment, revision activation과 traffic 전환을 수행하지 않는다.
+
+ARM JSON의 Portal 최종 `만들기`와 GitHub Actions `Run workflow`는 비용이 발생할 수 있는 사용자 실행 경계다. Codex 자동 검증에서는 두 action을 실행하지 않는다.
 
 ## 3. 사용자 입력값
 

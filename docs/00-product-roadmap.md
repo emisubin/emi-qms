@@ -1032,7 +1032,7 @@ Excel 출력 대상 후보:
 | 5.5 | TASK-NOTIFY-AUDIT-001 관리자 preference 감사 조회 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-005 audit 원장 | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | TASK-AZURE-PILOT-001 — 서비스 중립 공개 파일럿 준비 | UAT_RUNTIME | Main Merged / User Validation Complete | Entra API·SPA 분리, one-shot migration·ledger gate, Production preflight·ARM64/AMD64 image 검증과 PR #59 merge 완료 | TASK-UAT-001, local main 승인 기능과 사용자 P1 구현 승인 | provider-specific 실제 runtime은 TASK-AZURE-DEPLOY-001로 이관 | Yes | 완료 scope 재구현 금지 |
-| 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | UAT_RUNTIME | Change 003 User Validation Complete / Main Merge Approved / Cost Gate Pending | Front Door Standard·Container Apps Consumption·PostgreSQL B2s·ACR Basic·Azure Files·Key Vault·Log Analytics provider-specific 코드, Teams manifest와 P1 최소 권한 보정 자동 검증 완료 | TASK-AZURE-PILOT-001 main merge, 사용자 20일 구성·Change 003 merge 승인 | 비용 관련 Azure resource 생성·image push·restore·DNS·traffic은 사용자 직접 실행 | Yes | main 병합 → 사용자 Azure 실행 → pre-traffic 복구·보안·provider 검수 |
+| 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | UAT_RUNTIME | Change 003 Main Merged / 비용·Budget 사용자 확인 완료 / Change 004 User Validation Complete·Main Merge Approved | Provider-specific 코드·Teams manifest·P1 최소 권한 보정, Portal ARM JSON 4개와 OIDC 기반 GitHub 수동 image 게시 workflow | TASK-AZURE-PILOT-001·Change 003 main merge, 사용자 20일 구성·비용 Gate 확인 | 실제 Azure resource 생성·OIDC/RBAC·image push·restore·DNS·traffic은 사용자 웹 실행 | Yes | Change 004 게시·main merge → Portal Foundation → pre-traffic 복구·보안·provider 검수 |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
 
@@ -1265,16 +1265,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-AZURE-DEPLOY-001: 20일 Azure 시범 배포
 
-- 상태/다음 순서: 기존 배포 준비 main 반영 완료 / Change 003 P1 managed identity·DB role 최소 권한 분리 local 구현·자동 검증·사용자 검수 완료, commit·게시·merge 승인 / Azure resource 생성 비용 Gate 대기
+- 상태/다음 순서: Change 003 P1 managed identity·DB role 최소 권한 분리 GitHub main 병합 완료 / 비용·credit·Budget 사용자 확인 완료 / Change 004 Portal ARM JSON 4개·GitHub OIDC 수동 image 게시 workflow local 구현·자동 검증·사용자 검수 완료, main 병합 승인 / 실제 Azure resource 생성 미실행
 - 목적: 승인된 Azure 시범 사양을 provider-specific 배포 artifact, migration·restore·traffic gate와 Teams manifest로 전환해 3개 프로젝트를 20일 동안 안전하게 시범 운영한다.
 - 포함 범위: Front Door Standard custom rate limit, Container Apps Consumption Frontend/API/ClamAV, one-shot migration job, private PostgreSQL Flexible Server B2s 32 GB·PITR 14일, ACR Basic, Azure Files 5 GB, Key Vault, Log Analytics 1 GB/day cap, Application Insights, 최종 hostname·Entra·Teams manifest handover
 - 제외 범위: 기존 PostgreSQL 첨부의 Blob 이관, HA, Front Door Premium managed WAF, 실제 비용 resource의 Codex 자동 생성, 사용자 승인 없는 traffic·provider 발송, 정식 운영 사양 확정
 - 선행조건: TASK-AZURE-PILOT-001 PR #59 main merge, 사용자 20일 시범 구성과 비용 owner 결정
 - 예상 migration: 신규 SQL 없음. 기존 67개 migration을 inactive workload의 one-shot job으로 적용하고 Exact 전에는 application을 활성화하지 않음
-- 자동 검증: Change 003 Backend 보안 집중 42/42·전체 격리 회귀 481/481, 실제 PostgreSQL runtime role 업무 CRUD 성공·schema/role/temporary/ledger mutation 거부, migration image fresh/existing ledger 67 Exact, Bicep 4종 compile, Teams package와 static deployment invariant 완료
-- Finding: `AZURE-IDENTITY-001`, `AZURE-DB-ROLE-001` P1 `RESOLVED_LOCAL`; 독립 diff 재검토 후 Open P0/P1/P2 code Finding `0`. `OPS-PILOT-002`·`OPS-PILOT-004`와 실제 secret-scope RBAC·DB session role·revision rollback·DNS·managed TLS·private DB restore·monitoring·origin 차단·provider smoke는 Git merge 후 `PRE_TRAFFIC_GATE`로 검증
+- 자동 검증: Change 003 Backend 보안 집중 42/42·전체 격리 회귀 481/481, 실제 PostgreSQL runtime role 업무 CRUD 성공·schema/role/temporary/ledger mutation 거부, migration image fresh/existing ledger 67 Exact, Bicep 4종 compile, Teams package와 static deployment invariant 완료. Change 004 ARM JSON 4개 parse·Bicep 구조 동등성, actionlint, full-SHA action pin, 입력 guard 정상·negative 6/6, Bash syntax·ShellCheck 완료
+- Finding: `AZURE-IDENTITY-001`, `AZURE-DB-ROLE-001` P1, `AZURE-PORTAL-ARTIFACT-001`, `AZURE-WEB-IMAGE-PUBLISH-001` P2 `RESOLVED_LOCAL`; Open P0/P1/P2 code Finding `0`. 실제 Portal deployment·OIDC federation·ACR `AcrPush`·secret-scope RBAC·DB session role·revision rollback·DNS·managed TLS·private DB restore·monitoring·origin 차단·provider smoke는 main merge 후 운영 Gate로 검증
 - 산출물: [Identity Gate](../tasks/azure-deploy-001-identity-gate.md), [Change 001](../tasks/azure-deploy-001-change-001.md), [Change 002](../tasks/azure-deploy-001-change-002.md), [Change 003](../tasks/azure-deploy-001-change-003.md), [Implementation report](../tasks/azure-deploy-001-implementation-report.md), [SOP](../tasks/azure-deploy-001-sop.md), [User validation checklist](../tasks/azure-deploy-001-user-validation-checklist.md), [Azure pilot infrastructure](../infrastructure/azure-pilot/README.md)
-- 다음 Gate: 비용·생성 목록을 사용자에게 먼저 보고하고, 사용자가 budget·resource 생성·PITR restore·DNS·traffic을 직접 실행한다.
+- 다음 Gate: Change 004 게시·main merge 뒤 사용자가 Portal `로드 파일`로 Foundation을 생성한다. 이후 GitHub Environment/OIDC/ACR 권한을 웹에서 설정하고 수동 image workflow를 실행하며, PITR restore·DNS·traffic도 사용자가 직접 실행한다.
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 

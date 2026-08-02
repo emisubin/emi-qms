@@ -1,0 +1,152 @@
+name: Azure Pilot Images (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character commit SHA already contained in main
+        required: true
+        type: string
+      confirm_image_push:
+        description: I understand this pushes two images to ACR and can incur Azure charges
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: azure-pilot-image-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish immutable images
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: azure-pilot-image-publish
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CORE_OUTPUT: none
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      CONFIRM_IMAGE_PUSH: ${{ inputs.confirm_image_push }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ACR_NAME: ${{ secrets.AZURE_ACR_NAME }}
+      ACR_LOGIN_SERVER: ${{ secrets.AZURE_ACR_LOGIN_SERVER }}
+      PUBLIC_HOSTNAME: ${{ secrets.PMS_PUBLIC_HOSTNAME }}
+      ENTRA_API_CLIENT_ID: ${{ secrets.ENTRA_API_CLIENT_ID }}
+      ENTRA_SPA_CLIENT_ID: ${{ secrets.ENTRA_SPA_CLIENT_ID }}
+      ENTRA_API_SCOPE: ${{ secrets.ENTRA_API_SCOPE }}
+    steps:
+      - name: Check out trusted main history
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+
+      - name: Validate explicit approval, source commit, and secret shapes
+        shell: bash
+        run: scripts/validate-azure-image-publish-inputs.sh
+
+      - name: Check out the validated source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach --quiet "${SOURCE_SHA}"
+          if [[ "$(git rev-parse HEAD)" != "${SOURCE_SHA}" ]]; then
+            printf 'azurePilotImagePublish=CHECKOUT_MISMATCH\n' >&2
+            exit 68
+          fi
+
+      - name: Validate Azure deployment artifacts
+        shell: bash
+        run: scripts/validate-azure-pilot-artifacts.sh --compile
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign in to the private registry
+        shell: bash
+        run: az acr login --name "${ACR_NAME}"
+
+      - name: Configure immutable image references
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'BACKEND_IMAGE=%s/pms-backend:%s\n' "${ACR_LOGIN_SERVER}" "${SOURCE_SHA}" >> "${GITHUB_ENV}"
+          printf 'FRONTEND_IMAGE=%s/pms-frontend:%s\n' "${ACR_LOGIN_SERVER}" "${SOURCE_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Build and push Backend
+        id: backend
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: backend/Dockerfile.production
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.BACKEND_IMAGE }}
+          cache-from: type=gha,scope=azure-pilot-backend
+          cache-to: type=gha,mode=max,scope=azure-pilot-backend
+          provenance: mode=min
+          sbom: true
+
+      - name: Build and push Frontend
+        id: frontend
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: frontend/Dockerfile.azure
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.FRONTEND_IMAGE }}
+          build-args: |
+            VITE_AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}
+            VITE_AZURE_CLIENT_ID=${{ secrets.ENTRA_SPA_CLIENT_ID }}
+            VITE_AZURE_API_CLIENT_ID=${{ secrets.ENTRA_API_CLIENT_ID }}
+            VITE_AZURE_API_SCOPE=${{ secrets.ENTRA_API_SCOPE }}
+            VITE_AZURE_REDIRECT_URI=https://${{ secrets.PMS_PUBLIC_HOSTNAME }}
+          cache-from: type=gha,scope=azure-pilot-frontend
+          cache-to: type=gha,mode=max,scope=azure-pilot-frontend
+          provenance: mode=min
+          sbom: true
+
+      - name: Record privacy-safe image results
+        shell: bash
+        env:
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+        run: |
+          set -euo pipefail
+          digest_pattern='^sha256:[0-9a-f]{64}$'
+          if [[ ! "${BACKEND_DIGEST}" =~ ${digest_pattern} \
+            || ! "${FRONTEND_DIGEST}" =~ ${digest_pattern} ]]; then
+            printf 'azurePilotImagePublish=INVALID_DIGEST_OUTPUT\n' >&2
+            exit 72
+          fi
+          {
+            printf "## Azure pilot image publish\n\n"
+            printf -- "- Source commit: \`%s\`\n" "${SOURCE_SHA}"
+            printf -- "- Backend digest: \`%s\`\n" "${BACKEND_DIGEST}"
+            printf -- "- Frontend digest: \`%s\`\n" "${FRONTEND_DIGEST}"
+            printf -- "- Mutable latest tag: \`not created\`\n"
+            printf -- "- Workload deployment: \`not performed\`\n"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          printf 'azurePilotImagePublish=PASS\n'
+
+      - name: Sign out of the private registry
+        if: always()
+        shell: bash
+        run: docker logout "${ACR_LOGIN_SERVER}" >/dev/null 2>&1 || true

@@ -2,17 +2,57 @@
 
 ## 현재 상태
 
-- Task 유형: `UAT_RUNTIME` / Change 003 `SECURITY_HARDENING`
-- 기준 SHA: `4d15b7cee0d97f1846a1838500f9c9edf11b68bf`
-- 작업 branch: `fix/task-azure-deploy-001-p1-hardening`
-- Local deployment artifact: `Change 003 구현 및 자동 검증 완료`
-- Azure resource와 비용 발생 작업: `사용자 실행 대기`
+- Task 유형: `UAT_RUNTIME` / Change 004 `UAT_RUNTIME`
+- 기준 SHA: `5ce3957382a4e8fee19a3619f46e4d5b638c8e98`
+- 작업 branch: `feat/task-azure-deploy-001-web-release`
+- Main deployment artifact: `Change 003까지 GitHub main 병합 완료`
+- Local deployment artifact: `Change 004 Portal ARM JSON·수동 GitHub image workflow 구현 및 자동 검증 완료`
+- 비용·Budget Gate: `사용자 확인 완료`
+- Azure resource와 비용 발생 작업: `미실행 / 사용자 웹 실행 대기`
 - Public traffic: `미전환`
-- 사용자 검수: `Change 003 완료`
-- Commit: `Change 003 미커밋`
-- Push / PR / Merge: `사용자 승인 완료 / 미수행`
+- 사용자 검수: `Change 003·Change 004 완료`
+- Commit / Push / PR / Merge: `Change 004 사용자 승인 완료 / 실행 전`
 
-이 보고서는 비용이 발생하지 않는 local 준비 단계의 완료를 기록한다. Azure resource 생성, image push, migration·restore rehearsal, DNS·TLS, 실제 provider 발송과 public traffic 전환을 완료로 주장하지 않는다.
+이 보고서는 비용이 발생하지 않는 local 준비 단계의 완료를 기록한다. Change 004는 Portal 업로드용 ARM JSON과 GitHub 웹 수동 image 게시 경로만 준비했으며 Azure resource 생성, OIDC 신뢰·RBAC 적용, image push, migration·restore rehearsal, DNS·TLS, 실제 provider 발송과 public traffic 전환을 완료로 주장하지 않는다.
+
+## Change 004 — Portal ARM JSON과 수동 GitHub image 게시
+
+### 해결한 Finding
+
+| ID | 등급 | 상태 | Root cause | 해결 |
+| --- | --- | --- | --- | --- |
+| `AZURE-PORTAL-ARTIFACT-001` | P2 | `RESOLVED_LOCAL` | Bicep 원본만 있어 Azure Portal `로드 파일`에서 쓸 ARM JSON이 없음 | Bicep 생성 ARM JSON 4개를 추적하고 generator metadata 제외 구조 동등성 검증 추가 |
+| `AZURE-WEB-IMAGE-PUBLISH-001` | P2 | `RESOLVED_LOCAL` | GitHub에는 일반 CI만 있고 터미널 없는 ACR image 게시 경로가 없음 | Environment 승인·명시 확인·main ancestry guard·OIDC·immutable SHA/digest 기반 수동 workflow 추가 |
+
+### 실제 구현
+
+1. `foundation`, `identity-access`, `workloads`, `edge` ARM JSON을 Azure Portal 사용자 지정 템플릿 편집기의 `로드 파일`에 사용할 수 있게 생성했다.
+2. validation은 JSON schema·Bicep generator·resource 존재를 확인하고, Bicep 재빌드 결과와 generator version·template hash를 제외한 구조를 비교한다.
+3. GitHub image workflow는 `workflow_dispatch`로만 실행되고 `azure-pilot-image-publish` Environment 보호를 사용한다.
+4. 사용자가 ACR 비용 확인 checkbox와 full 40자리 source SHA를 입력해야 하며, SHA가 `origin/main`에 포함되지 않으면 Azure 로그인 전에 실패한다.
+5. Azure 인증은 GitHub OIDC 단기 token만 사용하고 workflow·문서에 Azure client secret 입력이 없다.
+6. image 게시 identity는 ACR resource scope의 `AcrPush`만 갖도록 Portal 절차를 문서화했다.
+7. Backend·Frontend는 `linux/amd64`, source SHA tag, SBOM과 최소 provenance로 build/push하고 mutable `latest`는 만들지 않는다.
+8. 실제 registry·hostname·Entra identifier는 GitHub Environment secret에서만 읽으며 Azure CLI 기본 stdout을 끈다.
+9. workflow 결과는 source SHA와 두 digest, workload 미배포 상태만 GitHub Summary에 기록한다.
+
+### 자동 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| ARM JSON 4개 parse·resource·Bicep generator contract | `PASS` |
+| Bicep 4종 재compile·ARM JSON 구조 동등성 | `PASS` |
+| GitHub workflow actionlint | `PASS` |
+| Workflow action full-SHA pin·trigger·permission·OIDC·Environment·provenance static invariant | `PASS` |
+| Image 게시 입력 guard 정상·negative 5건 | `6/6 PASS` |
+| 신규·변경 shell Bash syntax와 ShellCheck | `PASS` |
+
+### 미실행과 경계
+
+- GitHub Environment, Entra OIDC application/federated credential와 ACR `AcrPush` role은 실제 Azure resource 생성 뒤 사용자가 웹에서 설정한다.
+- GitHub Actions 실제 run과 ACR image push는 비용이 발생할 수 있어 실행하지 않았다.
+- ARM JSON은 Portal 업로드 가능 artifact지만 `검토 + 만들기`와 실제 deployment는 수행하지 않았다.
+- Container Apps workload, DB role bootstrap, migration, restore, edge와 provider Gate는 이전 순서를 그대로 유지한다.
 
 ## Change 003 — P1 최소 권한 보정
 
@@ -162,6 +202,16 @@
 
 ## 6. 실제 변경 파일
 
+### Change 004
+
+- `.github/workflows/azure-pilot-images.yml` — GitHub Environment 승인·OIDC·main ancestry guard 기반 수동 image 게시
+- `infrastructure/azure-pilot/{foundation,identity-access,workloads,edge}.json` — Azure Portal 업로드용 ARM JSON
+- `infrastructure/azure-pilot/README.md` — Portal·GitHub 웹 전용 설정과 실행 방법
+- `scripts/validate-azure-image-publish-inputs.sh` — 비용 확인·source SHA·Azure/ACR/Entra 입력 fail-closed guard
+- `scripts/test-azure-image-publish-inputs.sh` — 정상·negative 입력 검증
+- `scripts/validate-azure-pilot-artifacts.sh` — ARM JSON 동등성·workflow 불변조건 검증
+- `tasks/azure-deploy-001-change-004.md`와 종료 산출물 — 승인 범위·검증·남은 운영 Gate 추적
+
 ### Backend
 
 - `backend/src/Emi.Qms.Api/Program.cs` — trusted network와 migration-only restore gate 연결
@@ -248,7 +298,9 @@ Frontend build에는 기존 large bundle warning이 있었으나 build 실패나
 | --- | --- | --- | --- | --- |
 | `AZURE-IDENTITY-001` | P1 | `RESOLVED_LOCAL` | workload identity와 Key Vault 권한 공유로 침해 범위가 전체 secret으로 확대될 수 있었다. | 네 identity와 secret-scope assignment 10개로 분리. 실제 Azure access probe는 pre-traffic에서 검증 |
 | `AZURE-DB-ROLE-001` | P1 | `RESOLVED_LOCAL` | API와 migration의 DB 관리자 권한 공유 가능성이 있었다. | `pms_app`·`pms_migrator`·admin 분리와 실제 PostgreSQL negative privilege test 통과 |
-| `AZURE-COST-GATE-001` | External gate | `OPEN` | 실제 Azure resource가 없어 public pilot은 아직 시작되지 않았다. | 사용자가 비용·credit 확인과 budget 설정 후 foundation부터 직접 실행 |
+| `AZURE-PORTAL-ARTIFACT-001` | P2 | `RESOLVED_LOCAL` | Portal 업로드용 ARM JSON이 없어 터미널 없는 Foundation 배포를 시작할 수 없었다. | 추적 JSON 4개와 Bicep 구조 동등성 검증 추가 |
+| `AZURE-WEB-IMAGE-PUBLISH-001` | P2 | `RESOLVED_LOCAL` | 웹 수동 ACR image 게시 경로가 없었다. | OIDC·Environment 승인·main ancestry·immutable digest workflow 추가 |
+| `AZURE-COST-GATE-001` | External gate | `READY_FOR_USER_EXECUTION` | 비용·credit·Budget은 사용자 확인 완료. 실제 Azure resource는 아직 없어 public pilot은 시작되지 않았다. | 사용자가 Portal에서 Foundation 최종 `만들기`를 직접 실행 |
 | `AZURE-APM-001` | P3 | `BACKLOG` | Application Insights resource 정의는 있으나 Backend SDK APM 계측은 아직 없다. Log Analytics container log는 사용 가능하다. | 시범 운영에서 request trace 필요성을 확인한 뒤 별도 계측 |
 | `FRONTEND-BUNDLE-001` | P3 | `BACKLOG` | Production build의 기존 large bundle warning이 유지된다. 기능 오류는 아니다. | 정식 운영 성능 점검에서 route chunk 분할 검토 |
 
@@ -276,25 +328,25 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 
 - Checklist: `작성됨`
 - 자동 검증: `완료`
-- 사용자 검수: `Change 003 완료 — 2026-08-02`
+- 사용자 검수: `Change 003·Change 004 완료 — 2026-08-02`
 - Azure resource와 public URL: `없음`
-- 다음 Gate: Change 003 commit·게시·merge 뒤 사용자가 예상 비용, 무료 credit과 budget alert를 확인하고 Foundation을 생성한다.
+- 다음 Gate: Change 004 게시·main merge 뒤 사용자가 Portal에서 Foundation을 생성한다.
 - 비용 발생 전에 생성 대상, 사양, 예상 20일 비용과 삭제·rollback 영향을 다시 보고해야 한다.
 
 ## 13. 종료 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 003 반영 완료 |
-| SOP | `tasks/azure-deploy-001-sop.md` | identity·DB role 분리 순서 반영 완료 |
-| User manual | `infrastructure/azure-pilot/README.md` | identity 접근표·DB 역할 운영 절차 반영 완료 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 003 local 완료와 비용 Gate 반영 |
-| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | Change 003 사용자 검수 완료 / Azure 운영 검수 대기 |
+| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 004 반영 완료 |
+| SOP | `tasks/azure-deploy-001-sop.md` | Portal JSON·GitHub OIDC image 게시 Gate 반영 완료 |
+| User manual | `infrastructure/azure-pilot/README.md` | 터미널 없는 Portal·GitHub 웹 절차 반영 완료 |
+| Roadmap update | `docs/00-product-roadmap.md` | Main 병합·비용 확인·Change 004 상태 반영 완료 |
+| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | Change 003·Change 004 완료 / Azure 운영 검수 대기 |
 
 ## 14. Git와 게시 상태
 
-- 변경사항: Change 003 검증본이 전용 Task branch에 미커밋 상태로 존재
-- Commit: 미수행 — 사용자 요청 없음
+- 변경사항: Change 004 검증본이 전용 Task branch에 미커밋 상태로 존재
+- Commit: 미수행 — 사용자 승인 완료
 - Push: 미수행 — 사용자 승인 완료
 - PR: 미수행 — 사용자 승인 완료
 - Merge: 미수행 — 사용자 승인 완료

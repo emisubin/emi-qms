@@ -13,12 +13,19 @@ elif [[ "$#" -ne 0 ]]; then
 fi
 
 required_files=(
+  "${repository_root}/.github/workflows/azure-pilot-images.yml"
+  "${repository_root}/scripts/validate-azure-image-publish-inputs.sh"
+  "${repository_root}/scripts/test-azure-image-publish-inputs.sh"
   "${repository_root}/frontend/Dockerfile.azure"
   "${azure_directory}/nginx.conf.template"
   "${azure_directory}/foundation.bicep"
   "${azure_directory}/identity-access.bicep"
   "${azure_directory}/workloads.bicep"
   "${azure_directory}/edge.bicep"
+  "${azure_directory}/foundation.json"
+  "${azure_directory}/identity-access.json"
+  "${azure_directory}/workloads.json"
+  "${azure_directory}/edge.json"
   "${azure_directory}/foundation.parameters.example.json"
   "${azure_directory}/identity-access.parameters.example.json"
   "${azure_directory}/workloads.parameters.example.json"
@@ -48,6 +55,7 @@ const workloads = read(join(azure, 'workloads.bicep'));
 const edge = read(join(azure, 'edge.bicep'));
 const nginx = read(join(azure, 'nginx.conf.template'));
 const dockerfile = read(join(root, 'frontend', 'Dockerfile.azure'));
+const imageWorkflow = read(join(root, '.github', 'workflows', 'azure-pilot-images.yml'));
 
 for (const name of [
   'foundation.parameters.example.json',
@@ -58,6 +66,28 @@ for (const name of [
   JSON.parse(read(join(azure, name)));
 }
 JSON.parse(read(join(root, 'infrastructure', 'teams', 'manifest.template.json')));
+
+for (const name of [
+  'foundation.json',
+  'identity-access.json',
+  'workloads.json',
+  'edge.json'
+]) {
+  const template = JSON.parse(read(join(azure, name)));
+  if (template.$schema !== 'https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#'
+    || template.contentVersion !== '1.0.0.0'
+    || template.metadata?._generator?.name !== 'bicep'
+    || !Array.isArray(template.resources)
+    || template.resources.length === 0) {
+    process.exit(1);
+  }
+  for (const parameter of Object.values(template.parameters ?? {})) {
+    if ((parameter.type === 'securestring' || parameter.type === 'secureObject')
+      && Object.hasOwn(parameter, 'defaultValue')) {
+      process.exit(1);
+    }
+  }
+}
 
 const checks = [
   [foundation, "name: 'Standard_B2s'"],
@@ -129,14 +159,45 @@ const trackedDeploymentSource = [
   identityAccess,
   workloads,
   edge,
+  read(join(azure, 'foundation.json')),
+  read(join(azure, 'identity-access.json')),
+  read(join(azure, 'workloads.json')),
+  read(join(azure, 'edge.json')),
+  imageWorkflow,
   read(join(root, 'infrastructure', 'teams', 'manifest.template.json'))
 ].join('\n');
 if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu.test(trackedDeploymentSource)) {
   process.exit(1);
 }
+
+const workflowChecks = [
+  'workflow_dispatch:',
+  'source_sha:',
+  'confirm_image_push:',
+  'environment: azure-pilot-image-publish',
+  'id-token: write',
+  'scripts/validate-azure-image-publish-inputs.sh',
+  'azure/login@eec3c95657c1536435858eda1f3ff5437fee8474',
+  'docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c',
+  'docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a',
+  'provenance: mode=min',
+  'sbom: true',
+  'AZURE_CORE_OUTPUT: none',
+  'Mutable latest tag:',
+  'Workload deployment:'
+];
+if (workflowChecks.some(expected => !imageWorkflow.includes(expected))
+  || /^\s{2}(push|pull_request|schedule):/mu.test(imageWorkflow)
+  || /azure\/login@[^\s#]{1,39}(?:\s|#|$)/u.test(imageWorkflow)
+  || /docker\/(?:setup-buildx-action|build-push-action)@[^\s#]{1,39}(?:\s|#|$)/u.test(imageWorkflow)
+  || /client-secret|AZURE_CLIENT_SECRET|\bcreds:/u.test(imageWorkflow)
+  || /(?:^|[/:])latest(?:\s|$)/mu.test(imageWorkflow)) {
+  process.exit(1);
+}
 NODE
 
 "${repository_root}/scripts/test-teams-manifest-package.sh" >/dev/null
+"${repository_root}/scripts/test-azure-image-publish-inputs.sh" >/dev/null
 
 if [[ "${compile_templates}" == 'true' ]]; then
   temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/pms-bicep-build.XXXXXX")"
@@ -163,7 +224,43 @@ if [[ "${compile_templates}" == 'true' ]]; then
     printf 'azurePilotBicepCompile=TOOL_MISSING\n' >&2
     exit 69
   fi
+
+  AZURE_DIRECTORY="${azure_directory}" \
+  TEMPORARY_DIRECTORY="${temporary_directory}" \
+  node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+
+const azure = process.env.AZURE_DIRECTORY;
+const temporary = process.env.TEMPORARY_DIRECTORY;
+const normalize = path => {
+  const template = JSON.parse(readFileSync(path, 'utf8'));
+  if (template.metadata?._generator) {
+    delete template.metadata._generator;
+  }
+  if (template.metadata && Object.keys(template.metadata).length === 0) {
+    delete template.metadata;
+  }
+  return template;
+};
+
+for (const name of [
+  'foundation.json',
+  'identity-access.json',
+  'workloads.json',
+  'edge.json'
+]) {
+  if (!isDeepStrictEqual(
+    normalize(join(azure, name)),
+    normalize(join(temporary, name))
+  )) {
+    process.exit(1);
+  }
+}
+NODE
   printf 'azurePilotBicepCompile=PASS\n'
+  printf 'azurePilotPortalTemplates=PASS\n'
 else
   printf 'azurePilotBicepCompile=NOT_REQUESTED\n'
 fi

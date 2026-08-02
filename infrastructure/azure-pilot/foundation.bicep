@@ -34,7 +34,10 @@ var names = {
   registry: take('${compactPrefix}acr${suffix}', 50)
   storageAccount: take('${compactPrefix}st${suffix}', 24)
   keyVault: take('${prefix}-kv-${suffix}', 24)
-  identity: '${prefix}-runtime-${suffix}'
+  backendIdentity: '${prefix}-backend-${suffix}'
+  frontendIdentity: '${prefix}-frontend-${suffix}'
+  migrationIdentity: '${prefix}-migration-${suffix}'
+  databaseBootstrapIdentity: '${prefix}-db-bootstrap-${suffix}'
   postgres: '${prefix}-pg-${suffix}'
   frontDoorProfile: '${prefix}-afd-${suffix}'
   frontDoorEndpoint: '${compactPrefix}-${suffix}'
@@ -222,16 +225,70 @@ resource environmentStorage 'Microsoft.App/managedEnvironments/storages@2024-03-
   }
 }
 
-resource runtimeIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: names.identity
+resource backendIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: names.backendIdentity
   location: location
 }
 
-resource registryPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(registry.id, runtimeIdentity.id, 'AcrPull')
+resource frontendIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: names.frontendIdentity
+  location: location
+}
+
+resource migrationIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: names.migrationIdentity
+  location: location
+}
+
+resource databaseBootstrapIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: names.databaseBootstrapIdentity
+  location: location
+}
+
+resource backendRegistryPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, backendIdentity.id, 'AcrPull')
   scope: registry
   properties: {
-    principalId: runtimeIdentity.properties.principalId
+    principalId: backendIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+    )
+  }
+}
+
+resource frontendRegistryPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, frontendIdentity.id, 'AcrPull')
+  scope: registry
+  properties: {
+    principalId: frontendIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+    )
+  }
+}
+
+resource migrationRegistryPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, migrationIdentity.id, 'AcrPull')
+  scope: registry
+  properties: {
+    principalId: migrationIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+    )
+  }
+}
+
+resource databaseBootstrapRegistryPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, databaseBootstrapIdentity.id, 'AcrPull')
+  scope: registry
+  properties: {
+    principalId: databaseBootstrapIdentity.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
@@ -255,19 +312,6 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     }
     softDeleteRetentionInDays: 7
     tenantId: subscription().tenantId
-  }
-}
-
-resource keyVaultSecretsRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, runtimeIdentity.id, 'KeyVaultSecretsUser')
-  scope: keyVault
-  properties: {
-    principalId: runtimeIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId(
-      'Microsoft.Authorization/roleDefinitions',
-      '4633458b-17de-408a-b874-0445c86b69e6'
-    )
   }
 }
 
@@ -465,7 +509,10 @@ output containerAppsEnvironmentId string = containerAppsEnvironment.id
 output containerAppsSubnetPrefix string = containerAppsSubnetPrefix
 output registryName string = registry.name
 output registryServer string = registry.properties.loginServer
-output runtimeIdentityId string = runtimeIdentity.id
+output backendIdentityId string = backendIdentity.id
+output frontendIdentityId string = frontendIdentity.id
+output migrationIdentityId string = migrationIdentity.id
+output databaseBootstrapIdentityId string = databaseBootstrapIdentity.id
 output keyVaultName string = keyVault.name
 output keyVaultUri string = keyVault.properties.vaultUri
 output postgresHost string = postgresServer.properties.fullyQualifiedDomainName
@@ -478,7 +525,9 @@ output frontDoorId string = frontDoorProfile.properties.frontDoorId
 output frontDoorRuleSetId string = originVerificationRuleSet.id
 output wafPolicyId string = wafPolicy.id
 output requiredKeyVaultSecretNames array = [
-  'database-connection-string'
+  'database-admin-connection-string'
+  'database-migration-connection-string'
+  'database-runtime-connection-string'
   'bootstrap-administrator-emails'
   'front-door-origin-verify-token'
   'gmail-username'

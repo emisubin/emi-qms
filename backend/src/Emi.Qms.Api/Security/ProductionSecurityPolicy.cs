@@ -165,6 +165,13 @@ public static class ProductionSecurityPolicy
             {
                 errors.Add("The production database must use SSL Mode=VerifyFull with certificate validation.");
             }
+
+            var expectedRuntimeRole = configuration["Database:RuntimeRoleName"];
+            if (!string.IsNullOrWhiteSpace(expectedRuntimeRole)
+                && !string.Equals(builder.Username, expectedRuntimeRole, StringComparison.Ordinal))
+            {
+                errors.Add("The production API database connection must use the configured runtime role.");
+            }
         }
         catch (ArgumentException)
         {

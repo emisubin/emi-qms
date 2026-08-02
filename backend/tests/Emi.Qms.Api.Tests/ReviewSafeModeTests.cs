@@ -195,6 +195,7 @@ public sealed class ReviewSafeModeTests
         var runner = new DatabaseMigrationRunner(
             connectionStringProvider,
             new DatabaseMigrationCatalog(environment),
+            new DatabaseRuntimePrivilegeManager(),
             configuration,
             NullLogger<DatabaseMigrationRunner>.Instance);
         var seeder = new DevelopmentIdentitySeeder(

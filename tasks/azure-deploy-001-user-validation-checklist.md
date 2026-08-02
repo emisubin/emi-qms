@@ -1,10 +1,18 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 003 로컬 P1 보안 변경
+
+- [x] Backend·Frontend·migration·DB bootstrap identity 분리 구조와 secret 접근표를 확인했다.
+- [x] 관리자·migration·runtime PostgreSQL 연결 분리와 `pms_app` 최소 권한 검증 결과를 확인했다.
+- [x] 실제 Azure 자원 생성·비용·traffic·외부 발송은 이번 검수에 포함되지 않음을 확인했다.
+- [x] Change 003 사용자 검수를 완료하고 commit·push·PR·CI·`main` merge를 승인했다. (2026-08-02)
+
 ## Azure 생성 전
 
 - [ ] 20일 예상 비용과 남은 credit을 확인했다.
 - [ ] Budget 알림 3단계를 사용자가 직접 설정했다.
 - [ ] 실제 hostname·identifier·email·secret이 Git diff에 없음을 확인했다.
+- [ ] DB 관리자·`pms_migrator`·`pms_app` password가 서로 다르고 각각 32자 이상이다.
 
 ## 배포와 복구
 
@@ -13,6 +21,12 @@
 - [ ] Backend와 ClamAV에 public ingress가 없다.
 - [ ] Front Door URL은 열리고 Container App 원본 URL은 health 이외 403이다.
 - [ ] TLS certificate가 최종 hostname과 일치한다.
+- [ ] Key Vault 전체 scope의 workload secret-read role이 0이다.
+- [ ] 이전 단일 runtime identity를 배포한 이력이 있다면 남은 vault-scope role assignment와 미사용 identity를 정리했다.
+- [ ] Backend·Frontend·migration·DB bootstrap identity가 서로 다르고 접근표 밖 secret read가 거부된다.
+- [ ] DB role bootstrap job이 성공한 뒤에만 migration job을 실행했다.
+- [ ] Backend DB session은 `pms_app`, migration DB session은 `pms_migrator`로 확인된다.
+- [ ] `pms_app`의 업무 CRUD는 성공하고 schema·role·temporary table 생성과 migration ledger 변경은 거부된다.
 
 ## 로그인과 권한
 

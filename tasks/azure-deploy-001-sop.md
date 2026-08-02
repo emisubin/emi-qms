@@ -35,6 +35,8 @@
 - 비상 관리자 두 명
 - 경보 수신자 alias
 - PostgreSQL 관리자 password
+- `pms_migrator` 전용 32자 이상 password
+- `pms_app` 전용 32자 이상 password
 - Front Door origin random token
 - Gmail username/app password
 - Teams activity client secret
@@ -43,18 +45,22 @@
 
 Git에 검증된 배포 코드를 먼저 merge한다. 이 merge는 Azure resource 생성이나 public traffic 활성화를 의미하지 않는다.
 
-1. Foundation 생성과 Key Vault 입력
-2. image digest 고정
-3. Inactive workload 생성
-4. migration job Exact
-5. PITR restore 60분 이내와 aggregate·ledger 검증
-6. Active workload readiness
-7. DNS·TLS·Front Door origin 차단
-8. Entra login과 관리자 승인 workflow
-9. Teams manifest 조직 catalog update와 개인 설치
-10. actual Teams·Gmail smoke
+1. Foundation 생성과 Key Vault 8개 secret 입력
+2. Backend·Frontend·migration·DB bootstrap identity의 secret-scope RBAC 10개 적용 및 전파 확인. 이전 단일 runtime identity를 배포한 적이 있으면 incremental deployment에 남은 vault-scope role assignment를 Portal에서 제거하고 0건을 확인
+3. image digest 고정
+4. Inactive workload와 두 manual job 생성
+5. DB role bootstrap job 성공: `pms_migrator`·`pms_app` 생성과 최소 권한 probe
+6. migration job Exact와 runtime object privilege 재조정
+7. PITR restore 60분 이내와 aggregate·ledger 검증
+8. Active workload readiness
+9. DNS·TLS·Front Door origin 차단
+10. Entra login과 관리자 승인 workflow
+11. Teams manifest 조직 catalog update와 개인 설치
+12. actual Teams·Gmail smoke
 
 한 단계가 실패하면 다음 단계로 넘어가지 않는다.
+
+DB 역할 검수에서는 Backend 연결 사용자가 `pms_app`, migration 연결 사용자가 `pms_migrator`인지 확인한다. `pms_app`은 업무 CRUD는 성공해야 하지만 `CREATE TABLE`, `CREATE ROLE`, `schema_migrations` INSERT와 database temporary privilege는 모두 거부돼야 한다. Key Vault 검수에서는 vault scope role assignment가 0이고 각 identity가 접근표에 없는 secret을 읽지 못해야 한다.
 
 DB 복구, edge·인증과 actual provider smoke는 `PRE_TRAFFIC_GATE`다. Git merge 후에 실행하되, 세 Gate가 모두 PASS가 되기 전에는 public traffic과 external notification을 활성화하지 않는다.
 

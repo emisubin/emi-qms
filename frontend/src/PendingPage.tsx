@@ -707,18 +707,25 @@ function PendingDetailView({
 
           {canManage && detail.canAssign ? <section className="pending-section"><h3>담당 변경</h3><div className="pending-inline-action"><select aria-label="새 조치 담당" value={nextAssignee} onChange={(event) => setNextAssignee(event.target.value)}><option value="">새 담당자 선택</option>{assignees.filter((item) => item.userId !== issue.assigneeUserId).map((item) => <option key={item.userId} value={item.userId}>{item.displayName} · {departmentLabel(item.departmentCode)}</option>)}</select><input aria-label="담당 변경 사유" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="변경 사유 (3자 이상)" /><button disabled={busy || !nextAssignee || reason.trim().length < 3} type="button" onClick={() => void runMutation(() => assignPendingIssue(developmentUserKey, pendingId, nextAssignee, issue.version, reason), '조치 담당자가 변경되었습니다.', () => { setReason(''); setNextAssignee(''); })}>담당 변경</button></div></section> : null}
 
-          <PendingActionEvidence
-            pendingId={pendingId}
-            evidence={detail.actionEvidence}
-            developmentUserKey={developmentUserKey}
-            busy={busy}
-            photoFile={photoFile}
-            photoAlt={photoAlt}
-            onPhotoFile={setPhotoFile}
-            onPhotoAlt={setPhotoAlt}
-            onUpload={() => void uploadActionPhoto()}
-            onRemove={(photoId) => void removeActionPhoto(photoId)}
-          />
+          {detail.actionEvidence ? (
+            <PendingActionEvidence
+              pendingId={pendingId}
+              evidence={detail.actionEvidence}
+              developmentUserKey={developmentUserKey}
+              busy={busy}
+              photoFile={photoFile}
+              photoAlt={photoAlt}
+              onPhotoFile={setPhotoFile}
+              onPhotoAlt={setPhotoAlt}
+              onUpload={() => void uploadActionPhoto()}
+              onRemove={(photoId) => void removeActionPhoto(photoId)}
+            />
+          ) : (
+            <section className="pending-section pending-action-evidence" aria-labelledby="pending-action-evidence-title">
+              <h3 id="pending-action-evidence-title">조치 내용과 사진</h3>
+              <p className="muted-text" role="status">조치 사진 정보를 확인할 수 없습니다. 나머지 상세 정보는 계속 확인할 수 있습니다. 서버 상태를 확인한 뒤 다시 시도해 주세요.</p>
+            </section>
+          )}
 
           {nextTransition ? <section className="pending-section pending-next-action"><div><p className="eyebrow">NEXT ACTION</p><h3>{transitionLabels[nextTransition]}</h3><p>{completingAction ? '처리 내용을 남기고 완료하면 품질 재검사 업무와 알림이 자동 생성됩니다.' : '현재 상태를 확인하고 처리 내용을 남겨 다음 단계로 넘깁니다.'}</p></div><div className="pending-transition-control"><input aria-label="처리 내용" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="처리 내용 또는 확인 결과 (3자 이상)" /><button className="primary-button" disabled={busy || reason.trim().length < 3} type="button" onClick={() => void runMutation(() => transitionPendingIssue(developmentUserKey, pendingId, nextTransition, issue.version, reason), completingAction ? '조치를 완료하고 품질 재검사 업무를 생성했습니다.' : `${transitionLabels[nextTransition]} 상태로 변경되었습니다.`, () => setReason(''))}>{transitionLabels[nextTransition]}</button></div></section> : null}
         </div>

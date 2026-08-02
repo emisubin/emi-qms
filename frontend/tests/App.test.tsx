@@ -89,6 +89,69 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
   });
 
+  it('canonicalizes a trailing slash and opens the Pending project dashboard', async () => {
+    window.history.pushState(null, '', '/pending/');
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Pending 프로젝트' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/pending');
+  });
+
+  it('keeps Pending detail visible when an older backend omits action evidence', async () => {
+    const pendingId = '88000000-0000-0000-0000-000000000099';
+    window.history.pushState(null, '', `/pending/${pendingId}`);
+    mockMobileViewport(true);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === `/api/pending/${pendingId}`) {
+        return json({
+          issue: {
+            pendingId,
+            issueNumber: 99,
+            projectId,
+            projectCode: 'PJT-003A',
+            projectTitle: 'TASK-003A Demo',
+            targetType: 'Project',
+            targetId: projectId,
+            targetLabel: null,
+            issueType: 'Quality',
+            issueTypeLabel: '품질',
+            title: '계약 전환 중 Pending 상세',
+            description: '증거 응답이 없어도 핵심 상세는 유지되어야 합니다.',
+            status: 'Registered',
+            statusLabel: '등록',
+            priority: 'Normal',
+            priorityLabel: '일반',
+            actionDepartmentCode: 'production-planning',
+            assigneeUserId: null,
+            assigneeDisplayName: null,
+            dueDate: null,
+            isOverdue: false,
+            version: 1,
+            createdByUserId: salesOwnerId,
+            createdByDisplayName: 'dev-sales',
+            createdAtUtc: '2026-08-01T00:00:00Z',
+            updatedAtUtc: '2026-08-01T00:00:00Z'
+          },
+          comments: [],
+          history: [],
+          allowedTransitions: [],
+          canComment: false,
+          canAssign: false,
+          reinspection: null
+        });
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '계약 전환 중 Pending 상세' })).toBeInTheDocument();
+    expect(screen.getByText('증거 응답이 없어도 핵심 상세는 유지되어야 합니다.')).toBeInTheDocument();
+    expect(screen.getByText(/조치 사진 정보를 확인할 수 없습니다/)).toBeInTheDocument();
+    expect(document.querySelector('.mobile-pending-detail-page')).not.toBeNull();
+  });
+
   it('shows the actual user account in the shell and department metrics on Home', async () => {
     window.history.pushState(null, '', '/');
     render(<App />);

@@ -551,9 +551,26 @@ function OperationalHubRedirect({ area, onRedirect }: { area: OperationalHubArea
   return null;
 }
 
+function normalizePendingPathname(pathname: string) {
+  if (!/^\/pending(?:\/|$)/.test(pathname)) {
+    return pathname;
+  }
+
+  return pathname.replace(/\/+$/, '') || '/';
+}
+
 function initialViewFromLocation(): View {
   if (typeof window === 'undefined') {
     return { kind: 'home' };
+  }
+
+  const normalizedPendingPathname = normalizePendingPathname(window.location.pathname);
+  if (normalizedPendingPathname !== window.location.pathname) {
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${normalizedPendingPathname}${window.location.search}${window.location.hash}`
+    );
   }
 
   const qrScanMatch = window.location.pathname.match(/^\/q\/([A-Za-z0-9_-]{43})$/);

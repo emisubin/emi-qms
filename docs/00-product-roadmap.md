@@ -1238,7 +1238,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-UAT-001: HTTPS Development UAT 안정화
 
-- 상태/다음 순서: 최초 Task와 Change 001 merge 완료 / Change 002 Entra 로그인·fail-closed authorization 완료 / Change 003 공개 노출 P0 해소 / Change 004 공개 배포 P1 방어선 구현 / Change 005 공개 배포 P2 cache·header·공급망 보정 및 자동 검증 완료, 실제 운영 환경 검수 대기 / 다음 Gate는 운영 전환 Scope Review
+- 상태/다음 순서: 최초 Task와 Change 001~006 완료 / Change 007 Pending 상세 mixed-version blank 복구·자동 검증·actual 5174 smoke·사용자 검수 완료 / 조치 사진 current-source 5081 handover는 migration 승인 전 보류 / 다음 Gate는 TASK-AZURE-DEPLOY-001 비용 Gate
 - 목적: HTTPS Development UAT를 안정화하고, 로그인·source/DB 노출·운영 request/upload/hosting 경계를 공개 배포 전에 fail-closed한다.
 - 포함 범위: 기존 UAT 안정화 범위, Entra HTTPS 로그인과 익명 API 차단, Vite/DB loopback, security header, Host/trusted proxy, rate limit, upload malware/metadata 검사, static TLS reverse proxy, secret/DB TLS/restore/SIEM/break-glass Production startup gate
 - 제외 범위: actual 운영 domain·certificate·Entra app 변경, managed DB·backup provider 설정, SIEM receiver 설정, 실제 외부 알림 발송과 운영 runtime handover
@@ -1247,6 +1247,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 핵심 검수 기준: 기존 UAT 계약 보존, 공개 Development/DB listener 없음, unsafe Production 설정 startup 실패, 안전 synthetic Production policy 통과, host/header/rate/upload 회귀와 production container build·Compose 검증, actual 운영값은 별도 handover
 - Change 005 자동 검증: Production security 27/27, Backend 461/461, Frontend 143/143, Mock UI 4/4, Full-Stack E2E 55/55, dependency 취약점 0, Backend·TLS validator image 전 심각도 0, Frontend·ClamAV image Critical/High/Medium 0. Open P0/P1/P2/P3 `0/0/0/1`; 수정본이 없는 libxml2 Low 2건은 `SEC-PUBLIC-014` P3로 재검사하고 scanner Unspecified 2건은 영향 실행 파일 부재를 확인해 `SEC-PUBLIC-015 RESOLVED_NOT_AFFECTED`로 닫았다. 코드 게시 품질 gate `GO`, actual 운영 domain·Entra·managed DB·restore·SIEM handover는 `NO_GO_EXTERNAL`
 - Change 001 자동·사용자 검증: trusted HTTPS root/notification/Teams/API/health 200, desktop/390px 6/6, console/request/overflow 0, PostgreSQL·Review-safe·design runtime 보존, obsolete isolated container/network 3/3 정리. 5081 Delivery worker만 활성화하고 기존 `TeamsActivityDisabled` terminal 2건을 audit로 보존했으며 신규 ManualTest 1건은 retry lineage `RetryScheduled/RetryScheduled/Sent`와 Teams client 실제 표시를 확인했다.
+- Change 007 자동·runtime 검증: `/pending/` canonicalization과 구형 5081의 `actionEvidence` 누락 상세를 section 단위로 격리했다. Frontend 172/172, mock UI 4/4, build와 로그인된 5174의 dashboard·프로젝트·실제 상세·이력을 확인했다. Persistent UAT DB·5081·provider는 변경하지 않았다. Open P0/P1/P2/P3 `0/0/0/1`; live ledger 64개와 source 67개 drift는 `UAT-PENDING-007-D` P3로 후속 controlled migration·runtime handover에서 재검토한다.
 - 산출물: [Task 정의와 검수 체크리스트](../tasks/uat-001-https-dev-stability.md), [Implementation report](../tasks/uat-001-implementation-report.md), [SOP](../tasks/uat-001-sop.md), [User manual](../tasks/uat-001-user-manual.md), 이 Roadmap update
 - 주요 위험: Development actual provider 오발송, UAT worker 자연 변경과 E2E 영향 혼동, code readiness를 actual 운영 준비로 오판하는 위험. actual domain·Entra·certificate·managed DB·restore·SIEM 검수 전 공개 배포는 금지한다.
 
@@ -2118,6 +2119,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-01 | TASK-AZURE-DEPLOY-001 Change 002에서 검증된 배포 코드의 Git merge와 Azure runtime에서만 실행 가능한 DB 복구·edge/인증·actual provider smoke를 분리 | 커밋된 배포 코드를 기준으로 Azure를 생성하되, 공개 traffic과 external notification은 세 `PRE_TRAFFIC_GATE` PASS 전에 fail-closed로 유지하기 위함 | 23장~25장, TASK-AZURE-DEPLOY-001 Change 002 |
 | 2026-08-01 | Azure 비용 Gate를 보류하고 DESIGN-000 Change 006 Graphite 프론트엔드 승격을 먼저 수행 | 독립 실험에서 검증한 흑백 wireframe·프론트엔드 구성 통일·표 밀도·부서 accordion만 최신 main에 fixed allowlist로 이식하고 Backend·DB·배포와 원본 WIP를 보존하기 위함 | 23장~25장, DESIGN-000 Change 006 |
 | 2026-08-01 | DESIGN-000 Change 006 사용자 검수를 완료하고 local `main` merge `f1f94ed`로 반영하되 원격 push·PR·배포는 보류 | 업무 선택 전용 page 삭제, 부서 행 click disclosure, 장식용 왼쪽 강조 rail 제거와 Graphite 표 밀도를 제품 기준선에 반영하고 다음 실행 순서를 TASK-AZURE-DEPLOY-001 비용 Gate로 복귀시키기 위함 | 23장~25장, 27-experiment-task-ledger, DESIGN-000 Change 006 |
+| 2026-08-02 | TASK-UAT-001 Change 007에서 Pending 상세 mixed-version blank를 Frontend section 격리로 복구하고 current-source Backend handover는 보류 | live UAT ledger 64개에 source의 조치 사진 schema가 없어 승인되지 않은 migration을 실행하지 않으면서도 제목·발생 내용·담당·기한·이력을 즉시 복구하고, 조치 사진 활성화는 별도 controlled migration·5081 handover로 분리하기 위함 | 23장~25장, TASK-UAT-001 Change 007 |
+| 2026-08-02 | TASK-UAT-001 Change 007 Pending 상세 복구의 사용자 검수를 완료 | 실제 5174에서 목록·상세·복귀 동선과 핵심 상세 표시를 확인해 blank 복구를 닫되, 사용자 검수 완료를 Git 게시나 조치 사진 migration 승인으로 확대하지 않기 위함 | 23장~25장, TASK-UAT-001 Change 007 |
 
 ## 26. 용어 사전
 

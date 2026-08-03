@@ -1,19 +1,48 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 005 — Active workload readiness 보정
+
+### 현재 상태
+
+- DB role bootstrap: `PASS`
+- Migration: canonical `67`, ledger `Exact`
+- PITR restore rehearsal: `PASS`, 60분 목표 이내, 임시 restore resource 정리 완료
+- Active workloads: `BLOCKED_RUNTIME_READINESS`
+- Public traffic·external notification: `비활성 유지`
+
+### 확인된 Finding과 로컬 보정
+
+| ID | 등급 | 상태 | 원인 | 로컬 보정 |
+| --- | --- | --- | --- | --- |
+| `AZURE-BACKEND-PROBE-HOST-001` | P1 | `RESOLVED_LOCAL_RUNTIME_PENDING` | Production Host allowlist와 Container Apps probe 기본 Host 불일치로 startup probe `400` | Backend 세 HTTP probe에 `Host: publicHost` 추가 |
+| `AZURE-FRONTEND-NGINX-MAP-001` | P1 | `RESOLVED_LOCAL_RUNTIME_PENDING` | 64자 origin token이 Nginx 기본 map hash bucket을 초과 | `map_hash_bucket_size 128` 적용 |
+
+### 로컬 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Azure artifact static validation·Bicep 4종 compile | `PASS` |
+| `workloads.bicep` 생성 결과와 tracked ARM JSON 구조 동등성 | `PASS` |
+| 64자 synthetic origin token Nginx configuration test | `PASS` |
+| Backend 세 probe Host header count | `3` |
+| Shell syntax·Git whitespace | `PASS` |
+
+실제 Azure 신규 image·revision readiness, direct health `200`과 origin 업무 route `403` 검증이 끝나기 전에는 두 P1을 `RESOLVED`로 닫지 않는다.
+
 ## 현재 상태
 
-- Task 유형: `UAT_RUNTIME` / Change 004 `UAT_RUNTIME`
-- 기준 SHA: `5ce3957382a4e8fee19a3619f46e4d5b638c8e98`
-- 작업 branch: `feat/task-azure-deploy-001-web-release`
-- Main deployment artifact: `Change 003까지 GitHub main 병합 완료`
-- Local deployment artifact: `Change 004 Portal ARM JSON·수동 GitHub image workflow 구현 및 자동 검증 완료`
+- Task 유형: `UAT_RUNTIME` / Change 005 `BUGFIX`
+- 기준 SHA: `origin/main`
+- 작업 branch: `fix/task-azure-deploy-001-runtime-readiness`
+- Main deployment artifact: `Change 004까지 GitHub main 병합 완료`
+- Local deployment artifact: `Change 005 readiness 보정·자동 검증 완료`
 - 비용·Budget Gate: `사용자 확인 완료`
-- Azure resource와 비용 발생 작업: `미실행 / 사용자 웹 실행 대기`
+- Azure resource와 비용 발생 작업: `실행 중 / 사용자 승인 완료`
 - Public traffic: `미전환`
-- 사용자 검수: `Change 003·Change 004 완료`
-- Commit / Push / PR / Merge: `Change 004 사용자 승인 완료 / 실행 전`
+- 사용자 검수: `Change 003·Change 004 완료 / Change 005 대기`
+- Commit / Push / PR / Merge: `Change 005 실행 전`
 
-이 보고서는 비용이 발생하지 않는 local 준비 단계의 완료를 기록한다. Change 004는 Portal 업로드용 ARM JSON과 GitHub 웹 수동 image 게시 경로만 준비했으며 Azure resource 생성, OIDC 신뢰·RBAC 적용, image push, migration·restore rehearsal, DNS·TLS, 실제 provider 발송과 public traffic 전환을 완료로 주장하지 않는다.
+Change 004 준비물을 사용해 Foundation, OIDC·ACR 권한, image 게시, secret-scope RBAC, DB role bootstrap, migration과 PITR restore rehearsal을 완료했다. Change 005는 실제 workload activation에서 발견된 두 readiness P1을 보정한다. 신규 revision readiness, DNS·TLS, 실제 provider 발송과 public traffic 전환은 아직 완료로 주장하지 않는다.
 
 ## Change 004 — Portal ARM JSON과 수동 GitHub image 게시
 

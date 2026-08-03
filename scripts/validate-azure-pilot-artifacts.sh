@@ -117,6 +117,7 @@ const checks = [
   [workloads, "'--migrate-only'"],
   [edge, "linkToDefaultDomain: 'Disabled'"],
   [edge, "certificateType: 'ManagedCertificate'"],
+  [nginx, 'map_hash_bucket_size 128;'],
   [nginx, '$http_x_azure_fdid'],
   [nginx, '$http_x_pms_origin_verify'],
   [nginx, 'return 403;'],
@@ -128,6 +129,13 @@ for (const [source, expected] of checks) {
   if (!source.includes(expected)) {
     process.exit(1);
   }
+}
+
+const backendProbeHostHeaders = workloads.match(
+  /httpHeaders:\s*\[\s*\{\s*name: 'Host'\s*value: publicHost\s*\}\s*\]/gmu
+) ?? [];
+if (backendProbeHostHeaders.length !== 3) {
+  process.exit(1);
 }
 
 if (workloads.includes('external: true') && !workloads.includes("name: 'frontend'")) {

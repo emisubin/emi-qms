@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "3076335332773238676"
+      "templateHash": "2342464447519076070"
     }
   },
   "parameters": {
@@ -594,6 +594,12 @@
                 {
                   "failureThreshold": 12,
                   "httpGet": {
+                    "httpHeaders": [
+                      {
+                        "name": "Host",
+                        "value": "[parameters('publicHost')]"
+                      }
+                    ],
                     "path": "/health/live",
                     "port": 8080,
                     "scheme": "HTTP"
@@ -606,6 +612,12 @@
                 {
                   "failureThreshold": 3,
                   "httpGet": {
+                    "httpHeaders": [
+                      {
+                        "name": "Host",
+                        "value": "[parameters('publicHost')]"
+                      }
+                    ],
                     "path": "/health/live",
                     "port": 8080,
                     "scheme": "HTTP"
@@ -617,6 +629,12 @@
                 {
                   "failureThreshold": 3,
                   "httpGet": {
+                    "httpHeaders": [
+                      {
+                        "name": "Host",
+                        "value": "[parameters('publicHost')]"
+                      }
+                    ],
                     "path": "/health/ready",
                     "port": 8080,
                     "scheme": "HTTP"

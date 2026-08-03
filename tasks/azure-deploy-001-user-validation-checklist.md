@@ -1,5 +1,13 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 005 — Active workload readiness
+
+- [x] Backend probe Host 보정과 Nginx 64자 token configuration의 로컬 자동 검증이 통과했다.
+- [ ] 새 Frontend image와 workload revision이 실제 Azure에 반영됐다.
+- [ ] Backend·Frontend·ClamAV replica가 모두 ready이고 재시작이 증가하지 않는다.
+- [ ] Frontend direct health는 `200`, direct 업무 route는 `403`이다.
+- [ ] public traffic과 external notification은 Edge·인증 Gate 전까지 비활성이다.
+
 ## Change 003 로컬 P1 보안 변경
 
 - [x] Backend·Frontend·migration·DB bootstrap identity 분리 구조와 secret 접근표를 확인했다.

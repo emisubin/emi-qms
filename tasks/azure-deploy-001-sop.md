@@ -2,13 +2,16 @@
 
 ## 1. 현재 판정
 
-- Local deployment code: 구현·자동 검증 완료
-- Portal ARM JSON 4개: 구현·자동 검증 완료
-- GitHub 웹 수동 image 게시 workflow: 구현·자동 검증 완료 / 실제 실행 안 함
-- Azure resource: 생성 안 함
+- Local deployment code: Change 004 main 게시 완료 / Change 005 readiness 보정 로컬 검증 완료
+- Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
+- GitHub 웹 수동 image 게시 workflow: Backend·Frontend 최초 image 게시 완료
+- Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
+- DB role bootstrap·migration: 성공 / canonical `67`, ledger `Exact`
+- PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
+- Active workload: Change 005 신규 image·revision 적용 대기
 - 공개 traffic: 전환 안 함
 - 실제 Teams·Gmail: 발송 안 함
-- 비용 발생 단계: 사용자 실행 대기
+- 비용 발생 단계: 사용자 승인·시작 완료
 
 ## 2. 비용 Gate
 
@@ -25,7 +28,7 @@
 | Log Analytics | 1 GB/day cap, 30일 | Container와 보안 로그 수집 비용 상한 |
 | Application Insights | workspace based | 추후 application telemetry 연결 지점 |
 
-실제 실행 직전 20일 예상 비용과 무료 credit 잔액을 다시 확인한다. Budget 알림은 100, 150, 180달러 지점에 둔다.
+20일 예상 비용과 무료 credit 잔액 확인, Budget 알림 설정은 완료됐다. 시범 기간에는 실제 사용량을 매일 확인한다.
 
 ## 2.1 터미널 없는 웹 실행 Gate
 
@@ -36,11 +39,11 @@
 
 Portal에는 `foundation.json → identity-access.json → workloads.json → edge.json` 순으로 업로드한다. 각 JSON은 같은 이름의 Bicep 원본에서 생성되며 generator metadata를 제외한 구조 동등성을 자동 검사한다.
 
-GitHub image 게시 전에는 `azure-pilot-image-publish` Environment에 required reviewer, `main` branch 제한과 Environment secret 9개를 설정한다. Azure Portal의 전용 Entra application에는 Environment subject의 federated credential을 만들고 해당 ACR resource 범위 `AcrPush`만 부여한다. Client secret과 subscription/resource group `Contributor`는 사용하지 않는다.
+GitHub image 게시 전 `azure-pilot-image-publish` Environment, `main` branch 제한, Environment secret, federated credential과 ACR resource 범위 `AcrPush`를 구성했다. Client secret과 subscription/resource group `Contributor`는 사용하지 않는다.
 
 Workflow는 full 40자리 source SHA가 `origin/main`에 포함됐는지 검증하고, 비용 확인 checkbox가 선택된 경우에만 Azure OIDC login과 ACR push를 실행한다. Backend·Frontend는 source SHA tag와 digest만 사용하고 `latest` tag를 만들지 않는다. Workflow 자체는 Container Apps deployment, revision activation과 traffic 전환을 수행하지 않는다.
 
-ARM JSON의 Portal 최종 `만들기`와 GitHub Actions `Run workflow`는 비용이 발생할 수 있는 사용자 실행 경계다. Codex 자동 검증에서는 두 action을 실행하지 않는다.
+최초 ARM JSON 배포와 GitHub Actions image 게시 실행은 사용자 확인 아래 완료됐다. 후속 Change는 동일한 비용·공개 traffic Gate와 검증된 `main` source 계약을 유지한다.
 
 ## 3. 사용자 입력값
 
@@ -76,6 +79,8 @@ Git에 검증된 배포 코드를 먼저 merge한다. 이 merge는 Azure resourc
 12. actual Teams·Gmail smoke
 
 한 단계가 실패하면 다음 단계로 넘어가지 않는다.
+
+Active workload에서 Backend probe `400` 또는 Frontend Nginx map hash 시작 실패가 확인되면 Change 005가 반영된 `main` image·ARM template인지 먼저 확인한다. Backend 세 HTTP probe는 public Host header를 사용해야 하며 Frontend template은 64자 origin token을 수용하는 map hash bucket을 가져야 한다. 이 두 조건과 세 replica readiness가 모두 확인되기 전에는 Edge를 배포하지 않는다.
 
 DB 역할 검수에서는 Backend 연결 사용자가 `pms_app`, migration 연결 사용자가 `pms_migrator`인지 확인한다. `pms_app`은 업무 CRUD는 성공해야 하지만 `CREATE TABLE`, `CREATE ROLE`, `schema_migrations` INSERT와 database temporary privilege는 모두 거부돼야 한다. Key Vault 검수에서는 vault scope role assignment가 0이고 각 identity가 접근표에 없는 secret을 읽지 못해야 한다.
 

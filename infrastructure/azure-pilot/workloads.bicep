@@ -549,6 +549,12 @@ resource backend 'Microsoft.App/containerApps@2024-03-01' = {
             {
               failureThreshold: 12
               httpGet: {
+                httpHeaders: [
+                  {
+                    name: 'Host'
+                    value: publicHost
+                  }
+                ]
                 path: '/health/live'
                 port: 8080
                 scheme: 'HTTP'
@@ -561,6 +567,12 @@ resource backend 'Microsoft.App/containerApps@2024-03-01' = {
             {
               failureThreshold: 3
               httpGet: {
+                httpHeaders: [
+                  {
+                    name: 'Host'
+                    value: publicHost
+                  }
+                ]
                 path: '/health/live'
                 port: 8080
                 scheme: 'HTTP'
@@ -572,6 +584,12 @@ resource backend 'Microsoft.App/containerApps@2024-03-01' = {
             {
               failureThreshold: 3
               httpGet: {
+                httpHeaders: [
+                  {
+                    name: 'Host'
+                    value: publicHost
+                  }
+                ]
                 path: '/health/ready'
                 port: 8080
                 scheme: 'HTTP'

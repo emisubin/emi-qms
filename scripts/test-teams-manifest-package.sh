@@ -25,9 +25,12 @@ trap cleanup EXIT
 mkdir "${temporary_directory}/unpacked"
 unzip -q "${temporary_directory}/package.zip" -d "${temporary_directory}/unpacked"
 
-PACKAGE_DIRECTORY="${temporary_directory}/unpacked" node --input-type=module <<'NODE'
+PACKAGE_DIRECTORY="${temporary_directory}/unpacked" \
+ASSET_DIRECTORY="${repository_root}/infrastructure/teams/assets" \
+node --input-type=module <<'NODE'
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 const directory = process.env.PACKAGE_DIRECTORY;
 const entries = readdirSync(directory).sort();
@@ -39,6 +42,7 @@ const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8
 if (manifest.manifestVersion !== '1.19'
   || manifest.staticTabs?.[0]?.entityId !== 'home'
   || manifest.validDomains?.[0] !== 'pms.example.org'
+  || manifest.accentColor !== '#DC2128'
   || manifest.authorization?.permissions?.resourceSpecific?.[0]?.name !== 'TeamsActivity.Send.User'
   || manifest.activities?.activityTypes?.length !== 6
   || JSON.stringify(manifest).includes('__')) {
@@ -56,6 +60,27 @@ function pngDimensions(path) {
 if (JSON.stringify(pngDimensions(join(directory, 'color.png'))) !== JSON.stringify([192, 192])
   || JSON.stringify(pngDimensions(join(directory, 'outline.png'))) !== JSON.stringify([32, 32])) {
   process.exit(1);
+}
+
+for (const name of ['color.png', 'outline.png']) {
+  const packageBytes = readFileSync(join(directory, name));
+  const assetBytes = readFileSync(join(process.env.ASSET_DIRECTORY, name));
+  if (!packageBytes.equals(assetBytes)) {
+    process.exit(1);
+  }
+}
+
+const expectedBrandAssetDigests = new Map([
+  ['color.png', 'a46d5e1e009594482967cc96a4754134bcbb03127cb8d17463ab05eddd25be6e'],
+  ['outline.png', 'd099c3eaf47c1761fc699708cb177f97598b101936b80a12b866396c0493e80a']
+]);
+for (const [name, expectedDigest] of expectedBrandAssetDigests) {
+  const digest = createHash('sha256')
+    .update(readFileSync(join(process.env.ASSET_DIRECTORY, name)))
+    .digest('hex');
+  if (digest !== expectedDigest) {
+    process.exit(1);
+  }
 }
 NODE
 

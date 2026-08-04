@@ -1,5 +1,60 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 006 — Teams·PWA 브랜드 자산과 통합 main handover
+
+### 현재 상태
+
+- 기준 원격 main: `aac5f2766f05eb3175bead614545830f5e615ca4`
+- 사용자 제공 EMI PNG: canonical brand source로 보존
+- Teams package: 신규 브랜드 icon과 유효한 manifest를 포함한 `1.0.2` handoff artifact 생성 완료
+- PWA: web manifest·192·512·maskable·Apple touch·favicon 생성 및 Frontend build 포함 확인
+- Service Worker·offline cache: 범위 밖, 추가 0건
+- Azure image·migration `0068`·revision handover: Change 006 게시 뒤 다음 runtime 단계
+- DNS·Front Door: TXT·CNAME 공개 조회 확인 / custom domain validation `Pending`, route·TLS deployment `NotStarted`
+- Public traffic·actual provider 발송: 비활성 유지
+
+### 해결한 Finding
+
+| ID | 등급 | 상태 | 원인 | 해결 |
+| --- | --- | --- | --- | --- |
+| `AZURE-TEAMS-BRAND-001` | P2 | `RESOLVED_LOCAL` | Teams package builder가 제품 브랜드가 아닌 임시 사각형 도형을 color·outline icon으로 생성 | 사용자 제공 EMI 원본 기반 192x192 color·32x32 white/transparent outline icon을 추적하고 builder가 그대로 패키징 |
+| `AZURE-PWA-ASSET-001` | P2 | `RESOLVED_LOCAL` | PWA 운영 요구사항은 확정됐지만 web manifest와 설치 icon 연결이 없음 | standalone manifest, any·maskable icon, Apple touch·favicon과 HTML metadata 추가 |
+| `TEAMS-PACKAGE-JSON-001` | P1 | `RESOLVED_LOCAL` | 기존 외부 handoff `1.0.1` package의 manifest JSON 구문 오류로 catalog update가 차단됨 | builder가 렌더링한 유효 JSON과 최종 hostname, 기존 Teams·activity identity를 보존한 `1.0.2` package 재생성 |
+| `PRIVACY-PROJECTION-001` | P2 | `RESOLVED` | 첫 package 진단 실패가 내부 command 예외에 실제 비밀이 아닌 identifier를 포함 | 출력물을 폐기하고 subprocess stderr·argument를 노출하지 않는 fixed projection으로 다시 실행. tracked 파일·사용자 보고 노출 0건 |
+
+### 실제 구현
+
+1. `assets/branding/emi-logo.png`에 사용자 제공 원본을 byte-for-byte로 보존했다.
+2. Teams color icon은 192x192 white background와 중앙 120x120 safe area의 red EMI mark, outline icon은 32x32 transparent background의 white EMI mark로 생성했다.
+3. Teams builder의 임시 raster 생성기를 제거하고 추적된 icon copy와 package byte equality 검증으로 바꿨다.
+4. PWA manifest는 `EMI 프로젝트 통합관리시스템`·`EMI QMS`, root scope/start, standalone display와 white/red theme를 사용한다.
+5. 192·512 any icon, maskable 512 icon, Apple touch 180과 favicon 32를 동일 원본에서 파생했다.
+6. Azure artifact validator가 Teams·PWA 자산을 required file과 정적 test로 검사한다.
+7. 실제 최종 hostname과 기존 Teams app·activity identity를 보존하고 version만 `1.0.2`로 올린 외부 handoff ZIP을 생성했다.
+
+### 자동 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Teams package 정상·negative test | `2/2 PASS` |
+| Teams icon 공식 규격 | color `192x192`·critical bounds `120x44` inside safe area / outline `32x32`·white/transparent `PASS` |
+| PWA manifest·icon dimension·purpose·HTML link test | `1/1 PASS` |
+| Azure artifact static validation | `PASS` |
+| Shell syntax·Git whitespace | `PASS` |
+| Frontend lint | `PASS`, 기존 warning `1` |
+| Frontend typecheck | `PASS` |
+| Frontend unit | `25 files / 175 PASS` |
+| Frontend Production build | `PASS`, 기존 large chunk warning 유지 |
+| Build output PWA asset 존재 | `6/6 PASS` |
+| Local Production preview manifest·icon HTTP | `7/7 status 200`, manifest MIME과 image MIME 정상 |
+| Teams production handoff package | entry `3/3`, JSON valid, version `1.0.2`, final domain·identity 보존 `PASS` |
+
+### 미실행과 다음 Gate
+
+- 실제 Teams Admin Center catalog update·사용자 설치·activity 발송은 public runtime과 provider Gate 뒤 수행한다.
+- PWA 설치 UI는 Change 006가 main에 게시되고 최신 Frontend image가 Azure에 반영된 뒤 최종 hostname에서 검수한다.
+- 최신 main image 게시, migration `0068`, Container Apps revision 교체, TLS·Entra·provider 검수는 브랜드 자산 게시 이후 순서로 유지한다.
+
 ## Change 005 — Active workload readiness 보정
 
 ### 현재 상태
@@ -27,7 +82,7 @@
 | Backend 세 probe Host header count | `3` |
 | Shell syntax·Git whitespace | `PASS` |
 
-2026-08-04 read-only 재확인에서 세 workload의 provisioning·running·latest ready를 확인해 두 readiness P1을 `RESOLVED`로 닫았다. Backend·ClamAV는 내부 ingress, Frontend만 external ingress이며 Front Door route는 0개다. 따라서 public traffic·DNS·TLS·실제 provider 검수는 여전히 열리지 않았다.
+2026-08-04 read-only 재확인에서 세 workload의 provisioning·running·latest ready를 확인해 두 readiness P1을 `RESOLVED`로 닫았다. Backend·ClamAV는 내부 ingress, Frontend만 external ingress다. Front Door custom-domain route는 생성됐지만 domain validation은 `Pending`, deployment는 `NotStarted`이므로 public traffic·TLS·실제 provider 검수는 여전히 열리지 않았다.
 
 ## 현재 상태
 

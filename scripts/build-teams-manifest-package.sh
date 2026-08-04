@@ -3,6 +3,8 @@ set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 template_path="${repository_root}/infrastructure/teams/manifest.template.json"
+color_icon_source="${repository_root}/infrastructure/teams/assets/color.png"
+outline_icon_source="${repository_root}/infrastructure/teams/assets/outline.png"
 
 usage() {
   printf 'usage: %s --host HOST --manifest-id GUID --activity-client-id GUID --web-resource URI --version SEMVER --output ZIP [--allow-synthetic]\n' "$0" >&2
@@ -85,7 +87,7 @@ if [[ ! "${app_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 65
 fi
 
-if [[ ! -f "${template_path}" ]]; then
+if [[ ! -f "${template_path}" || ! -f "${color_icon_source}" || ! -f "${outline_icon_source}" ]]; then
   printf 'teamsManifestPackage=MISSING_SOURCE\n' >&2
   exit 66
 fi
@@ -106,11 +108,8 @@ TEAMS_WEB_APP_RESOURCE="${web_resource}" \
 APP_VERSION="${app_version}" \
 TEMPLATE_PATH="${template_path}" \
 OUTPUT_PATH="${temporary_directory}/manifest.json" \
-COLOR_ICON_PATH="${temporary_directory}/color.png" \
-OUTLINE_ICON_PATH="${temporary_directory}/outline.png" \
 node --input-type=module <<'NODE'
 import { readFileSync, writeFileSync } from 'node:fs';
-import { deflateSync } from 'node:zlib';
 
 const values = new Map([
   ['__PUBLIC_HOST__', process.env.PUBLIC_HOST],
@@ -135,80 +134,10 @@ writeFileSync(process.env.OUTPUT_PATH, `${JSON.stringify(manifest, null, 2)}\n`,
   encoding: 'utf8',
   mode: 0o600
 });
-
-function crc32(bytes) {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function chunk(type, data) {
-  const typeBytes = Buffer.from(type, 'ascii');
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length);
-  const checksum = Buffer.alloc(4);
-  checksum.writeUInt32BE(crc32(Buffer.concat([typeBytes, data])));
-  return Buffer.concat([length, typeBytes, data, checksum]);
-}
-
-function createPng(size, background, foreground, rectangles) {
-  const stride = (size * 4) + 1;
-  const raw = Buffer.alloc(stride * size);
-  for (let y = 0; y < size; y += 1) {
-    raw[y * stride] = 0;
-    for (let x = 0; x < size; x += 1) {
-      const offset = (y * stride) + 1 + (x * 4);
-      const painted = rectangles.some(([left, top, right, bottom]) =>
-        x >= left && x < right && y >= top && y < bottom);
-      const color = painted ? foreground : background;
-      raw[offset] = color[0];
-      raw[offset + 1] = color[1];
-      raw[offset + 2] = color[2];
-      raw[offset + 3] = color[3];
-    }
-  }
-
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(size, 0);
-  header.writeUInt32BE(size, 4);
-  header[8] = 8;
-  header[9] = 6;
-  return Buffer.concat([
-    Buffer.from('89504e470d0a1a0a', 'hex'),
-    chunk('IHDR', header),
-    chunk('IDAT', deflateSync(raw, { level: 9 })),
-    chunk('IEND', Buffer.alloc(0))
-  ]);
-}
-
-const colorRectangles = [
-  [54, 38, 72, 154],
-  [54, 38, 140, 58],
-  [54, 88, 140, 108],
-  [122, 38, 140, 108]
-];
-const outlineRectangles = [
-  [4, 2, 8, 30],
-  [4, 2, 26, 6],
-  [4, 14, 26, 18],
-  [22, 2, 26, 18]
-];
-writeFileSync(
-  process.env.COLOR_ICON_PATH,
-  createPng(192, [17, 17, 17, 255], [255, 255, 255, 255], colorRectangles),
-  { mode: 0o600 }
-);
-writeFileSync(
-  process.env.OUTLINE_ICON_PATH,
-  createPng(32, [0, 0, 0, 0], [255, 255, 255, 255], outlineRectangles),
-  { mode: 0o600 }
-);
 NODE
+
+cp "${color_icon_source}" "${temporary_directory}/color.png"
+cp "${outline_icon_source}" "${temporary_directory}/outline.png"
 
 output_directory="$(cd "$(dirname "${output_path}")" && pwd)"
 output_file="${output_directory}/$(basename "${output_path}")"

@@ -183,6 +183,26 @@ public sealed partial class ProjectRegistrationApiTests
         Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from work_items where project_id='{projectId}' and workflow_stage_code='SalesSettlementCompleted' and target_type='Project';"));
         Assert.Equal(2L, await context.ReadScalarAsync<long>($"select count(*) from panel_placeholders where project_id='{projectId}' and workflow_stage='ShipmentCompleted';"));
         Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from project_workflow_events where project_id='{projectId}' and stage_code in ('PackingCompleted','DepartureProcessed','DeliveryCompleted') and event_type='StageCompleted';"));
+
+        using var workflowResponse = await salesClient.GetAsync(
+            $"/api/projects/{projectId}/workflow",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, workflowResponse.StatusCode);
+        using var workflowJson = await ReadJsonAsync(workflowResponse);
+        Assert.Equal(47, workflowJson.RootElement.GetProperty("progressPercent").GetInt32());
+        Assert.Equal(8, workflowJson.RootElement.GetProperty("completedRequiredStageCount").GetInt32());
+        Assert.Equal("SalesSettlementCompleted", workflowJson.RootElement.GetProperty("currentStageCode").GetString());
+        var workflowStages = workflowJson.RootElement.GetProperty("stages").EnumerateArray().ToList();
+        Assert.All(
+            new[] { "ProcurementInfo", "MaterialArrived", "IQC", "ReceiptConfirmed" },
+            stageCode => Assert.NotEqual(
+                "Completed",
+                workflowStages.Single(stage => stage.GetProperty("stageCode").GetString() == stageCode)
+                    .GetProperty("status").GetString()));
+
+        var projectListItem = await ReadSingleProjectListItemAsync(salesClient, "Logistics Execution");
+        Assert.Equal(workflowJson.RootElement.GetProperty("progressPercent").GetInt32(), projectListItem.GetProperty("projectProgressPercent").GetInt32());
+        Assert.Equal(workflowJson.RootElement.GetProperty("currentStageCode").GetString(), projectListItem.GetProperty("projectWorkStatus").GetString());
     }
 
     [Fact]

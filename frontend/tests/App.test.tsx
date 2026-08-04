@@ -89,6 +89,69 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
   });
 
+  it('canonicalizes a trailing slash and opens the Pending project dashboard', async () => {
+    window.history.pushState(null, '', '/pending/');
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Pending 프로젝트' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/pending');
+  });
+
+  it('keeps Pending detail visible when an older backend omits action evidence', async () => {
+    const pendingId = '88000000-0000-0000-0000-000000000099';
+    window.history.pushState(null, '', `/pending/${pendingId}`);
+    mockMobileViewport(true);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === `/api/pending/${pendingId}`) {
+        return json({
+          issue: {
+            pendingId,
+            issueNumber: 99,
+            projectId,
+            projectCode: 'PJT-003A',
+            projectTitle: 'TASK-003A Demo',
+            targetType: 'Project',
+            targetId: projectId,
+            targetLabel: null,
+            issueType: 'Quality',
+            issueTypeLabel: '품질',
+            title: '계약 전환 중 Pending 상세',
+            description: '증거 응답이 없어도 핵심 상세는 유지되어야 합니다.',
+            status: 'Registered',
+            statusLabel: '등록',
+            priority: 'Normal',
+            priorityLabel: '일반',
+            actionDepartmentCode: 'production-planning',
+            assigneeUserId: null,
+            assigneeDisplayName: null,
+            dueDate: null,
+            isOverdue: false,
+            version: 1,
+            createdByUserId: salesOwnerId,
+            createdByDisplayName: 'dev-sales',
+            createdAtUtc: '2026-08-01T00:00:00Z',
+            updatedAtUtc: '2026-08-01T00:00:00Z'
+          },
+          comments: [],
+          history: [],
+          allowedTransitions: [],
+          canComment: false,
+          canAssign: false,
+          reinspection: null
+        });
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '계약 전환 중 Pending 상세' })).toBeInTheDocument();
+    expect(screen.getByText('증거 응답이 없어도 핵심 상세는 유지되어야 합니다.')).toBeInTheDocument();
+    expect(screen.getByText(/조치 사진 정보를 확인할 수 없습니다/)).toBeInTheDocument();
+    expect(document.querySelector('.mobile-pending-detail-page')).not.toBeNull();
+  });
+
   it('shows the actual user account in the shell and department metrics on Home', async () => {
     window.history.pushState(null, '', '/');
     render(<App />);
@@ -747,9 +810,12 @@ describe('App', () => {
     fireEvent.click(menuButton);
     const reopenedDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
     fireEvent.click(within(reopenedDrawer).getByRole('button', { name: '생산관리' }));
-    expect(await screen.findByRole('heading', { name: '생산관리 업무' })).toBeInTheDocument();
+    expect(within(reopenedDrawer).getByRole('button', { name: '생산관리' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('dialog', { name: '전체 업무 메뉴' })).toBeInTheDocument();
+    fireEvent.click(within(reopenedDrawer).getByRole('button', { name: '생산계획' }));
+    expect(await screen.findByLabelText('생산계획 요약')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: '전체 업무 메뉴' })).not.toBeInTheDocument();
-    expect(window.location.pathname).toBe('/production-planning');
+    expect(window.location.pathname).toBe('/production-planning/plans');
   });
 
   it('shows every operational menu in the mobile drawer for a sales user', async () => {
@@ -759,10 +825,36 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }));
     const menuDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
     const mobileNavigation = within(menuDrawer).getByRole('navigation', { name: '모바일 공통 메뉴' });
+    // Anchored to the full accessible name (with an optional badge suffix) so
+    // department parents cannot collide with always-visible workspace children
+    // such as 제조 vs 제조 투입.
     for (const label of ['홈', '내 업무', '프로젝트', 'Pending', '생산관리', '구매', '자재', '제조', '품질', '물류', '알림']) {
-      expect(within(mobileNavigation).getByRole('button', { name: new RegExp(`^${label}(?:\\s|$)`) })).toBeInTheDocument();
+      expect(within(mobileNavigation).getByRole('button', { name: new RegExp(`^${label}( \\d+건)?$`) })).toBeInTheDocument();
     }
+    // Departments are whole-row disclosures: children stay hidden until the
+    // parent is tapped, and opening another department closes the previous one.
+    expect(within(mobileNavigation).queryByRole('button', { name: '입고 관리' })).not.toBeInTheDocument();
+    fireEvent.click(within(mobileNavigation).getByRole('button', { name: '자재' }));
+    expect(within(mobileNavigation).getByRole('button', { name: '자재' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(mobileNavigation).getByRole('button', { name: '입고 관리' })).toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '패널 키팅' })).toBeInTheDocument();
+    fireEvent.click(within(mobileNavigation).getByRole('button', { name: '품질' }));
+    expect(within(mobileNavigation).queryByRole('button', { name: '입고 관리' })).not.toBeInTheDocument();
+    expect(within(mobileNavigation).getByRole('button', { name: '수입검사(IQC)' })).toBeInTheDocument();
     expect(within(mobileNavigation).queryByRole('button', { name: '관리자' })).not.toBeInTheDocument();
+  });
+
+  it('returns from IQC project detail to the IQC project list, clearing the project query', async () => {
+    window.history.pushState(null, '', `/quality/iqc?project=${projectId}`);
+    render(<App />);
+
+    const iqcDetail = await screen.findByTestId('material-iqc-page');
+    fireEvent.click(within(iqcDetail).getByRole('button', { name: 'IQC 프로젝트' }));
+
+    expect(await screen.findByTestId('quality-iqc-dashboard')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/quality/iqc');
+    expect(window.location.search).toBe('');
+    expect(screen.queryByTestId('material-iqc-page')).not.toBeInTheDocument();
   });
 
   it('renders the Teams Activity tab route with recent notifications and work summary', async () => {
@@ -2104,10 +2196,8 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-production' } });
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산계획' }));
 
-    const productionWorkHub = await screen.findByTestId('department-work-hub-production');
-    expect(within(productionWorkHub).getByRole('heading', { name: '생산관리 업무' })).toBeInTheDocument();
-    fireEvent.click(within(productionWorkHub).getByRole('button', { name: /생산계획/ }));
     const productionSummary = await screen.findByLabelText('생산계획 요약');
     expect(productionSummary).toHaveTextContent('생산계획 미등록');
     expect(productionSummary).toHaveTextContent('작성 중');
@@ -2128,8 +2218,7 @@ describe('App', () => {
     expect(screen.queryByRole('tab', { name: 'TEST-TYPE' })).not.toBeInTheDocument();
     expect(within(screen.getByRole('table', { name: 'UL67 생산계획 단계 설정' })).getByDisplayValue('자재 입고')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '행 추가' })).toBeInTheDocument();
-    fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
-    fireEvent.click(within(await screen.findByTestId('department-work-hub-production')).getByRole('button', { name: /생산계획/ }));
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산계획' }));
 
     const productionTable = await screen.findByRole('table', { name: '생산계획 프로젝트 목록' });
     expect(productionTable).toHaveTextContent('프로젝트명CodeItem면수납기일생산계획 상태');
@@ -2150,8 +2239,8 @@ describe('App', () => {
     expect(within(expanded).queryByRole('table', { name: '생산계획 캘린더 표' })).not.toBeInTheDocument();
     expect(expanded).not.toHaveTextContent('검수 공휴일');
 
-    fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
-    fireEvent.click(within(await screen.findByTestId('department-work-hub-production')).getByRole('button', { name: /제조 투입/ }));
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '제조 투입' }));
+    expect(screen.queryByLabelText('선택 프로젝트 제조 투입')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('생산계획 요약')).not.toBeInTheDocument();
     expect(await screen.findByLabelText('제조 투입 요약')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel 업로드' })).not.toBeInTheDocument();
@@ -2290,7 +2379,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산관리' }));
-    fireEvent.click(within(await screen.findByTestId('department-work-hub-production')).getByRole('button', { name: /생산계획/ }));
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '생산계획' }));
 
     expect(await screen.findByLabelText('생산계획 요약')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel 업로드' })).not.toBeInTheDocument();
@@ -2651,11 +2740,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
-
-    const materialsHub = await screen.findByTestId('department-work-hub-materials');
-    expect(within(materialsHub).getByRole('heading', { name: '자재 업무' })).toBeInTheDocument();
-    expect(within(materialsHub).queryByText('TASK-003A Demo')).not.toBeInTheDocument();
-    fireEvent.click(within(materialsHub).getByRole('button', { name: /입고 관리/ }));
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '입고 관리' }));
 
     expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /TASK-003A Demo/ }));
@@ -2719,19 +2804,19 @@ describe('App', () => {
     render(<App />);
 
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
-    const workHubExpectations = [
-      { menu: '생산관리', testId: 'department-work-hub-production', heading: '생산관리 업무' },
-      { menu: '자재', testId: 'department-work-hub-materials', heading: '자재 업무' },
-      { menu: '품질', testId: 'department-work-hub-quality', heading: '품질 업무' },
-      { menu: '물류', testId: 'department-work-hub-logistics', heading: '물류 업무' }
+    const departmentLandingExpectations = [
+      { menu: '생산관리', firstTask: '생산계획' },
+      { menu: '자재', firstTask: '입고 관리' },
+      { menu: '품질', firstTask: '수입검사(IQC)' },
+      { menu: '물류', firstTask: '포장' }
     ];
 
-    for (const expectation of workHubExpectations) {
+    for (const expectation of departmentLandingExpectations) {
       fireEvent.click(within(commonNavigation).getByRole('button', { name: expectation.menu }));
-      const hub = await screen.findByTestId(expectation.testId);
-      expect(within(hub).getByRole('heading', { name: expectation.heading })).toBeInTheDocument();
-      expect(within(hub).getByRole('heading', { name: '처리할 업무를 선택하세요' })).toBeInTheDocument();
-      expect(within(hub).queryByText('TASK-003A Demo')).not.toBeInTheDocument();
+      expect(within(commonNavigation).getByRole('button', { name: expectation.menu })).toHaveAttribute('aria-expanded', 'true');
+      fireEvent.click(within(commonNavigation).getByRole('button', { name: expectation.firstTask }));
+      await waitFor(() => expect(within(commonNavigation).getByRole('button', { name: expectation.firstTask })).toHaveAttribute('aria-current', 'page'));
+      expect(document.querySelector('[data-testid^="department-work-hub-"]')).toBeNull();
     }
 
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '제조' }));
@@ -2752,9 +2837,7 @@ describe('App', () => {
 
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
-
-    const materialsHub = await screen.findByTestId('department-work-hub-materials');
-    fireEvent.click(within(materialsHub).getByRole('button', { name: /입고 관리/ }));
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '입고 관리' }));
 
     expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /TASK-003A Demo/ }));
@@ -2769,9 +2852,7 @@ describe('App', () => {
     fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '자재' }));
-
-    const materialsHub = await screen.findByTestId('department-work-hub-materials');
-    fireEvent.click(within(materialsHub).getByRole('button', { name: /입고 관리/ }));
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '입고 관리' }));
 
     expect(await screen.findByRole('heading', { name: '자재 입고 관리' })).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('완료 포함'));

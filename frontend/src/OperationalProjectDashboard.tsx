@@ -33,7 +33,6 @@ export function OperationalProjectDashboard({
   metrics,
   projects,
   emptyMessage,
-  onBack,
   primaryAction,
   readOnlyDescription,
   onOpenProject
@@ -73,17 +72,16 @@ export function OperationalProjectDashboard({
 
   return (
     <section className={isMobile ? 'page-surface operational-dashboard operational-dashboard--mobile' : 'page-surface operational-dashboard'} data-testid={testId}>
-      {!isMobile && onBack ? <DsBreadcrumbs items={[{ label: '업무 선택', onClick: onBack }]} current={title} /> : null}
+      {!isMobile ? <DsBreadcrumbs items={[{ label: eyebrow }]} current={title} /> : null}
       <header className="operational-dashboard-header">
         <div>
           <p className="eyebrow">{eyebrow}</p>
           <h2>{title}</h2>
           <p>{description}</p>
         </div>
-        {onBack || primaryAction ? (
+        {primaryAction ? (
           <div className="operational-dashboard-actions">
-            {onBack ? <button type="button" onClick={onBack}>업무 선택</button> : null}
-            {primaryAction ? <button type="button" className="primary-button" disabled={primaryAction.disabled} onClick={primaryAction.onClick}>{primaryAction.label}</button> : null}
+            <button type="button" className="primary-button" disabled={primaryAction.disabled} onClick={primaryAction.onClick}>{primaryAction.label}</button>
           </div>
         ) : null}
       </header>

@@ -278,6 +278,36 @@ public static class ProductionPlanningEndpointExtensions
         .RequireAuthorization(QmsPolicies.ProductionPlanUpdate)
         .WithName("UpdateProjectProductionPlanning");
 
+        projectApi.MapPatch("/set-defaults", async (
+            Guid projectId,
+            UpdateProductionPlanSetDefaultRequest request,
+            ProjectStore projectStore,
+            ProductionPlanningStore store,
+            WorkflowStore workflowStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null) return access;
+            var userId = GetCurrentUserId(user);
+            if (userId is null) return Results.Unauthorized();
+
+            var result = await store.UpdateSetDefaultAsync(
+                projectId, request, userId.Value, httpContext.TraceIdentifier, cancellationToken);
+            if (result.Status == ProductionPlanningMutationStatus.Success && result.Value is not null)
+            {
+                await workflowStore.GenerateProductionPlanningAssigneeFollowUpsAsync(
+                    projectId, userId.Value, httpContext.TraceIdentifier, cancellationToken);
+                await workflowStore.SyncStageWorkItemsAfterSaveAsync(
+                    projectId, WorkflowStageCodes.ProductionPlanning, "ProductionPlan", result.Value.PlanId,
+                    userId.Value, httpContext.TraceIdentifier, "전체 세트 기본계획 저장 완료", cancellationToken);
+            }
+            return ToResult(result, Results.Ok);
+        })
+        .RequireAuthorization(QmsPolicies.ProductionPlanUpdate)
+        .WithName("UpdateProjectProductionPlanningSetDefaults");
+
         projectApi.MapPatch("/set-scopes/{setInstanceId:guid}", async (
             Guid projectId,
             Guid setInstanceId,

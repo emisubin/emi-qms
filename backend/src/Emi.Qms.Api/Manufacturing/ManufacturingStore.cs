@@ -549,10 +549,10 @@ public sealed class ManufacturingStore(
                 return ManufacturingMutationResult<ManufacturingMutationResponse>.Conflict("이미 제조가 시작됐거나 처리할 수 없는 패널입니다. 최신 내용을 다시 불러와 주세요.");
             }
 
-            if (!await IsUl891SpecificationPublishedAsync(connection, transaction, request.PanelId, cancellationToken))
+            if (!await IsUl891CurrentDesignReadyAsync(connection, transaction, request.PanelId, cancellationToken))
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return ManufacturingMutationResult<ManufacturingMutationResponse>.Conflict("설계 탭에서 이 패널의 UL891 세트 사양을 먼저 확정해 주세요.");
+                return ManufacturingMutationResult<ManufacturingMutationResponse>.Conflict("설계 탭에서 이 패널의 현재 UL891 설계를 먼저 저장해 주세요.");
             }
 
             var template = await LockStepTemplateForProjectAsync(connection, transaction, request.ProjectId, cancellationToken);
@@ -2170,7 +2170,7 @@ public sealed class ManufacturingStore(
         await recipientCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task<bool> IsUl891SpecificationPublishedAsync(
+    private static async Task<bool> IsUl891CurrentDesignReadyAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid panelId,
@@ -2181,12 +2181,11 @@ public sealed class ManufacturingStore(
         command.CommandText = """
             select case
                 when project.structure_mode <> 'Ul891Set' or panel.set_instance_id is null then true
-                else version.status = 'Published'
+                else panel.design_slot_id is not null and slot.status = 'Active'
             end
             from panel_placeholders panel
             join projects project on project.id=panel.project_id
-            left join ul891_set_instances instance on instance.id=panel.set_instance_id
-            left join ul891_set_spec_versions version on version.id=instance.spec_version_id
+            left join ul891_set_design_slots slot on slot.id=panel.design_slot_id
             where panel.id=@panel_id;
             """;
         command.Parameters.AddWithValue("panel_id", panelId);

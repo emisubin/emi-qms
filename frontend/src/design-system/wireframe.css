@@ -1002,13 +1002,29 @@ body,
 
 /* Production-plan bars are information-bearing marks, not decoration. */
 .app-shell .production-control-gantt [data-bar='plan'] {
-  background-color: var(--wire-black) !important;
+  border: 1px solid var(--wire-black) !important;
+  background-color: var(--wire-surface) !important;
   background-image: none !important;
 }
 
 .app-shell .production-control-gantt [data-bar='actual'] {
-  border-color: var(--wire-line-strong) !important;
-  background-color: var(--wire-surface) !important;
+  background-color: var(--wire-black) !important;
+  background-image: none !important;
+}
+
+/* The date header keeps labels only. Body minor lines are dotted and major
+   lines remain solid so the schedule hierarchy stays visible in Graphite. */
+.app-shell .production-control-gantt .production-control-gantt-gridline {
+  background-color: transparent !important;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    #c8c8c8 0 4px,
+    transparent 4px 8px
+  ) !important;
+}
+
+.app-shell .production-control-gantt .production-control-gantt-gridline[data-major='true'] {
+  background-color: #8f8f8f !important;
   background-image: none !important;
 }
 

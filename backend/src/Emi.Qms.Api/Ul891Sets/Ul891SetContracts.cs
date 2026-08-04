@@ -3,7 +3,8 @@ namespace Emi.Qms.Api.Ul891Sets;
 public sealed record CreateUl891SetSpecRequest(
     string? Name,
     int? Quantity,
-    IReadOnlyList<CreateUl891ComponentRequest>? Components);
+    IReadOnlyList<CreateUl891ComponentRequest>? Components,
+    int? PanelCount = null);
 
 public sealed record CreateUl891ComponentRequest(string? ComponentCode);
 
@@ -13,7 +14,8 @@ public sealed record AddUl891SetSpecRequest(
     string? Name,
     int? Quantity,
     IReadOnlyList<CreateUl891ComponentRequest>? Components,
-    string? Reason);
+    string? Reason,
+    int? PanelCount = null);
 
 public sealed record Ul891SetStructureResponse(
     Guid ProjectId,
@@ -31,8 +33,19 @@ public sealed record Ul891SetSpecResponse(
     string Name,
     int RowVersion,
     int ActiveInstanceCount,
+    IReadOnlyList<Ul891SetDesignSlotResponse> CurrentDesign,
     IReadOnlyList<Ul891SetVersionResponse> Versions,
     IReadOnlyList<Ul891SetInstanceResponse> Instances);
+
+public sealed record Ul891SetDesignSlotResponse(
+    Guid SlotId,
+    int PositionNumber,
+    string? PanelName,
+    string? PanelSpecification,
+    decimal? WidthMm,
+    decimal? HeightMm,
+    decimal? DepthMm,
+    int RowVersion);
 
 public sealed record Ul891SetVersionResponse(
     Guid VersionId,
@@ -68,6 +81,8 @@ public sealed record Ul891SetPanelResponse(
     int SequenceNumber,
     string DisplayCode,
     string ComponentCode,
+    Guid? DesignSlotId,
+    int? PositionNumber,
     string? PanelName,
     string? PanelSpecification,
     string PanelStatus,
@@ -103,6 +118,20 @@ public sealed record UpdateUl891DraftRequest(
 
 public sealed record UpdateUl891ComponentRequest(
     string? ComponentCode,
+    string? PanelName,
+    string? PanelSpecification,
+    decimal? WidthMm,
+    decimal? HeightMm,
+    decimal? DepthMm);
+
+public sealed record UpdateUl891CurrentDesignRequest(
+    int? ExpectedSpecVersion,
+    string? SpecName,
+    string? Reason,
+    IReadOnlyList<UpdateUl891DesignSlotRequest>? Slots);
+
+public sealed record UpdateUl891DesignSlotRequest(
+    Guid? SlotId,
     string? PanelName,
     string? PanelSpecification,
     decimal? WidthMm,

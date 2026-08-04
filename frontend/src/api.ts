@@ -168,6 +168,7 @@ import type {
   SystemHoliday,
   UpsertAdminCalendarHolidayRequest,
   UpdateAdminDepartmentRequest,
+  UpdateProductionPlanSetDefaultRequest,
   UpdateProductionPlanSetScopeRequest,
   UpdateProductionPlanningRequest,
   UpdateProductionTemplateSettingsRequest,
@@ -998,7 +999,7 @@ export async function getUl891SetStructure(developmentUserKey: string | undefine
   return fetchJson<Ul891SetStructure>(`/api/projects/${projectId}/set-structure`, developmentUserKey);
 }
 
-export async function addUl891SetSpec(developmentUserKey: string | undefined, projectId: string, request: { expectedSpecCount: number; name: string; quantity: number; componentCodes: string[]; reason: string }): Promise<Ul891MutationResponse> {
+export async function addUl891SetSpec(developmentUserKey: string | undefined, projectId: string, request: { expectedSpecCount: number; name: string; quantity: number; panelCount: number; reason: string }): Promise<Ul891MutationResponse> {
   return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/set-specs`, developmentUserKey, {
     method: 'POST',
     body: JSON.stringify({
@@ -1006,9 +1007,33 @@ export async function addUl891SetSpec(developmentUserKey: string | undefined, pr
       expectedSpecCount: request.expectedSpecCount,
       name: request.name,
       quantity: request.quantity,
-      components: request.componentCodes.map((componentCode) => ({ componentCode })),
+      panelCount: request.panelCount,
       reason: request.reason
     })
+  });
+}
+
+export async function updateUl891CurrentDesign(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  specId: string,
+  request: {
+    expectedSpecVersion: number;
+    specName: string;
+    reason: string;
+    slots: Array<{
+      slotId: string | null;
+      panelName: string | null;
+      panelSpecification: string | null;
+      widthMm: number | null;
+      heightMm: number | null;
+      depthMm: number | null;
+    }>;
+  }
+): Promise<Ul891MutationResponse> {
+  return fetchJson<Ul891MutationResponse>(`/api/projects/${projectId}/set-specs/${specId}/design`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify(request)
   });
 }
 
@@ -2697,6 +2722,21 @@ export async function updateProjectProductionPlanSetScope(
 ): Promise<ProductionPlanningResponse> {
   return fetchJson<ProductionPlanningResponse>(
     `/api/projects/${projectId}/production-planning/set-scopes/${setInstanceId}`,
+    developmentUserKey,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(request)
+    }
+  );
+}
+
+export async function updateProjectProductionPlanSetDefault(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  request: UpdateProductionPlanSetDefaultRequest
+): Promise<ProductionPlanningResponse> {
+  return fetchJson<ProductionPlanningResponse>(
+    `/api/projects/${projectId}/production-planning/set-defaults`,
     developmentUserKey,
     {
       method: 'PATCH',

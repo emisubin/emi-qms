@@ -592,7 +592,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
+            Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -858,7 +858,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
+            Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -962,7 +962,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
+            Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1028,7 +1028,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
+        Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1056,6 +1056,139 @@ public sealed class PostgreSqlMigrationTests
               );
             """,
             TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Ul891CurrentDesignMigration_Preserves42ActivePanelsAndHides12CancelledHistory()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration(
+            new Dictionary<string, string?> { ["DevelopmentData:SeedEnabled"] = "true" });
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        var migrationsThrough0067 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0067-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql")
+                         .Where(path => string.CompareOrdinal(Path.GetFileName(path), "0068_") < 0))
+            {
+                File.Copy(source, Path.Combine(migrationsThrough0067.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0067.FullName),
+                new DatabaseRuntimePrivilegeManager(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await CreateSeeder(database.RepositoryRoot, "Testing", configuration, provider)
+                .SeedAsync(TestContext.Current.CancellationToken);
+
+            await ExecuteSqlAsync(
+                provider,
+                """
+                update projects
+                set item='UL891', structure_mode='Ul891Set'
+                where id='40000000-0000-0000-0000-000000000001';
+
+                insert into ul891_set_specs (
+                    id,project_id,spec_no,name,created_by_user_id,updated_by_user_id
+                ) values (
+                    '95000000-0000-0000-0000-000000000001',
+                    '40000000-0000-0000-0000-000000000001',1,'42면 현재 세트',
+                    '50000000-0000-0000-0000-000000000005',
+                    '50000000-0000-0000-0000-000000000005'
+                );
+                insert into ul891_set_spec_versions (
+                    id,spec_id,version_number,status,created_by_user_id
+                ) values (
+                    '95000000-0000-0000-0000-000000000002',
+                    '95000000-0000-0000-0000-000000000001',1,'Draft',
+                    '50000000-0000-0000-0000-000000000005'
+                );
+                insert into ul891_set_spec_components (
+                    id,spec_version_id,component_code,panel_name,panel_specification,
+                    width_mm,height_mm,depth_mm,sort_order
+                )
+                select uuid_generate_v4(),
+                       '95000000-0000-0000-0000-000000000002',
+                       'S' || lpad(position::text,3,'0'),
+                       '동일 패널','반복 가능 사양',800,2000,600,position
+                from generate_series(1,7) position;
+                insert into ul891_set_instances (
+                    id,spec_id,instance_number,spec_version_id,created_by_user_id
+                )
+                select uuid_generate_v5(
+                           '95000000-0000-0000-0000-000000000000',
+                           'instance-' || instance_number::text),
+                       '95000000-0000-0000-0000-000000000001',instance_number,
+                       '95000000-0000-0000-0000-000000000002',
+                       '50000000-0000-0000-0000-000000000005'
+                from generate_series(1,6) instance_number;
+                insert into panel_placeholders (
+                    id,project_id,sequence_number,display_code,status,
+                    panel_info_completed,qr_eligible,set_instance_id,component_code
+                )
+                select uuid_generate_v4(),
+                       '40000000-0000-0000-0000-000000000001',
+                       100 + (instance_number - 1) * 9 + position,
+                       'H' || (100 + (instance_number - 1) * 9 + position)::text,
+                       'Active',true,true,
+                       uuid_generate_v5(
+                           '95000000-0000-0000-0000-000000000000',
+                           'instance-' || instance_number::text),
+                       'S' || lpad(position::text,3,'0')
+                from generate_series(1,6) instance_number
+                cross join generate_series(1,7) position;
+                insert into panel_placeholders (
+                    id,project_id,sequence_number,display_code,status,
+                    panel_info_completed,qr_eligible,set_instance_id,component_code,
+                    cancelled_by_user_id,cancelled_at_utc,cancellation_reason
+                )
+                select uuid_generate_v4(),
+                       '40000000-0000-0000-0000-000000000001',
+                       100 + (instance_number - 1) * 9 + 7 + history_position,
+                       'H' || (100 + (instance_number - 1) * 9 + 7 + history_position)::text,
+                       'Cancelled',false,false,
+                       uuid_generate_v5(
+                           '95000000-0000-0000-0000-000000000000',
+                           'instance-' || instance_number::text),
+                       'OLD-' || history_position::text,
+                       '50000000-0000-0000-0000-000000000005',now(),'이전 설계 이력'
+                from generate_series(1,6) instance_number
+                cross join generate_series(1,2) history_position;
+                """,
+                TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal(54L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from panel_placeholders where set_instance_id is not null;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(42L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from panel_placeholders where set_instance_id is not null and status='Active' and design_slot_id is not null;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(12L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from panel_placeholders where set_instance_id is not null and status='Cancelled' and design_slot_id is null;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(7L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from ul891_set_design_slots where spec_id='95000000-0000-0000-0000-000000000001' and status='Active';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(distinct panel_name) from ul891_set_design_slots where spec_id='95000000-0000-0000-0000-000000000001';",
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            migrationsThrough0067.Delete(recursive: true);
+        }
     }
 
     [Fact]
@@ -1290,7 +1423,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
+        Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1333,7 +1466,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
+        Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1389,7 +1522,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0067_material_category_scan_iqc", await ReadScalarAsync<string>(
+        Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

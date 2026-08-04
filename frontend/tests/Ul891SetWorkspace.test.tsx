@@ -14,52 +14,37 @@ describe('Ul891SetWorkspace', () => {
     render(<Ul891SetWorkspace developmentUserKey="dev-design" projectId="project-1" mode="design" presentation="summary" initialStructure={structure()} onEdit={onEdit} onOpenPanel={onOpenPanel} />);
 
     expect(await screen.findByText('MCC 메인 세트')).toBeInTheDocument();
-    expect(screen.getByText('공통 사양 2개 · 실물 2세트')).toBeInTheDocument();
+    expect(screen.getByText('현재 설계 2개 위치 · 실물 2세트')).toBeInTheDocument();
     expect(screen.getByRole('table', { name: '저장된 세트 공통 설계정보' })).toBeInTheDocument();
     expect(screen.queryByText('규격')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('세트 사양명')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '수정' }));
     expect(onEdit).toHaveBeenCalledOnce();
-    const panelButton = screen.getByRole('button', { name: /A MAIN A/ });
+    const panelButton = screen.getByRole('button', { name: /1번 위치 MAIN A/ });
     fireEvent.click(panelButton);
     expect(onOpenPanel).toHaveBeenCalledWith('panel-a-1');
   });
 
-  it('uses user-facing save labels and reports temporary and final save next to the actions', async () => {
-    let published = false;
+  it('saves the current design directly without a version or publish step', async () => {
     const requests: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
       requests.push(`${init?.method ?? 'GET'} ${path}`);
-      if (path.endsWith('/publish')) {
-        published = true;
-        return json({ operationId: 'operation-publish', projectId: 'project-1', action: 'Published', replayed: false });
-      }
       if (init?.method === 'PUT') {
-        return json({ operationId: 'operation-draft', projectId: 'project-1', action: 'DraftUpdated', replayed: false });
+        return json({ operationId: '00000000-0000-0000-0000-000000000000', projectId: 'project-1', action: 'CurrentDesignUpdated', replayed: false });
       }
-      return json(published ? structure() : draftStructure());
+      return json(structure());
     }));
 
-    render(<Ul891SetWorkspace developmentUserKey="dev-design" projectId="project-1" mode="design" presentation="edit" initialStructure={draftStructure()} onOpenPanel={vi.fn()} />);
+    render(<Ul891SetWorkspace developmentUserKey="dev-design" projectId="project-1" mode="design" presentation="edit" initialStructure={structure()} onOpenPanel={vi.fn()} />);
 
-    expect(screen.getByRole('button', { name: '임시저장' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '저장' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Draft 저장' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '사양 확정' })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('A 규격')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
-    expect(await screen.findByText('임시저장되었습니다. 계속 수정하거나 최종 저장할 수 있습니다.')).toBeInTheDocument();
-
-    requests.length = 0;
+    expect(screen.queryByText(/v1/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('2번 위치 패널명'), { target: { value: 'MAIN A' } });
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
-    expect(await screen.findByText('저장되었습니다. 이 사양이 적용된 패널은 제조를 시작할 수 있습니다.')).toBeInTheDocument();
-    expect(requests.slice(0, 2)).toEqual([
-      'PUT /api/projects/project-1/set-specs/spec-1/versions/version-1',
-      'POST /api/projects/project-1/set-specs/spec-1/versions/version-1/publish'
-    ]);
-    expect(screen.getAllByText('v1 저장 완료').length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText('저장되었습니다. 필요할 때 같은 화면에서 다시 수정할 수 있습니다.')).toBeInTheDocument();
+    expect(requests).toContain('PUT /api/projects/project-1/set-specs/spec-1/design');
   });
 
   it('shows project by shipment-month billing totals without hiding the set order', async () => {
@@ -76,7 +61,7 @@ describe('Ul891SetWorkspace', () => {
     expect(screen.getByText(/P01, P02/)).toBeInTheDocument();
   });
 
-  it('adds a new set specification with an explicit component code list', async () => {
+  it('adds a new set specification using only its panel count', async () => {
     const requests: Array<{ path: string; body: Record<string, unknown> | null }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
@@ -88,14 +73,14 @@ describe('Ul891SetWorkspace', () => {
     expect(await screen.findByText('새 세트 사양 추가')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('세트 사양명'), { target: { value: 'AUX 세트' } });
     fireEvent.change(screen.getByLabelText('주문 수량'), { target: { value: '2' } });
-    fireEvent.change(screen.getByLabelText('구성 code'), { target: { value: 'A, B, C' } });
+    fireEvent.change(screen.getByLabelText('세트당 패널 수'), { target: { value: '3' } });
     fireEvent.change(screen.getAllByLabelText('변경 사유')[0], { target: { value: '고객 추가 주문' } });
     fireEvent.click(screen.getByRole('button', { name: '새 사양 추가' }));
 
     await screen.findByText('완료 · 새 세트 사양과 개별 패널을 추가했습니다.');
     const posted = requests.find((request) => request.path.endsWith('/set-specs') && request.body);
-    expect(posted?.body).toMatchObject({ expectedSpecCount: 1, name: 'AUX 세트', quantity: 2, reason: '고객 추가 주문' });
-    expect(posted?.body?.components).toEqual([{ componentCode: 'A' }, { componentCode: 'B' }, { componentCode: 'C' }]);
+    expect(posted?.body).toMatchObject({ expectedSpecCount: 1, name: 'AUX 세트', quantity: 2, panelCount: 3, reason: '고객 추가 주문' });
+    expect(posted?.body).not.toHaveProperty('components');
   });
 });
 
@@ -104,11 +89,13 @@ function structure() {
     { componentId: 'component-a', componentCode: 'A', panelName: 'MAIN A', panelSpecification: '800x2000', widthMm: 800, heightMm: 2000, depthMm: 600, sortOrder: 1 },
     { componentId: 'component-b', componentCode: 'B', panelName: 'MAIN B', panelSpecification: '700x2000', widthMm: 700, heightMm: 2000, depthMm: 600, sortOrder: 2 }
   ];
-  const panel = (suffix: string, code: string) => ({ panelId: `panel-${suffix}`, sequenceNumber: suffix.endsWith('1') ? 1 : 2, displayCode: suffix.endsWith('1') ? 'P01' : 'P02', componentCode: code, panelName: code === 'A' ? 'MAIN A' : 'MAIN B', panelSpecification: code === 'A' ? '800x2000' : '700x2000', panelStatus: 'Active', workflowStage: 'BeforeManufacturing', packingUnitLabel: null, departureDate: null, delivered: false });
+  const currentDesign = components.map((component) => ({ slotId: `slot-${component.componentCode.toLowerCase()}`, positionNumber: component.sortOrder, panelName: component.panelName, panelSpecification: component.panelSpecification, widthMm: component.widthMm, heightMm: component.heightMm, depthMm: component.depthMm, rowVersion: 1 }));
+  const panel = (suffix: string, code: string) => ({ panelId: `panel-${suffix}`, sequenceNumber: suffix.endsWith('1') ? 1 : 2, displayCode: suffix.endsWith('1') ? 'P01' : 'P02', componentCode: code, designSlotId: `slot-${code.toLowerCase()}`, positionNumber: code === 'A' ? 1 : 2, panelName: code === 'A' ? 'MAIN A' : 'MAIN B', panelSpecification: code === 'A' ? '800x2000' : '700x2000', panelStatus: 'Active', workflowStage: 'BeforeManufacturing', packingUnitLabel: null, departureDate: null, delivered: false });
   return {
     projectId: 'project-1', structureMode: 'Ul891Set', isLegacyFlat: false, canEditOrder: true, canEditDesign: true,
     specs: [{
       specId: 'spec-1', specNo: 1, name: 'MCC 메인 세트', rowVersion: 2, activeInstanceCount: 2,
+      currentDesign,
       versions: [{ versionId: 'version-1', versionNumber: 1, status: 'Published', revisionReason: '초도', publishedAtUtc: '2026-07-01T00:00:00Z', components }],
       instances: [
         { instanceId: 'instance-1', instanceNumber: 1, specVersionId: 'version-1', specVersionNumber: 1, status: 'Active', rowVersion: 1, hasStarted: false, hasDeliveredPanel: false, panels: [panel('a-1', 'A'), panel('b-2', 'B')] },
@@ -117,16 +104,6 @@ function structure() {
     }],
     orderedProcurementItems: [], recoveryCases: []
   } as Ul891SetStructure;
-}
-
-function draftStructure() {
-  const next = structure();
-  const version = next.specs[0]?.versions[0];
-  if (version) {
-    version.status = 'Draft';
-    version.publishedAtUtc = null;
-  }
-  return next;
 }
 
 function monthlyBilling() {

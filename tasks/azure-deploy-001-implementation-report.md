@@ -1,15 +1,31 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 007 — 문서 상태 동기화와 최신 main 이미지 게시
+
+### 실행 전 상태와 승인 경계
+
+- Change 006 PR #68: squash merge 완료
+- 원격 `main`: `496b88b793c0514fefdc3ee7a09c252201b8eda9`, PR·main CI 성공
+- ACR: Backend·Frontend repository 2개 / 현재 `main` SHA tag 0개
+- Azure Container Apps: 기존 Change 005 revision 3/3 ready / 현재 `main` image 적용 0개
+- manual job: bootstrap·migration 마지막 실행 성공 / 현재 `main` image 적용 0개
+- Azure DB: `67 Exact` / Repository expected `0068`
+- Front Door: DNS CNAME·TXT와 validation token 일치 / domain validation `Pending` / route·TLS deployment `NotStarted`
+- 사용자 승인: 문서 동기화 PR을 `main`에 병합한 뒤 그 최신 full SHA로 Backend·Frontend ACR image 게시
+- 제외: Container Apps revision, migration `0068`, Edge·TLS, public traffic과 actual provider 변경
+
+문서 병합으로 만들어지는 최신 `main` SHA를 GitHub `Azure Pilot Images (Manual)` workflow의 source로 고정한다. Image 게시 결과는 workflow 성공 여부, digest 형식과 ACR의 두 SHA tag 존재 여부만 privacy-safe projection으로 확인한다.
+
 ## Change 006 — Teams·PWA 브랜드 자산과 통합 main handover
 
 ### 현재 상태
 
-- 기준 원격 main: `aac5f2766f05eb3175bead614545830f5e615ca4`
+- 기준 원격 main: `496b88b793c0514fefdc3ee7a09c252201b8eda9` — Change 006 PR #68 squash merge·main CI 완료
 - 사용자 제공 EMI PNG: canonical brand source로 보존
 - Teams package: 신규 브랜드 icon과 유효한 manifest를 포함한 `1.0.2` handoff artifact 생성 완료
 - PWA: web manifest·192·512·maskable·Apple touch·favicon 생성 및 Frontend build 포함 확인
 - Service Worker·offline cache: 범위 밖, 추가 0건
-- Azure image·migration `0068`·revision handover: Change 006 게시 뒤 다음 runtime 단계
+- Azure image·migration `0068`·revision handover: 최신 main image 게시 승인 / migration·revision 적용은 후속 runtime 단계
 - DNS·Front Door: TXT·CNAME 공개 조회 확인 / custom domain validation `Pending`, route·TLS deployment `NotStarted`
 - Public traffic·actual provider 발송: 비활성 유지
 
@@ -17,9 +33,9 @@
 
 | ID | 등급 | 상태 | 원인 | 해결 |
 | --- | --- | --- | --- | --- |
-| `AZURE-TEAMS-BRAND-001` | P2 | `RESOLVED_LOCAL` | Teams package builder가 제품 브랜드가 아닌 임시 사각형 도형을 color·outline icon으로 생성 | 사용자 제공 EMI 원본 기반 192x192 color·32x32 white/transparent outline icon을 추적하고 builder가 그대로 패키징 |
-| `AZURE-PWA-ASSET-001` | P2 | `RESOLVED_LOCAL` | PWA 운영 요구사항은 확정됐지만 web manifest와 설치 icon 연결이 없음 | standalone manifest, any·maskable icon, Apple touch·favicon과 HTML metadata 추가 |
-| `TEAMS-PACKAGE-JSON-001` | P1 | `RESOLVED_LOCAL` | 기존 외부 handoff `1.0.1` package의 manifest JSON 구문 오류로 catalog update가 차단됨 | builder가 렌더링한 유효 JSON과 최종 hostname, 기존 Teams·activity identity를 보존한 `1.0.2` package 재생성 |
+| `AZURE-TEAMS-BRAND-001` | P2 | `RESOLVED_MAIN` | Teams package builder가 제품 브랜드가 아닌 임시 사각형 도형을 color·outline icon으로 생성 | 사용자 제공 EMI 원본 기반 192x192 color·32x32 white/transparent outline icon을 추적하고 builder가 그대로 패키징 |
+| `AZURE-PWA-ASSET-001` | P2 | `RESOLVED_MAIN` | PWA 운영 요구사항은 확정됐지만 web manifest와 설치 icon 연결이 없음 | standalone manifest, any·maskable icon, Apple touch·favicon과 HTML metadata 추가 |
+| `TEAMS-PACKAGE-JSON-001` | P1 | `RESOLVED_MAIN` | 기존 외부 handoff `1.0.1` package의 manifest JSON 구문 오류로 catalog update가 차단됨 | builder가 렌더링한 유효 JSON과 최종 hostname, 기존 Teams·activity identity를 보존한 `1.0.2` package 재생성 |
 | `PRIVACY-PROJECTION-001` | P2 | `RESOLVED` | 첫 package 진단 실패가 내부 command 예외에 실제 비밀이 아닌 identifier를 포함 | 출력물을 폐기하고 subprocess stderr·argument를 노출하지 않는 fixed projection으로 다시 실행. tracked 파일·사용자 보고 노출 0건 |
 
 ### 실제 구현
@@ -52,8 +68,8 @@
 ### 미실행과 다음 Gate
 
 - 실제 Teams Admin Center catalog update·사용자 설치·activity 발송은 public runtime과 provider Gate 뒤 수행한다.
-- PWA 설치 UI는 Change 006가 main에 게시되고 최신 Frontend image가 Azure에 반영된 뒤 최종 hostname에서 검수한다.
-- 최신 main image 게시, migration `0068`, Container Apps revision 교체, TLS·Entra·provider 검수는 브랜드 자산 게시 이후 순서로 유지한다.
+- PWA 설치 UI는 최신 Frontend image가 Azure revision에 반영된 뒤 최종 hostname에서 검수한다.
+- 최신 main image 게시 뒤 migration `0068`, Container Apps revision 교체, TLS·Entra·provider 검수 순서를 유지한다.
 
 ## Change 005 — Active workload readiness 보정
 

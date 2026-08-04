@@ -2,13 +2,13 @@
 
 ## 1. 현재 판정
 
-- Local deployment code: Change 005 main 게시 완료 / Change 006 Teams·PWA 브랜드 자산 로컬 검증 완료
+- Deployment source: Change 006 Teams·PWA 브랜드 자산 PR #68 원격 main 병합·CI 완료
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
 - GitHub 웹 수동 image 게시 workflow: Backend·Frontend 최초 image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
 - DB role bootstrap·migration: 기존 Azure `67 Exact` / 최신 main `0068` handover 대기
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Change 005 image·revision ready / 최신 main `aac5f27` image·revision 적용 대기
+- Active workload: Change 005 image·revision ready / 최신 main `496b88b` image 게시 승인·revision 적용 대기
 - Teams·PWA: 제공 EMI 원본 기반 Teams `1.0.2` package와 PWA manifest·icon 생성 완료 / Azure image·catalog 반영 대기
 - 공개 traffic: 전환 안 함
 - 실제 Teams·Gmail: 발송 안 함

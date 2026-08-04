@@ -1381,7 +1381,11 @@ body,
   border: 1px solid var(--wire-line) !important;
   border-radius: var(--wire-radius-surface) !important;
   background: var(--wire-surface);
-  overflow: hidden;
+  /* Preserve rounded-edge clipping without creating a scroll container.
+   * `overflow: hidden` made nested table headers sticky to this full-height
+   * card instead of the viewport, so long edit grids scrolled their header
+   * out of view. */
+  overflow: clip;
   container-type: inline-size;
 }
 

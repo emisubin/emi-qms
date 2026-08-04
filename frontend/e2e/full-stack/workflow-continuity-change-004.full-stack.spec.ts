@@ -47,8 +47,8 @@ test('WORKFLOW-CONTINUITY-001 Change 004: purchase-owned quantity, Materials fal
   await expect(page.getByText('구매품 신규 확인', { exact: false }).first()).toBeVisible();
   await capture(page, '03-materials-notification-after-purchase-desktop.png');
 
-  await page.goto('/materials');
-  await page.getByTestId('department-work-hub-materials').getByRole('button', { name: /입고 관리/u }).click();
+  await page.goto('/materials/receipts');
+  await expect(page.getByTestId('material-receiving-page')).toBeVisible();
   await page.getByPlaceholder('PJT 코드, 발주품목, 업체').fill(projectTitle);
   await page.getByRole('button', { name: '검색' }).click();
   await page.getByRole('button', { name: new RegExp(projectTitle, 'u') }).click();

@@ -5,11 +5,11 @@
 - Task 유형: `P2_REMEDIATION`
 - 기준 HEAD: `4d15b7cee0d97f1846a1838500f9c9edf11b68bf`
 - branch: `fix/design-000-graphite-promotion`
-- 상태: `LOCAL_MAIN_MERGED / USER_VALIDATION_COMPLETE / REMOTE_UNPUBLISHED`
+- 상태: `MAIN_MERGED / USER_VALIDATION_COMPLETE`
 - 변경 계약: [DESIGN-000 Change 006](design-000-change-006.md)
 - Roadmap 재정렬: 사용자가 Azure 비용 Gate를 보류하고 Change 006을 우선하도록 명시 승인
 - 사용자 검수: 2026-08-01 완료
-- Git 게시: 승격 commit `f68169d`, local `main` merge `f1f94ed` 완료. 원격 push·PR·배포는 미실행·미승인
+- Git 게시: 승격 commit `f68169d`, local `main` merge `f1f94ed` 완료. 2026-08-04 `TASK-EXPERIMENT-PROMOTION-001 Change 002`의 별도 사용자 승인으로 Azure 원격 기준선과 통합해 Ready PR·CI를 거쳐 원격 `main`에 반영
 
 독립 Graphite 실험에서 Fable이 구현한 흑백 wireframe과 프론트엔드 구성 계약을 최신 `main` 기반 승격 branch에 선택적으로 이식했다. 시각 계층, 공통 상태·feedback·dialog·KPI·header, 생산관리와 내 업무·알림의 표 밀도, desktop/mobile 부서 탐색을 통일했다. 업무 선택 전용 페이지는 삭제하고 왼쪽 메뉴의 부서 행을 눌러 실제 업무 링크를 펼치는 흐름으로 단순화했다. 기존 업무·권한·API·DB·workflow와 상태 의미색은 유지했다.
 
@@ -128,7 +128,7 @@ Change 006 local merge commit을 revert하면 Frontend source·test·문서만 �
 - [x] 오류/검토 배너와 카드·상태·hero에 장식용 왼쪽 강조 rail이 남지 않았는지 확인
 - [x] Home·Pending·관리 화면의 흑백 wireframe이 같은 시각 계층으로 보이는지 확인
 
-상태: `자동 검증 완료 / 사용자 검수 완료 / local main merge 완료 / 원격 미게시`.
+상태: `자동 검증 완료 / 사용자 검수 완료 / local·원격 main 반영 완료`.
 
 ## 10. 개발 블로그 소재
 
@@ -146,7 +146,7 @@ Change 006 local merge commit을 revert하면 Frontend source·test·문서만 �
 
 ### 10.4 사용자 검수 결과와 남은 항목
 
-사용자는 2026-08-01 업무 선택 전용 page 삭제, 클릭형 왼쪽 메뉴와 Graphite 디자인의 검수를 완료하고 local `main` 병합을 승인했다. 승격 commit `f68169d`를 local `main` merge `f1f94ed`로 반영했으며 원격 push·PR·배포와 Azure 실행은 별도 경계로 남아 있다.
+사용자는 2026-08-01 업무 선택 전용 page 삭제, 클릭형 왼쪽 메뉴와 Graphite 디자인의 검수를 완료하고 local `main` 병합을 승인했다. 승격 commit `f68169d`를 local `main` merge `f1f94ed`로 반영했고, 2026-08-04 별도 `1단계` 승인에 따라 Azure 원격 기준선과 통합해 Ready PR·CI를 거쳐 원격 `main`에 반영했다. 실제 Azure 재배포는 별도 경계로 남아 있다.
 
 ## 11. 종료 산출물
 

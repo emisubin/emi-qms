@@ -14,6 +14,12 @@ function ruleBody(selector: string): string {
 }
 
 describe('Graphite desktop table density contracts', () => {
+  it('keeps input flows from capturing nested sticky table headers', () => {
+    const inputFlow = ruleBody('.ds-input-flow');
+    expect(inputFlow).toContain('overflow: clip');
+    expect(inputFlow).not.toMatch(/^\s*overflow:\s*hidden;/m);
+  });
+
   it('gives the production planning/release grid a 38px ruled header and 48px rows', () => {
     const head = ruleBody('.app-shell .production-project-head');
     expect(head).toContain('min-height: 38px');

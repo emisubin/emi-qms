@@ -654,6 +654,8 @@ async function completeLogisticsStage(
   const target = page.locator('.logistics-target-card').first();
   await expect(target).toBeVisible();
   await target.click();
+  const selectionCount = page.locator('.logistics-queue > header > strong');
+  await expect(selectionCount).toHaveText('1 선택');
   if (stage === 'packing') await page.getByLabel('포장 메모').fill('목재 포장과 방수 상태 확인');
   if (stage === 'departure') await page.getByLabel('출발일').fill(currentSeoulDate);
   await page.locator('.logistics-file-field input[type="file"]').setInputFiles(evidenceImage);
@@ -662,11 +664,15 @@ async function completeLogisticsStage(
   await expectDarkSurfaceTextReadable(page);
   await captureEvidenceScreenshot(page, `logistics-${stage}-input-layout.jpg`);
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(selectionCount).toHaveText('1 선택');
   await expectInputFlowReadable(page, '.logistics-action-panel .ds-input-flow');
   await expectNoHorizontalOverflow(page);
   await captureEvidenceScreenshot(page, `logistics-${stage}-input-layout-mobile.jpg`);
   await page.setViewportSize({ width: 1440, height: 1050 });
-  await page.getByRole('button', { name: `${logisticsStageLabel(stage)} 저장 및 확정` }).click();
+  await expect(selectionCount).toHaveText('1 선택');
+  const finalizeButton = page.getByRole('button', { name: `${logisticsStageLabel(stage)} 저장 및 확정` });
+  await expect(finalizeButton).toBeEnabled();
+  await finalizeButton.click();
   await expect(page.getByText(new RegExp(`${logisticsStageLabel(stage)} 확정 완료`))).toBeVisible();
 }
 

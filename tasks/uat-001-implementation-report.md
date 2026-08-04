@@ -614,7 +614,7 @@ Open Finding은 P0/P1/P2/P3 `0/0/0/1`이다.
 
 - Frontend route, Pending 상세 render boundary와 tests만 변경했다. Backend/API 권한·workflow·DB/migration·Excel/PDF·첨부 저장 계약은 변경하지 않았다.
 - 실제 사용자명·프로젝트 원문·identifier·token·password·connection string·인증서 key를 tracked 산출물에 기록하지 않았다. Browser 증빙은 역할·건수·결과만 projection했다.
-- 구현 commit `db9cb34`와 local `main` fast-forward merge를 완료했고, 5174가 local `main`의 동일 수정본을 반영한다. Push·PR·remote merge·배포는 미실행이다.
+- 구현 commit `db9cb34`와 local `main` fast-forward merge를 완료했고, 5174가 local `main`의 동일 수정본을 반영한다. 2026-08-04 별도 `TASK-EXPERIMENT-PROMOTION-001 Change 002` 승인으로 Azure 원격 기준선과 통합해 Ready PR·CI를 거쳐 원격 `main`에도 반영했다. 배포·migration·5081 handover는 미실행이다.
 
 ### Finding closure
 

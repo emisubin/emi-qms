@@ -95,4 +95,4 @@ Open Finding은 P0/P1/P2/P3 `0/0/0/1`이다.
 - 사용자 검수: 완료 — 2026-08-02
 - 구현 commit: `db9cb34` 완료
 - local `main` fast-forward merge: 완료 — 2026-08-02
-- Push·PR·remote merge·배포: 미실행. 사용자의 local `main` 병합 승인을 원격 게시 승인으로 확대하지 않는다.
+- Push·PR·remote merge: 2026-08-04 별도 `TASK-EXPERIMENT-PROMOTION-001 Change 002` 승인으로 Azure 원격 기준선과 통합해 완료. 배포·migration·5081 handover는 미실행이다.

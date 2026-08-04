@@ -7,15 +7,15 @@
 - DB role bootstrap: `PASS`
 - Migration: canonical `67`, ledger `Exact`
 - PITR restore rehearsal: `PASS`, 60분 목표 이내, 임시 restore resource 정리 완료
-- Active workloads: `BLOCKED_RUNTIME_READINESS`
+- Active workloads: `PASS` — Container Apps 3/3 provisioning `Succeeded`, running, latest revision ready
 - Public traffic·external notification: `비활성 유지`
 
 ### 확인된 Finding과 로컬 보정
 
 | ID | 등급 | 상태 | 원인 | 로컬 보정 |
 | --- | --- | --- | --- | --- |
-| `AZURE-BACKEND-PROBE-HOST-001` | P1 | `RESOLVED_LOCAL_RUNTIME_PENDING` | Production Host allowlist와 Container Apps probe 기본 Host 불일치로 startup probe `400` | Backend 세 HTTP probe에 `Host: publicHost` 추가 |
-| `AZURE-FRONTEND-NGINX-MAP-001` | P1 | `RESOLVED_LOCAL_RUNTIME_PENDING` | 64자 origin token이 Nginx 기본 map hash bucket을 초과 | `map_hash_bucket_size 128` 적용 |
+| `AZURE-BACKEND-PROBE-HOST-001` | P1 | `RESOLVED` | Production Host allowlist와 Container Apps probe 기본 Host 불일치로 startup probe `400` | Backend 세 HTTP probe에 `Host: publicHost`를 추가하고 실제 Backend revision readiness 확인 |
+| `AZURE-FRONTEND-NGINX-MAP-001` | P1 | `RESOLVED` | 64자 origin token이 Nginx 기본 map hash bucket을 초과 | `map_hash_bucket_size 128`을 적용하고 실제 Frontend revision readiness 확인 |
 
 ### 로컬 검증
 
@@ -27,22 +27,22 @@
 | Backend 세 probe Host header count | `3` |
 | Shell syntax·Git whitespace | `PASS` |
 
-실제 Azure 신규 image·revision readiness, direct health `200`과 origin 업무 route `403` 검증이 끝나기 전에는 두 P1을 `RESOLVED`로 닫지 않는다.
+2026-08-04 read-only 재확인에서 세 workload의 provisioning·running·latest ready를 확인해 두 readiness P1을 `RESOLVED`로 닫았다. Backend·ClamAV는 내부 ingress, Frontend만 external ingress이며 Front Door route는 0개다. 따라서 public traffic·DNS·TLS·실제 provider 검수는 여전히 열리지 않았다.
 
 ## 현재 상태
 
 - Task 유형: `UAT_RUNTIME` / Change 005 `BUGFIX`
 - 기준 SHA: `origin/main`
 - 작업 branch: `fix/task-azure-deploy-001-runtime-readiness`
-- Main deployment artifact: `Change 004까지 GitHub main 병합 완료`
-- Local deployment artifact: `Change 005 readiness 보정·자동 검증 완료`
+- Main deployment artifact: `Change 005까지 GitHub main 병합 완료`
+- Azure deployment artifact: `Change 005 image·revision readiness 확인 완료`
 - 비용·Budget Gate: `사용자 확인 완료`
 - Azure resource와 비용 발생 작업: `실행 중 / 사용자 승인 완료`
 - Public traffic: `미전환`
-- 사용자 검수: `Change 003·Change 004 완료 / Change 005 대기`
-- Commit / Push / PR / Merge: `Change 005 실행 전`
+- 사용자 검수: `Change 003·Change 004 완료 / Change 005 기술 검증 완료 / public traffic 업무 검수 대기`
+- Commit / Push / PR / Merge: `Change 005 원격 main 병합 완료`
 
-Change 004 준비물을 사용해 Foundation, OIDC·ACR 권한, image 게시, secret-scope RBAC, DB role bootstrap, migration과 PITR restore rehearsal을 완료했다. Change 005는 실제 workload activation에서 발견된 두 readiness P1을 보정한다. 신규 revision readiness, DNS·TLS, 실제 provider 발송과 public traffic 전환은 아직 완료로 주장하지 않는다.
+Change 004 준비물을 사용해 Foundation, OIDC·ACR 권한, image 게시, secret-scope RBAC, DB role bootstrap, migration과 PITR restore rehearsal을 완료했다. Change 005는 실제 workload activation에서 발견된 두 readiness P1을 보정했고 세 workload의 latest revision readiness까지 확인했다. 현재 Backend·Frontend image는 이번 제품 기준선 통합 전 Azure main source를 사용하므로, 통합 완료 뒤의 image 재게시·재배포는 별도 다음 단계다. DNS·TLS, 실제 provider 발송과 public traffic 전환은 아직 완료로 주장하지 않는다.
 
 ## Change 004 — Portal ARM JSON과 수동 GitHub image 게시
 

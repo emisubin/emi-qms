@@ -1,5 +1,75 @@
 # TASK-EXPERIMENT-PROMOTION-001 구현 보고서
 
+## Change 002 — 5174 제품 기준선과 Azure 원격 기준선 통합
+
+### 결과와 범위
+
+- Task 유형: `UAT_RUNTIME`
+- 사용자 승인: 2026-08-04 `1단계` 원격 main 통합·Ready PR·CI·merge 실행 승인
+- Azure 원격 기준선: `69a725880f2da67589f18d321a9fb71b0540c79f`
+- 5174 local 제품 기준선: `07718bc19d5cb91afb47737895849086d9543590`
+- 통합 merge commit: `33fffeafe9346cc4e475920dd4e63f9887c7b3b7`
+- 병합 결과: 충돌 없음. 두 기준선의 commit 계보와 Azure Change 003~005, DESIGN-000 Change 006, TASK-UAT-001 Change 007을 모두 보존
+- 제외: 5175 UL891 미커밋 작업, migration `0068`, Persistent UAT handover, Azure resource·image·DNS·traffic·실제 provider mutation
+
+통합은 `origin/main`에서 시작한 별도 branch와 임시 worktree에서 수행했다. 5174·5081·5175 runtime source와 사용자의 다른 dirty worktree는 변경하거나 재시작하지 않았다. 원격 대비 제품 diff는 Frontend·Task 문서 23개이며 Backend·migration·Azure infrastructure overwrite는 0건이다.
+
+### 검증 결과
+
+| 검증 | 결과 |
+| --- | --- |
+| merge conflict·whitespace | `PASS` — conflict 0, `git diff --check` 통과 |
+| Frontend lint | `PASS` — error 0, 기존 Fast Refresh warning 1 |
+| Frontend typecheck | `PASS` |
+| Frontend unit | `PASS` — 25 files, `173/173` |
+| Frontend production build | `PASS` — 기존 500KB 초과 chunk warning 유지 |
+| Mock UI E2E | `PASS` — `4/4`; 생성 screenshot은 기준선으로 원복 |
+| 실제 5174 browser | `PASS` — 생산관리 UL891 42면·6세트와 생산계획·일정표 렌더링, 390px 가로 overflow 0, console error 0 |
+| Azure artifact static validation | `PASS` |
+| Azure Bicep compile·Portal template 동등성 | `PASS` |
+| Azure image input guard | `PASS` |
+| Teams manifest package | `PASS` — `2/2` |
+| Backend Release 전체 | `PASS` — `481/481`, 격리 DB·container 정상 정리 |
+| isolated Full-Stack E2E | `PASS` — 최종 단일 실행 `55/55`; 12면 stress·18단계 lifecycle 포함 |
+| GitHub Ready PR CI·merge | `MERGE GATE` — 최신 head CI 성공·mergeable 확인 뒤 실행 |
+
+### 검증 중 발견·수정
+
+| Finding | 등급 | 상태 | 원인과 처리 |
+| --- | --- | --- | --- |
+| `PROMOTION-GRAPHITE-STICKY-001` | P2 | `RESOLVED` | Graphite 입력 카드의 `overflow: hidden`이 긴 설계 입력표의 sticky header 기준을 카드로 바꿔 헤더가 화면 밖으로 사라졌다. 둥근 모서리 clipping은 유지하되 scroll container를 만들지 않는 `overflow: clip`으로 바꾸고 CSS contract·실제 scroll E2E로 고정 |
+| `PROMOTION-FULLSTACK-HUB-DRIFT-001` | P2 | `RESOLVED` | Full-Stack 3개 시나리오가 DESIGN-000 Change 006에서 의도적으로 삭제한 업무 선택 hub를 계속 찾았다. 제품을 되돌리지 않고 생산관리 child navigation과 자재·품질·물류의 첫 실제 workspace redirect를 검증하도록 갱신 |
+| `PROMOTION-LIFECYCLE-SELECTION-WAIT-001` | P2 | `RESOLVED` | 18단계 검수가 물류 대상 click 직후 선택 상태 확정을 확인하지 않은 채 desktop/mobile viewport를 바꿔 간헐적으로 비활성 확정 버튼을 눌렀다. 각 viewport에서 `1 선택`과 확정 버튼 활성화를 명시적으로 기다리며 동일 시나리오 연속 `2/2`, 최종 전체 `55/55` 통과 |
+
+첫 Full-Stack은 기존 hub drift와 sticky 회귀로 `51/55`, 수정 후 집중 검증은 `4/4` 통과했다. 다음 전체 실행에서 위와 무관한 lifecycle 대기 race가 한 번 나타나 `54/55`였고, 대기 조건 보강 뒤 해당 시나리오 연속 `2/2`와 최종 전체 `55/55`를 확인했다. 테스트가 덮어쓴 tracked screenshot 99개는 기준선으로 원복하고 새 임시 screenshot 1개는 Repository 밖 임시 위치로 이동했다.
+
+### 실제 Azure read-only projection
+
+- Azure 계정 상태: enabled
+- Container Apps: 3/3 provisioning `Succeeded`, running, latest revision ready
+- ingress: Backend·ClamAV internal, Frontend external
+- PostgreSQL: ready, version 16, HA disabled
+- Front Door route: 0
+- Backend·Frontend image는 통합 전 Azure main source를 사용하고 ClamAV는 immutable digest를 사용한다.
+
+따라서 Change 005의 workload readiness P1 두 건은 `RESOLVED`로 닫는다. public traffic·DNS·TLS·actual provider와 통합 기준선 image 재배포는 완료로 주장하지 않으며 다음 단계로 유지한다.
+
+### Finding·개인정보·rollback
+
+- Open Finding P0/P1/P2: `0/0/0`
+- 기존 P3: Fast Refresh warning 1과 production chunk 크기 backlog 유지
+- 검증 증거는 count·boolean·상태·commit projection만 기록했다. 실제 사용자명, tenant/client/object ID, hostname, token, secret, Authorization header와 업무 원문은 기록하지 않았다.
+- PR merge 전에는 branch를 보존하고 중단한다. merge 뒤에는 history rewrite 없이 revert PR 또는 forward-fix PR을 사용한다.
+- runtime·DB·Azure resource mutation이 없으므로 운영 rollback은 적용 대상이 아니다.
+
+### 5종 종료 산출물
+
+- Implementation report: 이 문서 Change 002
+- SOP: 기존 코드 rollback 절차를 재사용하며 독립 운영 절차 변경 `N/A`
+- User manual: 사용자 기능 추가가 아닌 기준선 통합이므로 독립 변경 `N/A`
+- Roadmap update: `docs/00-product-roadmap.md` 게시 완료 상태 동기화 대상
+- User validation checklist: 기존 DESIGN-000 Change 006·TASK-UAT-001 Change 007 사용자 검수 완료와 이 Change의 실제 5174 browser 검증으로 충족
+
 ## 1. 해결한 업무 문제
 
 사용자가 검수를 완료한 experiment 계보를 새 데이터 기준의 공식 `main`으로 승격한다. 기존 대표·실험 업무 데이터는 새 시작에 섞이지 않게 분리하고, 제품 기능·권한·알림·18단계 workflow가 fresh database에서도 처음부터 끝까지 동작하는지 확인했다.

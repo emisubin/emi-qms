@@ -22,7 +22,7 @@
     "outline": "outline.png",
     "color": "color.png"
   },
-  "accentColor": "#111111",
+  "accentColor": "#DC2128",
   "staticTabs": [
     {
       "entityId": "home",

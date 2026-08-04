@@ -2,13 +2,14 @@
 
 ## 1. 현재 판정
 
-- Local deployment code: Change 004 main 게시 완료 / Change 005 readiness 보정 로컬 검증 완료
+- Local deployment code: Change 005 main 게시 완료 / Change 006 Teams·PWA 브랜드 자산 로컬 검증 완료
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
 - GitHub 웹 수동 image 게시 workflow: Backend·Frontend 최초 image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
-- DB role bootstrap·migration: 성공 / canonical `67`, ledger `Exact`
+- DB role bootstrap·migration: 기존 Azure `67 Exact` / 최신 main `0068` handover 대기
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Change 005 신규 image·revision 적용 대기
+- Active workload: Change 005 image·revision ready / 최신 main `aac5f27` image·revision 적용 대기
+- Teams·PWA: 제공 EMI 원본 기반 Teams `1.0.2` package와 PWA manifest·icon 생성 완료 / Azure image·catalog 반영 대기
 - 공개 traffic: 전환 안 함
 - 실제 Teams·Gmail: 발송 안 함
 - 비용 발생 단계: 사용자 승인·시작 완료
@@ -30,7 +31,16 @@
 
 20일 예상 비용과 무료 credit 잔액 확인, Budget 알림 설정은 완료됐다. 시범 기간에는 실제 사용량을 매일 확인한다.
 
-## 2.1 터미널 없는 웹 실행 Gate
+## 2.1 Teams·PWA 브랜드 handover
+
+1. Teams package는 Repository의 `infrastructure/teams/assets/color.png`와 `outline.png`를 사용한다.
+2. 실제 package 생성 시 최종 hostname, 기존 Teams manifest ID, activity client ID·resource와 증가된 SemVer를 builder argument로만 전달한다. 실제 identifier는 tracked 파일이나 보고에 기록하지 않는다.
+3. 기존 외부 package version은 `1.0.1`이며 신규 브랜드·유효 JSON package는 `1.0.2`다. Teams Admin Center update는 public Frontend와 TLS 검증 뒤 수행한다.
+4. PWA manifest와 icon은 Frontend image의 Vite build output에 자동 포함된다. 별도 파일 업로드는 하지 않는다.
+5. PWA는 standalone install metadata만 제공하며 Service Worker·offline cache는 현재 범위에 없다.
+6. 최종 hostname에서 manifest·icon HTTP `200`, install name·icon·standalone launch를 확인한 뒤 완료로 기록한다.
+
+## 2.2 터미널 없는 웹 실행 Gate
 
 사용자가 Terminal 또는 Cloud Shell을 사용하지 않는 경우 다음 두 웹 화면만 사용한다.
 

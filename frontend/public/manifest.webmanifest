@@ -1,0 +1,33 @@
+{
+  "id": "/",
+  "name": "EMI 프로젝트 통합관리시스템",
+  "short_name": "EMI QMS",
+  "description": "프로젝트 생성부터 생산관리, 구매, 제조, 품질, 물류와 정산까지 연결하는 통합관리시스템입니다.",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FFFFFF",
+  "theme_color": "#DC2128",
+  "icons": [
+    {
+      "src": "/icons/emi-qms-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/emi-qms-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/emi-qms-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

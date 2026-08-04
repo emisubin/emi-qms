@@ -1,12 +1,23 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 006 — Teams·PWA 브랜드 자산
+
+- [x] 사용자 제공 EMI PNG를 canonical brand source로 보존했다.
+- [x] Teams 192x192 color·32x32 outline icon이 제공 원본을 사용하고 package test를 통과했다.
+- [x] PWA 192·512·maskable·Apple touch·favicon과 web manifest가 Frontend build에 포함됐다.
+- [x] Service Worker·offline cache·앱 내부 UI 재디자인이 추가되지 않았다.
+- [x] 최종 hostname과 기존 Teams·activity identity를 보존한 `1.0.2` package가 유효한 JSON으로 생성됐다.
+- [ ] Change 006를 원격 main에 게시하고 최신 Frontend image를 Azure에 반영한다.
+- [ ] 최종 hostname에서 PWA 설치 icon·이름·standalone 실행을 확인한다.
+- [ ] Teams Admin Center에서 `1.0.2` package를 update하고 테스트 사용자에게 새 icon이 표시되는지 확인한다.
+
 ## Change 005 — Active workload readiness
 
 - [x] Backend probe Host 보정과 Nginx 64자 token configuration의 로컬 자동 검증이 통과했다.
 - [x] Change 005 Frontend image와 workload revision이 실제 Azure에 반영됐다.
 - [x] Backend·Frontend·ClamAV가 모두 provisioning `Succeeded`, running, latest revision ready다. (read-only 재확인, 2026-08-04)
-- [ ] Frontend direct health는 `200`, direct 업무 route는 `403`이다.
-- [x] Front Door route 0개이며 public traffic과 external notification은 Edge·인증 Gate 전까지 비활성이다. (read-only 재확인, 2026-08-04)
+- [x] Frontend direct health는 `200`, direct 업무 route는 `403`이다. (read-only 재확인, 2026-08-04)
+- [x] Front Door custom-domain route는 생성됐지만 deployment `NotStarted`이며 public traffic과 external notification은 Edge·인증 Gate 전까지 비활성이다. (read-only 재확인, 2026-08-04)
 
 ## Change 003 로컬 P1 보안 변경
 

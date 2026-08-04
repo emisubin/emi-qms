@@ -30,7 +30,16 @@ required_files=(
   "${azure_directory}/identity-access.parameters.example.json"
   "${azure_directory}/workloads.parameters.example.json"
   "${azure_directory}/edge.parameters.example.json"
+  "${repository_root}/assets/branding/emi-logo.png"
   "${repository_root}/infrastructure/teams/manifest.template.json"
+  "${repository_root}/infrastructure/teams/assets/color.png"
+  "${repository_root}/infrastructure/teams/assets/outline.png"
+  "${repository_root}/frontend/public/manifest.webmanifest"
+  "${repository_root}/frontend/public/icons/emi-qms-192.png"
+  "${repository_root}/frontend/public/icons/emi-qms-512.png"
+  "${repository_root}/frontend/public/icons/emi-qms-maskable-512.png"
+  "${repository_root}/frontend/public/icons/apple-touch-icon.png"
+  "${repository_root}/frontend/public/icons/favicon-32.png"
 )
 
 for required_file in "${required_files[@]}"; do
@@ -205,6 +214,7 @@ if (workflowChecks.some(expected => !imageWorkflow.includes(expected))
 NODE
 
 "${repository_root}/scripts/test-teams-manifest-package.sh" >/dev/null
+"${repository_root}/scripts/test-pwa-assets.sh" >/dev/null
 "${repository_root}/scripts/test-azure-image-publish-inputs.sh" >/dev/null
 
 if [[ "${compile_templates}" == 'true' ]]; then

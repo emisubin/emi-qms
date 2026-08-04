@@ -7,7 +7,9 @@
 - [x] PWA 192·512·maskable·Apple touch·favicon과 web manifest가 Frontend build에 포함됐다.
 - [x] Service Worker·offline cache·앱 내부 UI 재디자인이 추가되지 않았다.
 - [x] 최종 hostname과 기존 Teams·activity identity를 보존한 `1.0.2` package가 유효한 JSON으로 생성됐다.
-- [ ] Change 006를 원격 main에 게시하고 최신 Frontend image를 Azure에 반영한다.
+- [x] Change 006 PR #68을 원격 main에 squash merge하고 PR·main CI 성공을 확인했다. (2026-08-05)
+- [ ] 문서 상태 동기화가 포함된 최신 main의 Backend·Frontend image를 ACR에 게시한다.
+- [ ] 최신 image와 migration `0068`을 Azure revision에 반영한다.
 - [ ] 최종 hostname에서 PWA 설치 icon·이름·standalone 실행을 확인한다.
 - [ ] Teams Admin Center에서 `1.0.2` package를 update하고 테스트 사용자에게 새 icon이 표시되는지 확인한다.
 

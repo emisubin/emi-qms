@@ -52,7 +52,9 @@ export interface PendingDetail {
   canComment: boolean;
   canAssign: boolean;
   reinspection?: PendingReinspection | null;
-  actionEvidence: PendingActionEvidence;
+  // Kept optional at the client boundary so a mixed-version Development
+  // handover cannot blank the rest of an otherwise valid Pending detail.
+  actionEvidence?: PendingActionEvidence;
 }
 
 export interface PendingActionEvidence {

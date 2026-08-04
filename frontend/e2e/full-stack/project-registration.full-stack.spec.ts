@@ -1021,8 +1021,9 @@ test('TASK-006A UAT regression: my-work data, procurement settings route, and wo
   await expect(page.getByLabel('Item*').locator('option')).toHaveText(['Item 선택', 'UL67', 'UL891', 'UL508A', 'IEC', 'LLP', 'RPP']);
 
   await page.getByLabel('개발 사용자').selectOption('dev-production');
-  await page.getByRole('navigation', { name: '공통 메뉴' }).first().getByRole('button', { name: '생산관리' }).click();
-  await page.getByRole('button', { name: /생산계획 일정·계획 항목·담당자 관리/ }).click();
+  const navigation = page.getByRole('navigation', { name: '공통 메뉴' }).first();
+  await navigation.getByRole('button', { name: '생산관리', exact: true }).click();
+  await navigation.getByRole('button', { name: '생산계획', exact: true }).click();
   await page.locator('details.ds-secondary-tools > summary').click();
   await page.getByRole('button', { name: '생산계획 단계 설정' }).click();
   await expect(page.getByRole('tab', { name: 'TEST-TYPE' })).toHaveCount(0);

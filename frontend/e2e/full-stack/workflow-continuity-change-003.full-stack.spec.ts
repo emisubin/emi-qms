@@ -74,9 +74,9 @@ test('WORKFLOW-CONTINUITY-001 Change 003: exact purchase error, assignee handoff
   await expectNotificationCount(request, 'dev-procurement', projectId, '구매품 변경 확인', 1);
 
   const hubRoutes = [
-    { route: '/materials', testId: 'department-work-hub-materials', file: '02-materials-project-hub-desktop.png' },
-    { route: '/quality', testId: 'department-work-hub-quality', file: '04-quality-project-hub-desktop.png' },
-    { route: '/logistics', testId: 'department-work-hub-logistics', file: '05-logistics-project-hub-desktop.png' }
+    { route: '/materials', testId: 'material-receiving-page', file: '02-materials-project-hub-desktop.png' },
+    { route: '/quality', testId: 'quality-iqc-dashboard', file: '04-quality-project-hub-desktop.png' },
+    { route: '/logistics', testId: 'logistics-packing-dashboard', file: '05-logistics-project-hub-desktop.png' }
   ];
   for (const hub of hubRoutes) {
     await page.goto(hub.route);
@@ -123,7 +123,7 @@ test('WORKFLOW-CONTINUITY-001 Change 003: exact purchase error, assignee handoff
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByLabel('개발 사용자').selectOption('dev-materials', { force: true });
   await page.goto('/materials');
-  await expect(page.getByTestId('department-work-hub-materials')).toBeVisible();
+  await expect(page.getByTestId('material-receiving-page')).toBeVisible();
   expect(await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - window.innerWidth))).toBe(0);
   await capture(page, '08-materials-project-hub-mobile-390.png');
 

@@ -43,7 +43,6 @@ export function MaterialReceivingPage({
   initialProjectId,
   initialReceiptId,
   initialRisk,
-  onBack,
   onOpenIqc,
   onOpenKitting,
   onOpenPending
@@ -54,7 +53,6 @@ export function MaterialReceivingPage({
   initialProjectId?: string;
   initialReceiptId?: string;
   initialRisk?: 'customer-supply-overdue';
-  onBack: () => void;
   onOpenIqc: (requestId?: string) => void;
   onOpenKitting: () => void;
   onOpenPending: (pendingId: string) => void;
@@ -182,7 +180,6 @@ export function MaterialReceivingPage({
           {initialProjectCode ? <p className="workspace-project-filter" role="status">현재 프로젝트: <strong>{initialProjectCode}</strong></p> : null}
         </div>
         <div className="material-hero-actions">
-          <button type="button" onClick={onBack}>업무 선택</button>
           <button type="button" onClick={onOpenKitting}>패널 키팅</button>
           <button type="button" className="primary-button" onClick={() => onOpenIqc()}>IQC 검사함</button>
         </div>
@@ -517,7 +514,6 @@ export function MaterialIqcPage({
           };
         })}
         emptyMessage="IQC 대상 프로젝트가 없습니다."
-        onBack={onBack}
         readOnlyDescription={!canInspect ? 'IQC 현황과 판정 결과를 조회할 수 있습니다. 성적서 작성과 판정은 품질 담당자 권한이 필요합니다.' : undefined}
         onOpenProject={(projectId) => onOpenProject?.(projectId)}
       />
@@ -533,7 +529,7 @@ export function MaterialIqcPage({
           <p>요청된 도착분을 확인하고 합격 또는 부적합을 기록합니다.</p>
           {initialProjectId && state.kind === 'ready' ? <p className="workspace-project-filter" role="status">선택 프로젝트: <strong>{state.data[0]?.projectCode ?? '현재 프로젝트'}</strong></p> : null}
         </div>
-        <button type="button" onClick={onBack}>자재 입고로</button>
+        <button type="button" onClick={onBack}>IQC 프로젝트</button>
       </header>
 
       {!canInspect ? <DsReadOnlyBanner description="IQC 현황과 판정 결과를 조회할 수 있습니다. 검사성적서 작성과 합격·부적합 판정은 품질 담당자에게 요청하세요." /> : null}

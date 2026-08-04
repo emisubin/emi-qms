@@ -570,3 +570,75 @@ Open Finding은 P0/P1/P2/P3 `0/0/0/1`이다.
 - DB schema/data와 실제 알림 provider를 변경하지 않았다.
 - 자동 검증을 완료했고 사용자가 2026-07-30 실제 Microsoft 365 로그인, 사용자 업무 조회·저장과 로그아웃 cache 검수를 완료했다고 확인했다.
 - PR #58의 `main` merge 승인이 기록됐다. 실제 PR·merge 상태는 GitHub를 authoritative source로 사용한다.
+
+## 28. Change 007 — Pending 상세 Runtime 계약 복구
+
+### 해결한 업무 문제
+
+- HTTPS 5174에서 Pending 상세 URL까지 이동한 뒤 화면 전체가 비어 사용자가 발생 내용과 처리 이력을 확인할 수 없었다.
+- `/pending/`로 직접 접근하면 Pending dashboard가 아니라 Home이 열렸다.
+
+### 기술적 결정과 검토한 대안
+
+- 선택: Backend 응답의 optional 조치 사진 section만 격리하고 나머지 상세를 유지한다. 혼합 버전 handover 중에도 핵심 조회가 단일 부가 section 때문에 중단되지 않는다.
+- 폐기: 누락 응답을 정상적인 빈 조치 사진 모델로 위장한다. 실제 schema/runtime drift를 숨겨 사용자가 사진 기능이 정상이라고 오인할 수 있다.
+- 보류: current source Backend 5081 handover. live migration ledger 64개에는 source의 조치 사진 schema가 없고 migration 승인이 없어 실행하지 않았다.
+
+### 구현
+
+- Pending namespace의 뒤쪽 slash를 제거하고 history URL을 canonical path로 교체한다.
+- Client response model에서 `actionEvidence`를 mixed-version boundary의 optional field로 표현했다.
+- 누락 시 조치 사진 section에 복구 안내를 표시하고 발생 내용·담당·기한·코멘트·처리 이력을 계속 렌더링한다.
+- `/pending/` dashboard와 action evidence 누락 상세·mobile layout 집중 회귀를 추가했다.
+
+### 자동·runtime 검증
+
+| 검사 | 결과 |
+| --- | --- |
+| 집중 Pending 회귀 | 2/2 통과 |
+| Frontend typecheck | 통과 |
+| Frontend lint | error 0, 기존 Fast Refresh warning 1 |
+| Frontend 전체 unit | 172/172 통과 |
+| Frontend build | 통과, 기존 large chunk warning |
+| Mock UI E2E | 4/4 통과, test가 갱신한 기존 screenshot은 원복 |
+| 로그인 HTTPS 5174 | `/pending/` canonicalization, dashboard·프로젝트·실제 상세 본문·이력 표시 확인 |
+| Backend 5081·DB | 기존 listener·healthy DB 보존, 재시작·migration·seed·data 변경 0 |
+
+### 시행착오 및 폐기한 접근
+
+- 첫 전체 unit과 build 병렬 실행에서 알림 설정 test 1건이 로딩 완료 전 assertion으로 실패했다. 해당 test 단독 2/2와 자원 경쟁 없는 전체 172/172가 통과해 제품 결함으로 재현되지 않았다.
+- current source Backend로 바로 재기동하려 했지만 privacy-safe schema 점검에서 live ledger 64개와 조치 사진 table 부재를 확인했다. 승인되지 않은 migration을 우회하지 않고 5081을 보존했다.
+- Mock UI E2E가 기존 계획 screenshot을 다시 생성해, 실행 전 clean 기준과 대조한 exact screenshot directory만 원복했다.
+
+### 영향과 개인정보 검토
+
+- Frontend route, Pending 상세 render boundary와 tests만 변경했다. Backend/API 권한·workflow·DB/migration·Excel/PDF·첨부 저장 계약은 변경하지 않았다.
+- 실제 사용자명·프로젝트 원문·identifier·token·password·connection string·인증서 key를 tracked 산출물에 기록하지 않았다. Browser 증빙은 역할·건수·결과만 projection했다.
+- 구현 commit `db9cb34`와 local `main` fast-forward merge를 완료했고, 5174가 local `main`의 동일 수정본을 반영한다. 2026-08-04 별도 `TASK-EXPERIMENT-PROMOTION-001 Change 002` 승인으로 Azure 원격 기준선과 통합해 Ready PR·CI를 거쳐 원격 `main`에도 반영했다. 배포·migration·5081 handover는 미실행이다.
+
+### Finding closure
+
+| Finding | 심각도 | 상태 | 해소·후속 |
+| --- | --- | --- | --- |
+| `UAT-PENDING-007-A` | P1 | `RESOLVED` | 구형 5081 누락 응답을 Frontend가 격리하고 실제 상세 조회 확인 |
+| `UAT-PENDING-007-B` | P1 | `RESOLVED` | 단일 부가 section이 상세 전체를 blank로 만들지 않게 보정 |
+| `UAT-PENDING-007-C` | P2 | `RESOLVED` | trailing slash canonicalization과 회귀 |
+| `UAT-PENDING-007-D` | P3 | `BACKLOG` | local UAT ledger 64개와 source 67개 drift. 후속 controlled migration·5081 handover 승인 때 재검토 |
+
+Open Finding은 P0/P1/P2/P3 `0/0/0/1`이다.
+
+### 사용자 검수 결과와 남은 항목
+
+- Codex actual browser smoke: 완료 — 로그인된 5174에서 dashboard·프로젝트·상세·복귀 동선을 확인했다.
+- User validation checklist: [Change 007 8장](uat-001-change-007.md#8-사용자-검수-checklist) — `사용자 검수 완료`, 2026-08-02
+- 조치 사진 실제 활성화는 migration·5081 handover 별도 승인 전까지 실행하지 않는다.
+- 사용자 승인에 따라 구현 commit과 local `main` fast-forward merge를 완료했다. 원격 게시와 배포 승인은 분리한다.
+
+### Rollback과 5종 산출물
+
+- schema/data 변경이 없어 Frontend 세 파일과 test를 되돌리면 된다. stale Backend로 blank 화면을 복구하는 방향은 rollback으로 사용하지 않는다.
+- Implementation report: 이 문서 28장
+- SOP: [기존 SOP](uat-001-sop.md), 절차 변경 없음으로 독립 추가 `N/A`
+- User manual: 신규 기능 없음으로 독립 변경 `N/A`; 사용자 검수 동선은 Change 007 8장
+- Roadmap update: [Product Roadmap TASK-UAT-001](../docs/00-product-roadmap.md#task-uat-001-https-development-uat-안정화)
+- User validation checklist: [Change 007 8장](uat-001-change-007.md#8-사용자-검수-checklist)

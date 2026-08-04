@@ -3,10 +3,10 @@
 ## Change 005 — Active workload readiness
 
 - [x] Backend probe Host 보정과 Nginx 64자 token configuration의 로컬 자동 검증이 통과했다.
-- [ ] 새 Frontend image와 workload revision이 실제 Azure에 반영됐다.
-- [ ] Backend·Frontend·ClamAV replica가 모두 ready이고 재시작이 증가하지 않는다.
+- [x] Change 005 Frontend image와 workload revision이 실제 Azure에 반영됐다.
+- [x] Backend·Frontend·ClamAV가 모두 provisioning `Succeeded`, running, latest revision ready다. (read-only 재확인, 2026-08-04)
 - [ ] Frontend direct health는 `200`, direct 업무 route는 `403`이다.
-- [ ] public traffic과 external notification은 Edge·인증 Gate 전까지 비활성이다.
+- [x] Front Door route 0개이며 public traffic과 external notification은 Edge·인증 Gate 전까지 비활성이다. (read-only 재확인, 2026-08-04)
 
 ## Change 003 로컬 P1 보안 변경
 
@@ -34,9 +34,9 @@
 
 ## 배포와 복구
 
-- [ ] Migration job이 Exact로 끝나기 전 public traffic이 열리지 않았다.
-- [ ] PITR restore가 60분 이내에 끝났고 migration ledger와 aggregate가 맞았다.
-- [ ] Backend와 ClamAV에 public ingress가 없다.
+- [x] Migration job이 Exact로 끝나기 전 public traffic이 열리지 않았다.
+- [x] PITR restore가 60분 이내에 끝났고 migration ledger와 aggregate가 맞았다.
+- [x] Backend와 ClamAV에 public ingress가 없고 Frontend만 external ingress다. (read-only 재확인, 2026-08-04)
 - [ ] Front Door URL은 열리고 Container App 원본 URL은 health 이외 403이다.
 - [ ] TLS certificate가 최종 hostname과 일치한다.
 - [ ] Key Vault 전체 scope의 workload secret-read role이 0이다.

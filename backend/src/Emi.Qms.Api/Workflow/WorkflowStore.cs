@@ -4,6 +4,14 @@ namespace Emi.Qms.Api.Workflow;
 
 public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStringProvider)
 {
+    private static readonly IReadOnlySet<string> ProgressImplicitCompletionStageCodes = new HashSet<string>(StringComparer.Ordinal)
+    {
+        WorkflowStageCodes.ProcurementInfo,
+        WorkflowStageCodes.MaterialArrived,
+        WorkflowStageCodes.IQC,
+        WorkflowStageCodes.ReceiptConfirmed
+    };
+
     private static readonly IReadOnlyDictionary<string, string> StageToNextStage = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         [WorkflowStageCodes.SalesProjectCreated] = WorkflowStageCodes.ProductionPlanning,
@@ -425,12 +433,19 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         var requiredStages = stages
             .Where(stage => !stage.IsOptional || (string.Equals(stage.StageCode, WorkflowStageCodes.FAT, StringComparison.Ordinal) && projectFatRequired))
             .ToList();
-        var completedRequiredCount = requiredStages.Count(stage => string.Equals(stage.Status, "Completed", StringComparison.Ordinal));
+        var furthestReachedSequence = requiredStages
+            .Where(IsReachedStage)
+            .Select(stage => stage.SequenceNumber)
+            .DefaultIfEmpty(0)
+            .Max();
+        var completedRequiredCount = requiredStages.Count(stage =>
+            string.Equals(stage.Status, "Completed", StringComparison.Ordinal)
+            || (ProgressImplicitCompletionStageCodes.Contains(stage.StageCode)
+                && stage.SequenceNumber < furthestReachedSequence));
         var progressPercent = requiredStages.Count == 0
             ? 0
             : (int)Math.Round(completedRequiredCount * 100m / requiredStages.Count, MidpointRounding.AwayFromZero);
-        var currentStage = requiredStages.FirstOrDefault(stage => !string.Equals(stage.Status, "Completed", StringComparison.Ordinal))
-            ?? requiredStages.LastOrDefault()
+        var currentStage = SelectCurrentStage(requiredStages)
             ?? stages.LastOrDefault();
 
         return new ProjectWorkflowResponse(
@@ -445,6 +460,29 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             currentStage?.DepartmentCode ?? "sales",
             currentStage?.DepartmentLabel ?? "영업");
     }
+
+    private static ProjectWorkflowStageResponse? SelectCurrentStage(IReadOnlyList<ProjectWorkflowStageResponse> requiredStages)
+    {
+        for (var index = requiredStages.Count - 1; index >= 0; index--)
+        {
+            var stage = requiredStages[index];
+            if (!IsReachedStage(stage))
+            {
+                continue;
+            }
+
+            return string.Equals(stage.Status, "Completed", StringComparison.Ordinal)
+                && index + 1 < requiredStages.Count
+                    ? requiredStages[index + 1]
+                    : stage;
+        }
+
+        return requiredStages.FirstOrDefault();
+    }
+
+    private static bool IsReachedStage(ProjectWorkflowStageResponse stage) =>
+        !string.Equals(stage.Status, "NotStarted", StringComparison.Ordinal)
+        && !string.Equals(stage.Status, "Skipped", StringComparison.Ordinal);
 
     public async Task SyncStageWorkItemsAfterSaveAsync(
         Guid projectId,

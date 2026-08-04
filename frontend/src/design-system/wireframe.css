@@ -1000,6 +1000,13 @@ body,
 .app-shell .project-progress-meter[data-tone='warning'] > i > b { background-color: #b97810 !important; }
 .app-shell .project-progress-meter[data-tone='info'] > i > b { background-color: #3a5bb8 !important; }
 
+/* Production-plan progress is data, so the global inline-mark reset must not
+   make the completed portion transparent. */
+.app-shell .production-control-progress > i {
+  background-color: var(--wire-black) !important;
+  background-image: none !important;
+}
+
 /* Production-plan bars are information-bearing marks, not decoration. */
 .app-shell .production-control-gantt [data-bar='plan'] {
   border: 1px solid var(--wire-black) !important;

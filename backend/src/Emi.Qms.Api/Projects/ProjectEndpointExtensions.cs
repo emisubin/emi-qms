@@ -53,6 +53,7 @@ public static class ProjectEndpointExtensions
         api.MapGet("/projects", async (
             HttpRequest request,
             ProjectStore projectStore,
+            WorkflowStore workflowStore,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -75,7 +76,14 @@ public static class ProjectEndpointExtensions
                 HasPermission(user, QmsPermissions.PendingRead),
                 cancellationToken);
 
-            return Results.Ok(result);
+            var canonicalItems = new List<ProjectListItemResponse>(result.Items.Count);
+            foreach (var project in result.Items)
+            {
+                var workflow = await workflowStore.GetProjectWorkflowAsync(project.ProjectId, cancellationToken);
+                canonicalItems.Add(workflow is null ? project : WithWorkflowSummary(project, workflow));
+            }
+
+            return Results.Ok(result with { Items = canonicalItems });
         })
         .RequireAuthorization()
         .WithName("ListProjects");
@@ -644,6 +652,43 @@ public static class ProjectEndpointExtensions
             bool.TryParse(request.Query["includeCancelled"].ToString(), out var includeCancelled) && includeCancelled,
             int.TryParse(request.Query["page"].ToString(), out var page) ? page : 1,
             int.TryParse(request.Query["pageSize"].ToString(), out var pageSize) ? pageSize : 20);
+    }
+
+    private static ProjectListItemResponse WithWorkflowSummary(
+        ProjectListItemResponse project,
+        ProjectWorkflowResponse workflow)
+    {
+        var projectWorkStatus = project.Status switch
+        {
+            "OnHold" => "OnHold",
+            "Completed" => "Completed",
+            "Cancelled" => "Cancelled",
+            _ => workflow.CurrentStageCode
+        };
+
+        return new ProjectListItemResponse
+        {
+            ProjectId = project.ProjectId,
+            CustomerName = project.CustomerName,
+            Item = project.Item,
+            ProjectCode = project.ProjectCode,
+            ProjectTitle = project.ProjectTitle,
+            ActivePanelCount = project.ActivePanelCount,
+            DeliveryDate = project.DeliveryDate,
+            SalesOwnerUserId = project.SalesOwnerUserId,
+            SalesOwnerName = project.SalesOwnerName,
+            PackagingMethod = project.PackagingMethod,
+            DeliveryLocation = project.DeliveryLocation,
+            FatRequired = project.FatRequired,
+            Status = project.Status,
+            ProjectWorkStatus = projectWorkStatus,
+            ProjectProgressPercent = workflow.ProgressPercent,
+            Bottleneck = project.Bottleneck,
+            CreatedAt = project.CreatedAt,
+            UpdatedAt = project.UpdatedAt,
+            SalesAmount = project.SalesAmount,
+            CurrencyCode = project.CurrencyCode
+        };
     }
 
     private static DeletedProjectListQuery ParseDeletedProjectListQuery(HttpRequest request)

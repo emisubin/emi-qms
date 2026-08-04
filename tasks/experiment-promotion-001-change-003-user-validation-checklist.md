@@ -1,6 +1,6 @@
 # TASK-EXPERIMENT-PROMOTION-001 Change 003 사용자 검수 체크리스트
 
-상태: `자동 검증 완료 / Change 004 게시·병합 승인`
+상태: `자동 검증 완료 / Change 004 원격 main 병합 완료`
 
 ## Change 004 긴급 수정 확인
 
@@ -51,3 +51,5 @@
 - [ ] 통합 후보 게시 승인 여부를 별도로 결정
 
 검수 완료는 commit·push·PR·merge, Persistent UAT migration·runtime handover, Azure image 재배포·traffic·provider 승인을 대신하지 않는다.
+
+게시 결과: Ready PR #65 CI 3/3 성공, merge commit `79b90b8`. 이 결과는 Persistent UAT·Azure 변경 승인을 포함하지 않는다.

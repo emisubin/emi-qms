@@ -6,7 +6,8 @@
 
 - Task 유형: `BUGFIX`
 - 사용자 승인: 2026-08-04 구현·commit·push·Ready PR·CI 확인 뒤 merge
-- 상태: 구현·자동 검증·실제 검수 화면 확인 완료, Git 게시 Gate 진행
+- 상태: 구현·자동 검증·실제 검수 화면·GitHub CI 완료, 원격 main 병합 완료
+- publication: commit `0d444e6`, Ready PR #65, CI 3/3 성공, merge commit `79b90b8`
 - 변경: 제조·품질·물류 desktop 표의 `No`만 현재 활성 행 기준 `1..N`으로 표시
 - 보존: `P52` 같은 영구 panel code, panel ID, QR·audit·workflow·취소 이력, mobile card, Backend·DB·migration
 - 제외: Persistent UAT handover, Azure resource·image·traffic·provider mutation
@@ -34,6 +35,8 @@
 | 실제 5191 검수 화면 | `PASS` — 세 표 각각 42행, P52 단일 행, 제조·품질·물류 모두 `No 42` |
 
 Open Finding P0/P1/P2는 `0/0/0`이다. Change 003의 Backend `482/482`, Mock `4/4`, 전체 Full-Stack `56/56` 기준은 이번 Frontend 표시-only 수정에서 변경하지 않았다. 게시 뒤에는 history rewrite 없이 revert PR 또는 forward-fix PR을 사용한다.
+
+원격 main 반영 뒤 다음 canonical Gate는 동일 기능의 재이식이 아니라 merge commit `79b90b8` 기준 Backend·Frontend image 재게시와 migration `0068`의 승인된 Persistent UAT handover다. 이번 Change는 Azure resource·traffic·provider를 변경하지 않았다.
 
 ## Change 003 — 통합 main 기준 UL891 사용자 수정 이식
 

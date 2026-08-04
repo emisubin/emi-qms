@@ -48,3 +48,11 @@
 - merge 전에는 branch를 게시하지 않거나 PR을 닫는다.
 - merge 뒤에는 history rewrite 없이 revert PR 또는 forward-fix PR을 사용한다.
 - 데이터·migration 변경이 없으므로 DB rollback은 적용 대상이 아니다.
+
+## 게시 결과
+
+- source commit: `0d444e6f59bfb19a17b7b83450e813eb7f4e7574`
+- Ready PR: `#65`
+- GitHub CI: `3/3 PASS`
+- main merge commit: `79b90b8997ca2fe5070d0151d168f851e9f6cd16`
+- 다음 Gate: 통합 source image 재배포와 migration `0068`의 승인된 Persistent UAT handover

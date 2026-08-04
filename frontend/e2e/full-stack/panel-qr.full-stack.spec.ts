@@ -48,7 +48,7 @@ test('TASK-QR-001: issue, preview, print, scan-route, and rotation use the real 
   const token = new URL(firstPanel.qr.scanUrl).pathname.split('/').at(-1)!;
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.evaluate(() => window.localStorage.setItem('emi-qms-development-user-key', 'dev-production'));
+  await page.evaluate(() => window.localStorage.setItem('emi-qms-development-user-key', 'dev-procurement'));
   await page.goto(`/q/${token}`);
   await expect(page.getByRole('heading', { name: 'QR-PANEL-01' })).toBeVisible();
   await expect(page.getByText(project.projectTitle)).toBeVisible();

@@ -68,6 +68,9 @@ public static partial class ProjectInputNormalizer
             : FormattableString.Invariant($"P{sequenceNumber}");
     }
 
+    public static string FormatUl891SlotCode(int positionNumber) =>
+        FormattableString.Invariant($"S{positionNumber:000}");
+
     public static string FormatAuditValue(object? value)
     {
         return value switch
@@ -245,30 +248,16 @@ public static partial class ProjectRequestValidator
                 continue;
             }
 
-            if (source.Components is null || source.Components.Count == 0 || source.Components.Count > 200)
+            var componentCount = source.PanelCount ?? source.Components?.Count;
+            if (componentCount is null or < 1 or > 200)
             {
-                validation.Add($"Ul891SetSpecs[{index}].Components", "구성 패널 code를 1개 이상 200개 이하로 입력해 주세요.");
+                validation.Add($"Ul891SetSpecs[{index}].PanelCount", "세트당 패널 수는 1개 이상 200개 이하로 입력해 주세요.");
                 continue;
             }
 
-            var codes = new List<string>();
-            var codeSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            for (var componentIndex = 0; componentIndex < source.Components.Count; componentIndex++)
-            {
-                var code = ProjectInputNormalizer.TrimToNull(source.Components[componentIndex].ComponentCode)?.ToUpperInvariant();
-                if (code is null || code.Length > 30)
-                {
-                    validation.Add($"Ul891SetSpecs[{index}].Components[{componentIndex}].ComponentCode", "구성 code는 1자 이상 30자 이하로 입력해 주세요.");
-                    continue;
-                }
-
-                if (!codeSet.Add(code))
-                {
-                    validation.Add($"Ul891SetSpecs[{index}].Components[{componentIndex}].ComponentCode", "한 사양 안에서 구성 code를 중복 입력할 수 없습니다.");
-                    continue;
-                }
-                codes.Add(code);
-            }
+            var codes = Enumerable.Range(1, componentCount.Value)
+                .Select(ProjectInputNormalizer.FormatUl891SlotCode)
+                .ToList();
 
             totalPanels += source.Quantity.Value * codes.Count;
             result.Add(new NormalizedUl891SetSpecInput(name, source.Quantity.Value, codes));

@@ -43,15 +43,25 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                 ("spec_id", specId), ("project_id", projectId), ("spec_no", specIndex + 1),
                 ("name", source.Name), ("actor_id", actorId), ("version_id", versionId));
 
+            var slots = new List<(Guid SlotId, string InternalCode)>();
             for (var componentIndex = 0; componentIndex < source.ComponentCodes.Count; componentIndex++)
             {
+                var slotId = Guid.NewGuid();
+                var internalCode = source.ComponentCodes[componentIndex];
                 await ExecuteAsync(connection, transaction, """
                     insert into ul891_set_spec_components (
                         id, spec_version_id, component_code, sort_order
                     ) values (@id, @version_id, @component_code, @sort_order);
+
+                    insert into ul891_set_design_slots (
+                        id, spec_id, position_number, internal_code,
+                        created_by_user_id, updated_by_user_id
+                    ) values (@slot_id, @spec_id, @sort_order, @component_code, @actor_id, @actor_id);
                     """, token,
                     ("id", Guid.NewGuid()), ("version_id", versionId),
-                    ("component_code", source.ComponentCodes[componentIndex]), ("sort_order", componentIndex + 1));
+                    ("component_code", internalCode), ("sort_order", componentIndex + 1),
+                    ("slot_id", slotId), ("spec_id", specId), ("actor_id", actorId));
+                slots.Add((slotId, internalCode));
             }
 
             for (var instanceNumber = 1; instanceNumber <= source.Quantity; instanceNumber++)
@@ -65,7 +75,7 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                     ("id", instanceId), ("spec_id", specId), ("instance_number", instanceNumber),
                     ("version_id", versionId), ("actor_id", actorId));
 
-                foreach (var componentCode in source.ComponentCodes)
+                foreach (var slot in slots)
                 {
                     panelSequence++;
                     var panelId = Guid.NewGuid();
@@ -73,14 +83,15 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                     await ExecuteAsync(connection, transaction, """
                         insert into panel_placeholders (
                             id, project_id, sequence_number, display_code, status,
-                            panel_info_completed, qr_eligible, set_instance_id, component_code, updated_at_utc
+                            panel_info_completed, qr_eligible, set_instance_id, component_code, design_slot_id, updated_at_utc
                         ) values (
                             @id, @project_id, @sequence_number, @display_code, 'Active',
-                            false, false, @instance_id, @component_code, now()
+                            false, false, @instance_id, @component_code, @design_slot_id, now()
                         );
                         """, token,
                         ("id", panelId), ("project_id", projectId), ("sequence_number", panelSequence),
-                        ("display_code", displayCode), ("instance_id", instanceId), ("component_code", componentCode));
+                        ("display_code", displayCode), ("instance_id", instanceId),
+                        ("component_code", slot.InternalCode), ("design_slot_id", slot.SlotId));
                 }
             }
 
@@ -142,22 +153,20 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
     {
         var name = NormalizeText(request.Name);
         var reason = NormalizeText(request.Reason);
-        var codes = request.Components?
-            .Select(item => NormalizeText(item.ComponentCode)?.ToUpperInvariant())
-            .ToList();
+        var panelCount = request.PanelCount ?? request.Components?.Count;
         if (request.OperationId == Guid.Empty || request.ExpectedSpecCount is null or < 1
             || name is null || name.Length > 120 || request.Quantity is null or < 1 or > 999
-            || reason is null || codes is null || codes.Count == 0 || codes.Count > 200
-            || codes.Any(code => code is null || code.Length > 30)
-            || codes.Where(code => code is not null).Distinct(StringComparer.OrdinalIgnoreCase).Count() != codes.Count)
+            || reason is null || panelCount is null or < 1 or > 200)
         {
             return ProjectMutationResult<Ul891MutationResponse>.Validation(new Dictionary<string, string[]>
             {
-                ["SetSpec"] = ["현재 사양 수, 사양명, 주문 수량, 중복 없는 구성 code, 변경 사유와 operationId를 확인해 주세요."]
+                ["SetSpec"] = ["현재 사양 수, 사양명, 주문 수량, 세트당 패널 수, 변경 사유와 operationId를 확인해 주세요."]
             });
         }
 
-        var normalizedCodes = codes.Select(code => code!).ToList();
+        var normalizedCodes = Enumerable.Range(1, panelCount.Value)
+            .Select(ProjectInputNormalizer.FormatUl891SlotCode)
+            .ToList();
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(token);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
@@ -198,13 +207,20 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
             """, token, ("spec_id", specId), ("project_id", projectId), ("spec_no", nextSpecNo),
             ("name", name), ("actor_id", actorId), ("version_id", versionId), ("reason", reason));
 
+        var slots = new List<(Guid SlotId, string InternalCode)>();
         for (var index = 0; index < normalizedCodes.Count; index++)
         {
+            var slotId = Guid.NewGuid();
             await ExecuteAsync(connection, transaction, """
                 insert into ul891_set_spec_components (id,spec_version_id,component_code,sort_order)
                 values (@id,@version_id,@code,@sort_order);
+                insert into ul891_set_design_slots (
+                    id,spec_id,position_number,internal_code,created_by_user_id,updated_by_user_id
+                ) values (@slot_id,@spec_id,@sort_order,@code,@actor_id,@actor_id);
                 """, token, ("id", Guid.NewGuid()), ("version_id", versionId),
-                ("code", normalizedCodes[index]), ("sort_order", index + 1));
+                ("code", normalizedCodes[index]), ("sort_order", index + 1),
+                ("slot_id", slotId), ("spec_id", specId), ("actor_id", actorId));
+            slots.Add((slotId, normalizedCodes[index]));
         }
 
         for (var instanceNumber = 1; instanceNumber <= request.Quantity.Value; instanceNumber++)
@@ -217,10 +233,10 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                 ("version_id", versionId), ("actor_id", actorId));
             await ProductionPlanningStore.EnsureSetPlanScopeAsync(
                 connection, transaction, projectId, instanceId, actorId, token);
-            foreach (var code in normalizedCodes)
+            foreach (var slot in slots)
             {
                 maxPanel++;
-                await InsertSetPanelAsync(connection, transaction, projectId, instanceId, code, maxPanel, token);
+                await InsertSetPanelAsync(connection, transaction, projectId, instanceId, slot.InternalCode, maxPanel, token, slot.SlotId);
             }
         }
 
@@ -230,6 +246,203 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
         await InsertOperationAsync(connection, transaction, request.OperationId, projectId, actorId, "AddSpec", fingerprint, response, token);
         await transaction.CommitAsync(token);
         return ProjectMutationResult<Ul891MutationResponse>.Success(response);
+    }
+
+    public async Task<ProjectMutationResult<Ul891MutationResponse>> UpdateCurrentDesignAsync(
+        Guid projectId,
+        Guid specId,
+        UpdateUl891CurrentDesignRequest request,
+        Guid actorId,
+        string correlationId,
+        CancellationToken token)
+    {
+        var name = NormalizeText(request.SpecName);
+        var reason = NormalizeText(request.Reason);
+        var requestedSlots = request.Slots ?? [];
+        var errors = new Dictionary<string, string[]>();
+        if (request.ExpectedSpecVersion is null or < 1)
+            errors[nameof(request.ExpectedSpecVersion)] = ["현재 설계 수정 번호가 필요합니다."];
+        if (name is null || name.Length > 120)
+            errors[nameof(request.SpecName)] = ["세트 사양명은 1자 이상 120자 이하로 입력해 주세요."];
+        if (reason is null || reason.Length > 500)
+            errors[nameof(request.Reason)] = ["수정 사유는 1자 이상 500자 이하로 입력해 주세요."];
+        if (requestedSlots.Count is < 1 or > 200)
+            errors[nameof(request.Slots)] = ["세트의 패널 위치는 1개 이상 200개 이하로 입력해 주세요."];
+        var requestedIds = new HashSet<Guid>();
+        for (var index = 0; index < requestedSlots.Count; index++)
+        {
+            var slot = requestedSlots[index];
+            if (slot.SlotId is Guid slotId && !requestedIds.Add(slotId))
+                errors[$"Slots[{index}].SlotId"] = ["같은 패널 위치를 두 번 저장할 수 없습니다."];
+            if (NormalizeText(slot.PanelName)?.Length > 200)
+                errors[$"Slots[{index}].PanelName"] = ["패널명은 200자 이하로 입력해 주세요."];
+            if (NormalizeText(slot.PanelSpecification)?.Length > 500)
+                errors[$"Slots[{index}].PanelSpecification"] = ["패널 규격은 500자 이하로 입력해 주세요."];
+            if (new[] { slot.WidthMm, slot.HeightMm, slot.DepthMm }.Any(value => value is < 0))
+                errors[$"Slots[{index}].Dimensions"] = ["치수는 0 이상이어야 합니다."];
+        }
+        if (errors.Count > 0)
+            return ProjectMutationResult<Ul891MutationResponse>.Validation(errors);
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(token);
+        await using var transaction = await connection.BeginTransactionAsync(token);
+        var project = await LockProjectAsync(connection, transaction, projectId, token);
+        if (project is null) return await RollbackNotFound(transaction, token);
+        if (project.Status == "Completed")
+            return await RollbackConflict(transaction, "완료된 프로젝트의 세트 설계는 수정할 수 없습니다.", token);
+
+        int currentSpecVersion;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "select row_version from ul891_set_specs where id=@spec_id and project_id=@project_id for update;";
+            command.Parameters.AddWithValue("spec_id", specId);
+            command.Parameters.AddWithValue("project_id", projectId);
+            var value = await command.ExecuteScalarAsync(token);
+            if (value is not int parsed) return await RollbackNotFound(transaction, token);
+            currentSpecVersion = parsed;
+        }
+        if (currentSpecVersion != request.ExpectedSpecVersion)
+            return await RollbackConflict(transaction, "다른 사용자가 세트 설계를 먼저 수정했습니다. 최신 내용을 다시 불러와 주세요.", token);
+
+        var existingSlots = await ReadAllDesignSlotsAsync(connection, transaction, specId, token);
+        var existingById = existingSlots.ToDictionary(slot => slot.SlotId);
+        for (var index = 0; index < requestedSlots.Count; index++)
+        {
+            var requested = requestedSlots[index];
+            if (requested.SlotId is Guid requestedId
+                && (!existingById.TryGetValue(requestedId, out var existing) || existing.Status != "Active"))
+                return await RollbackValidation(transaction, $"Slots[{index}].SlotId", "현재 활성 패널 위치를 다시 선택해 주세요.", token);
+        }
+
+        var removedSlots = existingSlots
+            .Where(slot => slot.Status == "Active" && !requestedIds.Contains(slot.SlotId))
+            .ToList();
+        foreach (var removed in removedSlots)
+        {
+            var panelIds = await ReadActivePanelIdsForSlotAsync(connection, transaction, removed.SlotId, token);
+            foreach (var panelId in panelIds)
+            {
+                if (await PanelHasStartedAsync(connection, transaction, panelId, token))
+                    return await RollbackConflict(transaction, "이미 착수한 패널 위치는 세트 설계에서 삭제할 수 없습니다.", token);
+            }
+        }
+
+        var activeInstanceIds = new List<Guid>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "select id from ul891_set_instances where spec_id=@spec_id and status='Active' order by instance_number for update;";
+            command.Parameters.AddWithValue("spec_id", specId);
+            await using var reader = await command.ExecuteReaderAsync(token);
+            while (await reader.ReadAsync(token)) activeInstanceIds.Add(reader.GetGuid(0));
+        }
+
+        var activePanelCount = await ReadActivePanelCountAsync(connection, transaction, projectId, token);
+        var newSlotCount = requestedSlots.Count(slot => slot.SlotId is null);
+        var removedSlotCount = removedSlots.Count;
+        var resultingPanelCount = activePanelCount + activeInstanceIds.Count * (newSlotCount - removedSlotCount);
+        if (resultingPanelCount > ProjectDomainRules.MaxPanelsPerProject)
+            return await RollbackValidation(transaction, nameof(request.Slots), $"프로젝트의 활성 패널은 최대 {ProjectDomainRules.MaxPanelsPerProject}개까지 만들 수 있습니다.", token);
+
+        await ExecuteAsync(connection, transaction,
+            "update ul891_set_design_slots set status='Removed',row_version=row_version+1,updated_by_user_id=@actor_id,updated_at_utc=now() where spec_id=@spec_id and status='Active';",
+            token, ("actor_id", actorId), ("spec_id", specId));
+
+        var usedCodes = existingSlots.Select(slot => slot.InternalCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var createdSlots = new List<DesignSlotSnapshot>();
+        var nextCodeNumber = existingSlots.Count + 1;
+        for (var index = 0; index < requestedSlots.Count; index++)
+        {
+            var requested = requestedSlots[index];
+            var panelName = NormalizeText(requested.PanelName);
+            var panelSpecification = NormalizeText(requested.PanelSpecification);
+            if (requested.SlotId is Guid existingId)
+            {
+                await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    update ul891_set_design_slots
+                    set position_number=@position_number, panel_name=@panel_name,
+                        panel_specification=@panel_specification,
+                        width_mm=@width, height_mm=@height, depth_mm=@depth,
+                        status='Active', row_version=row_version+1,
+                        updated_by_user_id=@actor_id, updated_at_utc=now()
+                    where id=@slot_id and spec_id=@spec_id;
+                    """;
+                command.Parameters.AddWithValue("position_number", index + 1);
+                AddNullableText(command, "panel_name", panelName);
+                AddNullableText(command, "panel_specification", panelSpecification);
+                AddNullableDecimal(command, "width", requested.WidthMm);
+                AddNullableDecimal(command, "height", requested.HeightMm);
+                AddNullableDecimal(command, "depth", requested.DepthMm);
+                command.Parameters.AddWithValue("actor_id", actorId);
+                command.Parameters.AddWithValue("slot_id", existingId);
+                command.Parameters.AddWithValue("spec_id", specId);
+                await command.ExecuteNonQueryAsync(token);
+                continue;
+            }
+
+            string internalCode;
+            do internalCode = $"D{nextCodeNumber++:000}";
+            while (!usedCodes.Add(internalCode));
+            var slotId = Guid.NewGuid();
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    insert into ul891_set_design_slots (
+                        id,spec_id,position_number,internal_code,panel_name,panel_specification,
+                        width_mm,height_mm,depth_mm,created_by_user_id,updated_by_user_id
+                    ) values (
+                        @id,@spec_id,@position_number,@internal_code,@panel_name,@panel_specification,
+                        @width,@height,@depth,@actor_id,@actor_id
+                    );
+                    """;
+                command.Parameters.AddWithValue("id", slotId);
+                command.Parameters.AddWithValue("spec_id", specId);
+                command.Parameters.AddWithValue("position_number", index + 1);
+                command.Parameters.AddWithValue("internal_code", internalCode);
+                AddNullableText(command, "panel_name", panelName);
+                AddNullableText(command, "panel_specification", panelSpecification);
+                AddNullableDecimal(command, "width", requested.WidthMm);
+                AddNullableDecimal(command, "height", requested.HeightMm);
+                AddNullableDecimal(command, "depth", requested.DepthMm);
+                command.Parameters.AddWithValue("actor_id", actorId);
+                await command.ExecuteNonQueryAsync(token);
+            }
+            createdSlots.Add(new DesignSlotSnapshot(slotId, index + 1, internalCode, "Active"));
+        }
+
+        foreach (var removed in removedSlots)
+        {
+            var panelIds = await ReadActivePanelIdsForSlotAsync(connection, transaction, removed.SlotId, token);
+            foreach (var panelId in panelIds)
+                await CancelPanelAsync(connection, transaction, projectId, panelId, "세트 설계 위치 삭제", actorId, correlationId, token);
+        }
+
+        var maxPanel = await ReadMaxPanelSequenceAsync(connection, transaction, projectId, token);
+        foreach (var instanceId in activeInstanceIds)
+        {
+            foreach (var created in createdSlots)
+            {
+                maxPanel++;
+                await InsertSetPanelAsync(connection, transaction, projectId, instanceId, created.InternalCode, maxPanel, token, created.SlotId);
+            }
+        }
+
+        await ExecuteAsync(connection, transaction, """
+            update ul891_set_specs
+            set name=@name,row_version=row_version+1,updated_by_user_id=@actor_id,updated_at_utc=now()
+            where id=@spec_id;
+            """, token, ("name", name!), ("actor_id", actorId), ("spec_id", specId));
+        await RefreshCurrentPanelInformationAsync(connection, transaction, projectId, specId, token);
+        await InsertAuditAsync(connection, transaction, projectId, "SetSpec", specId,
+            "SetCurrentDesignUpdated", "CurrentDesign", null, $"{requestedSlots.Count} positions", reason, actorId, correlationId, token);
+        await transaction.CommitAsync(token);
+        return ProjectMutationResult<Ul891MutationResponse>.Success(
+            new Ul891MutationResponse(Guid.Empty, projectId, "CurrentDesignUpdated", false));
     }
 
     public async Task<ProjectMutationResult<Ul891MutationResponse>> UpdateDraftAsync(
@@ -509,7 +722,14 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                        count(instance.id) filter (where instance.status='Active')::integer,
                        coalesce(max(instance.instance_number),0)::integer
                 from ul891_set_specs spec
-                join ul891_set_spec_versions version on version.spec_id=spec.id and version.status='Published'
+                join lateral (
+                    select candidate.id
+                    from ul891_set_spec_versions candidate
+                    where candidate.spec_id=spec.id
+                    order by case candidate.status when 'Draft' then 0 when 'Published' then 1 else 2 end,
+                             candidate.version_number desc
+                    limit 1
+                ) version on true
                 left join ul891_set_instances instance on instance.spec_id=spec.id
                 where spec.id=@spec_id and spec.project_id=@project_id
                 group by version.id;
@@ -517,16 +737,16 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
             command.Parameters.AddWithValue("spec_id", specId);
             command.Parameters.AddWithValue("project_id", projectId);
             await using var reader = await command.ExecuteReaderAsync(token);
-            if (!await reader.ReadAsync(token)) return await RollbackConflict(transaction, "확정된 세트 사양이 필요합니다.", token);
+            if (!await reader.ReadAsync(token)) return await RollbackConflict(transaction, "현재 세트 설계를 찾을 수 없습니다.", token);
             versionId = reader.GetGuid(0);
             currentCount = reader.GetInt32(1);
             maxInstance = reader.GetInt32(2);
         }
         if (currentCount != request.ExpectedActiveInstanceCount) return await RollbackConflict(transaction, "다른 사용자가 주문 수량을 변경했습니다. 최신 내용을 다시 불러와 주세요.", token);
 
-        var components = await ReadComponentCodesAsync(connection, transaction, versionId, token);
+        var slots = await ReadActiveDesignSlotsAsync(connection, transaction, specId, token);
         var maxPanel = await ReadMaxPanelSequenceAsync(connection, transaction, projectId, token);
-        if (maxPanel + request.Quantity.Value * components.Count > ProjectDomainRules.MaxPanelsPerProject)
+        if (maxPanel + request.Quantity.Value * slots.Count > ProjectDomainRules.MaxPanelsPerProject)
         {
             return await RollbackValidation(transaction, "Quantity", $"프로젝트 패널은 최대 {ProjectDomainRules.MaxPanelsPerProject}개까지 생성할 수 있습니다.", token);
         }
@@ -540,10 +760,10 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                 ("version_id", versionId), ("actor_id", actorId));
             await ProductionPlanningStore.EnsureSetPlanScopeAsync(
                 connection, transaction, projectId, instanceId, actorId, token);
-            foreach (var code in components)
+            foreach (var slot in slots)
             {
                 maxPanel++;
-                await InsertSetPanelAsync(connection, transaction, projectId, instanceId, code, maxPanel, token);
+                await InsertSetPanelAsync(connection, transaction, projectId, instanceId, slot.InternalCode, maxPanel, token, slot.SlotId);
             }
         }
         await InsertAuditAsync(connection, transaction, projectId, "SetSpec", specId,
@@ -848,6 +1068,27 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
         await using (var command = connection.CreateCommand())
         {
             command.CommandText = """
+                select slot.spec_id, slot.id, slot.position_number, slot.panel_name,
+                       slot.panel_specification, slot.width_mm, slot.height_mm, slot.depth_mm,
+                       slot.row_version
+                from ul891_set_design_slots slot
+                join ul891_set_specs spec on spec.id=slot.spec_id
+                where spec.project_id=@project_id and slot.status='Active'
+                order by spec.spec_no, slot.position_number;
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            await using var reader = await command.ExecuteReaderAsync(token);
+            while (await reader.ReadAsync(token))
+            {
+                specs[reader.GetGuid(0)].CurrentDesign.Add(new Ul891SetDesignSlotResponse(
+                    reader.GetGuid(1), reader.GetInt32(2), GetString(reader, 3), GetString(reader, 4),
+                    GetDecimal(reader, 5), GetDecimal(reader, 6), GetDecimal(reader, 7), reader.GetInt32(8)));
+            }
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
                 select version.spec_id, version.id, version.version_number, version.status, version.revision_reason,
                        version.published_at_utc, component.id, component.component_code, component.panel_name,
                        component.panel_specification, component.width_mm, component.height_mm, component.depth_mm,
@@ -891,7 +1132,9 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                          or exists(select 1 from logistics_packing_unit_panels m join panel_placeholders p on p.id=m.panel_id where p.set_instance_id=instance.id and m.active) as has_started,
                        exists(select 1 from logistics_delivery_results d join panel_placeholders p on p.id=d.panel_id where p.set_instance_id=instance.id) as has_delivered,
                        panel.id, panel.sequence_number, panel.display_code, panel.component_code,
-                       coalesce(panel.panel_name, component.panel_name), component.panel_specification,
+                       panel.design_slot_id, slot.position_number,
+                       coalesce(panel.panel_name, slot.panel_name, component.panel_name),
+                       coalesce(slot.panel_specification, component.panel_specification),
                        panel.status, panel.workflow_stage,
                        case when unit.id is null then null else 'PKG-' || unit.unit_number::text end,
                        departure.departure_date,
@@ -899,7 +1142,8 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                 from ul891_set_instances instance
                 join ul891_set_specs spec on spec.id=instance.spec_id
                 join ul891_set_spec_versions version on version.id=instance.spec_version_id
-                left join panel_placeholders panel on panel.set_instance_id=instance.id
+                left join panel_placeholders panel on panel.set_instance_id=instance.id and panel.status='Active'
+                left join ul891_set_design_slots slot on slot.id=panel.design_slot_id and slot.status='Active'
                 left join ul891_set_spec_components component on component.spec_version_id=instance.spec_version_id and component.component_code=panel.component_code
                 left join logistics_packing_unit_panels membership on membership.panel_id=panel.id and membership.active
                 left join logistics_packing_units unit on unit.id=membership.packing_unit_id and unit.status<>'Cancelled'
@@ -933,8 +1177,9 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
                 {
                     instance.Panels.Add(new Ul891SetPanelResponse(
                         reader.GetGuid(9), reader.GetInt32(10), reader.GetString(11), reader.GetString(12),
-                        GetString(reader, 13), GetString(reader, 14), reader.GetString(15), reader.GetString(16),
-                        GetString(reader, 17), GetDateOnly(reader, 18), reader.GetBoolean(19)));
+                        reader.IsDBNull(13) ? null : reader.GetGuid(13), reader.IsDBNull(14) ? null : reader.GetInt32(14),
+                        GetString(reader, 15), GetString(reader, 16), reader.GetString(17), reader.GetString(18),
+                        GetString(reader, 19), GetDateOnly(reader, 20), reader.GetBoolean(21)));
                 }
             }
         }
@@ -1082,15 +1327,116 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
             """, token, ("spec_id", specId), ("project_id", projectId));
     }
 
-    private static async Task InsertSetPanelAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, Guid instanceId, string code, int sequence, CancellationToken token)
+    private static async Task RefreshCurrentPanelInformationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid specId,
+        CancellationToken token)
     {
         await ExecuteAsync(connection, transaction, """
+            update panel_placeholders panel
+            set panel_name=slot.panel_name,
+                width_mm=slot.width_mm,
+                height_mm=slot.height_mm,
+                depth_mm=slot.depth_mm,
+                panel_info_completed=(
+                    slot.panel_name is not null
+                    and (
+                        (slot.width_mm is not null and slot.height_mm is not null and slot.depth_mm is not null)
+                        or (
+                            project.packaging_method <> 'WoodenCrate'
+                            and slot.width_mm is null and slot.height_mm is null and slot.depth_mm is null
+                        )
+                    )
+                ),
+                qr_eligible=(panel.status='Active' and slot.panel_name is not null),
+                updated_at_utc=now()
+            from ul891_set_instances instance,
+                 ul891_set_design_slots slot,
+                 projects project
+            where panel.set_instance_id=instance.id
+              and panel.design_slot_id=slot.id
+              and slot.status='Active'
+              and instance.spec_id=@spec_id
+              and project.id=@project_id;
+            """, token, ("spec_id", specId), ("project_id", projectId));
+    }
+
+    private static async Task<IReadOnlyList<DesignSlotSnapshot>> ReadAllDesignSlotsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid specId,
+        CancellationToken token)
+    {
+        var result = new List<DesignSlotSnapshot>();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select id,position_number,internal_code,status from ul891_set_design_slots where spec_id=@spec_id order by position_number,id for update;";
+        command.Parameters.AddWithValue("spec_id", specId);
+        await using var reader = await command.ExecuteReaderAsync(token);
+        while (await reader.ReadAsync(token))
+            result.Add(new DesignSlotSnapshot(reader.GetGuid(0), reader.GetInt32(1), reader.GetString(2), reader.GetString(3)));
+        return result;
+    }
+
+    private static async Task<IReadOnlyList<DesignSlotSnapshot>> ReadActiveDesignSlotsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid specId,
+        CancellationToken token) =>
+        (await ReadAllDesignSlotsAsync(connection, transaction, specId, token))
+            .Where(slot => slot.Status == "Active")
+            .OrderBy(slot => slot.PositionNumber)
+            .ToList();
+
+    private static async Task<IReadOnlyList<Guid>> ReadActivePanelIdsForSlotAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid slotId,
+        CancellationToken token)
+    {
+        var result = new List<Guid>();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select id from panel_placeholders where design_slot_id=@slot_id and status='Active' order by sequence_number for update;";
+        command.Parameters.AddWithValue("slot_id", slotId);
+        await using var reader = await command.ExecuteReaderAsync(token);
+        while (await reader.ReadAsync(token)) result.Add(reader.GetGuid(0));
+        return result;
+    }
+
+    private static async Task<int> ReadActivePanelCountAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        CancellationToken token)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select count(*)::integer from panel_placeholders where project_id=@project_id and status='Active';";
+        command.Parameters.AddWithValue("project_id", projectId);
+        return (int)(await command.ExecuteScalarAsync(token) ?? 0);
+    }
+
+    private static async Task InsertSetPanelAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, Guid instanceId, string code, int sequence, CancellationToken token, Guid? designSlotId = null)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
             insert into panel_placeholders (
                 id, project_id, sequence_number, display_code, status,
-                panel_info_completed, qr_eligible, set_instance_id, component_code, updated_at_utc
-            ) values (@id,@project_id,@sequence,@display_code,'Active',false,false,@instance_id,@code,now());
-            """, token, ("id", Guid.NewGuid()), ("project_id", projectId), ("sequence", sequence),
-            ("display_code", ProjectInputNormalizer.FormatPanelDisplayCode(sequence)), ("instance_id", instanceId), ("code", code));
+                panel_info_completed, qr_eligible, set_instance_id, component_code, design_slot_id, updated_at_utc
+            ) values (@id,@project_id,@sequence,@display_code,'Active',false,false,@instance_id,@code,@design_slot_id,now());
+            """;
+        command.Parameters.AddWithValue("id", Guid.NewGuid());
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("sequence", sequence);
+        command.Parameters.AddWithValue("display_code", ProjectInputNormalizer.FormatPanelDisplayCode(sequence));
+        command.Parameters.AddWithValue("instance_id", instanceId);
+        command.Parameters.AddWithValue("code", code);
+        command.Parameters.Add("design_slot_id", NpgsqlDbType.Uuid).Value = designSlotId ?? (object)DBNull.Value;
+        await command.ExecuteNonQueryAsync(token);
     }
 
     private static async Task CancelPanelAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, Guid panelId, string reason, Guid actorId, string correlationId, CancellationToken token)
@@ -1244,6 +1590,7 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
     private sealed record ProjectSnapshot(string Status, string Item, string? StructureMode, string? PackagingMethod, decimal? SalesAmount, string? CurrencyCode, string ProjectTitle);
     private sealed record SpecVersionSnapshot(int SpecRowVersion, int VersionNumber, string VersionStatus);
     private sealed record InstancePanelSnapshot(Guid PanelId, string Code, string Status);
+    private sealed record DesignSlotSnapshot(Guid SlotId, int PositionNumber, string InternalCode, string Status);
 
     private sealed class SpecBuilder(Guid specId, int specNo, string name, int rowVersion, int activeCount)
     {
@@ -1252,9 +1599,10 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
         public string Name { get; } = name;
         public int RowVersion { get; } = rowVersion;
         public int ActiveCount { get; } = activeCount;
+        public List<Ul891SetDesignSlotResponse> CurrentDesign { get; } = [];
         public List<VersionBuilder> Versions { get; } = [];
         public List<InstanceBuilder> Instances { get; } = [];
-        public Ul891SetSpecResponse Build() => new(SpecId, SpecNo, Name, RowVersion, ActiveCount, Versions.Select(item => item.Build()).ToList(), Instances.Select(item => item.Build()).ToList());
+        public Ul891SetSpecResponse Build() => new(SpecId, SpecNo, Name, RowVersion, ActiveCount, CurrentDesign, Versions.Select(item => item.Build()).ToList(), Instances.Select(item => item.Build()).ToList());
     }
     private sealed class VersionBuilder(Guid id, int number, string status, string? reason, DateTimeOffset? publishedAt)
     {

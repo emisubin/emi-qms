@@ -33,6 +33,7 @@ let adminUserDeletionScheduled = false;
 let adminDepartmentDeletionScheduled = false;
 let adminHolidayDeletionScheduled = false;
 let manufacturingReleasedPanelIds = new Set<string>();
+let useSetScopedProductionPlan = false;
 
 describe('App', () => {
   beforeEach(() => {
@@ -40,6 +41,7 @@ describe('App', () => {
     adminDepartmentDeletionScheduled = false;
     adminHolidayDeletionScheduled = false;
     manufacturingReleasedPanelIds = new Set<string>();
+    useSetScopedProductionPlan = false;
     teamsJsMock.context = null;
     teamsJsMock.initialize.mockClear();
     teamsJsMock.getContext.mockClear();
@@ -1703,7 +1705,9 @@ describe('App', () => {
 
     expect(await screen.findByText('UL891 설계 입력')).toBeInTheDocument();
     expect(screen.getByLabelText('세트 사양명')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '임시저장' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '임시저장' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/v1/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Draft/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '저장' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '패널 QR' })).not.toBeInTheDocument();
   });
@@ -2386,6 +2390,46 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Excel 양식 다운로드' })).not.toBeInTheDocument();
   });
 
+  it('opens UL891 production planning on the all-set default and renders readable schedule marks and assignees', async () => {
+    useSetScopedProductionPlan = true;
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-production' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '생산관리' }));
+
+    const gantt = await screen.findByLabelText('생산계획 계획 실적 일정표');
+    expect(gantt.querySelector('[data-bar="plan"]')).not.toBeNull();
+    expect(gantt.querySelector('[data-bar="actual"]')).not.toBeNull();
+    expect(gantt.querySelectorAll('.production-control-gantt-gridline').length).toBeGreaterThan(2);
+    const assigneeSummary = screen.getByLabelText('담당자 지정 현황');
+    expect(gantt.compareDocumentPosition(assigneeSummary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(assigneeSummary).toHaveTextContent('Dev Production Planning User');
+
+    fireEvent.click(screen.getByRole('button', { name: '생산계획 수정' }));
+    expect(await screen.findByRole('tab', { name: /전체 기본계획/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { name: '전체 세트 기본계획' })).toBeInTheDocument();
+    expect(screen.getByText('빈 활성 세트와 이후 추가되는 세트에 적용됩니다.')).toBeInTheDocument();
+    expect(screen.getByText('계획 구조에서 수정')).toBeInTheDocument();
+    expect(screen.queryByText('담당자 지정')).not.toBeInTheDocument();
+    expect(screen.getByText('전체 세트 기본계획 입력')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: /계획 구조/ }));
+    const firstConnection = await screen.findByRole('combobox', { name: '자재 입고 연결할 실적' });
+    const structureRow = firstConnection.closest('.production-control-project-fields') as HTMLElement | null;
+    expect(structureRow).toHaveClass('is-structure-only');
+    const requiredCheckbox = within(structureRow!).getByRole('checkbox');
+    expect(requiredCheckbox.compareDocumentPosition(firstConnection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('tab', { name: /전체 기본계획/ }));
+    fireEvent.change(screen.getByLabelText('수정사유'), { target: { value: '전체 세트 계획 입력' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/projects/${projectId}/production-planning/set-defaults`),
+      expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('"overwriteExisting":false') })
+    ));
+  }, 30_000);
+
   it('reorganizes project tabs around settlement, receipt confirmation, and panel-level execution status', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
@@ -2646,6 +2690,19 @@ describe('App', () => {
         }] }));
       }
 
+      if (path === `/api/projects/${projectId}/panel-information`) {
+        const response = panelInformation(projectId);
+        const historicalSequences = [1, 10, 19, 52];
+        response.panels = response.panels.map((panel, index) => ({
+          ...panel,
+          sequenceNumber: historicalSequences[index],
+          panelNumber: `No.${historicalSequences[index]}`,
+          displayCode: `P${String(historicalSequences[index]).padStart(2, '0')}`,
+          displayName: `No.${historicalSequences[index]} · 패널명 미입력`
+        }));
+        return Promise.resolve(json(response));
+      }
+
       return mockFetch(input, init);
     }));
 
@@ -2669,6 +2726,8 @@ describe('App', () => {
     fireEvent.click(within(projectTabs).getByRole('tab', { name: '제조' }));
     const manufacturingTable = await screen.findByRole('table', { name: '제조 패널 현황' });
     expect(within(manufacturingTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보제조 단계진행률');
+    expect(within(manufacturingTable).getAllByRole('row').slice(1).map((row) => row.querySelector('span')?.textContent)).toEqual(['1', '2', '3', '4']);
+    expect(within(manufacturingTable).getAllByRole('row')[4]).toHaveTextContent('P52');
     expect(manufacturingTable).toHaveTextContent('P01');
     expect(manufacturingTable).toHaveTextContent('완료 · 단계 1/1');
     expect(manufacturingTable).toHaveTextContent('제조 완료');
@@ -2682,6 +2741,8 @@ describe('App', () => {
     fireEvent.click(within(projectTabs).getByRole('tab', { name: '품질' }));
     const qualityTable = await screen.findByRole('table', { name: '품질 패널 현황' });
     expect(within(qualityTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보품질 단계진행률');
+    expect(within(qualityTable).getAllByRole('row').slice(1).map((row) => row.querySelector('span')?.textContent)).toEqual(['1', '2', '3', '4']);
+    expect(within(qualityTable).getAllByRole('row')[4]).toHaveTextContent('P52');
     expect(qualityTable).toHaveTextContent('OQC 부적합 · Pending 조치 대기');
     expect(qualityTable).not.toHaveTextContent('전진검수 대기');
     expect(qualityTable).not.toHaveTextContent('FAT 대기');
@@ -2696,6 +2757,8 @@ describe('App', () => {
     fireEvent.click(within(projectTabs).getByRole('tab', { name: '물류' }));
     const logisticsTable = await screen.findByRole('table', { name: '물류 패널 현황' });
     expect(within(logisticsTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보물류 단계진행률');
+    expect(within(logisticsTable).getAllByRole('row').slice(1).map((row) => row.querySelector('span')?.textContent)).toEqual(['1', '2', '3', '4']);
+    expect(within(logisticsTable).getAllByRole('row')[4]).toHaveTextContent('P52');
     expect(logisticsTable).toHaveTextContent('포장 완료 · 출발 대기 · 납품 대기');
     expect(logisticsTable).toHaveTextContent('출발');
     expect(within(logisticsTable).getByLabelText('P01 물류 진행률 33% (1/3)')).toBeInTheDocument();
@@ -4014,8 +4077,12 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(productionPlanningResponse('Planned'), userKey === 'dev-production' ? 200 : 403);
   }
 
+  if (path === `/api/projects/${projectId}/production-planning/set-defaults` && init?.method === 'PATCH') {
+    return json(productionPlanningSetScopedResponse('Planned'), userKey === 'dev-production' ? 200 : 403);
+  }
+
   if (path === `/api/projects/${projectId}/production-planning`) {
-    return json(productionPlanningResponse());
+    return json(useSetScopedProductionPlan ? productionPlanningSetScopedResponse() : productionPlanningResponse());
   }
 
   if (path === `/api/projects/${onHoldProjectId}/production-planning`) {
@@ -4296,6 +4363,16 @@ function ul891SetStructure() {
       name: 'MCC 메인 세트',
       rowVersion: 1,
       activeInstanceCount: 1,
+      currentDesign: [{
+        slotId: 'slot-a',
+        positionNumber: 1,
+        panelName: 'MAIN A',
+        panelSpecification: 'UL891 TYPE A',
+        widthMm: 800,
+        heightMm: 1800,
+        depthMm: 400,
+        rowVersion: 1
+      }],
       versions: [{
         versionId: 'version-1',
         versionNumber: 1,
@@ -4327,6 +4404,8 @@ function ul891SetStructure() {
           sequenceNumber: 1,
           displayCode: 'P01',
           componentCode: 'A',
+          designSlotId: 'slot-a',
+          positionNumber: 1,
           panelName: 'MAIN A',
           panelSpecification: 'UL891 TYPE A',
           panelStatus: 'Active',
@@ -4938,6 +5017,43 @@ function productionPlanningResponse(status: 'NotPlanned' | 'Planning' | 'Planned
       displayName: item.assignedUserName ?? 'Dev Sales User',
       sourceLabel: item.assignedUserId ? '지정 담당자' : '영업담당자'
     }))
+  };
+}
+
+function productionPlanningSetScopedResponse(status: 'NotPlanned' | 'Planning' | 'Planned' = 'Planning') {
+  const base = productionPlanningResponse(status);
+  const items = base.items.map((item, index) => ({
+    ...item,
+    plannedDate: null,
+    plannedStartDate: `2026-07-0${index + 1}`,
+    plannedEndDate: `2026-07-0${index + 2}`,
+    actualStartDate: index === 0 ? '2026-07-02' : null,
+    actualEndDate: index === 0 ? '2026-07-03' : null,
+    completedTargetCount: index === 0 ? 1 : 0,
+    totalTargetCount: 1,
+    progressPercent: index === 0 ? 100 : 0,
+    scheduleStatus: index === 0 ? 'Completed' : 'NotStarted',
+    scheduleStatusLabel: index === 0 ? '완료' : '미시작',
+    delayDays: 0,
+    isBlocked: false,
+    connections: [{ sourceCode: 'MANUFACTURING_STEP_COMPLETED', sourceDefinitionKey: `78000000-0000-0000-0000-00000000020${index + 1}` }],
+    evidence: []
+  }));
+  return {
+    ...base,
+    modelVersion: 'LINKED_V1',
+    isSetScoped: true,
+    selectedScope: null,
+    scopes: [
+      { scopeId: '78000000-0000-0000-0000-000000000001', setInstanceId: '78000000-0000-0000-0000-000000000011', label: 'MCC · 1번 세트', specName: 'MCC', specNumber: 1, instanceNumber: 1, status: 'Active', activePanelCount: 7, requiredItemCount: items.length, plannedRequiredItemCount: items.length, rowVersion: 1 },
+      { scopeId: '78000000-0000-0000-0000-000000000002', setInstanceId: '78000000-0000-0000-0000-000000000012', label: 'MCC · 2번 세트', specName: 'MCC', specNumber: 1, instanceNumber: 2, status: 'Active', activePanelCount: 7, requiredItemCount: items.length, plannedRequiredItemCount: items.length, rowVersion: 1 }
+    ],
+    setDefault: {
+      defaultId: '78000000-0000-0000-0000-000000000101',
+      rowVersion: 1,
+      items: items.map((item) => ({ ...item, connections: [] }))
+    },
+    items
   };
 }
 

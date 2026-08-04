@@ -1,7 +1,7 @@
 export interface CreateUl891SetSpecInput {
   name: string;
   quantity: number;
-  components: Array<{ componentCode: string }>;
+  panelCount: number;
 }
 
 export interface Ul891SetStructure {
@@ -21,8 +21,20 @@ export interface Ul891SetSpec {
   name: string;
   rowVersion: number;
   activeInstanceCount: number;
+  currentDesign: Ul891SetDesignSlot[];
   versions: Ul891SetVersion[];
   instances: Ul891SetInstance[];
+}
+
+export interface Ul891SetDesignSlot {
+  slotId: string;
+  positionNumber: number;
+  panelName: string | null;
+  panelSpecification: string | null;
+  widthMm: number | null;
+  heightMm: number | null;
+  depthMm: number | null;
+  rowVersion: number;
 }
 
 export interface Ul891SetVersion {
@@ -62,6 +74,8 @@ export interface Ul891SetPanel {
   sequenceNumber: number;
   displayCode: string;
   componentCode: string;
+  designSlotId: string | null;
+  positionNumber: number | null;
   panelName: string | null;
   panelSpecification: string | null;
   panelStatus: 'Active' | 'Cancelled';

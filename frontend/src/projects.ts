@@ -1076,6 +1076,13 @@ export interface ProductionPlanningResponse {
   isSetScoped?: boolean;
   selectedScope?: ProductionPlanSetScope | null;
   scopes?: ProductionPlanSetScope[];
+  setDefault?: ProductionPlanSetDefault | null;
+}
+
+export interface ProductionPlanSetDefault {
+  defaultId: string;
+  rowVersion: number;
+  items: ProductionPlanItem[];
 }
 
 export interface ProductionPlanSetScope {
@@ -1359,6 +1366,10 @@ export interface UpdateProductionPlanSetScopeRequest {
     requiredHeadcount: number | null;
     note: string | null;
   }>;
+}
+
+export interface UpdateProductionPlanSetDefaultRequest extends UpdateProductionPlanSetScopeRequest {
+  overwriteExisting: boolean;
 }
 
 export interface ProductionPlanItemUpdateRequest {

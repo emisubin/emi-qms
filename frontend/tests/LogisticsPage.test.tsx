@@ -170,6 +170,41 @@ describe('LogisticsPage', () => {
     expect(screen.getByRole('button', { name: '포장 저장 및 확정' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '임시 작업 취소' })).toBeInTheDocument();
   });
+
+  it('does not let an older queue response clear a selection made on the latest load', async () => {
+    let queueRequestCount = 0;
+    let resolveFirstQueue: ((response: Response) => void) | undefined;
+    const firstQueue = new Promise<Response>((resolve) => { resolveFirstQueue = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname !== '/api/logistics/queue') return json({ title: 'not found' }, 404);
+      queueRequestCount += 1;
+      return queueRequestCount === 1 ? firstQueue : json(queue());
+    }));
+
+    const view = render(
+      <AdaptiveLayoutProvider>
+        <LogisticsPage developmentUserKey="dev-logistics-first" canMutate initialStage="packing"
+          initialProjectId={projectId} onLocationChange={vi.fn()} onBack={vi.fn()} />
+      </AdaptiveLayoutProvider>
+    );
+    await waitFor(() => expect(queueRequestCount).toBe(1));
+    view.rerender(
+      <AdaptiveLayoutProvider>
+        <LogisticsPage developmentUserKey="dev-logistics-second" canMutate initialStage="packing"
+          initialProjectId={projectId} onLocationChange={vi.fn()} onBack={vi.fn()} />
+      </AdaptiveLayoutProvider>
+    );
+
+    const target = await screen.findByRole('button', { name: /P01/u });
+    fireEvent.click(target);
+    expect(target).toHaveAttribute('aria-pressed', 'true');
+
+    resolveFirstQueue?.(json(queue()));
+    await firstQueue;
+    await waitFor(() => expect(target).toHaveAttribute('aria-pressed', 'true'));
+    expect(screen.getByText('1 선택')).toBeInTheDocument();
+  });
 });
 
 function draft() {

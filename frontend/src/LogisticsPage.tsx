@@ -57,6 +57,7 @@ export function LogisticsPage({
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const loadRequestIdRef = useRef(0);
   const onLocationChangeRef = useRef(onLocationChange);
   useEffect(() => { onLocationChangeRef.current = onLocationChange; }, [onLocationChange]);
 
@@ -84,19 +85,23 @@ export function LogisticsPage({
   }, [applyDraftDetails, developmentUserKey, stage]);
 
   const load = useCallback(async () => {
+    const requestId = ++loadRequestIdRef.current;
     setLoading(true);
     try {
       const response = await getLogisticsQueue(developmentUserKey, stage, initialProjectId);
+      if (requestId !== loadRequestIdRef.current) return;
       setQueue(response);
       const recoverableDraftId = initialProjectId ? initialDraftId ?? response.drafts?.[0]?.targetId : undefined;
       if (recoverableDraftId) {
         try {
           await refreshDraft(recoverableDraftId);
+          if (requestId !== loadRequestIdRef.current) return;
           if (!initialDraftId) {
             onLocationChangeRef.current(stage, recoverableDraftId);
             setFeedback({ kind: 'success', text: '중간에 멈춘 물류 작업을 복구했습니다. 증빙을 확인하고 저장하면 바로 확정됩니다.' });
           }
         } catch (error) {
+          if (requestId !== loadRequestIdRef.current) return;
           setDraft(null);
           setDraftDetails(null);
           setFeedback({ kind: 'error', text: messageOf(error) });
@@ -109,11 +114,13 @@ export function LogisticsPage({
         setSelected(preferred ? new Set([preferred.targetId]) : new Set());
       }
     } catch (error) {
+      if (requestId !== loadRequestIdRef.current) return;
       setQueue(null);
       setFeedback({ kind: 'error', text: messageOf(error) });
       setLoading(false);
       return;
     }
+    if (requestId !== loadRequestIdRef.current) return;
     setLoading(false);
   }, [developmentUserKey, initialDraftId, initialPanelId, initialProjectId, initialUnitId, refreshDraft, stage]);
 

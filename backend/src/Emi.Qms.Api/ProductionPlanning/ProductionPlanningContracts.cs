@@ -51,7 +51,13 @@ public sealed record ProductionPlanningResponse(
     IReadOnlyList<NotificationFallbackResponse> Fallbacks,
     bool IsSetScoped,
     ProductionPlanSetScopeResponse? SelectedScope,
-    IReadOnlyList<ProductionPlanSetScopeResponse> Scopes);
+    IReadOnlyList<ProductionPlanSetScopeResponse> Scopes,
+    ProductionPlanSetDefaultResponse? SetDefault);
+
+public sealed record ProductionPlanSetDefaultResponse(
+    Guid DefaultId,
+    int RowVersion,
+    IReadOnlyList<ProductionPlanItemResponse> Items);
 
 public sealed record ProductionPlanSetScopeResponse(
     Guid ScopeId,
@@ -228,6 +234,12 @@ public sealed record UpdateProductionPlanningRequest(
 
 public sealed record UpdateProductionPlanSetScopeRequest(
     int? ExpectedRowVersion,
+    string? Reason,
+    IReadOnlyList<ProductionPlanSetItemValueUpdateRequest>? Items);
+
+public sealed record UpdateProductionPlanSetDefaultRequest(
+    int? ExpectedRowVersion,
+    bool? OverwriteExisting,
     string? Reason,
     IReadOnlyList<ProductionPlanSetItemValueUpdateRequest>? Items);
 

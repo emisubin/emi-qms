@@ -147,6 +147,7 @@ import {
   updateAdminCalendarHoliday,
   updateAdminDepartment,
   updateAdminUser,
+  updateProjectProductionPlanSetDefault,
   updateProjectProductionPlanSetScope,
   updateProjectProductionPlanning,
   updateProductionTemplateSettings,
@@ -9241,12 +9242,8 @@ function Ul891SetOrderEditor({ specs, onChange, error }: {
   onChange: (specs: CreateUl891SetSpecInput[]) => void;
   error?: string;
 }) {
-  const totalPanels = specs.reduce((sum, spec) => sum + Number(spec.quantity || 0) * spec.components.length, 0);
+  const totalPanels = specs.reduce((sum, spec) => sum + Number(spec.quantity || 0) * Number(spec.panelCount || 0), 0);
   const updateSpec = (index: number, patch: Partial<CreateUl891SetSpecInput>) => onChange(specs.map((spec, specIndex) => specIndex === index ? { ...spec, ...patch } : spec));
-  const updateCode = (specIndex: number, componentIndex: number, value: string) => {
-    const components = specs[specIndex].components.map((component, index) => index === componentIndex ? { componentCode: value.toUpperCase() } : component);
-    updateSpec(specIndex, { components });
-  };
 
   return (
     <fieldset className={error ? 'ul891-order-editor has-error' : 'ul891-order-editor'} data-field="ul891SetSpecs">
@@ -9256,15 +9253,14 @@ function Ul891SetOrderEditor({ specs, onChange, error }: {
         <span>주문 세트 <strong>{specs.reduce((sum, spec) => sum + Number(spec.quantity || 0), 0)}</strong></span>
         <span>생성 패널 <strong>{totalPanels}</strong></span>
       </div>
-      <p>같은 사양을 여러 세트 주문하면 구성 A~G의 패널명과 치수는 한 번만 설계합니다. 각 실물 패널 ID는 별도로 생성됩니다.</p>
+      <p>세트당 패널 수만 정하면 각 위치의 패널명과 치수는 설계에서 입력합니다. 같은 사양을 여러 위치에 반복할 수 있습니다.</p>
       <div className="ul891-order-specs">
         {specs.map((spec, specIndex) => (
           <article key={`set-spec-${specIndex}`}>
             <header><span>SET {specIndex + 1}</span><strong>{spec.name || '새 세트 사양'}</strong>{specs.length > 1 ? <button type="button" onClick={() => onChange(specs.filter((_, index) => index !== specIndex))}>삭제</button> : null}</header>
             <label>세트 사양명<input name={`ul891SetSpecs[${specIndex}].name`} value={spec.name} onChange={(event) => updateSpec(specIndex, { name: event.target.value })} /></label>
             <label>주문 수량<input name={`ul891SetSpecs[${specIndex}].quantity`} type="number" min="1" max="999" value={spec.quantity} onChange={(event) => updateSpec(specIndex, { quantity: Number(event.target.value) })} /></label>
-            <div className="ul891-code-editor"><span>구성 패널 code</span>{spec.components.map((component, componentIndex) => <label key={`${specIndex}-${componentIndex}`}><input aria-label={`세트 ${specIndex + 1} 구성 ${componentIndex + 1}`} value={component.componentCode} maxLength={30} onChange={(event) => updateCode(specIndex, componentIndex, event.target.value)} /><button type="button" aria-label={`${component.componentCode || componentIndex + 1} 구성 삭제`} disabled={spec.components.length <= 1} onClick={() => updateSpec(specIndex, { components: spec.components.filter((_, index) => index !== componentIndex) })}>×</button></label>)}</div>
-            <button type="button" onClick={() => updateSpec(specIndex, { components: [...spec.components, { componentCode: nextComponentCode(spec.components.length) }] })}>구성 패널 추가</button>
+            <label>세트당 패널 수<input name={`ul891SetSpecs[${specIndex}].panelCount`} type="number" min="1" max="200" value={spec.panelCount} onChange={(event) => updateSpec(specIndex, { panelCount: Number(event.target.value) })} /></label>
           </article>
         ))}
       </div>
@@ -9275,22 +9271,16 @@ function Ul891SetOrderEditor({ specs, onChange, error }: {
 }
 
 function defaultUl891SetSpec(index: number): CreateUl891SetSpecInput {
-  return { name: `세트 사양 ${index}`, quantity: 1, components: ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((componentCode) => ({ componentCode })) };
-}
-
-function nextComponentCode(index: number) {
-  return index < 26 ? String.fromCharCode(65 + index) : `P${index + 1}`;
+  return { name: `세트 사양 ${index}`, quantity: 1, panelCount: 7 };
 }
 
 function validateUl891SetSpecs(specs: CreateUl891SetSpecInput[]): Record<string, string> {
   if (specs.length === 0) return { ul891SetSpecs: '세트 사양을 하나 이상 입력해 주세요.' };
-  const total = specs.reduce((sum, spec) => sum + Number(spec.quantity || 0) * spec.components.length, 0);
+  const total = specs.reduce((sum, spec) => sum + Number(spec.quantity || 0) * Number(spec.panelCount || 0), 0);
   for (const [index, spec] of specs.entries()) {
     if (!spec.name.trim()) return { ul891SetSpecs: `${index + 1}번째 세트 사양명을 입력해 주세요.` };
     if (!Number.isInteger(spec.quantity) || spec.quantity < 1 || spec.quantity > 999) return { ul891SetSpecs: `${index + 1}번째 주문 수량은 1~999 정수여야 합니다.` };
-    const codes = spec.components.map((item) => item.componentCode.trim().toUpperCase());
-    if (codes.length === 0 || codes.some((code) => !code)) return { ul891SetSpecs: `${index + 1}번째 구성 panel code를 입력해 주세요.` };
-    if (new Set(codes).size !== codes.length) return { ul891SetSpecs: `${index + 1}번째 세트 안에서 panel code가 중복됩니다.` };
+    if (!Number.isInteger(spec.panelCount) || spec.panelCount < 1 || spec.panelCount > 200) return { ul891SetSpecs: `${index + 1}번째 세트당 패널 수는 1~200 정수여야 합니다.` };
   }
   return total > maxPanelsPerProject ? { ul891SetSpecs: `생성되는 패널은 최대 ${maxPanelsPerProject}개까지 가능합니다.` } : {};
 }
@@ -10566,9 +10556,9 @@ function ProjectPanelDepartmentSection({
           <div className="project-panel-status-head" role="row">
             <span>No</span><span>패널명</span><span>핵심정보</span><span>{label.title} 단계</span><span>진행률</span>
           </div>
-          {rows.map(({ panel, progress }) => (
+          {rows.map(({ panel, progress }, index) => (
             <button type="button" role="row" className="project-panel-status-row" key={panel.panelId} onClick={() => onOpenPanel(panel.panelId)}>
-              <span>{panel.sequenceNumber}</span>
+              <span>{index + 1}</span>
               <span><strong>{panel.panelName ?? panel.displayCode}</strong><small>{panel.displayCode}</small></span>
               <span className="project-panel-key-info"><StatusBadge label={progress.status} tone={progress.tone} /><small>{progress.detail}</small></span>
               <span className="project-panel-current-stage">{progress.stage}</span>
@@ -12502,7 +12492,47 @@ function ProductionControlLinkedPlanReadOnly({
       </section>
 
       <ProductionControlGantt items={displayItems} />
+      <ProductionAssigneeSummary plan={plan} />
     </div>
+  );
+}
+
+function ProductionAssigneeSummary({ plan }: { plan: ProductionPlanningResponse }) {
+  const assigneesByType = new Map(plan.assignees.map((assignee) => [assignee.responsibilityType, assignee]));
+  const assigneeName = (responsibilityType: ResponsibilityType) => assigneesByType.get(responsibilityType)?.assignedUserName ?? '-';
+  const departmentCard = (group: AssigneeGroupDefinition) => (
+    <article className="assignee-card readonly-assignee-card" data-tone={group.tone} aria-label={`${group.title} 담당자`} key={group.title}>
+      <h4>{group.title}</h4>
+      <dl className="assignee-summary-list">
+        <div><dt>정</dt><dd>{assigneeName(group.primary)}</dd></div>
+        <div><dt>부</dt><dd>{assigneeName(group.secondary)}</dd></div>
+      </dl>
+    </article>
+  );
+  return (
+    <section className="production-assignee-summary-section" aria-label="담당자 지정 현황">
+      <div className="production-priority-heading">
+        <div><span>PROJECT OWNERS</span><h4>부서별 담당자</h4></div>
+        <small>생산관리에서 지정한 정·부 담당자 목록입니다.</small>
+      </div>
+      <div className="assignee-grid readonly-assignee-grid">
+        {departmentAssigneeGroups.map(departmentCard)}
+        <article className="assignee-card readonly-assignee-card quality-readonly-assignee-card" data-tone="quality" aria-label="품질 담당자">
+          <h4>품질</h4>
+          <div className="quality-assignee-summary">
+            {qualityAssigneeGroups.map((group) => (
+              <section className="quality-assignee-summary-stage" key={group.title}>
+                <h5>{group.title}</h5>
+                <dl className="assignee-summary-list">
+                  <div><dt>정</dt><dd>{assigneeName(group.primary)}</dd></div>
+                  <div><dt>부</dt><dd>{assigneeName(group.secondary)}</dd></div>
+                </dl>
+              </section>
+            ))}
+          </div>
+        </article>
+      </div>
+    </section>
   );
 }
 
@@ -12537,6 +12567,7 @@ function ProductionControlGantt({ items }: { items: ProductionPlanningResponse['
   const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
   const position = (date: string | null) => date ? Math.round((parseDateOnly(date).getTime() - start.getTime()) / 86400000) : 0;
   const dateTicks = buildProductionControlGanttTicks(start, totalDays);
+  const gridTicks = buildProductionControlGanttGridlines(start, totalDays, new Set(dateTicks.map((tick) => tick.date)));
   const barStyle = (from: string | null, to: string | null) => {
     if (!from) return undefined;
     const left = position(from);
@@ -12567,8 +12598,8 @@ function ProductionControlGantt({ items }: { items: ProductionPlanningResponse['
           <article key={item.itemId ?? item.sequenceNumber}>
             <strong>{item.stepName}</strong>
             <div>
-              {dateTicks.map((tick) => (
-                <span className="production-control-gantt-gridline" key={tick.date} style={{ left: `${tick.leftPercent}%` }} />
+              {gridTicks.map((tick) => (
+                <span className="production-control-gantt-gridline" data-major={tick.isMajor || undefined} key={tick.date} style={{ left: `${tick.leftPercent}%` }} />
               ))}
               {item.plannedStartDate ? <i data-bar="plan" style={barStyle(item.plannedStartDate, item.plannedEndDate)} title={`계획 ${formatProductionPeriod(item.plannedStartDate, item.plannedEndDate)}`} /> : null}
               {item.actualStartDate ? <i data-bar="actual" style={barStyle(item.actualStartDate, item.actualEndDate)} title={`실적 ${formatProductionPeriod(item.actualStartDate, item.actualEndDate)}`} /> : null}
@@ -12578,6 +12609,24 @@ function ProductionControlGantt({ items }: { items: ProductionPlanningResponse['
       </div>
     </section>
   );
+}
+
+function buildProductionControlGanttGridlines(start: Date, totalDays: number, majorDates: Set<string>) {
+  const lastOffset = Math.max(0, totalDays - 1);
+  const interval = totalDays <= 31 ? 1 : totalDays <= 120 ? 7 : 30;
+  const offsets: number[] = [];
+  for (let offset = 0; offset <= lastOffset; offset += interval) offsets.push(offset);
+  if (offsets[offsets.length - 1] !== lastOffset) offsets.push(lastOffset);
+  return offsets.filter((offset) => offset > 0 && offset < lastOffset).map((offset) => {
+    const date = new Date(start.getTime());
+    date.setUTCDate(date.getUTCDate() + offset);
+    const value = formatDateOnly(date);
+    return {
+      date: value,
+      leftPercent: lastOffset === 0 ? 0 : offset * 100 / lastOffset,
+      isMajor: majorDates.has(value)
+    };
+  });
 }
 
 function buildProductionControlGanttTicks(start: Date, totalDays: number) {
@@ -12734,8 +12783,9 @@ function ProductionPlanningEditPage({
   const [showExcelDialog, setShowExcelDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [editMode, setEditMode] = useState<'structure' | 'set'>('structure');
+  const [editMode, setEditMode] = useState<'structure' | 'default' | 'set'>('structure');
   const [selectedSetInstanceId, setSelectedSetInstanceId] = useState('');
+  const [overwriteSetSchedules, setOverwriteSetSchedules] = useState(false);
   const loadRequestIdRef = useRef(0);
   const scopeRequestIdRef = useRef(0);
 
@@ -12760,10 +12810,11 @@ function ProductionPlanningEditPage({
         setState({ kind: 'ready', data: normalizedPlan });
         setTypesState({ kind: 'ready', data: productTypes });
         setSelectedProductTypeId(projectProductType?.productTypeId ?? '');
-        setRows(normalizedPlan.items.map(productionPlanItemToForm));
+        const initialEditMode = normalizedPlan.isSetScoped && normalizedPlan.setDefault ? 'default' : 'structure';
+        setRows((initialEditMode === 'default' ? normalizedPlan.setDefault!.items : normalizedPlan.items).map(productionPlanItemToForm));
         setAssignees(normalizedPlan.assignees.map(projectAssigneeToForm));
         setNotes(normalizedPlan.notes ?? '');
-        setEditMode('structure');
+        setEditMode(initialEditMode);
         setSelectedSetInstanceId('');
       })
       .catch((error: unknown) => {
@@ -12873,6 +12924,29 @@ function ProductionPlanningEditPage({
     }
   }
 
+  async function selectSetDefaultEdit() {
+    const requestId = ++scopeRequestIdRef.current;
+    setEditMode('default');
+    setSelectedSetInstanceId('');
+    setMessageTone('loading');
+    setMessage('전체 세트 기본계획을 불러오는 중입니다.');
+    setErrors({});
+    try {
+      const aggregatePlan = normalizeProductionPlanningResponse(
+        await getProjectProductionPlanning(developmentUserKey, projectId)
+      );
+      if (requestId !== scopeRequestIdRef.current) return;
+      setState({ kind: 'ready', data: aggregatePlan });
+      setRows((aggregatePlan.setDefault?.items ?? aggregatePlan.items).map(productionPlanItemToForm));
+      setMessage('');
+      setMessageTone('neutral');
+    } catch (error) {
+      if (requestId !== scopeRequestIdRef.current) return;
+      setMessageTone('error');
+      handleFormError(error, setErrors, setMessage);
+    }
+  }
+
   async function selectStructureEdit() {
     const requestId = ++scopeRequestIdRef.current;
     setEditMode('structure');
@@ -12903,7 +12977,12 @@ function ProductionPlanningEditPage({
     const validationRows = state.data.isSetScoped && editMode === 'structure'
       ? rows.map((row) => ({ ...row, plannedStartDate: '', plannedEndDate: '', assignedUserId: '', requiredHeadcount: '', note: '' }))
       : rows;
-    const validation = validateProductionPlanningForm(selectedProductTypeId, validationRows, state.data.modelVersion);
+    const validation = validateProductionPlanningForm(
+      selectedProductTypeId,
+      validationRows,
+      state.data.modelVersion,
+      { validateConnections: !state.data.isSetScoped || editMode === 'structure' }
+    );
     setErrors(validation);
     setMessage('');
     setMessageTone('neutral');
@@ -12936,6 +13015,33 @@ function ProductionPlanningEditPage({
             }))
         });
         onSaved({ tone: 'success', message: `${state.data.selectedScope.label} 생산계획을 저장했습니다.` });
+        return;
+      }
+      if (state.data.isSetScoped && editMode === 'default') {
+        if (!state.data.setDefault) {
+          setMessageTone('error');
+          setMessage('전체 세트 기본계획을 다시 불러와 주세요.');
+          return;
+        }
+        await updateProjectProductionPlanSetDefault(developmentUserKey, projectId, {
+          expectedRowVersion: state.data.setDefault.rowVersion,
+          overwriteExisting: overwriteSetSchedules,
+          reason: reason.trim() || null,
+          items: rows
+            .filter((row) => !row.isDeleted && row.itemId)
+            .map((row) => ({
+              itemId: row.itemId!,
+              expectedRowVersion: row.rowVersion,
+              plannedStartDate: row.plannedStartDate || null,
+              plannedEndDate: row.plannedEndDate || null,
+              assignedUserId: row.assignedUserId || null,
+              requiredHeadcount: row.requiredHeadcount ? Number(row.requiredHeadcount) : null,
+              note: row.note.trim() || null
+            }))
+        });
+        onSaved({ tone: 'success', message: overwriteSetSchedules
+          ? '전체 활성 세트의 계획을 기본계획으로 갱신했습니다.'
+          : '전체 세트 기본계획을 저장하고 아직 비어 있는 세트에 적용했습니다.' });
         return;
       }
       await updateProjectProductionPlanning(developmentUserKey, projectId, {
@@ -13035,7 +13141,9 @@ function ProductionPlanningEditPage({
             <DsInputSection
               number={1}
               title="기본 조건"
-              description="프로젝트 Item을 확인하고 생산계획 전체에 공유할 전달사항을 입력합니다."
+              description={plan.isSetScoped && editMode !== 'structure'
+                ? '프로젝트 Item과 이번 일정 변경 사유를 확인합니다. 공통 전달사항과 담당자는 계획 구조에서 수정합니다.'
+                : '프로젝트 Item을 확인하고 생산계획 전체에 공유할 전달사항을 입력합니다.'}
               actions={(
                 <>
                   {plan.modelVersion === 'LEGACY' ? <button type="button" onClick={downloadTemplate} disabled={!initialDataReady || isDownloading || !selectedProductTypeId}>{isDownloading ? '다운로드 중' : 'Excel 양식 다운로드'}</button> : null}
@@ -13050,10 +13158,17 @@ function ProductionPlanningEditPage({
                   {hasInvalidProjectItem ? <small role="alert" className="field-error-message">현재 프로젝트의 Item이 등록된 Item 기준값과 일치하지 않습니다. 프로젝트 정보를 수정한 후 생산계획을 입력해 주세요.</small> : null}
                   <FieldErrorMessage field="productTypeId" message={fieldError(errors, 'productTypeId')} />
                 </div>
-                <label className="form-field">
-                  <span>생산관리 전체 전달사항</span>
-                  <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
-                </label>
+                {!plan.isSetScoped || editMode === 'structure' ? (
+                  <label className="form-field">
+                    <span>생산관리 전체 전달사항</span>
+                    <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+                  </label>
+                ) : (
+                  <div className="readonly-field">
+                    <span>프로젝트 공통 정보</span>
+                    <strong>계획 구조에서 수정</strong>
+                  </div>
+                )}
                 <label className={fieldError(errors, 'reason') ? 'form-field panel-reason-field has-error' : 'form-field panel-reason-field'}>
                   <span>수정사유</span>
                   <textarea name="reason" value={reason} onChange={(event) => setReason(event.target.value)} />
@@ -13067,6 +13182,9 @@ function ProductionPlanningEditPage({
                   <button type="button" role="tab" aria-selected={editMode === 'structure'} className={editMode === 'structure' ? 'active' : ''} onClick={() => void selectStructureEdit()}>
                     계획 구조<small>항목·실적 연결</small>
                   </button>
+                  <button type="button" role="tab" aria-selected={editMode === 'default'} className={editMode === 'default' ? 'active' : ''} onClick={() => void selectSetDefaultEdit()}>
+                    전체 기본계획<small>모든 활성 세트에 적용</small>
+                  </button>
                   <label className={editMode === 'set' ? 'active' : ''}>
                     <span>세트 일정</span>
                     <select value={selectedSetInstanceId} onChange={(event) => void selectSetSchedule(event.target.value)}>
@@ -13079,23 +13197,37 @@ function ProductionPlanningEditPage({
                 </div>
                 <p>{editMode === 'structure'
                   ? '모든 세트가 공유하는 계획 항목과 실적 연결을 수정합니다.'
+                  : editMode === 'default'
+                  ? '프로젝트 기본계획을 한 번 입력해 아직 비어 있는 모든 활성 세트에 적용합니다.'
                   : `${plan.selectedScope?.label ?? '선택 세트'}의 기간·담당자·필요 인원·코멘트만 수정합니다.`}</p>
+                {editMode === 'default' ? (
+                  <label className="checkbox-row production-plan-default-overwrite">
+                    <input type="checkbox" checked={overwriteSetSchedules} onChange={(event) => setOverwriteSetSchedules(event.target.checked)} />
+                    이미 개별 수정한 세트 일정도 기본계획으로 덮어쓰기
+                  </label>
+                ) : null}
               </section>
             ) : null}
-            <DsInputSection number={2} title={plan.isSetScoped && editMode === 'structure' ? '계획 구조 입력' : '생산계획표 입력'} description={plan.modelVersion === 'LINKED_V1' ? (plan.isSetScoped && editMode === 'structure' ? '모든 세트가 공유할 항목과 실적 연결을 구성합니다.' : '계획 기간·담당자·필요 인원·코멘트를 입력합니다.') : '필요한 단계의 날짜·담당자·필요 인원·코멘트를 행에서 바로 입력합니다.'} collapsible>
-              {plan.modelVersion === 'LINKED_V1' && plan.isSetScoped && editMode === 'set'
+            <DsInputSection number={2} title={plan.isSetScoped && editMode === 'structure' ? '계획 구조 입력' : editMode === 'default' ? '전체 세트 기본계획 입력' : '생산계획표 입력'} description={plan.modelVersion === 'LINKED_V1' ? (plan.isSetScoped && editMode === 'structure' ? '모든 세트가 공유할 항목과 실적 연결을 구성합니다.' : editMode === 'default' ? '한 번 입력한 기본값은 빈 세트와 이후 추가되는 세트에 적용됩니다.' : '계획 기간·담당자·필요 인원·코멘트를 입력합니다.') : '필요한 단계의 날짜·담당자·필요 인원·코멘트를 행에서 바로 입력합니다.'} collapsible>
+              {plan.modelVersion === 'LINKED_V1' && plan.isSetScoped && (editMode === 'set' || editMode === 'default')
                 ? <ProductionControlSetScheduleEditableList plan={plan} rows={rows} errors={errors} onChange={updateRow} />
                 : plan.modelVersion === 'LINKED_V1'
                 ? <ProductionControlLinkedEditableList plan={plan} rows={rows} errors={errors} onChange={updateRow} onAddRow={addCustomRow} onDeleteRow={deleteCustomRow} structureOnly={Boolean(plan.isSetScoped)} />
                 : <ProductionPlanningEditableList plan={plan} rows={rows} errors={errors} onChange={updateRow} onAddRow={addCustomRow} onDeleteRow={deleteCustomRow} />}
             </DsInputSection>
-            <DsInputSection number={3} title="담당자 지정" description="각 업무의 정·부 담당자를 지정합니다." collapsible>
-              <ProductionAssigneeEditor plan={plan} assignees={assignees} errors={errors} onChange={updateAssignee} />
-            </DsInputSection>
+            {!plan.isSetScoped || editMode === 'structure' ? (
+              <DsInputSection number={3} title="담당자 지정" description="각 업무의 정·부 담당자를 지정합니다." collapsible>
+                <ProductionAssigneeEditor plan={plan} assignees={assignees} errors={errors} onChange={updateAssignee} />
+              </DsInputSection>
+            ) : null}
           </fieldset>
         ) : null}
         <DsActionBar
-          description="계획일과 담당자를 확인하면 저장 후 설계·구매 업무가 함께 시작됩니다."
+          description={plan?.isSetScoped && editMode === 'default'
+            ? '기본계획은 빈 활성 세트와 이후 추가되는 세트에 적용됩니다.'
+            : plan?.isSetScoped && editMode === 'set'
+            ? '선택한 세트의 일정만 저장합니다.'
+            : '계획일과 담당자를 확인하면 저장 후 설계·구매 업무가 함께 시작됩니다.'}
           feedback={message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : undefined}
         >
           <button type="button" onClick={onBack}>취소</button>
@@ -13280,11 +13412,12 @@ function ProductionControlSetScheduleEditableList({
 }) {
   const assigneeOptions = productionPlanAssigneeOptions(plan);
   const visibleRows = rows.filter((row) => !row.isDeleted).sort((left, right) => left.sequenceNumber - right.sequenceNumber);
+  const isSetDefault = plan.selectedScope === null;
   return (
     <section className="production-plan-set-schedule-editor">
       <header>
-        <div><span>SET SCHEDULE</span><h3>{plan.selectedScope?.label ?? '세트 일정'}</h3></div>
-        <small>{plan.selectedScope?.activePanelCount ?? 0}면 · 이 세트의 값만 저장됩니다.</small>
+        <div><span>{isSetDefault ? 'PROJECT DEFAULT' : 'SET SCHEDULE'}</span><h3>{plan.selectedScope?.label ?? '전체 세트 기본계획'}</h3></div>
+        <small>{isSetDefault ? '빈 활성 세트와 이후 추가되는 세트에 적용됩니다.' : `${plan.selectedScope?.activePanelCount ?? 0}면 · 이 세트의 값만 저장됩니다.`}</small>
       </header>
       <div className="production-plan-set-schedule-rows">
         {visibleRows.map((row) => {
@@ -13356,9 +13489,39 @@ function ProductionControlLinkedEditableList({
       <div className="production-control-project-rows">
         {visibleRows.map((row) => {
           const index = rows.indexOf(row);
+          const connectionError = fieldError(errors, `items[${index}].connections`);
+          const connectionEditor = (
+            <label className="production-control-project-connection-select">
+              <span>{structureOnly ? '실적 연결' : '연결할 실적'}</span>
+              <select
+                aria-label={`${row.stepName || `${index + 1}번 항목`} 연결할 실적`}
+                className={connectionError ? 'field-invalid' : undefined}
+                value={projectConnectionValue(preferredProjectPlanConnection(row.connections))}
+                onChange={(event) => onChange(index, {
+                  connections: event.target.value ? [parseProjectPlanConnection(event.target.value)] : []
+                })}
+              >
+                <option value="">실적 데이터를 선택해 주세요</option>
+                {plan.availableSources.map((source) => (source.definitionKind ?? (source.requiresManufacturingDefinition ? 'Manufacturing' : 'None')) !== 'None' ? (
+                  <optgroup key={source.code} label={`${source.departmentLabel} · ${source.label}`}>
+                    {projectSourceDefinitionOptions(plan, source).map((step) => (
+                      <option key={`${source.code}:${step.definitionKey}`} value={projectConnectionValue({ sourceCode: source.code, sourceDefinitionKey: step.definitionKey })}>
+                        {step.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : (
+                  <option key={source.code} value={projectConnectionValue({ sourceCode: source.code, sourceDefinitionKey: null })}>
+                    {source.departmentLabel} · {source.label}
+                  </option>
+                ))}
+              </select>
+              <FieldErrorMessage field={`items[${index}].connections`} message={connectionError} />
+            </label>
+          );
           return (
             <article key={row.itemId ?? row.definitionKey ?? row.sequenceNumber}>
-              <div className="production-control-project-fields">
+              <div className={structureOnly ? 'production-control-project-fields is-structure-only' : 'production-control-project-fields'}>
                 <b>{row.sequenceNumber}</b>
                 <label className={fieldError(errors, `items[${index}].stepName`) ? 'form-field has-error' : 'form-field'}>계획 항목
                   <input value={row.stepName} onChange={(event) => onChange(index, { stepName: event.target.value })} />
@@ -13371,7 +13534,7 @@ function ProductionControlLinkedEditableList({
                   <input type="date" value={row.plannedEndDate} onChange={(event) => onChange(index, { plannedEndDate: event.target.value })} />
                   <FieldErrorMessage field={`items[${index}].plannedEndDate`} message={fieldError(errors, `items[${index}].plannedEndDate`)} />
                 </label> : null}
-                <label className="checkbox-row"><input type="checkbox" checked={row.isRequired} onChange={(event) => onChange(index, { isRequired: event.target.checked })} />필수</label>
+                <label className="checkbox-row production-control-project-required"><input type="checkbox" checked={row.isRequired} onChange={(event) => onChange(index, { isRequired: event.target.checked })} /><span>필수</span></label>
                 {!structureOnly ? <label className={fieldError(errors, `items[${index}].assignedUserId`) ? 'form-field has-error' : 'form-field'}>담당자
                   <select value={row.assignedUserId} onChange={(event) => onChange(index, { assignedUserId: event.target.value })}>
                     <option value="">미지정</option>
@@ -13379,6 +13542,7 @@ function ProductionControlLinkedEditableList({
                   </select>
                   <FieldErrorMessage field={`items[${index}].assignedUserId`} message={fieldError(errors, `items[${index}].assignedUserId`)} />
                 </label> : null}
+                {structureOnly ? <div className={connectionError ? 'production-control-project-connection-inline has-error' : 'production-control-project-connection-inline'}>{connectionEditor}</div> : null}
                 <button type="button" onClick={() => onDeleteRow(index)}>삭제</button>
                 {!structureOnly ? <label className="form-field production-control-project-comment">생산관리 코멘트<input value={row.note} onChange={(event) => onChange(index, { note: event.target.value })} /></label> : null}
                 {!structureOnly ? <label className={fieldError(errors, `items[${index}].requiredHeadcount`) ? 'form-field production-control-project-headcount has-error' : 'form-field production-control-project-headcount'}>필요 인원
@@ -13386,35 +13550,12 @@ function ProductionControlLinkedEditableList({
                   <FieldErrorMessage field={`items[${index}].requiredHeadcount`} message={fieldError(errors, `items[${index}].requiredHeadcount`)} />
                 </label> : null}
               </div>
-              <fieldset className={fieldError(errors, `items[${index}].connections`) ? 'production-control-project-connections has-error' : 'production-control-project-connections'}>
-                <legend>실적 데이터 1:1 연결 <small>이 항목의 실적일로 사용할 데이터 하나를 선택합니다.</small></legend>
-                <label className="production-control-project-connection-select">
-                  <span>연결할 실적</span>
-                  <select
-                    aria-label={`${row.stepName || `${index + 1}번 항목`} 연결할 실적`}
-                    value={projectConnectionValue(preferredProjectPlanConnection(row.connections))}
-                    onChange={(event) => onChange(index, {
-                      connections: event.target.value ? [parseProjectPlanConnection(event.target.value)] : []
-                    })}
-                  >
-                    <option value="">실적 데이터를 선택해 주세요</option>
-                    {plan.availableSources.map((source) => (source.definitionKind ?? (source.requiresManufacturingDefinition ? 'Manufacturing' : 'None')) !== 'None' ? (
-                      <optgroup key={source.code} label={`${source.departmentLabel} · ${source.label}`}>
-                        {projectSourceDefinitionOptions(plan, source).map((step) => (
-                          <option key={`${source.code}:${step.definitionKey}`} value={projectConnectionValue({ sourceCode: source.code, sourceDefinitionKey: step.definitionKey })}>
-                            {step.label}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ) : (
-                      <option key={source.code} value={projectConnectionValue({ sourceCode: source.code, sourceDefinitionKey: null })}>
-                        {source.departmentLabel} · {source.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <FieldErrorMessage field={`items[${index}].connections`} message={fieldError(errors, `items[${index}].connections`)} />
-              </fieldset>
+              {!structureOnly ? (
+                <fieldset className={connectionError ? 'production-control-project-connections has-error' : 'production-control-project-connections'}>
+                  <legend>실적 데이터 1:1 연결 <small>이 항목의 실적일로 사용할 데이터 하나를 선택합니다.</small></legend>
+                  {connectionEditor}
+                </fieldset>
+              ) : null}
             </article>
           );
         })}
@@ -15193,7 +15334,7 @@ function PanelInformationEditPage({
         className="page-header"
         eyebrow="UL891 설계 입력"
         title={targetState.data.project.projectTitle}
-        description="세트 사양별 공통 패널정보를 수정합니다. 임시저장은 계속 편집할 수 있고, 저장하면 제조 시작 기준으로 반영됩니다."
+        description="세트 사양별 공통 패널정보를 수정합니다. 저장한 뒤에도 같은 화면에서 계속 변경할 수 있고, 현재 설계가 제조 시작 기준으로 반영됩니다."
         actions={<button type="button" onClick={onBack}>설계 탭으로 돌아가기</button>}
       />
       <ProjectContextSummary project={targetState.data.project} />
@@ -16496,8 +16637,8 @@ function PanelSetContext({ structure, panelId }: { structure: Ul891SetStructure;
       return (
         <section className="panel-set-context" aria-label="세트 및 패널 처리 단위">
           <div><span>세트 사양</span><strong>SET {spec.specNo} · {spec.name}</strong></div>
-          <div><span>실물 세트</span><strong>{instance.instanceNumber}번 · 사양 v{instance.specVersionNumber}</strong></div>
-          <div><span>구성 code</span><strong>{panel.componentCode}</strong></div>
+          <div><span>실물 세트</span><strong>{instance.instanceNumber}번 세트</strong></div>
+          <div><span>세트 내 위치</span><strong>{panel.positionNumber ? `${panel.positionNumber}번` : '-'}</strong></div>
           <p>이 화면의 제조·검사·FAT·QR·출하 이력은 이 개별 패널 ID에만 연결됩니다.</p>
         </section>
       );
@@ -17625,7 +17766,8 @@ function validateProjectForm(form: ProjectFormValues, includeReason: boolean, pr
 function validateProductionPlanningForm(
   productTypeId: string,
   rows: ProductionPlanRowForm[],
-  modelVersion: ProductionPlanningResponse['modelVersion'] = 'LEGACY'
+  modelVersion: ProductionPlanningResponse['modelVersion'] = 'LEGACY',
+  options: { validateConnections?: boolean } = {}
 ): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!productTypeId) {
@@ -17662,7 +17804,7 @@ function validateProductionPlanningForm(
       } else if (row.plannedStartDate && row.plannedEndDate && row.plannedEndDate < row.plannedStartDate) {
         errors[`items[${index}].plannedEndDate`] = '계획 종료일은 시작일보다 빠를 수 없습니다.';
       }
-      if (row.connections.length !== 1) {
+      if ((options.validateConnections ?? true) && row.connections.length !== 1) {
         errors[`items[${index}].connections`] = '실적 데이터 하나를 선택해 주세요.';
       }
     }
@@ -18704,6 +18846,19 @@ function normalizeProductionPlanningResponse(plan: ProductionPlanningResponse): 
     isSetScoped: plan.isSetScoped ?? false,
     selectedScope: plan.selectedScope ?? null,
     scopes: plan.scopes ?? [],
+    setDefault: plan.setDefault ? {
+      ...plan.setDefault,
+      items: plan.setDefault.items.map((item) => ({
+        ...item,
+        plannedStartDate: item.plannedStartDate ?? null,
+        plannedEndDate: item.plannedEndDate ?? null,
+        assignedUserId: item.assignedUserId ?? null,
+        assignedUserName: item.assignedUserName ?? null,
+        requiredHeadcount: item.requiredHeadcount ?? null,
+        connections: item.connections ?? [],
+        evidence: item.evidence ?? []
+      }))
+    } : null,
     manufacturingSteps: plan.manufacturingSteps ?? [],
     availableSources: plan.availableSources ?? [],
     items: plan.items.map((item) => ({

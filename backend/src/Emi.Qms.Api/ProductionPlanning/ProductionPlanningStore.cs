@@ -19,6 +19,26 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         {
             command.Transaction = transaction;
             command.CommandText = """
+                insert into project_production_plan_set_defaults (
+                    id, production_plan_id, row_version, created_by_user_id, updated_by_user_id
+                )
+                select uuid_generate_v4(), plan.id, 1, @actor_id, @actor_id
+                from project_production_plans plan
+                join projects project on project.id=plan.project_id
+                where plan.project_id=@project_id
+                  and plan.model_version='LINKED_V1'
+                  and project.structure_mode='Ul891Set'
+                on conflict (production_plan_id) do nothing;
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("actor_id", actorId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
                 insert into project_production_plan_set_scopes (
                     id, production_plan_id, set_instance_id,
                     row_version, created_by_user_id, updated_by_user_id
@@ -46,13 +66,23 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             command.Transaction = transaction;
             command.CommandText = """
                 insert into project_production_plan_set_item_values (
-                    id, set_scope_id, production_plan_item_id, row_version
+                    id, set_scope_id, production_plan_item_id,
+                    planned_start_date, planned_end_date, assigned_user_id,
+                    required_headcount, note, row_version
                 )
-                select uuid_generate_v4(), scope.id, item.id, 1
+                select uuid_generate_v4(), scope.id, item.id,
+                       default_value.planned_start_date, default_value.planned_end_date,
+                       default_value.assigned_user_id, default_value.required_headcount,
+                       default_value.note, 1
                 from project_production_plan_set_scopes scope
                 join project_production_plans plan on plan.id = scope.production_plan_id
                 join project_production_plan_items item
                   on item.production_plan_id = plan.id
+                left join project_production_plan_set_defaults defaults
+                  on defaults.production_plan_id = plan.id
+                left join project_production_plan_set_default_values default_value
+                  on default_value.set_default_id = defaults.id
+                 and default_value.production_plan_item_id = item.id
                 where plan.project_id = @project_id
                   and (@set_instance_id is null or scope.set_instance_id = @set_instance_id)
                 on conflict (set_scope_id, production_plan_item_id) do nothing;
@@ -281,6 +311,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         var items = plan is null ? [] : await ReadPlanItemsAsync(connection, null, plan.PlanId, cancellationToken);
         IReadOnlyList<ProductionPlanSetScopeResponse> scopes = [];
         ProductionPlanSetScopeResponse? selectedScope = null;
+        ProductionPlanSetDefaultResponse? setDefault = null;
         var isSetScoped = plan?.ModelVersion == ProductionControlModelVersions.LinkedV1
             && string.Equals(project.StructureMode, "Ul891Set", StringComparison.Ordinal);
         if (setInstanceId is not null && !isSetScoped)
@@ -290,6 +321,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         }
         if (isSetScoped && plan is not null)
         {
+            setDefault = await ReadSetDefaultAsync(connection, null, plan.PlanId, items, cancellationToken);
             scopes = await ReadSetScopesAsync(connection, null, plan.PlanId, cancellationToken);
             if (setInstanceId is not null)
             {
@@ -326,7 +358,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         var candidates = await ReadAssigneeCandidatesAsync(connection, null, cancellationToken);
         var fallbacks = await BuildFallbacksAsync(connection, null, project, assignees, cancellationToken);
         return ProductionPlanningReadResult.Success(
-            BuildResponse(project, plan, items, manufacturingSteps, availableSources, assignees, candidates, fallbacks, isSetScoped, selectedScope, scopes));
+            BuildResponse(project, plan, items, manufacturingSteps, availableSources, assignees, candidates, fallbacks, isSetScoped, selectedScope, scopes, setDefault));
     }
 
     public async Task<IReadOnlyList<ProductionProductTypeResponse>> ListProductTypesAsync(CancellationToken cancellationToken)
@@ -818,6 +850,207 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
         await transaction.CommitAsync(cancellationToken);
         return ProductionPlanningMutationResult<ProductionPlanningResponse>.Success((await GetProjectPlanAsync(projectId, cancellationToken))!);
+    }
+
+    public async Task<ProductionPlanningMutationResult<ProductionPlanningResponse>> UpdateSetDefaultAsync(
+        Guid projectId,
+        UpdateProductionPlanSetDefaultRequest request,
+        Guid changedByUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var project = await LockProjectAsync(connection, transaction, projectId, cancellationToken);
+        if (project is null) return ProductionPlanningMutationResult<ProductionPlanningResponse>.NotFound();
+        if (!string.Equals(project.Status, "Active", StringComparison.Ordinal))
+            return ProductionPlanningMutationResult<ProductionPlanningResponse>.Conflict("현재 프로젝트 상태에서는 전체 세트 기본계획을 수정할 수 없습니다.");
+        var plan = await ReadPlanHeaderAsync(connection, transaction, projectId, cancellationToken);
+        if (plan is null || plan.ModelVersion != ProductionControlModelVersions.LinkedV1 || project.StructureMode != "Ul891Set")
+            return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(
+                new Dictionary<string, string[]> { ["setDefault"] = ["세트형 UL891 연결 생산계획에서만 전체 기본계획을 저장할 수 있습니다."] });
+
+        await EnsureSetPlanScopeAsync(connection, transaction, projectId, null, changedByUserId, cancellationToken);
+        Guid defaultId;
+        int defaultRowVersion;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "select id,row_version from project_production_plan_set_defaults where production_plan_id=@plan_id for update;";
+            command.Parameters.AddWithValue("plan_id", plan.PlanId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return ProductionPlanningMutationResult<ProductionPlanningResponse>.Conflict("전체 세트 기본계획을 준비하지 못했습니다. 다시 시도해 주세요.");
+            defaultId = reader.GetGuid(0);
+            defaultRowVersion = reader.GetInt32(1);
+        }
+        if (request.ExpectedRowVersion is null || request.ExpectedRowVersion.Value != defaultRowVersion)
+            return ProductionPlanningMutationResult<ProductionPlanningResponse>.Conflict("다른 사용자가 전체 세트 기본계획을 먼저 수정했습니다. 최신 내용을 다시 불러와 주세요.");
+
+        var requestedItems = request.Items ?? [];
+        var existingItems = await ReadPlanItemsAsync(connection, transaction, plan.PlanId, cancellationToken);
+        var existingById = existingItems.Where(item => item.ItemId is not null).ToDictionary(item => item.ItemId!.Value);
+        var currentDefault = await ReadSetDefaultAsync(connection, transaction, plan.PlanId, existingItems, cancellationToken);
+        var currentById = currentDefault?.Items.Where(item => item.ItemId is not null).ToDictionary(item => item.ItemId!.Value)
+            ?? new Dictionary<Guid, ProductionPlanItemResponse>();
+        var errors = new Dictionary<string, string[]>();
+        for (var index = 0; index < requestedItems.Count; index++)
+        {
+            var requested = requestedItems[index];
+            if (requested.ItemId is null || !existingById.ContainsKey(requested.ItemId.Value))
+            {
+                errors[$"items[{index}].itemId"] = ["현재 프로젝트의 생산계획 항목을 다시 선택해 주세요."];
+                continue;
+            }
+            if (requested.PlannedStartDate is not null && requested.PlannedEndDate is not null && requested.PlannedStartDate > requested.PlannedEndDate)
+                errors[$"items[{index}].plannedEndDate"] = ["계획 종료일은 시작일보다 빠를 수 없습니다."];
+            if (requested.RequiredHeadcount is not null && requested.RequiredHeadcount is (< 1 or > 999))
+                errors[$"items[{index}].requiredHeadcount"] = ["필요 인원은 1명부터 999명까지 입력할 수 있습니다."];
+            if (requested.AssignedUserId is not null
+                && await ReadUserDisplayNameAsync(connection, transaction, requested.AssignedUserId.Value, cancellationToken) is null)
+                errors[$"items[{index}].assignedUserId"] = ["현재 사용 가능한 담당자를 다시 선택해 주세요."];
+            if (currentById.TryGetValue(requested.ItemId.Value, out var current)
+                && requested.ExpectedRowVersion is not null
+                && current.RowVersion != requested.ExpectedRowVersion.Value)
+                return ProductionPlanningMutationResult<ProductionPlanningResponse>.Conflict("다른 사용자가 전체 세트 기본계획 항목을 먼저 수정했습니다. 최신 내용을 다시 불러와 주세요.");
+        }
+        if (errors.Count > 0) return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(errors);
+
+        var affectedScopes = new HashSet<Guid>();
+        foreach (var requested in requestedItems)
+        {
+            var itemId = requested.ItemId!.Value;
+            var note = TrimToNull(requested.Note);
+            currentById.TryGetValue(itemId, out var current);
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    insert into project_production_plan_set_default_values (
+                        id,set_default_id,production_plan_item_id,
+                        planned_start_date,planned_end_date,assigned_user_id,
+                        required_headcount,note,row_version,updated_at_utc
+                    ) values (
+                        @id,@default_id,@item_id,
+                        @planned_start_date,@planned_end_date,@assigned_user_id,
+                        @required_headcount,@note,1,now()
+                    )
+                    on conflict (set_default_id,production_plan_item_id) do update
+                    set planned_start_date=excluded.planned_start_date,
+                        planned_end_date=excluded.planned_end_date,
+                        assigned_user_id=excluded.assigned_user_id,
+                        required_headcount=excluded.required_headcount,
+                        note=excluded.note,
+                        row_version=project_production_plan_set_default_values.row_version+1,
+                        updated_at_utc=now();
+                    """;
+                command.Parameters.AddWithValue("id", Guid.NewGuid());
+                command.Parameters.AddWithValue("default_id", defaultId);
+                command.Parameters.AddWithValue("item_id", itemId);
+                command.Parameters.Add("planned_start_date", NpgsqlDbType.Date).Value = requested.PlannedStartDate ?? (object)DBNull.Value;
+                command.Parameters.Add("planned_end_date", NpgsqlDbType.Date).Value = requested.PlannedEndDate ?? (object)DBNull.Value;
+                command.Parameters.Add("assigned_user_id", NpgsqlDbType.Uuid).Value = requested.AssignedUserId ?? (object)DBNull.Value;
+                command.Parameters.Add("required_headcount", NpgsqlDbType.Integer).Value = requested.RequiredHeadcount ?? (object)DBNull.Value;
+                command.Parameters.Add("note", NpgsqlDbType.Text).Value = note ?? (object)DBNull.Value;
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    update project_production_plan_set_item_values value
+                    set planned_start_date=@planned_start_date,
+                        planned_end_date=@planned_end_date,
+                        assigned_user_id=@assigned_user_id,
+                        required_headcount=@required_headcount,
+                        note=@note,
+                        row_version=value.row_version+1,
+                        updated_at_utc=now()
+                    from project_production_plan_set_scopes scope
+                    join ul891_set_instances instance on instance.id=scope.set_instance_id
+                    where value.set_scope_id=scope.id
+                      and scope.production_plan_id=@plan_id
+                      and instance.status='Active'
+                      and value.production_plan_item_id=@item_id
+                      and (
+                          @overwrite
+                          or (
+                              value.planned_start_date is null and value.planned_end_date is null
+                              and value.assigned_user_id is null and value.required_headcount is null
+                              and value.note is null
+                          )
+                      )
+                    returning value.set_scope_id;
+                    """;
+                command.Parameters.AddWithValue("plan_id", plan.PlanId);
+                command.Parameters.AddWithValue("item_id", itemId);
+                command.Parameters.AddWithValue("overwrite", request.OverwriteExisting == true);
+                command.Parameters.Add("planned_start_date", NpgsqlDbType.Date).Value = requested.PlannedStartDate ?? (object)DBNull.Value;
+                command.Parameters.Add("planned_end_date", NpgsqlDbType.Date).Value = requested.PlannedEndDate ?? (object)DBNull.Value;
+                command.Parameters.Add("assigned_user_id", NpgsqlDbType.Uuid).Value = requested.AssignedUserId ?? (object)DBNull.Value;
+                command.Parameters.Add("required_headcount", NpgsqlDbType.Integer).Value = requested.RequiredHeadcount ?? (object)DBNull.Value;
+                command.Parameters.Add("note", NpgsqlDbType.Text).Value = note ?? (object)DBNull.Value;
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken)) affectedScopes.Add(reader.GetGuid(0));
+            }
+
+            var oldPeriod = FormatPeriod(current?.PlannedStartDate, current?.PlannedEndDate);
+            var newPeriod = FormatPeriod(requested.PlannedStartDate, requested.PlannedEndDate);
+            if (oldPeriod != newPeriod)
+                await InsertAuditAsync(connection, transaction, projectId, itemId, "ProductionPlanItem",
+                    $"전체 세트 기본계획 · {existingById[itemId].StepName} 계획 기간", oldPeriod, newPeriod,
+                    request.Reason, changedByUserId, correlationId, cancellationToken);
+            if (current?.AssignedUserId != requested.AssignedUserId)
+                await InsertAuditAsync(connection, transaction, projectId, itemId, "ProductionPlanItem",
+                    $"전체 세트 기본계획 · {existingById[itemId].StepName} 담당자", current?.AssignedUserName,
+                    requested.AssignedUserId is null ? null : await ReadUserDisplayNameAsync(connection, transaction, requested.AssignedUserId.Value, cancellationToken),
+                    request.Reason, changedByUserId, correlationId, cancellationToken);
+            if (current?.RequiredHeadcount != requested.RequiredHeadcount)
+                await InsertAuditAsync(connection, transaction, projectId, itemId, "ProductionPlanItem",
+                    $"전체 세트 기본계획 · {existingById[itemId].StepName} 필요 인원",
+                    current?.RequiredHeadcount?.ToString(CultureInfo.InvariantCulture),
+                    requested.RequiredHeadcount?.ToString(CultureInfo.InvariantCulture),
+                    request.Reason, changedByUserId, correlationId, cancellationToken);
+            if (current?.Note != note)
+                await InsertAuditAsync(connection, transaction, projectId, itemId, "ProductionPlanItem",
+                    $"전체 세트 기본계획 · {existingById[itemId].StepName} 생산관리 코멘트", current?.Note, note,
+                    request.Reason, changedByUserId, correlationId, cancellationToken);
+        }
+
+        if (affectedScopes.Count > 0)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                update project_production_plan_set_scopes
+                set row_version=row_version+1,updated_at_utc=now(),updated_by_user_id=@user_id
+                where id=any(@scope_ids);
+                """;
+            command.Parameters.AddWithValue("user_id", changedByUserId);
+            command.Parameters.AddWithValue("scope_ids", affectedScopes.ToArray());
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                update project_production_plan_set_defaults
+                set row_version=row_version+1,updated_at_utc=now(),updated_by_user_id=@user_id
+                where id=@default_id and row_version=@expected_row_version;
+                """;
+            command.Parameters.AddWithValue("user_id", changedByUserId);
+            command.Parameters.AddWithValue("default_id", defaultId);
+            command.Parameters.AddWithValue("expected_row_version", defaultRowVersion);
+            if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+                return ProductionPlanningMutationResult<ProductionPlanningResponse>.Conflict("다른 사용자가 전체 세트 기본계획을 먼저 수정했습니다. 최신 내용을 다시 불러와 주세요.");
+        }
+        await transaction.CommitAsync(cancellationToken);
+        var updated = await GetProjectPlanAsync(projectId, null, cancellationToken);
+        return updated.Status == ProductionPlanningReadStatus.Success && updated.Value is not null
+            ? ProductionPlanningMutationResult<ProductionPlanningResponse>.Success(updated.Value)
+            : ProductionPlanningMutationResult<ProductionPlanningResponse>.NotFound();
     }
 
     public async Task<ProductionPlanningMutationResult<ProductionPlanningResponse>> UpdateSetScopeAsync(
@@ -2370,7 +2603,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         IReadOnlyList<NotificationFallbackResponse> fallbacks,
         bool isSetScoped = false,
         ProductionPlanSetScopeResponse? selectedScope = null,
-        IReadOnlyList<ProductionPlanSetScopeResponse>? scopes = null)
+        IReadOnlyList<ProductionPlanSetScopeResponse>? scopes = null,
+        ProductionPlanSetDefaultResponse? setDefault = null)
     {
         var allAssignees = ProductionPlanningDomain.Responsibilities
             .Select(responsibility => FindAssigneeForResponsibility(assignees, responsibility) ?? new ProjectAssigneeResponse
@@ -2414,7 +2648,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             fallbacks,
             isSetScoped,
             selectedScope,
-            scopes ?? []);
+            scopes ?? [],
+            setDefault);
     }
 
     private static IReadOnlyList<ProductionPlanItemResponse> SortPlanItems(IReadOnlyList<ProductionPlanItemResponse> items)
@@ -2666,6 +2901,58 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
     {
         var rows = await ReadSetItemValuesAsync(connection, transaction, [scopeId], cancellationToken);
         return rows.ToDictionary(row => row.ItemId);
+    }
+
+    private static async Task<ProductionPlanSetDefaultResponse?> ReadSetDefaultAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid planId,
+        IReadOnlyList<ProductionPlanItemResponse> items,
+        CancellationToken cancellationToken)
+    {
+        Guid defaultId;
+        int rowVersion;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "select id,row_version from project_production_plan_set_defaults where production_plan_id=@plan_id;";
+            command.Parameters.AddWithValue("plan_id", planId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)) return null;
+            defaultId = reader.GetGuid(0);
+            rowVersion = reader.GetInt32(1);
+        }
+
+        var values = new Dictionary<Guid, SetItemValue>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select value.id, value.set_default_id, value.production_plan_item_id,
+                       value.planned_start_date, value.planned_end_date,
+                       value.assigned_user_id, assigned.display_name,
+                       value.required_headcount, value.note, value.row_version
+                from project_production_plan_set_default_values value
+                left join qms_users assigned on assigned.id=value.assigned_user_id
+                where value.set_default_id=@default_id;
+                """;
+            command.Parameters.AddWithValue("default_id", defaultId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var value = new SetItemValue(
+                    reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2),
+                    reader.IsDBNull(3) ? null : reader.GetFieldValue<DateOnly>(3),
+                    reader.IsDBNull(4) ? null : reader.GetFieldValue<DateOnly>(4),
+                    reader.IsDBNull(5) ? null : reader.GetGuid(5),
+                    reader.IsDBNull(6) ? null : reader.GetString(6),
+                    reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8),
+                    reader.GetInt32(9));
+                values[value.ItemId] = value;
+            }
+        }
+        return new ProductionPlanSetDefaultResponse(defaultId, rowVersion, ApplySetItemValues(items, values));
     }
 
     private static async Task<IReadOnlyList<SetItemValue>> ReadSetItemValuesAsync(

@@ -1,26 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   addUl891SetSpec,
-  applyUl891Version,
   cancelUl891Instances,
   confirmUl891MonthlyBilling,
   createUl891MonthlyBillingRevision,
-  createUl891Version,
   getUl891MonthlyBilling,
   getUl891SetStructure,
   increaseUl891Instances,
   openUl891MonthlyBilling,
-  publishUl891Version,
   recoverUl891Case,
-  updateUl891Draft
+  updateUl891CurrentDesign
 } from './api';
 import type {
   MonthlyBilling,
   MonthlyBillingLedger,
-  Ul891SetComponent,
+  Ul891SetDesignSlot,
   Ul891SetSpec,
-  Ul891SetStructure,
-  Ul891SetVersion
+  Ul891SetStructure
 } from './ul891Sets';
 
 type Props = {
@@ -121,7 +117,7 @@ export function Ul891SetWorkspace({
           onOpenPanel={onOpenPanel}
         />
       )}
-      {mode === 'sales' && message ? <p className={message.startsWith('완료') ? 'success-text' : 'error-text'} role="status">{message}</p> : null}
+      {message ? <p className={message.startsWith('완료') ? 'success-text' : 'error-text'} role="status">{message}</p> : null}
     </section>
   );
 }
@@ -135,24 +131,24 @@ function SalesSetControls({ developmentUserKey, projectId, structure, billing, o
   const [selectedProcurement, setSelectedProcurement] = useState<string[]>([]);
   const [cancelReason, setCancelReason] = useState('');
   const [exceptionAcknowledged, setExceptionAcknowledged] = useState(false);
-  const [newSpec, setNewSpec] = useState({ name: '', quantity: '1', componentCodes: 'A, B, C, D, E, F, G', reason: '' });
+  const [newSpec, setNewSpec] = useState({ name: '', quantity: '1', panelCount: '7', reason: '' });
   const [saving, setSaving] = useState(false);
 
   async function addSpec() {
-    const componentCodes = newSpec.componentCodes.split(',').map((value) => value.trim().toUpperCase()).filter(Boolean);
     if (!newSpec.name.trim() || !Number.isInteger(Number(newSpec.quantity)) || Number(newSpec.quantity) < 1
-      || componentCodes.length === 0 || new Set(componentCodes).size !== componentCodes.length || !newSpec.reason.trim()) {
-      onMessage('새 세트 사양명, 주문 수량, 쉼표로 구분한 중복 없는 구성 code와 변경 사유를 입력해 주세요.'); return;
+      || !Number.isInteger(Number(newSpec.panelCount)) || Number(newSpec.panelCount) < 1 || Number(newSpec.panelCount) > 200
+      || !newSpec.reason.trim()) {
+      onMessage('새 세트 사양명, 주문 수량, 세트당 패널 수와 변경 사유를 입력해 주세요.'); return;
     }
     await run(async () => {
       await addUl891SetSpec(developmentUserKey, projectId, {
         expectedSpecCount: structure.specs.length,
         name: newSpec.name.trim(),
         quantity: Number(newSpec.quantity),
-        componentCodes,
+        panelCount: Number(newSpec.panelCount),
         reason: newSpec.reason.trim()
       });
-      setNewSpec({ name: '', quantity: '1', componentCodes: 'A, B, C, D, E, F, G', reason: '' });
+      setNewSpec({ name: '', quantity: '1', panelCount: '7', reason: '' });
       onMessage('완료 · 새 세트 사양과 개별 패널을 추가했습니다.');
     });
   }
@@ -191,7 +187,7 @@ function SalesSetControls({ developmentUserKey, projectId, structure, billing, o
         <div className="ul891-add-spec-form">
           <label>세트 사양명<input value={newSpec.name} onChange={(event) => setNewSpec((current) => ({ ...current, name: event.target.value }))} /></label>
           <label>주문 수량<input type="number" min="1" value={newSpec.quantity} onChange={(event) => setNewSpec((current) => ({ ...current, quantity: event.target.value }))} /></label>
-          <label className="wide">구성 code<input value={newSpec.componentCodes} onChange={(event) => setNewSpec((current) => ({ ...current, componentCodes: event.target.value }))} /></label>
+          <label>세트당 패널 수<input type="number" min="1" max="200" value={newSpec.panelCount} onChange={(event) => setNewSpec((current) => ({ ...current, panelCount: event.target.value }))} /></label>
           <label className="wide">변경 사유<input value={newSpec.reason} onChange={(event) => setNewSpec((current) => ({ ...current, reason: event.target.value }))} /></label>
           <button type="button" className="primary-button" disabled={saving} onClick={() => void addSpec()}>새 사양 추가</button>
         </div>
@@ -201,12 +197,12 @@ function SalesSetControls({ developmentUserKey, projectId, structure, billing, o
           const form = increase[spec.specId] ?? { quantity: '1', reason: '' };
           return (
             <article className="ul891-spec-card" key={spec.specId}>
-              <div className="ul891-spec-heading"><span>SET {spec.specNo}</span><div><h4>{spec.name}</h4><p>주문 {spec.activeInstanceCount}세트 · 패널 {spec.instances.filter((item) => item.status === 'Active').reduce((sum, item) => sum + item.panels.filter((panel) => panel.panelStatus === 'Active').length, 0)}개</p></div><strong>{versionLabel(spec.versions)}</strong></div>
+              <div className="ul891-spec-heading"><span>SET {spec.specNo}</span><div><h4>{spec.name}</h4><p>주문 {spec.activeInstanceCount}세트 · 패널 {spec.instances.filter((item) => item.status === 'Active').reduce((sum, item) => sum + item.panels.length, 0)}개</p></div><strong>{spec.currentDesign.length}개 위치</strong></div>
               <div className="ul891-instance-list">
                 {spec.instances.map((instance) => (
                   <article key={instance.instanceId} data-status={instance.status}>
                     <label><input type="checkbox" disabled={instance.status !== 'Active' || instance.hasDeliveredPanel} checked={selectedInstances.includes(instance.instanceId)} onChange={() => setSelectedInstances(toggle(selectedInstances, instance.instanceId))} /><span>{spec.name} · {instance.instanceNumber}번 세트</span></label>
-                    <small>v{instance.specVersionNumber} · {instance.hasDeliveredPanel ? '출하 포함' : instance.hasStarted ? '착수' : '미착수'} · {instance.status === 'Cancelled' ? '취소' : '활성'}</small>
+                    <small>{instance.hasDeliveredPanel ? '출하 포함' : instance.hasStarted ? '착수' : '미착수'} · {instance.status === 'Cancelled' ? '취소' : '활성'}</small>
                     <PanelPills panels={instance.panels} onOpenPanel={onOpenPanel} />
                   </article>
                 ))}
@@ -241,117 +237,62 @@ function DesignSetControls({ developmentUserKey, projectId, structure, editable,
 function DesignSpecCard({ developmentUserKey, projectId, spec, canEdit, onChanged, onMessage, onOpenPanel }: {
   developmentUserKey: string; projectId: string; spec: Ul891SetSpec; canEdit: boolean; onChanged: () => Promise<void>; onMessage: (value: string) => void; onOpenPanel: (panelId: string) => void;
 }) {
-  const draft = spec.versions.find((version) => version.status === 'Draft');
-  const published = spec.versions.find((version) => version.status === 'Published');
-  const source = draft ?? published ?? spec.versions[0];
   const [name, setName] = useState(spec.name);
-  const [reason, setReason] = useState(source?.revisionReason ?? '설계 사양 입력');
-  const [components, setComponents] = useState<Ul891SetComponent[]>(source?.components ?? []);
-  const [selectedInstances, setSelectedInstances] = useState<string[]>([]);
-  const [targetVersion, setTargetVersion] = useState(published?.versionId ?? '');
-  const [savingAction, setSavingAction] = useState<'temporary' | 'save' | 'new-version' | 'apply' | null>(null);
+  const [reason, setReason] = useState('설계 정보 수정');
+  const [slots, setSlots] = useState<Ul891SetDesignSlot[]>(spec.currentDesign);
+  const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ tone: 'loading' | 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => { setName(spec.name); setReason(source?.revisionReason ?? '설계 사양 입력'); setComponents(source?.components ?? []); setTargetVersion(published?.versionId ?? ''); }, [published?.versionId, source?.components, source?.revisionReason, source?.versionId, spec.name]);
-  async function run(
-    action: () => Promise<unknown>,
-    actionName: NonNullable<typeof savingAction>,
-    loadingMessage: string,
-    successMessage: string
-  ) {
-    setSavingAction(actionName);
-    setFeedback({ tone: 'loading', message: loadingMessage });
+  useEffect(() => {
+    setName(spec.name);
+    setSlots(spec.currentDesign);
+  }, [spec.currentDesign, spec.name]);
+
+  async function save() {
+    if (!name.trim() || !reason.trim() || slots.length === 0) {
+      setFeedback({ tone: 'error', message: '세트 사양명, 패널 위치와 수정 사유를 확인해 주세요.' });
+      return;
+    }
+    setSaving(true);
+    setFeedback({ tone: 'loading', message: '저장 중입니다.' });
     onMessage('');
     try {
-      await action();
-      setFeedback({ tone: 'success', message: successMessage });
+      await updateUl891CurrentDesign(developmentUserKey, projectId, spec.specId, {
+        expectedSpecVersion: spec.rowVersion,
+        specName: name.trim(),
+        reason: reason.trim(),
+        slots: slots.map((slot) => ({
+          slotId: slot.slotId.startsWith('new-') ? null : slot.slotId,
+          panelName: clean(slot.panelName),
+          panelSpecification: clean(slot.panelSpecification),
+          widthMm: slot.widthMm,
+          heightMm: slot.heightMm,
+          depthMm: slot.depthMm
+        }))
+      });
+      setFeedback({ tone: 'success', message: '저장되었습니다. 필요할 때 같은 화면에서 다시 수정할 수 있습니다.' });
+      onMessage('완료 · 현재 설계를 저장했습니다. 필요할 때 같은 화면에서 다시 수정할 수 있습니다.');
       await onChanged();
     } catch (error) {
       const message = errorMessage(error);
       setFeedback({ tone: 'error', message });
       onMessage(message);
     } finally {
-      setSavingAction(null);
+      setSaving(false);
     }
-  }
-  async function save() {
-    if (!draft || !reason.trim() || components.some((item) => !item.componentCode.trim())) {
-      setFeedback({ tone: 'error', message: '임시저장할 수정본, 변경 사유와 구성 code를 확인해 주세요.' });
-      return;
-    }
-    await run(
-      () => updateUl891Draft(developmentUserKey, projectId, spec.specId, draft.versionId, { expectedSpecVersion: spec.rowVersion, specName: name.trim(), revisionReason: reason.trim(), components: components.map((item) => ({ componentCode: item.componentCode.trim().toUpperCase(), panelName: clean(item.panelName), panelSpecification: clean(item.panelSpecification), widthMm: item.widthMm, heightMm: item.heightMm, depthMm: item.depthMm })) }),
-      'temporary',
-      '임시저장 중입니다.',
-      '임시저장되었습니다. 계속 수정하거나 최종 저장할 수 있습니다.'
-    );
-  }
-  async function publish() {
-    if (!draft || !reason.trim() || components.some((item) => !item.componentCode.trim())) {
-      setFeedback({ tone: 'error', message: '저장할 수정본, 변경 사유와 구성 code를 확인해 주세요.' });
-      return;
-    }
-    await run(
-      async () => {
-        await updateUl891Draft(developmentUserKey, projectId, spec.specId, draft.versionId, {
-          expectedSpecVersion: spec.rowVersion,
-          specName: name.trim(),
-          revisionReason: reason.trim(),
-          components: components.map((item) => ({
-            componentCode: item.componentCode.trim().toUpperCase(),
-            panelName: clean(item.panelName),
-            panelSpecification: clean(item.panelSpecification),
-            widthMm: item.widthMm,
-            heightMm: item.heightMm,
-            depthMm: item.depthMm
-          }))
-        });
-        await publishUl891Version(developmentUserKey, projectId, spec.specId, draft.versionId, reason.trim());
-      },
-      'save',
-      '저장 중입니다.',
-      '저장되었습니다. 이 사양이 적용된 패널은 제조를 시작할 수 있습니다.'
-    );
-  }
-  async function createVersion() {
-    if (!reason.trim()) {
-      setFeedback({ tone: 'error', message: '새 수정본을 만드는 사유를 입력해 주세요.' });
-      return;
-    }
-    await run(
-      () => createUl891Version(developmentUserKey, projectId, spec.specId, reason.trim()),
-      'new-version',
-      '새 수정본을 만드는 중입니다.',
-      '새 수정본을 만들었습니다. 내용을 변경한 뒤 임시저장 또는 저장해 주세요.'
-    );
-  }
-  async function applyVersion() {
-    if (!targetVersion || selectedInstances.length === 0 || !reason.trim()) {
-      setFeedback({ tone: 'error', message: '적용할 저장 버전, 세트와 사유를 입력해 주세요.' });
-      return;
-    }
-    await run(
-      () => applyUl891Version(developmentUserKey, projectId, spec.specId, { expectedActiveInstanceCount: spec.activeInstanceCount, versionId: targetVersion, instanceIds: selectedInstances, reason: reason.trim() }),
-      'apply',
-      '선택 세트에 적용 중입니다.',
-      '선택한 세트에 저장된 사양을 적용했습니다.'
-    );
-    setSelectedInstances([]);
   }
 
   return <article className="ul891-spec-card design">
-    <div className="ul891-spec-heading"><span>SET {spec.specNo}</span><div><h4>{spec.name}</h4><p>공통 사양 {components.length}개 · 실물 {spec.activeInstanceCount}세트</p></div><strong>{versionLabel(spec.versions)}</strong></div>
-    <div className="ul891-version-rail" aria-label="사양 저장 이력">{spec.versions.map((version) => <span key={version.versionId} data-status={version.status}>v{version.versionNumber} {versionStatusLabel(version.status)}</span>)}</div>
-    {!canEdit || !draft ? <DesignComponentSummary components={source?.components ?? []} /> : null}
-    {canEdit && draft ? <div className="ul891-design-form">
+    <div className="ul891-spec-heading"><span>SET {spec.specNo}</span><div><h4>{spec.name}</h4><p>현재 설계 {spec.currentDesign.length}개 위치 · 실물 {spec.activeInstanceCount}세트</p></div><strong>현재 설계</strong></div>
+    {!canEdit ? <DesignComponentSummary slots={spec.currentDesign} /> : null}
+    {canEdit ? <div className="ul891-design-form">
       <label>세트 사양명<input value={name} onChange={(event) => setName(event.target.value)} /></label>
-      <label>변경 사유<input value={reason} onChange={(event) => setReason(event.target.value)} /></label>
-      <div className="ul891-component-table"><div className="head"><span>Code</span><span>패널명</span><span>W × H × D (mm)</span></div>{components.map((component, index) => <div className="row" key={`${component.componentId}-${index}`}><input aria-label={`구성 ${index + 1} code`} value={component.componentCode} onChange={(event) => setComponents(updateComponent(components, index, { componentCode: event.target.value }))} /><input aria-label={`${component.componentCode} 패널명`} value={component.panelName ?? ''} onChange={(event) => setComponents(updateComponent(components, index, { panelName: event.target.value }))} /><span>{(['widthMm', 'heightMm', 'depthMm'] as const).map((field) => <input key={field} type="number" min="0" value={component[field] ?? ''} onChange={(event) => setComponents(updateComponent(components, index, { [field]: event.target.value ? Number(event.target.value) : null }))} />)}</span></div>)}</div>
-      <div className="button-row"><button type="button" disabled={savingAction !== null} onClick={() => setComponents([...components, blankComponent(components.length)])}>구성 추가</button><button type="button" disabled={savingAction !== null} onClick={() => void save()}>{savingAction === 'temporary' ? '임시저장 중' : '임시저장'}</button><button type="button" className="primary-button" disabled={savingAction !== null} onClick={() => void publish()}>{savingAction === 'save' ? '저장 중' : '저장'}</button></div>
+      <label>수정 사유<input value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+      <p className="muted-text">패널 사양은 위치별로 입력합니다. 같은 패널명과 치수를 여러 위치에 반복해도 됩니다.</p>
+      <div className="ul891-component-table"><div className="head"><span>위치</span><span>패널명</span><span>W × H × D (mm)</span><span>관리</span></div>{slots.map((slot, index) => <div className="row" key={`${slot.slotId}-${index}`}><strong>{index + 1}</strong><input aria-label={`${index + 1}번 위치 패널명`} value={slot.panelName ?? ''} onChange={(event) => setSlots(updateDesignSlot(slots, index, { panelName: event.target.value }))} /><span>{(['widthMm', 'heightMm', 'depthMm'] as const).map((field) => <input key={field} aria-label={`${index + 1}번 위치 ${field}`} type="number" min="0" value={slot[field] ?? ''} onChange={(event) => setSlots(updateDesignSlot(slots, index, { [field]: event.target.value ? Number(event.target.value) : null }))} />)}</span><button type="button" disabled={saving || slots.length <= 1} onClick={() => setSlots(slots.filter((_, slotIndex) => slotIndex !== index))}>삭제</button></div>)}</div>
+      <div className="button-row"><button type="button" disabled={saving} onClick={() => setSlots([...slots, blankDesignSlot(slots.length)])}>패널 위치 추가</button><button type="button" className="primary-button" disabled={saving} onClick={() => void save()}>{saving ? '저장 중' : '저장'}</button></div>
     </div> : null}
-    {canEdit && !draft && published ? <div className="ul891-inline-form"><label>새 수정본 사유<input value={reason} onChange={(event) => setReason(event.target.value)} /></label><button type="button" disabled={savingAction !== null} onClick={() => void createVersion()}>{savingAction === 'new-version' ? '만드는 중' : '새 수정본 만들기'}</button></div> : null}
-    <div className="ul891-instance-list">{spec.instances.map((instance) => <article key={instance.instanceId} data-status={instance.status}><label>{canEdit && instance.status === 'Active' && !instance.hasDeliveredPanel ? <input type="checkbox" checked={selectedInstances.includes(instance.instanceId)} onChange={() => setSelectedInstances(toggle(selectedInstances, instance.instanceId))} /> : null}<span>{spec.name} · {instance.instanceNumber}번 세트</span></label><small>적용 사양 v{instance.specVersionNumber} · {instance.hasStarted ? '착수됨' : '미착수'}</small><PanelPills panels={instance.panels} onOpenPanel={onOpenPanel} /></article>)}</div>
-    {canEdit && spec.versions.some((version) => version.status === 'Published') ? <div className="ul891-inline-form"><label>저장된 버전<select value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)}>{spec.versions.filter((version) => version.status === 'Published').map((version) => <option key={version.versionId} value={version.versionId}>v{version.versionNumber}</option>)}</select></label><label>적용 사유<input value={reason} onChange={(event) => setReason(event.target.value)} /></label><button type="button" disabled={savingAction !== null || selectedInstances.length === 0} onClick={() => void applyVersion()}>{savingAction === 'apply' ? '적용 중' : '선택 세트에 적용'}</button></div> : null}
+    <div className="ul891-instance-list">{spec.instances.map((instance) => <article key={instance.instanceId} data-status={instance.status}><label><span>{spec.name} · {instance.instanceNumber}번 세트</span></label><small>{instance.hasStarted ? '착수됨' : '미착수'} · {instance.status === 'Cancelled' ? '취소' : '활성'}</small><PanelPills panels={instance.panels} onOpenPanel={onOpenPanel} /></article>)}</div>
     {feedback ? <p className={`ul891-action-feedback ${feedback.tone === 'error' ? 'error-text' : feedback.tone === 'success' ? 'success-text' : 'muted-text'}`} role="status" aria-live="polite">{feedback.message}</p> : null}
   </article>;
 }
@@ -393,38 +334,36 @@ function MonthlyBillingPanel({ developmentUserKey, projectId, billing, recoveryC
   </section>;
 }
 
-function DesignComponentSummary({ components }: { components: Ul891SetComponent[] }) {
-  if (components.length === 0) {
+function DesignComponentSummary({ slots }: { slots: Ul891SetDesignSlot[] }) {
+  if (slots.length === 0) {
     return <p className="empty-text">저장된 구성 패널 정보가 없습니다.</p>;
   }
   return (
     <div className="ul891-component-summary" role="table" aria-label="저장된 세트 공통 설계정보">
       <div className="head" role="row">
-        <span role="columnheader">Code</span>
+        <span role="columnheader">위치</span>
         <span role="columnheader">패널명</span>
         <span role="columnheader">W × H × D (mm)</span>
       </div>
-      {components.map((component) => (
-        <div className="row" role="row" key={component.componentId}>
-          <strong role="cell">{component.componentCode}</strong>
-          <span role="cell">{component.panelName ?? '미입력'}</span>
-          <span role="cell">{formatDimensions(component)}</span>
+      {slots.map((slot) => (
+        <div className="row" role="row" key={slot.slotId}>
+          <strong role="cell">{slot.positionNumber}</strong>
+          <span role="cell">{slot.panelName ?? '미입력'}</span>
+          <span role="cell">{formatDimensions(slot)}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function PanelPills({ panels, onOpenPanel }: { panels: Ul891SetSpec['instances'][number]['panels']; onOpenPanel: (panelId: string) => void }) { return <div className="ul891-panel-pills">{panels.map((panel) => <button type="button" key={panel.panelId} data-status={panel.panelStatus} aria-label={`${panel.componentCode} ${panel.panelName ?? panel.displayCode} 패널 상세`} onClick={() => onOpenPanel(panel.panelId)}><strong>{panel.componentCode}</strong><span>{panel.panelName ?? panel.displayCode}</span><small>{panel.delivered ? '출하' : panel.workflowStage}</small></button>)}</div>; }
+function PanelPills({ panels, onOpenPanel }: { panels: Ul891SetSpec['instances'][number]['panels']; onOpenPanel: (panelId: string) => void }) { return <div className="ul891-panel-pills">{panels.map((panel, index) => <button type="button" key={panel.panelId} data-status={panel.panelStatus} aria-label={`${panel.positionNumber ?? index + 1}번 위치 ${panel.panelName ?? panel.displayCode} 패널 상세`} onClick={() => onOpenPanel(panel.panelId)}><strong>{panel.positionNumber ?? index + 1}</strong><span>{panel.panelName ?? panel.displayCode}</span><small>{panel.delivered ? '출하' : panel.workflowStage}</small></button>)}</div>; }
 function toggle(values: string[], value: string) { return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]; }
-function versionLabel(versions: Ul891SetVersion[]) { const draft = versions.find((item) => item.status === 'Draft'); const published = versions.find((item) => item.status === 'Published'); return draft ? `v${draft.versionNumber} 임시저장` : published ? `v${published.versionNumber} 저장 완료` : '저장된 사양 없음'; }
-function versionStatusLabel(status: Ul891SetVersion['status']) { return { Draft: '임시저장', Published: '저장 완료', Superseded: '이전 버전' }[status]; }
-function formatDimensions(component: Ul891SetComponent) {
-  if (component.widthMm === null && component.heightMm === null && component.depthMm === null) return '-';
-  return `${component.widthMm ?? '-'} × ${component.heightMm ?? '-'} × ${component.depthMm ?? '-'}`;
+function formatDimensions(slot: Pick<Ul891SetDesignSlot, 'widthMm' | 'heightMm' | 'depthMm'>) {
+  if (slot.widthMm === null && slot.heightMm === null && slot.depthMm === null) return '-';
+  return `${slot.widthMm ?? '-'} × ${slot.heightMm ?? '-'} × ${slot.depthMm ?? '-'}`;
 }
-function updateComponent(items: Ul891SetComponent[], index: number, patch: Partial<Ul891SetComponent>) { return items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item); }
-function blankComponent(index: number): Ul891SetComponent { return { componentId: `new-${index}`, componentCode: '', panelName: null, panelSpecification: null, widthMm: null, heightMm: null, depthMm: null, sortOrder: index + 1 }; }
+function updateDesignSlot(items: Ul891SetDesignSlot[], index: number, patch: Partial<Ul891SetDesignSlot>) { return items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item); }
+function blankDesignSlot(index: number): Ul891SetDesignSlot { return { slotId: `new-${crypto.randomUUID()}`, positionNumber: index + 1, panelName: null, panelSpecification: null, widthMm: null, heightMm: null, depthMm: null, rowVersion: 0 }; }
 function clean(value: string | null | undefined) { const normalized = value?.trim(); return normalized ? normalized : null; }
 function money(value: number | null, currency: string | null) { return value === null ? '-' : `${new Intl.NumberFormat('ko-KR').format(value)} ${currency ?? ''}`.trim(); }
 function billingStatusLabel(value: MonthlyBillingLedger['status']) { return { Open: '작성 중', Requested: '발행요청', InvoiceConfirmed: '회계 확인', AdjustmentRequired: '조정 필요' }[value]; }

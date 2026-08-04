@@ -28,6 +28,14 @@ public static class Ul891SetEndpointExtensions
                 ToResult(await store.AddSpecAsync(projectId, request, actor.Value, context.TraceIdentifier, token));
         }).RequireAuthorization(QmsPolicies.ProjectUpdate).WithName("AddUl891SetSpec");
 
+        sets.MapPut("/set-specs/{specId:guid}/design", async (
+            Guid projectId, Guid specId, UpdateUl891CurrentDesignRequest request,
+            Ul891SetStore store, ClaimsPrincipal user, HttpContext context, CancellationToken token) =>
+        {
+            var actor = UserId(user); return actor is null ? Results.Unauthorized() :
+                ToResult(await store.UpdateCurrentDesignAsync(projectId, specId, request, actor.Value, context.TraceIdentifier, token));
+        }).RequireAuthorization(QmsPolicies.PanelInfoUpdate).WithName("UpdateUl891CurrentDesign");
+
         sets.MapPut("/set-specs/{specId:guid}/versions/{versionId:guid}", async (
             Guid projectId, Guid specId, Guid versionId, UpdateUl891DraftRequest request,
             Ul891SetStore store, ClaimsPrincipal user, HttpContext context, CancellationToken token) =>

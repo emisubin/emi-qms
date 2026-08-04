@@ -1,5 +1,115 @@
 # TASK-EXPERIMENT-PROMOTION-001 구현 보고서
 
+## Change 004 — 활성 패널 화면 순번 정합
+
+### 결과와 범위
+
+- Task 유형: `BUGFIX`
+- 사용자 승인: 2026-08-04 구현·commit·push·Ready PR·CI 확인 뒤 merge
+- 상태: 구현·자동 검증·실제 검수 화면 확인 완료, Git 게시 Gate 진행
+- 변경: 제조·품질·물류 desktop 표의 `No`만 현재 활성 행 기준 `1..N`으로 표시
+- 보존: `P52` 같은 영구 panel code, panel ID, QR·audit·workflow·취소 이력, mobile card, Backend·DB·migration
+- 제외: Persistent UAT handover, Azure resource·image·traffic·provider mutation
+
+프로젝트와 KPI의 활성 패널 수는 실제로 모두 42개였다. 과거 세트 구조 변경으로 취소 번호를 재사용하지 않아 활성 패널의 영구 코드가 `P01~P52` 사이에 비연속으로 남았는데, 현재 목록의 `No` 열도 이 영구 sequence를 그대로 표시해 마지막 행 `52`를 전체 개수처럼 오해하게 했다. 현재 행 순번과 영구 식별 코드를 분리해 마지막 행은 `No 42 / code P52`로 표시한다.
+
+### Finding과 처리
+
+| Finding | 등급 | 상태 | 원인과 처리 |
+| --- | --- | --- | --- |
+| `UL891-PANEL-NO-HISTORY-CONFLATION-001` | P2 | `RESOLVED` | 현재 목록 순번에 이력 불변 `panel.sequenceNumber`를 표시했다. 공통 제조·품질·물류 desktop renderer에서 정렬된 활성 행 index를 사용하고, 비연속 sequence·P52 보존 unit·Full-Stack 회귀를 추가했다. |
+
+첫 Full-Stack 실행은 테스트 보조 SQL이 실제 `panel_placeholders`가 아닌 임시 이름을 사용해 제품 화면 진입 전에 실패했고, 두 번째 실행은 설계 편집 화면에서 프로젝트 탭으로 돌아오는 동작이 빠져 timeout이 났다. 두 테스트 harness 결함을 바로잡은 뒤 동일 격리 시나리오가 통과했다. 제품 결함 또는 공개 Finding으로 남은 항목은 아니다.
+
+### 검증 결과
+
+| 검증 | 결과 |
+| --- | --- |
+| 대상 App unit | `PASS` — 비연속 sequence `1,10,19,52`가 `No 1,2,3,4`로 표시되고 `P52` 보존 |
+| Frontend unit 전체 | `PASS` — 25 files, `175/175` |
+| Frontend typecheck | `PASS` |
+| Frontend lint | `PASS` — error `0`, 기존 Fast Refresh warning `1` |
+| Frontend production build | `PASS` — 기존 500KB 초과 chunk warning 유지 |
+| UL891 isolated Full-Stack | `PASS` — `1/1`, 제조·품질·물류 각 42행·마지막 `No 42 / P52` |
+| 실제 5191 검수 화면 | `PASS` — 세 표 각각 42행, P52 단일 행, 제조·품질·물류 모두 `No 42` |
+
+Open Finding P0/P1/P2는 `0/0/0`이다. Change 003의 Backend `482/482`, Mock `4/4`, 전체 Full-Stack `56/56` 기준은 이번 Frontend 표시-only 수정에서 변경하지 않았다. 게시 뒤에는 history rewrite 없이 revert PR 또는 forward-fix PR을 사용한다.
+
+## Change 003 — 통합 main 기준 UL891 사용자 수정 이식
+
+### 결과와 범위
+
+- Task 유형: `UAT_RUNTIME`
+- 사용자 승인: 2026-08-04 `2단계 작업 시작`
+- 통합 기준선: `origin/main` `1d9e386fd5afe739bcb9c93c9094e158cdb4baba`
+- 원본 기준선: 5175 source의 `69a725880f2da67589f18d321a9fb71b0540c79f` 위 사용자 검수 수정
+- port branch: `fix/task-experiment-promotion-001-ul891-port`
+- 상태: 자동 검증 완료, 통합 후보 사용자 재검수 대기
+- 제외: 기존 5175 branch 통째 merge, 5174/5081·5175/5082 handover, Persistent UAT, Azure resource·traffic·provider·image mutation, commit·push·PR·merge
+
+기존 5175 worktree의 dirty·untracked 원본은 변경하지 않았다. 승인된 `TASK-UL891-PRODUCTION-PLAN-001 Change 002~008`, `TASK-UL891-SET-001 Change 009`, additive migration `0068`만 통합 원격 main에서 시작한 별도 worktree로 옮겼다. `App.tsx` 충돌은 현재 Graphite `DsPageHeader` 구조를 보존했고, 일정표 CSS 충돌도 현재 Graphite token·표 밀도 위에서 해결했다.
+
+### 구현 결과
+
+1. 프로젝트 기본계획을 모든 활성 세트에 적용하고, 값이 있는 세트는 기본적으로 보호하며 명시적 덮어쓰기와 후속 신규 세트 상속을 지원한다.
+2. 계획은 흰색·실적은 검은색 막대로 표시하고, 일정표 본문에 주요 실선과 보조 점선을 넣되 날짜 헤더·외곽·왼쪽 구분선·양끝 경계 계약을 분리했다.
+3. 계획 구조의 필수 checkbox와 실적 연결을 한 행에 배치하고, 기본계획 저장이 이미 선택된 실적을 잘못 미선택으로 판정하던 경로를 제거했다.
+4. 일정표 아래에 생산관리 입력 담당자 목록을 표시한다.
+5. UL891 설계를 사용자 version·code 없는 단일 현재 설계로 단순화하고 저장 뒤 같은 화면에서 반복 수정할 수 있게 했다.
+6. 패널 사양의 반복을 허용하되 위치 identity로 물리 패널을 보존하며, 위치 추가·삭제에서만 생성·취소 이력을 만든다.
+7. 현재 화면과 제조 projection은 활성 위치·활성 패널만 사용해 기존 42면이 취소 이력 12면과 합쳐져 54면으로 보이던 문제를 제거했다.
+8. migration `0068`은 현재 설계와 기본계획 값을 additive하게 보존·이관하며 destructive rollback 대신 forward-fix를 사용한다.
+
+### 검증 중 발견·수정
+
+| Finding | 등급 | 상태 | 원인과 처리 |
+| --- | --- | --- | --- |
+| `UL891-PORT-GANTT-MAJOR-TOKEN-001` | P2 | `RESOLVED` | 5175 CSS를 Graphite 위에 이식할 때 주요 날짜선이 현재 중립 token을 상속해 승인 색보다 흐려졌다. 보조선 `#c8c8c8`, 주요선 `#8f8f8f`를 본문에만 명시하고 전용 desktop·390px 실제 CSS 검증으로 고정했다. |
+| `UL891-PORT-LOGISTICS-LATE-LOAD-001` | P2 | `RESOLVED` | 전체 회귀에서 물류 queue의 겹친 초기 조회 중 늦은 응답이 사용자가 클릭한 선택 상태를 초기화했다. 요청 generation fence로 최신 응답만 상태를 변경하게 하고, 늦은 첫 응답 뒤 선택이 유지되는 unit 회귀를 추가했다. |
+
+첫 UL891 전용 Full-Stack은 주요선 색 차이를 발견해 수정 후 `1/1`을 통과했다. 첫 전체 Full-Stack은 물류 선택 race 한 건을 발견해 `55/56`이었고, 제품 보정 뒤 해당 stress 시나리오 `1/1`과 최종 전체 `56/56`을 통과했다. 테스트가 다시 생성한 기존 tracked screenshot은 모두 기준선으로 원복했고 새 임시 screenshot도 제거했다.
+
+### 자동 검증 결과
+
+| 검증 | 결과 |
+| --- | --- |
+| migration `0068`·UL891 Backend 집중 | `PASS` — `43/43`; fresh·ledger upgrade, backfill·active panel·cancelled history 검증 |
+| Backend Release build | `PASS` — warning/error `0/0` |
+| Backend 전체 | `PASS` — `482/482`; 격리 PostgreSQL·container·network 제거 |
+| Frontend typecheck | `PASS` |
+| Frontend lint | `PASS` — error `0`, 기존 Fast Refresh warning `1` |
+| Frontend unit | `PASS` — 25 files, `175/175` |
+| Frontend production build | `PASS` — 기존 500KB 초과 chunk warning 유지 |
+| Mock UI E2E | `PASS` — `4/4` |
+| UL891 desktop·390px Full-Stack | `PASS` — `1/1`, page overflow `0`, 승인된 computed CSS 확인 |
+| 물류 late-load 집중 unit | `PASS` — `4/4` |
+| 12면 stress lifecycle 집중 | `PASS` — `1/1`, customer receipt `6`, Pending `6`, workflow `18`, open Pending `0`, 완료 `true` |
+| isolated Full-Stack 전체 | `PASS` — 최종 단일 실행 `56/56`, 18단계 일반·stress 포함, 임시 자원 제거 |
+
+Open Finding P0/P1/P2는 `0/0/0`이다. 기존 Fast Refresh warning 1과 production chunk 크기는 현재 범위를 막지 않는 P3 housekeeping backlog다.
+
+### 개인정보·rollback·게시 판정
+
+- 증빙에는 count·boolean·상태·commit projection만 기록했고 실제 사용자명, 식별자, hostname, token, secret, Authorization header와 업무 원문을 기록하지 않았다.
+- 게시 전 rollback은 이 branch/worktree를 사용하지 않는 것이다. 게시 뒤에는 history rewrite 없이 revert PR 또는 forward-fix PR을 사용한다.
+- migration `0068` 적용 뒤에는 과거 물리 패널·취소 이력을 삭제하지 않고 forward-fix migration을 사용한다.
+- 자동 품질 Gate는 `GO`지만 이는 Git 게시 승인이 아니다. 사용자 재검수와 commit·push·PR·merge 승인이 남아 있다.
+
+### 사용자 검수 runtime
+
+- 사용자 요청에 따라 통합 후보 Frontend를 `http://127.0.0.1:5191`에서 시작했다.
+- 기존 UL891 검수 데이터가 있는 Backend `http://127.0.0.1:5082`를 변경 없이 연결했다.
+- Frontend root, proxy readiness와 42면 UL891 검수 프로젝트 조회를 확인했다.
+- Persistent UAT migration·seed·worker·실제 provider와 기존 5174/5081·5175 Frontend process는 변경하지 않았다.
+
+### 5종 종료 산출물
+
+- Implementation report: 이 문서 Change 003
+- SOP: 위 rollback과 기존 UAT·Azure handover 절차 재사용
+- User manual: 아래 Change 003 검수 체크리스트에 사용자 행동을 기록
+- Roadmap update: `docs/00-product-roadmap.md`
+- User validation checklist: `tasks/experiment-promotion-001-change-003-user-validation-checklist.md`
+
 ## Change 002 — 5174 제품 기준선과 Azure 원격 기준선 통합
 
 ### 결과와 범위

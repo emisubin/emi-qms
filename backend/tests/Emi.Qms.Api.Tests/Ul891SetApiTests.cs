@@ -147,8 +147,8 @@ public sealed partial class ProjectRegistrationApiTests
             fatRequired = true,
             ul891SetSpecs = new[]
             {
-                new { name = "MCC 세트", quantity = 2, components = new[] { new { componentCode = "A" }, new { componentCode = "B" }, new { componentCode = "C" } } },
-                new { name = "PCC 세트", quantity = 1, components = new[] { new { componentCode = "A" }, new { componentCode = "B" } } }
+                new { name = "MCC 세트", quantity = 2, panelCount = 3 },
+                new { name = "PCC 세트", quantity = 1, panelCount = 2 }
             }
         }, TestContext.Current.CancellationToken);
         await AssertStatusAsync(createResponse, HttpStatusCode.Created, context);
@@ -218,6 +218,40 @@ public sealed partial class ProjectRegistrationApiTests
             .GetProperty("errors")
             .TryGetProperty("items[0].plannedStartDate", out _));
 
+        var setDefault = aggregatePlan.RootElement.GetProperty("setDefault");
+        var defaultItems = setDefault.GetProperty("items").EnumerateArray().ToList();
+        var saveDefaultRequest = new
+        {
+            expectedRowVersion = setDefault.GetProperty("rowVersion").GetInt32(),
+            overwriteExisting = false,
+            reason = "전체 세트 기본계획 입력",
+            items = defaultItems.Select(item => new
+            {
+                itemId = item.GetProperty("itemId").GetGuid(),
+                expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
+                plannedStartDate = new DateOnly(2026, 8, 1),
+                plannedEndDate = new DateOnly(2026, 8, 5),
+                assignedUserId = (Guid?)null,
+                requiredHeadcount = 2,
+                note = "모든 세트 기본계획"
+            }).ToArray()
+        };
+        using var forbiddenDefaultResponse = await salesClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning/set-defaults",
+            saveDefaultRequest,
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(forbiddenDefaultResponse, HttpStatusCode.Forbidden, context);
+        using var saveDefaultResponse = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning/set-defaults",
+            saveDefaultRequest,
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(saveDefaultResponse, HttpStatusCode.OK, context);
+        using var staleDefaultResponse = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning/set-defaults",
+            saveDefaultRequest,
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(staleDefaultResponse, HttpStatusCode.Conflict, context);
+
         using var firstSetPlanResponse = await productionClient.GetAsync(
             $"/api/projects/{projectId}/production-planning?setInstanceId={firstSetId}",
             TestContext.Current.CancellationToken);
@@ -229,13 +263,13 @@ public sealed partial class ProjectRegistrationApiTests
             new
             {
                 expectedRowVersion = firstSetPlan.RootElement.GetProperty("selectedScope").GetProperty("rowVersion").GetInt32(),
-                reason = "세트별 계획 테스트",
+                reason = "첫 번째 세트 개별 수정",
                 items = firstSetItems.Select(item => new
                 {
                     itemId = item.GetProperty("itemId").GetGuid(),
                     expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
-                    plannedStartDate = new DateOnly(2026, 8, 1),
-                    plannedEndDate = new DateOnly(2026, 8, 5),
+                    plannedStartDate = new DateOnly(2026, 8, 10),
+                    plannedEndDate = new DateOnly(2026, 8, 12),
                     assignedUserId = (Guid?)null,
                     requiredHeadcount = 2,
                     note = "첫 번째 실물 세트"
@@ -251,7 +285,7 @@ public sealed partial class ProjectRegistrationApiTests
         using var aggregateAfterSave = await ReadJsonAsync(aggregateAfterSaveResponse);
         var aggregateAfterSaveItem = aggregateAfterSave.RootElement.GetProperty("items")[0];
         Assert.Equal("2026-08-01", aggregateAfterSaveItem.GetProperty("plannedStartDate").GetString());
-        Assert.Equal("2026-08-05", aggregateAfterSaveItem.GetProperty("plannedEndDate").GetString());
+        Assert.Equal("2026-08-12", aggregateAfterSaveItem.GetProperty("plannedEndDate").GetString());
 
         using var secondSetPlanResponse = await productionClient.GetAsync(
             $"/api/projects/{projectId}/production-planning?setInstanceId={secondSetId}",
@@ -260,9 +294,39 @@ public sealed partial class ProjectRegistrationApiTests
         using var secondSetPlan = await ReadJsonAsync(secondSetPlanResponse);
         Assert.All(secondSetPlan.RootElement.GetProperty("items").EnumerateArray(), item =>
         {
-            Assert.Equal(JsonValueKind.Null, item.GetProperty("plannedStartDate").ValueKind);
-            Assert.Equal(JsonValueKind.Null, item.GetProperty("plannedEndDate").ValueKind);
+            Assert.Equal("2026-08-01", item.GetProperty("plannedStartDate").GetString());
+            Assert.Equal("2026-08-05", item.GetProperty("plannedEndDate").GetString());
         });
+
+        var refreshedDefault = aggregateAfterSave.RootElement.GetProperty("setDefault");
+        using var overwriteDefaultResponse = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning/set-defaults",
+            new
+            {
+                expectedRowVersion = refreshedDefault.GetProperty("rowVersion").GetInt32(),
+                overwriteExisting = true,
+                reason = "개별 수정분 포함 전체 일정 재적용",
+                items = refreshedDefault.GetProperty("items").EnumerateArray().Select(item => new
+                {
+                    itemId = item.GetProperty("itemId").GetGuid(),
+                    expectedRowVersion = item.GetProperty("rowVersion").GetInt32(),
+                    plannedStartDate = new DateOnly(2026, 9, 1),
+                    plannedEndDate = new DateOnly(2026, 9, 5),
+                    assignedUserId = (Guid?)null,
+                    requiredHeadcount = 3,
+                    note = "명시적 전체 덮어쓰기"
+                }).ToArray()
+            },
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(overwriteDefaultResponse, HttpStatusCode.OK, context);
+        Assert.Equal(3L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from project_production_plan_set_item_values value
+            join project_production_plan_set_scopes scope on scope.id=value.set_scope_id
+            join project_production_plans plan on plan.id=scope.production_plan_id
+            where plan.project_id='{projectId}'
+              and value.planned_start_date=date '2026-09-01';
+            """));
 
         var addSpecOperationId = Guid.NewGuid();
         var addSpecRequest = new
@@ -271,7 +335,7 @@ public sealed partial class ProjectRegistrationApiTests
             expectedSpecCount = 2,
             name = "AUX 세트",
             quantity = 1,
-            components = new[] { new { componentCode = "A" }, new { componentCode = "B" } },
+            panelCount = 2,
             reason = "고객 추가 세트 주문"
         };
         using var addSpecResponse = await salesClient.PostAsJsonAsync($"/api/projects/{projectId}/set-specs", addSpecRequest, TestContext.Current.CancellationToken);
@@ -288,43 +352,123 @@ public sealed partial class ProjectRegistrationApiTests
             join project_production_plans plan on plan.id=scope.production_plan_id
             where plan.project_id='{projectId}';
             """));
+        Assert.Equal(4L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from project_production_plan_set_item_values value
+            join project_production_plan_set_scopes scope on scope.id=value.set_scope_id
+            join project_production_plans plan on plan.id=scope.production_plan_id
+            where plan.project_id='{projectId}'
+              and value.planned_start_date=date '2026-09-01';
+            """));
 
         var firstSpec = structureJson.RootElement.GetProperty("specs")[0];
         var specId = firstSpec.GetProperty("specId").GetGuid();
-        var version = firstSpec.GetProperty("versions").EnumerateArray().Single();
-        var versionId = version.GetProperty("versionId").GetGuid();
+        var currentSlots = firstSpec.GetProperty("currentDesign").EnumerateArray().ToList();
         var firstPanelId = firstSpec.GetProperty("instances")[0].GetProperty("panels")[0].GetProperty("panelId").GetGuid();
+        var updateDesignRequest = new
+        {
+            expectedSpecVersion = firstSpec.GetProperty("rowVersion").GetInt32(),
+            specName = "MCC 메인 세트",
+            reason = "동일 사양 반복 패널 저장",
+            slots = currentSlots.Select(slot => new
+            {
+                slotId = slot.GetProperty("slotId").GetGuid(),
+                panelName = "동일 패널",
+                panelSpecification = "UL891 공통 사양",
+                widthMm = 800m,
+                heightMm = 2000m,
+                depthMm = 600m
+            }).ToArray()
+        };
+
+        using var viewerClient = context.CreateClient("dev-viewer");
+        using var forbiddenDesignResponse = await viewerClient.PutAsJsonAsync(
+            $"/api/projects/{projectId}/set-specs/{specId}/design",
+            updateDesignRequest,
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(forbiddenDesignResponse, HttpStatusCode.Forbidden, context);
 
         using var designClient = context.CreateClient("dev-design");
         using var updateResponse = await designClient.PutAsJsonAsync(
-            $"/api/projects/{projectId}/set-specs/{specId}/versions/{versionId}",
+            $"/api/projects/{projectId}/set-specs/{specId}/design",
+            updateDesignRequest,
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(updateResponse, HttpStatusCode.OK, context);
+        using var staleDesignResponse = await designClient.PutAsJsonAsync(
+            $"/api/projects/{projectId}/set-specs/{specId}/design",
+            updateDesignRequest,
+            TestContext.Current.CancellationToken);
+        await AssertStatusAsync(staleDesignResponse, HttpStatusCode.Conflict, context);
+
+        Assert.Equal(10L, await context.ReadScalarAsync<long>($"select count(*) from panel_placeholders where project_id='{projectId}' and status='Active';"));
+        Assert.Equal("동일 패널", await context.ReadScalarAsync<string>($"select panel_name from panel_placeholders where id='{firstPanelId}';"));
+        Assert.True(await context.ReadScalarAsync<bool>($"select panel_info_completed from panel_placeholders where id='{firstPanelId}';"));
+
+        using var savedStructureResponse = await salesClient.GetAsync($"/api/projects/{projectId}/set-structure", TestContext.Current.CancellationToken);
+        using var savedJson = await ReadJsonAsync(savedStructureResponse);
+        var savedSpec = savedJson.RootElement.GetProperty("specs")[0];
+        Assert.All(savedSpec.GetProperty("currentDesign").EnumerateArray(), slot =>
+            Assert.Equal("동일 패널", slot.GetProperty("panelName").GetString()));
+        Assert.Equal("Draft", savedSpec.GetProperty("versions").EnumerateArray().Single().GetProperty("status").GetString());
+
+        var savedSlots = savedSpec.GetProperty("currentDesign").EnumerateArray().ToList();
+        var kittingBatchId = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into panel_kitting_batches (
+                id,project_id,operation_id,requested_by_user_id,panel_set_fingerprint,
+                completed_panel_count,generated_work_item_count,project_kitting_completed,
+                readiness_active_item_count,readiness_completed_item_count,
+                readiness_predicate_version,readiness_verified_at_utc
+            ) values (
+                '{kittingBatchId}','{projectId}','{Guid.NewGuid()}','{SalesOwnerUserId}',repeat('a',64),
+                1,0,false,1,1,1,now()
+            );
+            insert into panel_kitting_completions (batch_id,project_id,panel_id,completed_by_user_id)
+            values ('{kittingBatchId}','{projectId}','{firstPanelId}','{SalesOwnerUserId}');
+            """);
+        using var removeStartedPositionResponse = await designClient.PutAsJsonAsync(
+            $"/api/projects/{projectId}/set-specs/{specId}/design",
             new
             {
-                expectedSpecVersion = firstSpec.GetProperty("rowVersion").GetInt32(),
+                expectedSpecVersion = savedSpec.GetProperty("rowVersion").GetInt32(),
                 specName = "MCC 메인 세트",
-                revisionReason = "초도 설계 입력",
-                components = new[]
+                reason = "착수 위치 삭제 차단 확인",
+                slots = savedSlots.Skip(1).Select(slot => new
                 {
-                    new { componentCode = "A", panelName = "MAIN A", panelSpecification = (string?)null, widthMm = 800m, heightMm = 2000m, depthMm = 600m },
-                    new { componentCode = "B", panelName = "MAIN B", panelSpecification = (string?)null, widthMm = 700m, heightMm = 2000m, depthMm = 600m },
-                    new { componentCode = "C", panelName = "MAIN C", panelSpecification = (string?)null, widthMm = 600m, heightMm = 2000m, depthMm = 600m }
+                    slotId = (Guid?)slot.GetProperty("slotId").GetGuid(),
+                    panelName = slot.GetProperty("panelName").GetString(),
+                    panelSpecification = slot.GetProperty("panelSpecification").GetString(),
+                    widthMm = slot.GetProperty("widthMm").GetDecimal(),
+                    heightMm = slot.GetProperty("heightMm").GetDecimal(),
+                    depthMm = slot.GetProperty("depthMm").GetDecimal()
+                }).ToArray()
+            }, TestContext.Current.CancellationToken);
+        await AssertStatusAsync(removeStartedPositionResponse, HttpStatusCode.Conflict, context);
+
+        using var replacePositionResponse = await designClient.PutAsJsonAsync(
+            $"/api/projects/{projectId}/set-specs/{specId}/design",
+            new
+            {
+                expectedSpecVersion = savedSpec.GetProperty("rowVersion").GetInt32(),
+                specName = "MCC 메인 세트",
+                reason = "세 번째 위치를 실제로 교체",
+                slots = new object[]
+                {
+                    new { slotId = (Guid?)savedSlots[0].GetProperty("slotId").GetGuid(), panelName = "동일 패널", panelSpecification = "UL891 공통 사양", widthMm = 800m, heightMm = 2000m, depthMm = 600m },
+                    new { slotId = (Guid?)savedSlots[1].GetProperty("slotId").GetGuid(), panelName = "동일 패널", panelSpecification = "UL891 공통 사양", widthMm = 800m, heightMm = 2000m, depthMm = 600m },
+                    new { slotId = (Guid?)null, panelName = "동일 패널", panelSpecification = "UL891 공통 사양", widthMm = 800m, heightMm = 2000m, depthMm = 600m }
                 }
             }, TestContext.Current.CancellationToken);
-        await AssertStatusAsync(updateResponse, HttpStatusCode.OK, context);
+        await AssertStatusAsync(replacePositionResponse, HttpStatusCode.OK, context);
+        Assert.Equal(10L, await context.ReadScalarAsync<long>($"select count(*) from panel_placeholders where project_id='{projectId}' and status='Active';"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from panel_placeholders panel
+            join ul891_set_instances instance on instance.id=panel.set_instance_id
+            where instance.spec_id='{specId}' and panel.status='Cancelled';
+            """));
+        Assert.Equal(firstPanelId, await context.ReadScalarAsync<Guid>($"select id from panel_placeholders where id='{firstPanelId}' and status='Active';"));
 
-        using var publishResponse = await designClient.PostAsJsonAsync(
-            $"/api/projects/{projectId}/set-specs/{specId}/versions/{versionId}/publish",
-            new { operationId = Guid.NewGuid(), reason = "설계 확정" },
-            TestContext.Current.CancellationToken);
-        await AssertStatusAsync(publishResponse, HttpStatusCode.OK, context);
-        Assert.Equal("MAIN A", await context.ReadScalarAsync<string>($"select panel_name from panel_placeholders where id='{firstPanelId}';"));
-        Assert.True(await context.ReadScalarAsync<bool>($"select panel_info_completed from panel_placeholders where id='{firstPanelId}';"));
-        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from ul891_set_spec_components where spec_version_id='{versionId}' and component_code='A' and panel_specification is null;"));
-
-        using var publishedStructureResponse = await salesClient.GetAsync($"/api/projects/{projectId}/set-structure", TestContext.Current.CancellationToken);
-        using var publishedJson = await ReadJsonAsync(publishedStructureResponse);
-        var publishedSpec = publishedJson.RootElement.GetProperty("specs")[0];
-        Assert.Equal("Published", publishedSpec.GetProperty("versions").EnumerateArray().Single().GetProperty("status").GetString());
         using var increaseResponse = await salesClient.PostAsJsonAsync(
             $"/api/projects/{projectId}/set-specs/{specId}/instances/increase",
             new { operationId = Guid.NewGuid(), expectedActiveInstanceCount = 2, quantity = 1, reason = "고객 추가 주문" },
@@ -346,6 +490,11 @@ public sealed partial class ProjectRegistrationApiTests
         Assert.Equal(2L, await context.ReadScalarAsync<long>($"select count(*) from ul891_set_instances where spec_id='{specId}' and status='Active';"));
         Assert.Equal(10L, await context.ReadScalarAsync<long>($"select count(*) from panel_placeholders where project_id='{projectId}' and status='Active';"));
         Assert.Equal(3L, await context.ReadScalarAsync<long>($"select count(*) from panel_placeholders where set_instance_id='{addedInstanceId}' and status='Cancelled';"));
+        using var afterCancelResponse = await salesClient.GetAsync($"/api/projects/{projectId}/set-structure", TestContext.Current.CancellationToken);
+        using var afterCancelJson = await ReadJsonAsync(afterCancelResponse);
+        var cancelledInstance = afterCancelJson.RootElement.GetProperty("specs")[0].GetProperty("instances")
+            .EnumerateArray().Single(item => item.GetProperty("instanceId").GetGuid() == addedInstanceId);
+        Assert.Equal(0, cancelledInstance.GetProperty("panels").GetArrayLength());
     }
 
     private static async Task<Guid> CreateUl891ProjectAsync(HttpClient client, ProjectApiTestContext context, string label, decimal salesAmount, IReadOnlyList<string> codes)

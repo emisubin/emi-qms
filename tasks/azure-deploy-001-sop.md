@@ -2,14 +2,15 @@
 
 ## 1. 현재 판정
 
-- Deployment source: Change 006 Teams·PWA 브랜드 자산 PR #68 원격 main 병합·CI 완료
+- Deployment source: Change 009 공개 Teams 알림 PR #70 원격 main 병합·CI 완료
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
-- GitHub 웹 수동 image 게시 workflow: Backend·Frontend 최초 image 게시 완료
+- GitHub 웹 수동 image 게시 workflow: Change 009 이전 main Backend·Frontend image 게시 완료 / Change 010 문서 merge 뒤 최종 main image 재게시 승인
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
-- DB role bootstrap·migration: 기존 Azure `67 Exact` / 최신 main `0068` handover 대기
+- DB role bootstrap·migration: Azure `0068 Exact` / 최신 main `0069` handover 대기
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Change 005 image·revision ready / 최신 main `496b88b` image 게시 승인·revision 적용 대기
-- Teams·PWA: 제공 EMI 원본 기반 Teams `1.0.2` package와 PWA manifest·icon 생성 완료 / Azure image·catalog 반영 대기
+- Active workload: Backend·Frontend·ClamAV `3/3 Running` / Change 009 이전 main image / 최종 main image·revision 적용 대기
+- Teams·PWA: 제공 EMI 원본 기반 PWA 반영 완료, 공개 Teams `1.0.4` 승인 요청 제출 / 관리자 승인·catalog·actual Activity 대기
+- DNS·Front Door: validation TXT·CNAME 외부 반영과 Azure CNAME 진단 정상 / domain validation `Pending`, TLS·route deployment `NotStarted`
 - 공개 traffic: 전환 안 함
 - 실제 Teams·Gmail: 발송 안 함
 - 비용 발생 단계: 사용자 승인·시작 완료
@@ -35,7 +36,7 @@
 
 1. Teams package는 Repository의 `infrastructure/teams/assets/color.png`와 `outline.png`를 사용한다.
 2. 실제 package 생성 시 최종 hostname, 기존 Teams manifest ID, activity client ID·resource와 증가된 SemVer를 builder argument로만 전달한다. 실제 identifier는 tracked 파일이나 보고에 기록하지 않는다.
-3. 기존 외부 package version은 `1.0.1`이며 신규 브랜드·유효 JSON package는 `1.0.2`다. Teams Admin Center update는 public Frontend와 TLS 검증 뒤 수행한다.
+3. 공개 운영 package는 v1.19 schema와 10개 Activity type을 통과한 `1.0.4`다. 사용자가 Teams Admin Center 승인 요청을 제출했으며 승인 뒤 조직 catalog·설치·actual Activity를 검수한다.
 4. PWA manifest와 icon은 Frontend image의 Vite build output에 자동 포함된다. 별도 파일 업로드는 하지 않는다.
 5. PWA는 standalone install metadata만 제공하며 Service Worker·offline cache는 현재 범위에 없다.
 6. 최종 hostname에서 manifest·icon HTTP `200`, install name·icon·standalone launch를 확인한 뒤 완료로 기록한다.

@@ -3,7 +3,6 @@
   "manifestVersion": "1.19",
   "version": "__APP_VERSION__",
   "id": "__TEAMS_MANIFEST_ID__",
-  "packageName": "com.pms.projectmanagement",
   "developer": {
     "name": "PMS",
     "websiteUrl": "https://__PUBLIC_HOST__/",
@@ -57,9 +56,34 @@
   "activities": {
     "activityTypes": [
       {
+        "type": "projectCreated",
+        "description": "프로젝트가 생성되었습니다.",
+        "templateText": "{projectName} 프로젝트가 생성되었습니다."
+      },
+      {
+        "type": "projectDeliveryDateChanged",
+        "description": "프로젝트 납기일이 변경되었습니다.",
+        "templateText": "{projectName} 프로젝트 납기일이 변경되었습니다."
+      },
+      {
+        "type": "projectStatusChanged",
+        "description": "프로젝트 상태가 변경되었습니다.",
+        "templateText": "{projectName} 프로젝트 상태가 변경되었습니다."
+      },
+      {
         "type": "workItemAssigned",
         "description": "새 업무가 배정되었습니다.",
-        "templateText": "{actor}님이 {taskName} 업무를 배정했습니다."
+        "templateText": "{taskName} 업무가 배정되었습니다."
+      },
+      {
+        "type": "urgentPending",
+        "description": "긴급 Pending 조치가 필요합니다.",
+        "templateText": "{pendingType} Pending: {title}"
+      },
+      {
+        "type": "reinspectionRequested",
+        "description": "재검사가 요청되었습니다.",
+        "templateText": "{stageName} 재검사 요청: {title}"
       },
       {
         "type": "deadlineApproaching",
@@ -72,19 +96,14 @@
         "templateText": "{escalationLevel} 단계: {taskName} 업무의 예정일이 지났습니다."
       },
       {
-        "type": "urgentPending",
-        "description": "긴급 Pending 조치가 필요합니다.",
-        "templateText": "{pendingType} Pending: {title}"
-      },
-      {
-        "type": "dailyDigest",
-        "description": "오늘의 업무 요약입니다.",
-        "templateText": "{title}"
-      },
-      {
         "type": "projectCompleted",
         "description": "프로젝트가 완료되었습니다.",
         "templateText": "{projectName} 프로젝트가 완료되었습니다."
+      },
+      {
+        "type": "generalNotification",
+        "description": "일반 알림이 도착했습니다.",
+        "templateText": "{title}"
       }
     ]
   }

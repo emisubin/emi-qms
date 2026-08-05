@@ -33,6 +33,19 @@ public sealed class ProductionPlanningApiTests
         var otherProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-CREATE-OTHER", "Workflow Create Other");
 
         Assert.False(await WorkItemExistsAsync(context, projectId, WorkflowStageCodes.ProductionPlanning));
+        Assert.Equal(1, await context.ReadScalarAsync<int>($"""
+            select count(*)::integer
+            from notifications
+            where project_id = '{projectId}'
+              and source_kind = 'ProjectCreated';
+            """));
+        Assert.Equal(8, await context.ReadScalarAsync<int>($"""
+            select count(*)::integer
+            from notification_recipients recipient
+            join notifications notification on notification.id = recipient.notification_id
+            where notification.project_id = '{projectId}'
+              and notification.source_kind = 'ProjectCreated';
+            """));
 
         using var notifications = await ReadJsonAsync(await designClient.GetAsync("/api/notifications?readStatus=unread", TestContext.Current.CancellationToken));
         var notification = notifications.RootElement.GetProperty("items").EnumerateArray()

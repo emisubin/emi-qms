@@ -592,7 +592,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
+            Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -858,7 +858,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
+            Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -962,7 +962,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
+            Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1028,7 +1028,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
+        Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1056,6 +1056,74 @@ public sealed class PostgreSqlMigrationTests
               );
             """,
             TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task TeamsActivityEventSourceKindsMigration_PreservesExistingRowsAndAllowsPlannedEvents()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var migrationsThrough0068 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0068-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql")
+                         .Where(path => string.CompareOrdinal(Path.GetFileName(path), "0069_") < 0))
+            {
+                File.Copy(source, Path.Combine(migrationsThrough0068.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0068.FullName),
+                new DatabaseRuntimePrivilegeManager(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into notifications (
+                    notification_type,severity,title,message,idempotency_key,source_kind)
+                values ('Info','Info','기존 알림','기존 source kind 보존','0069-existing','Automatic');
+                """,
+                TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal("Automatic", await ReadScalarAsync<string>(
+                provider,
+                "select source_kind from notifications where idempotency_key='0069-existing';",
+                TestContext.Current.CancellationToken));
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into notifications (
+                    notification_type,severity,title,message,idempotency_key,source_kind)
+                select 'Info','Info',source_kind,source_kind,'0069-' || source_kind,source_kind
+                from unnest(array[
+                    'ProjectCreated',
+                    'ProjectDeliveryDateChanged',
+                    'ProjectStatusChanged',
+                    'ReinspectionRequested',
+                    'ProjectCompletion'
+                ]) as planned(source_kind);
+                """,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(5L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from notifications where idempotency_key like '0069-%' and source_kind in ('ProjectCreated','ProjectDeliveryDateChanged','ProjectStatusChanged','ReinspectionRequested','ProjectCompletion');",
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            migrationsThrough0068.Delete(recursive: true);
+        }
     }
 
     [Fact]
@@ -1423,7 +1491,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
+        Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1466,7 +1534,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
+        Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1522,7 +1590,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0068_ul891_current_design_and_plan_defaults", await ReadScalarAsync<string>(
+        Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

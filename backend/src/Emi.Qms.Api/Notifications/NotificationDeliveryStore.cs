@@ -27,7 +27,32 @@ public sealed class NotificationDeliveryStore(
         var created = 0;
         created += await InsertUrgentTeamsChannelDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
         created += await InsertUrgentMailDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
-        created += await InsertWorkItemTeamsDirectMessageDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
+        var teamsActivityPersonal = string.Equals(
+            options.TeamsActivity.PersonalChannelStrategy,
+            NotificationDeliveryChannels.TeamsActivity,
+            StringComparison.OrdinalIgnoreCase);
+        created += await InsertWorkItemTeamsPersonalDeliveriesAsync(
+            connection,
+            transaction,
+            dedupeAfter,
+            batchWindowSeconds,
+            teamsActivityPersonal,
+            cancellationToken);
+        if (teamsActivityPersonal)
+        {
+            created += await InsertUrgentTeamsActivityDeliveriesAsync(
+                connection,
+                transaction,
+                dedupeAfter,
+                batchWindowSeconds,
+                cancellationToken);
+            created += await InsertPlannedTeamsActivityDeliveriesAsync(
+                connection,
+                transaction,
+                dedupeAfter,
+                batchWindowSeconds,
+                cancellationToken);
+        }
 
         await transaction.CommitAsync(cancellationToken);
         return created;
@@ -388,6 +413,7 @@ public sealed class NotificationDeliveryStore(
                 p.project_code,
                 n.notification_type,
                 n.severity,
+                n.source_kind,
                 wi.title,
                 ws.stage_name,
                 nd.admin_handling_status,
@@ -643,6 +669,7 @@ public sealed class NotificationDeliveryStore(
                 p.project_code,
                 n.notification_type,
                 n.severity,
+                n.source_kind,
                 wi.title,
                 ws.stage_name,
                 nd.admin_handling_status,
@@ -745,6 +772,7 @@ public sealed class NotificationDeliveryStore(
                 p.project_code,
                 n.notification_type,
                 n.severity,
+                n.source_kind,
                 wi.title,
                 ws.stage_name,
                 nd.admin_handling_status,
@@ -1505,7 +1533,10 @@ public sealed class NotificationDeliveryStore(
                 RecipientEntraObjectId: delivery.RecipientEntraObjectId,
                 RecipientAuthProvider: delivery.RecipientAuthProvider,
                 RecipientUserIsActive: delivery.RecipientUserIsActive,
-                TeamsActivityType: ResolveAutomaticTeamsActivityType(delivery.DeliveryType));
+                TeamsActivityType: ResolveAutomaticTeamsActivityType(delivery),
+                ProjectName: projectName,
+                WorkItemTitle: delivery.DisplayWorkItemTitle ?? delivery.WorkItemTitle,
+                WorkflowStageName: delivery.WorkflowStageName);
         }
 
         var linkUrl = ResolveExternalNotificationLink(delivery);
@@ -1528,7 +1559,10 @@ public sealed class NotificationDeliveryStore(
             RecipientUserId: delivery.RecipientUserId,
             RecipientEntraObjectId: delivery.RecipientEntraObjectId,
             RecipientAuthProvider: delivery.RecipientAuthProvider,
-            RecipientUserIsActive: delivery.RecipientUserIsActive);
+            RecipientUserIsActive: delivery.RecipientUserIsActive,
+            ProjectName: projectName,
+            WorkItemTitle: delivery.DisplayWorkItemTitle ?? delivery.WorkItemTitle,
+            WorkflowStageName: delivery.WorkflowStageName);
     }
 
     private NotificationDeliveryMessage RenderManualMessage(NotificationDeliveryRecord delivery)
@@ -1568,7 +1602,10 @@ public sealed class NotificationDeliveryStore(
                 RecipientEntraObjectId: delivery.RecipientEntraObjectId,
                 RecipientAuthProvider: delivery.RecipientAuthProvider,
                 RecipientUserIsActive: delivery.RecipientUserIsActive,
-                TeamsActivityType: ResolveManualTeamsActivityType(kind));
+                TeamsActivityType: ResolveManualTeamsActivityType(kind),
+                ProjectName: projectName,
+                WorkItemTitle: delivery.DisplayWorkItemTitle ?? delivery.WorkItemTitle,
+                WorkflowStageName: delivery.WorkflowStageName);
         }
 
         var linkUrl = ResolveExternalNotificationLink(delivery);
@@ -1590,7 +1627,10 @@ public sealed class NotificationDeliveryStore(
             RecipientUserId: delivery.RecipientUserId,
             RecipientEntraObjectId: delivery.RecipientEntraObjectId,
             RecipientAuthProvider: delivery.RecipientAuthProvider,
-            RecipientUserIsActive: delivery.RecipientUserIsActive);
+            RecipientUserIsActive: delivery.RecipientUserIsActive,
+            ProjectName: projectName,
+            WorkItemTitle: delivery.DisplayWorkItemTitle ?? delivery.WorkItemTitle,
+            WorkflowStageName: delivery.WorkflowStageName);
     }
 
     private static NotificationManualPayload ReadManualPayload(NotificationDeliveryRecord delivery)
@@ -1685,25 +1725,34 @@ public sealed class NotificationDeliveryStore(
         var prefix = "Notifications:TeamsActivity:ActivityTypes:";
         return kind switch
         {
+            NotificationManualKinds.ProjectCreated => configuration[$"{prefix}ProjectCreated"] ?? "projectCreated",
+            NotificationManualKinds.WorkItemAssigned => configuration[$"{prefix}WorkItemAssigned"] ?? "workItemAssigned",
             NotificationManualKinds.Urgent => configuration[$"{prefix}UrgentPending"] ?? "urgentPending",
-            NotificationManualKinds.DailyDigest => configuration[$"{prefix}DailyDigest"] ?? "dailyDigest",
-            _ => configuration[$"{prefix}WorkItemAssigned"] ?? "workItemAssigned"
+            _ => configuration[$"{prefix}GeneralNotification"] ?? "generalNotification"
         };
     }
 
-    private string ResolveAutomaticTeamsActivityType(string deliveryType)
+    private string ResolveAutomaticTeamsActivityType(NotificationDeliveryRecord delivery)
     {
         var prefix = "Notifications:TeamsActivity:ActivityTypes:";
-        return deliveryType switch
+        return delivery.NotificationSourceKind switch
         {
-            NotificationDeliveryTypes.DueSoonL0 => configuration[$"{prefix}DeadlineApproaching"] ?? "deadlineApproaching",
-            NotificationDeliveryTypes.OverdueL1
-                or NotificationDeliveryTypes.OverdueL2
-                or NotificationDeliveryTypes.OverdueL3 => configuration[$"{prefix}DeadlineOverdue"] ?? "deadlineOverdue",
-            NotificationDeliveryTypes.UrgentBlocking => configuration[$"{prefix}UrgentPending"] ?? "urgentPending",
-            NotificationDeliveryTypes.DailyDigest => configuration[$"{prefix}DailyDigest"] ?? "dailyDigest",
-            NotificationDeliveryTypes.ProjectCompletion => configuration[$"{prefix}ProjectCompleted"] ?? "projectCompleted",
-            _ => configuration[$"{prefix}WorkItemAssigned"] ?? "workItemAssigned"
+            NotificationSourceKinds.ProjectCreated => configuration[$"{prefix}ProjectCreated"] ?? "projectCreated",
+            NotificationSourceKinds.ProjectDeliveryDateChanged => configuration[$"{prefix}ProjectDeliveryDateChanged"] ?? "projectDeliveryDateChanged",
+            NotificationSourceKinds.ProjectStatusChanged => configuration[$"{prefix}ProjectStatusChanged"] ?? "projectStatusChanged",
+            NotificationSourceKinds.ReinspectionRequested => configuration[$"{prefix}ReinspectionRequested"] ?? "reinspectionRequested",
+            NotificationSourceKinds.ProjectCompletion => configuration[$"{prefix}ProjectCompleted"] ?? "projectCompleted",
+            _ => delivery.DeliveryType switch
+            {
+                NotificationDeliveryTypes.DueSoonL0 => configuration[$"{prefix}DeadlineApproaching"] ?? "deadlineApproaching",
+                NotificationDeliveryTypes.OverdueL1
+                    or NotificationDeliveryTypes.OverdueL2
+                    or NotificationDeliveryTypes.OverdueL3 => configuration[$"{prefix}DeadlineOverdue"] ?? "deadlineOverdue",
+                NotificationDeliveryTypes.UrgentBlocking => configuration[$"{prefix}UrgentPending"] ?? "urgentPending",
+                NotificationDeliveryTypes.ProjectCompletion => configuration[$"{prefix}ProjectCompleted"] ?? "projectCompleted",
+                NotificationDeliveryTypes.WorkItemCreated => configuration[$"{prefix}WorkItemAssigned"] ?? "workItemAssigned",
+                _ => configuration[$"{prefix}GeneralNotification"] ?? "generalNotification"
+            }
         };
     }
 
@@ -1879,7 +1928,7 @@ public sealed class NotificationDeliveryStore(
                 RecipientEntraObjectId: delivery.RecipientEntraObjectId,
                 RecipientAuthProvider: delivery.RecipientAuthProvider,
                 RecipientUserIsActive: delivery.RecipientUserIsActive,
-                TeamsActivityType: ResolveAutomaticTeamsActivityType(delivery.DeliveryType));
+                TeamsActivityType: ResolveAutomaticTeamsActivityType(delivery));
         }
 
         return new NotificationDeliveryMessage(
@@ -1929,7 +1978,7 @@ public sealed class NotificationDeliveryStore(
                 'Teams 채널'
             from notifications n
             left join projects p on p.id = n.project_id
-            where (n.notification_type = 'Blocking' or n.severity = 'Critical' or n.source_kind = 'PendingAssignment')
+            where (n.notification_type = 'Blocking' or n.severity = 'Critical')
               and not exists (
                   select 1
                   from notification_deliveries existing
@@ -1995,11 +2044,121 @@ public sealed class NotificationDeliveryStore(
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private async Task<int> InsertWorkItemTeamsDirectMessageDeliveriesAsync(
+    private async Task<int> InsertUrgentTeamsActivityDeliveriesAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         DateTimeOffset dedupeAfter,
         int batchWindowSeconds,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into notification_deliveries (
+                notification_id, notification_recipient_id, recipient_user_id, project_id,
+                channel, delivery_type, dedupe_key, group_key, next_attempt_at_utc,
+                display_title, display_message, display_project_name,
+                display_recipient_name, display_recipient_email, display_recipient_kind
+            )
+            select
+                n.id,
+                nr.id,
+                nr.user_id,
+                n.project_id,
+                'TeamsActivity',
+                'UrgentBlocking',
+                concat('notification:', n.id::text, ':teams-activity:', nr.user_id::text, ':urgent'),
+                concat('urgent:', coalesce(n.project_id::text, n.id::text), ':', floor(extract(epoch from n.created_at_utc) / @batch_window_seconds)::bigint),
+                @now,
+                n.title,
+                n.message,
+                p.project_title,
+                u.display_name,
+                u.email,
+                'User'
+            from notifications n
+            join notification_recipients nr on nr.notification_id = n.id
+            join qms_users u on u.id = nr.user_id and u.is_active = true
+            left join projects p on p.id = n.project_id
+            where (n.notification_type = 'Blocking' or n.severity = 'Critical' or n.source_kind = 'PendingAssignment')
+              and not exists (
+                  select 1
+                  from notification_deliveries existing
+                  where existing.dedupe_key = concat('notification:', n.id::text, ':teams-activity:', nr.user_id::text, ':urgent')
+                    and existing.created_at_utc >= @dedupe_after
+              )
+            on conflict do nothing;
+            """;
+        command.Parameters.AddWithValue("now", timeProvider.GetUtcNow());
+        command.Parameters.AddWithValue("dedupe_after", dedupeAfter);
+        command.Parameters.AddWithValue("batch_window_seconds", batchWindowSeconds);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task<int> InsertPlannedTeamsActivityDeliveriesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        DateTimeOffset dedupeAfter,
+        int batchWindowSeconds,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into notification_deliveries (
+                notification_id, notification_recipient_id, recipient_user_id, project_id,
+                channel, delivery_type, dedupe_key, group_key, next_attempt_at_utc,
+                display_title, display_message, display_project_name,
+                display_recipient_name, display_recipient_email, display_recipient_kind
+            )
+            select
+                n.id,
+                nr.id,
+                nr.user_id,
+                n.project_id,
+                'TeamsActivity',
+                case when n.source_kind = 'ProjectCompletion' then 'ProjectCompletion' else 'ReferenceDigest' end,
+                concat('notification:', n.id::text, ':teams-activity:', nr.user_id::text, ':', lower(n.source_kind)),
+                concat('activity:', coalesce(n.project_id::text, n.id::text), ':', lower(n.source_kind), ':', floor(extract(epoch from n.created_at_utc) / @batch_window_seconds)::bigint),
+                @now,
+                n.title,
+                n.message,
+                p.project_title,
+                u.display_name,
+                u.email,
+                'User'
+            from notifications n
+            join notification_recipients nr on nr.notification_id = n.id
+            join qms_users u on u.id = nr.user_id and u.is_active = true
+            left join projects p on p.id = n.project_id
+            where n.source_kind in (
+                    'ProjectCreated',
+                    'ProjectDeliveryDateChanged',
+                    'ProjectStatusChanged',
+                    'ReinspectionRequested',
+                    'ProjectCompletion'
+                  )
+              and (n.source_kind <> 'ProjectCompletion' or nr.user_id = p.sales_owner_user_id)
+              and not exists (
+                  select 1
+                  from notification_deliveries existing
+                  where existing.dedupe_key = concat('notification:', n.id::text, ':teams-activity:', nr.user_id::text, ':', lower(n.source_kind))
+                    and existing.created_at_utc >= @dedupe_after
+              )
+            on conflict do nothing;
+            """;
+        command.Parameters.AddWithValue("now", timeProvider.GetUtcNow());
+        command.Parameters.AddWithValue("dedupe_after", dedupeAfter);
+        command.Parameters.AddWithValue("batch_window_seconds", batchWindowSeconds);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task<int> InsertWorkItemTeamsPersonalDeliveriesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        DateTimeOffset dedupeAfter,
+        int batchWindowSeconds,
+        bool teamsActivityPersonal,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -2017,13 +2176,13 @@ public sealed class NotificationDeliveryStore(
                 nr.id,
                 nr.user_id,
                 n.project_id,
-                'TeamsDirectMessage',
+                @personal_channel,
                 'WorkItemCreated',
                 case when preference.disabled then 'Suppressed' else 'Pending' end,
                 case when preference.disabled then @now else null end,
                 case when preference.disabled then 'SuppressedByUserPreference' else null end,
                 case when preference.disabled then '사용자 알림 설정에 따라 자동 단계 업무 생성 알림을 보내지 않았습니다.' else null end,
-                concat('notification:', n.id::text, ':teams-dm:', nr.user_id::text, ':work-item-created'),
+                concat('notification:', n.id::text, ':', @channel_key, ':', nr.user_id::text, ':work-item-created'),
                 concat('work-item:', coalesce(n.project_id::text, n.id::text), ':', floor(extract(epoch from n.created_at_utc) / @batch_window_seconds)::bigint),
                 case when preference.disabled then null else @now end,
                 n.title,
@@ -2046,11 +2205,13 @@ public sealed class NotificationDeliveryStore(
                       and setting.is_enabled = false
                 ) as disabled
             ) preference
-            where n.title like '%업무%생성%'
+            where n.source_kind = 'WorkAssignment'
+              and n.notification_type <> 'Blocking'
+              and n.severity <> 'Critical'
               and not exists (
                   select 1
                   from notification_deliveries existing
-                  where existing.dedupe_key = concat('notification:', n.id::text, ':teams-dm:', nr.user_id::text, ':work-item-created')
+                  where existing.dedupe_key = concat('notification:', n.id::text, ':', @channel_key, ':', nr.user_id::text, ':work-item-created')
                     and existing.created_at_utc >= @dedupe_after
               )
             on conflict do nothing;
@@ -2058,6 +2219,10 @@ public sealed class NotificationDeliveryStore(
         command.Parameters.AddWithValue("now", timeProvider.GetUtcNow());
         command.Parameters.AddWithValue("dedupe_after", dedupeAfter);
         command.Parameters.AddWithValue("batch_window_seconds", batchWindowSeconds);
+        command.Parameters.AddWithValue(
+            "personal_channel",
+            teamsActivityPersonal ? NotificationDeliveryChannels.TeamsActivity : NotificationDeliveryChannels.TeamsDirectMessage);
+        command.Parameters.AddWithValue("channel_key", teamsActivityPersonal ? "teams-activity" : "teams-dm");
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -2918,15 +3083,15 @@ public sealed class NotificationDeliveryStore(
             reader.IsDBNull(30) ? null : reader.GetString(30),
             reader.IsDBNull(31) ? null : reader.GetString(31),
             reader.IsDBNull(32) ? null : reader.GetString(32),
+            reader.IsDBNull(33) ? null : reader.GetString(33),
             reader.IsDBNull(23) ? null : reader.GetString(23),
             reader.IsDBNull(24) ? null : reader.GetString(24),
             reader.IsDBNull(25) ? null : reader.GetBoolean(25),
-            reader.IsDBNull(33) ? null : reader.GetString(33),
             reader.IsDBNull(34) ? null : reader.GetString(34),
             reader.IsDBNull(35) ? null : reader.GetString(35),
-            reader.IsDBNull(36) ? null : reader.GetFieldValue<DateTimeOffset>(36),
-            reader.IsDBNull(37) ? null : reader.GetGuid(37),
-            reader.IsDBNull(38) ? null : reader.GetString(38),
+            reader.IsDBNull(36) ? null : reader.GetString(36),
+            reader.IsDBNull(37) ? null : reader.GetFieldValue<DateTimeOffset>(37),
+            reader.IsDBNull(38) ? null : reader.GetGuid(38),
             reader.IsDBNull(39) ? null : reader.GetString(39),
             reader.IsDBNull(40) ? null : reader.GetString(40),
             reader.IsDBNull(41) ? null : reader.GetString(41),
@@ -2939,14 +3104,15 @@ public sealed class NotificationDeliveryStore(
             reader.IsDBNull(48) ? null : reader.GetString(48),
             reader.IsDBNull(49) ? null : reader.GetString(49),
             reader.IsDBNull(50) ? null : reader.GetString(50),
-            reader.IsDBNull(51) ? null : reader.GetGuid(51),
-            reader.IsDBNull(52) ? null : reader.GetFieldValue<DateTimeOffset>(52),
-            reader.IsDBNull(53) ? null : reader.GetGuid(53),
-            reader.IsDBNull(54) ? null : reader.GetFieldValue<DateTimeOffset>(54),
+            reader.IsDBNull(51) ? null : reader.GetString(51),
+            reader.IsDBNull(52) ? null : reader.GetGuid(52),
+            reader.IsDBNull(53) ? null : reader.GetFieldValue<DateTimeOffset>(53),
+            reader.IsDBNull(54) ? null : reader.GetGuid(54),
             reader.IsDBNull(55) ? null : reader.GetFieldValue<DateTimeOffset>(55),
-            reader.IsDBNull(56) ? null : reader.GetString(56),
-            reader.GetInt32(57),
-            reader.GetInt32(58));
+            reader.IsDBNull(56) ? null : reader.GetFieldValue<DateTimeOffset>(56),
+            reader.IsDBNull(57) ? null : reader.GetString(57),
+            reader.GetInt32(58),
+            reader.GetInt32(59));
     }
 
     private NpgsqlDataSource CreateDataSource()

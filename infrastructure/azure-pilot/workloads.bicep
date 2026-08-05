@@ -300,6 +300,10 @@ var servingBackendEnvironment = [
     value: disabled
   }
   {
+    name: 'Notifications__TeamsActivity__PersonalChannelStrategy'
+    value: 'TeamsActivity'
+  }
+  {
     name: 'Notifications__TeamsActivity__TenantId'
     value: entraTenantId
   }

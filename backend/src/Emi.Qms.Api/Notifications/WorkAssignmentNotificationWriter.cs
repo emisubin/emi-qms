@@ -15,7 +15,8 @@ internal static class WorkAssignmentNotificationWriter
         string message,
         string linkUrl,
         string idempotencyKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string sourceKind = NotificationSourceKinds.WorkAssignment)
     {
         Guid notificationId;
         await using (var command = connection.CreateCommand())
@@ -27,7 +28,7 @@ internal static class WorkAssignmentNotificationWriter
                     idempotency_key, visibility_scope, source_kind, work_item_id
                 ) values (
                     @project_id, 'Info', 'Info', @title, @message, @link_url,
-                    @idempotency_key, 'RecipientOnly', 'WorkAssignment', @work_item_id
+                    @idempotency_key, 'RecipientOnly', @source_kind, @work_item_id
                 )
                 on conflict (idempotency_key) do update
                 set title=excluded.title, message=excluded.message, link_url=excluded.link_url, work_item_id=excluded.work_item_id
@@ -38,6 +39,7 @@ internal static class WorkAssignmentNotificationWriter
             command.Parameters.AddWithValue("message", message);
             command.Parameters.AddWithValue("link_url", linkUrl);
             command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+            command.Parameters.AddWithValue("source_kind", sourceKind);
             command.Parameters.AddWithValue("work_item_id", workItemId);
             notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
         }

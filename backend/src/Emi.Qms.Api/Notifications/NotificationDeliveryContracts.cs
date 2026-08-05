@@ -83,6 +83,11 @@ public static class NotificationSourceKinds
     public const string Manual = "Manual";
     public const string ChannelNotice = "ChannelNotice";
     public const string WorkAssignment = "WorkAssignment";
+    public const string ProjectCreated = "ProjectCreated";
+    public const string ProjectDeliveryDateChanged = "ProjectDeliveryDateChanged";
+    public const string ProjectStatusChanged = "ProjectStatusChanged";
+    public const string ReinspectionRequested = "ReinspectionRequested";
+    public const string ProjectCompletion = "ProjectCompletion";
     public const string DailyDigest = "DailyDigest";
     public const string Escalation = "Escalation";
     public const string System = "System";
@@ -132,6 +137,7 @@ public sealed record NotificationDeliveryRecord(
     string? ProjectCode,
     string? NotificationType,
     string? Severity,
+    string? NotificationSourceKind,
     string? RecipientEntraObjectId,
     string? RecipientAuthProvider,
     bool? RecipientUserIsActive,
@@ -238,7 +244,10 @@ public sealed record NotificationDeliveryMessage(
     bool? RecipientUserIsActive = null,
     string? TeamsActivityType = null,
     string? TeamsActivityTopicSource = null,
-    string? TeamsActivityTopicValue = null);
+    string? TeamsActivityTopicValue = null,
+    string? ProjectName = null,
+    string? WorkItemTitle = null,
+    string? WorkflowStageName = null);
 
 public sealed record NotificationChannelResult(
     string Status,

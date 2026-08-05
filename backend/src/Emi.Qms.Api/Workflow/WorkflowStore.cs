@@ -1,3 +1,4 @@
+using Emi.Qms.Api.Notifications;
 using Npgsql;
 
 namespace Emi.Qms.Api.Workflow;
@@ -2129,7 +2130,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             eventId,
             $"project:{project.ProjectId}:stage:{WorkflowStageCodes.SalesProjectCreated}:reference:all-departments",
             recipients,
-            cancellationToken);
+            cancellationToken,
+            NotificationSourceKinds.ProjectCreated);
     }
 
     private static async Task CreateDepartmentReferenceNotificationAsync(
@@ -2249,7 +2251,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         Guid eventId,
         string idempotencyKey,
         IReadOnlyList<Guid> recipientIds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string sourceKind = NotificationSourceKinds.Automatic)
     {
         if (recipientIds.Count == 0)
         {
@@ -2261,14 +2264,15 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         command.CommandText = """
             insert into notifications (
                 project_id, notification_type, severity, title, message, link_url,
-                generated_by_event_id, idempotency_key
+                generated_by_event_id, idempotency_key, source_kind
             )
             values (
                 @project_id, @notification_type, @severity, @title, @message, @link_url,
-                @event_id, @idempotency_key
+                @event_id, @idempotency_key, @source_kind
             )
             on conflict (idempotency_key) do update
-            set title = excluded.title
+            set title = excluded.title,
+                source_kind = excluded.source_kind
             returning id;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
@@ -2279,6 +2283,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         command.Parameters.AddWithValue("link_url", linkUrl);
         command.Parameters.AddWithValue("event_id", eventId);
         command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+        command.Parameters.AddWithValue("source_kind", sourceKind);
         var notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
 
         foreach (var recipientId in recipientIds.Distinct())

@@ -1,6 +1,7 @@
 using System.Data;
-using Emi.Qms.Api.Manufacturing;
 using Emi.Qms.Api.Logistics;
+using Emi.Qms.Api.Manufacturing;
+using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
 using Emi.Qms.Api.QualityInspections;
@@ -1189,6 +1190,20 @@ public sealed class ProjectStore(
                     cancellationToken);
             }
 
+            var deliveryDateChange = changes.FirstOrDefault(change => change.FieldName == "DeliveryDate");
+            if (deliveryDateChange is not null)
+            {
+                await InsertProjectStakeholderNotificationAsync(
+                    connection,
+                    transaction,
+                    projectId,
+                    NotificationSourceKinds.ProjectDeliveryDateChanged,
+                    "프로젝트 납기일이 변경되었습니다.",
+                    $"{input.ProjectTitle} 프로젝트 납기일이 {deliveryDateChange.OldValue}에서 {deliveryDateChange.NewValue}(으)로 변경되었습니다.",
+                    $"project:{projectId}:delivery-date-changed:{correlationId}",
+                    cancellationToken);
+            }
+
             await transaction.CommitAsync(cancellationToken);
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -1524,6 +1539,16 @@ public sealed class ProjectStore(
             changedByUserId,
             correlationId,
             false,
+            cancellationToken);
+
+        await InsertProjectStakeholderNotificationAsync(
+            connection,
+            transaction,
+            projectId,
+            NotificationSourceKinds.ProjectStatusChanged,
+            "프로젝트 상태가 변경되었습니다.",
+            $"{existing.ProjectTitle} 프로젝트 상태가 {ProjectStatusLabel(existing.Status)}에서 {ProjectStatusLabel(targetStatus)}(으)로 변경되었습니다. 사유: {reason}",
+            $"project:{projectId}:status-changed:{correlationId}",
             cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
@@ -3416,6 +3441,79 @@ public sealed class ProjectStore(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task InsertProjectStakeholderNotificationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string sourceKind,
+        string title,
+        string message,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        Guid notificationId;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into notifications (
+                    project_id, notification_type, severity, title, message, link_url,
+                    idempotency_key, visibility_scope, source_kind
+                )
+                values (
+                    @project_id, 'Reference', 'Info', @title, @message,
+                    '/projects/' || @project_id, @idempotency_key, 'RecipientOnly', @source_kind
+                )
+                on conflict (idempotency_key) do update
+                set title = excluded.title,
+                    message = excluded.message,
+                    link_url = excluded.link_url,
+                    source_kind = excluded.source_kind
+                returning id;
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("title", title);
+            command.Parameters.AddWithValue("message", message);
+            command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+            command.Parameters.AddWithValue("source_kind", sourceKind);
+            notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
+        }
+
+        await using var recipients = connection.CreateCommand();
+        recipients.Transaction = transaction;
+        recipients.CommandText = """
+            insert into notification_recipients (notification_id, user_id)
+            select @notification_id, target.user_id
+            from (
+                select project.sales_owner_user_id as user_id
+                from projects project
+                where project.id = @project_id
+                union
+                select assignee.assigned_user_id
+                from project_assignees assignee
+                where assignee.project_id = @project_id
+                  and assignee.assigned_user_id is not null
+            ) target
+            join qms_users users on users.id = target.user_id and users.is_active = true
+            on conflict (notification_id, user_id) do nothing;
+            """;
+        recipients.Parameters.AddWithValue("notification_id", notificationId);
+        recipients.Parameters.AddWithValue("project_id", projectId);
+        await recipients.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static string ProjectStatusLabel(string status)
+    {
+        return status switch
+        {
+            "Active" => "진행",
+            "OnHold" => "보류",
+            "Cancelled" => "취소",
+            "Completed" => "완료",
+            _ => status
+        };
+    }
+
     private static async Task InsertAuditEventAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -3679,7 +3777,7 @@ public sealed class ProjectStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select status, structure_mode
+            select coalesce(project_title, name), status, structure_mode
             from projects
             where id = @project_id
               and deleted_at_utc is null
@@ -3687,6 +3785,7 @@ public sealed class ProjectStore(
             """;
         command.Parameters.AddWithValue("project_id", projectId);
 
+        string projectTitle;
         string status;
         string? structureMode;
         await using (var projectReader = await command.ExecuteReaderAsync(cancellationToken))
@@ -3695,8 +3794,9 @@ public sealed class ProjectStore(
             {
                 return null;
             }
-            status = projectReader.GetString(0);
-            structureMode = projectReader.IsDBNull(1) ? null : projectReader.GetString(1);
+            projectTitle = projectReader.GetString(0);
+            status = projectReader.GetString(1);
+            structureMode = projectReader.IsDBNull(2) ? null : projectReader.GetString(2);
         }
 
         await using var panelCommand = connection.CreateCommand();
@@ -3712,10 +3812,10 @@ public sealed class ProjectStore(
         await using var reader = await panelCommand.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
-            return new ProjectLockSnapshot(status, structureMode, 0, 0);
+            return new ProjectLockSnapshot(projectTitle, status, structureMode, 0, 0);
         }
 
-        return new ProjectLockSnapshot(status, structureMode, reader.GetInt32(0), reader.GetInt32(1));
+        return new ProjectLockSnapshot(projectTitle, status, structureMode, reader.GetInt32(0), reader.GetInt32(1));
     }
 
     private static async Task<ProjectDeletionSnapshot?> LockProjectDeletionSnapshotAsync(
@@ -4032,7 +4132,7 @@ public sealed class ProjectStore(
         }
     }
 
-    private sealed record ProjectLockSnapshot(string Status, string? StructureMode, int ActivePanelCount, int MaxSequenceNumber);
+    private sealed record ProjectLockSnapshot(string ProjectTitle, string Status, string? StructureMode, int ActivePanelCount, int MaxSequenceNumber);
 
     private sealed record ProjectDeletionSnapshot(
         string Status,

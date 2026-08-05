@@ -159,7 +159,8 @@ public sealed class NotificationDeliveryTests
             "Info",
             "생산 단계 업무 생성",
             "자동 단계 업무가 생성되었습니다.",
-            DevSalesUserId);
+            DevSalesUserId,
+            NotificationSourceKinds.WorkAssignment);
         await context.DeliveryStore.CreateImmediateDeliveriesAsync(
             context.NotificationOptions.CurrentValue,
             TestContext.Current.CancellationToken);
@@ -202,6 +203,76 @@ public sealed class NotificationDeliveryTests
               and next_attempt_at_utc is null;
             """));
         Assert.Equal(0L, await context.ReadProviderStartedAttemptCountAsync());
+    }
+
+    [Fact]
+    public async Task AutomaticTeamsActivityCoverage_UsesPlannedSourcesRecipientsAndDeclaredTypes()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:TeamsActivity:PersonalChannelStrategy"] = NotificationDeliveryChannels.TeamsActivity,
+            ["Notifications:TeamsActivity:Enabled"] = "true",
+            ["Notifications:TeamsActivity:DryRun"] = "true"
+        });
+
+        await context.InsertNotificationAsync(
+            "coverage-project-created", "Reference", "Info", "프로젝트가 생성되었습니다.",
+            "Demo Project Alpha 프로젝트가 생성되었습니다.", DevSalesUserId, NotificationSourceKinds.ProjectCreated);
+        await context.InsertNotificationAsync(
+            "coverage-delivery-date", "Reference", "Info", "프로젝트 납기일이 변경되었습니다.",
+            "납기일이 2026-07-31에서 2026-08-10으로 변경되었습니다.", DevSalesUserId, NotificationSourceKinds.ProjectDeliveryDateChanged);
+        await context.InsertNotificationAsync(
+            "coverage-status", "Reference", "Info", "프로젝트 상태가 변경되었습니다.",
+            "프로젝트 상태가 진행에서 보류로 변경되었습니다.", DevSalesUserId, NotificationSourceKinds.ProjectStatusChanged);
+        await context.InsertNotificationAsync(
+            "coverage-work", "Info", "Info", "새 업무 · 설계 입력", "설계 정보를 입력해 주세요.",
+            DevProductionUserId, NotificationSourceKinds.WorkAssignment);
+        await context.InsertNotificationAsync(
+            "coverage-urgent", "Blocking", "Critical", "긴급 Pending · 제조 중단", "즉시 조치해 주세요.",
+            DevProductionUserId, "PendingAssignment");
+        await context.InsertNotificationAsync(
+            "coverage-reinspection", "Info", "Info", "새 업무 · OQC 재검사", "재검사를 진행해 주세요.",
+            DevProductionUserId, NotificationSourceKinds.ReinspectionRequested);
+        await context.InsertNotificationAsync(
+            "coverage-completion", "Reference", "Info", "프로젝트 완료", "프로젝트가 최종 완료되었습니다.",
+            DevSalesUserId, NotificationSourceKinds.ProjectCompletion);
+
+        await context.DeliveryStore.CreateImmediateDeliveriesAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken);
+        await context.DeliveryStore.CreateImmediateDeliveriesAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(7L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries delivery
+            join notifications notification on notification.id = delivery.notification_id
+            where delivery.channel = 'TeamsActivity'
+              and notification.idempotency_key like 'coverage-%';
+            """));
+
+        var claimed = await context.ClaimDueRecordsAsync();
+        var renderedBySource = new Dictionary<string, TeamsActivityRenderResult>(StringComparer.Ordinal);
+        foreach (var delivery in claimed.Where(delivery =>
+                     delivery.Channel == NotificationDeliveryChannels.TeamsActivity
+                     && delivery.NotificationSourceKind is not null))
+        {
+            var message = await context.DeliveryStore.RenderMessageAsync(delivery, TestContext.Current.CancellationToken);
+            renderedBySource[delivery.NotificationSourceKind!] = TeamsActivityNotificationRenderer.Render(
+                message,
+                context.NotificationOptions.CurrentValue.TeamsActivity);
+        }
+
+        Assert.Equal("projectCreated", renderedBySource[NotificationSourceKinds.ProjectCreated].ActivityType);
+        Assert.Equal("projectDeliveryDateChanged", renderedBySource[NotificationSourceKinds.ProjectDeliveryDateChanged].ActivityType);
+        Assert.Equal("projectStatusChanged", renderedBySource[NotificationSourceKinds.ProjectStatusChanged].ActivityType);
+        Assert.Equal("workItemAssigned", renderedBySource[NotificationSourceKinds.WorkAssignment].ActivityType);
+        Assert.Equal("urgentPending", renderedBySource["PendingAssignment"].ActivityType);
+        Assert.Equal("reinspectionRequested", renderedBySource[NotificationSourceKinds.ReinspectionRequested].ActivityType);
+        Assert.Equal("projectCompleted", renderedBySource[NotificationSourceKinds.ProjectCompletion].ActivityType);
+        Assert.Equal("Demo Project Alpha", renderedBySource[NotificationSourceKinds.ProjectCreated].TemplateParameters["projectName"]);
+        Assert.Contains("2026-08-10", renderedBySource[NotificationSourceKinds.ProjectDeliveryDateChanged].PreviewText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3145,12 +3216,13 @@ public sealed class NotificationDeliveryTests
             string severity,
             string title,
             string message,
-            Guid recipientUserId)
+            Guid recipientUserId,
+            string sourceKind = NotificationSourceKinds.Automatic)
         {
             await ExecuteSqlAsync($"""
                 with inserted_notification as (
                     insert into notifications (
-                        project_id, notification_type, severity, title, message, link_url, idempotency_key
+                        project_id, notification_type, severity, title, message, link_url, idempotency_key, source_kind
                     )
                     values (
                         '{DemoProjectId}',
@@ -3159,7 +3231,8 @@ public sealed class NotificationDeliveryTests
                         '{title}',
                         '{message}',
                         '/projects/{DemoProjectId}',
-                        '{idempotencyKey}'
+                        '{idempotencyKey}',
+                        '{sourceKind}'
                     )
                     returning id
                 )

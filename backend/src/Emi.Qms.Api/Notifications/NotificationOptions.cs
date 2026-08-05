@@ -82,12 +82,16 @@ public sealed class NotificationTeamsActivityOptions
 
 public sealed class NotificationTeamsActivityTypeOptions
 {
+    public string ProjectCreated { get; init; } = "projectCreated";
+    public string ProjectDeliveryDateChanged { get; init; } = "projectDeliveryDateChanged";
+    public string ProjectStatusChanged { get; init; } = "projectStatusChanged";
     public string WorkItemAssigned { get; init; } = "workItemAssigned";
+    public string UrgentPending { get; init; } = "urgentPending";
+    public string ReinspectionRequested { get; init; } = "reinspectionRequested";
     public string DeadlineApproaching { get; init; } = "deadlineApproaching";
     public string DeadlineOverdue { get; init; } = "deadlineOverdue";
-    public string UrgentPending { get; init; } = "urgentPending";
-    public string DailyDigest { get; init; } = "dailyDigest";
     public string ProjectCompleted { get; init; } = "projectCompleted";
+    public string GeneralNotification { get; init; } = "generalNotification";
 }
 
 public sealed class NotificationMailOptions

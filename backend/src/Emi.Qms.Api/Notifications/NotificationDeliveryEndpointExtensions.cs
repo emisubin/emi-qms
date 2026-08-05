@@ -1293,11 +1293,10 @@ public static class NotificationDeliveryEndpointExtensions
     {
         return kind switch
         {
-            NotificationManualKinds.Urgent => activityTypes.UrgentPending,
-            NotificationManualKinds.DailyDigest => activityTypes.DailyDigest,
+            NotificationManualKinds.ProjectCreated => activityTypes.ProjectCreated,
             NotificationManualKinds.WorkItemAssigned => activityTypes.WorkItemAssigned,
-            NotificationManualKinds.ProjectCreated => activityTypes.WorkItemAssigned,
-            _ => activityTypes.WorkItemAssigned
+            NotificationManualKinds.Urgent => activityTypes.UrgentPending,
+            _ => activityTypes.GeneralNotification
         };
     }
 

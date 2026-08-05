@@ -1365,7 +1365,7 @@ public sealed class QualityInspectionStore(
             $"{StageLabel(stageCode)} 재검사 · {panelDisplayCode}",
             "Pending 조치가 완료되어 재검사를 요청했습니다.",
             $"/quality/inspections?stage={stageCode}&project={projectId}&panel={panelId}",
-            $"{key}:notification", cancellationToken);
+            $"{key}:notification", cancellationToken, NotificationSourceKinds.ReinspectionRequested);
         return attemptId;
     }
 

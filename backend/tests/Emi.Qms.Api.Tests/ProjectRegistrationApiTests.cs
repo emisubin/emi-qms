@@ -1367,6 +1367,47 @@ public sealed partial class ProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task DeliveryDateUpdate_CreatesOneStakeholderNotificationAfterSuccessfulChange()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+        using var created = await CreateProjectAsync(client, "DATE-NOTIFY-001", "Delivery Date Notification", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        var changedRequest = NewUpdateProjectRequest("DATE-NOTIFY-001", "Delivery Date Notification") with
+        {
+            DeliveryDate = "2026-11-20",
+            Reason = "고객 요청 납기 변경"
+        };
+
+        var changed = await client.PatchAsJsonAsync(
+            $"/api/projects/{projectId}",
+            changedRequest,
+            TestContext.Current.CancellationToken);
+        var unchanged = await client.PatchAsJsonAsync(
+            $"/api/projects/{projectId}",
+            changedRequest with { Reason = "같은 날짜 재저장" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, unchanged.StatusCode);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from notifications
+            where project_id = '{projectId}'
+              and source_kind = 'ProjectDeliveryDateChanged';
+            """));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from notification_recipients recipient
+            join notifications notification on notification.id = recipient.notification_id
+            where notification.project_id = '{projectId}'
+              and notification.source_kind = 'ProjectDeliveryDateChanged'
+              and recipient.user_id = '{SalesOwnerUserId}';
+            """));
+    }
+
+    [Fact]
     public async Task ExistingPackagingNullProject_CanBeReadButRequiresPackagingOnGeneralUpdate()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
@@ -1682,6 +1723,20 @@ public sealed partial class ProjectRegistrationApiTests
         Assert.Equal(HttpStatusCode.OK, cancel.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, panelChangeWhileCancelled.StatusCode);
         Assert.Equal(HttpStatusCode.OK, reactivate.StatusCode);
+        Assert.Equal(4L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from notifications
+            where project_id = '{projectId}'
+              and source_kind = 'ProjectStatusChanged';
+            """));
+        Assert.Equal(4L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from notification_recipients recipient
+            join notifications notification on notification.id = recipient.notification_id
+            where notification.project_id = '{projectId}'
+              and notification.source_kind = 'ProjectStatusChanged'
+              and recipient.user_id = '{SalesOwnerUserId}';
+            """));
     }
 
     [Fact]

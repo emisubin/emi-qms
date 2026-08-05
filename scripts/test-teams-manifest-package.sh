@@ -39,12 +39,27 @@ if (JSON.stringify(entries) !== JSON.stringify(['color.png', 'manifest.json', 'o
 }
 
 const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
+const activityTypes = manifest.activities?.activityTypes?.map((activity) => activity.type);
+const expectedActivityTypes = [
+  'projectCreated',
+  'projectDeliveryDateChanged',
+  'projectStatusChanged',
+  'workItemAssigned',
+  'urgentPending',
+  'reinspectionRequested',
+  'deadlineApproaching',
+  'deadlineOverdue',
+  'projectCompleted',
+  'generalNotification'
+];
 if (manifest.manifestVersion !== '1.19'
+  || Object.hasOwn(manifest, 'packageName')
   || manifest.staticTabs?.[0]?.entityId !== 'home'
   || manifest.validDomains?.[0] !== 'pms.example.org'
   || manifest.accentColor !== '#DC2128'
   || manifest.authorization?.permissions?.resourceSpecific?.[0]?.name !== 'TeamsActivity.Send.User'
-  || manifest.activities?.activityTypes?.length !== 6
+  || JSON.stringify(activityTypes) !== JSON.stringify(expectedActivityTypes)
+  || activityTypes.includes('dailyDigest')
   || JSON.stringify(manifest).includes('__')) {
   process.exit(1);
 }

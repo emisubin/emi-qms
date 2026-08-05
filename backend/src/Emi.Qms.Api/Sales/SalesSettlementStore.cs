@@ -208,7 +208,7 @@ public sealed class SalesSettlementStore(
             var eventId = await EnsureCompletionEventAsync(connection, transaction, projectId, settlementId, request.OperationId, actorId, cancellationToken);
             await CompleteProjectAsync(connection, transaction, projectId, actorId, cancellationToken);
             await InsertAuditEventAsync(connection, transaction, projectId, actorId, request.OperationId, cancellationToken);
-            await InsertCompletionNotificationAsync(connection, transaction, projectId, eventId, actorId, cancellationToken);
+            await InsertCompletionNotificationAsync(connection, transaction, projectId, eventId, cancellationToken);
 
             var response = new SalesSettlementMutationResponse(request.OperationId, projectId, settlementId, "Completed", version, false);
             await InsertReceiptAsync(connection, transaction, request.OperationId, settlementId, projectId, actorId, fingerprint, response, cancellationToken);
@@ -521,7 +521,6 @@ public sealed class SalesSettlementStore(
         NpgsqlTransaction transaction,
         Guid projectId,
         Guid eventId,
-        Guid actorId,
         CancellationToken cancellationToken)
     {
         var notificationId = Guid.NewGuid();
@@ -531,10 +530,10 @@ public sealed class SalesSettlementStore(
             command.CommandText = """
                 insert into notifications (
                     id,project_id,notification_type,severity,title,message,link_url,
-                    generated_by_event_id,idempotency_key)
+                    generated_by_event_id,idempotency_key,source_kind)
                 values (@id,@project_id,'Reference','Info','프로젝트 완료','프로젝트가 최종 완료되었습니다.',
                         '/projects/' || @project_id || '/settlement',@event_id,
-                        'sales-settlement:project:' || @project_id || ':completed')
+                        'sales-settlement:project:' || @project_id || ':completed','ProjectCompletion')
                 on conflict (idempotency_key) do nothing;
                 """;
             command.Parameters.AddWithValue("id", notificationId);
@@ -556,11 +555,9 @@ public sealed class SalesSettlementStore(
             ) target
             join qms_users users on users.id=target.user_id and users.is_active
             where notification.idempotency_key='sales-settlement:project:' || @project_id || ':completed'
-              and target.user_id<>@actor_id
             on conflict (notification_id,user_id) do nothing;
             """;
         recipients.Parameters.AddWithValue("project_id", projectId);
-        recipients.Parameters.AddWithValue("actor_id", actorId);
         await recipients.ExecuteNonQueryAsync(cancellationToken);
     }
 

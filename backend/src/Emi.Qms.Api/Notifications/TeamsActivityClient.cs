@@ -55,12 +55,16 @@ public static class TeamsActivityNotificationRenderer
     {
         return new[]
             {
+                options.ProjectCreated,
+                options.ProjectDeliveryDateChanged,
+                options.ProjectStatusChanged,
                 options.WorkItemAssigned,
+                options.UrgentPending,
+                options.ReinspectionRequested,
                 options.DeadlineApproaching,
                 options.DeadlineOverdue,
-                options.UrgentPending,
-                options.DailyDigest,
-                options.ProjectCompleted
+                options.ProjectCompleted,
+                options.GeneralNotification
             }
             .Any(value => string.Equals(value, activityType, StringComparison.Ordinal));
     }
@@ -82,9 +86,9 @@ public static class TeamsActivityNotificationRenderer
                 or NotificationDeliveryTypes.OverdueL2
                 or NotificationDeliveryTypes.OverdueL3 => options.DeadlineOverdue,
             NotificationDeliveryTypes.UrgentBlocking => options.UrgentPending,
-            NotificationDeliveryTypes.DailyDigest => options.DailyDigest,
+            NotificationDeliveryTypes.DailyDigest => options.GeneralNotification,
             NotificationDeliveryTypes.ProjectCompletion => options.ProjectCompleted,
-            _ => options.WorkItemAssigned
+            _ => options.GeneralNotification
         };
     }
 
@@ -94,6 +98,17 @@ public static class TeamsActivityNotificationRenderer
         string title,
         NotificationTeamsActivityTypeOptions options)
     {
+        if (string.Equals(activityType, options.ProjectCreated, StringComparison.Ordinal)
+            || string.Equals(activityType, options.ProjectDeliveryDateChanged, StringComparison.Ordinal)
+            || string.Equals(activityType, options.ProjectStatusChanged, StringComparison.Ordinal)
+            || string.Equals(activityType, options.ProjectCompleted, StringComparison.Ordinal))
+        {
+            return new Dictionary<string, string>
+            {
+                ["projectName"] = ResolveProjectName(message, title)
+            };
+        }
+
         if (string.Equals(activityType, options.DeadlineOverdue, StringComparison.Ordinal))
         {
             return new Dictionary<string, string>
@@ -112,6 +127,15 @@ public static class TeamsActivityNotificationRenderer
             };
         }
 
+        if (string.Equals(activityType, options.ReinspectionRequested, StringComparison.Ordinal))
+        {
+            return new Dictionary<string, string>
+            {
+                ["stageName"] = string.IsNullOrWhiteSpace(message.WorkflowStageName) ? "품질" : message.WorkflowStageName,
+                ["title"] = ResolveTaskName(message, title)
+            };
+        }
+
         if (string.Equals(activityType, options.DeadlineApproaching, StringComparison.Ordinal))
         {
             return new Dictionary<string, string>
@@ -121,7 +145,7 @@ public static class TeamsActivityNotificationRenderer
             };
         }
 
-        if (string.Equals(activityType, options.DailyDigest, StringComparison.Ordinal))
+        if (string.Equals(activityType, options.GeneralNotification, StringComparison.Ordinal))
         {
             return new Dictionary<string, string>
             {
@@ -129,17 +153,9 @@ public static class TeamsActivityNotificationRenderer
             };
         }
 
-        if (string.Equals(activityType, options.ProjectCompleted, StringComparison.Ordinal))
-        {
-            return new Dictionary<string, string>
-            {
-                ["projectName"] = title
-            };
-        }
-
         return new Dictionary<string, string>
         {
-            ["taskName"] = title
+            ["taskName"] = ResolveTaskName(message, title)
         };
     }
 
@@ -206,14 +222,24 @@ public static class TeamsActivityNotificationRenderer
             return $"{title} / 조치 담당자 확인 필요";
         }
 
-        if (string.Equals(activityType, options.DailyDigest, StringComparison.Ordinal))
+        if (string.Equals(activityType, options.ProjectCreated, StringComparison.Ordinal))
         {
-            return "오늘의 업무와 담당 프로젝트 요약";
+            return $"{ResolveProjectName(message, title)} / 프로젝트 생성";
+        }
+
+        if (string.Equals(activityType, options.ProjectDeliveryDateChanged, StringComparison.Ordinal)
+            || string.Equals(activityType, options.ProjectStatusChanged, StringComparison.Ordinal)
+            || string.Equals(activityType, options.ReinspectionRequested, StringComparison.Ordinal)
+            || string.Equals(activityType, options.GeneralNotification, StringComparison.Ordinal))
+        {
+            return string.IsNullOrWhiteSpace(message.Body)
+                ? title
+                : SingleLine(message.Body);
         }
 
         if (string.Equals(activityType, options.ProjectCompleted, StringComparison.Ordinal))
         {
-            return $"{title} / 프로젝트 완료";
+            return $"{ResolveProjectName(message, title)} / 프로젝트 완료";
         }
 
         if (!string.IsNullOrWhiteSpace(message.Body))
@@ -222,6 +248,20 @@ public static class TeamsActivityNotificationRenderer
         }
 
         return $"{title} / 내 업무 확인 필요";
+    }
+
+    private static string ResolveProjectName(NotificationDeliveryMessage message, string fallback)
+    {
+        return string.IsNullOrWhiteSpace(message.ProjectName)
+            ? fallback
+            : message.ProjectName.Trim();
+    }
+
+    private static string ResolveTaskName(NotificationDeliveryMessage message, string fallback)
+    {
+        return string.IsNullOrWhiteSpace(message.WorkItemTitle)
+            ? fallback
+            : message.WorkItemTitle.Trim();
     }
 
     private static string ResolveTopicWebUrl(string? linkUrl, string? configuredTopicWebUrl)

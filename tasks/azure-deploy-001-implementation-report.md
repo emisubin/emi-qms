@@ -1,5 +1,85 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 009 — 공개 Teams 알림 유형과 자동 발송 연결
+
+### 확정한 기존 수신자·발송 시점
+
+| 업무 event | Teams 수신자 | 발송 시점 |
+| --- | --- | --- |
+| 프로젝트 생성 | 프로젝트 생성 참조 대상인 8개 운영 부서의 활성 사용자 | 생성 workflow transaction 성공 직후 |
+| 프로젝트 납기 변경 | 활성 영업 담당자와 현재 프로젝트 담당자 | 납기 변경 transaction 성공 직후 |
+| 프로젝트 상태 변경 | 활성 영업 담당자와 현재 프로젝트 담당자 | 상태 변경 transaction 성공 직후 |
+| 일반 단계 업무 생성 | 생성된 work item의 정담당자 | work item 생성 직후 |
+| 긴급·차단 | 기존 인앱 수신자 개인과 기존 통합 Teams 채널 | 차단 또는 `Critical` 알림 생성 직후 |
+| 재검사 요청 | 기존 재검사 work item 알림 수신자 | 재검사 요청 transaction 성공 직후 |
+| 예정일 임박·초과 | 기존 L0~L2 개인 수신자 | 기존 에스컬레이션 event 발생 시점 |
+| 프로젝트 완료 | 활성 영업 담당자 | 영업 정산 완료 transaction 성공 직후 |
+
+### 실제 구현
+
+1. Teams v1.19 manifest의 Activity type을 `projectCreated`, `projectDeliveryDateChanged`, `projectStatusChanged`, `workItemAssigned`, `urgentPending`, `reinspectionRequested`, `deadlineApproaching`, `deadlineOverdue`, `projectCompleted`, `generalNotification` 10개로 고정했다.
+2. Teams로 보내지 않는 일일 요약 type을 제거하고 수동 일반 알림은 `generalNotification`으로 통합했다.
+3. 프로젝트 생성·납기 변경·상태 변경·일반 업무 배정·긴급/차단·재검사·프로젝트 완료가 기존 `notification_recipients`를 재사용해 중복 없는 개인 Activity delivery를 만든다. 긴급/차단의 기존 통합 채널 delivery는 유지한다.
+4. 프로젝트 납기·상태 변경은 업무 transaction 안에서 인앱 원본과 기존 담당자 수신자를 함께 기록한다. provider 실패가 업무 transaction을 되돌리지 않는 outbox 계약은 유지한다.
+5. 제목 문자열 추정을 제거하기 위해 프로젝트 생성·납기 변경·상태 변경·재검사·완료의 `source_kind`를 명시했다. migration `0069`는 기존 constraint 허용값에 이 5개 값만 추가하며 table·column·기존 row를 변경하지 않는다.
+6. 공개 Azure Backend의 일반 개인 알림 채널을 `TeamsActivity`로 설정했다. 에스컬레이션 worker 활성화, L0~L3 조건·기간·추가 수신자 정책은 변경하지 않았다.
+7. 기존 공개 manifest identity·web resource·운영 hostname과 브랜드 icon을 보존하고 version만 `1.0.4`로 증가한 handoff ZIP을 생성했다.
+
+### 자동 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Backend build | `PASS`, 경고 0 / 오류 0 |
+| 최종 전체 Backend 회귀 | `485/485 PASS` |
+| Notification delivery 전체 | `98/98 PASS` |
+| 프로젝트 생성·납기·상태·재검사·migration 집중 검증 | `8/8 PASS` |
+| Teams package 정상·negative test | `2/2 PASS` |
+| `1.0.4` package entry·version·10개 exact type·`packageName`/`dailyDigest` 부재 | `PASS` |
+| Microsoft Activity type 길이 제한·예약값 검사 | `PASS`, 최대 type 26 / template 48 |
+| Azure artifact 정적 검증 | `PASS` |
+| 신규·수정 C# 영역 formatter와 `git diff --check` | `PASS`; 기존 파일의 비변경 formatter debt는 범위 밖으로 보존 |
+
+### 산출물과 다음 Gate
+
+- 운영 handoff ZIP: `/Users/parksubin/Downloads/emi-qms-teams-1.0.4-public-notifications.zip`
+- Azure 적용 순서: migration `0069` 적용 → Backend 새 revision 교체 → Teams Admin Center에 `1.0.4` update → 앱 설치·동의 상태 확인 → event별 actual Activity smoke.
+- Teams Admin Center의 `1.0.4` 승인 요청은 사용자가 제출했다. 관리자 승인 완료·조직 catalog 표시·앱 설치·Graph actual 발송 검수는 대기다.
+- 실제 Azure migration·revision과 Graph actual 발송은 이 local 변경에서 실행하지 않았다.
+- 상세 에스컬레이션 정책은 후속 기획으로 남기며, 이번 변경은 기존 수신자·event 시점과 선언된 Activity type만 보존한다.
+
+## Change 008 — Teams v1.19 manifest schema 보정
+
+### 확인된 Finding
+
+| ID | 등급 | 상태 | 원인 | 해결 |
+| --- | --- | --- | --- | --- |
+| `TEAMS-MANIFEST-SCHEMA-001` | P1 | `RESOLVED_LOCAL` | Change 006 template이 v1.19 schema에 정의되지 않은 최상위 `packageName`을 포함해 Teams Admin Center의 `additionalProperties: false` 검증에서 거부됨 | `packageName` 제거, package 회귀 test 추가, 공식 v1.19 JSON Schema 전체 검증을 통과한 `1.0.3` handoff ZIP 생성 |
+
+### 실제 구현
+
+1. Teams v1.19 template에서 미정의 최상위 `packageName`을 제거했다.
+2. package test가 생성된 manifest의 `packageName` 부재를 확인해 동일 회귀를 차단한다.
+3. 기존 `1.0.2` package의 manifest ID·Activity client·web resource·운영 hostname을 보존하고 version만 `1.0.3`으로 올린 별도 ZIP을 생성했다.
+4. resource-specific Activity 권한, activity type 6개, icon과 package entry는 변경하지 않았다.
+
+### 자동 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Teams package 정상·negative test | `2/2 PASS` |
+| Microsoft Teams v1.19 공식 JSON Schema 전체 검증 | `PASS` |
+| 미정의·필수 누락 최상위 속성 | `0/0` |
+| package entry | `3/3 PASS` |
+| manifest·Activity identity와 운영 hostname 보존 | `4/4 PASS` |
+| Activity permission·type count | `PASS` / `6` |
+| package icon과 canonical asset byte equality | `2/2 PASS` |
+
+### 미실행과 다음 Gate
+
+- 실제 Teams Admin Center의 `1.0.3` 재등록과 조직 catalog 표시 확인은 사용자 검수 대기다.
+- actual Activity Feed·Gmail 발송은 provider Gate 전까지 비활성으로 유지한다.
+- Front Door domain validation·managed TLS는 새 DNS TXT의 외부 반영 뒤 별도 runtime Gate에서 계속한다.
+
 ## Change 007 — 문서 상태 동기화와 최신 main 이미지 게시
 
 ### 실행 전 상태와 승인 경계

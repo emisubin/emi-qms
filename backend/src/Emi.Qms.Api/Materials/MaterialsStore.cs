@@ -1,9 +1,9 @@
 using System.Globalization;
+using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.Pending;
 using Emi.Qms.Api.Procurement;
 using Emi.Qms.Api.Projects;
-using Emi.Qms.Api.Notifications;
-using Emi.Qms.Api.Identity;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -1736,7 +1736,8 @@ public sealed class MaterialsStore(
             description,
             linkUrl,
             $"materials:iqc:{attemptId}:notification",
-            cancellationToken);
+            cancellationToken,
+            pendingLabel is null ? NotificationSourceKinds.WorkAssignment : NotificationSourceKinds.ReinspectionRequested);
     }
 
     private static async Task<IqcWorkPresentation> ReadIqcWorkPresentationAsync(

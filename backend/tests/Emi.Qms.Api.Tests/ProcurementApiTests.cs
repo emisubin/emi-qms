@@ -1712,6 +1712,14 @@ public sealed class ProcurementApiTests
         Assert.Equal(HttpStatusCode.OK, reinspection.StatusCode);
         using var reinspectionJson = await ReadJsonAsync(reinspection);
         var secondAttemptId = reinspectionJson.RootElement.GetProperty("iqcAttemptId").GetGuid();
+        Assert.Equal(1L, await context.ReadCountAsync(
+            """
+            select count(*)
+            from notifications
+            where project_id = @project_id
+              and source_kind = 'ReinspectionRequested';
+            """,
+            projectId));
         using (var qualityWork = await ReadJsonAsync(await qualityClient.GetAsync("/api/my-work", TestContext.Current.CancellationToken)))
         {
             var reinspectionWork = Assert.Single(qualityWork.RootElement.GetProperty("items").EnumerateArray(), item =>
@@ -2765,6 +2773,14 @@ public sealed class ProcurementApiTests
             new { toStatus = "ReinspectionRequested", expectedVersion = 3, reason = "부적합 항목 조치를 완료했습니다." },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, requested.StatusCode);
+        Assert.Equal(1L, await context.ReadCountAsync(
+            """
+            select count(*)
+            from notifications
+            where project_id = @project_id
+              and source_kind = 'ReinspectionRequested';
+            """,
+            projectId));
         using (var requestedJson = await ReadJsonAsync(requested))
         {
             var round = Assert.Single(requestedJson.RootElement

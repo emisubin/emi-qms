@@ -1,5 +1,38 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 010 — 배포 상태 동기화와 최신 main 이미지 게시
+
+### 실행 전 실제 상태
+
+- Change 009 PR #70은 원격 `main`에 merge됐고 main CI 3종이 성공했다.
+- Azure Backend·Frontend ACR image와 serving revision은 Change 009 이전 `main`을 사용하고 있으며 DB는 migration `0068 Exact`다.
+- Change 009를 포함한 main SHA의 Backend·Frontend ACR tag는 각각 0개다.
+- DNS validation TXT는 가비아 권한 네임서버 `3/3`과 공용 resolver `4/4`에서 Azure 요구값과 일치하고, CNAME은 Azure 자체 진단에서 `validated=true`다.
+- Front Door는 domain validation `Pending`, managed TLS·route deployment `NotStarted`다. 기존 token을 유지한 재검증 요청은 접수됐고 DNS record는 변경하지 않는다.
+- Teams `1.0.4`는 사용자가 관리자 승인 요청을 제출했으며 승인·조직 catalog·설치·actual Activity는 대기다.
+
+### 승인 범위와 실행 순서
+
+1. Roadmap·Implementation report·SOP·사용자 checklist를 실제 merge·Azure·DNS·Teams 상태에 맞춘다.
+2. 문서 전용 검증 뒤 전용 branch에서 commit·push·PR·merge한다.
+3. 문서 merge로 만들어진 최종 main SHA를 기존 `Azure Pilot Images (Manual)` workflow에 전달한다.
+4. Backend·Frontend image 2개의 workflow 성공, immutable SHA tag와 digest 형식을 확인한다.
+5. migration `0069`, Container Apps revision, Front Door·traffic과 actual provider는 다음 Gate로 보존한다.
+
+### 검증 계획과 게시 경계
+
+| 검증 | 적용 | 기준 |
+| --- | --- | --- |
+| 문서 최소 검증 | 적용 | diff check, Markdown local link·heading, secret/PII, allowlist |
+| 코드·migration·dependency diff | 적용 | `0`이어야 함 |
+| PR CI | 적용 | 최신 head 기준 표준 CI 성공 |
+| Image workflow | 문서 merge 뒤 적용 | 최종 main SHA, Backend·Frontend 2개, mutable latest 없음 |
+| Azure revision·DB·traffic | 제외 | 사용자 요청 범위 밖, 다음 Gate |
+
+### 다음 Gate
+
+최신 main image 게시 뒤 migration job을 새 Backend digest로 교체해 `0069 Exact`를 확인하고, 이후 Backend·Frontend revision을 교체한다. Front Door `Approved`·managed TLS 배포, Entra 운영 주소, Teams 관리자 승인·설치와 event별 actual provider 검수는 그 다음 순서다.
+
 ## Change 009 — 공개 Teams 알림 유형과 자동 발송 연결
 
 ### 확정한 기존 수신자·발송 시점
@@ -480,7 +513,7 @@ Frontend build에는 기존 large bundle warning이 있었으나 build 실패나
 | `AZURE-DB-ROLE-001` | P1 | `RESOLVED_LOCAL` | API와 migration의 DB 관리자 권한 공유 가능성이 있었다. | `pms_app`·`pms_migrator`·admin 분리와 실제 PostgreSQL negative privilege test 통과 |
 | `AZURE-PORTAL-ARTIFACT-001` | P2 | `RESOLVED_LOCAL` | Portal 업로드용 ARM JSON이 없어 터미널 없는 Foundation 배포를 시작할 수 없었다. | 추적 JSON 4개와 Bicep 구조 동등성 검증 추가 |
 | `AZURE-WEB-IMAGE-PUBLISH-001` | P2 | `RESOLVED_LOCAL` | 웹 수동 ACR image 게시 경로가 없었다. | OIDC·Environment 승인·main ancestry·immutable digest workflow 추가 |
-| `AZURE-COST-GATE-001` | External gate | `READY_FOR_USER_EXECUTION` | 비용·credit·Budget은 사용자 확인 완료. 실제 Azure resource는 아직 없어 public pilot은 시작되지 않았다. | 사용자가 Portal에서 Foundation 최종 `만들기`를 직접 실행 |
+| `AZURE-COST-GATE-001` | External gate | `RESOLVED` | 비용·credit·Budget 확인 뒤 승인된 Foundation·workload·DB·edge resource를 생성했다. | Budget 알림과 20일 시범 비용 모니터링 유지 |
 | `AZURE-APM-001` | P3 | `BACKLOG` | Application Insights resource 정의는 있으나 Backend SDK APM 계측은 아직 없다. Log Analytics container log는 사용 가능하다. | 시범 운영에서 request trace 필요성을 확인한 뒤 별도 계측 |
 | `FRONTEND-BUNDLE-001` | P3 | `BACKLOG` | Production build의 기존 large bundle warning이 유지된다. 기능 오류는 아니다. | 정식 운영 성능 점검에서 route chunk 분할 검토 |
 
@@ -490,7 +523,7 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 
 | ID | 상태 | Public 활성화 전 필수 검증 |
 | --- | --- | --- |
-| `AZURE-RESTORE-001` | `OPEN` | 실제 PITR restore가 60분 안에 완료되고 migration ledger·aggregate가 일치해야 함 |
+| `AZURE-RESTORE-001` | `RESOLVED` | 실제 PITR restore가 60분 안에 완료되고 migration ledger·aggregate가 일치함 |
 | `AZURE-EDGE-AUTH-001` | `OPEN` | DNS·managed TLS·Entra callback·Front Door 200·origin 403을 실제 runtime에서 확인해야 함 |
 | `AZURE-PROVIDER-001` | `OPEN` | Teams·Gmail을 각각 1건 actual smoke로 확인해야 함 |
 
@@ -508,26 +541,25 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 
 - Checklist: `작성됨`
 - 자동 검증: `완료`
-- 사용자 검수: `Change 003·Change 004 완료 — 2026-08-02`
-- Azure resource와 public URL: `없음`
-- 다음 Gate: Change 004 게시·main merge 뒤 사용자가 Portal에서 Foundation을 생성한다.
-- 비용 발생 전에 생성 대상, 사양, 예상 20일 비용과 삭제·rollback 영향을 다시 보고해야 한다.
+- 사용자 검수: `Change 003~009의 구현·게시 승인 완료 / 실제 공개 업무 검수 대기`
+- Azure resource: `생성·readiness 확인 완료`
+- Public URL: `DNS 연결 완료 / Front Door validation·TLS 대기`
+- 다음 Gate: Change 010 문서 merge 뒤 최종 main image 게시 → migration `0069`·revision → Front Door·Entra·provider 검수.
+- 비용·장애·응답시간·DB·첨부 증가량은 20일 시범 기간 동안 계속 기록한다.
 
 ## 13. 종료 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 004 반영 완료 |
-| SOP | `tasks/azure-deploy-001-sop.md` | Portal JSON·GitHub OIDC image 게시 Gate 반영 완료 |
-| User manual | `infrastructure/azure-pilot/README.md` | 터미널 없는 Portal·GitHub 웹 절차 반영 완료 |
-| Roadmap update | `docs/00-product-roadmap.md` | Main 병합·비용 확인·Change 004 상태 반영 완료 |
-| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | Change 003·Change 004 완료 / Azure 운영 검수 대기 |
+| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 010 실행 전 상태·게시 경계 반영 완료 |
+| SOP | `tasks/azure-deploy-001-sop.md` | 최종 main image·migration `0069`·DNS/TLS 순서 반영 완료 |
+| User manual | `infrastructure/azure-pilot/README.md` | Portal·GitHub 웹 절차와 운영 입력 위치 유지, Change 010 별도 사용자 동선 없음 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 009 merge·Azure `0068`·DNS·Teams·Change 010 상태 반영 완료 |
+| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | Change 009 merge·`0068` handover 완료 / final image·공개 운영 검수 대기 |
 
 ## 14. Git와 게시 상태
 
-- 변경사항: Change 004 검증본이 전용 Task branch에 미커밋 상태로 존재
-- Commit: 미수행 — 사용자 승인 완료
-- Push: 미수행 — 사용자 승인 완료
-- PR: 미수행 — 사용자 승인 완료
-- Merge: 미수행 — 사용자 승인 완료
-- 실제 Azure 적용은 별도 비용 Gate와 사용자 직접 실행이 필요하다.
+- Change 009: Commit·Push·PR·Merge 완료, 원격 main 반영 완료.
+- Change 010: 전용 branch에서 문서 동기화·검증 뒤 Commit·Push·PR·Merge 수행 승인.
+- Image publish: Change 010 merge로 확정되는 최종 main SHA의 Backend·Frontend ACR 게시 승인.
+- 미포함: migration `0069`, Container Apps revision, Front Door·traffic과 actual provider 변경.

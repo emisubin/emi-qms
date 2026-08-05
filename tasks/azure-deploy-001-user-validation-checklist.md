@@ -2,6 +2,7 @@
 
 ## Change 009 — 공개 Teams 알림 유형과 자동 발송 연결
 
+- [x] Change 009 PR #70을 원격 `main`에 merge하고 PR·main CI 성공을 확인했다. (`2026-08-05`)
 - [x] 원래 계획의 프로젝트·업무·Pending·재검사·완료 수신자와 event 발생 시점을 Backend 자동 delivery에 연결했다.
 - [x] manifest를 공개 운영용 10개 Activity type으로 갱신하고 `dailyDigest`를 제거했다.
 - [x] `packageName`이 없고 기존 identity·hostname·권한·icon을 보존한 `1.0.4` package를 생성했다.
@@ -20,7 +21,7 @@
 - [x] 생성 package의 `packageName` 부재를 package test로 고정했다.
 - [x] Microsoft Teams v1.19 공식 JSON Schema 전체 검증을 통과했다.
 - [x] 기존 manifest·Activity identity, 운영 hostname, 권한·activity type과 icon을 보존한 `1.0.3` package를 생성했다.
-- [ ] Teams Admin Center에 `1.0.3` package를 등록해 schema parse와 조직 catalog 표시를 확인한다.
+- [x] `1.0.3` 별도 등록은 공개 알림을 포함한 `1.0.4` 승인 요청으로 대체했다. 조직 catalog 표시는 1.0.4 승인 뒤 확인한다.
 
 ## Change 006 — Teams·PWA 브랜드 자산
 
@@ -30,8 +31,9 @@
 - [x] Service Worker·offline cache·앱 내부 UI 재디자인이 추가되지 않았다.
 - [x] 최종 hostname과 기존 Teams·activity identity를 보존한 `1.0.2` package가 유효한 JSON으로 생성됐다.
 - [x] Change 006 PR #68을 원격 main에 squash merge하고 PR·main CI 성공을 확인했다. (2026-08-05)
-- [ ] 문서 상태 동기화가 포함된 최신 main의 Backend·Frontend image를 ACR에 게시한다.
-- [ ] 최신 image와 migration `0068`을 Azure revision에 반영한다.
+- [x] Change 007 main의 Backend·Frontend image를 ACR에 게시했다.
+- [x] Change 007 image와 migration `0068`을 Azure revision에 반영했다.
+- [ ] Change 010 문서 merge 뒤 Change 009 포함 최종 main Backend·Frontend image를 ACR에 게시한다.
 - [ ] 최종 hostname에서 PWA 설치 icon·이름·standalone 실행을 확인한다.
 - [ ] Change 009의 공개 알림 `1.0.4` package를 update하고 테스트 사용자에게 새 icon이 표시되는지 확인한다.
 
@@ -54,7 +56,7 @@
 
 - [x] 20일 예상 비용과 남은 credit을 확인했다. (사용자 확인, 2026-08-02)
 - [x] Budget 알림 3단계를 사용자가 직접 설정했다. (사용자 확인, 2026-08-02)
-- [ ] 실제 hostname·identifier·email·secret이 Git diff에 없음을 확인했다.
+- [x] 실제 hostname·identifier·email·secret이 Change 010 Git diff에 없음을 확인했다.
 - [ ] DB 관리자·`pms_migrator`·`pms_app` password가 서로 다르고 각각 32자 이상이다.
 
 ## Change 004 — 터미널 없는 Portal·GitHub 준비
@@ -64,14 +66,16 @@
 - [x] Workflow가 `workflow_dispatch`, Environment 승인, 비용 확인 checkbox와 `main` 포함 full SHA만 허용한다.
 - [x] Azure client secret, mutable `latest` tag와 자동 Container Apps 배포가 없음을 자동 확인했다.
 - [x] Azure Portal `로드 파일`용 JSON 4개와 GitHub 웹 실행 절차를 사용자가 확인하고 main 병합을 승인했다. (2026-08-02)
-- [ ] 실제 GitHub Environment·OIDC·ACR 권한은 Foundation 생성 후 웹 화면에서 설정한다.
-- [ ] 실제 GitHub Actions image push는 별도 비용 확인 후 사용자가 실행한다.
+- [x] 실제 GitHub Environment·OIDC·ACR 권한을 설정하고 Change 007 image workflow 성공으로 확인했다.
+- [x] 실제 GitHub Actions image push를 승인된 Change 007 main SHA로 성공시켰다.
 
 ## 배포와 복구
 
 - [x] Migration job이 Exact로 끝나기 전 public traffic이 열리지 않았다.
 - [x] PITR restore가 60분 이내에 끝났고 migration ledger와 aggregate가 맞았다.
 - [x] Backend와 ClamAV에 public ingress가 없고 Frontend만 external ingress다. (read-only 재확인, 2026-08-04)
+- [x] 가비아 권한 DNS `3/3`과 공용 resolver `4/4`에서 validation TXT가 일치하고 Azure CNAME 진단이 성공했다. (`2026-08-05`)
+- [ ] Front Door domain validation `Pending`과 managed TLS·route deployment `NotStarted`가 완료 상태로 전환된다.
 - [ ] Front Door URL은 열리고 Container App 원본 URL은 health 이외 403이다.
 - [ ] TLS certificate가 최종 hostname과 일치한다.
 - [ ] Key Vault 전체 scope의 workload secret-read role이 0이다.

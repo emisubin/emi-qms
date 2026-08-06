@@ -1,5 +1,37 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 017 — 운영 외부 알림 Worker 활성화
+
+- [x] 기존 대기 알림 일괄 발송과 worker 활성화 사용자 승인을 확인했다.
+- [x] Teams/Gmail credential·SMTP/TLS·단일 Backend·disabled/dry-run 기준선 preflight를 통과했다.
+- [x] Dispatcher·Teams Activity·Mail 다섯 actual flag를 활성화하고 latest Backend revision Ready를 확인했다.
+- [x] 최신 수동 Teams Activity `6`건과 Mail `3`건이 모두 attempt `1`, `Sent`인지 확인했다.
+- [x] Open Pending·Processing·Failed가 모두 `0`인지 확인했다.
+- [x] 기존 관리자 `Dismissed` Mail `2`건은 제외 상태를 보존했다.
+- [x] 사용자가 최신 Teams Activity와 메일이 실제 client·메일함에 도착했는지 확인했다. (`2026-08-06`)
+
+## Change 016 — 운영 Teams Activity 1건 Provider Smoke
+
+- [x] Teams 앱의 관리자 승인·조직 catalog 설치 완료를 사용자 보고로 확인했다.
+- [x] 현재 Azure 로그인 사용자가 bootstrap 관리자이고 수신자 1명으로 고정되는지 확인했다.
+- [x] 실제 업무 data가 없는 synthetic `generalNotification`을 Microsoft Graph로 정확히 1회 보냈다.
+- [x] Graph HTTP `204`, provider `SENT`, 안정 코드 `TEAMS_ACTIVITY_GRAPH_ACCEPTED`를 확인했다.
+- [x] Notification Dispatcher·Mail을 활성화하지 않았고 Runtime env·DB·migration·업무 row·container revision을 변경하지 않았다.
+- [x] 사용자 제공 계정과 실제 수신 대상이 같은 Entra 사용자임을 확인했다.
+- [x] 동일 알림을 재발송하지 않고 Teams web Activity Feed에서 exact 제목과 preview 표시를 확인했다.
+- [ ] Desktop Teams에서 최신 수동 Activity가 표시되는지 사용자가 확인한다.
+
+## Change 015 — 공개 Frontend Entra 사전 인증
+
+- [x] 시험환경 없이 운영 `pms`에 직접 적용하고 Teams tab 호환 실패 시 Activity 알림 전용으로 유지하는 사용자 정책을 확인했다.
+- [x] single-tenant Entra web application과 Key Vault secret을 준비했다.
+- [x] Frontend secret-scope RBAC와 Container Apps Easy Auth를 적용했다.
+- [x] 익명 비브라우저 root·JavaScript·PWA manifest·API가 `401`이고 `/health/live`만 `200`이다.
+- [x] 익명 브라우저에는 PMS root·bundle reference가 없는 Easy Auth 인증 화면만 표시된다.
+- [x] 실제 허용 계정이 Frontend와 기존 Backend 권한으로 정상 로그인하고 프로젝트·관리자 메뉴에 접근한다.
+- [x] 별도 Teams tab 검수 없이 호환 실패 시 Activity 알림 전용으로 운영하는 사용자 정책을 기록했다.
+- [x] auth platform 비활성 rollback 명령과 범위를 확인했다. 정상 게이트를 여는 실제 rollback은 수행하지 않았다.
+
 ## Change 014 — 공개 API Host allowlist와 관리자 로그인
 
 - [x] Change 013 PR #72를 원격 `main`에 병합하고 PR·main CI 성공을 확인했다. (`2026-08-06`)
@@ -21,7 +53,7 @@
 - [x] Azure DB에 migration `0069`를 적용하고 `69/69 Exact`, execution `Succeeded`를 확인했다. (`2026-08-05`)
 - [x] 새 Backend revision을 배포하고 `Notifications__TeamsActivity__PersonalChannelStrategy=TeamsActivity`를 확인했다. 외부 알림은 disabled·dry-run을 유지했다. (`2026-08-05`)
 - [x] Teams Admin Center에 `1.0.4` package 승인 요청을 제출했다. (`2026-08-05`, 사용자 보고)
-- [ ] Teams 관리자 승인 완료 뒤 조직 catalog 표시와 사용자 앱 설치 상태를 확인한다.
+- [x] Teams 관리자 승인 완료 뒤 조직 catalog 표시와 사용자 앱 설치 상태를 사용자 보고로 확인했다.
 - [ ] 프로젝트 생성·납기 변경·상태 변경·업무 배정·긴급/차단·재검사·프로젝트 완료 actual Activity를 각 1건 검수한다.
 - [ ] 에스컬레이션 세부 조건·단계·추가 수신자는 배포 후 별도 기획한다.
 
@@ -118,8 +150,9 @@
 
 - [ ] In-app 알림과 내 업무가 정상이다.
 - [ ] 새 Teams manifest가 조직 catalog에서 PMS 이름과 최종 주소로 열린다.
-- [ ] Teams activity smoke 한 건이 올바른 사용자에게 도착한다.
-- [ ] Gmail smoke 한 건이 올바른 사용자에게 도착한다.
+- [x] Teams activity Graph actual 1건은 `204`로 수락됐고 Teams web Activity Feed에 표시됐다.
+- [x] Worker 활성화 뒤 최신 Teams Activity `6`건과 Mail `3`건이 provider `Sent` 상태다.
+- [x] Teams client와 실제 메일함에서 최신 알림 수신을 확인했다. (`2026-08-06`)
 - [ ] 중복 발송과 실제 업무 원문 과다 노출이 없다.
 
 ## 운영 종료

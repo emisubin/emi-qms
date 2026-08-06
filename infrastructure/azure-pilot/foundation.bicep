@@ -530,6 +530,7 @@ output requiredKeyVaultSecretNames array = [
   'database-runtime-connection-string'
   'bootstrap-administrator-emails'
   'front-door-origin-verify-token'
+  'entra-access-gate-client-secret'
   'gmail-username'
   'gmail-app-password'
   'teams-activity-client-secret'

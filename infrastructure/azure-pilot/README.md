@@ -20,13 +20,14 @@
 Portal 업로드 순서는 다음과 같다.
 
 1. `foundation.json`
-2. Key Vault에 secret 8개 직접 입력
-3. `identity-access.json`
-4. GitHub Actions에서 Backend·Frontend image 게시
-5. `workloads.json`을 `activateWorkloads=false`, `enableExternalNotifications=false`로 배포
-6. DB role bootstrap, migration과 PITR restore 검증
-7. `workloads.json`을 검증된 restore 시각과 `activateWorkloads=true`로 다시 배포
-8. `edge.json`
+2. Frontend 사전 인증용 single-tenant Entra web app과 공개 callback을 준비
+3. Key Vault에 secret 9개 직접 입력
+4. `identity-access.json`
+5. GitHub Actions에서 Backend·Frontend image 게시
+6. `workloads.json`을 `activateWorkloads=false`, `enableExternalNotifications=false`로 배포
+7. DB role bootstrap, migration과 PITR restore 검증
+8. `workloads.json`을 검증된 restore 시각과 `activateWorkloads=true`로 다시 배포
+9. `edge.json`
 
 ARM JSON에 실제 값을 직접 적어 다시 저장하지 않는다. Portal이 표시하는 parameter 입력란 또는 GitHub Environment secret을 사용한다. `검토 + 만들기`의 최종 `만들기`는 실제 Azure resource 또는 사용량을 만들 수 있으므로 사용자가 비용을 확인한 뒤 직접 누른다.
 
@@ -93,6 +94,7 @@ Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력�
 - PostgreSQL은 delegated subnet과 private DNS만 사용하며 public network access는 꺼진다.
 - Front Door Standard가 `X-Azure-FDID`를 추가하고 rule set이 별도 origin verification token을 추가한다.
 - Frontend Nginx는 두 값이 모두 맞지 않으면 health endpoint를 제외한 모든 요청을 403으로 차단한다.
+- Frontend Container Apps Easy Auth는 `/health/live`를 제외한 shell·asset·API proxy 요청을 single-tenant Entra 인증 뒤에 둔다. Front Door forwarded host/proto를 사용하며 기존 Backend bearer·역할 권한은 그대로 유지한다.
 - Frontend가 Backend 내부 ingress로 전달하는 HTTP Host를 수용하도록 Backend `AllowedHosts`는 public hostname과 managed environment에서 산출한 exact `backend.internal.<defaultDomain>`만 허용한다. wildcard는 사용하지 않는다.
 - Backend는 Container Apps infrastructure subnet CIDR만 trusted proxy network로 사용한다.
 - Key Vault secret은 tracked template이 만들지 않는다. 사용자가 Portal에서 직접 입력한 뒤 workload별 identity가 자기 secret resource만 읽는다. Key Vault 전체 범위 secret read는 없다.
@@ -110,6 +112,7 @@ Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력�
 | `database-runtime-connection-string` | `Username=pms_app`, migration과 다른 32자 이상 password, `SSL Mode=VerifyFull` |
 | `bootstrap-administrator-emails` | 비상 관리자 두 명의 email을 세미콜론으로 구분 |
 | `front-door-origin-verify-token` | Foundation secure parameter와 동일한 64자 이상 random 값 |
+| `entra-access-gate-client-secret` | Frontend 사전 인증 전용 single-tenant Entra web application secret |
 | `gmail-username` | 발송 계정 |
 | `gmail-app-password` | Gmail app password |
 | `teams-activity-client-secret` | Teams activity용 Entra application secret |
@@ -121,11 +124,11 @@ Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력�
 | Identity | 허용 secret |
 | --- | --- |
 | Backend | runtime DB, 비상 관리자 목록, Gmail 계정·app password, Teams activity client secret |
-| Frontend | Front Door origin verification token |
+| Frontend | Front Door origin verification token, Entra access gate client secret |
 | Migration | migration DB |
 | Database bootstrap | admin DB, migration DB, runtime DB |
 
-`identity-access.bicep`은 위 10개 조합을 secret resource scope로만 만든다. vault scope의 `Key Vault Secrets User`는 금지한다.
+`identity-access.bicep`은 위 11개 조합을 secret resource scope로만 만든다. vault scope의 `Key Vault Secrets User`는 금지한다.
 
 이전 단일 `runtime` identity 배포를 실제 Azure에 한 적이 있다면 incremental Bicep은 삭제된 role assignment를 자동 제거하지 않는다. Key Vault의 **액세스 제어(IAM)**에서 그 identity의 vault-scope `Key Vault Secrets User`를 먼저 제거하고, 더 이상 workload가 참조하지 않는 것을 확인한 뒤 기존 identity도 정리한다. vault-scope workload assignment가 0이 아니면 migration·serving workload를 실행하지 않는다.
 
@@ -162,18 +165,21 @@ scripts/validate-azure-pilot-artifacts.sh --compile
 
 1. 사용자가 budget 알림을 먼저 만든다.
 2. Foundation local parameter 파일을 만들고 Azure resource를 생성한다.
-3. Key Vault에 위 8개 secret을 직접 입력한다.
-4. `identity-access.bicep`을 적용하고 10개 role assignment가 secret scope인지 확인한다. RBAC 전파가 끝나기 전에는 다음 단계로 가지 않는다.
-5. 같은 Git commit에서 Backend·Frontend image를 build하고 ACR에 push한 뒤 digest를 고정한다.
-6. `activateWorkloads=false`, `enableExternalNotifications=false`로 workload와 두 manual job을 배치한다.
-7. `database-role-bootstrap` job을 한 번 실행해 `pms_migrator`와 `pms_app`을 만들고 권한 probe를 통과시킨다.
-8. migration job을 한 번 실행하고 migration ledger가 Exact인지 확인한다. 이 job이 신규 DB object의 runtime 권한도 재조정한다.
-9. PostgreSQL PITR restore rehearsal을 수행하고 1시간 안에 복구·연결·ledger 검증이 되는지 확인한다. 임시 restore server는 사용자 비용 경계에서 정리한다.
-10. 성공 시각을 `restoreVerifiedAtUtc`에 넣고 `activateWorkloads=true`로 workload를 다시 배치한다.
-11. Backend `/health/ready`가 성공한 뒤 edge를 배치하고 DNS TXT/CNAME, managed TLS를 확인한다. 공개 API가 `400`이면 Backend latest revision의 `AllowedHosts`가 public hostname과 exact internal Backend hostname 두 개를 포함하는지 확인한다.
-12. Front Door 주소는 200, Frontend Container App 원본 주소는 403인지 확인한다.
-13. Entra redirect URI와 Teams manifest를 최종 주소로 갱신한다.
-14. 실제 provider smoke가 성공한 뒤에만 `enableExternalNotifications=true`로 바꾼다.
+3. Frontend 사전 인증용 single-tenant Entra web app과 공개 callback을 준비하고 client identifier를 workload 입력으로 보존한다.
+4. Key Vault에 위 9개 secret을 직접 입력한다.
+5. `identity-access.bicep`을 적용하고 11개 role assignment가 secret scope인지 확인한다. RBAC 전파가 끝나기 전에는 다음 단계로 가지 않는다.
+6. 같은 Git commit에서 Backend·Frontend image를 build하고 ACR에 push한 뒤 digest를 고정한다.
+7. `activateWorkloads=false`, `enableExternalNotifications=false`로 workload와 두 manual job을 배치한다.
+8. `database-role-bootstrap` job을 한 번 실행해 `pms_migrator`와 `pms_app`을 만들고 권한 probe를 통과시킨다.
+9. migration job을 한 번 실행하고 migration ledger가 Exact인지 확인한다. 이 job이 신규 DB object의 runtime 권한도 재조정한다.
+10. PostgreSQL PITR restore rehearsal을 수행하고 1시간 안에 복구·연결·ledger 검증이 되는지 확인한다. 임시 restore server는 사용자 비용 경계에서 정리한다.
+11. 성공 시각을 `restoreVerifiedAtUtc`에 넣고 `activateWorkloads=true`로 workload를 다시 배치한다.
+12. Backend `/health/ready`가 성공한 뒤 edge를 배치하고 DNS TXT/CNAME, managed TLS를 확인한다. 공개 API가 `400`이면 Backend latest revision의 `AllowedHosts`가 public hostname과 exact internal Backend hostname 두 개를 포함하는지 확인한다.
+13. 익명 비브라우저 Front Door root·asset·manifest·API는 `401`, 브라우저는 PMS shell·bundle 없는 인증 화면, `/health/live`는 `200`인지 확인한다. Direct origin도 인증 전 PMS shell을 제공하지 않아야 한다.
+14. Entra API·SPA·Frontend access gate redirect URI와 Teams manifest를 최종 주소로 갱신한다.
+15. 실제 provider smoke가 성공한 뒤에만 `enableExternalNotifications=true`로 바꾼다.
+
+2026-08-06 Change 017에서 사용자 승인 아래 동일 계약을 운영 Backend에 적용했다. Latest revision Ready, 최신 수동 Teams Activity `6/6 Sent`, Mail `3/3 Sent`, Open Pending/Processing/Failed `0`을 확인했다. 실제 식별자·주소·secret은 기록하지 않았다.
 
 ## Rollback
 

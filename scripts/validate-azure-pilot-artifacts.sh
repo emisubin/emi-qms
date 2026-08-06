@@ -116,6 +116,13 @@ const checks = [
   [identityAccess, 'scope: databaseMigrationSecret'],
   [identityAccess, 'scope: databaseAdminSecret'],
   [identityAccess, 'scope: originVerificationSecret'],
+  [identityAccess, 'scope: entraAccessGateSecret'],
+  [workloads, "resource frontendAuth 'Microsoft.App/containerApps/authConfigs@2024-03-01'"],
+  [workloads, "unauthenticatedClientAction: 'RedirectToLoginPage'"],
+  [workloads, "redirectToProvider: 'azureactivedirectory'"],
+  [workloads, "convention: 'Standard'"],
+  [workloads, "'/health/live'"],
+  [workloads, "clientSecretSettingName: 'entra-access-gate-client-secret'"],
   [workloads, "external: false"],
   [workloads, 'minReplicas: minimumReplicaCount'],
   [workloads, "value: 'false'"],
@@ -164,7 +171,7 @@ if (identityAccess.includes("scope: keyVault\n")
 }
 
 const secretScopes = identityAccess.match(/scope: \w+Secret$/gmu) ?? [];
-if (secretScopes.length !== 10) {
+if (secretScopes.length !== 11) {
   process.exit(1);
 }
 

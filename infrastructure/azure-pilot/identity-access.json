@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "11313446679020921058"
+      "templateHash": "198881677867568634"
     }
   },
   "parameters": {
@@ -113,6 +113,17 @@
     {
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'entra-access-gate-client-secret')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'entra-access-gate-client-secret'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
       "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-migration-connection-string')]",
       "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'database-migration-connection-string'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
       "properties": {
@@ -158,7 +169,7 @@
   "outputs": {
     "secretScopedRoleAssignmentCount": {
       "type": "int",
-      "value": 10
+      "value": 11
     }
   }
 }

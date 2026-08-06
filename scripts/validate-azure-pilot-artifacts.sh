@@ -130,6 +130,8 @@ const checks = [
   [nginx, '$http_x_azure_fdid'],
   [nginx, '$http_x_pms_origin_verify'],
   [nginx, 'return 403;'],
+  [nginx, 'proxy_set_header Host ${BACKEND_FQDN};'],
+  [nginx, 'proxy_set_header X-Forwarded-Host ${PUBLIC_HOST};'],
   [dockerfile, 'EXPOSE 8080'],
   [dockerfile, '@sha256:']
 ];
@@ -148,6 +150,10 @@ if (backendProbeHostHeaders.length !== 3) {
 }
 
 if (workloads.includes('external: true') && !workloads.includes("name: 'frontend'")) {
+  process.exit(1);
+}
+
+if (nginx.includes('proxy_set_header Host ${PUBLIC_HOST};')) {
   process.exit(1);
 }
 

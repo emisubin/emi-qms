@@ -277,6 +277,9 @@ public sealed class PublicDeploymentSecurityTests
         Assert.Contains("$http_x_pms_origin_verify", nginx, StringComparison.Ordinal);
         Assert.Contains("return 403;", nginx, StringComparison.Ordinal);
         Assert.Contains("$http_x_azure_clientip", nginx, StringComparison.Ordinal);
+        Assert.Contains("proxy_set_header Host ${BACKEND_FQDN};", nginx, StringComparison.Ordinal);
+        Assert.Contains("proxy_set_header X-Forwarded-Host ${PUBLIC_HOST};", nginx, StringComparison.Ordinal);
+        Assert.DoesNotContain("proxy_set_header Host ${PUBLIC_HOST};", nginx, StringComparison.Ordinal);
         Assert.DoesNotContain("ssl_certificate", nginx, StringComparison.Ordinal);
     }
 

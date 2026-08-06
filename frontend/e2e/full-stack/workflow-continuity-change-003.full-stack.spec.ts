@@ -86,8 +86,8 @@ test('WORKFLOW-CONTINUITY-001 Change 003: exact purchase error, assignee handoff
   await page.goto('/manufacturing');
   await expect(page.getByTestId('manufacturing-dashboard')).toBeVisible();
   await capture(page, '03-manufacturing-project-hub-desktop.png');
-  await page.goto('/pending');
-  await expect(page.getByTestId('pending-dashboard').getByRole('button', { name: new RegExp(projectTitle, 'u') })).toBeVisible();
+  await page.goto(`/pending?projectId=${projectId}`);
+  await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
   await capture(page, '06-pending-project-hub-desktop.png');
 
   await page.getByLabel('개발 사용자').selectOption('dev-materials', { force: true });

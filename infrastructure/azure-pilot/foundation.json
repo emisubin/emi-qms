@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "16417543243822638615"
+      "templateHash": "7386391903362883429"
     }
   },
   "parameters": {
@@ -693,6 +693,7 @@
         "database-runtime-connection-string",
         "bootstrap-administrator-emails",
         "front-door-origin-verify-token",
+        "entra-access-gate-client-secret",
         "gmail-username",
         "gmail-app-password",
         "teams-activity-client-secret"

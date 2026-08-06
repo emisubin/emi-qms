@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "13860124487632111010"
+      "templateHash": "6164106230484438008"
     }
   },
   "parameters": {
@@ -117,6 +117,12 @@
       "type": "string",
       "metadata": {
         "description": "Entra SPA application client identifier."
+      }
+    },
+    "entraAccessGateClientId": {
+      "type": "string",
+      "metadata": {
+        "description": "Single-tenant Entra web application client identifier used by the Frontend pre-authentication gate."
       }
     },
     "entraApiAudience": {
@@ -806,6 +812,11 @@
               "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/')))]",
               "keyVaultUrl": "[reference(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'front-door-origin-verify-token'), '2023-07-01').secretUri]",
               "name": "origin-verify-token"
+            },
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/')))]",
+              "keyVaultUrl": "[reference(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'entra-access-gate-client-secret'), '2023-07-01').secretUri]",
+              "name": "entra-access-gate-client-secret"
             }
           ]
         },
@@ -877,6 +888,68 @@
       "dependsOn": [
         "[resourceId('Microsoft.App/containerApps', 'backend')]"
       ]
+    },
+    {
+      "type": "Microsoft.App/containerApps/authConfigs",
+      "apiVersion": "2024-03-01",
+      "name": "[format('{0}/{1}', 'frontend', 'current')]",
+      "properties": {
+        "globalValidation": {
+          "excludedPaths": [
+            "/health/live"
+          ],
+          "redirectToProvider": "azureactivedirectory",
+          "unauthenticatedClientAction": "RedirectToLoginPage"
+        },
+        "httpSettings": {
+          "forwardProxy": {
+            "convention": "Standard"
+          },
+          "requireHttps": true,
+          "routes": {
+            "apiPrefix": "/.auth"
+          }
+        },
+        "identityProviders": {
+          "azureActiveDirectory": {
+            "enabled": true,
+            "isAutoProvisioned": false,
+            "registration": {
+              "clientId": "[parameters('entraAccessGateClientId')]",
+              "clientSecretSettingName": "entra-access-gate-client-secret",
+              "openIdIssuer": "[format('{0}{1}/v2.0', environment().authentication.loginEndpoint, parameters('entraTenantId'))]"
+            },
+            "validation": {
+              "allowedAudiences": [
+                "[parameters('entraAccessGateClientId')]"
+              ]
+            }
+          }
+        },
+        "login": {
+          "allowedExternalRedirectUrls": [
+            "[variables('publicOrigin')]"
+          ],
+          "cookieExpiration": {
+            "convention": "FixedTime",
+            "timeToExpiration": "08:00:00"
+          },
+          "nonce": {
+            "nonceExpirationInterval": "00:05:00",
+            "validateNonce": true
+          },
+          "preserveUrlFragmentsForLogins": true,
+          "tokenStore": {
+            "enabled": false
+          }
+        },
+        "platform": {
+          "enabled": true
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', 'frontend')]"
+      ]
     }
   ],
   "outputs": {
@@ -919,6 +992,10 @@
     "externalNotificationsEnabled": {
       "type": "bool",
       "value": "[parameters('enableExternalNotifications')]"
+    },
+    "frontendPreAuthenticationEnabled": {
+      "type": "bool",
+      "value": true
     }
   }
 }

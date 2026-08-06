@@ -309,7 +309,7 @@ public sealed class PublicDeploymentSecurityTests
         Assert.DoesNotContain("runtimeIdentity", workloads, StringComparison.Ordinal);
         Assert.DoesNotContain("scope: keyVault\n", identityAccess, StringComparison.Ordinal);
         Assert.Equal(
-            10,
+            11,
             Regex.Matches(identityAccess, @"scope: \w+Secret\r?$", RegexOptions.Multiline).Count);
 
         Assert.Contains("database-runtime-connection-string", workloads, StringComparison.Ordinal);
@@ -326,6 +326,28 @@ public sealed class PublicDeploymentSecurityTests
         Assert.Contains("value: '${publicHost};${backendInternalHost}'", workloads, StringComparison.Ordinal);
         Assert.DoesNotContain("name: 'AllowedHosts'\n    value: '*'", workloads, StringComparison.Ordinal);
         Assert.DoesNotContain("database-connection-string", workloads, StringComparison.Ordinal);
+        Assert.Contains("entra-access-gate-client-secret", workloads, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AzureFrontend_RequiresEntraPreAuthenticationBeforeServingApplicationAssets()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var workloads = File.ReadAllText(
+            Path.Combine(repositoryRoot, "infrastructure", "azure-pilot", "workloads.bicep"));
+
+        Assert.Contains(
+            "resource frontendAuth 'Microsoft.App/containerApps/authConfigs@2024-03-01'",
+            workloads,
+            StringComparison.Ordinal);
+        Assert.Contains("unauthenticatedClientAction: 'RedirectToLoginPage'", workloads, StringComparison.Ordinal);
+        Assert.Contains("redirectToProvider: 'azureactivedirectory'", workloads, StringComparison.Ordinal);
+        Assert.Contains("convention: 'Standard'", workloads, StringComparison.Ordinal);
+        Assert.Contains("clientSecretSettingName: 'entra-access-gate-client-secret'", workloads, StringComparison.Ordinal);
+        Assert.Contains("allowedAudiences: [", workloads, StringComparison.Ordinal);
+        Assert.Contains("'/health/live'", workloads, StringComparison.Ordinal);
+        Assert.DoesNotContain("'/assets", workloads, StringComparison.Ordinal);
+        Assert.DoesNotContain("AllowAnonymous", workloads, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -65,6 +65,11 @@ resource originVerificationSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01'
   name: 'front-door-origin-verify-token'
 }
 
+resource entraAccessGateSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: keyVault
+  name: 'entra-access-gate-client-secret'
+}
+
 resource gmailUsernameSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
   parent: keyVault
   name: 'gmail-username'
@@ -140,6 +145,16 @@ resource frontendOriginSecretRole 'Microsoft.Authorization/roleAssignments@2022-
   }
 }
 
+resource frontendAccessGateSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(entraAccessGateSecret.id, frontendIdentity.id, 'KeyVaultSecretsUser')
+  scope: entraAccessGateSecret
+  properties: {
+    principalId: frontendIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
 resource migrationDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(databaseMigrationSecret.id, migrationIdentity.id, 'KeyVaultSecretsUser')
   scope: databaseMigrationSecret
@@ -180,4 +195,4 @@ resource bootstrapRuntimeDatabaseSecretRole 'Microsoft.Authorization/roleAssignm
   }
 }
 
-output secretScopedRoleAssignmentCount int = 10
+output secretScopedRoleAssignmentCount int = 11

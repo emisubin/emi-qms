@@ -1,5 +1,137 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 017 — 운영 외부 알림 Worker 활성화
+
+### 승인 범위와 실행 결과
+
+- 사용자는 기존 대기 알림이 한꺼번에 발송될 수 있음을 확인하고 Notification Dispatcher 활성화를 명시적으로 승인했다.
+- worker만 켜면 Mail·Teams Activity가 `Disabled/DryRunSent`로 종결되므로 기존 Bicep의 `enableExternalNotifications` 계약과 동일하게 Dispatcher·Teams Activity·Mail 다섯 actual flag를 함께 활성화했다.
+- 활성화 전 Backend 후보 `1`, 최대 replica `1`, Teams/Gmail Key Vault binding·값, Gmail SMTP `587/StartTls`, 현재 disabled/dry-run 기준선을 확인했다.
+- 새 Backend revision은 `Ready`이며 실제 외부 알림 설정 readback이 exact다.
+- 활성화 뒤 확인된 최신 수동 Teams Activity `6`건과 Mail `3`건은 모두 attempt `1`, `Sent`다.
+- Open delivery는 `Pending 0`, `Processing 0`, `Failed 0`이다. 과거 관리자 `Dismissed` Mail `2`건은 worker claim 대상이 아니므로 기존 제외 상태를 보존했다.
+- Notification delivery status·attempt 이외 DB schema·migration·업무 data와 Frontend·ClamAV·Front Door·Entra·Teams Channel webhook은 변경하지 않았다.
+
+### 검증 결과
+
+| 검증 | 결과 |
+| --- | --- |
+| Task Identity·Roadmap Gate | `PASS_REUSE`, `UAT_RUNTIME` |
+| activation script syntax·ShellCheck·diff check | `PASS` |
+| confirmation guard | 누락 시 exit `64`, mutation `0` |
+| Provider preflight | `PASS` |
+| Runtime mutation | 다섯 actual flag exact |
+| Backend latest revision | `Ready`, max replica `1` |
+| 최신 수동 Teams Activity | `6/6 Sent`, 각 attempt `1` |
+| 최신 수동 Mail | `3/3 Sent`, 각 attempt `1` |
+| Open delivery | Pending/Processing/Failed 각 `0` |
+| 새 synthetic 알림·수동 DB 보정 | `0` |
+
+### Provider Gate 판정
+
+- Teams Activity provider 처리: `PASS`
+- Gmail SMTP provider 처리: `PASS`
+- Worker·backlog 처리: `PASS`
+- 사용자 Teams client·메일함 수신 확인: `PASS` (2026-08-06 사용자 확인)
+- Teams SSO·새 manifest: 별도 후속 `NEW_FEATURE`
+
+Source와 문서 변경은 local branch에만 있으며 commit·push·PR·merge는 별도 사용자 승인 전까지 수행하지 않는다.
+
+## Change 016 — 운영 Teams Activity 1건 Provider Smoke
+
+### 승인 범위와 실행 결과
+
+- 사용자는 Teams 앱 설치 완료 뒤 알림 테스트를 Teams SSO·새 manifest보다 먼저 수행하도록 승인했다.
+- 운영 Notification Dispatcher를 켜면 기존 notification 원본에서 다수 delivery가 생성될 수 있으므로 활성화하지 않았다. 운영 Backend에 이미 주입된 동일 Teams client credential·manifest·public link 설정을 읽어 현재 Azure 로그인 bootstrap 관리자 1명에게 합성 `generalNotification`을 직접 1회 전송했다.
+- 합성 payload는 실제 사용자 이름·프로젝트·Pending·업무 원문을 포함하지 않는다. Gmail·TeamsChannel과 실제 업무 event는 생성하지 않았다.
+- Microsoft Graph는 실제 요청을 HTTP `204`로 수락했다. Provider 상태는 `SENT`, 안정 코드는 `TEAMS_ACTIVITY_GRAPH_ACCEPTED`다.
+- 사용자의 최초 client 미표시 보고 뒤 재발송하지 않고 대상을 재검증했다. 사용자 제공 계정과 실제 수신 object는 같은 Entra 사용자였다.
+- 앱 자격증명의 개인 설치 목록 조회는 최소 권한 경계 때문에 Graph `403`이었고, 추가 권한이나 관리자 동의는 적용하지 않았다.
+- 기존 로그인 상태의 Teams web Activity Feed에서는 합성 알림의 exact 제목과 preview가 모두 표시됐다. Teams server 렌더링은 완료됐으며 desktop Teams 표시만 사용자 새로고침 확인으로 남긴다.
+
+### 안전 상태와 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Task Identity·Roadmap Gate | `PASS_REUSE`, `UAT_RUNTIME` |
+| Shell syntax·ShellCheck·Git diff check | `PASS` |
+| 명시 actual flag 누락 negative path | exit `64`, provider 호출 `0` |
+| 대상·payload | bootstrap 관리자 `1`, synthetic, 업무 data `0` |
+| Microsoft Graph actual 호출 | `1`, HTTP `204`, `SENT` |
+| 대상 Entra 사용자 일치 | `true` |
+| 개인 설치 목록 read-only 진단 | Graph `403`, 권한 변경 `0` |
+| Teams web Activity Feed | exact 제목·preview 표시 `PASS` |
+| Runtime 설정 변경 | `0` |
+| Dispatcher / Mail | disabled 유지 / disabled 유지 |
+| DB·migration·업무 row·container revision | 변경 `0` |
+
+첫 도구 실행은 macOS 기본 Bash가 소문자 변환 확장 문법을 지원하지 않아 provider 호출 전에 중단됐다. POSIX 호환 `tr` 방식으로 보정한 뒤 syntax·ShellCheck·negative guard를 다시 통과했고, actual Graph 호출은 이후 정확히 1회만 수행했다.
+
+### Provider Gate 판정
+
+- Teams provider credential·Graph 권한·공개 manifest activity type·설치 사용자 대상 actual API 수락: `PASS`
+- Teams web 실제 표시: `PASS`
+- Desktop Teams 표시: `PENDING_USER_REFRESH_CONFIRMATION`
+- Gmail actual smoke: 이번 사용자 요청 범위 밖, `OPEN`
+- 운영 자동 event별 검수와 Teams SSO·새 manifest: 별도 후속 범위
+
+Source와 문서 변경은 local branch에만 있으며 commit·push·PR·merge는 별도 사용자 승인 전까지 수행하지 않는다.
+
+## Change 015 — 공개 Frontend Entra 사전 인증
+
+### 승인 범위와 구현 상태
+
+- 사용자는 별도 시험환경·Teams manifest 재승인 없이 운영 `pms`에 사전 인증을 직접 적용하도록 승인했다.
+- Teams tab이 server-directed Entra redirect와 호환되지 않으면 tab을 사용하지 않고 Teams Activity 알림 전용으로 유지한다.
+- Frontend Container Apps authConfig는 `/health/live`만 제외하고 `RedirectToLoginPage`, single-tenant Entra, HTTPS와 Front Door Standard proxy convention을 사용한다.
+- 사전 인증용 client secret은 별도 Key Vault secret과 Frontend identity의 secret-scope RBAC로만 주입한다.
+- Backend bearer·역할 권한, DB·migration·image·actual notification provider는 변경하지 않는다.
+
+### 현재 상태
+
+- Source 구현: `COMPLETE_LOCAL`
+- 자동 검증: `PASS`
+- Azure 운영 적용: `COMPLETE`
+- 사용자 로그인 검수: `PASS`
+- Git 게시: `PENDING_USER_APPROVAL`
+
+### 자동·운영 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Bicep compile·ARM JSON 동등성·Azure artifact validator | `PASS` |
+| Public deployment security 집중 test | `42/42 PASS` |
+| Backend Release build | `PASS`, warning `0`, error `0` |
+| Frontend lint·typecheck·unit·production build | lint error `0`·기존 warning `1`, typecheck `PASS`, `175/175 PASS`, build `PASS` |
+| Backend 전체 test | 로컬에서 10분간 결과 없이 장시간 대기해 수동 중단. 실패 출력과 orphan process는 `0`; 직접 영향 test `42/42`와 최종 main CI 기준선은 통과 상태 |
+| Changed-file allowlist·PII·secret·generated artifact | `PASS`, 15개 허용 파일, 실제 식별자·email·credential·migration·Frontend source diff `0` |
+| Entra·Key Vault·Frontend secret binding·secret-scope RBAC | 각 대상 `1`, single-tenant |
+| Easy Auth readback | enabled / `RedirectToLoginPage` / `Standard` / 제외 경로 `1` |
+| 익명 비브라우저 root·asset·manifest·API / health | `401 / 401 / 401 / 401 / 200` |
+| 익명 브라우저 | Easy Auth 인증 화면, PMS root·bundle reference 없음 |
+| 실제 허용 계정 | PMS root·asset load, 프로젝트·관리자 메뉴 접근 성공 |
+| Backend·DB·migration·image·actual provider | 변경 없음 |
+
+Rollback 명령과 auth-only 복구 경계는 확인했다. 정상 보안 게이트를 다시 여는 실제 rollback은 수행하지 않았다.
+
+### Validation Matrix
+
+| 검증 | 적용 여부 | 결과 | 근거/미실행 이유 |
+| --- | --- | --- | --- |
+| 최소 검증 | 적용 | `PASS` | instruction chain·Task gate, diff check, Bicep/ARM, secret·PII·allowlist 확인 |
+| 영향 회귀 | 적용 | `PASS` | public deployment security `42/42`, 실제 익명·로그인 runtime smoke |
+| 전체 pipeline | 부분 적용 | `PENDING_PUBLISH_GATE` | Frontend 전체와 Backend build는 통과. Backend 전체 test는 로컬 장시간 대기로 미완료했으며 commit·PR 전 재실행 대상 |
+| 사용자 검수 | 적용 | `PASS` | 실제 허용 계정의 PMS root·프로젝트·관리자 메뉴 접근 확인 |
+
+### Finding
+
+| ID | 등급 | 상태 | 원인·영향 | 해소·후속 |
+| --- | --- | --- | --- | --- |
+| `ANON-FRONTEND-BUNDLE-001` | P2 | `RESOLVED_RUNTIME` | app-level 로그인 전 shell·bundle이 익명 요청에 제공됐다. | 운영 Easy Auth를 적용하고 익명 비브라우저 `401`, 브라우저 인증 화면의 PMS root·bundle 부재와 실제 로그인 성공으로 종결했다. |
+| `TEAMS-PREAUTH-COMPAT-001` | Policy | `RISK_ACCEPTED_BY_USER` | Teams iframe에서 Entra redirect가 실패할 수 있다. | 실패 시 Teams tab을 중단하고 Activity 알림만 사용한다. |
+
+Open P0/P1/P2 Finding은 `0`이다. Source는 local branch에만 있으며 commit·push·PR·merge는 별도 사용자 승인 전까지 수행하지 않는다.
+
 ## Change 014 — 공개 API Host allowlist와 관리자 로그인 Gate 종결
 
 ### 실행과 현재 상태
@@ -623,7 +755,7 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 | --- | --- | --- |
 | `AZURE-RESTORE-001` | `RESOLVED` | 실제 PITR restore가 60분 안에 완료되고 migration ledger·aggregate가 일치함 |
 | `AZURE-EDGE-AUTH-001` | `RESOLVED` | DNS·managed TLS·Entra callback·Front Door 200·origin 403, readiness 200·익명 API 401과 실제 비상 관리자 로그인을 확인함 |
-| `AZURE-PROVIDER-001` | `OPEN` | Teams·Gmail을 각각 1건 actual smoke로 확인해야 함 |
+| `AZURE-PROVIDER-001` | `RESOLVED` | Worker 활성화 뒤 최신 Teams Activity `6`건·Mail `3`건이 모두 1회 시도로 `Sent`; Open Pending/Processing/Failed `0`; 사용자 client·메일함 실제 수신 확인 완료 |
 
 이 세 Gate는 Change 002에 따라 Git merge를 막지 않지만 모두 PASS 전에 public traffic과 external notification 활성화를 금지한다.
 
@@ -642,7 +774,7 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - 사용자 검수: `Change 003~014의 구현·runtime 적용 승인 완료 / 현재 비상 관리자 로그인·관리자 화면 접근 확인`
 - Azure resource: `생성·readiness 확인 완료`
 - Public URL: `DNS·managed TLS·정적 화면·PWA·origin 403·readiness 200·익명 API 401 완료`
-- 다음 Gate: Change 014 source 동기화 원격 main 반영 → Teams 승인·설치와 Teams/Gmail provider 검수.
+- 다음 Gate: 사용자가 명시적으로 순서를 변경해 Change 015~017 원격 `main` 게시 → 승인 게이트형 GitHub→Azure 배포 연결 → Teams SSO·새 manifest 기획 순으로 진행한다.
 - 비용·장애·응답시간·DB·첨부 증가량은 20일 시범 기간 동안 계속 기록한다.
 
 ## 13. 종료 산출물
@@ -663,4 +795,6 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - Change 012: DNS exact match·기존 token empty PATCH 재검증 완료, Azure `Pending` 외부 대기. 문서 게시 미승인.
 - Change 013: PR #72 원격 main squash merge·main CI·immutable image 게시·Frontend revision 적용 완료.
 - Change 014: Backend exact-host runtime 적용과 공개 API·현재 관리자 로그인 확인 완료. 배포 원본·문서 동기화 branch의 commit·push·PR·merge 진행.
-- 미포함: actual provider 활성화와 QOM branch 반영.
+- Change 016: bootstrap 관리자 1명 대상 synthetic Teams Activity Graph actual 1회가 `204 Sent`. 대상 Entra 사용자 일치와 Teams web exact 제목·preview 렌더링을 확인했고 Runtime 설정·DB·업무 data는 변경하지 않았다. 이후 실제 worker 알림 수신 검수로 client 표시까지 확인했다.
+- Change 017: 외부 알림 Worker·Teams Activity·Gmail SMTP actual 활성화, 최신 수동 Teams Activity `6/6 Sent`·Mail `3/3 Sent`, Open Pending/Processing/Failed `0`, latest Backend revision Ready, 사용자 Teams client·메일함 실제 수신 완료.
+- 미포함: Teams SSO·새 manifest와 QOM branch 반영.

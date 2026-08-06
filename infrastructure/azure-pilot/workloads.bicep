@@ -54,6 +54,9 @@ param entraApiClientId string
 @description('Entra SPA application client identifier.')
 param entraSpaClientId string
 
+@description('Single-tenant Entra web application client identifier used by the Frontend pre-authentication gate.')
+param entraAccessGateClientId string
+
 @description('Entra API audience.')
 param entraApiAudience string
 
@@ -709,6 +712,11 @@ resource originVerifySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' exist
   name: 'front-door-origin-verify-token'
 }
 
+resource entraAccessGateSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: keyVault
+  name: 'entra-access-gate-client-secret'
+}
+
 resource frontend 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'frontend'
   location: location
@@ -740,6 +748,11 @@ resource frontend 'Microsoft.App/containerApps@2024-03-01' = {
           identity: frontendIdentity.id
           keyVaultUrl: originVerifySecret.properties.secretUri
           name: 'origin-verify-token'
+        }
+        {
+          identity: frontendIdentity.id
+          keyVaultUrl: entraAccessGateSecret.properties.secretUri
+          name: 'entra-access-gate-client-secret'
         }
       ]
     }
@@ -810,6 +823,65 @@ resource frontend 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
+resource frontendAuth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = {
+  parent: frontend
+  name: 'current'
+  properties: {
+    globalValidation: {
+      excludedPaths: [
+        '/health/live'
+      ]
+      redirectToProvider: 'azureactivedirectory'
+      unauthenticatedClientAction: 'RedirectToLoginPage'
+    }
+    httpSettings: {
+      forwardProxy: {
+        convention: 'Standard'
+      }
+      requireHttps: true
+      routes: {
+        apiPrefix: '/.auth'
+      }
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        enabled: true
+        isAutoProvisioned: false
+        registration: {
+          clientId: entraAccessGateClientId
+          clientSecretSettingName: 'entra-access-gate-client-secret'
+          openIdIssuer: '${environment().authentication.loginEndpoint}${entraTenantId}/v2.0'
+        }
+        validation: {
+          allowedAudiences: [
+            entraAccessGateClientId
+          ]
+        }
+      }
+    }
+    login: {
+      allowedExternalRedirectUrls: [
+        publicOrigin
+      ]
+      cookieExpiration: {
+        convention: 'FixedTime'
+        timeToExpiration: '08:00:00'
+      }
+      nonce: {
+        nonceExpirationInterval: '00:05:00'
+        validateNonce: true
+      }
+      preserveUrlFragmentsForLogins: true
+      tokenStore: {
+        enabled: false
+      }
+    }
+    platform: {
+      enabled: true
+    }
+  }
+}
+
 output backendName string = backend.name
 output backendFqdn string = backend.properties.configuration.ingress.fqdn
 output clamAvName string = clamAv.name
@@ -820,3 +892,4 @@ output migrationJobName string = migrationJob.name
 output databaseBootstrapJobName string = databaseBootstrapJob.name
 output workloadsActivated bool = activateWorkloads
 output externalNotificationsEnabled bool = enableExternalNotifications
+output frontendPreAuthenticationEnabled bool = true

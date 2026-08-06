@@ -9,11 +9,12 @@
 - DB role bootstrap·migration: Azure `0069 Exact`, 최신 migration job execution `Succeeded`
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
 - Active workload: Backend·Frontend·ClamAV `3/3 Running` / Frontend Change 013 image와 Backend exact internal host allowlist 적용 / latest revision ready / ClamAV unchanged
-- Teams·PWA: 제공 EMI 원본 기반 PWA 반영 완료, 공개 Teams `1.0.4` 승인 요청 제출 / 관리자 승인·catalog·actual Activity 대기
+- Teams·PWA: 제공 EMI 원본 기반 PWA 반영 완료, 공개 Teams `1.0.4` 관리자 승인·사용자 설치 보고 완료 / synthetic actual Activity Graph `204`·Teams web 표시 / Change 017 worker actual 활성화·최신 Teams Activity `6/6 Sent`
 - DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / 공개 root·PWA `200`, direct origin 업무 route `403`
-- 공개 traffic: HTTP→HTTPS, 정적 화면·PWA·readiness `200`, 익명 보호 API `401` / direct origin 업무 route `403` / Teams Activity `Enabled=false`, `DryRun=true`
+- 공개 traffic: HTTP→HTTPS, 익명 비브라우저 root·asset·PWA·API `401`, 브라우저는 PMS shell·bundle 없는 Easy Auth 인증 화면, `/health/live` `200` / Dispatcher·Teams Activity·Mail actual 활성화
 - 로그인·권한: 현재 비상 관리자 계정의 Entra 로그인과 관리자 전용 메뉴·사용자 관리 화면 접근 확인. bootstrap 목록 순서는 권한 우선순위가 아니므로 secret 재정렬은 하지 않음
-- 실제 Teams·Gmail: 발송 안 함
+- Frontend 사전 인증: Change 015 운영 적용·실제 계정 로그인 검수 완료. `/health/live` 외 shell·bundle·PWA·API proxy는 Entra 인증 전 제공하지 않음
+- 실제 Teams·Gmail: 최신 수동 Teams Activity `6/6 Sent`, Mail `3/3 Sent`, Open Pending/Processing/Failed `0` / 사용자 client·메일함 실제 수신 확인 완료
 - 비용 발생 단계: 사용자 승인·시작 완료
 
 ## 2. 비용 Gate
@@ -63,6 +64,7 @@ Workflow는 full 40자리 source SHA가 `origin/main`에 포함됐는지 검증�
 
 - 최종 public hostname
 - Entra tenant, API client, SPA client, API audience와 verified domain
+- Frontend 사전 인증 전용 Entra web client와 Key Vault client secret
 - Teams activity client, catalog app, manifest external identifier
 - 비상 관리자 두 명
 - 경보 수신자 alias
@@ -77,8 +79,8 @@ Workflow는 full 40자리 source SHA가 `origin/main`에 포함됐는지 검증�
 
 Git에 검증된 배포 코드를 먼저 merge한다. 이 merge는 Azure resource 생성이나 public traffic 활성화를 의미하지 않는다.
 
-1. Foundation 생성과 Key Vault 8개 secret 입력
-2. Backend·Frontend·migration·DB bootstrap identity의 secret-scope RBAC 10개 적용 및 전파 확인. 이전 단일 runtime identity를 배포한 적이 있으면 incremental deployment에 남은 vault-scope role assignment를 Portal에서 제거하고 0건을 확인
+1. Foundation 생성과 Key Vault 9개 secret 입력
+2. Backend·Frontend·migration·DB bootstrap identity의 secret-scope RBAC 11개 적용 및 전파 확인. 이전 단일 runtime identity를 배포한 적이 있으면 incremental deployment에 남은 vault-scope role assignment를 Portal에서 제거하고 0건을 확인
 3. image digest 고정
 4. Inactive workload와 두 manual job 생성
 5. DB role bootstrap job 성공: `pms_migrator`·`pms_app` 생성과 최소 권한 probe
@@ -89,6 +91,12 @@ Git에 검증된 배포 코드를 먼저 merge한다. 이 merge는 Azure resourc
 10. Entra login과 관리자 승인 workflow
 11. Teams manifest 조직 catalog update와 개인 설치
 12. actual Teams·Gmail smoke
+
+Teams smoke는 운영 Dispatcher를 켜지 않고 `scripts/smoke-azure-teams-activity.sh`의 명시 confirmation guard로 실행한다. 현재 Azure 로그인 사용자가 bootstrap 관리자와 일치하고 Dispatcher·Teams Activity·Mail이 기존 disabled/dry-run 상태일 때만 동일 운영 credential로 synthetic `generalNotification` 1건을 Graph에 직접 보낸다. 호출은 재시도 없이 1회다. HTTP `204` 뒤에는 `--inspect-installation`으로만 개인 설치 목록을 읽기 전용 진단할 수 있으며 권한 부족이면 권한을 자동 추가하지 않는다. Teams web과 desktop client 표시는 각각 확인하고, desktop에만 보이지 않으면 먼저 Activity 화면 재진입·새로고침·완전 종료 후 재실행으로 client 동기화를 확인한다.
+
+Change 017 운영 활성화는 `scripts/activate-azure-external-notifications.sh --preflight`로 단일 Backend·provider secret·Gmail SMTP/TLS·안전 기준선을 확인한 뒤 명시 confirmation flag로만 실행한다. 활성화 뒤 latest revision Ready와 Open Pending/Processing/Failed `0`을 확인한다. Provider 장애 시 전체 또는 해당 채널을 disabled/dry-run으로 되돌리되 이미 `Sent`인 외부 메시지는 취소하지 않는다. 관리자 `Dismissed` delivery는 worker가 자동 해제하지 않는다.
+
+Change 015 운영 사전 인증은 single-tenant Entra web application, 공개 hostname의 `/.auth/login/aad/callback`, Key Vault `entra-access-gate-client-secret`과 Frontend secret-scope RBAC를 먼저 준비한다. `RedirectToLoginPage`, proxy convention `Standard`, HTTPS 필수와 `/health/live` 단일 제외 경로를 적용한다. 익명 비브라우저 root·asset·manifest·API가 `401`, 브라우저는 PMS shell·bundle 없는 인증 화면, health만 `200`인지 확인한 뒤 실제 계정 로그인을 검수한다. 문제가 생기면 auth platform을 비활성화하고 `AllowAnonymous`로 되돌려 기존 app-level 로그인으로 복구한다.
 
 한 단계가 실패하면 다음 단계로 넘어가지 않는다.
 

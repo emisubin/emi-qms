@@ -2,16 +2,17 @@
 
 ## 1. 현재 판정
 
-- Deployment source: Change 009 공개 Teams 알림 PR #70 원격 main 병합·CI 완료
+- Deployment source: Change 013 PR #72 원격 main 병합·main CI 완료 / Change 014 exact Backend host source 동기화 진행
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
-- GitHub 웹 수동 image 게시 workflow: Change 010 문서가 포함된 최종 main Backend·Frontend image 게시 완료
+- GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
 - DB role bootstrap·migration: Azure `0069 Exact`, 최신 migration job execution `Succeeded`
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Backend·Frontend·ClamAV `3/3 Running` / Backend·Frontend 최종 main image·Healthy revision 적용 완료 / ClamAV unchanged
+- Active workload: Backend·Frontend·ClamAV `3/3 Running` / Frontend Change 013 image와 Backend exact internal host allowlist 적용 / latest revision ready / ClamAV unchanged
 - Teams·PWA: 제공 EMI 원본 기반 PWA 반영 완료, 공개 Teams `1.0.4` 승인 요청 제출 / 관리자 승인·catalog·actual Activity 대기
 - DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / 공개 root·PWA `200`, direct origin 업무 route `403`
-- 공개 traffic: 정적 화면은 열림 / Backend API는 origin routing 보정 image 적용 전 `404`로 차단 / Teams Activity `Enabled=false`, `DryRun=true`
+- 공개 traffic: HTTP→HTTPS, 정적 화면·PWA·readiness `200`, 익명 보호 API `401` / direct origin 업무 route `403` / Teams Activity `Enabled=false`, `DryRun=true`
+- 로그인·권한: 현재 비상 관리자 계정의 Entra 로그인과 관리자 전용 메뉴·사용자 관리 화면 접근 확인. bootstrap 목록 순서는 권한 우선순위가 아니므로 secret 재정렬은 하지 않음
 - 실제 Teams·Gmail: 발송 안 함
 - 비용 발생 단계: 사용자 승인·시작 완료
 
@@ -92,6 +93,8 @@ Git에 검증된 배포 코드를 먼저 merge한다. 이 merge는 Azure resourc
 한 단계가 실패하면 다음 단계로 넘어가지 않는다.
 
 Active workload에서 Backend probe `400` 또는 Frontend Nginx map hash 시작 실패가 확인되면 Change 005가 반영된 `main` image·ARM template인지 먼저 확인한다. Backend 세 HTTP probe는 public Host header를 사용해야 하며 Frontend template은 64자 origin token을 수용하는 map hash bucket을 가져야 한다. 이 두 조건과 세 replica readiness가 모두 확인되기 전에는 Edge를 배포하지 않는다.
+
+Frontend proxy가 Backend 내부 FQDN을 HTTP Host로 전달하므로 Backend `AllowedHosts`에는 public hostname과 `backend.internal.<managed environment defaultDomain>` 두 exact host가 모두 필요하다. wildcard나 전체 environment domain을 허용하지 않는다. 공개 API가 `400`이면 Nginx route보다 먼저 latest Backend revision의 이 exact 2-host 계약을 확인하고, 안정 API version의 Container Apps REST update로 forward-fix한다.
 
 DB 역할 검수에서는 Backend 연결 사용자가 `pms_app`, migration 연결 사용자가 `pms_migrator`인지 확인한다. `pms_app`은 업무 CRUD는 성공해야 하지만 `CREATE TABLE`, `CREATE ROLE`, `schema_migrations` INSERT와 database temporary privilege는 모두 거부돼야 한다. Key Vault 검수에서는 vault scope role assignment가 0이고 각 identity가 접근표에 없는 secret을 읽지 못해야 한다.
 

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "2342464447519076070"
+      "templateHash": "13860124487632111010"
     }
   },
   "parameters": {
@@ -393,7 +393,7 @@
                 },
                 {
                   "name": "AllowedHosts",
-                  "value": "[parameters('publicHost')]"
+                  "value": "[format('{0};{1}', parameters('publicHost'), format('backend.internal.{0}', reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName')), '2024-03-01').defaultDomain))]"
                 },
                 {
                   "name": "Authentication__Mode",

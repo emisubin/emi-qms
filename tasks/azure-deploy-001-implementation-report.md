@@ -1,5 +1,40 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 014 — 공개 API Host allowlist와 관리자 로그인 Gate 종결
+
+### 실행과 현재 상태
+
+- Change 013 branch를 PR #72로 원격 `main`에 squash merge했고, 최종 main CI와 Backend·Frontend immutable image 게시 workflow가 성공했다.
+- 최신 Frontend image를 Azure revision에 적용해 provisioning `Succeeded`, running, latest revision ready와 traffic 100%를 확인했다.
+- Change 013의 Nginx route 보정 뒤 공개 API가 `400`인 원인은 Backend Host filtering이었다. Frontend proxy의 HTTP Host는 Backend 내부 FQDN인데 `AllowedHosts`는 공개 hostname만 허용하고 있었다.
+- Backend runtime은 공개 hostname과 exact 내부 Backend FQDN 두 개만 허용하도록 보정했다. readiness `200`, 익명 `/api/me`·`/api/runtime-mode` `401`, 공개 root·PWA `200`, direct origin 차단과 TLS hostname 일치를 확인했다.
+- 같은 exact-host 계약을 managed environment `defaultDomain`에서 결정적으로 구성하도록 Bicep·ARM JSON·정적 test에 반영했다. wildcard와 임의 hostname은 허용하지 않는다.
+- 현재 Entra 계정이 bootstrap 관리자 목록에 포함되고 실제 관리자 메뉴와 사용자 관리 화면에 접근함을 확인했다. 목록의 순서는 권한 우선순위가 아니므로 secret 재정렬은 하지 않았다.
+- Backend·Frontend·ClamAV는 모두 running·ready다. Teams Activity와 Gmail actual provider는 disabled·dry-run을 유지했다. DB·migration은 변경하지 않았다.
+
+### 자동·운영 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Change 013 PR CI와 최종 main CI | `PASS` |
+| 최종 main Backend·Frontend immutable image 게시 | `PASS` |
+| Frontend revision 교체와 Backend exact-host revision | `PASS`, latest ready / traffic 100% |
+| 공개 HTTP redirect·HTTPS root·PWA·readiness | `307 / 200 / 200 / 200` |
+| 익명 보호 API | `/api/me`·`/api/runtime-mode` `401` |
+| Direct origin 보호 | Frontend 업무 route `403`, Backend direct ingress 차단 |
+| Managed TLS hostname | `PASS` |
+| 실제 비상 관리자 로그인·관리자 전용 화면 접근 | `PASS` |
+
+### Finding과 resolution
+
+| ID | 등급 | 상태 | 원인·영향 | 해소·후속 |
+| --- | --- | --- | --- | --- |
+| `AZURE-BACKEND-HOST-FILTER-001` | P1 | `RESOLVED_RUNTIME` | 내부 route 도달 뒤 HTTP Host가 Backend 내부 FQDN인데 `AllowedHosts`는 공개 hostname만 허용해 API와 readiness가 `400`이었다. | public host와 exact internal Backend host 두 개만 허용해 public API를 복구하고 Bicep·ARM JSON·test에 고정했다. |
+| `CI-FULLSTACK-FLAKE-001` | P2 | `RESOLVED` | Change 013 PR·main CI의 서로 다른 실행에서 기존 E2E 한 건씩이 시간 제한으로 간헐 실패했다. | 실패 spec 집중 실행이 각각 성공했고 최종 전체 main CI가 통과했다. 범위 밖 test 수정은 하지 않았다. |
+| `PRIVACY-EVIDENCE-DOM-001` | P2 | `RESOLVED` | 실제 로그인 화면 확인 중 일시적 도구 출력에 표시 이름이 포함됐으나 tracked·staged artifact에는 기록되지 않았다. | 원문을 폐기하고 역할·메뉴·접근 성공 여부만 fixed boolean projection으로 남겼다. |
+
+Open P0/P1/P2 Finding은 `0`이다. 공개 API·로그인 Gate는 완료됐으며 다음 운영 Gate는 Teams 승인·설치와 Teams/Gmail actual provider 검수다.
+
 ## Change 013 — 공개 Front Door 전환과 API origin routing 보정
 
 ### 실행과 현재 상태
@@ -587,7 +622,7 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 | ID | 상태 | Public 활성화 전 필수 검증 |
 | --- | --- | --- |
 | `AZURE-RESTORE-001` | `RESOLVED` | 실제 PITR restore가 60분 안에 완료되고 migration ledger·aggregate가 일치함 |
-| `AZURE-EDGE-AUTH-001` | `OPEN` | DNS·managed TLS·Entra callback·Front Door 200·origin 403은 확인했다. API origin routing 보정 image 적용과 로그인 검수가 남음 |
+| `AZURE-EDGE-AUTH-001` | `RESOLVED` | DNS·managed TLS·Entra callback·Front Door 200·origin 403, readiness 200·익명 API 401과 실제 비상 관리자 로그인을 확인함 |
 | `AZURE-PROVIDER-001` | `OPEN` | Teams·Gmail을 각각 1건 actual smoke로 확인해야 함 |
 
 이 세 Gate는 Change 002에 따라 Git merge를 막지 않지만 모두 PASS 전에 public traffic과 external notification 활성화를 금지한다.
@@ -604,21 +639,21 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 
 - Checklist: `작성됨`
 - 자동 검증: `완료`
-- 사용자 검수: `Change 003~012의 구현·runtime 적용 승인 완료 / Change 013 API 보정·실제 공개 업무 검수 대기`
+- 사용자 검수: `Change 003~014의 구현·runtime 적용 승인 완료 / 현재 비상 관리자 로그인·관리자 화면 접근 확인`
 - Azure resource: `생성·readiness 확인 완료`
-- Public URL: `DNS·managed TLS·정적 화면·PWA·origin 403 완료 / API routing 보정 image 대기`
-- 다음 Gate: Change 013 원격 main 병합·Frontend image 교체 → API·로그인 검수 → Teams 승인·설치와 Teams/Gmail provider 검수.
+- Public URL: `DNS·managed TLS·정적 화면·PWA·origin 403·readiness 200·익명 API 401 완료`
+- 다음 Gate: Change 014 source 동기화 원격 main 반영 → Teams 승인·설치와 Teams/Gmail provider 검수.
 - 비용·장애·응답시간·DB·첨부 증가량은 20일 시범 기간 동안 계속 기록한다.
 
 ## 13. 종료 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 013 TLS 완료·공개 smoke·API routing P1 반영 완료 |
-| SOP | `tasks/azure-deploy-001-sop.md` | Front Door 공개 정적 화면과 API 보정 대기 상태 반영 완료 |
-| User manual | `infrastructure/azure-pilot/README.md` | 기존 Portal·GitHub·rollback 절차 유지, Change 011 별도 사용자 동선 없음 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 013 API routing 보정·게시 Gate 반영 완료 |
-| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | domain·TLS·PWA·origin 보호 완료 / API·로그인 검수 대기 |
+| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 014 API·로그인 Gate와 exact-host source sync 반영 완료 |
+| SOP | `tasks/azure-deploy-001-sop.md` | 공개 API 복구·exact-host 운영 절차 반영 완료 |
+| User manual | `infrastructure/azure-pilot/README.md` | 기존 Portal·GitHub·rollback 절차 유지, 사용자 동선 변경 없음 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 014 API·로그인 완료와 provider 다음 Gate 반영 완료 |
+| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | domain·TLS·PWA·origin·API·현재 관리자 로그인 완료 |
 
 ## 14. Git와 게시 상태
 
@@ -626,5 +661,6 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - Change 010: Commit·Push·PR·Merge와 최종 main Backend·Frontend image 게시 완료.
 - Change 011: migration `0069 Exact`, Backend·Frontend 최신 revision 적용과 readiness 확인 완료. 문서 게시 미승인.
 - Change 012: DNS exact match·기존 token empty PATCH 재검증 완료, Azure `Pending` 외부 대기. 문서 게시 미승인.
-- Change 013: domain·TLS·공개 정적 화면·Entra 설정 검증, API routing 보정 local validation 완료. Commit·push·PR·merge·image 적용 대기.
+- Change 013: PR #72 원격 main squash merge·main CI·immutable image 게시·Frontend revision 적용 완료.
+- Change 014: Backend exact-host runtime 적용과 공개 API·현재 관리자 로그인 확인 완료. 배포 원본·문서 동기화 branch의 commit·push·PR·merge 진행.
 - 미포함: actual provider 활성화와 QOM branch 반영.

@@ -4,14 +4,14 @@
 
 - Deployment source: Change 009 공개 Teams 알림 PR #70 원격 main 병합·CI 완료
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
-- GitHub 웹 수동 image 게시 workflow: Change 009 이전 main Backend·Frontend image 게시 완료 / Change 010 문서 merge 뒤 최종 main image 재게시 승인
+- GitHub 웹 수동 image 게시 workflow: Change 010 문서가 포함된 최종 main Backend·Frontend image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
-- DB role bootstrap·migration: Azure `0068 Exact` / 최신 main `0069` handover 대기
+- DB role bootstrap·migration: Azure `0069 Exact`, 최신 migration job execution `Succeeded`
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Backend·Frontend·ClamAV `3/3 Running` / Change 009 이전 main image / 최종 main image·revision 적용 대기
+- Active workload: Backend·Frontend·ClamAV `3/3 Running` / Backend·Frontend 최종 main image·Healthy revision 적용 완료 / ClamAV unchanged
 - Teams·PWA: 제공 EMI 원본 기반 PWA 반영 완료, 공개 Teams `1.0.4` 승인 요청 제출 / 관리자 승인·catalog·actual Activity 대기
-- DNS·Front Door: validation TXT·CNAME 외부 반영과 Azure CNAME 진단 정상 / domain validation `Pending`, TLS·route deployment `NotStarted`
-- 공개 traffic: 전환 안 함
+- DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / 공개 root·PWA `200`, direct origin 업무 route `403`
+- 공개 traffic: 정적 화면은 열림 / Backend API는 origin routing 보정 image 적용 전 `404`로 차단 / Teams Activity `Enabled=false`, `DryRun=true`
 - 실제 Teams·Gmail: 발송 안 함
 - 비용 발생 단계: 사용자 승인·시작 완료
 

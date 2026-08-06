@@ -8,8 +8,8 @@
 - [x] `packageName`이 없고 기존 identity·hostname·권한·icon을 보존한 `1.0.4` package를 생성했다.
 - [x] migration `0069`가 기존 row를 보존하면서 새 event source 5개만 허용하는 것을 검증했다.
 - [x] Backend build, 전체 `485/485`·알림 `98/98` 회귀, 관련 업무·migration 집중 테스트, package와 Azure artifact 정적 검증을 통과했다.
-- [ ] Azure DB에 migration `0069`를 적용한다.
-- [ ] 새 Backend revision을 배포하고 `Notifications__TeamsActivity__PersonalChannelStrategy=TeamsActivity`를 확인한다.
+- [x] Azure DB에 migration `0069`를 적용하고 `69/69 Exact`, execution `Succeeded`를 확인했다. (`2026-08-05`)
+- [x] 새 Backend revision을 배포하고 `Notifications__TeamsActivity__PersonalChannelStrategy=TeamsActivity`를 확인했다. 외부 알림은 disabled·dry-run을 유지했다. (`2026-08-05`)
 - [x] Teams Admin Center에 `1.0.4` package 승인 요청을 제출했다. (`2026-08-05`, 사용자 보고)
 - [ ] Teams 관리자 승인 완료 뒤 조직 catalog 표시와 사용자 앱 설치 상태를 확인한다.
 - [ ] 프로젝트 생성·납기 변경·상태 변경·업무 배정·긴급/차단·재검사·프로젝트 완료 actual Activity를 각 1건 검수한다.
@@ -33,7 +33,8 @@
 - [x] Change 006 PR #68을 원격 main에 squash merge하고 PR·main CI 성공을 확인했다. (2026-08-05)
 - [x] Change 007 main의 Backend·Frontend image를 ACR에 게시했다.
 - [x] Change 007 image와 migration `0068`을 Azure revision에 반영했다.
-- [ ] Change 010 문서 merge 뒤 Change 009 포함 최종 main Backend·Frontend image를 ACR에 게시한다.
+- [x] Change 010 문서 merge 뒤 Change 009 포함 최종 main Backend·Frontend image를 ACR에 게시했다. (`2026-08-05`)
+- [x] 최종 main Backend·Frontend image를 Azure revision에 적용하고 두 revision의 Healthy·latest ready를 확인했다. (`2026-08-05`)
 - [ ] 최종 hostname에서 PWA 설치 icon·이름·standalone 실행을 확인한다.
 - [ ] Change 009의 공개 알림 `1.0.4` package를 update하고 테스트 사용자에게 새 icon이 표시되는지 확인한다.
 
@@ -75,9 +76,11 @@
 - [x] PITR restore가 60분 이내에 끝났고 migration ledger와 aggregate가 맞았다.
 - [x] Backend와 ClamAV에 public ingress가 없고 Frontend만 external ingress다. (read-only 재확인, 2026-08-04)
 - [x] 가비아 권한 DNS `3/3`과 공용 resolver `4/4`에서 validation TXT가 일치하고 Azure CNAME 진단이 성공했다. (`2026-08-05`)
-- [ ] Front Door domain validation `Pending`과 managed TLS·route deployment `NotStarted`가 완료 상태로 전환된다.
-- [ ] Front Door URL은 열리고 Container App 원본 URL은 health 이외 403이다.
-- [ ] TLS certificate가 최종 hostname과 일치한다.
+- [x] 기존 validation token을 유지한 empty PATCH 재검증을 요청하고 TXT·CNAME `1/1 exact match`를 다시 확인했다. (`2026-08-05`)
+- [x] Front Door domain validation·deployment·provisioning과 managed TLS가 완료됐다. (`2026-08-06`)
+- [x] Front Door URL·PWA는 열리고 Container App 원본 URL은 health 이외 403이다. (`2026-08-06`)
+- [x] TLS certificate가 최종 hostname과 일치한다. (`2026-08-06`)
+- [ ] Change 013 Frontend image 교체 뒤 `/health/ready`는 200, 익명 `/api/me`는 401이다.
 - [ ] Key Vault 전체 scope의 workload secret-read role이 0이다.
 - [ ] 이전 단일 runtime identity를 배포한 이력이 있다면 남은 vault-scope role assignment와 미사용 identity를 정리했다.
 - [ ] Backend·Frontend·migration·DB bootstrap identity가 서로 다르고 접근표 밖 secret read가 거부된다.
@@ -87,6 +90,7 @@
 
 ## 로그인과 권한
 
+- [x] Entra API·SPA client가 분리되고 공개 SPA redirect와 `access_as_user` scope가 등록됐다. (`2026-08-06`)
 - [ ] 비상 관리자 두 명이 System Administrator로 로그인할 수 있다.
 - [ ] 처음 로그인한 일반 사용자는 역할 승인 전 조회·입력이 불가능하다.
 - [ ] 관리자가 역할을 부여한 뒤 해당 부서 권한만 사용할 수 있다.

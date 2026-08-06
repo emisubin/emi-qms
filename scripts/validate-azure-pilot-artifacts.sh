@@ -16,6 +16,8 @@ required_files=(
   "${repository_root}/.github/workflows/azure-pilot-images.yml"
   "${repository_root}/scripts/validate-azure-image-publish-inputs.sh"
   "${repository_root}/scripts/test-azure-image-publish-inputs.sh"
+  "${repository_root}/scripts/deploy-azure-pilot-release.sh"
+  "${repository_root}/scripts/test-azure-pilot-release.sh"
   "${repository_root}/frontend/Dockerfile.azure"
   "${azure_directory}/nginx.conf.template"
   "${azure_directory}/foundation.bicep"
@@ -65,6 +67,7 @@ const edge = read(join(azure, 'edge.bicep'));
 const nginx = read(join(azure, 'nginx.conf.template'));
 const dockerfile = read(join(root, 'frontend', 'Dockerfile.azure'));
 const imageWorkflow = read(join(root, '.github', 'workflows', 'azure-pilot-images.yml'));
+const releaseScript = read(join(root, 'scripts', 'deploy-azure-pilot-release.sh'));
 
 for (const name of [
   'foundation.parameters.example.json',
@@ -204,9 +207,17 @@ const workflowChecks = [
   'workflow_dispatch:',
   'source_sha:',
   'confirm_image_push:',
+  'confirm_production_deploy:',
   'environment: azure-pilot-image-publish',
   'id-token: write',
   'scripts/validate-azure-image-publish-inputs.sh',
+  'scripts/deploy-azure-pilot-release.sh',
+  'AZURE_RESOURCE_GROUP:',
+  'BACKEND_APP_NAME:',
+  'FRONTEND_APP_NAME:',
+  'MIGRATION_JOB_NAME:',
+  'BACKEND_RELEASE_IMAGE:',
+  'FRONTEND_RELEASE_IMAGE:',
   'azure/login@eec3c95657c1536435858eda1f3ff5437fee8474',
   'docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c',
   'docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a',
@@ -214,7 +225,8 @@ const workflowChecks = [
   'sbom: true',
   'AZURE_CORE_OUTPUT: none',
   'Mutable latest tag:',
-  'Workload deployment:'
+  'Migration:',
+  'Public security smoke:'
 ];
 if (workflowChecks.some(expected => !imageWorkflow.includes(expected))
   || /^\s{2}(push|pull_request|schedule):/mu.test(imageWorkflow)
@@ -224,11 +236,32 @@ if (workflowChecks.some(expected => !imageWorkflow.includes(expected))
   || /(?:^|[/:])latest(?:\s|$)/mu.test(imageWorkflow)) {
   process.exit(1);
 }
+
+const releaseChecks = [
+  'containerapp job update',
+  'containerapp job start',
+  'containerapp job execution show',
+  'containerapp update',
+  "backend_changed='true'",
+  "frontend_changed='true'",
+  'rollback_apps',
+  "public_status '/health/live'",
+  "public_status '/'",
+  "public_status '/api/me'",
+  'azurePilotReleasePublicSecurity=PASS'
+];
+if (releaseChecks.some(expected => !releaseScript.includes(expected))
+  || releaseScript.indexOf('containerapp job start') > releaseScript.indexOf("backend_changed='true'")
+  || releaseScript.indexOf("backend_changed='true'") > releaseScript.indexOf("frontend_changed='true'")
+  || /client-secret|AZURE_CLIENT_SECRET|Authorization:/u.test(releaseScript)) {
+  process.exit(1);
+}
 NODE
 
 "${repository_root}/scripts/test-teams-manifest-package.sh" >/dev/null
 "${repository_root}/scripts/test-pwa-assets.sh" >/dev/null
 "${repository_root}/scripts/test-azure-image-publish-inputs.sh" >/dev/null
+"${repository_root}/scripts/test-azure-pilot-release.sh" >/dev/null
 
 if [[ "${compile_templates}" == 'true' ]]; then
   temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/pms-bicep-build.XXXXXX")"

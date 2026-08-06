@@ -1,5 +1,16 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 018 — 승인형 GitHub 운영 release 연결
+
+- [x] Change 015~017이 PR #74와 원격 `main`에 병합되고 CI 3종이 모두 성공했다.
+- [x] Workflow가 자동 `push` 배포 없이 `workflow_dispatch`, `main` 최신 full SHA와 image·운영 배포 확인 두 개를 모두 요구한다.
+- [x] Migration 성공 전 앱 변경 `0`, Backend→Frontend 순서, 실패 시 직전 image rollback을 synthetic Azure/HTTP test로 확인했다.
+- [x] Mutable `latest`, Azure client secret, subscription/resource group 범위 `Contributor`와 tracked 실제 resource 이름이 없다.
+- [x] Actionlint, shell syntax·ShellCheck, 입력·release mock test, Bicep compile·ARM JSON 동등성, Azure artifact와 공개 배포 보안 집중 검증을 통과했다.
+- [x] GitHub Environment variable 네 개와 OIDC identity의 exact resource 역할 네 개를 실제 값 노출 없이 설정·재확인했다.
+- [ ] Change 018 source를 commit·push·PR·CI·원격 `main`에 게시했다.
+- [ ] 별도 명시 실행에서 최신 `main` SHA로 운영 release를 실행하고 migration·Backend·Frontend·공개 보안 검사 성공을 확인했다.
+
 ## Change 017 — 운영 외부 알림 Worker 활성화
 
 - [x] 기존 대기 알림 일괄 발송과 worker 활성화 사용자 승인을 확인했다.
@@ -106,7 +117,7 @@
 
 - [x] ARM JSON 4개가 JSON parse와 Bicep 재compile 구조 동등성 검사를 통과했다.
 - [x] GitHub 수동 image workflow가 actionlint, ShellCheck와 정상·negative 입력 검사를 통과했다.
-- [x] Workflow가 `workflow_dispatch`, Environment 승인, 비용 확인 checkbox와 `main` 포함 full SHA만 허용한다.
+- [x] 기존 image workflow가 `workflow_dispatch`, 비용 확인 checkbox와 `main` 포함 full SHA만 허용했다. Change 018부터는 실행 시점 최신 `main` SHA와 운영 배포 확인까지 요구한다.
 - [x] Azure client secret, mutable `latest` tag와 자동 Container Apps 배포가 없음을 자동 확인했다.
 - [x] Azure Portal `로드 파일`용 JSON 4개와 GitHub 웹 실행 절차를 사용자가 확인하고 main 병합을 승인했다. (2026-08-02)
 - [x] 실제 GitHub Environment·OIDC·ACR 권한을 설정하고 Change 007 image workflow 성공으로 확인했다.

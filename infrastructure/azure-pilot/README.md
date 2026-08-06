@@ -31,15 +31,16 @@ Portal 업로드 순서는 다음과 같다.
 
 ARM JSON에 실제 값을 직접 적어 다시 저장하지 않는다. Portal이 표시하는 parameter 입력란 또는 GitHub Environment secret을 사용한다. `검토 + 만들기`의 최종 `만들기`는 실제 Azure resource 또는 사용량을 만들 수 있으므로 사용자가 비용을 확인한 뒤 직접 누른다.
 
-## GitHub 웹 화면에서 image 게시 준비
+## GitHub 웹 화면에서 운영 release 준비
 
-`.github/workflows/azure-pilot-images.yml`은 자동 실행되지 않는다. `main`에 포함된 full commit SHA와 명시적인 비용 확인을 입력하고 GitHub Environment 승인을 통과해야 Backend·Frontend image 두 개를 ACR에 게시한다. Azure client secret 대신 GitHub OIDC의 짧은 수명 token을 사용한다.
+`.github/workflows/azure-pilot-images.yml`은 자동 실행되지 않는다. 작업자가 GitHub Actions에서 `main`의 최신 full commit SHA를 직접 입력하고 image 게시와 운영 migration·앱 교체를 각각 확인한 경우에만 실행된다. Azure client secret 대신 GitHub OIDC의 짧은 수명 token을 사용한다.
+
+현재 Repository는 private이며 `azure-pilot-image-publish` Environment에 필수 검토자 기능이 적용되어 있지 않다. 따라서 실제 승인 경계는 `workflow_dispatch`에서 `main` branch 선택, 최신 full SHA 입력과 두 확인값 제출로 구성한다. GitHub 요금제·Environment 보호 기능을 바꾸기 전까지 필수 검토자 승인이 있다고 문서나 운영 절차에서 주장하지 않는다.
 
 ### 1. GitHub Environment
 
 GitHub Repository의 **Settings → Environments → New environment**에서 `azure-pilot-image-publish`를 만든다.
 
-- Required reviewers에 시범 배포 책임자를 지정한다.
 - Deployment branches and tags는 `main`만 허용한다.
 - 아래 값은 Repository secret이 아니라 이 Environment의 secret으로 등록한다.
 
@@ -57,6 +58,15 @@ GitHub Repository의 **Settings → Environments → New environment**에서 `az
 
 실제 값은 issue, PR, commit, workflow input, screenshot과 문서에 넣지 않는다.
 
+아래 네 값은 같은 Environment의 variable로 등록한다. Secret은 아니지만 실제 resource 이름은 tracked 문서에 기록하지 않는다.
+
+| Environment variable | 의미 |
+| --- | --- |
+| `AZURE_RESOURCE_GROUP` | 운영 Container Apps와 migration job이 있는 resource group |
+| `AZURE_BACKEND_APP_NAME` | 운영 Backend Container App 이름 |
+| `AZURE_FRONTEND_APP_NAME` | 운영 Frontend Container App 이름 |
+| `AZURE_MIGRATION_JOB_NAME` | 운영 migration Container Apps Job 이름 |
+
 ### 2. Azure Portal OIDC 신뢰
 
 Azure Portal의 **Microsoft Entra ID → 앱 등록**에서 image 게시 전용 application을 만든다. 그 application의 **인증서 및 비밀 → 페더레이션된 자격 증명 추가**에서 GitHub Actions 시나리오를 선택한다.
@@ -67,21 +77,33 @@ Azure Portal의 **Microsoft Entra ID → 앱 등록**에서 image 게시 전용 
 - Environment: `azure-pilot-image-publish`
 - Audience: Azure가 권장하는 기본 token exchange audience
 
-Client secret은 만들지 않는다. ACR의 **액세스 제어(IAM) → 역할 할당 추가**에서 이 application의 service principal에 해당 ACR resource 범위의 `AcrPush`만 부여한다. Subscription 또는 resource group `Contributor`는 부여하지 않는다.
+Client secret은 만들지 않는다. 이 application의 service principal에는 다음 최소 역할만 exact resource 범위로 부여한다.
 
-### 3. GitHub Actions 실행
+| 역할 | 범위 |
+| --- | --- |
+| `AcrPush` | 운영 ACR 한 개 |
+| `Container Apps Contributor` | 운영 Backend Container App 한 개 |
+| `Container Apps Contributor` | 운영 Frontend Container App 한 개 |
+| `Container Apps Jobs Contributor` | 운영 migration Container Apps Job 한 개 |
+
+Subscription 또는 resource group 범위의 `Contributor`는 부여하지 않는다.
+
+### 3. GitHub Actions 운영 release 실행
 
 Foundation과 ACR이 실제로 생성되고 비용 실행을 결정한 뒤에만 진행한다.
 
 1. GitHub Repository의 **Actions**를 연다.
-2. **Azure Pilot Images (Manual)**을 선택한다.
+2. **Azure Pilot Release (Manual)**을 선택한다.
 3. **Run workflow**에서 `main`을 선택한다.
-4. `source_sha`에 `main`에 포함된 full 40자리 commit SHA를 입력한다.
+4. `source_sha`에 실행 시점 `main`의 최신 full 40자리 commit SHA를 입력한다.
 5. ACR image 두 개가 게시되어 비용이 발생할 수 있음을 확인하는 checkbox를 선택한다.
-6. **Run workflow**를 누른 뒤 Environment reviewer가 배포를 승인한다.
-7. 완료된 run의 Summary에서 Backend·Frontend digest가 각각 `sha256:` 형식인지 확인한다.
+6. Migration 실행과 운영 Backend·Frontend revision 교체를 승인하는 checkbox를 선택한다.
+7. **Run workflow**를 누른다.
+8. 완료된 run의 Summary에서 source SHA, Backend·Frontend digest, migration·두 앱·공개 보안 검사가 모두 성공인지 확인한다.
 
-Workflow는 입력 SHA가 `origin/main`의 조상이 아니면 Azure 로그인 전에 실패한다. `latest` tag를 만들지 않고 SHA tag만 push하며, 결과 digest를 `workloads.json`의 Backend·Frontend image parameter에 `registry/repository@sha256:...` 형식으로 사용한다. Workflow는 Container Apps를 배포하거나 활성화하지 않는다.
+Workflow는 입력 SHA가 실행 시점 `origin/main`의 정확한 최신 commit이 아니면 Azure 로그인 전에 실패한다. `latest` tag를 만들지 않고 SHA tag만 push한 뒤 digest를 고정한다. 운영 기준선이 준비됐는지 먼저 확인하고, migration job을 새 Backend digest로 실행해 성공한 경우에만 Backend, Frontend 순서로 single revision image를 교체한다. 각 앱 readiness와 공개 `/health/live` `200`, 익명 root·API `401`을 확인한다. Migration 실패 시 앱은 바뀌지 않으며, 앱 교체나 최종 공개 검사 실패 시 직전 image로 best-effort rollback한다.
+
+이 workflow source를 `main`에 게시하는 것만으로 실제 운영 release가 실행되지는 않는다. 실제 run은 별도 명시 실행으로 남긴다.
 
 ## 왜 네 단계인가
 

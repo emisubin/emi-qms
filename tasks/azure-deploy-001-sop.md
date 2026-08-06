@@ -2,7 +2,7 @@
 
 ## 1. 현재 판정
 
-- Deployment source: Change 013 PR #72 원격 main 병합·main CI 완료 / Change 014 exact Backend host source 동기화 진행
+- Deployment source: Change 015~017 PR #74 원격 `main` 병합·CI 완료 / Change 018 승인형 GitHub 운영 release source·GitHub variable `4/4`·OIDC exact resource 역할 구성 완료, source 게시 진행
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
 - GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
@@ -48,15 +48,17 @@
 사용자가 Terminal 또는 Cloud Shell을 사용하지 않는 경우 다음 두 웹 화면만 사용한다.
 
 1. Azure Portal `사용자 지정 템플릿 배포 → 편집기 → 로드 파일`
-2. GitHub `Actions → Azure Pilot Images (Manual) → Run workflow`
+2. GitHub `Actions → Azure Pilot Release (Manual) → Run workflow`
 
 Portal에는 `foundation.json → identity-access.json → workloads.json → edge.json` 순으로 업로드한다. 각 JSON은 같은 이름의 Bicep 원본에서 생성되며 generator metadata를 제외한 구조 동등성을 자동 검사한다.
 
-GitHub image 게시 전 `azure-pilot-image-publish` Environment, `main` branch 제한, Environment secret, federated credential과 ACR resource 범위 `AcrPush`를 구성했다. Client secret과 subscription/resource group `Contributor`는 사용하지 않는다.
+GitHub 운영 release 전 `azure-pilot-image-publish` Environment, `main` branch 제한, Environment secret·비식별 resource variable, federated credential을 구성한다. OIDC service principal에는 ACR 한 개의 `AcrPush`, Backend·Frontend 각 한 개의 `Container Apps Contributor`, migration job 한 개의 `Container Apps Jobs Contributor`만 exact resource 범위로 부여한다. Client secret과 subscription/resource group 범위 `Contributor`는 사용하지 않는다.
 
-Workflow는 full 40자리 source SHA가 `origin/main`에 포함됐는지 검증하고, 비용 확인 checkbox가 선택된 경우에만 Azure OIDC login과 ACR push를 실행한다. Backend·Frontend는 source SHA tag와 digest만 사용하고 `latest` tag를 만들지 않는다. Workflow 자체는 Container Apps deployment, revision activation과 traffic 전환을 수행하지 않는다.
+현재 private Repository Environment에는 필수 검토자가 적용되어 있지 않다. Workflow는 작업자가 `main`을 선택하고 실행 시점 최신 full SHA, image 게시 확인과 운영 migration·앱 교체 확인을 모두 제출한 경우에만 Azure OIDC login을 시작한다. Backend·Frontend는 source SHA tag와 digest만 사용하고 `latest` tag를 만들지 않는다.
 
-최초 ARM JSON 배포와 GitHub Actions image 게시 실행은 사용자 확인 아래 완료됐다. 후속 Change는 동일한 비용·공개 traffic Gate와 검증된 `main` source 계약을 유지한다.
+Image 게시 뒤에는 현재 Backend·Frontend가 single revision이고 migration job이 manual인지 확인한다. 현재 앱과 공개 보안 기준선이 정상일 때 migration을 먼저 실행하며, 성공 전에는 앱을 변경하지 않는다. 이후 Backend, Frontend 순서로 digest를 교체하고 각 latest revision의 Healthy·Running과 공개 health·익명 인증 차단을 확인한다. 앱 또는 공개 검사 실패 시 직전 image로 rollback을 시도하며 migration 자체는 additive forward-fix 원칙을 유지한다.
+
+최초 ARM JSON 배포와 GitHub Actions image 게시 실행은 사용자 확인 아래 완료됐다. Change 018 source 게시은 workflow를 사용할 수 있게 할 뿐 실제 운영 release를 자동 실행하지 않는다. 실제 run은 별도 명시 실행과 결과 검수로 남긴다.
 
 ## 3. 사용자 입력값
 

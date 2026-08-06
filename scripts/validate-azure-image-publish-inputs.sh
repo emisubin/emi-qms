@@ -4,6 +4,7 @@ set -euo pipefail
 required_environment=(
   SOURCE_SHA
   CONFIRM_IMAGE_PUSH
+  CONFIRM_PRODUCTION_DEPLOY
   AZURE_CLIENT_ID
   AZURE_TENANT_ID
   AZURE_SUBSCRIPTION_ID
@@ -13,6 +14,10 @@ required_environment=(
   ENTRA_API_CLIENT_ID
   ENTRA_SPA_CLIENT_ID
   ENTRA_API_SCOPE
+  AZURE_RESOURCE_GROUP
+  BACKEND_APP_NAME
+  FRONTEND_APP_NAME
+  MIGRATION_JOB_NAME
 )
 
 for variable_name in "${required_environment[@]}"; do
@@ -27,6 +32,11 @@ if [[ "${CONFIRM_IMAGE_PUSH}" != 'true' ]]; then
   exit 64
 fi
 
+if [[ "${CONFIRM_PRODUCTION_DEPLOY}" != 'true' ]]; then
+  printf 'azurePilotImagePublish=DEPLOY_CONFIRMATION_REQUIRED\n' >&2
+  exit 68
+fi
+
 if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
   printf 'azurePilotImagePublish=INVALID_SOURCE_SHA\n' >&2
   exit 65
@@ -38,14 +48,16 @@ if ! git cat-file -e "${SOURCE_SHA}^{commit}" 2>/dev/null; then
 fi
 
 if ! git show-ref --verify --quiet refs/remotes/origin/main \
-  || ! git merge-base --is-ancestor "${SOURCE_SHA}" refs/remotes/origin/main; then
-  printf 'azurePilotImagePublish=SOURCE_NOT_IN_MAIN\n' >&2
+  || [[ "$(git rev-parse refs/remotes/origin/main)" != "${SOURCE_SHA}" ]]; then
+  printf 'azurePilotImagePublish=SOURCE_NOT_LATEST_MAIN\n' >&2
   exit 67
 fi
 
 guid_pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
 zero_guid='00000000-0000-0000-0000-000000000000'
 host_pattern='^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
+resource_group_pattern='^[A-Za-z0-9._()-]{1,90}$'
+container_app_pattern='^[a-z][a-z0-9-]{0,30}[a-z0-9]$'
 
 for identifier in \
   "${AZURE_CLIENT_ID}" \
@@ -78,6 +90,18 @@ if [[ ! "${PUBLIC_HOSTNAME}" =~ ${host_pattern} \
   exit 71
 fi
 shopt -u nocasematch
+
+if [[ ! "${AZURE_RESOURCE_GROUP}" =~ ${resource_group_pattern} \
+  || ! "${BACKEND_APP_NAME}" =~ ${container_app_pattern} \
+  || ! "${FRONTEND_APP_NAME}" =~ ${container_app_pattern} \
+  || ! "${MIGRATION_JOB_NAME}" =~ ${container_app_pattern} \
+  || "${BACKEND_APP_NAME}" == *--* \
+  || "${FRONTEND_APP_NAME}" == *--* \
+  || "${MIGRATION_JOB_NAME}" == *--* \
+  || "${BACKEND_APP_NAME}" == "${FRONTEND_APP_NAME}" ]]; then
+  printf 'azurePilotImagePublish=INVALID_RESOURCE_CONFIGURATION\n' >&2
+  exit 72
+fi
 
 printf 'azurePilotImageSource=VALIDATED_MAIN_COMMIT\n'
 printf 'azurePilotImageConfiguration=VALID\n'

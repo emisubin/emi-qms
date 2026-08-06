@@ -1,5 +1,43 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 018 — 승인형 GitHub 운영 release 연결
+
+### 승인 범위와 구현
+
+- 사용자는 원격 `main`을 Azure 운영 배포 원본으로 연결하되 운영 배포 전 명시 승인을 유지하는 순서를 승인했다.
+- 기존 image-only 수동 workflow를 자동 `push` trigger가 없는 `Azure Pilot Release (Manual)`로 확장했다.
+- 작업자는 `main` branch, 실행 시점 최신 full SHA, image 게시와 운영 migration·앱 교체 확인 두 개를 모두 제출해야 한다. 현재 private Repository Environment에 필수 검토자 기능이 적용되어 있지 않으므로 존재하지 않는 reviewer 승인을 운영 통제로 주장하지 않는다.
+- OIDC와 기존 Environment secret을 유지하고 실제 resource 이름 네 개는 Environment variable로만 주입한다. Tracked 파일에는 실제 hostname·resource 이름·tenant/client/object identifier·secret을 넣지 않는다.
+- SHA tag로 image를 게시한 뒤 digest를 고정한다. 현재 앱 readiness와 공개 보안 기준선을 확인하고 migration job이 성공한 경우에만 Backend, Frontend 순서로 single revision image를 교체한다.
+- Migration 실패 시 앱 변경은 `0`이다. Backend·Frontend 교체 또는 최종 공개 보안 검사 실패 시 직전 image로 best-effort rollback한다. Migration은 기존 additive forward-fix 원칙을 유지한다.
+- Source 게시만으로 실제 운영 release가 실행되지 않으며, 실제 run은 별도 명시 실행과 결과 검수로 남긴다.
+
+### 검증 결과
+
+| 검증 | 결과 |
+| --- | --- |
+| Task Identity·Roadmap Gate | `PASS_REUSE`, `UAT_RUNTIME` |
+| Workflow trigger·permission·concurrency·pinned action / actionlint | `PASS` |
+| 입력 guard 정상·SHA·확인값·resource name negative path | `PASS` |
+| Release mock 정상·불변 rollback·실패 순서 | migration → Backend → Frontend `PASS`, 전체 `6/6` |
+| Migration 실패 | app mutation `0` |
+| Backend·Frontend·공개 보안 실패 | 직전 image rollback `PASS` |
+| Shell syntax·ShellCheck·Git diff check | `PASS` |
+| Azure artifact·Bicep compile·ARM JSON 동등성 | `PASS` |
+| Public Deployment Security 집중 test | `42/42 PASS` |
+| Teams manifest / PWA 자산 회귀 | `2/2 PASS` / `1/1 PASS` |
+| Changed-file allowlist·secret·email pattern | `12/12`, `PASS`, `PASS` |
+| GitHub Environment variable | `4/4`, actual value 비출력 |
+| OIDC exact resource 역할 | Backend·Frontend·migration `3/3` + 기존 ACR `AcrPush` |
+| 넓은 Contributor 추가 | subscription/resource group `0` |
+| 실제 운영 release | `NOT_RUN`, source 게시 뒤 별도 명시 실행 |
+
+### 권한과 외부 설정 Gate
+
+- GitHub Environment variable: resource group, Backend app, Frontend app, migration job 네 이름을 실제 값 출력 없이 설정·재확인했다.
+- OIDC service principal: 기존 ACR exact scope `AcrPush`와 Backend·Frontend exact scope `Container Apps Contributor` 각 1개, migration job exact scope `Container Apps Jobs Contributor` 1개를 설정·재확인했다.
+- Subscription/resource group 범위 `Contributor`, client secret, mutable tag와 자동 main push 배포는 금지한다.
+
 ## Change 017 — 운영 외부 알림 Worker 활성화
 
 ### 승인 범위와 실행 결과
@@ -35,7 +73,7 @@
 - 사용자 Teams client·메일함 수신 확인: `PASS` (2026-08-06 사용자 확인)
 - Teams SSO·새 manifest: 별도 후속 `NEW_FEATURE`
 
-Source와 문서 변경은 local branch에만 있으며 commit·push·PR·merge는 별도 사용자 승인 전까지 수행하지 않는다.
+Source와 문서 변경은 PR #74로 원격 `main`에 게시됐다.
 
 ## Change 016 — 운영 Teams Activity 1건 Provider Smoke
 
@@ -93,7 +131,7 @@ Source와 문서 변경은 local branch에만 있으며 commit·push·PR·merge�
 - 자동 검증: `PASS`
 - Azure 운영 적용: `COMPLETE`
 - 사용자 로그인 검수: `PASS`
-- Git 게시: `PENDING_USER_APPROVAL`
+- Git 게시: `COMPLETE`, PR #74 원격 `main` 병합
 
 ### 자동·운영 검증
 
@@ -465,7 +503,7 @@ Change 004 준비물을 사용해 Foundation, OIDC·ACR 권한, image 게시, se
 | ID | 등급 | 상태 | Root cause | 해결 |
 | --- | --- | --- | --- | --- |
 | `AZURE-PORTAL-ARTIFACT-001` | P2 | `RESOLVED_LOCAL` | Bicep 원본만 있어 Azure Portal `로드 파일`에서 쓸 ARM JSON이 없음 | Bicep 생성 ARM JSON 4개를 추적하고 generator metadata 제외 구조 동등성 검증 추가 |
-| `AZURE-WEB-IMAGE-PUBLISH-001` | P2 | `RESOLVED_LOCAL` | GitHub에는 일반 CI만 있고 터미널 없는 ACR image 게시 경로가 없음 | Environment 승인·명시 확인·main ancestry guard·OIDC·immutable SHA/digest 기반 수동 workflow 추가 |
+| `AZURE-WEB-IMAGE-PUBLISH-001` | P2 | `RESOLVED_LOCAL` | GitHub에는 일반 CI만 있고 터미널 없는 ACR image 게시 경로가 없음 | Environment 격리·명시 확인·main ancestry guard·OIDC·immutable SHA/digest 기반 수동 workflow 추가 |
 
 ### 실제 구현
 
@@ -647,7 +685,7 @@ Change 004 준비물을 사용해 Foundation, OIDC·ACR 권한, image 게시, se
 
 ### Change 004
 
-- `.github/workflows/azure-pilot-images.yml` — GitHub Environment 승인·OIDC·main ancestry guard 기반 수동 image 게시
+- `.github/workflows/azure-pilot-images.yml` — GitHub Environment 격리·OIDC·main ancestry guard 기반 수동 image 게시
 - `infrastructure/azure-pilot/{foundation,identity-access,workloads,edge}.json` — Azure Portal 업로드용 ARM JSON
 - `infrastructure/azure-pilot/README.md` — Portal·GitHub 웹 전용 설정과 실행 방법
 - `scripts/validate-azure-image-publish-inputs.sh` — 비용 확인·source SHA·Azure/ACR/Entra 입력 fail-closed guard
@@ -742,7 +780,7 @@ Frontend build에는 기존 large bundle warning이 있었으나 build 실패나
 | `AZURE-IDENTITY-001` | P1 | `RESOLVED_LOCAL` | workload identity와 Key Vault 권한 공유로 침해 범위가 전체 secret으로 확대될 수 있었다. | 네 identity와 secret-scope assignment 10개로 분리. 실제 Azure access probe는 pre-traffic에서 검증 |
 | `AZURE-DB-ROLE-001` | P1 | `RESOLVED_LOCAL` | API와 migration의 DB 관리자 권한 공유 가능성이 있었다. | `pms_app`·`pms_migrator`·admin 분리와 실제 PostgreSQL negative privilege test 통과 |
 | `AZURE-PORTAL-ARTIFACT-001` | P2 | `RESOLVED_LOCAL` | Portal 업로드용 ARM JSON이 없어 터미널 없는 Foundation 배포를 시작할 수 없었다. | 추적 JSON 4개와 Bicep 구조 동등성 검증 추가 |
-| `AZURE-WEB-IMAGE-PUBLISH-001` | P2 | `RESOLVED_LOCAL` | 웹 수동 ACR image 게시 경로가 없었다. | OIDC·Environment 승인·main ancestry·immutable digest workflow 추가 |
+| `AZURE-WEB-IMAGE-PUBLISH-001` | P2 | `RESOLVED_LOCAL` | 웹 수동 ACR image 게시 경로가 없었다. | OIDC·Environment 격리·main ancestry·immutable digest workflow 추가 |
 | `AZURE-COST-GATE-001` | External gate | `RESOLVED` | 비용·credit·Budget 확인 뒤 승인된 Foundation·workload·DB·edge resource를 생성했다. | Budget 알림과 20일 시범 비용 모니터링 유지 |
 | `AZURE-APM-001` | P3 | `BACKLOG` | Application Insights resource 정의는 있으나 Backend SDK APM 계측은 아직 없다. Log Analytics container log는 사용 가능하다. | 시범 운영에서 request trace 필요성을 확인한 뒤 별도 계측 |
 | `FRONTEND-BUNDLE-001` | P3 | `BACKLOG` | Production build의 기존 large bundle warning이 유지된다. 기능 오류는 아니다. | 정식 운영 성능 점검에서 route chunk 분할 검토 |
@@ -774,18 +812,18 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - 사용자 검수: `Change 003~014의 구현·runtime 적용 승인 완료 / 현재 비상 관리자 로그인·관리자 화면 접근 확인`
 - Azure resource: `생성·readiness 확인 완료`
 - Public URL: `DNS·managed TLS·정적 화면·PWA·origin 403·readiness 200·익명 API 401 완료`
-- 다음 Gate: 사용자가 명시적으로 순서를 변경해 Change 015~017 원격 `main` 게시 → 승인 게이트형 GitHub→Azure 배포 연결 → Teams SSO·새 manifest 기획 순으로 진행한다.
+- 다음 Gate: Change 018 source·GitHub Environment variable·OIDC exact resource 역할을 게시·구성 → 별도 명시 운영 release → Teams SSO·새 manifest 기획 순으로 진행한다.
 - 비용·장애·응답시간·DB·첨부 증가량은 20일 시범 기간 동안 계속 기록한다.
 
 ## 13. 종료 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 014 API·로그인 Gate와 exact-host source sync 반영 완료 |
-| SOP | `tasks/azure-deploy-001-sop.md` | 공개 API 복구·exact-host 운영 절차 반영 완료 |
-| User manual | `infrastructure/azure-pilot/README.md` | 기존 Portal·GitHub·rollback 절차 유지, 사용자 동선 변경 없음 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 014 API·로그인 완료와 provider 다음 Gate 반영 완료 |
-| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | domain·TLS·PWA·origin·API·현재 관리자 로그인 완료 |
+| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 018 승인형 release source·검증·미실행 운영 Gate 반영 |
+| SOP | `tasks/azure-deploy-001-sop.md` | 최신 main SHA·migration 우선·rollback 운영 절차 반영 |
+| User manual | `infrastructure/azure-pilot/README.md` | GitHub 수동 운영 release 사용자 동선과 최소 권한 반영 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 018 구성·게시·실행 Gate 반영 |
+| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | 자동 검증과 실제 운영 release를 분리해 반영 |
 
 ## 14. Git와 게시 상태
 
@@ -794,7 +832,9 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - Change 011: migration `0069 Exact`, Backend·Frontend 최신 revision 적용과 readiness 확인 완료. 문서 게시 미승인.
 - Change 012: DNS exact match·기존 token empty PATCH 재검증 완료, Azure `Pending` 외부 대기. 문서 게시 미승인.
 - Change 013: PR #72 원격 main squash merge·main CI·immutable image 게시·Frontend revision 적용 완료.
-- Change 014: Backend exact-host runtime 적용과 공개 API·현재 관리자 로그인 확인 완료. 배포 원본·문서 동기화 branch의 commit·push·PR·merge 진행.
+- Change 014: Backend exact-host runtime 적용과 공개 API·현재 관리자 로그인 확인 완료. 배포 원본·문서 동기화 완료.
+- Change 015~017: PR #74 원격 `main` squash merge와 CI 3종 성공.
 - Change 016: bootstrap 관리자 1명 대상 synthetic Teams Activity Graph actual 1회가 `204 Sent`. 대상 Entra 사용자 일치와 Teams web exact 제목·preview 렌더링을 확인했고 Runtime 설정·DB·업무 data는 변경하지 않았다. 이후 실제 worker 알림 수신 검수로 client 표시까지 확인했다.
 - Change 017: 외부 알림 Worker·Teams Activity·Gmail SMTP actual 활성화, 최신 수동 Teams Activity `6/6 Sent`·Mail `3/3 Sent`, Open Pending/Processing/Failed `0`, latest Backend revision Ready, 사용자 Teams client·메일함 실제 수신 완료.
+- Change 018: 승인형 GitHub 운영 release source·mock 검증, Environment variable `4/4`와 OIDC exact resource 역할 `3/3`+기존 ACR `AcrPush` 설정 완료. Source 게시 진행, 운영 release는 별도 명시 실행 대기.
 - 미포함: Teams SSO·새 manifest와 QOM branch 반영.

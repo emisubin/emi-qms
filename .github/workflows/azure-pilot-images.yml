@@ -1,4 +1,4 @@
-name: Azure Pilot Images (Manual)
+name: Azure Pilot Release (Manual)
 
 on:
   workflow_dispatch:
@@ -12,17 +12,22 @@ on:
         required: true
         default: false
         type: boolean
+      confirm_production_deploy:
+        description: I approve migration and production Backend/Frontend revision replacement
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: azure-pilot-image-publish
+  group: azure-pilot-production-release
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Build and publish immutable images
+  release:
+    name: Build, migrate, and release immutable images
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: azure-pilot-image-publish
@@ -33,6 +38,7 @@ jobs:
       AZURE_CORE_OUTPUT: none
       SOURCE_SHA: ${{ inputs.source_sha }}
       CONFIRM_IMAGE_PUSH: ${{ inputs.confirm_image_push }}
+      CONFIRM_PRODUCTION_DEPLOY: ${{ inputs.confirm_production_deploy }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -42,6 +48,10 @@ jobs:
       ENTRA_API_CLIENT_ID: ${{ secrets.ENTRA_API_CLIENT_ID }}
       ENTRA_SPA_CLIENT_ID: ${{ secrets.ENTRA_SPA_CLIENT_ID }}
       ENTRA_API_SCOPE: ${{ secrets.ENTRA_API_SCOPE }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      BACKEND_APP_NAME: ${{ vars.AZURE_BACKEND_APP_NAME }}
+      FRONTEND_APP_NAME: ${{ vars.AZURE_FRONTEND_APP_NAME }}
+      MIGRATION_JOB_NAME: ${{ vars.AZURE_MIGRATION_JOB_NAME }}
     steps:
       - name: Check out trusted main history
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -123,6 +133,13 @@ jobs:
           provenance: mode=min
           sbom: true
 
+      - name: Run migration and replace production revisions
+        shell: bash
+        env:
+          BACKEND_RELEASE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/pms-backend@${{ steps.backend.outputs.digest }}
+          FRONTEND_RELEASE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/pms-frontend@${{ steps.frontend.outputs.digest }}
+        run: scripts/deploy-azure-pilot-release.sh
+
       - name: Record privacy-safe image results
         shell: bash
         env:
@@ -137,14 +154,17 @@ jobs:
             exit 72
           fi
           {
-            printf "## Azure pilot image publish\n\n"
+            printf "## Azure pilot production release\n\n"
             printf -- "- Source commit: \`%s\`\n" "${SOURCE_SHA}"
             printf -- "- Backend digest: \`%s\`\n" "${BACKEND_DIGEST}"
             printf -- "- Frontend digest: \`%s\`\n" "${FRONTEND_DIGEST}"
             printf -- "- Mutable latest tag: \`not created\`\n"
-            printf -- "- Workload deployment: \`not performed\`\n"
+            printf -- "- Migration: \`succeeded\`\n"
+            printf -- "- Backend revision: \`ready\`\n"
+            printf -- "- Frontend revision: \`ready\`\n"
+            printf -- "- Public security smoke: \`passed\`\n"
           } >> "${GITHUB_STEP_SUMMARY}"
-          printf 'azurePilotImagePublish=PASS\n'
+          printf 'azurePilotProductionRelease=PASS\n'
 
       - name: Sign out of the private registry
         if: always()

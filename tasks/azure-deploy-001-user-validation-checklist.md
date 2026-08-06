@@ -1,5 +1,15 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 014 — 공개 API Host allowlist와 관리자 로그인
+
+- [x] Change 013 PR #72를 원격 `main`에 병합하고 PR·main CI 성공을 확인했다. (`2026-08-06`)
+- [x] Change 013 포함 immutable Frontend image를 게시·교체하고 latest revision readiness를 확인했다.
+- [x] 공개 hostname과 exact Backend internal hostname만 허용해 `/health/ready` `200`, 익명 `/api/me`·`/api/runtime-mode` `401`을 확인했다.
+- [x] HTTP→HTTPS, root·PWA `200`, direct Frontend origin `403`, Backend direct ingress 차단과 TLS hostname 일치를 확인했다.
+- [x] 현재 비상 관리자 계정이 bootstrap 목록에 포함되고 실제 관리자 메뉴·사용자 관리 화면에 접근함을 확인했다.
+- [x] bootstrap 관리자 목록 순서는 권한 우선순위가 아니며 포함된 계정은 동일한 System Administrator 권한을 받으므로 secret을 재정렬하지 않았다.
+- [ ] 두 번째 비상 관리자 계정도 실제 로그인해 System Administrator 접근을 확인한다.
+
 ## Change 009 — 공개 Teams 알림 유형과 자동 발송 연결
 
 - [x] Change 009 PR #70을 원격 `main`에 merge하고 PR·main CI 성공을 확인했다. (`2026-08-05`)
@@ -80,7 +90,7 @@
 - [x] Front Door domain validation·deployment·provisioning과 managed TLS가 완료됐다. (`2026-08-06`)
 - [x] Front Door URL·PWA는 열리고 Container App 원본 URL은 health 이외 403이다. (`2026-08-06`)
 - [x] TLS certificate가 최종 hostname과 일치한다. (`2026-08-06`)
-- [ ] Change 013 Frontend image 교체 뒤 `/health/ready`는 200, 익명 `/api/me`는 401이다.
+- [x] Change 013 Frontend image 교체 뒤 `/health/ready`는 200, 익명 `/api/me`는 401이다. (`2026-08-06`)
 - [ ] Key Vault 전체 scope의 workload secret-read role이 0이다.
 - [ ] 이전 단일 runtime identity를 배포한 이력이 있다면 남은 vault-scope role assignment와 미사용 identity를 정리했다.
 - [ ] Backend·Frontend·migration·DB bootstrap identity가 서로 다르고 접근표 밖 secret read가 거부된다.
@@ -91,7 +101,8 @@
 ## 로그인과 권한
 
 - [x] Entra API·SPA client가 분리되고 공개 SPA redirect와 `access_as_user` scope가 등록됐다. (`2026-08-06`)
-- [ ] 비상 관리자 두 명이 System Administrator로 로그인할 수 있다.
+- [x] 현재 비상 관리자 계정이 System Administrator로 로그인해 관리자 화면에 접근할 수 있다. (`2026-08-06`)
+- [ ] 나머지 비상 관리자 계정도 System Administrator로 로그인할 수 있다.
 - [ ] 처음 로그인한 일반 사용자는 역할 승인 전 조회·입력이 불가능하다.
 - [ ] 관리자가 역할을 부여한 뒤 해당 부서 권한만 사용할 수 있다.
 - [ ] 로그아웃 뒤 protected API와 화면이 다시 열리지 않는다.

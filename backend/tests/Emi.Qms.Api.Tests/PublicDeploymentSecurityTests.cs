@@ -319,6 +319,12 @@ public sealed class PublicDeploymentSecurityTests
         Assert.Contains("--migrate-only", workloads, StringComparison.Ordinal);
         Assert.Contains("value: 'pms_migrator'", workloads, StringComparison.Ordinal);
         Assert.Contains("value: 'pms_app'", workloads, StringComparison.Ordinal);
+        Assert.Contains(
+            "var backendInternalHost = 'backend.internal.${containerAppsEnvironment.properties.defaultDomain}'",
+            workloads,
+            StringComparison.Ordinal);
+        Assert.Contains("value: '${publicHost};${backendInternalHost}'", workloads, StringComparison.Ordinal);
+        Assert.DoesNotContain("name: 'AllowedHosts'\n    value: '*'", workloads, StringComparison.Ordinal);
         Assert.DoesNotContain("database-connection-string", workloads, StringComparison.Ordinal);
     }
 

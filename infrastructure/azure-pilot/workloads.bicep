@@ -90,6 +90,8 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01'
   name: containerAppsEnvironmentName
 }
 
+var backendInternalHost = 'backend.internal.${containerAppsEnvironment.properties.defaultDomain}'
+
 resource backendIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
   name: last(split(backendIdentityId, '/'))
 }
@@ -173,7 +175,7 @@ var servingBackendEnvironment = [
   }
   {
     name: 'AllowedHosts'
-    value: publicHost
+    value: '${publicHost};${backendInternalHost}'
   }
   {
     name: 'Authentication__Mode'

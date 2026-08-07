@@ -1,5 +1,13 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 019 — Azure 정상 revision 상태 판정 보정
+
+- [x] 첫 운영 release가 `BASELINE_NOT_READY`로 중단됐고 migration·Backend·Frontend mutation이 모두 `0`인지 확인했다.
+- [x] 실제 두 앱이 single revision, latest ready, provisioning `Succeeded`, health `Healthy`, running state `RunningAtMaxScale`인지 read-only로 확인했다.
+- [x] `Running`과 `RunningAtMaxScale`만 허용하고 `Stopped`, `ScaleToZero`, `Degraded`, `Unknown`은 mutation 전에 차단하는 mock 회귀를 통과했다.
+- [ ] Change 019 source를 commit·push·PR·CI·원격 `main`에 게시한다.
+- [ ] 최신 `main` full SHA로 운영 release를 다시 실행해 migration·Backend·Frontend·공개 보안 검사를 모두 통과한다.
+
 ## Change 018 — 승인형 GitHub 운영 release 연결
 
 - [x] Change 015~017이 PR #74와 원격 `main`에 병합되고 CI 3종이 모두 성공했다.
@@ -8,8 +16,8 @@
 - [x] Mutable `latest`, Azure client secret, subscription/resource group 범위 `Contributor`와 tracked 실제 resource 이름이 없다.
 - [x] Actionlint, shell syntax·ShellCheck, 입력·release mock test, Bicep compile·ARM JSON 동등성, Azure artifact와 공개 배포 보안 집중 검증을 통과했다.
 - [x] GitHub Environment variable 네 개와 OIDC identity의 exact resource 역할 네 개를 실제 값 노출 없이 설정·재확인했다.
-- [ ] Change 018 source를 commit·push·PR·CI·원격 `main`에 게시했다.
-- [ ] 별도 명시 실행에서 최신 `main` SHA로 운영 release를 실행하고 migration·Backend·Frontend·공개 보안 검사 성공을 확인했다.
+- [x] Change 018 source를 commit·push·PR·CI·원격 `main`에 게시했다.
+- [x] 별도 명시 실행에서 최신 `main` SHA로 운영 release를 시작했고, 정상 기준선 판정 누락을 migration·앱 mutation 전에 안전하게 발견했다. 최종 성공은 Change 019에서 계속한다.
 
 ## Change 017 — 운영 외부 알림 Worker 활성화
 

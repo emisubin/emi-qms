@@ -1,5 +1,45 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 019 — Azure 정상 revision 상태 판정 보정
+
+### 첫 운영 실행과 Root Finding
+
+- 승인된 Change 018 첫 운영 release run `31140991285`는 Backend·Frontend immutable image 게시를 완료한 뒤 `azurePilotRelease=BASELINE_NOT_READY`로 fail-closed했다.
+- 실패 시점은 migration job update/start와 Backend·Frontend revision 교체 전이었다. 따라서 운영 DB·앱 runtime mutation은 `0`이고 기존 revision과 traffic은 보존됐다.
+- Read-only 확인에서 두 앱은 single revision, latest revision ready, provisioning `Succeeded`, health `Healthy`, running state `RunningAtMaxScale`였다.
+- Script가 exact `Running`만 허용해 Azure의 정상 최대 scale 상태를 장애로 오판한 것이 `AZURE-RELEASE-RUNNING-STATE-001` P1의 원인이다.
+
+### 승인 범위와 구현
+
+- 기존 `Healthy` 조건을 유지하면서 running state allowlist에 exact `RunningAtMaxScale`만 추가했다.
+- `Stopped`, `ScaleToZero`, `Degraded`, `Unknown`과 빈 값은 계속 `BASELINE_NOT_READY`로 거부하며 mutation 전 fail-closed한다.
+- Mock 회귀는 기존 정상·migration 실패·Backend/Frontend 실패 rollback·public security 실패와 함께 새 허용 상태 1개와 거부 상태 4개를 검사한다.
+
+### 현재 검증·게시 상태
+
+| 검증 | 결과 |
+| --- | --- |
+| Task Identity·Roadmap Gate | `PASS_REUSE`, `BUGFIX` |
+| 첫 운영 run image 게시 | Backend·Frontend `2/2 PASS` |
+| 첫 운영 run mutation | migration·Backend·Frontend `0` |
+| Shell syntax·ShellCheck·actionlint·diff check | `PASS` |
+| Release mock | 전체 `11/11 PASS` |
+| Azure artifact·Bicep compile·ARM JSON 동등성 | `PASS` |
+| Public Deployment Security 집중 test | `42/42 PASS` |
+| Changed-file allowlist·local link·heading·PII pattern | `8/8`, `PASS` |
+| PR 표준 CI | `PENDING` |
+| Git 게시·원격 main 병합 | `PENDING` |
+| 최신 main 실제 운영 release | `PENDING` |
+
+### Validation Matrix
+
+| 검증 | 적용 여부 | 결과 | 근거/미실행 이유 |
+| --- | --- | --- | --- |
+| 최소 검증 | 적용 | `PASS` | instruction chain·Task gate, shell syntax·ShellCheck·actionlint·diff·문서·privacy 검사 |
+| 영향 회귀 | 적용 | `PASS` | release mock `11/11`, Azure artifact compile·정적 검증, Public Deployment Security `42/42` |
+| 전체 pipeline | 부분 적용 | `PENDING_PR_CI` | 제품·dependency·migration·권한 diff가 없어 로컬 전체 제품 suite는 N/A. PR 표준 CI에서 Backend·Frontend·Full-Stack을 확인한다. |
+| 사용자 검수 | 적용 | `PENDING_ACTUAL_RELEASE` | 최신 main actual release와 public security 결과를 운영 Gate에서 확인한다. |
+
 ## Change 018 — 승인형 GitHub 운영 release 연결
 
 ### 승인 범위와 구현

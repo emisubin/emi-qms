@@ -66,7 +66,9 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
     if (!selectedItem) return;
     const nextVersions = domain === 'manufacturing' ? selectedItem.manufacturingVersions : selectedItem.planVersions;
     const next = nextVersions[0];
-    chooseVersion(next?.versionId ?? '', next);
+    const nextVersionId = next?.versionId ?? '';
+    if (selectedVersionId === nextVersionId) return;
+    chooseVersion(nextVersionId, next);
   }, [domain, selectedProductTypeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function chooseVersion(versionId: string, explicitVersion = versions.find((version) => version.versionId === versionId)) {

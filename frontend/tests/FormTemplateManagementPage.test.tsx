@@ -162,10 +162,12 @@ describe('FormTemplateManagementPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Item별 제조 양식/ }));
     expect(await screen.findByRole('combobox', { name: '적용 Item' })).toHaveValue('product-ul67');
     fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    const saveButton = await screen.findByRole('button', { name: '저장' });
+    expect(saveButton).toBeEnabled();
     expect(screen.queryByRole('combobox', { name: '1번 구분' })).not.toBeInTheDocument();
     expect(screen.getByText('등록한 모든 제조 단계를 패널 선택 일괄 완료에 사용할 수 있습니다.')).toBeInTheDocument();
 
-    fireEvent.click(await screen.findByRole('button', { name: '저장' }));
+    fireEvent.click(saveButton);
     expect(await screen.findByText('서버가 확인한 제조 단계 오류입니다.')).toBeInTheDocument();
     expect(screen.queryByText('입력값을 확인해 주세요.')).not.toBeInTheDocument();
 

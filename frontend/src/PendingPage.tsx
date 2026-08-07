@@ -7,6 +7,7 @@ import {
   getMaterialIqcQueue,
   getPendingIssue,
   getPendingActionPhotoBlob,
+  getProject,
   listPendingAssignees,
   listPendingIssues,
   listPendingTypeFilterOptions,
@@ -57,6 +58,8 @@ type AsyncState<T> =
   | { kind: 'ready'; data: T }
   | { kind: 'error'; message: string };
 
+type PendingProjectReference = Pick<ProjectListItem, 'projectId' | 'projectCode' | 'projectTitle'>;
+
 const emptyCreate: CreatePendingRequest = {
   projectId: '',
   issueType: '',
@@ -105,9 +108,10 @@ function PendingListView({
   const [status, setStatus] = useState<PendingStatus | ''>('');
   const [issueType, setIssueType] = useState<PendingIssueType | ''>('');
   const [priority, setPriority] = useState<PendingPriority | ''>('');
-  const [projectId, setProjectId] = useState(initialProjectId ?? '');
   const [projectOptions, setProjectOptions] = useState<ProjectListItem[]>([]);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [selectedProjectState, setSelectedProjectState] = useState<AsyncState<PendingProjectReference>>({ kind: 'loading' });
+  const [selectedProjectReload, setSelectedProjectReload] = useState(0);
   const [typeOptions, setTypeOptions] = useState<PendingTypeOption[] | null>(null);
   const [typeOptionsError, setTypeOptionsError] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -125,13 +129,13 @@ function PendingListView({
         status: status || undefined,
         issueType: issueType || undefined,
         priority: priority || undefined,
-        projectId: projectId || undefined
+        projectId: initialProjectId || undefined
       });
       setState({ kind: 'ready', data });
     } catch (error) {
       setState({ kind: 'error', message: messageForError(error) });
     }
-  }, [developmentUserKey, issueType, priority, projectId, status]);
+  }, [developmentUserKey, initialProjectId, issueType, priority, status]);
 
   useEffect(() => {
     let active = true;
@@ -152,6 +156,33 @@ function PendingListView({
   }, [developmentUserKey]);
 
   useEffect(() => {
+    if (!initialProjectId) return;
+
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setSelectedProjectState({ kind: 'loading' });
+      void getProject(developmentUserKey, initialProjectId)
+        .then((project) => {
+          if (!active) return;
+          setSelectedProjectState({
+            kind: 'ready',
+            data: {
+              projectId: project.projectId,
+              projectCode: project.projectCode,
+              projectTitle: project.projectTitle
+            }
+          });
+        })
+        .catch((error) => {
+          if (active) setSelectedProjectState({ kind: 'error', message: messageForError(error) });
+        });
+    });
+
+    return () => { active = false; };
+  }, [developmentUserKey, initialProjectId, selectedProjectReload]);
+
+  useEffect(() => {
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
@@ -170,14 +201,14 @@ function PendingListView({
       status: status || undefined,
       issueType: issueType || undefined,
       priority: priority || undefined,
-      projectId: projectId || undefined
+      projectId: initialProjectId || undefined
     }).then((data) => {
       if (active) setState({ kind: 'ready', data });
     }).catch((error) => {
       if (active) setState({ kind: 'error', message: messageForError(error) });
     });
     return () => { active = false; };
-  }, [developmentUserKey, issueType, priority, projectId, status]);
+  }, [developmentUserKey, initialProjectId, issueType, priority, status]);
 
   const items = state.kind === 'ready' ? state.data.items : [];
   const pendingVisibleIds = items.map((item) => item.pendingId);
@@ -268,9 +299,23 @@ function PendingListView({
     );
   }
 
-  const selectedProject = projectOptions.find((project) => project.projectId === initialProjectId);
-  const selectedProjectTitle = selectedProject?.projectTitle ?? items[0]?.projectTitle ?? 'Pending 프로젝트';
-  const selectedProjectCode = selectedProject?.projectCode ?? items[0]?.projectCode ?? '프로젝트';
+  if (selectedProjectState.kind === 'loading'
+      || (selectedProjectState.kind === 'ready' && selectedProjectState.data.projectId !== initialProjectId)) {
+    return <section className="page-surface pending-page"><PendingLoading /></section>;
+  }
+  if (selectedProjectState.kind === 'error') {
+    return (
+      <section className="page-surface pending-page">
+        <PendingError
+          message={selectedProjectState.message}
+          onRetry={() => setSelectedProjectReload((current) => current + 1)}
+        />
+      </section>
+    );
+  }
+
+  const selectedProjectTitle = selectedProjectState.data.projectTitle;
+  const selectedProjectCode = selectedProjectState.data.projectCode;
 
   return (
     <section className={isMobile ? 'page-surface pending-page pending-page--project mobile-first-page' : 'page-surface pending-page pending-page--project'} aria-labelledby="pending-title">
@@ -323,7 +368,6 @@ function PendingListView({
                   type="button"
                   className="primary-button"
                   onClick={() => {
-                    setProjectId(initialProjectId);
                     setStatus(draftStatus);
                     setIssueType(draftIssueType);
                     setPriority(draftPriority);
@@ -359,7 +403,7 @@ function PendingListView({
           selectedIds={pendingSelection.selectedIds}
           allSelected={pendingSelection.allSelected}
           busy={pendingSelection.busy}
-          filters={{ status: status || undefined, issueType: issueType || undefined, priority: priority || undefined, projectId: projectId || undefined }}
+          filters={{ status: status || undefined, issueType: issueType || undefined, priority: priority || undefined, projectId: initialProjectId }}
           onBusyChange={pendingSelection.setBusy}
           onToggleAll={pendingSelection.toggleAll}
           onClear={pendingSelection.clear}

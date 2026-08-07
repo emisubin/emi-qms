@@ -89,6 +89,12 @@ test('WORKFLOW-CONTINUITY-001 Change 003: exact purchase error, assignee handoff
   await page.goto(`/pending?projectId=${projectId}`);
   await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
   await capture(page, '06-pending-project-hub-desktop.png');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
+  await expect(page.locator('.pending-page.mobile-first-page')).toBeVisible();
+  expect(await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - window.innerWidth))).toBe(0);
+  await capture(page, '06-pending-project-hub-mobile-390.png');
+  await page.setViewportSize({ width: 1440, height: 960 });
 
   await page.getByLabel('개발 사용자').selectOption('dev-materials', { force: true });
   await page.goto('/materials/receipts');

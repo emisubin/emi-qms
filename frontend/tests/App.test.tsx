@@ -100,6 +100,56 @@ describe('App', () => {
     expect(window.location.pathname).toBe('/pending');
   });
 
+  it('loads the exact project metadata for an empty project-scoped Pending route', async () => {
+    window.history.pushState(null, '', `/pending?projectId=${projectId}`);
+    const exactProjectTitle = '목록 밖 프로젝트 Pending';
+    const pendingProjectIds: Array<string | null> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/pending') {
+        pendingProjectIds.push(url.searchParams.get('projectId'));
+      }
+      if (url.pathname === '/api/projects') {
+        return json({ items: [], page: 1, pageSize: 100, totalCount: 101 });
+      }
+      if (url.pathname === `/api/projects/${projectId}`) {
+        return json(projectDetail(true, 'Active', exactProjectTitle));
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: exactProjectTitle })).toBeInTheDocument();
+    expect(screen.getByText(/PJT-003A · 이 프로젝트의 등록·조치·재검사·종결 이력만 표시합니다/)).toBeInTheDocument();
+    expect(screen.getByText('조건에 맞는 Pending이 없습니다.')).toBeInTheDocument();
+    expect(pendingProjectIds.length).toBeGreaterThan(0);
+    expect(pendingProjectIds.every((candidate) => candidate === projectId)).toBe(true);
+  });
+
+  it('keeps a project-scoped Pending route fail-closed until project metadata retry succeeds', async () => {
+    window.history.pushState(null, '', `/pending?projectId=${projectId}`);
+    let projectRequestCount = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === `/api/projects/${projectId}`) {
+        projectRequestCount += 1;
+        return projectRequestCount === 1
+          ? json({ title: '프로젝트 정보를 불러오지 못했습니다.' }, 503)
+          : json(projectDetail(true, 'Active', '재시도 프로젝트 Pending'));
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Pending을 불러오지 못했습니다.');
+    expect(screen.queryByRole('heading', { name: 'Pending 프로젝트' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+    expect(await screen.findByRole('heading', { name: '재시도 프로젝트 Pending' })).toBeInTheDocument();
+    expect(projectRequestCount).toBe(2);
+  });
+
   it('keeps Pending detail visible when an older backend omits action evidence', async () => {
     const pendingId = '88000000-0000-0000-0000-000000000099';
     window.history.pushState(null, '', `/pending/${pendingId}`);

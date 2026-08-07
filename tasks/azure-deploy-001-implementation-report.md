@@ -55,6 +55,8 @@
 | --- | --- | --- | --- | --- |
 | `AZURE-RELEASE-RUNNING-STATE-001` | P1 | `RESOLVED` | 정상 `RunningAtMaxScale`을 장애로 오판해 첫 release를 mutation 전에 중단했다. | exact 허용 상태 보정, 거부 상태 mutation 0 회귀, actual release 성공 |
 | `CI-FULLSTACK-QUALITY-REFRESH-001` | P2 | `RESOLVED` | merge SHA의 장시간 stress에서 품질 완료 UI 표시가 기본 5초를 한 차례 초과했다. | 격리 대상 `1/1 PASS`, 실패 job 재실행 성공, 제품 변경 불필요 |
+| `CI-FRONTEND-FORM-TEMPLATE-001` | P2 | `RESOLVED` | 문서 마감 PR 첫 Frontend 시도에서 기존 양식관리 테스트가 저장 버튼을 찾지 못해 1회 실패했다. | 같은 head 로컬 전체 `177/177 PASS`, Backend·Full-Stack 성공, 실패 job 재실행 성공, 제품 변경 불필요 |
+| `PRIVACY-EVIDENCE-CI-LOG-001` | P2 | `RESOLVED` | CI 진행 확인 중 synthetic test DOM 원문이 검증 출력에 포함됐다. 개인정보·secret은 없고 tracked/staged artifact도 0이었다. | 원문 watch를 중단하고 이후 GitHub 검증을 job명·상태·결론 fixed projection으로 재실행 |
 | `GHA-AZURE-RUNNER-WARNINGS-001` | P3 | `BACKLOG` | 성공한 release에 Node.js 20 action deprecation과 Azure CLI version parse 경고 2건이 남았다. 현재 배포 결과에는 영향이 없다. | Azure action/runner 호환 버전을 다음 배포 유지보수에서 갱신·재검증 |
 
 ## Change 018 — 승인형 GitHub 운영 release 연결

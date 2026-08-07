@@ -235,6 +235,7 @@ Backend 전체 회귀는 통합 PostgreSQL 시나리오와 migration `0063` upgr
 | `PC-001-F11` | P2 | Resolved | 계획 대비 실적 헤더의 검은 채움이 표 가독성을 낮추고 일정 막대에는 위치를 해석할 날짜 축이 없었다. | 밝은 중립 헤더와 최대 6개 날짜 축·동일 위치 세로 기준선을 추가하고 desktop·390px 겹침·잘림·overflow를 검증했다. |
 | `PC-001-F12` | P2 | Resolved | 생산계획 항목의 계획 담당자·필요 인원을 기록할 수 없고 조회 표가 내부 실적 연결 설정을 노출해 현장 배치 계획을 바로 읽기 어려웠다. | nullable 담당자·필요 인원 metadata와 생산관리 코멘트를 저장·이력화하고, 조회 표는 8열 생산계획표로 바꾸되 자동 실적 연결 계약은 유지했다. |
 | `CI-FRONTEND-FORM-TEMPLATE-001` | P2 | Resolved | 같은 현재 version을 다시 선택하는 후행 효과가 `editing=false`를 적용해 빠른 `수정` 직후 저장 버튼을 없앨 수 있었고 Frontend CI에서 두 차례 재현됐다. | 동일 version 재선택을 생략하고 집중 unit `3/3`·연속 `10/10`·전체 `177/177`로 고정했다. Full-Stack·표준 CI는 게시 Gate에서 확인한다. |
+| `CI-FULLSTACK-FORM-TEMPLATE-FIXTURE-001` | P2 | Resolved | 첫 Change 010 PR Full-Stack은 격리 DB 기본 Item에 현재 제조 양식이 없는데도 바로 `수정`을 기다려 시간 초과했다. | UI로 현재 양식을 준비한 뒤 reload해 실제 기존 양식의 빠른 편집을 검증하도록 self-contained fixture로 보정했다. |
 | `PC-001-F04` | P3 | Backlog | 대규모 프로젝트에서 조회 시 실적 projection 비용이 증가할 수 있다. | 실제 성능 측정에서 병목이 확인될 때 query 최적화 또는 파생 cache Task로 분리한다. |
 
 Open P0/P1/P2: `0/0/0`.

@@ -46,3 +46,4 @@
 | Finding ID | 심각도 | 상태 | 원인·영향 | Resolution |
 | --- | --- | --- | --- | --- |
 | `CI-FRONTEND-FORM-TEMPLATE-001` | P2 | `RESOLVED` | 동일 version의 중복 선택 동기화가 빠른 편집 진입을 취소해 CI와 실제 빠른 조작에서 저장 버튼이 사라질 수 있다. | 같은 version이면 후행 초기화를 생략했고 집중 unit `3/3`·연속 `10/10`·Frontend 전체 `177/177`·lint·typecheck·build를 통과했다. Full-Stack·표준 CI는 게시 Gate에서 확인한다. |
+| `CI-FULLSTACK-FORM-TEMPLATE-FIXTURE-001` | P2 | `RESOLVED` | 첫 PR Full-Stack 격리 DB의 기본 Item에는 현재 제조 양식이 없어 회귀가 `수정`을 기다리며 시간 초과했다. 제품 수정 실패가 아니라 테스트 준비조건 누락이었다. | 현재 양식이 없으면 UI로 한 번 생성하고 reload한 뒤 `수정 → 저장 유지`를 검증하도록 fixture를 self-contained하게 만들었다. |

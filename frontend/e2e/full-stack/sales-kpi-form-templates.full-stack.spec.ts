@@ -46,22 +46,38 @@ test('DESIGN-000 + SALES-KPI-001 Change 002: token foundation and adaptive decis
   await expect(page.getByRole('button', { name: '저장' })).toBeEnabled();
   await capture(page, '05-form-templates-desktop-1440.png');
 
-  await page.getByRole('button', { name: '취소' }).click();
-  await page.getByRole('button', { name: /Item별 제조 양식/ }).click();
-  await expect(page.getByRole('combobox', { name: '적용 Item' })).toBeVisible();
-  await page.getByRole('button', { name: '수정' }).click();
-  const productionSaveButton = page.getByRole('button', { name: '저장' });
-  await expect(productionSaveButton).toBeVisible();
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  await expect(productionSaveButton).toBeVisible();
-  await expect(productionSaveButton).toBeEnabled();
-
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/form-templates');
   await expect(page.getByRole('heading', { name: '양식 관리' })).toBeVisible();
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
   await assertNoHorizontalOverflow(page);
   await capture(page, '06-form-templates-mobile-390.png');
+});
+
+test('TASK-PRODUCTION-CONTROL-001 Change 010: current manufacturing form keeps a fast edit action', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('개발 사용자').selectOption('dev-admin');
+  await page.goto('/form-templates');
+  await expect(page.getByRole('heading', { name: '양식 관리' })).toBeVisible();
+  await page.getByRole('button', { name: /Item별 제조 양식/ }).click();
+  await expect(page.getByRole('combobox', { name: '적용 Item' })).toBeVisible();
+
+  const createCurrentButton = page.getByRole('button', { name: '양식 만들기' });
+  if (await createCurrentButton.isVisible()) {
+    await createCurrentButton.click();
+    await expect(page.getByRole('button', { name: '저장' })).toBeVisible();
+    await page.reload();
+    await page.getByLabel('개발 사용자').selectOption('dev-admin');
+    await page.getByRole('button', { name: /Item별 제조 양식/ }).click();
+    await expect(page.getByRole('combobox', { name: '적용 Item' })).toBeVisible();
+  }
+
+  await page.getByRole('button', { name: '수정' }).click();
+  const productionSaveButton = page.getByRole('button', { name: '저장' });
+  await expect(productionSaveButton).toBeVisible();
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(productionSaveButton).toBeVisible();
+  await expect(productionSaveButton).toBeEnabled();
 });
 
 async function mockSalesKpi(route: Route) {

@@ -4,11 +4,13 @@
 
 - Task 유형: `BUGFIX`
 - 변경 계약: [Change 011](e2e-full-suite-001-change-011.md)
-- 상태: 구현·로컬 자동 검증 완료, PR 최신 head CI 대기
+- 상태: 구현·로컬 검증·PR 최신 head CI·원격 `main` 병합 완료, 후속 제품 Finding은 Change 012로 분리
 - 제품 영향: 없음. Full-Stack E2E의 route와 readiness assertion만 변경했다.
 - 제외: Backend·API·DB·migration·dependency·runtime·Persistent UAT·Azure 운영 release·실제 provider.
 
-PR #75의 Full-Stack E2E가 suite 누적 프로젝트 수에 따라 같은 위치에서 반복 실패하던 결함을 해소했다. 테스트는 자신이 생성한 프로젝트 ID로 Pending 화면을 열고 그 프로젝트 제목을 확인하므로 전역 100개 목록의 정렬·페이지 크기에 의존하지 않는다.
+최종 게시 PR #76의 Full-Stack E2E가 suite 누적 프로젝트 수에 따라 같은 위치에서 반복 실패하던 test 결함을 해소했다. 테스트는 자신이 생성한 프로젝트 ID로 Pending 화면을 열어 전역 100개 목록에서 대상을 찾는 동작을 제거했다. PR 최신 head CI `3/3`은 통과했고 원격 `main`에 병합됐다.
+
+병합 SHA의 push CI에서는 같은 제목 assertion이 다시 실패했다. 이번에는 route filtering이 아니라 제품 화면 제목이 전역 최근 100개 프로젝트 목록 또는 첫 Pending에 의존한 별도 P2 `PENDING-SCOPED-DEEP-LINK-METADATA-FALLBACK`으로 확인했고 [Change 012](e2e-full-suite-001-change-012.md)에서 보정한다.
 
 ## 2. 기술적 결정과 대안
 
@@ -36,16 +38,19 @@ PR #75의 Full-Stack E2E가 suite 누적 프로젝트 수에 따라 같은 위�
 | Frontend unit | 영향 회귀 | `175/175 PASS` |
 | Frontend build | 영향 회귀 | `PASS`, 기존 large chunk warning 유지 |
 | 변경 spec targeted 반복 | 직접 회귀 | 격리 실행 `3/3 PASS`, 실행별 DB·container·network cleanup `PASS` |
-| PR #75 Frontend·Backend·Full-Stack CI | 게시 Gate | 진행 중 |
+| PR #76 Frontend·Backend·Full-Stack CI | 게시 Gate | `3/3 PASS` |
+| PR #76 원격 `main` 병합 | 게시 Gate | `PASS`, merge SHA `7a8d241d56e2f94b33c3125dd34d95ef4a7158f0` |
+| merge SHA push CI | 후속 Gate | Frontend·Backend `PASS`, Full-Stack `55/56 FAIL`; Change 012로 분리 |
 | Persistent UAT·실제 provider | 제외 | `N/A` — test-only 수정이고 승인 범위 밖 |
 
 ## 5. Finding gate
 
 | ID | Severity | 상태 | 원인·영향 | 해소 |
 | --- | --- | --- | --- | --- |
-| `E2E-PENDING-GLOBAL-PAGINATION-COUPLING` | P2 | `LOCAL_RESOLVED_CI_PENDING` | 전역 100개 프로젝트 목록에서 새 프로젝트가 제외돼 전체 CI가 결정적으로 실패 | 프로젝트별 canonical route와 제목 readiness로 변경, targeted 격리 실행 `3/3`; PR 전체 CI 대기 |
+| `E2E-PENDING-GLOBAL-PAGINATION-COUPLING` | P2 | `RESOLVED` | 전역 100개 프로젝트 목록에서 새 프로젝트가 제외돼 전체 CI가 결정적으로 실패 | 프로젝트별 canonical route로 변경, targeted `3/3`과 PR #76 CI `3/3` 통과 |
+| `PENDING-SCOPED-DEEP-LINK-METADATA-FALLBACK` | P2 | `MOVED_TO_CHANGE_012` | exact route의 제목은 여전히 최근 100개 목록·첫 Pending에 의존 | Change 012 exact project metadata 보정으로 분리 |
 
-Open P0/P1은 `0/0`이다. P2는 PR 최신 head의 전체 CI가 통과할 때 `RESOLVED`로 닫는다.
+Change 011 자체 Open P0/P1/P2는 `0/0/0`이다. merge SHA push CI에서 확인된 별도 제품 P2는 Change 012가 추적한다.
 
 ## 6. 개인정보·secret·artifact
 
@@ -64,8 +69,9 @@ Open P0/P1은 `0/0`이다. P2는 PR 최신 head의 전체 CI가 통과할 때 `R
 - [x] 제품 화면·기능·권한·DB가 변경되지 않는 범위를 확인했다.
 - [x] 변경 spec targeted 반복 실행이 통과했다.
 - [x] Frontend 기본 검증이 통과했다.
-- [ ] PR #75 최신 head의 CI 3종이 모두 통과했다.
-- [ ] PR #75가 원격 `main`에 병합됐다.
+- [x] PR #76 최신 head의 CI 3종이 모두 통과했다.
+- [x] PR #76이 원격 `main`에 병합됐다.
+- [x] merge SHA push CI의 별도 제품 Finding을 Change 012로 분리했다.
 
 사용자 직접 화면 검수는 `적용 대상 아님`이다. 제품 UI가 바뀌지 않는 자동검증 전용 수정이다.
 
@@ -81,4 +87,4 @@ Open P0/P1은 `0/0`이다. P2는 PR 최신 head의 전체 CI가 통과할 때 `R
 
 ## 10. 해결한 업무 문제와 남은 항목
 
-전체 회귀가 제품 결함이 아닌 전역 목록 페이지 제한으로 실패해 Azure Change 018의 게시가 막혔다. 프로젝트별 route로 검증 대상을 정확히 고정했다. 남은 항목은 자동 검증, PR CI와 승인된 `main` merge이며 실제 Azure 운영 release는 계속 별도 명시 실행이다.
+전역 목록 페이지 제한에 결합된 test를 프로젝트별 route로 고정했고 PR #76 게시를 완료했다. merge SHA push CI에서 드러난 제품 화면 메타데이터 fallback은 Change 012로 분리했다. 실제 Azure 운영 release는 계속 별도 명시 실행이다.

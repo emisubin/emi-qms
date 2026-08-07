@@ -1266,7 +1266,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-AZURE-DEPLOY-001: 20일 Azure 시범 배포
 
-- 상태/다음 순서: Change 015~017은 PR #74로 원격 `main`에 게시·CI 완료 / Change 018 승인형 GitHub 운영 release source·synthetic rollback 검증·GitHub Environment variable `4/4`·OIDC exact resource 역할 구성 완료 / Change 018 게시와 별도 운영 release 실행 뒤 Teams SSO·새 manifest 기획
+- 상태/다음 순서: Change 015~017은 PR #74로 원격 `main`에 게시·CI 완료 / Change 018 승인형 GitHub 운영 release source·synthetic rollback 검증·GitHub Environment variable `4/4`·OIDC exact resource 역할 구성·PR #76 원격 `main` 병합 완료 / merge SHA Full-Stack P2는 TASK-E2E-FULL-SUITE-001 Change 012 후속 보정·게시 뒤 별도 운영 release 실행
 - 목적: 승인된 Azure 시범 사양을 provider-specific 배포 artifact, migration·restore·traffic gate와 Teams manifest로 전환해 3개 프로젝트를 20일 동안 안전하게 시범 운영한다.
 - 포함 범위: Front Door Standard custom rate limit, Container Apps Consumption Frontend/API/ClamAV, one-shot migration job, private PostgreSQL Flexible Server B2s 32 GB·PITR 14일, ACR Basic, Azure Files 5 GB, Key Vault, Log Analytics 1 GB/day cap, Application Insights, 최종 hostname·Entra·Teams manifest handover
 - 제외 범위: 기존 PostgreSQL 첨부의 Blob 이관, HA, Front Door Premium managed WAF, 실제 비용 resource의 Codex 자동 생성, 사용자 승인 없는 traffic·provider 발송, 정식 운영 사양 확정
@@ -1275,7 +1275,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 자동 검증: Change 003 Backend 보안 집중 42/42·전체 격리 회귀 481/481, 실제 PostgreSQL runtime role 업무 CRUD 성공·schema/role/temporary/ledger mutation 거부, 기존 migration image 67 Exact, Bicep 4종 compile. Change 004 ARM JSON·OIDC image workflow 검증. Change 006 Teams package 2/2, PWA asset 1/1, Frontend 175/175·lint·typecheck·build, Azure static artifact와 local Production preview manifest/icon `200` 완료
 - Finding: `AZURE-IDENTITY-001`, `AZURE-DB-ROLE-001`, `AZURE-BACKEND-PROBE-HOST-001`, `AZURE-FRONTEND-NGINX-MAP-001`, `AZURE-FRONTEND-BACKEND-HOST-001`, `AZURE-BACKEND-HOST-FILTER-001` P1과 `AZURE-PORTAL-ARTIFACT-001`, `AZURE-WEB-IMAGE-PUBLISH-001` P2 `RESOLVED`. Teams Activity와 Gmail SMTP provider 처리 및 사용자 client·메일함 실제 수신 확인 완료
 - 산출물: [Identity Gate](../tasks/azure-deploy-001-identity-gate.md), [Change 009](../tasks/azure-deploy-001-change-009.md), [Change 010](../tasks/azure-deploy-001-change-010.md), [Change 011](../tasks/azure-deploy-001-change-011.md), [Change 012](../tasks/azure-deploy-001-change-012.md), [Change 013](../tasks/azure-deploy-001-change-013.md), [Change 014](../tasks/azure-deploy-001-change-014.md), [Change 015](../tasks/azure-deploy-001-change-015.md), [Change 016](../tasks/azure-deploy-001-change-016.md), [Change 017](../tasks/azure-deploy-001-change-017.md), [Change 018](../tasks/azure-deploy-001-change-018.md), [Implementation report](../tasks/azure-deploy-001-implementation-report.md), [SOP](../tasks/azure-deploy-001-sop.md), [User validation checklist](../tasks/azure-deploy-001-user-validation-checklist.md), [Azure pilot infrastructure](../infrastructure/azure-pilot/README.md)
-- 다음 Gate: Change 018 source를 원격 `main`에 게시한다. 실제 운영 release는 별도 명시 실행·검수 뒤 Teams SSO·새 manifest 기획으로 진행한다.
+- 다음 Gate: TASK-E2E-FULL-SUITE-001 Change 012의 원격 `main`·merge SHA CI를 완료한다. 실제 운영 release는 그 뒤 별도 명시 실행·검수하고 Teams SSO·새 manifest 기획으로 진행한다.
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 
@@ -1763,6 +1763,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 2026-07-23 Change 009 실험 상태: 사용자가 Codex 재요청 없이 고정 검수 Frontend `42983`과 Backend `41166`을 함께 시작하는 macOS 더블클릭 launcher를 추가했다. 기존 검수 DB와 strict port를 유지하고 Docker·dependency preflight, PID·시작 fingerprint·cwd·command·process ancestry ownership, readiness와 중복 실행 방지를 적용했다. 미소유 listener는 종료하거나 다른 port로 우회하지 않는다.
 - 2026-07-28 Change 010 실험 상태: 일반 1면과 12면 stress 실제 역할 lifecycle spec을 현재 선택형 FAT, 생산관리 업무 route·접기 입력, 프로젝트 우선 자재/IQC, LQC·OQC 파생 판정, 물류 증빙 선첨부 1회 저장·확정과 `발행 확인 저장` 계약으로 갱신했다. 일반 `1/1`은 18단계·프로젝트 완료·open Pending 0, stress `1/1`은 12면·사급 분할 6회·제조 Pending 6건·18단계 완료를 isolated PostgreSQL에서 통과하고 임시 자원을 정리했다.
 - 2026-08-07 Change 011 게시 보정: PR #75 전체 CI에서 전역 Pending dashboard의 `pageSize: 100`과 suite 누적 합성 프로젝트가 결합해 새 프로젝트를 찾지 못한 P2를 확인했다. 테스트는 생성 프로젝트 ID의 `/pending?projectId=<id>`와 프로젝트 제목 heading을 사용하도록 고정하며 제품 UI·API·DB·migration·runtime은 변경하지 않는다. Targeted 격리 실행 `3/3`과 Frontend `175/175`·lint·typecheck·build를 통과했으며 PR 최신 head CI 뒤 같은 승인으로 원격 `main`에 게시한다.
+- 2026-08-07 Change 012 게시 보정: PR #76 최신 head CI `3/3`과 원격 `main` 병합 뒤 merge SHA Full-Stack `55/56`에서 프로젝트별 Pending 제목이 전역 최근 100개 목록 또는 첫 Pending에 의존한 별도 P2를 확인했다. 프로젝트별 route는 exact project detail을 직접 읽고 실패 시 generic 제목 대신 retry를 제공한다. 수정 전 deterministic 실패, Frontend `177/177`, targeted `3/3`, desktop·390px overflow `0`, 전체 Full-Stack `56/56`, Backend `486/486`을 통과했으며 PR 최신 head·merge SHA CI 뒤 운영 release Gate를 재개한다.
 
 ### TASK-BILLING-REQUEST-001: 회계팀 세금계산서 발행요청 Excel
 
@@ -1886,7 +1887,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | 완료 / 독립 재검증·CI 3/3·PR #55 squash merge / Open P0/P1/P2/P3 `0/0/0/0` | 사용자/기획/개발 | TASK-USER-FLOW-001 Change 004 | 개인 개발 판단 자료. Fable direct-write 원문·확정/권고/미확정 경계·병렬 dependency map·vertical slice를 반영했으며 제품 구현·Phase B는 미승인 |
 | 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / Governance merge 승인 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Governance merge 뒤 USER-FLOW를 최신 main에서 별도 처리 |
 | 89 | 선택 프로젝트 Excel 내보내기 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/개발 | TASK-EXPORT-002 | 선택 subset·전부-or-전무 scope 검증·`ProjectsSelected` audit·desktop/mobile/Excel screenshot 완료. 대표 repo·main·Persistent UAT·게시 제외 |
-| 90 | 실험 계보 Full-Stack 전체 회귀 | Change 011 원격 게시 검증 중 | 개발/품질 | TASK-E2E-FULL-SUITE-001 | 기존 lifecycle 기준선을 유지하고 PR #75의 Pending hub 확인만 생성 프로젝트 scope로 고정. 제품 변경 0, targeted 반복·PR 전체 CI 통과 뒤 원격 main 게시 |
+| 90 | 실험 계보 Full-Stack 전체 회귀 | Change 011 PR #76 병합 완료 / Change 012 로컬 전체 검증 완료·원격 게시 대기 | 개발/품질 | TASK-E2E-FULL-SUITE-001 | 전역 목록 test 결합은 해소. Exact Pending route 메타데이터 P2를 project detail·fail-closed retry로 보정하고 Frontend 177·Full-Stack 56·Backend 486 통과. PR 최신 head·merge SHA CI 뒤 Azure 운영 release Gate 재개 |
 | 92 | 실험 Task 완료 원장과 중복 실행 방지 | 완료 원장 작성·Task selection gate 적용 | 사용자/개발 | TASK-GOV-CODEX-002 Change 015 | 완료 18 Task·A1 slice·남은 Task·P3 backlog를 분리. `BATCHED_FINAL`은 사용자 검수 완료가 아니며 완료 scope 재구현을 금지 |
 
 ## 25. 결정 이력 (Decision Log)
@@ -2142,6 +2143,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-06 | `TASK-AZURE-DEPLOY-001 Change 017`의 Teams client·메일함 실제 수신을 완료하고 Change 015~017 원격 게시 뒤 승인 게이트형 GitHub→Azure 배포 연결을 Teams SSO보다 먼저 진행 | 실제 provider 수락과 사용자 수신을 모두 닫고, 원격 `main`을 운영 배포 원본으로 만들되 GitHub 수동 운영 release에서 최신 main SHA와 명시 확인값을 제출하기 전에는 Azure 운영 변경이 시작되지 않게 하기 위함 | 23장~25장, TASK-AZURE-DEPLOY-001 Change 015~017 |
 | 2026-08-06 | `TASK-AZURE-DEPLOY-001 Change 018`에서 private Repository의 실제 지원 범위에 맞춰 GitHub 수동 운영 release를 최신 `main` SHA·image·운영 배포 확인으로 fail-closed하고, migration→Backend→Frontend와 rollback을 연결 | 존재하지 않는 필수 검토자 보호를 주장하지 않으면서 자동 `push` 배포를 막고, OIDC exact resource 최소 권한과 별도 명시 실행 경계를 유지하기 위함 | 23장~25장, TASK-AZURE-DEPLOY-001 Change 018 |
 | 2026-08-07 | `TASK-E2E-FULL-SUITE-001 Change 011`에서 PR #75의 Pending hub 검증을 전역 100개 목록이 아니라 생성 프로젝트별 canonical route로 고정 | 전체 suite가 100개를 넘는 합성 프로젝트를 누적할 때 전역 첫 페이지에서 대상이 제외돼 정상 제품을 실패로 판정한 P2를 test-only로 해소하고 Azure Change 018 게시 Gate를 복구하기 위함 | 23장~25장, TASK-E2E-FULL-SUITE-001 Change 011 |
+| 2026-08-07 | `TASK-E2E-FULL-SUITE-001 Change 012`에서 프로젝트별 Pending 제목·코드를 exact project detail로 읽고 실패 시 generic fallback 대신 retry를 제공 | PR #76 최신 head는 통과했지만 merge SHA 누적 suite에서 대상 프로젝트가 최근 100개 밖이고 Pending 0건이면 exact route도 일반 제목으로 표시되는 제품 P2가 드러나, 전역 목록 크기를 늘리지 않고 사용자 link 계약과 Azure 운영 release 품질 Gate를 함께 복구하기 위함 | 23장~25장, TASK-E2E-FULL-SUITE-001 Change 012 |
 
 ## 26. 용어 사전
 

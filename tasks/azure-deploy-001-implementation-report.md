@@ -11,7 +11,7 @@
 - SHA tag로 image를 게시한 뒤 digest를 고정한다. 현재 앱 readiness와 공개 보안 기준선을 확인하고 migration job이 성공한 경우에만 Backend, Frontend 순서로 single revision image를 교체한다.
 - Migration 실패 시 앱 변경은 `0`이다. Backend·Frontend 교체 또는 최종 공개 보안 검사 실패 시 직전 image로 best-effort rollback한다. Migration은 기존 additive forward-fix 원칙을 유지한다.
 - Source는 PR #76으로 원격 `main`에 병합됐다. 게시만으로 실제 운영 release는 실행되지 않으며, 실제 run은 별도 명시 실행과 결과 검수로 남긴다.
-- PR #76 최신 head CI `3/3`은 통과했지만 merge SHA push CI의 Full-Stack이 `55/56`으로 실패해 `TASK-E2E-FULL-SUITE-001 Change 012` 후속 품질 Gate를 열었다. Change 018 workflow 자체나 Azure runtime 결함이 아니며 운영 release는 후속 main CI가 닫힐 때까지 실행하지 않는다.
+- PR #76 merge SHA push CI의 Full-Stack `55/56` 실패로 열었던 `TASK-E2E-FULL-SUITE-001 Change 012` 후속 품질 Gate는 PR #77 병합과 merge SHA CI `3/3`으로 닫혔다. Change 018 workflow 자체나 Azure runtime 결함은 없었고 실제 운영 release는 계속 별도 명시 실행으로 유지한다.
 
 ### 검증 결과
 
@@ -32,8 +32,8 @@
 | OIDC exact resource 역할 | Backend·Frontend·migration `3/3` + 기존 ACR `AcrPush` |
 | 넓은 Contributor 추가 | subscription/resource group `0` |
 | Change 018 source 게시 | PR #76 원격 `main` 병합 완료 |
-| merge SHA push CI | Frontend·Backend `PASS`, Full-Stack `55/56 FAIL`; Change 012 후속 보정 중 |
-| 실제 운영 release | `NOT_RUN`, Change 012 main CI 완료 뒤 별도 명시 실행 |
+| Change 012 후속 품질 Gate | PR #77 최신 head·merge SHA CI 모두 `3/3 PASS` |
+| 실제 운영 release | `NOT_RUN`, 별도 명시 실행 대기 |
 
 ### 권한과 외부 설정 Gate
 
@@ -815,7 +815,7 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - 사용자 검수: `Change 003~014의 구현·runtime 적용 승인 완료 / 현재 비상 관리자 로그인·관리자 화면 접근 확인`
 - Azure resource: `생성·readiness 확인 완료`
 - Public URL: `DNS·managed TLS·정적 화면·PWA·origin 403·readiness 200·익명 API 401 완료`
-- 다음 Gate: Change 012 원격 `main`·merge SHA CI 완료 → 별도 명시 운영 release → Teams SSO·새 manifest 기획 순으로 진행한다.
+- 다음 Gate: 별도 명시 운영 release → 실행 결과 검수 → Teams SSO·새 manifest 기획 순으로 진행한다.
 - 비용·장애·응답시간·DB·첨부 증가량은 20일 시범 기간 동안 계속 기록한다.
 
 ## 13. 종료 산출물
@@ -839,5 +839,5 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - Change 015~017: PR #74 원격 `main` squash merge와 CI 3종 성공.
 - Change 016: bootstrap 관리자 1명 대상 synthetic Teams Activity Graph actual 1회가 `204 Sent`. 대상 Entra 사용자 일치와 Teams web exact 제목·preview 렌더링을 확인했고 Runtime 설정·DB·업무 data는 변경하지 않았다. 이후 실제 worker 알림 수신 검수로 client 표시까지 확인했다.
 - Change 017: 외부 알림 Worker·Teams Activity·Gmail SMTP actual 활성화, 최신 수동 Teams Activity `6/6 Sent`·Mail `3/3 Sent`, Open Pending/Processing/Failed `0`, latest Backend revision Ready, 사용자 Teams client·메일함 실제 수신 완료.
-- Change 018: 승인형 GitHub 운영 release source·mock 검증, Environment variable `4/4`와 OIDC exact resource 역할 `3/3`+기존 ACR `AcrPush` 설정 완료. PR #76 원격 `main` 병합 완료. Merge SHA Full-Stack P2는 `TASK-E2E-FULL-SUITE-001 Change 012`로 후속 보정 중이며 운영 release는 별도 명시 실행 대기.
+- Change 018: 승인형 GitHub 운영 release source·mock 검증, Environment variable `4/4`와 OIDC exact resource 역할 `3/3`+기존 ACR `AcrPush` 설정 완료. PR #76 원격 `main` 병합 완료. Merge SHA Full-Stack P2는 `TASK-E2E-FULL-SUITE-001 Change 012` PR #77과 merge SHA CI `3/3`으로 해소했으며 운영 release는 별도 명시 실행 대기.
 - 미포함: Teams SSO·새 manifest와 QOM branch 반영.

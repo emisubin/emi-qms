@@ -5,7 +5,7 @@
 - Task 유형: `BUGFIX`
 - 변경 계약: [Change 012](e2e-full-suite-001-change-012.md)
 - 기준 `origin/main`: `7a8d241d56e2f94b33c3125dd34d95ef4a7158f0`
-- 상태: 구현·로컬 전체 자동 검증 완료, PR 최신 head CI·원격 `main` 병합 대기
+- 상태: 구현·로컬 전체 자동 검증·PR #77 최신 head CI·원격 `main` 병합·merge SHA push CI 완료
 - 제품 영향: 프로젝트별 Pending route의 프로젝트 메타데이터 loading·error·retry와 제목·코드 source만 변경
 - 제외: Backend·API·DB·migration·dependency·runtime·Persistent UAT·Azure 운영 release·실제 provider
 
@@ -64,6 +64,9 @@ PR #76의 최신 head CI는 Frontend·Backend·Full-Stack `3/3`을 통과했고 
 | Full-Stack isolation cleanup | 필수 | DB drop·container·network 제거 `PASS` |
 | Backend Release build | 전체 pipeline | warning/error `0/0` |
 | Backend 전체 test | 전체 pipeline | `486/486 PASS`, skipped `0` |
+| PR #77 최신 head CI | 게시 Gate | Frontend·Backend·Full-Stack `3/3 PASS` |
+| PR #77 원격 `main` 병합 | 게시 Gate | `PASS`, merge SHA `32c62f9a7c030410e2ebd060fc70b40376546945` |
+| merge SHA push CI | 최종 Gate | run `31137268487`, Frontend·Backend·Full-Stack `3/3 PASS` |
 | `git diff --check` | 필수 | `PASS` |
 | Persistent UAT·실제 provider | 제외 | `N/A` — 영향·승인 범위 밖 |
 
@@ -74,10 +77,10 @@ PR #76의 최신 head CI는 Frontend·Backend·Full-Stack `3/3`을 통과했고 
 | ID | Severity | 상태 | 원인·영향 | 해소 |
 | --- | --- | --- | --- | --- |
 | `E2E-PENDING-GLOBAL-PAGINATION-COUPLING` | P2 | `RESOLVED` | 전역 목록에서 생성 프로젝트를 찾던 test 결함 | Change 011 프로젝트별 route, PR #76 최신 head CI 통과 |
-| `PENDING-SCOPED-DEEP-LINK-METADATA-FALLBACK` | P2 | `LOCAL_RESOLVED_CI_PENDING` | exact route 제목이 최근 100개 목록·첫 Pending에 의존 | exact project API·fail-closed retry, 전체 `56/56`; PR 최신 head·main push CI 대기 |
+| `PENDING-SCOPED-DEEP-LINK-METADATA-FALLBACK` | P2 | `RESOLVED` | exact route 제목이 최근 100개 목록·첫 Pending에 의존 | exact project API·fail-closed retry, 전체 `56/56`, PR #77·merge SHA CI `3/3` 통과 |
 | `PENDING-MOBILE-READINESS-MEASUREMENT-RACE` | P3 | `RESOLVED_TEST` | viewport 변경 직후 desktop state에서 overflow 측정 가능 | mobile layout 활성 확인 뒤 overflow 측정 |
 
-Open P0/P1은 `0/0`이다. P2는 이 변경의 PR 최신 head와 merge SHA push CI가 모두 통과할 때 `RESOLVED`로 닫는다.
+Open P0/P1/P2/P3는 `0/0/0/0`이다. P2는 PR #77 최신 head와 merge SHA push CI가 모두 통과해 `RESOLVED`로 닫았고, mobile readiness P3도 test 보정으로 해소했다.
 
 ## 7. 개인정보·secret·artifact
 
@@ -103,8 +106,8 @@ Rollback은 `PendingPage.tsx`의 exact metadata state/effect와 두 회귀 test�
 - [x] project metadata 오류·재시도 자동 검증
 - [x] desktop·390px 정확한 제목과 overflow `0`
 - [x] Frontend·Backend·Full-Stack 전체 로컬 검증
-- [ ] PR 최신 head CI `3/3`
-- [ ] 원격 `main` 병합과 merge SHA push CI `3/3`
+- [x] PR #77 최신 head CI `3/3`
+- [x] 원격 `main` 병합과 merge SHA push CI `3/3`
 
 별도 사용자 수기 입력 검수는 `N/A`다. 새 입력 능력이나 화면 구조를 추가하지 않고 기존 프로젝트별 link를 복구한다.
 
@@ -116,6 +119,6 @@ Rollback은 `PendingPage.tsx`의 exact metadata state/effect와 두 회귀 test�
 | SOP | 포함됨 | `## 8` |
 | User manual | 포함됨 | `## 9` |
 | Roadmap update | 작성됨 | `docs/00-product-roadmap.md` |
-| User validation checklist | 로컬 완료·GitHub 대기 | `## 9` |
+| User validation checklist | 자동·GitHub 검증 완료 | `## 9` |
 
-남은 항목은 commit·push·PR 최신 head CI·`main` merge·merge SHA push CI다. 실제 Azure 운영 release는 Change 018의 별도 명시 실행으로 유지한다.
+Change 012의 구현·검증·게시 Gate는 완료됐다. 남은 항목은 현재 Task 범위 밖인 Change 018의 실제 Azure 운영 release뿐이며 계속 별도 명시 실행으로 유지한다.

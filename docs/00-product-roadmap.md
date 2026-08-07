@@ -1032,7 +1032,7 @@ Excel 출력 대상 후보:
 | 5.5 | TASK-NOTIFY-AUDIT-001 관리자 preference 감사 조회 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-005 audit 원장 | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | TASK-AZURE-PILOT-001 — 서비스 중립 공개 파일럿 준비 | UAT_RUNTIME | Main Merged / User Validation Complete | Entra API·SPA 분리, one-shot migration·ledger gate, Production preflight·ARM64/AMD64 image 검증과 PR #59 merge 완료 | TASK-UAT-001, local main 승인 기능과 사용자 P1 구현 승인 | provider-specific 실제 runtime은 TASK-AZURE-DEPLOY-001로 이관 | Yes | 완료 scope 재구현 금지 |
-| 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | BUGFIX / UAT_RUNTIME | Change 019 Running State Fix / Local Verified / Publish Pending | Change 018 첫 수동 release는 image `2/2` 게시 뒤 정상 `RunningAtMaxScale` 판정 누락으로 mutation 전에 안전 중단됐다. Change 019는 `Healthy`와 `Running|RunningAtMaxScale`만 허용하고 정지·축소·저하·미확인 상태를 계속 차단한다 | TASK-AZURE-PILOT-001, Change 018 source, 첫 run `BASELINE_NOT_READY` | Change 019 PR·main·actual release 대기. 에스컬레이션·Teams SSO는 후속 기획 | Yes | Change 019 게시 → 최신 main actual release → 결과 검수 → Teams SSO·새 manifest 기획 |
+| 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | BUGFIX / UAT_RUNTIME | Change 019 Main Merged / Runtime Verified | Change 019는 `Healthy`와 `Running|RunningAtMaxScale`만 허용하고 정지·축소·저하·미확인 상태를 mutation 전에 차단한다. PR #79·main CI와 최신 main 운영 release가 성공했다 | TASK-AZURE-PILOT-001, Change 018 source, 첫 run `BASELINE_NOT_READY` | 20일 운영 관찰과 P3 runner 경고 유지보수. 에스컬레이션·Teams SSO는 후속 기획 | Yes | Teams SSO·새 manifest 신규 기능 기획 |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
 
@@ -1266,16 +1266,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-AZURE-DEPLOY-001: 20일 Azure 시범 배포
 
-- 상태/다음 순서: Change 018 첫 actual run은 image `2/2` 게시 뒤 정상 `RunningAtMaxScale` 판정 누락으로 migration·앱 mutation 전에 `BASELINE_NOT_READY` 중단 / Change 019 최소 보정과 mock `11/11` local PASS / PR·main 게시와 최신 main actual release 재실행 대기
+- 상태/다음 순서: Change 019 PR #79 원격 `main` 병합·PR CI `3/3`·main CI 최종 `3/3`·운영 release run `31145661267` 성공 / migration·Backend·Frontend revision 교체·공개 보안 readback 완료 / Teams SSO·새 manifest 신규 기능 기획 대기
 - 목적: 승인된 Azure 시범 사양을 provider-specific 배포 artifact, migration·restore·traffic gate와 Teams manifest로 전환해 3개 프로젝트를 20일 동안 안전하게 시범 운영한다.
 - 포함 범위: Front Door Standard custom rate limit, Container Apps Consumption Frontend/API/ClamAV, one-shot migration job, private PostgreSQL Flexible Server B2s 32 GB·PITR 14일, ACR Basic, Azure Files 5 GB, Key Vault, Log Analytics 1 GB/day cap, Application Insights, 최종 hostname·Entra·Teams manifest handover
 - 제외 범위: 기존 PostgreSQL 첨부의 Blob 이관, HA, Front Door Premium managed WAF, 실제 비용 resource의 Codex 자동 생성, 사용자 승인 없는 traffic·provider 발송, 정식 운영 사양 확정
 - 선행조건: TASK-AZURE-PILOT-001 PR #59 main merge, 사용자 20일 시범 구성과 비용 owner 결정
 - 예상 migration: Azure `0069` 적용 완료, expected/applied `69/69 Exact`. 최신 migration image의 one-shot job 성공 뒤에만 새 application revision을 활성화하는 순서를 준수함
 - 자동 검증: Change 003 Backend 보안 집중 42/42·전체 격리 회귀 481/481, 실제 PostgreSQL runtime role 업무 CRUD 성공·schema/role/temporary/ledger mutation 거부, 기존 migration image 67 Exact, Bicep 4종 compile. Change 004 ARM JSON·OIDC image workflow 검증. Change 006 Teams package 2/2, PWA asset 1/1, Frontend 175/175·lint·typecheck·build, Azure static artifact와 local Production preview manifest/icon `200` 완료
-- Finding: 기존 P1/P2는 `RESOLVED`. `AZURE-RELEASE-RUNNING-STATE-001` P1은 정상 `RunningAtMaxScale`을 장애로 오판해 첫 release를 mutation 전에 중단시켰으며 Change 019 local 보정 완료·원격 게시 대기다.
+- Finding: `AZURE-RELEASE-RUNNING-STATE-001` P1은 정상 `RunningAtMaxScale` 오판을 exact allowlist와 actual release 성공으로 `RESOLVED`했다. main Full-Stack 첫 시도의 5초 UI 표시 지연 `CI-FULLSTACK-QUALITY-REFRESH-001` P2는 격리 `1/1`과 실패 job 재실행 성공으로 `RESOLVED`했다. 성공한 release의 action/CLI 경고 2건은 `GHA-AZURE-RUNNER-WARNINGS-001` P3 backlog로 추적한다.
 - 산출물: [Identity Gate](../tasks/azure-deploy-001-identity-gate.md), [Change 009](../tasks/azure-deploy-001-change-009.md), [Change 010](../tasks/azure-deploy-001-change-010.md), [Change 011](../tasks/azure-deploy-001-change-011.md), [Change 012](../tasks/azure-deploy-001-change-012.md), [Change 013](../tasks/azure-deploy-001-change-013.md), [Change 014](../tasks/azure-deploy-001-change-014.md), [Change 015](../tasks/azure-deploy-001-change-015.md), [Change 016](../tasks/azure-deploy-001-change-016.md), [Change 017](../tasks/azure-deploy-001-change-017.md), [Change 018](../tasks/azure-deploy-001-change-018.md), [Change 019](../tasks/azure-deploy-001-change-019.md), [Implementation report](../tasks/azure-deploy-001-implementation-report.md), [SOP](../tasks/azure-deploy-001-sop.md), [User validation checklist](../tasks/azure-deploy-001-user-validation-checklist.md), [Azure pilot infrastructure](../infrastructure/azure-pilot/README.md)
-- 다음 Gate: Change 019를 PR·main에 게시한 뒤 최신 main actual release를 재실행·검수하고 Teams SSO·새 manifest 기획으로 진행한다.
+- 다음 Gate: Teams SSO·새 manifest를 별도 `NEW_FEATURE`로 기획한다. Change 019 제품·운영 적용은 완료 상태를 유지한다.
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 
@@ -1889,6 +1889,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 89 | 선택 프로젝트 Excel 내보내기 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/개발 | TASK-EXPORT-002 | 선택 subset·전부-or-전무 scope 검증·`ProjectsSelected` audit·desktop/mobile/Excel screenshot 완료. 대표 repo·main·Persistent UAT·게시 제외 |
 | 90 | 실험 계보 Full-Stack 전체 회귀 | Change 011 PR #76·Change 012 PR #77 원격 병합 및 merge SHA CI 완료 | 개발/품질 | TASK-E2E-FULL-SUITE-001 | 전역 목록 test 결합과 exact Pending route 메타데이터 P2를 project detail·fail-closed retry로 해소. Frontend 177·Full-Stack 56·Backend 486, PR 최신 head·merge SHA CI `3/3` 통과. Azure 운영 release Gate 재개 |
 | 92 | 실험 Task 완료 원장과 중복 실행 방지 | 완료 원장 작성·Task selection gate 적용 | 사용자/개발 | TASK-GOV-CODEX-002 Change 015 | 완료 18 Task·A1 slice·남은 Task·P3 backlog를 분리. `BATCHED_FINAL`은 사용자 검수 완료가 아니며 완료 scope 재구현을 금지 |
+| 95 | GitHub Azure release runner 경고 | P3 Backlog / 다음 배포 유지보수 | 개발/운영 | GHA-AZURE-RUNNER-WARNINGS-001 | Change 019 운영 release는 성공했다. Node.js action runtime과 Azure CLI version parse 경고는 호환 action/runner 갱신 뒤 정적·actual release 회귀로 닫는다 |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -2146,6 +2147,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-07 | `TASK-E2E-FULL-SUITE-001 Change 012`에서 프로젝트별 Pending 제목·코드를 exact project detail로 읽고 실패 시 generic fallback 대신 retry를 제공 | PR #76 최신 head는 통과했지만 merge SHA 누적 suite에서 대상 프로젝트가 최근 100개 밖이고 Pending 0건이면 exact route도 일반 제목으로 표시되는 제품 P2가 드러나, 전역 목록 크기를 늘리지 않고 사용자 link 계약과 Azure 운영 release 품질 Gate를 함께 복구하기 위함 | 23장~25장, TASK-E2E-FULL-SUITE-001 Change 012 |
 | 2026-08-07 | `TASK-E2E-FULL-SUITE-001 Change 012` PR #77과 merge SHA CI `3/3`을 완료하고 Azure Change 018 운영 release Gate를 재개 | exact Pending route의 제품 P2가 로컬 전체 회귀뿐 아니라 PR·실제 main 기준에서도 해소됐음을 확인하고, 문서의 CI 대기 상태를 실제 게시 결과와 맞추기 위함 | 23장~25장, TASK-E2E-FULL-SUITE-001 Change 012 |
 | 2026-08-07 | `TASK-AZURE-DEPLOY-001 Change 019`에서 첫 actual release의 정상 `RunningAtMaxScale` 오판을 보정하고 정지·축소·저하·미확인 상태의 mutation 전 차단을 회귀로 고정 | Azure가 정상 최대 scale revision에 반환하는 값을 허용하되 health·single revision·latest ready와 fail-closed 불변조건을 약화하지 않고 승인형 release를 완료하기 위함 | 23장~25장, TASK-AZURE-DEPLOY-001 Change 019 |
+| 2026-08-07 | `TASK-AZURE-DEPLOY-001 Change 019` PR #79·main CI와 최신 main 운영 release를 완료하고 다음 Gate를 Teams SSO·새 manifest 기획으로 전환 | 정상 상태 판정 보정이 실제 migration·Backend·Frontend 교체와 공개 보안 검사까지 통과했으며, 남은 action/CLI 경고는 운영 결과에 영향 없는 P3 유지보수로 분리됐기 때문 | 23장~25장, TASK-AZURE-DEPLOY-001 Change 019 |
 
 ## 26. 용어 사전
 

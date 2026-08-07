@@ -27,9 +27,11 @@
 | Azure artifact·Bicep compile·ARM JSON 동등성 | `PASS` |
 | Public Deployment Security 집중 test | `42/42 PASS` |
 | Changed-file allowlist·local link·heading·PII pattern | `8/8`, `PASS` |
-| PR 표준 CI | `PENDING` |
-| Git 게시·원격 main 병합 | `PENDING` |
-| 최신 main 실제 운영 release | `PENDING` |
+| PR 표준 CI | PR #79 Backend·Frontend·Full-Stack `3/3 PASS` |
+| Git 게시·원격 main 병합 | merge SHA `8d6ae914e8f748430337a5dd0ad79e7565730733`, `COMPLETE` |
+| main 표준 CI | 최종 Backend·Frontend·Full-Stack `3/3 PASS` |
+| 최신 main 실제 운영 release | run `31145661267`, `PASS` |
+| 운영 readback | migration 최신 execution·Backend·Frontend revision·공개 health·익명 인증 차단 `PASS` |
 
 ### Validation Matrix
 
@@ -37,8 +39,26 @@
 | --- | --- | --- | --- |
 | 최소 검증 | 적용 | `PASS` | instruction chain·Task gate, shell syntax·ShellCheck·actionlint·diff·문서·privacy 검사 |
 | 영향 회귀 | 적용 | `PASS` | release mock `11/11`, Azure artifact compile·정적 검증, Public Deployment Security `42/42` |
-| 전체 pipeline | 부분 적용 | `PENDING_PR_CI` | 제품·dependency·migration·권한 diff가 없어 로컬 전체 제품 suite는 N/A. PR 표준 CI에서 Backend·Frontend·Full-Stack을 확인한다. |
-| 사용자 검수 | 적용 | `PENDING_ACTUAL_RELEASE` | 최신 main actual release와 public security 결과를 운영 Gate에서 확인한다. |
+| 전체 pipeline | 적용 | `PASS` | 제품·dependency·migration·권한 diff는 0이다. PR #79와 merge SHA의 Backend·Frontend·Full-Stack 최종 CI가 모두 통과했다. |
+| 사용자 검수 | 적용 | `AUTOMATED_RUNTIME_VALIDATION_COMPLETE` | 최신 main actual release가 migration·revision 교체·public security를 통과했다. 별도 UI 변경은 없다. |
+
+### 게시·운영 적용 결과
+
+- PR #79를 squash merge했고 원격 `main`은 merge SHA `8d6ae914e8f748430337a5dd0ad79e7565730733`이다.
+- 최초 main Full-Stack 시도에서 기존 장시간 stress 시나리오의 품질 완료 카드가 기본 5초 안에 표시되지 않았다. 같은 merge SHA의 격리 대상은 `1/1 PASS`했고 실패 job 재실행도 성공해 `CI-FULLSTACK-QUALITY-REFRESH-001` P2를 `RESOLVED`했다. 제품 source 변경은 추가하지 않았다.
+- 최신 main full SHA로 운영 release run `31145661267`을 실행했고 image build·push, migration, Backend·Frontend revision 교체와 privacy-safe 결과 기록이 모두 성공했다.
+- Release 내부 검사는 single revision·latest ready·`Healthy`·`Running|RunningAtMaxScale`, migration 최신 execution `Succeeded`, 공개 `/health/live` `200`, 익명 root·API `401`을 확인한 뒤 성공했다.
+- 위 release의 source는 Change 019 merge SHA `8d6ae914e8f748430337a5dd0ad79e7565730733`이다. 이후 Production Control Change 010이 `main` SHA `d86e9f0cd417ddca445d9980188375c847d057bb`에 병합됐으며, 해당 제품 수정의 Azure 운영 재배포는 별도 승인 범위로 남아 있다.
+
+### Change 019 Finding
+
+| ID | 등급 | 상태 | 원인·영향 | 해소·후속 |
+| --- | --- | --- | --- | --- |
+| `AZURE-RELEASE-RUNNING-STATE-001` | P1 | `RESOLVED` | 정상 `RunningAtMaxScale`을 장애로 오판해 첫 release를 mutation 전에 중단했다. | exact 허용 상태 보정, 거부 상태 mutation 0 회귀, actual release 성공 |
+| `CI-FULLSTACK-QUALITY-REFRESH-001` | P2 | `RESOLVED` | merge SHA의 장시간 stress에서 품질 완료 UI 표시가 기본 5초를 한 차례 초과했다. | 격리 대상 `1/1 PASS`, 실패 job 재실행 성공, 제품 변경 불필요 |
+| `CI-FRONTEND-FORM-TEMPLATE-001` | P2 | `RESOLVED` | 문서 마감 PR에서 현재 양식의 후행 재선택이 빠른 `수정` 진입을 취소해 저장 버튼이 사라지는 제품 경쟁이 두 차례 재현됐다. | `TASK-PRODUCTION-CONTROL-001 Change 010`으로 동일 version 재선택을 생략하고 PR #81·main CI `3/3`을 통과한 뒤 원격 `main`에 병합 |
+| `PRIVACY-EVIDENCE-CI-LOG-001` | P2 | `RESOLVED` | CI 진행 확인 중 synthetic test DOM 원문이 검증 출력에 포함됐다. 개인정보·secret은 없고 tracked/staged artifact도 0이었다. | 원문 watch를 중단하고 이후 GitHub 검증을 job명·상태·결론 fixed projection으로 재실행 |
+| `GHA-AZURE-RUNNER-WARNINGS-001` | P3 | `BACKLOG` | 성공한 release에 Node.js 20 action deprecation과 Azure CLI version parse 경고 2건이 남았다. 현재 배포 결과에는 영향이 없다. | Azure action/runner 호환 버전을 다음 배포 유지보수에서 갱신·재검증 |
 
 ## Change 018 — 승인형 GitHub 운영 release 연결
 
@@ -852,21 +872,23 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 
 - Checklist: `작성됨`
 - 자동 검증: `완료`
-- 사용자 검수: `Change 003~014의 구현·runtime 적용 승인 완료 / 현재 비상 관리자 로그인·관리자 화면 접근 확인`
+- 사용자 검수: `Change 003~017의 실제 운영 검수 완료 / Change 019는 별도 UI 변경 없이 actual release 자동 runtime 검증 완료`
 - Azure resource: `생성·readiness 확인 완료`
 - Public URL: `DNS·managed TLS·정적 화면·PWA·origin 403·readiness 200·익명 API 401 완료`
-- 다음 Gate: 별도 명시 운영 release → 실행 결과 검수 → Teams SSO·새 manifest 기획 순으로 진행한다.
+- Change 019 운영 release: `PASS`, migration·Backend·Frontend 교체와 public security 확인 완료
+- 다음 제품 Gate: Teams SSO·새 manifest를 별도 신규 기능으로 기획한다.
+- 운영 동기화 Gate: Change 019 release 이후 `main`에 병합된 Production Control Change 010은 Azure 운영 image에 미반영이며, 별도 승인형 release가 필요하다.
 - 비용·장애·응답시간·DB·첨부 증가량은 20일 시범 기간 동안 계속 기록한다.
 
 ## 13. 종료 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 018 승인형 release source·검증·미실행 운영 Gate 반영 |
-| SOP | `tasks/azure-deploy-001-sop.md` | 최신 main SHA·migration 우선·rollback 운영 절차 반영 |
-| User manual | `infrastructure/azure-pilot/README.md` | GitHub 수동 운영 release 사용자 동선과 최소 권한 반영 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 018 구성·게시·실행 Gate 반영 |
-| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | 자동 검증과 실제 운영 release를 분리해 반영 |
+| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 019 source·CI·actual release·Finding 반영 완료 |
+| SOP | `tasks/azure-deploy-001-sop.md` | 최신 main SHA·migration 우선·rollback·actual release 결과 반영 완료 |
+| User manual | `infrastructure/azure-pilot/README.md` | GitHub 수동 운영 release 사용자 동선과 최소 권한 반영 완료 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 019 main·runtime 완료와 다음 Gate 반영 완료 |
+| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | 자동 검증과 actual release 완료 상태 반영 완료 |
 
 ## 14. Git와 게시 상태
 
@@ -879,5 +901,6 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - Change 015~017: PR #74 원격 `main` squash merge와 CI 3종 성공.
 - Change 016: bootstrap 관리자 1명 대상 synthetic Teams Activity Graph actual 1회가 `204 Sent`. 대상 Entra 사용자 일치와 Teams web exact 제목·preview 렌더링을 확인했고 Runtime 설정·DB·업무 data는 변경하지 않았다. 이후 실제 worker 알림 수신 검수로 client 표시까지 확인했다.
 - Change 017: 외부 알림 Worker·Teams Activity·Gmail SMTP actual 활성화, 최신 수동 Teams Activity `6/6 Sent`·Mail `3/3 Sent`, Open Pending/Processing/Failed `0`, latest Backend revision Ready, 사용자 Teams client·메일함 실제 수신 완료.
-- Change 018: 승인형 GitHub 운영 release source·mock 검증, Environment variable `4/4`와 OIDC exact resource 역할 `3/3`+기존 ACR `AcrPush` 설정 완료. PR #76 원격 `main` 병합 완료. Merge SHA Full-Stack P2는 `TASK-E2E-FULL-SUITE-001 Change 012` PR #77과 merge SHA CI `3/3`으로 해소했으며 운영 release는 별도 명시 실행 대기.
+- Change 018: 승인형 GitHub 운영 release source·mock 검증, Environment variable `4/4`와 OIDC exact resource 역할 `3/3`+기존 ACR `AcrPush` 설정 완료. PR #76 원격 `main` 병합 완료. Merge SHA Full-Stack P2는 `TASK-E2E-FULL-SUITE-001 Change 012` PR #77과 merge SHA CI `3/3`으로 해소했다. 별도 명시 운영 release는 Change 019 보정 뒤 완료했다.
+- Change 019: PR #79 원격 `main` squash merge, PR CI `3/3`, merge SHA main CI 최종 `3/3`, 운영 release run `31145661267` 성공. 정상 revision 상태 판정 P1과 main CI 일시 표시 지연 P2를 해소했고 action/CLI 경고 2건은 P3 backlog로 분리했다.
 - 미포함: Teams SSO·새 manifest와 QOM branch 반영.

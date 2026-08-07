@@ -5,8 +5,8 @@
 - [x] 첫 운영 release가 `BASELINE_NOT_READY`로 중단됐고 migration·Backend·Frontend mutation이 모두 `0`인지 확인했다.
 - [x] 실제 두 앱이 single revision, latest ready, provisioning `Succeeded`, health `Healthy`, running state `RunningAtMaxScale`인지 read-only로 확인했다.
 - [x] `Running`과 `RunningAtMaxScale`만 허용하고 `Stopped`, `ScaleToZero`, `Degraded`, `Unknown`은 mutation 전에 차단하는 mock 회귀를 통과했다.
-- [ ] Change 019 source를 commit·push·PR·CI·원격 `main`에 게시한다.
-- [ ] 최신 `main` full SHA로 운영 release를 다시 실행해 migration·Backend·Frontend·공개 보안 검사를 모두 통과한다.
+- [x] Change 019 source를 commit·push·PR·CI·원격 `main`에 게시했다. (PR #79, 2026-08-07)
+- [x] 최신 `main` full SHA로 운영 release를 다시 실행해 migration·Backend·Frontend·공개 보안 검사를 모두 통과했다. (run `31145661267`, 2026-08-07)
 
 ## Change 018 — 승인형 GitHub 운영 release 연결
 

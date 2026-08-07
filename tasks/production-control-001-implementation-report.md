@@ -1,6 +1,6 @@
 # TASK-PRODUCTION-CONTROL-001 구현 보고 — Item별 생산계획·자동 실적·가로 막대 일정
 
-상태: `기존 기능 원격 main 반영·사용자 검수 완료 / Change 010 로컬 자동 검증 완료·게시 진행`
+상태: `기존 기능 원격 main 반영·사용자 검수 완료 / Change 010 원격 main 병합·main CI 완료`
 
 ## 기준선과 범위
 
@@ -206,7 +206,9 @@ Rollback은 destructive down migration 대신 배포 전 DB backup과 applicatio
 | Change 010 양식 관리 집중 unit | PASS — `3/3`, 같은 suite 연속 실행 `10/10` |
 | Change 010 Frontend 전체 unit | PASS — 25 files, `177/177` |
 | Change 010 Frontend lint·typecheck·build | PASS — lint error 0·기존 Fast Refresh warning 1, typecheck 성공, production build 성공·기존 chunk 경고 유지 |
-| Change 010 Full-Stack browser | CI 예정 — desktop에서 `수정` 뒤 두 animation frame 이후에도 `저장`이 유지되는 assertion을 추가했고 표준 Full-Stack job에서 실행한다. |
+| Change 010 Full-Stack browser | PASS — desktop에서 `수정` 뒤 두 animation frame 이후에도 `저장`이 유지되는 회귀를 포함해 PR #81 Full-Stack `57/57` 통과 |
+| Change 010 표준 CI | PASS — PR #81 Backend·Frontend·Full-Stack `3/3`, merge SHA main CI run `31152166786` `3/3` |
+| Change 010 Git 게시 | PASS — PR #81 squash merge, `main` SHA `d86e9f0cd417ddca445d9980188375c847d057bb` |
 
 Backend 전체 회귀는 통합 PostgreSQL 시나리오와 migration `0063` upgrade를 포함해 `429/429`을 통과했다. Change 008 Frontend 전체 `140/140`·실제 고정 검수 화면도 별도로 통과했으며 새 open P0/P1/P2 Finding은 남지 않았다.
 
@@ -234,7 +236,7 @@ Backend 전체 회귀는 통합 PostgreSQL 시나리오와 migration `0063` upgr
 | `PC-001-F10` | P2 | Resolved | OQC 내부 검사 항목이 생산계획 연결 option으로 모두 노출되어 전진검수·FAT와 다른 과도한 입력을 요구했다. | OQC를 패널별 최종 합격 단일 사건으로 바꾸고 현재 양식만 migration으로 정리했으며 기존 프로젝트 세부 snapshot은 호환 보존했다. |
 | `PC-001-F11` | P2 | Resolved | 계획 대비 실적 헤더의 검은 채움이 표 가독성을 낮추고 일정 막대에는 위치를 해석할 날짜 축이 없었다. | 밝은 중립 헤더와 최대 6개 날짜 축·동일 위치 세로 기준선을 추가하고 desktop·390px 겹침·잘림·overflow를 검증했다. |
 | `PC-001-F12` | P2 | Resolved | 생산계획 항목의 계획 담당자·필요 인원을 기록할 수 없고 조회 표가 내부 실적 연결 설정을 노출해 현장 배치 계획을 바로 읽기 어려웠다. | nullable 담당자·필요 인원 metadata와 생산관리 코멘트를 저장·이력화하고, 조회 표는 8열 생산계획표로 바꾸되 자동 실적 연결 계약은 유지했다. |
-| `CI-FRONTEND-FORM-TEMPLATE-001` | P2 | Resolved | 같은 현재 version을 다시 선택하는 후행 효과가 `editing=false`를 적용해 빠른 `수정` 직후 저장 버튼을 없앨 수 있었고 Frontend CI에서 두 차례 재현됐다. | 동일 version 재선택을 생략하고 집중 unit `3/3`·연속 `10/10`·전체 `177/177`로 고정했다. Full-Stack·표준 CI는 게시 Gate에서 확인한다. |
+| `CI-FRONTEND-FORM-TEMPLATE-001` | P2 | Resolved | 같은 현재 version을 다시 선택하는 후행 효과가 `editing=false`를 적용해 빠른 `수정` 직후 저장 버튼을 없앨 수 있었고 Frontend CI에서 두 차례 재현됐다. | 동일 version 재선택을 생략하고 집중 unit `3/3`·연속 `10/10`·전체 `177/177`, PR·main 표준 CI `3/3`으로 고정했다. |
 | `CI-FULLSTACK-FORM-TEMPLATE-FIXTURE-001` | P2 | Resolved | 첫 Change 010 PR Full-Stack은 현재 제조 양식 없이 `수정`을 기다렸고, 두 번째 실행은 reload 뒤 유지된 관리자 값을 다시 선택해 정상 사용자 전환 규칙으로 목록 route로 이동했다. | UI로 현재 양식을 준비하고 reload 뒤 양식 관리 route를 확인하되 유지된 사용자를 다시 선택하지 않는 self-contained fixture로 보정했다. |
 | `PC-001-F04` | P3 | Backlog | 대규모 프로젝트에서 조회 시 실적 projection 비용이 증가할 수 있다. | 실제 성능 측정에서 병목이 확인될 때 query 최적화 또는 파생 cache Task로 분리한다. |
 
@@ -268,7 +270,7 @@ Open P0/P1/P2: `0/0/0`.
 ## 사용자 검수 결과와 남은 항목
 
 - 기존 생산계획 기능의 자동·사용자 검수와 원격 main 승격은 완료됐다.
-- Change 010은 새로운 화면·정책·입력 방법을 추가하지 않고 기존 `수정 → 저장` 동작의 간헐적 초기화만 제거한다. 로컬 자동 검증은 완료했고 Full-Stack·표준 CI는 게시 Gate에서 확인한다.
+- Change 010은 새로운 화면·정책·입력 방법을 추가하지 않고 기존 `수정 → 저장` 동작의 간헐적 초기화만 제거한다. 로컬 자동 검증, PR #81 표준 CI와 merge SHA main CI를 모두 통과했다.
 - 운영 양식 content 변경, Persistent UAT data mutation과 실제 provider는 Change 010 범위 밖이다.
 
 ## 안전·게시 경계
@@ -277,6 +279,7 @@ Open P0/P1/P2: `0/0/0`.
 - Persistent UAT, Azure runtime, DB와 실제 provider는 변경하지 않는다.
 - 사용자는 Change 010 commit·push·PR·main merge와 이후 문서 PR #80 병합까지 명시 승인했다.
 - 운영 Azure 재배포는 이번 승인 범위에 포함되지 않는다.
+- 따라서 원격 `main`에는 Change 010이 포함되었지만 현재 Azure 운영 image는 Change 019 release 기준선을 유지한다. 재배포는 별도 승인 후 수동 운영 release로 수행한다.
 
 ## 종료 산출물
 

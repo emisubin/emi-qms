@@ -60,7 +60,12 @@
 ## 현재 상태
 
 - Root cause 재현: `PASS`
-- 최소 source 보정: `COMPLETE_LOCAL`
+- 최소 source 보정: `COMPLETE_MAIN`
 - Mock 회귀: `11/11 PASS`
-- Git 게시·원격 main 병합: `PENDING`
-- 실제 운영 release 재실행: `PENDING`
+- Git 게시·원격 main 병합: PR #79, merge SHA `8d6ae914e8f748430337a5dd0ad79e7565730733`, `COMPLETE`
+- PR CI: Backend·Frontend·Full-Stack `3/3 PASS`
+- main CI: Backend·Frontend·Full-Stack 최종 `3/3 PASS`. 첫 Full-Stack 시도의 품질 완료 카드 5초 표시 지연은 격리 대상 `1/1 PASS`와 실패 job 재실행 성공으로 `RESOLVED`했다.
+- 실제 운영 release 재실행: run `31145661267`, `PASS`
+- 운영 적용: migration 최신 execution, Backend·Frontend revision 교체, 공개 health와 익명 인증 차단을 release 내부 readback으로 확인했다.
+- 후속: Teams SSO·새 manifest는 별도 신규 기능 기획으로 진행한다.
+- 운영 source 경계: 현재 release는 Change 019 merge SHA `8d6ae914e8f748430337a5dd0ad79e7565730733` 기준이다. 이후 `main`에 병합된 Production Control Change 010은 Azure 재배포 승인 범위에 포함되지 않아 운영 image에 미반영이다.

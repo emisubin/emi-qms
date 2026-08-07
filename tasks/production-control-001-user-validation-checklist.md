@@ -1,6 +1,6 @@
 # TASK-PRODUCTION-CONTROL-001 사용자 검수 체크리스트
 
-상태: `기존 기능 사용자 검수 완료 / Change 010 자동 회귀 완료·표준 CI 대기`
+상태: `기존 기능 사용자 검수 완료 / Change 010 자동 회귀·원격 main 병합 완료`
 
 고정 검수 환경:
 
@@ -44,7 +44,7 @@
 - [x] 자동 실적 연결은 계속 계산되지만 조회 표에서는 숨겨지고 담당자·필요 인원·코멘트 열이 표시된다.
 - [x] Change 010: Item별 제조 양식에서 카탈로그 로드 직후 `수정`을 눌러도 같은 current version의 후행 동기화가 편집 상태와 `저장` 버튼을 닫지 않는다.
 - [x] Change 010: 양식 관리 집중 unit `3/3`과 연속 `10/10`, Frontend 전체 `177/177`, lint·typecheck·build를 통과한다.
-- [ ] Change 010: 표준 Full-Stack CI에서 desktop `수정 → 두 animation frame 이후 저장 유지`와 기존 390px overflow 회귀를 통과한다.
+- [x] Change 010: 표준 Full-Stack CI에서 desktop `수정 → 두 animation frame 이후 저장 유지`와 기존 390px overflow 회귀를 통과했다. (PR #81 Full-Stack `57/57`, main CI `3/3`)
 
 ## 사용자 검수
 
@@ -95,7 +95,5 @@
 
 ## 게시 경계
 
-- local experiment runtime만 검수한다.
-- 대표 repo·`main`·Persistent UAT·실제 provider는 포함하지 않는다.
-- push·PR·merge는 포함하지 않는다.
-- `main` merge 승인 상태: `2/3` — 3차 승인 대기.
+- Change 010은 PR #81과 merge SHA main CI를 통과하고 원격 `main`에 병합됐다.
+- Persistent UAT·Azure 운영 재배포·실제 provider mutation은 Change 010 게시 승인에 포함되지 않아 수행하지 않았다.

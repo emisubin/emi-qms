@@ -67,7 +67,7 @@ test('TASK-PRODUCTION-CONTROL-001 Change 010: current manufacturing form keeps a
     await createCurrentButton.click();
     await expect(page.getByRole('button', { name: '저장' })).toBeVisible();
     await page.reload();
-    await page.getByLabel('개발 사용자').selectOption('dev-admin');
+    await expect(page.getByRole('heading', { name: '양식 관리' })).toBeVisible();
     await page.getByRole('button', { name: /Item별 제조 양식/ }).click();
     await expect(page.getByRole('combobox', { name: '적용 Item' })).toBeVisible();
   }

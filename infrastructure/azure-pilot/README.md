@@ -101,7 +101,7 @@ Foundation과 ACR이 실제로 생성되고 비용 실행을 결정한 뒤에만
 7. **Run workflow**를 누른다.
 8. 완료된 run의 Summary에서 source SHA, Backend·Frontend digest, migration·두 앱·공개 보안 검사가 모두 성공인지 확인한다.
 
-Workflow는 입력 SHA가 실행 시점 `origin/main`의 정확한 최신 commit이 아니면 Azure 로그인 전에 실패한다. `latest` tag를 만들지 않고 SHA tag만 push한 뒤 digest를 고정한다. 운영 기준선이 준비됐는지 먼저 확인하고, migration job을 새 Backend digest로 실행해 성공한 경우에만 Backend, Frontend 순서로 single revision image를 교체한다. 각 앱 readiness와 공개 `/health/live` `200`, 익명 root·API `401`을 확인한다. Migration 실패 시 앱은 바뀌지 않으며, 앱 교체나 최종 공개 검사 실패 시 직전 image로 best-effort rollback한다.
+Workflow는 입력 SHA가 실행 시점 `origin/main`의 정확한 최신 commit이 아니면 Azure 로그인 전에 실패한다. `latest` tag를 만들지 않고 SHA tag만 push한 뒤 digest를 고정한다. 운영 기준선이 준비됐는지 먼저 확인하고, migration job을 새 Backend digest로 실행해 성공한 경우에만 Backend, Frontend 순서로 single revision image를 교체한다. 각 revision은 exact `Healthy`이면서 running state가 `Running` 또는 `RunningAtMaxScale`이어야 하고, `Stopped`, `ScaleToZero`, `Degraded`, `Unknown`과 빈 값은 차단한다. 공개 `/health/live` `200`, 익명 root·API `401`도 확인한다. Migration 실패 시 앱은 바뀌지 않으며, 앱 교체나 최종 공개 검사 실패 시 직전 image로 best-effort rollback한다.
 
 이 workflow source를 `main`에 게시하는 것만으로 실제 운영 release가 실행되지는 않는다. 실제 run은 별도 명시 실행으로 남긴다.
 

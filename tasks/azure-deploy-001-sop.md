@@ -2,7 +2,7 @@
 
 ## 1. 현재 판정
 
-- Deployment source: Change 015~017 PR #74 원격 `main` 병합·CI 완료 / Change 018 승인형 GitHub 운영 release source·GitHub variable `4/4`·OIDC exact resource 역할 구성 완료, source 게시 진행
+- Deployment source: Change 015~017 PR #74, Change 018 PR #76 원격 `main` 병합·CI 완료 / Change 019 정상 revision 상태 판정 보정과 실제 운영 release 재실행 진행
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
 - GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
@@ -56,9 +56,9 @@ GitHub 운영 release 전 `azure-pilot-image-publish` Environment, `main` branch
 
 현재 private Repository Environment에는 필수 검토자가 적용되어 있지 않다. Workflow는 작업자가 `main`을 선택하고 실행 시점 최신 full SHA, image 게시 확인과 운영 migration·앱 교체 확인을 모두 제출한 경우에만 Azure OIDC login을 시작한다. Backend·Frontend는 source SHA tag와 digest만 사용하고 `latest` tag를 만들지 않는다.
 
-Image 게시 뒤에는 현재 Backend·Frontend가 single revision이고 migration job이 manual인지 확인한다. 현재 앱과 공개 보안 기준선이 정상일 때 migration을 먼저 실행하며, 성공 전에는 앱을 변경하지 않는다. 이후 Backend, Frontend 순서로 digest를 교체하고 각 latest revision의 Healthy·Running과 공개 health·익명 인증 차단을 확인한다. 앱 또는 공개 검사 실패 시 직전 image로 rollback을 시도하며 migration 자체는 additive forward-fix 원칙을 유지한다.
+Image 게시 뒤에는 현재 Backend·Frontend가 single revision이고 migration job이 manual인지 확인한다. 현재 앱과 공개 보안 기준선이 정상일 때 migration을 먼저 실행하며, 성공 전에는 앱을 변경하지 않는다. 이후 Backend, Frontend 순서로 digest를 교체하고 각 latest revision의 exact `Healthy`와 `Running` 또는 `RunningAtMaxScale`, 공개 health·익명 인증 차단을 확인한다. `Stopped`, `ScaleToZero`, `Degraded`, `Unknown`과 빈 값은 준비되지 않은 상태로 차단한다. 앱 또는 공개 검사 실패 시 직전 image로 rollback을 시도하며 migration 자체는 additive forward-fix 원칙을 유지한다.
 
-최초 ARM JSON 배포와 GitHub Actions image 게시 실행은 사용자 확인 아래 완료됐다. Change 018 source 게시은 workflow를 사용할 수 있게 할 뿐 실제 운영 release를 자동 실행하지 않는다. 실제 run은 별도 명시 실행과 결과 검수로 남긴다.
+최초 ARM JSON 배포와 GitHub Actions image 게시 실행은 사용자 확인 아래 완료됐다. Change 018 source 게시는 workflow를 사용할 수 있게 할 뿐 실제 운영 release를 자동 실행하지 않는다. 첫 실제 run은 정상 `RunningAtMaxScale` 판정 누락으로 mutation 전에 안전 중단됐으며 Change 019 보정 게시 뒤 최신 main으로 다시 실행한다.
 
 ## 3. 사용자 입력값
 

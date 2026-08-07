@@ -114,7 +114,9 @@ wait_for_app() {
         --name "${app_name}" \
         --revision "${latest_revision}" \
         --query properties.runningState)" || running_state=''
-      if [[ "${health_state}" == 'Healthy' && "${running_state}" == 'Running' ]]; then
+      if [[ "${health_state}" == 'Healthy' \
+        && ( "${running_state}" == 'Running' \
+          || "${running_state}" == 'RunningAtMaxScale' ) ]]; then
         return 0
       fi
     fi

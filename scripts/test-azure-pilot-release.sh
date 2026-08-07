@@ -98,7 +98,26 @@ case "${command_group}" in
         printf 'Healthy\n'
         ;;
       properties.runningState)
-        printf 'Running\n'
+        case "${AZURE_RELEASE_TEST_SCENARIO}" in
+          success-running-at-max-scale)
+            printf 'RunningAtMaxScale\n'
+            ;;
+          baseline-stopped)
+            printf 'Stopped\n'
+            ;;
+          baseline-scale-to-zero)
+            printf 'ScaleToZero\n'
+            ;;
+          baseline-degraded)
+            printf 'Degraded\n'
+            ;;
+          baseline-unknown)
+            printf 'Unknown\n'
+            ;;
+          *)
+            printf 'Running\n'
+            ;;
+        esac
         ;;
       *)
         exit 2
@@ -234,6 +253,12 @@ run_case() {
 
 run_case 'success' 0 '' \
   'migration-update,migration-start,backend-update,frontend-update'
+run_case 'success-running-at-max-scale' 0 '' \
+  'migration-update,migration-start,backend-update,frontend-update'
+run_case 'baseline-stopped' 70 BASELINE_NOT_READY ''
+run_case 'baseline-scale-to-zero' 70 BASELINE_NOT_READY ''
+run_case 'baseline-degraded' 70 BASELINE_NOT_READY ''
+run_case 'baseline-unknown' 70 BASELINE_NOT_READY ''
 run_case 'unsafe-rollback' 69 UNSAFE_ROLLBACK_BASELINE ''
 run_case 'migration-failed' 73 MIGRATION_FAILED \
   'migration-update,migration-start'

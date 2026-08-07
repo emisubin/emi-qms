@@ -1,21 +1,22 @@
 # TASK-PRODUCTION-CONTROL-001 구현 보고 — Item별 생산계획·자동 실적·가로 막대 일정
 
-상태: `실험 구현·Change 008 자동 검증 완료 / 사용자 검수 대기 — 마지막 일괄 검수`
+상태: `기존 기능 원격 main 반영·사용자 검수 완료 / Change 010 로컬 자동 검증 완료·게시 진행`
 
 ## 기준선과 범위
 
 - instructionChainRead: `true`
-- taskType: `APPROVED_FEATURE_IMPLEMENTATION`
-- branch: `experiment/task-home-002-personalized-shell`
-- implementationBaseline: `de8e05b`
-- latestChange: `tasks/production-control-001-change-008.md`
-- latestChangeBaseline: `a7651b5`
+- taskType: `BUGFIX` (`Change 010`; 본체는 `APPROVED_FEATURE_IMPLEMENTATION` 이력 유지)
+- branch: `fix/task-production-control-001-edit-race-010`
+- implementationBaseline: `8d6ae914e8f748430337a5dd0ad79e7565730733`
+- latestChange: `tasks/production-control-001-change-010.md`
+- originalExperimentBaseline: `de8e05b`
 - planningSource: `tasks/production-control-001-planning.md`
 - codexReviewSource: `tasks/production-control-001-review.md`
 - finalPlanningSource: `docs/43-production-control-plan.md`
 - 사용자 확인: Fable Round 8 전체 요약 `요약 확인`
 - 포함: Item별 단일 현재 제조·생산계획 양식, 계획 항목별 1:1 실적 연결, 새 프로젝트 snapshot, 프로젝트별 계획 기간·항목·연결 수정, 부서 원본 기반 자동 실적, desktop/mobile 조회 UI
-- 제외: 기존 프로젝트 소급 전환, Persistent UAT, 실제 provider, 대표 repo·`main`, push·PR·merge, 18단계 workflow 계산 변경
+- Change 010 포함: 동일한 현재 양식을 다시 선택하는 후행 상태 동기화가 빠른 편집 진입을 취소하지 않도록 하는 Frontend 최소 보정과 회귀 테스트
+- Change 010 제외: Backend·API·DB·migration·권한·양식 내용·화면 디자인·18단계 workflow 계산 변경
 
 ## 해결한 업무 문제
 
@@ -36,6 +37,8 @@ Change 006에서는 OQC 검사 자체의 단계별 판정과 재검사 이력은
 Change 007에서는 연결형 생산관리 탭의 6열 헤더를 밝은 중립 배경·검은 글자로 바꿔 가독성을 회복했다. 계획·실적 일정표에는 전체 기간에서 최대 6개를 자동 산출하는 날짜 축과 동일 위치의 세로 기준선을 추가해 막대 위치를 날짜로 바로 해석할 수 있게 했다.
 
 Change 008에서는 조회 제목을 `생산계획표`로 바꾸고, 프로젝트 생산계획 항목마다 선택 담당자·필요 인원·생산관리 코멘트를 저장하고 조회할 수 있게 했다. 담당자는 활성 업무 담당자 후보 전체에서 중복 없이 선택하며, 필요 인원은 선택값이지만 입력하면 1~999명의 정수만 허용한다. 이 정보는 일정 계획용 metadata이므로 내 업무·알림 수신자·권한·실적 계산은 변경하지 않는다. 자동 실적 연결은 계속 저장·계산하되 조회 표에서는 숨기고 담당자·필요 인원·코멘트 열로 대체했다.
+
+Change 010에서는 양식 카탈로그 로드 직후 사용자가 `수정`을 누르면 같은 version을 다시 적용하는 후행 효과가 편집 상태를 닫을 수 있던 경쟁을 제거했다. Item 또는 양식 domain이 실제로 달라질 때만 새 현재 양식을 선택하고, 이미 선택된 같은 version에는 행·편집 상태 초기화를 반복하지 않는다.
 
 ## 구현 결과
 
@@ -173,7 +176,7 @@ Rollback은 destructive down migration 대신 배포 전 DB backup과 applicatio
 - Backend: `backend/src/Emi.Qms.Api/ProductionPlanning/`, `ProjectStore.cs`, `ManufacturingStore.cs`, `QualityInspectionStore.cs`, `Ul891SetStore.cs`, `Program.cs`
 - Migration: `database/migrations/0058_production_control_linked_plans.sql`, `0059_production_control_lqc_identity.sql`, `0060_production_control_single_current.sql`, `0061_quality_current_forms_and_stage_links.sql`, `0062_production_control_oqc_aggregate_link.sql`, `0063_production_plan_item_staffing.sql`
 - Frontend: `frontend/src/ProductionControlTemplateWorkspace.tsx`, `productionControlTemplates.ts`, `FormTemplateManagementPage.tsx`, `App.tsx`, `api.ts`, `projects.ts`, `styles.css`, `design-system/wireframe.css`
-- Tests: `backend/tests/Emi.Qms.Api.Tests/ProductionPlanningApiTests.cs`, `PostgreSqlMigrationTests.cs`, `frontend/tests/App.test.tsx`, `frontend/tests/FormTemplateManagementPage.test.tsx`
+- Tests: `backend/tests/Emi.Qms.Api.Tests/ProductionPlanningApiTests.cs`, `PostgreSqlMigrationTests.cs`, `frontend/tests/App.test.tsx`, `frontend/tests/FormTemplateManagementPage.test.tsx`, `frontend/e2e/full-stack/sales-kpi-form-templates.full-stack.spec.ts`
 
 ## 검증 결과
 
@@ -200,6 +203,10 @@ Rollback은 destructive down migration 대신 배포 전 DB backup과 applicatio
 | Desktop 생산관리 탭 browser | PASS — 밝은 헤더 `rgb(241, 241, 241)`·검은 글자, 날짜 축 6개, 라벨 겹침·잘림·가로 overflow·console error 없음 |
 | Mobile 390×844 browser | PASS — 계획 카드·근거·실제 가로 막대, 가로 overflow 없음 |
 | Mobile 390px 일정표 browser | PASS — 날짜 축 6개, 라벨 겹침·잘림·가로 overflow 없음 |
+| Change 010 양식 관리 집중 unit | PASS — `3/3`, 같은 suite 연속 실행 `10/10` |
+| Change 010 Frontend 전체 unit | PASS — 25 files, `177/177` |
+| Change 010 Frontend lint·typecheck·build | PASS — lint error 0·기존 Fast Refresh warning 1, typecheck 성공, production build 성공·기존 chunk 경고 유지 |
+| Change 010 Full-Stack browser | CI 예정 — desktop에서 `수정` 뒤 두 animation frame 이후에도 `저장`이 유지되는 assertion을 추가했고 표준 Full-Stack job에서 실행한다. |
 
 Backend 전체 회귀는 통합 PostgreSQL 시나리오와 migration `0063` upgrade를 포함해 `429/429`을 통과했다. Change 008 Frontend 전체 `140/140`·실제 고정 검수 화면도 별도로 통과했으며 새 open P0/P1/P2 Finding은 남지 않았다.
 
@@ -227,6 +234,8 @@ Backend 전체 회귀는 통합 PostgreSQL 시나리오와 migration `0063` upgr
 | `PC-001-F10` | P2 | Resolved | OQC 내부 검사 항목이 생산계획 연결 option으로 모두 노출되어 전진검수·FAT와 다른 과도한 입력을 요구했다. | OQC를 패널별 최종 합격 단일 사건으로 바꾸고 현재 양식만 migration으로 정리했으며 기존 프로젝트 세부 snapshot은 호환 보존했다. |
 | `PC-001-F11` | P2 | Resolved | 계획 대비 실적 헤더의 검은 채움이 표 가독성을 낮추고 일정 막대에는 위치를 해석할 날짜 축이 없었다. | 밝은 중립 헤더와 최대 6개 날짜 축·동일 위치 세로 기준선을 추가하고 desktop·390px 겹침·잘림·overflow를 검증했다. |
 | `PC-001-F12` | P2 | Resolved | 생산계획 항목의 계획 담당자·필요 인원을 기록할 수 없고 조회 표가 내부 실적 연결 설정을 노출해 현장 배치 계획을 바로 읽기 어려웠다. | nullable 담당자·필요 인원 metadata와 생산관리 코멘트를 저장·이력화하고, 조회 표는 8열 생산계획표로 바꾸되 자동 실적 연결 계약은 유지했다. |
+| `CI-FRONTEND-FORM-TEMPLATE-001` | P2 | Resolved | 같은 현재 version을 다시 선택하는 후행 효과가 `editing=false`를 적용해 빠른 `수정` 직후 저장 버튼을 없앨 수 있었고 Frontend CI에서 두 차례 재현됐다. | 동일 version 재선택을 생략하고 집중 unit `3/3`·연속 `10/10`·전체 `177/177`로 고정했다. Full-Stack·표준 CI는 게시 Gate에서 확인한다. |
+| `CI-FULLSTACK-FORM-TEMPLATE-FIXTURE-001` | P2 | Resolved | 첫 Change 010 PR Full-Stack은 현재 제조 양식 없이 `수정`을 기다렸고, 두 번째 실행은 reload 뒤 유지된 관리자 값을 다시 선택해 정상 사용자 전환 규칙으로 목록 route로 이동했다. | UI로 현재 양식을 준비하고 reload 뒤 양식 관리 route를 확인하되 유지된 사용자를 다시 선택하지 않는 self-contained fixture로 보정했다. |
 | `PC-001-F04` | P3 | Backlog | 대규모 프로젝트에서 조회 시 실적 projection 비용이 증가할 수 있다. | 실제 성능 측정에서 병목이 확인될 때 query 최적화 또는 파생 cache Task로 분리한다. |
 
 Open P0/P1/P2: `0/0/0`.
@@ -258,17 +267,16 @@ Open P0/P1/P2: `0/0/0`.
 
 ## 사용자 검수 결과와 남은 항목
 
-- 자동 검증과 합성 데이터 브라우저 검수는 완료했다.
-- 사용자 직접 검수는 실험 branch 정책에 따라 마지막 일괄 검수로 남긴다.
-- 운영 양식 content 입력, Persistent UAT migration과 대표 repo 승격은 현재 Task 범위 밖이다.
+- 기존 생산계획 기능의 자동·사용자 검수와 원격 main 승격은 완료됐다.
+- Change 010은 새로운 화면·정책·입력 방법을 추가하지 않고 기존 `수정 → 저장` 동작의 간헐적 초기화만 제거한다. 로컬 자동 검증은 완료했고 Full-Stack·표준 CI는 게시 Gate에서 확인한다.
+- 운영 양식 content 변경, Persistent UAT data mutation과 실제 provider는 Change 010 범위 밖이다.
 
 ## 안전·게시 경계
 
-- 고정 검수 runtime: Frontend `http://127.0.0.1:42983`, Backend `http://127.0.0.1:41166`
-- local experiment checkpoint: `e6f3fa6`
-- 대표 repo·`main`·Persistent UAT·실제 provider는 변경하지 않는다.
-- push·PR·merge는 실행하지 않는다.
-- `main` merge 승인: `2/3` — 3차 승인 전 merge 금지.
+- Change 010은 최신 `origin/main`에서 분리한 bugfix branch에서만 구현했다.
+- Persistent UAT, Azure runtime, DB와 실제 provider는 변경하지 않는다.
+- 사용자는 Change 010 commit·push·PR·main merge와 이후 문서 PR #80 병합까지 명시 승인했다.
+- 운영 Azure 재배포는 이번 승인 범위에 포함되지 않는다.
 
 ## 종료 산출물
 
@@ -277,5 +285,5 @@ Open P0/P1/P2: `0/0/0`.
 | Implementation report | 작성됨 | 본 문서 |
 | SOP | 포함됨 | 본 문서 `사용자 사용 방법` |
 | User manual | 포함됨 | 본 문서 `사용자 사용 방법` |
-| Roadmap update | 갱신됨 | `docs/00-product-roadmap.md`, `docs/27-experiment-task-ledger.md` |
-| User validation checklist | 작성됨 / 마지막 일괄 검수 대기 | `tasks/production-control-001-user-validation-checklist.md` |
+| Roadmap update | Change 010 갱신됨 | `docs/00-product-roadmap.md` |
+| User validation checklist | 기존 기능 사용자 검수 완료 / Change 010 자동 회귀 추가 | `tasks/production-control-001-user-validation-checklist.md` |

@@ -15713,10 +15713,18 @@ body {
 }
 
 .app-shell .account-photo-actions button,
+.app-shell .account-install-button,
 .app-shell .account-logout-button {
   min-height: 38px;
   border-radius: 9px;
   font-size: 0.72rem;
+}
+
+.app-shell .account-install-button {
+  width: 100%;
+  border-color: var(--line-strong);
+  background: #ffffff;
+  color: var(--ink);
 }
 
 .app-shell .account-logout-button {
@@ -15724,6 +15732,190 @@ body {
   border-color: rgb(218 33 39 / 18%);
   background: var(--brand-red-wash);
   color: var(--brand-red-strong);
+}
+
+.auth-install-button {
+  border: 0;
+  background: transparent;
+  color: var(--auth-muted);
+  padding: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.pwa-install-overlay {
+  position: fixed;
+  z-index: calc(var(--z-modal) + 20);
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(17 17 17 / 44%);
+  padding: 20px;
+}
+
+.pwa-install-dialog {
+  display: grid;
+  width: min(100%, 440px);
+  gap: 16px;
+  border: 1px solid #d0d0d0;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 24px;
+  color: #1a1a1a;
+  box-shadow: none;
+}
+
+.pwa-install-brand {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  border: 1px solid #d0d0d0;
+  background: #ffffff;
+  object-fit: cover;
+}
+
+.pwa-install-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid #e4e4e4;
+  padding-bottom: 14px;
+}
+
+.pwa-install-header div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.pwa-install-header p,
+.pwa-install-dialog h2,
+.pwa-install-dialog p,
+.pwa-install-dialog ol {
+  margin: 0;
+}
+
+.pwa-install-header p {
+  color: #757575;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.pwa-install-dialog h2 {
+  font-size: clamp(21px, 5vw, 26px);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.pwa-install-dialog > p {
+  color: #555555;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.pwa-install-steps {
+  counter-reset: install-step;
+  display: grid;
+  border: 1px solid #e4e4e4;
+  border-radius: 6px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.pwa-install-steps li {
+  counter-increment: install-step;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+}
+
+.pwa-install-steps li + li {
+  border-top: 1px solid #e4e4e4;
+}
+
+.pwa-install-steps li > span {
+  min-width: 0;
+}
+
+.pwa-install-steps li::before {
+  content: counter(install-step);
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid #111111;
+  border-radius: 4px;
+  color: #111111;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pwa-install-note {
+  border: 1px solid #e4e4e4;
+  border-radius: 6px;
+  background: #fafafa;
+  padding: 12px 13px;
+}
+
+.pwa-install-feedback {
+  border-top: 1px solid #e4e4e4;
+  padding-top: 12px;
+  color: #555555 !important;
+  font-weight: 600;
+}
+
+.pwa-install-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pwa-install-actions button {
+  min-height: 46px;
+  border: 1px solid #111111;
+  border-radius: 6px;
+  background: #111111;
+  color: #ffffff;
+  font-weight: 650;
+}
+
+.pwa-install-actions button.secondary {
+  background: #ffffff;
+  color: #282828;
+}
+
+.pwa-install-actions button:only-child {
+  grid-column: 1 / -1;
+}
+
+.pwa-install-actions button:focus-visible {
+  outline: 2px solid #111111;
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .pwa-install-overlay {
+    align-items: end;
+    padding: 0;
+  }
+
+  .pwa-install-dialog {
+    width: 100%;
+    border-radius: 10px 10px 0 0;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+    box-shadow: none;
+  }
 }
 
 .account-review-safe-note,

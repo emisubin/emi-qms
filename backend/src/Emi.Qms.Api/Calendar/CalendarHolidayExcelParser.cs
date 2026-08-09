@@ -26,7 +26,7 @@ public sealed class CalendarHolidayExcelParser
     {
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Holidays");
-        worksheet.Cell(1, 1).Value = "EMI 프로젝트 통합관리시스템 휴일 일괄 등록";
+        worksheet.Cell(1, 1).Value = "EMI PMS 휴일 일괄 등록";
         worksheet.Range(1, 1, 1, 4).Merge().Style.Font.SetBold();
         worksheet.Cell(2, 1).Value = "휴일유형은 National, Substitute, Temporary, Company 중 하나를 입력합니다.";
         worksheet.Range(2, 1, 2, 4).Merge().Style.Font.SetItalic();

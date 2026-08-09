@@ -413,7 +413,7 @@ public sealed class NotificationDeliveryTests
 
         Assert.Equal(2, created);
         Assert.Equal("[긴급 알림] LQC 부적합", mailMessage.Subject);
-        Assert.Equal("EMI 프로젝트 통합관리시스템 알림", teamsChannelMessage.Subject);
+        Assert.Equal("EMI PMS 알림", teamsChannelMessage.Subject);
         Assert.Contains("알림 유형: 긴급 알림", mailMessage.Body, StringComparison.Ordinal);
         Assert.Contains("프로젝트명: Demo Project Alpha", mailMessage.Body, StringComparison.Ordinal);
         Assert.Contains("제목: LQC 부적합", mailMessage.Body, StringComparison.Ordinal);
@@ -555,7 +555,7 @@ public sealed class NotificationDeliveryTests
 
         Assert.Equal(1, created);
         Assert.StartsWith("[일일 업무 요약] ", message.Subject, StringComparison.Ordinal);
-        Assert.Contains("EMI 프로젝트 통합관리시스템 알림", message.Body, StringComparison.Ordinal);
+        Assert.Contains("EMI PMS 알림", message.Body, StringComparison.Ordinal);
         Assert.Contains("알림 유형: 일일 업무 요약", message.Body, StringComparison.Ordinal);
         Assert.Contains("프로젝트명: 여러 프로젝트", message.Body, StringComparison.Ordinal);
         Assert.Contains("제목:", message.Body, StringComparison.Ordinal);
@@ -970,7 +970,7 @@ public sealed class NotificationDeliveryTests
             NotificationDeliveryChannels.TeamsChannel,
             NotificationDeliveryTypes.UrgentBlocking,
             "TASK-NOTIFY-001 Teams Webhook 테스트",
-            "EMI 프로젝트 통합관리시스템 UAT 테스트 알림입니다. 실제 업무 알림이 아닙니다.",
+            "EMI PMS UAT 테스트 알림입니다. 실제 업무 알림이 아닙니다.",
             "/notifications",
             "통합 채널",
             null));
@@ -1104,7 +1104,7 @@ public sealed class NotificationDeliveryTests
                 NotificationDeliveryChannels.TeamsActivity,
                 NotificationDeliveryTypes.ManualTest,
                 "[테스트] 프로젝트 생성 알림",
-                "EMI 프로젝트 통합관리시스템 프로젝트 생성 알림 3채널 최종 검수입니다. 실제 업무 알림이 아닙니다. 긴 본문은 Activity Feed 목록에 그대로 표시하지 않습니다.",
+                "EMI PMS 프로젝트 생성 알림 3채널 최종 검수입니다. 실제 업무 알림이 아닙니다. 긴 본문은 Activity Feed 목록에 그대로 표시하지 않습니다.",
                 "/teams/activity",
                 "담당자",
                 null,
@@ -1114,7 +1114,7 @@ public sealed class NotificationDeliveryTests
                 TopicWebUrl = "https://localhost:5174/teams/activity"
             });
 
-        Assert.StartsWith("EMI 프로젝트 통합관리시스템 프로젝트 생성 알림", result.PreviewText, StringComparison.Ordinal);
+        Assert.StartsWith("EMI PMS 프로젝트 생성 알림", result.PreviewText, StringComparison.Ordinal);
         Assert.True(result.PreviewText.Length <= 150);
         Assert.Equal("workItemAssigned", result.ActivityType);
         Assert.Equal("[테스트] 프로젝트 생성 알림", result.TemplateParameters["taskName"]);
@@ -1622,7 +1622,7 @@ public sealed class NotificationDeliveryTests
                 Mail = new NotificationMailOptions
                 {
                     SenderAddress = "sender@example.test",
-                    SenderDisplayName = "EMI 프로젝트 통합관리시스템 알림",
+                    SenderDisplayName = "EMI PMS 알림",
                     Smtp = new NotificationSmtpOptions
                     {
                         Host = "smtp.gmail.com",
@@ -1652,7 +1652,7 @@ public sealed class NotificationDeliveryTests
         Assert.Equal("smtp.gmail.com", transport.Request.Host);
         Assert.Equal(587, transport.Request.Port);
         Assert.Equal("StartTls", transport.Request.Security);
-        Assert.Equal("EMI 프로젝트 통합관리시스템 알림", transport.Request.SenderDisplayName);
+        Assert.Equal("EMI PMS 알림", transport.Request.SenderDisplayName);
         Assert.Equal("sender@example.test", transport.Request.SenderAddress);
         Assert.Equal("recipient@example.test", transport.Request.RecipientEmail);
         Assert.Equal("ABC123", transport.Request.CorrelationId);
@@ -2057,7 +2057,7 @@ public sealed class NotificationDeliveryTests
         var mailMessage = await context.DeliveryStore.RenderMessageAsync(mailDelivery, TestContext.Current.CancellationToken);
         Assert.Equal("[프로젝트 생성 알림] [테스트] 프로젝트 생성 알림", mailMessage.Subject);
         Assert.DoesNotContain(correlationId, mailMessage.Subject, StringComparison.Ordinal);
-        Assert.Contains("EMI 프로젝트 통합관리시스템 알림", mailMessage.Body, StringComparison.Ordinal);
+        Assert.Contains("EMI PMS 알림", mailMessage.Body, StringComparison.Ordinal);
         Assert.Contains("알림 유형: 프로젝트 생성 알림", mailMessage.Body, StringComparison.Ordinal);
         Assert.Contains("프로젝트명: Demo Project Alpha", mailMessage.Body, StringComparison.Ordinal);
         Assert.Contains("/teams/activity/notifications/", mailMessage.Body, StringComparison.Ordinal);

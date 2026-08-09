@@ -37,6 +37,8 @@ required_files=(
   "${repository_root}/infrastructure/teams/assets/color.png"
   "${repository_root}/infrastructure/teams/assets/outline.png"
   "${repository_root}/frontend/public/manifest.webmanifest"
+  "${repository_root}/frontend/public/teams-launcher.html"
+  "${repository_root}/frontend/public/teams-launcher.js"
   "${repository_root}/frontend/public/icons/emi-qms-192.png"
   "${repository_root}/frontend/public/icons/emi-qms-512.png"
   "${repository_root}/frontend/public/icons/emi-qms-maskable-512.png"
@@ -125,6 +127,9 @@ const checks = [
   [workloads, "redirectToProvider: 'azureactivedirectory'"],
   [workloads, "convention: 'Standard'"],
   [workloads, "'/health/live'"],
+  [workloads, "'/teams-launcher.html'"],
+  [workloads, "'/teams-launcher.js'"],
+  [workloads, "'/icons/emi-qms-192.png'"],
   [workloads, "clientSecretSettingName: 'entra-access-gate-client-secret'"],
   [workloads, "external: false"],
   [workloads, 'minReplicas: minimumReplicaCount'],
@@ -150,6 +155,24 @@ for (const [source, expected] of checks) {
   if (!source.includes(expected)) {
     process.exit(1);
   }
+}
+
+const expectedAnonymousFrontendPaths = [
+  '/health/live',
+  '/teams-launcher.html',
+  '/teams-launcher.js',
+  '/icons/emi-qms-192.png'
+];
+const excludedPathsSource = workloads.match(/excludedPaths:\s*\[([\s\S]*?)\]/mu)?.[1] ?? '';
+const sourceExcludedPaths = [...excludedPathsSource.matchAll(/'([^']+)'/gu)].map((match) => match[1]);
+const workloadsTemplate = JSON.parse(read(join(azure, 'workloads.json')));
+const frontendAuthResource = workloadsTemplate.resources.find(
+  (resource) => resource.type === 'Microsoft.App/containerApps/authConfigs'
+);
+if (JSON.stringify(sourceExcludedPaths) !== JSON.stringify(expectedAnonymousFrontendPaths)
+  || JSON.stringify(frontendAuthResource?.properties?.globalValidation?.excludedPaths)
+    !== JSON.stringify(expectedAnonymousFrontendPaths)) {
+  process.exit(1);
 }
 
 const backendProbeHostHeaders = workloads.match(

@@ -913,7 +913,7 @@ describe('App', () => {
     window.history.pushState(null, '', '/teams/activity');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: 'EMI 프로젝트 통합관리시스템 알림' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'EMI PMS 알림' })).toBeInTheDocument();
     expect(screen.getByText('Teams 알림을 선택하면 관련 업무를 확인할 수 있습니다. 상세 업무 화면은 시스템 링크에서 확인하세요.')).toBeInTheDocument();
     expect(await screen.findByText('프로젝트가 생성되었습니다.')).toBeInTheDocument();
     expect(screen.getByText('최근 알림')).toBeInTheDocument();

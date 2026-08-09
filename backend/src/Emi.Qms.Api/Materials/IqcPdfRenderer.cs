@@ -40,7 +40,7 @@ public sealed class IqcPdfRenderer
         using var document = new PdfDocument();
         document.Info.Title = "IQC 디지털 검사성적서";
         document.Info.Subject = "승인 시점 불변 IQC snapshot";
-        document.Info.Author = "EMI QMS";
+        document.Info.Author = "EMI PMS";
         document.Info.Creator = "PDFsharp-6.2.4";
         document.Info.CreationDate = finalizedAt.UtcDateTime;
         document.Info.ModificationDate = finalizedAt.UtcDateTime;

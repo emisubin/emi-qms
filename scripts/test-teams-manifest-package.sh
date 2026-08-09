@@ -54,10 +54,19 @@ const expectedActivityTypes = [
 ];
 if (manifest.manifestVersion !== '1.19'
   || Object.hasOwn(manifest, 'packageName')
+  || manifest.developer?.name !== 'EMI'
+  || manifest.name?.short !== 'EMI PMS'
+  || manifest.name?.full !== 'EMI PMS'
+  || manifest.description?.short !== 'EMI 프로젝트 업무와 알림을 한 곳에서 확인합니다.'
   || manifest.staticTabs?.[0]?.entityId !== 'home'
+  || manifest.staticTabs?.[0]?.name !== 'EMI PMS'
+  || manifest.staticTabs?.[0]?.contentUrl !== 'https://pms.example.org/teams-launcher.html'
+  || manifest.staticTabs?.[0]?.websiteUrl !== 'https://pms.example.org/'
   || manifest.validDomains?.[0] !== 'pms.example.org'
   || manifest.accentColor !== '#DC2128'
+  || JSON.stringify(manifest.permissions) !== JSON.stringify(['identity'])
   || manifest.authorization?.permissions?.resourceSpecific?.[0]?.name !== 'TeamsActivity.Send.User'
+  || manifest.webApplicationInfo?.id !== '22222222-2222-4222-8222-222222222222'
   || JSON.stringify(activityTypes) !== JSON.stringify(expectedActivityTypes)
   || activityTypes.includes('dailyDigest')
   || JSON.stringify(manifest).includes('__')) {

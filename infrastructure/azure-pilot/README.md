@@ -116,7 +116,7 @@ Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력�
 - PostgreSQL은 delegated subnet과 private DNS만 사용하며 public network access는 꺼진다.
 - Front Door Standard가 `X-Azure-FDID`를 추가하고 rule set이 별도 origin verification token을 추가한다.
 - Frontend Nginx는 두 값이 모두 맞지 않으면 health endpoint를 제외한 모든 요청을 403으로 차단한다.
-- Frontend Container Apps Easy Auth는 `/health/live`를 제외한 shell·asset·API proxy 요청을 single-tenant Entra 인증 뒤에 둔다. Front Door forwarded host/proto를 사용하며 기존 Backend bearer·역할 권한은 그대로 유지한다.
+- Frontend Container Apps Easy Auth는 `/health/live`와 Teams 실행 전용 정적 파일(`/teams-launcher.html`, `/teams-launcher.js`, `/icons/emi-qms-192.png`)을 제외한 shell·asset·manifest·API proxy 요청을 single-tenant Entra 인증 뒤에 둔다. Teams 실행 화면은 핵심 app bundle이나 업무 데이터를 포함하지 않고 보호된 웹/PWA를 새 창에서 여는 역할만 한다. Front Door forwarded host/proto를 사용하며 기존 Backend bearer·역할 권한은 그대로 유지한다.
 - Frontend가 Backend 내부 ingress로 전달하는 HTTP Host를 수용하도록 Backend `AllowedHosts`는 public hostname과 managed environment에서 산출한 exact `backend.internal.<defaultDomain>`만 허용한다. wildcard는 사용하지 않는다.
 - Backend는 Container Apps infrastructure subnet CIDR만 trusted proxy network로 사용한다.
 - Key Vault secret은 tracked template이 만들지 않는다. 사용자가 Portal에서 직접 입력한 뒤 workload별 identity가 자기 secret resource만 읽는다. Key Vault 전체 범위 secret read는 없다.
@@ -197,7 +197,7 @@ scripts/validate-azure-pilot-artifacts.sh --compile
 10. PostgreSQL PITR restore rehearsal을 수행하고 1시간 안에 복구·연결·ledger 검증이 되는지 확인한다. 임시 restore server는 사용자 비용 경계에서 정리한다.
 11. 성공 시각을 `restoreVerifiedAtUtc`에 넣고 `activateWorkloads=true`로 workload를 다시 배치한다.
 12. Backend `/health/ready`가 성공한 뒤 edge를 배치하고 DNS TXT/CNAME, managed TLS를 확인한다. 공개 API가 `400`이면 Backend latest revision의 `AllowedHosts`가 public hostname과 exact internal Backend hostname 두 개를 포함하는지 확인한다.
-13. 익명 비브라우저 Front Door root·asset·manifest·API는 `401`, 브라우저는 PMS shell·bundle 없는 인증 화면, `/health/live`는 `200`인지 확인한다. Direct origin도 인증 전 PMS shell을 제공하지 않아야 한다.
+13. 익명 비브라우저 Front Door root·핵심 asset·manifest·API는 `401`, 브라우저는 EMI PMS shell·bundle 없는 인증 화면, `/health/live`와 Teams 실행 전용 정적 파일만 `200`인지 확인한다. Teams 실행 화면이 핵심 app bundle을 참조하지 않는지 확인하고 Direct origin도 인증 전 EMI PMS shell을 제공하지 않아야 한다.
 14. Entra API·SPA·Frontend access gate redirect URI와 Teams manifest를 최종 주소로 갱신한다.
 15. 실제 provider smoke가 성공한 뒤에만 `enableExternalNotifications=true`로 바꾼다.
 

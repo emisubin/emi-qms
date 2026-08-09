@@ -896,7 +896,10 @@
       "properties": {
         "globalValidation": {
           "excludedPaths": [
-            "/health/live"
+            "/health/live",
+            "/teams-launcher.html",
+            "/teams-launcher.js",
+            "/icons/emi-qms-192.png"
           ],
           "redirectToProvider": "azureactivedirectory",
           "unauthenticatedClientAction": "RedirectToLoginPage"

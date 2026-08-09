@@ -21,5 +21,5 @@ if (-not $hasName -or -not $hasEmail) {
     exit 0
 }
 
-git commit -m "chore: initialize EMI QMS project documentation"
+git commit -m "chore: initialize EMI PMS project documentation"
 Write-Host "로컬 Git 저장소와 첫 커밋을 생성했습니다. GitHub에 Private로 게시하세요."

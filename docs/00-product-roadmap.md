@@ -1,8 +1,8 @@
-# EMI 프로젝트 통합관리시스템 Product Roadmap
+# EMI PMS Product Roadmap
 
 ## 1. 문서 목적
 
-이 문서는 EMI 프로젝트 통합관리시스템의 전체 개발 방향, 업무 프로세스, 확정사항, 미확정 추적 대상, 후속 TASK 우선순위를 한 곳에 정리하는 기준 문서다.
+이 문서는 EMI PMS의 전체 개발 방향, 업무 프로세스, 확정사항, 미확정 추적 대상, 후속 TASK 우선순위를 한 곳에 정리하는 기준 문서다.
 
 Codex와 개발자는 새 TASK를 시작하기 전에 이 문서를 먼저 읽고 다음을 확인해야 한다.
 
@@ -22,7 +22,7 @@ Codex와 개발자는 새 TASK를 시작하기 전에 이 문서를 먼저 읽�
 - 미확정사항: 구현하지 않거나, 최소 구조만 준비하고 추적 대상에 남긴다.
 - 임시 구현: 후속 TASK에서 정식 구현으로 대체할 수 있도록 문서에 명시한다.
 
-본 시스템의 공식 명칭은 EMI 프로젝트 통합관리시스템이다. 이는 사용자 표시명과 문서상 명칭에 적용된다. 내부 코드명(Emi.Qms 솔루션/네임스페이스 등)은 별개이며 유지한다. 코드 네임스페이스나 솔루션명의 리네이밍은 수행하지 않는다.
+본 시스템의 공식 사용자 표시명은 `EMI PMS`다. 한국어 전체 이름 `EMI 프로젝트 통합관리시스템`과 영문 의미 `EMI Project Management System`은 설명 문구에서 사용한다. 내부 코드명(Emi.Qms 솔루션/네임스페이스 등)은 별개이며 유지한다. 코드 네임스페이스나 솔루션명의 리네이밍은 수행하지 않는다.
 
 ### 1.1 목차
 
@@ -1015,6 +1015,7 @@ Excel 출력 대상 후보:
 | 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Experiment Complete | 2-pass planning·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-009A·011A·012A experiment model | 실제 운영 양식 content 입력은 후속 change | Yes | 재구현 금지; 최종 일괄 검수 |
 | 3.3A | TASK-PRODUCTION-CONTROL-001 Item별 생산계획·자동 실적·가로 막대 일정 | NEW_FEATURE / BUGFIX | Change 010 Main Merged / Main CI Verified | 본체와 Change 002~009의 원격 main 반영·사용자 검수 완료. Change 010은 같은 현재 양식의 후행 재선택이 빠른 편집 진입을 취소하던 P2를 최소 보정하고 로컬 회귀, PR #81 CI `3/3`, merge SHA main CI `3/3`을 통과 | TASK-ADMIN-002·생산계획·구매·자재·제조·품질·물류 원본 데이터 | 현재 Azure 운영 image는 Change 010 병합 전 Change 019 release 기준선. 기존 프로젝트는 Legacy/snapshot 유지 | Yes | 운영 반영은 별도 승인형 Azure release. 제품 다음 Gate는 Teams SSO·새 manifest 기획 |
 | 3.3B | TASK-UL891-PRODUCTION-PLAN-001 실물 세트별 생산계획 | NEW_FEATURE | Change 004 Main Merged / User Validation Complete | Fable 2-pass 본체와 Change 002~008의 전체 세트 기본계획·실적 연결 편집·일정표 색/날짜선/테두리·담당자 표시를 통합 원격 `main` 기준선에 이식. UL891 단일 현재 설계·활성 42면 projection·migration `0068`과 제조·품질·물류 현재 순번 `1..42`·영구 code `P52` 분리를 자동·실제 화면에서 검증. Backend `482/482`, Frontend `175/175`, Mock `4/4`, 전체 isolated Full-Stack `56/56`, Change 004 집중 Full-Stack `1/1`, Ready PR #65 CI 3/3 성공과 merge commit `79b90b8` 완료 | TASK-PRODUCTION-CONTROL-001·TASK-UL891-SET-001·DESIGN-000 Change 006·TASK-EXPERIMENT-PROMOTION-001 Change 002 | Persistent UAT handover·Azure 통합 image 재배포 미완료 | Yes | 통합 source image 재배포 → Edge·DNS·TLS·provider 검수 |
+| 3.3C | TASK-TEAMS-PWA-001 — Teams 실행 화면·PWA 설치·브랜드 통일 | APPROVED_FEATURE_IMPLEMENTATION | Local Implementation / User Validation Pending | Fable primary planning·Codex review 뒤 Change 001 권장안 승인. Teams Activity를 알림 채널로 보존하고 작은 실행 화면에서 Entra로 보호된 외부 EMI PMS를 열며, PWA 설치 안내와 전 사용자 표면 `EMI PMS` 이름 계약을 구현·자동 검증 | Azure Easy Auth·Teams Activity 10종·기존 웹 MSAL·PWA icon | 실제 Azure launcher 예외·Teams catalog package 교체·운영 image·실제 Android/iPhone/Teams 검수는 별도 승인 | Yes | 사용자 검수 → Git 게시 승인 → Azure·Teams 운영 rollout; 이후 Web Push는 별도 NEW_FEATURE 기획 |
 | 3.4 | TASK-PENDING-TYPE-001 Pending 유형 관리 | NEW_FEATURE | Experiment Complete | Fable 2-pass·local 구현·자동 검증·desktop/mobile 증빙 완료 / `BATCHED_FINAL` | TASK-007A experiment 완료·안정화 | catalog 설정 자체 Excel export는 P3 backlog, 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수. 승격은 별도 UAT Task |
 | 4.1 | TASK-013A 물류 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-012A experiment scope 완료 | 실제 포장·서명본 양식은 후속 change | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·013A experiment scope 완료 | 운영 정산 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
@@ -1032,7 +1033,7 @@ Excel 출력 대상 후보:
 | 5.5 | TASK-NOTIFY-AUDIT-001 관리자 preference 감사 조회 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-005 audit 원장 | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | TASK-AZURE-PILOT-001 — 서비스 중립 공개 파일럿 준비 | UAT_RUNTIME | Main Merged / User Validation Complete | Entra API·SPA 분리, one-shot migration·ledger gate, Production preflight·ARM64/AMD64 image 검증과 PR #59 merge 완료 | TASK-UAT-001, local main 승인 기능과 사용자 P1 구현 승인 | provider-specific 실제 runtime은 TASK-AZURE-DEPLOY-001로 이관 | Yes | 완료 scope 재구현 금지 |
-| 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | BUGFIX / UAT_RUNTIME | Change 019 Main Merged / Runtime Verified | Change 019는 `Healthy`와 `Running|RunningAtMaxScale`만 허용하고 정지·축소·저하·미확인 상태를 mutation 전에 차단한다. PR #79·main CI와 Change 019 기준선 운영 release가 성공했다 | TASK-AZURE-PILOT-001, Change 018 source, 첫 run `BASELINE_NOT_READY` | 이후 main에 병합된 Production Control Change 010은 운영 image 미반영. 20일 운영 관찰과 P3 runner 경고 유지보수 | Yes | Change 010 운영 반영은 별도 승인형 release; 제품 다음 Gate는 Teams SSO·새 manifest 기획 |
+| 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | BUGFIX / UAT_RUNTIME | Change 019 Main Merged / Runtime Verified | Change 019는 `Healthy`와 `Running|RunningAtMaxScale`만 허용하고 정지·축소·저하·미확인 상태를 mutation 전에 차단한다. PR #79·main CI와 Change 019 기준선 운영 release가 성공했다 | TASK-AZURE-PILOT-001, Change 018 source, 첫 run `BASELINE_NOT_READY` | 이후 main에 병합된 Production Control Change 010과 local TASK-TEAMS-PWA-001은 운영 image 미반영. 20일 운영 관찰과 P3 runner 경고 유지보수 | Yes | TASK-TEAMS-PWA-001 사용자 검수·Git 게시 뒤 별도 승인형 Azure·Teams rollout |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
 
@@ -1266,7 +1267,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-AZURE-DEPLOY-001: 20일 Azure 시범 배포
 
-- 상태/다음 순서: Change 019 PR #79 원격 `main` 병합·PR CI `3/3`·main CI 최종 `3/3`·운영 release run `31145661267` 성공 / migration·Backend·Frontend revision 교체·공개 보안 readback 완료 / Teams SSO·새 manifest 신규 기능 기획 대기
+- 상태/다음 순서: Change 019 PR #79 원격 `main` 병합·PR CI `3/3`·main CI 최종 `3/3`·운영 release run `31145661267` 성공 / migration·Backend·Frontend revision 교체·공개 보안 readback 완료 / 후속 TASK-TEAMS-PWA-001 local 구현·사용자 검수 대기
 - 목적: 승인된 Azure 시범 사양을 provider-specific 배포 artifact, migration·restore·traffic gate와 Teams manifest로 전환해 3개 프로젝트를 20일 동안 안전하게 시범 운영한다.
 - 포함 범위: Front Door Standard custom rate limit, Container Apps Consumption Frontend/API/ClamAV, one-shot migration job, private PostgreSQL Flexible Server B2s 32 GB·PITR 14일, ACR Basic, Azure Files 5 GB, Key Vault, Log Analytics 1 GB/day cap, Application Insights, 최종 hostname·Entra·Teams manifest handover
 - 제외 범위: 기존 PostgreSQL 첨부의 Blob 이관, HA, Front Door Premium managed WAF, 실제 비용 resource의 Codex 자동 생성, 사용자 승인 없는 traffic·provider 발송, 정식 운영 사양 확정
@@ -1275,7 +1276,18 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 자동 검증: Change 003 Backend 보안 집중 42/42·전체 격리 회귀 481/481, 실제 PostgreSQL runtime role 업무 CRUD 성공·schema/role/temporary/ledger mutation 거부, 기존 migration image 67 Exact, Bicep 4종 compile. Change 004 ARM JSON·OIDC image workflow 검증. Change 006 Teams package 2/2, PWA asset 1/1, Frontend 175/175·lint·typecheck·build, Azure static artifact와 local Production preview manifest/icon `200` 완료
 - Finding: `AZURE-RELEASE-RUNNING-STATE-001` P1은 정상 `RunningAtMaxScale` 오판을 exact allowlist와 actual release 성공으로 `RESOLVED`했다. main Full-Stack 첫 시도의 5초 UI 표시 지연 `CI-FULLSTACK-QUALITY-REFRESH-001` P2는 격리 `1/1`과 실패 job 재실행 성공으로 `RESOLVED`했다. 성공한 release의 action/CLI 경고 2건은 `GHA-AZURE-RUNNER-WARNINGS-001` P3 backlog로 추적한다.
 - 산출물: [Identity Gate](../tasks/azure-deploy-001-identity-gate.md), [Change 009](../tasks/azure-deploy-001-change-009.md), [Change 010](../tasks/azure-deploy-001-change-010.md), [Change 011](../tasks/azure-deploy-001-change-011.md), [Change 012](../tasks/azure-deploy-001-change-012.md), [Change 013](../tasks/azure-deploy-001-change-013.md), [Change 014](../tasks/azure-deploy-001-change-014.md), [Change 015](../tasks/azure-deploy-001-change-015.md), [Change 016](../tasks/azure-deploy-001-change-016.md), [Change 017](../tasks/azure-deploy-001-change-017.md), [Change 018](../tasks/azure-deploy-001-change-018.md), [Change 019](../tasks/azure-deploy-001-change-019.md), [Implementation report](../tasks/azure-deploy-001-implementation-report.md), [SOP](../tasks/azure-deploy-001-sop.md), [User validation checklist](../tasks/azure-deploy-001-user-validation-checklist.md), [Azure pilot infrastructure](../infrastructure/azure-pilot/README.md)
-- 다음 Gate: Teams SSO·새 manifest를 별도 `NEW_FEATURE`로 기획한다. Change 019 제품·운영 적용은 완료 상태를 유지한다.
+- 다음 Gate: TASK-TEAMS-PWA-001 사용자 검수와 Git 게시가 끝난 뒤 별도 승인으로 launcher-only Easy Auth 예외·새 Teams package·운영 image를 적용한다. Change 019 제품·운영 적용은 완료 상태를 유지한다.
+
+### TASK-TEAMS-PWA-001: Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
+
+- 상태/다음 순서: Change 001 구현·자동 검증 완료 / 사용자 검수·Commit·Push·PR·Merge·운영 rollout 대기
+- 목적: Teams tab 안의 iframe 로그인 실패를 보안 경계를 약화하지 않고 해소하며 Teams·웹·설치 앱·알림·문서의 사용자 표시명을 `EMI PMS`로 통일한다.
+- 구현 선택: Teams는 Activity Feed와 실행 진입점으로 사용한다. 개인 tab은 React 업무 bundle을 싣지 않는 작은 정적 launcher만 표시하고, 사용자가 누르면 Microsoft 365 인증으로 보호된 외부 웹/PWA를 새 창에서 연다. NAA·OBO·신규 token session은 추가하지 않는다.
+- 보안 경계: 익명 허용 대상은 launcher HTML·작은 script·브랜드 icon과 기존 health에 한정한다. 앱 shell·업무 bundle·manifest·API는 기존 Easy Auth 사전 인증을 계속 요구한다.
+- PWA: Service Worker·offline cache·Web Push 없이 설치 경험만 제공한다. Android·PC는 브라우저 설치 event가 있을 때 사용자 클릭으로 설치 prompt를 열고, iPhone은 Safari 홈 화면 추가 절차를 안내한다. 설치 완료·standalone·Teams embedded 표면에서는 안내를 숨긴다.
+- 보존 계약: Teams Activity type 10개, RSC 권한, `webApplicationInfo` Activity app identity, 수신자·발송 시점·deep link, Backend bearer·역할·프로젝트 접근은 변경하지 않는다.
+- 산출물: [Identity Gate](../tasks/teams-pwa-001-identity-gate.md), [Interview](../tasks/teams-pwa-001-interview.md), [Planning](../tasks/teams-pwa-001-planning.md), [Codex review](../tasks/teams-pwa-001-review.md), [Change 001](../tasks/teams-pwa-001-change-001.md), [Implementation report](../tasks/teams-pwa-001-implementation-report.md), [User validation checklist](../tasks/teams-pwa-001-user-validation-checklist.md), 이 Roadmap update
+- 다음 Gate: 사용자가 desktop·Android·iPhone·Teams launcher와 Activity deep link를 검수한다. 이후 명시적 Git 게시 승인과 별도 Azure·Teams 운영 rollout 승인을 받는다. Web Push는 수신 정책을 다시 확정하는 별도 `NEW_FEATURE`다.
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 
@@ -2152,6 +2164,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-07 | `TASK-AZURE-DEPLOY-001 Change 019` PR #79·main CI와 최신 main 운영 release를 완료하고 다음 Gate를 Teams SSO·새 manifest 기획으로 전환 | 정상 상태 판정 보정이 실제 migration·Backend·Frontend 교체와 공개 보안 검사까지 통과했으며, 남은 action/CLI 경고는 운영 결과에 영향 없는 P3 유지보수로 분리됐기 때문 | 23장~25장, TASK-AZURE-DEPLOY-001 Change 019 |
 | 2026-08-07 | `TASK-PRODUCTION-CONTROL-001 Change 010`에서 같은 현재 양식의 후행 재선택이 빠른 편집 진입을 취소하던 P2를 우선 보정 | 문서 PR Frontend CI에서 두 차례 같은 저장 버튼 소실이 재현돼 현재 게시 Gate를 차단했으며, 사용자가 Teams SSO보다 이 최소 수정·검증·main 병합을 먼저 하도록 명시 승인했기 때문 | 23장~25장, TASK-PRODUCTION-CONTROL-001 Change 010 |
 | 2026-08-07 | `TASK-PRODUCTION-CONTROL-001 Change 010` PR #81·main CI `3/3`을 확인하고 원격 `main`에 병합 | 실제 제품 경쟁과 Full-Stack fixture 두 가지 P2가 해소된 최종 head와 merge SHA를 독립적으로 검증하되, Azure 운영 재배포는 별도 승인 경계로 유지하기 위함 | 23장~25장, TASK-PRODUCTION-CONTROL-001 Change 010 |
+| 2026-08-09 | `TASK-TEAMS-PWA-001 Change 001`에서 Teams를 Activity Feed 알림과 작은 외부 실행 화면으로 유지하고 실제 업무는 Entra로 보호된 웹/PWA에서 수행 | Easy Auth가 SPA보다 앞에서 shell·bundle을 차단하는 보안 구조와 Teams iframe의 redirect 제약을 동시에 보존하며 NAA·OBO·두 앱 등록 충돌 없이 사용자가 알림에서 업무를 이어가게 하기 위함 | 20장·23장~25장, TASK-TEAMS-PWA-001 Change 001 |
 
 ## 26. 용어 사전
 
@@ -2189,7 +2202,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 제품 변경 시 다음 불변조건을 확인한다.
 
-- 공식 사용자 표시명은 EMI 프로젝트 통합관리시스템이며 내부 `Emi.Qms` solution/namespace는 유지한다.
+- 공식 사용자 표시명은 `EMI PMS`이며 한국어 전체 이름 `EMI 프로젝트 통합관리시스템`과 영문 의미 `EMI Project Management System`은 설명 문구에서만 사용한다. 내부 `Emi.Qms` solution/namespace는 유지한다.
 - 18단계 업무 순서, QR 기준, 패널 단독 용어와 필수 workflow 기반 진행률을 임의 변경하지 않는다.
 - Backend stack을 전환하지 않고 권한과 업무 규칙은 서버에서 강제한다.
 - 검수 사용자 전환은 Development/Testing/UAT의 System Administrator와 dev persona 범위이며 실제 Entra impersonation으로 확장하지 않는다.

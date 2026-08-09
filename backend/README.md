@@ -1,6 +1,6 @@
 # Backend
 
-ASP.NET Core Web API project for EMI QMS.
+ASP.NET Core Web API project for EMI PMS.
 
 ## Run
 

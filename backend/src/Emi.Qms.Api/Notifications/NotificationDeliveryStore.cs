@@ -12,7 +12,7 @@ public sealed class NotificationDeliveryStore(
     TimeProvider timeProvider,
     IConfiguration configuration)
 {
-    private const string SystemName = "EMI 프로젝트 통합관리시스템";
+    private const string SystemName = "EMI PMS";
 
     public async Task<int> CreateImmediateDeliveriesAsync(NotificationOptions options, CancellationToken cancellationToken)
     {
@@ -1543,7 +1543,7 @@ public sealed class NotificationDeliveryStore(
         var body = BuildNotificationBody(kindLabel, title, projectName, message, timeProvider.GetUtcNow(), linkUrl);
         var subject = delivery.Channel == NotificationDeliveryChannels.Mail
             ? $"[{kindLabel}] {title}"
-            : "EMI 프로젝트 통합관리시스템 알림";
+            : "EMI PMS 알림";
 
         return new NotificationDeliveryMessage(
             delivery.DeliveryId,
@@ -1612,7 +1612,7 @@ public sealed class NotificationDeliveryStore(
         var body = BuildNotificationBody(kindLabel, title, projectName, message, requestedAtUtc, linkUrl);
         var subject = delivery.Channel == NotificationDeliveryChannels.Mail
             ? $"[{kindLabel}] {title}"
-            : "EMI 프로젝트 통합관리시스템 알림";
+            : "EMI PMS 알림";
         return new NotificationDeliveryMessage(
             delivery.DeliveryId,
             delivery.Channel,
@@ -1677,7 +1677,7 @@ public sealed class NotificationDeliveryStore(
                 {detailUrl}
                 """;
         return $"""
-            EMI 프로젝트 통합관리시스템 알림
+            EMI PMS 알림
 
             알림 유형: {kindLabel}
             프로젝트명: {projectName ?? "기타"}
@@ -1937,7 +1937,7 @@ public sealed class NotificationDeliveryStore(
             delivery.DeliveryType,
             delivery.Channel == NotificationDeliveryChannels.Mail
                 ? $"[{kindLabel}] {digestTitle}"
-                : "EMI 프로젝트 통합관리시스템 알림",
+                : "EMI PMS 알림",
             bodyText,
             null,
             delivery.RecipientDisplayName,

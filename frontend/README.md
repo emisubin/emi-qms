@@ -1,6 +1,6 @@
 # Frontend
 
-React + TypeScript development UI for EMI QMS.
+React + TypeScript development UI for EMI PMS.
 
 ## Run
 

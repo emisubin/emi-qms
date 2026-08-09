@@ -121,7 +121,7 @@ describe('authentication modes', () => {
       </MsalProvider>
     );
 
-    expect(await screen.findByRole('heading', { name: 'EMI 프로젝트 통합관리시스템' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'EMI PMS' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'login'));
     expect(screen.getByAltText('EMI Electric Modular Innovation')).toBeInTheDocument();
     expect(screen.getByAltText('Microsoft')).toBeInTheDocument();
@@ -130,6 +130,7 @@ describe('authentication modes', () => {
     expect(screen.queryByText('회사 계정이 아닌 경우 로그인할 수 없습니다.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '다른 계정으로 로그인' })).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: '로그인 상태 유지' })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'EMI PMS 설치 안내' })).toBeInTheDocument();
     expect(screen.queryByLabelText('개발 사용자')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('checkbox', { name: '로그인 상태 유지' }));
@@ -143,7 +144,7 @@ describe('authentication modes', () => {
 
     expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'loading');
     expect(screen.getByRole('main')).toHaveAttribute('data-auth-layout', 'login');
-    expect(screen.getByRole('heading', { name: 'EMI 프로젝트 통합관리시스템' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'EMI PMS' })).toBeInTheDocument();
     expect(screen.getByAltText('EMI Electric Modular Innovation')).toBeInTheDocument();
     expect(screen.getByAltText('Microsoft')).toBeInTheDocument();
     expect(screen.getByText('Microsoft 365 로그인 정보를 확인하고 있습니다.')).toBeInTheDocument();
@@ -189,7 +190,7 @@ describe('authentication modes', () => {
 
     expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'loading');
     expect(screen.getByRole('main')).toHaveAttribute('data-auth-layout', 'login');
-    expect(screen.getByRole('heading', { name: 'EMI 프로젝트 통합관리시스템' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'EMI PMS' })).toBeInTheDocument();
     expect(screen.getByText('Microsoft 365 로그인 정보를 확인하고 있습니다.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'LOGIN' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: '로그인 상태 유지' })).not.toBeInTheDocument();

@@ -33,7 +33,7 @@ public sealed class QualityInspectionPdfRenderer
         using var document = new PdfDocument();
         document.Info.Title = $"{root.GetProperty("stageLabel").GetString()} 패널 검사성적서";
         document.Info.Subject = "승인 시점 불변 패널 품질검사 snapshot";
-        document.Info.Author = "EMI QMS";
+        document.Info.Author = "EMI PMS";
         document.Info.Creator = "PDFsharp-6.2.4";
         document.Info.CreationDate = finalizedAt.UtcDateTime;
         document.Info.ModificationDate = finalizedAt.UtcDateTime;

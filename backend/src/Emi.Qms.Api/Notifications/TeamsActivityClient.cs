@@ -173,7 +173,7 @@ public static class TeamsActivityNotificationRenderer
     private static string ResolveTitle(NotificationDeliveryMessage message)
     {
         return string.IsNullOrWhiteSpace(message.Subject)
-            ? "EMI 프로젝트 통합관리시스템 알림"
+            ? "EMI PMS 알림"
             : message.Subject.Trim();
     }
 

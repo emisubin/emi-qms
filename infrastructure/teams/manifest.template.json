@@ -4,18 +4,18 @@
   "version": "__APP_VERSION__",
   "id": "__TEAMS_MANIFEST_ID__",
   "developer": {
-    "name": "PMS",
+    "name": "EMI",
     "websiteUrl": "https://__PUBLIC_HOST__/",
     "privacyUrl": "https://__PUBLIC_HOST__/privacy",
     "termsOfUseUrl": "https://__PUBLIC_HOST__/terms"
   },
   "name": {
-    "short": "PMS",
-    "full": "프로젝트 통합관리시스템"
+    "short": "EMI PMS",
+    "full": "EMI PMS"
   },
   "description": {
-    "short": "프로젝트 업무와 알림을 한 곳에서 확인합니다.",
-    "full": "프로젝트 생성부터 생산관리, 구매, 제조, 품질, 물류와 정산까지 부서별 업무와 알림을 연결하는 프로젝트 통합관리시스템입니다."
+    "short": "EMI 프로젝트 업무와 알림을 한 곳에서 확인합니다.",
+    "full": "프로젝트 생성부터 생산관리, 구매, 제조, 품질, 물류와 정산까지 연결하는 EMI 프로젝트 통합관리시스템(EMI PMS)입니다."
   },
   "icons": {
     "outline": "outline.png",
@@ -25,8 +25,8 @@
   "staticTabs": [
     {
       "entityId": "home",
-      "name": "PMS",
-      "contentUrl": "https://__PUBLIC_HOST__/",
+      "name": "EMI PMS",
+      "contentUrl": "https://__PUBLIC_HOST__/teams-launcher.html",
       "websiteUrl": "https://__PUBLIC_HOST__/",
       "scopes": [
         "personal"

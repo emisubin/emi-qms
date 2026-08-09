@@ -101,7 +101,7 @@ public sealed class NotificationMailOptions
     public string Provider { get; init; } = "DryRun";
     public string? SenderUserId { get; init; }
     public string? SenderAddress { get; init; }
-    public string SenderDisplayName { get; init; } = "EMI 프로젝트 통합관리시스템 알림";
+    public string SenderDisplayName { get; init; } = "EMI PMS 알림";
     public string? TestRecipientEmail { get; init; }
     public bool SaveTestMailToSentItems { get; init; }
     public NotificationSmtpOptions Smtp { get; init; } = new();

@@ -6,6 +6,8 @@ import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useSelectedRows } from './useSelectedRows';
 import { MobileSheet } from './MobileSheet';
+import { PwaInstallProvider } from './PwaInstallExperience';
+import { usePwaInstallExperience } from './pwa-install';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
@@ -1310,14 +1312,18 @@ export function App({
   rememberSession?: boolean;
   onRememberSessionChange?: (rememberSession: boolean) => void;
 }) {
-  return isEntraAuthMode
-    ? (
-      <EntraAuthenticatedApp
-        rememberSession={rememberSession}
-        onRememberSessionChange={onRememberSessionChange}
-      />
-    )
-    : <QmsAppShell authMode="Dev" />;
+  return (
+    <PwaInstallProvider>
+      {isEntraAuthMode
+        ? (
+          <EntraAuthenticatedApp
+            rememberSession={rememberSession}
+            onRememberSessionChange={onRememberSessionChange}
+          />
+        )
+        : <QmsAppShell authMode="Dev" />}
+    </PwaInstallProvider>
+  );
 }
 
 function EntraAuthenticatedApp({
@@ -2064,7 +2070,7 @@ function QmsAppShellContent({
         <header className="topbar">
           <div>
             <p className="eyebrow">PROJECT OPERATIONS</p>
-            <h1>EMI 프로젝트 통합관리시스템</h1>
+            <h1>EMI PMS</h1>
           </div>
           <div className="topbar-actions">
             {user ? (
@@ -3185,6 +3191,7 @@ function AccountProfilePanel({
   mobile?: boolean;
 }) {
   const actions = useActionFeedback();
+  const pwaInstall = usePwaInstallExperience();
   const inputRef = useRef<HTMLInputElement>(null);
   const feedback = actions.feedbackFor('profile-photo');
   const busy = actions.isBusy('profile-photo');
@@ -3246,6 +3253,9 @@ function AccountProfilePanel({
       </div>
       {!mutationAllowed ? <p className="account-review-safe-note">검수 전용 읽기 모드에서는 사진을 변경할 수 없습니다.</p> : null}
       {feedback ? <p className="account-action-feedback" data-tone={feedback.tone} aria-live="polite">{feedback.message}</p> : null}
+      {pwaInstall.available ? (
+        <button type="button" className="account-install-button" onClick={pwaInstall.openGuide}>{pwaInstall.entryLabel}</button>
+      ) : null}
       <button type="button" className="account-logout-button" onClick={onLogout} disabled={!onLogout}>로그아웃</button>
     </section>
   );
@@ -3317,10 +3327,11 @@ function AuthLoginScreen({
   onRememberSessionChange?: (rememberSession: boolean) => void;
   onLogin?: () => void;
 }) {
+  const pwaInstall = usePwaInstallExperience();
   return (
     <AuthGateMessage
       state={loading ? 'loading' : 'login'}
-      title="EMI 프로젝트 통합관리시스템"
+      title="EMI PMS"
       message={loading
         ? 'Microsoft 365 로그인 정보를 확인하고 있습니다.'
         : '회사 Microsoft 365 계정으로 로그인해 주세요.'}
@@ -3330,14 +3341,19 @@ function AuthLoginScreen({
       {loading ? (
         <span className="auth-loading-indicator" role="status" aria-label="로그인 확인 중" />
       ) : (
-        <label className="remember-session-option">
-          <input
-            type="checkbox"
-            checked={rememberSession}
-            onChange={(event) => onRememberSessionChange?.(event.target.checked)}
-          />
-          <span>로그인 상태 유지</span>
-        </label>
+        <>
+          <label className="remember-session-option">
+            <input
+              type="checkbox"
+              checked={rememberSession}
+              onChange={(event) => onRememberSessionChange?.(event.target.checked)}
+            />
+            <span>로그인 상태 유지</span>
+          </label>
+          {pwaInstall.available ? (
+            <button type="button" className="auth-install-button" onClick={pwaInstall.openGuide}>{pwaInstall.entryLabel}</button>
+          ) : null}
+        </>
       )}
     </AuthGateMessage>
   );
@@ -3366,7 +3382,7 @@ function AuthGateMessage({
   onSecondaryAction?: () => void;
   children?: ReactNode;
 }) {
-  const showsProductTitle = title === 'EMI 프로젝트 통합관리시스템';
+  const showsProductTitle = title === 'EMI PMS';
   const usesLoginLayout = state === 'login' || state === 'loading';
   const loginCanvasScale = useAuthLoginCanvasScale(usesLoginLayout);
   const shell = (
@@ -3392,7 +3408,7 @@ function AuthGateMessage({
       >
         <div className="auth-gate-canvas">
           <div className="auth-gate-content">
-            {!showsProductTitle ? <p className="auth-product-name">EMI 프로젝트 통합관리시스템</p> : null}
+            {!showsProductTitle ? <p className="auth-product-name">EMI PMS</p> : null}
             <h1 id="auth-gate-title">
               <span className="auth-gate-title-text">{title}</span>
             </h1>
@@ -5103,7 +5119,7 @@ function createManualNotificationDraft(): ManualNotificationDraft {
     projectSelectionType: 'Other',
     projectId: '',
     projectName: 'TASK-NOTIFY-003 통합 알림 테스트',
-    message: 'EMI 프로젝트 통합관리시스템 프로젝트 생성 알림 3채널 최종 검수입니다. 실제 업무 알림이 아닙니다.',
+    message: 'EMI PMS 프로젝트 생성 알림 3채널 최종 검수입니다. 실제 업무 알림이 아닙니다.',
     channels: ['TeamsActivity', 'Mail'],
     teamsActivityRecipientUserIds: [],
     mailRecipientUserIds: [],
@@ -5584,7 +5600,7 @@ function manualNotificationKindLabel(kind: string) {
 }
 
 function buildManualNotificationBodyPreview(kindLabel: string, projectName: string, title: string, message: string) {
-  return `EMI 프로젝트 통합관리시스템 알림
+  return `EMI PMS 알림
 
 알림 유형: ${kindLabel}
 프로젝트명: ${projectName || '기타'}
@@ -7120,14 +7136,14 @@ function TeamsActivityAuthFallback({
 }) {
   const message = state.kind === 'loading'
     ? 'Microsoft 365 인증 정보를 확인하는 중입니다.'
-    : loadStateMessage(state) ?? 'Teams 앱에서 EMI 프로젝트 통합관리시스템 화면을 불러오려면 로그인이 필요합니다.';
+    : loadStateMessage(state) ?? 'EMI PMS 알림 화면을 불러오려면 로그인이 필요합니다.';
 
   return (
     <section className="page-surface workflow-page teams-activity-page">
       <DsPageHeader
         className="page-header"
         eyebrow="Teams"
-        title="EMI 프로젝트 통합관리시스템 알림"
+        title="EMI PMS 알림"
         actions={<div className="button-row">
           <button type="button" onClick={onRetry}>다시 시도</button>
           {onLogin ? <button type="button" onClick={onLogin}>Microsoft 365 로그인</button> : null}
@@ -7205,7 +7221,7 @@ function TeamsActivityPage({
       <DsPageHeader
         className={isMobile ? 'page-header mobile-operations-header' : 'page-header'}
         eyebrow={isMobile ? 'QUICK FEED' : 'Teams'}
-        title={isMobile ? '업무 피드' : 'EMI 프로젝트 통합관리시스템 알림'}
+        title={isMobile ? '업무 피드' : 'EMI PMS 알림'}
         description={isMobile ? '읽지 않은 알림과 미완료 업무를 한 번에 확인하세요.' : undefined}
         actions={<div className="button-row">
           <button type="button" onClick={onOpenHome}>시스템 홈</button>

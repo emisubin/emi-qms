@@ -2306,7 +2306,7 @@ public sealed class ProductionPlanningApiTests
         var bytes = await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
         using var workbook = new XLWorkbook(new MemoryStream(bytes));
         var worksheet = workbook.Worksheets.First();
-        Assert.Contains("EMI 프로젝트 통합관리시스템", worksheet.Cell(1, 1).GetString());
+        Assert.Contains("EMI PMS", worksheet.Cell(1, 1).GetString());
         Assert.Equal("날짜 *", worksheet.Cell(3, 1).GetString());
         Assert.Equal("휴일명 *", worksheet.Cell(3, 2).GetString());
         Assert.Equal("휴일유형 *", worksheet.Cell(3, 3).GetString());

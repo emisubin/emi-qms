@@ -709,7 +709,7 @@ public static class NotificationDeliveryEndpointExtensions
                 ? "TASK-NOTIFY-003 Teams Activity 테스트"
                 : request.Title.Trim();
             var message = string.IsNullOrWhiteSpace(request.Message)
-                ? "EMI 프로젝트 통합관리시스템 Teams Activity Feed dry-run 테스트입니다. 실제 업무 알림이 아닙니다."
+                ? "EMI PMS Teams Activity Feed dry-run 테스트입니다. 실제 업무 알림이 아닙니다."
                 : request.Message.Trim();
             var topicEntityUrl = BuildInstalledAppTopicEntityUrl(
                 recipient.EntraObjectId,
@@ -1324,7 +1324,7 @@ public static class NotificationDeliveryEndpointExtensions
             ? ""
             : $"{Environment.NewLine}프로젝트명: {projectName}";
         return $"""
-            EMI 프로젝트 통합관리시스템
+            EMI PMS
 
             알림 유형: {kindLabel}
             제목: {title}{projectLine}
@@ -1352,11 +1352,11 @@ public static class NotificationDeliveryEndpointExtensions
     private static string BuildTestMailBody(string? message, string correlationId)
     {
         var body = string.IsNullOrWhiteSpace(message)
-            ? "EMI 프로젝트 통합관리시스템 UAT 테스트 메일입니다. 실제 업무 알림이 아닙니다."
+            ? "EMI PMS UAT 테스트 메일입니다. 실제 업무 알림이 아닙니다."
             : message.Trim();
 
         return $"""
-            EMI 프로젝트 통합관리시스템
+            EMI PMS
 
             {body}
 
@@ -1370,7 +1370,7 @@ public static class NotificationDeliveryEndpointExtensions
     private static string BuildTestTeamsActivityBody(string message, string activityType, string correlationId)
     {
         return $"""
-            EMI 프로젝트 통합관리시스템
+            EMI PMS
 
             {message}
 

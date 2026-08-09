@@ -294,7 +294,7 @@ async function readProjection(page: Page) {
         height: round(elementBounds.height / scale)
       };
     };
-    const titleMatches = document.querySelector('h1')?.textContent === 'EMI 프로젝트 통합관리시스템';
+    const titleMatches = document.querySelector('h1')?.textContent === 'EMI PMS';
     const loginGuidance = document.querySelector<HTMLElement>('.auth-login-guidance');
     const primaryButton = document.querySelector<HTMLButtonElement>('.auth-primary-button');
     const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]');

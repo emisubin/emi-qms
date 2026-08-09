@@ -830,6 +830,9 @@ resource frontendAuth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = {
     globalValidation: {
       excludedPaths: [
         '/health/live'
+        '/teams-launcher.html'
+        '/teams-launcher.js'
+        '/icons/emi-qms-192.png'
       ]
       redirectToProvider: 'azureactivedirectory'
       unauthenticatedClientAction: 'RedirectToLoginPage'

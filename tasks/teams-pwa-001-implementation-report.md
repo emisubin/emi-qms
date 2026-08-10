@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 구현 보고 — Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
-상태: `Change 001~003·007 운영 rollout 완료 / Change 009 구현·로컬 자동 검증 완료·공개 배포 승인 / Git 게시 대기`
+상태: `Change 001~003·007·009 원격 main 병합·Azure 운영 rollout 완료 / 실제 Android·iPhone 사용자 검수 대기`
 
 ## 기준선과 승인 범위
 
@@ -103,7 +103,18 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 | Persistent UAT | N/A — 실제 runtime·DB 적용은 승인 범위 밖이고 application data 변경도 없다. |
 | actionlint | N/A — `.github/workflows` 변경이 없다. |
 
-Change 007 Azure 운영 release는 완료했다. Teams catalog 변경과 Android/iPhone 실제 기기·운영 메일/PDF/Excel 육안 검수는 이번 자동 release 성공으로 대체하지 않는다.
+Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변경과 Android/iPhone 실제 기기·운영 메일/PDF/Excel 육안 검수는 이번 자동 release 성공으로 대체하지 않는다.
+
+### Change 009 게시·운영 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Git 게시 | PASS — PR #86 squash merge, 원격 `main` merge SHA `e6a446268b0ce9aa7f9492af1e0bd4eb1a76191b` |
+| PR CI | PASS — Frontend·Backend·Full-Stack `3/3` |
+| main CI | PASS — run `31360415559`, Frontend·Backend·Full-Stack `3/3` |
+| Azure 운영 release | PASS — run `31361630803`, exact main SHA 검증·Backend/Frontend immutable image 게시·migration gate·운영 revision 교체 완료 |
+| 공개 상태·보안 | PASS — health `200`, 익명 root·`/api/me` `401/401` |
+| Teams·DB·migration 변경 | N/A — Change 009에 Teams package, Backend, DB와 신규 migration diff가 없다. |
 
 ### Change 007 검증
 
@@ -176,8 +187,9 @@ Rollback은 이전 immutable Frontend/Backend revision과 이전 Teams package�
 ## 사용자 검수 결과와 남은 항목
 
 - 자동 검증과 합성 desktop/390px browser 검증은 완료했다.
-- Git Commit·Push·PR #84·main merge와 Azure 운영 release를 완료했다. Teams package와 catalog는 이번 Change에서 변경하지 않았다.
-- 사용자 실제 PC·Android·iPhone에서 인증 후 로그인·공통 내부 logo를 눈으로 확인하는 검수는 `사용자 검수 대기`다.
+- Git Commit·Push·PR #84·#86·main merge와 Change 007·009 Azure 운영 release를 완료했다. Teams package와 catalog는 Change 009에서 변경하지 않았다.
+- Change 009의 자동·CI·운영 공개 검증은 완료했다. 사용자 실제 Android·iPhone에서 Microsoft 인증 직후 설치 안내와 Android native 설치 확인창을 확인하는 검수는 `사용자 검수 대기`다.
+- 사용자 실제 PC·Android·iPhone에서 인증 후 로그인·공통 내부 logo를 눈으로 확인하는 기존 검수도 계속 대기다.
 - Web Push는 정책을 다시 확정해야 하는 별도 신규 기능이다.
 
 ## 종료 산출물

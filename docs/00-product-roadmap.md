@@ -1015,7 +1015,7 @@ Excel 출력 대상 후보:
 | 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Experiment Complete | 2-pass planning·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-009A·011A·012A experiment model | 실제 운영 양식 content 입력은 후속 change | Yes | 재구현 금지; 최종 일괄 검수 |
 | 3.3A | TASK-PRODUCTION-CONTROL-001 Item별 생산계획·자동 실적·가로 막대 일정 | NEW_FEATURE / BUGFIX | Change 010 Main Merged / Azure Released | 본체와 Change 002~009의 원격 main 반영·사용자 검수 완료. Change 010은 같은 현재 양식의 후행 재선택이 빠른 편집 진입을 취소하던 P2를 최소 보정하고 PR #81·main CI 뒤 Change 020 Azure 운영 image에 동기화 | TASK-ADMIN-002·생산계획·구매·자재·제조·품질·물류 원본 데이터 | 기존 프로젝트는 Legacy/snapshot 유지 | Yes | 운영 관찰. 제품 다음 Gate는 별도 승인 Task |
 | 3.3B | TASK-UL891-PRODUCTION-PLAN-001 실물 세트별 생산계획 | NEW_FEATURE | Change 004 Main Merged / Azure Released / User Validation Complete | Fable 2-pass 본체와 Change 002~008의 전체 세트 기본계획·실적 연결 편집·일정표 색/날짜선/테두리·담당자 표시를 통합 원격 `main` 기준선에 이식. UL891 단일 현재 설계·활성 42면 projection·migration `0068`과 제조·품질·물류 현재 순번 `1..42`·영구 code `P52` 분리를 자동·실제 화면에서 검증. Change 020 최신 main 운영 release로 통합 image 동기화 완료 | TASK-PRODUCTION-CONTROL-001·TASK-UL891-SET-001·DESIGN-000 Change 006·TASK-EXPERIMENT-PROMOTION-001 Change 002 | 없음. 운영 관찰 유지 | Yes | 완료 scope 재구현 금지; 운영 관찰 |
-| 3.3C | TASK-TEAMS-PWA-001 — Teams 실행 화면·PWA 설치·브랜드 통일 | BUGFIX | Change 009 Implementation Verified / Public Deploy Approved | Change 001~003·007 운영 rollout 완료. Change 009 인증 후 모바일 설치 안내와 Android 준비형 설치 버튼은 로컬 자동 검증 완료·Git 게시 대기 | Azure Easy Auth·Teams Activity 10종·기존 웹 MSAL·PWA icon·TASK-DESIGN-LOGIN-001 Change 010 | Change 009 PR·main CI·Azure release 뒤 실제 Android·iPhone 인증 후 검수. Web Push는 별도 NEW_FEATURE | Yes | Change 009 게시·공개 release |
+| 3.3C | TASK-TEAMS-PWA-001 — Teams 실행 화면·PWA 설치·브랜드 통일 | BUGFIX | Change 009 Main Merged / Azure Released | Change 001~003·007·009 운영 rollout 완료. Change 009는 PR #86·main CI `3/3`·Azure release `31361630803`으로 인증 후 모바일 설치 안내와 Android 준비형 설치 버튼을 운영에 반영 | Azure Easy Auth·Teams Activity 10종·기존 웹 MSAL·PWA icon·TASK-DESIGN-LOGIN-001 Change 010 | 실제 Android·iPhone 인증 후 설치 안내·Android native 확인창 사용자 검수. Web Push는 별도 NEW_FEATURE | Yes | 실제 기기 사용자 검수·운영 관찰 |
 | 3.4 | TASK-PENDING-TYPE-001 Pending 유형 관리 | NEW_FEATURE | Experiment Complete | Fable 2-pass·local 구현·자동 검증·desktop/mobile 증빙 완료 / `BATCHED_FINAL` | TASK-007A experiment 완료·안정화 | catalog 설정 자체 Excel export는 P3 backlog, 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수. 승격은 별도 UAT Task |
 | 4.1 | TASK-013A 물류 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-012A experiment scope 완료 | 실제 포장·서명본 양식은 후속 change | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·013A experiment scope 완료 | 운영 정산 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
@@ -1281,7 +1281,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-TEAMS-PWA-001: Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
-- 상태/다음 순서: Change 001~003·007 운영 rollout 완료 / Change 009 인증 후 모바일 설치 안내 구현·로컬 자동 검증 완료·공개 배포 승인 / PR·main CI·Azure release 대기
+- 상태/다음 순서: Change 001~003·007·009 원격 main 병합·Azure 운영 rollout 완료 / Change 009 실제 Android·iPhone 사용자 검수 대기
 - 목적: Teams tab 안의 iframe 로그인 실패를 보안 경계를 약화하지 않고 해소하며 Teams·웹·설치 앱·알림·문서의 사용자 표시명을 `EMI PMS`로 통일한다.
 - 구현 선택: Teams는 Activity Feed와 실행 진입점으로 사용한다. 개인 tab은 React 업무 bundle을 싣지 않는 작은 정적 launcher만 표시하고, 사용자가 누르면 Microsoft 365 인증으로 보호된 외부 웹/PWA를 새 창에서 연다. NAA·OBO·신규 token session은 추가하지 않는다.
 - 보안 경계: 익명 허용 대상은 launcher HTML·작은 script·브랜드 icon과 기존 health에 한정한다. 앱 shell·업무 bundle·manifest·API는 기존 Easy Auth 사전 인증을 계속 요구한다.
@@ -1290,7 +1290,8 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - Change 007: 로그인 화면은 지정 4x 가로 logo, 로그인 뒤 모든 page의 공통 desktop sidebar·mobile app bar·mobile menu는 지정 4x 내부 logo를 사용한다. 기존 흑백 wireframe을 유지하고 logo에만 원본 색상·투명 배경 예외를 적용한다.
 - Change 009: PWA event listener를 MSAL 초기화보다 앞에서 시작하되 자동 안내는 인증·업무 shell 준비 뒤에만 연다. Android 안내는 event 전에도 열고 설치 버튼을 준비 상태에 따라 비활성/활성 전환하며 iPhone 안내는 그대로 유지한다. 영구 닫기는 session 단위 닫기로 바꾼다.
 - 산출물: [Identity Gate](../tasks/teams-pwa-001-identity-gate.md), [Interview](../tasks/teams-pwa-001-interview.md), [Planning](../tasks/teams-pwa-001-planning.md), [Codex review](../tasks/teams-pwa-001-review.md), [Change 001](../tasks/teams-pwa-001-change-001.md), [Change 007](../tasks/teams-pwa-001-change-007.md), [Change 008](../tasks/teams-pwa-001-change-008.md), [Change 009](../tasks/teams-pwa-001-change-009.md), [Implementation report](../tasks/teams-pwa-001-implementation-report.md), [User validation checklist](../tasks/teams-pwa-001-user-validation-checklist.md), 이 Roadmap update
-- 다음 Gate: Change 009 PR·main CI·Azure release 뒤 Android·iPhone에서 Microsoft 인증 직후 설치 안내와 Android 설치 확인창을 검수한다. Web Push는 수신 정책을 다시 확정하는 별도 `NEW_FEATURE`다.
+- 게시·운영 근거: PR #86 squash merge, merge SHA `e6a446268b0ce9aa7f9492af1e0bd4eb1a76191b`, main CI run `31360415559` `3/3`, Azure release `31361630803` 성공. 배포 뒤 health `200`, 익명 root·`/api/me` `401/401`을 확인했다.
+- 다음 Gate: Android·iPhone에서 Microsoft 인증 직후 설치 안내와 Android native 설치 확인창을 사용자 검수한다. Web Push는 수신 정책을 다시 확정하는 별도 `NEW_FEATURE`다.
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 
@@ -2170,6 +2171,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-09 | `TASK-TEAMS-PWA-001 Change 001`에서 Teams를 Activity Feed 알림과 작은 외부 실행 화면으로 유지하고 실제 업무는 Entra로 보호된 웹/PWA에서 수행 | Easy Auth가 SPA보다 앞에서 shell·bundle을 차단하는 보안 구조와 Teams iframe의 redirect 제약을 동시에 보존하며 NAA·OBO·두 앱 등록 충돌 없이 사용자가 알림에서 업무를 이어가게 하기 위함 | 20장·23장~25장, TASK-TEAMS-PWA-001 Change 001 |
 | 2026-08-10 | `TASK-DESIGN-LOGIN-001 Change 010` PR #83을 원격 main에 병합하고 `TASK-TEAMS-PWA-001 Change 007`에서 로그인 후 공통 shell logo를 별도 지정 asset으로 분리 | 로그인은 사용자 지정 가로형 logo, 로그인 뒤 모든 page는 사용자 지정 내부 logo를 쓰되 기존 흑백 wireframe과 Easy Auth·Teams/PWA·업무 계약을 보존한 최신 main을 한 번 공개 release하기 위함 | 23장~25장, TASK-DESIGN-LOGIN-001 Change 010, TASK-TEAMS-PWA-001 Change 007 |
 | 2026-08-10 | `TASK-TEAMS-PWA-001 Change 009`에서 모바일 PWA 자동 안내를 Microsoft 인증·앱 shell 준비 뒤로 고정하고 Android 설치 event 준비 전에도 안내를 먼저 표시 | Easy Auth의 익명 차단은 유지하면서 로그인 직후 설치 행동을 놓치지 않게 하고, Chrome native 설치 정책 안에서 준비 뒤 한 번의 버튼으로 설치 확인창을 열며 영구 숨김을 방지하기 위함 | 23장~25장, TASK-TEAMS-PWA-001 Change 009 |
+| 2026-08-10 | `TASK-TEAMS-PWA-001 Change 009` PR #86·main CI `3/3` 뒤 exact main SHA를 Azure release `31361630803`으로 운영에 배포 | 모바일 설치 안내 보정의 Git 게시·immutable image·migration gate·Backend/Frontend 교체와 공개 health·익명 인증 차단을 하나의 운영 근거로 닫고 다음 Gate를 실제 Android·iPhone 사용자 검수로 전환하기 위함 | 23장~25장, TASK-TEAMS-PWA-001 Change 009 |
 
 ## 26. 용어 사전
 

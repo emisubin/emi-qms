@@ -3,7 +3,7 @@
 ## 상태와 승인
 
 - Task type: `P2_REMEDIATION`
-- 상태: `LOCAL_IMPLEMENTATION_COMPLETE / AUTOMATED_VALIDATION_COMPLETE / PUBLICATION_APPROVED / GITHUB_VALIDATION_PENDING`
+- 상태: `MAIN_MERGED / GITHUB_VALIDATION_COMPLETE / USAGE_OBSERVATION_PENDING`
 - 조사 결과와 권장 최소안: 사용자 보고 완료
 - 구현 승인: 완료
 - Roadmap 병렬 진행 승인: 완료
@@ -86,12 +86,12 @@ N/A — 제품 사용자의 화면·업무 방식은 바뀌지 않는다. 개발
 
 ## 사용자 검수 checklist
 
-상태: `자동 검증 완료 / 게시·main merge 승인 완료 / 실제 GitHub 검수 대기`
+상태: `자동 검증·PR·main·문서 전용 closure PR 실제 검수 완료 / 1주 사용량 관찰 대기`
 
-- [ ] 문서 전용 PR에서 무거운 3개 job이 skip되고 `CI Gate`가 성공한다.
-- [ ] 코드 PR에서 Backend·Frontend 성공 뒤 Full-Stack과 `CI Gate`가 성공한다.
-- [x] 같은 PR에 새 commit을 올리면 이전 실행만 취소된다 — PR #89에서 이전 실행 `cancelled` 확인.
-- [ ] 코드가 `main`에 merge되면 Backend·Frontend·`CI Gate`가 실행되고 Full-Stack은 skip된다.
+- [x] 문서 전용 PR에서 무거운 3개 job이 skip되고 `CI Gate`가 성공한다 — PR #90 첫 실행에서 Backend·Frontend·Full-Stack 0초 skip, 분류·`CI Gate` 성공.
+- [x] 코드 PR에서 Backend·Frontend 성공 뒤 Full-Stack과 `CI Gate`가 성공한다 — PR #89 최신 head `5/5` 성공.
+- [x] 같은 PR에 새 commit을 올리면 이전 실행만 취소된다 — PR #89에서 이전 실행 `cancelled` 3건 확인.
+- [x] 코드가 `main`에 merge되면 Backend·Frontend·`CI Gate`가 실행되고 Full-Stack은 skip된다 — merge SHA `f50be6a`에서 성공 4·skip 1 확인.
 - [x] Azure 수동 release workflow의 trigger·승인·concurrency가 변경되지 않았다 — local diff exact 확인.
 - [ ] 실제 GitHub Actions 사용량 감소는 최소 1주 관찰 뒤 평가한다.
 

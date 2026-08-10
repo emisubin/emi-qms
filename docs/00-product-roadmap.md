@@ -1034,7 +1034,7 @@ Excel 출력 대상 후보:
 | 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | TASK-AZURE-PILOT-001 — 서비스 중립 공개 파일럿 준비 | UAT_RUNTIME | Main Merged / User Validation Complete | Entra API·SPA 분리, one-shot migration·ledger gate, Production preflight·ARM64/AMD64 image 검증과 PR #59 merge 완료 | TASK-UAT-001, local main 승인 기능과 사용자 P1 구현 승인 | provider-specific 실제 runtime은 TASK-AZURE-DEPLOY-001로 이관 | Yes | 완료 scope 재구현 금지 |
 | 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | BUGFIX / UAT_RUNTIME | Change 020 Runtime Verified | Change 019 release guard 유지. Change 020은 최신 main `37dd619685e6447fc867d213d1f63692c6cd8c62`의 migration·Backend·Frontend·public security와 익명 `401/401`을 모두 통과 | TASK-AZURE-PILOT-001, Change 018 승인형 workflow | 사용자 실제 기기 지정 logo 육안 검수, 20일 운영 관찰과 기존 P3 runner 경고 유지보수 | Yes | 사용자 실제 기기 검수 → 운영 관찰 |
-| 6.3 | TASK-CI-COST-001 — GitHub Actions minute 최적화 | P2_REMEDIATION | Publication Approved / GitHub Validation Pending | 조사·권장 최소안·Roadmap 병렬 진행·구현·Git 게시·main merge 사용자 승인, rename 회귀 포함 local classifier `7/7`·Gate `6/6` 완료 | 일반 CI run 집계, TASK-AZURE-DEPLOY-001 Change 018 승인형 release 보존 | 실제 Actions PR/main run과 최소 1주 사용량 관찰 | No | PR CI → main merge → main CI → 사용량 관찰 |
+| 6.3 | TASK-CI-COST-001 — GitHub Actions minute 최적화 | P2_REMEDIATION | Main Merged / GitHub Validation Complete / Observation Pending | PR #89 최신 head `5/5`, 이전 run 취소 3건, squash merge `f50be6a`, main 성공 4·Full-Stack skip 1, 문서 PR #90 heavy 3개 skip·Gate 성공. local classifier `7/7`·Gate `6/6` | 일반 CI run 집계, TASK-AZURE-DEPLOY-001 Change 018 승인형 release 보존 | 최소 1주 Actions 사용량 관찰 | No | 최소 1주 사용량 관찰 |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
 
@@ -1282,13 +1282,13 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-CI-COST-001: GitHub Actions minute 최적화
 
-- 상태/다음 순서: 일반 CI의 중복 비용 P2 조사·권장 최소안·workflow 구현·local 자동 검증·Git 게시와 `main` merge 사용자 승인 완료 / 실제 GitHub PR/main run 검수 대기
+- 상태/다음 순서: PR #89 최신 head `5/5`·이전 run 취소 3건·squash merge `f50be6a`·main 성공 4/Full-Stack skip 1·문서 PR #90 heavy 3개 skip/Gate 성공 완료 / 최소 1주 사용량 관찰
 - 목적: GitHub-hosted Actions 월 사용량 90% 경고 뒤 100% 상태에서 코드 PR의 품질 Gate를 유지하며 문서 전용 run, 연속 PR commit, PR 뒤 `main` Full-Stack과 선행 실패 뒤 E2E 비용을 줄인다.
 - 포함 범위: 일반 CI의 PR concurrency, 내부 changed-file 분류, PR 전체 검증과 `main` smoke 분리, Backend·Frontend 성공 뒤 Full-Stack, always-run `CI Gate`, pnpm store cache와 timeout
 - 제외 범위: Azure 수동 운영 release workflow, 제품/API/DB/migration/runtime, Repository visibility·GitHub ruleset mutation, self-hosted runner 도입과 branch 자동 삭제
 - 안전 경계: workflow-level `paths-ignore`를 쓰지 않고 분류 실패·unknown path는 전체 검증으로 fallback한다. 코드 PR은 Backend·Frontend·Full-Stack을 유지하며 Azure release의 수동 승인·immutable main SHA·`cancel-in-progress: false` 계약을 변경하지 않는다.
 - 산출물: [Identity Gate](../tasks/ci-cost-001-identity-gate.md), [Task·SOP·User manual·검수 checklist](../tasks/ci-cost-001.md), [Implementation report](../tasks/ci-cost-001-implementation-report.md), 이 Roadmap update
-- 다음 Gate: 승인된 PR을 게시해 코드 PR 전체 Gate를 확인하고 `main` 병합 뒤 Backend·Frontend·`CI Gate`와 Full-Stack skip을 검수한다. 최소 1주 사용량 감소는 게시 후 관찰한다.
+- 다음 Gate: 최소 1주 사용량 감소를 관찰해 적용 전후 run·minute 추세를 비교한다.
 
 ### TASK-TEAMS-PWA-001: Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
@@ -1920,7 +1920,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 90 | 실험 계보 Full-Stack 전체 회귀 | Change 011 PR #76·Change 012 PR #77 원격 병합 및 merge SHA CI 완료 | 개발/품질 | TASK-E2E-FULL-SUITE-001 | 전역 목록 test 결합과 exact Pending route 메타데이터 P2를 project detail·fail-closed retry로 해소. Frontend 177·Full-Stack 56·Backend 486, PR 최신 head·merge SHA CI `3/3` 통과. Azure 운영 release Gate 재개 |
 | 92 | 실험 Task 완료 원장과 중복 실행 방지 | 완료 원장 작성·Task selection gate 적용 | 사용자/개발 | TASK-GOV-CODEX-002 Change 015 | 완료 18 Task·A1 slice·남은 Task·P3 backlog를 분리. `BATCHED_FINAL`은 사용자 검수 완료가 아니며 완료 scope 재구현을 금지 |
 | 95 | GitHub Azure release runner 경고 | P3 Backlog / 다음 배포 유지보수 | 개발/운영 | GHA-AZURE-RUNNER-WARNINGS-001 | Change 019 운영 release는 성공했다. Node.js action runtime과 Azure CLI version parse 경고는 호환 action/runner 갱신 뒤 정적·actual release 회귀로 닫는다 |
-| 96 | GitHub Actions 일반 CI minute 과소비 | 게시·main merge 승인 완료 / 실제 GitHub 검수 대기 | 사용자/개발/품질 | TASK-CI-COST-001 | 코드 PR 전체 품질 Gate와 Azure 수동 release는 보존하고, PR 이전 run 취소·문서 전용 skip·main Full-Stack 중복 제거·선행 성공 E2E·pnpm cache·timeout으로 사용량을 줄인다. 실제 절감률은 게시 후 1주 관찰한다. |
+| 96 | GitHub Actions 일반 CI minute 과소비 | PR #89·main·문서 PR #90 검수 완료 / 1주 관찰 진행 | 사용자/개발/품질 | TASK-CI-COST-001 | 코드 PR 전체 품질 Gate와 Azure 수동 release를 보존했다. PR 이전 run 취소 3건, main Full-Stack skip, 문서 전용 heavy 3개 skip을 실제 확인했다. 실제 절감률은 최소 1주 관찰한다. |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -2188,6 +2188,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-10 | 실제 기기 사용자 검수·운영 관찰과 `TASK-CI-COST-001`을 병렬 진행하고 일반 CI 비용 최적화를 구현 | GitHub Actions 월 사용량이 90%에 도달해 개발·게시 Gate 중단 위험이 생겼으므로, 제품 runtime과 Azure 수동 release를 건드리지 않고 코드 PR 품질을 보존하는 최소 workflow 보정을 먼저 검증하기 위함 | 23장~25장, TASK-CI-COST-001 |
 | 2026-08-10 | GitHub Actions 사용량 100% 도달 뒤 결제 경계를 복구하고 `TASK-CI-COST-001`의 Git 게시와 `main` merge를 승인 | 현재 개발을 재개하면서도 단순 증액에 의존하지 않고 이후 모든 PR과 main push가 변경 인지형 CI 비용 정책을 자동 적용하게 하기 위함 | 23장~25장, TASK-CI-COST-001 |
 | 2026-08-10 | GitHub actual readback 기준 Repository 현재 visibility를 `PRIVATE`로 동기화하고 과거 public 상태는 당시 이력으로 보존 | CI 포함 minute 과금 원인과 current Roadmap 상태의 충돌을 해소하되 history rewrite 완료 당시 공개 재개 사실과 exact visibility 전환 시점 미확정 상태를 왜곡하지 않기 위함 | 22장~25장, TASK-CI-COST-001 |
+| 2026-08-10 | `TASK-CI-COST-001` PR #89의 코드 PR `5/5`와 이전 run 취소 3건을 확인해 squash merge하고 main에서 성공 4·Full-Stack skip 1을 확인 | 코드 PR 전체 품질 Gate는 보존하면서 오래된 PR 실행과 merge 뒤 Full-Stack 중복을 실제 GitHub 환경에서 제거했음을 canonical main에 확정하기 위함 | 23장~25장, TASK-CI-COST-001 |
 
 ## 26. 용어 사전
 

@@ -1,5 +1,16 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 020 — 지정 로그인·내부 로고 main 운영 release
+
+- 사용자 승인 범위: `TASK-DESIGN-LOGIN-001 Change 010`과 `TASK-TEAMS-PWA-001 Change 007`을 원격 main에 병합하고 Azure 공개 운영에 반영한다.
+- source: `37dd619685e6447fc867d213d1f63692c6cd8c62`
+- Git: 로그인 PR #83, 내부 로고 PR #84 squash merge 완료. PR #84 CI `3/3`, merge SHA main CI 실패 job 재실행 포함 최종 `3/3 PASS`.
+- Release: GitHub Actions run `31354814082` `PASS`.
+- Runtime: migration `PASS`, Backend revision `PASS`, Frontend revision `PASS`, public security `PASS`.
+- 공개 확인: health `200`, 익명 root·API `401/401`, 브라우저 Microsoft 365 선인증 redirect.
+- 변경 없음: 신규 migration, DB 업무 data, Backend/API 계약, Teams package/catalog, PWA icon, 외부 알림 provider.
+- 남은 검수: 인증 후 실제 PC·iPhone·Android 지정 로고 육안 확인.
+
 ## Change 019 — Azure 정상 revision 상태 판정 보정
 
 ### 첫 운영 실행과 Root Finding
@@ -877,7 +888,7 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - Public URL: `DNS·managed TLS·정적 화면·PWA·origin 403·readiness 200·익명 API 401 완료`
 - Change 019 운영 release: `PASS`, migration·Backend·Frontend 교체와 public security 확인 완료
 - 다음 제품 Gate: Teams SSO·새 manifest를 별도 신규 기능으로 기획한다.
-- 운영 동기화 Gate: Change 019 release 이후 `main`에 병합된 Production Control Change 010은 Azure 운영 image에 미반영이며, 별도 승인형 release가 필요하다.
+- 운영 동기화 Gate: Change 020에서 당시 최신 main의 Production Control Change 010, 지정 로그인·내부 로고까지 Azure 운영 image에 동기화했다.
 - 비용·장애·응답시간·DB·첨부 증가량은 20일 시범 기간 동안 계속 기록한다.
 
 ## 13. 종료 산출물
@@ -903,4 +914,5 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - Change 017: 외부 알림 Worker·Teams Activity·Gmail SMTP actual 활성화, 최신 수동 Teams Activity `6/6 Sent`·Mail `3/3 Sent`, Open Pending/Processing/Failed `0`, latest Backend revision Ready, 사용자 Teams client·메일함 실제 수신 완료.
 - Change 018: 승인형 GitHub 운영 release source·mock 검증, Environment variable `4/4`와 OIDC exact resource 역할 `3/3`+기존 ACR `AcrPush` 설정 완료. PR #76 원격 `main` 병합 완료. Merge SHA Full-Stack P2는 `TASK-E2E-FULL-SUITE-001 Change 012` PR #77과 merge SHA CI `3/3`으로 해소했다. 별도 명시 운영 release는 Change 019 보정 뒤 완료했다.
 - Change 019: PR #79 원격 `main` squash merge, PR CI `3/3`, merge SHA main CI 최종 `3/3`, 운영 release run `31145661267` 성공. 정상 revision 상태 판정 P1과 main CI 일시 표시 지연 P2를 해소했고 action/CLI 경고 2건은 P3 backlog로 분리했다.
-- 미포함: Teams SSO·새 manifest와 QOM branch 반영.
+- Change 020: PR #83·#84 원격 main squash merge, 최종 main SHA CI `3/3`, 운영 release run `31354814082` 성공. 지정 로그인·내부 공통 logo와 Production Control Change 010까지 운영 image에 동기화했다.
+- 미포함: 사용자 실제 PC·iPhone·Android 육안 검수와 원격 main에 아직 병합되지 않은 별도 branch.

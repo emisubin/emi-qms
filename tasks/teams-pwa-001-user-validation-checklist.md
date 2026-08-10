@@ -1,9 +1,9 @@
 # TASK-TEAMS-PWA-001 사용자 검수 체크리스트
 
-상태: `Change 001~003 운영 rollout 완료 / Change 007 local 자동 검증 완료 / 사용자 운영 검수 대기`
+상태: `Change 001~003 운영 rollout 완료 / Change 007 main merge·Azure 공개 release 완료 / 사용자 실제 기기 검수 대기`
 
 - 검수 대상: EMI PMS 일반 사용자, System Administrator
-- 운영 적용 전제: 이 branch의 Git 게시와 Azure·Teams 운영 rollout은 별도 승인이 필요하다.
+- 운영 적용: Change 007 Git 게시와 Azure 운영 rollout 완료. Teams package/catalog는 이번 Change에서 변경하지 않았다.
 - 개인정보 안전: 실제 계정 식별자·token·알림 본문을 이 문서에 기록하지 않는다. 결과는 역할, 날짜, 환경과 PASS/FAIL만 기록한다.
 
 ## 자동 검증 완료
@@ -32,8 +32,9 @@
 - [x] 로그인 뒤 desktop sidebar, 390px mobile app bar와 menu drawer는 지정 4x 내부 logo의 natural size `3796×1378`을 사용한다.
 - [x] 내부 logo만 원본 색상, `filter: none`, 투명 배경이며 나머지 화면은 기존 흑백 wireframe을 유지한다.
 - [x] desktop·390px에서 logo가 잘리지 않고 page-level horizontal overflow가 없다.
-- [ ] Frontend lint·typecheck·unit·build와 auth shell·집중 mock UI는 통과했다. PR CI에서 드러난 기존 프로젝트 등록 selector 중복과 느린 환경의 품질 판정 오류 대기는 test-only로 해소했으며 최신 head 재검증을 대기한다.
+- [x] Frontend lint·typecheck·unit·build와 auth shell·집중 mock UI가 통과했고, PR #84 CI와 merge SHA main CI의 Frontend·Backend·Full-Stack이 최종 `3/3` 통과했다.
 - [x] Backend·DB·migration·dependency·Teams manifest·PWA icon 변경이 없다.
+- [x] Azure release `31354814082`가 migration·Backend·Frontend·public security를 통과했고 health `200`, 익명 root·API `401/401`, Microsoft 365 선인증 redirect를 확인했다.
 
 ## 사용자 검수
 

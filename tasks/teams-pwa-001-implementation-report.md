@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 구현 보고 — Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
-상태: `Change 001~003 운영 rollout 완료 / Change 007 local 구현·자동 검증 완료 / Git 게시·Azure 공개 release 진행 중`
+상태: `Change 001~003 운영 rollout 완료 / Change 007 PR #84 main merge·Azure 공개 release 완료 / 사용자 실제 기기 검수 대기`
 
 ## 기준선과 승인 범위
 
@@ -11,9 +11,9 @@
 - baseSha: `914a109e170f4e1c3ce34fb1faa4216c1b4fcf1c`
 - planning: `tasks/teams-pwa-001-planning.md`
 - Codex review: `tasks/teams-pwa-001-review.md`
-- approved resolution: `tasks/teams-pwa-001-change-001.md`, `tasks/teams-pwa-001-change-002.md`, `tasks/teams-pwa-001-change-003.md`, `tasks/teams-pwa-001-change-007.md`
+- approved resolution: `tasks/teams-pwa-001-change-001.md`, `tasks/teams-pwa-001-change-002.md`, `tasks/teams-pwa-001-change-003.md`, `tasks/teams-pwa-001-change-007.md`, `tasks/teams-pwa-001-change-008.md`
 - 포함: Teams 정적 launcher, launcher-only Easy Auth 예외 artifact, PWA 설치 UX, 전 사용자 표면 `EMI PMS` 브랜드 문자열, 관련 자동·브라우저 검증
-- 제외: 실제 Azure·Entra·Teams Admin Center·catalog·운영 revision 변경, NAA·OBO·신규 token/session, Web Push·Service Worker·DB migration, 알림 수신자·발송 시점 변경
+- 원래 구현 제외: 실제 Azure·Entra·Teams Admin Center·catalog·운영 revision 변경, NAA·OBO·신규 token/session, Web Push·Service Worker·DB migration, 알림 수신자·발송 시점 변경. Change 007의 운영 revision 교체만 후속 사용자 승인으로 실행했다.
 
 ## 해결한 업무 문제
 
@@ -98,7 +98,7 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 | Persistent UAT | N/A — 실제 runtime·DB 적용은 승인 범위 밖이고 application data 변경도 없다. |
 | actionlint | N/A — `.github/workflows` 변경이 없다. |
 
-실제 Azure·Teams catalog·Android/iPhone 기기·운영 메일/PDF/Excel 검수는 아직 적용 전이므로 자동 성공으로 기록하지 않는다.
+Change 007 Azure 운영 release는 완료했다. Teams catalog 변경과 Android/iPhone 실제 기기·운영 메일/PDF/Excel 육안 검수는 이번 자동 release 성공으로 대체하지 않는다.
 
 ### Change 007 검증
 
@@ -108,9 +108,9 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 | Frontend 최소 검증 | 적용 | PASS | lint 0 error·기존 warning 1, typecheck, unit `183/183`, production build가 통과했다. |
 | desktop·390px browser | 적용 | PASS | 공통 desktop sidebar, mobile app bar·drawer가 natural size `3796×1378`, filter none·transparent background를 사용하고 가로 overflow 0을 유지했다. |
 | 로그인 회귀 | 적용 | PASS | desktop 5종과 iPhone 390·Android 412의 login/loading `12/12`, natural size `4265×604`, console/request failure 0을 확인했다. |
-| CI 전체 | 적용 | 대기 | Ready PR 최신 head의 Frontend·Backend·Full-Stack job을 확인한다. |
+| CI 전체 | 적용 | PASS | PR #84 Frontend·Backend·Full-Stack `3/3`, merge SHA main CI 실패 job 재실행 포함 최종 `3/3`이 통과했다. |
 | Backend·DB·migration | 적용 대상 아님 | N/A | 공통 shell logo와 CSS만 변경하며 server/data contract diff가 0이다. |
-| 운영 공개 검수 | 적용 | 대기 | main 병합 뒤 승인형 Azure release와 보호된 root·health·운영 화면을 확인한다. |
+| 운영 공개 검수 | 적용 | PASS | Azure release `31354814082`에서 migration·Backend·Frontend·public security가 PASS. 배포 뒤 health `200`, 익명 root·API `401/401`, Microsoft 365 선인증 redirect를 확인했다. |
 
 ## Finding과 잔여 위험
 
@@ -136,7 +136,7 @@ Open P0/P1/P2: `0/0/0`.
 
 - 코드·문서·테스트에는 합성 GUID와 `example.org`만 사용했다.
 - 실제 사용자 이름·이메일, tenant/client/object id, token, secret, Authorization header와 알림 원문을 기록하지 않았다.
-- 실제 provider 발송, Azure mutation, Teams catalog 변경과 DB mutation을 실행하지 않았다.
+- Change 001~003 구현 검증에서는 실제 provider·Azure·Teams catalog·DB mutation을 실행하지 않았다. Change 007은 사용자 승인 뒤 기존 승인형 workflow로 Azure revision만 교체했으며 업무 DB row와 provider 발송은 변경하지 않았다.
 - browser screenshot은 합성 local 화면만 `/tmp/emi-pms-teams-pwa-001`에 만들었고 repository에는 저장하지 않았다.
 
 ## 사용자 사용 방법
@@ -170,8 +170,8 @@ Rollback은 이전 immutable Frontend/Backend revision과 이전 Teams package�
 ## 사용자 검수 결과와 남은 항목
 
 - 자동 검증과 합성 desktop/390px browser 검증은 완료했다.
-- 사용자 실제 PC·Android·iPhone·Teams 검수는 운영 rollout 전이라 `사용자 검수 대기`다.
-- Git Commit·Push·PR·Merge와 Azure·Teams 운영 반영은 이번 구현 승인에 포함되지 않아 수행하지 않았다.
+- Git Commit·Push·PR #84·main merge와 Azure 운영 release를 완료했다. Teams package와 catalog는 이번 Change에서 변경하지 않았다.
+- 사용자 실제 PC·Android·iPhone에서 인증 후 로그인·공통 내부 logo를 눈으로 확인하는 검수는 `사용자 검수 대기`다.
 - Web Push는 정책을 다시 확정해야 하는 별도 신규 기능이다.
 
 ## 종료 산출물
@@ -182,4 +182,4 @@ Rollback은 이전 immutable Frontend/Backend revision과 이전 Teams package�
 | SOP | 포함됨 | 본 문서 `운영 적용 SOP` |
 | User manual | 포함됨 | 본 문서 `사용자 사용 방법` |
 | Roadmap update | 갱신됨 | `docs/00-product-roadmap.md` |
-| User validation checklist | 작성됨·자동 검증 완료·사용자 검수 대기 | `tasks/teams-pwa-001-user-validation-checklist.md` |
+| User validation checklist | 자동·CI·운영 release 검증 완료 / 사용자 실제 기기 검수 대기 | `tasks/teams-pwa-001-user-validation-checklist.md` |

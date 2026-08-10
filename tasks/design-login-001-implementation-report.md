@@ -2,10 +2,10 @@
 
 ## 1. 결과
 
-- 상태: Change 008 구현·자동·독립 검증·사용자 검수 완료 / Change 009 fixed allowlist 이식·자동·독립 검증·5174 Frontend-only 반영 완료 / PR #49 CI·squash merge 진행 중
+- 상태: Change 008 구현·자동·독립 검증·사용자 검수 완료 / Change 009 PR #49 merge 완료 / Change 010 PR #83 merge·Azure 운영 release 완료 / 실제 모바일 육안 검수 대기
 - Task 유형: `APPROVED_FEATURE_IMPLEMENTATION`
 - 승인 계약: [Task와 사용자 검수 checklist](design-login-001.md), [Change 001](design-login-001-change-001.md), [Change 002](design-login-001-change-002.md), [Change 003](design-login-001-change-003.md), [Change 004](design-login-001-change-004.md), [Change 005](design-login-001-change-005.md), [Change 006](design-login-001-change-006.md), [Change 007](design-login-001-change-007.md), [Change 008](design-login-001-change-008.md), [Change 009](design-login-001-change-009.md)
-- 게시 상태: commit·push·Ready PR #49 완료. squash merge는 승인됐고 필수 CI 통과 후 실행한다.
+- 게시 상태: Change 009 PR #49와 Change 010 PR #83 squash merge 완료. Change 010 포함 main SHA의 Azure 운영 release 완료.
 - Runtime 상태: 기존 HTTPS 5174 process를 재시작하지 않고 Frontend 제품 파일 8개만 HMR 반영했다. 5176·Backend 5081·Review-safe 5092/5190·PostgreSQL 5432는 종료·재시작·교체하지 않았다.
 - 최종 범위: red/white flexible panel이 viewport를 채우고 각 panel 내부 Figma reference content를 등비 반응형으로 유지하는 PC Desktop 기본 로그인·loading 화면. Mobile/390px는 Change 001에 따라 제외했다.
 
@@ -220,7 +220,7 @@ Screenshot과 비교 artifact는 `/tmp`에서만 사용했고 tracked/staged 산
 - 사용자 검수 listener: `http://127.0.0.1:5176/` ACTIVE. task-owned screen, bounded worktree cwd, strict port, synthetic Entra 설정과 HTTP 200을 재확인했다.
 - 기존 history P2: 범위 밖이며 상태를 변경하지 않았다.
 
-Change 009 자동·독립 검증과 5174 Frontend-only 반영을 통과했고 Ready PR #49를 게시했다. squash merge는 승인됐으며 필수 CI 통과 확인만 남았다.
+Change 009 자동·독립 검증과 5174 Frontend-only 반영, PR #49 squash merge를 완료했다. Change 010의 모바일·지정 로그인 로고는 PR #83과 후속 Azure 운영 release로 반영했다.
 
 ## 11. 승인 계약 대비 차이
 
@@ -272,10 +272,10 @@ Change 009 자동·독립 검증과 5174 Frontend-only 반영을 통과했고 Re
 | Implementation report | 이 문서 | 작성 완료 |
 | SOP | `docs/development/design-screen-promotion.md`와 이 문서 12장 | 작성 완료 / 5174 Frontend-only 적용 완료 |
 | User manual | 이 문서 13장 | 작성 완료 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 009 최신 main 선택 이식·자동·독립 검증·5174 Frontend-only 반영 / PR #49 진행 상태 반영 |
-| Validation checklist | `tasks/design-login-001.md` 8장 | 사용자 전체 확인·Change 009 이식·자동·독립 검증·5174 반영 완료 / PR #49 merge 승인 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 009 PR #49·Change 010 PR #83 merge와 Azure 운영 release 반영 |
+| Validation checklist | `tasks/design-login-001.md` 8장 | 기존 사용자 검수와 Change 010 자동·운영 검증 반영 / 실제 모바일 육안 검수 대기 |
 
-Change 008 구현·자동·독립 검증과 사용자 검수, Change 009 이식·자동·독립 검증·5174 Frontend-only 반영·Ready PR #49 게시를 완료했다. 승인된 squash merge는 필수 CI 통과 후 실행한다.
+Change 008 구현·자동·독립 검증과 사용자 검수, Change 009 PR #49, Change 010 PR #83과 Azure 운영 release를 완료했다. 실제 모바일 인증 후 육안 검수만 남는다.
 
 ## 16. Change 010 — 모바일 로그인과 지정 로그인 로고
 
@@ -325,3 +325,11 @@ Change 008 구현·자동·독립 검증과 사용자 검수, Change 009 이식�
 - Open P0/P1/P2/P3: `0/0/0/0`.
 - 실제 iPhone Safari engine은 local Chromium의 iPhone user-agent·touch·viewport emulation으로 자동 검증했고, 운영 배포 후 실제 기기 검수는 사용자 checklist에 남긴다.
 - rollback은 Change 010의 logo asset, wireframe mobile auth CSS와 auth browser contract만 이전 commit으로 되돌린 뒤 Frontend 전체 검증을 재실행한다. 인증·DB rollback은 필요하지 않다.
+
+### Change 010 게시·운영 결과
+
+- PR #83 squash merge SHA: `4529886f1c8d03eeefa80959887d5fd56c3a968f`
+- merge SHA main CI: Frontend·Backend·Full-Stack `3/3 PASS`
+- 후속 내부 로고 Change 007과 함께 최종 main SHA `37dd619685e6447fc867d213d1f63692c6cd8c62`로 Azure 운영 release 완료
+- 배포 뒤 public health `200`, 익명 root·API `401/401`, app shell 전 Microsoft 365 인증 redirect 확인
+- 실제 iPhone·Android에서 인증 뒤 로그인 화면을 눈으로 확인하는 항목은 사용자 운영 검수로 유지

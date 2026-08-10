@@ -8,11 +8,11 @@
 - Implementation: 완료 — 승인된 Frontend 범위만 변경
 - 자동 검증: Change 010 완료 — 지정 로그인 로고 원본 일치, desktop login/loading 10건과 iPhone·Android login/loading 2건, Frontend 전체 검증 통과
 - 독립 Codex 검증: Change 008·Change 009 완료 — 분리된 read-only session PASS, 현재 P0/P1/P2/P3 `0/0/0/0`, 해결된 P2 1
-- 사용자 검수: 완료 — 전체 체크리스트 확인 완료
-- 화면 단위 승격: Change 009 fixed allowlist 이식·자동·독립 검증·5174 Frontend-only 반영 완료 / PR #49 CI·squash merge 진행 중
-- Commit·Push·PR·Merge: commit·push·Ready PR #49 완료 / squash merge 승인, CI 통과 후 실행
-- Development·Review-safe·Persistent UAT: 5174 Frontend 제품 파일 8개만 HMR 반영 / 5176·Backend·Review-safe·PostgreSQL runtime 보존
-- 사용자 검수 preview: `http://127.0.0.1:5176/` ACTIVE — task-owned synthetic Entra Desktop 시각 검수 전용
+- 사용자 검수: 기존 Desktop 전체 체크리스트 완료 / Change 010 실제 PC·iPhone·Android 인증 후 육안 검수 대기
+- 화면 단위 승격: Change 009 PR #49 merge 완료. Change 010 지정 로그인 로고·모바일 wireframe은 PR #83 merge와 Azure 운영 release 완료
+- Commit·Push·PR·Merge: Change 010 PR #83 squash merge 완료
+- Runtime: Change 010을 포함한 main SHA `37dd619685e6447fc867d213d1f63692c6cd8c62` Azure 운영 release 완료. Backend·DB·migration 계약 변경 없음
+- 사용자 운영 검수: Microsoft 365 사전 인증과 자동 mobile/desktop 검증 완료 / 인증 후 실제 PC·iPhone·Android 육안 확인 대기
 
 ## 2. Task Identity Gate
 

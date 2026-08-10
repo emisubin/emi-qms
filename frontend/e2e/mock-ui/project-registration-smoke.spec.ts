@@ -51,7 +51,7 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
 
   await page.goto('/projects');
 
-  await page.getByRole('button', { name: '신규 프로젝트' }).click();
+  await page.getByRole('button', { name: '신규 프로젝트' }).first().click();
   await fillProjectForm(page, 'PJT-003A', 'TASK-003A E2E', '4');
   await page.getByRole('button', { name: '등록' }).click();
 
@@ -61,7 +61,7 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
   await expect(page.getByRole('table', { name: '설계' })).toContainText('생성 불가');
 
   await page.getByRole('navigation', { name: '현재 위치' }).getByRole('button', { name: '프로젝트', exact: true }).click();
-  await page.getByRole('button', { name: '신규 프로젝트' }).click();
+  await page.getByRole('button', { name: '신규 프로젝트' }).first().click();
   await fillProjectForm(page, 'PJT-DUP', ' task-003a   e2e ', '2');
   await page.getByRole('button', { name: '등록' }).click();
   await expect(page.getByText('동일한 PJT Title이 이미 존재합니다.')).toBeVisible();

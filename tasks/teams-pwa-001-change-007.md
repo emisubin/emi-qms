@@ -40,6 +40,7 @@
 - `frontend/src/App.tsx`
 - `frontend/src/design-system/wireframe.css`
 - `frontend/e2e/mock-ui/panel-kitting-smoke.spec.ts`
+- `frontend/e2e/mock-ui/project-registration-smoke.spec.ts`
 - `tasks/teams-pwa-001-change-007.md`
 - `tasks/teams-pwa-001-implementation-report.md`
 - `tasks/teams-pwa-001-user-validation-checklist.md`
@@ -53,6 +54,7 @@
 - desktop sidebar, 390px mobile app bar와 menu drawer에서 동일 asset 사용
 - 기존 로그인 desktop/mobile regression, Frontend lint·typecheck·unit·build, mock UI·CI
 - page-level horizontal overflow 0, 정상 경로 console error와 non-aborted request failure 0
+- 전체 mock UI에서 중복 가능한 empty-state action과 상단 action을 구분하는 안정적인 프로젝트 등록 test selector
 - Backend·DB·migration·dependency·environment·Teams/PWA package 변경 0
 
 ## Finding Gate

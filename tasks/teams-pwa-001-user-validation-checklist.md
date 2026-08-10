@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 사용자 검수 체크리스트
 
-상태: `Change 001~003·007·009 원격 main 병합·Azure 운영 rollout 완료 / 실제 Android·iPhone 사용자 검수 대기`
+상태: `Change 001~003·007·009 원격 main 병합·Azure 운영 rollout 완료 / Change 010 local 구현·게시 대기 / 실제 Android 재검수 대기`
 
 - 검수 대상: EMI PMS 일반 사용자, System Administrator
 - 운영 적용: Change 007·009 Git 게시와 Azure 운영 rollout 완료. Change 009는 PR #86, 원격 `main` merge SHA `e6a446268b0ce9aa7f9492af1e0bd4eb1a76191b`, Azure release `31361630803`으로 운영에 반영됐다. Teams package/catalog는 변경하지 않는다.
@@ -30,6 +30,7 @@
 - [x] Azure release `31361630803`이 exact main SHA 검증·Backend/Frontend image 게시·migration gate·운영 revision 교체를 통과했다.
 - [x] 배포 뒤 health `200`, 익명 root·`/api/me` `401/401`로 서비스 상태와 Microsoft 365 사전 인증 경계를 확인했다.
 - [x] DB·migration·알림 발송 정책·실제 provider 데이터는 변경하지 않았다.
+- [x] Change 010에서 Easy Auth 보호 manifest link에 `crossorigin="use-credentials"`를 추가하고 PWA asset contract·집중 unit `10/10`·전체 unit `187/187`·lint·typecheck·production build를 통과했다.
 
 ## Change 007 자동 검증
 
@@ -58,6 +59,7 @@
 - [ ] `Android 설치 안내`가 제품 공통 흑백 wireframe으로 표시되고 빨간색은 EMI logo에만 사용되는지 확인한다.
 - [ ] Android Chrome에서 Microsoft 365 로그인을 마친 직후 홈 업무보다 먼저 닫을 수 있는 설치 안내가 표시되는지 확인한다.
 - [ ] Chrome이 설치 기능을 준비 중이면 설치 버튼이 회색 비활성으로 보이고 준비가 끝나면 같은 버튼이 활성화되는지 확인한다.
+- [ ] Change 010 운영 반영 뒤 새 Chrome 탭에서 Microsoft 인증을 완료하고 `EMI PMS 설치` 버튼이 활성화되는지 확인한다.
 - [ ] `EMI PMS 설치`를 누르면 브라우저 설치 확인창이 열리는지 확인한다.
 - [ ] 설치를 취소해도 로그인 화면 또는 계정 영역에서 안내를 다시 열 수 있는지 확인한다.
 - [ ] 설치 후 홈 화면 이름·아이콘과 standalone 실행이 정상인지 확인한다.

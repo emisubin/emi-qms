@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MsalProvider } from '@azure/msal-react';
 import { App, AuthInitializationScreen } from './App';
+import { PwaInstallProvider } from './PwaInstallExperience';
 import {
   createMsalInstance,
   getRememberSessionPreference,
@@ -55,11 +56,13 @@ function EntraRoot() {
 function renderApp() {
   root.render(
     <StrictMode>
-      {isEntraAuthMode ? (
-        <EntraRoot />
-      ) : (
-        <App />
-      )}
+      <PwaInstallProvider>
+        {isEntraAuthMode ? (
+          <EntraRoot />
+        ) : (
+          <App />
+        )}
+      </PwaInstallProvider>
     </StrictMode>
   );
 }

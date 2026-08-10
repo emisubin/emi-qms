@@ -15892,6 +15892,13 @@ body {
   color: #282828;
 }
 
+.pwa-install-actions button:disabled {
+  cursor: wait;
+  border-color: #bdbdbd;
+  background: #eeeeee;
+  color: #737373;
+}
+
 .pwa-install-actions button:only-child {
   grid-column: 1 / -1;
 }

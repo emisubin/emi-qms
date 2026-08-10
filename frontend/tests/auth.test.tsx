@@ -111,14 +111,17 @@ describe('authentication modes', () => {
     vi.stubEnv('VITE_AZURE_CLIENT_ID', '22222222-2222-2222-2222-222222222222');
     vi.stubEnv('VITE_AZURE_API_SCOPE', 'api://33333333-3333-3333-3333-333333333333/access_as_user');
     const { App } = await import('../src/App');
+    const { PwaInstallProvider } = await import('../src/PwaInstallExperience');
     const { msalInstance } = await import('../src/auth');
     await msalInstance.initialize();
     const onRememberSessionChange = vi.fn();
 
     render(
-      <MsalProvider instance={msalInstance}>
-        <App onRememberSessionChange={onRememberSessionChange} />
-      </MsalProvider>
+      <PwaInstallProvider>
+        <MsalProvider instance={msalInstance}>
+          <App onRememberSessionChange={onRememberSessionChange} />
+        </MsalProvider>
+      </PwaInstallProvider>
     );
 
     expect(await screen.findByRole('heading', { name: 'EMI PMS' })).toBeInTheDocument();

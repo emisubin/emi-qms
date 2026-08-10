@@ -1,12 +1,19 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PwaInstallProvider } from '../src/PwaInstallExperience';
 import { usePwaInstallExperience } from '../src/pwa-install';
 
-function InstallEntry() {
-  const install = usePwaInstallExperience();
-  return install.available
-    ? <button type="button" onClick={install.openGuide}>{install.entryLabel}</button>
+function InstallEntry({ automaticGuideReady = true }: { automaticGuideReady?: boolean }) {
+  const { available, entryLabel, openGuide, setAutomaticGuideReady } = usePwaInstallExperience();
+
+  useEffect(() => {
+    setAutomaticGuideReady(automaticGuideReady);
+    return () => setAutomaticGuideReady(false);
+  }, [automaticGuideReady, setAutomaticGuideReady]);
+
+  return available
+    ? <button type="button" onClick={openGuide}>{entryLabel}</button>
     : <span>설치 대상 아님</span>;
 }
 
@@ -26,6 +33,7 @@ function stubMatchMedia(matches: (query: string) => boolean) {
 describe('PWA install experience', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     stubMatchMedia(() => false);
     vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 Chrome/140 Safari/537.36');
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel');
@@ -33,6 +41,40 @@ describe('PWA install experience', () => {
       configurable: true,
       value: 0
     });
+  });
+
+  it('waits for the authenticated app shell before opening the mobile guide', async () => {
+    stubMatchMedia((query) => query === '(max-width: 767px)');
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36');
+
+    const { rerender } = render(
+      <PwaInstallProvider>
+        <InstallEntry automaticGuideReady={false} />
+      </PwaInstallProvider>
+    );
+
+    expect(screen.queryByRole('dialog', { name: 'Android 설치 안내' })).not.toBeInTheDocument();
+
+    rerender(
+      <PwaInstallProvider>
+        <InstallEntry automaticGuideReady />
+      </PwaInstallProvider>
+    );
+
+    expect(await screen.findByRole('dialog', { name: 'Android 설치 안내' })).toBeInTheDocument();
+  });
+
+  it('does not treat a narrow desktop browser as an iPhone or Android device', async () => {
+    stubMatchMedia((query) => query === '(max-width: 767px)');
+
+    render(
+      <PwaInstallProvider>
+        <InstallEntry />
+      </PwaInstallProvider>
+    );
+
+    await act(() => new Promise((resolve) => window.setTimeout(resolve, 0)));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   afterEach(() => {
@@ -155,6 +197,67 @@ describe('PWA install experience', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Android 설치 안내' });
     expect(within(dialog).getByText('설치를 누르면 브라우저의 설치 확인 창이 열립니다.')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'EMI PMS 설치' })).toHaveFocus();
+  });
+
+  it('opens the Android guide before Chrome exposes its install prompt and enables the same button later', async () => {
+    stubMatchMedia((query) => query === '(max-width: 767px)');
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36');
+    vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Linux armv8l');
+
+    render(
+      <PwaInstallProvider>
+        <InstallEntry />
+      </PwaInstallProvider>
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Android 설치 안내' });
+    const installButton = within(dialog).getByRole('button', { name: 'EMI PMS 설치' });
+    expect(installButton).toBeDisabled();
+    expect(within(dialog).getByText(/설치 버튼을 준비하고 있습니다/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: '확인' })).toHaveFocus();
+
+    const installEvent = Object.assign(new Event('beforeinstallprompt'), {
+      prompt: vi.fn().mockResolvedValue(undefined),
+      userChoice: Promise.resolve({ outcome: 'dismissed', platform: 'web' })
+    });
+    act(() => window.dispatchEvent(installEvent));
+
+    await waitFor(() => expect(installButton).toBeEnabled());
+    expect(within(dialog).getByText('설치를 누르면 브라우저의 설치 확인 창이 열립니다.')).toBeInTheDocument();
+  });
+
+  it('remembers dismissal only for the current tab session and ignores the former permanent flag', async () => {
+    stubMatchMedia((query) => query === '(max-width: 767px)');
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1');
+    vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('iPhone');
+    window.localStorage.setItem('emi-pms:pwa-install-guide-dismissed', 'true');
+
+    const firstRender = render(
+      <PwaInstallProvider>
+        <InstallEntry />
+      </PwaInstallProvider>
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'iPhone 설치 안내' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '확인' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'iPhone 설치 안내' })).not.toBeInTheDocument());
+    firstRender.unmount();
+
+    const secondRender = render(
+      <PwaInstallProvider>
+        <InstallEntry />
+      </PwaInstallProvider>
+    );
+    expect(screen.queryByRole('dialog', { name: 'iPhone 설치 안내' })).not.toBeInTheDocument();
+    secondRender.unmount();
+
+    window.sessionStorage.clear();
+    render(
+      <PwaInstallProvider>
+        <InstallEntry />
+      </PwaInstallProvider>
+    );
+    expect(await screen.findByRole('dialog', { name: 'iPhone 설치 안내' })).toBeInTheDocument();
   });
 
   it('hides install controls after the app is already running standalone', () => {

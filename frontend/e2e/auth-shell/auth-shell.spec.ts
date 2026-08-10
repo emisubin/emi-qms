@@ -222,7 +222,6 @@ test('@mobile mobile auth shell uses the dedicated monochrome layout and preserv
 
   await page.addInitScript(() => {
     window.localStorage.setItem('emi-auth-remember-session', 'false');
-    window.localStorage.setItem('emi-pms:pwa-install-guide-dismissed', 'true');
   });
 
   const response = await page.goto('/');

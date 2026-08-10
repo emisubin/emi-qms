@@ -6,9 +6,9 @@
 - Task type: `P2_REMEDIATION`
 - 기준 branch: `fix/task-ci-cost-001-actions-minutes`
 - 기준 SHA: `5300b4646b2ea8bba0a43e953fea58e66caa2016`
-- 상태: `MAIN_MERGED / PR_AND_MAIN_VALIDATION_COMPLETE / USAGE_OBSERVATION_PENDING`
+- 상태: `MAIN_MERGED / GITHUB_VALIDATION_COMPLETE / USAGE_OBSERVATION_PENDING`
 - 사용자 승인: 권장 최소안 구현·기존 실제 기기 검수와의 병렬 진행·Git 게시·PR·`main` merge 명시 승인 완료
-- Git 게시: PR #89 Ready 전환·squash merge 완료, merge SHA `f50be6afc6896176bc2bdf32fa7ffbd59b1fd13b`, main CI 성공
+- Git 게시: PR #89 Ready 전환·squash merge 완료, merge SHA `f50be6afc6896176bc2bdf32fa7ffbd59b1fd13b`, main CI 성공. closure PR #90 첫 실행에서 문서 전용 heavy 3개 job skip·`CI Gate` 성공
 
 ## 2. 해결한 업무 문제
 
@@ -168,7 +168,7 @@ Open P0/P1/P2는 0건이다.
 ## 12. 사용자 검수 결과와 남은 항목
 
 - 자동 검증: 완료
-- 사용자 검수: 구현·게시·`main` merge 승인과 실제 PR/main 동작 검수 완료, 문서 전용 closure PR 확인 진행
+- 사용자 검수: 구현·게시·`main` merge 승인과 코드 PR·main·문서 전용 closure PR 실제 동작 검수 완료
 - GitHub PR/main 실제 실행: 완료 — PR #89 `5/5`, main 성공 4·skip 1
 - 동일 PR 이전 run cancellation 확인: 완료 — PR #89 새 commit에서 이전 실행 `cancelled` 3건 확인
 - 최소 1주 사용량 추세: 대기
@@ -182,8 +182,8 @@ workflow 문제가 발견되면 `.github/workflows/ci.yml`만 기준 SHA의 이�
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
-| Implementation report | 작성 완료 / PR·main 검수 완료 / 1주 관찰 대기 | 이 문서 |
+| Implementation report | 작성 완료 / GitHub 실제 검수 완료 / 1주 관찰 대기 | 이 문서 |
 | SOP | 작성 완료 | [Task의 개발 SOP](ci-cost-001.md#개발-sop) |
 | User manual | N/A 기록 완료 | [Task의 User manual](ci-cost-001.md#user-manual) — 제품 UI 변경 없음 |
 | Roadmap update | 작성 완료 | [Product Roadmap](../docs/00-product-roadmap.md#task-ci-cost-001-github-actions-minute-최적화) |
-| User validation checklist | PR·main 자동 검수 완료 / 문서 전용 closure PR·1주 관찰 진행 | [Task checklist](ci-cost-001.md#사용자-검수-checklist) |
+| User validation checklist | 코드 PR·main·문서 전용 closure PR 자동 검수 완료 / 1주 관찰 대기 | [Task checklist](ci-cost-001.md#사용자-검수-checklist) |

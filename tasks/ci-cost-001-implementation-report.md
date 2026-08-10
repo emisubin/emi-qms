@@ -8,7 +8,7 @@
 - 기준 SHA: `5300b4646b2ea8bba0a43e953fea58e66caa2016`
 - 상태: `LOCAL_IMPLEMENTATION_COMPLETE / AUTOMATED_VALIDATION_COMPLETE / PUBLICATION_APPROVED / GITHUB_VALIDATION_PENDING`
 - 사용자 승인: 권장 최소안 구현·기존 실제 기기 검수와의 병렬 진행·Git 게시·PR·`main` merge 명시 승인 완료
-- Git 게시: local 구현 commit 완료, push·PR·merge 실행 대기
+- Git 게시: local 구현 commit·remote push·Draft PR #89 완료, PR 검수·Ready 전환·merge 진행 중
 
 ## 2. 해결한 업무 문제
 
@@ -48,6 +48,8 @@ Change Classification
 workflow-level `paths-ignore`는 사용하지 않았다. GitHub 공식 동작상 path filter로 workflow 전체가 생략되면 required check가 Pending으로 남을 수 있기 때문이다.
 
 분류용 checkout은 최근 commit 두 단계만 가져온다. PR fork, 다중 commit push 또는 shallow history 차이로 기준 SHA를 확인할 수 없으면 `fail-safe`로 분류해 전체 CI를 실행한다. 분류 실패가 문서 전용 skip으로 바뀌는 경로는 없다.
+
+Git rename은 post-image 경로만 검사하지 않는다. `--no-renames`로 이전 경로 삭제와 새 경로 추가를 모두 분류하고 `-z` NUL 구분을 사용한다. 따라서 코드·설정 파일을 allowlisted 문서 경로로 rename해도 이전 코드 경로가 남아 전체 CI를 실행하며, 공백·개행을 포함한 유효한 Git 파일명도 한 경로로 안전하게 읽는다.
 
 ### 3.3 Concurrency
 
@@ -105,9 +107,9 @@ workflow-level `paths-ignore`는 사용하지 않았다. GitHub 공식 동작상
 | --- | --- | --- | --- |
 | `actionlint .github/workflows/ci.yml` | 적용 | PASS | workflow syntax·expression·shell block 정적 검사 |
 | `git diff --check` | 적용 | PASS | whitespace 오류 0 |
-| exact classifier matrix | 적용 | PASS `4/4` | 실제 repository의 문서 commit·코드 commit으로 docs PR, code PR, code main, missing-base fail-safe 실행 |
+| exact classifier matrix | 적용 | PASS `7/7` | 실제 repository의 문서 commit·코드 commit으로 docs PR, code PR, code main, missing-base fail-safe와 code→docs·docs→docs·code→code rename 실행 |
 | exact `CI Gate` matrix | 적용 | PASS `6/6` | docs pass, PR pass, main pass, classifier failure, Backend failure, Full-Stack failure |
-| workflow contract read-only assertions | 적용 | PASS `16/16` | permission·concurrency·job topology·needs·timeout·40자 action pin·PostgreSQL digest |
+| workflow contract read-only assertions | 적용 | PASS `19/19` | permission·concurrency·job topology·needs·timeout·40자 action pin·PostgreSQL digest와 rename/NUL 경계 |
 | pnpm store path | 적용 | PASS | pnpm 11 store path 단일 값 확인 |
 | pinned cache action readback | 적용 | PASS | 지정 SHA 존재와 `node24` runtime 확인 |
 | Azure release diff | 적용 | PASS | `origin/main` 대비 변경 0 |
@@ -148,6 +150,8 @@ workflow-level `paths-ignore`는 사용하지 않았다. GitHub 공식 동작상
 | Finding | Severity | 상태 | 원인·영향 | 해소·후속 |
 | --- | --- | --- | --- | --- |
 | `CI-MINUTES-OVERCONSUMPTION-001` | P2 | `RESOLVED` | 모든 변경과 event에 3개 heavy job을 반복해 quota 소진 위험 발생 | 변경 인지·PR 취소·main E2E 중복 제거·선행 dependency·cache·timeout 구현, local matrix 통과 |
+| `REPOSITORY-VISIBILITY-ROADMAP-DRIFT-001` | P2 | `RESOLVED` | 실제 원격은 `PRIVATE`인데 Roadmap 일부 current status가 `PUBLIC`으로 남아 CI 과금 원인과 source of truth 충돌 | actual readback 기준 현재 `PRIVATE`를 실행 큐·Task·추적 항목·Decision Log에 동기화하고 과거 public 상태는 당시 이력으로 보존 |
+| `CI-CLASSIFIER-RENAME-PREIMAGE-001` | P2 | `RESOLVED` | 기본 rename 감지가 post-image allowlisted 경로만 출력하면 code→docs rename을 문서 전용으로 오분류할 수 있음 | `--no-renames --name-only -z`와 NUL read로 이전·새 경로를 모두 검사하고 rename 3종 회귀를 classifier matrix에 추가 |
 | `CI-MINUTES-SAVINGS-OBSERVATION-001` | P3 | `BACKLOG` | 실제 절감률은 GitHub-hosted 표본 없이는 확정 불가 | PR/main 실제 run과 최소 1주 사용량을 사용자 검수 checklist에서 관찰 |
 | `GHA-AZURE-RUNNER-WARNINGS-001` | P3 | `BACKLOG / OUT_OF_SCOPE` | Azure release action/CLI 경고 | 기존 Azure Task backlog를 유지하며 이 Task에서 release workflow를 변경하지 않음 |
 
@@ -156,6 +160,7 @@ Open P0/P1/P2는 0건이다.
 ## 11. 시행착오 및 폐기한 접근
 
 - workflow-level `paths-ignore`는 required check가 Pending으로 남는 공식 동작 때문에 폐기했다.
+- 기본 rename 감지의 post-image 경로만 읽는 방식은 code→docs 우회가 가능해 폐기하고 delete+add 양쪽 경로 검사로 교체했다.
 - 로컬 정책이 YAML shell block의 직접 동적 pipe 실행을 차단해 검증을 생략하지 않고 Task-owned 임시 harness로 exact block을 실행한 뒤 제거했다.
 - 세밀한 Backend/Frontend path 분리는 절감 효과보다 분류 오류 위험이 커 이번 최소안에서 보류했다.
 - Azure release warning 정리와 NuGet cache는 purpose가 달라 범위에 섞지 않았다.

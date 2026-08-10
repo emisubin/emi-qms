@@ -41,6 +41,7 @@
 4. `CI Gate`는 `always()`로 실행해 필요한 job의 실패·취소·예상 밖 skip을 하나의 결론으로 집계한다.
 5. pnpm content-addressable store만 lockfile hash로 cache한다. `node_modules`는 cache하지 않고 `--frozen-lockfile` 검증을 유지한다.
 6. 관찰된 정상 시간보다 충분히 큰 timeout으로 무한 대기·stuck runner 비용만 차단한다.
+7. rename은 Git의 rename 추적을 끄고 이전 경로 삭제·새 경로 추가로 분해해 둘 다 검사한다. 파일명은 NUL 구분으로 읽어 공백·개행 같은 유효한 Git 경로도 분류 경계를 우회하지 못하게 한다.
 
 ### 문서 전용 allowlist
 

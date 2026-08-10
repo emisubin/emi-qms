@@ -64,7 +64,7 @@ jobs:
             && git cat-file -e "${head_sha}^{commit}" 2>/dev/null; then
             documentation_only=true
 
-            while IFS= read -r changed_path; do
+            while IFS= read -r -d '' changed_path; do
               [[ -n "$changed_path" ]] || continue
               changed_file_count=$((changed_file_count + 1))
 
@@ -84,7 +84,7 @@ jobs:
                   documentation_only=false
                   ;;
               esac
-            done < <(git diff --name-only --diff-filter=ACDMRTUXB "$base_sha" "$head_sha")
+            done < <(git diff --no-renames --name-only -z --diff-filter=ACDMRTUXB "$base_sha" "$head_sha")
 
             if [[ "$changed_file_count" -gt 0 && "$documentation_only" == "true" ]]; then
               run_ci=false

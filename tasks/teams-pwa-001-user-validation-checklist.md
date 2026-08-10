@@ -1,9 +1,9 @@
 # TASK-TEAMS-PWA-001 사용자 검수 체크리스트
 
-상태: `Change 001~003·007 운영 rollout 완료 / Change 009 구현·로컬 자동 검증 완료·공개 배포 승인 / Git 게시 대기`
+상태: `Change 001~003·007·009 원격 main 병합·Azure 운영 rollout 완료 / 실제 Android·iPhone 사용자 검수 대기`
 
 - 검수 대상: EMI PMS 일반 사용자, System Administrator
-- 운영 적용: Change 007 Git 게시와 Azure 운영 rollout 완료. Change 009는 사용자 운영 검수 실패를 반영해 공개 배포까지 승인됐고 현재 Git 게시 전이다. Teams package/catalog는 변경하지 않는다.
+- 운영 적용: Change 007·009 Git 게시와 Azure 운영 rollout 완료. Change 009는 PR #86, 원격 `main` merge SHA `e6a446268b0ce9aa7f9492af1e0bd4eb1a76191b`, Azure release `31361630803`으로 운영에 반영됐다. Teams package/catalog는 변경하지 않는다.
 - 개인정보 안전: 실제 계정 식별자·token·알림 본문을 이 문서에 기록하지 않는다. 결과는 역할, 날짜, 환경과 PASS/FAIL만 기록한다.
 
 ## 자동 검증 완료
@@ -26,6 +26,9 @@
 - [x] Teams·iPhone·Android 안내는 흰 표면·검정 버튼·중성 회색·1px 경계를 사용하고 장식용 왼쪽 강조선·색상 그림자가 없다.
 - [x] launcher desktop 1440px와 mobile 390px, iPhone·Android 설치 안내 390px에서 가로 overflow가 없다.
 - [x] Change 009 Frontend 전체 unit `187/187`, PWA 집중 `10/10`, browser 집중 `4/4`, lint·typecheck·production build가 통과한다.
+- [x] Change 009 PR #86과 merge SHA main CI의 Frontend·Backend·Full-Stack이 각각 `3/3` 통과했다.
+- [x] Azure release `31361630803`이 exact main SHA 검증·Backend/Frontend image 게시·migration gate·운영 revision 교체를 통과했다.
+- [x] 배포 뒤 health `200`, 익명 root·`/api/me` `401/401`로 서비스 상태와 Microsoft 365 사전 인증 경계를 확인했다.
 - [x] DB·migration·알림 발송 정책·실제 provider 데이터는 변경하지 않았다.
 
 ## Change 007 자동 검증
@@ -92,8 +95,9 @@
 
 | 날짜 | 환경 | 검수 역할 | 결과 | 증빙 유형 | 비고 |
 | --- | --- | --- | --- | --- | --- |
-| 대기 | 운영 rollout 후 | 역할명만 기록 | 대기 | 화면 확인 | 실제 계정·token·알림 원문 기록 금지 |
+| 대기 | Change 009 운영 rollout 후 Android·iPhone | 역할명만 기록 | 대기 | 화면 확인 | 실제 계정·token·알림 원문 기록 금지 |
 | 2026-08-10 | Azure 운영 / iPhone·Android | 사용자 | FAIL → Change 009 보정 | 실제 기기 화면 확인 | Microsoft 로그인 뒤 설치 안내가 자동 표시되지 않음 |
+| 2026-08-10 | Azure 운영 / 자동 공개 검증 | Codex | PASS | CI·release·HTTP 상태 | PR #86·main CI `3/3`, release `31361630803`, health `200`, 익명 `401/401` |
 
 ## 실패 시 처리
 

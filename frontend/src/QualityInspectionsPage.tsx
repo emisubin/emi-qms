@@ -221,7 +221,8 @@ export function QualityInspectionsPage({
   }).length;
   const progress = requiredItems.length ? Math.round((completedRequired / requiredItems.length) * 100) : 0;
   const hasUnavailableRequired = requiredItems.some((item) => item.isAvailable === false);
-  const canMutatePanel = canInspect && panel?.canMutate === true;
+  const queueOperational = queueState.kind !== 'ready' || queueState.data.isOperational !== false;
+  const canMutatePanel = canInspect && queueOperational && panel?.canMutate === true;
   const isReinspection = Boolean(panel?.pendingId && detail?.reportStatus !== 'Finalized');
   const hasFailedResponse = detail?.decisionMode === 'Checklist'
     && detail.items.some((item) => item.isAvailable !== false && draft[item.itemId]?.checkResult === 'Fail');
@@ -517,7 +518,9 @@ export function QualityInspectionsPage({
         testId={`quality-${stage.toLowerCase()}-dashboard`}
         eyebrow={`품질 · ${stageSummary.label}`}
         title={`${stageSummary.label} 프로젝트`}
-        description={`${stageSummary.label} 검사 대상이 있는 프로젝트를 선택하면 한 프로젝트의 패널만 표시합니다.`}
+        description={queueState.data.isOperational === false
+          ? queueState.data.operationalMessage ?? `${stageSummary.label}는 현재 운영 중지 상태입니다.`
+          : `${stageSummary.label} 검사 대상이 있는 프로젝트를 선택하면 한 프로젝트의 패널만 표시합니다.`}
         unitLabel="패널"
         metrics={[
           { label: '검사 대기', value: totals.ready, helper: '검사 시작 가능' },
@@ -536,9 +539,13 @@ export function QualityInspectionsPage({
           completedCount: project.completedCount,
           detail: project.fatRequired ? 'FAT 필수 프로젝트' : '표준 품질 흐름'
         }))}
-        emptyMessage={`${stageSummary.label} 대상 프로젝트가 없습니다.`}
+        emptyMessage={queueState.data.isOperational === false
+          ? `${stageSummary.label}는 현재 운영 중지 상태입니다.`
+          : `${stageSummary.label} 대상 프로젝트가 없습니다.`}
         onBack={onBack}
-        readOnlyDescription={!canInspect ? `${stageSummary.label} 현황과 판정 결과를 조회할 수 있습니다. 검사 입력은 품질 담당자 권한이 필요합니다.` : undefined}
+        readOnlyDescription={queueState.data.isOperational === false
+          ? '새 LQC 검사는 시작되지 않습니다. 과거 검사 이력과 양식은 그대로 보존됩니다.'
+          : !canInspect ? `${stageSummary.label} 현황과 판정 결과를 조회할 수 있습니다. 검사 입력은 품질 담당자 권한이 필요합니다.` : undefined}
         onOpenProject={(projectId) => onOpenProject?.(projectId)}
       />
     );
@@ -557,14 +564,20 @@ export function QualityInspectionsPage({
         <span className="quality-hero-square" aria-hidden="true" />
       </header>
 
-      {!canInspect ? <DsReadOnlyBanner description={`${stageSummary.label} 현황과 판정 결과를 조회할 수 있습니다. 검사 시작·저장·확정은 품질 담당자에게 요청하세요.`} /> : null}
+      {queueState.kind === 'ready' && queueState.data.isOperational === false ? (
+        <DsReadOnlyBanner
+          kind="prerequisite"
+          title={`${stageSummary.label} 운영 중지`}
+          description={queueState.data.operationalMessage ?? '새 LQC 검사는 시작되지 않으며 제조 완료 후 OQC로 바로 인계됩니다. 과거 이력은 계속 조회할 수 있습니다.'}
+        />
+      ) : !canInspect ? <DsReadOnlyBanner description={`${stageSummary.label} 현황과 판정 결과를 조회할 수 있습니다. 검사 시작·저장·확정은 품질 담당자에게 요청하세요.`} /> : null}
 
       {queueState.kind === 'loading' ? <QualityLoading label={`${stageSummary.label} 대기열 확인 중`} /> : null}
       {queueState.kind === 'error' ? (
         <div className="quality-empty-state" role="alert"><strong>품질 대기열을 확인할 수 없습니다.</strong><span>{queueState.message}</span><button type="button" onClick={() => void loadQueue(stage)}>다시 불러오기</button></div>
       ) : null}
       {queueState.kind === 'ready' && projects.length === 0 ? (
-        <div className="quality-empty-state"><strong>{stageSummary.label} 대기 패널이 없습니다.</strong><span>앞 단계가 완료되면 담당 패널이 이곳에 표시됩니다.</span></div>
+        <div className="quality-empty-state"><strong>{queueState.data.isOperational === false ? `${stageSummary.label} 운영 중지` : `${stageSummary.label} 대기 패널이 없습니다.`}</strong><span>{queueState.data.isOperational === false ? '제조 완료 패널은 OQC로 바로 인계됩니다.' : '앞 단계가 완료되면 담당 패널이 이곳에 표시됩니다.'}</span></div>
       ) : null}
 
       {queueState.kind === 'ready' && projects.length > 0 ? (
@@ -654,7 +667,7 @@ export function QualityInspectionsPage({
                         kind={canInspect ? 'prerequisite' : 'permission'}
                         title={canInspect ? '현재는 검사 입력을 시작할 수 없습니다' : '조회 전용 화면입니다'}
                         description={canInspect
-                          ? '앞 제조·품질 단계, Pending 조치 또는 이미 확정된 판정 상태를 확인하세요.'
+                          ? queueOperational ? '앞 제조·품질 단계, Pending 조치 또는 이미 확정된 판정 상태를 확인하세요.' : '현재 LQC 입력은 중지되어 있습니다. 과거 판정과 Pending 이력만 조회할 수 있습니다.'
                           : '검사 시작·항목 저장·판정 확정은 품질 담당자에게 요청하세요.'}
                       />
                     ) : null}

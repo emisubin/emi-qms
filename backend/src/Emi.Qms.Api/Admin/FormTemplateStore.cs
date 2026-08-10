@@ -10,7 +10,7 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
     private static readonly TemplateDescriptor[] Catalog =
     [
         new("IqcReport", "MATERIAL_IQC", "자재 수입검사", "Quality"),
-        new("PanelQualityStage", "LQC", "LQC 검사", "Quality"),
+        new("PanelQualityStage", "LQC", "Item별 LQC 검사", "Quality"),
         new("PanelQualityStage", "OQC", "OQC 자체검수", "Quality")
     ];
 
@@ -33,9 +33,219 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         foreach (var descriptor in Catalog.Where(item => domains.Contains(item.Domain)))
         {
             var summary = await ReadSummaryAsync(connection, descriptor, token);
-            items.Add(new(descriptor.Family, descriptor.Key, descriptor.Name, descriptor.Domain, summary.ActiveVersion, summary.ActivatedAt, summary.DraftCount));
+            items.Add(new(
+                descriptor.Family,
+                descriptor.Key,
+                descriptor.Name,
+                descriptor.Domain,
+                summary.ActiveVersion,
+                summary.ActivatedAt,
+                summary.DraftCount));
         }
         return new(items);
+    }
+
+    public async Task<LqcItemTemplatesResponse> GetLqcItemsAsync(
+        Guid userId,
+        bool isSystemAdministrator,
+        CancellationToken token)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(token);
+        await DemandAccessAsync(connection, null, userId, isSystemAdministrator, "Quality", token);
+        return new(
+            true,
+            isSystemAdministrator,
+            await ReadLqcItemsAsync(connection, null, token));
+    }
+
+    public async Task<LqcItemTemplatesResponse> UpdateLqcItemOperatingStatusAsync(
+        Guid productTypeId,
+        UpdateLqcItemOperatingStatusRequest request,
+        Guid actorUserId,
+        bool isSystemAdministrator,
+        CancellationToken token)
+    {
+        if (!isSystemAdministrator) throw new FormTemplateForbiddenException();
+        if (productTypeId == Guid.Empty || request.ExpectedRowVersion < 1)
+            throw new ArgumentException("Item과 최신 설정 version을 확인해 주세요.", "productTypeId");
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(token);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, token);
+        var current = await LockLqcItemSettingAsync(connection, transaction, productTypeId, token)
+            ?? throw new ArgumentException("LQC 설정을 찾을 수 없습니다.", "productTypeId");
+        if (current.RowVersion != request.ExpectedRowVersion)
+            throw new FormTemplateConflictException("LQC 운영 상태가 변경되었습니다. 새로고침해 주세요.");
+
+        if (current.IsOperational != request.IsOperational)
+        {
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    update lqc_item_settings
+                    set is_operational=@is_operational,
+                        row_version=row_version+1,
+                        updated_by_user_id=@actor_id,
+                        updated_at_utc=now()
+                    where product_type_id=@product_type_id
+                      and row_version=@expected_row_version;
+                    """;
+                command.Parameters.AddWithValue("is_operational", request.IsOperational);
+                command.Parameters.AddWithValue("actor_id", actorUserId);
+                command.Parameters.AddWithValue("product_type_id", productTypeId);
+                command.Parameters.AddWithValue("expected_row_version", request.ExpectedRowVersion);
+                if (await command.ExecuteNonQueryAsync(token) != 1)
+                    throw new FormTemplateConflictException("LQC 운영 상태가 변경되었습니다. 새로고침해 주세요.");
+            }
+
+            await AppendLqcSettingAuditAsync(
+                connection,
+                transaction,
+                productTypeId,
+                "OperatingStatusChanged",
+                actorUserId,
+                new { isOperational = current.IsOperational },
+                new { isOperational = request.IsOperational },
+                token);
+        }
+
+        await transaction.CommitAsync(token);
+        return new(true, true, await ReadLqcItemsAsync(connection, null, token));
+    }
+
+    public async Task<LqcItemTemplatesResponse> SaveLqcItemTemplateAsync(
+        Guid productTypeId,
+        SaveLqcItemTemplateRequest request,
+        Guid actorUserId,
+        bool isSystemAdministrator,
+        CancellationToken token)
+    {
+        var descriptor = ResolveDescriptor("PanelQualityStage", "LQC");
+        ValidateItems(descriptor, request.Items);
+        if (productTypeId == Guid.Empty || request.ExpectedTemplateRowVersion < 1)
+            throw new ArgumentException("Item과 최신 양식 version을 확인해 주세요.", "productTypeId");
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(token);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, token);
+        await DemandAccessAsync(connection, transaction, actorUserId, isSystemAdministrator, "Quality", token);
+        var current = await LockLqcItemSettingAsync(connection, transaction, productTypeId, token)
+            ?? throw new ArgumentException("LQC 설정을 찾을 수 없습니다.", "productTypeId");
+        if (current.TemplateRowVersion != request.ExpectedTemplateRowVersion)
+            throw new FormTemplateConflictException("LQC 검사 양식이 변경되었습니다. 새로고침해 주세요.");
+
+        var existingKeys = await ReadDefinitionKeysAsync(
+            connection,
+            transaction,
+            descriptor,
+            current.TemplateVersionId,
+            token);
+        ValidateDefinitionKeys(request.Items, existingKeys);
+
+        int nextVersion;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select coalesce(max(version_number), 0) + 1
+                from panel_quality_template_versions
+                where stage_code='LQC' and product_type_id=@product_type_id;
+                """;
+            command.Parameters.AddWithValue("product_type_id", productTypeId);
+            nextVersion = Convert.ToInt32(await command.ExecuteScalarAsync(token));
+        }
+
+        var nextVersionId = Guid.NewGuid();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into panel_quality_template_versions (
+                    id,stage_code,product_type_id,version_number,display_name,is_active,
+                    lifecycle_status,row_version,created_by_user_id,updated_by_user_id
+                )
+                select @next_version_id,'LQC',setting.product_type_id,@next_version,
+                       product_type.name || ' LQC 검사',false,'Draft',1,@actor_id,@actor_id
+                from lqc_item_settings setting
+                join production_product_types product_type on product_type.id=setting.product_type_id
+                where setting.product_type_id=@product_type_id;
+                """;
+            command.Parameters.AddWithValue("next_version_id", nextVersionId);
+            command.Parameters.AddWithValue("next_version", nextVersion);
+            command.Parameters.AddWithValue("actor_id", actorUserId);
+            command.Parameters.AddWithValue("product_type_id", productTypeId);
+            if (await command.ExecuteNonQueryAsync(token) != 1)
+                throw new ArgumentException("LQC 설정을 찾을 수 없습니다.", "productTypeId");
+        }
+
+        await ReplaceItemsAsync(connection, transaction, descriptor, nextVersionId, request.Items, token);
+
+        await using (var archive = connection.CreateCommand())
+        {
+            archive.Transaction = transaction;
+            archive.CommandText = """
+                update panel_quality_template_versions
+                set lifecycle_status='Archived',is_active=false,archived_at_utc=now(),
+                    row_version=row_version+1,updated_by_user_id=@actor_id,updated_at_utc=now()
+                where id=@current_version_id
+                  and lifecycle_status='Active'
+                  and row_version=@expected_template_row_version;
+                """;
+            archive.Parameters.AddWithValue("actor_id", actorUserId);
+            archive.Parameters.AddWithValue("current_version_id", current.TemplateVersionId);
+            archive.Parameters.AddWithValue("expected_template_row_version", request.ExpectedTemplateRowVersion);
+            if (await archive.ExecuteNonQueryAsync(token) != 1)
+                throw new FormTemplateConflictException("LQC 검사 양식이 변경되었습니다. 새로고침해 주세요.");
+        }
+
+        await using (var activate = connection.CreateCommand())
+        {
+            activate.Transaction = transaction;
+            activate.CommandText = """
+                update panel_quality_template_versions
+                set lifecycle_status='Active',is_active=true,activated_at_utc=now(),
+                    row_version=row_version+1,updated_by_user_id=@actor_id,updated_at_utc=now()
+                where id=@next_version_id and lifecycle_status='Draft' and row_version=1;
+                """;
+            activate.Parameters.AddWithValue("actor_id", actorUserId);
+            activate.Parameters.AddWithValue("next_version_id", nextVersionId);
+            if (await activate.ExecuteNonQueryAsync(token) != 1)
+                throw new FormTemplateConflictException("새 LQC 검사 양식을 적용하지 못했습니다.");
+        }
+
+        await using (var setting = connection.CreateCommand())
+        {
+            setting.Transaction = transaction;
+            setting.CommandText = """
+                update lqc_item_settings
+                set current_template_version_id=@next_version_id,
+                    row_version=row_version+1,
+                    updated_by_user_id=@actor_id,
+                    updated_at_utc=now()
+                where product_type_id=@product_type_id
+                  and row_version=@expected_setting_row_version;
+                """;
+            setting.Parameters.AddWithValue("next_version_id", nextVersionId);
+            setting.Parameters.AddWithValue("actor_id", actorUserId);
+            setting.Parameters.AddWithValue("product_type_id", productTypeId);
+            setting.Parameters.AddWithValue("expected_setting_row_version", current.RowVersion);
+            if (await setting.ExecuteNonQueryAsync(token) != 1)
+                throw new FormTemplateConflictException("LQC 설정이 변경되었습니다. 새로고침해 주세요.");
+        }
+
+        await AppendLqcSettingAuditAsync(
+            connection,
+            transaction,
+            productTypeId,
+            "TemplateChanged",
+            actorUserId,
+            new { templateVersionNumber = current.TemplateVersionNumber },
+            new { templateVersionNumber = nextVersion, itemCount = request.Items.Count },
+            token);
+        await transaction.CommitAsync(token);
+        return new(true, isSystemAdministrator, await ReadLqcItemsAsync(connection, null, token));
     }
 
     public async Task<FormTemplateVersionsResponse> GetVersionsAsync(
@@ -67,6 +277,7 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         CancellationToken token)
     {
         var descriptor = ResolveDescriptor(family, templateKey);
+        RejectLegacyLqcMutation(descriptor);
         ValidateItems(descriptor, request.Items);
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(token);
@@ -106,6 +317,7 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         CancellationToken token)
     {
         var descriptor = ResolveDescriptor(family, templateKey);
+        RejectLegacyLqcMutation(descriptor);
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(token);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
@@ -131,6 +343,7 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         CancellationToken token)
     {
         var descriptor = ResolveDescriptor(family, templateKey);
+        RejectLegacyLqcMutation(descriptor);
         ValidateItems(descriptor, request.Items);
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(token);
@@ -156,6 +369,7 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         CancellationToken token)
     {
         var descriptor = ResolveDescriptor(family, templateKey);
+        RejectLegacyLqcMutation(descriptor);
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(token);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, token);
@@ -181,6 +395,7 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         CancellationToken token)
     {
         var descriptor = ResolveDescriptor(family, templateKey);
+        RejectLegacyLqcMutation(descriptor);
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(token);
         await using var transaction = await connection.BeginTransactionAsync(token);
@@ -299,6 +514,134 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
     private static TemplateDescriptor ResolveDescriptor(string family, string key)
         => Catalog.SingleOrDefault(item => item.Family == family && item.Key == key)
            ?? throw new ArgumentException("지원하지 않는 양식 종류입니다.", "templateKey");
+
+    private static void RejectLegacyLqcMutation(TemplateDescriptor descriptor)
+    {
+        if (descriptor is { Family: "PanelQualityStage", Key: "LQC" })
+            throw new ArgumentException("LQC 검사 항목은 Item별 LQC 관리 화면에서 수정해 주세요.", "templateKey");
+    }
+
+    private static async Task<IReadOnlyList<LqcItemTemplateResponse>> ReadLqcItemsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        CancellationToken token)
+    {
+        var rows = new List<LqcItemSettingSnapshot>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select product_type.id,
+                       product_type.code,
+                       product_type.name,
+                       setting.is_operational,
+                       setting.row_version,
+                       version.id,
+                       version.version_number,
+                       version.row_version
+                from production_product_types product_type
+                join lqc_item_settings setting on setting.product_type_id=product_type.id
+                join panel_quality_template_versions version on version.id=setting.current_template_version_id
+                where product_type.is_active
+                order by product_type.code;
+                """;
+            await using var reader = await command.ExecuteReaderAsync(token);
+            while (await reader.ReadAsync(token))
+            {
+                rows.Add(new(
+                    reader.GetGuid(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetBoolean(3),
+                    reader.GetInt32(4),
+                    reader.GetGuid(5),
+                    reader.GetInt32(6),
+                    reader.GetInt32(7)));
+            }
+        }
+
+        var descriptor = ResolveDescriptor("PanelQualityStage", "LQC");
+        var result = new List<LqcItemTemplateResponse>(rows.Count);
+        foreach (var row in rows)
+        {
+            result.Add(new(
+                row.ProductTypeId,
+                row.ProductTypeCode,
+                row.ProductTypeName,
+                row.IsOperational,
+                row.RowVersion,
+                row.TemplateVersionId,
+                row.TemplateVersionNumber,
+                row.TemplateRowVersion,
+                await ReadItemsAsync(connection, transaction, descriptor, row.TemplateVersionId, token)));
+        }
+        return result;
+    }
+
+    private static async Task<LqcItemSettingSnapshot?> LockLqcItemSettingAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid productTypeId,
+        CancellationToken token)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select setting.product_type_id,
+                   product_type.code,
+                   product_type.name,
+                   setting.is_operational,
+                   setting.row_version,
+                   version.id,
+                   version.version_number,
+                   version.row_version
+            from lqc_item_settings setting
+            join production_product_types product_type on product_type.id=setting.product_type_id
+            join panel_quality_template_versions version on version.id=setting.current_template_version_id
+            where setting.product_type_id=@product_type_id
+              and product_type.is_active
+            for update of setting, version;
+            """;
+        command.Parameters.AddWithValue("product_type_id", productTypeId);
+        await using var reader = await command.ExecuteReaderAsync(token);
+        return await reader.ReadAsync(token)
+            ? new(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetBoolean(3),
+                reader.GetInt32(4),
+                reader.GetGuid(5),
+                reader.GetInt32(6),
+                reader.GetInt32(7))
+            : null;
+    }
+
+    private static async Task AppendLqcSettingAuditAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid productTypeId,
+        string action,
+        Guid actorUserId,
+        object oldValue,
+        object newValue,
+        CancellationToken token)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into lqc_item_setting_audit_events (
+                product_type_id,action,actor_user_id,old_value,new_value
+            )
+            values (@product_type_id,@action,@actor_id,@old_value::jsonb,@new_value::jsonb);
+            """;
+        command.Parameters.AddWithValue("product_type_id", productTypeId);
+        command.Parameters.AddWithValue("action", action);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        command.Parameters.AddWithValue("old_value", JsonSerializer.Serialize(oldValue));
+        command.Parameters.AddWithValue("new_value", JsonSerializer.Serialize(newValue));
+        await command.ExecuteNonQueryAsync(token);
+    }
 
     private static async Task<HashSet<string>> ReadDomainsAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid userId, CancellationToken token)
     {
@@ -585,11 +928,20 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
 
     private static string NormalizeDomain(string value) => value is "Quality" or "Manufacturing" or "ProductionPlanning" ? value : throw new ArgumentException("지원하지 않는 양식 관리 영역입니다.", "domain");
     private static FamilySource Source(TemplateDescriptor descriptor) => descriptor.Family switch
-    { "IqcReport" => new("iqc_report_template_versions", "iqc_report_template_items", "template_id", "(select id from iqc_report_templates where template_code=@key)", "'자재 수입검사 v' || version_number"), "PanelQualityStage" => new("panel_quality_template_versions", "panel_quality_template_items", "stage_code", "@key", "display_name"), _ => new("manufacturing_step_template_versions", "manufacturing_step_template_items", "template_id", "(select id from manufacturing_step_templates where template_code=@key)", "display_name") };
+    { "IqcReport" => new("iqc_report_template_versions", "iqc_report_template_items", "template_id", "(select id from iqc_report_templates where template_code=@key)", "'자재 수입검사 v' || version_number"), "PanelQualityStage" => new("panel_quality_template_versions", "panel_quality_template_items", "stage_code", "@key and product_type_id is null", "display_name"), _ => new("manufacturing_step_template_versions", "manufacturing_step_template_items", "template_id", "(select id from manufacturing_step_templates where template_code=@key)", "display_name") };
 
     private NpgsqlDataSource CreateDataSource() { var value = connectionStringProvider.GetConnectionString(); if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException("QMS database connection string is not configured."); return NpgsqlDataSource.Create(value); }
     private sealed record TemplateDescriptor(string Family, string Key, string Name, string Domain);
     private sealed record FamilySource(string VersionTable, string ItemTable, string KeyColumn, string KeyValue, string NameExpression);
+    private sealed record LqcItemSettingSnapshot(
+        Guid ProductTypeId,
+        string ProductTypeCode,
+        string ProductTypeName,
+        bool IsOperational,
+        int RowVersion,
+        Guid TemplateVersionId,
+        int TemplateVersionNumber,
+        int TemplateRowVersion);
 }
 
 public sealed class FormTemplateForbiddenException : Exception { }

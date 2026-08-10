@@ -130,6 +130,124 @@ describe('FormTemplateManagementPage', () => {
     });
   });
 
+  it('manages each Item LQC status and form while disabling that Item result source', async () => {
+    const calls: Array<{ path: string; method: string }> = [];
+    let lqcOperational = false;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), 'http://localhost');
+      const method = init?.method ?? 'GET';
+      calls.push({ path: url.pathname, method });
+      if (url.pathname === '/api/form-templates' && method === 'GET') {
+        return json({ templates: [{
+          family: 'PanelQualityStage',
+          templateKey: 'LQC',
+          displayName: 'Item별 LQC 검사',
+          domain: 'Quality',
+          activeVersionNumber: 1,
+          activatedAtUtc: activeVersion.activatedAtUtc,
+          draftCount: 0
+        }] });
+      }
+      if (url.pathname === '/api/form-templates/lqc-items' && method === 'GET') {
+        return json(lqcItemCatalog(lqcOperational));
+      }
+      if (url.pathname.endsWith('/operating-status') && method === 'PUT') {
+        lqcOperational = JSON.parse(String(init?.body)).isOperational;
+        return json(lqcItemCatalog(lqcOperational));
+      }
+      if (url.pathname.endsWith('/lqc-items/product-ul67/current') && method === 'PUT') {
+        return json(lqcItemCatalog(lqcOperational, 'Item별 저장 검사 항목'));
+      }
+      if (url.pathname === '/api/production-control/templates' && method === 'GET') {
+        return json(productionControlCatalog(false, false));
+      }
+      return json({ ...versionsResponse([activeVersion]), family: 'PanelQualityStage', templateKey: 'LQC', displayName: 'Item별 LQC 검사' });
+    }));
+
+    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator />);
+
+    expect(await screen.findByRole('button', { name: /Item별 LQC 검사.*Item별 운영 상태.*검사 항목/ })).toBeInTheDocument();
+    expect(await screen.findByText(/이미 만들어진 프로젝트에는 영향을 주지 않습니다/)).toBeInTheDocument();
+    const switchControl = screen.getByRole('switch');
+    expect(switchControl).not.toBeChecked();
+    fireEvent.click(switchControl);
+    await screen.findByText(/UL67 LQC를 운영 중으로 변경했습니다/);
+    expect(calls).toContainEqual({ path: '/api/form-templates/lqc-items/product-ul67/operating-status', method: 'PUT' });
+
+    expect(screen.getByRole('button', { name: '수정' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '항목명' }), { target: { value: 'Item별 저장 검사 항목' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    await screen.findByText(/LQC 검사 항목을 저장했습니다/);
+    expect(calls).toContainEqual({ path: '/api/form-templates/lqc-items/product-ul67/current', method: 'PUT' });
+
+    fireEvent.click(screen.getByRole('button', { name: /생산계획·실적 연결/ }));
+    expect(await screen.findByText(/기존 LQC 연결 이력은 유지되며 새 연결은 제조 단계 완료/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    fireEvent.click(screen.getByRole('button', { name: /제조 착수.*연결 실적/ }));
+    expect(screen.getByRole('group', { name: /품질 · LQC 합격 · 운영 중지/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(await screen.findByText(/기존 연결 이력은 유지되며 새 연결에는 사용할 수 없습니다/)).toBeInTheDocument();
+    expect(calls.some((call) => call.method === 'PUT' && call.path.includes('/planning/'))).toBe(false);
+  });
+
+  it('configures IQC mode and detailed items for each purchase category', async () => {
+    const calls: Array<{ path: string; method: string; body: Record<string, unknown> | null }> = [];
+    let category = materialCategoryIqcItem();
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), 'http://localhost');
+      const method = init?.method ?? 'GET';
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+      calls.push({ path: url.pathname, method, body });
+      if (url.pathname === '/api/form-templates' && method === 'GET') {
+        return json({ templates: [{ family: 'IqcReport', templateKey: 'MATERIAL_IQC', displayName: '자재 수입검사', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 }] });
+      }
+      if (url.pathname === '/api/form-templates/material-category-iqc' && method === 'GET') {
+        return json({ canManage: true, items: [category] });
+      }
+      if (url.pathname.endsWith('/current') && method === 'PUT') {
+        category = { ...category, settingRowVersion: category.settingRowVersion + 1, templateVersionNumber: category.templateVersionNumber + 1, templateRowVersion: 2, items: body?.items as typeof activeVersion.items };
+        return json({ canManage: true, items: [category] });
+      }
+      if (url.pathname.endsWith('/setting') && method === 'PUT') {
+        category = { ...category, settingRowVersion: category.settingRowVersion + 1, isEnabled: body?.isEnabled as boolean, decisionMode: body?.decisionMode as 'ScanBased' | 'Detailed' };
+        return json({ canManage: true, items: [category] });
+      }
+      return json(versionsResponse([activeVersion]));
+    }));
+
+    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator />);
+    fireEvent.click(await screen.findByRole('button', { name: /구매품별 IQC 양식/ }));
+    expect(await screen.findByRole('heading', { name: '기타 수입검사' })).toBeInTheDocument();
+    expect(screen.getByText(/이미 저장된 구매품과 시작된 검사에는 영향을 주지 않습니다/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.change(screen.getByRole('combobox', { name: '검사 방식' }), { target: { value: 'Detailed' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('검사 항목을 1개 이상 먼저 저장');
+    expect(screen.getByRole('button', { name: '설정 저장' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    fireEvent.click(screen.getByRole('button', { name: '항목 추가' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '항목명' }), { target: { value: '단자 외관 확인' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    await screen.findByText(/상세 검사 항목을 저장했습니다/);
+
+    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.change(screen.getByRole('combobox', { name: '검사 방식' }), { target: { value: 'Detailed' } });
+    fireEvent.click(screen.getByRole('button', { name: '설정 저장' }));
+    await screen.findByText(/IQC 설정을 저장했습니다/);
+
+    expect(calls.find((call) => call.path.endsWith('/current') && call.method === 'PUT')?.body).toMatchObject({
+      expectedTemplateRowVersion: 1,
+      items: [{ label: '단자 외관 확인', responseType: 'Check' }]
+    });
+    expect(calls.find((call) => call.path.endsWith('/setting') && call.method === 'PUT')?.body).toEqual({
+      isEnabled: true,
+      decisionMode: 'Detailed',
+      expectedRowVersion: 2
+    });
+  });
+
   it('validates manufacturing rows precisely and saves a replacement before relinking the production plan', async () => {
     const calls: Array<{ path: string; method: string }> = [];
     let manufacturingSaveCount = 0;
@@ -190,7 +308,7 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-function productionControlCatalog(withDraft: boolean) {
+function productionControlCatalog(withDraft: boolean, lqcOperational = true) {
   const manufacturingVersion = {
     versionId: 'manufacturing-v1',
     versionNumber: 1,
@@ -243,19 +361,54 @@ function productionControlCatalog(withDraft: boolean) {
     canManageManufacturing: true,
     canManageProductionPlanning: true,
     sources: [
-      { code: 'PURCHASE_ORDERED', departmentLabel: '구매', label: '발주 완료', requiresManufacturingDefinition: false, definitionKind: 'None', definitions: [] },
-      { code: 'MANUFACTURING_STEP_COMPLETED', departmentLabel: '제조', label: '제조 단계 완료', requiresManufacturingDefinition: true, definitionKind: 'Manufacturing', definitions: [] },
-      { code: 'LQC_PASSED', departmentLabel: '품질', label: 'LQC 합격', requiresManufacturingDefinition: true, definitionKind: 'Manufacturing', definitions: [] },
-      { code: 'IQC_PASSED', departmentLabel: '품질', label: 'IQC 합격', requiresManufacturingDefinition: false, definitionKind: 'Iqc', definitions: [{ definitionKey: 'iqc-step-1', label: '외관 확인' }] },
-      { code: 'OQC_PASSED', departmentLabel: '품질', label: 'OQC 합격', requiresManufacturingDefinition: false, definitionKind: 'None', definitions: [] }
+      { code: 'PURCHASE_ORDERED', departmentLabel: '구매', label: '발주 완료', requiresManufacturingDefinition: false, definitionKind: 'None', definitions: [], isOperational: true, operationalMessage: null },
+      { code: 'MANUFACTURING_STEP_COMPLETED', departmentLabel: '제조', label: '제조 단계 완료', requiresManufacturingDefinition: true, definitionKind: 'Manufacturing', definitions: [], isOperational: true, operationalMessage: null },
+      { code: 'LQC_PASSED', departmentLabel: '품질', label: 'LQC 합격', requiresManufacturingDefinition: true, definitionKind: 'Manufacturing', definitions: [], isOperational: lqcOperational, operationalMessage: lqcOperational ? null : 'LQC는 현재 운영 중지 상태입니다. 기존 연결 이력은 유지되며 새 연결에는 사용할 수 없습니다.' },
+      { code: 'IQC_PASSED', departmentLabel: '품질', label: 'IQC 합격', requiresManufacturingDefinition: false, definitionKind: 'Iqc', definitions: [{ definitionKey: 'iqc-step-1', label: '외관 확인' }], isOperational: true, operationalMessage: null },
+      { code: 'OQC_PASSED', departmentLabel: '품질', label: 'OQC 합격', requiresManufacturingDefinition: false, definitionKind: 'None', definitions: [], isOperational: true, operationalMessage: null }
     ],
     items: [{
       productTypeId: 'product-ul67',
       productTypeCode: 'UL67',
       productTypeName: 'UL67',
+      lqcOperational,
       manufacturingVersions: [manufacturingVersion],
       planVersions: withDraft ? [draftPlan, activePlan] : [activePlan]
     }]
+  };
+}
+
+function lqcItemCatalog(isOperational: boolean, label = '외관 확인') {
+  return {
+    canManageItems: true,
+    canChangeOperatingStatus: true,
+    items: [{
+      productTypeId: 'product-ul67',
+      productTypeCode: 'UL67',
+      productTypeName: 'UL67',
+      isOperational,
+      settingRowVersion: isOperational ? 2 : 1,
+      templateVersionId: 'lqc-template-ul67',
+      templateVersionNumber: 1,
+      templateRowVersion: 2,
+      items: [{ ...activeVersion.items[0], label }]
+    }]
+  };
+}
+
+function materialCategoryIqcItem() {
+  return {
+    materialCategoryId: '67000000-0000-0000-0000-000000000005',
+    materialCategoryCode: 'OTHER',
+    materialCategoryName: '기타',
+    isCategoryActive: true,
+    isEnabled: false,
+    decisionMode: 'ScanBased' as 'ScanBased' | 'Detailed',
+    settingRowVersion: 1,
+    templateVersionId: 'category-iqc-v1',
+    templateVersionNumber: 1,
+    templateRowVersion: 1,
+    items: [] as typeof activeVersion.items
   };
 }
 

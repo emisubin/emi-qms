@@ -1,4 +1,5 @@
 using ClosedXML.Excel;
+using Emi.Qms.Api.Workflow;
 using Npgsql;
 using NpgsqlTypes;
 using System.Globalization;
@@ -351,9 +352,27 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         var manufacturingSteps = plan?.ModelVersion == ProductionControlModelVersions.LinkedV1
             ? await ReadProjectManufacturingStepsAsync(connection, null, projectId, cancellationToken)
             : [];
-        var availableSources = plan?.ModelVersion == ProductionControlModelVersions.LinkedV1
-            ? await ProductionControlTemplateStore.ReadSourceCatalogAsync(connection, null, cancellationToken)
-            : [];
+        IReadOnlyList<ProductionControlSourceCatalogItemResponse> availableSources = [];
+        if (plan?.ModelVersion == ProductionControlModelVersions.LinkedV1)
+        {
+            var lqcOperational = await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+                connection,
+                null,
+                WorkflowStageCodes.LQC,
+                projectId,
+                cancellationToken);
+            availableSources = (await ProductionControlTemplateStore.ReadSourceCatalogAsync(connection, null, cancellationToken))
+                .Select(source => source.Code == ProductionControlSourceCodes.LqcPassed
+                    ? source with
+                    {
+                        IsOperational = lqcOperational,
+                        OperationalMessage = lqcOperational
+                            ? null
+                            : "이 프로젝트는 생성 당시 LQC 운영 중지로 확정되었습니다. 기존 연결은 제조 단계 완료 실적으로 대체됩니다."
+                    }
+                    : source)
+                .ToArray();
+        }
         var assignees = await ReadAssigneesAsync(connection, null, projectId, cancellationToken);
         var candidates = await ReadAssigneeCandidatesAsync(connection, null, cancellationToken);
         var fallbacks = await BuildFallbacksAsync(connection, null, project, assignees, cancellationToken);
@@ -384,6 +403,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
         var productTypeId = Guid.NewGuid();
         var templateId = Guid.NewGuid();
+        var lqcTemplateId = Guid.NewGuid();
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
@@ -393,11 +413,102 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
                 insert into production_plan_templates (id, product_type_id, version, is_active)
                 values (@template_id, @id, 1, true);
+
+                insert into panel_quality_template_versions (
+                    id,
+                    stage_code,
+                    product_type_id,
+                    version_number,
+                    display_name,
+                    is_active,
+                    activated_at_utc,
+                    lifecycle_status,
+                    row_version,
+                    created_by_user_id,
+                    created_at_utc,
+                    updated_by_user_id,
+                    updated_at_utc
+                )
+                select
+                    @lqc_template_id,
+                    'LQC',
+                    @id,
+                    1,
+                    @name || ' LQC 검사',
+                    false,
+                    null,
+                    'Draft',
+                    1,
+                    source.created_by_user_id,
+                    now(),
+                    source.updated_by_user_id,
+                    now()
+                from panel_quality_template_versions source
+                where source.stage_code = 'LQC'
+                  and source.product_type_id is null
+                  and source.lifecycle_status = 'Active'
+                  and source.is_active
+                order by source.version_number desc
+                limit 1;
+
+                insert into panel_quality_template_items (
+                    id,
+                    template_version_id,
+                    item_code,
+                    display_order,
+                    label,
+                    guidance,
+                    response_type,
+                    is_required,
+                    requires_photo,
+                    max_text_length,
+                    definition_key
+                )
+                select
+                    uuid_generate_v4(),
+                    @lqc_template_id,
+                    item.item_code,
+                    item.display_order,
+                    item.label,
+                    item.guidance,
+                    item.response_type,
+                    item.is_required,
+                    item.requires_photo,
+                    item.max_text_length,
+                    item.definition_key
+                from panel_quality_template_items item
+                where item.template_version_id = (
+                    select source.id
+                    from panel_quality_template_versions source
+                    where source.stage_code = 'LQC'
+                      and source.product_type_id is null
+                      and source.lifecycle_status = 'Active'
+                      and source.is_active
+                    order by source.version_number desc
+                    limit 1
+                )
+                order by item.display_order;
+
+                update panel_quality_template_versions
+                set lifecycle_status = 'Active',
+                    is_active = true,
+                    activated_at_utc = now(),
+                    row_version = row_version + 1,
+                    updated_at_utc = now()
+                where id = @lqc_template_id;
+
+                insert into lqc_item_settings (
+                    product_type_id,
+                    is_operational,
+                    current_template_version_id
+                )
+                values (@id, false, @lqc_template_id);
                 """;
             command.Parameters.AddWithValue("id", productTypeId);
             command.Parameters.AddWithValue("code", request.Code!.Trim());
             command.Parameters.AddWithValue("name", request.Name!.Trim());
             command.Parameters.AddWithValue("template_id", templateId);
+            command.Parameters.AddWithValue("lqc_template_id", lqcTemplateId);
             try
             {
                 await command.ExecuteNonQueryAsync(cancellationToken);
@@ -1356,6 +1467,12 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             connection,
             transaction,
             cancellationToken);
+        var lqcOperational = await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+            connection,
+            transaction,
+            WorkflowStageCodes.LQC,
+            project.ProjectId,
+            cancellationToken);
         for (var itemIndex = 0; itemIndex < requestedItems.Count; itemIndex++)
         {
             var item = requestedItems[itemIndex];
@@ -1367,6 +1484,11 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 if (!ProductionControlSourceCodes.IsSupported(source.SourceCode))
                 {
                     errors[field] = ["지원하지 않는 실적 연결값입니다."];
+                    continue;
+                }
+                if (source.SourceCode == ProductionControlSourceCodes.LqcPassed && !lqcOperational)
+                {
+                    errors[field] = ["LQC는 현재 운영 중지 상태입니다. 제조 단계 완료 등 운영 중인 실적을 선택해 주세요."];
                     continue;
                 }
                 if (ProductionControlSourceCodes.RequiresManufacturingDefinition(source.SourceCode))
@@ -3321,6 +3443,13 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         CancellationToken cancellationToken)
     {
         var sourceCatalog = ProductionControlSourceCodes.Catalog.First(item => item.Code == source.SourceCode);
+        var lqcOperational = source.SourceCode != ProductionControlSourceCodes.LqcPassed
+            || await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+                connection,
+                transaction,
+                WorkflowStageCodes.LQC,
+                projectId,
+                cancellationToken);
         var sql = source.SourceCode switch
         {
             ProductionControlSourceCodes.PurchaseOrdered => """
@@ -3366,10 +3495,19 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 """,
             ProductionControlSourceCodes.LqcPassed => """
                 select 'Panel', panel.id, coalesce(panel.panel_name, panel.display_code),
-                       coalesce(lqc.started_at_utc, execution.started_at_utc) at time zone 'Asia/Seoul',
-                       case when lqc.passed and step.checked_at_utc is not null
-                            then lqc.completed_at_utc at time zone 'Asia/Seoul' end,
-                       lqc.passed and step.checked_at_utc is not null
+                       case when @lqc_operational
+                            then coalesce(lqc.started_at_utc, execution.started_at_utc)
+                            else execution.started_at_utc
+                       end at time zone 'Asia/Seoul',
+                       case when step.checked_at_utc is not null
+                                  and (not @lqc_operational or lqc.passed)
+                            then case when @lqc_operational
+                                      then lqc.completed_at_utc
+                                      else step.checked_at_utc
+                                 end at time zone 'Asia/Seoul'
+                       end,
+                       step.checked_at_utc is not null
+                           and (not @lqc_operational or lqc.passed)
                 from panel_placeholders panel
                 left join lateral (
                     select candidate.id, candidate.started_at_utc
@@ -3437,8 +3575,15 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         {
             command.Parameters.AddWithValue("source_definition_key", source.SourceDefinitionKey.Value);
         }
+        if (source.SourceCode == ProductionControlSourceCodes.LqcPassed)
+        {
+            command.Parameters.AddWithValue("lqc_operational", lqcOperational);
+        }
 
         var rows = new List<ProductionPlanEvidenceResponse>();
+        var sourceLabel = source.SourceCode == ProductionControlSourceCodes.LqcPassed && !lqcOperational
+            ? $"{SourceLabel(sourceCatalog, source.SourceDefinitionKey)} · LQC 운영 중지, 제조 단계 완료로 대체"
+            : SourceLabel(sourceCatalog, source.SourceDefinitionKey);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -3449,7 +3594,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 || blockedTargets.Contains($"Project:{projectId}");
             rows.Add(new ProductionPlanEvidenceResponse(
                 source.SourceCode,
-                SourceLabel(sourceCatalog, source.SourceDefinitionKey),
+                sourceLabel,
                 targetType,
                 targetId.ToString(),
                 reader.GetString(2),

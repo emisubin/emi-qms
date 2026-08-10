@@ -108,6 +108,50 @@ describe('QualityInspectionsPage', () => {
     expect(operationIds[1]).toBe(operationIds[0]);
   });
 
+  it('shows the existing read-only design and prevents new work when LQC is suspended', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/quality/inspections/reconcile') {
+        return json({
+          recoveredLqcHandoffCount: 0,
+          recoveredOqcHandoffCount: 0,
+          recoveredInspectionHandoffCount: 0,
+          recoveredPackingHandoffCount: 0,
+          unresolvedAssigneeCount: 0
+        });
+      }
+      if (url.pathname === '/api/quality/inspections/queue') {
+        return json({
+          ...queue(false),
+          isOperational: false,
+          operationalMessage: 'LQC는 현재 운영 중지 상태입니다. 제조 완료 후 OQC로 바로 인계됩니다.'
+        });
+      }
+      if (url.pathname === `/api/quality/inspections/panels/${panelId}`) return json(detail(false));
+      if (url.pathname === '/api/quality/inspections/action-departments') return json([]);
+      return json({ title: 'not found' }, 404);
+    }));
+
+    render(
+      <AdaptiveLayoutProvider>
+        <QualityInspectionsPage
+          developmentUserKey="dev-quality"
+          canInspect
+          initialStage="LQC"
+          initialProjectId={projectId}
+          initialPanelId={panelId}
+          onBack={vi.fn()}
+          onOpenPending={vi.fn()}
+        />
+      </AdaptiveLayoutProvider>
+    );
+
+    expect(await screen.findByText('LQC 운영 중지')).toBeInTheDocument();
+    expect(screen.getByText(/제조 완료 후 OQC로 바로 인계됩니다/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'LQC 시작' })).toBeDisabled();
+    expect(screen.getByText(/과거 판정과 Pending 이력만 조회/)).toBeInTheDocument();
+  });
+
   it('finalizes checklist responses atomically, shows the server error in the dialog, and blocks duplicate retry clicks', async () => {
     let finalized = false;
     let finalizeCalls = 0;

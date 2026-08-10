@@ -592,7 +592,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
+            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -858,7 +858,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
+            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -962,7 +962,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
+            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1028,7 +1028,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
+        Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1092,7 +1092,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
+            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1123,6 +1123,221 @@ public sealed class PostgreSqlMigrationTests
         finally
         {
             migrationsThrough0068.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LqcOperatingSuspensionMigration_CreatesItemDefaultsAndPreservesExistingProjectSnapshot()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var migrationsThrough0069 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0069-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql")
+                         .Where(path => string.CompareOrdinal(Path.GetFileName(path), "0070_") < 0))
+            {
+                File.Copy(source, Path.Combine(migrationsThrough0069.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0069.FullName),
+                new DatabaseRuntimePrivilegeManager(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            Assert.True(await ReadScalarAsync<bool>(
+                provider,
+                "select is_active from workflow_stages where stage_code='LQC';",
+                TestContext.Current.CancellationToken));
+
+            await ExecuteSqlAsync(provider, """
+                insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+                values (
+                    '76000000-0000-0000-0000-000000000070',
+                    'migration-lqc-0070',
+                    'Migration LQC 0070',
+                    (select id from departments where code='quality'),
+                    true
+                );
+                insert into projects (id, project_key, project_number, name)
+                values (
+                    '76000000-0000-0000-0000-000000000071',
+                    'migration-lqc-project-0070',
+                    'MIG-LQC-0070',
+                    'Migration LQC 0070'
+                );
+                insert into panel_placeholders (id, project_id, sequence_number, display_code, status)
+                values (
+                    '76000000-0000-0000-0000-000000000072',
+                    '76000000-0000-0000-0000-000000000071',
+                    1,
+                    'P01',
+                    'Active'
+                );
+                insert into work_items (
+                    id, project_id, target_type, target_id, workflow_stage_code,
+                    responsibility_type, assigned_user_id, title, status, priority,
+                    idempotency_key, created_by_user_id, started_at_utc, completed_at_utc
+                ) values
+                (
+                    '76000000-0000-0000-0000-000000000073',
+                    '76000000-0000-0000-0000-000000000071',
+                    'Panel', '76000000-0000-0000-0000-000000000072', 'LQC',
+                    'QualityLQC', '76000000-0000-0000-0000-000000000070',
+                    '기존 LQC 완료', 'Completed', 'Normal', 'migration:lqc:completed:0070',
+                    '76000000-0000-0000-0000-000000000070', now(), now()
+                ),
+                (
+                    '76000000-0000-0000-0000-000000000074',
+                    '76000000-0000-0000-0000-000000000071',
+                    'Panel', '76000000-0000-0000-0000-000000000072', 'ManufacturingCompleted',
+                    'ManufacturingPrimary', '76000000-0000-0000-0000-000000000070',
+                    '기존 제조완료확인', 'Completed', 'Normal', 'migration:manufacturing:confirmed:0070',
+                    '76000000-0000-0000-0000-000000000070', now(), now()
+                ),
+                (
+                    '76000000-0000-0000-0000-000000000075',
+                    '76000000-0000-0000-0000-000000000071',
+                    'Panel', '76000000-0000-0000-0000-000000000072', 'LQC',
+                    'QualityLQC', '76000000-0000-0000-0000-000000000070',
+                    '진행 중 LQC', 'Requested', 'Normal', 'migration:lqc:requested:0070',
+                    '76000000-0000-0000-0000-000000000070', null, null
+                );
+                insert into panel_manufacturing_executions (
+                    id, project_id, panel_id, status, started_by_user_id, started_at_utc,
+                    completed_by_user_id, completed_at_utc, version, updated_at_utc
+                ) values (
+                    '76000000-0000-0000-0000-000000000076',
+                    '76000000-0000-0000-0000-000000000071',
+                    '76000000-0000-0000-0000-000000000072',
+                    'Completed', '76000000-0000-0000-0000-000000000070', now() - interval '1 hour',
+                    '76000000-0000-0000-0000-000000000070', now(), 1, now()
+                );
+                insert into panel_quality_inspection_attempts (
+                    id, project_id, panel_id, stage_code, attempt_number, status,
+                    work_item_id, version, started_by_user_id, started_at_utc,
+                    completed_by_user_id, completed_at_utc
+                ) values (
+                    '76000000-0000-0000-0000-000000000077',
+                    '76000000-0000-0000-0000-000000000071',
+                    '76000000-0000-0000-0000-000000000072',
+                    'LQC', 1, 'Passed', '76000000-0000-0000-0000-000000000073', 1,
+                    '76000000-0000-0000-0000-000000000070', now() - interval '30 minutes',
+                    '76000000-0000-0000-0000-000000000070', now()
+                );
+                insert into panel_manufacturing_completion_confirmations (
+                    id, project_id, panel_id, lqc_attempt_id, work_item_id, confirmed_by_user_id
+                ) values (
+                    '76000000-0000-0000-0000-000000000078',
+                    '76000000-0000-0000-0000-000000000071',
+                    '76000000-0000-0000-0000-000000000072',
+                    '76000000-0000-0000-0000-000000000077',
+                    '76000000-0000-0000-0000-000000000074',
+                    '76000000-0000-0000-0000-000000000070'
+                );
+                insert into notifications (
+                    id, project_id, notification_type, severity, title, message,
+                    idempotency_key, work_item_id
+                ) values (
+                    '76000000-0000-0000-0000-000000000079',
+                    '76000000-0000-0000-0000-000000000071',
+                    'Info', 'Info', '진행 중 LQC', '진행 중 LQC 업무 알림',
+                    'migration:lqc:notification:0070', '76000000-0000-0000-0000-000000000075'
+                );
+                insert into notification_recipients (notification_id, user_id)
+                values (
+                    '76000000-0000-0000-0000-000000000079',
+                    '76000000-0000-0000-0000-000000000070'
+                );
+                """, TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.True(await ReadScalarAsync<bool>(
+                provider,
+                "select is_active from workflow_stages where stage_code='LQC';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(0L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from lqc_item_settings where is_operational;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(await ReadScalarAsync<long>(
+                    provider,
+                    "select count(*) from production_product_types;",
+                    TestContext.Current.CancellationToken),
+                await ReadScalarAsync<long>(
+                    provider,
+                    "select count(*) from lqc_item_settings;",
+                    TestContext.Current.CancellationToken));
+            Assert.Equal(await ReadScalarAsync<long>(
+                    provider,
+                    "select count(*) from production_product_types;",
+                    TestContext.Current.CancellationToken),
+                await ReadScalarAsync<long>(
+                    provider,
+                    "select count(*) from panel_quality_template_versions where stage_code='LQC' and product_type_id is not null and lifecycle_status='Active';",
+                    TestContext.Current.CancellationToken));
+            Assert.True(await ReadScalarAsync<bool>(
+                provider,
+                """
+                select lqc_operational_snapshot
+                   and lqc_template_version_id='93000000-0000-0000-0000-000000000101'
+                from projects
+                where id='76000000-0000-0000-0000-000000000071';
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal(2L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*)
+                from information_schema.columns
+                where table_schema='public'
+                  and table_name='panel_manufacturing_completion_confirmations'
+                  and (
+                    (column_name='manufacturing_execution_id' and is_nullable='NO')
+                    or (column_name='lqc_attempt_id' and is_nullable='YES')
+                  );
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from pg_constraint where conname='ck_panel_manufacturing_completion_confirmations_handoff_basis';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*)
+                from panel_manufacturing_completion_confirmations
+                where id='76000000-0000-0000-0000-000000000078'
+                  and manufacturing_execution_id='76000000-0000-0000-0000-000000000076'
+                  and handoff_basis='ManufacturingAndLqc'
+                  and lqc_attempt_id='76000000-0000-0000-0000-000000000077';
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal("Requested", await ReadScalarAsync<string>(
+                provider,
+                "select status from work_items where id='76000000-0000-0000-0000-000000000075';",
+                TestContext.Current.CancellationToken));
+            Assert.True(await ReadScalarAsync<bool>(
+                provider,
+                """
+                select recipient.read_at_utc is null
+                from notification_recipients recipient
+                where recipient.notification_id='76000000-0000-0000-0000-000000000079';
+                """,
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            migrationsThrough0069.Delete(recursive: true);
         }
     }
 
@@ -1343,6 +1558,19 @@ public sealed class PostgreSqlMigrationTests
         var catalog = await store.GetCatalogAsync(adminId, true, TestContext.Current.CancellationToken);
         Assert.Equal(3, catalog.Templates.Count);
         Assert.DoesNotContain(catalog.Templates, template => template.TemplateKey is "CustomerInspection" or "FAT" or "PANEL_MANUFACTURING");
+        var lqcTemplate = Assert.Single(catalog.Templates, template => template.TemplateKey == "LQC");
+        Assert.Equal("Item별 LQC 검사", lqcTemplate.DisplayName);
+        var lqcItems = await store.GetLqcItemsAsync(adminId, true, TestContext.Current.CancellationToken);
+        Assert.True(lqcItems.CanChangeOperatingStatus);
+        Assert.All(lqcItems.Items, item => Assert.False(item.IsOperational));
+        var selectedLqcItem = lqcItems.Items[0];
+        var changedStatus = await store.UpdateLqcItemOperatingStatusAsync(
+            selectedLqcItem.ProductTypeId,
+            new UpdateLqcItemOperatingStatusRequest(true, selectedLqcItem.SettingRowVersion),
+            adminId,
+            true,
+            TestContext.Current.CancellationToken);
+        Assert.True(changedStatus.Items.Single(item => item.ProductTypeId == selectedLqcItem.ProductTypeId).IsOperational);
         var original = await store.GetCurrentAsync("IqcReport", "MATERIAL_IQC", adminId, true, TestContext.Current.CancellationToken);
         var active = Assert.Single(original.Versions);
         var edited = active.Items.Select((item, index) => new SaveFormTemplateItemRequest(
@@ -1370,6 +1598,36 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken);
         Assert.Single(managers.Bindings, binding => binding.UserId == qualityManagerId && binding.RevokedAtUtc is null);
         Assert.True((await store.GetScopeAsync(qualityManagerId, false, TestContext.Current.CancellationToken)).CanManage);
+        var managerLqcItems = await store.GetLqcItemsAsync(qualityManagerId, false, TestContext.Current.CancellationToken);
+        Assert.False(managerLqcItems.CanChangeOperatingStatus);
+        var managerSelectedItem = managerLqcItems.Items.Single(item => item.ProductTypeId == selectedLqcItem.ProductTypeId);
+        await Assert.ThrowsAsync<FormTemplateForbiddenException>(() => store.UpdateLqcItemOperatingStatusAsync(
+            managerSelectedItem.ProductTypeId,
+            new UpdateLqcItemOperatingStatusRequest(false, managerSelectedItem.SettingRowVersion),
+            qualityManagerId,
+            false,
+            TestContext.Current.CancellationToken));
+        var managerEditedItems = managerSelectedItem.Items.Select((item, index) => new SaveFormTemplateItemRequest(
+            item.ItemCode,
+            index + 1,
+            index == 0 ? "Item별 LQC 검사 항목" : item.Label,
+            item.Guidance,
+            item.ResponseType,
+            item.IsRequired,
+            item.RequiresPhoto,
+            item.MaxTextLength,
+            item.DefinitionKey)).ToArray();
+        var changedTemplate = await store.SaveLqcItemTemplateAsync(
+            managerSelectedItem.ProductTypeId,
+            new SaveLqcItemTemplateRequest(managerSelectedItem.TemplateRowVersion, managerEditedItems),
+            qualityManagerId,
+            false,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("Item별 LQC 검사 항목", changedTemplate.Items
+            .Single(item => item.ProductTypeId == managerSelectedItem.ProductTypeId).Items[0].Label);
+        Assert.Equal(2L, await ReadScalarAsync<long>(provider,
+            "select count(*) from lqc_item_setting_audit_events;",
+            TestContext.Current.CancellationToken));
         await ExecuteSqlAsync(provider,
             $"update qms_users set department_id=(select id from departments where code='manufacturing') where id='{qualityManagerId}';",
             TestContext.Current.CancellationToken);
@@ -1491,7 +1749,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
+        Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1534,7 +1792,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
+        Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1544,8 +1802,98 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken));
         Assert.Equal(1L, await ReadScalarAsync<long>(
             provider,
-            "select count(*) from material_categories where code='ENCLOSURE' and requires_iqc;",
+            """
+            select count(*)
+            from material_category_iqc_settings setting
+            join material_categories category on category.id=setting.material_category_id
+            where category.code='ENCLOSURE'
+              and setting.is_enabled
+              and setting.decision_mode='ScanBased';
+            """,
             TestContext.Current.CancellationToken));
+        Assert.Equal(5L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from material_category_iqc_settings;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(5L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from iqc_report_templates where material_category_id is not null;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema='public'
+              and table_name='material_categories'
+              and column_name='requires_iqc';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema='public'
+              and table_name='project_procurement_items'
+              and column_name in (
+                'material_category_iqc_enabled_snapshot',
+                'material_category_iqc_decision_mode_snapshot'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from pg_trigger
+            where not tgisinternal
+              and tgname='trg_guard_material_category_iqc_setting_audit_append_only';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from pg_trigger
+            where not tgisinternal
+              and tgname in (
+                'trg_guard_material_category_iqc_projection_write',
+                'trg_sync_material_category_iqc_projection'
+              );
+            """,
+            TestContext.Current.CancellationToken));
+        var directProjectionMutation = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+            provider,
+            "update material_categories set requires_iqc=false where code='ENCLOSURE';",
+            TestContext.Current.CancellationToken));
+        Assert.IsType<PostgresException>(directProjectionMutation);
+        await ExecuteSqlAsync(
+            provider,
+            """
+            insert into qms_users (
+                id,development_user_key,display_name,department_id,is_active
+            ) values (
+                '67000000-0000-0000-0000-000000000071',
+                'migration-iqc-0071',
+                'Migration IQC 0071',
+                (select id from departments order by id limit 1),
+                true
+            );
+            insert into material_category_iqc_setting_audit_events (
+                material_category_id,action,actor_user_id,old_value,new_value
+            )
+            select category.id,'SettingChanged','67000000-0000-0000-0000-000000000071',
+                   '{"isEnabled":false}'::jsonb,'{"isEnabled":true}'::jsonb
+            from material_categories category
+            where category.code='OTHER';
+            """,
+            TestContext.Current.CancellationToken);
+        var auditMutation = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+            provider,
+            "update material_category_iqc_setting_audit_events set action='TemplateChanged';",
+            TestContext.Current.CancellationToken));
+        Assert.IsType<PostgresException>(auditMutation);
         Assert.Equal(0L, await ReadScalarAsync<long>(
             provider,
             "select count(*) from projects where iqc_routing_policy <> 'AllReceipts';",
@@ -1575,6 +1923,84 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task MaterialCategoryIqcTemplatesMigration_UpgradesExistingCategorySnapshotWithoutChangingItsDecision()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var migrationsThrough0070 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0070-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql")
+                         .Where(path => string.CompareOrdinal(Path.GetFileName(path), "0071_") < 0))
+            {
+                File.Copy(source, Path.Combine(migrationsThrough0070.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0070.FullName),
+                new DatabaseRuntimePrivilegeManager(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into projects (
+                    id,project_key,project_number,name,iqc_routing_policy
+                ) values (
+                    '67000000-0000-0000-0000-000000000072',
+                    'migration-category-iqc-0071',
+                    'MIG-IQC-0071',
+                    'Migration Category IQC 0071',
+                    'CategoryBased'
+                );
+                insert into project_procurement_items (
+                    id,project_id,sequence_number,order_item,order_quantity,order_unit,
+                    material_category_id,material_category_code_snapshot,
+                    material_category_name_snapshot,material_category_requires_iqc_snapshot
+                )
+                select
+                    '67000000-0000-0000-0000-000000000073',
+                    '67000000-0000-0000-0000-000000000072',
+                    1,'기존 외함',1,'EA',id,code,display_name,requires_iqc
+                from material_categories
+                where code='ENCLOSURE';
+                """,
+                TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.True(await ReadScalarAsync<bool>(
+                provider,
+                """
+                select material_category_iqc_enabled_snapshot
+                from project_procurement_items
+                where id='67000000-0000-0000-0000-000000000073';
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal("ScanBased", await ReadScalarAsync<string>(
+                provider,
+                """
+                select material_category_iqc_decision_mode_snapshot
+                from project_procurement_items
+                where id='67000000-0000-0000-0000-000000000073';
+                """,
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            migrationsThrough0070.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task NotificationDeliveryClaimLeaseMigration_AddsProcessingClaimsAttemptsAndIndexes()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -1590,7 +2016,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0069_teams_activity_event_source_kinds", await ReadScalarAsync<string>(
+        Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1710,7 +2136,34 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken));
         Assert.Equal(18L, await ReadScalarAsync<long>(
             connectionStringProvider,
-            "select count(*) from panel_quality_template_items;",
+            """
+            select count(*)
+            from panel_quality_template_items item
+            join panel_quality_template_versions version on version.id=item.template_version_id
+            where version.product_type_id is null;
+            """,
+            TestContext.Current.CancellationToken));
+        var productTypeCount = await ReadScalarAsync<long>(
+            connectionStringProvider,
+            "select count(*) from production_product_types;",
+            TestContext.Current.CancellationToken);
+        var commonLqcItemCount = await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from panel_quality_template_items item
+            join panel_quality_template_versions version on version.id=item.template_version_id
+            where version.stage_code='LQC' and version.product_type_id is null;
+            """,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(productTypeCount * commonLqcItemCount, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from panel_quality_template_items item
+            join panel_quality_template_versions version on version.id=item.template_version_id
+            where version.stage_code='LQC' and version.product_type_id is not null;
+            """,
             TestContext.Current.CancellationToken));
         Assert.Equal(9L, await ReadScalarAsync<long>(
             connectionStringProvider,

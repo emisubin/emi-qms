@@ -18,7 +18,7 @@ import type {
   SalesBillingBatchList,
   SalesBillingCandidateList
 } from './salesBilling';
-import type { FormTemplateCatalog, FormTemplateManagers, FormTemplateScope, FormTemplateVersions, MaterialCategoryCatalog } from './formTemplates';
+import type { FormTemplateCatalog, FormTemplateManagers, FormTemplateScope, FormTemplateVersions, LqcItemTemplates, MaterialCategoryCatalog, MaterialCategoryIqcTemplates } from './formTemplates';
 import type {
   ProductionControlManufacturingItem,
   ProductionControlPlanItem,
@@ -377,6 +377,32 @@ export async function saveCurrentFormTemplate(developmentUserKey: string | undef
   });
 }
 
+export async function getLqcItemTemplates(developmentUserKey?: string): Promise<LqcItemTemplates> {
+  return fetchJson<LqcItemTemplates>('/api/form-templates/lqc-items', developmentUserKey);
+}
+
+export async function updateLqcItemOperatingStatus(
+  developmentUserKey: string | undefined,
+  productTypeId: string,
+  isOperational: boolean,
+  expectedRowVersion: number
+): Promise<LqcItemTemplates> {
+  return fetchJson<LqcItemTemplates>(`/api/form-templates/lqc-items/${productTypeId}/operating-status`, developmentUserKey, {
+    method: 'PUT', body: JSON.stringify({ isOperational, expectedRowVersion })
+  });
+}
+
+export async function saveLqcItemTemplate(
+  developmentUserKey: string | undefined,
+  productTypeId: string,
+  expectedTemplateRowVersion: number,
+  items: FormTemplateVersions['versions'][number]['items']
+): Promise<LqcItemTemplates> {
+  return fetchJson<LqcItemTemplates>(`/api/form-templates/lqc-items/${productTypeId}/current`, developmentUserKey, {
+    method: 'PUT', body: JSON.stringify({ expectedTemplateRowVersion, items })
+  });
+}
+
 export async function createFormTemplateDraft(developmentUserKey: string | undefined, family: string, templateKey: string, expectedActiveRowVersion: number): Promise<FormTemplateVersions> {
   return fetchJson<FormTemplateVersions>(`/api/form-templates/${family}/${templateKey}/versions`, developmentUserKey, { method: 'POST', body: JSON.stringify({ expectedActiveRowVersion }) });
 }
@@ -420,12 +446,11 @@ export async function getMaterialCategories(
 export async function createMaterialCategory(
   developmentUserKey: string | undefined,
   displayName: string,
-  requiresIqc: boolean,
   displayOrder: number
 ): Promise<MaterialCategoryCatalog> {
   return fetchJson<MaterialCategoryCatalog>('/api/form-templates/material-categories', developmentUserKey, {
     method: 'POST',
-    body: JSON.stringify({ displayName, requiresIqc, displayOrder })
+    body: JSON.stringify({ displayName, displayOrder })
   });
 }
 
@@ -435,7 +460,6 @@ export async function updateMaterialCategory(
   request: {
     expectedRowVersion: number;
     displayName: string;
-    requiresIqc: boolean;
     isActive: boolean;
     displayOrder: number;
   }
@@ -443,6 +467,37 @@ export async function updateMaterialCategory(
   return fetchJson<MaterialCategoryCatalog>(`/api/form-templates/material-categories/${categoryId}`, developmentUserKey, {
     method: 'PUT',
     body: JSON.stringify(request)
+  });
+}
+
+export async function getMaterialCategoryIqcTemplates(
+  developmentUserKey?: string
+): Promise<MaterialCategoryIqcTemplates> {
+  return fetchJson<MaterialCategoryIqcTemplates>('/api/form-templates/material-category-iqc', developmentUserKey);
+}
+
+export async function updateMaterialCategoryIqcSetting(
+  developmentUserKey: string | undefined,
+  categoryId: string,
+  isEnabled: boolean,
+  decisionMode: 'ScanBased' | 'Detailed',
+  expectedRowVersion: number
+): Promise<MaterialCategoryIqcTemplates> {
+  return fetchJson<MaterialCategoryIqcTemplates>(`/api/form-templates/material-category-iqc/${categoryId}/setting`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify({ isEnabled, decisionMode, expectedRowVersion })
+  });
+}
+
+export async function saveMaterialCategoryIqcTemplate(
+  developmentUserKey: string | undefined,
+  categoryId: string,
+  expectedTemplateRowVersion: number,
+  items: MaterialCategoryIqcTemplates['items'][number]['items']
+): Promise<MaterialCategoryIqcTemplates> {
+  return fetchJson<MaterialCategoryIqcTemplates>(`/api/form-templates/material-category-iqc/${categoryId}/current`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify({ expectedTemplateRowVersion, items })
   });
 }
 

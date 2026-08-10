@@ -42,6 +42,7 @@ public sealed class MaterialReceivingItemResponse
     public string? OrderItem { get; init; }
     public string? MaterialCategoryName { get; init; }
     public bool? MaterialCategoryRequiresIqc { get; init; }
+    public string? MaterialCategoryIqcDecisionMode { get; init; }
     public string? SupplierName { get; init; }
     public string SupplyType { get; init; } = ProcurementSupplyTypes.Purchased;
     public DateOnly? ExpectedReceiptDate { get; init; }

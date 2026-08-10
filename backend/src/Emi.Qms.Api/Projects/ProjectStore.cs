@@ -327,7 +327,7 @@ public sealed class ProjectStore(
                 where plans.project_id = projects.id
             ) production_plan_summary on true
             left join lateral (
-                select count(*) filter (
+                select count(distinct responsibility_type) filter (
                     where assigned_user_id is not null
                       and responsibility_type in (
                           'SalesPrimary',
@@ -338,11 +338,13 @@ public sealed class ProjectStore(
                           'ManufacturingPrimary',
                           'LogisticsPrimary',
                           'QualityIQC',
-                          'QualityLQC',
                           'QualityOQC',
                           'QualityCustomerInspection'
                       )
-                )::integer as assigned_count
+                ) + case when projects.lqc_operational_snapshot then count(distinct responsibility_type) filter (
+                    where assigned_user_id is not null
+                      and responsibility_type = 'QualityLQC'
+                ) else 0 end >= 10 + case when projects.lqc_operational_snapshot then 1 else 0 end as has_required_assignees
                 from project_assignees
                 where project_assignees.project_id = projects.id
             ) assignee_summary on true
@@ -401,7 +403,7 @@ public sealed class ProjectStore(
                                    production_plan_summary.required_item_count = 0
                                    or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
                                )
-                               and assignee_summary.assigned_count >= 11
+                               and assignee_summary.has_required_assignees
                            ) then 'ProductionPlanning'
                            when not (
                                active_panels.active_panel_count > 0
@@ -430,7 +432,7 @@ public sealed class ProjectStore(
                                         production_plan_summary.required_item_count = 0
                                         or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
                                     )
-                                    and assignee_summary.assigned_count >= 11 then 1
+                                    and assignee_summary.has_required_assignees then 1
                                    else 0
                                  end
                                + case
@@ -449,7 +451,10 @@ public sealed class ProjectStore(
                                     and procurement_summary.completed_item_count = procurement_summary.item_count then 1
                                    else 0
                                  end
-                           )::numeric * 100 / case when projects.fat_required then 18 else 17 end)::integer
+                           )::numeric * 100 / (
+                               case when projects.fat_required then 18 else 17 end
+                               - case when projects.lqc_operational_snapshot then 0 else 1 end
+                           ))::integer
                        end as project_progress_percent
             ) project_workflow on true
             {whereSql}
@@ -730,7 +735,7 @@ public sealed class ProjectStore(
                 where plans.project_id = projects.id
             ) production_plan_summary on true
             left join lateral (
-                select count(*) filter (
+                select count(distinct responsibility_type) filter (
                     where assigned_user_id is not null
                       and responsibility_type in (
                           'SalesPrimary',
@@ -741,11 +746,13 @@ public sealed class ProjectStore(
                           'ManufacturingPrimary',
                           'LogisticsPrimary',
                           'QualityIQC',
-                          'QualityLQC',
                           'QualityOQC',
                           'QualityCustomerInspection'
                       )
-                )::integer as assigned_count
+                ) + case when projects.lqc_operational_snapshot then count(distinct responsibility_type) filter (
+                    where assigned_user_id is not null
+                      and responsibility_type = 'QualityLQC'
+                ) else 0 end >= 10 + case when projects.lqc_operational_snapshot then 1 else 0 end as has_required_assignees
                 from project_assignees
                 where project_assignees.project_id = projects.id
             ) assignee_summary on true
@@ -804,7 +811,7 @@ public sealed class ProjectStore(
                                    production_plan_summary.required_item_count = 0
                                    or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
                                )
-                               and assignee_summary.assigned_count >= 11
+                               and assignee_summary.has_required_assignees
                            ) then 'ProductionPlanning'
                            when not (
                                active_panels.active_panel_count > 0
@@ -833,7 +840,7 @@ public sealed class ProjectStore(
                                         production_plan_summary.required_item_count = 0
                                         or production_plan_summary.required_item_count = production_plan_summary.planned_required_item_count
                                     )
-                                    and assignee_summary.assigned_count >= 11 then 1
+                                    and assignee_summary.has_required_assignees then 1
                                    else 0
                                  end
                                + case
@@ -852,7 +859,10 @@ public sealed class ProjectStore(
                                     and procurement_summary.completed_item_count = procurement_summary.item_count then 1
                                    else 0
                                  end
-                           )::numeric * 100 / case when projects.fat_required then 18 else 17 end)::integer
+                           )::numeric * 100 / (
+                               case when projects.fat_required then 18 else 17 end
+                               - case when projects.lqc_operational_snapshot then 0 else 1 end
+                           ))::integer
                        end as project_progress_percent
             ) project_workflow on true
             where projects.id = @project_id
@@ -976,6 +986,8 @@ public sealed class ProjectStore(
                         fat_required,
                         structure_mode,
                         iqc_routing_policy,
+                        lqc_operational_snapshot,
+                        lqc_template_version_id,
                         status,
                         created_by_user_id,
                         updated_at_utc
@@ -999,6 +1011,18 @@ public sealed class ProjectStore(
                         @fat_required,
                         @structure_mode,
                         'CategoryBased',
+                        (
+                            select setting.is_operational
+                            from lqc_item_settings setting
+                            join production_product_types product_type on product_type.id = setting.product_type_id
+                            where upper(btrim(product_type.code)) = upper(btrim(@item))
+                        ),
+                        (
+                            select setting.current_template_version_id
+                            from lqc_item_settings setting
+                            join production_product_types product_type on product_type.id = setting.product_type_id
+                            where upper(btrim(product_type.code)) = upper(btrim(@item))
+                        ),
                         'Active',
                         @created_by_user_id,
                         now()
@@ -2625,6 +2649,8 @@ public sealed class ProjectStore(
                     delivery_location,
                     fat_required,
                     iqc_routing_policy,
+                    lqc_operational_snapshot,
+                    lqc_template_version_id,
                     status,
                     created_by_user_id,
                     updated_at_utc
@@ -2647,6 +2673,18 @@ public sealed class ProjectStore(
                     @delivery_location,
                     @fat_required,
                     'CategoryBased',
+                    (
+                        select setting.is_operational
+                        from lqc_item_settings setting
+                        join production_product_types product_type on product_type.id = setting.product_type_id
+                        where upper(btrim(product_type.code)) = upper(btrim(@item))
+                    ),
+                    (
+                        select setting.current_template_version_id
+                        from lqc_item_settings setting
+                        join production_product_types product_type on product_type.id = setting.product_type_id
+                        where upper(btrim(product_type.code)) = upper(btrim(@item))
+                    ),
                     'Active',
                     @created_by_user_id,
                     now()

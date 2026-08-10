@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const screenshotDirectory = path.resolve(process.cwd(), '../tasks/design-000-screenshots');
+const qualityScreenshotDirectory = path.resolve(process.cwd(), '../tasks/quality-operating-model-001-change-005-screenshots');
 
 test('DESIGN-000 + SALES-KPI-001 Change 002: token foundation and adaptive decision chart', async ({ page }) => {
   await page.route('**/api/sales/kpi**', mockSalesKpi);
@@ -45,6 +46,15 @@ test('DESIGN-000 + SALES-KPI-001 Change 002: token foundation and adaptive decis
   await expect(page.getByRole('button', { name: '저장' })).toBeVisible();
   await expect(page.getByRole('button', { name: '저장' })).toBeEnabled();
   await capture(page, '05-form-templates-desktop-1440.png');
+  await page.getByRole('button', { name: '취소' }).click();
+  await page.goto('/form-templates');
+  await page.getByRole('button', { name: /구매품별 IQC 양식/ }).click();
+  await expect(page.getByRole('heading', { name: '외함 수입검사' })).toBeVisible();
+  await expect(page.getByText(/이미 저장된 구매품과 시작된 검사에는 영향을 주지 않습니다/)).toBeVisible();
+  await expect(page.getByRole('switch')).toBeChecked();
+  await expect(page.getByRole('combobox', { name: '검사 방식' })).toHaveValue('ScanBased');
+  await assertNoHorizontalOverflow(page);
+  await captureAt(page, qualityScreenshotDirectory, '01-material-category-iqc-desktop-1440.png');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/form-templates');
@@ -52,6 +62,10 @@ test('DESIGN-000 + SALES-KPI-001 Change 002: token foundation and adaptive decis
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
   await assertNoHorizontalOverflow(page);
   await capture(page, '06-form-templates-mobile-390.png');
+  await page.getByRole('button', { name: /구매품별 IQC 양식/ }).click();
+  await expect(page.getByRole('heading', { name: '외함 수입검사' })).toBeVisible();
+  await assertNoHorizontalOverflow(page);
+  await captureAt(page, qualityScreenshotDirectory, '02-material-category-iqc-mobile-390.png');
 });
 
 test('TASK-PRODUCTION-CONTROL-001 Change 010: current manufacturing form keeps a fast edit action', async ({ page }) => {
@@ -133,13 +147,17 @@ async function mockSalesKpi(route: Route) {
 }
 
 async function capture(page: Page, filename: string) {
-  await fs.mkdir(screenshotDirectory, { recursive: true });
+  await captureAt(page, screenshotDirectory, filename);
+}
+
+async function captureAt(page: Page, directory: string, filename: string) {
+  await fs.mkdir(directory, { recursive: true });
   await page.evaluate(async () => {
     await document.fonts.ready;
     window.scrollTo(0, 0);
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   });
-  await page.screenshot({ path: path.join(screenshotDirectory, filename), animations: 'disabled', fullPage: true });
+  await page.screenshot({ path: path.join(directory, filename), animations: 'disabled', fullPage: true });
 }
 
 async function assertNoHorizontalOverflow(page: Page) {

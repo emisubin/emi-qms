@@ -50,7 +50,9 @@ public sealed record ProductionControlSourceCatalogItemResponse(
     string Label,
     bool RequiresManufacturingDefinition,
     string DefinitionKind,
-    IReadOnlyList<ProductionControlSourceDefinitionResponse> Definitions);
+    IReadOnlyList<ProductionControlSourceDefinitionResponse> Definitions,
+    bool IsOperational = true,
+    string? OperationalMessage = null);
 
 public sealed record ProductionControlSourceDefinitionResponse(
     Guid DefinitionKey,
@@ -66,6 +68,7 @@ public sealed record ProductionControlItemTemplateResponse(
     Guid ProductTypeId,
     string ProductTypeCode,
     string ProductTypeName,
+    bool LqcOperational,
     IReadOnlyList<ProductionControlManufacturingVersionResponse> ManufacturingVersions,
     IReadOnlyList<ProductionControlPlanVersionResponse> PlanVersions);
 

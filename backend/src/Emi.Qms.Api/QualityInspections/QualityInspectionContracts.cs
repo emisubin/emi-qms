@@ -17,7 +17,9 @@ public static class QualityInspectionStages
 }
 
 public sealed record QualityInspectionQueueResponse(
-    IReadOnlyList<QualityInspectionProjectResponse> Projects);
+    IReadOnlyList<QualityInspectionProjectResponse> Projects,
+    bool IsOperational = true,
+    string? OperationalMessage = null);
 
 public sealed record QualityInspectionProjectResponse(
     Guid ProjectId,

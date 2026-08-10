@@ -5,6 +5,8 @@ export type ProductionControlSource = {
   requiresManufacturingDefinition: boolean;
   definitionKind: 'None' | 'Manufacturing' | 'Iqc' | 'Oqc';
   definitions: Array<{ definitionKey: string; label: string }>;
+  isOperational?: boolean;
+  operationalMessage?: string | null;
 };
 
 export type ProductionControlConnection = {
@@ -50,6 +52,7 @@ export type ProductionControlItemTemplate = {
   productTypeId: string;
   productTypeCode: string;
   productTypeName: string;
+  lqcOperational: boolean;
   manufacturingVersions: ProductionControlManufacturingVersion[];
   planVersions: ProductionControlPlanVersion[];
 };

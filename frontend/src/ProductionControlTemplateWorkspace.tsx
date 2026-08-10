@@ -61,6 +61,10 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
   const selectedVersion = versions.find((version) => version.versionId === selectedVersionId) ?? null;
   const activeManufacturing = selectedItem?.manufacturingVersions.find((version) => version.lifecycleStatus === 'Active');
   const canManage = domain === 'manufacturing' ? catalog?.canManageManufacturing : catalog?.canManageProductionPlanning;
+  const sources = useMemo(
+    () => effectiveSources(catalog?.sources ?? [], selectedItem),
+    [catalog?.sources, selectedItem]
+  );
 
   useEffect(() => {
     if (!selectedItem) return;
@@ -133,7 +137,7 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
           resequenceManufacturing(manufacturingRows)
         );
         const savedItem = data.items.find((item) => item.productTypeId === selectedItem.productTypeId);
-        const brokenCount = countBrokenManufacturingConnections(savedItem, data.sources);
+        const brokenCount = countBrokenManufacturingConnections(savedItem, effectiveSources(data.sources, savedItem));
         applyCatalog(data, selectedVersion.versionId);
         setFeedback(brokenCount > 0
           ? `제조 양식을 저장했습니다. 생산계획에서 연결이 끊긴 항목 ${brokenCount}개를 다시 선택해 주세요. 연결을 수정하기 전에는 새 프로젝트에 적용되지 않습니다.`
@@ -144,6 +148,14 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
         setBusy(false);
       }
     } else {
+      const unavailableConnection = planRows
+        .flatMap((item) => item.connections)
+        .map((connection) => sources.find((source) => source.code === connection.sourceCode))
+        .find((source) => source?.isOperational === false);
+      if (unavailableConnection) {
+        setFeedback(unavailableConnection.operationalMessage ?? `${unavailableConnection.label} 실적 연결은 현재 사용할 수 없습니다.`);
+        return;
+      }
       await run(
         () => saveProductionControlPlanCurrent(
           developmentUserKey,
@@ -175,8 +187,8 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
     [activeManufacturing]
   );
   const brokenManufacturingConnectionCount = useMemo(
-    () => countBrokenManufacturingConnections(selectedItem, catalog?.sources ?? []),
-    [catalog?.sources, selectedItem]
+    () => countBrokenManufacturingConnections(selectedItem, sources),
+    [selectedItem, sources]
   );
 
   if (state.kind === 'loading') return <section className="production-control-template-loading"><p role="status">연결형 생산계획 양식을 준비하는 중입니다.</p></section>;
@@ -255,6 +267,11 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
         <section className="production-control-editor">
           <header><div><strong>생산계획 항목과 실적 연결</strong><small>계획 항목마다 실적 데이터 하나를 선택하면 해당 실적일이 자동 반영됩니다.</small></div>{editing ? <button type="button" onClick={() => setPlanRows((current) => [...current, newPlanItem(current.length + 1)])}>항목 추가</button> : null}</header>
           {!activeManufacturing ? <p className="production-control-warning">먼저 제조 양식을 저장해야 제조 단계와 LQC를 연결할 수 있습니다.</p> : null}
+          {sources.some((source) => source.code === 'LQC_PASSED' && source.isOperational === false) ? (
+            <p className="production-control-warning" role="status">
+              LQC는 현재 운영 중지 상태입니다. 기존 LQC 연결 이력은 유지되며 새 연결은 제조 단계 완료 등 운영 중인 실적으로 변경해 주세요.
+            </p>
+          ) : null}
           {brokenManufacturingConnectionCount > 0 ? (
             <p className="production-control-warning" role="alert">
               제조 양식 변경으로 연결이 끊긴 생산계획 항목이 {brokenManufacturingConnectionCount}개 있습니다. 수정에서 현재 제조 단계를 다시 선택해 주세요. 연결을 고치기 전에는 새 프로젝트에 적용되지 않습니다.
@@ -263,13 +280,13 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
           <div className="production-control-plan-list">
             {planRows.map((item, index) => {
               const expanded = expandedPlanIndex === index;
-              const staleConnection = staleManufacturingConnection(item.connections[0], catalog.sources, manufacturingOptions);
+              const staleConnection = staleManufacturingConnection(item.connections[0], sources, manufacturingOptions);
               return (
                 <article className="production-control-template-plan-row" data-expanded={expanded || undefined} key={item.definitionKey ?? `new-plan-${index}`}>
                   <button type="button" className="production-control-plan-summary" aria-expanded={expanded} onClick={() => setExpandedPlanIndex(expanded ? null : index)}>
                     <b>{index + 1}</b>
                     <span><strong>{item.label || '항목명 없음'}</strong><small>{item.isRequired ? '필수 계획 항목' : '선택 계획 항목'}</small></span>
-                    <span><strong>연결 실적</strong><small>{connectionSummary(item, catalog.sources, manufacturingOptions)}</small></span>
+                    <span><strong>연결 실적</strong><small>{connectionSummary(item, sources, manufacturingOptions)}</small></span>
                     <i>{expanded ? '접기' : editing ? '편집' : '보기'}</i>
                   </button>
                   {expanded ? (
@@ -299,17 +316,17 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
                                 연결 재설정 필요 · 삭제되거나 교체된 제조 단계
                               </option>
                             ) : null}
-                            {catalog.sources.map((source) => (source.definitionKind ?? (source.requiresManufacturingDefinition ? 'Manufacturing' : 'None')) !== 'None' ? (
-                              <optgroup key={source.code} label={`${source.departmentLabel} · ${source.label}`}>
+                            {sources.map((source) => (source.definitionKind ?? (source.requiresManufacturingDefinition ? 'Manufacturing' : 'None')) !== 'None' ? (
+                              <optgroup key={source.code} disabled={source.isOperational === false} label={`${source.departmentLabel} · ${source.label}${source.isOperational === false ? ' · 운영 중지' : ''}`}>
                                 {sourceDefinitionOptions(source, manufacturingOptions).map((step) => step.definitionKey ? (
-                                  <option key={`${source.code}:${step.definitionKey}`} value={connectionValue({ sourceCode: source.code, sourceDefinitionKey: step.definitionKey })}>
+                                  <option disabled={source.isOperational === false} key={`${source.code}:${step.definitionKey}`} value={connectionValue({ sourceCode: source.code, sourceDefinitionKey: step.definitionKey })}>
                                     {step.label}
                                   </option>
                                 ) : null)}
                               </optgroup>
                             ) : (
-                              <option key={source.code} value={connectionValue({ sourceCode: source.code, sourceDefinitionKey: null })}>
-                                {source.departmentLabel} · {source.label}
+                              <option disabled={source.isOperational === false} key={source.code} value={connectionValue({ sourceCode: source.code, sourceDefinitionKey: null })}>
+                                {source.departmentLabel} · {source.label}{source.isOperational === false ? ' · 운영 중지' : ''}
                               </option>
                             ))}
                           </select>
@@ -375,9 +392,10 @@ function connectionSummary(
   if (staleManufacturingConnection(connection, sources, manufacturingItems)) {
     return `${source.departmentLabel} · ${source.label} · 연결 재설정 필요`;
   }
-  return manufacturing || quality
+  const summary = manufacturing || quality
     ? `${source.departmentLabel} · ${source.label} · ${(manufacturing ?? quality)?.label}`
     : `${source.departmentLabel} · ${source.label}`;
+  return source.isOperational === false ? `${summary} · 운영 중지` : summary;
 }
 
 function sourceDefinitionOptions(
@@ -453,4 +471,19 @@ function staleManufacturingConnection(
   return manufacturingItems.some((item) => item.definitionKey === connection.sourceDefinitionKey)
     ? null
     : connection;
+}
+
+function effectiveSources(
+  sources: ProductionControlTemplateCatalog['sources'],
+  item: ProductionControlTemplateCatalog['items'][number] | null | undefined
+): ProductionControlTemplateCatalog['sources'] {
+  return sources.map((source) => source.code === 'LQC_PASSED'
+    ? {
+        ...source,
+        isOperational: item?.lqcOperational !== false,
+        operationalMessage: item?.lqcOperational === false
+          ? `${item.productTypeName} Item의 LQC는 운영 중지 상태입니다. 기존 연결 이력은 유지되며 새 연결에는 사용할 수 없습니다.`
+          : null
+      }
+    : source);
 }

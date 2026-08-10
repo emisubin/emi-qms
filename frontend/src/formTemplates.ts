@@ -16,6 +16,24 @@ export type FormTemplateVersion = {
 export type FormTemplateVersions = {
   family: string; templateKey: string; displayName: string; domain: string; versions: FormTemplateVersion[];
 };
+
+export type LqcItemTemplate = {
+  productTypeId: string;
+  productTypeCode: string;
+  productTypeName: string;
+  isOperational: boolean;
+  settingRowVersion: number;
+  templateVersionId: string;
+  templateVersionNumber: number;
+  templateRowVersion: number;
+  items: FormTemplateItem[];
+};
+
+export type LqcItemTemplates = {
+  canManageItems: boolean;
+  canChangeOperatingStatus: boolean;
+  items: LqcItemTemplate[];
+};
 export type FormTemplateManagers = {
   bindings: Array<{
     bindingId: string; userId: string; displayName: string; departmentId: string; departmentCode: string;
@@ -31,6 +49,7 @@ export type MaterialCategory = {
   code: string;
   displayName: string;
   requiresIqc: boolean;
+  iqcDecisionMode: 'ScanBased' | 'Detailed';
   isActive: boolean;
   displayOrder: number;
   rowVersion: number;
@@ -39,4 +58,23 @@ export type MaterialCategory = {
 export type MaterialCategoryCatalog = {
   canManage: boolean;
   items: MaterialCategory[];
+};
+
+export type MaterialCategoryIqcTemplate = {
+  materialCategoryId: string;
+  materialCategoryCode: string;
+  materialCategoryName: string;
+  isCategoryActive: boolean;
+  isEnabled: boolean;
+  decisionMode: 'ScanBased' | 'Detailed';
+  settingRowVersion: number;
+  templateVersionId: string;
+  templateVersionNumber: number;
+  templateRowVersion: number;
+  items: FormTemplateItem[];
+};
+
+export type MaterialCategoryIqcTemplates = {
+  canManage: boolean;
+  items: MaterialCategoryIqcTemplate[];
 };

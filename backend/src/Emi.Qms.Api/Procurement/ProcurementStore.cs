@@ -293,7 +293,8 @@ public sealed class ProcurementStore(
                    i.source_group_sequence, i.row_match_key, i.status,
                    i.supply_type, i.order_quantity, i.order_unit,
                    i.material_category_id, i.material_category_code_snapshot,
-                   i.material_category_name_snapshot, i.material_category_requires_iqc_snapshot
+                   i.material_category_name_snapshot, i.material_category_iqc_enabled_snapshot,
+                   i.material_category_iqc_decision_mode_snapshot
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -822,7 +823,8 @@ public sealed class ProcurementStore(
                             current.MaterialCategoryId.Value,
                             current.MaterialCategoryCode!,
                             current.MaterialCategoryName!,
-                            current.MaterialCategoryRequiresIqc ?? false);
+                            current.MaterialCategoryRequiresIqc ?? false,
+                            current.MaterialCategoryIqcDecisionMode ?? "ScanBased");
                     await UpdateItemFromExcelAsync(connection, transaction, current, parsedRow, materialCategory, changedByUserId, cancellationToken);
                     foreach (var change in changes)
                     {
@@ -1075,7 +1077,8 @@ public sealed class ProcurementStore(
                     current.MaterialCategoryId.Value,
                     current.MaterialCategoryCode!,
                     current.MaterialCategoryName!,
-                    current.MaterialCategoryRequiresIqc ?? false);
+                    current.MaterialCategoryRequiresIqc ?? false,
+                    current.MaterialCategoryIqcDecisionMode ?? "ScanBased");
             if (project.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased)
             {
                 if (update.MaterialCategoryId is null && current.MaterialCategoryId is null)
@@ -1110,7 +1113,8 @@ public sealed class ProcurementStore(
             if (nextMaterialCategory is not null
                 && (current.MaterialCategoryId != nextMaterialCategory.CategoryId
                     || !string.Equals(current.MaterialCategoryName, nextMaterialCategory.DisplayName, StringComparison.Ordinal)
-                    || current.MaterialCategoryRequiresIqc != nextMaterialCategory.RequiresIqc))
+                    || current.MaterialCategoryRequiresIqc != nextMaterialCategory.RequiresIqc
+                    || current.MaterialCategoryIqcDecisionMode != nextMaterialCategory.DecisionMode))
             {
                 changes.Add(new Change(
                     "MaterialCategory",
@@ -1461,10 +1465,12 @@ public sealed class ProcurementStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select id, code, display_name, requires_iqc
-            from material_categories
-            where id = @category_id
-              and is_active = true;
+            select category.id, category.code, category.display_name,
+                   setting.is_enabled, setting.decision_mode
+            from material_categories category
+            join material_category_iqc_settings setting on setting.material_category_id=category.id
+            where category.id = @category_id
+              and category.is_active = true;
             """;
         command.Parameters.AddWithValue("category_id", categoryId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1473,7 +1479,8 @@ public sealed class ProcurementStore(
                 reader.GetGuid(0),
                 reader.GetString(1),
                 reader.GetString(2),
-                reader.GetBoolean(3))
+                reader.GetBoolean(3),
+                reader.GetString(4))
             : null;
     }
 
@@ -1485,10 +1492,12 @@ public sealed class ProcurementStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select id, code, display_name, requires_iqc
-            from material_categories
-            where is_active = true
-            order by display_order, display_name;
+            select category.id, category.code, category.display_name,
+                   setting.is_enabled, setting.decision_mode
+            from material_categories category
+            join material_category_iqc_settings setting on setting.material_category_id=category.id
+            where category.is_active = true
+            order by category.display_order, category.display_name;
             """;
         var result = new List<ProcurementMaterialCategorySnapshot>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1498,7 +1507,8 @@ public sealed class ProcurementStore(
                 reader.GetGuid(0),
                 reader.GetString(1),
                 reader.GetString(2),
-                reader.GetBoolean(3)));
+                reader.GetBoolean(3),
+                reader.GetString(4)));
         }
 
         return result;
@@ -1911,7 +1921,8 @@ public sealed class ProcurementStore(
             materialCategory?.CategoryId,
             materialCategory?.Code,
             materialCategory?.DisplayName,
-            materialCategory?.RequiresIqc);
+            materialCategory?.RequiresIqc,
+            materialCategory?.DecisionMode);
     }
 
     private static ProcurementItemResponse ToResponse(ProcurementItemSnapshot item)
@@ -1933,6 +1944,7 @@ public sealed class ProcurementStore(
             MaterialCategoryCode = item.MaterialCategoryCode,
             MaterialCategoryName = item.MaterialCategoryName,
             MaterialCategoryRequiresIqc = item.MaterialCategoryRequiresIqc,
+            MaterialCategoryIqcDecisionMode = item.MaterialCategoryIqcDecisionMode,
             SupplierName = item.SupplierName,
             TechnicalOwner = item.TechnicalOwner,
             OrderDate = item.OrderDate,
@@ -2096,7 +2108,8 @@ public sealed class ProcurementStore(
                    i.source_group_sequence, i.row_match_key, i.status,
                    i.supply_type, i.order_quantity, i.order_unit,
                    i.material_category_id, i.material_category_code_snapshot,
-                   i.material_category_name_snapshot, i.material_category_requires_iqc_snapshot
+                   i.material_category_name_snapshot, i.material_category_iqc_enabled_snapshot,
+                   i.material_category_iqc_decision_mode_snapshot
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -2137,7 +2150,8 @@ public sealed class ProcurementStore(
                    i.source_group_sequence, i.row_match_key, i.status,
                    i.supply_type, i.order_quantity, i.order_unit,
                    i.material_category_id, i.material_category_code_snapshot,
-                   i.material_category_name_snapshot, i.material_category_requires_iqc_snapshot
+                   i.material_category_name_snapshot, i.material_category_iqc_enabled_snapshot,
+                   i.material_category_iqc_decision_mode_snapshot
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -2174,7 +2188,8 @@ public sealed class ProcurementStore(
                    i.source_group_sequence, i.row_match_key, i.status,
                    i.supply_type, i.order_quantity, i.order_unit,
                    i.material_category_id, i.material_category_code_snapshot,
-                   i.material_category_name_snapshot, i.material_category_requires_iqc_snapshot
+                   i.material_category_name_snapshot, i.material_category_iqc_enabled_snapshot,
+                   i.material_category_iqc_decision_mode_snapshot
             from project_procurement_items i
             join projects p on p.id = i.project_id
             left join qms_users u on u.id = i.receipt_completed_by_user_id
@@ -2235,7 +2250,8 @@ public sealed class ProcurementStore(
                 source_type, is_confirmed, created_by_user_id, updated_by_user_id,
                 supply_type, order_quantity, order_unit,
                 material_category_id, material_category_code_snapshot,
-                material_category_name_snapshot, material_category_requires_iqc_snapshot)
+                material_category_name_snapshot, material_category_requires_iqc_snapshot,
+                material_category_iqc_enabled_snapshot, material_category_iqc_decision_mode_snapshot)
             values (
                 @id, @project_id, @sequence_number, @source_project_text, @source_project_code_text,
                 @standard_lead_time, @order_item, @supplier_name, @technical_owner, @order_date, @expected_receipt_date,
@@ -2245,7 +2261,8 @@ public sealed class ProcurementStore(
                 @source_type, true, @user_id, @user_id,
                 @supply_type, @order_quantity, @order_unit,
                 @material_category_id, @material_category_code,
-                @material_category_name, @material_category_requires_iqc);
+                @material_category_name, @material_category_requires_iqc,
+                @material_category_iqc_enabled, @material_category_iqc_decision_mode);
             """;
         AddItemParameters(command, snapshot, changedByUserId);
         command.Parameters.AddWithValue("source_type", row.ExcelRowNumber > 0 ? "Excel" : "Direct");
@@ -2260,6 +2277,10 @@ public sealed class ProcurementStore(
             snapshot.MaterialCategoryName ?? (object)DBNull.Value;
         command.Parameters.Add("material_category_requires_iqc", NpgsqlDbType.Boolean).Value =
             snapshot.MaterialCategoryRequiresIqc ?? (object)DBNull.Value;
+        command.Parameters.Add("material_category_iqc_enabled", NpgsqlDbType.Boolean).Value =
+            snapshot.MaterialCategoryRequiresIqc ?? (object)DBNull.Value;
+        command.Parameters.Add("material_category_iqc_decision_mode", NpgsqlDbType.Text).Value =
+            snapshot.MaterialCategoryIqcDecisionMode ?? (object)DBNull.Value;
         await command.ExecuteNonQueryAsync(cancellationToken);
         return snapshot;
     }
@@ -2374,6 +2395,8 @@ public sealed class ProcurementStore(
                 material_category_code_snapshot = @material_category_code,
                 material_category_name_snapshot = @material_category_name,
                 material_category_requires_iqc_snapshot = @material_category_requires_iqc,
+                material_category_iqc_enabled_snapshot = @material_category_iqc_enabled,
+                material_category_iqc_decision_mode_snapshot = @material_category_iqc_decision_mode,
                 receipt_completed = @receipt_completed,
                 receipt_completed_at_utc = @receipt_completed_at_utc,
                 receipt_completed_by_user_id = @receipt_completed_by_user_id,
@@ -2407,6 +2430,10 @@ public sealed class ProcurementStore(
             materialCategory?.DisplayName ?? current.MaterialCategoryName ?? (object)DBNull.Value;
         command.Parameters.Add("material_category_requires_iqc", NpgsqlDbType.Boolean).Value =
             materialCategory?.RequiresIqc ?? current.MaterialCategoryRequiresIqc ?? (object)DBNull.Value;
+        command.Parameters.Add("material_category_iqc_enabled", NpgsqlDbType.Boolean).Value =
+            materialCategory?.RequiresIqc ?? current.MaterialCategoryRequiresIqc ?? (object)DBNull.Value;
+        command.Parameters.Add("material_category_iqc_decision_mode", NpgsqlDbType.Text).Value =
+            materialCategory?.DecisionMode ?? current.MaterialCategoryIqcDecisionMode ?? (object)DBNull.Value;
         command.Parameters.AddWithValue("receipt_completed", current.ReceiptCompleted);
         command.Parameters.AddWithValue("receipt_completed_at_utc", (object?)NormalizeUtc(current.ReceiptCompletedAtUtc) ?? DBNull.Value);
         command.Parameters.AddWithValue("receipt_completed_by_user_id", (object?)current.ReceiptCompletedByUserId ?? DBNull.Value);
@@ -2724,7 +2751,8 @@ public sealed class ProcurementStore(
             reader.IsDBNull(28) ? null : reader.GetGuid(28),
             reader.IsDBNull(29) ? null : reader.GetString(29),
             reader.IsDBNull(30) ? null : reader.GetString(30),
-            reader.IsDBNull(31) ? null : reader.GetBoolean(31));
+            reader.IsDBNull(31) ? null : reader.GetBoolean(31),
+            reader.IsDBNull(32) ? null : reader.GetString(32));
     }
 
     private static void AddItemParameters(NpgsqlCommand command, ProcurementItemSnapshot item, Guid userId)

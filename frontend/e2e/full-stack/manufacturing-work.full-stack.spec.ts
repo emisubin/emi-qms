@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { ensureLqcOperational } from './lqc-operating-fixture';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
@@ -9,6 +10,10 @@ const stepBatchScreenshotDirectory = path.resolve(
   process.cwd(),
   '../tasks/manufacturing-batch-001-screenshots'
 );
+
+test.beforeEach(async ({ request }) => {
+  await ensureLqcOperational(request);
+});
 
 test('TASK-010A/011A: production releases a non-kitted panel and manufacturing completes it', async ({ page, request }) => {
   test.setTimeout(180_000);

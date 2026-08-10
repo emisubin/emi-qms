@@ -100,15 +100,65 @@ public sealed class IqcReportStore(
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
-                    insert into iqc_reports (
-                        attempt_id, template_version_id, created_by_user_id, updated_by_user_id
-                    )
-                    select @attempt_id, version.id, @actor_id, @actor_id
+                insert into iqc_reports (
+                    attempt_id, template_version_id, created_by_user_id, updated_by_user_id
+                )
+                select @attempt_id,
+                       coalesce(
+                           (
+                               select previous_report.template_version_id
+                               from material_iqc_attempts previous_attempt
+                               join iqc_reports previous_report on previous_report.attempt_id=previous_attempt.id
+                               where previous_attempt.material_receipt_id=attempt.material_receipt_id
+                                 and previous_attempt.attempt_number < attempt.attempt_number
+                                 and previous_attempt.status='Failed'
+                               order by previous_attempt.attempt_number desc
+                               limit 1
+                           ),
+                           case
+                               when project.iqc_routing_policy='CategoryBased'
+                               then setting.current_template_version_id
+                               else global_version.id
+                           end
+                       ),
+                       @actor_id,
+                       @actor_id
+                from material_iqc_attempts attempt
+                join material_receipts receipt on receipt.id=attempt.material_receipt_id
+                join project_procurement_items item on item.id=receipt.procurement_item_id and item.status='Active'
+                join projects project on project.id=item.project_id and project.deleted_at_utc is null
+                left join material_category_iqc_settings setting
+                    on setting.material_category_id=item.material_category_id
+                left join lateral (
+                    select version.id
                     from iqc_report_template_versions version
-                    join iqc_report_templates template on template.id = version.template_id
-                    where template.template_code = 'MATERIAL_IQC' and version.is_active
-                    on conflict (attempt_id) do nothing;
-                    """;
+                    join iqc_report_templates template on template.id=version.template_id
+                    where template.template_code='MATERIAL_IQC'
+                      and version.lifecycle_status='Active'
+                      and version.is_active
+                    order by version.version_number desc
+                    limit 1
+                ) global_version on true
+                where attempt.id=@attempt_id
+                  and coalesce(
+                      (
+                          select previous_report.template_version_id
+                          from material_iqc_attempts previous_attempt
+                          join iqc_reports previous_report on previous_report.attempt_id=previous_attempt.id
+                          where previous_attempt.material_receipt_id=attempt.material_receipt_id
+                            and previous_attempt.attempt_number < attempt.attempt_number
+                            and previous_attempt.status='Failed'
+                          order by previous_attempt.attempt_number desc
+                          limit 1
+                      ),
+                      case
+                          when project.iqc_routing_policy='CategoryBased'
+                          then setting.current_template_version_id
+                          else global_version.id
+                      end
+                  ) is not null
+                on conflict (attempt_id) do nothing;
+                """;
             command.Parameters.AddWithValue("attempt_id", attemptId);
             command.Parameters.AddWithValue("actor_id", actorUserId);
             if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
@@ -1539,9 +1589,41 @@ public sealed class IqcReportStore(
             join lateral (
                 select version.id, version.version_number
                 from iqc_report_template_versions version
-                join iqc_report_templates template on template.id = version.template_id
                 where version.id = report.template_version_id
-                   or (report.id is null and template.template_code = 'MATERIAL_IQC' and version.is_active)
+                   or (
+                       report.id is null
+                       and version.id=coalesce(
+                           (
+                               select previous_report.template_version_id
+                               from material_iqc_attempts previous_attempt
+                               join iqc_reports previous_report on previous_report.attempt_id=previous_attempt.id
+                               where previous_attempt.material_receipt_id=attempt.material_receipt_id
+                                 and previous_attempt.attempt_number < attempt.attempt_number
+                                 and previous_attempt.status='Failed'
+                               order by previous_attempt.attempt_number desc
+                               limit 1
+                           ),
+                           case
+                               when project.iqc_routing_policy='CategoryBased'
+                               then (
+                                   select setting.current_template_version_id
+                                   from material_category_iqc_settings setting
+                                   where setting.material_category_id=item.material_category_id
+                               )
+                               else (
+                                   select global_version.id
+                                   from iqc_report_template_versions global_version
+                                   join iqc_report_templates global_template
+                                     on global_template.id=global_version.template_id
+                                   where global_template.template_code='MATERIAL_IQC'
+                                     and global_version.lifecycle_status='Active'
+                                     and global_version.is_active
+                                   order by global_version.version_number desc
+                                   limit 1
+                               )
+                           end
+                       )
+                   )
                 order by case when version.id = report.template_version_id then 0 else 1 end
                 limit 1
             ) template_version on true

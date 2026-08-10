@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 구현 보고 — Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
-상태: `Local 구현·자동 검증 완료 / 사용자 검수·Git 게시·운영 rollout 대기`
+상태: `Change 001~003 운영 rollout 완료 / Change 007 local 구현·자동 검증 완료 / Git 게시·Azure 공개 release 진행 중`
 
 ## 기준선과 승인 범위
 
@@ -11,7 +11,7 @@
 - baseSha: `914a109e170f4e1c3ce34fb1faa4216c1b4fcf1c`
 - planning: `tasks/teams-pwa-001-planning.md`
 - Codex review: `tasks/teams-pwa-001-review.md`
-- approved resolution: `tasks/teams-pwa-001-change-001.md`, `tasks/teams-pwa-001-change-002.md`, `tasks/teams-pwa-001-change-003.md`
+- approved resolution: `tasks/teams-pwa-001-change-001.md`, `tasks/teams-pwa-001-change-002.md`, `tasks/teams-pwa-001-change-003.md`, `tasks/teams-pwa-001-change-007.md`
 - 포함: Teams 정적 launcher, launcher-only Easy Auth 예외 artifact, PWA 설치 UX, 전 사용자 표면 `EMI PMS` 브랜드 문자열, 관련 자동·브라우저 검증
 - 제외: 실제 Azure·Entra·Teams Admin Center·catalog·운영 revision 변경, NAA·OBO·신규 token/session, Web Push·Service Worker·DB migration, 알림 수신자·발송 시점 변경
 
@@ -22,6 +22,8 @@ Teams tab은 iframe 안에서 기존 전체 화면 MSAL redirect를 실행하려
 이번 구현은 Teams를 기존 Activity Feed 알림 채널과 실행 진입점으로 유지한다. 개인 tab에는 업무 구조·핵심 bundle·API data를 싣지 않는 작은 정적 화면만 표시하고, 사용자가 누르면 Microsoft 365 인증으로 보호된 EMI PMS 웹/PWA를 새 창으로 연다. 이로써 익명 bundle 차단을 유지하면서 iframe redirect 문제를 피한다.
 
 동시에 Teams `PMS`, 웹 설치 `EMI QMS`, 화면 `EMI 프로젝트 통합관리시스템`으로 흩어졌던 이름을 모든 사용자-facing 이름 칸에서 `EMI PMS`로 통일했다. Android·PC는 지원되는 브라우저 설치 prompt를 제공한다. iPhone은 Safari와 타 브라우저를 구분해 현재 브라우저의 설치 메뉴를 먼저 사용하고, 메뉴가 없을 때 root 주소를 복사해 Safari에서 설치하는 복구 안내를 제공한다.
+
+Change 007에서는 로그인 화면용 가로 로고와 로그인 후 공통 shell 로고가 같은 asset을 공유하던 문제를 분리한다. 로그인은 사용자가 지정한 4x 가로 logo, 로그인 뒤 모든 페이지의 공통 desktop/mobile shell은 지정 4x 내부 logo를 사용한다. wireframe의 구조와 흑백 색상은 유지하고 지정 logo에만 원본 색상 예외를 적용한다.
 
 ## 전체 아키텍처와 영향
 
@@ -98,6 +100,18 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 
 실제 Azure·Teams catalog·Android/iPhone 기기·운영 메일/PDF/Excel 검수는 아직 적용 전이므로 자동 성공으로 기록하지 않는다.
 
+### Change 007 검증
+
+| 검증 | 적용 여부 | 결과 | 근거/미실행 이유 |
+| --- | --- | --- | --- |
+| 지정 asset byte equality | 적용 | PASS | 원본과 tracked Asset 3·4 각각의 byte equality와 SHA-256 일치를 확인했다. |
+| Frontend 최소 검증 | 적용 | PASS | lint 0 error·기존 warning 1, typecheck, unit `183/183`, production build가 통과했다. |
+| desktop·390px browser | 적용 | PASS | 공통 desktop sidebar, mobile app bar·drawer가 natural size `3796×1378`, filter none·transparent background를 사용하고 가로 overflow 0을 유지했다. |
+| 로그인 회귀 | 적용 | PASS | desktop 5종과 iPhone 390·Android 412의 login/loading `12/12`, natural size `4265×604`, console/request failure 0을 확인했다. |
+| CI 전체 | 적용 | 대기 | Ready PR 최신 head의 Frontend·Backend·Full-Stack job을 확인한다. |
+| Backend·DB·migration | 적용 대상 아님 | N/A | 공통 shell logo와 CSS만 변경하며 server/data contract diff가 0이다. |
+| 운영 공개 검수 | 적용 | 대기 | main 병합 뒤 승인형 Azure release와 보호된 root·health·운영 화면을 확인한다. |
+
 ## Finding과 잔여 위험
 
 | Finding | 심각도 | 상태 | 원인·영향 | Resolution·후속 |
@@ -112,6 +126,7 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 | `TPWA-D01` | P2 | `RESOLVED` | 최초 안내 디자인의 빨간 면·왼쪽 강조선·그림자가 최신 Graphite wireframe과 충돌했다. | Teams·iPhone·Android 안내를 흰 표면·검정 제어·중성 회색·1px 경계로 통일하고 로고만 브랜드 예외로 유지했다. |
 | `TPWA-IOS01` | P2 | `RESOLVED` | iPhone 타 브라우저 사용자에게 Safari 화면 기준 절차만 표시해 설치 진입점과 화면이 어긋날 수 있었다. | Safari/타 브라우저 안내를 분리하고 현재 브라우저 설치 우선, root 주소 복사와 Safari fallback을 제공했다. |
 | `TPWA-PUSH-001` | P3 | `BACKLOG` | 모바일 push는 권한·수신 정책·구독 lifecycle·DB·Service Worker가 필요한 새 채널이다. | 별도 `NEW_FEATURE` deep-interview에서 재확정한다. |
+| `TPWA-BRAND-007` | P2 | `RESOLVED` | 로그인과 공통 app shell이 같은 logo asset·grayscale 규칙을 공유해 사용자 지정 내부 logo의 형태와 원색을 보존할 수 없었다. | auth/internal asset import를 분리하고 공통 shell의 지정 logo에만 transparent·filter none 예외와 browser regression을 추가했다. |
 
 Open P0/P1/P2: `0/0/0`.
 

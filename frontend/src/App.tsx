@@ -172,7 +172,8 @@ import {
 } from './auth';
 import authEllipse66 from './assets/auth-ellipse-66.svg';
 import authEllipse67 from './assets/auth-ellipse-67.svg';
-import emiLogo from './assets/emi-logo.png';
+import emiInternalLogo from './assets/emi-logo-internal.png';
+import emiLoginLogo from './assets/emi-logo.png';
 import microsoftLogo from './assets/microsoft-logo.png';
 import type { ReadyHealth } from './health';
 import { HomePage } from './HomePage';
@@ -2001,7 +2002,7 @@ function QmsAppShellContent({
         <header className="mobile-app-bar">
           <AppMobileNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
           <div className="mobile-app-brand">
-            <img src={emiLogo} alt="" aria-hidden="true" />
+            <img className="app-brand-logo" src={emiInternalLogo} alt="" aria-hidden="true" />
             <span>
               <small>EMI PROJECT</small>
               <strong>{activeNavigationLabel}</strong>
@@ -2757,7 +2758,7 @@ function AppNavigation({
   return (
     <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">
       <div className="app-brand-lockup">
-        <img src={emiLogo} alt="EMI Electric Modular Innovation" />
+        <img className="app-brand-logo" src={emiInternalLogo} alt="EMI" />
         <span>프로젝트 통합관리</span>
       </div>
       <div className="app-sidebar-heading">
@@ -2931,7 +2932,7 @@ function AppMobileNavigation({
             aria-labelledby="app-mobile-menu-title"
           >
             <header className="mobile-menu-header">
-              <img className="mobile-menu-brand-logo" src={emiLogo} alt="" aria-hidden="true" />
+              <img className="mobile-menu-brand-logo app-brand-logo" src={emiInternalLogo} alt="" aria-hidden="true" />
               <div>
                 <p className="eyebrow">EMI WORKSPACE</p>
                 <h2 id="app-mobile-menu-title">전체 업무 메뉴</h2>
@@ -3395,7 +3396,7 @@ function AuthGateMessage({
         </div>
         <span className="auth-brand-overlay" aria-hidden="true" />
         <div className="auth-brand-logo-canvas">
-          <img className="auth-brand-logo" src={emiLogo} alt="EMI Electric Modular Innovation" />
+          <img className="auth-brand-logo" src={emiLoginLogo} alt="EMI Electric Modular Innovation" />
         </div>
         <div className="auth-brand-pattern-canvas">
           <span className="auth-brand-dots" data-figma-node-id="1:181" aria-hidden="true" />

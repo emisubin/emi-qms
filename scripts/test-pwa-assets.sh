@@ -70,7 +70,7 @@ if (declaredIcons.get('/icons/emi-qms-maskable-512.png')?.purpose !== 'maskable'
 
 const index = readFileSync(indexPath, 'utf8');
 for (const expected of [
-  'href="/manifest.webmanifest"',
+  'rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials"',
   '<title>EMI PMS</title>',
   'name="application-name" content="EMI PMS"',
   'name="apple-mobile-web-app-title" content="EMI PMS"',

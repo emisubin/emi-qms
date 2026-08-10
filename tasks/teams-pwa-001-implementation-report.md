@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 구현 보고 — Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
-상태: `Change 001~003·007·009 원격 main 병합·Azure 운영 rollout 완료 / 실제 Android·iPhone 사용자 검수 대기`
+상태: `Change 001~003·007·009 원격 main 병합·Azure 운영 rollout 완료 / Change 010 local 구현·게시 대기 / 실제 Android 재검수 대기`
 
 ## 기준선과 승인 범위
 
@@ -11,7 +11,7 @@
 - baseSha: `914a109e170f4e1c3ce34fb1faa4216c1b4fcf1c`
 - planning: `tasks/teams-pwa-001-planning.md`
 - Codex review: `tasks/teams-pwa-001-review.md`
-- approved resolution: `tasks/teams-pwa-001-change-001.md`, `tasks/teams-pwa-001-change-002.md`, `tasks/teams-pwa-001-change-003.md`, `tasks/teams-pwa-001-change-007.md`, `tasks/teams-pwa-001-change-008.md`, `tasks/teams-pwa-001-change-009.md`
+- approved resolution: `tasks/teams-pwa-001-change-001.md`, `tasks/teams-pwa-001-change-002.md`, `tasks/teams-pwa-001-change-003.md`, `tasks/teams-pwa-001-change-007.md`, `tasks/teams-pwa-001-change-008.md`, `tasks/teams-pwa-001-change-009.md`, `tasks/teams-pwa-001-change-010.md`
 - 포함: Teams 정적 launcher, launcher-only Easy Auth 예외 artifact, PWA 설치 UX, 전 사용자 표면 `EMI PMS` 브랜드 문자열, 관련 자동·브라우저 검증
 - 원래 구현 제외: 실제 Azure·Entra·Teams Admin Center·catalog·운영 revision 변경, NAA·OBO·신규 token/session, Web Push·Service Worker·DB migration, 알림 수신자·발송 시점 변경. Change 007의 운영 revision 교체만 후속 사용자 승인으로 실행했다.
 
@@ -26,6 +26,8 @@ Teams tab은 iframe 안에서 기존 전체 화면 MSAL redirect를 실행하려
 Change 007에서는 로그인 화면용 가로 로고와 로그인 후 공통 shell 로고가 같은 asset을 공유하던 문제를 분리한다. 로그인은 사용자가 지정한 4x 가로 logo, 로그인 뒤 모든 페이지의 공통 desktop/mobile shell은 지정 4x 내부 logo를 사용한다. wireframe의 구조와 흑백 색상은 유지하고 지정 logo에만 원본 색상 예외를 적용한다.
 
 Change 009에서는 운영 모바일에서 Microsoft 365 인증 뒤 홈으로 바로 진입하고 PWA 안내가 보이지 않던 결함을 보정한다. 설치 event 수신은 MSAL 초기화보다 앞에서 시작하되 자동 안내는 access-token gate와 업무 shell이 준비된 뒤에만 연다. Android는 설치 event를 기다리는 동안에도 안내와 비활성 설치 버튼을 먼저 표시하고 event가 도착하면 같은 버튼을 활성화한다. iPhone 절차는 그대로 유지하며 `나중에` 기억은 영구가 아닌 현재 탭 session으로 제한한다.
+
+Change 010에서는 Azure Easy Auth로 보호된 운영 manifest가 credential 없이 요청돼 Android Chrome의 설치 가능 판정이 완료되지 않던 결함을 보정한다. same-origin manifest link에도 `crossorigin="use-credentials"`를 명시해 인증된 manifest 요청을 보장하고, 같은 속성이 빠지면 PWA asset contract가 실패하게 한다. 팝업 정책과 설치 버튼 제어 로직은 변경하지 않는다.
 
 ## 전체 아키텍처와 영향
 
@@ -58,6 +60,7 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 | 모든 이름 칸 `EMI PMS` | Teams·설치 아이콘·브라우저·앱 화면을 하나의 제품으로 인식하게 한다. | 표면별 `PMS`·`EMI QMS`·한국어 이름 혼용 |
 | 인증 완료 뒤 모바일 안내 | 익명 app shell 차단을 유지하면서 로그인 직후 설치 행동을 먼저 제시한다. | Easy Auth 우회, 로그인 전 자동 popup |
 | Android 준비형 설치 버튼 | Chrome의 native 설치 정책을 존중하면서 안내는 즉시 표시하고 prompt 준비 뒤 한 번 클릭으로 확인창을 연다. | 무단 강제 설치, event가 올 때까지 안내 자체를 숨김 |
+| 인증된 manifest 요청 | Easy Auth 보호를 낮추지 않고 same-origin manifest 요청에 현재 사용자 credential을 포함한다. | manifest 익명 예외 추가, 설치 버튼 강제 활성화 |
 | session 단위 닫기 | 같은 탭의 반복 방해는 막되 미설치 사용자가 이후 새 session에서 안내를 다시 받을 수 있다. | 영구 `localStorage` 숨김 |
 
 ## 시행착오 및 폐기한 접근
@@ -105,6 +108,20 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 
 Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변경과 Android/iPhone 실제 기기·운영 메일/PDF/Excel 육안 검수는 이번 자동 release 성공으로 대체하지 않는다.
 
+### Change 010 local 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| PWA asset contract | PASS — 인증된 manifest link 포함 `1/1` |
+| PWA 집중 unit | PASS — `10/10` |
+| Frontend lint | PASS — error 0, 기존 `src/main.tsx` Fast Refresh warning 1 |
+| Frontend typecheck | PASS |
+| Frontend 전체 unit | PASS — `26 files`, `187/187` |
+| Frontend production build | PASS — 기존 대형 chunk warning 유지 |
+| Backend·DB·migration·Teams | N/A — 변경 없음 |
+| Git 게시·Azure 운영 | 대기 — 사용자 게시·배포 승인 범위 밖 |
+| 실제 Android Chrome | 대기 — 운영 반영 뒤 사용자 재검수 필요 |
+
 ### Change 009 게시·운영 검증
 
 | 검증 | 결과 |
@@ -146,8 +163,9 @@ Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변
 | `TPWA-CI-007` | P2 | `RESOLVED` | PR 전체 mock UI에서 프로젝트가 비어 있을 때 상단과 empty-state에 같은 `신규 프로젝트` action이 생겨 기존 test selector가 두 요소를 구분하지 못했다. | 제품 UI는 변경하지 않고 기존 smoke가 상단 첫 action을 명시하도록 두 진입 selector를 한정했다. |
 | `TPWA-CI-008` | P2 | `RESOLVED` | 느린 CI에서 품질 판정 API의 첫 오류 응답과 dialog 오류 문구 반영이 기존 1초 test 대기를 넘겨 간헐적으로 실패했다. | 제품 로직은 유지하고 API 호출 관찰과 오류 문구 반영을 각각 최대 5초 기다리는 test-only 동기화로 안정화했다. |
 | `TPWA-MOBILE-009` | P2 | `RESOLVED` | Android 자동 안내가 설치 event에 종속되고 닫기가 영구 저장돼 Microsoft 로그인 뒤 설치 안내를 놓칠 수 있었다. | provider를 MSAL보다 위로 이동하고 인증 준비 gate·Android 준비형 버튼·session 단위 닫기 회귀를 추가했다. |
+| `TPWA-ANDROID-INSTALL-010` | P1 | `MITIGATED_LOCAL / PUBLICATION_PENDING` | Easy Auth 보호 manifest에 credential 포함 연결이 없어 Android Chrome이 설치 event를 제공하지 못하고 버튼이 계속 비활성화됐다. | manifest link에 `use-credentials`를 추가하고 asset contract로 고정했다. 원격 main·운영 반영과 실제 Android 재검수가 남았다. |
 
-Open P0/P1/P2: `0/0/0`.
+Open P0/P1/P2: `0/1/0` — Change 010 게시·운영 Android 재검수 전까지 P1을 닫지 않는다.
 
 ## 개인정보·secret 검토
 
@@ -188,7 +206,7 @@ Rollback은 이전 immutable Frontend/Backend revision과 이전 Teams package�
 
 - 자동 검증과 합성 desktop/390px browser 검증은 완료했다.
 - Git Commit·Push·PR #84·#86·main merge와 Change 007·009 Azure 운영 release를 완료했다. Teams package와 catalog는 Change 009에서 변경하지 않았다.
-- Change 009의 자동·CI·운영 공개 검증은 완료했다. 사용자 실제 Android·iPhone에서 Microsoft 인증 직후 설치 안내와 Android native 설치 확인창을 확인하는 검수는 `사용자 검수 대기`다.
+- Change 009의 자동·CI·운영 공개 검증은 완료했다. Change 010 local 구현과 자동 검증도 완료했지만 원격 main·운영에는 아직 반영하지 않았다. 운영 반영 뒤 실제 Android에서 설치 버튼 활성화와 native 설치 확인창을 다시 확인해야 한다.
 - 사용자 실제 PC·Android·iPhone에서 인증 후 로그인·공통 내부 logo를 눈으로 확인하는 기존 검수도 계속 대기다.
 - Web Push는 정책을 다시 확정해야 하는 별도 신규 기능이다.
 

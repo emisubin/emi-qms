@@ -1034,6 +1034,7 @@ Excel 출력 대상 후보:
 | 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | TASK-AZURE-PILOT-001 — 서비스 중립 공개 파일럿 준비 | UAT_RUNTIME | Main Merged / User Validation Complete | Entra API·SPA 분리, one-shot migration·ledger gate, Production preflight·ARM64/AMD64 image 검증과 PR #59 merge 완료 | TASK-UAT-001, local main 승인 기능과 사용자 P1 구현 승인 | provider-specific 실제 runtime은 TASK-AZURE-DEPLOY-001로 이관 | Yes | 완료 scope 재구현 금지 |
 | 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | BUGFIX / UAT_RUNTIME | Change 020 Runtime Verified | Change 019 release guard 유지. Change 020은 최신 main `37dd619685e6447fc867d213d1f63692c6cd8c62`의 migration·Backend·Frontend·public security와 익명 `401/401`을 모두 통과 | TASK-AZURE-PILOT-001, Change 018 승인형 workflow | 사용자 실제 기기 지정 logo 육안 검수, 20일 운영 관찰과 기존 P3 runner 경고 유지보수 | Yes | 사용자 실제 기기 검수 → 운영 관찰 |
+| 6.3 | TASK-CI-COST-001 — GitHub Actions minute 최적화 | P2_REMEDIATION | Local Implementation / Automated Validation Complete | 조사·권장 최소안·Roadmap 병렬 진행·구현 사용자 승인, local classifier `4/4`·Gate `6/6` 완료 | 일반 CI run 집계, TASK-AZURE-DEPLOY-001 Change 018 승인형 release 보존 | 실제 Actions 환경의 PR/main run 검수는 Git 게시 후 가능 | No | 사용자 게시 승인 → 실제 PR/main run·사용량 관찰 |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
 
@@ -1278,6 +1279,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - Finding: `AZURE-RELEASE-RUNNING-STATE-001` P1은 정상 `RunningAtMaxScale` 오판을 exact allowlist와 actual release 성공으로 `RESOLVED`했다. main Full-Stack 첫 시도의 5초 UI 표시 지연 `CI-FULLSTACK-QUALITY-REFRESH-001` P2는 격리 `1/1`과 실패 job 재실행 성공으로 `RESOLVED`했다. 성공한 release의 action/CLI 경고 2건은 `GHA-AZURE-RUNNER-WARNINGS-001` P3 backlog로 추적한다.
 - 산출물: [Identity Gate](../tasks/azure-deploy-001-identity-gate.md), [Change 009](../tasks/azure-deploy-001-change-009.md), [Change 010](../tasks/azure-deploy-001-change-010.md), [Change 011](../tasks/azure-deploy-001-change-011.md), [Change 012](../tasks/azure-deploy-001-change-012.md), [Change 013](../tasks/azure-deploy-001-change-013.md), [Change 014](../tasks/azure-deploy-001-change-014.md), [Change 015](../tasks/azure-deploy-001-change-015.md), [Change 016](../tasks/azure-deploy-001-change-016.md), [Change 017](../tasks/azure-deploy-001-change-017.md), [Change 018](../tasks/azure-deploy-001-change-018.md), [Change 019](../tasks/azure-deploy-001-change-019.md), [Implementation report](../tasks/azure-deploy-001-implementation-report.md), [SOP](../tasks/azure-deploy-001-sop.md), [User validation checklist](../tasks/azure-deploy-001-user-validation-checklist.md), [Azure pilot infrastructure](../infrastructure/azure-pilot/README.md)
 - 다음 Gate: Change 020 최신 main 운영 image 동기화를 완료했다. 사용자 실제 PC·iPhone·Android 지정 logo 육안 검수와 20일 운영 관찰을 유지한다.
+
+### TASK-CI-COST-001: GitHub Actions minute 최적화
+
+- 상태/다음 순서: 일반 CI의 중복 비용 P2 조사·권장 최소안·workflow 구현·local 자동 검증 완료 / 사용자 게시 승인과 실제 GitHub PR/main run 검수 대기
+- 목적: GitHub-hosted Actions 월 사용량 90% 상태에서 코드 PR의 품질 Gate를 유지하며 문서 전용 run, 연속 PR commit, PR 뒤 `main` Full-Stack과 선행 실패 뒤 E2E 비용을 줄인다.
+- 포함 범위: 일반 CI의 PR concurrency, 내부 changed-file 분류, PR 전체 검증과 `main` smoke 분리, Backend·Frontend 성공 뒤 Full-Stack, always-run `CI Gate`, pnpm store cache와 timeout
+- 제외 범위: Azure 수동 운영 release workflow, 제품/API/DB/migration/runtime, GitHub ruleset mutation, self-hosted runner·유료 증액, Git 게시
+- 안전 경계: workflow-level `paths-ignore`를 쓰지 않고 분류 실패·unknown path는 전체 검증으로 fallback한다. 코드 PR은 Backend·Frontend·Full-Stack을 유지하며 Azure release의 수동 승인·immutable main SHA·`cancel-in-progress: false` 계약을 변경하지 않는다.
+- 산출물: [Identity Gate](../tasks/ci-cost-001-identity-gate.md), [Task·SOP·User manual·검수 checklist](../tasks/ci-cost-001.md), [Implementation report](../tasks/ci-cost-001-implementation-report.md), 이 Roadmap update
+- 다음 Gate: 사용자 게시 승인 뒤 실제 GitHub PR/main run을 검수한다. 최소 1주 사용량 감소는 게시 후 관찰한다.
 
 ### TASK-TEAMS-PWA-001: Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
@@ -1909,6 +1920,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 90 | 실험 계보 Full-Stack 전체 회귀 | Change 011 PR #76·Change 012 PR #77 원격 병합 및 merge SHA CI 완료 | 개발/품질 | TASK-E2E-FULL-SUITE-001 | 전역 목록 test 결합과 exact Pending route 메타데이터 P2를 project detail·fail-closed retry로 해소. Frontend 177·Full-Stack 56·Backend 486, PR 최신 head·merge SHA CI `3/3` 통과. Azure 운영 release Gate 재개 |
 | 92 | 실험 Task 완료 원장과 중복 실행 방지 | 완료 원장 작성·Task selection gate 적용 | 사용자/개발 | TASK-GOV-CODEX-002 Change 015 | 완료 18 Task·A1 slice·남은 Task·P3 backlog를 분리. `BATCHED_FINAL`은 사용자 검수 완료가 아니며 완료 scope 재구현을 금지 |
 | 95 | GitHub Azure release runner 경고 | P3 Backlog / 다음 배포 유지보수 | 개발/운영 | GHA-AZURE-RUNNER-WARNINGS-001 | Change 019 운영 release는 성공했다. Node.js action runtime과 Azure CLI version parse 경고는 호환 action/runner 갱신 뒤 정적·actual release 회귀로 닫는다 |
+| 96 | GitHub Actions 일반 CI minute 과소비 | Local 구현·자동 검증 완료 / 사용자 게시 승인 대기 | 사용자/개발/품질 | TASK-CI-COST-001 | 코드 PR 전체 품질 Gate와 Azure 수동 release는 보존하고, PR 이전 run 취소·문서 전용 skip·main Full-Stack 중복 제거·선행 성공 E2E·pnpm cache·timeout으로 사용량을 줄인다. 실제 절감률은 게시 후 1주 관찰한다. |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -2173,6 +2185,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-10 | `TASK-DESIGN-LOGIN-001 Change 010` PR #83을 원격 main에 병합하고 `TASK-TEAMS-PWA-001 Change 007`에서 로그인 후 공통 shell logo를 별도 지정 asset으로 분리 | 로그인은 사용자 지정 가로형 logo, 로그인 뒤 모든 page는 사용자 지정 내부 logo를 쓰되 기존 흑백 wireframe과 Easy Auth·Teams/PWA·업무 계약을 보존한 최신 main을 한 번 공개 release하기 위함 | 23장~25장, TASK-DESIGN-LOGIN-001 Change 010, TASK-TEAMS-PWA-001 Change 007 |
 | 2026-08-10 | `TASK-TEAMS-PWA-001 Change 009`에서 모바일 PWA 자동 안내를 Microsoft 인증·앱 shell 준비 뒤로 고정하고 Android 설치 event 준비 전에도 안내를 먼저 표시 | Easy Auth의 익명 차단은 유지하면서 로그인 직후 설치 행동을 놓치지 않게 하고, Chrome native 설치 정책 안에서 준비 뒤 한 번의 버튼으로 설치 확인창을 열며 영구 숨김을 방지하기 위함 | 23장~25장, TASK-TEAMS-PWA-001 Change 009 |
 | 2026-08-10 | `TASK-TEAMS-PWA-001 Change 009` PR #86·main CI `3/3` 뒤 exact main SHA를 Azure release `31361630803`으로 운영에 배포 | 모바일 설치 안내 보정의 Git 게시·immutable image·migration gate·Backend/Frontend 교체와 공개 health·익명 인증 차단을 하나의 운영 근거로 닫고 다음 Gate를 실제 Android·iPhone 사용자 검수로 전환하기 위함 | 23장~25장, TASK-TEAMS-PWA-001 Change 009 |
+| 2026-08-10 | 실제 기기 사용자 검수·운영 관찰과 `TASK-CI-COST-001`을 병렬 진행하고 일반 CI 비용 최적화를 구현 | GitHub Actions 월 사용량이 90%에 도달해 개발·게시 Gate 중단 위험이 생겼으므로, 제품 runtime과 Azure 수동 release를 건드리지 않고 코드 PR 품질을 보존하는 최소 workflow 보정을 먼저 검증하기 위함 | 23장~25장, TASK-CI-COST-001 |
 
 ## 26. 용어 사전
 

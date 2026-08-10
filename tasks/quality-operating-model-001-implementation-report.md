@@ -1,6 +1,6 @@
 # TASK-QUALITY-OPERATING-MODEL-001 구현 보고
 
-상태: `BASE TASK USER_VALIDATION_COMPLETE / CHANGE 004·005 LATEST_MAIN_INTEGRATED / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_PENDING / PUBLICATION_PENDING`
+상태: `BASE TASK USER_VALIDATION_COMPLETE / CHANGE 004·005 LATEST_MAIN_INTEGRATED / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_COMPLETE / PUBLICATION_APPROVED`
 
 ## 해결한 업무 문제
 
@@ -274,7 +274,7 @@ Open P0/P1/P2: `0/0/0`.
 
 ### 남은 gate
 
-- Change 004·005 사용자 화면 검수가 남아 있다.
-- 검수 통과 후 allowlist·privacy·secret·generated artifact 검사, commit·push·PR, 최신 PR head `CI Gate`, main 병합 순으로 게시한다.
+- Change 004·005 사용자 화면 검수는 2026-08-11 사용자가 완료했다고 명시했다.
+- allowlist·privacy·secret·generated artifact 검사와 사용자 검수 완료를 근거로 push·PR, 최신 PR head `CI Gate`, main 병합 순으로 게시한다.
 - 최신 main full SHA로 승인형 Azure release를 실행해 migration `0070`·`0071` → Backend → Frontend를 교체한 뒤 health·익명 인증 차단·DB ledger를 확인한다.
 - 실제 Teams·메일 발송, 알림 정책·Web Push, 후속 3~5번 제품 기능은 제외한다.

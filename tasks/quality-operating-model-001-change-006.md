@@ -85,5 +85,5 @@
 - 전체 Isolated Full-Stack: `PASS`, `57/57`(독립 검증 Finding 보정 후 재실행)
 - Open P0/P1/P2: `0/0/0`
 - 독립 최종 재검증: `PASS`, 사용자 검수 runtime 개방 가능
-- 사용자 검수: 대기
-- Commit·Push·PR·CI Gate·Merge·Azure release: 사용자 검수 후 순차 실행 대기
+- 사용자 검수: 완료(2026-08-11 사용자 명시)
+- Commit: 완료 / Push·PR·CI Gate·Merge·Azure release: 사용자 승인에 따라 순차 실행

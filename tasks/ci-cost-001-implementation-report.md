@@ -6,9 +6,9 @@
 - Task type: `P2_REMEDIATION`
 - 기준 branch: `fix/task-ci-cost-001-actions-minutes`
 - 기준 SHA: `5300b4646b2ea8bba0a43e953fea58e66caa2016`
-- 상태: `LOCAL_IMPLEMENTATION_COMPLETE / AUTOMATED_VALIDATION_COMPLETE / PUBLICATION_APPROVED / GITHUB_VALIDATION_PENDING`
+- 상태: `MAIN_MERGED / PR_AND_MAIN_VALIDATION_COMPLETE / USAGE_OBSERVATION_PENDING`
 - 사용자 승인: 권장 최소안 구현·기존 실제 기기 검수와의 병렬 진행·Git 게시·PR·`main` merge 명시 승인 완료
-- Git 게시: local 구현 commit·remote push·Draft PR #89 완료, PR 검수·Ready 전환·merge 진행 중
+- Git 게시: PR #89 Ready 전환·squash merge 완료, merge SHA `f50be6afc6896176bc2bdf32fa7ffbd59b1fd13b`, main CI 성공
 
 ## 2. 해결한 업무 문제
 
@@ -118,7 +118,7 @@ Git rename은 post-image 경로만 검사하지 않는다. `--no-renames`로 이
 | 새 문서 heading duplicate | 적용 | PASS | 중복 heading 0 |
 | privacy/secret pattern | 적용 | PASS | 새 workflow·Task 산출물의 이메일·private key·대표 token pattern 0 |
 | Backend·Frontend 전체 test | N/A | 미실행 | 제품 코드·dependency·runtime diff 0인 workflow scheduling Task |
-| 실제 GitHub PR/main run | 적용 | PR #89 검수 진행 중 / main 대기 | commit·push·Draft PR 완료, 최신 head CI 뒤 Ready 전환·merge·main CI 확인 예정 |
+| 실제 GitHub PR/main run | 적용 | PASS | PR #89 최신 head 분류·Backend·Frontend·Full-Stack·CI Gate `5/5` 성공. merge SHA main은 분류·Backend·Frontend·CI Gate 성공, Full-Stack skip |
 | 1주 Actions 사용량 비교 | 적용 | 운영 관찰 대기 | 배포 후 표본이 필요함 |
 
 임시 validation harness는 exact YAML `run` block을 실행하기 위해 Task 소유 경로에 생성했고 rename 3종을 포함한 classifier `7/7`, Gate `6/6` 확인 직후 제거했다. tracked·untracked 잔여 artifact는 없다.
@@ -168,9 +168,9 @@ Open P0/P1/P2는 0건이다.
 ## 12. 사용자 검수 결과와 남은 항목
 
 - 자동 검증: 완료
-- 사용자 검수: 구현·게시·`main` merge 승인 완료, 실제 GitHub 동작 검수 대기
-- GitHub PR/main 실제 실행: 대기
-- 동일 PR 이전 run cancellation 확인: 완료 — PR #89 새 commit에서 이전 실행 `cancelled` 1건 확인
+- 사용자 검수: 구현·게시·`main` merge 승인과 실제 PR/main 동작 검수 완료, 문서 전용 closure PR 확인 진행
+- GitHub PR/main 실제 실행: 완료 — PR #89 `5/5`, main 성공 4·skip 1
+- 동일 PR 이전 run cancellation 확인: 완료 — PR #89 새 commit에서 이전 실행 `cancelled` 3건 확인
 - 최소 1주 사용량 추세: 대기
 - Azure 실제 기기 검수·운영 관찰: 별도 기존 Task로 병렬 유지
 
@@ -182,8 +182,8 @@ workflow 문제가 발견되면 `.github/workflows/ci.yml`만 기준 SHA의 이�
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
-| Implementation report | 작성 완료 / GitHub 실제 검수 대기 | 이 문서 |
+| Implementation report | 작성 완료 / PR·main 검수 완료 / 1주 관찰 대기 | 이 문서 |
 | SOP | 작성 완료 | [Task의 개발 SOP](ci-cost-001.md#개발-sop) |
 | User manual | N/A 기록 완료 | [Task의 User manual](ci-cost-001.md#user-manual) — 제품 UI 변경 없음 |
 | Roadmap update | 작성 완료 | [Product Roadmap](../docs/00-product-roadmap.md#task-ci-cost-001-github-actions-minute-최적화) |
-| User validation checklist | 작성 완료 / 실제 GitHub 검수 대기 | [Task checklist](ci-cost-001.md#사용자-검수-checklist) |
+| User validation checklist | PR·main 자동 검수 완료 / 문서 전용 closure PR·1주 관찰 진행 | [Task checklist](ci-cost-001.md#사용자-검수-checklist) |

@@ -2028,6 +2028,8 @@ body,
 
 .auth-loading-indicator::before,
 .auth-gate[data-auth-layout='login'] .auth-loading-indicator::before {
+  border-color: var(--wire-black) !important;
+  border-right-color: transparent !important;
   border-radius: 50% !important;
 }
 
@@ -2057,6 +2059,212 @@ body,
 .remember-session-option input:focus-visible {
   outline: 2px solid var(--wire-black) !important;
   outline-offset: 2px;
+}
+
+/* Login keeps the approved desktop composition, while phones use the same
+ * monochrome wireframe language as the rest of the mobile product. The EMI
+ * source artwork is the only brand-colour exception. */
+.auth-gate .auth-brand-logo {
+  background: transparent !important;
+  filter: none !important;
+}
+
+@media (max-width: 860px) {
+  .auth-gate[data-auth-layout='login'] {
+    position: fixed;
+    inset: 0;
+    overflow: auto;
+    background: var(--wire-surface) !important;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-login-canvas {
+    position: relative;
+    inset: auto;
+    display: grid;
+    width: 100%;
+    min-height: 100%;
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    align-content: center;
+    gap: 18px;
+    overflow: visible;
+    background: var(--wire-surface) !important;
+    padding:
+      max(28px, env(safe-area-inset-top))
+      max(20px, env(safe-area-inset-right))
+      max(28px, env(safe-area-inset-bottom))
+      max(20px, env(safe-area-inset-left));
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-brand-panel {
+    position: relative;
+    display: grid;
+    width: min(100%, 430px);
+    height: auto;
+    min-height: 0;
+    justify-self: center;
+    overflow: visible;
+    place-items: center;
+    background: transparent !important;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-brand-canvas,
+  .auth-gate[data-auth-layout='login'] .auth-brand-pattern-canvas {
+    display: none;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-brand-logo-canvas {
+    position: static;
+    display: grid;
+    width: 100%;
+    height: auto;
+    place-items: center;
+    transform: none;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-brand-logo {
+    position: static;
+    display: block;
+    width: min(100%, 320px);
+    height: auto;
+    object-fit: contain;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-gate-panel {
+    position: relative;
+    display: grid;
+    width: min(100%, 430px);
+    height: auto;
+    min-height: 0;
+    align-self: start;
+    justify-self: center;
+    overflow: visible;
+    border: 1px solid var(--wire-line-strong) !important;
+    border-radius: var(--wire-radius-overlay) !important;
+    padding: 28px 22px 24px;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-gate-canvas {
+    position: static;
+    display: block;
+    width: 100%;
+    height: auto;
+    transform: none;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-gate-content {
+    position: static;
+    display: grid;
+    width: 100%;
+    justify-items: stretch;
+    gap: 18px;
+    text-align: left;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-gate-content h1,
+  .auth-gate[data-auth-layout='login'] .auth-login-guidance,
+  .auth-gate[data-auth-layout='login'] .auth-microsoft-brand,
+  .auth-gate[data-auth-layout='login'] .auth-primary-button,
+  .auth-gate[data-auth-layout='login'] .auth-gate-extra,
+  .auth-gate[data-auth-state='loading'][data-auth-layout='login'] .auth-gate-extra {
+    position: static;
+    width: 100%;
+    height: auto;
+    margin: 0;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-gate-content h1 {
+    color: var(--wire-ink) !important;
+    font-size: clamp(24px, 7vw, 30px);
+    line-height: 1.2;
+    white-space: normal;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-gate-title-text {
+    display: inline;
+    transform: none;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-microsoft-brand {
+    display: grid;
+    width: 82px;
+    height: 104px;
+    justify-self: center;
+    place-items: center;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-microsoft-brand img {
+    filter: grayscale(1) contrast(1.08);
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-login-guidance {
+    max-width: none;
+    color: var(--wire-muted) !important;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.5;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-primary-button {
+    min-height: 48px;
+    border-radius: var(--wire-radius-control) !important;
+    padding: 12px 18px;
+    font-size: 16px;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-gate-extra {
+    display: grid;
+    justify-items: stretch;
+    gap: 14px;
+  }
+
+  .auth-gate[data-auth-layout='login'] .remember-session-option {
+    width: 100%;
+    height: auto;
+    min-height: 44px;
+    justify-content: flex-start;
+    gap: 12px;
+    color: var(--wire-muted) !important;
+    font-size: 14px;
+  }
+
+  .auth-gate[data-auth-layout='login'] .remember-session-option input {
+    width: 22px;
+    height: 22px;
+    flex-basis: 22px;
+  }
+
+  .auth-gate[data-auth-layout='login'] .remember-session-option span {
+    display: flex;
+    width: auto;
+    height: auto;
+    min-height: 44px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0;
+    transform: none;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-install-button {
+    min-height: 44px;
+    justify-self: start;
+    color: var(--wire-ink) !important;
+    text-align: left;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-loading-indicator {
+    width: 44px;
+    height: 44px;
+    justify-self: center;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-loading-indicator::before {
+    border-color: var(--wire-black) !important;
+    border-right-color: transparent !important;
+  }
 }
 
 /* ── 16 · Mobile shell (≤860px) ──────────────────────────────────────── */

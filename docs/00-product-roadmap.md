@@ -994,7 +994,7 @@ Excel 출력 대상 후보:
 | 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | Completed / PR #50 Merged / Repository Public | Planning·Implementation Approved | 영향 ref `16/16`, fresh clone, old clone quarantine, Support cleanup, 독립 검증·사용자 검수 완료 | Encrypted backup 삭제는 별도 승인 | No | 0.6 신규 기능 Go/No-Go 사용자 결정 |
 | 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Completed / PR #44 Merged | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | Finding gate에서 Resolved 확인 |
 | 0.4A | TASK-BACKEND-FORMAT-001 — import-order baseline 정리 | HOUSEKEEPING | Completed / Merged | Planning Approved | import-order 9건 정규화·검증·사용자 검수 완료 | 없음 | No | Finding gate에서 Resolved 확인 |
-| 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | APPROVED_FEATURE_IMPLEMENTATION | Completed / PR #49 Merged | Implementation Approved | Change 001~009 사용자 검수·최신 main 승격·전체 Frontend 자동·독립 검증·5174 반영 완료 | 없음. Code Connect는 향후 필수 Gate에서 제외 | No | Promotion·5176 experiment worktree 정리는 사용자 Deferred 결정 추적 |
+| 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | BUGFIX | Change 010 Verified / Publication Pending | Change 010 User Approved | Change 001~009 완료. Change 010 지정 로그인 로고와 iPhone·Android 흑백 wireframe 구현·전체 Frontend 검증 완료 | 없음. Code Connect는 향후 필수 Gate에서 제외 | No | Change 010 main 병합 → 내부 logo Change → 승인된 공개배포 |
 | 0.5 | TASK-GOV-FINDING-GATE-001 — 전체 P0/P1/P2 재평가 | DOCS_GOVERNANCE | Completed / PR #50 Merged | Planning Approved | Open P0/P1/P2 `0/0/0`, 독립 검증·사용자 검수 완료 | 없음 | No | 0.6 신규 기능 Go/No-Go 사용자 결정 |
 | 0.6 | 신규 기능 Go/No-Go | POLICY_DECISION | Completed — User GO | N/A | Open P0/P1/P2 `0/0/0` | 없음 | No | 사용자 GO와 다음 행의 명시적 재정렬 승인 완료 |
 | 0.7 | TASK-USER-FLOW-001 — 웹사이트 전체 유저플로우 설계 | NEW_FEATURE | Completed / PR #55 Merged | 개인 참고 문서 redraft·게시 완료 / 제품 구현 미승인 | Governance PR #54, USER-FLOW PR #55, Change 004, Open P0/P1/P2/P3 `0/0/0/0` | 없음 | No | 대표 repo 승격 history는 TASK-007A; experiment에서는 완료 원장에 따라 재구현 금지 |
@@ -1162,7 +1162,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-DESIGN-LOGIN-001: Entra 로그인 공통 디자인 shell
 
-- 상태: Change 001~009 구현·자동·독립 검증·사용자 전체 검수·5174 반영 완료 / PR #49 squash merge 완료
+- 상태: Change 001~009 구현·자동·독립 검증·사용자 전체 검수·5174 반영·PR #49 squash merge 완료 / Change 010 모바일 로그인·지정 로그인 로고 구현·자동 검증 완료, 게시 대기
 - 순서 승인: 사용자가 History Support 대기 중 이 Frontend-only Task의 병렬 진행과 bounded worktree 사용을 명시 승인했다. 당시 history P2와 신규 기능 `NO_GO` 상태는 변경하지 않았다.
 - 목적: 기존 Entra 인증 정책과 request/cache 동작을 보존하면서 승인된 Figma 디자인을 인증 공통 shell과 Desktop 로그인 화면에 구현한다. Change 001에 따라 Mobile은 제외하고 로그인 화면에는 Figma에 존재하는 요소만 표시한다.
 - Figma 기준: node `1:175`, 1440×810 design context·screenshot·metadata·assets 재확인, variable definition 0. 로그인 상태 유지 `1:187`은 component set `1:160`의 `속성 1=베리언트2`; 기본은 white·`#737373`·icon 0, Variant 2는 `#DA2127`·white Done icon·`#282828`이다. Code Connect는 사용자 결정에 따라 향후 필수 구현·검수 Gate에서 제외한다.
@@ -1175,6 +1175,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 인증 action audit: Frontend 전용 account-switch request·`select_account` prompt·handler·prop·button은 모두 제거됐다. Microsoft provider의 `다른 계정 사용`만 일반 login redirect 뒤에 남는다. 기본 로그인·상태 유지·재인증·로그아웃은 정상 또는 조건부 접근 가능하고 cached restore·silent token은 자동 기능이다. 설정 누락은 redirect 불가 fail-safe이며 orphan authentication action은 0이다.
 - 독립 검증: Change 008·Change 009 PASS. Change 009는 allowlist 26/26, source hash 12/12, 최신 main Roadmap baseline, 인증 불변조건, runtime·privacy·Finding gate를 재검증해 현재 P0/P1/P2/P3 `0/0/0/0`, 해결된 P2 1로 판정했다.
 - 잔여 Gate: Promotion·5176 experiment worktree 정리는 사용자 요청으로 Deferred이며 후속 HOUSEKEEPING 승인에서 수행
+- Change 010: 기존 인증 계약과 Desktop geometry는 보존하고, 860px 이하 로그인·Loading을 흑백 wireframe으로 재배치하며 지정 `Asset 3@4x.png`의 원본 색상을 유지한다. iPhone 390px·Android 412px 자동·브라우저 검증 뒤 승인된 main 병합·공개배포로 이어간다.
 - 산출물: [Task와 검수 checklist](../tasks/design-login-001.md), [Implementation report·User manual](../tasks/design-login-001-implementation-report.md), [화면 단위 승격 SOP](development/design-screen-promotion.md), 이 Roadmap update
 
 ### TASK-GOV-CODEX-002: Fable 5 신규 기능·Codex-only 작업 라우터

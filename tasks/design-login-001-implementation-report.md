@@ -276,3 +276,52 @@ Change 009 자동·독립 검증과 5174 Frontend-only 반영을 통과했고 Re
 | Validation checklist | `tasks/design-login-001.md` 8장 | 사용자 전체 확인·Change 009 이식·자동·독립 검증·5174 반영 완료 / PR #49 merge 승인 |
 
 Change 008 구현·자동·독립 검증과 사용자 검수, Change 009 이식·자동·독립 검증·5174 Frontend-only 반영·Ready PR #49 게시를 완료했다. 승인된 squash merge는 필수 CI 통과 후 실행한다.
+
+## 16. Change 010 — 모바일 로그인과 지정 로그인 로고
+
+### 승인·원인·범위
+
+- 사용자는 2026-08-10 iPhone·Android 로그인 화면 수정, 로그인 화면의 `Asset 3@4x.png` 사용, 흑백 wireframe 유지와 구현·main 병합·공개배포를 승인했다.
+- 기존 Change 001은 Mobile을 명시적으로 제외했다. 따라서 860px 이하에서도 1440×810 desktop canvas가 그대로 축소되어 실제 휴대전화에서 title·Microsoft 안내·LOGIN·checkbox가 작게 보였다.
+- `BUGFIX`로 분류하고 `TASK-DESIGN-LOGIN-001 Change 010`을 재사용했다. Microsoft 365 인증·MSAL cache/request·Easy Auth·Backend·API·DB·migration은 변경하지 않았다.
+
+### 실제 구현
+
+- `frontend/src/assets/emi-logo.png`를 사용자가 지정한 `Asset 3@4x.png`의 byte 그대로 교체했다.
+- 860px 이하 login·loading은 red/black split canvas를 축소하지 않고 white single-column canvas, 1px neutral border, black primary control과 neutral text의 mobile wireframe으로 표시한다.
+- 장식 ellipse·dot·glass는 모바일에서 숨기고, 지정 EMI logo만 grayscale filter를 해제해 원본 red를 유지한다.
+- safe-area padding, 44px checkbox/install target, 세로 scroll과 최대 430px card 폭을 적용했다.
+- desktop은 기존 두 panel·요소 geometry를 유지하되 현재 제품의 Graphite wireframe theme를 browser contract로 명시해 과거 Figma red 계약과 실제 cascade의 drift를 제거했다.
+- loading fixture에도 실제 앱과 같은 tokens·wireframe cascade를 적용하고 indicator를 monochrome black으로 통일했다.
+
+### 변경 파일
+
+| 파일 | 변경 |
+| --- | --- |
+| `frontend/src/assets/emi-logo.png` | 지정 login logo 원본 byte |
+| `frontend/src/design-system/wireframe.css` | mobile auth layout, logo 원본 색상 예외, black loading indicator |
+| `frontend/playwright.auth-shell.config.ts` | desktop 5개 + iPhone 390 + Android 412 project |
+| `frontend/e2e/auth-shell/auth-shell.spec.ts` | desktop wireframe·지정 logo·mobile login/loading 계약 |
+| `frontend/e2e/auth-shell/loading.tsx` | 운영 앱과 동일한 wireframe cascade |
+| Task·Roadmap 문서 | Gate, 승인 범위, 검증·배포 handoff |
+
+### 검증 결과
+
+| 검증 | 결과 |
+| --- | --- |
+| 지정 logo source/tracked SHA-256 | PASS — `a25cfeb40bdf00681792e20c4f57ab08b94d23d7b86ae0cc644b18b52ad8bbb4` 일치 |
+| Frontend lint | PASS — error 0, 기존 Fast Refresh warning 1 |
+| Frontend typecheck | PASS |
+| Frontend 전체 unit | PASS — `26 files`, `183/183` |
+| Frontend production build | PASS — 기존 large chunk warning 유지 |
+| Auth browser desktop | PASS — login/loading × 1920·1440·1280·1024·short window `10/10` |
+| Auth browser mobile | PASS — iPhone 390×844·Android 412×915의 login/loading `2/2` |
+| Mobile fixed projection | PASS — single column, 원본 logo `4265×604`, filter `none`, black button, 44px checkbox, horizontal overflow 0, console/request failure 0 |
+| `git diff --check` | PASS |
+| Backend/API/DB/migration/dependency | 변경 0 / N/A |
+
+### Finding·rollback
+
+- Open P0/P1/P2/P3: `0/0/0/0`.
+- 실제 iPhone Safari engine은 local Chromium의 iPhone user-agent·touch·viewport emulation으로 자동 검증했고, 운영 배포 후 실제 기기 검수는 사용자 checklist에 남긴다.
+- rollback은 Change 010의 logo asset, wireframe mobile auth CSS와 auth browser contract만 이전 commit으로 되돌린 뒤 Frontend 전체 검증을 재실행한다. 인증·DB rollback은 필요하지 않다.

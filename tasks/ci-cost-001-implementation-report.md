@@ -118,10 +118,10 @@ Git rename은 post-image 경로만 검사하지 않는다. `--no-renames`로 이
 | 새 문서 heading duplicate | 적용 | PASS | 중복 heading 0 |
 | privacy/secret pattern | 적용 | PASS | 새 workflow·Task 산출물의 이메일·private key·대표 token pattern 0 |
 | Backend·Frontend 전체 test | N/A | 미실행 | 제품 코드·dependency·runtime diff 0인 workflow scheduling Task |
-| 실제 GitHub PR/main run | 적용 | 사용자 검수 대기 | commit·push·PR 미승인이라 GitHub-hosted 실행 전 |
+| 실제 GitHub PR/main run | 적용 | PR #89 검수 진행 중 / main 대기 | commit·push·Draft PR 완료, 최신 head CI 뒤 Ready 전환·merge·main CI 확인 예정 |
 | 1주 Actions 사용량 비교 | 적용 | 운영 관찰 대기 | 배포 후 표본이 필요함 |
 
-임시 validation harness는 exact YAML `run` block을 실행하기 위해 Task 소유 경로에 생성했고 `4/4`, `6/6` 확인 직후 제거했다. tracked·untracked 잔여 artifact는 없다.
+임시 validation harness는 exact YAML `run` block을 실행하기 위해 Task 소유 경로에 생성했고 rename 3종을 포함한 classifier `7/7`, Gate `6/6` 확인 직후 제거했다. tracked·untracked 잔여 artifact는 없다.
 
 ## 8. 예상 비용 효과
 

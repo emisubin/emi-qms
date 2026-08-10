@@ -1,5 +1,14 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 020 — 지정 로그인·내부 로고 main 운영 release
+
+- [x] 로그인 PR #83과 내부 공통 로고 PR #84가 원격 `main`에 squash merge됐고 각각의 PR CI가 성공했다.
+- [x] 최종 main SHA `37dd619685e6447fc867d213d1f63692c6cd8c62`의 Frontend·Backend·Full-Stack CI가 실패 job 재실행을 포함해 최종 `3/3` 성공했다.
+- [x] 승인형 운영 release run `31354814082`가 exact main SHA의 Backend·Frontend immutable image를 게시했다.
+- [x] migration, Backend revision, Frontend revision과 public security가 모두 `PASS`다.
+- [x] 배포 뒤 public health `200`, 익명 root·`/api/me` `401/401`, app shell 전 Microsoft 365 로그인 redirect를 확인했다.
+- [ ] 인증 뒤 실제 PC·iPhone·Android에서 지정 로그인·내부 로고를 눈으로 확인한다.
+
 ## Change 019 — Azure 정상 revision 상태 판정 보정
 
 - [x] 첫 운영 release가 `BASELINE_NOT_READY`로 중단됐고 migration·Backend·Frontend mutation이 모두 `0`인지 확인했다.

@@ -6,7 +6,6 @@ import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useSelectedRows } from './useSelectedRows';
 import { MobileSheet } from './MobileSheet';
-import { PwaInstallProvider } from './PwaInstallExperience';
 import { usePwaInstallExperience } from './pwa-install';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
@@ -1313,18 +1312,14 @@ export function App({
   rememberSession?: boolean;
   onRememberSessionChange?: (rememberSession: boolean) => void;
 }) {
-  return (
-    <PwaInstallProvider>
-      {isEntraAuthMode
-        ? (
-          <EntraAuthenticatedApp
-            rememberSession={rememberSession}
-            onRememberSessionChange={onRememberSessionChange}
-          />
-        )
-        : <QmsAppShell authMode="Dev" />}
-    </PwaInstallProvider>
-  );
+  return isEntraAuthMode
+    ? (
+      <EntraAuthenticatedApp
+        rememberSession={rememberSession}
+        onRememberSessionChange={onRememberSessionChange}
+      />
+    )
+    : <QmsAppShell authMode="Dev" />;
 }
 
 function EntraAuthenticatedApp({
@@ -1568,6 +1563,13 @@ type QmsAppShellProps = {
 };
 
 function QmsAppShell(props: QmsAppShellProps) {
+  const { setAutomaticGuideReady } = usePwaInstallExperience();
+
+  useEffect(() => {
+    setAutomaticGuideReady(true);
+    return () => setAutomaticGuideReady(false);
+  }, [setAutomaticGuideReady]);
+
   return (
     <AdaptiveLayoutProvider>
       <QmsAppShellContent {...props} />

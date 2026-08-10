@@ -1,9 +1,9 @@
 # TASK-TEAMS-PWA-001 사용자 검수 체크리스트
 
-상태: `Change 001~003 운영 rollout 완료 / Change 007 main merge·Azure 공개 release 완료 / 사용자 실제 기기 검수 대기`
+상태: `Change 001~003·007 운영 rollout 완료 / Change 009 구현·로컬 자동 검증 완료·공개 배포 승인 / Git 게시 대기`
 
 - 검수 대상: EMI PMS 일반 사용자, System Administrator
-- 운영 적용: Change 007 Git 게시와 Azure 운영 rollout 완료. Teams package/catalog는 이번 Change에서 변경하지 않았다.
+- 운영 적용: Change 007 Git 게시와 Azure 운영 rollout 완료. Change 009는 사용자 운영 검수 실패를 반영해 공개 배포까지 승인됐고 현재 Git 게시 전이다. Teams package/catalog는 변경하지 않는다.
 - 개인정보 안전: 실제 계정 식별자·token·알림 본문을 이 문서에 기록하지 않는다. 결과는 역할, 날짜, 환경과 PASS/FAIL만 기록한다.
 
 ## 자동 검증 완료
@@ -15,15 +15,17 @@
 - [x] Easy Auth 익명 예외는 launcher HTML·작은 JavaScript·192px 브랜드 icon과 기존 health에 한정된다.
 - [x] root app shell·업무 bundle·PWA manifest·API의 기존 사전 인증 계약은 변경하지 않는다.
 - [x] Android·Chromium 설치 prompt는 `beforeinstallprompt` 수신 후에도 사용자 버튼 클릭 전에는 실행되지 않는다.
+- [x] 모바일 자동 안내는 Microsoft 인증·access-token gate와 업무 shell 준비 전에는 열리지 않고 준비 뒤에만 열린다.
+- [x] Android 안내는 설치 event를 기다리지 않고 먼저 열리며, 설치 버튼은 준비 전 비활성·event 수신 뒤 활성으로 바뀐다.
 - [x] iPhone Safari는 `공유 → 홈 화면에 추가 → 웹 앱으로 열기 → 추가` 절차를 표시한다.
 - [x] iPhone 타 브라우저는 현재 브라우저 설치 메뉴를 먼저 안내하고, 없을 때 root `PMS 주소 복사 → Safari 붙여넣기` 복구 절차를 표시한다.
-- [x] 안내를 닫으면 자동 안내가 반복되지 않고 계정/로그인 화면에서 다시 열 수 있다.
+- [x] 안내를 닫으면 현재 탭 session에서는 반복되지 않고 새 browser session에서는 미설치 상태라면 다시 안내하며 계정/로그인 화면에서 수동으로 다시 열 수 있다.
 - [x] standalone 또는 Teams embedded 표면에서는 PWA 설치 안내를 숨긴다.
 - [x] 브라우저·앱·Teams·메일·Teams 대체 제목·PDF metadata·휴일 Excel 머리글의 사용자 표시명이 `EMI PMS` 계약을 따른다.
 - [x] PWA와 Teams color icon은 흰 바탕 빨간 EMI 로고이며 Teams outline icon은 플랫폼 규격을 유지한다.
 - [x] Teams·iPhone·Android 안내는 흰 표면·검정 버튼·중성 회색·1px 경계를 사용하고 장식용 왼쪽 강조선·색상 그림자가 없다.
 - [x] launcher desktop 1440px와 mobile 390px, iPhone·Android 설치 안내 390px에서 가로 overflow가 없다.
-- [x] Frontend 전체 unit `183/183`, Backend 전체 `486/486`, lint·typecheck·production build와 Bicep compile·정적 artifact 검증이 통과한다.
+- [x] Change 009 Frontend 전체 unit `187/187`, PWA 집중 `10/10`, browser 집중 `4/4`, lint·typecheck·production build가 통과한다.
 - [x] DB·migration·알림 발송 정책·실제 provider 데이터는 변경하지 않았다.
 
 ## Change 007 자동 검증
@@ -51,7 +53,8 @@
 ### 2. Android
 
 - [ ] `Android 설치 안내`가 제품 공통 흑백 wireframe으로 표시되고 빨간색은 EMI logo에만 사용되는지 확인한다.
-- [ ] Android Chrome에서 처음 접속했을 때 닫을 수 있는 설치 안내가 표시되는지 확인한다.
+- [ ] Android Chrome에서 Microsoft 365 로그인을 마친 직후 홈 업무보다 먼저 닫을 수 있는 설치 안내가 표시되는지 확인한다.
+- [ ] Chrome이 설치 기능을 준비 중이면 설치 버튼이 회색 비활성으로 보이고 준비가 끝나면 같은 버튼이 활성화되는지 확인한다.
 - [ ] `EMI PMS 설치`를 누르면 브라우저 설치 확인창이 열리는지 확인한다.
 - [ ] 설치를 취소해도 로그인 화면 또는 계정 영역에서 안내를 다시 열 수 있는지 확인한다.
 - [ ] 설치 후 홈 화면 이름·아이콘과 standalone 실행이 정상인지 확인한다.
@@ -61,11 +64,11 @@
 ### 3. iPhone
 
 - [ ] `iPhone 설치 안내`가 제품 공통 흑백 wireframe으로 표시되고 번호·문장이 한눈에 읽히는지 확인한다.
-- [ ] iPhone Safari에서 처음 접속했을 때 `공유 → 홈 화면에 추가 → 웹 앱으로 열기 → 추가` 안내가 표시되는지 확인한다.
+- [ ] iPhone Safari에서 Microsoft 365 로그인을 마친 직후 홈 업무보다 먼저 `공유 → 홈 화면에 추가 → 웹 앱으로 열기 → 추가` 안내가 표시되는지 확인한다.
 - [ ] iPhone Chrome·Edge 등에서 현재 브라우저의 `홈 화면에 추가` 확인 안내가 먼저 표시되는지 확인한다.
 - [ ] 타 브라우저에 해당 메뉴가 없을 때 `PMS 주소 복사`가 root 주소만 복사하고 Safari 붙여넣기 절차를 안내하는지 확인한다.
 - [ ] Clipboard 권한이 거절되면 현재 주소창을 길게 눌러 복사하라는 복구 문구가 표시되는지 확인한다.
-- [ ] 안내를 닫고 새로고침했을 때 자동 안내가 반복되지 않는지 확인한다.
+- [ ] 안내를 닫고 같은 탭에서 새로고침했을 때 반복되지 않고, 탭을 완전히 닫은 뒤 새 session으로 미설치 접속하면 다시 표시되는지 확인한다.
 - [ ] 안내 절차대로 홈 화면에 추가한 뒤 이름·아이콘과 standalone 실행이 정상인지 확인한다.
 - [ ] 설치 앱에서 Microsoft 365 로그인과 제조·품질 주요 화면을 사용할 수 있는지 확인한다.
 - [ ] 지정 4x 로그인 logo와 로그인 뒤 상단·전체 업무 menu의 지정 4x 내부 logo가 구분되어 표시되는지 확인한다.
@@ -90,6 +93,7 @@
 | 날짜 | 환경 | 검수 역할 | 결과 | 증빙 유형 | 비고 |
 | --- | --- | --- | --- | --- | --- |
 | 대기 | 운영 rollout 후 | 역할명만 기록 | 대기 | 화면 확인 | 실제 계정·token·알림 원문 기록 금지 |
+| 2026-08-10 | Azure 운영 / iPhone·Android | 사용자 | FAIL → Change 009 보정 | 실제 기기 화면 확인 | Microsoft 로그인 뒤 설치 안내가 자동 표시되지 않음 |
 
 ## 실패 시 처리
 

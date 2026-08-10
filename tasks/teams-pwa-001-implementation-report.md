@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 구현 보고 — Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
-상태: `Change 001~003 운영 rollout 완료 / Change 007 PR #84 main merge·Azure 공개 release 완료 / 사용자 실제 기기 검수 대기`
+상태: `Change 001~003·007 운영 rollout 완료 / Change 009 구현·로컬 자동 검증 완료·공개 배포 승인 / Git 게시 대기`
 
 ## 기준선과 승인 범위
 
@@ -11,7 +11,7 @@
 - baseSha: `914a109e170f4e1c3ce34fb1faa4216c1b4fcf1c`
 - planning: `tasks/teams-pwa-001-planning.md`
 - Codex review: `tasks/teams-pwa-001-review.md`
-- approved resolution: `tasks/teams-pwa-001-change-001.md`, `tasks/teams-pwa-001-change-002.md`, `tasks/teams-pwa-001-change-003.md`, `tasks/teams-pwa-001-change-007.md`, `tasks/teams-pwa-001-change-008.md`
+- approved resolution: `tasks/teams-pwa-001-change-001.md`, `tasks/teams-pwa-001-change-002.md`, `tasks/teams-pwa-001-change-003.md`, `tasks/teams-pwa-001-change-007.md`, `tasks/teams-pwa-001-change-008.md`, `tasks/teams-pwa-001-change-009.md`
 - 포함: Teams 정적 launcher, launcher-only Easy Auth 예외 artifact, PWA 설치 UX, 전 사용자 표면 `EMI PMS` 브랜드 문자열, 관련 자동·브라우저 검증
 - 원래 구현 제외: 실제 Azure·Entra·Teams Admin Center·catalog·운영 revision 변경, NAA·OBO·신규 token/session, Web Push·Service Worker·DB migration, 알림 수신자·발송 시점 변경. Change 007의 운영 revision 교체만 후속 사용자 승인으로 실행했다.
 
@@ -25,6 +25,8 @@ Teams tab은 iframe 안에서 기존 전체 화면 MSAL redirect를 실행하려
 
 Change 007에서는 로그인 화면용 가로 로고와 로그인 후 공통 shell 로고가 같은 asset을 공유하던 문제를 분리한다. 로그인은 사용자가 지정한 4x 가로 logo, 로그인 뒤 모든 페이지의 공통 desktop/mobile shell은 지정 4x 내부 logo를 사용한다. wireframe의 구조와 흑백 색상은 유지하고 지정 logo에만 원본 색상 예외를 적용한다.
 
+Change 009에서는 운영 모바일에서 Microsoft 365 인증 뒤 홈으로 바로 진입하고 PWA 안내가 보이지 않던 결함을 보정한다. 설치 event 수신은 MSAL 초기화보다 앞에서 시작하되 자동 안내는 access-token gate와 업무 shell이 준비된 뒤에만 연다. Android는 설치 event를 기다리는 동안에도 안내와 비활성 설치 버튼을 먼저 표시하고 event가 도착하면 같은 버튼을 활성화한다. iPhone 절차는 그대로 유지하며 `나중에` 기억은 영구가 아닌 현재 탭 session으로 제한한다.
+
 ## 전체 아키텍처와 영향
 
 ```text
@@ -37,7 +39,7 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 기존 MSAL 로그인 → 기존 Backend bearer·역할·프로젝트 권한
 ```
 
-- Frontend: 기존 App을 `PwaInstallProvider`로 감싸고 로그인·계정 영역에 재진입 버튼을 추가했다. 모바일 최초 안내, 설치 event, iOS, standalone, embedded 상태를 분리한다.
+- Frontend: root를 `PwaInstallProvider`로 감싸 설치 event를 MSAL 초기화부터 수신하고, 업무 shell이 인증 준비 완료 신호를 보낸 뒤에만 모바일 자동 안내를 연다. 로그인·계정 영역의 수동 재진입, iOS, Android, standalone, embedded 상태를 분리한다.
 - Teams: manifest의 이름·설명·tab URL만 launcher 계약으로 변경한다. Activity type 10개, RSC 권한, `webApplicationInfo` identity는 그대로다.
 - Azure: Easy Auth `excludedPaths`에 launcher HTML·script와 실제 사용하는 192px icon만 추가한다. root, main bundle, PWA manifest와 API는 예외가 아니다.
 - Backend: 메일·Teams 대체 제목·PDF metadata·휴일 Excel처럼 사용자에게 보이는 제품명 문자열만 바꾼다. API·권한·workflow·notification event는 변경하지 않는다.
@@ -54,6 +56,9 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 | launcher-only 익명 예외 | Teams tab은 열리지만 업무 구조·API·manifest는 인증 전에 노출하지 않는다. | root/index.js 전체 익명 허용 |
 | 설치 UX만 제공 | 홈 화면·작업 표시줄 접근성을 높이면서 별도 알림 정책·DB를 만들지 않는다. | Service Worker·offline cache·Web Push 동시 구현 |
 | 모든 이름 칸 `EMI PMS` | Teams·설치 아이콘·브라우저·앱 화면을 하나의 제품으로 인식하게 한다. | 표면별 `PMS`·`EMI QMS`·한국어 이름 혼용 |
+| 인증 완료 뒤 모바일 안내 | 익명 app shell 차단을 유지하면서 로그인 직후 설치 행동을 먼저 제시한다. | Easy Auth 우회, 로그인 전 자동 popup |
+| Android 준비형 설치 버튼 | Chrome의 native 설치 정책을 존중하면서 안내는 즉시 표시하고 prompt 준비 뒤 한 번 클릭으로 확인창을 연다. | 무단 강제 설치, event가 올 때까지 안내 자체를 숨김 |
+| session 단위 닫기 | 같은 탭의 반복 방해는 막되 미설치 사용자가 이후 새 session에서 안내를 다시 받을 수 있다. | 영구 `localStorage` 숨김 |
 
 ## 시행착오 및 폐기한 접근
 
@@ -68,7 +73,7 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 
 | 영역 | 위치 | 역할 |
 | --- | --- | --- |
-| PWA 상태·UI | `frontend/src/PwaInstallExperience.tsx`, `frontend/src/pwa-install.ts`, `frontend/src/App.tsx`, `frontend/src/styles.css` | 플랫폼 감지, 설치 prompt, iPhone·Android 구분 안내, 로그인·계정 재진입점, Graphite wireframe 적용 |
+| PWA 상태·UI | `frontend/src/PwaInstallExperience.tsx`, `frontend/src/pwa-install.ts`, `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/src/styles.css` | 인증 준비 gate, 이른 설치 event 수신, session 단위 닫기, iPhone·Android 구분 안내, 로그인·계정 재진입점, Graphite wireframe 적용 |
 | 정적 Teams 진입 | `frontend/public/teams-launcher.html`, `frontend/public/teams-launcher.js` | 핵심 bundle 없이 보호된 웹·알림 상세를 새 창으로 여는 제한된 launcher |
 | 브랜드 metadata | `frontend/index.html`, `frontend/public/manifest.webmanifest` | 브라우저·설치 앱 이름과 설명 통일 |
 | Teams package | `infrastructure/teams/manifest.template.json` | `EMI PMS` 명칭·설명과 launcher tab URL, 기존 Activity 계약 보존 |
@@ -83,15 +88,15 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 | Frontend lint | PASS — error 0, 기존 `src/main.tsx` Fast Refresh warning 1 |
 | Frontend typecheck | PASS |
 | Frontend production build | PASS — 기존 대형 chunk warning 유지 |
-| Frontend 전체 unit | PASS — `26 files`, `183/183` |
-| PWA 집중 unit | PASS — 사용자 클릭 prompt·iPhone Safari·타 브라우저 복사 성공/실패·Android 안내·standalone 숨김 `6/6` |
+| Frontend 전체 unit | PASS — `26 files`, `187/187` |
+| PWA 집중 unit | PASS — 인증 준비 gate·좁은 desktop 제외·사용자 클릭 prompt·iPhone Safari·타 브라우저 복사 성공/실패·Android 준비 전/후·session 닫기·standalone 숨김 `10/10` |
 | Backend Release build | PASS — 경고 0, 오류 0 |
 | Backend 전체 test | PASS — `486/486` |
 | PWA asset·launcher contract | PASS — `1/1` |
 | Teams manifest package | PASS — package/schema 계약 `2/2` |
 | Azure artifact | PASS — Bicep compile, portal template, static validation |
 | Mock UI 전체 | PASS — 기존 주요 화면과 신규 Teams/PWA browser smoke `8/8` |
-| Browser 집중 | PASS — launcher 1440/390, iPhone Safari·타 브라우저·Android 안내 390, root 주소 복사, deep link·dismiss persistence·가로 overflow 0 (`4/4`) |
+| Browser 집중 | PASS — launcher 1440/390, iPhone Safari·타 브라우저·Android 준비 전/후 안내 390, root 주소 복사, deep link·session dismiss persistence·가로 overflow 0 (`4/4`) |
 | Graphite 시각 계약 | PASS — 안내 표면의 장식용 왼쪽 rail 0, 색상 그림자 0, 1px 경계·가로 overflow 0; 실제 EMI logo만 브랜드 색 예외 |
 | Git diff | PASS — `git diff --check` 오류 0 |
 | Isolated Full-Stack E2E | N/A — API·DB·migration·업무 workflow 계약 변경이 없으며 Backend 전체·Frontend 전체·Mock UI로 영향 경계를 검증했다. |
@@ -129,6 +134,7 @@ Change 007 Azure 운영 release는 완료했다. Teams catalog 변경과 Android
 | `TPWA-BRAND-007` | P2 | `RESOLVED` | 로그인과 공통 app shell이 같은 logo asset·grayscale 규칙을 공유해 사용자 지정 내부 logo의 형태와 원색을 보존할 수 없었다. | auth/internal asset import를 분리하고 공통 shell의 지정 logo에만 transparent·filter none 예외와 browser regression을 추가했다. |
 | `TPWA-CI-007` | P2 | `RESOLVED` | PR 전체 mock UI에서 프로젝트가 비어 있을 때 상단과 empty-state에 같은 `신규 프로젝트` action이 생겨 기존 test selector가 두 요소를 구분하지 못했다. | 제품 UI는 변경하지 않고 기존 smoke가 상단 첫 action을 명시하도록 두 진입 selector를 한정했다. |
 | `TPWA-CI-008` | P2 | `RESOLVED` | 느린 CI에서 품질 판정 API의 첫 오류 응답과 dialog 오류 문구 반영이 기존 1초 test 대기를 넘겨 간헐적으로 실패했다. | 제품 로직은 유지하고 API 호출 관찰과 오류 문구 반영을 각각 최대 5초 기다리는 test-only 동기화로 안정화했다. |
+| `TPWA-MOBILE-009` | P2 | `RESOLVED` | Android 자동 안내가 설치 event에 종속되고 닫기가 영구 저장돼 Microsoft 로그인 뒤 설치 안내를 놓칠 수 있었다. | provider를 MSAL보다 위로 이동하고 인증 준비 gate·Android 준비형 버튼·session 단위 닫기 회귀를 추가했다. |
 
 Open P0/P1/P2: `0/0/0`.
 

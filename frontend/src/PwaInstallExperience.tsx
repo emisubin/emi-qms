@@ -13,7 +13,7 @@ type BeforeInstallPromptEvent = Event & {
 
 type InstallPlatform = 'ios-safari' | 'ios-browser' | 'android' | 'browser';
 
-const dismissedStorageKey = 'emi-pms:pwa-install-guide-dismissed';
+const dismissedStorageKey = 'emi-pms:pwa-install-guide-dismissed-session-v2';
 
 function mediaMatches(query: string) {
   return typeof window !== 'undefined'
@@ -64,7 +64,7 @@ function isMobileDevice() {
 function wasGuideDismissed() {
   if (typeof window === 'undefined') return false;
   try {
-    return window.localStorage.getItem(dismissedStorageKey) === 'true';
+    return window.sessionStorage.getItem(dismissedStorageKey) === 'true';
   } catch {
     return false;
   }
@@ -72,7 +72,7 @@ function wasGuideDismissed() {
 
 function rememberGuideDismissal() {
   try {
-    window.localStorage.setItem(dismissedStorageKey, 'true');
+    window.sessionStorage.setItem(dismissedStorageKey, 'true');
   } catch {
     // Storage can be unavailable in private or embedded browser modes.
   }
@@ -81,6 +81,7 @@ function rememberGuideDismissal() {
 export function PwaInstallProvider({ children }: { children: ReactNode }) {
   const [promptEvent, setPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [standalone, setStandalone] = useState(isStandaloneDisplay);
+  const [automaticGuideReady, setAutomaticGuideReady] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [automaticGuideDismissed, setAutomaticGuideDismissed] = useState(wasGuideDismissed);
   const [nativePromptDismissed, setNativePromptDismissed] = useState(false);
@@ -122,16 +123,16 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!available || !mobile || automaticGuideDismissed || dialogOpen) return;
-    if (!iosPlatform && !promptEvent) return;
+    if (!automaticGuideReady || !available || !mobile || automaticGuideDismissed || dialogOpen) return;
+    if (!iosPlatform && platform !== 'android') return;
     const timer = window.setTimeout(() => setDialogOpen(true), 0);
     return () => window.clearTimeout(timer);
-  }, [automaticGuideDismissed, available, dialogOpen, iosPlatform, mobile, promptEvent]);
+  }, [automaticGuideDismissed, automaticGuideReady, available, dialogOpen, iosPlatform, mobile, platform]);
 
   useEffect(() => {
     if (!dialogOpen) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const firstButton = dialogRef.current?.querySelector<HTMLButtonElement>('button');
+    const firstButton = dialogRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
     firstButton?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -159,7 +160,8 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
       setNativePromptDismissed(false);
       setCopyFeedback(null);
       setDialogOpen(true);
-    }
+    },
+    setAutomaticGuideReady
   }), [available, iosPlatform, platform, promptEvent]);
 
   const requestInstall = async () => {
@@ -234,7 +236,7 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
             ) : promptEvent ? (
               <p className="pwa-install-note">설치를 누르면 브라우저의 설치 확인 창이 열립니다.</p>
             ) : (
-              <p className="pwa-install-note">브라우저 메뉴에서 <strong>앱 설치</strong> 또는 <strong>홈 화면에 추가</strong>를 선택해 주세요.</p>
+              <p className="pwa-install-note">설치 버튼을 준비하고 있습니다. 잠시 후 버튼이 활성화되지 않으면 브라우저 메뉴에서 <strong>앱 설치</strong> 또는 <strong>홈 화면에 추가</strong>를 선택해 주세요.</p>
             )}
 
             {nativePromptDismissed ? (
@@ -250,6 +252,8 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
             <div className="pwa-install-actions">
               {platform === 'ios-browser' ? (
                 <button type="button" onClick={() => void copyInstallAddress()}>PMS 주소 복사</button>
+              ) : platform === 'android' ? (
+                <button type="button" disabled={!promptEvent} onClick={() => void requestInstall()}>EMI PMS 설치</button>
               ) : promptEvent ? (
                 <button type="button" onClick={() => void requestInstall()}>EMI PMS 설치</button>
               ) : null}

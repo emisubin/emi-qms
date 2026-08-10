@@ -8,11 +8,12 @@ const notificationId = '71000000-0000-0000-0000-000000000001';
 test('Teams launcher stays small, preserves a notification deep link, and fits desktop/mobile', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/teams-launcher.html?notificationId=${notificationId}`);
+  const appOrigin = new URL(page.url()).origin;
 
   await expect(page.getByRole('heading', { name: 'EMI PMS' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'EMI PMS 열기' })).toHaveAttribute(
     'href',
-    `http://127.0.0.1:5173/teams/activity/notifications/${notificationId}`
+    `${appOrigin}/teams/activity/notifications/${notificationId}`
   );
   await expect(page.locator('script[src]')).toHaveCount(1);
   await expect(page.locator('script[src="/teams-launcher.js"]')).toHaveCount(1);
@@ -26,7 +27,7 @@ test('Teams launcher stays small, preserves a notification deep link, and fits d
   await capture(page, 'teams-launcher-mobile-390.png');
 
   await page.goto('/teams-launcher.html?notificationId=https%3A%2F%2Fexample.org%2Foutside');
-  await expect(page.getByRole('link', { name: 'EMI PMS 열기' })).toHaveAttribute('href', 'http://127.0.0.1:5173/');
+  await expect(page.getByRole('link', { name: 'EMI PMS 열기' })).toHaveAttribute('href', `${appOrigin}/`);
 });
 
 test('iPhone receives one dismissible Home Screen guide without horizontal overflow', async ({ page }) => {
@@ -75,7 +76,7 @@ test('iPhone non-Safari browsers offer current-browser steps and a Safari copy f
   await expect(dialog.locator('.pwa-install-note')).toContainText('현재 브라우저의 공유 메뉴에서 먼저');
   await dialog.getByRole('button', { name: 'PMS 주소 복사' }).click();
   await expect(dialog.getByRole('status')).toContainText('PMS 주소를 복사했습니다.');
-  expect(await page.evaluate(() => (window as Window & { copiedInstallAddress?: string }).copiedInstallAddress)).toBe('http://127.0.0.1:5173/');
+  expect(await page.evaluate(() => (window as Window & { copiedInstallAddress?: string }).copiedInstallAddress)).toBe(`${new URL(page.url()).origin}/`);
   await assertNoHorizontalOverflow(page);
   await capture(page, 'pwa-iphone-other-browser-guide-mobile-390.png');
 });
@@ -86,25 +87,28 @@ test('Android receives the one-tap install guide in the same wireframe shell', a
       configurable: true,
       value: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36'
     });
-    const dispatchInstallPrompt = () => {
-      if (document.querySelector('.pwa-install-dialog')) return;
-      const event = new Event('beforeinstallprompt') as Event & {
-        prompt: () => Promise<void>;
-        userChoice: Promise<{ outcome: 'dismissed'; platform: string }>;
-      };
-      event.prompt = async () => {};
-      event.userChoice = Promise.resolve({ outcome: 'dismissed', platform: 'web' });
-      window.dispatchEvent(event);
-    };
-    const interval = window.setInterval(dispatchInstallPrompt, 250);
-    window.setTimeout(() => window.clearInterval(interval), 4_000);
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
 
   const dialog = page.getByRole('dialog', { name: 'Android 설치 안내' });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'EMI PMS 설치' })).toBeVisible();
+  const installButton = dialog.getByRole('button', { name: 'EMI PMS 설치' });
+  await expect(installButton).toBeDisabled();
+  await expect(dialog).toContainText('설치 버튼을 준비하고 있습니다.');
+
+  await page.evaluate(() => {
+    const event = new Event('beforeinstallprompt') as Event & {
+      prompt: () => Promise<void>;
+      userChoice: Promise<{ outcome: 'dismissed'; platform: string }>;
+    };
+    event.prompt = async () => {};
+    event.userChoice = Promise.resolve({ outcome: 'dismissed', platform: 'web' });
+    window.dispatchEvent(event);
+  });
+
+  await expect(installButton).toBeEnabled();
+  await expect(dialog).toContainText('설치를 누르면 브라우저의 설치 확인 창이 열립니다.');
   await assertNoHorizontalOverflow(page);
   await capture(page, 'pwa-android-guide-mobile-390.png');
 });

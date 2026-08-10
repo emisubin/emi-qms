@@ -19,6 +19,7 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop-1920',
+      grep: /@desktop/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1920, height: 1080 }
@@ -26,6 +27,7 @@ export default defineConfig({
     },
     {
       name: 'desktop-1440',
+      grep: /@desktop/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 810 }
@@ -33,6 +35,7 @@ export default defineConfig({
     },
     {
       name: 'desktop-1280',
+      grep: /@desktop/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1280, height: 720 }
@@ -40,6 +43,7 @@ export default defineConfig({
     },
     {
       name: 'desktop-1024',
+      grep: /@desktop/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1024, height: 768 }
@@ -47,16 +51,27 @@ export default defineConfig({
     },
     {
       name: 'desktop-short-window',
+      grep: /@desktop/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 600 }
       }
     },
     {
-      name: 'desktop-narrow-window',
+      name: 'mobile-iphone-390',
+      grep: /@mobile/,
       use: {
-        ...devices['Desktop Chrome'],
-        viewport: { width: 651, height: 708 }
+        ...devices['iPhone 13'],
+        browserName: 'chromium',
+        viewport: { width: 390, height: 844 }
+      }
+    },
+    {
+      name: 'mobile-android-412',
+      grep: /@mobile/,
+      use: {
+        ...devices['Pixel 5'],
+        viewport: { width: 412, height: 915 }
       }
     }
   ],

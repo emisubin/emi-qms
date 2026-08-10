@@ -6,7 +6,7 @@
 - 승인 source: 2026-07-14 사용자 요청의 Figma node와 명시된 구현·검증 범위
 - Planning/Review: 별도 Fable planning 대상 아님. 사용자가 같은 요청에서 구현 범위와 mutation 경계를 승인함
 - Implementation: 완료 — 승인된 Frontend 범위만 변경
-- 자동 검증: Change 008 완료 — Variant 2 Done icon `50% 50%` 중앙 정렬과 기존 회귀 검증 통과
+- 자동 검증: Change 010 완료 — 지정 로그인 로고 원본 일치, desktop login/loading 10건과 iPhone·Android login/loading 2건, Frontend 전체 검증 통과
 - 독립 Codex 검증: Change 008·Change 009 완료 — 분리된 read-only session PASS, 현재 P0/P1/P2/P3 `0/0/0/0`, 해결된 P2 1
 - 사용자 검수: 완료 — 전체 체크리스트 확인 완료
 - 화면 단위 승격: Change 009 fixed allowlist 이식·자동·독립 검증·5174 Frontend-only 반영 완료 / PR #49 CI·squash merge 진행 중
@@ -56,7 +56,7 @@ Purpose identity:
 - Ellipse 68: Plugin API 직접 확인 결과 `x=-538.5`, `y=-468`, `876×876`, pattern opacity `0.33`, scaling factor `0.75`
 - Frame/background: Plugin API 직접 확인 결과 base `#DA2127`, white 10% glass shape `-6/0/1446×810`, glass radius `23.25`
 - White authentication shape: `776/0/664.5×810`, left radius `51`, shadow `-5.25/-1.5/43.05`, black opacity `0.28`
-- Mobile: Change 001 사용자 승인에 따라 제외. Figma에 없는 390px 해석과 auth 전용 mobile browser project를 두지 않는다.
+- Mobile: Change 001에서는 제외했으며, 2026-08-10 Change 010 사용자 승인으로 흑백 wireframe 모바일 로그인·Loading과 iPhone 390px·Android 412px 검증을 별도 추가한다.
 
 ## 4. 포함 범위
 
@@ -70,6 +70,7 @@ Purpose identity:
 - Change 006에서 Loading의 공통 shell과 안내 문구를 유지하고 `LOGIN`·checkbox 대신 빨간 회전 indicator 1개 표시
 - Change 007에서 로그인 상태 유지 기본/Variant 2의 border·fill·Done icon·text color와 클릭 preference 전환을 Figma component set에 맞춤
 - Change 008에서 Variant 2 Done icon의 크기와 나머지 style은 유지하고 checkbox 정중앙에 배치
+- Change 010에서 로그인 로고를 지정 원본 `Asset 3@4x.png`로 교체하고 860px 이하를 모바일 전용 흑백 wireframe으로 표시
 - 화면 단위 승격 운영 기준을 `docs/development/design-screen-promotion.md`에 고정
 - 기존 Microsoft 365 로그인, 로그인 상태 유지와 재인증 동작 회귀 test. 다른 계정 선택은 Microsoft 로그인 화면에 위임하고 사용되지 않는 Frontend 전용 request를 제거
 - Frontend lint, typecheck, unit, build와 isolated Desktop browser 비교
@@ -81,7 +82,7 @@ Purpose identity:
 - Persistent UAT 접근·write와 실제 provider 발송
 - `TASK-GOV-HISTORY-REWRITE-001`, `TASK-GOV-FINDING-GATE-001` 파일 변경
 - dependency/lockfile 변경
-- Mobile/390px auth layout과 browser 검증
+- Change 010 범위를 넘는 모바일 인증 정책 변경
 - Commit, push, PR와 merge
 
 ## 6. 변경 allowlist
@@ -109,6 +110,7 @@ Purpose identity:
 - `tasks/design-login-001-change-007.md`
 - `tasks/design-login-001-change-008.md`
 - `tasks/design-login-001-change-009.md`
+- `tasks/design-login-001-change-010.md`
 - `tasks/design-login-001-implementation-report.md`
 - `docs/00-product-roadmap.md`
 - `docs/development/design-screen-promotion.md`
@@ -162,6 +164,8 @@ Change 009 promotion worktree:
 - P3: 0
 - 기존 history P2: 이 Task 범위 밖이며 상태와 파일을 변경하지 않는다.
 
+Change 010 Finding: P0/P1/P2/P3 `0/0/0/0`.
+
 ## 10. 자동 검증 projection
 
 - Frontend lint: error 0, 기존 Fast Refresh warning 1
@@ -184,5 +188,8 @@ Change 009 promotion worktree:
 - Screenshot pixel projection: 안내 문구 포함 MAE 1.2497, exact pixel 69.3100%, channel당 차이 8 이하 97.7912%. Figma에 없는 승인 안내 영역 제외 시 MAE 1.1303, channel당 차이 8 이하 97.9200%
 - Development·Review-safe runtime identity: 변경 없음
 - Backend·API·DB·migration·runtime configuration: 변경 0
+- Change 010 지정 login logo: `4265×604`, SHA-256 `a25cfeb40bdf00681792e20c4f57ab08b94d23d7b86ae0cc644b18b52ad8bbb4`, source/tracked byte 일치
+- Change 010 auth browser: Desktop login/loading `10/10`, iPhone 390×844 login/loading `1/1`, Android 412×915 login/loading `1/1`, horizontal overflow·console error·non-aborted request failure 모두 0
+- Change 010 Frontend: lint error 0·기존 warning 1, typecheck PASS, unit `183/183`, production build PASS·기존 chunk warning 유지
 
 상세 구현·검증·미실행 항목·rollback은 [Implementation report](design-login-001-implementation-report.md)에 기록한다.

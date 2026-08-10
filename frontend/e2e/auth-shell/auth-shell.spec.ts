@@ -10,8 +10,7 @@ const referenceGeometry = {
   microsoftLogo: { scope: 'login', x: 274, y: 306.75, width: 116.469, height: 148.219 },
   loginButton: { scope: 'login', x: 211, y: 510, width: 243, height: 48.75 },
   guidance: { scope: 'login', x: 109, y: 472, width: 447, height: 18 },
-  remember: { scope: 'login', x: 269, y: 567, width: 126, height: 32 },
-  ellipse68: { scope: 'brand', x: -538.5, y: -468, width: 876, height: 876 }
+  remember: { scope: 'login', x: 269, y: 567, width: 126, height: 32 }
 } as const;
 
 const loadingReferenceGeometry = {
@@ -19,11 +18,10 @@ const loadingReferenceGeometry = {
   emiLogo: referenceGeometry.emiLogo,
   microsoftLogo: referenceGeometry.microsoftLogo,
   guidance: referenceGeometry.guidance,
-  loadingIndicator: { scope: 'login', x: 307.625, y: 530, width: 48.75, height: 48.75 },
-  ellipse68: referenceGeometry.ellipse68
+  loadingIndicator: { scope: 'login', x: 307.625, y: 530, width: 48.75, height: 48.75 }
 } as const;
 
-test('approved Entra auth shell fills PC windows with the Figma panels and preserves element ratios', async ({ page }, testInfo) => {
+test('@desktop approved Entra auth shell fills PC windows with the wireframe panels and preserves element ratios', async ({ page }, testInfo) => {
   let consoleErrorCount = 0;
   let requestFailureCount = 0;
 
@@ -32,8 +30,8 @@ test('approved Entra auth shell fills PC windows with the Figma panels and prese
       consoleErrorCount += 1;
     }
   });
-  page.on('requestfailed', () => {
-    requestFailureCount += 1;
+  page.on('requestfailed', (request) => {
+    if (request.failure()?.errorText !== 'net::ERR_ABORTED') requestFailureCount += 1;
   });
 
   await page.addInitScript(() => {
@@ -42,6 +40,7 @@ test('approved Entra auth shell fills PC windows with the Figma panels and prese
 
   const response = await page.goto('/');
   await expect(page.getByRole('button', { name: 'LOGIN' })).toBeVisible();
+  await waitForLogo(page);
   await waitForResponsiveCanvas(page);
 
   const projection = await readProjection(page);
@@ -70,7 +69,8 @@ test('approved Entra auth shell fills PC windows with the Figma panels and prese
     checkboxDisabled: false,
     rememberChecked: false,
     rememberVisualVariant: 'DEFAULT',
-    rememberFigmaVariantMatches: true,
+    rememberFigmaVariantMatches: false,
+    rememberWireframeVariantMatches: true,
     loginGuidanceCount: 1,
     loginGuidanceTextMatches: true,
     loadingGuidanceTextMatches: false,
@@ -84,8 +84,11 @@ test('approved Entra auth shell fills PC windows with the Figma panels and prese
     verticalOverflowPixels: 0,
     blankPage: false,
     targetNotFoundPresent: false,
-    figmaBackgroundContractMatches: true,
-    figmaConnectionContractMatches: true,
+    figmaBackgroundContractMatches: false,
+    figmaConnectionContractMatches: false,
+    wireframeBackgroundContractMatches: true,
+    wireframeConnectionContractMatches: true,
+    specifiedLogoContractMatches: true,
     consoleErrorCount: 0,
     requestFailureCount: 0,
     failureCode: 'NONE'
@@ -105,7 +108,8 @@ test('approved Entra auth shell fills PC windows with the Figma panels and prese
   await expect(page.getByRole('checkbox', { name: '로그인 상태 유지' })).toBeChecked();
   const checkedProjection = await readProjection(page);
   expect(checkedProjection.rememberVisualVariant).toBe('VARIANT_2');
-  expect(checkedProjection.rememberFigmaVariantMatches).toBe(true);
+  expect(checkedProjection.rememberFigmaVariantMatches).toBe(false);
+  expect(checkedProjection.rememberWireframeVariantMatches).toBe(true);
   expect(await page.evaluate(() => window.localStorage.getItem('emi-auth-remember-session'))).toBe('true');
   await page.evaluate(() => new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -126,7 +130,7 @@ test('approved Entra auth shell fills PC windows with the Figma panels and prese
   }
 });
 
-test('loading auth shell replaces the login controls with one rotating red indicator', async ({ page }, testInfo) => {
+test('@desktop loading auth shell replaces the login controls with one rotating black indicator', async ({ page }, testInfo) => {
   let consoleErrorCount = 0;
   let requestFailureCount = 0;
 
@@ -135,12 +139,13 @@ test('loading auth shell replaces the login controls with one rotating red indic
       consoleErrorCount += 1;
     }
   });
-  page.on('requestfailed', () => {
-    requestFailureCount += 1;
+  page.on('requestfailed', (request) => {
+    if (request.failure()?.errorText !== 'net::ERR_ABORTED') requestFailureCount += 1;
   });
 
   const response = await page.goto('/e2e/auth-shell/loading.html');
   await expect(page.getByRole('status', { name: '로그인 확인 중' })).toBeVisible();
+  await waitForLogo(page);
   await waitForResponsiveCanvas(page);
 
   const projection = await readProjection(page);
@@ -170,21 +175,25 @@ test('loading auth shell replaces the login controls with one rotating red indic
     rememberChecked: null,
     rememberVisualVariant: 'ABSENT',
     rememberFigmaVariantMatches: null,
+    rememberWireframeVariantMatches: null,
     loginGuidanceCount: 1,
     loginGuidanceTextMatches: false,
     loadingGuidanceTextMatches: true,
     authPanelBusy: true,
     loadingIndicatorCount: 1,
     loadingIndicatorAnimated: true,
-    loadingIndicatorRed: true,
+    loadingIndicatorRed: false,
     unexpectedLoginContentCount: 0,
     ellipse68PatternCount: 1,
     horizontalOverflowPixels: 0,
     verticalOverflowPixels: 0,
     blankPage: false,
     targetNotFoundPresent: false,
-    figmaBackgroundContractMatches: true,
-    figmaConnectionContractMatches: true,
+    figmaBackgroundContractMatches: false,
+    figmaConnectionContractMatches: false,
+    wireframeBackgroundContractMatches: true,
+    wireframeConnectionContractMatches: true,
+    specifiedLogoContractMatches: true,
     consoleErrorCount: 0,
     requestFailureCount: 0,
     failureCode: 'NONE'
@@ -199,6 +208,72 @@ test('loading auth shell replaces the login controls with one rotating red indic
     path: path.join(screenshotDirectory, `loading-${testInfo.project.name}.png`),
     fullPage: true
   });
+});
+
+test('@mobile mobile auth shell uses the dedicated monochrome layout and preserves the specified EMI logo colour', async ({ page }, testInfo) => {
+  let consoleErrorCount = 0;
+  let requestFailureCount = 0;
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrorCount += 1;
+  });
+  page.on('requestfailed', (request) => {
+    if (request.failure()?.errorText !== 'net::ERR_ABORTED') requestFailureCount += 1;
+  });
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem('emi-auth-remember-session', 'false');
+    window.localStorage.setItem('emi-pms:pwa-install-guide-dismissed', 'true');
+  });
+
+  const response = await page.goto('/');
+  await expect(page.getByRole('button', { name: 'LOGIN' })).toBeVisible();
+  await waitForLogo(page);
+
+  const loginProjection = await readMobileProjection(page);
+  console.log(JSON.stringify({ state: 'login', ...loginProjection }));
+  expect({ status: response?.status() ?? 0, ...loginProjection }).toEqual({
+    status: 200,
+    authState: 'login',
+    singleColumn: true,
+    cardVisible: true,
+    logoVisible: true,
+    logoNaturalWidth: 4265,
+    logoNaturalHeight: 604,
+    logoFilter: 'none',
+    logoHasTransparentBackground: true,
+    blackPrimaryButton: true,
+    guidanceVisible: true,
+    checkboxTouchTarget: true,
+    loadingIndicatorVisible: false,
+    horizontalOverflowPixels: 0,
+    consoleErrorCount: 0,
+    requestFailureCount: 0
+  });
+  expect(consoleErrorCount).toBe(0);
+  expect(requestFailureCount).toBe(0);
+
+  const screenshotDirectory = process.env.AUTH_SHELL_SCREENSHOT_DIR?.trim()
+    || '/tmp/emi-qms-task-design-login-001';
+  await fs.mkdir(screenshotDirectory, { recursive: true });
+  await page.screenshot({
+    path: path.join(screenshotDirectory, `${testInfo.project.name}.png`),
+    fullPage: true
+  });
+
+  requestFailureCount = 0;
+  await page.goto('/e2e/auth-shell/loading.html');
+  await expect(page.getByRole('status', { name: '로그인 확인 중' })).toBeVisible();
+  await waitForLogo(page);
+  const loadingProjection = await readMobileProjection(page);
+  console.log(JSON.stringify({ state: 'loading', ...loadingProjection }));
+  expect(loadingProjection.authState).toBe('loading');
+  expect(loadingProjection.singleColumn).toBe(true);
+  expect(loadingProjection.logoVisible).toBe(true);
+  expect(loadingProjection.logoFilter).toBe('none');
+  expect(loadingProjection.loadingIndicatorVisible).toBe(true);
+  expect(loadingProjection.horizontalOverflowPixels).toBe(0);
+  expect(consoleErrorCount).toBe(0);
+  expect(requestFailureCount).toBe(0);
 });
 
 function assertResponsiveGeometry(
@@ -230,7 +305,7 @@ function assertResponsiveGeometry(
   expect(geometry.loginPanel.y).toBeCloseTo(0, 1);
   expect(geometry.loginPanel.width).toBeCloseTo(viewport.width - expectedBrandWidth + (0.5 * expectedScale), 1);
   expect(geometry.loginPanel.height).toBeCloseTo(viewport.height, 1);
-  expect(geometry.loginPanelRadius).toBeCloseTo(51 * expectedScale, 1);
+  expect(geometry.loginPanelRadius).toBeCloseTo(14, 1);
   expect(geometry.brandCanvas.width).toBeCloseTo(referencePanels.brandWidth * expectedScale, 2);
   expect(geometry.brandCanvas.height).toBeCloseTo(referenceCanvas.height * expectedScale, 2);
   expect(geometry.loginCanvas.width).toBeCloseTo(referencePanels.loginWidth * expectedScale, 2);
@@ -257,6 +332,15 @@ async function waitForResponsiveCanvas(page: Page) {
     const actualScale = Number(canvas.dataset.authCanvasScale ?? '0');
     return Math.abs(actualScale - expectedScale) < 0.00001;
   }, referenceCanvas);
+}
+
+async function waitForLogo(page: Page) {
+  await page.locator('.auth-brand-logo').evaluate(async (element) => {
+    const image = element as HTMLImageElement;
+    if (!image.complete || image.naturalWidth === 0) {
+      await image.decode();
+    }
+  });
 }
 
 async function readProjection(page: Page) {
@@ -364,6 +448,17 @@ async function readProjection(page: Page) {
             && checkboxStyle.backgroundImage === 'none'
             && rememberTextStyle.color === 'rgb(115, 115, 115)'
         : null,
+      rememberWireframeVariantMatches: checkboxStyle && rememberTextStyle
+        ? checkbox.checked
+          ? checkboxStyle.backgroundColor === 'rgb(17, 17, 17)'
+            && checkboxStyle.borderTopColor === 'rgb(17, 17, 17)'
+            && checkboxStyle.backgroundImage !== 'none'
+            && rememberTextStyle.color === 'rgb(26, 26, 26)'
+          : checkboxStyle.backgroundColor === 'rgb(255, 255, 255)'
+            && checkboxStyle.borderTopColor === 'rgb(85, 85, 85)'
+            && checkboxStyle.backgroundImage === 'none'
+            && rememberTextStyle.color === 'rgb(85, 85, 85)'
+        : null,
       loginGuidanceCount: document.querySelectorAll('.auth-login-guidance').length,
       loginGuidanceTextMatches: loginGuidance?.textContent === '회사 Microsoft 365 계정으로 로그인해 주세요.',
       loadingGuidanceTextMatches: loginGuidance?.textContent === 'Microsoft 365 로그인 정보를 확인하고 있습니다.',
@@ -422,7 +517,76 @@ async function readProjection(page: Page) {
         && getComputedStyle(loginPanel).backgroundColor === 'rgb(255, 255, 255)'
         && parseFloat(getComputedStyle(loginPanel).borderTopLeftRadius) > 0
         && getComputedStyle(loginPanel).boxShadow !== 'none'
+      ),
+      wireframeBackgroundContractMatches: Boolean(
+        main
+        && layout
+        && brandPanel
+        && getComputedStyle(main).backgroundColor === 'rgb(250, 250, 250)'
+        && getComputedStyle(layout).backgroundColor === 'rgb(250, 250, 250)'
+        && getComputedStyle(brandPanel).backgroundColor === 'rgb(15, 15, 15)'
+      ),
+      wireframeConnectionContractMatches: Boolean(
+        brandPanelBounds
+        && loginPanelBounds
+        && loginPanel
+        && Math.abs(brandPanelBounds.right - loginPanelBounds.x) <= 0.1
+        && getComputedStyle(loginPanel).backgroundColor === 'rgb(255, 255, 255)'
+        && getComputedStyle(loginPanel).borderTopWidth === '1px'
+        && parseFloat(getComputedStyle(loginPanel).borderTopLeftRadius) === 14
+        && getComputedStyle(loginPanel).boxShadow === 'none'
+      ),
+      specifiedLogoContractMatches: Boolean(
+        document.querySelector<HTMLImageElement>('.auth-brand-logo')?.naturalWidth === 4265
+        && document.querySelector<HTMLImageElement>('.auth-brand-logo')?.naturalHeight === 604
+        && getComputedStyle(document.querySelector<HTMLElement>('.auth-brand-logo')!).filter === 'none'
       )
+    };
+  });
+}
+
+async function readMobileProjection(page: Page) {
+  return page.evaluate(() => {
+    const root = document.documentElement;
+    const main = document.querySelector<HTMLElement>('main.auth-gate');
+    const canvas = document.querySelector<HTMLElement>('.auth-login-canvas');
+    const card = document.querySelector<HTMLElement>('.auth-gate-panel');
+    const logo = document.querySelector<HTMLImageElement>('.auth-brand-logo');
+    const primaryButton = document.querySelector<HTMLElement>('.auth-primary-button');
+    const guidance = document.querySelector<HTMLElement>('.auth-login-guidance');
+    const remember = document.querySelector<HTMLElement>('.remember-session-option');
+    const indicator = document.querySelector<HTMLElement>('.auth-loading-indicator');
+    const visible = (element: HTMLElement | null) => Boolean(
+      element
+      && getComputedStyle(element).display !== 'none'
+      && element.getBoundingClientRect().width > 0
+      && element.getBoundingClientRect().height > 0
+    );
+    const canvasStyle = canvas ? getComputedStyle(canvas) : null;
+    const logoStyle = logo ? getComputedStyle(logo) : null;
+    const buttonStyle = primaryButton ? getComputedStyle(primaryButton) : null;
+    const rememberBounds = remember?.getBoundingClientRect();
+
+    return {
+      authState: main?.dataset.authState ?? 'missing',
+      singleColumn: canvasStyle?.gridTemplateColumns === `${window.innerWidth - 40}px`
+        || canvasStyle?.gridTemplateColumns.split(' ').length === 1,
+      cardVisible: visible(card),
+      logoVisible: visible(logo),
+      logoNaturalWidth: logo?.naturalWidth ?? 0,
+      logoNaturalHeight: logo?.naturalHeight ?? 0,
+      logoFilter: logoStyle?.filter ?? 'missing',
+      logoHasTransparentBackground: logoStyle?.backgroundColor === 'rgba(0, 0, 0, 0)',
+      blackPrimaryButton: buttonStyle?.backgroundColor === 'rgb(17, 17, 17)'
+        || buttonStyle?.backgroundColor === 'rgb(0, 0, 0)',
+      guidanceVisible: visible(guidance),
+      checkboxTouchTarget: main?.dataset.authState === 'loading'
+        ? true
+        : Boolean(rememberBounds && rememberBounds.height >= 44),
+      loadingIndicatorVisible: visible(indicator),
+      horizontalOverflowPixels: Math.max(0, root.scrollWidth - window.innerWidth),
+      consoleErrorCount: 0,
+      requestFailureCount: 0
     };
   });
 }

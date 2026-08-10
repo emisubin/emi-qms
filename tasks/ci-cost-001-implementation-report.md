@@ -5,14 +5,14 @@
 - Task: `TASK-CI-COST-001`
 - Task type: `P2_REMEDIATION`
 - 기준 branch: `fix/task-ci-cost-001-actions-minutes`
-- 기준 SHA: `3c0db4779dac3a3c2bc3599369065b3886e6ab21`
-- 상태: `LOCAL_IMPLEMENTATION_COMPLETE / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_PENDING`
-- 사용자 승인: 권장 최소안 구현과 기존 실제 기기 검수·운영 관찰의 병렬 진행 승인 완료
-- Git 게시: commit·push·PR·merge 모두 미실행
+- 기준 SHA: `5300b4646b2ea8bba0a43e953fea58e66caa2016`
+- 상태: `LOCAL_IMPLEMENTATION_COMPLETE / AUTOMATED_VALIDATION_COMPLETE / PUBLICATION_APPROVED / GITHUB_VALIDATION_PENDING`
+- 사용자 승인: 권장 최소안 구현·기존 실제 기기 검수와의 병렬 진행·Git 게시·PR·`main` merge 명시 승인 완료
+- Git 게시: local 구현 commit 완료, push·PR·merge 실행 대기
 
 ## 2. 해결한 업무 문제
 
-GitHub Actions 월 사용량이 90%에 도달해 남은 개발·게시 검증이 quota에 막힐 위험이 있었다. 최근 일반 CI는 Backend·Frontend·Full-Stack을 매번 동시에 실행했고, 문서 변경·같은 PR의 이전 commit·PR 검증 뒤 `main` merge에도 동일한 비용이 반복됐다.
+GitHub Actions 월 사용량이 90% 경고 뒤 100%에 도달해 남은 개발·게시 검증이 quota에 막혔다. 사용자가 결제 경계를 복구한 뒤 이 Task의 Git 게시와 `main` merge를 명시 승인했다. 최근 일반 CI는 Backend·Frontend·Full-Stack을 매번 동시에 실행했고, 문서 변경·같은 PR의 이전 commit·PR 검증 뒤 `main` merge에도 동일한 비용이 반복됐다.
 
 `CI-MINUTES-OVERCONSUMPTION-001` P2의 root cause는 테스트 자체가 아니라 event와 변경 종류를 구분하지 않는 scheduling이었다. 제품 품질 검증을 줄이는 대신 다음 중복만 제거했다.
 
@@ -163,7 +163,7 @@ Open P0/P1/P2는 0건이다.
 ## 12. 사용자 검수 결과와 남은 항목
 
 - 자동 검증: 완료
-- 사용자 검수: 대기
+- 사용자 검수: 구현·게시·`main` merge 승인 완료, 실제 GitHub 동작 검수 대기
 - GitHub PR/main 실제 실행: 대기
 - 동일 PR 이전 run cancellation 확인: 대기
 - 최소 1주 사용량 추세: 대기
@@ -177,8 +177,8 @@ workflow 문제가 발견되면 `.github/workflows/ci.yml`만 기준 SHA의 이�
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
-| Implementation report | 작성 완료 / 사용자 검수 대기 | 이 문서 |
+| Implementation report | 작성 완료 / GitHub 실제 검수 대기 | 이 문서 |
 | SOP | 작성 완료 | [Task의 개발 SOP](ci-cost-001.md#개발-sop) |
 | User manual | N/A 기록 완료 | [Task의 User manual](ci-cost-001.md#user-manual) — 제품 UI 변경 없음 |
 | Roadmap update | 작성 완료 | [Product Roadmap](../docs/00-product-roadmap.md#task-ci-cost-001-github-actions-minute-최적화) |
-| User validation checklist | 작성 완료 / 사용자 검수 대기 | [Task checklist](ci-cost-001.md#사용자-검수-checklist) |
+| User validation checklist | 작성 완료 / 실제 GitHub 검수 대기 | [Task checklist](ci-cost-001.md#사용자-검수-checklist) |

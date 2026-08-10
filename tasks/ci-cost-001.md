@@ -3,15 +3,15 @@
 ## 상태와 승인
 
 - Task type: `P2_REMEDIATION`
-- 상태: `LOCAL_IMPLEMENTATION_COMPLETE / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_PENDING`
+- 상태: `LOCAL_IMPLEMENTATION_COMPLETE / AUTOMATED_VALIDATION_COMPLETE / PUBLICATION_APPROVED / GITHUB_VALIDATION_PENDING`
 - 조사 결과와 권장 최소안: 사용자 보고 완료
 - 구현 승인: 완료
 - Roadmap 병렬 진행 승인: 완료
-- Git 게시·PR·merge 승인: 미승인
+- Git 게시·PR·`main` merge 승인: 2026-08-10 사용자 명시 승인 완료
 
 ## 해결할 Finding
 
-`CI-MINUTES-OVERCONSUMPTION-001`은 GitHub-hosted Actions 월 사용량이 90%에 도달한 상태에서 일반 CI가 다음 비용을 반복하는 P2다.
+`CI-MINUTES-OVERCONSUMPTION-001`은 GitHub-hosted Actions 월 사용량이 90% 경고 뒤 100%에 도달한 상태에서 일반 CI가 다음 비용을 반복하는 P2다.
 
 - 같은 PR의 이전 commit run을 계속 실행한다.
 - 문서·Task 증빙 변경에도 Backend·Frontend·Full-Stack을 모두 실행한다.
@@ -68,7 +68,7 @@
 - Backend·Frontend 제품 코드, API, DB와 migration
 - GitHub ruleset·required check 설정 변경
 - self-hosted runner 도입 또는 Actions 유료 증액
-- commit, push, PR와 merge
+- Repository visibility·GitHub ruleset 변경과 branch 자동 삭제
 
 ## 개발 SOP
 
@@ -85,7 +85,7 @@ N/A — 제품 사용자의 화면·업무 방식은 바뀌지 않는다. 개발
 
 ## 사용자 검수 checklist
 
-상태: `자동 검증 완료 / 사용자 검수 대기`
+상태: `자동 검증 완료 / 게시·main merge 승인 완료 / 실제 GitHub 검수 대기`
 
 - [ ] 문서 전용 PR에서 무거운 3개 job이 skip되고 `CI Gate`가 성공한다.
 - [ ] 코드 PR에서 Backend·Frontend 성공 뒤 Full-Stack과 `CI Gate`가 성공한다.

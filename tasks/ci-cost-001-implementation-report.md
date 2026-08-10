@@ -170,7 +170,7 @@ Open P0/P1/P2는 0건이다.
 - 자동 검증: 완료
 - 사용자 검수: 구현·게시·`main` merge 승인 완료, 실제 GitHub 동작 검수 대기
 - GitHub PR/main 실제 실행: 대기
-- 동일 PR 이전 run cancellation 확인: 대기
+- 동일 PR 이전 run cancellation 확인: 완료 — PR #89 새 commit에서 이전 실행 `cancelled` 1건 확인
 - 최소 1주 사용량 추세: 대기
 - Azure 실제 기기 검수·운영 관찰: 별도 기존 Task로 병렬 유지
 

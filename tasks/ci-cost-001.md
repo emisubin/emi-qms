@@ -90,7 +90,7 @@ N/A — 제품 사용자의 화면·업무 방식은 바뀌지 않는다. 개발
 
 - [ ] 문서 전용 PR에서 무거운 3개 job이 skip되고 `CI Gate`가 성공한다.
 - [ ] 코드 PR에서 Backend·Frontend 성공 뒤 Full-Stack과 `CI Gate`가 성공한다.
-- [ ] 같은 PR에 새 commit을 올리면 이전 실행만 취소된다.
+- [x] 같은 PR에 새 commit을 올리면 이전 실행만 취소된다 — PR #89에서 이전 실행 `cancelled` 확인.
 - [ ] 코드가 `main`에 merge되면 Backend·Frontend·`CI Gate`가 실행되고 Full-Stack은 skip된다.
 - [x] Azure 수동 release workflow의 trigger·승인·concurrency가 변경되지 않았다 — local diff exact 확인.
 - [ ] 실제 GitHub Actions 사용량 감소는 최소 1주 관찰 뒤 평가한다.

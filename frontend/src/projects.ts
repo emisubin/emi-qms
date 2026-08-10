@@ -1112,6 +1112,8 @@ export interface ProductionControlSource {
   requiresManufacturingDefinition: boolean;
   definitionKind: 'None' | 'Manufacturing' | 'Iqc' | 'Oqc';
   definitions: Array<{ definitionKey: string; label: string }>;
+  isOperational?: boolean;
+  operationalMessage?: string | null;
 }
 
 export type ProductionPlanStatus = 'NotPlanned' | 'Planning' | 'Planned';

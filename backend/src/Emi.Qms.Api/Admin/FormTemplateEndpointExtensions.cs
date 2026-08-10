@@ -22,6 +22,47 @@ public static class FormTemplateEndpointExtensions
         group.MapGet("/managers", async (FormTemplateStore store, ClaimsPrincipal user, CancellationToken token) => await Safe(() => store.GetManagersAsync(IsAdmin(user), token))).WithName("GetFormTemplateManagers");
         group.MapPost("/managers", async (AssignFormTemplateManagerRequest request, FormTemplateStore store, ClaimsPrincipal user, CancellationToken token) => await Safe(() => store.AssignManagerAsync(request, UserId(user), IsAdmin(user), token))).WithName("AssignFormTemplateManager");
         group.MapPost("/managers/{bindingId:guid}/revoke", async (Guid bindingId, FormTemplateStore store, ClaimsPrincipal user, CancellationToken token) => await Safe(() => store.RevokeManagerAsync(bindingId, UserId(user), IsAdmin(user), token))).WithName("RevokeFormTemplateManager");
+        group.MapGet("/lqc-items", async (FormTemplateStore store, ClaimsPrincipal user, CancellationToken token) =>
+            await Safe(() => store.GetLqcItemsAsync(UserId(user), IsAdmin(user), token)))
+            .WithName("GetLqcItemTemplates");
+        group.MapPut("/lqc-items/{productTypeId:guid}/operating-status", async (
+            Guid productTypeId,
+            UpdateLqcItemOperatingStatusRequest request,
+            FormTemplateStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+            await Safe(() => store.UpdateLqcItemOperatingStatusAsync(productTypeId, request, UserId(user), IsAdmin(user), token)))
+            .WithName("UpdateLqcItemOperatingStatus");
+        group.MapPut("/lqc-items/{productTypeId:guid}/current", async (
+            Guid productTypeId,
+            SaveLqcItemTemplateRequest request,
+            FormTemplateStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+            await Safe(() => store.SaveLqcItemTemplateAsync(productTypeId, request, UserId(user), IsAdmin(user), token)))
+            .WithName("SaveLqcItemTemplate");
+        group.MapGet("/material-category-iqc", async (
+            MaterialCategoryIqcStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+            await Safe(() => store.GetAsync(UserId(user), IsAdmin(user), token)))
+            .WithName("GetMaterialCategoryIqcTemplates");
+        group.MapPut("/material-category-iqc/{categoryId:guid}/setting", async (
+            Guid categoryId,
+            UpdateMaterialCategoryIqcSettingRequest request,
+            MaterialCategoryIqcStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+            await Safe(() => store.UpdateSettingAsync(categoryId, request, UserId(user), IsAdmin(user), token)))
+            .WithName("UpdateMaterialCategoryIqcSetting");
+        group.MapPut("/material-category-iqc/{categoryId:guid}/current", async (
+            Guid categoryId,
+            SaveMaterialCategoryIqcTemplateRequest request,
+            MaterialCategoryIqcStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+            await Safe(() => store.SaveTemplateAsync(categoryId, request, UserId(user), IsAdmin(user), token)))
+            .WithName("SaveMaterialCategoryIqcTemplate");
         group.MapGet("/material-categories", async (
             bool? includeInactive,
             MaterialCategoryStore store,

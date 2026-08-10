@@ -131,7 +131,8 @@ internal sealed record ProcurementItemSnapshot(
     Guid? MaterialCategoryId,
     string? MaterialCategoryCode,
     string? MaterialCategoryName,
-    bool? MaterialCategoryRequiresIqc);
+    bool? MaterialCategoryRequiresIqc,
+    string? MaterialCategoryIqcDecisionMode);
 
 internal sealed record ProcurementProjectSnapshot(
     Guid ProjectId,
@@ -147,7 +148,8 @@ internal sealed record ProcurementMaterialCategorySnapshot(
     Guid CategoryId,
     string Code,
     string DisplayName,
-    bool RequiresIqc);
+    bool RequiresIqc,
+    string DecisionMode);
 
 internal sealed record ParsedProcurementExcelFile(
     string FileSha256,

@@ -5,6 +5,7 @@ using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.Pending;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.Workflow;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -28,7 +29,6 @@ public sealed class QualityInspectionStore(
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-
         var panels = new List<QualityReconciliationPanel>();
         await using (var command = connection.CreateCommand())
         {
@@ -39,6 +39,7 @@ public sealed class QualityInspectionStore(
                     panel.id,
                     panel.display_code,
                     project.fat_required,
+                    project.lqc_operational_snapshot,
                     lqc.id,
                     lqc.status,
                     oqc.id,
@@ -129,22 +130,23 @@ public sealed class QualityInspectionStore(
                     reader.GetGuid(1),
                     reader.GetString(2),
                     reader.GetBoolean(3),
-                    reader.IsDBNull(4) ? null : reader.GetGuid(4),
-                    reader.IsDBNull(5) ? null : reader.GetString(5),
-                    reader.IsDBNull(6) ? null : reader.GetGuid(6),
-                    reader.IsDBNull(7) ? null : reader.GetString(7),
-                    reader.IsDBNull(8) ? null : reader.GetGuid(8),
-                    reader.IsDBNull(9) ? null : reader.GetString(9),
-                    reader.IsDBNull(10) ? null : reader.GetGuid(10),
-                    reader.IsDBNull(11) ? null : reader.GetString(11),
-                    reader.GetBoolean(12),
+                    reader.GetBoolean(4),
+                    reader.IsDBNull(5) ? null : reader.GetGuid(5),
+                    reader.IsDBNull(6) ? null : reader.GetString(6),
+                    reader.IsDBNull(7) ? null : reader.GetGuid(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8),
+                    reader.IsDBNull(9) ? null : reader.GetGuid(9),
+                    reader.IsDBNull(10) ? null : reader.GetString(10),
+                    reader.IsDBNull(11) ? null : reader.GetGuid(11),
+                    reader.IsDBNull(12) ? null : reader.GetString(12),
                     reader.GetBoolean(13),
                     reader.GetBoolean(14),
                     reader.GetBoolean(15),
                     reader.GetBoolean(16),
                     reader.GetBoolean(17),
                     reader.GetBoolean(18),
-                    reader.GetBoolean(19)));
+                    reader.GetBoolean(19),
+                    reader.GetBoolean(20)));
             }
         }
 
@@ -157,7 +159,7 @@ public sealed class QualityInspectionStore(
         foreach (var panel in panels)
         {
             var operationId = Guid.NewGuid();
-            if (panel.ManufacturingStarted && !panel.HasLqcWork)
+            if (panel.LqcOperational && panel.ManufacturingStarted && !panel.HasLqcWork)
             {
                 var lqcAssignee = await ResolveAssigneeAsync(
                     connection, transaction, panel.ProjectId, QualityInspectionStages.Lqc, cancellationToken);
@@ -180,10 +182,10 @@ public sealed class QualityInspectionStore(
             }
 
             if (panel.ManufacturingCompleted
-                && string.Equals(panel.LqcStatus, "Passed", StringComparison.Ordinal)
+                && (!panel.LqcOperational || string.Equals(panel.LqcStatus, "Passed", StringComparison.Ordinal))
                 && (!panel.HasManufacturingConfirmation || !panel.HasOqcWork))
             {
-                var result = await TryOpenOqcAfterManufacturingAndLqcAsync(
+                var result = await TryOpenOqcAfterManufacturingQualityGateAsync(
                     connection,
                     transaction,
                     panel.ProjectId,
@@ -380,7 +382,17 @@ public sealed class QualityInspectionStore(
     {
         var normalizedStage = NormalizeStage(stageCode);
         await using var dataSource = CreateDataSource();
-        await using var command = dataSource.CreateCommand($"""
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var isOperational = normalizedStage is null
+            || projectId is null
+            || await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+                connection,
+                null,
+                normalizedStage,
+                projectId.Value,
+                cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"""
             with latest_work as (
                 select distinct on (work_item.target_id, work_item.workflow_stage_code)
                     work_item.*
@@ -407,6 +419,8 @@ public sealed class QualityInspectionStore(
                 pending.issue_number, pending.action_department_code,
                 (
                     @can_inspect
+                    and stage_config.is_active
+                    and (work_item.workflow_stage_code <> 'LQC' or project.lqc_operational_snapshot)
                     and work_item.workflow_stage_code <> 'ManufacturingCompleted'
                     and (
                         work_item.assigned_user_id = @actor_id
@@ -427,6 +441,7 @@ public sealed class QualityInspectionStore(
             from latest_work work_item
             join panel_placeholders panel on panel.id = work_item.target_id and panel.status = 'Active'
             join projects project on project.id = work_item.project_id
+            join workflow_stages stage_config on stage_config.stage_code = work_item.workflow_stage_code
             left join lateral (
                 select candidate.*
                 from panel_quality_inspection_attempts candidate
@@ -445,7 +460,7 @@ public sealed class QualityInspectionStore(
               {(normalizedStage is null ? string.Empty : "and work_item.workflow_stage_code = @stage_code")}
               {(projectId is null ? string.Empty : "and project.id = @project_id")}
             order by project.project_code, panel.sequence_number, work_item.workflow_stage_code;
-            """);
+            """;
         command.Parameters.AddWithValue("can_inspect", canInspect);
         command.Parameters.AddWithValue("actor_id", actorUserId ?? Guid.Empty);
         AddScope(command, accessScope);
@@ -485,7 +500,10 @@ public sealed class QualityInspectionStore(
                 reader.IsDBNull(17) ? null : reader.GetString(17),
                 reader.GetBoolean(18)));
         }
-        return new QualityInspectionQueueResponse(builders.Values.Select(builder => builder.Build()).ToList());
+        return new QualityInspectionQueueResponse(
+            builders.Values.Select(builder => builder.Build()).ToList(),
+            isOperational,
+            isOperational ? null : StageOperationalMessage(normalizedStage!));
     }
 
     public async Task<QualityInspectionDetailResponse?> GetDetailAsync(
@@ -590,6 +608,11 @@ public sealed class QualityInspectionStore(
 
         var project = await LockProjectAsync(connection, transaction, request.ProjectId, accessScope, cancellationToken);
         if (project is null) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
+        if (!await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+                connection, transaction, stage, request.ProjectId, cancellationToken))
+        {
+            return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict(StageOperationalMessage(stage));
+        }
         var work = await LockStageWorkAsync(connection, transaction, request.ProjectId, request.PanelId, stage, cancellationToken);
         if (work is null) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
         if (!await HasStageAccessAsync(connection, transaction, request.ProjectId, work.WorkItemId, stage, actorUserId, false, cancellationToken))
@@ -628,7 +651,8 @@ public sealed class QualityInspectionStore(
         }
         else
         {
-            var templateVersionId = await ReadActiveTemplateVersionAsync(connection, transaction, stage, cancellationToken);
+            var templateVersionId = await ReadActiveTemplateVersionAsync(
+                connection, transaction, request.ProjectId, stage, cancellationToken);
             if (templateVersionId is null)
             {
                 return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("활성 검사 양식을 찾을 수 없습니다.");
@@ -701,6 +725,11 @@ public sealed class QualityInspectionStore(
         if (replay.Result is not null) return replay.Result;
         var context = await LockReportContextAsync(connection, transaction, reportId, accessScope, cancellationToken);
         if (context is null) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
+        if (!await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+                connection, transaction, context.StageCode, context.ProjectId, cancellationToken))
+        {
+            return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict(StageOperationalMessage(context.StageCode));
+        }
         if (!await HasStageAccessAsync(connection, transaction, context.ProjectId, context.WorkItemId, context.StageCode, actorUserId, false, cancellationToken))
         {
             return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
@@ -822,6 +851,11 @@ public sealed class QualityInspectionStore(
         if (replay.Result is not null) return replay.Result;
         var context = await LockReportContextAsync(connection, transaction, reportId, accessScope, cancellationToken);
         if (context is null) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
+        if (!await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+                connection, transaction, context.StageCode, context.ProjectId, cancellationToken))
+        {
+            return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict(StageOperationalMessage(context.StageCode));
+        }
         if (!await HasStageAccessAsync(connection, transaction, context.ProjectId, context.WorkItemId, context.StageCode, actorUserId, false, cancellationToken))
         {
             return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
@@ -921,6 +955,11 @@ public sealed class QualityInspectionStore(
         if (replay.Result is not null) return replay.Result;
         var context = await LockReportContextAsync(connection, transaction, reportId, accessScope, cancellationToken);
         if (context is null) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
+        if (!await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+                connection, transaction, context.StageCode, context.ProjectId, cancellationToken))
+        {
+            return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict(StageOperationalMessage(context.StageCode));
+        }
         if (!await HasStageAccessAsync(connection, transaction, context.ProjectId, context.WorkItemId, context.StageCode, actorUserId, false, cancellationToken))
         {
             return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
@@ -988,6 +1027,11 @@ public sealed class QualityInspectionStore(
         if (replay.Result is not null) return replay.Result;
         var context = await LockReportContextAsync(connection, transaction, reportId, accessScope, cancellationToken);
         if (context is null) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
+        if (!await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+                connection, transaction, context.StageCode, context.ProjectId, cancellationToken))
+        {
+            return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict(StageOperationalMessage(context.StageCode));
+        }
         if (!await HasStageAccessAsync(connection, transaction, context.ProjectId, context.WorkItemId, context.StageCode, actorUserId, false, cancellationToken))
         {
             return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
@@ -1211,7 +1255,7 @@ public sealed class QualityInspectionStore(
             nextStage = handoffs.FirstOrDefault()?.StageCode;
             if (context.StageCode == QualityInspectionStages.Lqc)
             {
-                var oqcHandoff = await TryOpenOqcAfterManufacturingAndLqcAsync(
+                var oqcHandoff = await TryOpenOqcAfterManufacturingQualityGateAsync(
                     connection,
                     transaction,
                     context.ProjectId,
@@ -1369,7 +1413,7 @@ public sealed class QualityInspectionStore(
         return attemptId;
     }
 
-    internal static async Task<(bool Opened, string? ConflictMessage)> TryOpenOqcAfterManufacturingAndLqcAsync(
+    internal static async Task<(bool Opened, string? ConflictMessage)> TryOpenOqcAfterManufacturingQualityGateAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid projectId,
@@ -1379,9 +1423,10 @@ public sealed class QualityInspectionStore(
         CancellationToken cancellationToken)
     {
         Guid? lqcAttemptId;
+        Guid manufacturingExecutionId;
         string panelDisplayCode;
         bool fatRequired;
-        bool manufacturingCompleted;
+        bool lqcOperational;
         await using (var readiness = connection.CreateCommand())
         {
             readiness.Transaction = transaction;
@@ -1400,12 +1445,17 @@ public sealed class QualityInspectionStore(
                            ) latest
                            where latest.status = 'Passed'
                        ) as lqc_attempt_id,
-                       exists (
-                           select 1
+                       (
+                           select execution.id
                            from panel_manufacturing_executions execution
                            where execution.panel_id = panel.id
                              and execution.status = 'Completed'
-                       ) as manufacturing_completed
+                           order by execution.completed_at_utc desc nulls last,
+                                    execution.started_at_utc desc,
+                                    execution.id desc
+                           limit 1
+                       ) as manufacturing_execution_id,
+                       project.lqc_operational_snapshot as lqc_operational
                 from panel_placeholders panel
                 join projects project on project.id = panel.project_id
                 where panel.id = @panel_id
@@ -1424,13 +1474,19 @@ public sealed class QualityInspectionStore(
             panelDisplayCode = reader.GetString(0);
             fatRequired = reader.GetBoolean(1);
             lqcAttemptId = reader.IsDBNull(2) ? null : reader.GetGuid(2);
-            manufacturingCompleted = reader.GetBoolean(3);
+            if (reader.IsDBNull(3))
+            {
+                return (false, null);
+            }
+            manufacturingExecutionId = reader.GetGuid(3);
+            lqcOperational = reader.GetBoolean(4);
         }
 
-        if (lqcAttemptId is null || !manufacturingCompleted)
+        if (lqcOperational && lqcAttemptId is null)
         {
             return (false, null);
         }
+        var handoffLqcAttemptId = lqcOperational ? lqcAttemptId : null;
 
         var oqcAssignee = await ResolveAssigneeAsync(
             connection,
@@ -1492,8 +1548,16 @@ public sealed class QualityInspectionStore(
             confirmationWork.Parameters.AddWithValue("panel_id", panelId);
             confirmationWork.Parameters.AddWithValue("assignee_id", manufacturingUserId);
             AddNullableText(confirmationWork, "role_code", manufacturingRoleCode);
-            confirmationWork.Parameters.AddWithValue("title", $"제조·LQC 완료 자동 확인 · {panelDisplayCode}");
-            confirmationWork.Parameters.AddWithValue("description", "패널 제조와 LQC가 모두 완료되어 OQC로 자동 인계했습니다.");
+            confirmationWork.Parameters.AddWithValue(
+                "title",
+                lqcOperational
+                    ? $"제조·LQC 완료 자동 확인 · {panelDisplayCode}"
+                    : $"제조 완료 자동 확인 · {panelDisplayCode}");
+            confirmationWork.Parameters.AddWithValue(
+                "description",
+                lqcOperational
+                    ? "패널 제조와 LQC가 모두 완료되어 OQC로 자동 인계했습니다."
+                    : "LQC 운영 중지 기준에 따라 패널 제조 완료 후 OQC로 자동 인계했습니다.");
             confirmationWork.Parameters.AddWithValue("key", confirmationKey);
             confirmationWork.Parameters.AddWithValue("actor_id", actorUserId);
             await confirmationWork.ExecuteNonQueryAsync(cancellationToken);
@@ -1514,15 +1578,21 @@ public sealed class QualityInspectionStore(
             confirmation.Transaction = transaction;
             confirmation.CommandText = """
                 insert into panel_manufacturing_completion_confirmations (
-                    project_id, panel_id, lqc_attempt_id, work_item_id, confirmed_by_user_id
+                    project_id, panel_id, manufacturing_execution_id, lqc_attempt_id,
+                    handoff_basis, work_item_id, confirmed_by_user_id
                 ) values (
-                    @project_id, @panel_id, @lqc_attempt_id, @work_item_id, @confirmed_by
+                    @project_id, @panel_id, @manufacturing_execution_id, @lqc_attempt_id,
+                    @handoff_basis, @work_item_id, @confirmed_by
                 )
                 on conflict (panel_id) do nothing;
                 """;
             confirmation.Parameters.AddWithValue("project_id", projectId);
             confirmation.Parameters.AddWithValue("panel_id", panelId);
-            confirmation.Parameters.AddWithValue("lqc_attempt_id", lqcAttemptId.Value);
+            confirmation.Parameters.AddWithValue("manufacturing_execution_id", manufacturingExecutionId);
+            confirmation.Parameters.Add("lqc_attempt_id", NpgsqlDbType.Uuid).Value = handoffLqcAttemptId ?? (object)DBNull.Value;
+            confirmation.Parameters.AddWithValue(
+                "handoff_basis",
+                lqcOperational ? "ManufacturingAndLqc" : "ManufacturingOnly");
             confirmation.Parameters.AddWithValue("work_item_id", confirmationWorkItemId);
             confirmation.Parameters.AddWithValue("confirmed_by", manufacturingUserId);
             await confirmation.ExecuteNonQueryAsync(cancellationToken);
@@ -1534,7 +1604,7 @@ public sealed class QualityInspectionStore(
             panelDisplayCode,
             fatRequired,
             QualityInspectionStages.ManufacturingCompleted,
-            lqcAttemptId.Value,
+            handoffLqcAttemptId ?? manufacturingExecutionId,
             1);
         await EnsureNextWorkItemAsync(
             connection,
@@ -1548,7 +1618,7 @@ public sealed class QualityInspectionStore(
             connection,
             transaction,
             projectId,
-            lqcAttemptId.Value,
+            handoffLqcAttemptId ?? manufacturingExecutionId,
             operationId,
             actorUserId,
             cancellationToken);
@@ -1573,6 +1643,11 @@ public sealed class QualityInspectionStore(
         if (replay.Result is not null) return replay.Result;
         var failed = await LockFailedAttemptByPendingAsync(connection, transaction, request.PendingId, accessScope, cancellationToken);
         if (failed is null) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
+        if (!await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+                connection, transaction, failed.StageCode, failed.ProjectId, cancellationToken))
+        {
+            return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict(StageOperationalMessage(failed.StageCode));
+        }
         if (!await HasStageAccessAsync(connection, transaction, failed.ProjectId, failed.WorkItemId, failed.StageCode, actorUserId, false, cancellationToken))
         {
             return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
@@ -1637,9 +1712,43 @@ public sealed class QualityInspectionStore(
         {
             return QualityInspectionMutationResult<QualityInspectionMutationResponse>.NotFound();
         }
-        var lqcAttemptId = await ReadLatestPassedAttemptAsync(connection, transaction, request.PanelId, QualityInspectionStages.Lqc, cancellationToken);
-        if (lqcAttemptId is null) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("LQC 합격 성적서를 먼저 확정해 주세요.");
-        var context = new HandoffContext(request.ProjectId, request.PanelId, work.PanelDisplayCode, project.FatRequired, QualityInspectionStages.ManufacturingCompleted, lqcAttemptId.Value, 1);
+        var lqcOperational = await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+            connection,
+            transaction,
+            QualityInspectionStages.Lqc,
+            request.ProjectId,
+            cancellationToken);
+        var lqcAttemptId = lqcOperational
+            ? await ReadLatestPassedAttemptAsync(connection, transaction, request.PanelId, QualityInspectionStages.Lqc, cancellationToken)
+            : null;
+        if (lqcOperational && lqcAttemptId is null)
+            return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("LQC 합격 성적서를 먼저 확정해 주세요.");
+
+        Guid manufacturingExecutionId;
+        await using (var execution = connection.CreateCommand())
+        {
+            execution.Transaction = transaction;
+            execution.CommandText = """
+                select id
+                from panel_manufacturing_executions
+                where project_id=@project_id
+                  and panel_id=@panel_id
+                  and status='Completed'
+                order by completed_at_utc desc nulls last,
+                         started_at_utc desc,
+                         id desc
+                limit 1;
+                """;
+            execution.Parameters.AddWithValue("project_id", request.ProjectId);
+            execution.Parameters.AddWithValue("panel_id", request.PanelId);
+            var result = await execution.ExecuteScalarAsync(cancellationToken);
+            if (result is not Guid id)
+                return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("완료된 제조 실적을 먼저 확인해 주세요.");
+            manufacturingExecutionId = id;
+        }
+
+        var handoffSourceId = lqcAttemptId ?? manufacturingExecutionId;
+        var context = new HandoffContext(request.ProjectId, request.PanelId, work.PanelDisplayCode, project.FatRequired, QualityInspectionStages.ManufacturingCompleted, handoffSourceId, 1);
         var next = await ResolveAssigneeAsync(connection, transaction, request.ProjectId, QualityInspectionStages.Oqc, cancellationToken);
         if (next is null) return QualityInspectionMutationResult<QualityInspectionMutationResponse>.Conflict("OQC 담당자를 지정한 뒤 다시 시도해 주세요.");
 
@@ -1648,8 +1757,13 @@ public sealed class QualityInspectionStore(
             command.Transaction = transaction;
             command.CommandText = """
                 insert into panel_manufacturing_completion_confirmations (
-                    project_id, panel_id, lqc_attempt_id, work_item_id, confirmed_by_user_id
-                ) values (@project_id, @panel_id, @attempt_id, @work_item_id, @actor_id)
+                    project_id, panel_id, manufacturing_execution_id, lqc_attempt_id,
+                    handoff_basis, work_item_id, confirmed_by_user_id
+                )
+                values (
+                    @project_id, @panel_id, @manufacturing_execution_id, @attempt_id,
+                    @handoff_basis, @work_item_id, @actor_id
+                )
                 on conflict (panel_id) do nothing;
                 update work_items
                 set status = 'Completed', started_at_utc = coalesce(started_at_utc, now()),
@@ -1658,13 +1772,15 @@ public sealed class QualityInspectionStore(
                 """;
             command.Parameters.AddWithValue("project_id", request.ProjectId);
             command.Parameters.AddWithValue("panel_id", request.PanelId);
-            command.Parameters.AddWithValue("attempt_id", lqcAttemptId.Value);
+            command.Parameters.AddWithValue("manufacturing_execution_id", manufacturingExecutionId);
+            command.Parameters.Add("attempt_id", NpgsqlDbType.Uuid).Value = lqcAttemptId ?? (object)DBNull.Value;
+            command.Parameters.AddWithValue("handoff_basis", lqcOperational ? "ManufacturingAndLqc" : "ManufacturingOnly");
             command.Parameters.AddWithValue("work_item_id", work.WorkItemId);
             command.Parameters.AddWithValue("actor_id", actorUserId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
         await EnsureNextWorkItemAsync(connection, transaction, context, next, actorUserId, cancellationToken);
-        await EnsureProjectConfirmationEventIfCompleteAsync(connection, transaction, request.ProjectId, lqcAttemptId.Value, request.OperationId, actorUserId, cancellationToken);
+        await EnsureProjectConfirmationEventIfCompleteAsync(connection, transaction, request.ProjectId, handoffSourceId, request.OperationId, actorUserId, cancellationToken);
         var response = new QualityInspectionMutationResponse(
             request.OperationId, request.ProjectId, request.PanelId, QualityInspectionStages.ManufacturingCompleted,
             lqcAttemptId, null, "Confirmed", 1, null, null, QualityInspectionStages.Oqc, false);
@@ -2220,9 +2336,18 @@ public sealed class QualityInspectionStore(
     }
 
     private static async Task<Guid?> ReadActiveTemplateVersionAsync(
-        NpgsqlConnection connection, NpgsqlTransaction transaction, string stageCode,
+        NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, string stageCode,
         CancellationToken cancellationToken)
     {
+        if (string.Equals(stageCode, QualityInspectionStages.Lqc, StringComparison.Ordinal))
+        {
+            return (await WorkflowStageOperations.ReadProjectLqcSnapshotAsync(
+                connection,
+                transaction,
+                projectId,
+                cancellationToken))?.TemplateVersionId;
+        }
+
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "select id from panel_quality_template_versions where stage_code = @stage_code and is_active = true;";
@@ -3266,6 +3391,10 @@ public sealed class QualityInspectionStore(
         "PackingCompleted" => "포장",
         _ => stageCode
     };
+    private static string StageOperationalMessage(string stageCode) =>
+        string.Equals(stageCode, QualityInspectionStages.Lqc, StringComparison.Ordinal)
+            ? "이 프로젝트는 생성 당시 해당 Item의 LQC 운영 중지로 확정되었습니다. 기존 성적서와 이력은 조회할 수 있습니다."
+            : $"{StageLabel(stageCode)} 단계는 현재 운영 중지 상태입니다.";
     private static string PrimaryResponsibility(string stageCode) => stageCode switch
     {
         QualityInspectionStages.Lqc => "QualityLQC",
@@ -3308,6 +3437,7 @@ public sealed class QualityInspectionStore(
         Guid PanelId,
         string PanelDisplayCode,
         bool FatRequired,
+        bool LqcOperational,
         Guid? LqcAttemptId,
         string? LqcStatus,
         Guid? OqcAttemptId,

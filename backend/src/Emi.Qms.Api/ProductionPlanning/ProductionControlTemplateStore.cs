@@ -17,19 +17,21 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         var domains = isSystemAdministrator
             ? new HashSet<string>(["Manufacturing", "ProductionPlanning"], StringComparer.Ordinal)
             : await ReadDomainsAsync(connection, null, userId, cancellationToken);
-        var productTypes = new List<(Guid Id, string Code, string Name)>();
+        var productTypes = new List<(Guid Id, string Code, string Name, bool LqcOperational)>();
         await using (var command = connection.CreateCommand())
         {
             command.CommandText = """
-                select id, code, name
-                from production_product_types
-                where is_active
-                order by code;
+                select product_type.id, product_type.code, product_type.name,
+                       coalesce(setting.is_operational, false)
+                from production_product_types product_type
+                left join lqc_item_settings setting on setting.product_type_id = product_type.id
+                where product_type.is_active
+                order by product_type.code;
                 """;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                productTypes.Add((reader.GetGuid(0), reader.GetString(1), reader.GetString(2)));
+                productTypes.Add((reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetBoolean(3)));
             }
         }
 
@@ -40,6 +42,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                 productType.Id,
                 productType.Code,
                 productType.Name,
+                productType.LqcOperational,
                 await ReadManufacturingVersionsAsync(connection, null, productType.Id, cancellationToken),
                 await ReadPlanVersionsAsync(connection, null, productType.Id, cancellationToken)));
         }
@@ -122,6 +125,14 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await DemandAccessAsync(connection, transaction, actorUserId, isSystemAdministrator, "ProductionPlanning", cancellationToken);
+        if (request.Items.SelectMany(item => item.Connections)
+            .Any(item => NormalizeSourceCode(item.SourceCode) == ProductionControlSourceCodes.LqcPassed)
+            && !await IsLqcOperationalAsync(connection, transaction, productTypeId, cancellationToken))
+        {
+            throw new ArgumentException(
+                "LQC는 현재 운영 중지 상태입니다. 생산계획 실적 연결을 제조 단계 완료 등 운영 중인 항목으로 변경해 주세요.",
+                "connections");
+        }
         var templateId = await EnsureTemplateAsync(connection, transaction, "ProductionPlanning", productTypeId, cancellationToken);
         await LockCurrentAsync(connection, transaction, "ProductionPlanning", templateId, versionId, request.ExpectedRowVersion, cancellationToken);
         var existingKeys = await ReadDefinitionKeysAsync(connection, transaction, "ProductionPlanning", versionId, cancellationToken);
@@ -362,23 +373,25 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         {
             [ProductionControlSourceCodes.IqcPassed] = []
         };
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            select 'IQC_PASSED', item.definition_key, item.label, item.display_order
-            from iqc_report_templates template
-            join iqc_report_template_versions version
-              on version.template_id=template.id
-             and version.lifecycle_status='Active'
-            join iqc_report_template_items item on item.template_version_id=version.id
-            where template.template_code='MATERIAL_IQC'
-              and item.response_type='Check'
-            order by item.display_order;
-            """;
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        await using (var command = connection.CreateCommand())
         {
-            definitions[reader.GetString(0)].Add(new(reader.GetGuid(1), reader.GetString(2)));
+            command.Transaction = transaction;
+            command.CommandText = """
+                select 'IQC_PASSED', item.definition_key, item.label, item.display_order
+                from iqc_report_templates template
+                join iqc_report_template_versions version
+                  on version.template_id=template.id
+                 and version.lifecycle_status='Active'
+                join iqc_report_template_items item on item.template_version_id=version.id
+                where template.template_code='MATERIAL_IQC'
+                  and item.response_type='Check'
+                order by item.display_order;
+                """;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                definitions[reader.GetString(0)].Add(new(reader.GetGuid(1), reader.GetString(2)));
+            }
         }
 
         return ProductionControlSourceCodes.Catalog
@@ -386,6 +399,19 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                 ? source with { Definitions = items }
                 : source)
             .ToArray();
+    }
+
+    private static async Task<bool> IsLqcOperationalAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid productTypeId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select coalesce((select is_operational from lqc_item_settings where product_type_id=@product_type_id), false);";
+        command.Parameters.AddWithValue("product_type_id", productTypeId);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 
     private static Guid ResolveDefinitionKey(Guid? requested, HashSet<Guid> existing)

@@ -188,9 +188,13 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         if (!string.Equals(stageCode, WorkflowStageCodes.SalesProjectCreated, StringComparison.Ordinal)
             && StageToNextStage.TryGetValue(stageCode, out var nextStageCode))
         {
+            var effectiveNextStageCode = string.Equals(nextStageCode, WorkflowStageCodes.LQC, StringComparison.Ordinal)
+                && !project.LqcOperational
+                    ? WorkflowStageCodes.ManufacturingCompleted
+                    : nextStageCode;
             var nextStageCodes = string.Equals(stageCode, WorkflowStageCodes.ProductionPlanning, StringComparison.Ordinal)
-                ? new[] { nextStageCode, WorkflowStageCodes.ProcurementInfo }
-                : new[] { nextStageCode };
+                ? new[] { effectiveNextStageCode, WorkflowStageCodes.ProcurementInfo }
+                : new[] { effectiveNextStageCode };
             foreach (var activatedStageCode in nextStageCodes)
             {
                 if (!StageResponsibilities.TryGetValue(activatedStageCode, out var target)) continue;
@@ -392,6 +396,15 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             left join project_workflow_events e on e.project_id = @project_id and e.stage_code = ws.stage_code
             left join work_items wi on wi.project_id = @project_id and wi.workflow_stage_code = ws.stage_code
             where ws.is_active = true
+              and (
+                  ws.stage_code <> 'LQC'
+                  or exists (
+                      select 1
+                      from projects project
+                      where project.id = @project_id
+                        and project.lqc_operational_snapshot
+                  )
+              )
             group by ws.stage_code, ws.sequence_number, ws.department_code, ws.stage_name, ws.is_optional
             order by ws.sequence_number;
             """;
@@ -1376,8 +1389,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 where project.id = @project_id
             ),
             assignee_summary as (
-                select count(*) filter (
-                    where responsibility_type in (
+                select (
+                    count(distinct responsibility_type) filter (
+                        where responsibility_type in (
                         'SalesPrimary',
                         'DesignPrimary',
                         'ProductionPlanningPrimary',
@@ -1386,11 +1400,19 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                         'ManufacturingPrimary',
                         'LogisticsPrimary',
                         'QualityIQC',
-                        'QualityLQC',
                         'QualityOQC',
                         'QualityCustomerInspection'
+                        )
+                          and assigned_user_id is not null
                     )
-                      and assigned_user_id is not null
+                    + case when exists (
+                        select 1 from projects project
+                        where project.id = @project_id
+                          and project.lqc_operational_snapshot
+                    ) then count(distinct responsibility_type) filter (
+                        where responsibility_type = 'QualityLQC'
+                          and assigned_user_id is not null
+                    ) else 1 end
                 )::int as assigned_count
                 from project_assignees
                 where project_id = @project_id
@@ -1549,18 +1571,12 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 from latest_quality_attempts
             ),
             manufacturing_confirmation_summary as (
-                select count(distinct ready.panel_id)::int as ready_panel_count
-                from (
-                    select execution.panel_id
-                    from panel_manufacturing_executions execution
-                    where execution.project_id = @project_id
-                      and execution.status = 'Completed'
-                    intersect
-                    select attempt.panel_id
-                    from latest_quality_attempts attempt
-                    where attempt.stage_code = 'LQC'
-                      and attempt.status = 'Passed'
-                ) ready
+                select count(distinct confirmation.panel_id)::int as ready_panel_count
+                from panel_manufacturing_completion_confirmations confirmation
+                join panel_placeholders panel
+                  on panel.id = confirmation.panel_id
+                 and panel.status = 'Active'
+                where confirmation.project_id = @project_id
             ),
             logistics_summary as (
                 select
@@ -1755,7 +1771,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select p.id, p.project_title, p.project_code, p.sales_owner_user_id, u.is_active
+            select p.id, p.project_title, p.project_code, p.sales_owner_user_id, u.is_active,
+                   p.lqc_operational_snapshot
             from projects p
             left join qms_users u on u.id = p.sales_owner_user_id
             where p.id = @project_id
@@ -1774,7 +1791,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             reader.GetString(1),
             reader.GetString(2),
             reader.IsDBNull(3) ? null : reader.GetGuid(3),
-            !reader.IsDBNull(4) && reader.GetBoolean(4));
+            !reader.IsDBNull(4) && reader.GetBoolean(4),
+            reader.GetBoolean(5));
     }
 
     private static async Task<StageSnapshot?> ReadStageAsync(
@@ -2960,7 +2978,8 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         string ProjectTitle,
         string ProjectCode,
         Guid? SalesOwnerUserId,
-        bool SalesOwnerIsActive);
+        bool SalesOwnerIsActive,
+        bool LqcOperational);
 
     private sealed record WorkflowCompletionFacts(
         int ActivePanelCount = 0,

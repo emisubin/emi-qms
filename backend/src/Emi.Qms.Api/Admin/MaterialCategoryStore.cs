@@ -22,10 +22,13 @@ public sealed class MaterialCategoryStore(
 
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
-            select id, code, display_name, requires_iqc, is_active, display_order, row_version
-            from material_categories
-            where @include_inactive or is_active
-            order by is_active desc, display_order, display_name, id;
+            select category.id, category.code, category.display_name,
+                   setting.is_enabled, setting.decision_mode,
+                   category.is_active, category.display_order, category.row_version
+            from material_categories category
+            join material_category_iqc_settings setting on setting.material_category_id=category.id
+            where @include_inactive or category.is_active
+            order by category.is_active desc, category.display_order, category.display_name, category.id;
             """);
         command.Parameters.AddWithValue("include_inactive", includeInactive);
         var items = new List<MaterialCategoryResponse>();
@@ -45,10 +48,6 @@ public sealed class MaterialCategoryStore(
     {
         var displayName = NormalizeDisplayName(request.DisplayName);
         var displayOrder = ValidateOrder(request.DisplayOrder);
-        if (request.RequiresIqc is null)
-        {
-            throw new ArgumentException("IQC 필요 여부를 선택해 주세요.", nameof(request.RequiresIqc));
-        }
         await DemandManageAsync(actorUserId, isSystemAdministrator, cancellationToken);
 
         await using var dataSource = CreateDataSource();
@@ -62,21 +61,51 @@ public sealed class MaterialCategoryStore(
             command.Transaction = transaction;
             command.CommandText = """
                 insert into material_categories (
-                    id, code, display_name, requires_iqc, display_order,
+                    id, code, display_name, display_order,
                     created_by_user_id, updated_by_user_id
                 )
                 values (
-                    @id, @code, @display_name, @requires_iqc, @display_order,
+                    @id, @code, @display_name, @display_order,
                     @actor_id, @actor_id
                 );
                 """;
             command.Parameters.AddWithValue("id", categoryId);
             command.Parameters.AddWithValue("code", code);
             command.Parameters.AddWithValue("display_name", displayName);
-            command.Parameters.AddWithValue("requires_iqc", request.RequiresIqc.Value);
             command.Parameters.AddWithValue("display_order", displayOrder);
             command.Parameters.AddWithValue("actor_id", actorUserId);
             await command.ExecuteNonQueryAsync(cancellationToken);
+            var templateId = Guid.NewGuid();
+            var templateVersionId = Guid.NewGuid();
+            await using (var template = connection.CreateCommand())
+            {
+                template.Transaction = transaction;
+                template.CommandText = """
+                    insert into iqc_report_templates (
+                        id,template_code,display_name,is_system,material_category_id
+                    ) values (@template_id,@template_code,@template_name,false,@category_id);
+
+                    insert into iqc_report_template_versions (
+                        id,template_id,version_number,is_active,activated_at_utc,
+                        lifecycle_status,row_version,created_by_user_id,updated_by_user_id
+                    ) values (
+                        @version_id,@template_id,1,true,now(),
+                        'Active',1,@actor_id,@actor_id
+                    );
+
+                    insert into material_category_iqc_settings (
+                        material_category_id,is_enabled,decision_mode,current_template_version_id,
+                        updated_by_user_id
+                    ) values (@category_id,false,'ScanBased',@version_id,@actor_id);
+                    """;
+                template.Parameters.AddWithValue("template_id", templateId);
+                template.Parameters.AddWithValue("template_code", $"CATEGORY_IQC_{code}");
+                template.Parameters.AddWithValue("template_name", $"{displayName} 수입검사");
+                template.Parameters.AddWithValue("category_id", categoryId);
+                template.Parameters.AddWithValue("version_id", templateVersionId);
+                template.Parameters.AddWithValue("actor_id", actorUserId);
+                await template.ExecuteNonQueryAsync(cancellationToken);
+            }
             await AppendAuditAsync(
                 connection,
                 transaction,
@@ -84,7 +113,7 @@ public sealed class MaterialCategoryStore(
                 "Created",
                 actorUserId,
                 null,
-                Snapshot(displayName, request.RequiresIqc.Value, true, displayOrder),
+                Snapshot(displayName, false, true, displayOrder),
                 cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
@@ -108,9 +137,9 @@ public sealed class MaterialCategoryStore(
         }
         var displayName = NormalizeDisplayName(request.DisplayName);
         var displayOrder = ValidateOrder(request.DisplayOrder);
-        if (request.RequiresIqc is null || request.IsActive is null)
+        if (request.IsActive is null)
         {
-            throw new ArgumentException("IQC 필요 여부와 사용 상태를 선택해 주세요.", "request");
+            throw new ArgumentException("사용 상태를 선택해 주세요.", "request");
         }
         await DemandManageAsync(actorUserId, isSystemAdministrator, cancellationToken);
 
@@ -122,10 +151,13 @@ public sealed class MaterialCategoryStore(
         {
             read.Transaction = transaction;
             read.CommandText = """
-                select id, code, display_name, requires_iqc, is_active, display_order, row_version
-                from material_categories
-                where id=@id
-                for update;
+                select category.id, category.code, category.display_name,
+                       setting.is_enabled, setting.decision_mode,
+                       category.is_active, category.display_order, category.row_version
+                from material_categories category
+                join material_category_iqc_settings setting on setting.material_category_id=category.id
+                where category.id=@id
+                for update of category;
                 """;
             read.Parameters.AddWithValue("id", categoryId);
             await using var reader = await read.ExecuteReaderAsync(cancellationToken);
@@ -147,7 +179,6 @@ public sealed class MaterialCategoryStore(
             update.CommandText = """
                 update material_categories
                 set display_name=@display_name,
-                    requires_iqc=@requires_iqc,
                     is_active=@is_active,
                     display_order=@display_order,
                     row_version=row_version+1,
@@ -156,7 +187,6 @@ public sealed class MaterialCategoryStore(
                 where id=@id and row_version=@expected_version;
                 """;
             update.Parameters.AddWithValue("display_name", displayName);
-            update.Parameters.AddWithValue("requires_iqc", request.RequiresIqc.Value);
             update.Parameters.AddWithValue("is_active", request.IsActive.Value);
             update.Parameters.AddWithValue("display_order", displayOrder);
             update.Parameters.AddWithValue("actor_id", actorUserId);
@@ -165,6 +195,18 @@ public sealed class MaterialCategoryStore(
             if (await update.ExecuteNonQueryAsync(cancellationToken) != 1)
             {
                 throw new FormTemplateConflictException("구매품 구분이 변경되었습니다. 새로고침해 주세요.");
+            }
+            await using (var template = connection.CreateCommand())
+            {
+                template.Transaction = transaction;
+                template.CommandText = """
+                    update iqc_report_templates
+                    set display_name=@display_name
+                    where material_category_id=@category_id;
+                    """;
+                template.Parameters.AddWithValue("display_name", $"{displayName} 수입검사");
+                template.Parameters.AddWithValue("category_id", categoryId);
+                await template.ExecuteNonQueryAsync(cancellationToken);
             }
             var action = current.IsActive == request.IsActive
                 ? "Updated"
@@ -176,7 +218,7 @@ public sealed class MaterialCategoryStore(
                 action,
                 actorUserId,
                 Snapshot(current.DisplayName, current.RequiresIqc, current.IsActive, current.DisplayOrder),
-                Snapshot(displayName, request.RequiresIqc.Value, request.IsActive.Value, displayOrder),
+                Snapshot(displayName, current.RequiresIqc, request.IsActive.Value, displayOrder),
                 cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
@@ -247,9 +289,10 @@ public sealed class MaterialCategoryStore(
         reader.GetString(1),
         reader.GetString(2),
         reader.GetBoolean(3),
-        reader.GetBoolean(4),
-        reader.GetInt32(5),
-        reader.GetInt32(6));
+        reader.GetString(4),
+        reader.GetBoolean(5),
+        reader.GetInt32(6),
+        reader.GetInt32(7));
 
     private static object Snapshot(string name, bool requiresIqc, bool isActive, int displayOrder)
         => new { displayName = name, requiresIqc, isActive, displayOrder };

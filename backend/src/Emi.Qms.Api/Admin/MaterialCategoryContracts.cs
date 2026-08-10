@@ -5,6 +5,7 @@ public sealed record MaterialCategoryResponse(
     string Code,
     string DisplayName,
     bool RequiresIqc,
+    string IqcDecisionMode,
     bool IsActive,
     int DisplayOrder,
     int RowVersion);
@@ -15,12 +16,10 @@ public sealed record MaterialCategoryCatalogResponse(
 
 public sealed record CreateMaterialCategoryRequest(
     string? DisplayName,
-    bool? RequiresIqc,
     int? DisplayOrder);
 
 public sealed record UpdateMaterialCategoryRequest(
     int? ExpectedRowVersion,
     string? DisplayName,
-    bool? RequiresIqc,
     bool? IsActive,
     int? DisplayOrder);

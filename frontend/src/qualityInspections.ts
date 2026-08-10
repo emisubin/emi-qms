@@ -4,6 +4,8 @@ export type QualityCheckResult = 'Pass' | 'Fail' | 'NotApplicable';
 
 export interface QualityInspectionQueueResponse {
   projects: QualityInspectionProject[];
+  isOperational?: boolean;
+  operationalMessage?: string | null;
 }
 
 export interface QualityInspectionReconciliationResponse {

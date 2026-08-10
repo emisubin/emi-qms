@@ -1,9 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { ensureLqcOperational } from './lqc-operating-fixture';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const salesOwnerUserId = '50000000-0000-0000-0000-000000000002';
 const qualityUserId = '50000000-0000-0000-0000-000000000005';
+
+test.beforeEach(async ({ request }) => {
+  await ensureLqcOperational(request);
+});
 
 test('TASK-WORKFLOW-CONTINUITY-001: manufacturing opens step-aligned LQC and joint completion opens OQC', async ({ page, request }) => {
   test.setTimeout(180_000);

@@ -137,7 +137,7 @@ EMI 프로젝트 통합관리시스템은 단순 품질관리시스템이 아니
 
 ## 4. 18단계 표준 업무 프로세스
 
-18단계 업무 프로세스는 현재 시스템의 표준 흐름이다. 화면 구현 순서와 workflow 표시 순서는 이 기준과 일치해야 한다.
+18단계 업무 프로세스 catalog는 현재 시스템의 표준 흐름이다. 화면 구현 순서와 workflow 표시 순서는 이 기준과 일치해야 한다. 단, 2026-08-05 현장 운영 결정에 따라 LQC 적용 여부는 Item별로 관리하고 프로젝트 생성 시점에 고정한다. LQC 운영 중지로 생성된 프로젝트에서는 활성 workflow·진행률·필수 담당자에서 LQC를 제외하고 제조 완료 뒤 OQC로 직접 인계한다.
 
 특히 2번은 생산관리, 3번은 설계다.
 
@@ -151,9 +151,9 @@ EMI 프로젝트 통합관리시스템은 단순 품질관리시스템이 아니
 | 6 | 품질 | 수입검사 | 구매품목의 개별 도착분 | IQC 체크, 값 입력, 외함 사진, 적합/부적합 | 도착분 IQC 적합 또는 Pending 등록 | 자재: 입고 확정 | 구매, 생산관리 참조 | 패널 검사가 아니며 부적합 시 Pending List |
 | 7 | 자재 | 입고 확정 | 구매품목 | 입고 확정, 사용 가능 처리 | IQC 적합품 입고 확정 | 자재: 키팅 완료 | 생산관리 참조 | 구매품목 단위 |
 | 8 | 자재 | 키팅 완료 알림 | 패널 | 키팅 완료 여부, 부분/일괄 처리 | 선택형 준비 정보 등록 | 없음 | 생산관리, 제조 참조 | 선택 단계. 제조 투입 요청·시작을 차단하지 않음 |
-| 9 | 제조 | 제조 작업 | 패널 및 제조 단계 | 작업 시작, 작업 체크, 작업 종료, 중단 사유 | 제조 단계 작업 완료 | 품질: LQC 입력 | 생산관리 참조 | 제조 중단은 Pending List |
-| 10 | 품질 | LQC | 패널 또는 검사 단위 | LQC 체크리스트, 값, 사진, 적합/부적합 | LQC 적합 또는 Pending 등록 | 제조: 제조 완료 입력 | 제조, 생산관리 참조 | 상세 양식 회신 대기 |
-| 11 | 제조 | 제조 완료 | 패널 | 제조 완료 체크, 완료일 | 제조 완료 처리 | 품질: 자체검수 입력 | 생산관리 참조 | 완료 후 OQC로 연결 |
+| 9 | 제조 | 제조 작업 | 패널 및 제조 단계 | 작업 시작, 작업 체크, 작업 종료, 중단 사유 | 제조 단계 작업 완료 | 품질: LQC 또는 자체검수 입력 | 생산관리 참조 | 프로젝트 생성 시 LQC 운영 중지로 고정된 경우 OQC 직접 인계. 제조 중단은 Pending List |
+| 10 | 품질 | LQC | 패널 또는 검사 단위 | Item별 LQC 체크리스트, 값, 사진, 적합/부적합 | LQC 적용 프로젝트는 적합 또는 Pending 등록, 미적용 프로젝트는 제외 | 제조: 제조 완료 입력 | 제조, 생산관리 참조 | Item별 운영 상태·양식을 프로젝트 생성 시 snapshot. 기존 프로젝트·과거 이력 보존 |
+| 11 | 제조 | 제조 완료 | 패널 | 제조 완료 체크, 완료일 | 제조 완료 처리 | 품질: 자체검수 입력 | 생산관리 참조 | 프로젝트의 LQC snapshot에 따라 제조 단독 또는 제조+LQC 근거로 OQC 연결 |
 | 12 | 품질 | 자체검수 | 패널 | OQC 단계별 적합/부적합, 값, 사진 | OQC 체크항목 완료 및 통합 판정 또는 Pending 등록 | 품질: 전진검수 입력 | 제조, 생산관리 참조 | 패널별 단계형 검사. 상세 양식 content는 회신 대기 |
 | 13 | 품질 | 전진검수 | 패널 | 단계 없는 통합 적합/부적합, 판정 근거, PUNCH LIST | 패널별 통합 판정 완료 또는 Pending 등록 | 품질: FAT 또는 물류: 포장 완료 | 영업, 생산관리 참조 | 패널당 판정 1회 |
 | 14 | 품질 | FAT 선택 | 패널 | 단계 없는 통합 적합/부적합, 고객 확인, PUNCH LIST | FAT 필요 시 패널별 통합 판정 완료 또는 Pending 등록 | 물류: 포장 완료 | 영업, 생산관리 참조 | 선택 단계, 패널당 판정 1회. FAT 불필요 프로젝트는 제외 |
@@ -177,7 +177,7 @@ EMI 프로젝트 통합관리시스템은 단순 품질관리시스템이 아니
 품질은 검사 단계별 정/부 담당자를 가진다.
 
 - IQC 수입검사 정/부
-- LQC 정/부
+- LQC 정/부(프로젝트 생성 시 LQC 운영 중지로 고정된 프로젝트에서는 필수 지정에서 제외)
 - OQC 자체검수 정/부
 - 전진검수/FAT 정/부
 
@@ -669,7 +669,7 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 공통 원칙:
 
 - 검사성적서를 웹사이트에 적용한다.
-- 프로젝트 품질 탭은 `수입검사(IQC)`와 `후속검사`를 구분해 같은 프로젝트의 도착분별 IQC와 LQC·OQC·전진검수·FAT를 함께 조회한다.
+- 프로젝트 품질 탭은 `수입검사(IQC)`와 `후속검사`를 구분해 같은 프로젝트의 도착분별 IQC와 LQC·OQC·전진검수·FAT를 함께 조회한다. LQC는 프로젝트 생성 시 snapshot된 운영 상태에 따라 입력 또는 과거 이력 조회만 허용한다.
 - 휴대폰에서 체크 클릭과 값 입력이 가능해야 한다.
 - 사진 등록이 가능해야 한다.
 - 검사성적서 PDF 출력이 필요하다.
@@ -683,7 +683,7 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 | 검사 | 입력 단위 | 주요 입력 | 사진 | 상태 |
 | --- | --- | --- | --- | --- |
 | IQC | 구매품목의 개별 도착분 | 수입검사서 체크, 값 입력, 적합/부적합 | 외함 사진 필수 | 패널과 분리된 도착분 검사 |
-| LQC | 패널 또는 검사 단위 | LQC 성적서 입력 | 필수 위치 회신 대기 | 입력 방식 회신 대기 |
+| LQC | 패널 또는 검사 단위 | 프로젝트에 고정된 Item별 LQC 성적서 입력 | 필수 위치 회신 대기 | Item별 운영 상태·양식을 프로젝트 생성 시 고정. 미적용 프로젝트는 진행률에서 제외하고 과거 이력만 조회 |
 | OQC | 패널 | 단계별 적합/부적합 자체검수 성적서 | 필수 위치 회신 대기 | 단계형 검사, 상세 content 회신 대기 |
 | 전진검수 | 패널 | 단계 없는 통합 적합/부적합, 판정 근거, PUNCH LIST | 필요 시 첨부 | 패널당 1단위 필수 단계 |
 | FAT | 패널 | 단계 없는 통합 적합/부적합, 고객 확인, PUNCH LIST | 필요 시 첨부 | 패널당 1단위 선택 단계 |
@@ -715,6 +715,7 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 - 중단 사유는 Pending List에 제조 중단 유형으로 등록한다.
 - 조치 담당 부서를 지정할 수 있어야 한다.
 - 제조 중단은 긴급/차단 알림 대상이다.
+- LQC 운영 중지로 생성된 프로젝트에서는 제조 시작 시 LQC 담당자·업무를 요구하지 않고, 제조 완료 transaction이 제조완료확인과 OQC 업무를 직접 생성한다. LQC 합격을 가장하는 record나 event는 만들지 않는다.
 
 ## 15. Pending List 공통 모듈
 
@@ -1015,7 +1016,7 @@ Excel 출력 대상 후보:
 | 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Experiment Complete | 2-pass planning·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-009A·011A·012A experiment model | 실제 운영 양식 content 입력은 후속 change | Yes | 재구현 금지; 최종 일괄 검수 |
 | 3.3A | TASK-PRODUCTION-CONTROL-001 Item별 생산계획·자동 실적·가로 막대 일정 | NEW_FEATURE / BUGFIX | Change 010 Main Merged / Azure Released | 본체와 Change 002~009의 원격 main 반영·사용자 검수 완료. Change 010은 같은 현재 양식의 후행 재선택이 빠른 편집 진입을 취소하던 P2를 최소 보정하고 PR #81·main CI 뒤 Change 020 Azure 운영 image에 동기화 | TASK-ADMIN-002·생산계획·구매·자재·제조·품질·물류 원본 데이터 | 기존 프로젝트는 Legacy/snapshot 유지 | Yes | 운영 관찰. 제품 다음 Gate는 별도 승인 Task |
 | 3.3B | TASK-UL891-PRODUCTION-PLAN-001 실물 세트별 생산계획 | NEW_FEATURE | Change 004 Main Merged / Azure Released / User Validation Complete | Fable 2-pass 본체와 Change 002~008의 전체 세트 기본계획·실적 연결 편집·일정표 색/날짜선/테두리·담당자 표시를 통합 원격 `main` 기준선에 이식. UL891 단일 현재 설계·활성 42면 projection·migration `0068`과 제조·품질·물류 현재 순번 `1..42`·영구 code `P52` 분리를 자동·실제 화면에서 검증. Change 020 최신 main 운영 release로 통합 image 동기화 완료 | TASK-PRODUCTION-CONTROL-001·TASK-UL891-SET-001·DESIGN-000 Change 006·TASK-EXPERIMENT-PROMOTION-001 Change 002 | 없음. 운영 관찰 유지 | Yes | 완료 scope 재구현 금지; 운영 관찰 |
-| 3.3C | TASK-TEAMS-PWA-001 — Teams 실행 화면·PWA 설치·브랜드 통일 | BUGFIX | Change 010 Local Implemented / Publication Pending | Change 001~003·007·009 운영 rollout 완료. Change 010은 Easy Auth 보호 manifest의 credential 포함 연결과 회귀 검사를 local 구현 | Azure Easy Auth·Teams Activity 10종·기존 웹 MSAL·PWA icon·TASK-DESIGN-LOGIN-001 Change 010 | Change 010 원격 main·Azure 운영 반영 뒤 Android 설치 버튼·native 확인창 사용자 재검수. Web Push는 별도 NEW_FEATURE | Yes | 게시 승인·실제 Android 재검수 |
+| 3.3C | TASK-TEAMS-PWA-001 — Teams 실행 화면·PWA 설치·브랜드 통일 | BUGFIX | Change 010 Main Merged / Azure Released / Android User Validation Complete | Change 001~003·007·009·010 운영 rollout 완료. Change 010은 Easy Auth 보호 manifest의 credential 포함 연결을 PR #88·release `31366150022`로 반영했고 실제 Android 설치 안내·버튼·native 확인창·standalone을 사용자가 최종 검수 | Azure Easy Auth·Teams Activity 10종·기존 웹 MSAL·PWA icon·TASK-DESIGN-LOGIN-001 Change 010 | PC·Teams·출력물 등 남은 운영 표면 검수는 체크리스트에 유지. Web Push는 별도 NEW_FEATURE | No | 운영 관찰·남은 표면 검수; Web Push 후속 기획 |
 | 3.4 | TASK-PENDING-TYPE-001 Pending 유형 관리 | NEW_FEATURE | Experiment Complete | Fable 2-pass·local 구현·자동 검증·desktop/mobile 증빙 완료 / `BATCHED_FINAL` | TASK-007A experiment 완료·안정화 | catalog 설정 자체 Excel export는 P3 backlog, 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수. 승격은 별도 UAT Task |
 | 4.1 | TASK-013A 물류 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-012A experiment scope 완료 | 실제 포장·서명본 양식은 후속 change | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.2 | TASK-014A 정산·완료 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-007B·013A experiment scope 완료 | 운영 정산 정책 실데이터 검수 대기 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
@@ -1025,7 +1026,7 @@ Excel 출력 대상 후보:
 | 4.4 | TASK-QR-001 — 패널 QR 발급·인쇄·인증 스캔 랜딩 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment planning·implementation·automated validation complete / `BATCHED_FINAL` | MOBILE-001·제조 흐름·TASK-003B `qrEligible` | 대표 repo·main·Persistent UAT 미반영 | Yes | experiment 재구현 금지; 최종 일괄 검수 |
 | 4.5 | TASK-WORKFLOW-CONTINUITY-001 — 실제 담당자 부서 간 연속 인계 보정 | P2_REMEDIATION | Local Main Merged / Remote Unpublished | Change 005~009 IQC·Pending·입고·알림·패널별 제조/품질/물류 인계, Change 010 실데이터 흐름·누락 인계 재조정, Change 011 LQC·OQC 원자 확정·dialog 오류 복구, Change 012 전 부서 Pending 코멘트·부적합 항목 재검사·LQC 누락 복구, Change 013 재검사 최종 전체 결과 합성·물류 증빙 선첨부 1회 확정·초안 자동 복구, Change 014 상세·전체 흐름 진행률 단일화·구매 완료 정책 정합, Change 015 체크리스트 파생 판정·재검사 실패 조치 재요청·입고 업무 요약, Change 016 패널별 출발·납품 선택, Change 017 업무 상태·정확 이동·Pending 참조 알림·생산관리 제조 요청 인계 자동 검증·사용자 검수·local main 승격 완료 / `USER_VALIDATION_COMPLETE` | TASK-007A·008A·009A·011A·012A·013A·QR-001·E2E-FULL-SUITE-001 experiment 완료 | Remote push·Persistent UAT·실제 provider 미승인 | No | 완료 scope 재구현 금지; 원격 게시·runtime handover는 별도 승인 |
 | 4.6 | TASK-ATTACHMENT-001 — Pending 조치 사진과 재검사 근거 통합 | NEW_FEATURE | Local Main Merged / Remote Unpublished | Fable 2-pass·Pending 전용 bounded Draft→Confirmed 사진·회차 사유 snapshot·append-only evidence·IQC/LQC/OQC 재검사 근거 통합·migration 0066·자동 검증·사용자 검수·local main 승격 완료 | TASK-007A·009A·012A·WORKFLOW-CONTINUITY-001 experiment 완료 | 운영 storage 용량·scanner 활성화·backup/restore rehearsal·Remote push·Persistent UAT·실제 provider는 별도 운영 범위 | Yes | 완료 scope 재구현 금지; 원격 게시·runtime handover는 별도 승인 |
-| 4.7 | TASK-QUALITY-OPERATING-MODEL-001 — 구매품 구분 기반 외함 IQC | NEW_FEATURE | Local Main Merged / Remote Unpublished | Fable 2-pass·migration 0067·신규 프로젝트 구분 snapshot routing·비외함 `검사 대상 아님` 입고 확정·외함 서명 스캔본 적합/부적합·Pending 재검사 회차 보존·자동 검증·사용자 검수·promotion 전체 검증·local main 승격 완료 | TASK-008A·009A·ATTACHMENT-001 experiment 완료 | LQC·OQC·전진검수·FAT 운영 모델, 운영 storage/scanner, Remote push·Persistent UAT·실제 provider는 제외 | Yes | 완료 scope 재구현 금지; 원격 게시 또는 운영 전환은 별도 승인 |
+| 4.7 | TASK-QUALITY-OPERATING-MODEL-001 — 구매품 구분 기반 IQC / Change 004 Item별 LQC / Change 005 구분별 IQC 방식·양식 | APPROVED_FEATURE_IMPLEMENTATION | Change 006 User Validation Complete / Publication·Azure Release Approved | Change 004·005를 CI 정책이 반영된 최신 `origin/main` `12fd5194`에 선택 이식했다. migration `0070`·`0071`, Item별 LQC 생성 snapshot, 구분별 IQC 검사 없음·스캔형·상세형을 보존하고, 최종 전체 Backend `491/491`, Frontend `190/190`, Mock UI `8/8`, Full-Stack `57/57`과 독립 검증을 통과했다 | TASK-009A·TASK-ADMIN-002·TASK-012A·WORKFLOW-CONTINUITY-001·PRODUCTION-CONTROL-001·TASK-CI-COST-001 기존 계약 | 최신 PR head `CI Gate` 성공 전 merge·Azure 교체 금지. 기존 확정 IQC/LQC 증빙·Pending 삭제 금지 | Yes | PR·CI Gate → main merge → migration `0070`·`0071` → Backend·Frontend 운영 교체 |
 | 5.1 | DESIGN-000 Design foundation | P2_REMEDIATION | Change 006 Main Merged / User Validation Complete | Change 001~005 완료 foundation을 재구현하지 않고 독립 Graphite 실험의 공통 시각·구성, 장식용 왼쪽 rail 제거, table density, 클릭형 부서 disclosure와 업무 선택 전용 page 삭제를 최신 main fixed allowlist로 승격. 사용자 검수·local main merge 뒤 TASK-EXPERIMENT-PROMOTION-001 Change 002에서 Azure 원격 기준선과 통합하고 Change 003~004에서 UL891 사용자 수정까지 같은 기준선에 이식해 PR #65로 원격 main 반영 | 사용자 Graphite 구현·검수·local merge 승인, 2026-08-04 원격 통합·UL891 merge 승인 | Figma publish와 App route split은 범위 밖 | Yes | 완료 scope 재구현 금지; 다음 Gate는 통합 source Azure image 재배포 |
 | 5.2 | DESIGN-001 이후 화면 통일 | NEW_FEATURE | Experiment Complete | Automated validation·페이지 screenshot complete / `BATCHED_FINAL` | 로그인 shell, 후속 MOBILE-002와 DESIGN-000 foundation이 보완 | 없음. Figma publish는 optional 후속 | Yes | 완료 화면 통일 재구현 금지; 최종 일괄 검수 |
 | 5.3 | TASK-UX-001 Action Feedback | NEW_FEATURE | Experiment Complete | A1·A2 implementation, automated·isolated browser validation complete / `BATCHED_FINAL` | A1 공통 contract·내 업무·알림, A2 생산·구매·자재·IQC·키팅·패널·Excel 완료 | 대표 repo·main·Persistent UAT 미반영; 전역 toast/store·A2 밖 문자열 tone 정리는 제외 | Yes | 재구현 금지; 최종 일괄 검수 |
@@ -1163,7 +1164,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-DESIGN-LOGIN-001: Entra 로그인 공통 디자인 shell
 
-- 상태: Change 001~009 구현·자동·독립 검증·사용자 전체 검수·PR #49 merge 완료 / Change 010 모바일 로그인·지정 로그인 로고 PR #83 merge·Azure 운영 release 완료 / 실제 모바일 육안 검수 대기
+- 상태: Change 001~009 구현·자동·독립 검증·사용자 전체 검수·PR #49 merge 완료 / Change 010 모바일 로그인·지정 로그인 로고 PR #83 merge·Azure 운영 release 완료 / Android 육안 검수 완료·PC·iPhone 추가 관찰 대기
 - 순서 승인: 사용자가 History Support 대기 중 이 Frontend-only Task의 병렬 진행과 bounded worktree 사용을 명시 승인했다. 당시 history P2와 신규 기능 `NO_GO` 상태는 변경하지 않았다.
 - 목적: 기존 Entra 인증 정책과 request/cache 동작을 보존하면서 승인된 Figma 디자인을 인증 공통 shell과 Desktop 로그인 화면에 구현한다. Change 001에 따라 Mobile은 제외하고 로그인 화면에는 Figma에 존재하는 요소만 표시한다.
 - Figma 기준: node `1:175`, 1440×810 design context·screenshot·metadata·assets 재확인, variable definition 0. 로그인 상태 유지 `1:187`은 component set `1:160`의 `속성 1=베리언트2`; 기본은 white·`#737373`·icon 0, Variant 2는 `#DA2127`·white Done icon·`#282828`이다. Code Connect는 사용자 결정에 따라 향후 필수 구현·검수 Gate에서 제외한다.
@@ -1292,7 +1293,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-TEAMS-PWA-001: Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
-- 상태/다음 순서: Change 001~003·007·009 원격 main 병합·Azure 운영 rollout 완료 / Change 010 local 구현·게시 승인 대기 / 실제 Android 재검수 대기
+- 상태/다음 순서: Change 001~003·007·009·010 원격 main 병합·Azure 운영 rollout 완료 / Android 최종 사용자 검수 완료 / PC·Teams·출력물 등 남은 운영 표면 검수 대기
 - 목적: Teams tab 안의 iframe 로그인 실패를 보안 경계를 약화하지 않고 해소하며 Teams·웹·설치 앱·알림·문서의 사용자 표시명을 `EMI PMS`로 통일한다.
 - 구현 선택: Teams는 Activity Feed와 실행 진입점으로 사용한다. 개인 tab은 React 업무 bundle을 싣지 않는 작은 정적 launcher만 표시하고, 사용자가 누르면 Microsoft 365 인증으로 보호된 외부 웹/PWA를 새 창에서 연다. NAA·OBO·신규 token session은 추가하지 않는다.
 - 보안 경계: 익명 허용 대상은 launcher HTML·작은 script·브랜드 icon과 기존 health에 한정한다. 앱 shell·업무 bundle·manifest·API는 기존 Easy Auth 사전 인증을 계속 요구한다.
@@ -1303,7 +1304,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - Change 010: Azure Easy Auth로 보호된 same-origin PWA manifest link에 `crossorigin="use-credentials"`를 명시하고, 이 인증 계약이 빠지면 PWA asset 검사가 실패하게 한다. 팝업 정책·디자인·iPhone 절차·Backend·DB는 변경하지 않는다.
 - 산출물: [Identity Gate](../tasks/teams-pwa-001-identity-gate.md), [Interview](../tasks/teams-pwa-001-interview.md), [Planning](../tasks/teams-pwa-001-planning.md), [Codex review](../tasks/teams-pwa-001-review.md), [Change 001](../tasks/teams-pwa-001-change-001.md), [Change 007](../tasks/teams-pwa-001-change-007.md), [Change 008](../tasks/teams-pwa-001-change-008.md), [Change 009](../tasks/teams-pwa-001-change-009.md), [Implementation report](../tasks/teams-pwa-001-implementation-report.md), [User validation checklist](../tasks/teams-pwa-001-user-validation-checklist.md), 이 Roadmap update
 - 게시·운영 근거: PR #86 squash merge, merge SHA `e6a446268b0ce9aa7f9492af1e0bd4eb1a76191b`, main CI run `31360415559` `3/3`, Azure release `31361630803` 성공. 배포 뒤 health `200`, 익명 root·`/api/me` `401/401`을 확인했다.
-- 다음 Gate: Change 010을 게시·Azure 운영 반영한 뒤 Android Chrome 새 탭에서 설치 버튼 활성화와 native 설치 확인창을 사용자 재검수한다. Web Push는 수신 정책을 다시 확정하는 별도 `NEW_FEATURE`다.
+- 다음 Gate: Change 010의 Android 게시·운영·실제 기기 관문은 완료했다. PC·iPhone 전체 설치·Teams Activity·출력물 등 남은 운영 표면은 체크리스트에서 관찰하고, Web Push는 수신 정책을 다시 확정하는 별도 `NEW_FEATURE`다.
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 
@@ -1702,6 +1703,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 주요 테스트: 검사 결과, PUNCH, 재검사, FAT optional 처리
 - 2026-07-17 실험 재정렬 승인: 사용자의 experiment fast-track standing rule과 “다음 작업 시작” 요청에 따라 canonical 다음 `TASK-007A` Gate와 무관하게 현재 실험 계보에서 `TASK-012A` 기획·구현을 진행한다. 실제 고객 양식·필수 사진 위치·template 관리의 미확정 정책은 일반 v1 seed·optional 사진·후속 Task로 경계를 두며 canonical queue, 대표 repo·`main`·Persistent UAT·provider는 변경하지 않는다.
 - 2026-07-17 실험 상태: `experiment/task-012a-quality-inspections`에서 Fable 1차 기획, Codex review, review 기반 Fable 2차 기획과 local 구현·자동 검증을 완료했다. 사용자 검수는 `BATCHED_FINAL`로 마지막 일괄 대기다. `0035`는 isolated PostgreSQL과 disposable Full-Stack E2E DB에서만 검증했고, panel LQC → 제조완료확인 → OQC → 고객검수 → 선택 FAT/포장 skeleton, 사진·불변 성적서·PDF, 불합격/PUNCH Pending·재검사 계약을 구현했다. 대표 repo·`main`·Persistent UAT·provider에는 반영하지 않았으며 현재 experiment에서 재구현하지 않는다.
+- 2026-08-05 Change 004 운영 결정: 전역 LQC 스위치는 두지 않는다. `양식 관리 > LQC 검사`에서 Item별 운영 상태와 검사 항목을 관리하고, 프로젝트 생성 시 상태·양식 version을 불변 snapshot으로 고정한다. 기존 프로젝트는 기존 상태와 공통 양식을 유지한다. 운영 중지로 생성된 프로젝트만 새 LQC 업무·알림·필수 담당자·진행률에서 LQC를 제외하고 제조 완료 후 OQC로 직접 인계하며, 확정 성적서·사진·PDF·Pending·재검사 이력은 보존한다.
 
 ### TASK-ADMIN-002: 검사·제조 Template 관리
 
@@ -2189,6 +2191,11 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-10 | GitHub Actions 사용량 100% 도달 뒤 결제 경계를 복구하고 `TASK-CI-COST-001`의 Git 게시와 `main` merge를 승인 | 현재 개발을 재개하면서도 단순 증액에 의존하지 않고 이후 모든 PR과 main push가 변경 인지형 CI 비용 정책을 자동 적용하게 하기 위함 | 23장~25장, TASK-CI-COST-001 |
 | 2026-08-10 | GitHub actual readback 기준 Repository 현재 visibility를 `PRIVATE`로 동기화하고 과거 public 상태는 당시 이력으로 보존 | CI 포함 minute 과금 원인과 current Roadmap 상태의 충돌을 해소하되 history rewrite 완료 당시 공개 재개 사실과 exact visibility 전환 시점 미확정 상태를 왜곡하지 않기 위함 | 22장~25장, TASK-CI-COST-001 |
 | 2026-08-10 | `TASK-CI-COST-001` PR #89의 코드 PR `5/5`와 이전 run 취소 3건을 확인해 squash merge하고 main에서 성공 4·Full-Stack skip 1을 확인 | 코드 PR 전체 품질 Gate는 보존하면서 오래된 PR 실행과 merge 뒤 Full-Stack 중복을 실제 GitHub 환경에서 제거했음을 canonical main에 확정하기 위함 | 23장~25장, TASK-CI-COST-001 |
+| 2026-08-10 | `TASK-TEAMS-PWA-001 Change 010` PR #88·Azure release `31366150022` 반영 후 실제 Android Chrome 최종 사용자 검수를 완료 | Easy Auth 보호 manifest의 credential 연결이 Android 설치 event를 복구했고 인증 후 안내·버튼 활성·native 확인창·standalone이 실제 기기에서 정상임을 확정하기 위함 | 23장~25장, TASK-TEAMS-PWA-001 Change 010 |
+| 2026-08-10 | `TASK-QUALITY-OPERATING-MODEL-001 Change 006`으로 Change 004·005를 신규 CI 정책이 반영된 최신 main에 선택 이식하고 전체 자동 검증을 완료 | 최근 EMI PMS·Easy Auth·PWA·Teams·Azure·CI 계약을 되돌리지 않으면서 migration `0070`·`0071`과 Item별 LQC·구분별 IQC를 승격하고, 사용자 검수 후에만 PR·CI Gate·main·Azure로 진행하기 위함 | 4장·5장·10장·13장·14장·23장~25장, TASK-QUALITY-OPERATING-MODEL-001 Change 006 |
+| 2026-08-05 | `TASK-QUALITY-OPERATING-MODEL-001 Change 004`에서 전역 스위치 없이 Item별 LQC 운영 상태·검사 양식을 관리하고 프로젝트 생성 시 고정 | 설정 변경이 기존 프로젝트에 소급되지 않게 하면서 운영 중지 프로젝트는 가짜 합격 없이 제조→OQC로 진행하고, 운영 재개 프로젝트는 생성 당시 Item별 양식으로 기존 제조+LQC gate를 사용하기 위함 | 4장·5장·10장·13장·14장·23장~25장, TASK-QUALITY-OPERATING-MODEL-001 Change 004 |
+| 2026-08-05 | `TASK-QUALITY-OPERATING-MODEL-001 Change 005`에서 구매품 구분별로 검사 없음·스캔형·상세형과 상세 검사 항목을 관리하고 구매품 저장·성적서 최초 생성 시점에 고정 | 구분 수가 늘어도 품질 양식 관리자가 정확한 구매품 검사를 찾고 설정하게 하면서 이미 저장된 구매품·시작된 검사·기존 외함 스캔형·legacy 상세 IQC를 소급 변경하지 않기 위함 | 5장·11장·13장·23장~25장, TASK-QUALITY-OPERATING-MODEL-001 Change 005 |
+| 2026-08-11 | `TASK-QUALITY-OPERATING-MODEL-001 Change 006` 최신 main 통합본의 사용자 검수를 완료하고 병합·공개배포를 승인 | Item별 LQC와 구매품 구분별 IQC의 실제 화면·업무 흐름을 확인했으므로 최신 PR head `CI Gate` 뒤 main 병합과 migration `0070`·`0071`→Backend→Frontend 운영 교체를 진행하기 위함 | 4장·5장·10장·13장·14장·23장~25장, TASK-QUALITY-OPERATING-MODEL-001 Change 006 |
 
 ## 26. 용어 사전
 

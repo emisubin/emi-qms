@@ -561,15 +561,29 @@ public sealed class ManufacturingStore(
                 await transaction.RollbackAsync(cancellationToken);
                 return ManufacturingMutationResult<ManufacturingMutationResponse>.Conflict("활성 제조 작업 양식이 없습니다. 양식 관리자에게 확인해 주세요.");
             }
-            var qualityAssignee = await ResolveQualityAssigneeAsync(connection, transaction, request.ProjectId, cancellationToken);
-            if (qualityAssignee is null)
+            var lqcOperational = await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+                connection,
+                transaction,
+                WorkflowStageCodes.LQC,
+                request.ProjectId,
+                cancellationToken);
+            AssigneeSnapshot? qualityAssignee = null;
+            if (lqcOperational)
             {
-                await transaction.RollbackAsync(cancellationToken);
-                return ManufacturingMutationResult<ManufacturingMutationResponse>.Validation(
-                    new Dictionary<string, string[]>
-                    {
-                        ["qualityAssignee"] = ["제조 시작과 함께 LQC를 진행할 품질 담당자를 먼저 지정해 주세요."]
-                    });
+                qualityAssignee = await ResolveQualityAssigneeAsync(
+                    connection,
+                    transaction,
+                    request.ProjectId,
+                    cancellationToken);
+                if (qualityAssignee is null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ManufacturingMutationResult<ManufacturingMutationResponse>.Validation(
+                        new Dictionary<string, string[]>
+                        {
+                            ["qualityAssignee"] = ["제조 시작과 함께 LQC를 진행할 품질 담당자를 먼저 지정해 주세요."]
+                        });
+                }
             }
 
             var executionId = Guid.NewGuid();
@@ -622,13 +636,13 @@ public sealed class ManufacturingStore(
                     template.Value.Steps[index].DefinitionKey ?? (object)DBNull.Value;
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
-            var lqcCreated = await InsertLqcWorkItemAsync(
+            var lqcCreated = lqcOperational && await InsertLqcWorkItemAsync(
                 connection,
                 transaction,
                 request.ProjectId,
                 request.PanelId,
                 panel.DisplayCode,
-                qualityAssignee.Value,
+                qualityAssignee!.Value,
                 actorUserId,
                 cancellationToken);
             await InsertEventAsync(connection, transaction, executionId, "Started", null, null, null, null, actorUserId, cancellationToken);
@@ -1104,7 +1118,7 @@ public sealed class ManufacturingStore(
                         command.Parameters.AddWithValue("work_item_id", snapshot.WorkItemId);
                         await command.ExecuteNonQueryAsync(cancellationToken);
                     }
-                    var oqcHandoff = await QualityInspectionStore.TryOpenOqcAfterManufacturingAndLqcAsync(
+                    var oqcHandoff = await QualityInspectionStore.TryOpenOqcAfterManufacturingQualityGateAsync(
                         connection,
                         transaction,
                         snapshot.ProjectId,

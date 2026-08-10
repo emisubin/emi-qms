@@ -354,6 +354,7 @@ type ProjectDepartmentData = {
   records: ProjectDepartmentRecord[];
   panelStatuses?: ProjectPanelDepartmentStatus[];
   defaultTotalUnits?: number;
+  lqcOperational?: boolean;
   canMutate: boolean;
 };
 
@@ -9998,6 +9999,7 @@ async function loadProjectDepartmentData({
       Promise.all(stages.map((stage) => getQualityInspectionQueue(developmentUserKey, stage, project.projectId))),
       getMaterialReceipts(developmentUserKey, project.projectCode, true)
     ]);
+    const lqcOperational = queues[0]?.isOperational !== false;
     const stageProjects = queues.map((queue, index) => ({ stage: stages[index], project: queue.projects.find((item) => item.projectId === project.projectId) }));
     const panels = stageProjects.flatMap(({ stage, project: stageProject }) => (stageProject?.panels ?? []).map((panel) => ({ stage, panel })));
     const materialItems = materialReceipts.items.filter((item) => item.projectId === project.projectId);
@@ -10075,7 +10077,7 @@ async function loadProjectDepartmentData({
         : allCompleted
           ? '품질 완료'
           : !oqc
-            ? lqc ? qualityStageLabel(lqc.stage) : 'LQC 대기'
+            ? lqcOperational && lqc ? qualityStageLabel(lqc.stage) : 'OQC 대기'
             : !oqcCompleted
               ? 'OQC'
               : nextQualityStages.join(' · ') || '품질 완료';
@@ -10112,8 +10114,11 @@ async function loadProjectDepartmentData({
     return {
       canMutate: permissions.quality && (iqcReceipts.length > 0 || panels.some(({ panel }) => panel.canMutate)),
       defaultTotalUnits: defaultQualityTotalUnits,
+      lqcOperational,
       metrics: [
-        { label: 'LQC 완료', value: `${stageCompletedCount('LQC')}/${project.activePanelCount}`, tone: stageCompletedCount('LQC') === project.activePanelCount && project.activePanelCount > 0 ? 'success' : 'neutral' },
+        lqcOperational
+          ? { label: 'LQC 완료', value: `${stageCompletedCount('LQC')}/${project.activePanelCount}`, tone: stageCompletedCount('LQC') === project.activePanelCount && project.activePanelCount > 0 ? 'success' : 'neutral' }
+          : { label: 'LQC', value: '운영 중지', tone: 'neutral' },
         { label: 'OQC 완료', value: `${stageCompletedCount('OQC')}/${project.activePanelCount}`, tone: stageCompletedCount('OQC') === project.activePanelCount && project.activePanelCount > 0 ? 'success' : 'neutral' },
         { label: '전진검수 완료', value: `${stageCompletedCount('CustomerInspection')}/${project.activePanelCount}`, tone: stageCompletedCount('CustomerInspection') === project.activePanelCount && project.activePanelCount > 0 ? 'success' : 'neutral' },
         project.fatRequired
@@ -10387,7 +10392,7 @@ function ProjectDepartmentDataSection({
     sales: { title: '영업 정산', action: '정산 업무 열기', description: '납품 후 발행 요청과 회계 확인, 프로젝트 완료 상태를 확인합니다.' },
     materials: { title: '자재', action: '자재 연속 흐름 열기', description: '도착·IQC·입고 확정·키팅 상태를 한 흐름으로 확인합니다.' },
     manufacturing: { title: '제조', action: '제조 업무 열기', description: '패널별 제조 착수·중단·완료 상태를 확인합니다.' },
-    quality: { title: '품질', action: '품질 업무 열기', description: 'IQC부터 LQC·OQC·전진검수·FAT까지 프로젝트 검사 결과를 확인합니다.' },
+    quality: { title: '품질', action: '품질 업무 열기', description: 'IQC와 프로젝트별 LQC 적용 여부, OQC·전진검수·FAT 검사 결과를 확인합니다.' },
     logistics: { title: '물류', action: '물류 업무 열기', description: '포장·출발·납품 완료 상태를 확인합니다.' }
   } as const;
   const department = labels[section];
@@ -10523,7 +10528,7 @@ function ProjectPanelDepartmentSection({
   const isMobile = useIsMobileViewport();
   const labels = {
     manufacturing: { title: '제조', description: '패널별 제조 착수·중단·완료 상태를 한눈에 확인합니다.' },
-    quality: { title: '품질', description: '패널별 LQC·OQC·전진검수·FAT의 현재 상태를 확인합니다.' },
+    quality: { title: '품질', description: '패널별 LQC 적용 여부와 LQC·OQC·전진검수·FAT의 현재 상태를 확인합니다.' },
     logistics: { title: '물류', description: '패널별 포장·출발·납품 상태를 확인합니다.' }
   } as const;
   const label = labels[section];
@@ -10537,7 +10542,8 @@ function ProjectPanelDepartmentSection({
       section,
       panel,
       departmentData?.panelStatuses ?? [],
-      departmentData?.defaultTotalUnits ?? (section === 'logistics' ? 3 : 0)
+      departmentData?.defaultTotalUnits ?? (section === 'logistics' ? 3 : 0),
+      departmentData?.lqcOperational
     )
   }));
 
@@ -10607,7 +10613,8 @@ function selectProjectPanelDepartmentStatus(
   section: ProjectPanelDepartmentSectionKey,
   panel: PanelInformationPanel,
   statuses: ProjectPanelDepartmentStatus[],
-  defaultTotalUnits: number
+  defaultTotalUnits: number,
+  lqcOperational?: boolean
 ): ProjectPanelDepartmentStatus {
   const candidates = statuses.filter((status) => status.panelIds.includes(panel.panelId) || status.panelCodes.includes(panel.displayCode));
   if (candidates.length > 0) {
@@ -10616,7 +10623,9 @@ function selectProjectPanelDepartmentStatus(
 
   const empty = {
     manufacturing: { stage: '착수 대기', detail: '제조 투입 전' },
-    quality: { stage: 'LQC 대기', detail: 'LQC 검사 전' },
+    quality: lqcOperational === false
+      ? { stage: 'OQC 대기', detail: 'LQC 운영 중지 · OQC 검사 전' }
+      : { stage: 'LQC 대기', detail: 'LQC 검사 전' },
     logistics: { stage: '포장 대기', detail: '포장 전' }
   } as const;
   const completedUnits = fallbackPanelCompletedUnits(section, panel.workflowStage, defaultTotalUnits);
@@ -13002,6 +13011,17 @@ function ProductionPlanningEditPage({
       state.data.modelVersion,
       { validateConnections: !state.data.isSetScoped || editMode === 'structure' }
     );
+    if (!state.data.isSetScoped || editMode === 'structure') {
+      validationRows.forEach((row, index) => {
+        const connection = row.connections[0];
+        const source = connection
+          ? state.data.availableSources.find((candidate) => candidate.code === connection.sourceCode)
+          : null;
+        if (!row.isDeleted && source?.isOperational === false) {
+          validation[`items[${index}].connections`] = source.operationalMessage ?? `${source.label} 실적 연결은 현재 사용할 수 없습니다.`;
+        }
+      });
+    }
     setErrors(validation);
     setMessage('');
     setMessageTone('neutral');
@@ -13505,6 +13525,9 @@ function ProductionControlLinkedEditableList({
         </div>
         <button type="button" onClick={onAddRow}>계획 항목 추가</button>
       </div>
+      {plan.availableSources.some((source) => source.code === 'LQC_PASSED' && source.isOperational === false) ? (
+        <p className="production-control-warning" role="status">LQC는 현재 운영 중지 상태입니다. 기존 연결 이력은 유지되며 새 연결에는 사용할 수 없습니다.</p>
+      ) : null}
       <div className="production-control-project-rows">
         {visibleRows.map((row) => {
           const index = rows.indexOf(row);
@@ -13522,16 +13545,16 @@ function ProductionControlLinkedEditableList({
               >
                 <option value="">실적 데이터를 선택해 주세요</option>
                 {plan.availableSources.map((source) => (source.definitionKind ?? (source.requiresManufacturingDefinition ? 'Manufacturing' : 'None')) !== 'None' ? (
-                  <optgroup key={source.code} label={`${source.departmentLabel} · ${source.label}`}>
+                  <optgroup key={source.code} disabled={source.isOperational === false} label={`${source.departmentLabel} · ${source.label}${source.isOperational === false ? ' · 운영 중지' : ''}`}>
                     {projectSourceDefinitionOptions(plan, source).map((step) => (
-                      <option key={`${source.code}:${step.definitionKey}`} value={projectConnectionValue({ sourceCode: source.code, sourceDefinitionKey: step.definitionKey })}>
+                      <option disabled={source.isOperational === false} key={`${source.code}:${step.definitionKey}`} value={projectConnectionValue({ sourceCode: source.code, sourceDefinitionKey: step.definitionKey })}>
                         {step.label}
                       </option>
                     ))}
                   </optgroup>
                 ) : (
-                  <option key={source.code} value={projectConnectionValue({ sourceCode: source.code, sourceDefinitionKey: null })}>
-                    {source.departmentLabel} · {source.label}
+                  <option disabled={source.isOperational === false} key={source.code} value={projectConnectionValue({ sourceCode: source.code, sourceDefinitionKey: null })}>
+                    {source.departmentLabel} · {source.label}{source.isOperational === false ? ' · 운영 중지' : ''}
                   </option>
                 ))}
               </select>

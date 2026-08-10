@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 구현 보고 — Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
-상태: `Change 001~003·007·009 원격 main 병합·Azure 운영 rollout 완료 / Change 010 local 구현·게시 대기 / 실제 Android 재검수 대기`
+상태: `Change 001~003·007·009·010 원격 main 병합·Azure 운영 rollout 완료 / Android 최종 사용자 검수 완료 / 기타 운영 표면 검수 대기`
 
 ## 기준선과 승인 범위
 
@@ -108,7 +108,7 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 
 Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변경과 Android/iPhone 실제 기기·운영 메일/PDF/Excel 육안 검수는 이번 자동 release 성공으로 대체하지 않는다.
 
-### Change 010 local 검증
+### Change 010 검증·게시·실제 기기 확인
 
 | 검증 | 결과 |
 | --- | --- |
@@ -119,8 +119,8 @@ Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변
 | Frontend 전체 unit | PASS — `26 files`, `187/187` |
 | Frontend production build | PASS — 기존 대형 chunk warning 유지 |
 | Backend·DB·migration·Teams | N/A — 변경 없음 |
-| Git 게시·Azure 운영 | 대기 — 사용자 게시·배포 승인 범위 밖 |
-| 실제 Android Chrome | 대기 — 운영 반영 뒤 사용자 재검수 필요 |
+| Git 게시·Azure 운영 | PASS — PR #88, merge SHA `5300b4646b2ea8bba0a43e953fea58e66caa2016`, release `31366150022` |
+| 실제 Android Chrome | PASS — 사용자 최종 검수에서 안내·버튼 활성·native 확인창·standalone 정상 |
 
 ### Change 009 게시·운영 검증
 
@@ -163,9 +163,9 @@ Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변
 | `TPWA-CI-007` | P2 | `RESOLVED` | PR 전체 mock UI에서 프로젝트가 비어 있을 때 상단과 empty-state에 같은 `신규 프로젝트` action이 생겨 기존 test selector가 두 요소를 구분하지 못했다. | 제품 UI는 변경하지 않고 기존 smoke가 상단 첫 action을 명시하도록 두 진입 selector를 한정했다. |
 | `TPWA-CI-008` | P2 | `RESOLVED` | 느린 CI에서 품질 판정 API의 첫 오류 응답과 dialog 오류 문구 반영이 기존 1초 test 대기를 넘겨 간헐적으로 실패했다. | 제품 로직은 유지하고 API 호출 관찰과 오류 문구 반영을 각각 최대 5초 기다리는 test-only 동기화로 안정화했다. |
 | `TPWA-MOBILE-009` | P2 | `RESOLVED` | Android 자동 안내가 설치 event에 종속되고 닫기가 영구 저장돼 Microsoft 로그인 뒤 설치 안내를 놓칠 수 있었다. | provider를 MSAL보다 위로 이동하고 인증 준비 gate·Android 준비형 버튼·session 단위 닫기 회귀를 추가했다. |
-| `TPWA-ANDROID-INSTALL-010` | P1 | `MITIGATED_LOCAL / PUBLICATION_PENDING` | Easy Auth 보호 manifest에 credential 포함 연결이 없어 Android Chrome이 설치 event를 제공하지 못하고 버튼이 계속 비활성화됐다. | manifest link에 `use-credentials`를 추가하고 asset contract로 고정했다. 원격 main·운영 반영과 실제 Android 재검수가 남았다. |
+| `TPWA-ANDROID-INSTALL-010` | P1 | `RESOLVED` | Easy Auth 보호 manifest에 credential 포함 연결이 없어 Android Chrome이 설치 event를 제공하지 못하고 버튼이 계속 비활성화됐다. | manifest link에 `use-credentials`를 추가하고 asset contract로 고정했다. PR #88·Azure release `31366150022`·실제 Android 최종 검수로 게시·운영·기기 관문을 닫았다. |
 
-Open P0/P1/P2: `0/1/0` — Change 010 게시·운영 Android 재검수 전까지 P1을 닫지 않는다.
+Open P0/P1/P2: `0/0/0`.
 
 ## 개인정보·secret 검토
 
@@ -206,8 +206,8 @@ Rollback은 이전 immutable Frontend/Backend revision과 이전 Teams package�
 
 - 자동 검증과 합성 desktop/390px browser 검증은 완료했다.
 - Git Commit·Push·PR #84·#86·main merge와 Change 007·009 Azure 운영 release를 완료했다. Teams package와 catalog는 Change 009에서 변경하지 않았다.
-- Change 009의 자동·CI·운영 공개 검증은 완료했다. Change 010 local 구현과 자동 검증도 완료했지만 원격 main·운영에는 아직 반영하지 않았다. 운영 반영 뒤 실제 Android에서 설치 버튼 활성화와 native 설치 확인창을 다시 확인해야 한다.
-- 사용자 실제 PC·Android·iPhone에서 인증 후 로그인·공통 내부 logo를 눈으로 확인하는 기존 검수도 계속 대기다.
+- Change 010은 PR #88·원격 main·Azure release `31366150022`에 반영했고, 실제 Android Chrome에서 설치 안내·버튼 활성·native 확인창·standalone을 사용자가 최종 검수했다.
+- Android의 인증 후 설치 UX·공통 내부 logo·standalone은 사용자 최종 검수를 완료했다. 실제 PC·iPhone의 전체 설치 완주와 Teams·출력물 표면은 체크리스트에 남겨 둔다.
 - Web Push는 정책을 다시 확정해야 하는 별도 신규 기능이다.
 
 ## 종료 산출물

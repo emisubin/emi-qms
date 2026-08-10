@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { markProjectAsLegacyIqc, uploadRequiredIqcPhotos } from './legacy-iqc-fixture';
+import { ensureLqcOperational } from './lqc-operating-fixture';
 
 const screenshotDirectory = path.resolve(
   process.env.LIFECYCLE_SCREENSHOT_DIR?.trim() || '/tmp/emi-qms-lifecycle-evidence'
@@ -52,7 +53,7 @@ const developmentUsers: Array<{ key: DevelopmentUserKey; displayName: string }> 
   { key: 'dev-viewer', displayName: 'Dev Read Only User' }
 ];
 
-test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력으로 18단계를 연속 검수한다', async ({ page }) => {
+test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력으로 18단계를 연속 검수한다', async ({ page, request }) => {
   test.setTimeout(900_000);
   const unique = Date.now();
   const projectCode = `LIFE-${String(unique).slice(-8)}`;
@@ -65,6 +66,8 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
   await fs.mkdir(path.join(screenshotDirectory, 'handoffs'), { recursive: true });
   await page.setViewportSize({ width: 1440, height: 1050 });
   page.setDefaultTimeout(10_000);
+
+  await ensureLqcOperational(request);
 
   // 1. 영업이 프로젝트를 화면에서 신규 등록한다.
   await page.goto('/projects');

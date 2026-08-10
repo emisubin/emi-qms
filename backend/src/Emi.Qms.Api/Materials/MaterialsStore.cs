@@ -32,7 +32,8 @@ public sealed class MaterialsStore(
                 item.order_item, item.supplier_name, item.expected_receipt_date,
                 item.order_quantity, item.order_unit, item.material_arrivals_closed_at_utc,
                 item.receipt_completed, item.row_version, item.supply_type,
-                item.material_category_name_snapshot, item.material_category_requires_iqc_snapshot
+                item.material_category_name_snapshot, item.material_category_iqc_enabled_snapshot,
+                item.material_category_iqc_decision_mode_snapshot
             from project_procurement_items item
             join projects project on project.id = item.project_id and project.deleted_at_utc is null
             where item.status = 'Active'
@@ -79,7 +80,8 @@ public sealed class MaterialsStore(
                     RowVersion = reader.GetInt32(11),
                     SupplyType = reader.GetString(12),
                     MaterialCategoryName = reader.IsDBNull(13) ? null : reader.GetString(13),
-                    MaterialCategoryRequiresIqc = reader.IsDBNull(14) ? null : reader.GetBoolean(14)
+                    MaterialCategoryRequiresIqc = reader.IsDBNull(14) ? null : reader.GetBoolean(14),
+                    MaterialCategoryIqcDecisionMode = reader.IsDBNull(15) ? null : reader.GetString(15)
                 });
             }
         }
@@ -294,9 +296,11 @@ public sealed class MaterialsStore(
         }
 
         var requiresIqc = item.IqcRoutingPolicy == ProjectIqcRoutingPolicies.AllReceipts
-            || item.MaterialCategoryRequiresIqc == true;
+            || item.MaterialCategoryIqcEnabled == true;
         if (item.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased
-            && item.MaterialCategoryRequiresIqc is null)
+            && (item.MaterialCategoryId is null
+                || item.MaterialCategoryIqcEnabled is null
+                || string.IsNullOrWhiteSpace(item.MaterialCategoryIqcDecisionMode)))
         {
             return MaterialsMutationResult<MaterialReceiptActionResponse>.Conflict(
                 "구매품 구분이 없습니다. 구매팀이 구매 탭에서 구분을 선택한 뒤 다시 시도해 주세요.");
@@ -364,7 +368,7 @@ public sealed class MaterialsStore(
                 actorUserId,
                 cancellationToken,
                 decisionMode: item.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased
-                    ? IqcDecisionModes.ScanBased
+                    ? item.MaterialCategoryIqcDecisionMode!
                     : IqcDecisionModes.Detailed);
             nextStatus = MaterialReceiptStatuses.IqcRequested;
         }
@@ -1469,8 +1473,10 @@ public sealed class MaterialsStore(
         command.CommandText = """
             select item.id, item.project_id, item.order_quantity, item.order_unit, item.material_arrivals_closed_at_utc,
                    item.receipt_completed, item.row_version, item.order_item, item.supply_type,
-                   project.iqc_routing_policy, item.material_category_name_snapshot,
-                   item.material_category_requires_iqc_snapshot
+                   project.iqc_routing_policy, item.material_category_id,
+                   item.material_category_name_snapshot,
+                   item.material_category_iqc_enabled_snapshot,
+                   item.material_category_iqc_decision_mode_snapshot
             from project_procurement_items item
             join projects project on project.id=item.project_id and project.deleted_at_utc is null
             where item.id = @id and item.status = 'Active'
@@ -1490,8 +1496,10 @@ public sealed class MaterialsStore(
                 reader.IsDBNull(7) ? null : reader.GetString(7),
                 reader.GetString(8),
                 reader.GetString(9),
-                reader.IsDBNull(10) ? null : reader.GetString(10),
-                reader.IsDBNull(11) ? null : reader.GetBoolean(11))
+                reader.IsDBNull(10) ? null : reader.GetGuid(10),
+                reader.IsDBNull(11) ? null : reader.GetString(11),
+                reader.IsDBNull(12) ? null : reader.GetBoolean(12),
+                reader.IsDBNull(13) ? null : reader.GetString(13))
             : null;
     }
 
@@ -2493,6 +2501,7 @@ public sealed class MaterialsStore(
         public string? OrderItem { get; init; }
         public string? MaterialCategoryName { get; init; }
         public bool? MaterialCategoryRequiresIqc { get; init; }
+        public string? MaterialCategoryIqcDecisionMode { get; init; }
         public string? SupplierName { get; init; }
         public string SupplyType { get; init; } = ProcurementSupplyTypes.Purchased;
         public DateOnly? ExpectedReceiptDate { get; init; }
@@ -2523,6 +2532,7 @@ public sealed class MaterialsStore(
                 OrderItem = OrderItem,
                 MaterialCategoryName = MaterialCategoryName,
                 MaterialCategoryRequiresIqc = MaterialCategoryRequiresIqc,
+                MaterialCategoryIqcDecisionMode = MaterialCategoryIqcDecisionMode,
                 SupplierName = SupplierName,
                 SupplyType = SupplyType,
                 ExpectedReceiptDate = ExpectedReceiptDate,
@@ -2588,8 +2598,10 @@ public sealed class MaterialsStore(
         string? OrderItem,
         string SupplyType,
         string IqcRoutingPolicy,
+        Guid? MaterialCategoryId,
         string? MaterialCategoryName,
-        bool? MaterialCategoryRequiresIqc);
+        bool? MaterialCategoryIqcEnabled,
+        string? MaterialCategoryIqcDecisionMode);
 
     internal sealed record ReceiptSnapshot(
         Guid ReceiptId,

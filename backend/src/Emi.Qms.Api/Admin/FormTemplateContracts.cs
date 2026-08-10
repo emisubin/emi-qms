@@ -92,3 +92,53 @@ public sealed record ExportFormTemplateVersionsRequest(
     string Family,
     string TemplateKey,
     IReadOnlyList<Guid> VersionIds);
+
+public sealed record LqcItemTemplatesResponse(
+    bool CanManageItems,
+    bool CanChangeOperatingStatus,
+    IReadOnlyList<LqcItemTemplateResponse> Items);
+
+public sealed record LqcItemTemplateResponse(
+    Guid ProductTypeId,
+    string ProductTypeCode,
+    string ProductTypeName,
+    bool IsOperational,
+    int SettingRowVersion,
+    Guid TemplateVersionId,
+    int TemplateVersionNumber,
+    int TemplateRowVersion,
+    IReadOnlyList<FormTemplateItemResponse> Items);
+
+public sealed record UpdateLqcItemOperatingStatusRequest(
+    bool IsOperational,
+    int ExpectedRowVersion);
+
+public sealed record SaveLqcItemTemplateRequest(
+    int ExpectedTemplateRowVersion,
+    IReadOnlyList<SaveFormTemplateItemRequest> Items);
+
+public sealed record MaterialCategoryIqcTemplatesResponse(
+    bool CanManage,
+    IReadOnlyList<MaterialCategoryIqcTemplateResponse> Items);
+
+public sealed record MaterialCategoryIqcTemplateResponse(
+    Guid MaterialCategoryId,
+    string MaterialCategoryCode,
+    string MaterialCategoryName,
+    bool IsCategoryActive,
+    bool IsEnabled,
+    string DecisionMode,
+    int SettingRowVersion,
+    Guid TemplateVersionId,
+    int TemplateVersionNumber,
+    int TemplateRowVersion,
+    IReadOnlyList<FormTemplateItemResponse> Items);
+
+public sealed record UpdateMaterialCategoryIqcSettingRequest(
+    bool IsEnabled,
+    string? DecisionMode,
+    int ExpectedRowVersion);
+
+public sealed record SaveMaterialCategoryIqcTemplateRequest(
+    int ExpectedTemplateRowVersion,
+    IReadOnlyList<SaveFormTemplateItemRequest> Items);

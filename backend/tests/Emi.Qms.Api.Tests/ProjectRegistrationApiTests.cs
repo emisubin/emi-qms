@@ -189,7 +189,7 @@ public sealed partial class ProjectRegistrationApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, workflowResponse.StatusCode);
         using var workflowJson = await ReadJsonAsync(workflowResponse);
-        Assert.Equal(47, workflowJson.RootElement.GetProperty("progressPercent").GetInt32());
+        Assert.Equal(50, workflowJson.RootElement.GetProperty("progressPercent").GetInt32());
         Assert.Equal(8, workflowJson.RootElement.GetProperty("completedRequiredStageCount").GetInt32());
         Assert.Equal("SalesSettlementCompleted", workflowJson.RootElement.GetProperty("currentStageCode").GetString());
         var workflowStages = workflowJson.RootElement.GetProperty("stages").EnumerateArray().ToList();
@@ -954,9 +954,48 @@ public sealed partial class ProjectRegistrationApiTests
         Assert.Equal(6, createdWorkflowProject.GetProperty("projectProgressPercent").GetInt32());
 
         await CompleteProductionPlanningStageAsync(context, workflowProjectId);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from project_assignees
+            where project_id = '{workflowProjectId}'
+              and responsibility_type = 'QualityLQC';
+            """));
+        Assert.False(await context.ReadScalarAsync<bool>($"select lqc_operational_snapshot from projects where id='{workflowProjectId}';"));
         var productionPlanningCompleted = await ReadSingleProjectListItemAsync(client, workflowTitle);
         Assert.Equal("DesignPanelInfo", productionPlanningCompleted.GetProperty("projectWorkStatus").GetString());
-        Assert.Equal(12, productionPlanningCompleted.GetProperty("projectProgressPercent").GetInt32());
+        Assert.Equal(13, productionPlanningCompleted.GetProperty("projectProgressPercent").GetInt32());
+
+        await context.ExecuteSqlAsync("""
+            update lqc_item_settings setting
+            set is_operational=true, row_version=row_version+1, updated_at_utc=now()
+            from production_product_types product_type
+            where product_type.id=setting.product_type_id and product_type.code='UL67';
+            """);
+        var lqcWorkflowTitle = $"Work Workflow LQC {unique}";
+        var lqcWorkflowProjectId = await CreateProjectAndReadIdAsync(client, $"WORK-WF-LQC-{unique}", lqcWorkflowTitle);
+        Assert.True(await context.ReadScalarAsync<bool>($"select lqc_operational_snapshot from projects where id='{lqcWorkflowProjectId}';"));
+        await CompleteProductionPlanningStageAsync(context, lqcWorkflowProjectId);
+        var lqcEnabledWithoutAssignee = await ReadSingleProjectListItemAsync(client, lqcWorkflowTitle);
+        Assert.Equal("ProductionPlanning", lqcEnabledWithoutAssignee.GetProperty("projectWorkStatus").GetString());
+        await context.ExecuteSqlAsync($"""
+            insert into project_assignees (
+                project_id, responsibility_type, assigned_user_id,
+                assigned_by_user_id, assigned_at_utc
+            ) values (
+                '{lqcWorkflowProjectId}', 'QualityLQC', '{SalesOwnerUserId}',
+                '{SalesOwnerUserId}', now()
+            );
+            """);
+        var lqcEnabledWithAssignee = await ReadSingleProjectListItemAsync(client, lqcWorkflowTitle);
+        Assert.Equal("DesignPanelInfo", lqcEnabledWithAssignee.GetProperty("projectWorkStatus").GetString());
+        await context.ExecuteSqlAsync("""
+            update lqc_item_settings setting
+            set is_operational=false, row_version=row_version+1, updated_at_utc=now()
+            from production_product_types product_type
+            where product_type.id=setting.product_type_id and product_type.code='UL67';
+            """);
+        Assert.True(await context.ReadScalarAsync<bool>($"select lqc_operational_snapshot from projects where id='{lqcWorkflowProjectId}';"));
+        Assert.Equal("DesignPanelInfo", (await ReadSingleProjectListItemAsync(client, lqcWorkflowTitle)).GetProperty("projectWorkStatus").GetString());
 
         await context.ExecuteSqlAsync($"""
             update panel_placeholders
@@ -969,7 +1008,7 @@ public sealed partial class ProjectRegistrationApiTests
             """);
         var designCompleted = await ReadSingleProjectListItemAsync(client, workflowTitle);
         Assert.Equal("ProcurementInfo", designCompleted.GetProperty("projectWorkStatus").GetString());
-        Assert.Equal(18, designCompleted.GetProperty("projectProgressPercent").GetInt32());
+        Assert.Equal(19, designCompleted.GetProperty("projectProgressPercent").GetInt32());
 
         await context.ExecuteSqlAsync($"""
             insert into project_procurement_items (
@@ -997,7 +1036,7 @@ public sealed partial class ProjectRegistrationApiTests
             """);
         var procurementCompleted = await ReadSingleProjectListItemAsync(client, workflowTitle);
         Assert.Equal("MaterialArrived", procurementCompleted.GetProperty("projectWorkStatus").GetString());
-        Assert.Equal(24, procurementCompleted.GetProperty("projectProgressPercent").GetInt32());
+        Assert.Equal(25, procurementCompleted.GetProperty("projectProgressPercent").GetInt32());
 
         var fatTitle = $"Work FAT {unique}";
         var fatCreate = await client.PostAsJsonAsync(
@@ -1042,7 +1081,7 @@ public sealed partial class ProjectRegistrationApiTests
             """);
         var fatProgress = await ReadSingleProjectListItemAsync(client, fatTitle);
         Assert.Equal("MaterialArrived", fatProgress.GetProperty("projectWorkStatus").GetString());
-        Assert.Equal(22, fatProgress.GetProperty("projectProgressPercent").GetInt32());
+        Assert.Equal(24, fatProgress.GetProperty("projectProgressPercent").GetInt32());
 
         var heldId = await CreateProjectAndReadIdAsync(client, $"WORK-HOLD-{unique}", $"Work Hold {unique}");
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(
@@ -1136,9 +1175,11 @@ public sealed partial class ProjectRegistrationApiTests
         using var detail = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}", TestContext.Current.CancellationToken));
         Assert.True(detail.RootElement.GetProperty("fatRequired").GetBoolean());
         using var requiredWorkflow = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(requiredWorkflow.RootElement.GetProperty("stages").EnumerateArray(),
+            stage => stage.GetProperty("stageCode").GetString() == "LQC");
         var requiredFatStage = requiredWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "FAT");
         Assert.NotEqual("Skipped", requiredFatStage.GetProperty("status").GetString());
-        Assert.Equal(18, requiredWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
+        Assert.Equal(17, requiredWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
         var manufacturingRequestStage = requiredWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "KittingCompleted");
         Assert.False(manufacturingRequestStage.GetProperty("isOptional").GetBoolean());
 
@@ -1153,7 +1194,7 @@ public sealed partial class ProjectRegistrationApiTests
         using var optionalWorkflow = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
         var optionalFatStage = optionalWorkflow.RootElement.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("stageCode").GetString() == "FAT");
         Assert.Equal("Skipped", optionalFatStage.GetProperty("status").GetString());
-        Assert.Equal(17, optionalWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
+        Assert.Equal(16, optionalWorkflow.RootElement.GetProperty("requiredStageCount").GetInt32());
         Assert.False((await ReadSingleProjectListItemAsync(client, "FAT Required Project")).GetProperty("fatRequired").GetBoolean());
     }
 
@@ -2939,7 +2980,6 @@ public sealed partial class ProjectRegistrationApiTests
                 ('ManufacturingPrimary'),
                 ('LogisticsPrimary'),
                 ('QualityIQC'),
-                ('QualityLQC'),
                 ('QualityOQC'),
                 ('QualityCustomerInspection')
             ) as responsibilities(responsibility_type)

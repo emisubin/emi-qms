@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { markProjectAsLegacyIqc, uploadRequiredIqcPhotos } from './legacy-iqc-fixture';
+import { ensureLqcOperational } from './lqc-operating-fixture';
 
 const screenshotDirectory = path.resolve(
   process.env.STRESS_LIFECYCLE_SCREENSHOT_DIR?.trim() || '/tmp/emi-qms-stress-lifecycle-evidence'
@@ -58,7 +59,7 @@ const developmentUserNames: Record<DevelopmentUserKey, string> = {
   'dev-logistics': 'Dev Logistics User'
 };
 
-test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종 완료까지 실제 역할 화면으로 검수한다', async ({ page }) => {
+test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종 완료까지 실제 역할 화면으로 검수한다', async ({ page, request }) => {
   test.setTimeout(1_800_000);
   const unique = Date.now();
   const projectCode = `STRESS-${String(unique).slice(-7)}`;
@@ -73,6 +74,8 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await fs.mkdir(path.join(screenshotDirectory, 'stages'), { recursive: true });
   await page.setViewportSize({ width: 1440, height: 1050 });
   page.setDefaultTimeout(15_000);
+
+  await ensureLqcOperational(request);
 
   // 1. 영업 담당자가 12면 프로젝트를 등록한다.
   await page.goto('/projects');

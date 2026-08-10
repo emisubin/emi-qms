@@ -26,6 +26,7 @@ public sealed class ProductionPlanningApiTests
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
         using var adminClient = context.CreateClient("dev-admin");
         using var designClient = context.CreateClient("dev-design");
 
@@ -67,6 +68,132 @@ public sealed class ProductionPlanningApiTests
         Assert.Contains(salesNotifications.RootElement.GetProperty("items").EnumerateArray(), item =>
             item.GetProperty("projectId").GetGuid() == projectId
             && item.GetProperty("title").GetString() == "프로젝트가 생성되었습니다.");
+    }
+
+    [Fact]
+    public async Task ProductTypeCreation_InitializesInactiveLqcForm_AndProjectsKeepCreationSnapshot()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
+        using var adminClient = context.CreateClient("dev-admin");
+        var suffix = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var itemCode = $"LQ{suffix}";
+
+        var createItem = await productionClient.PostAsJsonAsync(
+            "/api/production-planning/product-types",
+            new
+            {
+                Code = itemCode,
+                Name = $"LQC Snapshot {suffix}",
+                Steps = new[]
+                {
+                    new { SequenceNumber = 1, StepName = "제조", IsRequired = true }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        var createItemBody = await createItem.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(
+            createItem.StatusCode == HttpStatusCode.OK,
+            $"Expected OK but got {createItem.StatusCode}. Body: {createItemBody}. Logs: {context.ErrorLogs()}");
+
+        using var initialCatalog = await ReadJsonAsync(await adminClient.GetAsync(
+            "/api/form-templates/lqc-items",
+            TestContext.Current.CancellationToken));
+        var createdItem = initialCatalog.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("productTypeCode").GetString() == itemCode);
+        Assert.False(createdItem.GetProperty("isOperational").GetBoolean());
+        Assert.NotEqual(Guid.Empty, createdItem.GetProperty("templateVersionId").GetGuid());
+        Assert.NotEmpty(createdItem.GetProperty("items").EnumerateArray());
+
+        var initialItem = initialCatalog.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("productTypeCode").GetString() == "UL67");
+        Assert.False(initialItem.GetProperty("isOperational").GetBoolean());
+        var initialTemplateVersionId = initialItem.GetProperty("templateVersionId").GetGuid();
+
+        var firstProjectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"LQC-SNAPSHOT-A-{suffix}",
+            $"LQC Snapshot A {suffix}");
+        Assert.False(await context.ReadScalarAsync<bool>(
+            $"select lqc_operational_snapshot from projects where id='{firstProjectId}';"));
+        Assert.Equal(initialTemplateVersionId, await context.ReadScalarAsync<Guid>(
+            $"select lqc_template_version_id from projects where id='{firstProjectId}';"));
+
+        var saveForm = await adminClient.PutAsJsonAsync(
+            $"/api/form-templates/lqc-items/{initialItem.GetProperty("productTypeId").GetGuid()}/current",
+            new
+            {
+                ExpectedTemplateRowVersion = initialItem.GetProperty("templateRowVersion").GetInt32(),
+                Items = initialItem.GetProperty("items").EnumerateArray().Select((item, index) => new
+                {
+                    ItemCode = item.GetProperty("itemCode").GetString(),
+                    DisplayOrder = index + 1,
+                    Label = index == 0 ? "새 프로젝트 전용 LQC 항목" : item.GetProperty("label").GetString(),
+                    Guidance = item.GetProperty("guidance").ValueKind == JsonValueKind.Null ? null : item.GetProperty("guidance").GetString(),
+                    ResponseType = item.GetProperty("responseType").GetString(),
+                    IsRequired = item.GetProperty("isRequired").GetBoolean(),
+                    RequiresPhoto = item.GetProperty("requiresPhoto").GetBoolean(),
+                    MaxTextLength = item.GetProperty("maxTextLength").ValueKind == JsonValueKind.Null ? (int?)null : item.GetProperty("maxTextLength").GetInt32(),
+                    DefinitionKey = item.GetProperty("definitionKey").ValueKind == JsonValueKind.Null ? null : item.GetProperty("definitionKey").GetString()
+                }).ToArray()
+            },
+            TestContext.Current.CancellationToken);
+        var saveFormBody = await saveForm.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(
+            saveForm.StatusCode == HttpStatusCode.OK,
+            $"Expected OK but got {saveForm.StatusCode}. Body: {saveFormBody}. Logs: {context.ErrorLogs()}");
+        using var savedCatalog = await ReadJsonAsync(saveForm);
+        var savedItem = savedCatalog.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("productTypeCode").GetString() == "UL67");
+        var changedTemplateVersionId = savedItem.GetProperty("templateVersionId").GetGuid();
+        Assert.NotEqual(initialTemplateVersionId, changedTemplateVersionId);
+
+        var enableItem = await adminClient.PutAsJsonAsync(
+            $"/api/form-templates/lqc-items/{savedItem.GetProperty("productTypeId").GetGuid()}/operating-status",
+            new
+            {
+                IsOperational = true,
+                ExpectedRowVersion = savedItem.GetProperty("settingRowVersion").GetInt32()
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, enableItem.StatusCode);
+        using var enabledCatalog = await ReadJsonAsync(enableItem);
+        var enabledItem = enabledCatalog.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("productTypeCode").GetString() == "UL67");
+
+        var secondProjectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"LQC-SNAPSHOT-B-{suffix}",
+            $"LQC Snapshot B {suffix}");
+        Assert.True(await context.ReadScalarAsync<bool>(
+            $"select lqc_operational_snapshot from projects where id='{secondProjectId}';"));
+        Assert.Equal(changedTemplateVersionId, await context.ReadScalarAsync<Guid>(
+            $"select lqc_template_version_id from projects where id='{secondProjectId}';"));
+
+        var disableItem = await adminClient.PutAsJsonAsync(
+            $"/api/form-templates/lqc-items/{enabledItem.GetProperty("productTypeId").GetGuid()}/operating-status",
+            new
+            {
+                IsOperational = false,
+                ExpectedRowVersion = enabledItem.GetProperty("settingRowVersion").GetInt32()
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, disableItem.StatusCode);
+        using var disabledCatalog = await ReadJsonAsync(disableItem);
+        Assert.False(disabledCatalog.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("productTypeCode").GetString() == "UL67")
+            .GetProperty("isOperational").GetBoolean());
+        Assert.False(await context.ReadScalarAsync<bool>(
+            $"select lqc_operational_snapshot from projects where id='{firstProjectId}';"));
+        Assert.Equal(initialTemplateVersionId, await context.ReadScalarAsync<Guid>(
+            $"select lqc_template_version_id from projects where id='{firstProjectId}';"));
+        Assert.True(await context.ReadScalarAsync<bool>(
+            $"select lqc_operational_snapshot from projects where id='{secondProjectId}';"));
+        Assert.Equal(changedTemplateVersionId, await context.ReadScalarAsync<Guid>(
+            $"select lqc_template_version_id from projects where id='{secondProjectId}';"));
     }
 
     [Fact]
@@ -266,7 +393,7 @@ public sealed class ProductionPlanningApiTests
             && item.GetProperty("title").GetString() == "프로젝트 담당자로 지정되었습니다.");
 
         using var workflow = await ReadJsonAsync(await productionClient.GetAsync($"/api/projects/{projectId}/workflow", TestContext.Current.CancellationToken));
-        Assert.Equal(18, workflow.RootElement.GetProperty("stages").GetArrayLength());
+        Assert.Equal(17, workflow.RootElement.GetProperty("stages").GetArrayLength());
         var workflowStages = workflow.RootElement.GetProperty("stages").EnumerateArray().ToList();
         Assert.Equal("ProductionPlanning", workflowStages.First(item => item.GetProperty("sequenceNumber").GetInt32() == 2).GetProperty("stageCode").GetString());
         Assert.Equal("DesignPanelInfo", workflowStages.First(item => item.GetProperty("sequenceNumber").GetInt32() == 3).GetProperty("stageCode").GetString());
@@ -356,6 +483,12 @@ public sealed class ProductionPlanningApiTests
         using var salesClient = context.CreateClient("dev-sales");
         using var productionClient = context.CreateClient("dev-production");
 
+        await context.ExecuteSqlAsync("""
+            update lqc_item_settings setting
+            set is_operational=true, row_version=row_version+1, updated_at_utc=now()
+            from production_product_types product_type
+            where product_type.id=setting.product_type_id and product_type.code='UL67';
+            """);
         var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-STAGE-COMPLETE", "Workflow Stage Complete");
         await context.ExecuteSqlAsync($"update projects set fat_required = true where id = '{projectId}';");
         await context.WorkflowStore.GenerateProductionPlanningAssigneeFollowUpsAsync(
@@ -1578,6 +1711,7 @@ public sealed class ProductionPlanningApiTests
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
 
         var legacyProjectId = await CreateProjectAndReadIdAsync(
             context,
@@ -1655,6 +1789,9 @@ public sealed class ProductionPlanningApiTests
         var oqcSource = availableSources.Single(source => source.GetProperty("code").GetString() == "OQC_PASSED");
         Assert.Equal("None", oqcSource.GetProperty("definitionKind").GetString());
         Assert.Empty(oqcSource.GetProperty("definitions").EnumerateArray());
+        var lqcSource = availableSources.Single(source => source.GetProperty("code").GetString() == "LQC_PASSED");
+        Assert.False(lqcSource.GetProperty("isOperational").GetBoolean());
+        Assert.Contains("운영 중지", lqcSource.GetProperty("operationalMessage").GetString());
         var items = plan.RootElement.GetProperty("items").EnumerateArray().ToList();
         Assert.Equal(2, items.Count);
         var item = items.Single(candidate => candidate.GetProperty("stepName").GetString() == "제조 착수");
@@ -1675,6 +1812,86 @@ public sealed class ProductionPlanningApiTests
               and connection.source_code='OQC_PASSED'
               and connection.source_definition_key is null;
             """));
+
+        var suspendedProjectUpdateItems = items.Select((candidate, index) =>
+        {
+            var currentConnection = Assert.Single(candidate.GetProperty("connections").EnumerateArray());
+            var currentDefinitionKey = currentConnection.GetProperty("sourceDefinitionKey").ValueKind == JsonValueKind.Null
+                ? (Guid?)null
+                : currentConnection.GetProperty("sourceDefinitionKey").GetGuid();
+            return new ProductionPlanItemUpdateRequest(
+                candidate.GetProperty("itemId").GetGuid(),
+                null,
+                candidate.GetProperty("stepName").GetString(),
+                candidate.GetProperty("sequenceNumber").GetInt32(),
+                candidate.GetProperty("isRequired").GetBoolean(),
+                candidate.GetProperty("rowVersion").GetInt32(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                candidate.GetProperty("definitionKey").GetGuid(),
+                [new ProductionControlConnectionResponse(
+                    index == 0 ? ProductionControlSourceCodes.LqcPassed : currentConnection.GetProperty("sourceCode").GetString()!,
+                    index == 0 ? manufacturingDefinitionKey : currentDefinitionKey)]);
+        }).ToArray();
+        var unavailableProjectLqc = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{linkedProjectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                plan.RootElement.GetProperty("productTypeId").GetGuid(),
+                plan.RootElement.GetProperty("rowVersion").GetInt32(),
+                "LQC 운영 중지 검증",
+                "운영 중지 source는 신규 저장 불가",
+                suspendedProjectUpdateItems,
+                []),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, unavailableProjectLqc.StatusCode);
+        Assert.Contains("LQC는 현재 운영 중지", await unavailableProjectLqc.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        await context.ExecuteSqlAsync($"""
+            update project_production_plan_connections connection
+            set source_code='LQC_PASSED'
+            from project_production_plan_items item
+            where item.id=connection.production_plan_item_id
+              and item.production_plan_id=(select id from project_production_plans where project_id='{linkedProjectId}')
+              and item.step_name_snapshot='제조 착수';
+
+            with execution as (
+                insert into panel_manufacturing_executions (
+                    project_id, panel_id, status, started_by_user_id, started_at_utc,
+                    completed_by_user_id, completed_at_utc, version, updated_at_utc
+                )
+                select '{linkedProjectId}', panel.id, 'Completed',
+                       '50000000-0000-0000-0000-000000000004', now(),
+                       '50000000-0000-0000-0000-000000000004', now(), 1, now()
+                from panel_placeholders panel
+                where panel.project_id='{linkedProjectId}' and panel.status='Active'
+                returning id
+            )
+            insert into panel_manufacturing_execution_steps (
+                execution_id, sequence_number, step_name, definition_key,
+                checked_by_user_id, checked_at_utc
+            )
+            select id, 1, '프레임 조립', '{manufacturingDefinitionKey}',
+                   '50000000-0000-0000-0000-000000000004', now()
+            from execution;
+            """);
+
+        using var suspendedLqcPlan = await ReadJsonAsync(await salesClient.GetAsync(
+            $"/api/projects/{linkedProjectId}/production-planning",
+            TestContext.Current.CancellationToken));
+        var suspendedLqcItem = suspendedLqcPlan.RootElement.GetProperty("items").EnumerateArray()
+            .Single(candidate => candidate.GetProperty("stepName").GetString() == "제조 착수");
+        Assert.Equal(2, suspendedLqcItem.GetProperty("completedTargetCount").GetInt32());
+        Assert.Equal(100, suspendedLqcItem.GetProperty("progressPercent").GetInt32());
+        Assert.All(suspendedLqcItem.GetProperty("evidence").EnumerateArray(), evidence =>
+        {
+            Assert.True(evidence.GetProperty("isCompleted").GetBoolean());
+            Assert.Contains("LQC 운영 중지", evidence.GetProperty("sourceLabel").GetString());
+        });
     }
 
     [Fact]
@@ -1691,10 +1908,16 @@ public sealed class ProductionPlanningApiTests
         var productTypeId = initial.RootElement.GetProperty("items").EnumerateArray()
             .Single(item => item.GetProperty("productTypeCode").GetString() == "UL67")
             .GetProperty("productTypeId").GetGuid();
+        var ul67Template = initial.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("productTypeCode").GetString() == "UL67");
+        Assert.False(ul67Template.GetProperty("lqcOperational").GetBoolean());
         var oqcSource = initial.RootElement.GetProperty("sources").EnumerateArray()
             .Single(source => source.GetProperty("code").GetString() == "OQC_PASSED");
         Assert.Equal("None", oqcSource.GetProperty("definitionKind").GetString());
         Assert.Empty(oqcSource.GetProperty("definitions").EnumerateArray());
+        var lqcSource = initial.RootElement.GetProperty("sources").EnumerateArray()
+            .Single(source => source.GetProperty("code").GetString() == "LQC_PASSED");
+        Assert.True(lqcSource.GetProperty("isOperational").GetBoolean());
 
         using var manufacturingCreated = await ReadJsonAsync(await adminClient.PostAsJsonAsync(
             $"/api/production-control/templates/manufacturing/{productTypeId}/current",
@@ -1821,6 +2044,29 @@ public sealed class ProductionPlanningApiTests
         var originalManufacturingDefinitionKey = savedManufacturingItem.GetProperty("definitionKey").GetGuid();
         var savedPlanItem = Assert.Single(savedPlanVersion.GetProperty("items").EnumerateArray());
         var savedPlanDefinitionKey = savedPlanItem.GetProperty("definitionKey").GetGuid();
+        var unavailableLqc = await adminClient.PutAsJsonAsync(
+            $"/api/production-control/templates/planning/{productTypeId}/versions/{planVersionId}",
+            new
+            {
+                expectedRowVersion = savedPlanVersion.GetProperty("rowVersion").GetInt32(),
+                items = new[]
+                {
+                    new
+                    {
+                        definitionKey = (Guid?)savedPlanDefinitionKey,
+                        displayOrder = 1,
+                        label = "LQC 완료",
+                        isRequired = true,
+                        connections = new[]
+                        {
+                            new { sourceCode = "LQC_PASSED", sourceDefinitionKey = (Guid?)originalManufacturingDefinitionKey }
+                        }
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, unavailableLqc.StatusCode);
+        Assert.Contains("LQC는 현재 운영 중지", await unavailableLqc.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         using var manufacturingLinkedPlan = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
             $"/api/production-control/templates/planning/{productTypeId}/versions/{planVersionId}",
             new
@@ -2134,14 +2380,19 @@ public sealed class ProductionPlanningApiTests
         Assert.Equal(planVersionId, repeatedVersion.GetProperty("versionId").GetGuid());
     }
 
-    private static async Task<Guid> CreateProjectAndReadIdAsync(ProductionPlanningApiTestContext context, HttpClient client, string code, string title)
+    private static async Task<Guid> CreateProjectAndReadIdAsync(
+        ProductionPlanningApiTestContext context,
+        HttpClient client,
+        string code,
+        string title,
+        string item = "UL67")
     {
         var response = await client.PostAsJsonAsync(
             "/api/projects",
             new
             {
                 CustomerName = "Production Planning Test Customer",
-                Item = "UL67",
+                Item = item,
                 ProjectCode = code,
                 ProjectTitle = title,
                 PanelCount = 2,

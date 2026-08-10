@@ -76,6 +76,7 @@ public sealed class ProcurementItemResponse
     public string? MaterialCategoryCode { get; init; }
     public string? MaterialCategoryName { get; init; }
     public bool? MaterialCategoryRequiresIqc { get; init; }
+    public string? MaterialCategoryIqcDecisionMode { get; init; }
     public string? SupplierName { get; init; }
     public string? TechnicalOwner { get; init; }
     public DateOnly? OrderDate { get; init; }

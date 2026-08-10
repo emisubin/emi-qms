@@ -86,4 +86,7 @@
 - Open P0/P1/P2: `0/0/0`
 - 독립 최종 재검증: `PASS`, 사용자 검수 runtime 개방 가능
 - 사용자 검수: 완료(2026-08-11 사용자 명시)
-- Commit: 완료 / Push·PR·CI Gate·Merge·Azure release: 사용자 승인에 따라 순차 실행
+- Commit·Push: 완료
+- PR #91: 변경 분류·Backend·Frontend·Full-Stack E2E·`CI Gate` 전체 통과 후 squash merge 완료
+- 원격 main: `064454d1d098e473e032ba23641beebce8892227`
+- Azure release `31409582129`: migration `0070`·`0071` → Backend → Frontend 교체와 공개 보안 smoke 완료

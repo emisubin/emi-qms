@@ -252,13 +252,16 @@ Open P0/P1/P2: `0/0/0`.
 | Finding ID | 심각도 | 상태 | 원인·영향 | Resolution |
 | --- | --- | --- | --- | --- |
 | `QOM-C006-F01` | P1 | Resolved | 최초 Full-Stack의 기존 LQC 회귀 9건이 migration `0070`의 신규 Item 기본값 `운영 중지`를 반영하지 않아, LQC 생성·18단계를 기대하며 실패했다. 제품 정책을 되돌리면 신규 프로젝트 스냅샷 계약이 깨진다. | LQC를 검사하는 회귀 fixture가 프로젝트 생성 전 관리자 API로 RPP LQC를 명시적으로 켜고, 실제 생성 snapshot을 통해 검증하도록 수정했다. 선택 9/9 및 전체 57/57이 새 격리 DB에서 통과했다. |
+| `QOM-C006-F02` | P1 | Resolved | 독립 검증에서 기존 구매품을 같은 구분 ID로 일반 수정하면 Backend가 최신 구분 IQC 설정을 다시 읽어 저장 시점 snapshot을 덮어쓰는 비소급 계약 위반을 확인했다. Excel 재입력도 같은 구분 이름을 최신 master로 다시 해석할 수 있었다. | 신규 구매품 또는 실제 구분 변경일 때만 활성 master를 읽고, 같은 구분의 화면 수정·Excel 재입력은 저장된 검사 여부·방식 snapshot을 유지한다. 비활성화된 기존 구분도 일반 정보 수정은 허용한다. 설정 변경 뒤 화면 수정·Excel 수정·도착 분기 회귀를 추가했다. |
+| `QOM-C006-F03` | P2 | Resolved | LQC 비소급 회귀가 UL67을 켠 뒤 끌 때 새로 만든 다른 Item을 선택해, UL67 상태 변경 후 기존 프로젝트 snapshot 보존을 실제로 검증하지 않았다. | 끄기 대상도 UL67로 고정하고 응답에서 UL67이 실제 운영 중지인지 확인한 뒤 두 기존 프로젝트의 서로 다른 snapshot이 유지되는지 검증했다. |
+| `QOM-C006-F04` | P1 | Resolved | 독립 재검증에서 구분 master 이름과 IQC 설정을 함께 바꾼 뒤 Excel이 새 이름을 보내면, 같은 구분 ID인데도 이름 비교 때문에 최신 IQC 설정이 기존 구매품 snapshot을 덮어쓸 수 있었다. | Excel preview·apply 모두 활성 master 조회 결과의 구분 ID와 저장 ID를 비교한다. ID가 같으면 이름과 무관하게 저장 snapshot을 유지하고 구분 변경 audit도 만들지 않는다. 이름 변경+IQC 변경+일반 정보 수정 뒤 기존 snapshot과 도착 분기를 확인하는 회귀를 추가했다. |
 
 Open P0/P1/P2: `0/0/0`.
 
 ### 최신 main 기준 검증
 
 - Backend Release build: 경고 0, 오류 0.
-- Backend 전체 test: `490/490` 통과, 실패 0, 건너뜀 0.
+- Backend 전체 test: `491/491` 통과, 실패 0, 건너뜀 0.
 - Frontend lint: 오류 0, 기존 `frontend/src/main.tsx` Fast Refresh warning 1.
 - Frontend typecheck: 통과.
 - Frontend 전체 unit: 26 files, `190/190` 통과.
@@ -266,7 +269,7 @@ Open P0/P1/P2: `0/0/0`.
 - Mock UI: `8/8` 통과.
 - 초기 Full-Stack: `48/57` 통과, 기존 LQC fixture drift 9건 확인.
 - 보정 후 LQC 선택 Full-Stack: `9/9` 통과.
-- 보정 후 전체 Isolated Full-Stack: `57/57` 통과. migration fresh 적용, 1면·12면 18단계, LQC/IQC, Pending, 출하·정산을 확인했고 임시 DB·container를 정상 삭제했다.
+- 보정 후 전체 Isolated Full-Stack: `57/57` 통과. 독립 검증 Finding 보정 뒤에도 새 격리 DB에서 `57/57`을 재통과했다. migration fresh 적용, 1면·12면 18단계, LQC/IQC, Pending, 출하·정산을 확인했고 임시 DB·container를 정상 삭제했다.
 - Git diff check: 통과.
 
 ### 남은 gate

@@ -161,7 +161,7 @@ public sealed class ProductionPlanningApiTests
         Assert.Equal(HttpStatusCode.OK, enableItem.StatusCode);
         using var enabledCatalog = await ReadJsonAsync(enableItem);
         var enabledItem = enabledCatalog.RootElement.GetProperty("items").EnumerateArray()
-            .Single(item => item.GetProperty("productTypeCode").GetString() == itemCode);
+            .Single(item => item.GetProperty("productTypeCode").GetString() == "UL67");
 
         var secondProjectId = await CreateProjectAndReadIdAsync(
             context,
@@ -182,6 +182,10 @@ public sealed class ProductionPlanningApiTests
             },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, disableItem.StatusCode);
+        using var disabledCatalog = await ReadJsonAsync(disableItem);
+        Assert.False(disabledCatalog.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("productTypeCode").GetString() == "UL67")
+            .GetProperty("isOperational").GetBoolean());
         Assert.False(await context.ReadScalarAsync<bool>(
             $"select lqc_operational_snapshot from projects where id='{firstProjectId}';"));
         Assert.Equal(initialTemplateVersionId, await context.ReadScalarAsync<Guid>(

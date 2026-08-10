@@ -78,11 +78,12 @@
 ## 실행 현황
 
 - 최신 main 선택 이식: 완료
-- Backend Release build·전체 test: `PASS`, `490/490`
+- Backend Release build·전체 test: `PASS`, `491/491`
 - Frontend lint·typecheck·unit·build: `PASS`, `190/190`, 기존 warning 1
 - Mock UI: `PASS`, `8/8`
 - LQC 선택 Full-Stack: `PASS`, `9/9`
-- 전체 Isolated Full-Stack: `PASS`, `57/57`
+- 전체 Isolated Full-Stack: `PASS`, `57/57`(독립 검증 Finding 보정 후 재실행)
 - Open P0/P1/P2: `0/0/0`
+- 독립 최종 재검증: `PASS`, 사용자 검수 runtime 개방 가능
 - 사용자 검수: 대기
 - Commit·Push·PR·CI Gate·Merge·Azure release: 사용자 검수 후 순차 실행 대기

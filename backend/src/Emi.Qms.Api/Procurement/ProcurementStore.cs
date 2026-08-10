@@ -734,7 +734,9 @@ public sealed class ProcurementStore(
                                 ProcurementDomain.NormalizeProjectKey(category.DisplayName),
                                 ProcurementDomain.NormalizeProjectKey(parsedRow.MaterialCategoryName),
                                 StringComparison.Ordinal));
-                    if (!string.IsNullOrWhiteSpace(parsedRow.MaterialCategoryName) && materialCategory is null)
+                    if (!string.IsNullOrWhiteSpace(parsedRow.MaterialCategoryName)
+                        && materialCategory is null
+                        && row.ItemId is null)
                     {
                         await transaction.RollbackAsync(cancellationToken);
                         return ProcurementMutationResult<ProcurementListResponse>.Validation(
@@ -794,7 +796,41 @@ public sealed class ProcurementStore(
                         return ProcurementMutationResult<ProcurementListResponse>.Conflict(ProcurementDomain.StaleVersionMessage);
                     }
 
+                    var preservesStoredMaterialCategory = false;
+                    if (project.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased)
+                    {
+                        var usesStoredCategory = string.IsNullOrWhiteSpace(parsedRow.MaterialCategoryName)
+                            || (materialCategory is not null && materialCategory.CategoryId == current.MaterialCategoryId)
+                            || string.Equals(
+                                ProcurementDomain.NormalizeProjectKey(parsedRow.MaterialCategoryName),
+                                ProcurementDomain.NormalizeProjectKey(current.MaterialCategoryName),
+                                StringComparison.Ordinal);
+                        if (usesStoredCategory && current.MaterialCategoryId is Guid currentCategoryId)
+                        {
+                            materialCategory = new ProcurementMaterialCategorySnapshot(
+                                currentCategoryId,
+                                current.MaterialCategoryCode!,
+                                current.MaterialCategoryName!,
+                                current.MaterialCategoryRequiresIqc ?? false,
+                                current.MaterialCategoryIqcDecisionMode ?? "ScanBased");
+                            preservesStoredMaterialCategory = true;
+                        }
+                        else if (!string.IsNullOrWhiteSpace(parsedRow.MaterialCategoryName) && materialCategory is null)
+                        {
+                            await transaction.RollbackAsync(cancellationToken);
+                            return ProcurementMutationResult<ProcurementListResponse>.Validation(
+                                new Dictionary<string, string[]>
+                                {
+                                    ["Rows"] = [$"Excel {parsedRow.ExcelRowNumber}행의 구분이 비활성화되었거나 삭제되었습니다. 미리보기를 다시 실행해 주세요."]
+                                });
+                        }
+                    }
+
                     var changes = CollectExcelChanges(current, parsedRow);
+                    if (preservesStoredMaterialCategory)
+                    {
+                        changes.RemoveAll(change => change.FieldName == "MaterialCategory");
+                    }
                     if (changes.Count == 0)
                     {
                         continue;
@@ -1088,18 +1124,18 @@ public sealed class ProcurementStore(
 
                 if (update.MaterialCategoryId is Guid requestedCategoryId)
                 {
-                    nextMaterialCategory = await ReadActiveMaterialCategoryAsync(
-                        connection,
-                        transaction,
-                        requestedCategoryId,
-                        cancellationToken);
-                    if (nextMaterialCategory is null)
-                    {
-                        return MaterialCategoryValidation<ProcurementResponse>("선택한 구분이 없거나 비활성화되었습니다.");
-                    }
-
                     if (current.MaterialCategoryId != requestedCategoryId)
                     {
+                        nextMaterialCategory = await ReadActiveMaterialCategoryAsync(
+                            connection,
+                            transaction,
+                            requestedCategoryId,
+                            cancellationToken);
+                        if (nextMaterialCategory is null)
+                        {
+                            return MaterialCategoryValidation<ProcurementResponse>("선택한 구분이 없거나 비활성화되었습니다.");
+                        }
+
                         var receiptAggregate = await ReadMaterialReceiptAggregateAsync(connection, transaction, current.ItemId, cancellationToken);
                         if (receiptAggregate.ActiveReceiptCount > 0)
                         {
@@ -1618,14 +1654,35 @@ public sealed class ProcurementStore(
             }
 
             var matchedProject = projects.Single(project => project.ProjectId == match.MatchedProjectId.Value);
+            var preservesStoredMaterialCategory = false;
             if (matchedProject.IqcRoutingPolicy == ProjectIqcRoutingPolicies.CategoryBased)
             {
                 ProcurementMaterialCategorySnapshot? selectedCategory = null;
                 if (!string.IsNullOrWhiteSpace(row.MaterialCategoryName))
                 {
-                    categoriesByName.TryGetValue(
-                        ProcurementDomain.NormalizeProjectKey(row.MaterialCategoryName),
-                        out selectedCategory);
+                    var normalizedCategoryName = ProcurementDomain.NormalizeProjectKey(row.MaterialCategoryName);
+                    var usesStoredCategory = current is not null
+                        && current.MaterialCategoryId is not null
+                        && string.Equals(
+                            normalizedCategoryName,
+                            ProcurementDomain.NormalizeProjectKey(current.MaterialCategoryName),
+                            StringComparison.Ordinal);
+                    if (!usesStoredCategory)
+                    {
+                        categoriesByName.TryGetValue(normalizedCategoryName, out selectedCategory);
+                        preservesStoredMaterialCategory = selectedCategory is not null
+                            && selectedCategory.CategoryId == current?.MaterialCategoryId;
+                    }
+                    else if (current!.MaterialCategoryId is Guid currentCategoryId)
+                    {
+                        selectedCategory = new ProcurementMaterialCategorySnapshot(
+                            currentCategoryId,
+                            current.MaterialCategoryCode!,
+                            current.MaterialCategoryName!,
+                            current.MaterialCategoryRequiresIqc ?? false,
+                            current.MaterialCategoryIqcDecisionMode ?? "ScanBased");
+                        preservesStoredMaterialCategory = true;
+                    }
                     if (selectedCategory is null)
                     {
                         rows.Add(ToPreviewRow(row, "Error", match.MatchedProjectId, current, [$"구분 '{row.MaterialCategoryName}'을(를) 찾을 수 없습니다. 양식 관리의 활성 구분을 확인해 주세요."]));
@@ -1649,6 +1706,10 @@ public sealed class ProcurementStore(
 
             touchedItemIds.Add(current.ItemId);
             var changes = CollectExcelChanges(current, row);
+            if (preservesStoredMaterialCategory)
+            {
+                changes.RemoveAll(change => change.FieldName == "MaterialCategory");
+            }
             if (changes.Any(change => change.FieldName == "ReceiptCompleted"))
             {
                 rows.Add(ToPreviewRow(row, "Error", match.MatchedProjectId, current, ["Excel에서는 입고 완료값을 변경할 수 없습니다."]));

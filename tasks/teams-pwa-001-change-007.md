@@ -41,6 +41,7 @@
 - `frontend/src/design-system/wireframe.css`
 - `frontend/e2e/mock-ui/panel-kitting-smoke.spec.ts`
 - `frontend/e2e/mock-ui/project-registration-smoke.spec.ts`
+- `frontend/tests/QualityInspectionsPage.test.tsx`
 - `tasks/teams-pwa-001-change-007.md`
 - `tasks/teams-pwa-001-implementation-report.md`
 - `tasks/teams-pwa-001-user-validation-checklist.md`
@@ -55,6 +56,7 @@
 - 기존 로그인 desktop/mobile regression, Frontend lint·typecheck·unit·build, mock UI·CI
 - page-level horizontal overflow 0, 정상 경로 console error와 non-aborted request failure 0
 - 전체 mock UI에서 중복 가능한 empty-state action과 상단 action을 구분하는 안정적인 프로젝트 등록 test selector
+- 느린 CI에서도 품질 판정 API 응답과 dialog 오류 반영을 순서대로 기다리는 안정적인 기존 unit test
 - Backend·DB·migration·dependency·environment·Teams/PWA package 변경 0
 
 ## Finding Gate

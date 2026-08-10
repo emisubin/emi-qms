@@ -128,6 +128,7 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 | `TPWA-PUSH-001` | P3 | `BACKLOG` | 모바일 push는 권한·수신 정책·구독 lifecycle·DB·Service Worker가 필요한 새 채널이다. | 별도 `NEW_FEATURE` deep-interview에서 재확정한다. |
 | `TPWA-BRAND-007` | P2 | `RESOLVED` | 로그인과 공통 app shell이 같은 logo asset·grayscale 규칙을 공유해 사용자 지정 내부 logo의 형태와 원색을 보존할 수 없었다. | auth/internal asset import를 분리하고 공통 shell의 지정 logo에만 transparent·filter none 예외와 browser regression을 추가했다. |
 | `TPWA-CI-007` | P2 | `RESOLVED` | PR 전체 mock UI에서 프로젝트가 비어 있을 때 상단과 empty-state에 같은 `신규 프로젝트` action이 생겨 기존 test selector가 두 요소를 구분하지 못했다. | 제품 UI는 변경하지 않고 기존 smoke가 상단 첫 action을 명시하도록 두 진입 selector를 한정했다. |
+| `TPWA-CI-008` | P2 | `RESOLVED` | 느린 CI에서 품질 판정 API의 첫 오류 응답과 dialog 오류 문구 반영이 기존 1초 test 대기를 넘겨 간헐적으로 실패했다. | 제품 로직은 유지하고 API 호출 관찰과 오류 문구 반영을 각각 최대 5초 기다리는 test-only 동기화로 안정화했다. |
 
 Open P0/P1/P2: `0/0/0`.
 

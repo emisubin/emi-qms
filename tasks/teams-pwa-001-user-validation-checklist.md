@@ -32,7 +32,7 @@
 - [x] 로그인 뒤 desktop sidebar, 390px mobile app bar와 menu drawer는 지정 4x 내부 logo의 natural size `3796×1378`을 사용한다.
 - [x] 내부 logo만 원본 색상, `filter: none`, 투명 배경이며 나머지 화면은 기존 흑백 wireframe을 유지한다.
 - [x] desktop·390px에서 logo가 잘리지 않고 page-level horizontal overflow가 없다.
-- [ ] Frontend lint·typecheck·unit·build와 auth shell·집중 mock UI는 통과했다. PR CI 첫 실행의 기존 프로젝트 등록 selector 중복은 test-only로 해소했으며 최신 head 재검증을 대기한다.
+- [ ] Frontend lint·typecheck·unit·build와 auth shell·집중 mock UI는 통과했다. PR CI에서 드러난 기존 프로젝트 등록 selector 중복과 느린 환경의 품질 판정 오류 대기는 test-only로 해소했으며 최신 head 재검증을 대기한다.
 - [x] Backend·DB·migration·dependency·Teams manifest·PWA icon 변경이 없다.
 
 ## 사용자 검수

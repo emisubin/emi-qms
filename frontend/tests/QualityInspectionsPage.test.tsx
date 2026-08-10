@@ -197,7 +197,12 @@ describe('QualityInspectionsPage', () => {
     const submit = screen.getByRole('button', { name: '합격 확정 및 인계' });
     fireEvent.click(submit);
 
-    expect(await screen.findByText('서버에서 판정 조건을 다시 확인해 주세요.')).toBeInTheDocument();
+    await waitFor(() => expect(finalizeCalls).toBe(1), { timeout: 5_000 });
+    expect(await screen.findByText(
+      '서버에서 판정 조건을 다시 확인해 주세요.',
+      undefined,
+      { timeout: 5_000 }
+    )).toBeInTheDocument();
     expect(dialog).toBeInTheDocument();
     expect(responseSaveCalls).toBe(0);
 

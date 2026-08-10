@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 사용자 검수 체크리스트
 
-상태: `자동 검증 완료 / 사용자 검수 대기 / 운영 rollout 미적용`
+상태: `Change 001~003 운영 rollout 완료 / Change 007 local 자동 검증 완료 / 사용자 운영 검수 대기`
 
 - 검수 대상: EMI PMS 일반 사용자, System Administrator
 - 운영 적용 전제: 이 branch의 Git 게시와 Azure·Teams 운영 rollout은 별도 승인이 필요하다.
@@ -26,12 +26,22 @@
 - [x] Frontend 전체 unit `183/183`, Backend 전체 `486/486`, lint·typecheck·production build와 Bicep compile·정적 artifact 검증이 통과한다.
 - [x] DB·migration·알림 발송 정책·실제 provider 데이터는 변경하지 않았다.
 
+## Change 007 자동 검증
+
+- [x] 로그인 화면은 지정 4x 가로 logo의 natural size `4265×604`를 유지한다.
+- [x] 로그인 뒤 desktop sidebar, 390px mobile app bar와 menu drawer는 지정 4x 내부 logo의 natural size `3796×1378`을 사용한다.
+- [x] 내부 logo만 원본 색상, `filter: none`, 투명 배경이며 나머지 화면은 기존 흑백 wireframe을 유지한다.
+- [x] desktop·390px에서 logo가 잘리지 않고 page-level horizontal overflow가 없다.
+- [ ] Frontend lint·typecheck·unit·build와 auth shell·집중 mock UI는 통과했다. PR CI에서 드러난 기존 프로젝트 등록 selector 중복과 느린 환경의 품질 판정 오류 대기는 test-only로 해소했으며 최신 head 재검증을 대기한다.
+- [x] Backend·DB·migration·dependency·Teams manifest·PWA icon 변경이 없다.
+
 ## 사용자 검수
 
 ### 1. PC 웹·설치 앱
 
 - [ ] 보호된 운영 주소를 열었을 때 인증 전에는 핵심 앱 화면이나 JavaScript 파일이 바로 내려오지 않는지 확인한다.
 - [ ] Microsoft 365 로그인 뒤 브라우저 탭·로그인 화면·상단 이름이 모두 `EMI PMS`인지 확인한다.
+- [ ] 로그인 화면에는 지정 4x 가로 logo, 로그인 뒤 모든 화면의 왼쪽 공통 메뉴에는 지정 4x 내부 logo가 원본 색상으로 표시되는지 확인한다.
 - [ ] Chrome 또는 Edge에서 로그인 화면/계정 영역의 `EMI PMS 설치` 안내를 열 수 있는지 확인한다.
 - [ ] 브라우저가 설치를 지원하는 경우 설치 버튼 한 번으로 설치 확인창이 열리는지 확인한다.
 - [ ] 설치 후 시작 메뉴·작업 표시줄 이름과 아이콘이 `EMI PMS`, 흰 바탕 빨간 EMI 로고인지 확인한다.
@@ -45,6 +55,7 @@
 - [ ] 설치를 취소해도 로그인 화면 또는 계정 영역에서 안내를 다시 열 수 있는지 확인한다.
 - [ ] 설치 후 홈 화면 이름·아이콘과 standalone 실행이 정상인지 확인한다.
 - [ ] 제조·품질 주요 화면이 390px 안에서 가로로 잘리지 않는지 확인한다.
+- [ ] 로그인 뒤 상단 app bar와 전체 업무 menu의 logo가 모두 지정 4x 내부 logo 원본 색상으로 보이는지 확인한다.
 
 ### 3. iPhone
 
@@ -56,6 +67,7 @@
 - [ ] 안내를 닫고 새로고침했을 때 자동 안내가 반복되지 않는지 확인한다.
 - [ ] 안내 절차대로 홈 화면에 추가한 뒤 이름·아이콘과 standalone 실행이 정상인지 확인한다.
 - [ ] 설치 앱에서 Microsoft 365 로그인과 제조·품질 주요 화면을 사용할 수 있는지 확인한다.
+- [ ] 지정 4x 로그인 logo와 로그인 뒤 상단·전체 업무 menu의 지정 4x 내부 logo가 구분되어 표시되는지 확인한다.
 
 ### 4. Teams 앱·Activity Feed
 

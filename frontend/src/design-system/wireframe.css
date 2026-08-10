@@ -1991,6 +1991,14 @@ body,
   background: var(--wire-black) !important;
 }
 
+/* The supplied EMI mark is the only color exception inside the monochrome
+ * application shell. Keep the source pixels intact on every shared page. */
+.app-shell .app-brand-logo {
+  background: transparent !important;
+  filter: none !important;
+  object-fit: contain;
+}
+
 /* Identity photos remain circular because the shape denotes a person. */
 .app-shell :where(.profile-avatar, .profile-avatar img) {
   border-radius: 50% !important;
@@ -2345,6 +2353,16 @@ body,
     border-radius: var(--wire-radius-control) !important;
     background: var(--wire-black) !important;
     filter: grayscale(1) contrast(1.08);
+  }
+
+  .mobile-menu-brand-logo.app-brand-logo {
+    background: transparent !important;
+    filter: none !important;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-app-brand .app-brand-logo {
+    width: 56px;
+    height: 32px;
   }
 
   .mobile-menu-close {

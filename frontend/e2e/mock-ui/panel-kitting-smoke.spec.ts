@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, type Page, type Route, test } from '@playwright/test';
+import { expect, type Locator, type Page, type Route, test } from '@playwright/test';
 
 const screenshotDirectory = process.env.TASK010A_SCREENSHOT_DIR?.trim()
   ? path.resolve(process.env.TASK010A_SCREENSHOT_DIR)
@@ -18,6 +18,7 @@ test('TASK-010A mock visual: adaptive panel kitting page and mobile drawer', asy
   await page.getByLabel('개발 사용자').selectOption('dev-materials');
   await page.goto(`/materials/kitting?project=${readyProjectId}`);
   await expect(page.getByRole('heading', { name: '패널 키팅', exact: true })).toBeVisible();
+  await assertSuppliedInternalLogo(page.locator('.app-brand-lockup .app-brand-logo'));
   await expect(page.getByText('전체 입고 완료 · 실제 키팅을 마친 패널만 알려 주세요.')).toBeVisible();
   await expect(page.locator('.kitting-panel-card')).toHaveCount(4);
   await capture(page, '01-panel-kitting-desktop-1440.jpg');
@@ -32,6 +33,7 @@ test('TASK-010A mock visual: adaptive panel kitting page and mobile drawer', asy
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/materials/kitting?project=${readyProjectId}`);
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
+  await assertSuppliedInternalLogo(page.locator('.mobile-app-brand .app-brand-logo'));
   await expect(page.getByRole('button', { name: '메뉴 열기' })).toBeVisible();
   await expect(page.locator('.kitting-panel-card[data-completed="true"]')).toHaveCount(2);
   expect(await page.locator('.kitting-panel-card').evaluateAll((cards) =>
@@ -47,6 +49,7 @@ test('TASK-010A mock visual: adaptive panel kitting page and mobile drawer', asy
   await page.getByRole('button', { name: '메뉴 열기' }).click();
   const menu = page.getByRole('dialog', { name: '전체 업무 메뉴' });
   await expect(menu).toBeVisible();
+  await assertSuppliedInternalLogo(menu.locator('.mobile-menu-brand-logo.app-brand-logo'));
   await expect(menu.getByRole('button', { name: '자재' })).toHaveAttribute('aria-current', 'page');
   await expect(menu.getByRole('button', { name: '자재' })).toHaveAttribute('aria-expanded', 'false');
   await expect(menu.getByRole('button', { name: '키팅' })).toHaveCount(0);
@@ -55,6 +58,25 @@ test('TASK-010A mock visual: adaptive panel kitting page and mobile drawer', asy
   await expect(menu.getByRole('button', { name: '패널 키팅' })).toHaveAttribute('aria-current', 'page');
   await capture(page, '04-panel-kitting-menu-mobile-390.jpg');
 });
+
+async function assertSuppliedInternalLogo(locator: Locator) {
+  await expect(locator).toBeVisible();
+  expect(await locator.evaluate((image) => {
+    const img = image as HTMLImageElement;
+    const style = getComputedStyle(img);
+    return {
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
+      filter: style.filter,
+      backgroundColor: style.backgroundColor
+    };
+  })).toEqual({
+    naturalWidth: 3796,
+    naturalHeight: 1378,
+    filter: 'none',
+    backgroundColor: 'rgba(0, 0, 0, 0)'
+  });
+}
 
 test('TASK-010A Change 004 mock visual: production planning and manufacturing release tabs', async ({ page }) => {
   const store = createKittingStore();

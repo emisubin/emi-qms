@@ -978,7 +978,7 @@ Excel 출력 대상 후보:
 - role/permission 편집 UI, Pending 유형 관리와 검사/제조 체크리스트 템플릿은 ADMIN-001 범위에서 제외되어 후속으로 검토한다. Terminal Failed 수동 재처리는 TASK-NOTIFY-004 정책 결정에 따라 별도 신규 기능 후보로 Deferred한다.
 - Notification claim/lease, automatic retry, attempt lineage, provider 오류 분류와 escalation starvation 보정은 완료됐다. `TASK-NOTIFY-004`는 terminal `Failed`를 현재 상태 모델의 최종 상태로 유지하고 Pending retry·acknowledge·dismiss만 지원하는 `POLICY_CORRECTION_AND_DEFER`를 승인했다. Failed 수동 재처리가 필요하면 retry generation·append-only audit·provider 중복 확인을 포함한 별도 NEW_FEATURE planning을 거친다.
 - TASK-AUTH-HARDEN-001의 `PURGE_GUARD_PREDICATE_UNREACHABLE`은 Change 001 REDESIGN으로 해결됐고 TASK-UAT-AUTH-HARDEN-001 Phase A~D, privacy-safe evidence, isolated HTTP, Persistent mutation-free runtime handover와 사용자 검수를 통과했다. Persistent live auth mutation은 break-glass 증명 전 No-Go다.
-- Git history 개인정보는 `TASK-GOV-HISTORY-REWRITE-001`의 영향 ref `16/16` rewrite, fresh clone과 GitHub Support internal reference 제거·GC를 거쳐 P2를 해소했다. PR #50 merge 뒤 사용자가 Repository를 public으로 재개했으며 encrypted backup 삭제는 별도 승인 대상이다.
+- Git history 개인정보는 `TASK-GOV-HISTORY-REWRITE-001`의 영향 ref `16/16` rewrite, fresh clone과 GitHub Support internal reference 제거·GC를 거쳐 P2를 해소했다. PR #50 merge 당시 사용자가 Repository를 public으로 재개했으며 encrypted backup 삭제는 별도 승인 대상이다. 2026-08-10 actual readback 기준 현재 visibility는 `PRIVATE`이고 exact 전환 시점은 이 Roadmap에서 확정하지 않는다.
 - 기존 import-order 위반 9건은 범위 밖 format debt/P3 후보이며 현재 P2 Gate에 포함하지 않는다.
 
 ## 23. 향후 개발 로드맵
@@ -991,7 +991,7 @@ Excel 출력 대상 후보:
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0.1 | TASK-UAT-AUTH-HARDEN-001 | UAT_RUNTIME | Completed | Planning Approved | Phase A~D 자동 검증·runtime 적용·사용자 검수 완료 | break-glass 미증명으로 live mutation 금지 | Yes | PR #40 squash merge 승인 → TASK-GOV-002 |
 | 0.2 | TASK-GOV-002 | POLICY_DECISION | Completed | Planning Approved | current checkout 비식별화·public history 조사·사용자 검수 완료 | PR #41 Ready·squash merge 승인 | No | PR #41 merge → TASK-GOV-HISTORY-REWRITE-001 |
-| 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | Completed / PR #50 Merged / Repository Public | Planning·Implementation Approved | 영향 ref `16/16`, fresh clone, old clone quarantine, Support cleanup, 독립 검증·사용자 검수 완료 | Encrypted backup 삭제는 별도 승인 | No | 0.6 신규 기능 Go/No-Go 사용자 결정 |
+| 0.3 | TASK-GOV-HISTORY-REWRITE-001 | SECURITY_HARDENING | Completed / PR #50 Merged / Public at Completion / Current Private | Planning·Implementation Approved | 영향 ref `16/16`, fresh clone, old clone quarantine, Support cleanup, 독립 검증·사용자 검수 완료 | Encrypted backup 삭제는 별도 승인 | No | 0.6 신규 기능 Go/No-Go 사용자 결정 |
 | 0.4 | TASK-NOTIFY-004 잔여 범위 | POLICY_DECISION | Completed / PR #44 Merged | Planning Approved | claim/lease·automatic retry·attempt lineage·starvation 완료 | 없음. 수동 재처리는 별도 신규 기능으로 Deferred | No | Finding gate에서 Resolved 확인 |
 | 0.4A | TASK-BACKEND-FORMAT-001 — import-order baseline 정리 | HOUSEKEEPING | Completed / Merged | Planning Approved | import-order 9건 정규화·검증·사용자 검수 완료 | 없음 | No | Finding gate에서 Resolved 확인 |
 | 0.4B | TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell | BUGFIX | Change 010 Main Merged / Azure Released | Change 010 User Approved | Change 001~009 완료. Change 010 지정 로그인 로고와 iPhone·Android 흑백 wireframe 구현·전체 Frontend·PR #83 merge·Azure 운영 release 완료 | 실제 PC·iPhone·Android 인증 후 육안 검수. Code Connect는 향후 필수 Gate에서 제외 | No | 사용자 실제 기기 검수 |
@@ -1034,6 +1034,7 @@ Excel 출력 대상 후보:
 | 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | TASK-AZURE-PILOT-001 — 서비스 중립 공개 파일럿 준비 | UAT_RUNTIME | Main Merged / User Validation Complete | Entra API·SPA 분리, one-shot migration·ledger gate, Production preflight·ARM64/AMD64 image 검증과 PR #59 merge 완료 | TASK-UAT-001, local main 승인 기능과 사용자 P1 구현 승인 | provider-specific 실제 runtime은 TASK-AZURE-DEPLOY-001로 이관 | Yes | 완료 scope 재구현 금지 |
 | 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | BUGFIX / UAT_RUNTIME | Change 020 Runtime Verified | Change 019 release guard 유지. Change 020은 최신 main `37dd619685e6447fc867d213d1f63692c6cd8c62`의 migration·Backend·Frontend·public security와 익명 `401/401`을 모두 통과 | TASK-AZURE-PILOT-001, Change 018 승인형 workflow | 사용자 실제 기기 지정 logo 육안 검수, 20일 운영 관찰과 기존 P3 runner 경고 유지보수 | Yes | 사용자 실제 기기 검수 → 운영 관찰 |
+| 6.3 | TASK-CI-COST-001 — GitHub Actions minute 최적화 | P2_REMEDIATION | Publication Approved / GitHub Validation Pending | 조사·권장 최소안·Roadmap 병렬 진행·구현·Git 게시·main merge 사용자 승인, rename 회귀 포함 local classifier `7/7`·Gate `6/6` 완료 | 일반 CI run 집계, TASK-AZURE-DEPLOY-001 Change 018 승인형 release 보존 | 실제 Actions PR/main run과 최소 1주 사용량 관찰 | No | PR CI → main merge → main CI → 사용량 관찰 |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
 
@@ -1125,7 +1126,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 - 상태: `COORDINATED_HISTORY_REWRITE` 정책 선택·planning·5종 산출물 사용자 검수 완료 / PR #41 Ready·squash merge 승인
 - 목적: current checkout에서 제거된 개인정보가 Git history에 남은 위험과 repository 공개 범위를 평가하고, history rewrite 필요 여부와 협업 절차를 결정한다.
-- 확인 결과: Repository `PUBLIC`, current checkout exact match 0, origin main 영향 1 commit/2 files, 영향 remote ref 15/18, local branch 19/20, fork/open PR/tag 0. 외부 clone·download는 완전 열거 불가
+- 당시 확인 결과: Repository `PUBLIC`, current checkout exact match 0, origin main 영향 1 commit/2 files, 영향 remote ref 15/18, local branch 19/20, fork/open PR/tag 0. 외부 clone·download는 완전 열거 불가. 2026-08-10 actual readback의 현재 visibility는 `PRIVATE`다.
 - 승인 정책: main-only나 private-only가 아닌 coordinated all-ref rewrite. Risk owner는 `Repository owner / security owner`
 - 포함 범위: 영향 commit/file/ref aggregate, visibility와 clone/fork 한계, 대안 비교, risk owner, 후속 maintenance·backup·re-clone 승인 경계
 - 제외 범위: 이 Task에서 history rewrite, force push, visibility·ruleset 변경, tag/branch 삭제
@@ -1137,7 +1138,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-GOV-HISTORY-REWRITE-001: Coordinated Git history rewrite
 
-- 상태: 영향 published ref rewrite·fresh clone·old common repository push quarantine·Support cleanup·독립 검증·사용자 검수 완료 / Repository `PUBLIC` / cached reference `REMOVED` / PR #50 Merged
+- 상태: 영향 published ref rewrite·fresh clone·old common repository push quarantine·Support cleanup·독립 검증·사용자 검수 완료 / Task 완료 당시 Repository `PUBLIC`, 2026-08-10 현재 `PRIVATE` / cached reference `REMOVED` / PR #50 Merged
 - 목적: current checkout에서 제거된 과거 개인정보를 모든 영향 published ref에서 제거하고 cache·old clone 재유입·backup 경계를 분리해 검증한다.
 - 실행 결과: 영향 ref `16/16`, 예상 밖 ref 이동 0, tip tree mismatch 0, fresh-clone history exact match 0, fsck error 0
 - Support 결과: completion/follow-up/closed fixed projection `1/1/1`, old cached reference `REMOVED`, page-not-found `true`
@@ -1278,6 +1279,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - Finding: `AZURE-RELEASE-RUNNING-STATE-001` P1은 정상 `RunningAtMaxScale` 오판을 exact allowlist와 actual release 성공으로 `RESOLVED`했다. main Full-Stack 첫 시도의 5초 UI 표시 지연 `CI-FULLSTACK-QUALITY-REFRESH-001` P2는 격리 `1/1`과 실패 job 재실행 성공으로 `RESOLVED`했다. 성공한 release의 action/CLI 경고 2건은 `GHA-AZURE-RUNNER-WARNINGS-001` P3 backlog로 추적한다.
 - 산출물: [Identity Gate](../tasks/azure-deploy-001-identity-gate.md), [Change 009](../tasks/azure-deploy-001-change-009.md), [Change 010](../tasks/azure-deploy-001-change-010.md), [Change 011](../tasks/azure-deploy-001-change-011.md), [Change 012](../tasks/azure-deploy-001-change-012.md), [Change 013](../tasks/azure-deploy-001-change-013.md), [Change 014](../tasks/azure-deploy-001-change-014.md), [Change 015](../tasks/azure-deploy-001-change-015.md), [Change 016](../tasks/azure-deploy-001-change-016.md), [Change 017](../tasks/azure-deploy-001-change-017.md), [Change 018](../tasks/azure-deploy-001-change-018.md), [Change 019](../tasks/azure-deploy-001-change-019.md), [Implementation report](../tasks/azure-deploy-001-implementation-report.md), [SOP](../tasks/azure-deploy-001-sop.md), [User validation checklist](../tasks/azure-deploy-001-user-validation-checklist.md), [Azure pilot infrastructure](../infrastructure/azure-pilot/README.md)
 - 다음 Gate: Change 020 최신 main 운영 image 동기화를 완료했다. 사용자 실제 PC·iPhone·Android 지정 logo 육안 검수와 20일 운영 관찰을 유지한다.
+
+### TASK-CI-COST-001: GitHub Actions minute 최적화
+
+- 상태/다음 순서: 일반 CI의 중복 비용 P2 조사·권장 최소안·workflow 구현·local 자동 검증·Git 게시와 `main` merge 사용자 승인 완료 / 실제 GitHub PR/main run 검수 대기
+- 목적: GitHub-hosted Actions 월 사용량 90% 경고 뒤 100% 상태에서 코드 PR의 품질 Gate를 유지하며 문서 전용 run, 연속 PR commit, PR 뒤 `main` Full-Stack과 선행 실패 뒤 E2E 비용을 줄인다.
+- 포함 범위: 일반 CI의 PR concurrency, 내부 changed-file 분류, PR 전체 검증과 `main` smoke 분리, Backend·Frontend 성공 뒤 Full-Stack, always-run `CI Gate`, pnpm store cache와 timeout
+- 제외 범위: Azure 수동 운영 release workflow, 제품/API/DB/migration/runtime, Repository visibility·GitHub ruleset mutation, self-hosted runner 도입과 branch 자동 삭제
+- 안전 경계: workflow-level `paths-ignore`를 쓰지 않고 분류 실패·unknown path는 전체 검증으로 fallback한다. 코드 PR은 Backend·Frontend·Full-Stack을 유지하며 Azure release의 수동 승인·immutable main SHA·`cancel-in-progress: false` 계약을 변경하지 않는다.
+- 산출물: [Identity Gate](../tasks/ci-cost-001-identity-gate.md), [Task·SOP·User manual·검수 checklist](../tasks/ci-cost-001.md), [Implementation report](../tasks/ci-cost-001-implementation-report.md), 이 Roadmap update
+- 다음 Gate: 승인된 PR을 게시해 코드 PR 전체 Gate를 확인하고 `main` 병합 뒤 Backend·Frontend·`CI Gate`와 Full-Stack skip을 검수한다. 최소 1주 사용량 감소는 게시 후 관찰한다.
 
 ### TASK-TEAMS-PWA-001: Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
@@ -1877,7 +1888,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 59 | Notification delivery claim/lease | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-REL-001 | Processing·SKIP LOCKED·lease/fencing·attempt audit, 정상 경쟁 provider call 1회, isolated candidate 5094/5192. Persistent UAT 0028 미적용, actual provider 호출 0, at-least-once이며 exactly-once 미보장. PR #30 |
 | 60 | Escalation starvation | 구현·자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-NOTIFY-ESC-001 | 기존 evaluation timestamp fair ordering, 후보 오류 격리, 101/200/201 유한 poll, 중복 0. Persistent UAT worker는 disabled 유지 |
 | 61 | 마지막 System Administrator 동시성 보호 | controlled UAT Phase A~D·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-AUTH-HARDEN-001 | Privacy-safe evidence·isolated HTTP·temporary ReviewSafe·latest-main Development handover 완료. Persistent live mutation은 break-glass 증명 전 No-Go |
-| 62 | Git history 개인정보 | 정책·rewrite·Support cleanup·public 재개 완료 / history P2 Resolved | 사용자/보안 | TASK-GOV-002 / TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone 검증, internal reference 제거·repository GC와 cached reference `REMOVED`. Repository `PUBLIC`, backup 삭제 미승인 |
+| 62 | Git history 개인정보 | 정책·rewrite·Support cleanup·당시 public 재개 완료 / history P2 Resolved / 현재 Private | 사용자/보안 | TASK-GOV-002 / TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone 검증, internal reference 제거·repository GC와 cached reference `REMOVED`. Task 완료 당시 `PUBLIC`, 2026-08-10 actual readback `PRIVATE`, backup 삭제 미승인 |
 | 63 | Patched frontend UAT handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-001 | 최신 main Vite 7.3.6 frontend를 5174에 인계. Teams client 검수, Backend/PostgreSQL 보존과 DB snapshot 확인 완료. PR #25 |
 | 64 | Migration ledger 전체 집합 검증 | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-DB-MIGRATION-001 | canonical 27/live 28/approved legacy 1, full-set compare, schema probe, mismatch 503, candidate 5191/5093, live row 미변경. PR #27 |
 | 65 | Privacy-safe Review-safe runtime handover | 자동 검증·사용자 검수 완료 / merge 승인 | 개발/운영 | TASK-UAT-HANDOVER-002 | merged main 5190/5092, Compatible 27/28/1, redacted browser matrix, DB read-only·423, Candidate/Persistent UAT 보존. PR #28 |
@@ -1892,7 +1903,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 74 | terminal Failed delivery 수동 재처리 범위 | `EXPERIMENT_COMPLETE / BATCHED_FINAL` | 사용자/개발/운영 | TASK-NOTIFY-REPROCESS-001 | terminal Failed만 generation 기반 CAS·원자 배치·사유·중복 위험 확인·append-only audit로 재처리. migration `0049`; 실제 provider·Persistent UAT 미적용 |
 | 75 | Auth break-glass 계정과 복구 절차 | 미확정 | 사용자/보안/운영 | TASK-UAT-AUTH-HARDEN-001 | 인증 가능한 별도 복구 경로가 증명되기 전 Persistent live last-admin mutation 금지 |
 | 76 | Roadmap 목표 시기 해석 | 확정 | 사용자/개발 | Roadmap 운영 | Target Window는 확정 약속이 아니며 status·dependency·external blocker·approval gate를 우선 |
-| 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수·PR #50 merge·public 재개 완료 | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. Backup 삭제는 별도 결정 |
+| 77 | Git history coordinated rewrite 실행 | 실행·Support closure·독립 검증·사용자 검수·PR #50 merge·당시 public 재개 완료 / 현재 Private | 사용자/보안/개발 | TASK-GOV-HISTORY-REWRITE-001 | 영향 ref `16/16`, fresh clone·quarantine, internal reference 제거·GC, cached reference `REMOVED`. 2026-08-10 actual readback은 `PRIVATE`; backup 삭제는 별도 결정 |
 | 78 | Azure Application Insights APM 계측 | P3 Backlog / 시범 실측 후 재평가 | 개발/운영 | AZURE-APM-001 | 현재는 Log Analytics container log를 사용. Request trace가 필요하면 Backend SDK 계측을 별도 시작 |
 | 79 | Frontend production bundle 분할 | P3 Backlog / 정식 운영 성능 점검 | 개발 | FRONTEND-BUNDLE-001 | 현재 large bundle warning은 기능·build 실패가 아님. 실제 로딩 측정 후 route chunk 분할 결정 |
 | 78 | Task instruction chain·완료 보고 형식 | 최초 Task merge 완료 / Change 001 상태 충돌 P2 Resolved·자동·독립 검증·사용자 검수 완료 / merge 승인 | 개발 | TASK-GOV-REPORTING-001 | 최초 Task 완료와 현재 Change 상태를 분리하고 작업 현황·Git 게시·중단 Task·Roadmap next·Finding identity를 보존 |
@@ -1901,7 +1912,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 82 | Entra 로그인 공통 디자인 shell | 사용자 검수·승격·5174 반영·PR #49 merge 완료 | 사용자/개발/품질 | TASK-DESIGN-LOGIN-001 | 승인된 Figma 기반 auth shell과 Loading·checkbox 반영. Code Connect는 향후 필수 Gate가 아니며 5176 실험 runtime은 보존 |
 | 83 | 로그인 디자인 promotion·experiment worktree 정리 | Promotion 정리 완료 / 5176 experiment 보존 | 사용자/개발 | TASK-GOV-CODEX-002 Change 004 | Clean·process 미사용·PR #49 merge 확인 뒤 promotion worktree 제거. 5176 experiment는 runtime·미게시 디자인 source로 계속 보존 |
 | 84 | 전체 Finding Gate | Open P0/P1/P2 `0/0/0` / 독립 검증·사용자 검수 완료 / PR #50 merge 승인 | 사용자/개발/보안 | TASK-GOV-FINDING-GATE-001 | History·E2E·Failed retry·privacy 절차 P2 Resolved. 신규 기능은 `GO_FOR_USER_DECISION`, 자동 시작 아님 |
-| 85 | Public main 서버 측 PR 강제 | Resolved — active required PR 적용·운영 문서 동기화 | 사용자/운영/보안 | TASK-GOV-CODEX-002 Change 005 | Repository `PUBLIC`, default branch `main`, effective `pull_request` rule 1. 승인·required status check·최신화·review 해결은 강제하지 않으며 History SOP·User manual current state도 동기화 |
+| 85 | Public 당시 main 서버 측 PR 강제 | Resolved — active required PR 적용·운영 문서 동기화 / 현재 Private | 사용자/운영/보안 | TASK-GOV-CODEX-002 Change 005 | 당시 Repository `PUBLIC`, default branch `main`, effective `pull_request` rule 1. 2026-08-10 actual readback은 `PRIVATE`; 승인·required status check·최신화·review 해결은 강제하지 않음 |
 | 86 | Local GitHub 폴더 최종 정리 | 최종 삭제·자동·독립 검증·사용자 검수·PR #52 merge 완료 | 사용자/개발 | TASK-GOV-CODEX-002 Change 006 | 최상위 폴더 `6→3→2`. Dirty checkout 6개·local branch 32개 exact audit 뒤 보존 폴더를 영구 삭제. Docker stale handle `4→0`, 동일 PostgreSQL volume·DB aggregate·대표·디자인 runtime 보존 |
 | 87 | 웹사이트 전체 유저플로우 개인 기획 자료 | 완료 / 독립 재검증·CI 3/3·PR #55 squash merge / Open P0/P1/P2/P3 `0/0/0/0` | 사용자/기획/개발 | TASK-USER-FLOW-001 Change 004 | 개인 개발 판단 자료. Fable direct-write 원문·확정/권고/미확정 경계·병렬 dependency map·vertical slice를 반영했으며 제품 구현·Phase B는 미승인 |
 | 88 | Fable·USER-FLOW worktree 대표 clone 통합 | 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / Governance merge 승인 | 사용자/개발 | TASK-GOV-CODEX-002 Change 012 | 대표·디자인 `2/2` 복구. Governance merge 뒤 USER-FLOW를 최신 main에서 별도 처리 |
@@ -1909,6 +1920,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 90 | 실험 계보 Full-Stack 전체 회귀 | Change 011 PR #76·Change 012 PR #77 원격 병합 및 merge SHA CI 완료 | 개발/품질 | TASK-E2E-FULL-SUITE-001 | 전역 목록 test 결합과 exact Pending route 메타데이터 P2를 project detail·fail-closed retry로 해소. Frontend 177·Full-Stack 56·Backend 486, PR 최신 head·merge SHA CI `3/3` 통과. Azure 운영 release Gate 재개 |
 | 92 | 실험 Task 완료 원장과 중복 실행 방지 | 완료 원장 작성·Task selection gate 적용 | 사용자/개발 | TASK-GOV-CODEX-002 Change 015 | 완료 18 Task·A1 slice·남은 Task·P3 backlog를 분리. `BATCHED_FINAL`은 사용자 검수 완료가 아니며 완료 scope 재구현을 금지 |
 | 95 | GitHub Azure release runner 경고 | P3 Backlog / 다음 배포 유지보수 | 개발/운영 | GHA-AZURE-RUNNER-WARNINGS-001 | Change 019 운영 release는 성공했다. Node.js action runtime과 Azure CLI version parse 경고는 호환 action/runner 갱신 뒤 정적·actual release 회귀로 닫는다 |
+| 96 | GitHub Actions 일반 CI minute 과소비 | 게시·main merge 승인 완료 / 실제 GitHub 검수 대기 | 사용자/개발/품질 | TASK-CI-COST-001 | 코드 PR 전체 품질 Gate와 Azure 수동 release는 보존하고, PR 이전 run 취소·문서 전용 skip·main Full-Stack 중복 제거·선행 성공 E2E·pnpm cache·timeout으로 사용량을 줄인다. 실제 절감률은 게시 후 1주 관찰한다. |
 
 ## 25. 결정 이력 (Decision Log)
 
@@ -2173,6 +2185,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-10 | `TASK-DESIGN-LOGIN-001 Change 010` PR #83을 원격 main에 병합하고 `TASK-TEAMS-PWA-001 Change 007`에서 로그인 후 공통 shell logo를 별도 지정 asset으로 분리 | 로그인은 사용자 지정 가로형 logo, 로그인 뒤 모든 page는 사용자 지정 내부 logo를 쓰되 기존 흑백 wireframe과 Easy Auth·Teams/PWA·업무 계약을 보존한 최신 main을 한 번 공개 release하기 위함 | 23장~25장, TASK-DESIGN-LOGIN-001 Change 010, TASK-TEAMS-PWA-001 Change 007 |
 | 2026-08-10 | `TASK-TEAMS-PWA-001 Change 009`에서 모바일 PWA 자동 안내를 Microsoft 인증·앱 shell 준비 뒤로 고정하고 Android 설치 event 준비 전에도 안내를 먼저 표시 | Easy Auth의 익명 차단은 유지하면서 로그인 직후 설치 행동을 놓치지 않게 하고, Chrome native 설치 정책 안에서 준비 뒤 한 번의 버튼으로 설치 확인창을 열며 영구 숨김을 방지하기 위함 | 23장~25장, TASK-TEAMS-PWA-001 Change 009 |
 | 2026-08-10 | `TASK-TEAMS-PWA-001 Change 009` PR #86·main CI `3/3` 뒤 exact main SHA를 Azure release `31361630803`으로 운영에 배포 | 모바일 설치 안내 보정의 Git 게시·immutable image·migration gate·Backend/Frontend 교체와 공개 health·익명 인증 차단을 하나의 운영 근거로 닫고 다음 Gate를 실제 Android·iPhone 사용자 검수로 전환하기 위함 | 23장~25장, TASK-TEAMS-PWA-001 Change 009 |
+| 2026-08-10 | 실제 기기 사용자 검수·운영 관찰과 `TASK-CI-COST-001`을 병렬 진행하고 일반 CI 비용 최적화를 구현 | GitHub Actions 월 사용량이 90%에 도달해 개발·게시 Gate 중단 위험이 생겼으므로, 제품 runtime과 Azure 수동 release를 건드리지 않고 코드 PR 품질을 보존하는 최소 workflow 보정을 먼저 검증하기 위함 | 23장~25장, TASK-CI-COST-001 |
+| 2026-08-10 | GitHub Actions 사용량 100% 도달 뒤 결제 경계를 복구하고 `TASK-CI-COST-001`의 Git 게시와 `main` merge를 승인 | 현재 개발을 재개하면서도 단순 증액에 의존하지 않고 이후 모든 PR과 main push가 변경 인지형 CI 비용 정책을 자동 적용하게 하기 위함 | 23장~25장, TASK-CI-COST-001 |
+| 2026-08-10 | GitHub actual readback 기준 Repository 현재 visibility를 `PRIVATE`로 동기화하고 과거 public 상태는 당시 이력으로 보존 | CI 포함 minute 과금 원인과 current Roadmap 상태의 충돌을 해소하되 history rewrite 완료 당시 공개 재개 사실과 exact visibility 전환 시점 미확정 상태를 왜곡하지 않기 위함 | 22장~25장, TASK-CI-COST-001 |
 
 ## 26. 용어 사전
 

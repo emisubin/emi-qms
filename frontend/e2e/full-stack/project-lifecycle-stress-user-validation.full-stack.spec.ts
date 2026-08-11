@@ -263,8 +263,8 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
     select count(*)::text from notification_deliveries d
     join notifications n on n.id=d.notification_id
     where n.project_id='${projectId}' and n.source_kind='PendingAssignment'
-      and d.channel in ('TeamsChannel','Mail');
-  `)), { timeout: 30_000 }).toBe(24);
+      and d.channel in ('TeamsActivity','Mail');
+  `)), { timeout: 30_000 }).toBe(36);
 
   // 생산관리 담당자가 6개 Pending을 모두 실제 상태 전이로 종결한다.
   for (const pendingUrl of pendingUrls) {
@@ -367,7 +367,7 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   const pendingNotificationCount = Number(queryDatabase(`select count(*)::text from notifications where project_id='${projectId}' and source_kind='PendingAssignment';`));
   const pendingExternalDeliveryChannelCount = Number(queryDatabase(`
     select count(distinct channel)::text from notification_deliveries d join notifications n on n.id=d.notification_id
-    where n.project_id='${projectId}' and n.source_kind='PendingAssignment' and d.channel in ('TeamsChannel','Mail');
+    where n.project_id='${projectId}' and n.source_kind='PendingAssignment' and d.channel in ('TeamsActivity','Mail');
   `));
   const projectCompleted = queryDatabase(`select (status='Completed')::text from projects where id='${projectId}';`) === 'true';
   expect(completedWorkflowStageCount).toBe(18);

@@ -50,6 +50,8 @@
 | TeamsChannel 자동 생성 제거 후 알림 전달 회귀 | PASS | 102/102, build warning/error 0 |
 | Isolated Full-Stack | PASS | 실제 provider 차단 환경 2/2 |
 | Desktop·mobile 화면 | PASS | 1440px·390px screenshot, 가로 overflow 0 |
+| PR 첫 Full-Stack 정책 회귀 | FAIL → REMEDIATION | `56/60`; 제품 결함 없이 구버전 idempotency·TeamsChannel·수신자·18단계 delivery 기대값 네 곳을 Change 003으로 동기화 |
+| Change 003 집중 재검증 | PASS | 제조 작업 `2/2`; 현장 부서장 필수 정책과 Pending 생성 완료 대기 기준 동기화 |
 
 ## 개인정보·secret 검토
 

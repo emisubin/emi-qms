@@ -47,7 +47,7 @@ describe('NotificationPreferenceAuditPage', () => {
     render(<NotificationPreferenceAuditPage developmentUserKey="dev-admin" />);
 
     expect(await screen.findByRole('heading', { name: '알림 설정 변경 이력' })).toBeInTheDocument();
-    const summary = screen.getByLabelText('변경 이력 요약');
+    const summary = await screen.findByLabelText('변경 이력 요약');
     expect(within(summary).getByText('전체 변경')).toBeInTheDocument();
     expect(within(summary).getAllByText('1')).toHaveLength(3);
     expect(screen.getByText(/현재 계정 정보/)).toBeInTheDocument();

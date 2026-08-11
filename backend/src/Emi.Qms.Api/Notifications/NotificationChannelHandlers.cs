@@ -13,6 +13,14 @@ public interface INotificationChannelHandler
     Task<NotificationChannelResult> SendAsync(NotificationDeliveryMessage message, CancellationToken cancellationToken);
 }
 
+public interface IProviderCallAwareNotificationChannelHandler
+{
+    Task<NotificationChannelResult> SendAsync(
+        NotificationDeliveryMessage message,
+        Func<CancellationToken, Task<bool>> markProviderCallStarted,
+        CancellationToken cancellationToken);
+}
+
 public interface ITeamsWebhookClient
 {
     Task<string> PostAsync(string webhookUrl, TeamsWebhookPayload payload, CancellationToken cancellationToken);

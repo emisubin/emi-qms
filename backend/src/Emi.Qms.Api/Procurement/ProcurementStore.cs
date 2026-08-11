@@ -7,6 +7,7 @@ using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.ProductionPlanning;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.Workflow;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -96,6 +97,8 @@ public sealed class ProcurementStore(
                 return result;
             }
 
+            await WorkItemDueDateSynchronizer.SyncProcurementProjectAsync(
+                connection, transaction, projectId, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         catch
@@ -388,6 +391,11 @@ public sealed class ProcurementStore(
                 }
             }
 
+            foreach (var affectedProjectId in existing.Select(item => item.ProjectId).Distinct())
+            {
+                await WorkItemDueDateSynchronizer.SyncProcurementProjectAsync(
+                    connection, transaction, affectedProjectId, cancellationToken);
+            }
             await transaction.CommitAsync(cancellationToken);
         }
         catch
@@ -884,6 +892,11 @@ public sealed class ProcurementStore(
                 }
             }
 
+            foreach (var affectedProjectId in affectedProjectIds)
+            {
+                await WorkItemDueDateSynchronizer.SyncProcurementProjectAsync(
+                    connection, transaction, affectedProjectId, cancellationToken);
+            }
             await transaction.CommitAsync(cancellationToken);
         }
         catch
@@ -1440,23 +1453,13 @@ public sealed class ProcurementStore(
             command.CommandText = """
                 select users.id
                 from qms_users users
-                join user_roles user_role on user_role.user_id=users.id
-                join roles role on role.id=user_role.role_id
-                join role_permissions role_permission on role_permission.role_id=user_role.role_id
-                join permissions permission on permission.id=role_permission.permission_id
+                join departments department
+                  on department.id=users.department_id
+                 and department.code='materials'
+                 and department.is_active=true
                 where users.is_active=true
-                  and permission.code=@permission_code
-                  and role.code not in ('system-administrator', 'read-only')
-                  and not exists (
-                      select 1
-                      from user_roles excluded_user_role
-                      join roles excluded_role on excluded_role.id=excluded_user_role.role_id
-                      where excluded_user_role.user_id=users.id
-                        and excluded_role.code in ('system-administrator', 'read-only')
-                  )
-                order by case when role.code='materials' then 0 else 1 end,
-                         role.code,
-                         users.id
+                  and users.is_department_head=true
+                order by users.display_name, users.id
                 limit 1;
                 """;
             command.Parameters.AddWithValue("permission_code", fallbackPermission);
@@ -1467,6 +1470,10 @@ public sealed class ProcurementStore(
             }
         }
 
+        if (assignees.Count == 0)
+        {
+            throw new DepartmentHeadRequiredException("materials");
+        }
         return assignees;
     }
 

@@ -16,10 +16,11 @@ public sealed class ProductionPlanningApiTests
 {
     private static readonly Guid TestDesignPrimaryUserId = new("60000000-0000-0000-0000-000000000101");
     private static readonly Guid TestDesignSecondaryUserId = new("60000000-0000-0000-0000-000000000102");
-    private static readonly Guid TestSalesPrimaryUserId = new("60000000-0000-0000-0000-000000000201");
-    private static readonly Guid TestSalesSecondaryUserId = new("60000000-0000-0000-0000-000000000202");
+    private static readonly Guid TestDesignHeadOneUserId = new("60000000-0000-0000-0000-000000000301");
+    private static readonly Guid TestDesignHeadTwoUserId = new("60000000-0000-0000-0000-000000000302");
     private static readonly Guid DevAdminUserId = new("50000000-0000-0000-0000-000000000001");
     private static readonly Guid DevSalesUserId = new("50000000-0000-0000-0000-000000000002");
+    private static readonly Guid DevProcurementUserId = new("50000000-0000-0000-0000-000000000011");
 
     [Fact]
     public async Task Workflow_ProjectCreation_BroadcastsOperationalNotificationWithoutStartingWork()
@@ -40,7 +41,7 @@ public sealed class ProductionPlanningApiTests
             where project_id = '{projectId}'
               and source_kind = 'ProjectCreated';
             """));
-        Assert.Equal(8, await context.ReadScalarAsync<int>($"""
+        Assert.Equal(11, await context.ReadScalarAsync<int>($"""
             select count(*)::integer
             from notification_recipients recipient
             join notifications notification on notification.id = recipient.notification_id
@@ -435,45 +436,177 @@ public sealed class ProductionPlanningApiTests
     }
 
     [Fact]
-    public async Task Workflow_Fallback_UsesPrimarySecondarySalesAndSystemAdministratorOrder()
+    public async Task Workflow_Fallback_UsesPrimarySecondaryThenAllDepartmentHeadsAndFirstCompletionWins()
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
 
+        await context.ExecuteSqlAsync("""
+            update qms_users
+            set is_department_head=false
+            where development_user_key='dev-design';
+            """);
         await InsertRoleUserAsync(context, TestDesignPrimaryUserId, "test-design-primary", "Test Design Primary", "design", "design");
         await InsertRoleUserAsync(context, TestDesignSecondaryUserId, "test-design-secondary", "Test Design Secondary", "design", "design");
-        await InsertRoleUserAsync(context, TestSalesPrimaryUserId, "test-sales-primary", "Test Sales Primary", "sales", "sales");
-        await InsertRoleUserAsync(context, TestSalesSecondaryUserId, "test-sales-secondary", "Test Sales Secondary", "sales", "sales");
+        await InsertRoleUserAsync(context, TestDesignHeadOneUserId, "test-design-head-1", "Test Design Head 1", "design", "design", true);
+        await InsertRoleUserAsync(context, TestDesignHeadTwoUserId, "test-design-head-2", "Test Design Head 2", "design", "design", true);
 
         var primaryProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-PRI", "Workflow Fallback Primary");
         await InsertAssigneeAsync(context, primaryProjectId, "DesignPrimary", TestDesignPrimaryUserId);
         await InsertAssigneeAsync(context, primaryProjectId, "DesignSecondary", TestDesignSecondaryUserId);
-        await InsertAssigneeAsync(context, primaryProjectId, "SalesPrimary", TestSalesPrimaryUserId);
-        await InsertAssigneeAsync(context, primaryProjectId, "SalesSecondary", TestSalesSecondaryUserId);
+        await InsertAssigneeAsync(context, primaryProjectId, "ProcurementPrimary", DevProcurementUserId);
         await CompleteProductionPlanningForFallbackAsync(context, primaryProjectId, "fallback-primary");
         await AssertGeneratedDesignWorkAsync(context, primaryProjectId, TestDesignPrimaryUserId, "design");
 
         var secondaryProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-SEC", "Workflow Fallback Secondary");
         await InsertAssigneeAsync(context, secondaryProjectId, "DesignSecondary", TestDesignSecondaryUserId);
-        await InsertAssigneeAsync(context, secondaryProjectId, "SalesPrimary", TestSalesPrimaryUserId);
+        await InsertAssigneeAsync(context, secondaryProjectId, "ProcurementPrimary", DevProcurementUserId);
         await CompleteProductionPlanningForFallbackAsync(context, secondaryProjectId, "fallback-secondary");
         await AssertGeneratedDesignWorkAsync(context, secondaryProjectId, TestDesignSecondaryUserId, "design");
 
-        var salesPrimaryProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-SALES1", "Workflow Fallback Sales Primary");
-        await InsertAssigneeAsync(context, salesPrimaryProjectId, "SalesPrimary", TestSalesPrimaryUserId);
-        await InsertAssigneeAsync(context, salesPrimaryProjectId, "SalesSecondary", TestSalesSecondaryUserId);
-        await CompleteProductionPlanningForFallbackAsync(context, salesPrimaryProjectId, "fallback-sales-primary");
-        await AssertGeneratedDesignWorkAsync(context, salesPrimaryProjectId, TestSalesPrimaryUserId, "sales");
+        var fallbackProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-HEADS", "Workflow Fallback Department Heads");
+        await InsertAssigneeAsync(context, fallbackProjectId, "ProcurementPrimary", DevProcurementUserId);
+        await CompleteProductionPlanningForFallbackAsync(context, fallbackProjectId, "fallback-department-heads");
 
-        var salesSecondaryProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-SALES2", "Workflow Fallback Sales Secondary");
-        await InsertAssigneeAsync(context, salesSecondaryProjectId, "SalesSecondary", TestSalesSecondaryUserId);
-        await CompleteProductionPlanningForFallbackAsync(context, salesSecondaryProjectId, "fallback-sales-secondary");
-        await AssertGeneratedDesignWorkAsync(context, salesSecondaryProjectId, TestSalesSecondaryUserId, "sales");
-        Assert.NotEqual(DevSalesUserId, await ReadGeneratedWorkAssigneeIdAsync(context, salesSecondaryProjectId, WorkflowStageCodes.DesignPanelInfo));
+        Assert.Equal(2, await context.ReadScalarAsync<int>($"""
+            select count(*)::int
+            from work_items
+            where project_id = '{fallbackProjectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}'
+              and assigned_user_id in ('{TestDesignHeadOneUserId}', '{TestDesignHeadTwoUserId}')
+              and fallback_group_key is not null;
+            """));
+        Assert.Equal(0, await context.ReadScalarAsync<int>($"""
+            select count(*)::int
+            from work_items
+            where project_id = '{fallbackProjectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}'
+              and assigned_user_id in ('{DevAdminUserId}', '{DevSalesUserId}');
+            """));
+        Assert.Equal(1, await context.ReadScalarAsync<int>($"""
+            select count(distinct fallback_group_key)::int
+            from work_items
+            where project_id = '{fallbackProjectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}';
+            """));
 
-        var adminProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-ADMIN", "Workflow Fallback Admin");
-        await CompleteProductionPlanningForFallbackAsync(context, adminProjectId, "fallback-admin");
-        await AssertGeneratedDesignWorkAsync(context, adminProjectId, DevAdminUserId, "system-administrator");
+        var baselineWorkflow = await context.WorkflowStore.GetProjectWorkflowAsync(primaryProjectId, TestContext.Current.CancellationToken);
+        var fallbackWorkflow = await context.WorkflowStore.GetProjectWorkflowAsync(fallbackProjectId, TestContext.Current.CancellationToken);
+        Assert.NotNull(baselineWorkflow);
+        Assert.NotNull(fallbackWorkflow);
+        Assert.Equal(baselineWorkflow.ProgressPercent, fallbackWorkflow.ProgressPercent);
+
+        var firstHeadWorkId = await context.ReadScalarAsync<Guid>($"""
+            select id from work_items
+            where project_id = '{fallbackProjectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}'
+              and assigned_user_id = '{TestDesignHeadOneUserId}';
+            """);
+        var secondHeadWorkId = await context.ReadScalarAsync<Guid>($"""
+            select id from work_items
+            where project_id = '{fallbackProjectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}'
+              and assigned_user_id = '{TestDesignHeadTwoUserId}';
+            """);
+
+        var firstCompletion = await context.WorkflowStore.CompleteWorkItemAsync(
+            firstHeadWorkId,
+            TestDesignHeadOneUserId,
+            TestContext.Current.CancellationToken);
+        var secondCompletion = await context.WorkflowStore.CompleteWorkItemAsync(
+            secondHeadWorkId,
+            TestDesignHeadTwoUserId,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(WorkflowMutationStatus.Success, firstCompletion.Status);
+        Assert.Equal(WorkflowMutationStatus.Conflict, secondCompletion.Status);
+        Assert.Equal(2, await context.ReadScalarAsync<int>($"""
+            select count(*)::int
+            from work_items
+            where project_id = '{fallbackProjectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}'
+              and status = 'Completed'
+              and fallback_completed_by_user_id = '{TestDesignHeadOneUserId}';
+            """));
+        Assert.Equal(1, await context.ReadScalarAsync<int>($"""
+            select count(*)::int
+            from work_items
+            where project_id = '{fallbackProjectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}'
+              and fallback_auto_closed_at_utc is not null;
+            """));
+
+        var dedicatedProjectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            "WF-FB-SCREEN",
+            "Workflow Dedicated Screen Fallback");
+        await InsertAssigneeAsync(context, dedicatedProjectId, "ProcurementPrimary", DevProcurementUserId);
+        await CompleteProductionPlanningForFallbackAsync(context, dedicatedProjectId, "fallback-dedicated-screen");
+
+        await context.WorkflowStore.CompleteStageAsync(
+            dedicatedProjectId,
+            WorkflowStageCodes.DesignPanelInfo,
+            "DesignPanelInfo",
+            null,
+            TestDesignHeadOneUserId,
+            "fallback-dedicated-screen-first",
+            "전용 화면 완료 경로 검증",
+            TestContext.Current.CancellationToken);
+        await context.WorkflowStore.CompleteStageAsync(
+            dedicatedProjectId,
+            WorkflowStageCodes.DesignPanelInfo,
+            "DesignPanelInfo",
+            null,
+            TestDesignHeadTwoUserId,
+            "fallback-dedicated-screen-second",
+            "후속 중복 완료 검증",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, await context.ReadScalarAsync<int>($"""
+            select count(*)::int
+            from work_items
+            where project_id = '{dedicatedProjectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}'
+              and status = 'Completed'
+              and fallback_completed_by_user_id = '{TestDesignHeadOneUserId}';
+            """));
+        Assert.Equal(1, await context.ReadScalarAsync<int>($"""
+            select count(*)::int
+            from work_items
+            where project_id = '{dedicatedProjectId}'
+              and workflow_stage_code = '{WorkflowStageCodes.DesignPanelInfo}'
+              and fallback_auto_closed_at_utc is not null;
+            """));
+    }
+
+    [Fact]
+    public async Task Workflow_FallbackWithoutDepartmentHead_FailsBeforeStageMutation()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        await context.ExecuteSqlAsync("""
+            update qms_users users
+            set is_department_head=false
+            from departments department
+            where department.id=users.department_id and department.code='design';
+            """);
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "WF-FB-NO-HEAD", "Workflow Missing Design Head");
+        await InsertAssigneeAsync(context, projectId, "ProcurementPrimary", DevProcurementUserId);
+
+        var exception = await Assert.ThrowsAsync<DepartmentHeadRequiredException>(() =>
+            CompleteProductionPlanningForFallbackAsync(context, projectId, "fallback-no-design-head"));
+
+        Assert.Equal("design", exception.DepartmentCode);
+        Assert.Contains("설계 부서", exception.Message, StringComparison.Ordinal);
+        Assert.False(await WorkItemExistsAsync(context, projectId, WorkflowStageCodes.DesignPanelInfo));
+        Assert.Equal(0, await context.ReadScalarAsync<int>($"""
+            select count(*)::int
+            from project_workflow_events
+            where project_id='{projectId}'
+              and stage_code='{WorkflowStageCodes.ProductionPlanning}'
+              and event_type='StageCompleted';
+            """));
     }
 
     [Fact]
@@ -2247,6 +2380,25 @@ public sealed class ProductionPlanningApiTests
         var sourceDefinitionKey = linkedProjectConnection.GetProperty("sourceDefinitionKey").ValueKind == JsonValueKind.Null
             ? (Guid?)null
             : linkedProjectConnection.GetProperty("sourceDefinitionKey").GetGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into project_assignees (
+                project_id,responsibility_type,assigned_user_id,assigned_by_user_id,assigned_at_utc)
+            values (
+                '{linkedProjectId}','ProductionPlanningPrimary','50000000-0000-0000-0000-000000000003',
+                '50000000-0000-0000-0000-000000000002',now())
+            on conflict (project_id,responsibility_type) do update
+            set assigned_user_id=excluded.assigned_user_id,assigned_by_user_id=excluded.assigned_by_user_id,
+                assigned_at_utc=excluded.assigned_at_utc;
+
+            insert into work_items (
+                project_id,target_type,target_id,workflow_stage_code,responsibility_type,
+                assigned_user_id,title,status,priority,idempotency_key,created_by_user_id)
+            values (
+                '{linkedProjectId}','ProductionPlan','{linkedProjectPlanItem.GetProperty("itemId").GetGuid()}',
+                'ManufacturingWork','ManufacturingPrimary','50000000-0000-0000-0000-000000000004',
+                '생산계획 종료일 동기화 검증','Requested','Normal',
+                'notify-policy-live-production-due','50000000-0000-0000-0000-000000000003');
+            """);
         using var staffedPlan = await ReadJsonAsync(await productionClient.PatchAsJsonAsync(
             $"/api/projects/{linkedProjectId}/production-planning",
             new
@@ -2298,6 +2450,11 @@ public sealed class ProductionPlanningApiTests
             select required_headcount
             from project_production_plan_items
             where id='{staffedItem.GetProperty("itemId").GetGuid()}';
+            """));
+        Assert.Equal(new DateOnly(2026, 9, 3), await context.ReadScalarAsync<DateOnly>("""
+            select due_date
+            from work_items
+            where idempotency_key='notify-policy-live-production-due';
             """));
 
         var invalidHeadcountResponse = await productionClient.PatchAsJsonAsync(
@@ -2416,18 +2573,20 @@ public sealed class ProductionPlanningApiTests
         string developmentUserKey,
         string displayName,
         string departmentCode,
-        string roleCode)
+        string roleCode,
+        bool isDepartmentHead = false)
     {
         return context.ExecuteSqlAsync($"""
-            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
-            select '{userId}', '{developmentUserKey}', '{displayName}', departments.id, true
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active, is_department_head)
+            select '{userId}', '{developmentUserKey}', '{displayName}', departments.id, true, {isDepartmentHead.ToString().ToLowerInvariant()}
             from departments
             where departments.code = '{departmentCode}'
             on conflict (id) do update
             set development_user_key = excluded.development_user_key,
                 display_name = excluded.display_name,
                 department_id = excluded.department_id,
-                is_active = true;
+                is_active = true,
+                is_department_head = excluded.is_department_head;
 
             insert into user_roles (user_id, role_id)
             select '{userId}', roles.id

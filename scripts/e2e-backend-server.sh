@@ -17,6 +17,14 @@ if [[ "${E2E_SAFE_NOTIFICATION_DISPATCH:-false}" == "true" ]]; then
   export Notifications__Dispatch__WorkerIntervalSeconds="5"
 fi
 
+if [[ "${E2E_SAFE_WEB_PUSH_DRY_RUN:-false}" == "true" ]]; then
+  export Notifications__WebPush__Enabled="true"
+  export Notifications__WebPush__DryRun="true"
+  export Notifications__WebPush__PublicKey="BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  export Notifications__WebPush__AllowedEndpointHostSuffixes__0="example.test"
+  unset Notifications__WebPush__PrivateKey
+fi
+
 export ASPNETCORE_ENVIRONMENT=Testing
 export AUTH_MODE=Dev
 export Authentication__Mode=Dev

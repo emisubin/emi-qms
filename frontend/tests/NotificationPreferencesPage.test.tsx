@@ -20,6 +20,7 @@ describe('NotificationPreferencesPage', () => {
       const method = init?.method ?? 'GET';
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
       requests.push({ method, path: url.pathname, body });
+      if (url.pathname === '/api/my/web-push') return json(webPushConfiguration());
       if (method === 'PUT') return json(response(1, false, true));
       if (method === 'POST') return json(response(2, true, false));
       return json(response(0, true, false));
@@ -33,12 +34,13 @@ describe('NotificationPreferencesPage', () => {
     );
 
     expect(await screen.findByRole('heading', { name: '내 알림 설정' })).toBeInTheDocument();
-    expect(screen.getByText('인앱 알림은 항상 저장되고 통합 채널 공지는 조직 공지로 유지됩니다.')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '기기 푸시 알림' })).toBeInTheDocument();
+    expect(screen.getByText('인앱 알림은 항상 저장되고 필수 Pending·프로젝트 알림은 해제할 수 없습니다.')).toBeInTheDocument();
     expect(screen.getAllByRole('switch')).toHaveLength(3);
     expect(screen.getAllByText((_, element) => (
       element?.tagName === 'SMALL'
       && element.textContent?.includes('업무상 필수 알림은 해제할 수 없습니다.') === true
-    ))).toHaveLength(4);
+    ))).toHaveLength(2);
 
     const dailyCard = screen.getByText('일일 업무 요약').closest('article');
     const dailyToggle = dailyCard?.querySelector<HTMLInputElement>('input[role="switch"]');
@@ -74,6 +76,7 @@ describe('NotificationPreferencesPage', () => {
     );
 
     expect(await screen.findByRole('heading', { name: '사용자 알림 설정 지원' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '기기 푸시 알림' })).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(requestedUrl).toContain('/api/admin/users/50000000-0000-0000-0000-000000000002/notification-preferences');
   });
@@ -83,7 +86,7 @@ function response(version: number, isDefault: boolean, dailyDisabled: boolean): 
   return {
     userId: '50000000-0000-0000-0000-000000000002',
     userDisplayName: '검수 사용자',
-    taxonomyVersion: '2026-07-v1',
+    taxonomyVersion: '2026-08-v1',
     version,
     isDefault,
     changed: version > 0,
@@ -92,10 +95,19 @@ function response(version: number, isDefault: boolean, dailyDisabled: boolean): 
       item('DueSoonL0', 'TeamsDirectMessage', '예정일 임박 D-1', 'Teams 개인 알림', true, true, false),
       item('DailyDigest', 'Mail', '일일 업무 요약', '메일', !dailyDisabled, true, dailyDisabled),
       item('UrgentBlocking', 'Mail', '긴급·차단', '메일', true, false, false),
-      item('OverdueL1', 'TeamsDirectMessage', '예정일 초과 L1', 'Teams 개인 알림 · 메일', true, false, false),
-      item('OverdueL2', 'TeamsDirectMessage', '예정일 초과 L2', 'Teams 개인 알림', true, false, false),
-      item('OverdueL3', 'Mail', '예정일 초과 L3', '메일', true, false, false)
+      item('OverdueL1', 'TeamsDirectMessage', '예정일 초과 L1', 'Teams 개인 알림 · 메일', true, false, false)
     ]
+  };
+}
+
+function webPushConfiguration() {
+  return {
+    enabled: false,
+    dryRun: true,
+    configured: false,
+    publicKey: null,
+    activeDeviceCount: 0,
+    lastChangedAtUtc: null
   };
 }
 

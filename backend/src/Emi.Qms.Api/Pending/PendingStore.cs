@@ -4,6 +4,7 @@ using System.Text.Json;
 using Emi.Qms.Api.Materials;
 using Emi.Qms.Api.QualityInspections;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.Workflow;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -299,6 +300,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 request.DueDate,
                 effectiveAssigneeUserId.Value,
                 automaticAssignees.SecondaryUserId,
+                automaticAssignees.FallbackDepartmentHeadIds,
                 actionDepartmentCode,
                 actor.UserId,
                 1,
@@ -400,6 +402,10 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         }
 
         await SyncWorkItemStatusAsync(connection, transaction, pendingId, toStatus!, cancellationToken);
+        if (string.Equals(toStatus, PendingStatuses.Closed, StringComparison.Ordinal))
+        {
+            await CreateClosedNotificationAsync(connection, transaction, issue, cancellationToken);
+        }
         if (string.Equals(toStatus, PendingStatuses.ReinspectionRequested, StringComparison.Ordinal))
         {
             await ConfirmDraftActionPhotosAsync(
@@ -540,6 +546,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             issue.DueDate,
             request.AssigneeUserId.Value,
             assignmentPeers.SecondaryUserId == request.AssigneeUserId.Value ? null : assignmentPeers.SecondaryUserId,
+            null,
             issue.ActionDepartmentCode,
             actor.UserId,
             issue.Version + 1,
@@ -902,6 +909,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 null,
                 automaticAssignees.PrimaryUserId.Value,
                 automaticAssignees.SecondaryUserId,
+                automaticAssignees.FallbackDepartmentHeadIds,
                 actionDepartmentCode,
                 actorUserId,
                 1,
@@ -994,6 +1002,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 null,
                 assigneeUserId.Value,
                 automaticAssignees.SecondaryUserId,
+                automaticAssignees.FallbackDepartmentHeadIds,
                 actionDepartmentCode,
                 actorUserId,
                 1,
@@ -1094,6 +1103,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 null,
                 assigneeUserId.Value,
                 automaticAssignees.SecondaryUserId,
+                automaticAssignees.FallbackDepartmentHeadIds,
                 actionDepartmentCode,
                 actorUserId,
                 1,
@@ -1157,6 +1167,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         }
 
         await SyncWorkItemStatusAsync(connection, transaction, pendingId, PendingStatuses.Closed, cancellationToken);
+        await CreateClosedNotificationAsync(connection, transaction, issue, cancellationToken);
         await InsertHistoryAsync(
             connection,
             transaction,
@@ -1207,6 +1218,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         }
 
         await SyncWorkItemStatusAsync(connection, transaction, pendingId, PendingStatuses.Closed, cancellationToken);
+        await CreateClosedNotificationAsync(connection, transaction, issue, cancellationToken);
         await InsertHistoryAsync(
             connection,
             transaction,
@@ -1747,18 +1759,30 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             projectId,
             primaryTypes,
             cancellationToken);
-        primaryUserId ??= await ReadDepartmentPendingAssigneeAsync(
-            connection,
-            transaction,
-            departmentCode,
-            cancellationToken);
         var secondaryUserId = await ReadProjectPendingAssigneeAsync(
             connection,
             transaction,
             projectId,
             secondaryTypes,
             cancellationToken);
-        return new PendingAssigneePair(primaryUserId, secondaryUserId == primaryUserId ? null : secondaryUserId);
+        if (primaryUserId is not null)
+        {
+            return new PendingAssigneePair(primaryUserId, secondaryUserId == primaryUserId ? null : secondaryUserId);
+        }
+
+        var departmentHeadIds = await ReadDepartmentHeadIdsAsync(
+            connection,
+            transaction,
+            departmentCode,
+            cancellationToken);
+        if (departmentHeadIds.Count == 0)
+        {
+            throw new DepartmentHeadRequiredException(departmentCode);
+        }
+        return new PendingAssigneePair(
+            departmentHeadIds.FirstOrDefault() is var first && first != Guid.Empty ? first : null,
+            null,
+            departmentHeadIds);
     }
 
     private static async Task<Guid?> ReadProjectPendingAssigneeAsync(
@@ -1797,7 +1821,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         return (Guid?)(await command.ExecuteScalarAsync(cancellationToken));
     }
 
-    private static async Task<Guid?> ReadDepartmentPendingAssigneeAsync(
+    private static async Task<IReadOnlyList<Guid>> ReadDepartmentHeadIdsAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         string departmentCode,
@@ -1810,20 +1834,19 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             from qms_users users
             join departments department on department.id = users.department_id
             where users.is_active = true
+              and users.is_department_head = true
+              and department.is_active = true
               and department.code = @department_code
-              and exists (
-                  select 1
-                  from user_roles user_role
-                  join role_permissions role_permission on role_permission.role_id = user_role.role_id
-                  join permissions permission on permission.id = role_permission.permission_id
-                  where user_role.user_id = users.id
-                    and permission.code = 'Pending.Manage'
-              )
-            order by users.display_name
-            limit 1;
+            order by users.display_name, users.id;
             """;
         command.Parameters.AddWithValue("department_code", departmentCode);
-        return (Guid?)(await command.ExecuteScalarAsync(cancellationToken));
+        var userIds = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            userIds.Add(reader.GetGuid(0));
+        }
+        return userIds;
     }
 
     private static (IReadOnlyList<string> Primary, IReadOnlyList<string> Secondary) PendingResponsibilityTypes(string departmentCode)
@@ -1855,6 +1878,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         DateOnly? dueDate,
         Guid assigneeUserId,
         Guid? secondaryUserId,
+        IReadOnlyList<Guid>? fallbackDepartmentHeadIds,
         string? actionDepartmentCode,
         Guid createdByUserId,
         int version,
@@ -1862,6 +1886,9 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
     {
         _ = actionDepartmentCode;
         var stageCode = await ReadCurrentWorkflowStageCodeAsync(connection, transaction, projectId, cancellationToken);
+        var fallbackGroupKey = fallbackDepartmentHeadIds is { Count: > 0 }
+            ? $"pending:{pendingId}:assignment:v{version}"
+            : null;
         var workItemId = Guid.NewGuid();
         await using (var command = connection.CreateCommand())
         {
@@ -1870,17 +1897,20 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 insert into work_items (
                     id, project_id, target_type, target_id, workflow_stage_code,
                     responsibility_type, assigned_user_id, title, description, status,
-                    priority, due_date, link_url, idempotency_key, created_by_user_id
+                    priority, due_date, link_url, idempotency_key, created_by_user_id,
+                    fallback_group_key
                 )
                 values (
                     @id, @project_id, 'Pending', @pending_id, @stage_code,
                     'PendingAction', @assignee_user_id, @title, @description, 'Requested',
-                    @priority, @due_date, @link_url, @idempotency_key, @created_by_user_id
+                    @priority, @due_date, @link_url, @idempotency_key, @created_by_user_id,
+                    @fallback_group_key
                 )
                 on conflict (idempotency_key) do update
                 set title = excluded.title,
                     description = excluded.description,
-                    link_url = excluded.link_url
+                    link_url = excluded.link_url,
+                    fallback_group_key = excluded.fallback_group_key
                 returning id;
                 """;
             command.Parameters.AddWithValue("id", workItemId);
@@ -1895,7 +1925,47 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             command.Parameters.AddWithValue("link_url", $"/pending/{pendingId}");
             command.Parameters.AddWithValue("idempotency_key", $"pending:{pendingId}:assignment:{assigneeUserId}:v{version}");
             command.Parameters.AddWithValue("created_by_user_id", createdByUserId);
+            AddNullableText(command, "fallback_group_key", fallbackGroupKey);
             workItemId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? workItemId);
+        }
+
+        if (fallbackDepartmentHeadIds is { Count: > 0 })
+        {
+            foreach (var departmentHeadId in fallbackDepartmentHeadIds.Where(id => id != assigneeUserId).Distinct())
+            {
+                await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    insert into work_items (
+                        project_id, target_type, target_id, workflow_stage_code,
+                        responsibility_type, assigned_user_id, title, description, status,
+                        priority, due_date, link_url, idempotency_key, created_by_user_id,
+                        fallback_group_key)
+                    values (
+                        @project_id, 'Pending', @pending_id, @stage_code,
+                        'PendingAction', @assignee_user_id, @title, @description, 'Requested',
+                        @priority, @due_date, @link_url, @idempotency_key, @created_by_user_id,
+                        @fallback_group_key)
+                    on conflict (idempotency_key) do update
+                    set title = excluded.title,
+                        description = excluded.description,
+                        link_url = excluded.link_url,
+                        fallback_group_key = excluded.fallback_group_key;
+                    """;
+                command.Parameters.AddWithValue("project_id", projectId);
+                command.Parameters.AddWithValue("pending_id", pendingId);
+                command.Parameters.AddWithValue("stage_code", stageCode);
+                command.Parameters.AddWithValue("assignee_user_id", departmentHeadId);
+                command.Parameters.AddWithValue("title", $"Pending 조치 · {title}");
+                command.Parameters.AddWithValue("description", description);
+                command.Parameters.AddWithValue("priority", priority == PendingPriorities.Urgent ? "Blocking" : "Normal");
+                AddNullableDate(command, "due_date", dueDate);
+                command.Parameters.AddWithValue("link_url", $"/pending/{pendingId}");
+                command.Parameters.AddWithValue("idempotency_key", $"pending:{pendingId}:assignment:{departmentHeadId}:v{version}");
+                command.Parameters.AddWithValue("created_by_user_id", createdByUserId);
+                AddNullableText(command, "fallback_group_key", fallbackGroupKey);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
         }
 
         var notificationId = Guid.NewGuid();
@@ -1940,6 +2010,10 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         if (secondaryUserId is not null)
         {
             recipientIds.Add(secondaryUserId.Value);
+        }
+        if (fallbackDepartmentHeadIds is { Count: > 0 })
+        {
+            recipientIds.AddRange(fallbackDepartmentHeadIds);
         }
 
         foreach (var recipientId in recipientIds.Distinct())
@@ -2141,6 +2215,59 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             command.Parameters.AddWithValue("user_id", recipientId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+    }
+
+    private static async Task CreateClosedNotificationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        PendingListItemResponse issue,
+        CancellationToken cancellationToken)
+    {
+        Guid notificationId;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into notifications (
+                    project_id, notification_type, severity, title, message, link_url,
+                    idempotency_key, visibility_scope, source_kind)
+                values (
+                    @project_id, 'Info', 'Info', @title, @message, @link_url,
+                    @idempotency_key, 'RecipientOnly', 'PendingClosed')
+                on conflict (idempotency_key) do update
+                set title = excluded.title,
+                    message = excluded.message,
+                    link_url = excluded.link_url
+                returning id;
+                """;
+            command.Parameters.AddWithValue("project_id", issue.ProjectId);
+            command.Parameters.AddWithValue("title", $"Pending 종결 · {issue.Title}");
+            command.Parameters.AddWithValue("message", $"{issue.ProjectCode}의 Pending #{issue.IssueNumber}이 종결되었습니다.");
+            command.Parameters.AddWithValue("link_url", $"/pending/{issue.PendingId}");
+            command.Parameters.AddWithValue("idempotency_key", $"pending:{issue.PendingId}:closed");
+            notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
+        }
+
+        await using var recipients = connection.CreateCommand();
+        recipients.Transaction = transaction;
+        recipients.CommandText = """
+            insert into notification_recipients (notification_id, user_id)
+            select @notification_id, original_recipient.user_id
+            from (
+                select distinct recipient.user_id
+                from notifications original_notification
+                join notification_recipients recipient
+                  on recipient.notification_id = original_notification.id
+                where original_notification.idempotency_key = @reference_key
+                   or original_notification.idempotency_key like @assignment_pattern
+            ) original_recipient
+            join qms_users users on users.id = original_recipient.user_id and users.is_active = true
+            on conflict (notification_id, user_id) do nothing;
+            """;
+        recipients.Parameters.AddWithValue("notification_id", notificationId);
+        recipients.Parameters.AddWithValue("reference_key", $"pending:{issue.PendingId}:reference:v1");
+        recipients.Parameters.AddWithValue("assignment_pattern", $"pending:{issue.PendingId}:notification:%:v1");
+        await recipients.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<IReadOnlyList<string>> ReadPendingQualityResponsibilitiesAsync(
@@ -2746,7 +2873,10 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         return NpgsqlDataSource.Create(connectionString);
     }
 
-    private sealed record PendingAssigneePair(Guid? PrimaryUserId, Guid? SecondaryUserId);
+    private sealed record PendingAssigneePair(
+        Guid? PrimaryUserId,
+        Guid? SecondaryUserId,
+        IReadOnlyList<Guid>? FallbackDepartmentHeadIds = null);
     private sealed record DraftPhotoStats(int Count, int TotalBytes, int TotalPendingCount, IReadOnlySet<string> DisplayNames);
     private sealed record PhotoReplayRead(PendingPhotoOperationProjection? Projection, string? ConflictMessage);
     private sealed record ActionPhotoRow(

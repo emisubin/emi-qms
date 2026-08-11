@@ -959,6 +959,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             return assigneeResult;
         }
 
+        await WorkItemDueDateSynchronizer.SyncProductionProjectAsync(
+            connection, transaction, projectId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ProductionPlanningMutationResult<ProductionPlanningResponse>.Success((await GetProjectPlanAsync(projectId, cancellationToken))!);
     }
@@ -1157,6 +1159,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
                 return ProductionPlanningMutationResult<ProductionPlanningResponse>.Conflict("다른 사용자가 전체 세트 기본계획을 먼저 수정했습니다. 최신 내용을 다시 불러와 주세요.");
         }
+        await WorkItemDueDateSynchronizer.SyncProductionProjectAsync(
+            connection, transaction, projectId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         var updated = await GetProjectPlanAsync(projectId, null, cancellationToken);
         return updated.Status == ProductionPlanningReadStatus.Success && updated.Value is not null
@@ -1372,6 +1376,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             }
         }
 
+        await WorkItemDueDateSynchronizer.SyncProductionProjectAsync(
+            connection, transaction, projectId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         var updated = await GetProjectPlanAsync(projectId, setInstanceId, cancellationToken);
         return updated.Status == ProductionPlanningReadStatus.Success && updated.Value is not null
@@ -1756,6 +1762,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             changedByUserId,
             correlationId,
             cancellationToken);
+        await WorkItemDueDateSynchronizer.SyncProductionProjectAsync(
+            connection, transaction, project.ProjectId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ProductionPlanningMutationResult<ProductionPlanningResponse>.Success(
             (await GetProjectPlanAsync(project.ProjectId, cancellationToken))!);
@@ -2115,6 +2123,11 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         }
 
         await InsertProductionPlanningImportBatchAsync(connection, transaction, fileName, bytes.Length, fileSha256, parsedRows.Count, saveable.Count, parsedRows.Count - saveable.Count, changedByUserId, reason, cancellationToken);
+        foreach (var appliedProjectId in appliedProjectIds)
+        {
+            await WorkItemDueDateSynchronizer.SyncProductionProjectAsync(
+                connection, transaction, appliedProjectId, cancellationToken);
+        }
         await transaction.CommitAsync(cancellationToken);
         return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Success(
             new ProductionPlanningExcelApplyResponse(saveable.Count, parsedRows.Count - saveable.Count, appliedProjectIds.ToList()));
@@ -2236,6 +2249,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         }
 
         await InsertProductionPlanningImportBatchAsync(connection, transaction, fileName, bytes.Length, fileSha256, parsedRows.Count, saveable.Count, parsedRows.Count - saveable.Count, changedByUserId, reason, cancellationToken);
+        await WorkItemDueDateSynchronizer.SyncProductionProjectAsync(
+            connection, transaction, projectId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ProductionPlanningMutationResult<ProductionPlanningExcelApplyResponse>.Success(
             new ProductionPlanningExcelApplyResponse(saveable.Count, parsedRows.Count - saveable.Count, [projectId]));
@@ -4067,21 +4082,36 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
     private static async Task<IReadOnlyList<NotificationFallbackResponse>> BuildFallbacksAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, ProjectSnapshot project, IReadOnlyList<ProjectAssigneeResponse> assignees, CancellationToken cancellationToken)
     {
-        var salesOwnerName = project.SalesOwnerUserId is null ? null : await ReadUserDisplayNameAsync(connection, transaction, project.SalesOwnerUserId.Value, cancellationToken);
-        var admin = await ReadFirstActiveRoleUserAsync(connection, transaction, "system-administrator", cancellationToken);
-        return ProductionPlanningDomain.Responsibilities.Select(responsibility =>
+        var result = new List<NotificationFallbackResponse>();
+        foreach (var responsibility in ProductionPlanningDomain.Responsibilities)
         {
             var assigned = FindAssigneeForResponsibility(assignees, responsibility);
             if (assigned is not null)
             {
-                return new NotificationFallbackResponse(responsibility, ProductionPlanningDomain.ResponsibilityLabel(responsibility), assigned.AssignedUserId, assigned.AssignedUserName, "담당자");
+                result.Add(new NotificationFallbackResponse(responsibility, ProductionPlanningDomain.ResponsibilityLabel(responsibility), assigned.AssignedUserId, assigned.AssignedUserName, "담당자"));
+                continue;
             }
-            if (project.SalesOwnerUserId is not null && !string.IsNullOrWhiteSpace(salesOwnerName))
+
+            var departmentHeads = await ReadActiveDepartmentHeadsAsync(
+                connection,
+                transaction,
+                ProductionPlanningDomain.RoleForResponsibility(responsibility),
+                cancellationToken);
+            if (departmentHeads.Count == 0)
             {
-                return new NotificationFallbackResponse(responsibility, ProductionPlanningDomain.ResponsibilityLabel(responsibility), project.SalesOwnerUserId, salesOwnerName, "영업담당자");
+                result.Add(new NotificationFallbackResponse(responsibility, ProductionPlanningDomain.ResponsibilityLabel(responsibility), null, null, "부서장 미등록"));
+                continue;
             }
-            return new NotificationFallbackResponse(responsibility, ProductionPlanningDomain.ResponsibilityLabel(responsibility), admin?.UserId, admin?.DisplayName, "관리자");
-        }).ToList();
+
+            result.Add(new NotificationFallbackResponse(
+                responsibility,
+                ProductionPlanningDomain.ResponsibilityLabel(responsibility),
+                departmentHeads[0].UserId,
+                string.Join(", ", departmentHeads.Select(head => head.DisplayName)),
+                "부서장 전원"));
+        }
+
+        return result;
     }
 
     private static ProjectAssigneeResponse? FindAssigneeForResponsibility(
@@ -4142,25 +4172,28 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         return await command.ExecuteScalarAsync(cancellationToken) as string;
     }
 
-    private static async Task<UserOptionResponse?> ReadFirstActiveRoleUserAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, string roleCode, CancellationToken cancellationToken)
+    private static async Task<IReadOnlyList<UserOptionResponse>> ReadActiveDepartmentHeadsAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, string departmentCode, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
             select u.id, u.display_name
             from qms_users u
-            join user_roles ur on ur.user_id = u.id
-            join roles r on r.id = ur.role_id
+            join departments department on department.id = u.department_id
             where u.is_active = true
-              and r.code = @role
-            order by u.display_name
-            limit 1;
+              and u.is_department_head = true
+              and department.is_active = true
+              and department.code = @department_code
+            order by u.display_name, u.id;
             """;
-        command.Parameters.AddWithValue("role", roleCode);
+        command.Parameters.AddWithValue("department_code", departmentCode);
+        var result = new List<UserOptionResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
-            ? new UserOptionResponse(reader.GetGuid(0), reader.GetString(1))
-            : null;
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new UserOptionResponse(reader.GetGuid(0), reader.GetString(1)));
+        }
+        return result;
     }
 
     private static async Task InsertAuditAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, Guid entityId, string entityType, string fieldName, string? oldValue, string? newValue, string? reason, Guid userId, string correlationId, CancellationToken cancellationToken, string inputSource = "Direct")

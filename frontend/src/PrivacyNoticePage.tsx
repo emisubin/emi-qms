@@ -98,7 +98,7 @@ export function PrivacyNoticePage({ onBack }: PrivacyNoticePageProps) {
           </section>
           <section>
             <h4>알림·접속·보안 정보</h4>
-            <p>알림 설정과 발송 이력, 접속·보안 기록, 인증 및 브라우저 세션 정보</p>
+            <p>알림 설정과 발송 이력, PWA 푸시 기기 구독 정보, 접속·보안 기록, 인증 및 브라우저 세션 정보</p>
             <dl>
               <div><dt>이용 목적</dt><dd>업무 알림 전달, 로그인 유지, 장애 대응과 보안 감사</dd></div>
               <div><dt>보유 기간</dt><dd>사내 규정에 따름</dd></div>
@@ -120,7 +120,8 @@ export function PrivacyNoticePage({ onBack }: PrivacyNoticePageProps) {
           회사 메일 서비스를 이용합니다. 구체적인 처리 범위와 보호 조치는 회사와 각 서비스 제공자의 계약 및 사내 정책을 따릅니다.
         </p>
         <ul>
-          <li>업무 알림은 인앱 알림, Teams Activity와 메일로 전달될 수 있습니다.</li>
+          <li>업무 알림은 인앱 알림, 사용자가 켠 기기의 PWA 푸시, Teams Activity와 메일로 전달될 수 있습니다.</li>
+          <li>PWA 푸시 구독 주소와 암호화 키는 기기 알림 전달에만 사용하며 화면과 일반 로그에는 표시하지 않습니다.</li>
         </ul>
       </section>
 

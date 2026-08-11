@@ -6,6 +6,7 @@ public static class NotificationDeliveryChannels
     public const string TeamsDirectMessage = "TeamsDirectMessage";
     public const string TeamsActivity = "TeamsActivity";
     public const string Mail = "Mail";
+    public const string WebPush = "WebPush";
 }
 
 public static class NotificationDeliveryTypes
@@ -20,6 +21,7 @@ public static class NotificationDeliveryTypes
     public const string OverdueL1 = "OverdueL1";
     public const string OverdueL2 = "OverdueL2";
     public const string OverdueL3 = "OverdueL3";
+    public const string WebPushNotification = "WebPushNotification";
 }
 
 public static class NotificationDeliveryStatuses
@@ -86,7 +88,10 @@ public static class NotificationSourceKinds
     public const string ProjectCreated = "ProjectCreated";
     public const string ProjectDeliveryDateChanged = "ProjectDeliveryDateChanged";
     public const string ProjectStatusChanged = "ProjectStatusChanged";
+    public const string PendingAssignment = "PendingAssignment";
+    public const string PendingClosed = "PendingClosed";
     public const string ReinspectionRequested = "ReinspectionRequested";
+    public const string ProjectDeliveryCompleted = "ProjectDeliveryCompleted";
     public const string ProjectCompletion = "ProjectCompletion";
     public const string DailyDigest = "DailyDigest";
     public const string Escalation = "Escalation";

@@ -210,6 +210,9 @@ e2e_disable_external_providers() {
   export Notifications__Mail__Enabled="false"
   export Notifications__Mail__DryRun="true"
   export Notifications__Mail__Provider="DryRun"
+  export Notifications__WebPush__Enabled="false"
+  export Notifications__WebPush__DryRun="true"
+  unset Notifications__WebPush__PrivateKey
 }
 
 e2e_assert_project_removed() {

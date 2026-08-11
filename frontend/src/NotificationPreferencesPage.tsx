@@ -7,6 +7,7 @@ import {
 } from './api';
 import type { NotificationPreferenceResponse } from './notificationPreferences';
 import { useActionFeedback } from './useActionFeedback';
+import { WebPushSettings } from './WebPushSettings';
 
 type Props = {
   developmentUserKey: string;
@@ -137,10 +138,12 @@ export function NotificationPreferencesPage({ developmentUserKey, targetUserId, 
         <span aria-hidden="true">i</span>
         <div>
           <strong>놓치면 안 되는 알림은 그대로 유지됩니다.</strong>
-          <p>인앱 알림은 항상 저장되고 통합 채널 공지는 조직 공지로 유지됩니다.</p>
+          <p>인앱 알림은 항상 저장되고 필수 Pending·프로젝트 알림은 해제할 수 없습니다.</p>
           <p>관리자가 직접 보낸 알림·업무 배정·테스트 발송은 이 설정과 무관하게 발송됩니다.</p>
         </div>
       </div>
+
+      {!isAdminSupport ? <WebPushSettings developmentUserKey={developmentUserKey} /> : null}
 
       {state.kind === 'loading' ? <div className="notification-preference-state">알림 설정을 불러오는 중입니다.</div> : null}
       {state.kind === 'error' ? (

@@ -81,18 +81,6 @@ public sealed class NotificationEscalationService(
         DateOnly today)
     {
         var l0Date = calculator.GetPreviousBusinessDay(candidate.DueDate);
-        var l2Date = calculator.AddBusinessDays(candidate.DueDate, 2);
-        var l3Date = calculator.AddBusinessDays(candidate.DueDate, 3);
-
-        if (today >= l3Date && candidate.L3SentAtUtc is null)
-        {
-            return WorkItemEscalationLevels.L3;
-        }
-
-        if (today >= l2Date && candidate.L2SentAtUtc is null)
-        {
-            return WorkItemEscalationLevels.L2;
-        }
 
         if (today > candidate.DueDate && candidate.L1SentAtUtc is null)
         {
@@ -123,9 +111,7 @@ public sealed class NotificationEscalationService(
         var candidates = new[]
             {
                 calculator.GetPreviousBusinessDay(dueDate),
-                dueDate.AddDays(1),
-                calculator.AddBusinessDays(dueDate, 2),
-                calculator.AddBusinessDays(dueDate, 3)
+                dueDate.AddDays(1)
             }
             .Where(date => date >= today)
             .Order()

@@ -2,7 +2,7 @@ namespace Emi.Qms.Api.Notifications;
 
 public static class NotificationPreferenceCatalog
 {
-    public const string TaxonomyVersion = "2026-07-v1";
+    public const string TaxonomyVersion = "2026-08-v1";
     public const string TeamsPersonalPreferenceChannel = NotificationDeliveryChannels.TeamsDirectMessage;
 
     public static readonly IReadOnlyList<NotificationPreferenceItemDefinition> Items =
@@ -45,22 +45,6 @@ public static class NotificationPreferenceCatalog
             "예정일 초과 L1",
             "Teams 개인 알림 · 메일",
             "예정일을 넘긴 업무의 1단계 에스컬레이션입니다.",
-            false,
-            "업무상 필수 알림은 해제할 수 없습니다."),
-        new(
-            NotificationDeliveryTypes.OverdueL2,
-            TeamsPersonalPreferenceChannel,
-            "예정일 초과 L2",
-            "Teams 개인 알림",
-            "2영업일 이상 지연된 업무의 상위 에스컬레이션입니다.",
-            false,
-            "업무상 필수 알림은 해제할 수 없습니다."),
-        new(
-            NotificationDeliveryTypes.OverdueL3,
-            NotificationDeliveryChannels.Mail,
-            "예정일 초과 L3",
-            "메일",
-            "3영업일 이상 지연된 업무의 필수 에스컬레이션입니다.",
             false,
             "업무상 필수 알림은 해제할 수 없습니다.")
     ];

@@ -49,6 +49,11 @@ import type {
 } from './notificationPreferences';
 import type { NotificationPreferenceAuditFilters, NotificationPreferenceAuditList } from './notificationPreferenceAudit';
 import type {
+  WebPushConfiguration,
+  WebPushCurrentSubscriptionStatus,
+  WebPushSubscriptionMutation
+} from './webPush';
+import type {
   CreatePendingRequest,
   EvidencePhotoReference,
   PendingAssignee,
@@ -687,6 +692,51 @@ export async function resetNotificationPreferences(
   return fetchJson<NotificationPreferenceResponse>(path, developmentUserKey, {
     method: 'POST',
     body: JSON.stringify({ expectedVersion })
+  });
+}
+
+export async function getWebPushConfiguration(
+  developmentUserKey?: string
+): Promise<WebPushConfiguration> {
+  return fetchJson<WebPushConfiguration>('/api/my/web-push', developmentUserKey);
+}
+
+export async function getCurrentWebPushStatus(
+  developmentUserKey: string | undefined,
+  endpoint: string
+): Promise<WebPushCurrentSubscriptionStatus> {
+  return fetchJson<WebPushCurrentSubscriptionStatus>('/api/my/web-push/current-status', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ endpoint })
+  });
+}
+
+export async function saveCurrentWebPushSubscription(
+  developmentUserKey: string | undefined,
+  request: { endpoint: string; keys: { p256dh: string; auth: string } }
+): Promise<WebPushSubscriptionMutation> {
+  return fetchJson<WebPushSubscriptionMutation>('/api/my/web-push/subscriptions', developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function deactivateCurrentWebPushSubscription(
+  developmentUserKey: string | undefined,
+  endpoint: string,
+  reason: 'UserRequest' | 'Logout' = 'UserRequest'
+): Promise<WebPushSubscriptionMutation> {
+  return fetchJson<WebPushSubscriptionMutation>('/api/my/web-push/subscriptions/deactivate-current', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify({ endpoint, reason })
+  });
+}
+
+export async function deactivateAllWebPushSubscriptions(
+  developmentUserKey?: string
+): Promise<WebPushSubscriptionMutation> {
+  return fetchJson<WebPushSubscriptionMutation>('/api/my/web-push/subscriptions/deactivate-all', developmentUserKey, {
+    method: 'POST'
   });
 }
 

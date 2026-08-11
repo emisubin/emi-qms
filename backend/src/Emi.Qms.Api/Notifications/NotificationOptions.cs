@@ -9,6 +9,7 @@ public sealed class NotificationOptions
     public NotificationTeamsOptions Teams { get; init; } = new();
     public NotificationTeamsActivityOptions TeamsActivity { get; init; } = new();
     public NotificationMailOptions Mail { get; init; } = new();
+    public NotificationWebPushOptions WebPush { get; init; } = new();
     public NotificationGraphOptions Graph { get; init; } = new();
 }
 
@@ -105,6 +106,23 @@ public sealed class NotificationMailOptions
     public string? TestRecipientEmail { get; init; }
     public bool SaveTestMailToSentItems { get; init; }
     public NotificationSmtpOptions Smtp { get; init; } = new();
+}
+
+public sealed class NotificationWebPushOptions
+{
+    public bool Enabled { get; init; }
+    public bool DryRun { get; init; } = true;
+    public string Subject { get; init; } = "mailto:pms@emiinc.co.kr";
+    public string? PublicKey { get; init; }
+    public string? PrivateKey { get; init; }
+    public int MaxActiveDevicesPerUser { get; init; } = 10;
+    public string[] AllowedEndpointHostSuffixes { get; init; } =
+    [
+        "fcm.googleapis.com",
+        "updates.push.services.mozilla.com",
+        "web.push.apple.com",
+        "notify.windows.com"
+    ];
 }
 
 public sealed class NotificationSmtpOptions

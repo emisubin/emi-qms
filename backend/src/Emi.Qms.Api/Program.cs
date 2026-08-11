@@ -179,6 +179,9 @@ builder.Services.AddSingleton<NotificationWorkerIdentity>();
 builder.Services.AddSingleton<NotificationDeliveryStore>();
 builder.Services.AddSingleton<NotificationPreferenceStore>();
 builder.Services.AddSingleton<NotificationPreferenceAuditStore>();
+builder.Services.AddSingleton<WebPushSubscriptionStore>();
+builder.Services.AddSingleton<IWebPushSubscriptionDeliveryStore>(services =>
+    services.GetRequiredService<WebPushSubscriptionStore>());
 builder.Services.AddSingleton<NotificationDispatcher>();
 builder.Services.AddSingleton<WorkItemEscalationStore>();
 builder.Services.AddSingleton<NotificationEscalationService>();
@@ -188,6 +191,8 @@ if (!reviewSafeEnabled)
     builder.Services.AddSingleton<INotificationChannelHandler, TeamsDirectMessageHandler>();
     builder.Services.AddSingleton<INotificationChannelHandler, TeamsActivityChannelHandler>();
     builder.Services.AddSingleton<INotificationChannelHandler, MailChannelHandler>();
+    builder.Services.AddSingleton<INotificationChannelHandler, WebPushChannelHandler>();
+    builder.Services.AddSingleton<IWebPushProtocolClient, WebPushProtocolClient>();
     builder.Services.AddHttpClient<IGraphTokenProvider, GraphClientCredentialsTokenProvider>();
     builder.Services.AddSingleton<IMailClient, ConfiguredMailClient>();
     builder.Services.AddSingleton<ISmtpMailClient, SmtpMailClient>();
@@ -297,6 +302,17 @@ app.UseExceptionHandler(exceptionApp =>
         var exception = context.Features
             .Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?
             .Error;
+        if (exception is DepartmentHeadRequiredException departmentHeadRequired)
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            context.Response.ContentType = "application/problem+json";
+            await Results.Problem(
+                title: "부서장 지정이 필요합니다.",
+                detail: departmentHeadRequired.Message,
+                statusCode: StatusCodes.Status409Conflict)
+                .ExecuteAsync(context);
+            return;
+        }
         if (exception is not null)
         {
             context.RequestServices
@@ -415,6 +431,7 @@ app.MapNotificationDeliveryEndpoints();
 app.MapNotificationEscalationEndpoints();
 app.MapNotificationPreferenceEndpoints();
 app.MapNotificationPreferenceAuditEndpoints();
+app.MapWebPushEndpoints();
 
 app.Run();
 

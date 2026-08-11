@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.Workflow;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -799,9 +800,9 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             {
                 var next = await ResolveAssigneeAsync(connection, transaction, owner.ProjectId, "DepartureProcessed", cancellationToken);
                 if (next is null) return await RollbackConflict(transaction, "다음 출발 처리 담당자를 지정한 뒤 다시 시도해 주세요.", cancellationToken);
-                await CompleteWorkAsync(connection, transaction, owner.ProjectId, panelIds, "PackingCompleted", cancellationToken);
+                await CompleteWorkAsync(connection, transaction, owner.ProjectId, panelIds, "PackingCompleted", actorId, cancellationToken);
                 await AdvancePanelsAsync(connection, transaction, panelIds, "PackingCompleted", cancellationToken);
-                await CreatePanelWorkAsync(connection, transaction, owner.ProjectId, panelIds, "DepartureProcessed", next.Value, actorId, cancellationToken);
+                await CreatePanelWorkAsync(connection, transaction, owner.ProjectId, panelIds, "DepartureProcessed", next.Value, actorId, request.OperationId, cancellationToken);
                 await FinalizeOwnerAsync(connection, transaction, owner, actorId, cancellationToken);
                 await EnsureProjectEventAsync(connection, transaction, owner.ProjectId, "PackingCompleted", targetId, request.OperationId, actorId, cancellationToken);
             }
@@ -809,8 +810,8 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             {
                 var next = await ResolveAssigneeAsync(connection, transaction, owner.ProjectId, "DeliveryCompleted", cancellationToken);
                 if (next is null) return await RollbackConflict(transaction, "다음 납품 완료 담당자를 지정한 뒤 다시 시도해 주세요.", cancellationToken);
-                await CompleteWorkAsync(connection, transaction, owner.ProjectId, panelIds, "DepartureProcessed", cancellationToken);
-                await CreatePanelWorkAsync(connection, transaction, owner.ProjectId, panelIds, "DeliveryCompleted", next.Value, actorId, cancellationToken);
+                await CompleteWorkAsync(connection, transaction, owner.ProjectId, panelIds, "DepartureProcessed", actorId, cancellationToken);
+                await CreatePanelWorkAsync(connection, transaction, owner.ProjectId, panelIds, "DeliveryCompleted", next.Value, actorId, request.OperationId, cancellationToken);
                 await FinalizeOwnerAsync(connection, transaction, owner, actorId, cancellationToken);
                 await EnsureProjectEventAsync(connection, transaction, owner.ProjectId, "DepartureProcessed", targetId, request.OperationId, actorId, cancellationToken);
             }
@@ -824,12 +825,13 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
                     if (sales is null) return await RollbackConflict(transaction, "영업 정산 담당자를 지정한 뒤 다시 시도해 주세요.", cancellationToken);
                 }
                 await InsertDeliveryResultsAsync(connection, transaction, owner, panelIds, actorId, cancellationToken);
-                await CompleteWorkAsync(connection, transaction, owner.ProjectId, panelIds, "DeliveryCompleted", cancellationToken);
+                await CompleteWorkAsync(connection, transaction, owner.ProjectId, panelIds, "DeliveryCompleted", actorId, cancellationToken);
                 await AdvancePanelsAsync(connection, transaction, panelIds, "ShipmentCompleted", cancellationToken);
                 await FinalizeOwnerAsync(connection, transaction, owner, actorId, cancellationToken);
                 if (willCompleteProject && sales is not null)
                 {
                     await EnsureProjectEventAsync(connection, transaction, owner.ProjectId, "DeliveryCompleted", targetId, request.OperationId, actorId, cancellationToken);
+                    await CreateProjectDeliveryCompletedNotificationAsync(connection, transaction, owner.ProjectId, cancellationToken);
                     await CreateSalesSettlementWorkAsync(connection, transaction, owner.ProjectId, sales.Value, actorId, cancellationToken);
                 }
             }
@@ -1455,7 +1457,14 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
         return found.Count == panels.Count;
     }
 
-    private static async Task CompleteWorkAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, IReadOnlyList<Guid> panels, string stage, CancellationToken cancellationToken)
+    private static async Task CompleteWorkAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        IReadOnlyList<Guid> panels,
+        string stage,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand(); command.Transaction = transaction;
         command.CommandText = """
@@ -1464,6 +1473,14 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             """;
         command.Parameters.AddWithValue("project_id", projectId); command.Parameters.AddWithValue("panel_ids", panels.ToArray()); command.Parameters.AddWithValue("stage", stage);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await WorkItemFallbackCompletion.SynchronizeForPanelStageAsync(
+            connection,
+            transaction,
+            projectId,
+            panels,
+            stage,
+            actorUserId,
+            cancellationToken);
     }
 
     private static async Task AdvancePanelsAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, IReadOnlyList<Guid> panels, string stage, CancellationToken cancellationToken)
@@ -1478,8 +1495,7 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
     private static async Task<Assignee?> ResolveAssigneeAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, string stage, CancellationToken cancellationToken)
     {
         var responsibilities = stage == "SalesSettlementCompleted" ? new[] { "SalesPrimary", "SalesSecondary" } : new[] { "LogisticsPrimary", "LogisticsSecondary", "Logistics" };
-        var role = stage == "SalesSettlementCompleted" ? "sales" : "logistics";
-        var permission = stage == "SalesSettlementCompleted" ? "projects.read" : "logistics.ship";
+        var departmentCode = stage == "SalesSettlementCompleted" ? "sales" : "logistics";
         await using var command = connection.CreateCommand(); command.Transaction = transaction;
         command.CommandText = """
             with candidates as (
@@ -1488,21 +1504,28 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
               left join user_roles ur on ur.user_id=users.id left join roles role on role.id=ur.role_id
               where pa.project_id=@project_id and pa.responsibility_type=any(@responsibilities)
               union all
-              select users.id, role.code, 100, users.display_name from qms_users users
-              join user_roles ur on ur.user_id=users.id join roles role on role.id=ur.role_id and role.code=@role
-              where users.is_active and exists(select 1 from role_permissions rp join permissions p on p.id=rp.permission_id where rp.role_id=role.id and p.code=@permission)
-              union all
-              select users.id, role.code, 200, users.display_name from qms_users users
-              join user_roles ur on ur.user_id=users.id join roles role on role.id=ur.role_id and role.code='system-administrator'
-              where users.is_active
+              select users.id, role.code, 100, users.display_name
+              from qms_users users
+              join departments department on department.id=users.department_id and department.code=@department_code and department.is_active
+              left join lateral (
+                select roles.code
+                from user_roles user_role join roles on roles.id=user_role.role_id
+                where user_role.user_id=users.id
+                order by roles.code limit 1
+              ) role on true
+              where users.is_active and users.is_department_head
             ) select user_id, role_code from candidates order by priority,display_name,user_id limit 1;
             """;
-        command.Parameters.AddWithValue("project_id", projectId); command.Parameters.AddWithValue("responsibilities", responsibilities); command.Parameters.AddWithValue("role", role); command.Parameters.AddWithValue("permission", permission);
+        command.Parameters.AddWithValue("project_id", projectId); command.Parameters.AddWithValue("responsibilities", responsibilities); command.Parameters.AddWithValue("department_code", departmentCode);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken) ? new(reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1)) : null;
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return new(reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1));
+        }
+        throw new DepartmentHeadRequiredException(departmentCode);
     }
 
-    private static async Task CreatePanelWorkAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, IReadOnlyList<Guid> panels, string stage, Assignee assignee, Guid actorId, CancellationToken cancellationToken)
+    private static async Task CreatePanelWorkAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, IReadOnlyList<Guid> panels, string stage, Assignee assignee, Guid actorId, Guid operationId, CancellationToken cancellationToken)
     {
         foreach (var panelId in panels)
         {
@@ -1532,7 +1555,7 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
                 await WorkAssignmentNotificationWriter.UpsertAsync(
                     connection, transaction, projectId, workItemId, assignee.UserId,
                     ["LogisticsSecondary"], $"{title} · 패널", message, link,
-                    $"{key}:notification", cancellationToken);
+                    $"logistics:operation:{operationId}:stage:{stage}:assignee:{assignee.UserId}:notification", cancellationToken);
             }
         }
     }
@@ -1575,6 +1598,56 @@ public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionSt
             """;
         command.Parameters.AddWithValue("project_id",projectId); command.Parameters.AddWithValue("current_panels",currentPanels.ToArray());
         return await command.ExecuteScalarAsync(cancellationToken) is true;
+    }
+
+    private static async Task CreateProjectDeliveryCompletedNotificationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                insert into notifications (
+                    id, project_id, notification_type, severity, title, message, link_url,
+                    idempotency_key, visibility_scope, source_kind)
+                values (
+                    @id, @project_id, 'Reference', 'Info', '프로젝트 납품 완료',
+                    '모든 활성 패널의 납품이 완료되었습니다.',
+                    '/projects/' || @project_id || '/logistics',
+                    'logistics:project:' || @project_id || ':delivery-completed',
+                    'RecipientOnly', 'ProjectDeliveryCompleted')
+                on conflict (idempotency_key) do nothing;
+                """;
+            command.Parameters.AddWithValue("id", Guid.NewGuid());
+            command.Parameters.AddWithValue("project_id", projectId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var recipients = connection.CreateCommand();
+        recipients.Transaction = transaction;
+        recipients.CommandText = """
+            insert into notification_recipients (notification_id, user_id)
+            select notification.id, target.user_id
+            from notifications notification
+            cross join lateral (
+                select project.sales_owner_user_id as user_id
+                from projects project
+                where project.id = @project_id
+                union
+                select assignee.assigned_user_id
+                from project_assignees assignee
+                where assignee.project_id = @project_id
+                  and assignee.assigned_user_id is not null
+            ) target
+            join qms_users users on users.id = target.user_id and users.is_active = true
+            where notification.idempotency_key = 'logistics:project:' || @project_id || ':delivery-completed'
+            on conflict (notification_id, user_id) do nothing;
+            """;
+        recipients.Parameters.AddWithValue("project_id", projectId);
+        await recipients.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task InsertDeliveryResultsAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Owner owner, IReadOnlyList<Guid> panels, Guid actorId, CancellationToken cancellationToken)

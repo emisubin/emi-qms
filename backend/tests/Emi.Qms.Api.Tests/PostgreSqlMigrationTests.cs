@@ -621,7 +621,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+            Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -887,7 +887,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+            Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -991,7 +991,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+            Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1057,7 +1057,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+        Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1121,7 +1121,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+            Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1152,6 +1152,130 @@ public sealed class PostgreSqlMigrationTests
         finally
         {
             migrationsThrough0068.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NotificationPolicyAlignmentMigration_BackfillsOnlyExactOpenSchedulesAndPreservesCompletedHistory()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration(
+            new Dictionary<string, string?> { ["DevelopmentData:SeedEnabled"] = "true" });
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        var migrationsThrough0074 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0074-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql")
+                         .Where(path => string.CompareOrdinal(Path.GetFileName(path), "0075_") < 0))
+            {
+                File.Copy(source, Path.Combine(migrationsThrough0074.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0074.FullName),
+                new DatabaseRuntimePrivilegeManager(),
+                configuration,
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await CreateSeeder(database.RepositoryRoot, "Testing", configuration, provider)
+                .SeedAsync(TestContext.Current.CancellationToken);
+
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into project_procurement_items (
+                    id, project_id, sequence_number, order_item, expected_receipt_date, status)
+                values
+                    ('75000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 901, 'Migration item 1', '2026-08-20', 'Active'),
+                    ('75000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', 902, 'Migration item 2', '2026-08-15', 'Active');
+
+                insert into project_production_plans (id, project_id)
+                values ('75000000-0000-0000-0000-000000000010', '40000000-0000-0000-0000-000000000001')
+                on conflict (project_id) do nothing;
+
+                insert into project_production_plan_items (
+                    id, production_plan_id, sequence_number, step_name_snapshot, is_required, is_active,
+                    planned_start_date, planned_end_date)
+                values (
+                    '75000000-0000-0000-0000-000000000003',
+                    (select id from project_production_plans where project_id='40000000-0000-0000-0000-000000000001'),
+                    901, 'Migration production work', true, true, '2026-08-10', '2026-08-18');
+
+                insert into work_items (
+                    id, project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                    assigned_user_id, assigned_role_code, title, status, priority, due_date,
+                    idempotency_key, created_by_user_id)
+                values
+                    ('75000000-0000-0000-0000-000000000011', '40000000-0000-0000-0000-000000000001',
+                     'ProcurementItem', '75000000-0000-0000-0000-000000000001', 'MaterialArrived', 'MaterialsPrimary',
+                     '50000000-0000-0000-0000-000000000001', 'system-administrator', 'Open procurement exact',
+                     'Requested', 'Normal', '2026-01-01', 'notify-policy-migration-procurement-open',
+                     '50000000-0000-0000-0000-000000000001'),
+                    ('75000000-0000-0000-0000-000000000012', '40000000-0000-0000-0000-000000000001',
+                     'ProcurementItem', '75000000-0000-0000-0000-000000000001', 'MaterialArrived', 'MaterialsPrimary',
+                     '50000000-0000-0000-0000-000000000001', 'system-administrator', 'Completed procurement history',
+                     'Completed', 'Normal', '2026-01-02', 'notify-policy-migration-procurement-completed',
+                     '50000000-0000-0000-0000-000000000001'),
+                    ('75000000-0000-0000-0000-000000000013', '40000000-0000-0000-0000-000000000001',
+                     'Project', '40000000-0000-0000-0000-000000000001', 'MaterialArrived', 'MaterialsPrimary',
+                     '50000000-0000-0000-0000-000000000001', 'system-administrator', 'Open aggregate receipt',
+                     'InProgress', 'Normal', '2026-01-03', 'notify-policy-migration-procurement-aggregate',
+                     '50000000-0000-0000-0000-000000000001'),
+                    ('75000000-0000-0000-0000-000000000014', '40000000-0000-0000-0000-000000000001',
+                     'ProductionPlan', '75000000-0000-0000-0000-000000000003', 'ManufacturingWork', 'ManufacturingPrimary',
+                     '50000000-0000-0000-0000-000000000001', 'system-administrator', 'Open production exact',
+                     'Requested', 'Normal', '2026-01-04', 'notify-policy-migration-production-open',
+                     '50000000-0000-0000-0000-000000000001'),
+                    ('75000000-0000-0000-0000-000000000015', '40000000-0000-0000-0000-000000000001',
+                     'ProductionPlan', '75000000-0000-0000-0000-000000000003', 'ManufacturingWork', 'ManufacturingPrimary',
+                     '50000000-0000-0000-0000-000000000001', 'system-administrator', 'Completed production history',
+                     'Completed', 'Normal', '2026-01-05', 'notify-policy-migration-production-completed',
+                     '50000000-0000-0000-0000-000000000001'),
+                    ('75000000-0000-0000-0000-000000000016', '40000000-0000-0000-0000-000000000001',
+                     'Panel', null, 'ManufacturingWork', 'ManufacturingPrimary',
+                     '50000000-0000-0000-0000-000000000001', 'system-administrator', 'Ambiguous production work',
+                     'Requested', 'Normal', null, 'notify-policy-migration-production-ambiguous',
+                     '50000000-0000-0000-0000-000000000001');
+                """,
+                TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(new DateOnly(2026, 8, 20), await ReadScalarAsync<DateOnly>(
+                provider,
+                "select due_date from work_items where id='75000000-0000-0000-0000-000000000011';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(new DateOnly(2026, 1, 2), await ReadScalarAsync<DateOnly>(
+                provider,
+                "select due_date from work_items where id='75000000-0000-0000-0000-000000000012';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(new DateOnly(2026, 8, 15), await ReadScalarAsync<DateOnly>(
+                provider,
+                "select due_date from work_items where id='75000000-0000-0000-0000-000000000013';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(new DateOnly(2026, 8, 18), await ReadScalarAsync<DateOnly>(
+                provider,
+                "select due_date from work_items where id='75000000-0000-0000-0000-000000000014';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(new DateOnly(2026, 1, 5), await ReadScalarAsync<DateOnly>(
+                provider,
+                "select due_date from work_items where id='75000000-0000-0000-0000-000000000015';",
+                TestContext.Current.CancellationToken));
+            Assert.False(await ReadScalarAsync<bool>(
+                provider,
+                "select due_date is not null from work_items where id='75000000-0000-0000-0000-000000000016';",
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            migrationsThrough0074.Delete(recursive: true);
         }
     }
 
@@ -1286,7 +1410,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+            Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1778,7 +1902,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+        Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1821,7 +1945,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+        Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2002,7 +2126,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+            Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2079,7 +2203,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+            Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2144,7 +2268,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+            Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2194,7 +2318,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+        Assert.Equal("0075_notification_policy_alignment", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2537,6 +2661,43 @@ public sealed class PostgreSqlMigrationTests
                    '2026-07-11T00:00:00Z', '2026-07-11T00:05:00Z', 'Processing'
             from notification_deliveries
             where dedupe_key = 'migration-0028-preserved-row';
+            """,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task WebPushMigration_AddsPerDeviceSubscriptionsAuditAndDeliveryTarget()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema='public'
+              and table_name in ('web_push_subscriptions', 'web_push_subscription_events');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema='public'
+              and table_name='notification_deliveries'
+              and column_name in ('web_push_subscription_id', 'web_push_subscription_generation');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from pg_indexes
+            where schemaname='public'
+              and indexname='ux_notification_deliveries_web_push_subscription';
             """,
             TestContext.Current.CancellationToken));
     }

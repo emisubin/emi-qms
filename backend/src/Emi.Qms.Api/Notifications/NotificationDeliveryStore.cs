@@ -25,34 +25,35 @@ public sealed class NotificationDeliveryStore(
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         var created = 0;
-        created += await InsertUrgentTeamsChannelDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
         created += await InsertUrgentMailDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
-        var teamsActivityPersonal = string.Equals(
-            options.TeamsActivity.PersonalChannelStrategy,
-            NotificationDeliveryChannels.TeamsActivity,
-            StringComparison.OrdinalIgnoreCase);
+        created += await InsertLifecycleMailDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
+        created += await InsertProjectFinalCompletionMailDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
         created += await InsertWorkItemTeamsPersonalDeliveriesAsync(
             connection,
             transaction,
             dedupeAfter,
             batchWindowSeconds,
-            teamsActivityPersonal,
+            teamsActivityPersonal: true,
             cancellationToken);
-        if (teamsActivityPersonal)
-        {
-            created += await InsertUrgentTeamsActivityDeliveriesAsync(
-                connection,
-                transaction,
-                dedupeAfter,
-                batchWindowSeconds,
-                cancellationToken);
-            created += await InsertPlannedTeamsActivityDeliveriesAsync(
-                connection,
-                transaction,
-                dedupeAfter,
-                batchWindowSeconds,
-                cancellationToken);
-        }
+        created += await InsertUrgentTeamsActivityDeliveriesAsync(
+            connection,
+            transaction,
+            dedupeAfter,
+            batchWindowSeconds,
+            cancellationToken);
+        created += await InsertPlannedTeamsActivityDeliveriesAsync(
+            connection,
+            transaction,
+            dedupeAfter,
+            batchWindowSeconds,
+            cancellationToken);
+
+        created += await InsertWebPushDeliveriesAsync(
+            connection,
+            transaction,
+            options.WebPush.Enabled,
+            batchWindowSeconds,
+            cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return created;
@@ -71,8 +72,17 @@ public sealed class NotificationDeliveryStore(
             return 0;
         }
 
+        if (digestDate.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+        {
+            return 0;
+        }
+
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        if (await IsHolidayAsync(connection, digestDate, cancellationToken))
+        {
+            return 0;
+        }
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         await using var command = connection.CreateCommand();
@@ -174,6 +184,25 @@ public sealed class NotificationDeliveryStore(
 
         await transaction.CommitAsync(cancellationToken);
         return created;
+    }
+
+    private static async Task<bool> IsHolidayAsync(
+        NpgsqlConnection connection,
+        DateOnly date,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select exists (
+                select 1
+                from system_holidays
+                where country_code = 'KR'
+                  and holiday_date = @date
+                  and is_active = true
+            );
+            """;
+        command.Parameters.AddWithValue("date", date);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 
     public Task<IReadOnlyList<ClaimedNotificationDelivery>> ClaimDueDeliveriesAsync(
@@ -1516,6 +1545,25 @@ public sealed class NotificationDeliveryStore(
             ?? delivery.NotificationMessage
             ?? "알림이 생성되었습니다.";
 
+        if (delivery.Channel == NotificationDeliveryChannels.WebPush)
+        {
+            return new NotificationDeliveryMessage(
+                delivery.DeliveryId,
+                delivery.Channel,
+                delivery.DeliveryType,
+                title,
+                "EMI PMS에서 알림 내용을 확인해 주세요.",
+                ResolveExternalNotificationLink(delivery),
+                delivery.DisplayRecipientName ?? delivery.RecipientDisplayName,
+                delivery.DisplayRecipientEmail ?? delivery.RecipientEmail,
+                CorrelationId: delivery.CorrelationId,
+                RecipientUserId: delivery.RecipientUserId,
+                RecipientUserIsActive: delivery.RecipientUserIsActive,
+                ProjectName: projectName,
+                WorkItemTitle: delivery.DisplayWorkItemTitle ?? delivery.WorkItemTitle,
+                WorkflowStageName: delivery.WorkflowStageName);
+        }
+
         if (delivery.Channel == NotificationDeliveryChannels.TeamsActivity)
         {
             var detailUrl = ResolveTeamsActivityNotificationLink(delivery);
@@ -1741,6 +1789,7 @@ public sealed class NotificationDeliveryStore(
             NotificationSourceKinds.ProjectDeliveryDateChanged => configuration[$"{prefix}ProjectDeliveryDateChanged"] ?? "projectDeliveryDateChanged",
             NotificationSourceKinds.ProjectStatusChanged => configuration[$"{prefix}ProjectStatusChanged"] ?? "projectStatusChanged",
             NotificationSourceKinds.ReinspectionRequested => configuration[$"{prefix}ReinspectionRequested"] ?? "reinspectionRequested",
+            NotificationSourceKinds.ProjectDeliveryCompleted => configuration[$"{prefix}ProjectCompleted"] ?? "projectCompleted",
             NotificationSourceKinds.ProjectCompletion => configuration[$"{prefix}ProjectCompleted"] ?? "projectCompleted",
             _ => delivery.DeliveryType switch
             {
@@ -1813,6 +1862,14 @@ public sealed class NotificationDeliveryStore(
             NotificationSourceKinds.Manual => NotificationSourceKinds.Manual,
             NotificationSourceKinds.ChannelNotice => NotificationSourceKinds.ChannelNotice,
             NotificationSourceKinds.WorkAssignment => NotificationSourceKinds.WorkAssignment,
+            NotificationSourceKinds.ProjectCreated => NotificationSourceKinds.ProjectCreated,
+            NotificationSourceKinds.ProjectDeliveryDateChanged => NotificationSourceKinds.ProjectDeliveryDateChanged,
+            NotificationSourceKinds.ProjectStatusChanged => NotificationSourceKinds.ProjectStatusChanged,
+            NotificationSourceKinds.PendingAssignment => NotificationSourceKinds.PendingAssignment,
+            NotificationSourceKinds.PendingClosed => NotificationSourceKinds.PendingClosed,
+            NotificationSourceKinds.ReinspectionRequested => NotificationSourceKinds.ReinspectionRequested,
+            NotificationSourceKinds.ProjectDeliveryCompleted => NotificationSourceKinds.ProjectDeliveryCompleted,
+            NotificationSourceKinds.ProjectCompletion => NotificationSourceKinds.ProjectCompletion,
             NotificationSourceKinds.DailyDigest => NotificationSourceKinds.DailyDigest,
             NotificationSourceKinds.Escalation => NotificationSourceKinds.Escalation,
             NotificationSourceKinds.System => NotificationSourceKinds.System,
@@ -1949,46 +2006,105 @@ public sealed class NotificationDeliveryStore(
             RecipientUserIsActive: delivery.RecipientUserIsActive);
     }
 
-    private async Task<int> InsertUrgentTeamsChannelDeliveriesAsync(
+    private async Task<int> InsertWebPushDeliveriesAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        DateTimeOffset dedupeAfter,
+        bool channelEnabled,
         int batchWindowSeconds,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
+            with eligible as (
+                select
+                    n.id as notification_id,
+                    nr.id as notification_recipient_id,
+                    users.id as recipient_user_id,
+                    n.project_id,
+                    n.work_item_id,
+                    n.title,
+                    n.message,
+                    n.created_at_utc,
+                    projects.project_title,
+                    users.display_name,
+                    users.email,
+                    subscription.id as subscription_id,
+                    subscription.generation as subscription_generation
+                from notifications n
+                join qms_users users
+                  on users.is_active = true
+                 and (
+                    users.auth_provider <> 'EntraId'
+                    or exists (
+                        select 1
+                        from user_roles approval_role
+                        where approval_role.user_id = users.id
+                    )
+                 )
+                 and (
+                    n.visibility_scope = 'Authenticated'
+                    or (
+                        n.visibility_scope = 'RecipientOnly'
+                        and exists (
+                            select 1
+                            from notification_recipients recipient_scope
+                            where recipient_scope.notification_id = n.id
+                              and recipient_scope.user_id = users.id
+                        )
+                    )
+                 )
+                left join notification_recipients nr
+                  on nr.notification_id = n.id
+                 and nr.user_id = users.id
+                join web_push_subscriptions subscription
+                  on subscription.user_id = users.id
+                 and subscription.is_active = true
+                 and subscription.activated_at_utc <= n.created_at_utc
+                left join projects on projects.id = n.project_id
+                where n.visibility_scope in ('RecipientOnly', 'Authenticated')
+            )
             insert into notification_deliveries (
-                notification_id, project_id, channel, delivery_type, dedupe_key, group_key, next_attempt_at_utc,
-                display_title, display_message, display_project_name, display_recipient_kind, display_channel_target
+                notification_id, notification_recipient_id, recipient_user_id,
+                project_id, work_item_id, web_push_subscription_id, web_push_subscription_generation,
+                channel, delivery_type, status, next_attempt_at_utc,
+                suppressed_at_utc, error_code, error_message,
+                dedupe_key, group_key,
+                display_title, display_message, display_project_name,
+                display_work_item_title, display_recipient_name, display_recipient_email,
+                display_recipient_kind, display_channel_target
             )
             select
-                n.id,
-                n.project_id,
-                'TeamsChannel',
-                'UrgentBlocking',
-                concat('notification:', n.id::text, ':teams-channel:urgent'),
-                concat('urgent:', coalesce(n.project_id::text, n.id::text), ':', floor(extract(epoch from n.created_at_utc) / @batch_window_seconds)::bigint),
-                @now,
-                n.title,
-                n.message,
-                p.project_title,
-                'TeamsChannel',
-                'Teams 채널'
-            from notifications n
-            left join projects p on p.id = n.project_id
-            where (n.notification_type = 'Blocking' or n.severity = 'Critical')
-              and not exists (
-                  select 1
-                  from notification_deliveries existing
-                  where existing.dedupe_key = concat('notification:', n.id::text, ':teams-channel:urgent')
-                    and existing.created_at_utc >= @dedupe_after
-              )
+                eligible.notification_id,
+                eligible.notification_recipient_id,
+                eligible.recipient_user_id,
+                eligible.project_id,
+                eligible.work_item_id,
+                eligible.subscription_id,
+                eligible.subscription_generation,
+                'WebPush',
+                'WebPushNotification',
+                case when @channel_enabled then 'Pending' else 'Disabled' end,
+                case when @channel_enabled then @now else null end,
+                case when @channel_enabled then null else @now end,
+                case when @channel_enabled then null else 'WebPushDisabled' end,
+                case when @channel_enabled then null else 'PWA 푸시 발송이 비활성화되어 있습니다.' end,
+                concat('notification:', eligible.notification_id::text, ':web-push:', eligible.subscription_id::text),
+                concat('web-push:', eligible.notification_id::text, ':', floor(extract(epoch from eligible.created_at_utc) / @batch_window_seconds)::bigint),
+                eligible.title,
+                eligible.message,
+                eligible.project_title,
+                work_items.title,
+                eligible.display_name,
+                eligible.email,
+                'User',
+                concat('PWA 기기 ', upper(left(replace(eligible.subscription_id::text, '-', ''), 8)))
+            from eligible
+            left join work_items on work_items.id = eligible.work_item_id
             on conflict do nothing;
             """;
+        command.Parameters.AddWithValue("channel_enabled", channelEnabled);
         command.Parameters.AddWithValue("now", timeProvider.GetUtcNow());
-        command.Parameters.AddWithValue("dedupe_after", dedupeAfter);
         command.Parameters.AddWithValue("batch_window_seconds", batchWindowSeconds);
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -2027,9 +2143,11 @@ public sealed class NotificationDeliveryStore(
                 'User'
             from notifications n
             join notification_recipients nr on nr.notification_id = n.id
-            join qms_users u on u.id = nr.user_id
+            join qms_users u on u.id = nr.user_id and u.is_active = true
             left join projects p on p.id = n.project_id
-            where (n.notification_type = 'Blocking' or n.severity = 'Critical' or n.source_kind = 'PendingAssignment')
+            where (n.notification_type = 'Blocking'
+                   or n.severity = 'Critical'
+                   or n.source_kind in ('PendingAssignment', 'ReinspectionRequested'))
               and not exists (
                   select 1
                   from notification_deliveries existing
@@ -2080,7 +2198,9 @@ public sealed class NotificationDeliveryStore(
             join notification_recipients nr on nr.notification_id = n.id
             join qms_users u on u.id = nr.user_id and u.is_active = true
             left join projects p on p.id = n.project_id
-            where (n.notification_type = 'Blocking' or n.severity = 'Critical' or n.source_kind = 'PendingAssignment')
+            where (n.notification_type = 'Blocking'
+                   or n.severity = 'Critical'
+                   or n.source_kind in ('PendingAssignment', 'ReinspectionRequested'))
               and not exists (
                   select 1
                   from notification_deliveries existing
@@ -2117,7 +2237,7 @@ public sealed class NotificationDeliveryStore(
                 nr.user_id,
                 n.project_id,
                 'TeamsActivity',
-                case when n.source_kind = 'ProjectCompletion' then 'ProjectCompletion' else 'ReferenceDigest' end,
+                case when n.source_kind = 'ProjectDeliveryCompleted' then 'ProjectCompletion' else 'ReferenceDigest' end,
                 concat('notification:', n.id::text, ':teams-activity:', nr.user_id::text, ':', lower(n.source_kind)),
                 concat('activity:', coalesce(n.project_id::text, n.id::text), ':', lower(n.source_kind), ':', floor(extract(epoch from n.created_at_utc) / @batch_window_seconds)::bigint),
                 @now,
@@ -2135,14 +2255,114 @@ public sealed class NotificationDeliveryStore(
                     'ProjectCreated',
                     'ProjectDeliveryDateChanged',
                     'ProjectStatusChanged',
-                    'ReinspectionRequested',
-                    'ProjectCompletion'
+                    'PendingClosed',
+                    'ProjectDeliveryCompleted'
                   )
-              and (n.source_kind <> 'ProjectCompletion' or nr.user_id = p.sales_owner_user_id)
               and not exists (
                   select 1
                   from notification_deliveries existing
                   where existing.dedupe_key = concat('notification:', n.id::text, ':teams-activity:', nr.user_id::text, ':', lower(n.source_kind))
+                    and existing.created_at_utc >= @dedupe_after
+              )
+            on conflict do nothing;
+            """;
+        command.Parameters.AddWithValue("now", timeProvider.GetUtcNow());
+        command.Parameters.AddWithValue("dedupe_after", dedupeAfter);
+        command.Parameters.AddWithValue("batch_window_seconds", batchWindowSeconds);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task<int> InsertLifecycleMailDeliveriesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        DateTimeOffset dedupeAfter,
+        int batchWindowSeconds,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into notification_deliveries (
+                notification_id, notification_recipient_id, recipient_user_id, project_id,
+                channel, delivery_type, dedupe_key, group_key, next_attempt_at_utc,
+                display_title, display_message, display_project_name,
+                display_recipient_name, display_recipient_email, display_recipient_kind
+            )
+            select
+                n.id,
+                nr.id,
+                nr.user_id,
+                n.project_id,
+                'Mail',
+                'ReferenceDigest',
+                concat('notification:', n.id::text, ':mail:', nr.user_id::text, ':', lower(n.source_kind)),
+                concat('lifecycle:', coalesce(n.project_id::text, n.id::text), ':', lower(n.source_kind), ':', floor(extract(epoch from n.created_at_utc) / @batch_window_seconds)::bigint),
+                @now,
+                n.title,
+                n.message,
+                p.project_title,
+                u.display_name,
+                u.email,
+                'User'
+            from notifications n
+            join notification_recipients nr on nr.notification_id = n.id
+            join qms_users u on u.id = nr.user_id and u.is_active = true
+            left join projects p on p.id = n.project_id
+            where n.source_kind = 'ProjectCreated'
+              and not exists (
+                  select 1
+                  from notification_deliveries existing
+                  where existing.dedupe_key = concat('notification:', n.id::text, ':mail:', nr.user_id::text, ':', lower(n.source_kind))
+                    and existing.created_at_utc >= @dedupe_after
+              )
+            on conflict do nothing;
+            """;
+        command.Parameters.AddWithValue("now", timeProvider.GetUtcNow());
+        command.Parameters.AddWithValue("dedupe_after", dedupeAfter);
+        command.Parameters.AddWithValue("batch_window_seconds", batchWindowSeconds);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task<int> InsertProjectFinalCompletionMailDeliveriesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        DateTimeOffset dedupeAfter,
+        int batchWindowSeconds,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into notification_deliveries (
+                notification_id, recipient_user_id, project_id,
+                channel, delivery_type, dedupe_key, group_key, next_attempt_at_utc,
+                display_title, display_message, display_project_name,
+                display_recipient_name, display_recipient_email, display_recipient_kind
+            )
+            select
+                n.id,
+                u.id,
+                n.project_id,
+                'Mail',
+                'ProjectCompletion',
+                concat('notification:', n.id::text, ':mail:', u.id::text, ':project-final-completion'),
+                concat('project-final-completion:', n.project_id::text, ':', floor(extract(epoch from n.created_at_utc) / @batch_window_seconds)::bigint),
+                @now,
+                n.title,
+                n.message,
+                p.project_title,
+                u.display_name,
+                u.email,
+                'User'
+            from notifications n
+            join projects p on p.id = n.project_id
+            join qms_users u on u.is_active = true
+            join departments department on department.id = u.department_id and department.code = 'sales'
+            where n.source_kind = 'ProjectCompletion'
+              and not exists (
+                  select 1
+                  from notification_deliveries existing
+                  where existing.dedupe_key = concat('notification:', n.id::text, ':mail:', u.id::text, ':project-final-completion')
                     and existing.created_at_utc >= @dedupe_after
               )
             on conflict do nothing;
@@ -2583,7 +2803,7 @@ public sealed class NotificationDeliveryStore(
             row.DeliveryType,
             DeliveryTypeLabel(row),
             row.Status,
-            StatusLabel(row.Status),
+            StatusLabel(row.Status, row.Channel),
             row.AttemptCount,
             row.NextAttemptAtUtc,
             row.LastAttemptAtUtc,
@@ -2649,7 +2869,7 @@ public sealed class NotificationDeliveryStore(
             ChannelLabel(row.Channel),
             ResolveDisplayRecipient(row),
             row.Status,
-            StatusLabel(row.Status),
+            StatusLabel(row.Status, row.Channel),
             row.AttemptCount,
             row.NextAttemptAtUtc,
             row.LastAttemptAtUtc,
@@ -2925,6 +3145,7 @@ public sealed class NotificationDeliveryStore(
             NotificationDeliveryChannels.TeamsDirectMessage => "Teams 개인 dry-run",
             NotificationDeliveryChannels.TeamsActivity => "Teams Activity",
             NotificationDeliveryChannels.Mail => "메일",
+            NotificationDeliveryChannels.WebPush => "PWA 푸시",
             _ => channel
         };
     }
@@ -2943,6 +3164,7 @@ public sealed class NotificationDeliveryStore(
             NotificationDeliveryTypes.OverdueL1
                 or NotificationDeliveryTypes.OverdueL2
                 or NotificationDeliveryTypes.OverdueL3 => "예정일 초과 알림",
+            NotificationDeliveryTypes.WebPushNotification => "인앱 연동 PWA 푸시",
             _ => deliveryType
         };
     }
@@ -2968,12 +3190,13 @@ public sealed class NotificationDeliveryStore(
         };
     }
 
-    private static string StatusLabel(string status)
+    private static string StatusLabel(string status, string? channel = null)
     {
         return status switch
         {
             NotificationDeliveryStatuses.Pending => "발송 대기",
             NotificationDeliveryStatuses.Processing => "발송 처리 중",
+            NotificationDeliveryStatuses.Sent when channel == NotificationDeliveryChannels.WebPush => "푸시 서비스 접수",
             NotificationDeliveryStatuses.Sent => "발송 완료",
             NotificationDeliveryStatuses.Failed => "발송 실패",
             NotificationDeliveryStatuses.Suppressed => "발송 제외",
@@ -3045,6 +3268,9 @@ public sealed class NotificationDeliveryStore(
             "TeamsWebhookFailed" => "Teams 채널 Webhook 또는 Power Automate 실행 결과를 확인하세요.",
             "TeamsActivityThrottled" => "일시 오류일 수 있으니 재시도 상태를 확인하세요.",
             "TeamsActivityGraphError" => "오류 코드와 서버 로그를 확인하세요.",
+            "WebPushVapidMissing" => "PWA 푸시 공개키와 비밀키 설정을 확인하세요.",
+            "WebPushSubscriptionInactive" => "사용자 또는 해당 기기의 푸시 연결 상태를 확인하세요.",
+            "WebPushNetworkFailure" or "WebPushTimeout" => "일시 오류일 수 있으니 재시도 상태를 확인하세요.",
             _ when row.Status == NotificationDeliveryStatuses.Failed => "오류 코드와 서버 로그를 확인하세요.",
             _ => "상태를 확인하세요."
         };

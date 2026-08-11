@@ -187,3 +187,150 @@ workflow 문제가 발견되면 `.github/workflows/ci.yml`만 기준 SHA의 이�
 | User manual | N/A 기록 완료 | [Task의 User manual](ci-cost-001.md#user-manual) — 제품 UI 변경 없음 |
 | Roadmap update | 작성 완료 | [Product Roadmap](../docs/00-product-roadmap.md#task-ci-cost-001-github-actions-minute-최적화) |
 | User validation checklist | 코드 PR·main·문서 전용 closure PR 자동 검수 완료 / 1주 관찰 대기 | [Task checklist](ci-cost-001.md#사용자-검수-checklist) |
+
+## 15. Change 001 — 변경 영향 기반 CI와 선택적 Azure release
+
+### 15.1 목적과 상태
+
+- 기준 branch: `fix/task-ci-cost-001-change-001-latency-release`
+- 기준 SHA: `9a25157f0b8d1e78ad5392acf336ebf3c0f61b64`
+- 상태: `LOCAL_IMPLEMENTATION_COMPLETE / AUTOMATED_VALIDATION_COMPLETE / PR_DRAFT_VALIDATION_COMPLETE / MERGE_NOT_APPROVED`
+- 승인: 사용자가 기존 CI·Azure release 검사와 소요시간 분석을 확인하고 권장 적용 순서의 local 구현을 명시 승인했다.
+- 원격 설정: `main-pr-only` Ruleset에서 GitHub Actions 출처 `CI Gate`를 선택하고 사용자 재인증 뒤 저장했다. Ruleset readback에서 enforcement `active`, required check `CI Gate`, integration ID `15368`을 확인했다.
+
+### 15.2 해결한 업무 문제
+
+최근 성공 코드 PR 3건은 평균 약 38분 42초가 걸렸다. Backend 평균 약 18분 52초가 끝난 뒤 Full-Stack 평균 약 19분 18초가 시작돼 두 heavy 검사가 거의 직렬이었다. 동일 Git tree를 가진 PR head와 squash merge main commit도 확인됐지만 main이 Backend·Frontend를 평균 약 19분 09초 다시 실행했다. Azure 성공 release 5건은 평균 약 5분 59초였고 Backend·Frontend image build와 migration·두 revision 교체를 변경 범위와 무관하게 매번 수행했다.
+
+Change 001은 테스트 수를 일괄 축소하지 않고 scheduling과 변경 영향 판정을 보정했다.
+
+| 상황 | 기존 평균 | Change 001 예상 wall time | 예상 절감 |
+| --- | ---: | ---: | ---: |
+| 고위험 코드 PR | 약 38분 42초 | 약 22~23분 | 약 16분 |
+| Backend 일반 변경 PR | 약 38분 42초 | 약 19분 | 약 20분 |
+| Frontend 일반 화면 변경 PR | 약 38분 42초 | 약 3~4분 | 약 35분 |
+| 검증된 동일 tree main | 약 19분 09초 | 분류+Gate 소수 초~1분 | 약 18분 |
+| Azure 두 image 변경 | 약 5분 59초 | 두 build 병렬화로 약 1분 이내 단축 예상 | 실제 run 확인 필요 |
+| Azure 한 component 변경 | 약 5분 59초 | 미변경 image·불필요 migration 생략 | 실제 run 확인 필요 |
+
+실제 시간은 GitHub queue, cache와 Azure revision 준비 시간에 따라 달라지므로 PR·main·release 게시 뒤 재측정한다.
+
+### 15.3 구현 구조와 영향
+
+```text
+PR changed files
+  ├─ docs only ───────────────────────────────────────┐
+  ├─ Backend ─────────────── Backend tests ───────────┤
+  ├─ Frontend ── Frontend checks ─┐                  │
+  │                               └─ high risk E2E ──┤
+  ├─ workflow/Azure ── Workflow Validation ──────────┤
+  └─ unknown ── all required jobs ───────────────────┤
+                                                    CI Gate
+
+Azure approved main source
+  └─ diff since last successful main release
+       ├─ Backend changed ── Backend image ─┐
+       ├─ Frontend changed ─ Frontend image ├─ selected revision release
+       └─ migration changed ─ migration ────┘
+```
+
+- Backend/Frontend: 제품 source는 변경하지 않았다. CI job 실행 조건만 분리했다.
+- DB/Migration: schema와 SQL은 변경하지 않았다. migration 파일 diff가 있을 때만 기존 one-shot job을 실행한다.
+- API·권한·Workflow: contract·인증·권한·workflow 변경은 Backend·Frontend·Full-Stack 전체 검증으로 분류한다.
+- UI·UX: 변경 없음. Frontend 일반 변경은 기존 lint·typecheck·unit·build·mock UI E2E를 유지한다.
+- Azure: resource·도메인·secret·image 내용은 변경하지 않았다. build job을 component별로 분리하고 release script가 선택된 component만 교체한다.
+- Excel/PDF/첨부파일: 변경 없음.
+
+### 15.4 주요 변경 파일
+
+| 파일 | 역할 |
+| --- | --- |
+| `.github/workflows/ci.yml` | 영역별 job routing, Backend test와 Full-Stack 병렬화, Workflow Validation, always-run Gate |
+| `.github/workflows/azure-pilot-images.yml` | 마지막 성공 main release 기준 누적 diff, component image 병렬 build, 선택 release/no-op |
+| `scripts/classify-change-scope.sh` | privacy-safe changed-file 영향 분류와 unknown fail-safe |
+| `scripts/verify-main-pr-ci.sh` | 활성 Ruleset·required `CI Gate`·merged PR·동일 tree·CI trust source 불변 확인 |
+| `scripts/verify-ci-gate.sh` | 선택된 필수 job 결과의 단일 Gate 판정 |
+| `scripts/deploy-azure-pilot-release.sh` | migration·Backend·Frontend 선택 실행과 component별 rollback |
+| `scripts/validate-azure-image-publish-inputs.sh` | scope job의 source-only 검증과 기존 full secret shape 검증 분리 |
+| `scripts/test-change-scope.sh`, `test-main-pr-ci.sh`, `test-ci-gate.sh` | 변경 분류·main trust·Gate positive/negative 회귀 |
+| `scripts/test-azure-pilot-release.sh`, `test-azure-image-publish-inputs.sh` | 전체·선택·no-op Azure release와 source-only 입력 회귀 |
+| `scripts/validate-azure-pilot-artifacts.sh` | 새 workflow·script contract와 기존 Azure artifact 검증 |
+| `tasks/ci-cost-001-change-001.md`, Task·report·Roadmap | 승인 경계, SOP, 검수 checklist와 실제 상태 동기화 |
+
+### 15.5 기술적 결정과 검토한 대안
+
+| 대안 | 결정 | 근거 |
+| --- | --- | --- |
+| 모든 코드 변경에 전체 suite | 제거 | Validation Matrix의 실제 영향 경계로 Backend·Frontend·고위험 통합을 구분할 수 있다. |
+| Full-Stack이 Backend 전체 test를 기다림 | 제거 | Frontend 빠른 Gate 뒤 Full-Stack과 Backend heavy test를 병렬화하고 최종 Gate에서 둘 다 확인한다. |
+| main 검사를 항상 제거 | 제거 | Ruleset, merged PR, 동일 tree, 성공 `CI Gate`를 모두 확인한 경우만 재사용한다. |
+| main을 PR tree와 이름만 비교 | 제거 | GitHub Actions integration ID, active default Ruleset과 CI trust source 자체 변경 제외를 함께 확인한다. |
+| Azure에 이전 SHA 수동 입력 추가 | 제거 | 마지막 성공한 `main` 수동 release의 head SHA를 read-only로 조회하고 불명확하면 전체 release로 fallback한다. |
+| Azure build 한 job에서 순차 실행 | 제거 | Backend·Frontend를 별도 job으로 분리해 둘 다 필요할 때 동시에 실행한다. 현재 environment에는 required reviewer/wait timer가 없어 승인 횟수 증가가 없다. |
+| Backend test parallelization 활성화 | 보류 | 493개 테스트의 공유 DB·상태 격리 계약을 별도 분석하지 않고 변경하면 flaky 위험이 있어 scheduling 개선과 분리했다. |
+
+### 15.6 실행한 검증
+
+| 검증 | 결과 | 근거 |
+| --- | --- | --- |
+| `actionlint` CI·Azure workflow | PASS | YAML·expression·embedded shell 정적 검증 |
+| 전체 `scripts/*.sh`, `scripts/lib/*.sh` syntax | PASS | shell syntax 오류 0 |
+| change-scope matrix | PASS | docs, Backend test/store, contract, Frontend style/API, migration, CI/Azure workflow, unknown, rename, no-change, invalid 기준 13종 |
+| main PR trust matrix | PASS | 성공, Ruleset 부재, PR 부재, tree mismatch, 실패 Gate, CI trust source 변경, API 실패 |
+| `CI Gate` matrix | PASS | docs, Backend/Frontend/Full-Stack/Workflow 성공과 분류·job 실패/취소/skip 10종 |
+| Azure release matrix | PASS | 기존 baseline·failure·rollback과 전체, Backend-only, Frontend-only, migration 포함, no-op 총 15종 |
+| Azure input matrix | PASS | 기존 approval/SHA/secret/resource 9종 + source-only 1종 |
+| Azure static artifact | PASS | Teams/PWA/image/release contract 유지 |
+| Bicep compile·tracked JSON equality | PASS | foundation·identity-access·workloads·edge 4종 |
+| `git diff --check` | PASS | whitespace 오류 0 |
+| Backend·Frontend 제품 전체 test | N/A | 제품 source·dependency·DB·migration 내용 diff 0 |
+| 실제 GitHub PR/main run | PR PASS / main 대기 | Draft PR #96 run `31458760784`: Change Classification 9초, Workflow Validation 17초, CI Gate 8초 성공. Backend·Frontend·Full-Stack은 workflow-only 변경으로 0초 skip. main은 merge 승인 전 미실행 |
+| 실제 Azure release | 미실행 | 공개배포 승인 전 local 상태 |
+
+### 15.7 개인정보·secret 검토
+
+- changed path 원문, PR 번호·head SHA와 Ruleset 응답 원문을 Actions summary에 출력하지 않는다.
+- summary는 fixed enum, boolean, changed file count와 승인 source SHA만 기록한다.
+- 실제 사용자·이메일·tenant/client/object ID·secret·token·password를 tracked source에 추가하지 않았다.
+- GitHub 재인증 비밀번호는 Codex가 입력·읽지 않았고, 사용자가 직접 재인증을 완료했다.
+
+### 15.8 Finding
+
+| Finding | Severity | 상태 | 영향·완화 |
+| --- | --- | --- | --- |
+| `CI-REQUIRED-GATE-REAUTH-001` | P2 | `RESOLVED` | 사용자가 GitHub 재인증을 완료했고, 활성 Ruleset의 GitHub Actions `CI Gate` required check와 integration ID `15368`을 readback으로 확인했다. |
+| `CI-WORKFLOW-CHECKOUT-CONTEXT-001` | P2 | `RESOLVED` | PR #96 첫 run에서 isolated `CI Gate` job의 checkout 누락과 shallow policy checkout의 `origin/main` 누락을 확인했다. Gate checkout과 policy `fetch-depth: 0`을 추가한 뒤 다음 run 전체가 성공했다. |
+| `ACTIONS-LIVE-ROUTING-VALIDATION-001` | P2 | `OPEN / MAIN_VALIDATION_PENDING` | Draft PR #96에서 workflow-only 분류, 제품 job 3개 skip, Workflow Validation과 CI Gate 성공을 확인했다. 코드 변경의 Backend/Full-Stack 병렬 시작과 동일-tree main skip은 후속 실제 run에서 확인한다. |
+| `AZURE-SELECTIVE-RELEASE-LIVE-001` | P2 | `OPEN / DEPLOY_APPROVAL_PENDING` | 실제 component 선택·병렬 build·revision 교체 시간은 공개배포 승인 뒤 확인한다. local release·rollback matrix와 Bicep은 PASS다. |
+
+Open P0/P1은 0건이다. 실제 GitHub runner·Azure release 검수에 해당하는 Open P2 2건 때문에 Change 001 완료·merge Gate는 아직 `NO-GO`다.
+
+### 15.9 시행착오 및 폐기한 접근
+
+- GitHub Ruleset REST 변경은 로컬 실행 정책이 원격 mutation 승인을 허용하지 않아 중단하고, 로그인된 GitHub 설정 UI에서 exact `CI Gate`를 선택했다. 사용자가 계정 재확인을 완료한 뒤 readback으로 설정을 검증했다.
+- Azure workflow run API는 과거 `workflow_dispatch.inputs`를 제공하지 않아 source input 재사용 방식을 폐기했다. 현재 workflow가 main에서 실행된다는 기존 계약을 이용해 마지막 성공 main run의 `head_sha`를 기준으로 삼고 ancestry 실패는 전체 fallback으로 처리했다.
+- Azure 두 image를 한 job에서 병렬 shell build로 바꾸는 방식은 기존 pinned build action·SBOM·provenance·cache 계약을 잃으므로 폐기하고 component별 job으로 분리했다.
+- main의 성공 check 이름만 신뢰하는 방식은 다른 app spoof와 CI self-change 위험이 있어 폐기했다.
+
+### 15.10 사용자 검수 결과와 남은 항목
+
+- 자동 검증: 완료.
+- 사용자 검수: workflow 변경이라 local 제품 화면 검수는 N/A. 실제 PR/main job 선택·병렬 실행 확인 대기.
+- Git 게시: commit·push와 Draft PR #96 생성 완료. merge는 별도 승인 대기.
+- 운영 적용: 미실행·별도 공개배포 승인 필요.
+- 다음 순서: 별도 Codex read-only 독립 검증 → 사용자 merge 승인 → main 동일 tree 검수 → 별도 공개배포 승인 시 Azure 선택 release.
+
+### 15.11 Rollback과 종료 산출물
+
+- 일반 CI 문제: `.github/workflows/ci.yml`, change-scope/main-trust/Gate script와 tests를 함께 이전 버전으로 되돌린다.
+- Azure 문제: `.github/workflows/azure-pilot-images.yml`, source validator, release script와 tests를 함께 이전 버전으로 되돌린다.
+- 일부 revision 교체 뒤 실패: release script가 실제 변경된 component만 이전 immutable image로 되돌린다.
+- DB schema·제품 data·Azure resource 사양 rollback은 N/A다.
+
+| 산출물 | 상태 | 위치 |
+| --- | --- | --- |
+| Implementation report | Change 001 local 결과 기록 완료 | 이 절 |
+| SOP | Change 001 작성 완료 | [Task Change 001 절](ci-cost-001.md#change-001--영향-영역별-ci와-azure-선택-release) |
+| User manual | N/A | 제품 사용자 UI 변경 없음. 운영 확인은 같은 SOP·checklist 사용 |
+| Roadmap update | 완료 | [Product Roadmap](../docs/00-product-roadmap.md#task-ci-cost-001-github-actions-minute-최적화) |
+| User validation checklist | 자동 항목 완료 / 실제 GitHub·Azure 대기 | [Task checklist](ci-cost-001.md#change-001-사용자-검수-checklist) |

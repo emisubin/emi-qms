@@ -198,6 +198,9 @@ run_case() {
   local expected_exit="$2"
   local expected_code="$3"
   local expected_calls="$4"
+  local deploy_backend="${5:-true}"
+  local deploy_frontend="${6:-true}"
+  local run_migration="${7:-true}"
   case_number=$((case_number + 1))
 
   printf '%s\n' 'pilotacr123.azurecr.io/pms-backend:cccccccccccccccccccccccccccccccccccccccc' \
@@ -222,6 +225,9 @@ run_case() {
     MIGRATION_JOB_NAME='pms-synthetic-migration' \
     BACKEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-backend@sha256:${backend_digest}" \
     FRONTEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-frontend@sha256:${frontend_digest}" \
+    DEPLOY_BACKEND="${deploy_backend}" \
+    DEPLOY_FRONTEND="${deploy_frontend}" \
+    RUN_MIGRATION="${run_migration}" \
     AZURE_RELEASE_AZ_BIN="${temporary_directory}/az" \
     AZURE_RELEASE_HTTP_BIN="${temporary_directory}/curl" \
     AZURE_RELEASE_ALLOW_TEST_OVERRIDES='true' \
@@ -268,5 +274,9 @@ run_case 'frontend-release-failed' 1 FRONTEND_RELEASE_FAILED \
   'migration-update,migration-start,backend-update,frontend-update,frontend-rollback,backend-rollback'
 run_case 'public-security-failed' 1 PUBLIC_SECURITY_SMOKE_FAILED \
   'migration-update,migration-start,backend-update,frontend-update,frontend-rollback,backend-rollback'
+run_case 'success' 0 '' 'backend-update' true false false
+run_case 'success' 0 '' 'frontend-update' false true false
+run_case 'success' 0 '' 'migration-update,migration-start,backend-update' true false true
+run_case 'success' 0 '' '' false false false
 
 printf 'azurePilotReleaseTests=PASS\n'

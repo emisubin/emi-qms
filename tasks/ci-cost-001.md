@@ -101,7 +101,7 @@ N/A — 제품 사용자의 화면·업무 방식은 바뀌지 않는다. 개발
 
 ## Change 001 — 영향 영역별 CI와 Azure 선택 release
 
-상태: `LOCAL_IMPLEMENTATION_COMPLETE / PR_DRAFT_VALIDATION_COMPLETE / MERGE_NOT_APPROVED`
+상태: `MAIN_MERGED / GITHUB_MAIN_VALIDATION_COMPLETE / AZURE_LIVE_VALIDATION_PENDING`
 
 ### 현재 실행 매트릭스
 
@@ -149,7 +149,7 @@ Ruleset/API/compare/check readback 실패와 300개 이상 파일 비교는 전�
 - [x] 원격 Ruleset에 GitHub Actions 출처의 `CI Gate` required status check를 적용하고 integration ID `15368` readback을 확인한다.
 - [x] Draft PR #96에서 workflow-only 변경이 제품 job 3개를 skip하고 Workflow Validation·`CI Gate`를 성공하는지 확인한다.
 - [ ] 실제 PR에서 영역별 job 선택과 Backend/Full-Stack 병렬 실행을 확인한다.
-- [ ] main merge에서 동일 tree skip 또는 안전 fallback을 확인한다.
+- [x] PR #96 main merge에서 CI trust source 변경을 감지한 safe fallback과 제품 job 3개 skip, Workflow Validation·`CI Gate` 성공을 확인한다.
 - [ ] 공개배포 승인 뒤 실제 Azure 선택 release와 public security smoke를 확인한다.
 - [ ] 최소 1주 Actions 사용량 추세를 기존 기준선과 비교한다.
 

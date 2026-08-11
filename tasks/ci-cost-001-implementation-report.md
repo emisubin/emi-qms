@@ -194,7 +194,7 @@ workflow 문제가 발견되면 `.github/workflows/ci.yml`만 기준 SHA의 이�
 
 - 기준 branch: `fix/task-ci-cost-001-change-001-latency-release`
 - 기준 SHA: `9a25157f0b8d1e78ad5392acf336ebf3c0f61b64`
-- 상태: `LOCAL_IMPLEMENTATION_COMPLETE / AUTOMATED_VALIDATION_COMPLETE / PR_DRAFT_VALIDATION_COMPLETE / MERGE_NOT_APPROVED`
+- 상태: `MAIN_MERGED / GITHUB_MAIN_VALIDATION_COMPLETE / AZURE_LIVE_VALIDATION_PENDING`
 - 승인: 사용자가 기존 CI·Azure release 검사와 소요시간 분석을 확인하고 권장 적용 순서의 local 구현을 명시 승인했다.
 - 원격 설정: `main-pr-only` Ruleset에서 GitHub Actions 출처 `CI Gate`를 선택하고 사용자 재인증 뒤 저장했다. Ruleset readback에서 enforcement `active`, required check `CI Gate`, integration ID `15368`을 확인했다.
 
@@ -284,7 +284,7 @@ Azure approved main source
 | Bicep compile·tracked JSON equality | PASS | foundation·identity-access·workloads·edge 4종 |
 | `git diff --check` | PASS | whitespace 오류 0 |
 | Backend·Frontend 제품 전체 test | N/A | 제품 source·dependency·DB·migration 내용 diff 0 |
-| 실제 GitHub PR/main run | PR PASS / main 대기 | Draft PR #96 run `31458760784`: Change Classification 9초, Workflow Validation 17초, CI Gate 8초 성공. Backend·Frontend·Full-Stack은 workflow-only 변경으로 0초 skip. main은 merge 승인 전 미실행 |
+| 실제 GitHub PR/main run | PASS | PR #96 최신 run `31458863459`: Change Classification 11초, Workflow Validation 16초, CI Gate 9초 성공. main SHA `58ef76ce674b9b502fd17301b2fea740dc05bec9` run `31459052697`: Change Classification 9초, Workflow Validation 13초, CI Gate 5초 성공. CI trust source 변경이라 검증 재사용 대신 safe fallback이 동작했고 제품 job 3개는 모두 0초 skip |
 | 실제 Azure release | 미실행 | 공개배포 승인 전 local 상태 |
 
 ### 15.7 개인정보·secret 검토
@@ -300,7 +300,7 @@ Azure approved main source
 | --- | --- | --- | --- |
 | `CI-REQUIRED-GATE-REAUTH-001` | P2 | `RESOLVED` | 사용자가 GitHub 재인증을 완료했고, 활성 Ruleset의 GitHub Actions `CI Gate` required check와 integration ID `15368`을 readback으로 확인했다. |
 | `CI-WORKFLOW-CHECKOUT-CONTEXT-001` | P2 | `RESOLVED` | PR #96 첫 run에서 isolated `CI Gate` job의 checkout 누락과 shallow policy checkout의 `origin/main` 누락을 확인했다. Gate checkout과 policy `fetch-depth: 0`을 추가한 뒤 다음 run 전체가 성공했다. |
-| `ACTIONS-LIVE-ROUTING-VALIDATION-001` | P2 | `OPEN / MAIN_VALIDATION_PENDING` | Draft PR #96에서 workflow-only 분류, 제품 job 3개 skip, Workflow Validation과 CI Gate 성공을 확인했다. 코드 변경의 Backend/Full-Stack 병렬 시작과 동일-tree main skip은 후속 실제 run에서 확인한다. |
+| `ACTIONS-LIVE-ROUTING-VALIDATION-001` | P2 | `OPEN / CODE_PARALLEL_VALIDATION_PENDING` | PR #96과 main에서 workflow-only 분류, 제품 job 3개 skip, Workflow Validation과 CI Gate 성공을 확인했다. main은 CI trust source 변경을 감지해 약 27초 safe fallback으로 성공했다. 코드 변경의 Backend/Full-Stack 병렬 시작은 후속 실제 run에서 확인한다. |
 | `AZURE-SELECTIVE-RELEASE-LIVE-001` | P2 | `OPEN / DEPLOY_APPROVAL_PENDING` | 실제 component 선택·병렬 build·revision 교체 시간은 공개배포 승인 뒤 확인한다. local release·rollback matrix와 Bicep은 PASS다. |
 
 Open P0/P1은 0건이다. 실제 GitHub runner·Azure release 검수에 해당하는 Open P2 2건 때문에 Change 001 완료·merge Gate는 아직 `NO-GO`다.
@@ -316,9 +316,9 @@ Open P0/P1은 0건이다. 실제 GitHub runner·Azure release 검수에 해당�
 
 - 자동 검증: 완료.
 - 사용자 검수: workflow 변경이라 local 제품 화면 검수는 N/A. 실제 PR/main job 선택·병렬 실행 확인 대기.
-- Git 게시: commit·push와 Draft PR #96 생성 완료. merge는 별도 승인 대기.
+- Git 게시: PR #96 Ready 전환·squash merge 완료. main SHA `58ef76ce674b9b502fd17301b2fea740dc05bec9` CI 성공.
 - 운영 적용: 미실행·별도 공개배포 승인 필요.
-- 다음 순서: 별도 Codex read-only 독립 검증 → 사용자 merge 승인 → main 동일 tree 검수 → 별도 공개배포 승인 시 Azure 선택 release.
+- 다음 순서: 마감 문서 동기화 → 코드 변경 PR에서 Backend/Full-Stack 병렬 시작 관찰 → 별도 공개배포 승인 시 Azure 선택 release.
 
 ### 15.11 Rollback과 종료 산출물
 

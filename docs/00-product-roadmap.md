@@ -1036,7 +1036,7 @@ Excel 출력 대상 후보:
 | 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | TASK-AZURE-PILOT-001 — 서비스 중립 공개 파일럿 준비 | UAT_RUNTIME | Main Merged / User Validation Complete | Entra API·SPA 분리, one-shot migration·ledger gate, Production preflight·ARM64/AMD64 image 검증과 PR #59 merge 완료 | TASK-UAT-001, local main 승인 기능과 사용자 P1 구현 승인 | provider-specific 실제 runtime은 TASK-AZURE-DEPLOY-001로 이관 | Yes | 완료 scope 재구현 금지 |
 | 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | BUGFIX / UAT_RUNTIME | Change 020 Runtime Verified | Change 019 release guard 유지. Change 020은 최신 main `37dd619685e6447fc867d213d1f63692c6cd8c62`의 migration·Backend·Frontend·public security와 익명 `401/401`을 모두 통과 | TASK-AZURE-PILOT-001, Change 018 승인형 workflow | 사용자 실제 기기 지정 logo 육안 검수, 20일 운영 관찰과 기존 P3 runner 경고 유지보수 | Yes | 사용자 실제 기기 검수 → 운영 관찰 |
-| 6.3 | TASK-CI-COST-001 — GitHub Actions minute 최적화 | P2_REMEDIATION | Change 001 Draft PR #96 / Workflow Validation Complete | 기존 PR 취소·문서 skip 위에 영향 영역별 Backend/Frontend/Full-Stack·Workflow Validation, Backend test와 Full-Stack 병렬화, Ruleset+동일 tree 기반 main 중복 제거, Azure 변경 image 선택·병렬 build와 migration 선택 실행을 추가. local 검증 PASS, 원격 `CI Gate` required check 적용·readback 완료, PR workflow-only run에서 제품 job 3개 skip·Workflow Validation·CI Gate 성공 | 일반 CI·Azure run 집계, TASK-AZURE-DEPLOY-001 승인형 release·rollback·public security 보존 | 코드 PR 병렬 시작, main 동일-tree skip, Azure 선택 release, 최소 1주 Actions 사용량 관찰 | No | 독립 검증 → merge 승인 → main/Azure 검수 |
+| 6.3 | TASK-CI-COST-001 — GitHub Actions minute 최적화 | P2_REMEDIATION | Change 001 PR #96 Main Merged / GitHub Main Validation Complete | 영향 영역별 Backend/Frontend/Full-Stack·Workflow Validation, Backend test와 Full-Stack 병렬화, Ruleset+동일 tree 기반 main 중복 제거, Azure 변경 image 선택·병렬 build와 migration 선택 실행을 추가. local 검증과 원격 `CI Gate` readback PASS. PR·main에서 workflow-only 제품 job 3개 skip, Workflow Validation·CI Gate 성공. main은 CI trust source 변경을 감지해 약 27초 safe fallback 성공 | 일반 CI·Azure run 집계, TASK-AZURE-DEPLOY-001 승인형 release·rollback·public security 보존 | 코드 PR 병렬 시작, Azure 선택 release, 최소 1주 Actions 사용량 관찰 | No | 마감 문서 동기화 → 후속 실제 run 관찰 |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
 
@@ -1284,13 +1284,13 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-CI-COST-001: GitHub Actions minute 최적화
 
-- 상태/다음 순서: 기존 구현은 PR #89·main·문서 PR #90 실제 검증 완료. Change 001은 local 구현·자동 검증, 원격 GitHub Actions `CI Gate` required check 적용·readback과 Draft PR #96 workflow-only run을 완료했다. 별도 독립 검증·merge 승인·main/Azure 검수를 대기한다.
+- 상태/다음 순서: Change 001은 local 구현·자동 검증, 원격 GitHub Actions `CI Gate` required check 적용·readback, PR #96 squash merge와 main SHA `58ef76ce674b9b502fd17301b2fea740dc05bec9` CI를 완료했다. 코드 변경 PR의 Backend/Full-Stack 병렬 시작, Azure 선택 release와 최소 1주 사용량 관찰을 남긴다.
 - 목적: GitHub-hosted Actions 월 사용량을 줄이면서 변경 영향에 필요한 검사는 유지하고, heavy Backend test와 Full-Stack의 직렬 대기, 같은 tree의 PR/main 중복, Azure의 미변경 image·migration 반복을 제거한다.
 - Change 001 포함 범위: 공통 changed-file 분류, Backend/Frontend/고위험 Full-Stack/Workflow Validation matrix, Frontend 빠른 검증 뒤 Backend heavy test와 Full-Stack 병렬 실행, 활성 Ruleset·성공 `CI Gate`·동일 tree readback 기반 main skip, Azure 마지막 성공 main release 이후 누적 diff·변경 image 병렬 build·migration 선택 실행.
 - 제외 범위: 제품/API/DB schema와 migration 내용, Azure resource 사양, self-hosted runner, 테스트 자체의 parallelization 설정, 자동 운영 배포와 branch 자동 삭제.
 - 안전 경계: workflow-level `paths-ignore`를 쓰지 않는다. 분류·이력·GitHub API·Ruleset readback이 모호하면 전체 검사 또는 전체 release로 fallback한다. CI trust source 자체가 바뀐 PR은 main 중복 skip 대상에서 제외한다. Azure 최신 main SHA·명시 승인·OIDC·immutable digest·baseline·rollback·public `200/401/401` 검사를 유지한다.
 - 산출물: [Identity Gate](../tasks/ci-cost-001-identity-gate.md), [Change 001](../tasks/ci-cost-001-change-001.md), [Task·SOP·User manual·검수 checklist](../tasks/ci-cost-001.md), [Implementation report](../tasks/ci-cost-001-implementation-report.md), 이 Roadmap update
-- 다음 Gate: 별도 read-only 독립 검증 뒤 사용자 merge 승인을 받는다. merge 후 main 동일 tree skip을 확인하고, 별도 공개배포 승인 시 Azure 선택 release를 검수한다. 코드 변경 PR의 Backend·Full-Stack 병렬 시작과 최소 1주 사용량 추세는 후속 실제 run에서 비교한다.
+- 다음 Gate: 마감 문서를 동기화한 뒤 코드 변경 PR의 Backend·Full-Stack 병렬 시작과 최소 1주 사용량 추세를 관찰한다. 별도 공개배포 승인 시 Azure 선택 release와 public security smoke를 검수한다.
 
 ### TASK-TEAMS-PWA-001: Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
@@ -2207,6 +2207,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-11 | `TASK-ADMIN-003` PR #93 Full-Stack CI의 공지 작성자 부서 기대값을 한글 부서 계약으로 동기화 | 공지 상세 화면은 승인 범위대로 `품질`을 표시했으나 기존 브라우저 회귀가 `Quality`를 고정해 실패했으므로, 제품 변경 없이 해당 expectation을 갱신하고 같은 형식의 잔여 영문 부서 기대값이 없음을 확인하기 위함 | 23장~25장, TASK-ADMIN-003 |
 | 2026-08-11 | `TASK-ADMIN-003`과 `TASK-TEAMS-PWA-001 Change 011`을 PR #93으로 원격 main에 병합하고 Azure release `31452524156`으로 공개배포 | PR 최신 SHA의 Change Classification·Frontend·Backend `493/493`·Full-Stack E2E·CI Gate 전체 성공을 근거로 main SHA `8ae3645d66543c0f234777cf19e8487324f21217`에 migration `0072`→Backend→Frontend를 적용하고 health `200`, 익명 root·API `401/401`을 확인하기 위함. 사용자의 중복 검사 생략 지시에 따라 동일 코드의 반복 main CI는 취소했다. | 23장~25장, TASK-ADMIN-003, TASK-TEAMS-PWA-001 Change 011 |
 | 2026-08-11 | `TASK-CI-COST-001 Change 001`에서 변경 영향별 일반 CI, 검증된 PR tree의 main 재사용, Azure 변경 component 선택·병렬 release를 구현 | 최근 성공 코드 PR 평균 약 38분 42초 중 Backend와 Full-Stack이 직렬로 약 38분을 차지하고, 같은 tree의 main이 약 19분, Azure가 약 6분을 반복한 병목을 안전 fallback과 always-run `CI Gate`를 보존한 채 줄이기 위함. 원격 Ruleset 적용·Git 게시·실제 운영 release는 별도 Gate로 유지 | 23장~25장, TASK-CI-COST-001 Change 001, TASK-AZURE-DEPLOY-001 release 계약 |
+| 2026-08-11 | `TASK-CI-COST-001 Change 001` PR #96 squash merge와 main CI를 완료 | GitHub Actions 출처 `CI Gate` required check를 적용한 뒤 PR workflow-only run과 main의 CI trust source 변경 safe fallback에서 제품 job 3개를 모두 생략하고 Workflow Validation·CI Gate를 수십 초 안에 성공시켜 변경 영향별 CI의 실제 동작을 확인하기 위함. Azure 실제 release는 별도 승인으로 유지 | 23장~25장, TASK-CI-COST-001 Change 001, PR #96 |
 
 ## 26. 용어 사전
 

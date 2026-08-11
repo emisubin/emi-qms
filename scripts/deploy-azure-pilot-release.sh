@@ -10,8 +10,9 @@ required_environment=(
   BACKEND_APP_NAME
   FRONTEND_APP_NAME
   MIGRATION_JOB_NAME
-  BACKEND_RELEASE_IMAGE
-  FRONTEND_RELEASE_IMAGE
+  DEPLOY_BACKEND
+  DEPLOY_FRONTEND
+  RUN_MIGRATION
 )
 
 for variable_name in "${required_environment[@]}"; do
@@ -20,6 +21,25 @@ for variable_name in "${required_environment[@]}"; do
     exit 63
   fi
 done
+
+for release_flag in "${DEPLOY_BACKEND}" "${DEPLOY_FRONTEND}" "${RUN_MIGRATION}"; do
+  if [[ "${release_flag}" != 'true' && "${release_flag}" != 'false' ]]; then
+    printf 'azurePilotRelease=INVALID_RELEASE_SCOPE\n' >&2
+    exit 65
+  fi
+done
+
+if [[ "${RUN_MIGRATION}" == 'true' && "${DEPLOY_BACKEND}" != 'true' ]]; then
+  printf 'azurePilotRelease=INVALID_RELEASE_SCOPE\n' >&2
+  exit 65
+fi
+
+if [[ "${DEPLOY_BACKEND}" == 'false' \
+  && "${DEPLOY_FRONTEND}" == 'false' \
+  && "${RUN_MIGRATION}" == 'false' ]]; then
+  printf 'azurePilotRelease=NO_CHANGES\n'
+  exit 0
+fi
 
 azure_cli_bin="${AZURE_RELEASE_AZ_BIN:-az}"
 http_client_bin="${AZURE_RELEASE_HTTP_BIN:-curl}"
@@ -41,10 +61,15 @@ if [[ ! "${poll_attempts}" =~ ^[1-9][0-9]{0,2}$ \
 fi
 
 digest_pattern='sha256:[0-9a-f]{64}'
-if [[ "${BACKEND_RELEASE_IMAGE}" != "${ACR_LOGIN_SERVER}/pms-backend@"* \
-  || "${FRONTEND_RELEASE_IMAGE}" != "${ACR_LOGIN_SERVER}/pms-frontend@"* \
-  || ! "${BACKEND_RELEASE_IMAGE}" =~ @${digest_pattern}$ \
-  || ! "${FRONTEND_RELEASE_IMAGE}" =~ @${digest_pattern}$ ]]; then
+if [[ "${DEPLOY_BACKEND}" == 'true' \
+  && ( "${BACKEND_RELEASE_IMAGE:-}" != "${ACR_LOGIN_SERVER}/pms-backend@"* \
+    || ! "${BACKEND_RELEASE_IMAGE:-}" =~ @${digest_pattern}$ ) ]]; then
+  printf 'azurePilotRelease=INVALID_RELEASE_IMAGE\n' >&2
+  exit 66
+fi
+if [[ "${DEPLOY_FRONTEND}" == 'true' \
+  && ( "${FRONTEND_RELEASE_IMAGE:-}" != "${ACR_LOGIN_SERVER}/pms-frontend@"* \
+    || ! "${FRONTEND_RELEASE_IMAGE:-}" =~ @${digest_pattern}$ ) ]]; then
   printf 'azurePilotRelease=INVALID_RELEASE_IMAGE\n' >&2
   exit 66
 fi
@@ -275,40 +300,46 @@ if [[ "${baseline_live_status}" != '200' \
   exit 71
 fi
 
-if ! azure_mutate containerapp job update \
-  --resource-group "${AZURE_RESOURCE_GROUP}" \
-  --name "${MIGRATION_JOB_NAME}" \
-  --image "${BACKEND_RELEASE_IMAGE}"; then
-  printf 'azurePilotRelease=MIGRATION_JOB_UPDATE_FAILED\n' >&2
-  exit 72
+if [[ "${RUN_MIGRATION}" == 'true' ]]; then
+  if ! azure_mutate containerapp job update \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${MIGRATION_JOB_NAME}" \
+    --image "${BACKEND_RELEASE_IMAGE}"; then
+    printf 'azurePilotRelease=MIGRATION_JOB_UPDATE_FAILED\n' >&2
+    exit 72
+  fi
+
+  migration_execution="$(azure_read containerapp job start \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${MIGRATION_JOB_NAME}" \
+    --query name)" || migration_execution=''
+  if [[ -z "${migration_execution}" || "${migration_execution}" =~ [[:space:]] ]] \
+    || ! wait_for_migration "${migration_execution}"; then
+    printf 'azurePilotRelease=MIGRATION_FAILED\n' >&2
+    exit 73
+  fi
 fi
 
-migration_execution="$(azure_read containerapp job start \
-  --resource-group "${AZURE_RESOURCE_GROUP}" \
-  --name "${MIGRATION_JOB_NAME}" \
-  --query name)" || migration_execution=''
-if [[ -z "${migration_execution}" || "${migration_execution}" =~ [[:space:]] ]] \
-  || ! wait_for_migration "${migration_execution}"; then
-  printf 'azurePilotRelease=MIGRATION_FAILED\n' >&2
-  exit 73
+if [[ "${DEPLOY_BACKEND}" == 'true' ]]; then
+  backend_changed='true'
+  if ! azure_mutate containerapp update \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${BACKEND_APP_NAME}" \
+    --image "${BACKEND_RELEASE_IMAGE}" \
+    || ! wait_for_app "${BACKEND_APP_NAME}" "${BACKEND_RELEASE_IMAGE}"; then
+    fail_after_mutation 'BACKEND_RELEASE_FAILED'
+  fi
 fi
 
-backend_changed='true'
-if ! azure_mutate containerapp update \
-  --resource-group "${AZURE_RESOURCE_GROUP}" \
-  --name "${BACKEND_APP_NAME}" \
-  --image "${BACKEND_RELEASE_IMAGE}" \
-  || ! wait_for_app "${BACKEND_APP_NAME}" "${BACKEND_RELEASE_IMAGE}"; then
-  fail_after_mutation 'BACKEND_RELEASE_FAILED'
-fi
-
-frontend_changed='true'
-if ! azure_mutate containerapp update \
-  --resource-group "${AZURE_RESOURCE_GROUP}" \
-  --name "${FRONTEND_APP_NAME}" \
-  --image "${FRONTEND_RELEASE_IMAGE}" \
-  || ! wait_for_app "${FRONTEND_APP_NAME}" "${FRONTEND_RELEASE_IMAGE}"; then
-  fail_after_mutation 'FRONTEND_RELEASE_FAILED'
+if [[ "${DEPLOY_FRONTEND}" == 'true' ]]; then
+  frontend_changed='true'
+  if ! azure_mutate containerapp update \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${FRONTEND_APP_NAME}" \
+    --image "${FRONTEND_RELEASE_IMAGE}" \
+    || ! wait_for_app "${FRONTEND_APP_NAME}" "${FRONTEND_RELEASE_IMAGE}"; then
+    fail_after_mutation 'FRONTEND_RELEASE_FAILED'
+  fi
 fi
 
 final_live_status="$(public_status '/health/live')" || final_live_status=''
@@ -320,7 +351,19 @@ if [[ "${final_live_status}" != '200' \
   fail_after_mutation 'PUBLIC_SECURITY_SMOKE_FAILED'
 fi
 
-printf 'azurePilotReleaseMigration=PASS\n'
-printf 'azurePilotReleaseBackend=PASS\n'
-printf 'azurePilotReleaseFrontend=PASS\n'
+if [[ "${RUN_MIGRATION}" == 'true' ]]; then
+  printf 'azurePilotReleaseMigration=PASS\n'
+else
+  printf 'azurePilotReleaseMigration=SKIPPED\n'
+fi
+if [[ "${DEPLOY_BACKEND}" == 'true' ]]; then
+  printf 'azurePilotReleaseBackend=PASS\n'
+else
+  printf 'azurePilotReleaseBackend=SKIPPED\n'
+fi
+if [[ "${DEPLOY_FRONTEND}" == 'true' ]]; then
+  printf 'azurePilotReleaseFrontend=PASS\n'
+else
+  printf 'azurePilotReleaseFrontend=SKIPPED\n'
+fi
 printf 'azurePilotReleasePublicSecurity=PASS\n'

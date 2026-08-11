@@ -16,6 +16,8 @@ required_files=(
   "${repository_root}/.github/workflows/azure-pilot-images.yml"
   "${repository_root}/scripts/validate-azure-image-publish-inputs.sh"
   "${repository_root}/scripts/test-azure-image-publish-inputs.sh"
+  "${repository_root}/scripts/classify-change-scope.sh"
+  "${repository_root}/scripts/test-change-scope.sh"
   "${repository_root}/scripts/deploy-azure-pilot-release.sh"
   "${repository_root}/scripts/test-azure-pilot-release.sh"
   "${repository_root}/frontend/Dockerfile.azure"
@@ -234,6 +236,7 @@ const workflowChecks = [
   'environment: azure-pilot-image-publish',
   'id-token: write',
   'scripts/validate-azure-image-publish-inputs.sh',
+  'scripts/classify-change-scope.sh',
   'scripts/deploy-azure-pilot-release.sh',
   'AZURE_RESOURCE_GROUP:',
   'BACKEND_APP_NAME:',
@@ -241,6 +244,9 @@ const workflowChecks = [
   'MIGRATION_JOB_NAME:',
   'BACKEND_RELEASE_IMAGE:',
   'FRONTEND_RELEASE_IMAGE:',
+  'DEPLOY_BACKEND:',
+  'DEPLOY_FRONTEND:',
+  'RUN_MIGRATION:',
   'azure/login@eec3c95657c1536435858eda1f3ff5437fee8474',
   'docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c',
   'docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a',
@@ -265,6 +271,9 @@ const releaseChecks = [
   'containerapp job start',
   'containerapp job execution show',
   'containerapp update',
+  'DEPLOY_BACKEND',
+  'DEPLOY_FRONTEND',
+  'RUN_MIGRATION',
   "backend_changed='true'",
   "frontend_changed='true'",
   'rollback_apps',

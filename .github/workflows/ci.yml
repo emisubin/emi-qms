@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  checks: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -23,14 +25,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      run_ci: ${{ steps.classify.outputs.run_ci }}
+      run_backend: ${{ steps.classify.outputs.run_backend }}
+      run_frontend: ${{ steps.classify.outputs.run_frontend }}
       run_full_stack: ${{ steps.classify.outputs.run_full_stack }}
+      run_policy_validation: ${{ steps.classify.outputs.run_policy_validation }}
+      run_azure_validation: ${{ steps.classify.outputs.run_azure_validation }}
       classification: ${{ steps.classify.outputs.classification }}
       changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       - name: Classify changed files
         id: classify
@@ -41,6 +46,8 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CURRENT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -52,74 +59,61 @@ jobs:
             head_sha="$CURRENT_SHA"
           fi
 
-          run_ci=true
-          classification=fail-safe
+          scope_file="$(mktemp)"
+          trap 'rm -f "$scope_file"' EXIT
+          main_pr_validated=false
+          main_pr_validation_reason=not-main-push
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            validation_file="$(mktemp)"
+            trap 'rm -f "$scope_file" "$validation_file"' EXIT
+            scripts/verify-main-pr-ci.sh "$CURRENT_SHA" >"$validation_file"
+            main_pr_validated="$(sed -n 's/^main_pr_validated=//p' "$validation_file")"
+            main_pr_validation_reason="$(sed -n 's/^main_pr_validation_reason=//p' "$validation_file")"
+          fi
+
+          if [[ "$main_pr_validated" == "true" ]]; then
+            cat >"$scope_file" <<'EOF'
+          classification=validated-pr-main
           changed_file_count=0
-
-          valid_sha='^[0-9a-f]{40}$'
-          if [[ "$base_sha" =~ $valid_sha ]] \
-            && [[ "$head_sha" =~ $valid_sha ]] \
-            && [[ ! "$base_sha" =~ ^0+$ ]] \
-            && git cat-file -e "${base_sha}^{commit}" 2>/dev/null \
-            && git cat-file -e "${head_sha}^{commit}" 2>/dev/null; then
-            documentation_only=true
-
-            while IFS= read -r -d '' changed_path; do
-              [[ -n "$changed_path" ]] || continue
-              changed_file_count=$((changed_file_count + 1))
-
-              case "$changed_path" in
-                *.md \
-                  | FILE_INVENTORY.txt \
-                  | .github/ISSUE_TEMPLATE/*.yml \
-                  | .github/ISSUE_TEMPLATE/*.yaml \
-                  | docs/*.png | docs/*.jpg | docs/*.jpeg | docs/*.webp \
-                  | docs/*.gif | docs/*.svg | docs/*.pdf | docs/*.xlsx \
-                  | docs/*.csv | docs/*.json \
-                  | tasks/*.png | tasks/*.jpg | tasks/*.jpeg | tasks/*.webp \
-                  | tasks/*.gif | tasks/*.svg | tasks/*.pdf | tasks/*.xlsx \
-                  | tasks/*.csv | tasks/*.json)
-                  ;;
-                *)
-                  documentation_only=false
-                  ;;
-              esac
-            done < <(git diff --no-renames --name-only -z --diff-filter=ACDMRTUXB "$base_sha" "$head_sha")
-
-            if [[ "$changed_file_count" -gt 0 && "$documentation_only" == "true" ]]; then
-              run_ci=false
-              classification=documentation-only
-            else
-              run_ci=true
-              classification=code-or-configuration
-            fi
-          fi
-
+          run_backend=false
+          run_frontend=false
           run_full_stack=false
-          if [[ "$EVENT_NAME" == "pull_request" && "$run_ci" == "true" ]]; then
-            run_full_stack=true
+          run_policy_validation=false
+          run_azure_validation=false
+          deploy_backend=false
+          deploy_frontend=false
+          run_migration=false
+          fail_safe=false
+          EOF
+          else
+            scripts/classify-change-scope.sh "$base_sha" "$head_sha" >"$scope_file"
           fi
 
-          {
-            echo "run_ci=$run_ci"
-            echo "run_full_stack=$run_full_stack"
-            echo "classification=$classification"
-            echo "changed_file_count=$changed_file_count"
-          } >> "$GITHUB_OUTPUT"
+          cat "$scope_file" >>"$GITHUB_OUTPUT"
+          classification="$(sed -n 's/^classification=//p' "$scope_file")"
+          changed_file_count="$(sed -n 's/^changed_file_count=//p' "$scope_file")"
+          run_backend="$(sed -n 's/^run_backend=//p' "$scope_file")"
+          run_frontend="$(sed -n 's/^run_frontend=//p' "$scope_file")"
+          run_full_stack="$(sed -n 's/^run_full_stack=//p' "$scope_file")"
+          run_policy_validation="$(sed -n 's/^run_policy_validation=//p' "$scope_file")"
 
           {
             echo "### CI change classification"
             echo ""
             echo "- classification: \`$classification\`"
             echo "- changedFileCount: \`$changed_file_count\`"
-            echo "- runCI: \`$run_ci\`"
+            echo "- runBackend: \`$run_backend\`"
+            echo "- runFrontend: \`$run_frontend\`"
             echo "- runFullStack: \`$run_full_stack\`"
+            echo "- runPolicyValidation: \`$run_policy_validation\`"
+            echo "- mainPrValidation: \`$main_pr_validation_reason\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   backend:
     name: Backend
     needs: changes
-    if: ${{ needs.changes.outputs.run_ci == 'true' }}
+    if: ${{ needs.changes.outputs.run_backend == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -161,7 +155,7 @@ jobs:
   frontend:
     name: Frontend
     needs: changes
-    if: ${{ needs.changes.outputs.run_ci == 'true' }}
+    if: ${{ needs.changes.outputs.run_frontend == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -216,14 +210,12 @@ jobs:
     name: Full-Stack E2E
     needs:
       - changes
-      - backend
       - frontend
     if: >-
       ${{
         !cancelled()
         && needs.changes.result == 'success'
         && needs.changes.outputs.run_full_stack == 'true'
-        && needs.backend.result == 'success'
         && needs.frontend.result == 'success'
       }}
     runs-on: ubuntu-latest
@@ -307,6 +299,33 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  policy-validation:
+    name: Workflow Validation
+    needs: changes
+    if: >-
+      ${{
+        needs.changes.outputs.run_policy_validation == 'true'
+        || needs.changes.outputs.run_azure_validation == 'true'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Validate shell and change-routing contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/*.sh scripts/lib/*.sh
+          scripts/test-change-scope.sh
+          scripts/test-main-pr-ci.sh
+          scripts/test-ci-gate.sh
+      - name: Validate Azure release contracts
+        if: ${{ needs.changes.outputs.run_azure_validation == 'true' }}
+        shell: bash
+        run: scripts/validate-azure-pilot-artifacts.sh
+
   ci-gate:
     name: CI Gate
     needs:
@@ -314,6 +333,7 @@ jobs:
       - backend
       - frontend
       - full-stack-e2e
+      - policy-validation
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -322,39 +342,13 @@ jobs:
         shell: bash
         env:
           CHANGE_RESULT: ${{ needs.changes.result }}
-          RUN_CI: ${{ needs.changes.outputs.run_ci }}
+          RUN_BACKEND: ${{ needs.changes.outputs.run_backend }}
+          RUN_FRONTEND: ${{ needs.changes.outputs.run_frontend }}
           RUN_FULL_STACK: ${{ needs.changes.outputs.run_full_stack }}
+          RUN_POLICY_VALIDATION: ${{ needs.changes.outputs.run_policy_validation }}
+          RUN_AZURE_VALIDATION: ${{ needs.changes.outputs.run_azure_validation }}
           BACKEND_RESULT: ${{ needs.backend.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           FULL_STACK_RESULT: ${{ needs.full-stack-e2e.result }}
-        run: |
-          set -euo pipefail
-
-          failed=false
-
-          if [[ "$CHANGE_RESULT" != "success" ]]; then
-            echo "Change Classification did not succeed."
-            failed=true
-          fi
-
-          if [[ "$RUN_CI" == "true" ]]; then
-            if [[ "$BACKEND_RESULT" != "success" ]]; then
-              echo "Backend was required but did not succeed."
-              failed=true
-            fi
-            if [[ "$FRONTEND_RESULT" != "success" ]]; then
-              echo "Frontend was required but did not succeed."
-              failed=true
-            fi
-          fi
-
-          if [[ "$RUN_FULL_STACK" == "true" && "$FULL_STACK_RESULT" != "success" ]]; then
-            echo "Full-Stack E2E was required but did not succeed."
-            failed=true
-          fi
-
-          if [[ "$failed" == "true" ]]; then
-            exit 1
-          fi
-
-          echo "Required CI jobs succeeded."
+          POLICY_RESULT: ${{ needs.policy-validation.result }}
+        run: scripts/verify-ci-gate.sh

@@ -8,12 +8,12 @@ on:
         required: true
         type: string
       confirm_image_push:
-        description: I understand this pushes two images to ACR and can incur Azure charges
+        description: I understand this pushes changed images to ACR and can incur Azure charges
         required: true
         default: false
         type: boolean
       confirm_production_deploy:
-        description: I approve migration and production Backend/Frontend revision replacement
+        description: I approve production migration and revision replacement for changed components
         required: true
         default: false
         type: boolean
@@ -26,14 +26,100 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build, migrate, and release immutable images
+  scope:
+    name: Validate source and resolve release scope
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      deploy_backend: ${{ steps.scope.outputs.deploy_backend }}
+      deploy_frontend: ${{ steps.scope.outputs.deploy_frontend }}
+      run_migration: ${{ steps.scope.outputs.run_migration }}
+      classification: ${{ steps.scope.outputs.classification }}
+      changed_file_count: ${{ steps.scope.outputs.changed_file_count }}
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      CONFIRM_IMAGE_PUSH: ${{ inputs.confirm_image_push }}
+      CONFIRM_PRODUCTION_DEPLOY: ${{ inputs.confirm_production_deploy }}
+    steps:
+      - name: Check out trusted main history
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+
+      - name: Validate explicit approval and source commit
+        shell: bash
+        run: scripts/validate-azure-image-publish-inputs.sh --source-only
+
+      - name: Check out the validated source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach --quiet "${SOURCE_SHA}"
+          if [[ "$(git rev-parse HEAD)" != "${SOURCE_SHA}" ]]; then
+            printf 'azurePilotImagePublish=CHECKOUT_MISMATCH\n' >&2
+            exit 68
+          fi
+
+      - name: Resolve change-aware release scope
+        id: scope
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          previous_source_sha="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/azure-pilot-images.yml/runs?event=workflow_dispatch&status=success&branch=main&per_page=20" \
+            --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)"
+
+          base_sha=invalid
+          if [[ "$previous_source_sha" =~ ^[0-9a-f]{40}$ ]] \
+            && git cat-file -e "${previous_source_sha}^{commit}" 2>/dev/null \
+            && git merge-base --is-ancestor "$previous_source_sha" "$SOURCE_SHA"; then
+            base_sha="$previous_source_sha"
+          fi
+
+          scope_file="$(mktemp)"
+          trap 'rm -f "$scope_file"' EXIT
+          scripts/classify-change-scope.sh "$base_sha" "$SOURCE_SHA" >"$scope_file"
+          cat "$scope_file" >>"$GITHUB_OUTPUT"
+
+          classification="$(sed -n 's/^classification=//p' "$scope_file")"
+          changed_file_count="$(sed -n 's/^changed_file_count=//p' "$scope_file")"
+          deploy_backend="$(sed -n 's/^deploy_backend=//p' "$scope_file")"
+          deploy_frontend="$(sed -n 's/^deploy_frontend=//p' "$scope_file")"
+          run_migration="$(sed -n 's/^run_migration=//p' "$scope_file")"
+          {
+            printf "### Azure release scope\n\n"
+            printf -- "- classification: \`%s\`\n" "$classification"
+            printf -- "- changedFileCount: \`%s\`\n" "$changed_file_count"
+            printf -- "- deployBackend: \`%s\`\n" "$deploy_backend"
+            printf -- "- deployFrontend: \`%s\`\n" "$deploy_frontend"
+            printf -- "- runMigration: \`%s\`\n" "$run_migration"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Validate Azure deployment artifacts
+        shell: bash
+        run: scripts/validate-azure-pilot-artifacts.sh --compile
+
+  build-backend:
+    name: Build and push Backend image
+    needs: scope
+    if: ${{ needs.scope.outputs.deploy_backend == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: azure-pilot-image-publish
     permissions:
       contents: read
       id-token: write
+    outputs:
+      digest: ${{ steps.backend.outputs.digest }}
     env:
       AZURE_CORE_OUTPUT: none
       SOURCE_SHA: ${{ inputs.source_sha }}
@@ -59,46 +145,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: main
-
-      - name: Validate explicit approval, source commit, and secret shapes
+      - name: Validate source and secret shapes
         shell: bash
         run: scripts/validate-azure-image-publish-inputs.sh
-
-      - name: Check out the validated source commit
+      - name: Check out validated source
         shell: bash
-        run: |
-          set -euo pipefail
-          git checkout --detach --quiet "${SOURCE_SHA}"
-          if [[ "$(git rev-parse HEAD)" != "${SOURCE_SHA}" ]]; then
-            printf 'azurePilotImagePublish=CHECKOUT_MISMATCH\n' >&2
-            exit 68
-          fi
-
-      - name: Validate Azure deployment artifacts
-        shell: bash
-        run: scripts/validate-azure-pilot-artifacts.sh --compile
-
+        run: git checkout --detach --quiet "${SOURCE_SHA}"
       - name: Sign in to Azure with OIDC
         uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
       - name: Sign in to the private registry
         shell: bash
         run: az acr login --name "${ACR_NAME}"
-
-      - name: Configure immutable image references
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf 'BACKEND_IMAGE=%s/pms-backend:%s\n' "${ACR_LOGIN_SERVER}" "${SOURCE_SHA}" >> "${GITHUB_ENV}"
-          printf 'FRONTEND_IMAGE=%s/pms-frontend:%s\n' "${ACR_LOGIN_SERVER}" "${SOURCE_SHA}" >> "${GITHUB_ENV}"
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
-
       - name: Build and push Backend
         id: backend
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
@@ -107,12 +170,70 @@ jobs:
           file: backend/Dockerfile.production
           platforms: linux/amd64
           push: true
-          tags: ${{ env.BACKEND_IMAGE }}
+          tags: ${{ env.ACR_LOGIN_SERVER }}/pms-backend:${{ env.SOURCE_SHA }}
           cache-from: type=gha,scope=azure-pilot-backend
           cache-to: type=gha,mode=max,scope=azure-pilot-backend
           provenance: mode=min
           sbom: true
+      - name: Sign out of the private registry
+        if: ${{ always() }}
+        shell: bash
+        run: docker logout "${ACR_LOGIN_SERVER}" >/dev/null 2>&1 || true
 
+  build-frontend:
+    name: Build and push Frontend image
+    needs: scope
+    if: ${{ needs.scope.outputs.deploy_frontend == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: azure-pilot-image-publish
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      digest: ${{ steps.frontend.outputs.digest }}
+    env:
+      AZURE_CORE_OUTPUT: none
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      CONFIRM_IMAGE_PUSH: ${{ inputs.confirm_image_push }}
+      CONFIRM_PRODUCTION_DEPLOY: ${{ inputs.confirm_production_deploy }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ACR_NAME: ${{ secrets.AZURE_ACR_NAME }}
+      ACR_LOGIN_SERVER: ${{ secrets.AZURE_ACR_LOGIN_SERVER }}
+      PUBLIC_HOSTNAME: ${{ secrets.PMS_PUBLIC_HOSTNAME }}
+      ENTRA_API_CLIENT_ID: ${{ secrets.ENTRA_API_CLIENT_ID }}
+      ENTRA_SPA_CLIENT_ID: ${{ secrets.ENTRA_SPA_CLIENT_ID }}
+      ENTRA_API_SCOPE: ${{ secrets.ENTRA_API_SCOPE }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      BACKEND_APP_NAME: ${{ vars.AZURE_BACKEND_APP_NAME }}
+      FRONTEND_APP_NAME: ${{ vars.AZURE_FRONTEND_APP_NAME }}
+      MIGRATION_JOB_NAME: ${{ vars.AZURE_MIGRATION_JOB_NAME }}
+    steps:
+      - name: Check out trusted main history
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+      - name: Validate source and secret shapes
+        shell: bash
+        run: scripts/validate-azure-image-publish-inputs.sh
+      - name: Check out validated source
+        shell: bash
+        run: git checkout --detach --quiet "${SOURCE_SHA}"
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign in to the private registry
+        shell: bash
+        run: az acr login --name "${ACR_NAME}"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
       - name: Build and push Frontend
         id: frontend
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
@@ -121,7 +242,7 @@ jobs:
           file: frontend/Dockerfile.azure
           platforms: linux/amd64
           push: true
-          tags: ${{ env.FRONTEND_IMAGE }}
+          tags: ${{ env.ACR_LOGIN_SERVER }}/pms-frontend:${{ env.SOURCE_SHA }}
           build-args: |
             VITE_AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}
             VITE_AZURE_CLIENT_ID=${{ secrets.ENTRA_SPA_CLIENT_ID }}
@@ -132,41 +253,129 @@ jobs:
           cache-to: type=gha,mode=max,scope=azure-pilot-frontend
           provenance: mode=min
           sbom: true
+      - name: Sign out of the private registry
+        if: ${{ always() }}
+        shell: bash
+        run: docker logout "${ACR_LOGIN_SERVER}" >/dev/null 2>&1 || true
 
+  release:
+    name: Migrate and replace changed production revisions
+    needs:
+      - scope
+      - build-backend
+      - build-frontend
+    if: >-
+      ${{
+        always()
+        && needs.scope.result == 'success'
+        && (needs.scope.outputs.deploy_backend == 'true'
+          || needs.scope.outputs.deploy_frontend == 'true'
+          || needs.scope.outputs.run_migration == 'true')
+        && (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped')
+        && (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: azure-pilot-image-publish
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CORE_OUTPUT: none
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      CONFIRM_IMAGE_PUSH: ${{ inputs.confirm_image_push }}
+      CONFIRM_PRODUCTION_DEPLOY: ${{ inputs.confirm_production_deploy }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ACR_NAME: ${{ secrets.AZURE_ACR_NAME }}
+      ACR_LOGIN_SERVER: ${{ secrets.AZURE_ACR_LOGIN_SERVER }}
+      PUBLIC_HOSTNAME: ${{ secrets.PMS_PUBLIC_HOSTNAME }}
+      ENTRA_API_CLIENT_ID: ${{ secrets.ENTRA_API_CLIENT_ID }}
+      ENTRA_SPA_CLIENT_ID: ${{ secrets.ENTRA_SPA_CLIENT_ID }}
+      ENTRA_API_SCOPE: ${{ secrets.ENTRA_API_SCOPE }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      BACKEND_APP_NAME: ${{ vars.AZURE_BACKEND_APP_NAME }}
+      FRONTEND_APP_NAME: ${{ vars.AZURE_FRONTEND_APP_NAME }}
+      MIGRATION_JOB_NAME: ${{ vars.AZURE_MIGRATION_JOB_NAME }}
+      DEPLOY_BACKEND: ${{ needs.scope.outputs.deploy_backend }}
+      DEPLOY_FRONTEND: ${{ needs.scope.outputs.deploy_frontend }}
+      RUN_MIGRATION: ${{ needs.scope.outputs.run_migration }}
+      BACKEND_RELEASE_IMAGE: ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/pms-backend@${{ needs.build-backend.outputs.digest }}
+      FRONTEND_RELEASE_IMAGE: ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/pms-frontend@${{ needs.build-frontend.outputs.digest }}
+    steps:
+      - name: Check out trusted main history
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+      - name: Validate source and secret shapes
+        shell: bash
+        run: scripts/validate-azure-image-publish-inputs.sh
+      - name: Check out validated source
+        shell: bash
+        run: git checkout --detach --quiet "${SOURCE_SHA}"
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Run migration and replace production revisions
         shell: bash
-        env:
-          BACKEND_RELEASE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/pms-backend@${{ steps.backend.outputs.digest }}
-          FRONTEND_RELEASE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/pms-frontend@${{ steps.frontend.outputs.digest }}
         run: scripts/deploy-azure-pilot-release.sh
-
-      - name: Record privacy-safe image results
+      - name: Record privacy-safe release results
         shell: bash
         env:
-          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
-          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+          BACKEND_DIGEST: ${{ needs.build-backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ needs.build-frontend.outputs.digest }}
         run: |
           set -euo pipefail
           digest_pattern='^sha256:[0-9a-f]{64}$'
-          if [[ ! "${BACKEND_DIGEST}" =~ ${digest_pattern} \
-            || ! "${FRONTEND_DIGEST}" =~ ${digest_pattern} ]]; then
+          if [[ "$DEPLOY_BACKEND" == 'true' && ! "${BACKEND_DIGEST}" =~ ${digest_pattern} ]]; then
             printf 'azurePilotImagePublish=INVALID_DIGEST_OUTPUT\n' >&2
             exit 72
           fi
+          if [[ "$DEPLOY_FRONTEND" == 'true' && ! "${FRONTEND_DIGEST}" =~ ${digest_pattern} ]]; then
+            printf 'azurePilotImagePublish=INVALID_DIGEST_OUTPUT\n' >&2
+            exit 72
+          fi
+
+          backend_status=skipped
+          frontend_status=skipped
+          migration_status=skipped
+          [[ "$DEPLOY_BACKEND" == 'true' ]] && backend_status=ready
+          [[ "$DEPLOY_FRONTEND" == 'true' ]] && frontend_status=ready
+          [[ "$RUN_MIGRATION" == 'true' ]] && migration_status=succeeded
           {
             printf "## Azure pilot production release\n\n"
             printf -- "- Source commit: \`%s\`\n" "${SOURCE_SHA}"
-            printf -- "- Backend digest: \`%s\`\n" "${BACKEND_DIGEST}"
-            printf -- "- Frontend digest: \`%s\`\n" "${FRONTEND_DIGEST}"
             printf -- "- Mutable latest tag: \`not created\`\n"
-            printf -- "- Migration: \`succeeded\`\n"
-            printf -- "- Backend revision: \`ready\`\n"
-            printf -- "- Frontend revision: \`ready\`\n"
+            printf -- "- Migration: \`%s\`\n" "$migration_status"
+            printf -- "- Backend revision: \`%s\`\n" "$backend_status"
+            printf -- "- Frontend revision: \`%s\`\n" "$frontend_status"
             printf -- "- Public security smoke: \`passed\`\n"
-          } >> "${GITHUB_STEP_SUMMARY}"
+          } >>"$GITHUB_STEP_SUMMARY"
           printf 'azurePilotProductionRelease=PASS\n'
 
-      - name: Sign out of the private registry
-        if: always()
+  no-changes:
+    name: No production changes
+    needs: scope
+    if: >-
+      ${{
+        needs.scope.outputs.deploy_backend == 'false'
+        && needs.scope.outputs.deploy_frontend == 'false'
+        && needs.scope.outputs.run_migration == 'false'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Record no-op release
         shell: bash
-        run: docker logout "${ACR_LOGIN_SERVER}" >/dev/null 2>&1 || true
+        run: |
+          {
+            printf "## Azure pilot production release\n\n"
+            printf -- "- Result: \`no production image or migration changes\`\n"
+          } >>"$GITHUB_STEP_SUMMARY"
+          printf 'azurePilotProductionRelease=NO_CHANGES\n'

@@ -1,10 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-required_environment=(
+source_only='false'
+if [[ "${1:-}" == '--source-only' ]]; then
+  source_only='true'
+elif [[ "$#" -ne 0 ]]; then
+  printf 'usage: %s [--source-only]\n' "$0" >&2
+  exit 64
+fi
+
+source_environment=(
   SOURCE_SHA
   CONFIRM_IMAGE_PUSH
   CONFIRM_PRODUCTION_DEPLOY
+)
+
+for variable_name in "${source_environment[@]}"; do
+  if [[ -z "${!variable_name:-}" ]]; then
+    printf 'azurePilotImagePublish=MISSING_CONFIGURATION\n' >&2
+    exit 63
+  fi
+done
+
+required_environment=(
   AZURE_CLIENT_ID
   AZURE_TENANT_ID
   AZURE_SUBSCRIPTION_ID
@@ -19,13 +37,6 @@ required_environment=(
   FRONTEND_APP_NAME
   MIGRATION_JOB_NAME
 )
-
-for variable_name in "${required_environment[@]}"; do
-  if [[ -z "${!variable_name:-}" ]]; then
-    printf 'azurePilotImagePublish=MISSING_CONFIGURATION\n' >&2
-    exit 63
-  fi
-done
 
 if [[ "${CONFIRM_IMAGE_PUSH}" != 'true' ]]; then
   printf 'azurePilotImagePublish=CONFIRMATION_REQUIRED\n' >&2
@@ -52,6 +63,18 @@ if ! git show-ref --verify --quiet refs/remotes/origin/main \
   printf 'azurePilotImagePublish=SOURCE_NOT_LATEST_MAIN\n' >&2
   exit 67
 fi
+
+if [[ "${source_only}" == 'true' ]]; then
+  printf 'azurePilotImageSource=VALIDATED_MAIN_COMMIT\n'
+  exit 0
+fi
+
+for variable_name in "${required_environment[@]}"; do
+  if [[ -z "${!variable_name:-}" ]]; then
+    printf 'azurePilotImagePublish=MISSING_CONFIGURATION\n' >&2
+    exit 63
+  fi
+done
 
 guid_pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
 zero_guid='00000000-0000-0000-0000-000000000000'

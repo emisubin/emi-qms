@@ -98,3 +98,60 @@ N/A — 제품 사용자의 화면·업무 방식은 바뀌지 않는다. 개발
 ## Rollback
 
 `.github/workflows/ci.yml`을 이 Task 이전 `origin/main` 버전으로 되돌리면 된다. rollback은 workflow만 대상으로 하며 Azure runtime·DB·제품 데이터 복구가 필요하지 않다.
+
+## Change 001 — 영향 영역별 CI와 Azure 선택 release
+
+상태: `LOCAL_IMPLEMENTATION_COMPLETE / USER_VALIDATION_PENDING / PUBLICATION_NOT_APPROVED`
+
+### 현재 실행 매트릭스
+
+| 변경 종류 | Backend | Frontend | Full-Stack | Workflow Validation | Azure release |
+| --- | --- | --- | --- | --- | --- |
+| 문서·Task 증빙만 | Skip | Skip | Skip | Skip | No-op |
+| Backend test만 | Run | Skip | Skip | 필요 시 Run | No-op |
+| Backend 내부 store/domain | Run | Skip | Skip | Skip | Backend image만 |
+| Frontend 일반 화면·스타일 | Skip | Run | Skip | 필요 시 Run | Frontend image만 |
+| API contract·인증·권한·workflow·dependency | Run | Run | Run | 필요 시 Run | 바뀐 image만 |
+| migration | Run | Run | Run | Azure validation | Backend image + migration |
+| workflow·배포 script만 | Skip | Skip | Skip | Run | No-op |
+| 알 수 없거나 기준 SHA 확인 실패 | Run | Run | Run | Run | 두 image + migration |
+
+Full-Stack은 Frontend 검증 성공 뒤 시작하며 Backend heavy test 완료를 기다리지 않는다. `CI Gate`는 각 변경에 실제 필요한 job만 성공했는지 항상 최종 판정한다.
+
+### `main` 중복 제거 안전 조건
+
+다음 조건을 모두 만족한 squash/merge commit만 PR에서 이미 검증한 동일 결과로 본다.
+
+1. 활성 default-branch Ruleset이 `CI Gate`를 GitHub Actions 앱의 required status check로 강제한다.
+2. 현재 main commit에 연결된 merged PR이 정확히 하나다.
+3. PR head와 main commit의 Git tree가 같다.
+4. PR head의 `CI Gate`가 성공했다.
+5. 해당 PR이 CI workflow·변경 분류기·main 검증기를 수정하지 않았다.
+
+Ruleset/API/compare/check readback 실패와 300개 이상 파일 비교는 전부 skip하지 않는 방향으로 처리한다.
+
+### Azure 선택 release
+
+- 마지막 성공한 `main` 수동 release의 source부터 현재 승인 source까지 누적 diff를 판별한다.
+- Backend·Frontend image는 바뀐 component만 만들고, 둘 다 필요하면 별도 job에서 동시에 만든다.
+- SQL migration이 바뀐 경우에만 migration job을 실행한다.
+- image build가 하나라도 실패하면 revision 교체 job은 시작하지 않는다.
+- 기준 release를 확정하지 못하면 두 image·migration 전체 실행으로 fallback한다.
+- 기존 latest-main SHA, 확인 체크박스, OIDC, immutable digest, 단일 revision, baseline, rollback과 공개 보안 smoke는 유지한다.
+
+### Change 001 사용자 검수 checklist
+
+- [x] local change-scope matrix에서 docs/backend/frontend/contract/migration/workflow/Azure/unknown/rename/no-change/invalid 분기가 통과한다.
+- [x] local `CI Gate` matrix에서 필요한 job 성공·실패·취소·예상 밖 skip이 올바르게 판정된다.
+- [x] local main trust matrix에서 Ruleset 부재, PR 부재, tree 불일치, 실패 Gate와 trust source 변경이 skip으로 처리되지 않는다.
+- [x] local Azure release matrix에서 전체·Backend만·Frontend만·migration 포함·no-op과 실패 rollback이 통과한다.
+- [x] actionlint, shell syntax, Azure static artifact와 Bicep compile이 통과한다.
+- [x] 원격 Ruleset에 GitHub Actions 출처의 `CI Gate` required status check를 적용하고 integration ID `15368` readback을 확인한다.
+- [ ] 실제 PR에서 영역별 job 선택과 Backend/Full-Stack 병렬 실행을 확인한다.
+- [ ] main merge에서 동일 tree skip 또는 안전 fallback을 확인한다.
+- [ ] 공개배포 승인 뒤 실제 Azure 선택 release와 public security smoke를 확인한다.
+- [ ] 최소 1주 Actions 사용량 추세를 기존 기준선과 비교한다.
+
+### Change 001 Rollback
+
+일반 CI 문제는 `.github/workflows/ci.yml`과 change routing·Gate·main trust script를 함께 이전 버전으로 되돌린다. Azure release 문제는 `.github/workflows/azure-pilot-images.yml`, 선택 release script와 관련 test를 함께 이전 버전으로 되돌린다. 제품 image가 이미 일부 교체된 실패는 release script의 기존 component별 rollback을 사용한다. DB schema·제품 데이터·Azure resource 사양은 이 Change에서 바꾸지 않는다.

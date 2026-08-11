@@ -67,4 +67,16 @@ run_case 72 INVALID_RESOURCE_CONFIGURATION BACKEND_APP_NAME='Invalid_Name'
 run_case 72 INVALID_RESOURCE_CONFIGURATION FRONTEND_APP_NAME='pms-synthetic-backend'
 run_case 0 ''
 
+env \
+  SOURCE_SHA="${source_sha}" \
+  CONFIRM_IMAGE_PUSH='true' \
+  CONFIRM_PRODUCTION_DEPLOY='true' \
+  "${validator}" --source-only \
+  >"${temporary_directory}/stdout" \
+  2>"${temporary_directory}/stderr"
+if ! grep -Fxq 'azurePilotImageSource=VALIDATED_MAIN_COMMIT' "${temporary_directory}/stdout"; then
+  printf 'azurePilotImageInputTests=SOURCE_ONLY_FAILED\n' >&2
+  exit 1
+fi
+
 printf 'azurePilotImageInputTests=PASS\n'

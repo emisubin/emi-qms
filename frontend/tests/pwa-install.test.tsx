@@ -195,6 +195,11 @@ describe('PWA install experience', () => {
 
     act(() => window.dispatchEvent(installEvent));
     const dialog = await screen.findByRole('dialog', { name: 'Android 설치 안내' });
+    expect(within(dialog).getByRole('heading', { name: '설치 방법' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: '이용 안내' })).toBeInTheDocument();
+    expect(within(dialog).getByText(/Teams Activity와 메일로 전달될 수 있습니다/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/향후 모바일 푸시 알림이 추가되면/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/현재 모바일 푸시는 준비 중/)).toBeInTheDocument();
     expect(within(dialog).getByText('설치를 누르면 브라우저의 설치 확인 창이 열립니다.')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'EMI PMS 설치' })).toHaveFocus();
   });

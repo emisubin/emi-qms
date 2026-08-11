@@ -177,6 +177,7 @@ import microsoftLogo from './assets/microsoft-logo.png';
 import type { ReadyHealth } from './health';
 import { HomePage } from './HomePage';
 import { NoticeBoardPage } from './NoticeBoardPage';
+import { PrivacyNoticePage } from './PrivacyNoticePage';
 import { Ul891SetWorkspace } from './Ul891SetWorkspace';
 import type { CreateUl891SetSpecInput, Ul891SetStructure } from './ul891Sets';
 import { PendingPage } from './PendingPage';
@@ -275,6 +276,7 @@ import type {
 
 type View =
   | { kind: 'home' }
+  | { kind: 'privacy-notice' }
   | { kind: 'notice-board'; noticeId?: string; compose?: boolean }
   | { kind: 'qr-scan'; token: string }
   | { kind: 'my-work' }
@@ -588,6 +590,10 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/' || window.location.pathname === '/home') {
     return { kind: 'home' };
+  }
+
+  if (window.location.pathname === '/privacy-notice') {
+    return { kind: 'privacy-notice' };
   }
 
   if (window.location.pathname === '/notices') {
@@ -1132,6 +1138,8 @@ function pathForView(view: View) {
   switch (view.kind) {
     case 'home':
       return '/';
+    case 'privacy-notice':
+      return '/privacy-notice';
     case 'notice-board':
       return view.noticeId ? `/notices/${view.noticeId}` : `/notices${view.compose ? '?compose=1' : ''}`;
     case 'qr-scan':
@@ -1978,7 +1986,9 @@ function QmsAppShellContent({
     ] : [])
   ];
 
-  const activeNavigationLabel = navigationItems.find((item) => item.active)?.label ?? '업무';
+  const activeNavigationLabel = view.kind === 'privacy-notice'
+    ? '개인정보·이용 안내'
+    : navigationItems.find((item) => item.active)?.label ?? '업무';
   const shellSwitchControls = (
     <ShellSwitchControls
       isDevMode={isDevMode}
@@ -2005,7 +2015,14 @@ function QmsAppShellContent({
         <header className="mobile-app-bar">
           <AppMobileNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
           <div className="mobile-app-brand">
-            <img className="app-brand-logo" src={emiPmsProductLogo} alt="" aria-hidden="true" />
+            <button
+              type="button"
+              className="app-brand-home-button"
+              aria-label="EMI PMS 모바일 로고로 홈 이동"
+              onClick={() => setView({ kind: 'home' })}
+            >
+              <img className="app-brand-logo" src={emiPmsProductLogo} alt="" aria-hidden="true" />
+            </button>
             <span>
               <small>EMI PROJECT</small>
               <strong>{activeNavigationLabel}</strong>
@@ -2179,6 +2196,10 @@ function QmsAppShellContent({
           onOpenSalesKpi={(year, currency) => setView({ kind: 'sales-kpi', year, currency })}
           onOpenDepartmentMetric={(destinationKey) => setView(viewForHomeDestination(destinationKey))}
         />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'privacy-notice' ? (
+        <PrivacyNoticePage onBack={() => setView({ kind: 'home' })} />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notice-board' ? (
@@ -2685,7 +2706,10 @@ function QmsAppShellContent({
           onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'panels' })}
         />
       ) : null}
-        <CompanyInformationFooter className="company-information-footer--app" />
+        <CompanyInformationFooter
+          className="company-information-footer--app"
+          onOpenPrivacyNotice={() => setView({ kind: 'privacy-notice' })}
+        />
       </div>
     </main>
   );
@@ -2762,7 +2786,14 @@ function AppNavigation({
   return (
     <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">
       <div className="app-brand-lockup">
-        <img className="app-brand-logo" src={emiPmsProductLogo} alt="EMI PMS - Project Management System" />
+        <button
+          type="button"
+          className="app-brand-home-button"
+          aria-label="EMI PMS 로고로 홈 이동"
+          onClick={() => onNavigate({ kind: 'home' })}
+        >
+          <img className="app-brand-logo" src={emiPmsProductLogo} alt="EMI PMS - Project Management System" />
+        </button>
       </div>
       <div className="app-sidebar-heading">
         <p className="eyebrow">업무 공간</p>
@@ -2935,7 +2966,17 @@ function AppMobileNavigation({
             aria-labelledby="app-mobile-menu-title"
           >
             <header className="mobile-menu-header">
-              <img className="mobile-menu-brand-logo app-brand-logo" src={emiPmsProductLogo} alt="" aria-hidden="true" />
+              <button
+                type="button"
+                className="app-brand-home-button"
+                aria-label="EMI PMS 메뉴 로고로 홈 이동"
+                onClick={() => {
+                  onNavigate({ kind: 'home' });
+                  closeMenu();
+                }}
+              >
+                <img className="mobile-menu-brand-logo app-brand-logo" src={emiPmsProductLogo} alt="" aria-hidden="true" />
+              </button>
               <div>
                 <p className="eyebrow">EMI WORKSPACE</p>
                 <h2 id="app-mobile-menu-title">전체 업무 메뉴</h2>
@@ -3197,8 +3238,20 @@ function AccountProfilePanel({
   const actions = useActionFeedback();
   const pwaInstall = usePwaInstallExperience();
   const inputRef = useRef<HTMLInputElement>(null);
+  const photoConsentTriggerRef = useRef<HTMLButtonElement>(null);
+  const [photoConsentOpen, setPhotoConsentOpen] = useState(false);
   const feedback = actions.feedbackFor('profile-photo');
   const busy = actions.isBusy('profile-photo');
+
+  function closePhotoConsent() {
+    setPhotoConsentOpen(false);
+    window.setTimeout(() => photoConsentTriggerRef.current?.focus(), 0);
+  }
+
+  function choosePhotoAfterConsent() {
+    setPhotoConsentOpen(false);
+    inputRef.current?.click();
+  }
 
   async function upload(file: File | null) {
     if (!file) return;
@@ -3228,17 +3281,26 @@ function AccountProfilePanel({
   return (
     <section className={mobile ? 'account-profile-panel account-profile-panel--mobile' : 'account-profile-panel'}>
       <div className="account-photo-block">
-        <label className="account-photo-editor" aria-label="프로필 사진 업로드">
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/jpeg,image/png"
-            disabled={!mutationAllowed || busy}
-            onChange={(event) => void upload(event.target.files?.[0] ?? null)}
-          />
+        <button
+          ref={photoConsentTriggerRef}
+          type="button"
+          className="account-photo-editor"
+          aria-label="프로필 사진 변경 안내 열기"
+          disabled={!mutationAllowed || busy}
+          onClick={() => setPhotoConsentOpen(true)}
+        >
           <ProfileAvatar displayName={user.actualUser.displayName} photoUrl={profilePhotoUrl} />
           <span aria-hidden="true">＋</span>
-        </label>
+        </button>
+        <input
+          ref={inputRef}
+          className="account-photo-input"
+          type="file"
+          accept="image/jpeg,image/png"
+          hidden
+          disabled={!mutationAllowed || busy}
+          onChange={(event) => void upload(event.target.files?.[0] ?? null)}
+        />
         <div>
           <strong>{user.actualUser.displayName}</strong>
           <span>{user.actualUser.departmentName ?? '부서 미지정'}</span>
@@ -3252,7 +3314,7 @@ function AccountProfilePanel({
         </div>
       ) : null}
       <div className="account-photo-actions">
-        <button type="button" onClick={() => inputRef.current?.click()} disabled={!mutationAllowed || busy}>사진 변경</button>
+        <button type="button" onClick={() => setPhotoConsentOpen(true)} disabled={!mutationAllowed || busy}>사진 변경</button>
         <button type="button" onClick={() => void remove()} disabled={!mutationAllowed || busy || !profilePhotoUrl}>사진 제거</button>
       </div>
       {!mutationAllowed ? <p className="account-review-safe-note">검수 전용 읽기 모드에서는 사진을 변경할 수 없습니다.</p> : null}
@@ -3261,6 +3323,33 @@ function AccountProfilePanel({
         <button type="button" className="account-install-button" onClick={pwaInstall.openGuide}>{pwaInstall.entryLabel}</button>
       ) : null}
       <button type="button" className="account-logout-button" onClick={onLogout} disabled={!onLogout}>로그아웃</button>
+      {photoConsentOpen ? (
+        <DsDialog labelledBy="profile-photo-consent-title" onClose={closePhotoConsent} className="profile-photo-consent-backdrop">
+          <section
+            className="dialog profile-photo-consent-dialog"
+            aria-describedby="profile-photo-consent-description"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              event.preventDefault();
+              event.stopPropagation();
+              closePhotoConsent();
+            }}
+          >
+            <header>
+              <p className="eyebrow">OPTIONAL PROFILE</p>
+              <h2 id="profile-photo-consent-title">프로필 사진 선택 동의</h2>
+            </header>
+            <div id="profile-photo-consent-description" className="profile-photo-consent-copy">
+              <p>프로필 사진은 계정 식별과 화면 표시를 위해 선택 수집합니다.</p>
+              <p>등록한 사진은 사진을 삭제·교체하거나 퇴사할 때까지 보관합니다. 동의하지 않아도 기본 이니셜로 모든 업무 기능을 이용할 수 있습니다.</p>
+            </div>
+            <div className="dialog-actions">
+              <button type="button" autoFocus onClick={closePhotoConsent}>취소</button>
+              <button type="button" className="primary-button" onClick={choosePhotoAfterConsent}>동의하고 사진 선택</button>
+            </div>
+          </section>
+        </DsDialog>
+      ) : null}
     </section>
   );
 }
@@ -3486,16 +3575,33 @@ function AuthGateMessage({
   );
 }
 
-function CompanyInformationFooter({ className }: { className?: string }) {
+function CompanyInformationFooter({
+  className,
+  onOpenPrivacyNotice
+}: {
+  className?: string;
+  onOpenPrivacyNotice?: () => void;
+}) {
   const classes = ['company-information-footer', className].filter(Boolean).join(' ');
 
   return (
     <footer className={classes} aria-label="회사 정보">
-      <strong>(주) 이엠아이</strong>
-      <address>
-        <span>경기도 오산시 세남로길 14-11 (세교동 63-1)</span>
-        <span>이엠아이 청주캠퍼스 / 충북 청주시 청원구 오창읍 서오창산단3로 110</span>
-      </address>
+      <div className="company-information-footer__identity">
+        <strong>(주) 이엠아이</strong>
+        <address>
+          <span>경기도 오산시 세남로길 14-11 (세교동 63-1)</span>
+          <span>이엠아이 청주캠퍼스 / 충북 청주시 청원구 오창읍 서오창산단3로 110</span>
+        </address>
+      </div>
+      {onOpenPrivacyNotice ? (
+        <button
+          type="button"
+          className="company-information-footer__privacy-link"
+          onClick={onOpenPrivacyNotice}
+        >
+          개인정보·이용 안내
+        </button>
+      ) : null}
     </footer>
   );
 }

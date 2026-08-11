@@ -3,10 +3,10 @@
 ## 1. 요약과 상태
 
 - 목적: 운영 사용자 관리에서 표준 부서를 빠짐없이 선택하고, 부서에 맞는 역할과 부서장·양식관리 권한을 한 번에 지정한다.
-- 상태: 로컬 구현·자동 검증·사용자 검수 완료 / Git 게시·main 병합·공개배포 승인
+- 상태: 구현·자동 검증·사용자 검수·원격 main 병합·Azure 공개배포 완료
 - Task 유형: `P2_REMEDIATION`
 - Branch/base: `fix/task-admin-003-user-departments` / `origin/main` `7c05175001d9e0beb23a161639c846f98e05dbb7`
-- Git 게시: commit·push·PR·merge 실행 대기. Azure DB와 운영 앱은 아직 미변경이며 사용자 승인 범위에서 게시·배포한다.
+- Git 게시·운영: PR #93 squash merge, main SHA `8ae3645d66543c0f234777cf19e8487324f21217`, Azure release `31452524156` 성공. migration `0072`→Backend→Frontend와 공개 보안 smoke를 완료했다.
 
 ## 2. 해결한 업무 문제
 
@@ -114,7 +114,7 @@
 | Frontend production build | 적용 | 통과 | 기존 chunk-size warning 유지 |
 | 격리 Full-Stack Chromium | 적용 | 통과 | 모바일 관리자 workspace `1/1`, 임시 DB·container·network 제거 완료 |
 | Persistent UAT·Azure | 미적용 | N/A | 운영 mutation은 승인 범위 밖 |
-| PR CI | 적용 | 보정 후 재실행 | PR #93에서 공지 API와 Full-Stack 공지 상세 회귀가 각각 기존 영문 `Sales`·`Quality`를 기대해 승인된 한글명 `영업`·`품질`로 test contract를 갱신했다. 제품 응답·UI는 변경하지 않았다. |
+| PR CI | 적용 | 통과 | PR #93 최종 run `31449740819`에서 Change Classification·Frontend·Backend `493/493`·Full-Stack E2E·CI Gate 전부 PASS. 공지 API와 Full-Stack 공지 상세의 구형 영문 부서 기대값은 한글 계약으로 보정했다. |
 
 ## 9. 개인정보·Secret 검토
 
@@ -171,7 +171,9 @@ Open P0/P1/P2: `0/0/0`. 기존 Frontend Fast Refresh·chunk-size warning과 전�
 
 - 자동 검증과 격리 browser 검증은 완료했다.
 - 실제 사용자 화면 검수는 2026-08-11 완료했다.
-- Git 게시, CI, main 병합과 운영 migration·배포는 사용자가 함께 실행하도록 승인했으며 아직 수행 전이다.
+- PR #93을 원격 main에 병합하고 Azure release `31452524156`으로 migration `0072`·Backend·Frontend 운영 교체를 완료했다.
+- 사용자의 중복 검사 생략 지시에 따라 PR 최신 SHA에서 이미 통과한 전체 검증을 재사용하고, 병합 SHA의 반복 main CI run `31451735054`는 취소했다.
+- 운영 공개 확인은 `/health/live` `200`, 익명 `/`·`/api/me` `401/401`로 통과했다.
 - 사용자 검수에서 문제가 확인되면 `TASK-ADMIN-003`의 다음 change로 보정한다.
 
 ## 15. Rollback·forward-fix

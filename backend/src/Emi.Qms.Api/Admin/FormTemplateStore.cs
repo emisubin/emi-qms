@@ -464,6 +464,13 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
             { throw new FormTemplateConflictException("이미 지정된 부서 양식 관리자입니다."); }
         }
         await AppendAuditAsync(connection, transaction, "ManagerAssigned", new("Administration", domain, "양식 관리자", "Administration"), null, bindingId, actorUserId, new { userId = request.UserId, domain }, token);
+        await using (var markDepartmentHead = connection.CreateCommand())
+        {
+            markDepartmentHead.Transaction = transaction;
+            markDepartmentHead.CommandText = "update qms_users set is_department_head=true where id=@user_id;";
+            markDepartmentHead.Parameters.AddWithValue("user_id", request.UserId);
+            await markDepartmentHead.ExecuteNonQueryAsync(token);
+        }
         await transaction.CommitAsync(token);
         return await ReadManagersAsync(connection, token);
     }
@@ -490,6 +497,27 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
             domain = currentDomain;
         }
         await AppendAuditAsync(connection, transaction, "ManagerRevoked", new("Administration", domain, "양식 관리자", "Administration"), null, bindingId, actorUserId, new { domain }, token);
+        await using (var synchronizeDepartmentHead = connection.CreateCommand())
+        {
+            synchronizeDepartmentHead.Transaction = transaction;
+            synchronizeDepartmentHead.CommandText = """
+                update qms_users user_account
+                set is_department_head = exists (
+                    select 1
+                    from form_template_manager_bindings binding
+                    where binding.user_id = user_account.id
+                      and binding.department_id = user_account.department_id
+                      and binding.revoked_at_utc is null
+                )
+                where user_account.id = (
+                    select user_id
+                    from form_template_manager_bindings
+                    where id = @binding_id
+                );
+                """;
+            synchronizeDepartmentHead.Parameters.AddWithValue("binding_id", bindingId);
+            await synchronizeDepartmentHead.ExecuteNonQueryAsync(token);
+        }
         await transaction.CommitAsync(token);
         return await ReadManagersAsync(connection, token);
     }

@@ -134,6 +134,11 @@ describe('authentication modes', () => {
     expect(screen.queryByRole('button', { name: '다른 계정으로 로그인' })).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: '로그인 상태 유지' })).toBeChecked();
     expect(screen.getByRole('button', { name: 'EMI PMS 설치 안내' })).toBeInTheDocument();
+    expect(screen.getByLabelText('정보 보안 안내')).toHaveTextContent('계정 및 화면 정보를 외부에 공유하지 마시고');
+    const companyInformation = screen.getByLabelText('회사 정보');
+    expect(companyInformation).toHaveTextContent('(주) 이엠아이');
+    expect(companyInformation).toHaveTextContent('경기도 오산시 세남로길 14-11');
+    expect(companyInformation).toHaveTextContent('이엠아이 청주캠퍼스');
     expect(screen.queryByLabelText('개발 사용자')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('checkbox', { name: '로그인 상태 유지' }));
@@ -154,6 +159,8 @@ describe('authentication modes', () => {
     expect(screen.queryByRole('button', { name: 'LOGIN' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: '로그인 상태 유지' })).not.toBeInTheDocument();
     expect(screen.getByRole('status', { name: '로그인 확인 중' })).toHaveClass('auth-loading-indicator');
+    expect(screen.getByLabelText('정보 보안 안내')).toBeInTheDocument();
+    expect(screen.getByLabelText('회사 정보')).toHaveTextContent('충북 청주시 청원구 오창읍 서오창산단3로 110');
   });
 
   it('renders the common branded shell when Microsoft configuration is missing', async () => {
@@ -172,6 +179,8 @@ describe('authentication modes', () => {
     expect(screen.getByRole('heading', { name: 'Microsoft 로그인 설정이 필요합니다.' })).toBeInTheDocument();
     expect(screen.getByAltText('EMI Electric Modular Innovation')).toBeInTheDocument();
     expect(screen.getByAltText('Microsoft')).toBeInTheDocument();
+    expect(screen.queryByLabelText('정보 보안 안내')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('회사 정보')).toHaveTextContent('(주) 이엠아이');
   });
 
   it('renders the common branded shell while an interactive login is in progress', async () => {

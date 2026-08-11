@@ -171,8 +171,8 @@ import {
 } from './auth';
 import authEllipse66 from './assets/auth-ellipse-66.svg';
 import authEllipse67 from './assets/auth-ellipse-67.svg';
-import emiInternalLogo from './assets/emi-logo-internal.png';
 import emiLoginLogo from './assets/emi-logo.png';
+import emiPmsProductLogo from './assets/emi-pms-product-logo.png';
 import microsoftLogo from './assets/microsoft-logo.png';
 import type { ReadyHealth } from './health';
 import { HomePage } from './HomePage';
@@ -2005,7 +2005,7 @@ function QmsAppShellContent({
         <header className="mobile-app-bar">
           <AppMobileNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
           <div className="mobile-app-brand">
-            <img className="app-brand-logo" src={emiInternalLogo} alt="" aria-hidden="true" />
+            <img className="app-brand-logo" src={emiPmsProductLogo} alt="" aria-hidden="true" />
             <span>
               <small>EMI PROJECT</small>
               <strong>{activeNavigationLabel}</strong>
@@ -2685,6 +2685,7 @@ function QmsAppShellContent({
           onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'panels' })}
         />
       ) : null}
+        <CompanyInformationFooter className="company-information-footer--app" />
       </div>
     </main>
   );
@@ -2761,8 +2762,7 @@ function AppNavigation({
   return (
     <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">
       <div className="app-brand-lockup">
-        <img className="app-brand-logo" src={emiInternalLogo} alt="EMI" />
-        <span>프로젝트 통합관리</span>
+        <img className="app-brand-logo" src={emiPmsProductLogo} alt="EMI PMS - Project Management System" />
       </div>
       <div className="app-sidebar-heading">
         <p className="eyebrow">업무 공간</p>
@@ -2935,7 +2935,7 @@ function AppMobileNavigation({
             aria-labelledby="app-mobile-menu-title"
           >
             <header className="mobile-menu-header">
-              <img className="mobile-menu-brand-logo app-brand-logo" src={emiInternalLogo} alt="" aria-hidden="true" />
+              <img className="mobile-menu-brand-logo app-brand-logo" src={emiPmsProductLogo} alt="" aria-hidden="true" />
               <div>
                 <p className="eyebrow">EMI WORKSPACE</p>
                 <h2 id="app-mobile-menu-title">전체 업무 메뉴</h2>
@@ -3413,8 +3413,12 @@ function AuthGateMessage({
         <div className="auth-gate-canvas">
           <div className="auth-gate-content">
             {!showsProductTitle ? <p className="auth-product-name">EMI PMS</p> : null}
-            <h1 id="auth-gate-title">
-              <span className="auth-gate-title-text">{title}</span>
+            <h1 id="auth-gate-title" className={showsProductTitle ? 'auth-product-logo-heading' : undefined}>
+              {showsProductTitle ? (
+                <img className="auth-product-logo" src={emiPmsProductLogo} alt="EMI PMS" />
+              ) : (
+                <span className="auth-gate-title-text">{title}</span>
+              )}
             </h1>
             <div className="auth-microsoft-brand">
               <img src={microsoftLogo} alt="Microsoft" />
@@ -3445,6 +3449,13 @@ function AuthGateMessage({
                 {secondaryActionLabel}
               </button>
             ) : null}
+            {usesLoginLayout ? (
+              <aside className="auth-security-notice" aria-label="정보 보안 안내">
+                <strong>정보 보안 안내</strong>
+                <p>본 시스템은 EMI 임직원용 업무 시스템입니다. 계정 및 화면 정보를 외부에 공유하지 마시고, 공용 기기에서는 사용 후 반드시 로그아웃해 주세요.</p>
+              </aside>
+            ) : null}
+            <CompanyInformationFooter className="company-information-footer--auth" />
           </div>
         </div>
       </section>
@@ -3472,6 +3483,20 @@ function AuthGateMessage({
         </div>
       ) : shell}
     </main>
+  );
+}
+
+function CompanyInformationFooter({ className }: { className?: string }) {
+  const classes = ['company-information-footer', className].filter(Boolean).join(' ');
+
+  return (
+    <footer className={classes} aria-label="회사 정보">
+      <strong>(주) 이엠아이</strong>
+      <address>
+        <span>경기도 오산시 세남로길 14-11 (세교동 63-1)</span>
+        <span>이엠아이 청주캠퍼스 / 충북 청주시 청원구 오창읍 서오창산단3로 110</span>
+      </address>
+    </footer>
   );
 }
 
@@ -3629,6 +3654,7 @@ function AdminUsersPage({
   const [draftDepartmentId, setDraftDepartmentId] = useState<string>('');
   const [draftRoleCodes, setDraftRoleCodes] = useState<string[]>([]);
   const [draftIsActive, setDraftIsActive] = useState(true);
+  const [draftIsDepartmentHead, setDraftIsDepartmentHead] = useState(false);
   const [message, setMessage] = useState('');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [userExportBusy, setUserExportBusy] = useState(false);
@@ -3670,7 +3696,33 @@ function AdminUsersPage({
     setDraftDepartmentId(user.departmentId ?? '');
     setDraftRoleCodes([...user.roles]);
     setDraftIsActive(user.isActive);
+    setDraftIsDepartmentHead(user.isDepartmentHead);
     setMessage('');
+  };
+
+  const changeDepartment = (departmentId: string) => {
+    setDraftDepartmentId(departmentId);
+    if (!departmentId) {
+      setDraftIsDepartmentHead(false);
+      return;
+    }
+
+    const selectedDepartment = state.kind === 'ready'
+      ? state.data.departments.find((department) => department.departmentId === departmentId)
+      : undefined;
+    if (!selectedDepartment?.defaultRoleCode || state.kind !== 'ready') {
+      return;
+    }
+
+    const departmentRoleCodes = new Set(
+      state.data.departments
+        .map((department) => department.defaultRoleCode)
+        .filter((roleCode): roleCode is string => Boolean(roleCode))
+    );
+    setDraftRoleCodes((current) => [
+      ...current.filter((roleCode) => !departmentRoleCodes.has(roleCode)),
+      selectedDepartment.defaultRoleCode
+    ].filter((roleCode): roleCode is string => Boolean(roleCode)).sort());
   };
 
   const toggleRole = (roleCode: string) => {
@@ -3687,7 +3739,8 @@ function AdminUsersPage({
       const updated = await updateAdminUser(developmentUserKey, user.userId, {
         departmentId: draftDepartmentId || null,
         roleCodes: draftRoleCodes,
-        isActive: draftIsActive
+        isActive: draftIsActive,
+        isDepartmentHead: draftIsDepartmentHead
       });
       setState({ kind: 'ready', data: updated });
       setEditingUserId(null);
@@ -3787,6 +3840,9 @@ function AdminUsersPage({
   const visibleUsers = state.kind === 'ready' ? state.data.users : [];
   const selectableUserIds = visibleUsers.filter((user) => !user.isReadOnly).map((user) => user.userId);
   const allUsersSelected = selectableUserIds.length > 0 && selectableUserIds.every((id) => selectedUserIds.includes(id));
+  const draftDefaultRoleCode = state.kind === 'ready'
+    ? state.data.departments.find((department) => department.departmentId === draftDepartmentId)?.defaultRoleCode ?? null
+    : null;
 
   return (
     <section className={`panel-section admin-mobile-page${showAllMobileFields ? ' admin-mobile-page--all-fields' : ''}`}>
@@ -3796,7 +3852,7 @@ function AdminUsersPage({
         title="사용자 관리"
         actions={<button type="button" onClick={load}>새로고침</button>}
       />
-      <p className="muted-text">EntraId 사용자의 부서, 역할, 활성 상태만 수정할 수 있습니다. Dev 사용자는 읽기 전용입니다.</p>
+      <p className="muted-text">부서를 선택하면 기본 역할이 자동 지정됩니다. 부서장 체크 시 양식관리 대상 부서에는 승인 권한도 함께 부여되며, 한 부서에 여러 명을 지정할 수 있습니다. Dev 사용자는 읽기 전용입니다.</p>
       {isMobile ? (
         <button
           type="button"
@@ -3849,6 +3905,7 @@ function AdminUsersPage({
                 <th>구분</th>
                 <th>상태</th>
                 <th>부서</th>
+                <th>부서장</th>
                 <th>역할</th>
                 <th>작업</th>
               </tr>
@@ -3902,7 +3959,7 @@ function AdminUsersPage({
                     </td>
                     <td>
                       {editing ? (
-                        <select value={draftDepartmentId} onChange={(event) => setDraftDepartmentId(event.target.value)}>
+                        <select value={draftDepartmentId} onChange={(event) => changeDepartment(event.target.value)}>
                           <option value="">부서 미지정</option>
                           {state.data.departments.map((department) => (
                             <option key={department.departmentId} value={department.departmentId}>{department.name}</option>
@@ -3914,15 +3971,31 @@ function AdminUsersPage({
                     </td>
                     <td>
                       {editing ? (
+                        <label className="inline-check">
+                          <input
+                            type="checkbox"
+                            checked={draftIsDepartmentHead}
+                            disabled={!draftDepartmentId}
+                            onChange={(event) => setDraftIsDepartmentHead(event.target.checked)}
+                          />
+                          지정
+                        </label>
+                      ) : (
+                        user.isDepartmentHead ? '부서장' : '-'
+                      )}
+                    </td>
+                    <td>
+                      {editing ? (
                         <div className="role-checkboxes">
                           {state.data.roles.map((role) => (
                             <label key={role.code} className="inline-check">
                               <input
                                 type="checkbox"
                                 checked={draftRoleCodes.includes(role.code)}
+                                disabled={draftDefaultRoleCode === role.code}
                                 onChange={() => toggleRole(role.code)}
                               />
-                              {role.code}
+                              {role.code}{draftDefaultRoleCode === role.code ? ' · 자동' : ''}
                             </label>
                           ))}
                         </div>

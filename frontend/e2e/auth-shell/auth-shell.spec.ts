@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
 const referenceCanvas = { width: 1440, height: 810 };
 const referencePanels = { brandWidth: 776, loginWidth: 664 };
 const referenceGeometry = {
-  title: { scope: 'login', x: 109, y: 208.5, width: 447, height: 28.5 },
+  title: { scope: 'login', x: 142, y: 170, width: 380, height: 102.404 },
   emiLogo: { scope: 'brand', x: 219.75, y: 372, width: 329.563, height: 46.656 },
   microsoftLogo: { scope: 'login', x: 274, y: 306.75, width: 116.469, height: 148.219 },
   loginButton: { scope: 'login', x: 211, y: 510, width: 243, height: 48.75 },
@@ -89,6 +89,10 @@ test('@desktop approved Entra auth shell fills PC windows with the wireframe pan
     wireframeBackgroundContractMatches: true,
     wireframeConnectionContractMatches: true,
     specifiedLogoContractMatches: true,
+    productLogoContractMatches: true,
+    securityNoticeCount: 1,
+    companyFooterCount: 1,
+    campusAddressCount: 2,
     consoleErrorCount: 0,
     requestFailureCount: 0,
     failureCode: 'NONE'
@@ -194,6 +198,10 @@ test('@desktop loading auth shell replaces the login controls with one rotating 
     wireframeBackgroundContractMatches: true,
     wireframeConnectionContractMatches: true,
     specifiedLogoContractMatches: true,
+    productLogoContractMatches: true,
+    securityNoticeCount: 1,
+    companyFooterCount: 1,
+    campusAddressCount: 2,
     consoleErrorCount: 0,
     requestFailureCount: 0,
     failureCode: 'NONE'
@@ -240,6 +248,10 @@ test('@mobile mobile auth shell uses the dedicated monochrome layout and preserv
     logoNaturalHeight: 604,
     logoFilter: 'none',
     logoHasTransparentBackground: true,
+    productLogoVisible: true,
+    securityNoticeVisible: true,
+    companyFooterVisible: true,
+    campusAddressCount: 2,
     blackPrimaryButton: true,
     guidanceVisible: true,
     checkboxTouchTarget: true,
@@ -269,6 +281,10 @@ test('@mobile mobile auth shell uses the dedicated monochrome layout and preserv
   expect(loadingProjection.singleColumn).toBe(true);
   expect(loadingProjection.logoVisible).toBe(true);
   expect(loadingProjection.logoFilter).toBe('none');
+  expect(loadingProjection.productLogoVisible).toBe(true);
+  expect(loadingProjection.securityNoticeVisible).toBe(true);
+  expect(loadingProjection.companyFooterVisible).toBe(true);
+  expect(loadingProjection.campusAddressCount).toBe(2);
   expect(loadingProjection.loadingIndicatorVisible).toBe(true);
   expect(loadingProjection.horizontalOverflowPixels).toBe(0);
   expect(consoleErrorCount).toBe(0);
@@ -334,12 +350,14 @@ async function waitForResponsiveCanvas(page: Page) {
 }
 
 async function waitForLogo(page: Page) {
-  await page.locator('.auth-brand-logo').evaluate(async (element) => {
-    const image = element as HTMLImageElement;
-    if (!image.complete || image.naturalWidth === 0) {
-      await image.decode();
-    }
-  });
+  for (const selector of ['.auth-brand-logo', '.auth-product-logo']) {
+    await page.locator(selector).evaluate(async (element) => {
+      const image = element as HTMLImageElement;
+      if (!image.complete || image.naturalWidth === 0) {
+        await image.decode();
+      }
+    });
+  }
 }
 
 async function readProjection(page: Page) {
@@ -377,7 +395,9 @@ async function readProjection(page: Page) {
         height: round(elementBounds.height / scale)
       };
     };
-    const titleMatches = document.querySelector('h1')?.textContent === 'EMI PMS';
+    const productLogo = document.querySelector<HTMLImageElement>('.auth-product-logo');
+    const titleMatches = document.querySelector('h1')?.getAttribute('aria-label') === 'EMI PMS'
+      || productLogo?.alt === 'EMI PMS';
     const loginGuidance = document.querySelector<HTMLElement>('.auth-login-guidance');
     const primaryButton = document.querySelector<HTMLButtonElement>('.auth-primary-button');
     const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]');
@@ -539,7 +559,15 @@ async function readProjection(page: Page) {
         document.querySelector<HTMLImageElement>('.auth-brand-logo')?.naturalWidth === 4265
         && document.querySelector<HTMLImageElement>('.auth-brand-logo')?.naturalHeight === 604
         && getComputedStyle(document.querySelector<HTMLElement>('.auth-brand-logo')!).filter === 'none'
-      )
+      ),
+      productLogoContractMatches: Boolean(
+        productLogo?.naturalWidth === 1406
+        && productLogo?.naturalHeight === 379
+        && getComputedStyle(productLogo).filter === 'none'
+      ),
+      securityNoticeCount: document.querySelectorAll('[aria-label="정보 보안 안내"]').length,
+      companyFooterCount: document.querySelectorAll('[aria-label="회사 정보"]').length,
+      campusAddressCount: document.querySelectorAll('.company-information-footer address span').length
     };
   });
 }
@@ -551,6 +579,9 @@ async function readMobileProjection(page: Page) {
     const canvas = document.querySelector<HTMLElement>('.auth-login-canvas');
     const card = document.querySelector<HTMLElement>('.auth-gate-panel');
     const logo = document.querySelector<HTMLImageElement>('.auth-brand-logo');
+    const productLogo = document.querySelector<HTMLImageElement>('.auth-product-logo');
+    const securityNotice = document.querySelector<HTMLElement>('[aria-label="정보 보안 안내"]');
+    const companyFooter = document.querySelector<HTMLElement>('[aria-label="회사 정보"]');
     const primaryButton = document.querySelector<HTMLElement>('.auth-primary-button');
     const guidance = document.querySelector<HTMLElement>('.auth-login-guidance');
     const remember = document.querySelector<HTMLElement>('.remember-session-option');
@@ -576,6 +607,10 @@ async function readMobileProjection(page: Page) {
       logoNaturalHeight: logo?.naturalHeight ?? 0,
       logoFilter: logoStyle?.filter ?? 'missing',
       logoHasTransparentBackground: logoStyle?.backgroundColor === 'rgba(0, 0, 0, 0)',
+      productLogoVisible: visible(productLogo),
+      securityNoticeVisible: visible(securityNotice),
+      companyFooterVisible: visible(companyFooter),
+      campusAddressCount: document.querySelectorAll('.company-information-footer address span').length,
       blackPrimaryButton: buttonStyle?.backgroundColor === 'rgb(17, 17, 17)'
         || buttonStyle?.backgroundColor === 'rgb(0, 0, 0)',
       guidanceVisible: visible(guidance),

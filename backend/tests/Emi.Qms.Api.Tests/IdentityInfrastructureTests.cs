@@ -540,6 +540,80 @@ public sealed class IdentityInfrastructureTests
     }
 
     [Fact]
+    public async Task UserAdministrationAutoAssignsDepartmentRoleAndAllowsMultipleDepartmentHeads()
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "admin@example.com"
+        });
+        var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var formTemplates = context.Services.GetRequiredService<FormTemplateStore>();
+        var admin = await identityStore.GetOrCreateEntraProfileAsync(
+            "department-head-admin",
+            "Department Head Admin",
+            "admin@example.com",
+            TestContext.Current.CancellationToken);
+        var firstHead = await identityStore.GetOrCreateEntraProfileAsync(
+            "quality-head-first",
+            "Quality Head First",
+            "quality-head-first@example.invalid",
+            TestContext.Current.CancellationToken);
+        var secondHead = await identityStore.GetOrCreateEntraProfileAsync(
+            "quality-head-second",
+            "Quality Head Second",
+            "quality-head-second@example.invalid",
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(admin);
+        Assert.NotNull(firstHead);
+        Assert.NotNull(secondHead);
+        var snapshot = await administration.GetSnapshotAsync(TestContext.Current.CancellationToken);
+        var qualityDepartment = Assert.Single(snapshot.Departments, department => department.Code == "quality");
+
+        foreach (var targetUserId in new[] { firstHead.User.Id, secondHead.User.Id })
+        {
+            var result = await administration.UpdateEntraUserAsync(
+                targetUserId,
+                new UpdateUserAdministrationRequest(qualityDepartment.Id, [], true, true),
+                admin.User.Id,
+                TestContext.Current.CancellationToken);
+            Assert.True(result.Succeeded, result.ErrorMessage);
+            var updated = Assert.Single(result.Snapshot!.Users, user => user.UserId == targetUserId);
+            Assert.Contains(QmsRoles.Quality, updated.Roles);
+            Assert.True(updated.IsDepartmentHead);
+        }
+
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from form_template_manager_bindings binding
+            join departments department on department.id=binding.department_id
+            where department.code='quality'
+              and binding.domain='Quality'
+              and binding.revoked_at_utc is null;
+            """));
+        var firstScope = await formTemplates.GetScopeAsync(firstHead.User.Id, false, TestContext.Current.CancellationToken);
+        var secondScope = await formTemplates.GetScopeAsync(secondHead.User.Id, false, TestContext.Current.CancellationToken);
+        Assert.Contains("Quality", firstScope.Domains);
+        Assert.Contains("Quality", secondScope.Domains);
+
+        var revoked = await administration.UpdateEntraUserAsync(
+            firstHead.User.Id,
+            new UpdateUserAdministrationRequest(qualityDepartment.Id, [], true, false),
+            admin.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.True(revoked.Succeeded, revoked.ErrorMessage);
+        Assert.False(Assert.Single(revoked.Snapshot!.Users, user => user.UserId == firstHead.User.Id).IsDepartmentHead);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from form_template_manager_bindings
+            where domain='Quality' and revoked_at_utc is null;
+            """));
+        Assert.False((await formTemplates.GetScopeAsync(firstHead.User.Id, false, TestContext.Current.CancellationToken)).CanManage);
+        Assert.True((await formTemplates.GetScopeAsync(secondHead.User.Id, false, TestContext.Current.CancellationToken)).CanManage);
+    }
+
+    [Fact]
     public async Task EntraClaimsTransformationUsesMicrosoftObjectIdClaimAndAddsQmsClaims()
     {
         await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>

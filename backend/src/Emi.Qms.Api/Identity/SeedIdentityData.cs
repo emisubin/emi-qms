@@ -4,16 +4,16 @@ public static class SeedIdentityData
 {
     public static readonly IReadOnlyList<Department> Departments =
     [
-        new(new Guid("10000000-0000-0000-0000-000000000001"), "administration", "Administration"),
-        new(new Guid("10000000-0000-0000-0000-000000000002"), "sales", "Sales"),
-        new(new Guid("10000000-0000-0000-0000-000000000003"), "production-planning", "Production Planning"),
-        new(new Guid("10000000-0000-0000-0000-000000000004"), "manufacturing", "Manufacturing"),
-        new(new Guid("10000000-0000-0000-0000-000000000005"), "quality", "Quality"),
-        new(new Guid("10000000-0000-0000-0000-000000000006"), "logistics", "Logistics"),
-        new(new Guid("10000000-0000-0000-0000-000000000007"), "readonly", "Read Only"),
-        new(new Guid("10000000-0000-0000-0000-000000000008"), "design", "Design"),
-        new(new Guid("10000000-0000-0000-0000-000000000009"), "procurement", "Procurement"),
-        new(new Guid("10000000-0000-0000-0000-000000000010"), "materials", "Materials")
+        new(new Guid("10000000-0000-0000-0000-000000000001"), "administration", "관리"),
+        new(new Guid("10000000-0000-0000-0000-000000000002"), "sales", "영업"),
+        new(new Guid("10000000-0000-0000-0000-000000000003"), "production-planning", "생산관리"),
+        new(new Guid("10000000-0000-0000-0000-000000000004"), "manufacturing", "제조"),
+        new(new Guid("10000000-0000-0000-0000-000000000005"), "quality", "품질"),
+        new(new Guid("10000000-0000-0000-0000-000000000006"), "logistics", "물류"),
+        new(new Guid("10000000-0000-0000-0000-000000000007"), "readonly", "조회 전용"),
+        new(new Guid("10000000-0000-0000-0000-000000000008"), "design", "설계"),
+        new(new Guid("10000000-0000-0000-0000-000000000009"), "procurement", "구매"),
+        new(new Guid("10000000-0000-0000-0000-000000000010"), "materials", "자재")
     ];
 
     public static readonly IReadOnlyList<Role> Roles =

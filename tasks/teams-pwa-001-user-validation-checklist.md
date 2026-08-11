@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 사용자 검수 체크리스트
 
-상태: `Change 001~003·007·009·010 원격 main 병합·Azure 운영 rollout 완료 / Android 최종 사용자 검수 완료 / 기타 운영 표면 검수 대기`
+상태: `Change 001~003·007·009·010 원격 main 병합·Azure 운영 rollout 완료 / Change 011 사용자 검수 완료 / Git 게시·main 병합·공개배포 승인`
 
 - 검수 대상: EMI PMS 일반 사용자, System Administrator
 - 운영 적용: Change 007·009·010 Git 게시와 Azure 운영 rollout 완료. Change 010은 PR #88, 원격 `main` merge SHA `5300b4646b2ea8bba0a43e953fea58e66caa2016`, Azure release `31366150022`로 운영에 반영됐다. Teams package/catalog는 변경하지 않는다.
@@ -32,6 +32,18 @@
 - [x] DB·migration·알림 발송 정책·실제 provider 데이터는 변경하지 않았다.
 - [x] Change 010에서 Easy Auth 보호 manifest link에 `crossorigin="use-credentials"`를 추가하고 PWA asset contract·집중 unit `10/10`·전체 unit `187/187`·lint·typecheck·production build를 통과했다.
 
+## Change 011 자동 검증
+
+- [x] 사용자 제공 원본과 새 웹 제품 logo asset의 SHA-256이 일치한다.
+- [x] 로그인 왼쪽 EMI Electric Modular Innovation logo는 변경되지 않았다.
+- [x] 로그인 뒤 desktop sidebar·mobile app bar·mobile menu와 로그인 제품명 위치가 새 EMI PMS 제품 logo를 사용한다.
+- [x] 로그인 화면에 중립적인 1px wireframe 정보 보안 안내가 표시된다.
+- [x] 인증 화면과 로그인 뒤 공통 shell footer에 `(주) 이엠아이`, 오산 주소, `이엠아이 청주캠퍼스` 주소가 표시된다.
+- [x] PWA icon·Teams color/outline icon·manifest·launcher는 변경되지 않았다.
+- [x] Frontend lint·typecheck·unit `190/190`·production build가 통과했다.
+- [x] desktop 5개 viewport와 iPhone 390·Android 412 login/loading browser `12/12`에서 제품 logo·보안 안내·회사 footer·가로 overflow 0을 확인했다.
+- [x] 독립 Codex 검증에서 P0/P1/P2 `0/0/0`과 사용자 검수 가능 판정을 확인했다.
+
 ## Change 007 자동 검증
 
 - [x] 로그인 화면은 지정 4x 가로 logo의 natural size `4265×604`를 유지한다.
@@ -49,6 +61,9 @@
 - [ ] 보호된 운영 주소를 열었을 때 인증 전에는 핵심 앱 화면이나 JavaScript 파일이 바로 내려오지 않는지 확인한다.
 - [ ] Microsoft 365 로그인 뒤 브라우저 탭·로그인 화면·상단 이름이 모두 `EMI PMS`인지 확인한다.
 - [ ] 로그인 화면에는 지정 4x 가로 logo, 로그인 뒤 모든 화면의 왼쪽 공통 메뉴에는 지정 4x 내부 logo가 원본 색상으로 표시되는지 확인한다.
+- [x] Change 011 로그인 왼쪽 EMI 로고는 유지되고, 오른쪽 제품명 위치에는 새 EMI PMS 제품 로고가 표시되는지 확인한다.
+- [x] 로그인 정보 보안 안내와 모든 페이지 하단의 `(주) 이엠아이`·오산 주소·청주캠퍼스 주소가 읽기 쉽고 업무 버튼을 가리지 않는지 확인한다.
+- [x] 로그인 뒤 왼쪽 공통 메뉴에는 새 EMI PMS 제품 로고가 원본 색상으로 표시되는지 확인한다.
 - [ ] Chrome 또는 Edge에서 로그인 화면/계정 영역의 `EMI PMS 설치` 안내를 열 수 있는지 확인한다.
 - [ ] 브라우저가 설치를 지원하는 경우 설치 버튼 한 번으로 설치 확인창이 열리는지 확인한다.
 - [ ] 설치 후 시작 메뉴·작업 표시줄 이름과 아이콘이 `EMI PMS`, 흰 바탕 빨간 EMI 로고인지 확인한다.
@@ -65,6 +80,7 @@
 - [x] 설치 후 홈 화면 이름·아이콘과 standalone 실행이 정상인지 확인한다.
 - [x] 제조·품질 주요 화면이 390px 안에서 가로로 잘리지 않는지 확인한다.
 - [x] 로그인 뒤 상단 app bar와 전체 업무 menu의 logo가 모두 지정 4x 내부 logo 원본 색상으로 보이는지 확인한다.
+- [x] Change 011 새 EMI PMS 제품 로고와 두 주소 footer가 390px에서 잘리지 않는지 확인한다.
 
 ### 3. iPhone
 
@@ -77,6 +93,7 @@
 - [ ] 안내 절차대로 홈 화면에 추가한 뒤 이름·아이콘과 standalone 실행이 정상인지 확인한다.
 - [ ] 설치 앱에서 Microsoft 365 로그인과 제조·품질 주요 화면을 사용할 수 있는지 확인한다.
 - [ ] 지정 4x 로그인 logo와 로그인 뒤 상단·전체 업무 menu의 지정 4x 내부 logo가 구분되어 표시되는지 확인한다.
+- [x] Change 011 로그인 제품 로고·정보 보안 안내·두 주소 footer가 390px에서 잘리지 않는지 확인한다.
 
 ### 4. Teams 앱·Activity Feed
 
@@ -101,6 +118,7 @@
 | 2026-08-10 | Azure 운영 / iPhone·Android | 사용자 | FAIL → Change 009 보정 | 실제 기기 화면 확인 | Microsoft 로그인 뒤 설치 안내가 자동 표시되지 않음 |
 | 2026-08-10 | Azure 운영 / 자동 공개 검증 | Codex | PASS | CI·release·HTTP 상태 | PR #86·main CI `3/3`, release `31361630803`, health `200`, 익명 `401/401` |
 | 2026-08-10 | Azure 운영 / Android Chrome | 사용자 | PASS | 실제 기기 최종 검수 | PR #88·release `31366150022` 반영 후 설치 안내·버튼 활성·native 확인창·standalone 정상 |
+| 2026-08-11 | Local 검수 runtime / PC·390px | 사용자 | PASS | 화면 직접 확인 | Change 011 로그인·공통 shell 제품 logo, 정보 보안 안내, 회사명·오산·청주 footer 검수 완료 |
 
 ## 실패 시 처리
 

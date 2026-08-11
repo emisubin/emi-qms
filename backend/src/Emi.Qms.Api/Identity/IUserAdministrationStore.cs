@@ -56,12 +56,14 @@ public sealed record UserAdministrationUser(
     DateTimeOffset? ScheduledHardDeleteAtUtc = null,
     DateTimeOffset? PurgeBlockedAtUtc = null,
     string? PurgeBlockedReason = null,
-    bool? PreDeleteIsActive = null);
+    bool? PreDeleteIsActive = null,
+    bool IsDepartmentHead = false);
 
 public sealed record UpdateUserAdministrationRequest(
     Guid? DepartmentId,
     IReadOnlyList<string> RoleCodes,
-    bool IsActive);
+    bool IsActive,
+    bool IsDepartmentHead = false);
 
 public sealed record UserAdministrationMutationResult(
     bool Succeeded,

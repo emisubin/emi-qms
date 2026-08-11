@@ -473,6 +473,7 @@ public sealed record AdminUserResponse(
     string? DepartmentName,
     IReadOnlyList<string> Roles,
     bool IsReadOnly,
+    bool IsDepartmentHead,
     DateTimeOffset? DeletionRequestedAtUtc,
     DateTimeOffset? ScheduledHardDeleteAtUtc,
     DateTimeOffset? PurgeBlockedAtUtc,
@@ -504,6 +505,7 @@ public sealed record AdminUserResponse(
             user.DepartmentName,
             user.Roles,
             user.IsReadOnly,
+            user.IsDepartmentHead,
             user.DeletionRequestedAtUtc,
             user.ScheduledHardDeleteAtUtc,
             user.PurgeBlockedAtUtc,
@@ -512,11 +514,15 @@ public sealed record AdminUserResponse(
     }
 }
 
-public sealed record AdminDepartmentResponse(Guid DepartmentId, string Code, string Name)
+public sealed record AdminDepartmentResponse(Guid DepartmentId, string Code, string Name, string? DefaultRoleCode)
 {
     public static AdminDepartmentResponse From(Department department)
     {
-        return new AdminDepartmentResponse(department.Id, department.Code, department.Name);
+        return new AdminDepartmentResponse(
+            department.Id,
+            department.Code,
+            department.Name,
+            DepartmentIdentityPolicy.GetDefaultRoleCode(department.Code));
     }
 }
 

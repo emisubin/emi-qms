@@ -11413,20 +11413,53 @@ body {
   font-weight: 800;
 }
 
-.notice-composer > label {
+.notice-composer > label,
+.notice-composer > .notice-field {
   display: grid;
   gap: 8px;
   color: var(--ink);
   font-weight: 900;
 }
 
-.notice-composer > label > span {
+.notice-composer > label > span,
+.notice-field > label {
   display: flex;
   justify-content: space-between;
 }
 
-.notice-composer > label > span small {
+.notice-composer > label > span small,
+.notice-field > label small {
   color: #85777a;
+  font-weight: 700;
+}
+
+.notice-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: #faf8f8;
+  padding: 8px 10px;
+}
+
+.app-shell .notice-bold-button {
+  min-height: 34px;
+  border-color: var(--line-strong);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 6px 10px;
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.notice-editor-toolbar > small,
+.notice-format-feedback,
+.notice-file-picker > small {
+  color: #74676a;
+  font-size: 0.72rem;
   font-weight: 700;
 }
 
@@ -11445,6 +11478,10 @@ body {
   min-height: 220px;
   resize: vertical;
   line-height: 1.65;
+}
+
+.notice-editor-toolbar + textarea {
+  border-radius: 0 0 12px 12px;
 }
 
 .notice-composer input:focus,
@@ -11527,6 +11564,176 @@ body {
   line-height: 1.8;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.notice-attachments {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.notice-attachments-heading,
+.notice-attachments-heading > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notice-attachments-heading h4,
+.notice-attachments-heading p,
+.notice-attachments-empty,
+.notice-attachment-feedback {
+  margin: 0;
+}
+
+.notice-attachments-heading h4 {
+  font-size: 1rem;
+}
+
+.notice-attachments-heading p,
+.notice-attachments-empty {
+  color: #77696c;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.notice-attachment-list,
+.notice-selected-files {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notice-attachment-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fcfbfb;
+  padding: 8px;
+}
+
+.app-shell .notice-attachment-download {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 3px;
+  color: var(--ink);
+  text-align: left;
+  box-shadow: none;
+}
+
+.notice-attachment-download > span:first-child {
+  display: grid;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--brand-red-soft);
+  color: var(--brand-red-strong);
+  font-weight: 950;
+}
+
+.notice-attachment-download > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.notice-attachment-download strong,
+.notice-attachment-download small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice-attachment-download strong {
+  font-size: 0.84rem;
+}
+
+.notice-attachment-download small {
+  color: #77696c;
+  font-size: 0.7rem;
+}
+
+.app-shell .notice-attachment-remove {
+  min-height: 34px;
+  border-color: rgb(218 33 39 / 22%);
+  background: #ffffff;
+  padding: 6px 10px;
+  color: var(--brand-red-strong);
+  box-shadow: none;
+}
+
+.notice-attachment-uploader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.notice-attachment-uploader label,
+.notice-file-picker {
+  display: grid;
+  gap: 7px;
+}
+
+.notice-attachment-uploader label > span,
+.notice-file-picker > span {
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.notice-attachment-uploader input,
+.notice-file-picker input {
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.notice-attachment-uploader > small {
+  grid-column: 1 / -1;
+  color: #77696c;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.notice-attachment-feedback {
+  color: var(--brand-red-strong);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.notice-selected-files li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 9px;
+  background: #f7f4f4;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.notice-selected-files small {
+  flex: 0 0 auto;
+  color: #77696c;
 }
 
 .app-shell .danger-button {
@@ -20232,6 +20439,11 @@ body {
     min-height: 260px;
   }
 
+  .notice-editor-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .notice-composer footer {
     display: grid;
     grid-template-columns: 0.8fr 1.2fr;
@@ -20252,6 +20464,24 @@ body {
   .notice-detail-body {
     min-height: 220px;
     font-size: 0.86rem;
+  }
+
+  .notice-attachments-heading > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .notice-attachment-uploader {
+    grid-template-columns: 1fr;
+  }
+
+  .notice-attachment-uploader > small {
+    grid-column: auto;
+  }
+
+  .notice-attachment-uploader > button {
+    width: 100%;
   }
 }
 

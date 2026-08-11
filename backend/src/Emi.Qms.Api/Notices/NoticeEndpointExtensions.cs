@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Emi.Qms.Api.Notices;
 
@@ -41,6 +42,81 @@ public static class NoticeEndpointExtensions
                 ? Results.Unauthorized()
                 : ToResult(await store.CreateAsync(request, actorUserId.Value, token), Results.Ok);
         }).WithName("CreateNotice");
+
+        api.MapPut("/{noticeId:guid}", async (
+            Guid noticeId,
+            UpdateNoticeRequest request,
+            NoticeStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+        {
+            var actorUserId = UserId(user);
+            return actorUserId is null
+                ? Results.Unauthorized()
+                : ToResult(await store.UpdateAsync(noticeId, request, actorUserId.Value, token), Results.Ok);
+        }).WithName("UpdateNotice");
+
+        api.MapPost("/{noticeId:guid}/attachments", async (
+            Guid noticeId,
+            [FromForm] IFormFile file,
+            NoticeStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+        {
+            var actorUserId = UserId(user);
+            if (actorUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+            if (file.Length is < 1 or > NoticeAttachmentValidator.MaximumFileBytes)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["file"] = ["파일은 개별 10MB 이하여야 합니다."]
+                });
+            }
+            await using var stream = file.OpenReadStream();
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory, token);
+            return ToResult(
+                await store.AddAttachmentAsync(noticeId, file.FileName, memory.ToArray(), actorUserId.Value, token),
+                Results.Ok);
+        })
+        .WithMetadata(new RequestSizeLimitAttribute(11 * 1024 * 1024))
+        .DisableAntiforgery()
+        .WithName("UploadNoticeAttachment");
+
+        api.MapDelete("/{noticeId:guid}/attachments/{attachmentId:guid}", async (
+            Guid noticeId,
+            Guid attachmentId,
+            NoticeStore store,
+            ClaimsPrincipal user,
+            CancellationToken token) =>
+        {
+            var actorUserId = UserId(user);
+            return actorUserId is null
+                ? Results.Unauthorized()
+                : ToResult(
+                    await store.DeleteAttachmentAsync(noticeId, attachmentId, actorUserId.Value, token),
+                    Results.Ok);
+        }).WithName("DeleteNoticeAttachment");
+
+        api.MapGet("/{noticeId:guid}/attachments/{attachmentId:guid}/content", async (
+            Guid noticeId,
+            Guid attachmentId,
+            NoticeStore store,
+            HttpContext context,
+            CancellationToken token) =>
+        {
+            var result = await store.GetAttachmentContentAsync(noticeId, attachmentId, token);
+            if (result.Status == NoticeMutationStatus.NotFound || result.Value is null)
+            {
+                return Results.NotFound();
+            }
+            context.Response.Headers.CacheControl = "private, no-store";
+            context.Response.Headers.XContentTypeOptions = "nosniff";
+            return Results.File(result.Value.Content, result.Value.ContentType, result.Value.FileName);
+        }).WithName("DownloadNoticeAttachment");
 
         api.MapDelete("/{noticeId:guid}", async (Guid noticeId, NoticeStore store, ClaimsPrincipal user, CancellationToken token) =>
         {

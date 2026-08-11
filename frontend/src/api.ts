@@ -26,7 +26,16 @@ import type {
 } from './productionControlTemplates';
 import type { AdminUsersResponse, CurrentUser, ProfilePhotoMetadata, UpdateAdminUserRequest } from './identity';
 import type { HomeMetricsResponse } from './home';
-import type { CreateNoticeRequest, NoticeDeleteResponse, NoticeDetail, NoticeListResponse } from './notices';
+import type {
+  CreateNoticeRequest,
+  NoticeAttachment,
+  NoticeAttachmentDeleteResponse,
+  NoticeAttachmentDownload,
+  NoticeDeleteResponse,
+  NoticeDetail,
+  NoticeListResponse,
+  UpdateNoticeRequest
+} from './notices';
 import type {
   PanelQrPrintSheet,
   PanelQrBatchIssue,
@@ -3042,6 +3051,71 @@ export async function createNotice(
     method: 'POST',
     body: JSON.stringify(request)
   });
+}
+
+export async function updateNotice(
+  developmentUserKey: string | undefined,
+  noticeId: string,
+  request: UpdateNoticeRequest
+): Promise<NoticeDetail> {
+  return fetchJson<NoticeDetail>(`/api/notices/${encodeURIComponent(noticeId)}`, developmentUserKey, {
+    method: 'PUT',
+    body: JSON.stringify(request)
+  });
+}
+
+export async function uploadNoticeAttachment(
+  developmentUserKey: string | undefined,
+  noticeId: string,
+  file: File
+): Promise<NoticeAttachment> {
+  const form = new FormData();
+  form.append('file', file);
+  return fetchJson<NoticeAttachment>(
+    `/api/notices/${encodeURIComponent(noticeId)}/attachments`,
+    developmentUserKey,
+    { method: 'POST', body: form }
+  );
+}
+
+export async function deleteNoticeAttachment(
+  developmentUserKey: string | undefined,
+  noticeId: string,
+  attachmentId: string
+): Promise<NoticeAttachmentDeleteResponse> {
+  return fetchJson<NoticeAttachmentDeleteResponse>(
+    `/api/notices/${encodeURIComponent(noticeId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    developmentUserKey,
+    { method: 'DELETE' }
+  );
+}
+
+export async function downloadNoticeAttachment(
+  developmentUserKey: string | undefined,
+  noticeId: string,
+  attachmentId: string,
+  fallbackFileName: string
+): Promise<NoticeAttachmentDownload> {
+  let response: Response;
+  try {
+    response = await fetchWithAuth(
+      `/api/notices/${encodeURIComponent(noticeId)}/attachments/${encodeURIComponent(attachmentId)}/content`,
+      developmentUserKey
+    );
+  } catch (error: unknown) {
+    if (isInteractionRequiredAuthError(error)) {
+      throw new ApiError(401, '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.');
+    }
+    throw new ApiError(0, '첨부파일 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+  }
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  return {
+    blob: await response.blob(),
+    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? fallbackFileName
+  };
 }
 
 export async function deleteNotice(

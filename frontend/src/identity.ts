@@ -64,6 +64,7 @@ export interface AdminUser {
   departmentName: string | null;
   roles: string[];
   isReadOnly: boolean;
+  isDepartmentHead: boolean;
   deletionRequestedAtUtc: string | null;
   scheduledHardDeleteAtUtc: string | null;
   purgeBlockedAtUtc: string | null;
@@ -78,6 +79,7 @@ export interface AdminDepartment {
   departmentId: string;
   code: string;
   name: string;
+  defaultRoleCode: string | null;
 }
 
 export interface AdminRole {
@@ -90,4 +92,5 @@ export interface UpdateAdminUserRequest {
   departmentId: string | null;
   roleCodes: string[];
   isActive: boolean;
+  isDepartmentHead: boolean;
 }

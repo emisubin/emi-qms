@@ -364,7 +364,7 @@ public sealed class PostgreSqlMigrationTests
 
         var counts = await ReadCountsAsync(connectionStringProvider, TestContext.Current.CancellationToken);
         Assert.Equal(0, counts.Users);
-        Assert.Equal(3, counts.Departments);
+        Assert.Equal(10, counts.Departments);
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(10, counts.Roles);
@@ -373,6 +373,35 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
             "select count(*) from departments where code = 'design';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(10L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from departments
+            where (code,name) in (
+                ('administration','관리'),
+                ('sales','영업'),
+                ('design','설계'),
+                ('production-planning','생산관리'),
+                ('procurement','구매'),
+                ('materials','자재'),
+                ('manufacturing','제조'),
+                ('quality','품질'),
+                ('logistics','물류'),
+                ('readonly','조회 전용')
+            );
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            connectionStringProvider,
+            """
+            select count(*)
+            from information_schema.columns
+            where table_schema='public'
+              and table_name='qms_users'
+              and column_name='is_department_head';
+            """,
             TestContext.Current.CancellationToken));
 
         await AssertCoreConstraintsExistAsync(connectionStringProvider, TestContext.Current.CancellationToken);
@@ -592,7 +621,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -858,7 +887,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -962,7 +991,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1028,7 +1057,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+        Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1092,7 +1121,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1257,7 +1286,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1749,7 +1778,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+        Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1792,7 +1821,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+        Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1973,7 +2002,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2001,6 +2030,79 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task UserDepartmentRoleHeadsMigrationBackfillsExistingManagerAndStandardizesDepartments()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var migrationsThrough0071 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0071-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql")
+                         .Where(path => string.CompareOrdinal(Path.GetFileName(path), "0072_") < 0))
+            {
+                File.Copy(source, Path.Combine(migrationsThrough0071.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0071.FullName),
+                new DatabaseRuntimePrivilegeManager(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into departments (id,code,name,is_active,sort_order)
+                values ('10000000-0000-0000-0000-000000000005','quality','Quality',true,80);
+                insert into qms_users (
+                    id,development_user_key,display_name,department_id,is_active,
+                    auth_provider,entra_object_id,email
+                ) values
+                    ('72000000-0000-0000-0000-000000000001','migration-head-admin','Migration Head Admin',
+                     '10000000-0000-0000-0000-000000000005',true,'EntraId','migration-head-admin','admin@example.invalid'),
+                    ('72000000-0000-0000-0000-000000000002','migration-quality-head','Migration Quality Head',
+                     '10000000-0000-0000-0000-000000000005',true,'EntraId','migration-quality-head','head@example.invalid');
+                insert into form_template_manager_bindings (
+                    id,user_id,department_id,domain,assigned_by_user_id
+                ) values (
+                    '72000000-0000-0000-0000-000000000003',
+                    '72000000-0000-0000-0000-000000000002',
+                    '10000000-0000-0000-0000-000000000005',
+                    'Quality',
+                    '72000000-0000-0000-0000-000000000001'
+                );
+                """,
+                TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(10L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from departments;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal("품질", await ReadScalarAsync<string>(
+                provider,
+                "select name from departments where code='quality';",
+                TestContext.Current.CancellationToken));
+            Assert.True(await ReadScalarAsync<bool>(
+                provider,
+                "select is_department_head from qms_users where development_user_key='migration-quality-head';",
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            migrationsThrough0071.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task NotificationDeliveryClaimLeaseMigration_AddsProcessingClaimsAttemptsAndIndexes()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -2016,7 +2118,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0071_material_category_iqc_templates", await ReadScalarAsync<string>(
+        Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

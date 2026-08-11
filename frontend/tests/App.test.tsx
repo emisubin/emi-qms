@@ -60,6 +60,11 @@ describe('App', () => {
     const { unmount } = render(<App />);
 
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
+    expect(screen.getByAltText('EMI PMS - Project Management System')).toBeInTheDocument();
+    const companyInformation = screen.getByLabelText('회사 정보');
+    expect(within(companyInformation).getByText('(주) 이엠아이')).toBeInTheDocument();
+    expect(within(companyInformation).getByText('경기도 오산시 세남로길 14-11 (세교동 63-1)')).toBeInTheDocument();
+    expect(within(companyInformation).getByText('이엠아이 청주캠퍼스 / 충북 청주시 청원구 오창읍 서오창산단3로 110')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '내 업무' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '공지사항' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '알림' })).toBeInTheDocument();
@@ -1191,6 +1196,19 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '사용자 관리' }));
     expect(await screen.findByRole('heading', { name: '사용자 관리' })).toBeInTheDocument();
+    expect(screen.getByText(/부서를 선택하면 기본 역할이 자동 지정됩니다/)).toBeInTheDocument();
+    const entraSalesRow = screen.getByText('Entra Sales User').closest('tr');
+    expect(entraSalesRow).not.toBeNull();
+    fireEvent.click(within(entraSalesRow as HTMLElement).getByRole('button', { name: '수정' }));
+    fireEvent.change(within(entraSalesRow as HTMLElement).getByRole('combobox'), {
+      target: { value: '10000000-0000-0000-0000-000000000001' }
+    });
+    expect(within(entraSalesRow as HTMLElement).getByRole('checkbox', { name: /system-administrator/ })).toBeChecked();
+    expect(within(entraSalesRow as HTMLElement).getByRole('checkbox', { name: 'sales' })).not.toBeChecked();
+    const departmentHeadCheckbox = within(entraSalesRow as HTMLElement).getByRole('checkbox', { name: '지정' });
+    fireEvent.click(departmentHeadCheckbox);
+    expect(departmentHeadCheckbox).toBeChecked();
+    fireEvent.click(within(entraSalesRow as HTMLElement).getByRole('button', { name: '취소' }));
     expect(screen.getAllByRole('button', { name: '삭제' }).length).toBeGreaterThan(0);
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     fireEvent.click(screen.getAllByRole('button', { name: '삭제' })[0]);
@@ -1202,7 +1220,7 @@ describe('App', () => {
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
     fireEvent.click(screen.getByRole('button', { name: '부서' }));
     expect(await screen.findByRole('heading', { name: '부서 관리' })).toBeInTheDocument();
-    expect(screen.getByDisplayValue('Sales')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('영업')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '추가' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '삭제' })).toBeInTheDocument();
     const departmentConfirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -3140,9 +3158,10 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
           approvalPending: false,
           departmentId: '10000000-0000-0000-0000-000000000002',
           departmentCode: 'sales',
-          departmentName: 'Sales',
+          departmentName: '영업',
           roles: ['sales'],
           isReadOnly: false,
+          isDepartmentHead: false,
           deletionRequestedAtUtc: scheduledDeletion ? '2026-07-07T00:00:00Z' : null,
           scheduledHardDeleteAtUtc: scheduledDeletion ? '2026-07-14T00:00:00Z' : null,
           purgeBlockedAtUtc: null,
@@ -3161,9 +3180,10 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
           approvalPending: false,
           departmentId: '10000000-0000-0000-0000-000000000001',
           departmentCode: 'administration',
-          departmentName: 'Administration',
+          departmentName: '관리',
           roles: ['system-administrator'],
           isReadOnly: true,
+          isDepartmentHead: false,
           deletionRequestedAtUtc: null,
           scheduledHardDeleteAtUtc: null,
           purgeBlockedAtUtc: null,
@@ -3182,9 +3202,10 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
           approvalPending: false,
           departmentId: '10000000-0000-0000-0000-000000000002',
           departmentCode: 'sales',
-          departmentName: 'Sales',
+          departmentName: '영업',
           roles: ['sales'],
           isReadOnly: false,
+          isDepartmentHead: false,
           deletionRequestedAtUtc: null,
           scheduledHardDeleteAtUtc: null,
           purgeBlockedAtUtc: null,
@@ -3195,8 +3216,8 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
         }
       ],
       departments: [
-        { departmentId: '10000000-0000-0000-0000-000000000001', code: 'administration', name: 'Administration' },
-        { departmentId: '10000000-0000-0000-0000-000000000002', code: 'sales', name: 'Sales' }
+        { departmentId: '10000000-0000-0000-0000-000000000001', code: 'administration', name: '관리', defaultRoleCode: 'system-administrator' },
+        { departmentId: '10000000-0000-0000-0000-000000000002', code: 'sales', name: '영업', defaultRoleCode: 'sales' }
       ],
       roles: [
         { roleId: '20000000-0000-0000-0000-000000000001', code: 'system-administrator', name: 'System Administrator' },
@@ -3246,7 +3267,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     const department = {
       departmentId: '10000000-0000-0000-0000-000000000002',
       code: 'sales',
-      name: 'Sales',
+      name: '영업',
       isActive: scheduledDeletion ? false : true,
       sortOrder: 20,
       userCount: 1,

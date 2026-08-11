@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 구현 보고 — Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
-상태: `Change 001~003·007·009·010 원격 main 병합·Azure 운영 rollout 완료 / Android 최종 사용자 검수 완료 / 기타 운영 표면 검수 대기`
+상태: `Change 001~003·007·009·010 원격 main 병합·Azure 운영 rollout 완료 / Change 011 local 구현·자동 검증·사용자 검수 완료 / Git 게시·main 병합·공개배포 승인`
 
 ## 기준선과 승인 범위
 
@@ -11,7 +11,7 @@
 - baseSha: `914a109e170f4e1c3ce34fb1faa4216c1b4fcf1c`
 - planning: `tasks/teams-pwa-001-planning.md`
 - Codex review: `tasks/teams-pwa-001-review.md`
-- approved resolution: `tasks/teams-pwa-001-change-001.md`, `tasks/teams-pwa-001-change-002.md`, `tasks/teams-pwa-001-change-003.md`, `tasks/teams-pwa-001-change-007.md`, `tasks/teams-pwa-001-change-008.md`, `tasks/teams-pwa-001-change-009.md`, `tasks/teams-pwa-001-change-010.md`
+- approved resolution: `tasks/teams-pwa-001-change-001.md`, `tasks/teams-pwa-001-change-002.md`, `tasks/teams-pwa-001-change-003.md`, `tasks/teams-pwa-001-change-007.md`, `tasks/teams-pwa-001-change-008.md`, `tasks/teams-pwa-001-change-009.md`, `tasks/teams-pwa-001-change-010.md`, `tasks/teams-pwa-001-change-011.md`
 - 포함: Teams 정적 launcher, launcher-only Easy Auth 예외 artifact, PWA 설치 UX, 전 사용자 표면 `EMI PMS` 브랜드 문자열, 관련 자동·브라우저 검증
 - 원래 구현 제외: 실제 Azure·Entra·Teams Admin Center·catalog·운영 revision 변경, NAA·OBO·신규 token/session, Web Push·Service Worker·DB migration, 알림 수신자·발송 시점 변경. Change 007의 운영 revision 교체만 후속 사용자 승인으로 실행했다.
 
@@ -28,6 +28,8 @@ Change 007에서는 로그인 화면용 가로 로고와 로그인 후 공통 sh
 Change 009에서는 운영 모바일에서 Microsoft 365 인증 뒤 홈으로 바로 진입하고 PWA 안내가 보이지 않던 결함을 보정한다. 설치 event 수신은 MSAL 초기화보다 앞에서 시작하되 자동 안내는 access-token gate와 업무 shell이 준비된 뒤에만 연다. Android는 설치 event를 기다리는 동안에도 안내와 비활성 설치 버튼을 먼저 표시하고 event가 도착하면 같은 버튼을 활성화한다. iPhone 절차는 그대로 유지하며 `나중에` 기억은 영구가 아닌 현재 탭 session으로 제한한다.
 
 Change 010에서는 Azure Easy Auth로 보호된 운영 manifest가 credential 없이 요청돼 Android Chrome의 설치 가능 판정이 완료되지 않던 결함을 보정한다. same-origin manifest link에도 `crossorigin="use-credentials"`를 명시해 인증된 manifest 요청을 보장하고, 같은 속성이 빠지면 PWA asset contract가 실패하게 한다. 팝업 정책과 설치 버튼 제어 로직은 변경하지 않는다.
+
+Change 011에서는 사용자가 제공한 새 EMI PMS 제품 로고를 로그인 뒤 공통 desktop sidebar·mobile app bar·mobile drawer와 로그인 제품명 위치에 적용한다. 로그인 왼쪽 EMI Electric Modular Innovation 로고는 유지하고 로그인 화면에 정보 보안 안내, 인증·업무 공통 footer에 `(주) 이엠아이`·오산 주소·청주캠퍼스 주소를 표시한다. PWA·Teams 앱 아이콘과 manifest는 변경하지 않는다.
 
 ## 전체 아키텍처와 영향
 
@@ -108,6 +110,20 @@ Azure Easy Auth로 보호된 EMI PMS 웹·설치 PWA
 
 Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변경과 Android/iPhone 실제 기기·운영 메일/PDF/Excel 육안 검수는 이번 자동 release 성공으로 대체하지 않는다.
 
+### Change 011 local 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| 지정 asset byte equality | PASS — 사용자 원본과 `frontend/src/assets/emi-pms-product-logo.png` SHA-256 `eebdb3aa79eacfb4310fc819796609d53a364c384c923ae0104a5199745f3ce7` 일치 |
+| 보존 asset | PASS — 로그인 왼쪽 `emi-logo.png`, `frontend/public/icons/*`, `infrastructure/teams/assets/*` diff 0 |
+| Frontend lint·typecheck·unit·build | PASS — lint error 0·기존 warning 1, typecheck, unit `26 files / 190/190`, production build; 기존 대형 chunk warning 유지 |
+| Auth shell browser | PASS — desktop 1920·1440·1280·1024·short-window와 iPhone 390·Android 412 login/loading `12/12`, 가로 overflow 0 |
+| 실제 task 검수 runtime | PASS — `5175` 내부 desktop shell에 공통 제품 로고·회사 footer·두 주소가 1회 표시되고 가로 overflow 0 |
+| PR CI 보정 | PASS — PR #93 첫 Frontend E2E에서 기존 Change 007 로고 크기 `3796×1378`을 고정한 mock smoke만 실패했다. 제품 UI는 변경하지 않고 같은 공통 shell 검증을 새 승인 로고의 실제 크기 `1406×379`로 갱신했다. |
+| Backend·DB·migration·PWA·Teams | N/A — Change 011은 웹 표시 자산·공통 React shell·wireframe CSS·검증만 변경 |
+| 독립 Codex 검증 | PASS — P0/P1/P2 `0/0/0`, 문서 동기화 뒤 사용자 검수 가능 |
+| Git 게시·운영 배포 | 실행 대기 — 사용자 검수를 완료했고 `TASK-ADMIN-003`과 함께 병합·공개배포하도록 승인됨 |
+
 ### Change 010 검증·게시·실제 기기 확인
 
 | 검증 | 결과 |
@@ -164,6 +180,9 @@ Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변
 | `TPWA-CI-008` | P2 | `RESOLVED` | 느린 CI에서 품질 판정 API의 첫 오류 응답과 dialog 오류 문구 반영이 기존 1초 test 대기를 넘겨 간헐적으로 실패했다. | 제품 로직은 유지하고 API 호출 관찰과 오류 문구 반영을 각각 최대 5초 기다리는 test-only 동기화로 안정화했다. |
 | `TPWA-MOBILE-009` | P2 | `RESOLVED` | Android 자동 안내가 설치 event에 종속되고 닫기가 영구 저장돼 Microsoft 로그인 뒤 설치 안내를 놓칠 수 있었다. | provider를 MSAL보다 위로 이동하고 인증 준비 gate·Android 준비형 버튼·session 단위 닫기 회귀를 추가했다. |
 | `TPWA-ANDROID-INSTALL-010` | P1 | `RESOLVED` | Easy Auth 보호 manifest에 credential 포함 연결이 없어 Android Chrome이 설치 event를 제공하지 못하고 버튼이 계속 비활성화됐다. | manifest link에 `use-credentials`를 추가하고 asset contract로 고정했다. PR #88·Azure release `31366150022`·실제 Android 최종 검수로 게시·운영·기기 관문을 닫았다. |
+| `TPWA-BRAND-011` | P2 | `RESOLVED` | 로그인 뒤 공통 로고와 로그인 제품명이 이전 지정 자산을 사용하고 회사·보안 정보가 공통 표면에 없었다. | 새 제품 로고를 공통 shell·로그인 제품명에만 적용하고 로그인 왼쪽 로고 및 PWA·Teams 아이콘을 보존했다. 보안 안내와 두 주소 footer를 추가하고 desktop/mobile 회귀로 고정했다. |
+| `TPWA-DOC-011` | P2 | `RESOLVED` | 첫 독립 검증에서 Change 011 구현·검증 결과가 기존 Implementation report·Roadmap·사용자 체크리스트에 아직 동기화되지 않아 종료 산출물 gate를 닫을 수 없었다. | 세 canonical 문서에 Change 011 상태·검증·다음 Gate를 반영한 뒤 독립 재검증에서 P0/P1/P2 `0/0/0`을 확인했다. |
+| `TPWA-CI-011` | P2 | `RESOLVED` | PR #93의 기존 panel kitting mock smoke가 Change 007 내부 로고의 natural size `3796×1378`을 계속 기대해 새 승인 로고 `1406×379`을 제품 결함으로 오판했다. | 제품 코드·화면은 유지하고 해당 공통 shell 회귀의 로고 크기 기대값만 Change 011 자산 계약으로 갱신했다. |
 
 Open P0/P1/P2: `0/0/0`.
 
@@ -172,7 +191,7 @@ Open P0/P1/P2: `0/0/0`.
 - 코드·문서·테스트에는 합성 GUID와 `example.org`만 사용했다.
 - 실제 사용자 이름·이메일, tenant/client/object id, token, secret, Authorization header와 알림 원문을 기록하지 않았다.
 - Change 001~003 구현 검증에서는 실제 provider·Azure·Teams catalog·DB mutation을 실행하지 않았다. Change 007은 사용자 승인 뒤 기존 승인형 workflow로 Azure revision만 교체했으며 업무 DB row와 provider 발송은 변경하지 않았다.
-- browser screenshot은 합성 local 화면만 `/tmp/emi-pms-teams-pwa-001`에 만들었고 repository에는 저장하지 않았다.
+- browser screenshot은 합성 local 화면만 `/tmp/emi-pms-teams-pwa-001`, `/tmp/emi-qms-task-design-login-001`에 만들었고 repository에는 저장하지 않았다.
 
 ## 사용자 사용 방법
 
@@ -207,7 +226,7 @@ Rollback은 이전 immutable Frontend/Backend revision과 이전 Teams package�
 - 자동 검증과 합성 desktop/390px browser 검증은 완료했다.
 - Git Commit·Push·PR #84·#86·main merge와 Change 007·009 Azure 운영 release를 완료했다. Teams package와 catalog는 Change 009에서 변경하지 않았다.
 - Change 010은 PR #88·원격 main·Azure release `31366150022`에 반영했고, 실제 Android Chrome에서 설치 안내·버튼 활성·native 확인창·standalone을 사용자가 최종 검수했다.
-- Android의 인증 후 설치 UX·공통 내부 logo·standalone은 사용자 최종 검수를 완료했다. 실제 PC·iPhone의 전체 설치 완주와 Teams·출력물 표면은 체크리스트에 남겨 둔다.
+- Android의 인증 후 설치 UX·기존 공통 내부 logo·standalone과 Change 011 새 웹 제품 logo·보안 안내·회사 footer는 사용자 검수를 완료했다. 실제 PC·iPhone의 전체 설치 완주, Teams·출력물 표면은 기존 체크리스트에 남겨 둔다.
 - Web Push는 정책을 다시 확정해야 하는 별도 신규 기능이다.
 
 ## 종료 산출물

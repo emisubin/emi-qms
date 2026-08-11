@@ -62,10 +62,30 @@ public sealed class UserAdministrationStore(
             .OrderBy(code => code, StringComparer.Ordinal)
             .ToList();
 
-        if (request.DepartmentId is not null
-            && !await DepartmentExistsAsync(connection, transaction, request.DepartmentId.Value, cancellationToken))
+        Department? selectedDepartment = null;
+        if (request.DepartmentId is not null)
         {
-            return UserAdministrationMutationResult.Failure("존재하지 않는 부서입니다.");
+            selectedDepartment = await ReadActiveDepartmentAsync(
+                connection,
+                transaction,
+                request.DepartmentId.Value,
+                cancellationToken);
+            if (selectedDepartment is null)
+            {
+                return UserAdministrationMutationResult.Failure("존재하지 않는 부서입니다.");
+            }
+
+            var defaultRoleCode = DepartmentIdentityPolicy.GetDefaultRoleCode(selectedDepartment.Code);
+            if (defaultRoleCode is not null && !requestedRoleCodes.Contains(defaultRoleCode, StringComparer.Ordinal))
+            {
+                requestedRoleCodes.Add(defaultRoleCode);
+                requestedRoleCodes.Sort(StringComparer.Ordinal);
+            }
+        }
+
+        if (request.IsDepartmentHead && selectedDepartment is null)
+        {
+            return UserAdministrationMutationResult.Failure("부서장을 지정하려면 부서를 먼저 선택해 주세요.");
         }
 
         if (!await RolesExistAsync(connection, transaction, requestedRoleCodes, cancellationToken))
@@ -95,6 +115,7 @@ public sealed class UserAdministrationStore(
                 update qms_users
                 set department_id = @department_id,
                     is_active = @is_active,
+                    is_department_head = @is_department_head,
                     deletion_requested_at_utc = @deletion_requested_at_utc,
                     scheduled_hard_delete_at_utc = @scheduled_hard_delete_at_utc,
                     purge_blocked_at_utc = null,
@@ -104,6 +125,7 @@ public sealed class UserAdministrationStore(
                 """;
             updateUser.Parameters.AddWithValue("user_id", userId);
             updateUser.Parameters.AddWithValue("is_active", request.IsActive);
+            updateUser.Parameters.AddWithValue("is_department_head", request.IsDepartmentHead);
             updateUser.Parameters.Add(new NpgsqlParameter("deletion_requested_at_utc", NpgsqlDbType.TimestampTz)
             {
                 Value = request.IsActive ? DBNull.Value : user.DeletionRequestedAtUtc ?? (object)DBNull.Value
@@ -146,6 +168,15 @@ public sealed class UserAdministrationStore(
             insertRole.Parameters.AddWithValue("role_code", roleCode);
             await insertRole.ExecuteNonQueryAsync(cancellationToken);
         }
+
+        await SynchronizeDepartmentHeadBindingAsync(
+            connection,
+            transaction,
+            userId,
+            selectedDepartment,
+            request.IsDepartmentHead,
+            currentUserId,
+            cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return UserAdministrationMutationResult.Success(await GetSnapshotAsync(cancellationToken));
@@ -346,7 +377,8 @@ public sealed class UserAdministrationStore(
                     ScheduledHardDeleteAtUtc: null,
                     PurgeBlockedAtUtc: null,
                     PurgeBlockedReason: null,
-                    PreDeleteIsActive: null);
+                    PreDeleteIsActive: null,
+                    IsDepartmentHead: false);
             })
             .ToList();
     }
@@ -370,7 +402,8 @@ public sealed class UserAdministrationStore(
                    scheduled_hard_delete_at_utc,
                    purge_blocked_at_utc,
                    purge_blocked_reason,
-                   pre_delete_is_active
+                   pre_delete_is_active,
+                   is_department_head
             from qms_users
             where id = @user_id
             for update;
@@ -395,7 +428,8 @@ public sealed class UserAdministrationStore(
                 ScheduledHardDeleteAtUtc: reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7),
                 PurgeBlockedAtUtc: reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8),
                 PurgeBlockedReason: reader.IsDBNull(9) ? null : reader.GetString(9),
-                PreDeleteIsActive: reader.IsDBNull(10) ? null : reader.GetBoolean(10))
+                PreDeleteIsActive: reader.IsDBNull(10) ? null : reader.GetBoolean(10),
+                IsDepartmentHead: reader.GetBoolean(11))
             : null;
     }
 
@@ -407,7 +441,7 @@ public sealed class UserAdministrationStore(
         return await ReadMutableUserAsync(connection, transaction, userId, cancellationToken);
     }
 
-    private static async Task<bool> DepartmentExistsAsync(
+    private static async Task<Department?> ReadActiveDepartmentAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid departmentId,
@@ -416,16 +450,149 @@ public sealed class UserAdministrationStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select exists(
-                select 1
-                from departments
-                where id = @department_id
-                  and is_active = true
-                  and deletion_requested_at_utc is null
-            );
+            select id, code, name
+            from departments
+            where id = @department_id
+              and is_active = true
+              and deletion_requested_at_utc is null;
             """;
         command.Parameters.AddWithValue("department_id", departmentId);
-        return await command.ExecuteScalarAsync(cancellationToken) is bool exists && exists;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? new Department(reader.GetGuid(0), reader.GetString(1), reader.GetString(2))
+            : null;
+    }
+
+    private static async Task SynchronizeDepartmentHeadBindingAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid userId,
+        Department? department,
+        bool isDepartmentHead,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var desiredDomain = department is null
+            ? null
+            : DepartmentIdentityPolicy.GetFormTemplateDomain(department.Code);
+        var revokedBindings = new List<(Guid BindingId, string Domain)>();
+
+        await using (var revoke = connection.CreateCommand())
+        {
+            revoke.Transaction = transaction;
+            revoke.CommandText = isDepartmentHead && department is not null && desiredDomain is not null
+                ? """
+                    update form_template_manager_bindings
+                    set revoked_by_user_id = @actor_id,
+                        revoked_at_utc = now()
+                    where user_id = @user_id
+                      and revoked_at_utc is null
+                      and (department_id <> @department_id or domain <> @domain)
+                    returning id, domain;
+                    """
+                : """
+                    update form_template_manager_bindings
+                    set revoked_by_user_id = @actor_id,
+                        revoked_at_utc = now()
+                    where user_id = @user_id
+                      and revoked_at_utc is null
+                    returning id, domain;
+                    """;
+            revoke.Parameters.AddWithValue("actor_id", actorUserId);
+            revoke.Parameters.AddWithValue("user_id", userId);
+            if (isDepartmentHead && department is not null && desiredDomain is not null)
+            {
+                revoke.Parameters.AddWithValue("department_id", department.Id);
+                revoke.Parameters.AddWithValue("domain", desiredDomain);
+            }
+
+            await using var reader = await revoke.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                revokedBindings.Add((reader.GetGuid(0), reader.GetString(1)));
+            }
+        }
+
+        foreach (var binding in revokedBindings)
+        {
+            await AppendManagerAuditAsync(
+                connection,
+                transaction,
+                "ManagerRevoked",
+                binding.Domain,
+                binding.BindingId,
+                userId,
+                actorUserId,
+                cancellationToken);
+        }
+
+        if (!isDepartmentHead || department is null || desiredDomain is null)
+        {
+            return;
+        }
+
+        Guid? assignedBindingId;
+        await using (var assign = connection.CreateCommand())
+        {
+            assign.Transaction = transaction;
+            assign.CommandText = """
+                insert into form_template_manager_bindings (
+                    id,user_id,department_id,domain,assigned_by_user_id)
+                values (@id,@user_id,@department_id,@domain,@actor_id)
+                on conflict (user_id,department_id,domain) where revoked_at_utc is null do nothing
+                returning id;
+                """;
+            assignedBindingId = Guid.NewGuid();
+            assign.Parameters.AddWithValue("id", assignedBindingId.Value);
+            assign.Parameters.AddWithValue("user_id", userId);
+            assign.Parameters.AddWithValue("department_id", department.Id);
+            assign.Parameters.AddWithValue("domain", desiredDomain);
+            assign.Parameters.AddWithValue("actor_id", actorUserId);
+            var inserted = await assign.ExecuteScalarAsync(cancellationToken);
+            if (inserted is not Guid)
+            {
+                assignedBindingId = null;
+            }
+        }
+
+        if (assignedBindingId is not null)
+        {
+            await AppendManagerAuditAsync(
+                connection,
+                transaction,
+                "ManagerAssigned",
+                desiredDomain,
+                assignedBindingId.Value,
+                userId,
+                actorUserId,
+                cancellationToken);
+        }
+    }
+
+    private static async Task AppendManagerAuditAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string action,
+        string domain,
+        Guid bindingId,
+        Guid userId,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            insert into form_template_audit_events (
+                action,domain,family,template_key,binding_id,actor_user_id,detail)
+            values (
+                @action,'Administration','Administration',@domain,@binding_id,@actor_id,@detail::jsonb);
+            """;
+        command.Parameters.AddWithValue("action", action);
+        command.Parameters.AddWithValue("domain", domain);
+        command.Parameters.AddWithValue("binding_id", bindingId);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
+        command.Parameters.AddWithValue("detail", JsonSerializer.Serialize(new { userId, domain }));
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<bool> RolesExistAsync(

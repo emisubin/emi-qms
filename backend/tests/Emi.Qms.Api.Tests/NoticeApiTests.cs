@@ -29,7 +29,7 @@ public sealed class NoticeApiTests
         Assert.Equal("7월 생산 일정 안내", created.Title);
         Assert.Equal("첫 줄\n\n  둘째 줄", created.Body);
         Assert.Equal("Dev Sales User", created.AuthorDisplayName);
-        Assert.Equal("Sales", created.AuthorDepartmentName);
+        Assert.Equal("영업", created.AuthorDepartmentName);
         Assert.True(created.CanDelete);
 
         var repeatedResponse = await sales.PostAsJsonAsync(

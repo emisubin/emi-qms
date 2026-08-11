@@ -3051,3 +3051,174 @@ body,
     animation: none;
   }
 }
+
+/* ── 24 · EMI PMS product identity and company information ─────────── */
+.app-content {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+.company-information-footer {
+  box-sizing: border-box;
+  width: 100%;
+  border-top: 1px solid var(--wire-line) !important;
+  color: var(--wire-faint) !important;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.company-information-footer strong {
+  color: var(--wire-muted) !important;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.company-information-footer address {
+  display: grid;
+  margin: 4px 0 0;
+  font-style: normal;
+}
+
+.company-information-footer--app {
+  margin-top: auto;
+  padding: 22px 2px 0;
+}
+
+@media (min-width: 861px) {
+  .app-brand-lockup img {
+    width: 184px;
+    max-width: 100%;
+    border-radius: 0 !important;
+    background: transparent !important;
+    padding: 0;
+  }
+}
+
+.auth-gate .auth-product-logo {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: transparent !important;
+  filter: none !important;
+  object-fit: contain;
+}
+
+.auth-security-notice {
+  box-sizing: border-box;
+  border: 1px solid var(--wire-line-strong) !important;
+  border-radius: var(--wire-radius-control) !important;
+  background: var(--wire-surface) !important;
+  color: var(--wire-muted) !important;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.auth-security-notice strong {
+  display: block;
+  color: var(--wire-ink) !important;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.auth-security-notice p {
+  margin: 4px 0 0;
+  color: var(--wire-muted) !important;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.company-information-footer--auth {
+  margin-top: 18px;
+  padding-top: 12px;
+  text-align: left;
+}
+
+@media (min-width: 861px) {
+  .auth-gate[data-auth-layout='login'] .auth-gate-content h1.auth-product-logo-heading {
+    top: 170px;
+    left: 142px;
+    width: 380px;
+    height: auto;
+    white-space: normal;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-security-notice {
+    position: absolute;
+    top: 622px;
+    left: 70px;
+    width: 524px;
+  }
+
+  .auth-gate[data-auth-layout='login'] .company-information-footer--auth {
+    position: absolute;
+    top: 712px;
+    left: 70px;
+    width: 524px;
+    margin: 0;
+    padding-top: 9px;
+  }
+}
+
+@media (max-width: 860px) {
+  .app-shell[data-layout-mode='mobile'] .app-content {
+    min-height: 100dvh;
+  }
+
+  .app-shell[data-layout-mode='mobile'] .mobile-app-brand .app-brand-logo {
+    width: clamp(96px, 29vw, 116px);
+    height: 32px;
+    border-radius: 0 !important;
+  }
+
+  .mobile-menu-header {
+    grid-template-columns: 116px minmax(0, 1fr) 40px;
+  }
+
+  .mobile-menu-brand-logo.app-brand-logo {
+    width: 116px;
+    height: auto;
+    border-radius: 0 !important;
+  }
+
+  .company-information-footer--app {
+    padding: 18px 2px 0;
+  }
+
+  .company-information-footer address {
+    gap: 3px;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-product-logo-heading {
+    display: grid;
+    justify-items: center;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-product-logo {
+    width: min(100%, 340px);
+    justify-self: center;
+  }
+
+  .auth-gate[data-auth-layout='login'] .auth-security-notice,
+  .auth-gate[data-auth-layout='login'] .company-information-footer--auth {
+    position: static;
+    width: 100%;
+    height: auto;
+    margin: 0;
+  }
+
+  .auth-gate[data-auth-layout='login'] .company-information-footer--auth {
+    padding-top: 12px;
+  }
+}
+
+@media (max-width: 360px) {
+  .mobile-menu-header {
+    grid-template-columns: 96px minmax(0, 1fr) 40px;
+  }
+
+  .mobile-menu-brand-logo.app-brand-logo {
+    width: 96px;
+  }
+}

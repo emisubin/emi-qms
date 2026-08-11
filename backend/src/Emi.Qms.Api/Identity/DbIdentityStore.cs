@@ -384,6 +384,7 @@ public sealed class DbIdentityStore(
                    u.purge_blocked_at_utc,
                    u.purge_blocked_reason,
                    u.pre_delete_is_active,
+                   u.is_department_head,
                    coalesce(array_remove(array_agg(r.code order by r.code), null), array[]::text[]) as role_codes
             from qms_users u
             left join departments d on d.id = u.department_id
@@ -399,7 +400,7 @@ public sealed class DbIdentityStore(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            var roles = reader.GetFieldValue<string[]>(14);
+            var roles = reader.GetFieldValue<string[]>(15);
             var authProvider = reader.GetString(4);
             var isActive = reader.GetBoolean(5);
             users.Add(new UserAdministrationUser(
@@ -419,7 +420,8 @@ public sealed class DbIdentityStore(
                 reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10),
                 reader.IsDBNull(11) ? null : reader.GetFieldValue<DateTimeOffset>(11),
                 reader.IsDBNull(12) ? null : reader.GetString(12),
-                reader.IsDBNull(13) ? null : reader.GetBoolean(13)));
+                reader.IsDBNull(13) ? null : reader.GetBoolean(13),
+                reader.GetBoolean(14)));
         }
 
         return users;

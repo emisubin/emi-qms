@@ -70,16 +70,16 @@ public sealed class DevelopmentIdentitySeeder(
     private const string SeedSql = """
         insert into departments (id, code, name, is_active, sort_order)
         values
-            ('10000000-0000-0000-0000-000000000001', 'administration', 'Administration', true, 10),
-            ('10000000-0000-0000-0000-000000000002', 'sales', 'Sales', true, 20),
-            ('10000000-0000-0000-0000-000000000003', 'production-planning', 'Production Planning', true, 40),
-            ('10000000-0000-0000-0000-000000000004', 'manufacturing', 'Manufacturing', true, 70),
-            ('10000000-0000-0000-0000-000000000005', 'quality', 'Quality', true, 80),
-            ('10000000-0000-0000-0000-000000000006', 'logistics', 'Logistics', true, 90),
-            ('10000000-0000-0000-0000-000000000007', 'readonly', 'Read Only', true, 100),
-            ('10000000-0000-0000-0000-000000000008', 'design', 'Design', true, 30),
-            ('10000000-0000-0000-0000-000000000009', 'procurement', 'Procurement', true, 50),
-            ('10000000-0000-0000-0000-000000000010', 'materials', 'Materials', true, 60)
+            ('10000000-0000-0000-0000-000000000001', 'administration', '관리', true, 10),
+            ('10000000-0000-0000-0000-000000000002', 'sales', '영업', true, 20),
+            ('10000000-0000-0000-0000-000000000003', 'production-planning', '생산관리', true, 40),
+            ('10000000-0000-0000-0000-000000000004', 'manufacturing', '제조', true, 70),
+            ('10000000-0000-0000-0000-000000000005', 'quality', '품질', true, 80),
+            ('10000000-0000-0000-0000-000000000006', 'logistics', '물류', true, 90),
+            ('10000000-0000-0000-0000-000000000007', 'readonly', '조회 전용', true, 100),
+            ('10000000-0000-0000-0000-000000000008', 'design', '설계', true, 30),
+            ('10000000-0000-0000-0000-000000000009', 'procurement', '구매', true, 50),
+            ('10000000-0000-0000-0000-000000000010', 'materials', '자재', true, 60)
         on conflict (code) do update
         set name = excluded.name,
             is_active = true,

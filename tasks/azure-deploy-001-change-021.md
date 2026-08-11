@@ -49,3 +49,12 @@
 4. PR 병합 뒤 exact `main` SHA를 승인형 Azure workflow에 전달한다.
 5. migration과 changed image 교체, 공개 health, 익명 root·API 차단을 모두 확인한다.
 6. Open P0/P1/P2가 0일 때만 완료로 판정한다.
+
+## 로컬 통합 검증 결과
+
+- 기준: 최신 `origin/main` `c0e756eb598700fb55992af824280810e05d83da` 위 단일 통합 branch.
+- Backend Release 전체: `496/496` PASS.
+- Frontend: lint 오류 0·기존 경고 1, typecheck PASS, `27 files / 197 tests` PASS, production build PASS.
+- isolated PostgreSQL Full-Stack: 최초 `55/58`에서 터치 대상 2건과 E2E locator 1건을 확인해 Change 007·Change 003으로 원인 보정, 집중 검증 PASS, 최신 commit 전체 `58/58` PASS.
+- Open P0/P1/P2: `0/0/0`.
+- 다음 Gate: privacy/secret·allowlist 확인 → Ready PR → required `CI Gate` → exact main SHA Azure release.

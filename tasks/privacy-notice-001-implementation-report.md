@@ -3,7 +3,7 @@
 ## 상태
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
-- 구현 상태: Change 006 최종 문안·화면 승인 / 최신 원격 `main` 통합 게시 승인
+- 구현 상태: Change 007 터치 대상 보정 포함 최신 원격 `main` 통합 전체 검증 완료 / 게시 승인
 - 자동 검증 상태: 완료
 - 사용자 검수 상태: `완료`
 - 운영 적용: `GO` — Change 006과 TASK-AZURE-DEPLOY-001 Change 021의 통합 검증·PR·Azure Gate 적용
@@ -54,6 +54,8 @@ Backend·API·DB·migration·기존 프로필 사진 데이터·Web Push·Servic
 ## 검증 결과
 
 - Change 005 후 전체 Frontend 회귀: lint 오류 0·기존 경고 1, typecheck 통과, `27 files / 194 tests` 통과, production build 통과
+- Change 007 통합 전체 Frontend 회귀: lint 오류 0·기존 경고 1, typecheck 통과, `27 files / 197 tests` 통과, production build 통과
+- Change 007 실제 PostgreSQL Full-Stack: 최초 실행에서 새 logo·footer 버튼의 44px 터치 대상 P2를 확인해 최소 보정한 뒤 전체 `58/58` 통과
 - Change 005 실제 브라우저: desktop·390px 모두 굵은 상단·왼쪽 강조선 0, page-level horizontal overflow 0
 - Change 004 관련 test: `2 files / 83 tests` 통과
 - Frontend 전체 test: `27 files / 194 tests` 통과
@@ -80,6 +82,7 @@ Persistent UAT, 실제 Microsoft 로그인, 실제 기존 프로필 사진 count
 | `PRIV-PLAN-005` | P2 | RESOLVED_FOR_CURRENT_SCOPE | 기존 Teams·메일 외부 서비스는 회사 검토가 완료됐고 새 provider·개인정보 전송을 추가하지 않는 현재 정적 문안을 승인했다. | 계약·provider·전송 범위 변경 시 재검토한다. |
 | `FRONTEND-BUNDLE-001` | P3 | BACKLOG | 기존 production bundle 크기 경고가 유지된다. 이번 정적 화면의 기능 실패는 아니다. | Roadmap 기존 성능 backlog에서 실제 로딩 측정 후 판단한다. |
 | `PRIV-LEGAL-REVIEW-001` | P3 | PERIODIC_REVIEW | Change 006은 회사의 현재 운영 문안 승인이지 법률 자문이나 영구적 적합성 보증이 아니다. | 법령·사내 규정·Microsoft 계약·provider·처리 목적 변경 시 담당자가 문안을 재검토한다. |
+| `PRIV-TOUCH-TARGET-001` | P2 | RESOLVED | 투명 텍스트·logo 버튼의 높은 CSS 우선순위가 공통 44px 터치 영역을 무효화했다. | Change 007에서 시각 표현을 유지한 채 mobile/coarse-pointer 클릭 영역을 복구하고 집중·전체 Full-Stack을 통과했다. |
 
 Open P0/P1/P2는 0이며 운영 게시·merge 품질 판정은 `GO`다. 통합 후보·PR CI·Azure 공개 검증은 TASK-AZURE-DEPLOY-001 Change 021에서 별도로 통과해야 한다.
 
@@ -87,7 +90,7 @@ Open P0/P1/P2는 0이며 운영 게시·merge 품질 판정은 `GO`다. 통합 �
 
 자동·브라우저 검증 뒤 사용자가 화면·문안과 지금까지의 수정 결과를 모두 승인했다. 현재 상태는 `사용자 검수 완료 / 운영 적용 승인`이다.
 
-기존 프로필 사진은 강제 삭제하지 않고 다음 변경 시 같은 선택 안내를 적용한다. 실제 인증 환경·PWA/Teams 표면, 통합 PR과 Azure release는 TASK-AZURE-DEPLOY-001 Change 021의 게시 Gate에서 확인한다.
+기존 프로필 사진은 강제 삭제하지 않고 다음 변경 시 같은 선택 안내를 적용한다. 실제 인증 환경·PWA/Teams 표면, 통합 PR과 Azure release는 TASK-AZURE-DEPLOY-001 Change 021의 게시 Gate에서 확인한다. latest main 통합 Frontend와 전체 Full-Stack 검증은 완료했다.
 
 ## Rollback·복구
 

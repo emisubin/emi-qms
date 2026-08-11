@@ -1,9 +1,8 @@
 # TASK-NOTICE-EDITOR-001 — Implementation report
 
-> 상태: 사용자 검수 완료 / 통합 게시 승인
+> 상태: 사용자 검수·latest main 통합 전체 검증 완료 / 통합 게시 승인
 > branch: `feat/task-notice-editor-001`
-> 기준선: `origin/main` `9a25157f0b8d1e78ad5392acf336ebf3c0f61b64`
-> 현재 remote-tracking 상태: `origin/main` 대비 2 commits behind (CI workflow 문서·script 변경, 제품 구현 중복 없음)
+> 통합 기준선: `origin/main` `c0e756eb598700fb55992af824280810e05d83da`
 
 ## 해결한 업무 문제
 
@@ -47,11 +46,11 @@
 | Backend 공지·migration 집중 검증 | 적용 | PASS | 5/5 |
 | Backend 전체 회귀 | 적용 | PASS | 496/496 |
 | Frontend 공지 집중 검증 | 적용 | PASS | 6/6 |
-| Frontend 전체 회귀 | 적용 | PASS | 26 files, 193/193 |
+| Frontend 전체 회귀 | 적용 | PASS | 27 files, 197/197 |
 | Frontend typecheck/build | 적용 | PASS | typecheck 0, production build 성공 |
 | Frontend lint | 적용 | PASS with existing warning | error 0, 기존 `main.tsx` Fast Refresh warning 1 |
 | Browser desktop·390px | 적용 | PASS | 굵게 렌더링, 작성자 수정, 상세/편집 첨부 control 분리, 조회자 권한, 수정 시각, overflow 0, console error 0 |
-| 실제 Docker Full-Stack E2E | 시도 | 미실행 | 현 실행 정책이 Docker command를 승인 불가로 차단. 신규 spec은 추가했으나 실행 증빙은 게시 전 CI/승인된 환경에서 필요 |
+| 실제 Docker Full-Stack E2E | 적용 | PASS | isolated PostgreSQL fresh DB·migration `0073`, 전체 58/58 |
 | 사용자 검수 | 적용 | PASS | 2026-08-11 사용자가 지금까지의 수정 결과를 모두 승인 |
 
 ## 개인정보·secret 검토
@@ -64,13 +63,14 @@
 
 - Browser plugin은 blob anchor 방식의 다운로드 artifact event를 반환하지 않아 UI click의 실제 저장 파일을 자동 증빙하지 못했다. API integration test로 권한·본문·header·삭제 후 404를 확인하고 수동 다운로드 항목을 checklist에 유지했다.
 - 최초 UI는 작성자 상세에 첨부 관리 control을 바로 노출했다. 사용자 Change 001에 따라 상세는 다운로드 전용, 편집 화면은 추가·제거 가능 구조로 정리했다.
-- 실제 Docker Full-Stack 실행은 승인 불가 정책에 막혀 반복 시도하지 않았다.
+- 기존 후보에서는 실행 정책에 막혔던 Docker Full-Stack을 승인된 통합 후보에서 실제 실행했다. 최초 실패 3건은 제품 터치 대상 2건과 test locator 1건으로 분리해 Change 007·Change 003으로 보정하고 전체를 재실행했다.
 
 ## Finding과 잔여 위험
 
 - Open P0/P1/P2: 0.
-- `NOTICE-E2E-ENV-001` P3 / NEEDS-RUN: 실제 Frontend↔Backend↔PostgreSQL browser E2E는 통합 후보와 PR CI에서 필수 실행한다.
-- `NOTICE-BASE-DRIFT-001` P3 / NEEDS-SYNC: 작업 중 추가된 CI 최적화 2 commits는 Change 002 통합 후보에서 latest main 동기화와 회귀로 닫는다.
+- `NOTICE-E2E-ENV-001` P3 / RESOLVED: 통합 후보의 isolated PostgreSQL Full-Stack 전체 58/58 통과.
+- `NOTICE-BASE-DRIFT-001` P3 / RESOLVED: 최신 `origin/main` `c0e756e` 통합과 전체 회귀 완료.
+- `NOTICE-E2E-SELECTOR-001` P2 / RESOLVED: 수정 완료 뒤 넓은 부분 문자열 locator가 네 요소와 일치한 test-only 실패를 Change 003의 정확 상태 문구 단언으로 보정하고 집중·전체 Full-Stack 통과.
 - 기존 bundle 500KB warning과 `main.tsx` lint warning은 이번 변경에서 새로 발생하지 않았다.
 
 ## Rollback·복구
@@ -99,7 +99,7 @@
 
 - 상태: `사용자 검수 완료 / 통합 게시 승인`
 - 2026-08-11 사용자가 굵게·수정·첨부와 편집 화면 전용 첨부 관리 결과를 모두 승인했다.
-- latest main 동기화·실제 Full-Stack·PR CI·Azure 공개 검증은 Change 002와 TASK-AZURE-DEPLOY-001 Change 021에서 완료한다.
+- latest main 동기화·실제 Full-Stack은 완료했다. PR CI·Azure 공개 검증은 Change 002와 TASK-AZURE-DEPLOY-001 Change 021에서 완료한다.
 
 ## 5종 종료 산출물
 

@@ -2202,6 +2202,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-11 | `TASK-ADMIN-003`에서 사용자 부서 선택과 기본 역할을 연결하고 복수 부서장 체크를 기존 양식관리 승인 binding과 동기화하며 표준 부서명을 한글로 통일 | 운영 migration에 표준 10개 중 3개만 존재한 결함과 사용자 승인 시 부서·역할·양식 권한을 여러 화면에서 따로 지정하던 불일치를 최소 additive migration·기존 권한 경계 재사용으로 해소하기 위함. 사용자 검수·게시·운영 적용은 별도 Gate로 유지 | 23장~25장, TASK-ADMIN-001, TASK-ADMIN-002, TASK-ADMIN-003 |
 | 2026-08-11 | `TASK-TEAMS-PWA-001 Change 011`에서 새 EMI PMS 웹 제품 logo·로그인 정보 보안 안내·오산 및 청주 회사 footer를 추가하고 PWA·Teams 앱 icon은 유지 | 로그인과 내부 공통 화면의 제품 식별을 최신 확정 logo로 통일하고 임직원 보안 주의와 두 사업장 정보를 모든 웹 화면에서 확인하게 하되 설치 앱·Teams catalog 자산과 인증·업무 계약은 변경하지 않기 위함. 사용자 지시에 따라 `TASK-ADMIN-003`과 같은 branch에서 함께 검수·병합한다. | 23장~25장, TASK-TEAMS-PWA-001 Change 011, TASK-ADMIN-003 |
 | 2026-08-11 | `TASK-ADMIN-003`과 `TASK-TEAMS-PWA-001 Change 011` 사용자 검수를 모두 완료하고 한 PR의 main 병합·공개배포를 승인 | 부서 자동 역할·복수 부서장·양식 승인 연결과 새 웹 제품 logo·보안 안내·두 주소 footer의 실제 화면을 확인했으므로 신규 CI 정책을 통과한 exact main SHA에 migration `0072`→Backend→Frontend 순서로 운영 반영하기 위함 | 23장~25장, TASK-ADMIN-003, TASK-TEAMS-PWA-001 Change 011 |
+| 2026-08-11 | `TASK-TEAMS-PWA-001 Change 011` PR #93 첫 CI의 구형 내부 로고 크기 기대값을 새 승인 자산으로 동기화 | 제품 화면·동작은 정상이고 panel kitting mock smoke 한 곳만 Change 007의 `3796×1378`을 고정해 새 로고 `1406×379`을 실패로 판정했으므로, 제품 변경 없이 회귀 기준만 최신 제품 계약으로 갱신하기 위함 | 23장~25장, TASK-TEAMS-PWA-001 Change 011 |
 
 ## 26. 용어 사전
 

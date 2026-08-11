@@ -119,6 +119,7 @@ Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변
 | Frontend lint·typecheck·unit·build | PASS — lint error 0·기존 warning 1, typecheck, unit `26 files / 190/190`, production build; 기존 대형 chunk warning 유지 |
 | Auth shell browser | PASS — desktop 1920·1440·1280·1024·short-window와 iPhone 390·Android 412 login/loading `12/12`, 가로 overflow 0 |
 | 실제 task 검수 runtime | PASS — `5175` 내부 desktop shell에 공통 제품 로고·회사 footer·두 주소가 1회 표시되고 가로 overflow 0 |
+| PR CI 보정 | PASS — PR #93 첫 Frontend E2E에서 기존 Change 007 로고 크기 `3796×1378`을 고정한 mock smoke만 실패했다. 제품 UI는 변경하지 않고 같은 공통 shell 검증을 새 승인 로고의 실제 크기 `1406×379`로 갱신했다. |
 | Backend·DB·migration·PWA·Teams | N/A — Change 011은 웹 표시 자산·공통 React shell·wireframe CSS·검증만 변경 |
 | 독립 Codex 검증 | PASS — P0/P1/P2 `0/0/0`, 문서 동기화 뒤 사용자 검수 가능 |
 | Git 게시·운영 배포 | 실행 대기 — 사용자 검수를 완료했고 `TASK-ADMIN-003`과 함께 병합·공개배포하도록 승인됨 |
@@ -181,6 +182,7 @@ Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변
 | `TPWA-ANDROID-INSTALL-010` | P1 | `RESOLVED` | Easy Auth 보호 manifest에 credential 포함 연결이 없어 Android Chrome이 설치 event를 제공하지 못하고 버튼이 계속 비활성화됐다. | manifest link에 `use-credentials`를 추가하고 asset contract로 고정했다. PR #88·Azure release `31366150022`·실제 Android 최종 검수로 게시·운영·기기 관문을 닫았다. |
 | `TPWA-BRAND-011` | P2 | `RESOLVED` | 로그인 뒤 공통 로고와 로그인 제품명이 이전 지정 자산을 사용하고 회사·보안 정보가 공통 표면에 없었다. | 새 제품 로고를 공통 shell·로그인 제품명에만 적용하고 로그인 왼쪽 로고 및 PWA·Teams 아이콘을 보존했다. 보안 안내와 두 주소 footer를 추가하고 desktop/mobile 회귀로 고정했다. |
 | `TPWA-DOC-011` | P2 | `RESOLVED` | 첫 독립 검증에서 Change 011 구현·검증 결과가 기존 Implementation report·Roadmap·사용자 체크리스트에 아직 동기화되지 않아 종료 산출물 gate를 닫을 수 없었다. | 세 canonical 문서에 Change 011 상태·검증·다음 Gate를 반영한 뒤 독립 재검증에서 P0/P1/P2 `0/0/0`을 확인했다. |
+| `TPWA-CI-011` | P2 | `RESOLVED` | PR #93의 기존 panel kitting mock smoke가 Change 007 내부 로고의 natural size `3796×1378`을 계속 기대해 새 승인 로고 `1406×379`을 제품 결함으로 오판했다. | 제품 코드·화면은 유지하고 해당 공통 shell 회귀의 로고 크기 기대값만 Change 011 자산 계약으로 갱신했다. |
 
 Open P0/P1/P2: `0/0/0`.
 

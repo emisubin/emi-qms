@@ -71,8 +71,8 @@ async function assertSuppliedInternalLogo(locator: Locator) {
       backgroundColor: style.backgroundColor
     };
   })).toEqual({
-    naturalWidth: 3796,
-    naturalHeight: 1378,
+    naturalWidth: 1406,
+    naturalHeight: 379,
     filter: 'none',
     backgroundColor: 'rgba(0, 0, 0, 0)'
   });

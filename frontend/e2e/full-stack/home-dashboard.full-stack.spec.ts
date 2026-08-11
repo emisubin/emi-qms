@@ -41,7 +41,7 @@ test('TASK-NOTICE-BOARD-001: authenticated users share notices from Home on desk
   await page.getByRole('button', { name: '공지 등록' }).click();
   await expect(page).toHaveURL(/\/notices\/[0-9a-f-]{36}$/i);
   await expect(page.getByRole('heading', { name: uiTitle })).toBeVisible();
-  await expect(page.getByText('Dev Quality User · Quality')).toBeVisible();
+  await expect(page.getByText('Dev Quality User · 품질')).toBeVisible();
   await expect(page.getByRole('button', { name: '내 공지 삭제' })).toBeVisible();
   await capture(page, '04-notice-detail-desktop-1440.png');
 

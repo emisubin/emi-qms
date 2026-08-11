@@ -3138,6 +3138,12 @@ body,
   outline-offset: 3px;
 }
 
+.app-shell[data-touch-optimized='true'] .company-information-footer__privacy-link,
+.app-shell[data-touch-optimized='true'] .app-brand-home-button {
+  min-width: 44px !important;
+  min-height: 44px !important;
+}
+
 @media (min-width: 861px) {
   .app-brand-lockup img {
     width: 184px;
@@ -3215,6 +3221,12 @@ body,
 }
 
 @media (max-width: 860px) {
+  .app-shell .company-information-footer__privacy-link,
+  .app-shell .app-brand-home-button {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
   .app-shell[data-layout-mode='mobile'] .app-content {
     min-height: 100dvh;
   }

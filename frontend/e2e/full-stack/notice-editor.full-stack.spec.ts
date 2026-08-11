@@ -40,7 +40,7 @@ test('TASK-NOTICE-EDITOR-001: author formats, edits and shares an attachment', a
   await page.getByRole('textbox', { name: /제목/ }).fill(changedTitle);
   await page.getByRole('button', { name: '수정 저장' }).click();
   await expect(page.getByRole('heading', { name: changedTitle })).toBeVisible();
-  await expect(page.getByText(/수정/)).toBeVisible();
+  await expect(page.getByText('공지 수정 내용을 저장했습니다.', { exact: true })).toBeVisible();
   await capture(page, '03-edited-detail-desktop-1440.png');
 
   const downloadPromise = page.waitForEvent('download');

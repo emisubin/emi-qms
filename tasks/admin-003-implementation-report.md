@@ -114,7 +114,7 @@
 | Frontend production build | 적용 | 통과 | 기존 chunk-size warning 유지 |
 | 격리 Full-Stack Chromium | 적용 | 통과 | 모바일 관리자 workspace `1/1`, 임시 DB·container·network 제거 완료 |
 | Persistent UAT·Azure | 미적용 | N/A | 운영 mutation은 승인 범위 밖 |
-| CI | 미적용 | N/A | commit·push·PR 미승인 |
+| PR CI | 적용 | 보정 후 재실행 | PR #93 첫 Backend 전체 검사에서 공지 작성자 부서명을 기존 영문 `Sales`로 기대한 회귀 1개만 실패해 승인된 한글명 `영업`으로 test contract를 갱신했다. |
 
 ## 9. 개인정보·Secret 검토
 
@@ -130,6 +130,7 @@
 | `ADMIN003-DEPARTMENT-ROLE-DRIFT` | P2 | RESOLVED | 부서와 역할을 따로 저장해 누락·불일치 가능 | UI 자동 선택 + Backend 필수 역할 포함 |
 | `ADMIN003-HEAD-FORM-SCOPE-DIVERGENCE` | P2 | RESOLVED | 사용자 관리와 양식관리 부서장 지정이 분리 | 동일 transaction의 flag·binding·audit 양방향 동기화 |
 | `ADMIN003-DEVELOPMENT-SEED-NAME-DRIFT` | P2 | RESOLVED | migration 적용 뒤 개발 seed가 부서명을 다시 영문으로 덮어씀 | 실행 seed도 표준 한글명으로 통일하고 검수 API에서 10개 한글명 확인 |
+| `ADMIN003-CI-DEPARTMENT-NAME-DRIFT` | P2 | RESOLVED | PR #93의 기존 공지 API 회귀 한 곳이 작성자 부서명을 영문 `Sales`로 고정해 승인된 한글명 `영업`을 실패로 판정 | 제품 코드·응답은 유지하고 해당 test expectation만 최신 부서 표시명 계약으로 갱신 |
 
 Open P0/P1/P2: `0/0/0`. 기존 Frontend Fast Refresh·chunk-size warning과 전체 repository formatting baseline은 이번 diff에서 증가시키지 않았으며 범위 밖 파일은 수정하지 않았다.
 

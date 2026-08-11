@@ -214,7 +214,10 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
             </header>
             <p id="pwa-install-description">
               홈 화면에서 바로 열면 제조·품질 현장에서도 브라우저 주소를 다시 찾지 않고 업무를 시작할 수 있습니다.
+              설치해도 기존 EMI PMS와 같은 계정·권한을 사용합니다.
             </p>
+
+            <h3 className="pwa-install-section-title">설치 방법</h3>
 
             {platform === 'ios-safari' ? (
               <ol className="pwa-install-steps">
@@ -238,6 +241,16 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
             ) : (
               <p className="pwa-install-note">설치 버튼을 준비하고 있습니다. 잠시 후 버튼이 활성화되지 않으면 브라우저 메뉴에서 <strong>앱 설치</strong> 또는 <strong>홈 화면에 추가</strong>를 선택해 주세요.</p>
             )}
+
+            <section className="pwa-install-usage" aria-labelledby="pwa-install-usage-title">
+              <h3 id="pwa-install-usage-title">이용 안내</h3>
+              <ul>
+                <li>설치 후에도 온라인 연결과 Microsoft 365 로그인이 필요합니다.</li>
+                <li>업무 안내는 인앱 알림, Teams Activity와 메일로 전달될 수 있습니다.</li>
+                <li>향후 모바일 푸시 알림이 추가되면 기기로 알림이 갈 수 있습니다.</li>
+                <li>현재 모바일 푸시는 준비 중이며, 설치나 이용에 알림 권한이 필요하지 않습니다.</li>
+              </ul>
+            </section>
 
             {nativePromptDismissed ? (
               <p className="pwa-install-feedback" role="status">설치를 취소했습니다. 계정 메뉴에서 언제든 다시 안내를 열 수 있습니다.</p>

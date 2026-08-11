@@ -65,6 +65,14 @@ describe('App', () => {
     expect(within(companyInformation).getByText('(주) 이엠아이')).toBeInTheDocument();
     expect(within(companyInformation).getByText('경기도 오산시 세남로길 14-11 (세교동 63-1)')).toBeInTheDocument();
     expect(within(companyInformation).getByText('이엠아이 청주캠퍼스 / 충북 청주시 청원구 오창읍 서오창산단3로 110')).toBeInTheDocument();
+    const privacyNoticeEntry = within(companyInformation).getByRole('button', { name: '개인정보·이용 안내' });
+    fireEvent.click(privacyNoticeEntry);
+    expect(await screen.findByRole('heading', { name: '개인정보·이용 안내' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/privacy-notice');
+    expect(screen.getAllByText('사내 규정에 따름')).toHaveLength(3);
+    expect(screen.getByRole('button', { name: '개인정보·이용 안내' })).not.toHaveAttribute('aria-current');
+    fireEvent.click(screen.getByRole('button', { name: '홈으로' }));
+    expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '내 업무' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '공지사항' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '알림' })).toBeInTheDocument();
@@ -75,14 +83,17 @@ describe('App', () => {
     fireEvent.click(within(navigation).getByRole('button', { name: '프로젝트' }));
     expect(await screen.findByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/projects');
+    fireEvent.click(within(navigation).getByRole('button', { name: 'EMI PMS 로고로 홈 이동' }));
+    expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+    fireEvent.click(within(navigation).getByRole('button', { name: '프로젝트' }));
+    expect(await screen.findByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
     fireEvent.click(within(navigation).getByRole('button', { name: '홈' }));
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/');
 
-    act(() => {
-      window.history.pushState(null, '', '/projects');
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    });
+    const desktopNavigation = screen.getByRole('navigation', { name: '공통 메뉴' });
+    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '프로젝트' }));
     expect(await screen.findByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
     act(() => {
       window.history.pushState(null, '', '/home');
@@ -223,10 +234,18 @@ describe('App', () => {
     fireEvent.click(accountTrigger!);
 
     const accountDialog = await screen.findByRole('dialog', { name: '내 계정' });
-    expect(within(accountDialog).getByLabelText('프로필 사진 업로드')).toBeInTheDocument();
-    expect(within(accountDialog).getByRole('button', { name: '사진 변경' })).toBeInTheDocument();
+    expect(accountDialog.querySelector('input[type="file"]')).toHaveAttribute('hidden');
+    const changePhotoButton = within(accountDialog).getByRole('button', { name: '사진 변경' });
+    expect(changePhotoButton).toBeInTheDocument();
     expect(within(accountDialog).getByRole('button', { name: '사진 제거' })).toBeDisabled();
+    expect(within(accountDialog).queryByRole('button', { name: '개인정보·이용 안내' })).not.toBeInTheDocument();
     expect(within(accountDialog).getByRole('button', { name: '로그아웃' })).toBeInTheDocument();
+
+    fireEvent.click(changePhotoButton);
+    const consentDialog = await screen.findByRole('dialog', { name: '프로필 사진 선택 동의' });
+    expect(within(consentDialog).getByText(/동의하지 않아도 기본 이니셜로/)).toBeInTheDocument();
+    fireEvent.click(within(consentDialog).getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '프로필 사진 선택 동의' })).not.toBeInTheDocument());
 
     const commonNavigation = screen.getByRole('navigation', { name: '공통 메뉴' });
     for (const label of ['홈', '내 업무', '프로젝트', 'Pending', '생산관리', '구매', '자재', '제조', '품질', '물류', '영업', '알림']) {
@@ -831,7 +850,9 @@ describe('App', () => {
     fireEvent.click(accountButton);
     const accountSheet = await screen.findByRole('dialog', { name: '내 계정' });
     expect(accountButton).toHaveAttribute('aria-expanded', 'true');
-    expect(within(accountSheet).getByLabelText('프로필 사진 업로드')).toBeInTheDocument();
+    expect(accountSheet.querySelector('input[type="file"]')).toHaveAttribute('hidden');
+    expect(within(accountSheet).getByRole('button', { name: '프로필 사진 변경 안내 열기' })).toBeInTheDocument();
+    expect(within(accountSheet).queryByRole('button', { name: '개인정보·이용 안내' })).not.toBeInTheDocument();
     expect(within(accountSheet).getByLabelText('모바일 시스템 상태')).toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '내 계정' })).not.toBeInTheDocument());
@@ -873,6 +894,26 @@ describe('App', () => {
     expect(await screen.findByLabelText('생산계획 요약')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: '전체 업무 메뉴' })).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/production-planning/plans');
+
+    fireEvent.click(menuButton);
+    const logoDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
+    fireEvent.click(within(logoDrawer).getByRole('button', { name: 'EMI PMS 메뉴 로고로 홈 이동' }));
+    expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '전체 업무 메뉴' })).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('opens Home from the mobile header logo', async () => {
+    mockMobileViewport(true);
+    window.history.pushState(null, '', '/projects');
+    render(<App />);
+
+    const mobileLogo = await screen.findByRole('button', { name: 'EMI PMS 모바일 로고로 홈 이동' });
+    expect(window.location.pathname).toBe('/projects');
+    fireEvent.click(mobileLogo);
+
+    expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
   });
 
   it('shows every operational menu in the mobile drawer for a sales user', async () => {

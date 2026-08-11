@@ -621,7 +621,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -887,7 +887,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -991,7 +991,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1057,7 +1057,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+        Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1121,7 +1121,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1286,7 +1286,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1778,7 +1778,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+        Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1821,7 +1821,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+        Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2002,7 +2002,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2079,7 +2079,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2103,6 +2103,82 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task NoticeEditorMigration_UpgradesExistingNoticesAndGuardsRevisionHistory()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration(
+            new Dictionary<string, string?> { ["DevelopmentData:SeedEnabled"] = "true" });
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        var migrationsThrough0072 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0072-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql")
+                         .Where(path => string.CompareOrdinal(Path.GetFileName(path), "0073_") < 0))
+            {
+                File.Copy(source, Path.Combine(migrationsThrough0072.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(migrationsThrough0072.FullName),
+                new DatabaseRuntimePrivilegeManager(),
+                configuration,
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await CreateSeeder(database.RepositoryRoot, "Testing", configuration, provider)
+                .SeedAsync(TestContext.Current.CancellationToken);
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into notice_posts (
+                    id,title,body,author_user_id,author_display_name_snapshot,
+                    author_department_name_snapshot,request_id)
+                select
+                    '73000000-0000-0000-0000-000000000001','기존 공지','기존 평문',id,display_name,'영업',
+                    '73000000-0000-0000-0000-000000000002'
+                from qms_users where development_user_key='dev-sales';
+                """,
+                TestContext.Current.CancellationToken);
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider)
+                .ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal("PlainTextV1", await ReadScalarAsync<string>(
+                provider,
+                "select body_format from notice_posts where id='73000000-0000-0000-0000-000000000001';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1, await ReadScalarAsync<int>(
+                provider,
+                "select version from notice_posts where id='73000000-0000-0000-0000-000000000001';",
+                TestContext.Current.CancellationToken));
+
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into notice_post_revisions (
+                    notice_post_id,version,title,body,body_format,changed_by_user_id)
+                select id,1,title,body,body_format,author_user_id
+                from notice_posts where id='73000000-0000-0000-0000-000000000001';
+                """,
+                TestContext.Current.CancellationToken);
+            var revisionUpdate = await Record.ExceptionAsync(() => ExecuteSqlAsync(
+                provider,
+                "update notice_post_revisions set title='변조' where notice_post_id='73000000-0000-0000-0000-000000000001';",
+                TestContext.Current.CancellationToken));
+            Assert.IsType<PostgresException>(revisionUpdate);
+        }
+        finally
+        {
+            migrationsThrough0072.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task NotificationDeliveryClaimLeaseMigration_AddsProcessingClaimsAttemptsAndIndexes()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -2118,7 +2194,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0072_user_department_role_heads", await ReadScalarAsync<string>(
+        Assert.Equal("0073_notice_editor_and_attachments", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

@@ -321,6 +321,7 @@ public sealed class ManufacturingStore(
                     readiness,
                     assignee.Value,
                     actorUserId,
+                    request.OperationId,
                     cancellationToken);
             }
             if (generatedCount != panels.Count)
@@ -1007,7 +1008,6 @@ public sealed class ManufacturingStore(
                     await command.ExecuteNonQueryAsync(cancellationToken);
                 }
                 await InsertEventAsync(connection, transaction, executionId, "Stopped", null, pending.PendingId, reason, description, actorUserId, cancellationToken);
-                await CreateProductionReferenceNotificationAsync(connection, transaction, snapshot.ProjectId, snapshot.PanelId, request.OperationId, pending.PendingId, cancellationToken);
                 return MutationActionResult.Success(new ManufacturingMutationResponse(
                     request.OperationId, snapshot.ProjectId, snapshot.PanelId, executionId,
                     ManufacturingExecutionStatuses.Blocked, snapshot.Version + 1, snapshot.CheckedStepCount, snapshot.TotalStepCount,
@@ -1118,6 +1118,12 @@ public sealed class ManufacturingStore(
                         command.Parameters.AddWithValue("work_item_id", snapshot.WorkItemId);
                         await command.ExecuteNonQueryAsync(cancellationToken);
                     }
+                    await WorkItemFallbackCompletion.SynchronizeForWorkItemAsync(
+                        connection,
+                        transaction,
+                        snapshot.WorkItemId,
+                        actorUserId,
+                        cancellationToken);
                     var oqcHandoff = await QualityInspectionStore.TryOpenOqcAfterManufacturingQualityGateAsync(
                         connection,
                         transaction,
@@ -1429,12 +1435,14 @@ public sealed class ManufacturingStore(
         command.Parameters.AddWithValue("responsibility_types", responsibilityTypes);
         command.Parameters.AddWithValue("permission_code", QmsPermissions.ManufacturingUpdate);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
-            ? new ReleaseAssigneeSnapshot(
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return new ReleaseAssigneeSnapshot(
                 reader.GetGuid(0),
                 reader.GetString(1),
-                reader.IsDBNull(2) ? null : reader.GetString(2))
-            : null;
+                reader.IsDBNull(2) ? null : reader.GetString(2));
+        }
+        throw new DepartmentHeadRequiredException("manufacturing");
     }
 
     private static async Task<int> InsertManufacturingReleaseWorkItemAsync(
@@ -1445,6 +1453,7 @@ public sealed class ManufacturingStore(
         MaterialReadinessSnapshot readiness,
         ReleaseAssigneeSnapshot assignee,
         Guid actorUserId,
+        Guid operationId,
         CancellationToken cancellationToken)
     {
         var idempotencyKey = $"kitting:panel:{panel.PanelId}:manufacturing";
@@ -1496,7 +1505,7 @@ public sealed class ManufacturingStore(
                 title,
                 description,
                 $"/manufacturing/work?project={projectId}&panel={panel.PanelId}",
-                $"{idempotencyKey}:notification",
+                $"manufacturing:release:{operationId}:project:{projectId}:stage:ManufacturingWork:assignee:{assignee.UserId}:notification",
                 cancellationToken);
         }
         return inserted;
@@ -2014,20 +2023,30 @@ public sealed class ManufacturingStore(
                 union all
                 select users.id, role.code, 100, users.display_name
                 from qms_users users
-                join user_roles user_role on user_role.user_id = users.id
-                join roles role on role.id = user_role.role_id and role.code = 'quality'
-                join role_permissions role_permission on role_permission.role_id = role.id
-                join permissions permission on permission.id = role_permission.permission_id and permission.code = 'quality.inspect'
-                where users.is_active = true
+                join departments department
+                  on department.id = users.department_id
+                 and department.code = 'quality'
+                 and department.is_active = true
+                left join lateral (
+                    select roles.code
+                    from user_roles user_role
+                    join roles on roles.id = user_role.role_id
+                    where user_role.user_id = users.id
+                    order by roles.code
+                    limit 1
+                ) role on true
+                where users.is_active = true and users.is_department_head = true
             )
             select user_id, role_code from candidates order by priority, display_name, user_id limit 1;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("responsibilities", new[] { "QualityLQC", "QualityLQCSecondary" });
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
-            ? new AssigneeSnapshot(reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1))
-            : null;
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return new AssigneeSnapshot(reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1));
+        }
+        throw new DepartmentHeadRequiredException("quality");
     }
 
     private static async Task<bool> InsertLqcWorkItemAsync(
@@ -2136,52 +2155,6 @@ public sealed class ManufacturingStore(
         command.Parameters.AddWithValue("correlation_id", operationId.ToString("D"));
         command.Parameters.AddWithValue("actor_id", actorUserId);
         await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
-    private static async Task CreateProductionReferenceNotificationAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
-        Guid panelId,
-        Guid operationId,
-        Guid pendingId,
-        CancellationToken cancellationToken)
-    {
-        Guid notificationId;
-        await using (var command = connection.CreateCommand())
-        {
-            command.Transaction = transaction;
-            command.CommandText = """
-                insert into notifications (
-                    project_id, notification_type, severity, title, message, link_url, idempotency_key
-                )
-                values (
-                    @project_id, 'Blocking', 'Critical', '제조 중단이 등록되었습니다.',
-                    '패널 제조 중단 사유와 조치 담당 부서를 확인해 주세요.',
-                    '/pending/' || @pending_id::text, @idempotency_key
-                )
-                on conflict (idempotency_key) do update set title = excluded.title
-                returning id;
-                """;
-            command.Parameters.AddWithValue("project_id", projectId);
-            command.Parameters.AddWithValue("pending_id", pendingId);
-            command.Parameters.AddWithValue("idempotency_key", $"manufacturing:operation:{operationId}:production-reference");
-            notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
-        }
-        await using var recipientCommand = connection.CreateCommand();
-        recipientCommand.Transaction = transaction;
-        recipientCommand.CommandText = """
-            insert into notification_recipients (notification_id, user_id)
-            select @notification_id, assigned_user_id
-            from project_assignees
-            where project_id = @project_id
-              and responsibility_type in ('ProductionPlanningPrimary', 'ProductionPlanningSecondary')
-              and assigned_user_id is not null
-            on conflict (notification_id, user_id) do nothing;
-            """;
-        recipientCommand.Parameters.AddWithValue("notification_id", notificationId);
-        recipientCommand.Parameters.AddWithValue("project_id", projectId);
-        await recipientCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<bool> IsUl891CurrentDesignReadyAsync(

@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.Ul891Sets;
+using Emi.Qms.Api.Workflow;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -204,7 +205,7 @@ public sealed class SalesSettlementStore(
             var settlementId = settlement?.Id ?? Guid.NewGuid();
             var version = settlement is null ? 1 : settlement.Version + 1;
             await CompleteSettlementRowAsync(connection, transaction, settlementId, projectId, settlement is null, invoice, actorId, cancellationToken);
-            await CompleteWorkItemAsync(connection, transaction, workItemId.Value, cancellationToken);
+            await CompleteWorkItemAsync(connection, transaction, workItemId.Value, actorId, cancellationToken);
             var eventId = await EnsureCompletionEventAsync(connection, transaction, projectId, settlementId, request.OperationId, actorId, cancellationToken);
             await CompleteProjectAsync(connection, transaction, projectId, actorId, cancellationToken);
             await InsertAuditEventAsync(connection, transaction, projectId, actorId, request.OperationId, cancellationToken);
@@ -416,6 +417,7 @@ public sealed class SalesSettlementStore(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid workItemId,
+        Guid actorUserId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -426,6 +428,12 @@ public sealed class SalesSettlementStore(
             """;
         command.Parameters.AddWithValue("id", workItemId);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await WorkItemFallbackCompletion.SynchronizeForWorkItemAsync(
+            connection,
+            transaction,
+            workItemId,
+            actorUserId,
+            cancellationToken);
     }
 
     private static async Task<Guid> EnsureCompletionEventAsync(
@@ -530,10 +538,10 @@ public sealed class SalesSettlementStore(
             command.CommandText = """
                 insert into notifications (
                     id,project_id,notification_type,severity,title,message,link_url,
-                    generated_by_event_id,idempotency_key,source_kind)
+                    generated_by_event_id,idempotency_key,visibility_scope,source_kind)
                 values (@id,@project_id,'Reference','Info','프로젝트 완료','프로젝트가 최종 완료되었습니다.',
                         '/projects/' || @project_id || '/settlement',@event_id,
-                        'sales-settlement:project:' || @project_id || ':completed','ProjectCompletion')
+                        'sales-settlement:project:' || @project_id || ':completed','RecipientOnly','ProjectCompletion')
                 on conflict (idempotency_key) do nothing;
                 """;
             command.Parameters.AddWithValue("id", notificationId);
@@ -542,23 +550,6 @@ public sealed class SalesSettlementStore(
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        await using var recipients = connection.CreateCommand();
-        recipients.Transaction = transaction;
-        recipients.CommandText = """
-            insert into notification_recipients (notification_id,user_id)
-            select notification.id,user_id
-            from notifications notification
-            cross join lateral (
-                select project.sales_owner_user_id as user_id from projects project where project.id=@project_id
-                union
-                select assignee.assigned_user_id from project_assignees assignee where assignee.project_id=@project_id
-            ) target
-            join qms_users users on users.id=target.user_id and users.is_active
-            where notification.idempotency_key='sales-settlement:project:' || @project_id || ':completed'
-            on conflict (notification_id,user_id) do nothing;
-            """;
-        recipients.Parameters.AddWithValue("project_id", projectId);
-        await recipients.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<SalesSettlementMutationResult<SalesSettlementMutationResponse>?> ReadReplayAsync(

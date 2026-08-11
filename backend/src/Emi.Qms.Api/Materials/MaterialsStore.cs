@@ -4,6 +4,7 @@ using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.Pending;
 using Emi.Qms.Api.Procurement;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.Workflow;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -598,7 +599,7 @@ public sealed class MaterialsStore(
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        await CompleteWorkItemsByPrefixAsync(connection, transaction, $"materials:iqc:{attemptId}", cancellationToken);
+        await CompleteWorkItemsByPrefixAsync(connection, transaction, $"materials:iqc:{attemptId}", actorUserId, cancellationToken);
         if (result == "Passed")
         {
             await CreateConfirmationWorkItemAsync(connection, transaction, attempt.ProjectId, attempt.ItemId, attempt.ReceiptId, attempt.OrderItem, actorUserId, cancellationToken);
@@ -818,7 +819,7 @@ public sealed class MaterialsStore(
             }
         }
 
-        await CompleteWorkItemsByPrefixAsync(connection, transaction, $"materials:iqc:{attemptId}", cancellationToken);
+        await CompleteWorkItemsByPrefixAsync(connection, transaction, $"materials:iqc:{attemptId}", actorUserId, cancellationToken);
         if (result == "Passed")
         {
             await CreateConfirmationWorkItemAsync(connection, transaction, attempt.ProjectId, attempt.ItemId, attempt.ReceiptId, attempt.OrderItem, actorUserId, cancellationToken);
@@ -982,7 +983,7 @@ public sealed class MaterialsStore(
             }
         }
 
-        await CompleteWorkItemsByPrefixAsync(connection, transaction, $"materials:iqc:{attemptId}", cancellationToken);
+        await CompleteWorkItemsByPrefixAsync(connection, transaction, $"materials:iqc:{attemptId}", actorUserId, cancellationToken);
         if (result == "Passed")
         {
             await CreateConfirmationWorkItemAsync(
@@ -1059,7 +1060,7 @@ public sealed class MaterialsStore(
             command.Parameters.AddWithValue("expected_version", request.ExpectedVersion!.Value);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
-        await CompleteWorkItemsByPrefixAsync(connection, transaction, $"materials:receipt:{receiptId}:confirm", cancellationToken);
+        await CompleteWorkItemsByPrefixAsync(connection, transaction, $"materials:receipt:{receiptId}:confirm", actorUserId, cancellationToken);
         await InsertEventAsync(
             connection,
             transaction,
@@ -1355,6 +1356,13 @@ public sealed class MaterialsStore(
         command.Parameters.AddWithValue("actor_id", actorUserId);
         command.Parameters.AddWithValue("note", note);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await WorkItemFallbackCompletion.SynchronizeForProjectStageAsync(
+            connection,
+            transaction,
+            projectId,
+            stageCode,
+            actorUserId,
+            cancellationToken);
     }
 
     private static Dictionary<string, string[]> ValidateArrival(RegisterMaterialArrivalRequest request)
@@ -1695,9 +1703,10 @@ public sealed class MaterialsStore(
             : $"{pendingLabel} 조치 완료 건의 {presentation.AttemptNumber}차 IQC를 판정해 주세요.";
         var linkUrl = $"/quality/iqc?request={attemptId}";
         var workItemIds = new List<Guid>();
-        for (var index = 0; index < assignees.Count; index += 1)
+        var workItemAssignees = assignees[0].IsDepartmentHeadFallback ? assignees.Take(1).ToArray() : assignees;
+        for (var index = 0; index < workItemAssignees.Count; index += 1)
         {
-            var assignee = assignees[index];
+            var assignee = workItemAssignees[index];
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
@@ -1816,10 +1825,14 @@ public sealed class MaterialsStore(
             return assignees;
         }
 
-        var fallback = await ResolveAssigneeAsync(connection, transaction, projectId, "QualityIQC", QmsPermissions.QualityInspect, cancellationToken);
-        return fallback is null
-            ? []
-            : [new IqcHandoffAssignee(fallback.Value.UserId, "QualityIQC")];
+        var fallbackAssignees = await ResolveDepartmentHeadAssigneesAsync(
+            connection,
+            transaction,
+            "QualityIQC",
+            cancellationToken);
+        return fallbackAssignees
+            .Select(assignee => new IqcHandoffAssignee(assignee.UserId, "QualityIQC", true))
+            .ToArray();
     }
 
     private static async Task CreateConfirmationWorkItemAsync(
@@ -1849,7 +1862,8 @@ public sealed class MaterialsStore(
             : $"IQC 합격 도착분의 입고 확정을 진행해 주세요. ({presentation.OrderItem ?? orderItem ?? "발주품목"} {quantity})";
         var linkUrl = $"/materials/receipts?receipt={receiptId}";
         var workItemIds = new List<Guid>();
-        foreach (var assignee in assignees)
+        var workItemAssignees = assignees[0].IsDepartmentHeadFallback ? assignees.Take(1) : assignees;
+        foreach (var assignee in workItemAssignees)
         {
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
@@ -1882,10 +1896,18 @@ public sealed class MaterialsStore(
             workItemIds.Add((Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty));
         }
 
-        await CreateAssignmentNotificationAsync(
-            connection, transaction, projectId, workItemIds[0], assignees[0].UserId,
-            "MaterialsSecondary", title, notificationMessage, linkUrl,
-            $"materials:receipt:{receiptId}:confirm:notification", cancellationToken);
+        await WorkAssignmentNotificationWriter.UpsertAsync(
+            connection,
+            transaction,
+            projectId,
+            workItemIds[0],
+            assignees[0].UserId,
+            ["MaterialsSecondary"],
+            title,
+            notificationMessage,
+            linkUrl,
+            $"materials:receipt:{receiptId}:confirm:notification",
+            cancellationToken);
     }
 
     private static async Task<IReadOnlyList<IqcHandoffAssignee>> ResolveMaterialConfirmationAssigneesAsync(
@@ -1928,10 +1950,14 @@ public sealed class MaterialsStore(
             return assignees;
         }
 
-        var fallback = await ResolveAssigneeAsync(connection, transaction, projectId, "MaterialsPrimary", QmsPermissions.MaterialReceiptUpdate, cancellationToken);
-        return fallback is null
-            ? []
-            : [new IqcHandoffAssignee(fallback.Value.UserId, "MaterialsPrimary")];
+        var fallbackAssignees = await ResolveDepartmentHeadAssigneesAsync(
+            connection,
+            transaction,
+            "MaterialsPrimary",
+            cancellationToken);
+        return fallbackAssignees
+            .Select(assignee => new IqcHandoffAssignee(assignee.UserId, "MaterialsPrimary", true))
+            .ToArray();
     }
 
     private static async Task EnsureManufacturingReadinessAssignmentsAsync(
@@ -1947,7 +1973,6 @@ public sealed class MaterialsStore(
             projectId,
             ["ProductionPlanningPrimary", "ProductionPlanningSecondary"],
             "ProductionPlanningPrimary",
-            QmsPermissions.ProductionPlanUpdate,
             cancellationToken);
         await UpsertManufacturingReadinessWorkGroupAsync(
             connection,
@@ -1968,7 +1993,6 @@ public sealed class MaterialsStore(
             projectId,
             ["MaterialsPrimary", "MaterialsSecondary"],
             "MaterialsPrimary",
-            QmsPermissions.MaterialReceiptUpdate,
             cancellationToken);
         await UpsertManufacturingReadinessWorkGroupAsync(
             connection,
@@ -2003,7 +2027,8 @@ public sealed class MaterialsStore(
         }
 
         var workItemIds = new List<Guid>();
-        foreach (var assignee in assignees)
+        var workItemAssignees = assignees[0].IsDepartmentHeadFallback ? assignees.Take(1) : assignees;
+        foreach (var assignee in workItemAssignees)
         {
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
@@ -2057,7 +2082,6 @@ public sealed class MaterialsStore(
         Guid projectId,
         string[] responsibilityTypes,
         string fallbackResponsibilityType,
-        string fallbackPermission,
         CancellationToken cancellationToken)
     {
         var assignees = new List<IqcHandoffAssignee>();
@@ -2094,16 +2118,14 @@ public sealed class MaterialsStore(
             return assignees;
         }
 
-        var fallback = await ResolveAssigneeAsync(
+        var fallbackAssignees = await ResolveDepartmentHeadAssigneesAsync(
             connection,
             transaction,
-            projectId,
             fallbackResponsibilityType,
-            fallbackPermission,
             cancellationToken);
-        return fallback is null
-            ? []
-            : [new IqcHandoffAssignee(fallback.Value.UserId, fallbackResponsibilityType)];
+        return fallbackAssignees
+            .Select(assignee => new IqcHandoffAssignee(assignee.UserId, fallbackResponsibilityType, true))
+            .ToArray();
     }
 
     private static async Task<ConfirmationPresentation> ReadConfirmationPresentationAsync(
@@ -2135,118 +2157,57 @@ public sealed class MaterialsStore(
             reader.GetFieldValue<DateOnly>(4));
     }
 
-    private static async Task CreateAssignmentNotificationAsync(
+    private static async Task<IReadOnlyList<(Guid UserId, string? RoleCode)>> ResolveDepartmentHeadAssigneesAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        Guid projectId,
-        Guid workItemId,
-        Guid primaryUserId,
-        string secondaryResponsibilityType,
-        string title,
-        string message,
-        string linkUrl,
-        string idempotencyKey,
-        CancellationToken cancellationToken)
-    {
-        Guid notificationId;
-        await using (var command = connection.CreateCommand())
-        {
-            command.Transaction = transaction;
-            command.CommandText = """
-                insert into notifications (
-                    project_id, notification_type, severity, title, message, link_url,
-                    idempotency_key, visibility_scope, source_kind, work_item_id
-                ) values (
-                    @project_id, 'Info', 'Info', @title, @message, @link_url,
-                    @idempotency_key, 'RecipientOnly', 'WorkAssignment', @work_item_id
-                )
-                on conflict (idempotency_key) do update
-                set title=excluded.title, message=excluded.message, link_url=excluded.link_url, work_item_id=excluded.work_item_id
-                returning id;
-                """;
-            command.Parameters.AddWithValue("project_id", projectId);
-            command.Parameters.AddWithValue("title", $"새 업무 · {title}");
-            command.Parameters.AddWithValue("message", message);
-            command.Parameters.AddWithValue("link_url", linkUrl);
-            command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
-            command.Parameters.AddWithValue("work_item_id", workItemId);
-            notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
-        }
-
-        var recipientIds = new List<Guid> { primaryUserId };
-        await using (var command = connection.CreateCommand())
-        {
-            command.Transaction = transaction;
-            command.CommandText = """
-                select assigned_user_id
-                from project_assignees
-                where project_id=@project_id and responsibility_type=@responsibility_type;
-                """;
-            command.Parameters.AddWithValue("project_id", projectId);
-            command.Parameters.AddWithValue("responsibility_type", secondaryResponsibilityType);
-            var value = await command.ExecuteScalarAsync(cancellationToken);
-            if (value is Guid secondaryUserId) recipientIds.Add(secondaryUserId);
-        }
-
-        foreach (var recipientId in recipientIds.Distinct())
-        {
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                insert into notification_recipients (notification_id, user_id)
-                values (@notification_id, @user_id)
-                on conflict (notification_id, user_id) do nothing;
-                """;
-            command.Parameters.AddWithValue("notification_id", notificationId);
-            command.Parameters.AddWithValue("user_id", recipientId);
-            await command.ExecuteNonQueryAsync(cancellationToken);
-        }
-    }
-
-    private static async Task<(Guid UserId, string? RoleCode)?> ResolveAssigneeAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
         string responsibilityType,
-        string permissionCode,
         CancellationToken cancellationToken)
     {
+        var departmentCode = responsibilityType switch
+        {
+            var value when value.StartsWith("Quality", StringComparison.Ordinal) => "quality",
+            var value when value.StartsWith("Materials", StringComparison.Ordinal) => "materials",
+            var value when value.StartsWith("Manufacturing", StringComparison.Ordinal) => "manufacturing",
+            var value when value.StartsWith("ProductionPlanning", StringComparison.Ordinal) => "production-planning",
+            _ => throw new InvalidOperationException($"Unsupported fallback responsibility type: {responsibilityType}")
+        };
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select candidate.user_id, candidate.role_code
-            from (
-                select pa.assigned_user_id as user_id, role.code as role_code, 0 as priority
-                from project_assignees pa
-                join qms_users users on users.id = pa.assigned_user_id and users.is_active = true
-                left join user_roles user_role on user_role.user_id = users.id
-                left join roles role on role.id = user_role.role_id
-                where pa.project_id = @project_id and pa.responsibility_type = @responsibility_type
-                union all
-                select users.id, role.code, 1
-                from qms_users users
-                join user_roles user_role on user_role.user_id = users.id
-                join roles role on role.id = user_role.role_id
-                join role_permissions role_permission on role_permission.role_id = role.id
-                join permissions permission on permission.id = role_permission.permission_id
-                where users.is_active = true and permission.code = @permission_code
-            ) candidate
-            order by candidate.priority, candidate.role_code nulls last, candidate.user_id
-            limit 1;
+            select users.id, role.code
+            from qms_users users
+            join departments department
+              on department.id = users.department_id
+             and department.code = @department_code
+             and department.is_active = true
+            left join lateral (
+                select roles.code
+                from user_roles user_role
+                join roles on roles.id = user_role.role_id
+                where user_role.user_id = users.id
+                order by roles.code
+                limit 1
+            ) role on true
+            where users.is_active = true and users.is_department_head = true
+            order by role.code nulls last, users.id;
             """;
-        command.Parameters.AddWithValue("project_id", projectId);
-        command.Parameters.AddWithValue("responsibility_type", responsibilityType);
-        command.Parameters.AddWithValue("permission_code", permissionCode);
+        command.Parameters.AddWithValue("department_code", departmentCode);
+        var assignees = new List<(Guid UserId, string? RoleCode)>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
-            ? (reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1))
-            : null;
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            assignees.Add((reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1)));
+        }
+        return assignees.Count > 0
+            ? assignees
+            : throw new DepartmentHeadRequiredException(departmentCode);
     }
 
     private static async Task CompleteWorkItemsByPrefixAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         string idempotencyKey,
+        Guid actorUserId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -2260,6 +2221,12 @@ public sealed class MaterialsStore(
         command.Parameters.AddWithValue("key", idempotencyKey);
         command.Parameters.AddWithValue("prefix", $"{idempotencyKey}:%");
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await WorkItemFallbackCompletion.SynchronizeForIdempotencyPrefixAsync(
+            connection,
+            transaction,
+            idempotencyKey,
+            actorUserId,
+            cancellationToken);
     }
 
     private static async Task<Guid?> ReadLatestPendingIdAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid receiptId, CancellationToken cancellationToken)
@@ -2625,7 +2592,10 @@ public sealed class MaterialsStore(
         string DecisionMode,
         Guid? LinkedPendingId);
 
-    private sealed record IqcHandoffAssignee(Guid UserId, string ResponsibilityType);
+    private sealed record IqcHandoffAssignee(
+        Guid UserId,
+        string ResponsibilityType,
+        bool IsDepartmentHeadFallback = false);
 
     private sealed record IqcWorkPresentation(
         int AttemptNumber,

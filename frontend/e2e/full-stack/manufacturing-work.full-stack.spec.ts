@@ -43,7 +43,13 @@ test('TASK-010A/011A: production releases a non-kitted panel and manufacturing c
     from notification_recipients recipient
     join notifications notification on notification.id = recipient.notification_id
     where notification.project_id = '${projectId}'
-      and notification.idempotency_key like 'kitting:panel:%:manufacturing:notification';
+      and notification.source_kind = 'WorkAssignment'
+      and notification.work_item_id in (
+        select id from work_items
+        where project_id = '${projectId}'
+          and target_id = '${panelId}'
+          and idempotency_key = 'kitting:panel:${panelId}:manufacturing'
+      );
   `)).toBe('2');
 
   await page.goto(`/manufacturing/work?project=${projectId}&panel=${panelId}`);
@@ -108,9 +114,10 @@ test('TASK-010A/011A: production releases a non-kitted panel and manufacturing c
   await page.getByRole('button', { name: '작업 중단' }).click();
   const stopDialog = page.getByRole('dialog', { name: '제조 작업 중단' });
   await stopDialog.getByPlaceholder('현장에서 확인한 문제와 필요한 조치를 10자 이상 입력하세요.').fill('합성 자재 규격 확인이 필요해 제조 작업을 잠시 중단합니다.');
-  await stopDialog.getByLabel('조치 담당 부서').selectOption({ index: 1 });
+  await stopDialog.getByLabel('조치 담당 부서').selectOption('quality');
   await stopDialog.getByRole('button', { name: '작업 중단 · 긴급 Pending 생성' }).click();
-  await expect(page.getByRole('button', { name: /긴급 Pending/u })).toBeVisible();
+  await expect(stopDialog).toBeHidden({ timeout: 30_000 });
+  await expect(page.locator('.manufacturing-pending-link')).toBeVisible();
   await expect(page.locator('.manufacturing-focus-card')).toHaveAttribute('data-status', 'blocked');
 
   const pendingId = queryDatabase(`

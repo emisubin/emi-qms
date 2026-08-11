@@ -92,7 +92,33 @@ test('TASK-014A: project settlement atomically completes the project and remains
   expect(queryDatabase(`select count(*)::text from sales_settlement_operations where project_id='${projectId}';`)).toBe('1');
   expect(queryDatabase(`select count(*)::text from project_workflow_events where project_id='${projectId}' and stage_code='SalesSettlementCompleted' and event_status='Succeeded';`)).toBe('1');
   expect(queryDatabase(`select count(*)::text from notifications where project_id='${projectId}' and idempotency_key='sales-settlement:project:${projectId}:completed' and message not like '%SYNTH-014A%';`)).toBe('1');
-  expect(queryDatabase(`select count(*)::text from notification_deliveries where notification_id in (select id from notifications where project_id='${projectId}');`)).toBe('0');
+  expect(queryDatabase(`
+    select count(*)::text
+    from notification_recipients recipient
+    join notifications notification on notification.id = recipient.notification_id
+    where notification.idempotency_key='sales-settlement:project:${projectId}:completed';
+  `)).toBe('0');
+  expect(queryDatabase(`
+    select count(*)::text
+    from notification_deliveries delivery
+    join notifications notification on notification.id = delivery.notification_id
+    where notification.idempotency_key='sales-settlement:project:${projectId}:completed'
+      and delivery.channel <> 'Mail';
+  `)).toBe('0');
+  expect(queryDatabase(`
+    select (
+      select count(*)
+      from notification_deliveries delivery
+      join notifications notification on notification.id = delivery.notification_id
+      where notification.idempotency_key='sales-settlement:project:${projectId}:completed'
+        and delivery.channel = 'Mail'
+    ) = (
+      select count(*)
+      from qms_users user_account
+      join departments department on department.id = user_account.department_id
+      where user_account.is_active = true and department.code = 'sales'
+    );
+  `)).toBe('t');
 
   const afterCompletionPending = await request.post(`${apiBaseUrl}/api/pending`, {
     headers: devHeaders('dev-sales'),

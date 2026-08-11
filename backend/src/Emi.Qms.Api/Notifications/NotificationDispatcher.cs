@@ -93,23 +93,37 @@ public sealed class NotificationDispatcher(
         try
         {
             var message = preparedMessage ?? await deliveryStore.RenderMessageAsync(delivery, cancellationToken);
-            if (handler.WillCallExternalProvider(message))
+            NotificationChannelResult result;
+            if (handler is IProviderCallAwareNotificationChannelHandler providerCallAwareHandler)
             {
-                var auditRecorded = await deliveryStore.MarkProviderCallStartedAsync(
-                    delivery.DeliveryId,
-                    claimed.ClaimToken,
+                result = await providerCallAwareHandler.SendAsync(
+                    message,
+                    ct => deliveryStore.MarkProviderCallStartedAsync(
+                        delivery.DeliveryId,
+                        claimed.ClaimToken,
+                        ct),
                     cancellationToken);
-                if (!auditRecorded)
-                {
-                    var claimLost = NotificationChannelResult.Failed(
-                        "NotificationDeliveryClaimLost",
-                        "Provider 호출 전에 claim 소유권을 확인할 수 없습니다.");
-                    await CompleteAsync(claimed, claimLost, retryCount, cancellationToken);
-                    return claimLost;
-                }
             }
+            else
+            {
+                if (handler.WillCallExternalProvider(message))
+                {
+                    var auditRecorded = await deliveryStore.MarkProviderCallStartedAsync(
+                        delivery.DeliveryId,
+                        claimed.ClaimToken,
+                        cancellationToken);
+                    if (!auditRecorded)
+                    {
+                        var claimLost = NotificationChannelResult.Failed(
+                            "NotificationDeliveryClaimLost",
+                            "Provider 호출 전에 claim 소유권을 확인할 수 없습니다.");
+                        await CompleteAsync(claimed, claimLost, retryCount, cancellationToken);
+                        return claimLost;
+                    }
+                }
 
-            var result = await handler.SendAsync(message, cancellationToken);
+                result = await handler.SendAsync(message, cancellationToken);
+            }
             await CompleteAsync(claimed, result, retryCount, cancellationToken);
             return result;
         }

@@ -1567,6 +1567,8 @@ export interface MyWorkItem {
   startedAtUtc: string | null;
   completedAtUtc: string | null;
   linkUrl: string;
+  isDepartmentHeadFallback: boolean;
+  wasFallbackAutoClosed: boolean;
 }
 
 export interface NotificationSummary {

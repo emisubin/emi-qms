@@ -1345,6 +1345,26 @@ describe('App', () => {
     expect(screen.queryByText('opaque-test-worker')).not.toBeInTheDocument();
   });
 
+  it('labels Web Push as provider acceptance in the admin monitor', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    window.history.pushState(null, '', '/admin/system/notification-deliveries');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('채널'), { target: { value: 'WebPush' } });
+    expect(await screen.findByText('PWA 푸시')).toBeInTheDocument();
+    expect(screen.getAllByText('인앱 연동 PWA 푸시').length).toBeGreaterThan(0);
+    expect(screen.getByText('푸시 서비스 접수')).toBeInTheDocument();
+    expect(screen.getByText((content, element) => element?.tagName === 'SMALL' && content.startsWith('서비스 접수'))).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '기기 푸시 알림' }));
+    expect(await screen.findByRole('heading', { name: '알림 발송 상세' })).toBeInTheDocument();
+    expect(screen.getAllByText('푸시 서비스 접수').length).toBeGreaterThan(0);
+    expect(screen.getByText('서비스 접수')).toBeInTheDocument();
+  });
+
   it('shows field-level department validation errors', async () => {
     render(<App />);
 
@@ -3384,20 +3404,21 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
   if (path.startsWith('/api/admin/notification-deliveries/') && init?.method !== 'POST') {
+    const webPushDetail = path.endsWith('79000000-0000-0000-0000-000000000102');
     return json({
       deliveryId: path.split('/').at(-1),
       categoryLabel: '관리자 수동 발송',
       notificationKindLabel: '프로젝트 생성 알림',
       projectName: 'TASK-003A Demo',
-      title: '[테스트] 프로젝트 생성 알림',
+      title: webPushDetail ? '기기 푸시 알림' : '[테스트] 프로젝트 생성 알림',
       message: '실제 업무 알림이 아닙니다.',
       manualRequestedAtUtc: '2026-07-07T00:00:00Z',
       createdAtUtc: '2026-07-07T00:00:00Z',
-      channel: 'Mail',
-      channelLabel: '메일',
+      channel: webPushDetail ? 'WebPush' : 'Mail',
+      channelLabel: webPushDetail ? 'PWA 푸시' : '메일',
       recipient: 'Dev Sales User',
       status: 'Sent',
-      statusLabel: '발송 완료',
+      statusLabel: webPushDetail ? '푸시 서비스 접수' : '발송 완료',
       attemptCount: 1,
       nextAttemptAtUtc: null,
       lastAttemptAtUtc: '2026-07-07T00:00:00Z',
@@ -3432,22 +3453,23 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
 	  if (path === '/api/admin/notification-deliveries') {
-	    const status = url.searchParams.get('status') ?? 'Sent';
+	    const status = url.searchParams.get('status') || 'Sent';
 	    const handlingStatus = url.searchParams.get('handlingStatus') ?? 'Open';
+	    const webPushChannel = url.searchParams.get('channel') === 'WebPush';
 	    return json({
 	      items: [
 	        {
-	          deliveryId: '79000000-0000-0000-0000-000000000101',
+	          deliveryId: webPushChannel ? '79000000-0000-0000-0000-000000000102' : '79000000-0000-0000-0000-000000000101',
 	          notificationId: status === 'Pending' ? null : '79000000-0000-0000-0000-000000000301',
 	          recipientUserId: salesOwnerId,
 	          projectId,
 	          workItemId: '76000000-0000-0000-0000-000000000001',
-	          channel: 'Mail',
-	          channelLabel: '메일',
-	          deliveryType: status === 'Pending' ? 'OverdueL1' : 'DailyDigest',
-	          deliveryTypeLabel: status === 'Pending' ? '예정일 초과 L1' : '일일 요약',
+	          channel: webPushChannel ? 'WebPush' : 'Mail',
+	          channelLabel: webPushChannel ? 'PWA 푸시' : '메일',
+	          deliveryType: webPushChannel ? 'WebPushNotification' : status === 'Pending' ? 'OverdueL1' : 'DailyDigest',
+	          deliveryTypeLabel: webPushChannel ? '인앱 연동 PWA 푸시' : status === 'Pending' ? '예정일 초과 L1' : '일일 요약',
 	          status,
-	          statusLabel: status === 'Pending' ? '발송 대기' : status === 'Processing' ? '발송 처리 중' : status === 'Failed' ? '발송 실패' : '발송 완료',
+	          statusLabel: status === 'Pending' ? '발송 대기' : status === 'Processing' ? '발송 처리 중' : status === 'Failed' ? '발송 실패' : webPushChannel ? '푸시 서비스 접수' : '발송 완료',
 	          attemptCount: status === 'Pending' ? 0 : 1,
 	          nextAttemptAtUtc: status === 'Pending' ? '2026-07-07T01:00:00Z' : null,
 	          lastAttemptAtUtc: status === 'Sent' ? '2026-07-07T00:00:00Z' : null,
@@ -3467,7 +3489,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 	          notificationTitle: status === 'Pending' ? '예정일 초과 알림' : 'Daily Digest',
 	          notificationMessageSummary: status === 'Pending' ? '예정일 초과 알림 대기 중입니다.' : '일일 요약 발송 이력입니다.',
 	          displayMessageSummary: status === 'Pending' ? '예정일 초과 알림 대기 중입니다.' : '일일 요약 발송 이력입니다.',
-	          displayTitle: status === 'Pending' ? '예정일 초과 알림' : status === 'Failed' ? '발송 실패 테스트' : 'Daily Digest',
+	          displayTitle: webPushChannel ? '기기 푸시 알림' : status === 'Pending' ? '예정일 초과 알림' : status === 'Failed' ? '발송 실패 테스트' : 'Daily Digest',
 	          displayRecipient: 'Dev Sales User',
 	          displayProject: 'TASK-003A Demo · PJT-003A',
 	          displayRecipientKind: 'User',

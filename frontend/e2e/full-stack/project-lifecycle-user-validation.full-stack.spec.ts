@@ -108,8 +108,7 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
     handoffEvidence.push(evidence);
   }
   for (const evidence of creationEvidence) {
-    const shouldReceive = evidence.userKey !== 'dev-admin' && evidence.userKey !== 'dev-viewer';
-    expect(evidence.notificationProjectVisible, `${evidence.userKey} 프로젝트 생성 알림`).toBe(shouldReceive);
+    expect(evidence.notificationProjectVisible, `${evidence.userKey} 프로젝트 생성 알림`).toBe(true);
   }
   const productionBeforeAssignment = await captureAssigneeEvidence(
     page, 'dev-production', projectTitle, '01-to-production', '01-to-production'
@@ -321,7 +320,7 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
     join notifications notification on notification.id=delivery.notification_id
     where notification.project_id='${projectId}'
       and notification.source_kind='PendingAssignment'
-      and delivery.channel in ('TeamsChannel','Mail');
+      and delivery.channel in ('TeamsActivity','Mail');
   `)), { timeout: 20_000 }).toBe(2);
 
   // 자동 지정된 생산관리 담당자가 실제 Pending 화면에서 종결까지 처리한다.

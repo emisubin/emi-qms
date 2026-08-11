@@ -46,7 +46,7 @@ public sealed class NotificationDeliveryTests
         Assert.NotNull(initial);
         Assert.Equal(0, initial.Version);
         Assert.True(initial.IsDefault);
-        Assert.Equal(7, initial.Items.Count);
+        Assert.Equal(5, initial.Items.Count);
         Assert.Equal(3, initial.Items.Count(item => item.CanChange));
 
         var disabledItems = initial.Items
@@ -234,8 +234,14 @@ public sealed class NotificationDeliveryTests
             "coverage-reinspection", "Info", "Info", "새 업무 · OQC 재검사", "재검사를 진행해 주세요.",
             DevProductionUserId, NotificationSourceKinds.ReinspectionRequested);
         await context.InsertNotificationAsync(
-            "coverage-completion", "Reference", "Info", "프로젝트 완료", "프로젝트가 최종 완료되었습니다.",
-            DevSalesUserId, NotificationSourceKinds.ProjectCompletion);
+            "coverage-pending-closed", "Info", "Info", "Pending 종결", "Pending이 종결되었습니다.",
+            DevProductionUserId, NotificationSourceKinds.PendingClosed);
+        await context.InsertNotificationAsync(
+            "coverage-delivery-completion", "Reference", "Info", "프로젝트 납품 완료", "모든 패널의 납품이 완료되었습니다.",
+            DevSalesUserId, NotificationSourceKinds.ProjectDeliveryCompleted);
+        await context.InsertNotificationAsync(
+            "coverage-final-completion", "Reference", "Info", "프로젝트 완료", "프로젝트가 최종 완료되었습니다.",
+            null, NotificationSourceKinds.ProjectCompletion);
 
         await context.DeliveryStore.CreateImmediateDeliveriesAsync(
             context.NotificationOptions.CurrentValue,
@@ -244,15 +250,72 @@ public sealed class NotificationDeliveryTests
             context.NotificationOptions.CurrentValue,
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(7L, await context.ReadScalarAsync<long>("""
+        Assert.Equal(8L, await context.ReadScalarAsync<long>("""
             select count(*)
             from notification_deliveries delivery
             join notifications notification on notification.id = delivery.notification_id
             where delivery.channel = 'TeamsActivity'
               and notification.idempotency_key like 'coverage-%';
             """));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries delivery
+            join notifications notification on notification.id=delivery.notification_id
+            where notification.idempotency_key='coverage-project-created'
+              and delivery.channel='Mail';
+            """));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries delivery
+            join notifications notification on notification.id=delivery.notification_id
+            where notification.idempotency_key in ('coverage-urgent','coverage-reinspection')
+              and delivery.channel='Mail';
+            """));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries delivery
+            join notifications notification on notification.id=delivery.notification_id
+            where notification.idempotency_key in (
+                'coverage-work','coverage-pending-closed','coverage-delivery-date',
+                'coverage-status','coverage-delivery-completion')
+              and delivery.channel='Mail';
+            """));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries delivery
+            join notifications notification on notification.id=delivery.notification_id
+            where notification.idempotency_key like 'coverage-%'
+              and delivery.channel='TeamsChannel';
+            """));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_recipients recipient
+            join notifications notification on notification.id=recipient.notification_id
+            where notification.idempotency_key='coverage-final-completion';
+            """));
+        Assert.Equal(
+            await context.ReadScalarAsync<long>("""
+                select count(*)
+                from qms_users users
+                join departments department on department.id=users.department_id
+                where users.is_active=true and department.code='sales';
+                """),
+            await context.ReadScalarAsync<long>("""
+                select count(*)
+                from notification_deliveries delivery
+                join notifications notification on notification.id=delivery.notification_id
+                where notification.idempotency_key='coverage-final-completion'
+                  and delivery.channel='Mail';
+                """));
 
-        var claimed = await context.ClaimDueRecordsAsync();
+        var claimed = (await context.DeliveryStore.ClaimDueDeliveriesAsync(
+                50,
+                3,
+                "activity-coverage-worker",
+                TimeSpan.FromMinutes(5),
+                TestContext.Current.CancellationToken))
+            .Select(item => item.Delivery)
+            .ToArray();
         var renderedBySource = new Dictionary<string, TeamsActivityRenderResult>(StringComparer.Ordinal);
         foreach (var delivery in claimed.Where(delivery =>
                      delivery.Channel == NotificationDeliveryChannels.TeamsActivity
@@ -270,7 +333,8 @@ public sealed class NotificationDeliveryTests
         Assert.Equal("workItemAssigned", renderedBySource[NotificationSourceKinds.WorkAssignment].ActivityType);
         Assert.Equal("urgentPending", renderedBySource["PendingAssignment"].ActivityType);
         Assert.Equal("reinspectionRequested", renderedBySource[NotificationSourceKinds.ReinspectionRequested].ActivityType);
-        Assert.Equal("projectCompleted", renderedBySource[NotificationSourceKinds.ProjectCompletion].ActivityType);
+        Assert.Equal("projectCompleted", renderedBySource[NotificationSourceKinds.ProjectDeliveryCompleted].ActivityType);
+        Assert.DoesNotContain(NotificationSourceKinds.ProjectCompletion, renderedBySource.Keys);
         Assert.Equal("Demo Project Alpha", renderedBySource[NotificationSourceKinds.ProjectCreated].TemplateParameters["projectName"]);
         Assert.Contains("2026-08-10", renderedBySource[NotificationSourceKinds.ProjectDeliveryDateChanged].PreviewText, StringComparison.Ordinal);
     }
@@ -304,8 +368,8 @@ public sealed class NotificationDeliveryTests
     {
         await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
         {
-            ["Notifications:Teams:Enabled"] = "true",
-            ["Notifications:Teams:DryRun"] = "true",
+            ["Notifications:TeamsActivity:Enabled"] = "true",
+            ["Notifications:TeamsActivity:DryRun"] = "true",
             ["Notifications:Mail:Enabled"] = "true",
             ["Notifications:Mail:DryRun"] = "true"
         });
@@ -326,7 +390,8 @@ public sealed class NotificationDeliveryTests
 
         Assert.Equal(2, summary.CreatedDeliveryCount);
         Assert.Equal(2, summary.ProcessedDeliveryCount);
-        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsChannel' and status = 'DryRunSent';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsActivity' and status = 'DryRunSent';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsChannel';"));
         Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'Mail' and status = 'DryRunSent';"));
     }
 
@@ -352,7 +417,8 @@ public sealed class NotificationDeliveryTests
         Assert.Equal(2, summary.CreatedDeliveryCount);
         Assert.Equal(2, summary.ProcessedDeliveryCount);
         Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'Mail' and status = 'Suppressed' and error_code = 'RecipientEmailMissing';"));
-        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsChannel' and status = 'Disabled' and error_code = 'TeamsDisabled';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsActivity' and status = 'Disabled' and error_code = 'TeamsActivityDisabled';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsChannel';"));
     }
 
     [Fact]
@@ -385,7 +451,7 @@ public sealed class NotificationDeliveryTests
     }
 
     [Fact]
-    public async Task AutomaticUrgentDeliveries_UseCommonExternalFormatAndDisplaySnapshots()
+    public async Task AutomaticUrgentDeliveries_UseChannelSpecificFormatAndDisplaySnapshots()
     {
         await using var context = await NotificationDeliveryTestContext.CreateAsync();
         await context.ExecuteSqlAsync("""
@@ -406,14 +472,14 @@ public sealed class NotificationDeliveryTests
             TestContext.Current.CancellationToken);
         var deliveries = await context.ClaimDueRecordsAsync();
         var mailDelivery = Assert.Single(deliveries, item => item.Channel == NotificationDeliveryChannels.Mail);
-        var teamsChannelDelivery = Assert.Single(deliveries, item => item.Channel == NotificationDeliveryChannels.TeamsChannel);
+        var teamsActivityDelivery = Assert.Single(deliveries, item => item.Channel == NotificationDeliveryChannels.TeamsActivity);
 
         var mailMessage = await context.DeliveryStore.RenderMessageAsync(mailDelivery, TestContext.Current.CancellationToken);
-        var teamsChannelMessage = await context.DeliveryStore.RenderMessageAsync(teamsChannelDelivery, TestContext.Current.CancellationToken);
+        var teamsActivityMessage = await context.DeliveryStore.RenderMessageAsync(teamsActivityDelivery, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, created);
         Assert.Equal("[긴급 알림] LQC 부적합", mailMessage.Subject);
-        Assert.Equal("EMI PMS 알림", teamsChannelMessage.Subject);
+        Assert.Equal("긴급 알림, LQC 부적합", teamsActivityMessage.Subject);
         Assert.Contains("알림 유형: 긴급 알림", mailMessage.Body, StringComparison.Ordinal);
         Assert.Contains("프로젝트명: Demo Project Alpha", mailMessage.Body, StringComparison.Ordinal);
         Assert.Contains("제목: LQC 부적합", mailMessage.Body, StringComparison.Ordinal);
@@ -421,12 +487,13 @@ public sealed class NotificationDeliveryTests
         Assert.Contains("조치 담당자 확인이 필요합니다.", mailMessage.Body, StringComparison.Ordinal);
         Assert.Contains("발송시각: 2026-07-03 09:00", mailMessage.Body, StringComparison.Ordinal);
         Assert.EndsWith("끝.", mailMessage.Body.Trim(), StringComparison.Ordinal);
-        Assert.Equal(mailMessage.Body, teamsChannelMessage.Body);
+        Assert.Equal("조치 담당자 확인이 필요합니다.", teamsActivityMessage.Body);
         Assert.DoesNotContain("Correlation", mailMessage.Subject, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Correlation", mailMessage.Body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("유형: Blocking", mailMessage.Body, StringComparison.Ordinal);
         Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'Mail' and display_title = 'LQC 부적합' and display_recipient_email = 'admin@example.test';"));
-        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsChannel' and display_channel_target = 'Teams 채널' and display_project_name = 'Demo Project Alpha';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsActivity' and display_project_name = 'Demo Project Alpha';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsChannel';"));
     }
 
     [Fact]
@@ -496,6 +563,33 @@ public sealed class NotificationDeliveryTests
 
         Assert.Equal(0, summary.CreatedDigestDeliveryCount);
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where delivery_type = 'DailyDigest';"));
+    }
+
+    [Fact]
+    public async Task DailyDigest_SkipsWeekendAndActiveKoreanHoliday()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:DailyDigest:Enabled"] = "true",
+            ["Notifications:DailyDigest:Time"] = "07:30",
+            ["Notifications:DailyDigest:TimeZone"] = "Asia/Seoul"
+        });
+
+        context.TimeProvider.Advance(TimeSpan.FromDays(1));
+        Assert.Equal(0, await context.DeliveryStore.CreateDailyDigestDeliveriesIfDueAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken));
+
+        context.TimeProvider.Advance(TimeSpan.FromDays(2));
+        await context.ExecuteSqlAsync("""
+            insert into system_holidays (holiday_date, country_code, holiday_type, name, source, source_key, is_active)
+            values ('2026-07-06', 'KR', 'Company', '알림 휴무일 검증', 'Test', 'notify-policy-holiday', true);
+            """);
+        Assert.Equal(0, await context.DeliveryStore.CreateDailyDigestDeliveriesIfDueAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>(
+            "select count(*) from notification_deliveries where delivery_type = 'DailyDigest';"));
     }
 
     [Fact]
@@ -674,13 +768,7 @@ public sealed class NotificationDeliveryTests
 
                 services.AddSingleton<ITeamsWebhookClient, FailingTeamsWebhookClient>();
             });
-        await context.InsertNotificationAsync(
-            "urgent-retry",
-            "Blocking",
-            "Critical",
-            "긴급 알림",
-            "retry 테스트 알림입니다.",
-            DevAdminUserId);
+        await context.InsertPendingDeliveryAsync("urgent-retry");
 
         await context.Dispatcher.DispatchAsync(TestContext.Current.CancellationToken);
         await context.ResetNextAttemptAsync(NotificationDeliveryChannels.TeamsChannel);
@@ -2513,38 +2601,35 @@ public sealed class NotificationDeliveryTests
     }
 
     [Fact]
-    public async Task Escalation_CreatesL2ForSecondaryAndProductionPlanningWithoutTeamsChannelFallback()
+    public async Task Escalation_StopsAfterL1AndDoesNotCreateL2ForOlderOverdueWork()
     {
         await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
         {
             ["Notifications:Escalation:Enabled"] = "true",
             ["Notifications:Escalation:TeamsPersonalDryRun"] = "true",
-            ["Notifications:Escalation:UseTeamsChannelFallback"] = "false"
+            ["Notifications:Escalation:MailEnabled"] = "true"
         });
-        await context.UpsertProjectAssigneeAsync("ProcurementSecondary", DevProcurementUserId);
-        await context.UpsertProjectAssigneeAsync("ProductionPlanningPrimary", DevProductionUserId);
-        await context.InsertWorkItemAsync("ProcurementInfo", "ProcurementPrimary", DevAdminUserId, "2026-07-01", "l2-recipients");
+        await context.InsertWorkItemAsync("ProcurementInfo", "ProcurementPrimary", DevAdminUserId, "2026-06-01", "l1-terminal-level");
 
-        var summary = await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+        var firstSummary = await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
+        context.TimeProvider.Advance(TimeSpan.FromDays(30));
+        var secondSummary = await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(1, summary.CreatedNotificationCount);
-        Assert.Equal(2, summary.CreatedDeliveryCount);
-        Assert.Equal("L2", await context.ReadScalarAsync<string>("select current_level from work_item_escalations;"));
-        Assert.Equal(2L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients;"));
-        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000011';"));
-        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000003';"));
+        Assert.Equal(1, firstSummary.CreatedNotificationCount);
+        Assert.Equal(2, firstSummary.CreatedDeliveryCount);
+        Assert.Equal(0, secondSummary.CreatedNotificationCount);
+        Assert.Equal(0, secondSummary.CreatedDeliveryCount);
+        Assert.Equal("L1", await context.ReadScalarAsync<string>("select current_level from work_item_escalations;"));
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where channel = 'TeamsChannel';"));
-        Assert.Equal(2L, await context.ReadScalarAsync<long>("""
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("""
             select count(*)
             from notification_deliveries
-            where delivery_type = 'OverdueL2'
-              and channel = 'TeamsDirectMessage'
-              and status = 'DryRunSent';
+            where delivery_type in ('OverdueL2', 'OverdueL3');
             """));
     }
 
     [Fact]
-    public async Task Escalation_CreatesL3MailForProductionPlanningAndSalesOnly()
+    public async Task Escalation_L1TargetsOnlyTheAssignedUserEvenWhenProjectHasEscalationAssignees()
     {
         await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
         {
@@ -2555,23 +2640,22 @@ public sealed class NotificationDeliveryTests
         await context.UpsertProjectAssigneeAsync("ProductionPlanningPrimary", DevProductionUserId);
         await context.UpsertProjectAssigneeAsync("SalesPrimary", DevSalesUserId);
         await context.UpsertProjectAssigneeAsync("ProcurementSecondary", DevProcurementUserId);
-        await context.InsertWorkItemAsync("ProcurementInfo", "ProcurementPrimary", DevAdminUserId, "2026-06-30", "l3-recipients");
+        await context.InsertWorkItemAsync("ProcurementInfo", "ProcurementPrimary", DevAdminUserId, "2026-06-30", "l1-assigned-only");
 
         var summary = await context.Escalations.EvaluateAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, summary.CreatedNotificationCount);
         Assert.Equal(2, summary.CreatedDeliveryCount);
-        Assert.Equal("L3", await context.ReadScalarAsync<string>("select current_level from work_item_escalations;"));
-        Assert.Equal(2L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients;"));
-        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000003';"));
-        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000002';"));
+        Assert.Equal("L1", await context.ReadScalarAsync<string>("select current_level from work_item_escalations;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000001';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000003';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000002';"));
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_recipients where user_id = '50000000-0000-0000-0000-000000000011';"));
-        Assert.Equal(2L, await context.ReadScalarAsync<long>("""
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("""
             select count(*)
             from notification_deliveries
-            where delivery_type = 'OverdueL3'
-              and channel = 'Mail'
-              and status = 'Pending';
+            where delivery_type in ('OverdueL2', 'OverdueL3');
             """));
         Assert.Equal(0L, await context.ReadScalarAsync<long>("select count(*) from notification_deliveries where delivery_type = 'UrgentBlocking';"));
     }
@@ -2725,7 +2809,7 @@ public sealed class NotificationDeliveryTests
     }
 
     [Fact]
-    public async Task Escalation_EmptyResolvedRecipientSetDoesNotStarveTail()
+    public async Task Escalation_L1UsesAssignedRecipientsAfterLegacyL3AssigneesAreRemoved()
     {
         await using var context = await NotificationDeliveryTestContext.CreateAsync(EscalationTestOptions());
         await context.InsertSyntheticWorkItemsAsync(101, "2026-06-30");
@@ -2736,7 +2820,7 @@ public sealed class NotificationDeliveryTests
 
         Assert.Equal(101L, await context.ReadSyntheticEscalationCountAsync());
         Assert.True(await context.HasSyntheticEscalationAsync(101));
-        Assert.Equal(0L, await context.ReadSyntheticNotificationCountAsync());
+        Assert.Equal(101L, await context.ReadSyntheticNotificationCountAsync());
     }
 
     [Fact]
@@ -3038,6 +3122,393 @@ public sealed class NotificationDeliveryTests
         Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from notification_delivery_reprocess_events where delivery_id = '{deliveryId}';"));
     }
 
+    [Fact]
+    public async Task WebPushSubscription_IsPerUserIdempotentAndCreatesOnlyPostActivationDelivery()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:WebPush:Enabled"] = "true",
+            ["Notifications:WebPush:DryRun"] = "true",
+            ["Notifications:WebPush:PublicKey"] = "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            ["Notifications:WebPush:MaxActiveDevicesPerUser"] = "2",
+            ["Notifications:WebPush:AllowedEndpointHostSuffixes:0"] = "example.test"
+        });
+        using var salesClient = context.CreateClient("dev-sales");
+        var endpoint = "https://push.example.test/device-secret";
+        var request = new WebPushSubscriptionRequest(
+            endpoint,
+            new WebPushSubscriptionKeysRequest(
+                "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "AAAAAAAAAAAAAAAAAAAAAA"));
+
+        var malformedKeys = await salesClient.PutAsJsonAsync(
+            "/api/my/web-push/subscriptions",
+            new WebPushSubscriptionRequest(
+                "https://push.example.test/malformed-device",
+                new WebPushSubscriptionKeysRequest("not-base64url", "also-invalid")),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, malformedKeys.StatusCode);
+
+        await context.ExecuteSqlAsync($"""
+            with inserted as (
+                insert into notifications (
+                    project_id, notification_type, severity, title, message,
+                    idempotency_key, visibility_scope, source_kind, created_at_utc
+                )
+                values (
+                    '{DemoProjectId}', 'Info', 'Info', '구독 전 알림', '소급 발송하면 안 됩니다.',
+                    'web-push-before-activation', 'RecipientOnly', 'Automatic', '2026-07-02T00:00:00Z'
+                )
+                returning id
+            )
+            insert into notification_recipients (notification_id, user_id, created_at_utc)
+            select id, '{DevSalesUserId}', '2026-07-02T00:00:00Z' from inserted;
+            """);
+
+        var firstTask = salesClient.PutAsJsonAsync(
+            "/api/my/web-push/subscriptions",
+            request,
+            TestContext.Current.CancellationToken);
+        var secondTask = salesClient.PutAsJsonAsync(
+            "/api/my/web-push/subscriptions",
+            request,
+            TestContext.Current.CancellationToken);
+        await Task.WhenAll(firstTask, secondTask);
+        var first = await firstTask;
+        var second = await secondTask;
+        var idempotent = await salesClient.PutAsJsonAsync(
+            "/api/my/web-push/subscriptions",
+            request,
+            TestContext.Current.CancellationToken);
+        var otherDevice = await salesClient.PutAsJsonAsync(
+            "/api/my/web-push/subscriptions",
+            new WebPushSubscriptionRequest(
+                "https://push.example.test/second-device-secret",
+                new WebPushSubscriptionKeysRequest(
+                    "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    "AAAAAAAAAAAAAAAAAAAAAA")),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, idempotent.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, otherDevice.StatusCode);
+        var overDeviceLimit = await salesClient.PutAsJsonAsync(
+            "/api/my/web-push/subscriptions",
+            new WebPushSubscriptionRequest(
+                "https://push.example.test/third-device-secret",
+                new WebPushSubscriptionKeysRequest(
+                    "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    "AAAAAAAAAAAAAAAAAAAAAA")),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, overDeviceLimit.StatusCode);
+        var safeResponse = await first.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.DoesNotContain("device-secret", safeResponse, StringComparison.Ordinal);
+        Assert.DoesNotContain("p256dh", safeResponse, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscriptions where user_id='{DevSalesUserId}' and is_active=true;"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscription_events where user_id='{DevSalesUserId}' and event_type='Registered';"));
+
+        var lifecycleConfiguration = await context.WebPushSubscriptionStore.GetConfigurationAsync(
+            DevSalesUserId,
+            context.NotificationOptions.CurrentValue.WebPush,
+            TestContext.Current.CancellationToken);
+        await context.ExecuteSqlAsync($"""
+            update web_push_subscriptions
+            set updated_at_utc='2027-01-01T00:00:00Z'
+            where user_id='{DevSalesUserId}';
+            """);
+        var configurationAfterProviderMetadataChange = await context.WebPushSubscriptionStore.GetConfigurationAsync(
+            DevSalesUserId,
+            context.NotificationOptions.CurrentValue.WebPush,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(lifecycleConfiguration.LastChangedAtUtc, configurationAfterProviderMetadataChange.LastChangedAtUtc);
+
+        await context.InsertNotificationAsync(
+            "web-push-after-activation",
+            "Info",
+            "Info",
+            "푸시 연동 알림",
+            "이 상세 업무 내용은 푸시 payload에 직접 노출되지 않습니다.",
+            DevSalesUserId);
+        await context.Dispatcher.DispatchAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2L, await context.ReadScalarAsync<long>(
+            "select count(*) from notification_deliveries where channel='WebPush' and status='DryRunSent' and web_push_subscription_id is not null;"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>(
+            "select count(*) from notification_deliveries where channel='WebPush' and display_channel_target like '%device-secret%';"));
+
+        var firstDeliveryId = await context.ReadScalarAsync<Guid>(
+            """
+            select delivery.id
+            from notification_deliveries delivery
+            join web_push_subscriptions subscription on subscription.id=delivery.web_push_subscription_id
+            where delivery.channel='WebPush'
+              and subscription.endpoint='https://push.example.test/device-secret'
+            limit 1;
+            """);
+        var staleTarget = await context.WebPushSubscriptionStore.GetDeliveryTargetAsync(
+            firstDeliveryId,
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(staleTarget);
+
+        var deactivate = await salesClient.PostAsJsonAsync(
+            "/api/my/web-push/subscriptions/deactivate-current",
+            new WebPushDeactivateCurrentRequest(endpoint, "UserRequest"),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, deactivate.StatusCode);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscriptions where user_id='{DevSalesUserId}' and is_active=true;"));
+
+        var reactivate = await salesClient.PutAsJsonAsync(
+            "/api/my/web-push/subscriptions",
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, reactivate.StatusCode);
+        await context.WebPushSubscriptionStore.DeactivateForProviderAsync(
+            staleTarget!.SubscriptionId,
+            staleTarget.Generation,
+            "Stale410",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(2L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscriptions where user_id='{DevSalesUserId}' and is_active=true;"));
+        Assert.True(await context.ReadScalarAsync<long>(
+            $"select generation from web_push_subscriptions where id='{staleTarget.SubscriptionId}';") > staleTarget.Generation);
+
+        await context.InsertNotificationAsync(
+            "web-push-pending-before-reset",
+            "Info",
+            "Info",
+            "재연결 전 대기 알림",
+            "기기 연결을 해제한 뒤에는 이전 발송 작업을 새 연결로 보내면 안 됩니다.",
+            DevSalesUserId);
+        await context.DeliveryStore.CreateImmediateDeliveriesAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken);
+        var stalePendingDeliveryId = await context.ReadScalarAsync<Guid>(
+            """
+            select delivery.id
+            from notification_deliveries delivery
+            join notifications notification on notification.id=delivery.notification_id
+            join web_push_subscriptions subscription on subscription.id=delivery.web_push_subscription_id
+            where delivery.channel='WebPush'
+              and delivery.status='Pending'
+              and notification.title='재연결 전 대기 알림'
+              and subscription.endpoint='https://push.example.test/device-secret'
+            limit 1;
+            """);
+
+        var deactivateBeforePendingDispatch = await salesClient.PostAsJsonAsync(
+            "/api/my/web-push/subscriptions/deactivate-current",
+            new WebPushDeactivateCurrentRequest(endpoint, "UserRequest"),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, deactivateBeforePendingDispatch.StatusCode);
+        var reactivateBeforePendingDispatch = await salesClient.PutAsJsonAsync(
+            "/api/my/web-push/subscriptions",
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, reactivateBeforePendingDispatch.StatusCode);
+        Assert.Null(await context.WebPushSubscriptionStore.GetDeliveryTargetAsync(
+            stalePendingDeliveryId,
+            TestContext.Current.CancellationToken));
+
+        var stalePendingResult = await context.Dispatcher.DispatchDeliveryAsync(
+            stalePendingDeliveryId,
+            null,
+            1,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(NotificationDeliveryStatuses.Suppressed, stalePendingResult.Status);
+        Assert.Equal("WebPushSubscriptionMissing", stalePendingResult.ErrorCode);
+        Assert.Equal("Suppressed", await context.ReadScalarAsync<string>(
+            $"select status from notification_deliveries where id='{stalePendingDeliveryId}';"));
+
+        var deactivateAll = await salesClient.PostAsync(
+            "/api/my/web-push/subscriptions/deactivate-all",
+            null,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, deactivateAll.StatusCode);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscriptions where user_id='{DevSalesUserId}' and is_active=true;"));
+    }
+
+    [Fact]
+    public async Task WebPushDeliveries_MatchInAppVisibilityAndApprovalBoundaries()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:WebPush:Enabled"] = "true",
+            ["Notifications:WebPush:DryRun"] = "true",
+            ["Notifications:WebPush:PublicKey"] = "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            ["Notifications:WebPush:AllowedEndpointHostSuffixes:0"] = "example.test"
+        });
+        var approvedUserId = Guid.NewGuid();
+        var approvalPendingUserId = Guid.NewGuid();
+        var inactiveUserId = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (id, development_user_key, display_name, is_active, auth_provider, entra_object_id, email)
+            values
+                ('{approvedUserId}', 'web-push-approved', 'Web Push Approved', true, 'EntraId', 'web-push-approved', 'approved@example.invalid'),
+                ('{approvalPendingUserId}', 'web-push-pending', 'Web Push Pending', true, 'EntraId', 'web-push-pending', 'pending@example.invalid'),
+                ('{inactiveUserId}', 'web-push-inactive', 'Web Push Inactive', true, 'EntraId', 'web-push-inactive', 'inactive@example.invalid');
+            insert into user_roles (user_id, role_id)
+            select user_id, role.id
+            from (values ('{approvedUserId}'::uuid), ('{inactiveUserId}'::uuid)) users(user_id)
+            cross join lateral (select id from roles where code='sales' limit 1) role;
+            """);
+        var options = context.NotificationOptions.CurrentValue.WebPush;
+        static WebPushSubscriptionRequest Subscription(string device) => new(
+            $"https://push.example.test/{device}",
+            new WebPushSubscriptionKeysRequest(
+                "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "AAAAAAAAAAAAAAAAAAAAAA"));
+        await context.WebPushSubscriptionStore.UpsertAsync(DevSalesUserId, Subscription("dev-sales"), options, TestContext.Current.CancellationToken);
+        await context.WebPushSubscriptionStore.UpsertAsync(approvedUserId, Subscription("approved"), options, TestContext.Current.CancellationToken);
+        await context.WebPushSubscriptionStore.UpsertAsync(approvalPendingUserId, Subscription("pending"), options, TestContext.Current.CancellationToken);
+        await context.WebPushSubscriptionStore.UpsertAsync(inactiveUserId, Subscription("inactive"), options, TestContext.Current.CancellationToken);
+        await context.ExecuteSqlAsync($"update qms_users set is_active=false where id='{inactiveUserId}';");
+
+        await context.ExecuteSqlAsync($"""
+            with inserted as (
+                insert into notifications (notification_type, severity, title, message, idempotency_key, visibility_scope, source_kind)
+                values
+                    ('Info', 'Info', '수신자 전용 경계', '수신자 전용', 'web-push-recipient-boundary', 'RecipientOnly', 'Automatic'),
+                    ('Info', 'Info', '전체 사용자 경계', '전체 사용자', 'web-push-authenticated-boundary', 'Authenticated', 'Automatic'),
+                    ('Info', 'Info', '관리자 전용 경계', '관리자 전용', 'web-push-admin-boundary', 'AdminOnly', 'Automatic')
+                returning id, visibility_scope
+            )
+            insert into notification_recipients (notification_id, user_id)
+            select notification.id, recipient.user_id
+            from inserted notification
+            cross join (values
+                ('{DevSalesUserId}'::uuid),
+                ('{approvedUserId}'::uuid),
+                ('{approvalPendingUserId}'::uuid),
+                ('{inactiveUserId}'::uuid)
+            ) recipient(user_id)
+            where notification.visibility_scope in ('RecipientOnly', 'AdminOnly');
+
+            insert into notifications (
+                project_id, notification_type, severity, title, message,
+                idempotency_key, visibility_scope, source_kind)
+            values (
+                '{DemoProjectId}', 'Reference', 'Info', '17단계 납품 완료', '전체 납품 완료',
+                'web-push-stage-17', 'RecipientOnly', 'ProjectDeliveryCompleted'),
+                ('{DemoProjectId}', 'Reference', 'Info', '18단계 최종 완료', '영업 최종 완료',
+                'web-push-stage-18', 'RecipientOnly', 'ProjectCompletion');
+
+            insert into notification_recipients (notification_id, user_id)
+            select id, '{DevSalesUserId}'
+            from notifications
+            where idempotency_key = 'web-push-stage-17';
+            """);
+
+        await context.DeliveryStore.CreateImmediateDeliveriesAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2L, await context.ReadScalarAsync<long>(
+            "select count(*) from notification_deliveries delivery join notifications notification on notification.id=delivery.notification_id where delivery.channel='WebPush' and notification.title='수신자 전용 경계';"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>(
+            "select count(*) from notification_deliveries delivery join notifications notification on notification.id=delivery.notification_id where delivery.channel='WebPush' and notification.title='전체 사용자 경계';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>(
+            "select count(*) from notification_deliveries delivery join notifications notification on notification.id=delivery.notification_id where delivery.channel='WebPush' and notification.title='관리자 전용 경계';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from notification_deliveries
+            where channel='WebPush'
+              and recipient_user_id in ('{approvalPendingUserId}', '{inactiveUserId}');
+            """));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries delivery
+            join notifications notification on notification.id=delivery.notification_id
+            where notification.idempotency_key='web-push-stage-17'
+              and delivery.channel='WebPush';
+            """));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_recipients recipient
+            join notifications notification on notification.id=recipient.notification_id
+            where notification.idempotency_key='web-push-stage-18';
+            """));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>("""
+            select count(*)
+            from notification_deliveries delivery
+            join notifications notification on notification.id=delivery.notification_id
+            where notification.idempotency_key='web-push-stage-18'
+              and delivery.channel in ('WebPush', 'TeamsActivity', 'TeamsDirectMessage', 'TeamsChannel');
+            """));
+        Assert.Equal(
+            await context.ReadScalarAsync<long>("""
+                select count(*)
+                from qms_users users
+                join departments department on department.id=users.department_id
+                where users.is_active=true and department.code='sales';
+                """),
+            await context.ReadScalarAsync<long>("""
+                select count(*)
+                from notification_deliveries delivery
+                join notifications notification on notification.id=delivery.notification_id
+                where notification.idempotency_key='web-push-stage-18'
+                  and delivery.channel='Mail';
+                """));
+    }
+
+    [Fact]
+    public async Task WebPushRender_UsesGenericBodyAndNotificationDetailLink()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Notifications:WebPush:Enabled"] = "true",
+            ["Notifications:WebPush:DryRun"] = "true",
+            ["Notifications:WebPush:PublicKey"] = "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            ["Notifications:WebPush:AllowedEndpointHostSuffixes:0"] = "example.test"
+        });
+        await context.WebPushSubscriptionStore.UpsertAsync(
+            DevSalesUserId,
+            new WebPushSubscriptionRequest(
+                "https://push.example.test/privacy-device",
+                new WebPushSubscriptionKeysRequest(
+                    "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    "AAAAAAAAAAAAAAAAAAAAAA")),
+            context.NotificationOptions.CurrentValue.WebPush,
+            TestContext.Current.CancellationToken);
+        const string sensitiveDetail = "고객 도면 오류와 조치 담당자 상세 내용";
+        await context.InsertNotificationAsync(
+            "web-push-privacy-render",
+            "Info",
+            "Info",
+            "검토가 필요한 업무 알림",
+            sensitiveDetail,
+            DevSalesUserId);
+        await context.DeliveryStore.CreateImmediateDeliveriesAsync(
+            context.NotificationOptions.CurrentValue,
+            TestContext.Current.CancellationToken);
+        var deliveryId = await context.ReadScalarAsync<Guid>("""
+            select delivery.id
+            from notification_deliveries delivery
+            join notifications notification on notification.id=delivery.notification_id
+            where delivery.channel='WebPush'
+              and notification.idempotency_key='web-push-privacy-render';
+            """);
+        var claimed = await context.DeliveryStore.ClaimDeliveryAsync(
+            deliveryId,
+            3,
+            "privacy-render-test",
+            TimeSpan.FromMinutes(5),
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(claimed);
+
+        var message = await context.DeliveryStore.RenderMessageAsync(
+            claimed!.Delivery,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("EMI PMS에서 알림 내용을 확인해 주세요.", message.Body);
+        Assert.DoesNotContain(sensitiveDetail, message.Body, StringComparison.Ordinal);
+        Assert.Contains("/teams/activity/notifications/", message.LinkUrl, StringComparison.Ordinal);
+    }
+
     private static MailDeliveryPayload CreateMailPayload()
     {
         return new MailDeliveryPayload(
@@ -3104,6 +3575,8 @@ public sealed class NotificationDeliveryTests
         public NotificationDispatcher Dispatcher => Factory.Services.GetRequiredService<NotificationDispatcher>();
 
         public NotificationDeliveryStore DeliveryStore => Factory.Services.GetRequiredService<NotificationDeliveryStore>();
+
+        public WebPushSubscriptionStore WebPushSubscriptionStore => Factory.Services.GetRequiredService<WebPushSubscriptionStore>();
 
         public IOptionsMonitor<NotificationOptions> NotificationOptions => Factory.Services.GetRequiredService<IOptionsMonitor<NotificationOptions>>();
 
@@ -3216,9 +3689,12 @@ public sealed class NotificationDeliveryTests
             string severity,
             string title,
             string message,
-            Guid recipientUserId,
+            Guid? recipientUserId,
             string sourceKind = NotificationSourceKinds.Automatic)
         {
+            var recipientInsert = recipientUserId is null
+                ? "select id, null::uuid from inserted_notification where false;"
+                : $"select id, '{recipientUserId.Value}' from inserted_notification;";
             await ExecuteSqlAsync($"""
                 with inserted_notification as (
                     insert into notifications (
@@ -3237,8 +3713,7 @@ public sealed class NotificationDeliveryTests
                     returning id
                 )
                 insert into notification_recipients (notification_id, user_id)
-                select id, '{recipientUserId}'
-                from inserted_notification;
+                {recipientInsert}
                 """);
         }
 

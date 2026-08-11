@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Emi.Qms.Api.Admin;
+using Emi.Qms.Api.Notifications;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -108,6 +109,12 @@ public sealed class UserAdministrationStore(
             }
         }
 
+        await WebPushAdvisoryLock.AcquireUserAsync(
+            connection,
+            transaction,
+            userId,
+            cancellationToken);
+
         await using (var updateUser = connection.CreateCommand())
         {
             updateUser.Transaction = transaction;
@@ -143,6 +150,16 @@ public sealed class UserAdministrationStore(
                 Value = request.DepartmentId is null ? DBNull.Value : request.DepartmentId.Value
             });
             await updateUser.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!request.IsActive)
+        {
+            await DeactivateWebPushSubscriptionsAsync(
+                connection,
+                transaction,
+                userId,
+                timeProvider.GetUtcNow(),
+                cancellationToken);
         }
 
         await using (var deleteRoles = connection.CreateCommand())
@@ -214,6 +231,11 @@ public sealed class UserAdministrationStore(
         }
 
         var now = timeProvider.GetUtcNow();
+        await WebPushAdvisoryLock.AcquireUserAsync(
+            connection,
+            transaction,
+            userId,
+            cancellationToken);
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
@@ -232,6 +254,13 @@ public sealed class UserAdministrationStore(
             command.Parameters.AddWithValue("scheduled_hard_delete_at_utc", now.AddDays(7));
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+
+        await DeactivateWebPushSubscriptionsAsync(
+            connection,
+            transaction,
+            userId,
+            now,
+            cancellationToken);
 
         var after = await ReadMutableUserAsync(connection, transaction, userId, cancellationToken);
         await InsertChangeLogAsync(connection, transaction, "User", userId, "DeleteScheduled", user, after, "삭제", currentUserId, cancellationToken);
@@ -285,6 +314,37 @@ public sealed class UserAdministrationStore(
         await InsertChangeLogAsync(connection, transaction, "User", userId, "Restored", user, after, "삭제 예정 복구", currentUserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return UserAdministrationMutationResult.Success(await GetSnapshotAsync(cancellationToken));
+    }
+
+    private static async Task DeactivateWebPushSubscriptionsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid userId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            with deactivated as (
+                update web_push_subscriptions
+                set is_active = false,
+                    deactivated_at_utc = @now,
+                    deactivation_reason = 'AccountDeactivated',
+                    updated_at_utc = @now
+                where user_id = @user_id
+                  and is_active = true
+                returning id
+            )
+            insert into web_push_subscription_events (
+                subscription_id, user_id, event_type, reason, created_at_utc
+            )
+            select id, @user_id, 'AccountDeactivated', 'AccountDeactivated', @now
+            from deactivated;
+            """;
+        command.Parameters.AddWithValue("user_id", userId);
+        command.Parameters.AddWithValue("now", now);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task<AdminBulkActionResponse> BulkDeleteUsersAsync(

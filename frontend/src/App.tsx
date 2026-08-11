@@ -19,6 +19,8 @@ import { SalesBillingRequestPage } from './SalesBillingRequestPage';
 import { FormTemplateManagementPage } from './FormTemplateManagementPage';
 import { NotificationPreferencesPage } from './NotificationPreferencesPage';
 import { NotificationPreferenceAuditPage } from './NotificationPreferenceAuditPage';
+import { WebPushFirstRunPrompt } from './WebPushSettings';
+import { deactivateCurrentWebPushForLogout } from './webPushLogout';
 import { PanelQrManager } from './PanelQrManager';
 import { QrScanLandingPage } from './QrScanLandingPage';
 import { useActionFeedback, type ActionFeedbackState, type ActionFeedbackTone } from './useActionFeedback';
@@ -1362,8 +1364,13 @@ function EntraAuthenticatedApp({
     });
   };
 
-  const logout = () => {
+  const logout = async () => {
     clearTestUserSwitch();
+    try {
+      await deactivateCurrentWebPushForLogout();
+    } catch {
+      // 로그아웃은 푸시 구독 정리 실패로 차단하지 않는다.
+    }
     instance.setActiveAccount(null);
     setAccessTokenProvider(null);
     void instance.logoutRedirect();
@@ -2012,6 +2019,9 @@ function QmsAppShellContent({
 
       <div className="app-content">
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
+        {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
+          <WebPushFirstRunPrompt developmentUserKey={developmentUserKey} />
+        ) : null}
         <header className="mobile-app-bar">
           <AppMobileNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
           <div className="mobile-app-brand">
@@ -5838,7 +5848,8 @@ const deliveryTypeOptions = [
   'OverdueL2',
   'OverdueL3',
   'ProjectCompletion',
-  'ReferenceDigest'
+  'ReferenceDigest',
+  'WebPushNotification'
 ];
 
 function deliveryTabFromFilters(status: string | null, handlingStatus: string | null): DeliveryTabKey {
@@ -5909,6 +5920,8 @@ function deliveryChannelLabel(channel: string) {
       return '메일';
     case 'TeamsDirectMessage':
       return 'Teams 개인 dry-run';
+    case 'WebPush':
+      return 'PWA 푸시';
     default:
       return channel;
   }
@@ -5934,17 +5947,19 @@ function deliveryTypeLabel(deliveryType: string) {
       return '프로젝트 완료 알림';
     case 'ReferenceDigest':
       return '참조 알림';
+    case 'WebPushNotification':
+      return '인앱 연동 PWA 푸시';
     default:
       return deliveryType;
   }
 }
 
-function deliveryAttemptOutcomeLabel(outcome: string) {
+function deliveryAttemptOutcomeLabel(outcome: string, channel?: string) {
   switch (outcome) {
     case 'Processing':
       return '처리 중';
     case 'Sent':
-      return '발송 완료';
+      return channel === 'WebPush' ? '푸시 서비스 접수' : '발송 완료';
     case 'DryRunSent':
       return 'Dry-run 완료';
     case 'Disabled':
@@ -6229,6 +6244,7 @@ function AdminNotificationDeliveriesPage({
             <option value="TeamsActivity">Teams Activity</option>
             <option value="Mail">메일</option>
             <option value="TeamsDirectMessage">Teams 개인 dry-run</option>
+            <option value="WebPush">PWA 푸시</option>
           </select>
         </label>
         <label>
@@ -6353,7 +6369,7 @@ function AdminNotificationDeliveriesPage({
                     <br />
                     <small>lease {formatNullableDateTime(item.claimExpiresAtUtc)}</small>
                     <br />
-                    <small>발송 {formatNullableDateTime(item.sentAtUtc)}</small>
+                    <small>{item.channel === 'WebPush' ? '서비스 접수' : '발송'} {formatNullableDateTime(item.sentAtUtc)}</small>
                   </td>
                   <td className="admin-table__cell--text">
                     <strong>{item.errorCode ?? (item.status === 'Pending' ? '대기 사유' : '-')}</strong>
@@ -6465,7 +6481,7 @@ function AdminNotificationDeliveryDetailPage({
             <DetailItem label="시도 횟수" value={`이번 ${state.data.generationAttemptCount ?? state.data.attemptCount}회 · 전체 ${state.data.attemptCount}회`} />
             <DetailItem label="다음 시도" value={formatNullableDateTime(state.data.nextAttemptAtUtc)} />
             <DetailItem label="최근 시도" value={formatNullableDateTime(state.data.lastAttemptAtUtc)} />
-            <DetailItem label="발송 완료" value={formatNullableDateTime(state.data.sentAtUtc)} />
+            <DetailItem label={state.data.channel === 'WebPush' ? '서비스 접수' : '발송 완료'} value={formatNullableDateTime(state.data.sentAtUtc)} />
             <DetailItem label="처리상태" value={shouldShowDeliveryHandlingStatus(state.data.status) ? state.data.adminHandlingStatusLabel : '-'} />
             <DetailItem label="현재 시도 시작" value={formatNullableDateTime(state.data.claimedAtUtc)} />
             <DetailItem label="Lease 만료 예정" value={formatNullableDateTime(state.data.claimExpiresAtUtc)} />
@@ -6513,7 +6529,7 @@ function AdminNotificationDeliveryDetailPage({
                     {state.data.attempts.map((attempt) => (
                       <tr key={attempt.attemptNumber}>
                         <td className="admin-table__cell--number">{attempt.attemptNumber}회<br /><small>Generation G{attempt.generation ?? 1}</small></td>
-                        <td className="admin-table__cell--status"><StatusBadge label={deliveryAttemptOutcomeLabel(attempt.outcome)} tone={attempt.outcome === 'FailedPermanent' ? 'danger' : attempt.outcome === 'Processing' || attempt.outcome === 'RetryScheduled' ? 'warning' : 'neutral'} /></td>
+                        <td className="admin-table__cell--status"><StatusBadge label={deliveryAttemptOutcomeLabel(attempt.outcome, state.data.channel)} tone={attempt.outcome === 'FailedPermanent' ? 'danger' : attempt.outcome === 'Processing' || attempt.outcome === 'RetryScheduled' ? 'warning' : 'neutral'} /></td>
                         <td className="admin-table__cell--date">
                           <small>시작 {formatNullableDateTime(attempt.claimedAtUtc)}</small><br />
                           <small>Provider {formatNullableDateTime(attempt.providerCallStartedAtUtc)}</small><br />
@@ -7194,6 +7210,8 @@ function MyWorkPage({
                             <div className="status-badge-row">
                               <StatusBadge label={item.statusLabel} tone={workItemStateTone(item.status)} />
                               {item.priority === 'Blocking' ? <StatusBadge label="긴급" tone="danger" /> : null}
+                              {item.isDepartmentHeadFallback ? <StatusBadge label="부서장 공유" tone="neutral" /> : null}
+                              {item.wasFallbackAutoClosed ? <StatusBadge label="다른 부서장이 처리" tone="neutral" /> : null}
                             </div>
                           </div>
                           <OperationalDetailText
@@ -7240,7 +7258,13 @@ function MyWorkPage({
                               <td><SelectionCheckbox checked={workSelection.selectedIds.has(item.workItemId)} disabled={workSelection.busy} label={`${item.title} 선택`} onChange={(checked) => workSelection.toggle(item.workItemId, checked)} /></td>
                               <td><span className="workflow-stage-badge" data-department={departmentForStageCode(item.workflowStageCode)}>{displayWorkflowStageName(item.workflowStageCode, item.workflowStageName)}</span></td>
                               <td><strong>{item.title}</strong></td>
-                              <td><StatusBadge label={item.statusLabel} tone={workItemStateTone(item.status)} /></td>
+                              <td>
+                                <div className="status-badge-row">
+                                  <StatusBadge label={item.statusLabel} tone={workItemStateTone(item.status)} />
+                                  {item.isDepartmentHeadFallback ? <StatusBadge label="부서장 공유" tone="neutral" /> : null}
+                                  {item.wasFallbackAutoClosed ? <StatusBadge label="다른 부서장이 처리" tone="neutral" /> : null}
+                                </div>
+                              </td>
                               <td>{item.priority === 'Blocking' ? <StatusBadge label="긴급" tone="danger" /> : <span className="muted-text">일반</span>}</td>
                               <td>{formatDateTime(item.createdAtUtc)}</td>
                               <td>

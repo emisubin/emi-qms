@@ -116,7 +116,9 @@ public sealed record MyWorkItemResponse(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
-    string LinkUrl);
+    string LinkUrl,
+    bool IsDepartmentHeadFallback,
+    bool WasFallbackAutoClosed);
 
 public sealed record NotificationSummaryResponse(
     int UnreadCount,

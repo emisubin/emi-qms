@@ -35,6 +35,139 @@
     sans-serif;
 }
 
+.web-push-settings {
+  display: grid;
+  gap: 16px;
+  margin: 20px 0;
+  padding: 22px;
+  border: 1px solid #111;
+  background: #fff;
+  color: #111;
+}
+
+.web-push-settings > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #111;
+}
+
+.web-push-settings h3,
+.web-push-guide h2 {
+  margin: 2px 0 0;
+}
+
+.web-push-settings > header > span,
+.web-push-state {
+  padding: 8px 10px;
+  border: 1px solid #111;
+  background: #fff;
+}
+
+.web-push-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid #111;
+}
+
+.web-push-controls > div {
+  display: grid;
+  gap: 3px;
+}
+
+.web-push-error-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.web-push-error-state button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.web-push-controls button,
+.web-push-guide-actions button,
+.web-push-guide-actions a {
+  min-height: 44px;
+}
+
+.web-push-feedback {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #111;
+  background: #fff;
+}
+
+.web-push-feedback[data-tone="error"] {
+  border-style: dashed;
+}
+
+.web-push-guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(255 255 255 / 88%);
+}
+
+.web-push-guide {
+  display: grid;
+  gap: 16px;
+  width: min(100%, 520px);
+  padding: 24px;
+  border: 2px solid #111;
+  background: #fff;
+  color: #111;
+}
+
+.web-push-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid #111;
+}
+
+@media (max-width: 700px) {
+  .web-push-settings {
+    padding: 18px 14px;
+  }
+
+  .web-push-settings > header,
+  .web-push-controls,
+  .web-push-error-state,
+  .web-push-guide-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .web-push-controls button,
+  .web-push-guide-actions button {
+    width: 100%;
+  }
+
+  .web-push-guide-overlay {
+    align-items: end;
+    padding: 0;
+  }
+
+  .web-push-guide {
+    width: 100%;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+  }
+}
+
 /* TASK-UL891-SET-001: set-order, physical-panel and monthly-ledger primitives */
 .ul891-order-editor {
   grid-column: 1 / -1;

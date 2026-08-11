@@ -1235,6 +1235,17 @@ public sealed class ProcurementApiTests
         Assert.Equal(4L, await context.ReadCountAsync(
             "select count(*) from work_items where project_id=@project_id and idempotency_key like 'procurement:materials:%';",
             projectId));
+        Assert.Equal(4L, await context.ReadCountAsync(
+            """
+            select count(*)
+            from work_items work_item
+            join project_procurement_items item on item.id=work_item.target_id
+            where work_item.project_id=@project_id
+              and work_item.target_type='ProcurementItem'
+              and work_item.status in ('Requested','InProgress')
+              and work_item.due_date=item.expected_receipt_date;
+            """,
+            projectId));
         Assert.Equal(2L, await context.ReadCountAsync(
             "select count(*) from notifications where project_id=@project_id and idempotency_key like 'procurement:materials:%:notification';",
             projectId));
@@ -1516,6 +1527,22 @@ public sealed class ProcurementApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
         using var qualityClient = context.CreateClient("dev-quality");
+        const string secondProductionHeadId = "68000000-0000-0000-0000-000000000203";
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id,
+                is_active, is_department_head, auth_provider
+            )
+            select '{secondProductionHeadId}', 'test-production-head-2', 'Test Production Head 2', department.id,
+                   true, true, 'Dev'
+            from departments department
+            where department.code='production-planning';
+
+            insert into user_roles (user_id, role_id)
+            select '{secondProductionHeadId}', role.id
+            from roles role
+            where role.code='production-planning';
+            """);
         var projectId = await context.CreateLegacyProjectAsync("PROC-RECEIPT", "Proc Receipt");
         var procurementSave = await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
@@ -1602,6 +1629,12 @@ public sealed class ProcurementApiTests
             new { expectedVersion = 3 },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, confirm.StatusCode);
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from work_items where project_id=@project_id and idempotency_key like 'materials:project:%:production-release:%';",
+            projectId));
+        Assert.Equal(2L, await context.ReadCountAsync(
+            "select count(*) from notification_recipients recipient join notifications notification on notification.id=recipient.notification_id where notification.project_id=@project_id and notification.idempotency_key like 'materials:project:%:production-release:notification%';",
+            projectId));
         using var afterConfirm = await ReadJsonAsync(await materialsClient.GetAsync("/api/materials/receipts?includeCompleted=true", TestContext.Current.CancellationToken));
         var afterConfirmItem = afterConfirm.RootElement.GetProperty("items").EnumerateArray().Single(candidate => candidate.GetProperty("itemId").GetGuid() == itemId);
         Assert.True(afterConfirmItem.GetProperty("arrivalsClosed").GetBoolean());
@@ -1960,6 +1993,23 @@ public sealed class ProcurementApiTests
         using var qualityClient = context.CreateClient("dev-quality");
         using var coordinatorClient = context.CreateClient("dev-production");
         var projectId = await context.CreateLegacyProjectAsync("PROC-IQC-FAIL", "Proc IQC Failure");
+        await context.ExecuteSqlAsync($"""
+            insert into project_assignees (
+                project_id,responsibility_type,assigned_user_id,assigned_by_user_id,assigned_at_utc)
+            values
+            (
+                '{projectId}','MaterialsPrimary','50000000-0000-0000-0000-000000000012',
+                '50000000-0000-0000-0000-000000000002',now()),
+            (
+                '{projectId}','ProcurementPrimary','50000000-0000-0000-0000-000000000012',
+                '50000000-0000-0000-0000-000000000002',now()),
+            (
+                '{projectId}','QualityIQC','50000000-0000-0000-0000-000000000005',
+                '50000000-0000-0000-0000-000000000002',now())
+            on conflict (project_id,responsibility_type) do update
+            set assigned_user_id=excluded.assigned_user_id,assigned_by_user_id=excluded.assigned_by_user_id,
+                assigned_at_utc=excluded.assigned_at_utc;
+            """);
         Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
             new { items = new[] { new { materialCategoryId = "67000000-0000-0000-0000-000000000005", orderItem = "Contactor", orderQuantity = 4, orderUnit = "EA" } } },
@@ -2149,6 +2199,25 @@ public sealed class ProcurementApiTests
         Assert.Equal("Closed", closedPending.RootElement.GetProperty("issue").GetProperty("status").GetString());
         Assert.Contains(closedPending.RootElement.GetProperty("history").EnumerateArray(), history =>
             history.GetProperty("toStatus").GetString() == "Closed");
+        var originalRecipientCount = await context.ReadCountAsync(
+            """
+            select count(distinct recipient.user_id)
+            from notifications notification
+            join notification_recipients recipient on recipient.notification_id=notification.id
+            where notification.project_id=@project_id
+              and notification.idempotency_key like 'pending:%:notification:%:v1';
+            """,
+            projectId);
+        Assert.True(originalRecipientCount > 0);
+        Assert.Equal(originalRecipientCount, await context.ReadCountAsync(
+            """
+            select count(*)
+            from notifications notification
+            join notification_recipients recipient on recipient.notification_id=notification.id
+            where notification.project_id=@project_id
+              and notification.source_kind='PendingClosed';
+            """,
+            projectId));
     }
 
     [Fact]
@@ -3332,13 +3401,13 @@ public sealed class ProcurementApiTests
     }
 
     [Fact]
-    public async Task ManufacturingRelease_AfterKittingCreatesOneWorkAndNotifiesBothAssignees()
+    public async Task ManufacturingRelease_AfterBatchKittingCreatesPanelWorkAndOneNotificationForBothAssignees()
     {
         await using var context = await ProcurementApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
         using var materialsClient = context.CreateClient("dev-materials");
         using var productionClient = context.CreateClient("dev-production");
-        var projectId = await CreateProjectAsync(salesClient, "MFG-KIT-FIRST", "Kitting Before Release", 1);
+        var projectId = await CreateProjectAsync(salesClient, "MFG-KIT-FIRST", "Kitting Before Release", 2);
         await context.PreparePanelKittingAsync(projectId);
         await context.ExecuteSqlAsync($"""
             insert into project_assignees (
@@ -3351,13 +3420,15 @@ public sealed class ProcurementApiTests
         using var kittingQueue = await ReadJsonAsync(await materialsClient.GetAsync(
             $"/api/materials/kitting?projectId={projectId}",
             TestContext.Current.CancellationToken));
-        var panelId = Assert.Single(
-            Assert.Single(kittingQueue.RootElement.GetProperty("projects").EnumerateArray())
-                .GetProperty("panels").EnumerateArray()).GetProperty("panelId").GetGuid();
+        var panelIds = Assert.Single(kittingQueue.RootElement.GetProperty("projects").EnumerateArray())
+            .GetProperty("panels").EnumerateArray()
+            .Select(panel => panel.GetProperty("panelId").GetGuid())
+            .ToArray();
+        Assert.Equal(2, panelIds.Length);
 
         var kitting = await materialsClient.PostAsJsonAsync(
             "/api/materials/kitting/complete",
-            new { operationId = Guid.NewGuid(), projectId, panelIds = new[] { panelId } },
+            new { operationId = Guid.NewGuid(), projectId, panelIds },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, kitting.StatusCode);
         using (var kittingJson = await ReadJsonAsync(kitting))
@@ -3365,21 +3436,22 @@ public sealed class ProcurementApiTests
             Assert.Equal(0, kittingJson.RootElement.GetProperty("generatedWorkItemCount").GetInt32());
         }
 
+        var releaseOperationId = Guid.NewGuid();
         var release = await productionClient.PostAsJsonAsync(
             "/api/manufacturing/releases",
-            new { operationId = Guid.NewGuid(), projectId, panelIds = new[] { panelId } },
+            new { operationId = releaseOperationId, projectId, panelIds },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, release.StatusCode);
-        Assert.Equal(1L, await context.ReadCountAsync(
+        Assert.Equal(2L, await context.ReadCountAsync(
             "select count(*) from work_items where project_id = @project_id and workflow_stage_code = 'ManufacturingWork';",
             projectId));
         Assert.Equal(2L, await context.ReadCountAsync(
-            """
+            $"""
             select count(*)
             from notification_recipients recipient
             join notifications notification on notification.id = recipient.notification_id
             where notification.project_id = @project_id
-              and notification.idempotency_key like 'kitting:panel:%:manufacturing:notification';
+              and notification.idempotency_key = 'manufacturing:release:{releaseOperationId}:project:' || @project_id || ':stage:ManufacturingWork:assignee:50000000-0000-0000-0000-000000000004:notification';
             """,
             projectId));
     }
@@ -3396,6 +3468,18 @@ public sealed class ProcurementApiTests
         using var qualityClient = context.CreateClient("dev-quality");
         using var viewerClient = context.CreateClient("dev-viewer");
         var projectId = await CreateProjectAsync(salesClient, "MFG-011A", "Manufacturing Execution", 1);
+
+        await context.ExecuteSqlAsync($"""
+            insert into project_assignees (
+                project_id, responsibility_type, assigned_user_id, assigned_by_user_id, assigned_at_utc
+            ) values (
+                '{projectId}', 'MaterialsPrimary', '50000000-0000-0000-0000-000000000012', '{SalesOwnerUserId}', now()
+            )
+            on conflict (project_id, responsibility_type) do update
+            set assigned_user_id=excluded.assigned_user_id,
+                assigned_by_user_id=excluded.assigned_by_user_id,
+                assigned_at_utc=excluded.assigned_at_utc;
+            """);
 
         Assert.Equal(HttpStatusCode.OK, (await procurementClient.PatchAsJsonAsync(
             $"/api/projects/{projectId}/procurement",
@@ -3645,6 +3729,20 @@ public sealed class ProcurementApiTests
         Assert.Equal("Blocked", stoppedJson.RootElement.GetProperty("status").GetString());
         Assert.Equal(1L, await context.ReadCountAsync(
             "select count(*) from pending_issues where project_id = @project_id and target_type = 'Panel' and issue_type = 'ManufacturingStop' and priority = 'Urgent';",
+            projectId));
+        Assert.Equal(1L, await context.ReadCountAsync(
+            """
+            select count(*)
+            from notifications notification
+            join work_items work_item on work_item.id=notification.work_item_id
+            where notification.project_id=@project_id
+              and notification.source_kind='PendingAssignment'
+              and work_item.target_type='Pending'
+              and work_item.target_id=(select id from pending_issues where project_id=@project_id and issue_type='ManufacturingStop');
+            """,
+            projectId));
+        Assert.Equal(0L, await context.ReadCountAsync(
+            "select count(*) from notifications where project_id=@project_id and idempotency_key like 'manufacturing:operation:%:production-reference';",
             projectId));
 
         Assert.Equal(HttpStatusCode.Conflict, (await manufacturingClient.PostAsJsonAsync(

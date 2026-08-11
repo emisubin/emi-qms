@@ -10,7 +10,7 @@ public sealed partial class MigrationLedgerInspector(DatabaseMigrationCatalog mi
     public const string MismatchStatus = "Mismatch";
     public const string UnavailableStatus = "Unavailable";
 
-    private static readonly HashSet<string> ExpectedTeamsActivityChannels = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> BaseNotificationChannels = new(StringComparer.Ordinal)
     {
         "TeamsChannel",
         "TeamsDirectMessage",
@@ -104,7 +104,10 @@ public sealed partial class MigrationLedgerInspector(DatabaseMigrationCatalog mi
                 "migration_ledger_unexpected");
         }
 
-        var schemaCompatible = await ProbeTeamsActivitySchemaAsync(connection, cancellationToken);
+        var schemaCompatible = await ProbeTeamsActivitySchemaAsync(
+            connection,
+            canonicalVersions.Contains("0074_web_push_subscriptions"),
+            cancellationToken);
         if (!schemaCompatible)
         {
             return MigrationLedgerInspection.Mismatch(
@@ -154,6 +157,7 @@ public sealed partial class MigrationLedgerInspector(DatabaseMigrationCatalog mi
 
     private static async Task<bool> ProbeTeamsActivitySchemaAsync(
         NpgsqlConnection connection,
+        bool expectsWebPush,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -176,7 +180,13 @@ public sealed partial class MigrationLedgerInspector(DatabaseMigrationCatalog mi
             .Matches(definition)
             .Select(match => match.Groups["value"].Value)
             .ToHashSet(StringComparer.Ordinal);
-        return channels.SetEquals(ExpectedTeamsActivityChannels);
+        var expectedChannels = BaseNotificationChannels.ToHashSet(StringComparer.Ordinal);
+        if (expectsWebPush)
+        {
+            expectedChannels.Add("WebPush");
+        }
+
+        return channels.SetEquals(expectedChannels);
     }
 
     [GeneratedRegex("'(?<value>[^']+)'", RegexOptions.CultureInvariant)]

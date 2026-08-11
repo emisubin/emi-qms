@@ -143,6 +143,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 transaction,
                 projectId,
                 WorkflowStageCodes.KittingCompleted,
+                actorUserId,
                 cancellationToken);
         }
 
@@ -170,7 +171,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             return;
         }
 
-        await MarkStageWorkItemsCompletedAsync(connection, transaction, projectId, stageCode, cancellationToken);
+        await MarkStageWorkItemsCompletedAsync(connection, transaction, projectId, stageCode, createdByUserId, cancellationToken);
 
         var eventId = await InsertWorkflowEventAsync(
             connection,
@@ -517,7 +518,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
         if (string.Equals(stage.Status, "Completed", StringComparison.Ordinal))
         {
-            await MarkStageWorkItemsCompletedAsync(projectId, stageCode, cancellationToken);
+            await MarkStageWorkItemsCompletedAsync(projectId, stageCode, changedByUserId, cancellationToken);
             if (!await HasCompletedStageEventAsync(projectId, stageCode, cancellationToken))
             {
                 await CompleteStageAsync(
@@ -616,7 +617,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 wi.completed_at_utc,
                 wi.target_type,
                 wi.target_id,
-                wi.link_url
+                wi.link_url,
+                wi.fallback_group_key is not null,
+                wi.fallback_auto_closed_at_utc is not null
             from work_items wi
             join projects p on p.id = wi.project_id
             join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
@@ -806,14 +809,26 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private async Task MarkStageWorkItemsCompletedAsync(Guid projectId, string stageCode, CancellationToken cancellationToken)
+    private async Task MarkStageWorkItemsCompletedAsync(
+        Guid projectId,
+        string stageCode,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await MarkStageWorkItemsCompletedAsync(connection, null, projectId, stageCode, cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await MarkStageWorkItemsCompletedAsync(connection, transaction, projectId, stageCode, actorUserId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
-    private static async Task MarkStageWorkItemsCompletedAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid projectId, string stageCode, CancellationToken cancellationToken)
+    private static async Task MarkStageWorkItemsCompletedAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        string stageCode,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -829,6 +844,13 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("stage_code", stageCode);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await WorkItemFallbackCompletion.SynchronizeForProjectStageAsync(
+            connection,
+            transaction,
+            projectId,
+            stageCode,
+            actorUserId,
+            cancellationToken);
     }
 
     private async Task<bool> HasCompletedStageEventAsync(Guid projectId, string stageCode, CancellationToken cancellationToken)
@@ -1167,11 +1189,14 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
     {
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        string? fallbackGroupKey = null;
 
         await using (var guard = connection.CreateCommand())
         {
+            guard.Transaction = transaction;
             guard.CommandText = """
-                select assigned_user_id, target_type, workflow_stage_code, project_id
+                select assigned_user_id, target_type, workflow_stage_code, project_id, fallback_group_key
                 from work_items
                 where id = @id;
                 """;
@@ -1218,10 +1243,22 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                         : "/quality/inspections";
                 return WorkflowMutationResult<MyWorkItemResponse>.Conflict($"전용 화면에서 작업을 진행해 주세요. {destination}");
             }
+
+            fallbackGroupKey = reader.IsDBNull(4) ? null : reader.GetString(4);
+        }
+
+        if (action == "complete" && !string.IsNullOrWhiteSpace(fallbackGroupKey))
+        {
+            await using var fallbackLock = connection.CreateCommand();
+            fallbackLock.Transaction = transaction;
+            fallbackLock.CommandText = "select pg_advisory_xact_lock(hashtextextended(@fallback_group_key, 0));";
+            fallbackLock.Parameters.AddWithValue("fallback_group_key", fallbackGroupKey);
+            await fallbackLock.ExecuteNonQueryAsync(cancellationToken);
         }
 
         await using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = action switch
             {
                 "start" => """
@@ -1233,13 +1270,35 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                       and status in ('Requested', 'InProgress')
                     """,
                 "complete" => """
-                    update work_items
+                    with selected as (
+                        select id, fallback_group_key
+                        from work_items
+                        where id = @id
+                          and assigned_user_id = @user_id
+                          and status in ('Requested', 'InProgress')
+                    )
+                    update work_items target
                     set status = 'Completed',
-                        started_at_utc = coalesce(started_at_utc, now()),
-                        completed_at_utc = coalesce(completed_at_utc, now())
-                    where id = @id
-                      and assigned_user_id = @user_id
-                      and status in ('Requested', 'InProgress', 'Completed')
+                        started_at_utc = coalesce(target.started_at_utc, now()),
+                        completed_at_utc = coalesce(target.completed_at_utc, now()),
+                        fallback_completed_by_user_id = case
+                            when selected.fallback_group_key is not null then @user_id
+                            else target.fallback_completed_by_user_id
+                        end,
+                        fallback_auto_closed_at_utc = case
+                            when selected.fallback_group_key is not null and target.id <> selected.id
+                                then coalesce(target.fallback_auto_closed_at_utc, now())
+                            else target.fallback_auto_closed_at_utc
+                        end
+                    from selected
+                    where target.status in ('Requested', 'InProgress')
+                      and (
+                          target.id = selected.id
+                          or (
+                              selected.fallback_group_key is not null
+                              and target.fallback_group_key = selected.fallback_group_key
+                          )
+                      )
                     """,
                 "cancel" => """
                     update work_items
@@ -1256,13 +1315,11 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             var affected = await command.ExecuteNonQueryAsync(cancellationToken);
             if (affected == 0)
             {
-                var existing = await WorkItemExistsAsync(connection, workItemId, cancellationToken);
-                return existing
-                    ? WorkflowMutationResult<MyWorkItemResponse>.Forbidden()
-                    : WorkflowMutationResult<MyWorkItemResponse>.NotFound();
+                return WorkflowMutationResult<MyWorkItemResponse>.Conflict("다른 사용자가 먼저 업무 상태를 변경했습니다. 다시 확인해 주세요.");
             }
         }
 
+        await transaction.CommitAsync(cancellationToken);
         var item = await ReadAssignedWorkItemAsync(connection, workItemId, userId, cancellationToken);
         return item is null
             ? WorkflowMutationResult<MyWorkItemResponse>.NotFound()
@@ -1304,7 +1361,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 wi.completed_at_utc,
                 wi.target_type,
                 wi.target_id,
-                wi.link_url
+                wi.link_url,
+                wi.fallback_group_key is not null,
+                wi.fallback_auto_closed_at_utc is not null
             from work_items wi
             join projects p on p.id = wi.project_id
             join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
@@ -1919,71 +1978,24 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         var workItemId = (Guid?)(await command.ExecuteScalarAsync(cancellationToken));
         if (workItemId is not null)
         {
-            await CreateWorkAssignmentNotificationAsync(
+            await WorkAssignmentNotificationWriter.UpsertAsync(
                 connection,
                 transaction,
                 projectId,
-                stageCode,
+                workItemId.Value,
                 assignedUserId,
+                [],
                 title,
                 description,
-                eventId,
-                workItemId.Value,
+                LinkUrlForStage(projectId, stageCode),
                 $"{idempotencyKey}:notification",
                 cancellationToken);
+            if (string.Equals(stageCode, WorkflowStageCodes.MaterialArrived, StringComparison.Ordinal))
+            {
+                await WorkItemDueDateSynchronizer.SyncProcurementProjectAsync(
+                    connection, transaction, projectId, cancellationToken);
+            }
         }
-    }
-
-    private static async Task CreateWorkAssignmentNotificationAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
-        string stageCode,
-        Guid assignedUserId,
-        string title,
-        string description,
-        Guid eventId,
-        Guid workItemId,
-        string idempotencyKey,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            insert into notifications (
-                project_id, notification_type, severity, title, message, link_url,
-                generated_by_event_id, idempotency_key, visibility_scope, source_kind, work_item_id
-            )
-            values (
-                @project_id, 'Info', 'Info', @title, @message, @link_url,
-                @event_id, @idempotency_key, 'RecipientOnly', 'WorkAssignment', @work_item_id
-            )
-            on conflict (idempotency_key) do update
-            set title = excluded.title,
-                message = excluded.message,
-                link_url = excluded.link_url,
-                work_item_id = excluded.work_item_id
-            returning id;
-            """;
-        command.Parameters.AddWithValue("project_id", projectId);
-        command.Parameters.AddWithValue("title", $"새 업무 · {title}");
-        command.Parameters.AddWithValue("message", description);
-        command.Parameters.AddWithValue("link_url", LinkUrlForStage(projectId, stageCode));
-        command.Parameters.AddWithValue("event_id", eventId);
-        command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
-        command.Parameters.AddWithValue("work_item_id", workItemId);
-        var notificationId = (Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty);
-
-        await using var recipientCommand = connection.CreateCommand();
-        recipientCommand.Transaction = transaction;
-        recipientCommand.CommandText = """
-            insert into notification_recipients (notification_id, user_id)
-            values (@notification_id, @user_id)
-            on conflict (notification_id, user_id) do nothing;
-            """;
-        recipientCommand.Parameters.AddWithValue("notification_id", notificationId);
-        recipientCommand.Parameters.AddWithValue("user_id", assignedUserId);
-        await recipientCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<ResolvedAssignee> ResolveAssigneeAsync(
@@ -2008,22 +2020,13 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             }
         }
 
-        var salesPrimary = await ReadAssigneeAsync(connection, transaction, project.ProjectId, ["SalesPrimary"], cancellationToken);
-        if (salesPrimary is not null)
-        {
-            return salesPrimary with { SourceLabel = "영업 정담당자 fallback" };
-        }
-
-        var salesSecondary = await ReadAssigneeAsync(connection, transaction, project.ProjectId, ["SalesSecondary"], cancellationToken);
-        if (salesSecondary is not null)
-        {
-            return salesSecondary with { SourceLabel = "영업 부담당자 fallback" };
-        }
-
-        var admin = await ReadFirstActiveRoleUserAsync(connection, transaction, "system-administrator", cancellationToken);
-        return admin is null
-            ? new ResolvedAssignee(null, null, "담당자 없음")
-            : admin with { SourceLabel = "관리자 fallback" };
+        var departmentCode = DepartmentCodeForResponsibility(target.Primary);
+        var departmentHead = await ReadFirstActiveDepartmentHeadAsync(
+            connection,
+            transaction,
+            departmentCode,
+            cancellationToken);
+        return departmentHead ?? throw new DepartmentHeadRequiredException(departmentCode);
     }
 
     private static async Task<ResolvedAssignee?> ReadAssigneeAsync(
@@ -2062,30 +2065,52 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             : null;
     }
 
-    private static async Task<ResolvedAssignee?> ReadFirstActiveRoleUserAsync(
+    private static async Task<ResolvedAssignee?> ReadFirstActiveDepartmentHeadAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        string roleCode,
+        string departmentCode,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select u.id, r.code
+            select u.id, role.code
             from qms_users u
-            join user_roles ur on ur.user_id = u.id
-            join roles r on r.id = ur.role_id
+            join departments department on department.id = u.department_id
+            left join lateral (
+                select roles.code
+                from user_roles user_role
+                join roles on roles.id = user_role.role_id
+                where user_role.user_id = u.id
+                order by roles.code
+                limit 1
+            ) role on true
             where u.is_active = true
-              and r.code = @role_code
-            order by u.display_name
+              and u.is_department_head = true
+              and department.is_active = true
+              and department.code = @department_code
+            order by u.display_name, u.id
             limit 1;
             """;
-        command.Parameters.AddWithValue("role_code", roleCode);
+        command.Parameters.AddWithValue("department_code", departmentCode);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
-            ? new ResolvedAssignee(reader.GetGuid(0), reader.GetString(1), "역할 사용자")
+            ? new ResolvedAssignee(reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1), "부서장 fallback")
             : null;
+    }
+
+    private static string DepartmentCodeForResponsibility(string responsibilityType)
+    {
+        if (responsibilityType.StartsWith("Sales", StringComparison.Ordinal)) return "sales";
+        if (responsibilityType.StartsWith("Design", StringComparison.Ordinal)) return "design";
+        if (responsibilityType.StartsWith("ProductionPlanning", StringComparison.Ordinal)) return "production-planning";
+        if (responsibilityType.StartsWith("Procurement", StringComparison.Ordinal)) return "procurement";
+        if (responsibilityType.StartsWith("Materials", StringComparison.Ordinal)) return "materials";
+        if (responsibilityType.StartsWith("Manufacturing", StringComparison.Ordinal)) return "manufacturing";
+        if (responsibilityType.StartsWith("Quality", StringComparison.Ordinal)) return "quality";
+        if (responsibilityType.StartsWith("Logistics", StringComparison.Ordinal)) return "logistics";
+        throw new InvalidOperationException($"업무 책임 유형 '{responsibilityType}'의 담당 부서를 확인할 수 없습니다.");
     }
 
     private static async Task CreateSecondaryReferenceNotificationAsync(
@@ -2130,11 +2155,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         Guid eventId,
         CancellationToken cancellationToken)
     {
-        var recipients = await ReadActiveUsersForRolesAsync(
-            connection,
-            transaction,
-            ["sales", "design", "production-planning", "procurement", "materials", "manufacturing", "quality", "logistics"],
-            cancellationToken);
+        var recipients = await ReadAllActiveUserIdsAsync(connection, transaction, cancellationToken);
 
         await CreateNotificationAsync(
             connection,
@@ -2150,6 +2171,25 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             recipients,
             cancellationToken,
             NotificationSourceKinds.ProjectCreated);
+    }
+
+    private static async Task<IReadOnlyList<Guid>> ReadAllActiveUserIdsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select id from qms_users where is_active = true order by id;";
+
+        var users = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            users.Add(reader.GetGuid(0));
+        }
+
+        return users;
     }
 
     private static async Task CreateDepartmentReferenceNotificationAsync(
@@ -2395,7 +2435,9 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                     reader.GetString(6),
                     reader.GetString(17),
                     reader.IsDBNull(18) ? null : reader.GetGuid(18))
-                : reader.GetString(19));
+                : reader.GetString(19),
+            reader.GetBoolean(20),
+            reader.GetBoolean(21));
     }
 
     private static NotificationResponse ReadNotification(NpgsqlDataReader reader)

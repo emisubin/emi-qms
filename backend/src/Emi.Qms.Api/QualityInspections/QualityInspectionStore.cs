@@ -1244,6 +1244,12 @@ public sealed class QualityInspectionStore(
             AddNullableUuid(command, "pending_id", attemptPendingId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+        await WorkItemFallbackCompletion.SynchronizeForWorkItemAsync(
+            connection,
+            transaction,
+            context.WorkItemId,
+            actorUserId,
+            cancellationToken);
 
         string? nextStage = null;
         if (result == "Passed")
@@ -1779,6 +1785,12 @@ public sealed class QualityInspectionStore(
             command.Parameters.AddWithValue("actor_id", actorUserId);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+        await WorkItemFallbackCompletion.SynchronizeForWorkItemAsync(
+            connection,
+            transaction,
+            work.WorkItemId,
+            actorUserId,
+            cancellationToken);
         await EnsureNextWorkItemAsync(connection, transaction, context, next, actorUserId, cancellationToken);
         await EnsureProjectConfirmationEventIfCompleteAsync(connection, transaction, request.ProjectId, handoffSourceId, request.OperationId, actorUserId, cancellationToken);
         var response = new QualityInspectionMutationResponse(
@@ -2891,7 +2903,7 @@ public sealed class QualityInspectionStore(
         CancellationToken cancellationToken)
     {
         var responsibilities = Responsibilities(stageCode);
-        var roleCode = stageCode switch
+        var departmentCode = stageCode switch
         {
             QualityInspectionStages.ManufacturingCompleted => "manufacturing",
             "PackingCompleted" => "logistics",
@@ -2925,25 +2937,37 @@ public sealed class QualityInspectionStore(
                 union all
                 select users.id, role.code, 100, users.display_name
                 from qms_users users
-                join user_roles user_role on user_role.user_id = users.id
-                join roles role on role.id = user_role.role_id and role.code = @role_code
+                join departments department
+                  on department.id = users.department_id
+                 and department.code = @department_code
+                 and department.is_active = true
+                left join lateral (
+                    select roles.code
+                    from user_roles user_role
+                    join roles on roles.id = user_role.role_id
+                    where user_role.user_id = users.id
+                    order by roles.code
+                    limit 1
+                ) role on true
                 where users.is_active = true
-                  and (@permission is null or exists (
-                      select 1 from role_permissions role_permission
-                      join permissions permission on permission.id = role_permission.permission_id
-                      where role_permission.role_id = role.id and permission.code = @permission
-                  ))
+                  and users.is_department_head = true
             )
             select user_id, role_code from candidates order by priority, display_name, user_id limit 1;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("responsibilities", responsibilities);
-        command.Parameters.AddWithValue("role_code", roleCode);
+        command.Parameters.AddWithValue("department_code", departmentCode);
         AddNullableText(command, "permission", permission);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
-            ? new HandoffAssignee(stageCode, PrimaryResponsibility(stageCode), reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1))
-            : null;
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return new HandoffAssignee(
+                stageCode,
+                PrimaryResponsibility(stageCode),
+                reader.GetGuid(0),
+                reader.IsDBNull(1) ? null : reader.GetString(1));
+        }
+        throw new DepartmentHeadRequiredException(departmentCode);
     }
 
     private static async Task<bool> EnsureMissingLqcWorkItemAsync(

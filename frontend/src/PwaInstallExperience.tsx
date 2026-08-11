@@ -246,9 +246,9 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
               <h3 id="pwa-install-usage-title">이용 안내</h3>
               <ul>
                 <li>설치 후에도 온라인 연결과 Microsoft 365 로그인이 필요합니다.</li>
-                <li>업무 안내는 인앱 알림, Teams Activity와 메일로 전달될 수 있습니다.</li>
-                <li>향후 모바일 푸시 알림이 추가되면 기기로 알림이 갈 수 있습니다.</li>
-                <li>현재 모바일 푸시는 준비 중이며, 설치나 이용에 알림 권한이 필요하지 않습니다.</li>
+                <li>업무 안내는 인앱 알림, PWA 푸시, Teams Activity와 메일로 전달될 수 있습니다.</li>
+                <li>설치 후 첫 로그인 안내 또는 내 알림 설정에서 이 기기의 푸시를 켤 수 있습니다.</li>
+                <li>푸시를 켜지 않아도 인앱 알림과 모든 업무 기능을 그대로 이용할 수 있습니다.</li>
               </ul>
             </section>
 

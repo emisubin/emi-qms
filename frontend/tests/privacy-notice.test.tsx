@@ -38,6 +38,8 @@ describe('PrivacyNoticePage', () => {
 
     expect(screen.getAllByText('사내 규정에 따름')).toHaveLength(3);
     expect(screen.getByText(/Teams Activity와 메일로 전달될 수 있습니다/)).toBeInTheDocument();
+    expect(screen.getByText(/PWA 푸시 기기 구독 정보/)).toBeInTheDocument();
+    expect(screen.getByText(/암호화 키는 기기 알림 전달에만 사용/)).toBeInTheDocument();
     expect(screen.queryByText(/향후 모바일 푸시 알림/)).not.toBeInTheDocument();
   });
 

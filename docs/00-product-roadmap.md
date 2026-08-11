@@ -217,20 +217,19 @@ responsibility_type 예시는 다음과 같다.
 | QualityCustomerInspection | 전진검수/FAT 정담당자 | 전진검수 및 FAT 담당 |
 | QualityCustomerInspectionSecondary | 전진검수/FAT 부담당자 | 전진검수 및 FAT 참조 및 fallback |
 
-담당자 fallback 규칙은 다음 확정 순서를 따른다.
+담당자 해석과 fallback 규칙은 다음 확정 순서를 따른다.
 
 1. 해당 단계 Primary 또는 품질 단계 정담당자
 2. 해당 단계 Secondary 또는 품질 단계 부담당자
-3. 영업 정(SalesPrimary)
-4. 영업 부(SalesSecondary)
-5. System Administrator
+3. 정·부담당자가 모두 없으면 해당 업무 부서의 활성 부서장 전원
+4. 활성 부서장도 없으면 영업 담당자나 System Administrator로 넘기지 않고, 필요한 부서를 표시한 validation으로 업무 생성을 차단
 
 품질 단계 fallback 예시는 다음과 같다.
 
-- IQC 단계: QualityIQC → QualityIQCSecondary → SalesPrimary → SalesSecondary → System Administrator
-- LQC 단계: QualityLQC → QualityLQCSecondary → SalesPrimary → SalesSecondary → System Administrator
+- IQC 단계: QualityIQC → QualityIQCSecondary → 품질부 활성 부서장 전원 → 부서장 미등록 validation
+- LQC 단계: QualityLQC → QualityLQCSecondary → 품질부 활성 부서장 전원 → 부서장 미등록 validation
 
-fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 정보가 포함될 수 있다.
+부서장 fallback으로 생성된 업무는 `부서장 공유`임을 표시한다. 같은 부서의 부서장 한 명이 처리하면 같은 fallback 묶음의 나머지 업무도 자동 종료하고, 진행률은 묶음 한 건으로 계산한다.
 
 ## 6. 내 업무 / 알림 / 긴급 알림 원칙 (알림 채널 기준 포함)
 
@@ -307,18 +306,19 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 
 ### 6.5 알림 채널 기준
 
-인앱 알림과 내 업무 기능은 이미 구현되어 있다. 인앱이 모든 알림의 원본이며, Teams와 메일은 인앱 위에 추가되는 채널이다.
+인앱 알림과 내 업무 기능은 이미 구현되어 있다. 사용자에게 표시되는 알림은 인앱 수신자·가시성을 원본으로 하며 Teams Activity와 PWA push가 이를 따른다. 18단계 영업 최종 완료처럼 메일 전용으로 확정된 사건은 사용자에게 보이지 않는 내부 원장만 사용한다.
 
 #### 6.5.1 채널별 역할 정의
 
 | 채널 | 역할 | 정의 |
 | --- | --- | --- |
-| 인앱 | 기록 (Record) | 모든 알림의 원본. 빠짐없이 전부 남는다 |
-| Teams | 개입 (Interrupt) | 지금 하던 일을 멈추고 봐야 하는 것만 발송 |
-| 메일 | 요약/증빙 (Digest & Evidence) | 일일 요약 + 긴급/에스컬레이션 실시간 발송 |
+| 인앱 | 기록 (Record) | 사용자에게 표시되는 알림의 원본과 수신자 snapshot |
+| Teams Activity | 개입 (Interrupt) | 확정된 자동 업무·Pending·프로젝트 lifecycle을 개인별 발송 |
+| 메일 | 요약/증빙 (Digest & Evidence) | 평일 요약, 필수 Pending·프로젝트 생성·L1·영업 최종 완료 발송 |
+| PWA push | 모바일 개입 | 실제 인앱 가시성과 수신자를 그대로 따라 활성 기기별 파생 |
 
-- Teams는 실시간 채널, 메일은 배치 채널이 기본이다.
-- 같은 알림을 Teams와 메일로 동시에 실시간 발송하는 조합은 긴급/차단과 에스컬레이션에만 허용한다.
+- Teams Activity와 PWA push는 실시간 채널이며 메일은 평일 요약과 명시된 필수 사건에 사용한다.
+- 새 자동 Teams 공용 채널 delivery는 만들지 않는다. 기존 TeamsChannel handler·이력·관리자 조회는 보존한다.
 
 #### 6.5.2 알림 유형 × 채널 매트릭스
 
@@ -326,17 +326,20 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 
 | 알림 유형 | 인앱 | Teams | 메일 |
 | --- | --- | --- | --- |
-| 내 업무 생성 (일반 단계 핸드오프) | 즉시 | 수동 업무 배정은 적용, 자동 단계 핸드오프는 후속 | 일일 요약에 포함 |
+| 내 업무 생성 (일반 단계 핸드오프) | 즉시 | Activity Feed 즉시, 사용자 설정 가능 | 일일 요약에 포함 |
 | 참조 알림 | 즉시 | 발송 안 함 | 일일 요약에 포함 |
-| 긴급/차단 (부적합, PUNCH, 제조 중단) | 즉시 | 통합 채널 게시 기반은 구현, 개인 자동 Activity Feed는 후속 | 즉시 (조치 담당자 + 생산관리) |
-| 재검사 요청 | 즉시 | Activity Feed event 연결 미확인 | 발송 안 함 |
-| 예정일 임박 (D-1) | 즉시 | L0는 설정 선택 시 Activity Feed, 기본 설정은 dry-run DM | 발송 안 함 |
-| 예정일 초과 | 즉시 | L1/L2는 설정 선택 시 Activity Feed, 기본 설정은 dry-run DM | 에스컬레이션 단계에서만 |
-| 일일 요약 | — | 발송 안 함 | 매일 1통 |
-| 프로젝트 완료 / 세금계산서 단계 | 즉시 | Activity type/renderer 기반만 존재하며 event 연결 미확인 | 발송 (증빙 성격) |
+| 일반·긴급 Pending, 재검사·재조치 | 즉시 | Activity Feed 즉시, 필수 | 즉시, 필수 |
+| Pending 종결 | 등록 알림 수신자 snapshot에 즉시 | Activity Feed 즉시 | 발송 안 함 |
+| 프로젝트 생성 | 모든 활성 사용자에게 즉시 | Activity Feed 즉시 | 모든 활성 사용자에게 즉시 |
+| 프로젝트 납기·상태 변경 | 영업담당자+지정 담당자에게 즉시 | Activity Feed 즉시 | 발송 안 함 |
+| 17단계 납품 완료 | 영업담당자+지정 담당자에게 즉시 | Activity Feed 즉시 | 발송 안 함 |
+| 18단계 영업 최종 완료 | 사용자 표시 없음 | 발송 안 함 | 활성 영업부서 전체에게 즉시 |
+| 예정일 임박 (L0, D-1 영업일) | 즉시 | Activity Feed, 사용자 설정 가능 | 발송 안 함 |
+| 예정일 초과 (L1, +1일 첫 평가) | 즉시 | Activity Feed 즉시 | 즉시 |
+| 일일 요약 | — | 발송 안 함 | 평일 07:30, 사용자 설정 가능 |
 
-- 메일이 실시간으로 발송되는 경우는 긴급/차단과 에스컬레이션 두 가지뿐이다.
-- 긴급/차단 알림의 Teams 채널 게시는 부서별 채널이 아니라 통합 채널 1개로 운영한다.
+- 제조 중단은 별도 참고 알림을 추가하지 않고 긴급 Pending 한 건으로 통합한다.
+- 일반·긴급 Pending과 프로젝트 생성 메일은 필수이며 사용자 preference로 끌 수 없다.
 
 #### 6.5.2.1 Activity Feed provider/capability 상태
 
@@ -347,7 +350,7 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 | recipient/access scope와 notification 연결 | 완료 | 개인 알림은 RecipientOnly, 채널 공지는 Authenticated 정책을 사용한다 |
 | `/teams/activity` 및 상세 route | 완료 | Teams tab과 인앱 notification/detail을 연결한다 |
 | 관리자 수동 개인/업무 배정 Activity Feed | 완료 | 선택한 EntraId 사용자별 Pending delivery를 생성한다 |
-| 자동 event 전체 적용 | 부분 적용 | provider가 처리할 수 있는 것과 event가 실제 TeamsActivity delivery를 생성하는 것은 별도다 |
+| 확정 자동 event 적용 | 완료 | TASK-NOTIFY-POLICY-001의 수신자·채널 matrix를 사용한다 |
 
 #### 6.5.2.2 Activity Feed event coverage 상태
 
@@ -355,17 +358,18 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 | --- | --- | --- |
 | 관리자 수동 개인 알림 | 적용 | TeamsActivity 채널을 선택한 경우 |
 | 관리자 수동 업무 배정 | 적용 | work_item, notification, recipient, TeamsActivity delivery를 연결한다 |
-| L0/L1/L2 예정일 에스컬레이션 | 부분 적용 | `TeamsPersonalChannelStrategy=TeamsActivity`일 때 연결된다. repository 기본값은 `TeamsDirectMessageDryRun`이다 |
-| 긴급/차단 자동 event | 후속 | renderer activity type만으로 자동 event 연결 완료를 의미하지 않는다 |
-| 재검사 요청 | 미확인 | 현재 코드·문서에서 TeamsActivity delivery 생성 연결을 확인하지 못했다 |
-| 자동 단계 핸드오프 업무 생성 | 후속 | 수동 업무 배정 적용과 구분한다 |
-| 프로젝트 완료 | 미확인 | activity type/renderer는 존재하지만 실제 event 연결은 확인하지 못했다 |
+| L0/L1 예정일 에스컬레이션 | 적용 | repository 기본 Teams 개인 전략은 TeamsActivity이며 L2/L3 신규 delivery는 만들지 않는다 |
+| 일반·긴급 Pending·재검사·재조치·종결 | 적용 | 확정된 수신자 snapshot에 TeamsActivity delivery를 만든다 |
+| 자동 단계 핸드오프 업무 생성 | 적용 | 일반 업무 Teams preference를 유지한다 |
+| 프로젝트 생성·납기·상태 변경 | 적용 | 확정된 전체 활성 사용자 또는 프로젝트 담당자 범위를 사용한다 |
+| 17단계 납품 완료 | 적용 | 영업담당자와 프로젝트 지정 담당자에게 발송한다 |
+| 18단계 영업 최종 완료 | 제외 | 메일 전용 정책이므로 Activity Feed를 만들지 않는다 |
 
-후속 event coverage는 해당 event의 notification 원본, recipient, delivery 생성 경로와 테스트를 함께 확인한 뒤 상태를 올린다.
+새 자동 event를 추가할 때는 notification 원본, recipient, delivery 생성 경로와 테스트를 함께 추가한다.
 
 #### 6.5.3 일일 요약 메일
 
-- 발송 시각: 매일 07:30
+- 발송 시각: 대한민국 영업일 기준 평일 07:30 (`Asia/Seoul`). 활성 대한민국 공휴일에는 발송하지 않는다.
 - 수신자별 개인화 1통
 - 구성:
   1. 내 미완료 업무 (예정일 순 정렬, 예정일 초과 건은 상단 강조)
@@ -377,29 +381,26 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 
 #### 6.5.4 에스컬레이션 규칙
 
-예정일 초과와 긴급 알림 미조치에 적용한다.
+정확한 일정 원본이 연결된 미완료 업무에 적용한다.
 
 | 단계 | 조건 | 발송 대상과 채널 |
 | --- | --- | --- |
-| L0 | 예정일 D-1 | 정담당자 Teams 개인 delivery. 설정 선택 시 Activity Feed, 기본은 dry-run DM |
-| L1 | 예정일 초과 즉시 | 정담당자 Teams 개인 delivery + 메일. Teams는 설정 선택 시 Activity Feed |
-| L2 | 초과 +2영업일 미조치 | 부담당자 + 생산관리 담당자 Teams 개인 delivery. 설정 선택 시 Activity Feed |
-| L3 | 초과 +3영업일 미조치 | 생산관리 담당자 + 영업 담당자 메일 |
+| L0 | 예정일 직전 영업일 | 현재 담당자 Teams Activity. 사용자 설정 가능 |
+| L1 | 예정일 다음 날 첫 평가 | 현재 담당자 Teams Activity + 메일 |
 
-- 긴급/차단 알림은 L1에서 시작한다. 발생 즉시가 이미 긴급 상황이기 때문이다.
-- 미조치 판정 기준: 해당 내 업무 또는 Pending의 상태 변경 이벤트가 없는 경우.
-- 영업일 계산에는 기존에 구현된 공휴일/국경일 데이터를 재사용한다.
-- L3 수신자는 생산관리와 영업으로 한정한다. 부서장/경영진 수신은 포함하지 않는다.
+- 긴급/차단은 에스컬레이션 단계가 아니라 Pending 필수 채널로 즉시 발송한다.
+- L2/L3 코드·schema·과거 이력은 호환을 위해 보존하지만 신규 평가·delivery·설정 catalog는 만들지 않는다.
+- 생산계획은 정확한 계획 항목 종료일, 구매는 구매품 입고예정일, 프로젝트 집계 업무는 미완료 구매품의 가장 이른 입고예정일을 사용한다. 정확히 연결되지 않으면 `due_date=null`이다.
 
 #### 6.5.5 소음 방지 규칙
 
 - 중복 억제: 동일 대상(같은 업무/Pending)에 대한 동일 유형 알림은 24시간 내 재발송하지 않는다. 에스컬레이션 단계 상승은 예외다.
-- 일괄 처리 묶음: 일괄 처리(예: 패널 10건 일괄 키팅 완료)로 발생한 알림은 개별 발송하지 않고 1건으로 묶어 발송한다. 이벤트 발행 후 1~2분 버퍼로 그룹핑한다.
+- 일괄 처리 묶음: 실제 업무 행은 패널별로 유지하되 같은 operation·프로젝트·단계·수신자 조합의 인앱 원본과 외부 delivery는 1건으로 묶는다.
 - 야간 억제는 적용하지 않는다. Teams 개인별 알림은 발생 시각과 무관하게 즉시 발송하는 방향을 기준으로 한다.
 
 #### 6.5.6 구현 방향
 
-- Teams 통합 채널 게시는 Webhook 기반으로 구현한다. Webhook payload는 Power Automate Teams 카드 액션과 호환되는 Adaptive Card root JSON을 기본으로 한다.
+- Teams 통합 채널 Webhook handler와 과거 이력은 보존하지만 새 자동 TeamsChannel delivery는 만들지 않는다.
 - Teams 개인별 알림은 DM보다 Activity Feed를 우선 사용한다. Activity Feed provider/capability는 Teams 앱 manifest, Graph 권한, 조직 앱 배포, Teams deep link를 포함해 TASK-NOTIFY-003에서 actual 발송까지 검증했다. 개별 자동 event coverage는 6.5.2.2 표를 따른다.
 - 메일: 초기/UAT/시범운영 actual 발송은 Gmail 전용 계정 SMTP를 사용한다. Gmail 계정은 2단계 인증과 앱 비밀번호를 사용하며 실제 값은 env/secret으로만 관리한다.
 - Hiworks SMTP와 Microsoft Graph Mail.Send는 사내 정책상 기본 발송 경로로 사용하지 않는다. Graph Mail provider는 Exchange Online 조직 또는 후속 선택지로 optional 유지한다.
@@ -412,7 +413,7 @@ fallback으로 결정된 경우 알림 또는 업무 설명에 담당자 누락 
 
 - Phase 1: 외부 delivery 계층, Teams 통합 채널 Webhook, Gmail SMTP 메일, 일일 요약 구조, retry/dedupe/batch 기반
 - Phase 2: Teams Activity Feed 개인별 알림 (TASK-NOTIFY-003)
-- Phase 3: 에스컬레이션 자동화 (L0 ~ L3, TASK-NOTIFY-002)
+- Phase 3: 단순 에스컬레이션 자동화 (L0·L1 운영, L2·L3 호환 이력 보존, TASK-NOTIFY-POLICY-001)
 
 ## 7. 프로젝트와 패널 관리 기준
 
@@ -945,7 +946,7 @@ Excel 출력 대상 후보:
 | 생산계획 | Legacy Item 단계와 기존 프로젝트 불변 보존, Item별 단일 현재 제조·계획 양식, 항목별 1:1 실적 연결, 프로젝트 생성 transaction snapshot, 계획 시작/종료·담당자·필요 인원·코멘트·프로젝트 override, 구매·자재·제조·LQC·IQC 항목/OQC 최종 합격·전진검수/FAT·물류 원본 기반 자동 실적 projection, desktop 8열 생산계획표·mobile 카드·계획/실적 Gantt | 대량 프로젝트 성능은 실측 후 cache/query 최적화, 운영 양식 content 입력 |
 | 구매 필수 항목 | Item별 필수 구매 항목 설정, 새 프로젝트 skeleton 자동 생성 | 업체/발주정보 입력 기준과 완료 판정 보강 |
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
-| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 읽음 처리, 인앱 알림 원본 구조, 외부 delivery 이력, Teams 통합 채널 게시, Gmail SMTP 메일 발송, Teams Activity Feed provider actual, text topic + Teams deep link, `/teams/activity` 탭과 상세, 관리자 수동 개인/업무 배정 Activity Feed, 설정 선택형 L0~L2 Activity Feed, Daily Digest 구조, 담당 프로젝트 요약, dry-run/actual provider, Pending→Processing claim/lease, fencing, automatic retry, provider 오류 분류, attempt lineage, 관리자 delivery 조회 API, `work_items.due_date` 기반 L0~L3 에스컬레이션, fair candidate ordering과 후보 오류 격리, 관리자 에스컬레이션 조회 API, 관리자 수동 알림 발송 3모드, 수동 업무 배정 work_item 생성, 수동/자동 알림 양식 통일, display snapshot/detail, 실패/대기 확인·제외와 Pending 재시도 | Activity Feed 자동 event coverage 확대, 운영 Teams manifest URL 전환, `projectCreated` activityType 추가 여부, due_date 입력/동기화 정책, 알림/에스컬레이션 설정 UI, 사용자별 채널 preference, terminal Failed 수동 재처리 신규 기능(Deferred), 기존 업무 화면 action feedback UX 확대 |
+| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 인앱 원본·수신자 snapshot, Teams Activity Feed actual provider와 자동 업무·Pending·프로젝트 lifecycle coverage, Gmail SMTP, PWA 활성 기기별 파생 delivery, 평일 07:30 Daily Digest, L0·L1 단순 에스컬레이션, 생산계획·구매 일정 기반 미완료 업무 due_date 동기화, 담당자 미지정 시 해당 부서 복수 부서장 공유·첫 처리자 동기화 종료, 패널별 업무/묶음 알림, Pending→Processing claim/lease·retry·attempt lineage·관리자 조회 | 실제 PWA VAPID key·외부 push service 검수, 운영 Teams manifest URL 전환, Gmail SMTP 장기 운영 적합성, terminal Failed 수동 재처리 신규 기능(Deferred) |
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지와 Figma 기본/Variant 2, dev auth/E2E 보존, PostgreSQL transaction 기반 마지막 active System Administrator 보호, purge 전용 malformed lifecycle defense-in-depth, latest-main Development controlled runtime 적용, 승인된 Figma 기반 인증 공통 shell, Desktop exact geometry와 PC viewport 등비 canvas, Loading control 제거·빨간 회전 indicator, Change 010 모바일 흑백 wireframe·지정 로그인 logo 운영 반영 | Auth break-glass 계정·복구 rehearsal, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수, 실제 PC·iPhone·Android 인증 후 지정 logo 육안 검수 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
@@ -969,11 +970,11 @@ Excel 출력 대상 후보:
 - 영업 정산과 세금계산서 발행 완료를 추가한다.
 - 모든 페이지 Excel 출력 공통 기능을 추가한다.
 - Microsoft 365 로그인 기반은 구현 완료되었으며, 운영 배포 전 실제 Entra 앱 등록값, 운영 redirect URI, secret/env 관리, Production/Staging dev auth 비활성, AdminUserSwitch 비활성 설정을 검수한다.
-- Teams Activity Feed provider/capability와 관리자 수동 개인/업무 배정 경로는 TASK-NOTIFY-003에서 text topic + Teams deep link 방식으로 actual 발송까지 구현되었다. 자동 event coverage는 6.5.2.2의 적용/부분 적용/미확인/후속 상태를 따르며, 운영 전 manifest `contentUrl`/`websiteUrl`과 deep link webUrl을 운영 URL로 교체하고 조직 앱 배포 상태를 검수한다.
-- 예정일 기반 에스컬레이션 엔진은 `work_items.due_date` 기준으로 구현되었으며, 실제 운영 대상 업무의 due_date 입력/동기화 정책은 후속으로 확정한다.
+- Teams Activity Feed provider/capability와 관리자 수동 경로는 TASK-NOTIFY-003에서 actual 검수했고, TASK-NOTIFY-POLICY-001이 확정 자동 event coverage와 수신자 matrix를 연결했다. 운영 전 manifest URL과 조직 앱 배포 상태를 검수한다.
+- 예정일 기반 에스컬레이션은 정확한 생산계획 항목 종료일·구매품 입고예정일에서 미완료 업무 `due_date`를 동기화하고 L0·L1만 신규 평가한다. 정확한 원본이 없으면 `null`을 유지한다.
 - 공휴일/영업일 기반은 구현 완료되었으며, 운영 전 연간 대한민국 공휴일/대체공휴일/임시공휴일/회사휴일 데이터를 관리자 휴일 관리 또는 공식 API sync로 검수한다.
 - 공식 대한민국 공휴일 API service key 연동과 자동 sync scheduler는 후속으로 검토한다.
-- NOTIFY-002는 BusinessDayCalculator를 재사용한다. 생산계획/구매 예정일을 `work_items.due_date`로 동기화할지 여부와 due_date 입력 UX는 후속으로 확정한다.
+- NOTIFY-002의 BusinessDayCalculator를 재사용하며, L2·L3 신규 평가·delivery는 중단하고 과거 schema·이력만 보존한다.
 - ADMIN-001은 시스템 관리 중심으로 구현 완료되었으며, Item/포장방식/생산계획 단계/구매 필수 항목의 관리자 통합 여부는 후속 사용자 결정으로 남긴다.
 - 관리자 삭제 예정 데이터의 7일 후 purge 운영 정책, 삭제 보류 처리 모니터링, 전체 field-level audit 확장은 운영 검수 후 고도화한다.
 - role/permission 편집 UI, Pending 유형 관리와 검사/제조 체크리스트 템플릿은 ADMIN-001 범위에서 제외되어 후속으로 검토한다. Terminal Failed 수동 재처리는 TASK-NOTIFY-004 정책 결정에 따라 별도 신규 기능 후보로 Deferred한다.
@@ -1019,6 +1020,8 @@ Excel 출력 대상 후보:
 | 3.3A | TASK-PRODUCTION-CONTROL-001 Item별 생산계획·자동 실적·가로 막대 일정 | NEW_FEATURE / BUGFIX | Change 010 Main Merged / Azure Released | 본체와 Change 002~009의 원격 main 반영·사용자 검수 완료. Change 010은 같은 현재 양식의 후행 재선택이 빠른 편집 진입을 취소하던 P2를 최소 보정하고 PR #81·main CI 뒤 Change 020 Azure 운영 image에 동기화 | TASK-ADMIN-002·생산계획·구매·자재·제조·품질·물류 원본 데이터 | 기존 프로젝트는 Legacy/snapshot 유지 | Yes | 운영 관찰. 제품 다음 Gate는 별도 승인 Task |
 | 3.3B | TASK-UL891-PRODUCTION-PLAN-001 실물 세트별 생산계획 | NEW_FEATURE | Change 004 Main Merged / Azure Released / User Validation Complete | Fable 2-pass 본체와 Change 002~008의 전체 세트 기본계획·실적 연결 편집·일정표 색/날짜선/테두리·담당자 표시를 통합 원격 `main` 기준선에 이식. UL891 단일 현재 설계·활성 42면 projection·migration `0068`과 제조·품질·물류 현재 순번 `1..42`·영구 code `P52` 분리를 자동·실제 화면에서 검증. Change 020 최신 main 운영 release로 통합 image 동기화 완료 | TASK-PRODUCTION-CONTROL-001·TASK-UL891-SET-001·DESIGN-000 Change 006·TASK-EXPERIMENT-PROMOTION-001 Change 002 | 없음. 운영 관찰 유지 | Yes | 완료 scope 재구현 금지; 운영 관찰 |
 | 3.3C | TASK-TEAMS-PWA-001 — Teams 실행 화면·PWA 설치·브랜드 통일 | BUGFIX / P2_REMEDIATION | Change 011 Production Rollout Complete | Change 001~003·007·009·010·011 운영 rollout 완료. 새 웹 제품 logo, 로그인 보안 안내와 오산·청주 회사 footer를 반영하고 PWA·Teams icon을 보존했으며 사용자 검수·PR #93·Azure release `31452524156` 완료 | Azure Easy Auth·Teams Activity 10종·기존 웹 MSAL·PWA icon·TASK-DESIGN-LOGIN-001 Change 010·TASK-ADMIN-003 통합 branch | Web Push는 별도 NEW_FEATURE | Yes | 운영 PC·모바일 브랜드·footer 관찰 |
+| 3.3F | TASK-PWA-PUSH-001 — 인앱 연동 PWA 기기 푸시 | APPROVED_FEATURE_IMPLEMENTATION | Local Implementation / Automated Validation Complete / Publication Approved | 인앱 가시성 기준 기기별 구독·delivery, 현재/전체 기기 해제, 최소 Service Worker, 설치형 PWA 1회 안내와 본인 설정을 구현. migration `0074`, 기본 `Enabled=false`·`DryRun=true`. Backend `513/513`, Frontend `210/210`, isolated Full-Stack `1/1`, desktop·390px 화면 검증 완료 | TASK-TEAMS-PWA-001 설치 경험·TASK-NOTIFY-004 delivery worker·현재 인앱 알림 수신자 정책 | 운영 VAPID key·실제 외부 push service 수신 검수는 별도. 이번 공개 배포에서도 중지·시험 모드 유지 | Yes | 통합 PR `CI Gate` → migration·앱 배포; 실제 provider 활성화는 별도 승인 |
+| 3.3G | TASK-NOTIFY-POLICY-001 — 알림 운영 정책 정합화 | APPROVED_FEATURE_IMPLEMENTATION / UAT_RUNTIME | User Validation Complete / Publication Approved | 자동 업무·Pending·프로젝트 lifecycle 채널·수신자, 복수 부서장 fallback, 묶음 알림, 일정 원본 due_date, L0·L1와 평일 Digest를 확정 정책에 맞춰 구현하고 사용자 화면 검수를 완료. migration `0075`, PWA는 실제 인앱 원본과 통합. Backend 516/516·Frontend 210/210·Isolated Full-Stack 2/2 | TASK-NOTIFY-001~005·TASK-PWA-PUSH-001·TASK-ADMIN-003 | 새 PWA 실제 provider 발송은 별도. 기존 Teams·메일 운영 설정은 보존 | Yes | 통합 PR `CI Gate` → Change 022 Azure release → 운영 관찰 |
 | 3.3E | TASK-PRIVACY-NOTICE-001 개인정보·이용 안내 | APPROVED_FEATURE_IMPLEMENTATION / POLICY_DECISION | Change 007 Local Integration Validated / Publication Approved | 로그인 후 정적 안내, 공통 footer 진입점, 부드러운 목차 이동, logo 홈 이동, 프로필 사진 선택 안내와 PWA 설치·알림 안내를 구현하고 회사 문안·현재 운영 범위를 승인. 통합에서 mobile/coarse-pointer 44px 터치 영역을 보정해 전체 `58/58` 통과 | TASK-TEAMS-PWA-001·현재 Microsoft Teams/메일 운영 계약 | 새 provider·Web Push·동의 DB·법률 자문 제외. 변경 시 P3 재검토 | Yes | 통합 PR `CI Gate` → Change 021 Azure release |
 | 3.4 | TASK-PENDING-TYPE-001 Pending 유형 관리 | NEW_FEATURE | Experiment Complete | Fable 2-pass·local 구현·자동 검증·desktop/mobile 증빙 완료 / `BATCHED_FINAL` | TASK-007A experiment 완료·안정화 | catalog 설정 자체 Excel export는 P3 backlog, 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수. 승격은 별도 UAT Task |
 | 4.1 | TASK-013A 물류 | NEW_FEATURE | Canonical Pending / Experiment Complete | Experiment implementation·automated validation complete / `BATCHED_FINAL` | TASK-012A experiment scope 완료 | 실제 포장·서명본 양식은 후속 change | Yes | experiment 재구현 금지; 최종 일괄 검수 |
@@ -1037,7 +1040,7 @@ Excel 출력 대상 후보:
 | 5.5 | TASK-NOTIFY-AUDIT-001 관리자 preference 감사 조회 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-005 audit 원장 | 대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 5.6 | TASK-NOTIFY-REPROCESS-001 terminal Failed 수동 재처리 | NEW_FEATURE | Experiment Complete | Codex 2차 기획 대체·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-NOTIFY-004 delivery lineage | actual provider·대표 repo·main·Persistent UAT 미반영 | Yes | 재구현 금지; 최종 일괄 검수 |
 | 6.1 | TASK-AZURE-PILOT-001 — 서비스 중립 공개 파일럿 준비 | UAT_RUNTIME | Main Merged / User Validation Complete | Entra API·SPA 분리, one-shot migration·ledger gate, Production preflight·ARM64/AMD64 image 검증과 PR #59 merge 완료 | TASK-UAT-001, local main 승인 기능과 사용자 P1 구현 승인 | provider-specific 실제 runtime은 TASK-AZURE-DEPLOY-001로 이관 | Yes | 완료 scope 재구현 금지 |
-| 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | BUGFIX / UAT_RUNTIME | Change 021 Publication Approved | Change 020 runtime 검증과 Change 019 release guard를 유지한다. Change 021은 공지 편집·migration `0073`과 개인정보·이용 안내를 새 `main-pr-only` Ruleset의 단일 통합 PR·필수 `CI Gate` 뒤 exact main SHA로 공개 배포하도록 승인 | TASK-AZURE-PILOT-001, Change 018 승인형 workflow, TASK-CI-COST-001 | 20일 운영 관찰과 기존 P3 runner 경고·개인정보 문안 변경 시 재검토 | Yes | 통합 PR CI → migration·Backend·Frontend 선택 release → public security smoke |
+| 6.2 | TASK-AZURE-DEPLOY-001 — 20일 Azure 시범 배포 | BUGFIX / UAT_RUNTIME | Change 022 Publication Approved | 기존 release guard를 유지한다. Change 022는 PWA 구독 migration `0074`, 알림 정책 migration `0075`와 Backend·Frontend를 `main-pr-only` Ruleset의 단일 PR·필수 `CI Gate` 뒤 exact main SHA로 공개 배포하도록 승인한다. 새 Web Push 실제 provider는 중지·시험 모드를 유지한다. | TASK-AZURE-PILOT-001, Change 018 승인형 workflow, TASK-CI-COST-001, TASK-PWA-PUSH-001, TASK-NOTIFY-POLICY-001 | 운영 VAPID key·실기기 실제 push 수신은 별도 승인과 검수. 기존 P3 runner 경고·20일 운영 관찰 유지 | Yes | 통합 PR CI → migration `0074`·`0075` → Backend·Frontend 선택 release → public security smoke |
 | 6.3 | TASK-CI-COST-001 — GitHub Actions minute 최적화 | P2_REMEDIATION | Change 001 PR #96 Main Merged / GitHub Main Validation Complete | 영향 영역별 Backend/Frontend/Full-Stack·Workflow Validation, Backend test와 Full-Stack 병렬화, Ruleset+동일 tree 기반 main 중복 제거, Azure 변경 image 선택·병렬 build와 migration 선택 실행을 추가. local 검증과 원격 `CI Gate` readback PASS. PR·main에서 workflow-only 제품 job 3개 skip, Workflow Validation·CI Gate 성공. main은 CI trust source 변경을 감지해 약 27초 safe fallback 성공 | 일반 CI·Azure run 집계, TASK-AZURE-DEPLOY-001 승인형 release·rollback·public security 보존 | 코드 PR 병렬 시작, Azure 선택 release, 최소 1주 Actions 사용량 관찰 | No | 마감 문서 동기화 → 후속 실제 run 관찰 |
 
 Phase 1 기능에서도 loading·empty·error·success feedback, 접근성, 한글 안내, 390px/Teams narrow, page-level overflow 0과 기존 CSS variable·공통 component 우선 원칙을 적용한다. 시각 token과 브랜드 통일은 DESIGN Task로 후행한다. 공용 태블릿, 공용 기기 mode·session 정책과 sessionStorage 강제 정책은 이 큐에 포함하지 않는다.
@@ -1101,9 +1104,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 ### TASK-NOTIFY-002: 예정일 기반 에스컬레이션
 
 - 상태: 완료
-- 목적: `work_items.due_date` 기반 L0~L3 예정일 에스컬레이션 엔진을 구축한다.
+- 목적: `work_items.due_date` 기반 L0~L3 호환 엔진을 구축했다. 현재 신규 평가 정책은 TASK-NOTIFY-POLICY-001의 L0·L1로 대체됐다.
 - 포함 범위: `work_item_escalations`, L0(예정일 직전 영업일), L1(초과 즉시), L2(+2영업일), L3(+3영업일, 생산관리·영업 한정), BusinessDayCalculator 재사용, recipient resolver, 인앱 notification/recipient 생성, `notification_deliveries` 연동, Gmail SMTP Mail delivery 연동, Teams 개인 알림 dry-run delivery, 관리자 에스컬레이션 조회 API, Daily Digest 담당 프로젝트 요약
-- 제외 범위: Teams Activity Feed 실제 구현, Teams DM 실제 구현, 생산계획/구매 예정일 자동 due_date 동기화, due_date 입력 UI, Pending List, 알림 설정 UI, 수동 재처리 UI, 부서장/경영진 수신
+- 제외 범위(당시): Teams Activity Feed 실제 구현, Teams DM 실제 구현, 생산계획/구매 예정일 자동 due_date 동기화, due_date 입력 UI, Pending List, 알림 설정 UI, 수동 재처리 UI, 부서장/경영진 수신. 자동 동기화와 현재 평가 단계는 TASK-NOTIFY-POLICY-001에서 확정했다.
 - 선행조건: TASK-NOTIFY-001, TASK-CALENDAR-001
 - 주요 테스트: backend 전체 test, Notification/Escalation targeted tests, Migration tests, Authorization tests, BusinessDay tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, seed A/B/C/D, UAT DB persistence, UAT L0 dry-run smoke
 
@@ -1273,16 +1276,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-AZURE-DEPLOY-001: 20일 Azure 시범 배포
 
-- 상태/다음 순서: Change 020 runtime 검증 완료 / Change 021 공지 편집·개인정보 안내 사용자 검수와 단일 통합 PR·Azure 공개 배포 승인 / 새 `main-pr-only` Ruleset과 필수 `CI Gate`를 통과한 exact main SHA만 운영 release
+- 상태/다음 순서: Change 021까지 runtime 검증 완료 / Change 022 PWA 구독·알림 정책 사용자 검수와 단일 통합 PR·Azure 공개 배포 승인 / 새 `main-pr-only` Ruleset과 필수 `CI Gate`를 통과한 exact main SHA만 운영 release
 - 목적: 승인된 Azure 시범 사양을 provider-specific 배포 artifact, migration·restore·traffic gate와 Teams manifest로 전환해 3개 프로젝트를 20일 동안 안전하게 시범 운영한다.
 - 포함 범위: Front Door Standard custom rate limit, Container Apps Consumption Frontend/API/ClamAV, one-shot migration job, private PostgreSQL Flexible Server B2s 32 GB·PITR 14일, ACR Basic, Azure Files 5 GB, Key Vault, Log Analytics 1 GB/day cap, Application Insights, 최종 hostname·Entra·Teams manifest handover
 - 제외 범위: 기존 PostgreSQL 첨부의 Blob 이관, HA, Front Door Premium managed WAF, 실제 비용 resource의 Codex 자동 생성, 사용자 승인 없는 traffic·provider 발송, 정식 운영 사양 확정
 - 선행조건: TASK-AZURE-PILOT-001 PR #59 main merge, 사용자 20일 시범 구성과 비용 owner 결정
-- 예상 migration: Azure `0072`까지 적용된 기준선에 Change 021의 `0073`을 one-shot job으로 먼저 적용한다. expected/applied Exact가 확인된 뒤에만 새 Backend·Frontend revision을 활성화한다.
+- 예상 migration: Azure `0073`까지 적용된 기준선에 Change 022의 `0074`·`0075`를 one-shot job으로 먼저 적용한다. expected/applied Exact가 확인된 뒤에만 새 Backend·Frontend revision을 활성화한다.
 - 자동 검증: Change 003 Backend 보안 집중 42/42·전체 격리 회귀 481/481, 실제 PostgreSQL runtime role 업무 CRUD 성공·schema/role/temporary/ledger mutation 거부, 기존 migration image 67 Exact, Bicep 4종 compile. Change 004 ARM JSON·OIDC image workflow 검증. Change 006 Teams package 2/2, PWA asset 1/1, Frontend 175/175·lint·typecheck·build, Azure static artifact와 local Production preview manifest/icon `200` 완료
 - Finding: `AZURE-RELEASE-RUNNING-STATE-001` P1은 정상 `RunningAtMaxScale` 오판을 exact allowlist와 actual release 성공으로 `RESOLVED`했다. main Full-Stack 첫 시도의 5초 UI 표시 지연 `CI-FULLSTACK-QUALITY-REFRESH-001` P2는 격리 `1/1`과 실패 job 재실행 성공으로 `RESOLVED`했다. 성공한 release의 action/CLI 경고 2건은 `GHA-AZURE-RUNNER-WARNINGS-001` P3 backlog로 추적한다.
-- 산출물: [Identity Gate](../tasks/azure-deploy-001-identity-gate.md), [Change 009](../tasks/azure-deploy-001-change-009.md), [Change 010](../tasks/azure-deploy-001-change-010.md), [Change 011](../tasks/azure-deploy-001-change-011.md), [Change 012](../tasks/azure-deploy-001-change-012.md), [Change 013](../tasks/azure-deploy-001-change-013.md), [Change 014](../tasks/azure-deploy-001-change-014.md), [Change 015](../tasks/azure-deploy-001-change-015.md), [Change 016](../tasks/azure-deploy-001-change-016.md), [Change 017](../tasks/azure-deploy-001-change-017.md), [Change 018](../tasks/azure-deploy-001-change-018.md), [Change 019](../tasks/azure-deploy-001-change-019.md), [Change 021](../tasks/azure-deploy-001-change-021.md), [Implementation report](../tasks/azure-deploy-001-implementation-report.md), [SOP](../tasks/azure-deploy-001-sop.md), [User validation checklist](../tasks/azure-deploy-001-user-validation-checklist.md), [Azure pilot infrastructure](../infrastructure/azure-pilot/README.md)
-- 다음 Gate: Change 021 통합 PR 최신 head의 전체 자동 검증과 필수 `CI Gate`를 통과한 뒤 exact main SHA를 승인형 Azure workflow로 배포하고 public security smoke를 확인한다.
+- 산출물: [Identity Gate](../tasks/azure-deploy-001-identity-gate.md), [Change 009](../tasks/azure-deploy-001-change-009.md), [Change 010](../tasks/azure-deploy-001-change-010.md), [Change 011](../tasks/azure-deploy-001-change-011.md), [Change 012](../tasks/azure-deploy-001-change-012.md), [Change 013](../tasks/azure-deploy-001-change-013.md), [Change 014](../tasks/azure-deploy-001-change-014.md), [Change 015](../tasks/azure-deploy-001-change-015.md), [Change 016](../tasks/azure-deploy-001-change-016.md), [Change 017](../tasks/azure-deploy-001-change-017.md), [Change 018](../tasks/azure-deploy-001-change-018.md), [Change 019](../tasks/azure-deploy-001-change-019.md), [Change 021](../tasks/azure-deploy-001-change-021.md), [Change 022](../tasks/azure-deploy-001-change-022.md), [Implementation report](../tasks/azure-deploy-001-implementation-report.md), [SOP](../tasks/azure-deploy-001-sop.md), [User validation checklist](../tasks/azure-deploy-001-user-validation-checklist.md), [Azure pilot infrastructure](../infrastructure/azure-pilot/README.md)
+- 다음 Gate: Change 022 통합 PR 최신 head의 전체 자동 검증과 필수 `CI Gate`를 통과한 뒤 exact main SHA를 승인형 Azure workflow로 배포하고 public security smoke를 확인한다.
 
 ### TASK-CI-COST-001: GitHub Actions minute 최적화
 
@@ -1300,7 +1303,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 목적: Teams tab 안의 iframe 로그인 실패를 보안 경계를 약화하지 않고 해소하며 Teams·웹·설치 앱·알림·문서의 사용자 표시명을 `EMI PMS`로 통일한다.
 - 구현 선택: Teams는 Activity Feed와 실행 진입점으로 사용한다. 개인 tab은 React 업무 bundle을 싣지 않는 작은 정적 launcher만 표시하고, 사용자가 누르면 Microsoft 365 인증으로 보호된 외부 웹/PWA를 새 창에서 연다. NAA·OBO·신규 token session은 추가하지 않는다.
 - 보안 경계: 익명 허용 대상은 launcher HTML·작은 script·브랜드 icon과 기존 health에 한정한다. 앱 shell·업무 bundle·manifest·API는 기존 Easy Auth 사전 인증을 계속 요구한다.
-- PWA: Service Worker·offline cache·Web Push 없이 설치 경험만 제공한다. Change 009부터 모바일 자동 안내는 Microsoft 인증과 앱 shell 준비 뒤에 열리며 Android는 설치 event 준비 전에도 안내·비활성 설치 버튼을 먼저 표시하고 event 도착 뒤 같은 버튼으로 native 확인창을 연다. Change 010은 Easy Auth 보호 manifest를 credential 포함 요청으로 읽게 한다. iPhone은 기존 Safari·타 브라우저 절차를 유지한다. 닫기는 현재 탭 session에만 기억하고 설치 완료·standalone·Teams embedded 표면에서는 안내를 숨긴다.
+- PWA 설치 경험 기준선: TASK-TEAMS-PWA-001 당시에는 offline cache·Web Push 없이 설치 경험만 제공했다. Change 009부터 모바일 자동 안내는 Microsoft 인증과 앱 shell 준비 뒤에 열리며 Android는 설치 event 준비 전에도 안내·비활성 설치 버튼을 먼저 표시하고 event 도착 뒤 같은 버튼으로 native 확인창을 연다. Change 010은 Easy Auth 보호 manifest를 credential 포함 요청으로 읽게 한다. iPhone은 기존 Safari·타 브라우저 절차를 유지한다. Web Push는 별도 `TASK-PWA-PUSH-001`에서 최소 전용 Service Worker와 기기 구독으로 확장하며 offline cache는 계속 제외한다.
 - 보존 계약: Teams Activity type 10개, RSC 권한, `webApplicationInfo` Activity app identity, 수신자·발송 시점·deep link, Backend bearer·역할·프로젝트 접근은 변경하지 않는다.
 - Change 007: 로그인 화면은 지정 4x 가로 logo, 로그인 뒤 모든 page의 공통 desktop sidebar·mobile app bar·mobile menu는 지정 4x 내부 logo를 사용한다. 기존 흑백 wireframe을 유지하고 logo에만 원본 색상·투명 배경 예외를 적용한다.
 - Change 009: PWA event listener를 MSAL 초기화보다 앞에서 시작하되 자동 안내는 인증·업무 shell 준비 뒤에만 연다. Android 안내는 event 전에도 열고 설치 버튼을 준비 상태에 따라 비활성/활성 전환하며 iPhone 안내는 그대로 유지한다. 영구 닫기는 session 단위 닫기로 바꾼다.
@@ -1308,7 +1311,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - Change 011: 사용자 제공 새 제품 logo를 로그인 뒤 공통 desktop/mobile shell과 로그인 제품명 위치에 적용하고, 로그인 왼쪽 기존 EMI logo와 PWA·Teams icon은 유지한다. 로그인에는 정보 보안 안내, 모든 웹 shell에는 `(주) 이엠아이`·오산 주소·청주캠퍼스 주소 footer를 표시한다.
 - 산출물: [Identity Gate](../tasks/teams-pwa-001-identity-gate.md), [Interview](../tasks/teams-pwa-001-interview.md), [Planning](../tasks/teams-pwa-001-planning.md), [Codex review](../tasks/teams-pwa-001-review.md), [Change 001](../tasks/teams-pwa-001-change-001.md), [Change 007](../tasks/teams-pwa-001-change-007.md), [Change 008](../tasks/teams-pwa-001-change-008.md), [Change 009](../tasks/teams-pwa-001-change-009.md), [Change 011](../tasks/teams-pwa-001-change-011.md), [Implementation report](../tasks/teams-pwa-001-implementation-report.md), [User validation checklist](../tasks/teams-pwa-001-user-validation-checklist.md), 이 Roadmap update
 - 게시·운영 근거: PR #86 squash merge, merge SHA `e6a446268b0ce9aa7f9492af1e0bd4eb1a76191b`, main CI run `31360415559` `3/3`, Azure release `31361630803` 성공. 배포 뒤 health `200`, 익명 root·`/api/me` `401/401`을 확인했다.
-- 다음 Gate: 같은 branch의 `TASK-ADMIN-003`과 함께 게시하고 CI 통과 뒤 main에 병합한다. 병합된 exact main SHA로 migration `0072`→Backend→Frontend 순서의 공개배포를 수행한다. PC·iPhone 전체 설치·Teams Activity·출력물 등 남은 운영 표면은 기존 체크리스트에서 관찰하고, Web Push는 수신 정책을 다시 확정하는 별도 `NEW_FEATURE`다.
+- 다음 Gate: TASK-TEAMS-PWA-001 운영 관찰은 유지한다. Web Push는 수신 정책을 확정한 별도 `TASK-PWA-PUSH-001`의 자동 검증·사용자 검수·게시 Gate에서 진행한다.
 
 ### TASK-FRONTEND-SEC-001: Frontend dependency security remediation
 
@@ -1507,11 +1510,11 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-NOTIFY-003: Teams Activity Feed 개인 알림 / 알림 운영 UX
 
-- 상태: 완료(provider/capability 및 명시된 수동 발송 범위). 자동 event 전체 적용 완료를 의미하지 않는다.
+- 상태: 완료(provider/capability 및 명시된 수동 발송 범위). 확정 자동 event 연결은 후속 TASK-NOTIFY-POLICY-001에서 완료했다.
 - 목적: Teams Activity Feed actual 발송을 추가하고, 3채널 알림 운영/추적 UX를 고도화한다.
 - 포함 범위: Teams Activity Feed actual provider, text topic + Teams deep link webUrl, installedAppId 운영 의존 제거, `/teams/activity` 탭, `/teams/activity/notifications/{id}` 상세, 인앱 notification 원본 구조, 개인 알림/채널 공지 접근권한, TeamsChannel/Mail/TeamsActivity 3채널 smoke, 관리자 수동 알림 발송 3모드, 업무 배정 수동 발송 시 work_item 생성, queue 방식 수동 발송, TeamsActivity/Mail 다중 수신자, display snapshot/detail, 자동/수동 알림 양식 통일, 실패/대기 확인·제외·대기 재시도, notification delivery admin handling, HTTPS local Teams test
 - 제외 범위: Teams manifest/icon repo 포함, 운영 URL 확정, `projectCreated` activityType manifest 추가, 사용자별 알림 설정 UI, 실패 delivery 강제 성공 처리, delivery row hard delete, Teams DM/Bot 구현
-- event coverage: 관리자 수동 개인/업무 배정은 적용, L0~L2는 설정 선택형 부분 적용, 그 밖의 자동 event는 6.5.2.2의 후속/미확인 상태를 따른다.
+- event coverage: 관리자 수동 개인/업무 배정은 이 Task에서 적용했고, 현재 자동 event coverage는 6.5.2.2와 TASK-NOTIFY-POLICY-001을 따른다.
 - 선행조건: TASK-NOTIFY-001, TASK-NOTIFY-002, TASK-ADMIN-001, Teams 앱 승인, Graph TeamsActivity 권한 승인
 - 주요 테스트: backend 전체 test, Notification/Admin targeted tests, Migration tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, UAT health, UAT `/teams/activity` smoke, 3채널 actual smoke, secret scan
 
@@ -1553,6 +1556,16 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 주요 위험: 필수 알림 누락, taxonomy 변경 시 기존 설정 drift, 기본값 migration 오류, 관리자 정책과 사용자 선택 충돌
 - 검증: Backend 391/391, Frontend 101/101·build, migration 41개 fresh apply, 격리 desktop/390 save·reset·overflow 0, actual provider 0.
 - 산출물: [Fable 2차 기획](26-notification-preferences-plan.md), [Implementation report](../tasks/notify-005-implementation-report.md), [SOP](../tasks/notify-005-sop.md), [User manual](../tasks/notify-005-user-manual.md), [Checklist/Screenshots](../tasks/notify-005.md)
+
+### TASK-NOTIFY-POLICY-001: 알림 운영 정책 정합화
+
+- 상태: local 구현·자동 검증·사용자 화면 검수 완료 / Git 게시·Persistent migration·Azure 공개 배포 승인 / 실제 Web Push provider 별도
+- 목적: 기존 인앱·Teams Activity·메일·PWA·Digest·에스컬레이션의 수신자와 발송 시점을 사용자 확정 정책으로 통일한다.
+- 포함 범위: 일반 업무 Teams 선택, Pending 필수 3채널과 종결 snapshot, 제조 중단 단일 Pending, 프로젝트 생성·납기·상태·17단계·18단계 분리, 복수 부서장 공유·첫 처리자 동기화 종료, 패널별 업무/묶음 알림, 평일 Digest, 정확한 생산·구매 일정 기반 due_date, L0·L1, PWA 인앱 가시성 통합.
+- 제외 범위: 운영 VAPID key와 실제 Web Push provider 활성화, L2·L3 확대 에스컬레이션 신규 발송, 새 Teams 공용 채널 delivery. 기존 Teams·메일 운영 provider 설정과 이력은 보존한다.
+- 구현 migration: `0075_notification_policy_alignment.sql` additive source kind·fallback group·due_date backfill. L2·L3와 TeamsChannel 과거 schema·handler·이력은 보존한다.
+- 핵심 검수 기준: 주요 사건별 수신자·채널 정확성, 한 Pending 원본, 부서장 전원 표시와 첫 처리자 1명, 일정 변경 시 미완료 업무만 갱신, 일괄 작업 1알림, PWA=인앱 수신자, 실제 provider 호출 0.
+- 산출물: [Planning](../tasks/notify-policy-001-planning.md), [Review](../tasks/notify-policy-001-review.md), [Implementation report](../tasks/notify-policy-001-implementation-report.md), [User validation checklist](../tasks/notify-policy-001-user-validation-checklist.md).
 
 현재 experiment Task 선택은 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)을 따른다. TASK-007A~014A, MOBILE-001/002, HOME-001/002, DESIGN-000/001, 현재 선택 export와 column picker, E2E 기준선, UX-001 A1/A2, NOTIFY-005, TASK-PENDING-TYPE-001, TASK-QR-001, TASK-NOTIFY-AUDIT-001과 TASK-NOTIFY-REPROCESS-001은 `EXPERIMENT_COMPLETE / USER_VALIDATION_COMPLETE`이므로 다시 기획·구현하지 않는다. `TASK-WORKFLOW-CONTINUITY-001` Change 017과 `TASK-ATTACHMENT-001`도 2026-07-30 사용자 검수를 완료했다. 운영 storage 용량·scanner 활성화·backup/restore rehearsal은 기능 재구현이 아니라 운영 전환 후속 범위로 남긴다. 아래 과거 실험 기록의 `BATCHED_FINAL`, 대표 repo 미반영과 “canonical TASK-007A Gate 유지” 문구는 각 시점의 역사적 snapshot이다. 2026-07-29 사용자는 당시 실험 계보의 사용자 검수 완료, 기존 데이터 초기화와 서로 분리된 `main` merge 승인 `3/3`을 확정했다. `TASK-EXPERIMENT-PROMOTION-001`은 기존 공식 UAT DB를 보존 격리하고 fresh 공식 DB에 migration `0001`~`0064`를 적용했으며, 전체 회귀와 Ready PR CI가 성공한 경우 direct push 없이 `main`에 승격한다.
 
@@ -1854,22 +1867,22 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 23 | Microsoft 365 로그인 적용 시점 | 완료 | 인프라/운영 결정 | TASK-INFRA-001 | 인증 기반 구현 완료. 운영 배포 전 실제 Entra 설정, 운영 redirect URI, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수 필요 |
 | 24 | 관리자 페이지 범위 | 완료 | 사용자 요청 | TASK-ADMIN-001 | 시스템 관리 중심으로 구현 완료. 업무 부서 입력 기준정보는 후속 결정 |
 | 25 | 프로젝트 대표 상태 방식 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 병목 기준 + 진행률 |
-| 26 | 알림 채널 구성 | 부분 완료 | 실무 협의 | TASK-NOTIFY-001/002/003/004/005 | 인앱 원본, Teams 통합 채널, Gmail SMTP, Activity Feed provider actual, delivery 이력과 에스컬레이션 엔진은 구현. 자동 event coverage, delivery 신뢰성, 사용자 preference와 운영 URL/manifest 검수는 후속 |
+| 26 | 알림 채널 구성 | 정책 확정·local 구현 | 사용자 확정 | TASK-NOTIFY-POLICY-001 / TASK-PWA-PUSH-001 | 자동 업무·Pending·프로젝트 lifecycle의 인앱·Teams Activity·메일·PWA 수신자와 발송 시점 확정. 실제 provider·운영 적용은 별도 승인 |
 | 27 | 진행률(%) 계산식 정의 | 확정 | 실무 협의 | 상태 집계 구현 TASK | 완료된 필수 workflow 단계 수 / 전체 필수 workflow 단계 수. FAT는 대상 프로젝트만 분모 포함. 프로젝트 상태 집계는 9장 기준. |
 | 28 | Teams 통합 채널 생성 및 Webhook URL | 검수 완료 | 사용자 | TASK-NOTIFY-001 | 테스트 채널/Webhook actual 검수 완료. 운영 전 Webhook 재발급과 secret 주입 필요 |
 | 29 | 알림 전용 메일 계정 생성 | 검수 완료 | 사용자 | TASK-NOTIFY-001 | Hiworks/M365 Graph Mail.Send 대신 Gmail SMTP 초기 경로 사용. 장기 운영 발송 수단 검토 필요 |
 | 30 | Graph API 앱 등록 및 권한 승인 | 검수 완료 | 사용자 | TASK-INFRA-001 / TASK-NOTIFY-003 | 로그인 앱 등록은 INFRA-001에서 사용. Mail.Send는 기본 경로에서 제외. TeamsActivity.Send 권한 승인 및 Teams Activity actual smoke 완료 |
 | 31 | 퇴사/부서이동 시 미완료 내 업무 이관 규칙 | 미확정 | 실무 협의 | TASK-INFRA-001 이후 | 담당자 부재 시 업무 귀속 처리 |
-| 32 | 에스컬레이션 기한의 관리자 설정 가능 여부 | 미확정 | 실무 협의 | TASK-NOTIFY-002 이후 | L0/L1/L2/L3 기준은 코드 고정으로 구현. 관리자 설정 UI는 후속 검토 |
+| 32 | 에스컬레이션 운영 단계 | 확정 | 사용자 확정 | TASK-NOTIFY-POLICY-001 | L0 직전 영업일 Teams, L1 다음 날 첫 평가 Teams+메일만 신규 운영. L2/L3는 schema·과거 이력만 보존 |
 | 33 | dev user 담당 프로젝트/내 업무의 실계정 이관 수동 절차 | 미확정 | 실무 협의 | INFRA-001 이후 | 자동 병합 금지에 따른 후속 |
-| 34 | Teams Activity Feed provider/capability | 완료 | 사용자/관리자 | TASK-NOTIFY-003 | Teams 앱 manifest/조직 앱/Graph 권한/text topic + Teams deep link actual 발송 검수 완료. 사용자별 installedAppId 운영 의존은 제거했다. 자동 event coverage는 6.5.2.2에서 별도 관리하고 운영 전 URL 전환 필요 |
+| 34 | Teams Activity Feed provider/capability | 완료 | 사용자/관리자 | TASK-NOTIFY-003 / TASK-NOTIFY-POLICY-001 | provider actual 검수와 installedAppId 의존 제거 완료. 자동 event coverage는 6.5.2.2 기준으로 연결했고 운영 전 URL 전환 필요 |
 | 35 | Gmail SMTP 운영 적합성 및 공식 발송 수단 전환 | 미확정 | 사용자/총무/보안 | 운영 전 검토 | Gmail SMTP는 초기/UAT/시범운영용. 발송량, 보안, 스팸 정책과 회사 공식 발송 수단 전환 검토 |
 | 36 | 운영용 Teams Webhook 재발급 | 미확정 | 사용자/운영 | 운영 배포 전 | UAT/test Webhook과 운영 Webhook을 분리하고 secret/env로만 주입 |
 | 37 | 대한민국 공휴일 데이터 동기화 service key | 미확정 | 사용자/운영 | CALENDAR sync 후속 | 공식 API sync 구조는 있으나 service key 준비 전까지 관리자 Excel/manual 등록 사용 |
 | 38 | 회사 휴일 연간 등록/검수 | 부분 완료 | System Administrator | 운영 전 검수 | 관리자 휴일 관리 API/UI와 Excel 일괄 등록은 구현 완료. 운영 전 연간 Company holiday 입력 필요 |
 | 39 | 회사 자체 근무일 지정 필요성 | 미확정 | 사용자/운영 | CALENDAR 후속 | 이번 TASK에서는 구현하지 않음. 필요 시 휴일 override 모델 별도 검토 |
-| 40 | 생산계획/구매 예정일의 work_items.due_date 동기화 | 미확정 | 사용자/운영 | TASK-NOTIFY-002 이후 | NOTIFY-002는 엔진만 구현. 생산계획 planned_date, 구매 expected_receipt_date, 업무 입력 UX와 due_date 연결 정책 결정 필요 |
-| 41 | due_date 없는 기존 업무 처리 정책 | 미확정 | 사용자/운영 | TASK-NOTIFY-002 이후 | due_date null 업무는 에스컬레이션 제외. 운영 적용 전 due_date 입력/보강 기준 필요 |
+| 40 | 생산계획/구매 예정일의 work_items.due_date 동기화 | 확정·local 구현 | 사용자 확정 | TASK-NOTIFY-POLICY-001 | 생산은 정확한 plan item 종료일, 구매는 item 입고예정일, 프로젝트 집계는 미완료 구매품의 가장 이른 입고예정일을 미완료 업무에 동기화 |
+| 41 | due_date 없는 기존 업무 처리 정책 | 확정·local 구현 | 사용자 확정 | TASK-NOTIFY-POLICY-001 | 정확한 일정 원본이 없거나 완료·취소·모호한 업무는 변경하지 않고 `null`이면 에스컬레이션 제외 |
 | 42 | Daily Digest HTML table 개선 여부 | 미확정 | 사용자/운영 | 알림 UX 후속 | 담당 프로젝트 요약은 plain text renderer 기준으로 구현. 필요 시 HTML table 개선 |
 | 43 | Item 관리자 관리 여부 | 미확정 | 사용자/운영 | ADMIN 후속 | ADMIN-001에서는 제외. Item 신규 추가/정렬/비활성화 정책은 별도 결정 필요 |
 | 44 | 포장방식 기준정보화 및 size_required | 미확정 | 사용자/운영 | ADMIN/패널 후속 | ADMIN-001에서는 제외. 패널 완료 판정, 프로젝트 입력, Excel 회귀 범위 검토 필요 |
@@ -2211,6 +2224,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-11 | `TASK-CI-COST-001 Change 001`에서 변경 영향별 일반 CI, 검증된 PR tree의 main 재사용, Azure 변경 component 선택·병렬 release를 구현 | 최근 성공 코드 PR 평균 약 38분 42초 중 Backend와 Full-Stack이 직렬로 약 38분을 차지하고, 같은 tree의 main이 약 19분, Azure가 약 6분을 반복한 병목을 안전 fallback과 always-run `CI Gate`를 보존한 채 줄이기 위함. 원격 Ruleset 적용·Git 게시·실제 운영 release는 별도 Gate로 유지 | 23장~25장, TASK-CI-COST-001 Change 001, TASK-AZURE-DEPLOY-001 release 계약 |
 | 2026-08-11 | `TASK-CI-COST-001 Change 001` PR #96 squash merge와 main CI를 완료 | GitHub Actions 출처 `CI Gate` required check를 적용한 뒤 PR workflow-only run과 main의 CI trust source 변경 safe fallback에서 제품 job 3개를 모두 생략하고 Workflow Validation·CI Gate를 수십 초 안에 성공시켜 변경 영향별 CI의 실제 동작을 확인하기 위함. Azure 실제 release는 별도 승인으로 유지 | 23장~25장, TASK-CI-COST-001 Change 001, PR #96 |
 | 2026-08-11 | `TASK-NOTICE-EDITOR-001 Change 002`, `TASK-PRIVACY-NOTICE-001 Change 006`과 `TASK-AZURE-DEPLOY-001 Change 021`의 단일 통합 PR·main 병합·Azure 공개 배포를 승인 | 사용자가 공지 굵게·수정·편집 화면 전용 첨부 관리와 개인정보·이용 안내 검수본을 모두 승인했고, 새 활성 Ruleset `main-pr-only`의 PR 전용 변경·필수 `CI Gate`를 지켜 병합된 exact main SHA만 운영에 반영하기 위함 | 23장~25장, TASK-NOTICE-EDITOR-001, TASK-PRIVACY-NOTICE-001, TASK-AZURE-DEPLOY-001 Change 021 |
+| 2026-08-11 | `TASK-PWA-PUSH-001`은 실제 인앱 가시성을 source of truth로 하고 활성 기기별 Web Push delivery, 현재/전체 기기 해제와 최소 Service Worker를 사용 | 휴대폰과 검사용 태블릿 등 여러 로그인 기기에서 같은 인앱 알림을 받되 Teams·메일 정책 drift, 분실 기기 잠금 화면 노출, 관리자 기기 오연결과 과거 알림 소급 발송을 막기 위함. 기본 `Enabled=false`·`DryRun=true`와 실제 provider 별도 승인 경계를 유지 | 3.3F, TASK-PWA-PUSH-001 planning·review·Change 001 |
+| 2026-08-11 | `TASK-NOTIFY-POLICY-001`에서 자동 업무·Pending·프로젝트 lifecycle 채널과 수신자, 복수 부서장 fallback, 일정 원본 due_date, 평일 Digest와 L0·L1을 확정 | 인앱·Teams·메일·PWA가 서로 다른 수신자를 만들거나 제조 중단·묶음 작업이 중복 알림을 만드는 문제를 막고, 담당자 부재와 기한 알림을 실제 부서·일정 원본에 맞추기 위함. 새 TeamsChannel과 L2·L3 확대 발송은 중단하되 과거 schema·handler·이력은 보존 | 3.3G, TASK-NOTIFY-POLICY-001 planning·review·Change 001 |
+| 2026-08-12 | `TASK-PWA-PUSH-001`·`TASK-NOTIFY-POLICY-001`의 사용자 화면 검수를 완료하고 원격 `main` 병합과 `TASK-AZURE-DEPLOY-001 Change 022` 공개 배포를 승인 | 구버전 영업·관리자 fallback 문구를 현재의 복수 부서장 공유·미등록 차단 규칙으로 정합화하고, migration `0074`·`0075`와 Backend·Frontend를 필수 `CI Gate` 뒤 exact main SHA로 운영 반영하기 위함. 새 Web Push 실제 provider는 운영 key·실기기 검수 전 중지·시험 모드를 유지 | 3.3F·3.3G·6.2, TASK-NOTIFY-POLICY-001 Change 002, TASK-AZURE-DEPLOY-001 Change 022 |
 
 ## 26. 용어 사전
 
@@ -2254,7 +2270,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - 검수 사용자 전환은 Development/Testing/UAT의 System Administrator와 dev persona 범위이며 실제 Entra impersonation으로 확장하지 않는다.
 - MSAL cache, MFA, 조건부 액세스와 sign-in frequency를 우회하거나 token을 앱 코드에서 직접 storage에 저장하지 않는다.
 - Teams Activity, Mail/TeamsChannel 양식과 event coverage는 6장의 확정 상태를 따르며 correlation id를 사용자 메시지에 노출하지 않는다.
-- 영업일 계산은 `BusinessDayCalculator`, 에스컬레이션은 `work_items.due_date` 정책을 사용하고 미확정 동기화 정책을 임의 구현하지 않는다.
+- 영업일 계산은 `BusinessDayCalculator`, 에스컬레이션은 TASK-NOTIFY-POLICY-001의 정확한 일정 원본 기반 `work_items.due_date`와 L0·L1 정책을 사용한다.
 - 관리자 삭제는 유예·복구·참조 무결성을 보존하고 업무 부서 기준정보를 사용자 결정 없이 관리자 페이지로 통합하지 않는다.
 - 사용자-facing 문구는 한글로 작성하고 확정사항·미확정사항·후속 Task를 구분한다.
 

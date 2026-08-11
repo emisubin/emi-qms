@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
+using WebPush;
 
 namespace Emi.Qms.Api.Notifications;
 
@@ -55,10 +56,59 @@ public sealed class NotificationOptionsValidator : IValidateOptions<Notification
                 return ValidateOptionsResult.Fail("Notifications:Mail:Smtp:TimeoutSeconds must be greater than zero.");
             }
 
+            if (options.WebPush.Enabled)
+            {
+                if (string.IsNullOrWhiteSpace(options.WebPush.PublicKey))
+                {
+                    return ValidateOptionsResult.Fail(
+                        "Notifications:WebPush:PublicKey is required when Web Push is enabled.");
+                }
+
+                VapidHelper.ValidatePublicKey(options.WebPush.PublicKey.Trim());
+
+                if (!WebPushEndpointPolicy.HasValidAllowedHosts(options.WebPush))
+                {
+                    return ValidateOptionsResult.Fail(
+                        "Notifications:WebPush:AllowedEndpointHostSuffixes must contain trusted DNS host suffixes.");
+                }
+
+                if (options.WebPush.MaxActiveDevicesPerUser is < 1 or > 100)
+                {
+                    return ValidateOptionsResult.Fail(
+                        "Notifications:WebPush:MaxActiveDevicesPerUser must be between 1 and 100.");
+                }
+
+                if (!options.WebPush.DryRun)
+                {
+                    if (string.IsNullOrWhiteSpace(options.WebPush.PrivateKey))
+                    {
+                        return ValidateOptionsResult.Fail(
+                            "Notifications:WebPush:PrivateKey is required when actual delivery is enabled.");
+                    }
+
+                    VapidHelper.ValidatePrivateKey(options.WebPush.PrivateKey.Trim());
+
+                    if (!Uri.TryCreate(options.WebPush.Subject, UriKind.Absolute, out var subject)
+                        || (subject.Scheme is not "mailto" and not "https"))
+                    {
+                        return ValidateOptionsResult.Fail(
+                            "Notifications:WebPush:Subject must be an absolute mailto or https URI.");
+                    }
+                }
+            }
+
             _ = NotificationDeliveryLeasePolicy.GetValidatedLeaseDuration(options);
             return ValidateOptionsResult.Success;
         }
         catch (InvalidOperationException exception)
+        {
+            return ValidateOptionsResult.Fail(exception.Message);
+        }
+        catch (ArgumentException exception)
+        {
+            return ValidateOptionsResult.Fail(exception.Message);
+        }
+        catch (FormatException exception)
         {
             return ValidateOptionsResult.Fail(exception.Message);
         }

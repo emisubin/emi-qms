@@ -184,7 +184,13 @@ public sealed class AdminScheduledDeletionService(
             connection,
             transaction,
             user.Id,
-            ["qms_users", "user_profile_photos", "user_profile_photo_audit_events"],
+            [
+                "qms_users",
+                "user_profile_photos",
+                "user_profile_photo_audit_events",
+                "web_push_subscriptions",
+                "web_push_subscription_events"
+            ],
             UserReferenceColumns,
             cancellationToken))
         {

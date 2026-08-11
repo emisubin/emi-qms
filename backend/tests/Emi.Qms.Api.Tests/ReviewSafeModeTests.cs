@@ -176,7 +176,7 @@ public sealed class ReviewSafeModeTests
         Assert.Contains(typeof(NotificationDeliveryWorker), hostedServices);
         Assert.Contains(typeof(NotificationEscalationWorker), hostedServices);
         Assert.Contains(typeof(AdminDeletionPurgeWorker), hostedServices);
-        Assert.Equal(4, factory.Services.GetServices<INotificationChannelHandler>().Count());
+        Assert.Equal(5, factory.Services.GetServices<INotificationChannelHandler>().Count());
         Assert.IsType<OfficialKoreanHolidayProvider>(factory.Services.GetRequiredService<IKoreanHolidayProvider>());
     }
 

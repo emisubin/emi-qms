@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Notifications;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -729,6 +730,164 @@ public sealed class IdentityInfrastructureTests
         Assert.Equal(bool.FalseString, invalidUserResult.FindFirst(QmsClaimTypes.IsTestUserSwitch)?.Value);
     }
 
+    [Fact]
+    public async Task AccountDeactivationDisablesWebPushAndRestoreDoesNotSilentlyReactivateDevices()
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "push-admin@example.com"
+        });
+        var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var webPush = context.Services.GetRequiredService<WebPushSubscriptionStore>();
+        var admin = await identityStore.GetOrCreateEntraProfileAsync(
+            "push-lifecycle-admin",
+            "Push Lifecycle Admin",
+            "push-admin@example.com",
+            TestContext.Current.CancellationToken);
+        var target = await identityStore.GetOrCreateEntraProfileAsync(
+            "push-lifecycle-target",
+            "Push Lifecycle Target",
+            "push-target@example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(admin);
+        Assert.NotNull(target);
+        var options = WebPushTestOptions();
+        var request = WebPushTestRequest("lifecycle-device");
+        await webPush.UpsertAsync(target.User.Id, request, options, TestContext.Current.CancellationToken);
+
+        var deactivated = await administration.UpdateEntraUserAsync(
+            target.User.Id,
+            new UpdateUserAdministrationRequest(null, [], false),
+            admin.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.True(deactivated.Succeeded, deactivated.ErrorMessage);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscriptions where user_id='{target.User.Id}' and is_active=true;"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscription_events where user_id='{target.User.Id}' and event_type='AccountDeactivated';"));
+
+        var restored = await administration.UpdateEntraUserAsync(
+            target.User.Id,
+            new UpdateUserAdministrationRequest(null, [], true),
+            admin.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.True(restored.Succeeded, restored.ErrorMessage);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscriptions where user_id='{target.User.Id}' and is_active=true;"));
+
+        await webPush.UpsertAsync(target.User.Id, request, options, TestContext.Current.CancellationToken);
+        var scheduled = await administration.ScheduleEntraUserDeletionAsync(
+            target.User.Id,
+            admin.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.True(scheduled.Succeeded, scheduled.ErrorMessage);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscriptions where user_id='{target.User.Id}' and is_active=true;"));
+        Assert.Equal(2L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscription_events where user_id='{target.User.Id}' and event_type='AccountDeactivated';"));
+    }
+
+    [Fact]
+    public async Task WebPushTechnicalRowsDoNotBlockScheduledUserPurge()
+    {
+        await using var context = await IdentityTestContext.CreateAsync();
+        var targetUserId = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, is_active, auth_provider,
+                entra_object_id, email
+            ) values (
+                '{targetUserId}', 'push-purge-target', 'Push Purge Target', true, 'EntraId',
+                'push-purge-target', 'push-purge-target@example.invalid'
+            );
+            """);
+        var webPush = context.Services.GetRequiredService<WebPushSubscriptionStore>();
+        await webPush.UpsertAsync(
+            targetUserId,
+            WebPushTestRequest("purge-device"),
+            WebPushTestOptions(),
+            TestContext.Current.CancellationToken);
+        await context.ExecuteSqlAsync($"""
+            update qms_users
+            set is_active=false,
+                deletion_requested_at_utc=now(),
+                scheduled_hard_delete_at_utc=now()
+            where id='{targetUserId}';
+            """);
+
+        var deletionService = context.Services.GetRequiredService<AdminScheduledDeletionService>();
+        var result = await deletionService.PurgeUserNowAsync(
+            targetUserId,
+            new Guid("50000000-0000-0000-0000-000000000001"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("Purged", result.Status);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id='{targetUserId}';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from web_push_subscriptions where user_id='{targetUserId}';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from web_push_subscription_events where user_id='{targetUserId}';"));
+    }
+
+    [Fact]
+    public async Task ConcurrentAccountDeactivationAndSubscriptionUpsertLeaveNoActiveSubscription()
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "push-race-admin@example.com"
+        });
+        var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var webPush = context.Services.GetRequiredService<WebPushSubscriptionStore>();
+        var admin = await identityStore.GetOrCreateEntraProfileAsync(
+            "push-race-admin",
+            "Push Race Admin",
+            "push-race-admin@example.com",
+            TestContext.Current.CancellationToken);
+        var target = await identityStore.GetOrCreateEntraProfileAsync(
+            "push-race-target",
+            "Push Race Target",
+            "push-race-target@example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(admin);
+        Assert.NotNull(target);
+        var request = WebPushTestRequest("race-device");
+        var options = WebPushTestOptions();
+        await webPush.UpsertAsync(target.User.Id, request, options, TestContext.Current.CancellationToken);
+
+        await using var subscriptionLock = await context.LockWebPushSubscriptionAsync(target.User.Id);
+        var deactivation = administration.UpdateEntraUserAsync(
+            target.User.Id,
+            new UpdateUserAdministrationRequest(null, [], false),
+            admin.User.Id,
+            TestContext.Current.CancellationToken);
+        await context.WaitForLockWaitersAsync(1);
+        var concurrentUpsert = webPush.UpsertAsync(
+            target.User.Id,
+            request,
+            options,
+            TestContext.Current.CancellationToken);
+        await context.WaitForLockWaitersAsync(2);
+        await subscriptionLock.ReleaseAsync();
+
+        var deactivationResult = await deactivation;
+        Assert.True(deactivationResult.Succeeded, deactivationResult.ErrorMessage);
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await concurrentUpsert);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>(
+            $"select count(*) from web_push_subscriptions where user_id='{target.User.Id}' and is_active=true;"));
+    }
+
+    private static NotificationWebPushOptions WebPushTestOptions() => new()
+    {
+        MaxActiveDevicesPerUser = 10,
+        AllowedEndpointHostSuffixes = ["example.test"]
+    };
+
+    private static WebPushSubscriptionRequest WebPushTestRequest(string deviceName) => new(
+        $"https://push.example.test/{deviceName}",
+        new WebPushSubscriptionKeysRequest(
+            "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "AAAAAAAAAAAAAAAAAAAAAA"));
+
     private static async Task<ClaimsPrincipal> TransformWithTestUserHeaderAsync(
         IdentityTestContext context,
         string objectId,
@@ -867,6 +1026,23 @@ public sealed class IdentityInfrastructureTests
                 where code = 'system-administrator'
                 for update;
                 """;
+            Assert.NotNull(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
+            return new CanonicalRoleLock(connection, transaction);
+        }
+
+        public async Task<CanonicalRoleLock> LockWebPushSubscriptionAsync(Guid userId)
+        {
+            var connection = await Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
+            var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                select id
+                from web_push_subscriptions
+                where user_id = @user_id
+                for update;
+                """;
+            command.Parameters.AddWithValue("user_id", userId);
             Assert.NotNull(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
             return new CanonicalRoleLock(connection, transaction);
         }

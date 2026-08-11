@@ -127,7 +127,7 @@ describe('PWA install experience', () => {
     expect(within(dialog).getByText('공유')).toBeInTheDocument();
     expect(within(dialog).getByText('웹 앱으로 열기')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'iPhone 설치 안내' })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: '확인' })).toHaveFocus();
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: '확인' })).toHaveFocus());
 
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'iPhone 설치 안내' })).not.toBeInTheDocument());
@@ -198,10 +198,10 @@ describe('PWA install experience', () => {
     expect(within(dialog).getByRole('heading', { name: '설치 방법' })).toBeInTheDocument();
     expect(within(dialog).getByRole('heading', { name: '이용 안내' })).toBeInTheDocument();
     expect(within(dialog).getByText(/Teams Activity와 메일로 전달될 수 있습니다/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/향후 모바일 푸시 알림이 추가되면/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/현재 모바일 푸시는 준비 중/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/첫 로그인 안내 또는 내 알림 설정에서 이 기기의 푸시를 켤 수 있습니다/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/푸시를 켜지 않아도 인앱 알림과 모든 업무 기능/)).toBeInTheDocument();
     expect(within(dialog).getByText('설치를 누르면 브라우저의 설치 확인 창이 열립니다.')).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'EMI PMS 설치' })).toHaveFocus();
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'EMI PMS 설치' })).toHaveFocus());
   });
 
   it('opens the Android guide before Chrome exposes its install prompt and enables the same button later', async () => {
@@ -219,7 +219,7 @@ describe('PWA install experience', () => {
     const installButton = within(dialog).getByRole('button', { name: 'EMI PMS 설치' });
     expect(installButton).toBeDisabled();
     expect(within(dialog).getByText(/설치 버튼을 준비하고 있습니다/)).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: '확인' })).toHaveFocus();
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: '확인' })).toHaveFocus());
 
     const installEvent = Object.assign(new Event('beforeinstallprompt'), {
       prompt: vi.fn().mockResolvedValue(undefined),

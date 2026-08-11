@@ -108,6 +108,33 @@ public sealed class DevelopmentIdentitySeeder(
             entra_object_id = null,
             email = null;
 
+        do $seed_department_heads$
+        begin
+            if exists (
+                select 1
+                from information_schema.columns
+                where table_schema = current_schema()
+                  and table_name = 'qms_users'
+                  and column_name = 'is_department_head'
+            ) then
+                execute $sql$
+                    update qms_users
+                    set is_department_head = development_user_key in (
+                        'dev-sales',
+                        'dev-production',
+                        'dev-manufacturing',
+                        'dev-quality',
+                        'dev-logistics',
+                        'dev-design',
+                        'dev-procurement',
+                        'dev-materials'
+                    )
+                    where development_user_key like 'dev-%'
+                $sql$;
+            end if;
+        end
+        $seed_department_heads$;
+
         insert into projects (
             id,
             project_key,

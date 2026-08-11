@@ -1,6 +1,6 @@
 # TASK-TEAMS-PWA-001 구현 보고 — Teams 실행 화면·웹 PWA 설치 경험·브랜드 통일
 
-상태: `Change 001~003·007·009·010 원격 main 병합·Azure 운영 rollout 완료 / Change 011 local 구현·자동 검증·사용자 검수 완료 / Git 게시·main 병합·공개배포 승인`
+상태: `Change 001~003·007·009·010·011 원격 main 병합·Azure 운영 rollout 완료`
 
 ## 기준선과 승인 범위
 
@@ -122,7 +122,7 @@ Change 007과 Change 009 Azure 운영 release는 완료했다. Teams catalog 변
 | PR CI 보정 | PASS — PR #93 첫 Frontend E2E에서 기존 Change 007 로고 크기 `3796×1378`을 고정한 mock smoke만 실패했다. 제품 UI는 변경하지 않고 같은 공통 shell 검증을 새 승인 로고의 실제 크기 `1406×379`로 갱신했다. |
 | Backend·DB·migration·PWA·Teams | N/A — Change 011은 웹 표시 자산·공통 React shell·wireframe CSS·검증만 변경 |
 | 독립 Codex 검증 | PASS — P0/P1/P2 `0/0/0`, 문서 동기화 뒤 사용자 검수 가능 |
-| Git 게시·운영 배포 | 실행 대기 — 사용자 검수를 완료했고 `TASK-ADMIN-003`과 함께 병합·공개배포하도록 승인됨 |
+| Git 게시·운영 배포 | PASS — TASK-ADMIN-003과 PR #93 squash merge, main SHA `8ae3645d66543c0f234777cf19e8487324f21217`, Azure release `31452524156`; health `200`, 익명 root·API `401/401` |
 
 ### Change 010 검증·게시·실제 기기 확인
 

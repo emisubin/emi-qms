@@ -44,3 +44,10 @@
 4. Azure release가 migration `0076`·`0077`을 적용한 뒤 Backend와 Frontend를 교체한다.
 5. 새 revision readiness, 공개 health, 익명 root·API 차단을 확인한다.
 6. Open P0/P1/P2가 `0/0/0`일 때 완료로 판정한다.
+
+## PR #100 1차 CI resolution
+
+- Backend·Frontend·Workflow Validation은 통과했고 Full-Stack은 `59/61` 통과 후 2건이 실패했다.
+- 패널 Excel 감사 이력은 migration `0077`의 도번 두 건이 실제 변경 이력에 추가되어 기존 기대값 `5건`을 현재 계약인 `7건`으로 동기화했다.
+- 영업 최종완료 메일 delivery는 notification 생성 transaction 뒤 background worker가 비동기로 생성하므로, 즉시 조회 경쟁을 고정 대기 없이 최대 15초 polling하는 검증으로 보정했다.
+- 제품 수신자·채널·발송시점과 runtime 코드는 변경하지 않는다.

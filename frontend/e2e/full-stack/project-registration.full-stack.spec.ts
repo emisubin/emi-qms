@@ -1188,7 +1188,7 @@ test('TASK-003B-1 C: partial Excel preview/apply skips blank rows and admin sees
   await expect(page.getByRole('heading', { name: '전체 이력' })).toBeVisible();
   await expect(page.getByText('Excel 입력 · 대상 패널 2면').first()).toBeVisible();
   await expect(page.getByText('입력 파일: panel-information-change.xlsx').first()).toBeVisible();
-  await expect(page.getByText('변경항목 5건').first()).toBeVisible();
+  await expect(page.getByText('변경항목 7건').first()).toBeVisible();
 });
 
 test('full-stack: project registration, permissions, status, and panel count use the real backend and PostgreSQL', async ({ page, request }) => {

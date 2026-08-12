@@ -245,7 +245,9 @@ public sealed class SelectedExcelExportService(
                 actorUserId, ids, filters, "Pending", "Pending", SelectedExportScreens.Pending,
                 () => pendingStore.ListAsync(
                     Filter(filters, "status"), Filter(filters, "issueType"), Filter(filters, "priority"),
-                    GuidFilter(filters, "assigneeUserId"), GuidFilter(filters, "projectId"), cancellationToken),
+                    GuidFilter(filters, "assigneeUserId"), GuidFilter(filters, "projectId"),
+                    Filter(filters, "scope"), Filter(filters, "statusGroup"),
+                    new PendingActor(actorUserId, false, false, false), cancellationToken),
                 response => response.Items, row => row.PendingId, FilterColumns(PendingColumns, selectedColumns), cancellationToken),
             SelectedExportScreens.Notifications => await ExportRowsAsync(
                 actorUserId, ids, filters, "알림", "알림", SelectedExportScreens.Notifications,

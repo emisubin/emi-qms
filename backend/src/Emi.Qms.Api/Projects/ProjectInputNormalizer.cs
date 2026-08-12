@@ -17,6 +17,7 @@ public static partial class ProjectInputNormalizer
     public const int ItemMaxLength = 100;
     public const int ProjectCodeMaxLength = 80;
     public const int ProjectTitleMaxLength = 200;
+    public const int LseTaskNumberMaxLength = 100;
     public const int DeliveryLocationMaxLength = 300;
     public const int ReasonMaxLength = 500;
 
@@ -106,6 +107,7 @@ public sealed record NormalizedCreateProjectInput(
     string ProjectCode,
     string ProjectTitle,
     string ProjectTitleNormalized,
+    string? LseTaskNumber,
     int PanelCount,
     DateOnly DeliveryDate,
     Guid SalesOwnerUserId,
@@ -130,6 +132,7 @@ public sealed record NormalizedUpdateProjectInput(
     string ProjectCode,
     string ProjectTitle,
     string ProjectTitleNormalized,
+    string? LseTaskNumber,
     DateOnly DeliveryDate,
     Guid SalesOwnerUserId,
     string PackagingMethod,
@@ -157,6 +160,7 @@ public static partial class ProjectRequestValidator
         var item = ProjectInputNormalizer.NormalizeItemCode(RequiredText(request.Item, nameof(request.Item), ProjectInputNormalizer.ItemMaxLength, validation));
         var projectCode = RequiredText(request.ProjectCode, nameof(request.ProjectCode), ProjectInputNormalizer.ProjectCodeMaxLength, validation);
         var projectTitle = RequiredText(request.ProjectTitle, nameof(request.ProjectTitle), ProjectInputNormalizer.ProjectTitleMaxLength, validation);
+        var lseTaskNumber = OptionalText(request.LseTaskNumber, nameof(request.LseTaskNumber), ProjectInputNormalizer.LseTaskNumberMaxLength, validation);
         var setSpecs = ValidateUl891SetSpecs(item, request.Ul891SetSpecs, validation);
         var panelCount = setSpecs.Count > 0
             ? setSpecs.Sum(spec => spec.Quantity * spec.ComponentCodes.Count)
@@ -189,6 +193,7 @@ public static partial class ProjectRequestValidator
                 projectCode,
                 ProjectInputNormalizer.NormalizeDisplayTitle(projectTitle),
                 ProjectInputNormalizer.NormalizeProjectTitle(projectTitle),
+                lseTaskNumber,
                 panelCount.Value,
                 deliveryDate.Value,
                 salesOwnerUserId.Value,
@@ -279,6 +284,7 @@ public static partial class ProjectRequestValidator
         var item = ProjectInputNormalizer.NormalizeItemCode(RequiredText(request.Item, nameof(request.Item), ProjectInputNormalizer.ItemMaxLength, validation));
         var projectCode = RequiredText(request.ProjectCode, nameof(request.ProjectCode), ProjectInputNormalizer.ProjectCodeMaxLength, validation);
         var projectTitle = RequiredText(request.ProjectTitle, nameof(request.ProjectTitle), ProjectInputNormalizer.ProjectTitleMaxLength, validation);
+        var lseTaskNumber = OptionalText(request.LseTaskNumber, nameof(request.LseTaskNumber), ProjectInputNormalizer.LseTaskNumberMaxLength, validation);
         var deliveryDate = RequiredDate(request.DeliveryDate, nameof(request.DeliveryDate), validation);
         var salesOwnerUserId = RequiredGuid(request.SalesOwnerUserId, nameof(request.SalesOwnerUserId), validation);
         var packagingMethod = RequiredPackagingMethod(request.PackagingMethod, nameof(request.PackagingMethod), validation);
@@ -308,6 +314,7 @@ public static partial class ProjectRequestValidator
                 projectCode,
                 ProjectInputNormalizer.NormalizeDisplayTitle(projectTitle),
                 ProjectInputNormalizer.NormalizeProjectTitle(projectTitle),
+                lseTaskNumber,
                 deliveryDate.Value,
                 salesOwnerUserId.Value,
                 packagingMethod,

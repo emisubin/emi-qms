@@ -60,6 +60,7 @@ export interface ProjectListItem {
   item: string;
   projectCode: string;
   projectTitle: string;
+  lseTaskNumber?: string | null;
   activePanelCount: number;
   deliveryDate: string;
   salesOwnerUserId: string;
@@ -154,10 +155,7 @@ export interface AdminDashboardResponse {
   failedDeliveryCount: number;
   pendingDeliveryCount: number;
   processingDeliveryCount: number;
-  sentDeliveryCount: number;
-  lastDailyDigestSentAtUtc: string | null;
   activeEscalationCount: number;
-  recentMasterChangeCount: number;
   activeEscalationLevels: AdminDashboardEscalationLevel[];
 }
 
@@ -591,6 +589,7 @@ export interface CreateProjectRequest {
   item: string;
   projectCode: string;
   projectTitle: string;
+  lseTaskNumber: string | null;
   panelCount: number | null;
   deliveryDate: string;
   salesOwnerUserId: string;
@@ -607,6 +606,7 @@ export interface UpdateProjectRequest {
   item: string;
   projectCode: string;
   projectTitle: string;
+  lseTaskNumber: string | null;
   deliveryDate: string;
   salesOwnerUserId: string;
   packagingMethod: PackagingMethod | null;
@@ -654,6 +654,7 @@ export interface PanelInformationResponse {
   manufacturingCompletedCount: number;
   inspectionCompletedCount: number;
   duplicatePanelNameGroupCount: number;
+  supportsPanelGrouping: boolean;
   projectPanelInformationCompleted: boolean;
   panelInformationStatusMessage: string | null;
   panels: PanelInformationPanel[];
@@ -666,6 +667,7 @@ export interface PanelInformationPanel {
   panelNumber: string;
   displayCode: string;
   panelName: string | null;
+  drawingNumber: string | null;
   displayName: string;
   widthMm: number | null;
   heightMm: number | null;
@@ -676,6 +678,7 @@ export interface PanelInformationPanel {
   qrEligible: boolean;
   hasDuplicateName: boolean;
   duplicateNameCount: number;
+  panelGroupNumber: number | null;
   panelInfoVersion: number;
   createdAt: string;
   updatedAt: string;
@@ -695,6 +698,14 @@ export interface PanelInformationUpdateItemRequest {
   panelNameUpdate?: {
     isChanged: boolean;
     value: string | null;
+  };
+  drawingNumberUpdate?: {
+    isChanged: boolean;
+    value: string | null;
+  };
+  groupNumberUpdate?: {
+    isChanged: boolean;
+    value: number | null;
   };
   sizeUpdate?: {
     isChanged: boolean;
@@ -790,6 +801,7 @@ export interface PanelInformationExcelPreviewRow {
   no: number | null;
   panelId: string | null;
   panelName: string | null;
+  drawingNumber: string | null;
   width: number | null;
   height: number | null;
   depth: number | null;

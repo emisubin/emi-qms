@@ -46,6 +46,32 @@ public static class PendingPriorities
     };
 }
 
+public static class PendingListScopes
+{
+    public const string Department = "Department";
+    public const string All = "All";
+
+    public static readonly IReadOnlySet<string> Values = new HashSet<string>(StringComparer.Ordinal)
+    {
+        Department,
+        All
+    };
+}
+
+public static class PendingStatusGroups
+{
+    public const string Open = "Open";
+    public const string Closed = "Closed";
+    public const string All = "All";
+
+    public static readonly IReadOnlySet<string> Values = new HashSet<string>(StringComparer.Ordinal)
+    {
+        Open,
+        Closed,
+        All
+    };
+}
+
 public sealed record CreatePendingRequest(
     Guid? ProjectId,
     string? IssueType,

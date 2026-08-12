@@ -10,11 +10,21 @@ public sealed record PanelInformationUpdateItemRequest(
     Guid? PanelId,
     int? ExpectedPanelInfoVersion,
     PanelInformationPanelNameUpdateRequest? PanelNameUpdate,
+    PanelInformationDrawingNumberUpdateRequest? DrawingNumberUpdate,
+    PanelInformationGroupNumberUpdateRequest? GroupNumberUpdate,
     PanelInformationSizeUpdateRequest? SizeUpdate);
 
 public sealed record PanelInformationPanelNameUpdateRequest(
     bool IsChanged,
     string? Value);
+
+public sealed record PanelInformationDrawingNumberUpdateRequest(
+    bool IsChanged,
+    string? Value);
+
+public sealed record PanelInformationGroupNumberUpdateRequest(
+    bool IsChanged,
+    int? Value);
 
 public sealed record PanelInformationSizeUpdateRequest(
     bool IsChanged,
@@ -40,6 +50,7 @@ public sealed class PanelInformationResponse
     public int ManufacturingCompletedCount { get; init; }
     public int InspectionCompletedCount { get; init; }
     public int DuplicatePanelNameGroupCount { get; init; }
+    public bool SupportsPanelGrouping { get; init; }
     public bool ProjectPanelInformationCompleted { get; init; }
     public string? PanelInformationStatusMessage { get; init; }
     public IReadOnlyList<PanelInformationPanelResponse> Panels { get; init; } = [];
@@ -53,6 +64,7 @@ public sealed class PanelInformationPanelResponse
     public string PanelNumber { get; init; } = "";
     public string DisplayCode { get; init; } = "";
     public string? PanelName { get; init; }
+    public string? DrawingNumber { get; init; }
     public string DisplayName { get; init; } = "";
     public decimal? WidthMm { get; init; }
     public decimal? HeightMm { get; init; }
@@ -63,6 +75,7 @@ public sealed class PanelInformationPanelResponse
     public bool QrEligible { get; init; }
     public bool HasDuplicateName { get; init; }
     public int DuplicateNameCount { get; init; }
+    public int? PanelGroupNumber { get; init; }
     public int PanelInfoVersion { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
@@ -234,6 +247,7 @@ public sealed class PanelInformationExcelPreviewRowResponse
     public int? No { get; init; }
     public Guid? PanelId { get; init; }
     public string? PanelName { get; init; }
+    public string? DrawingNumber { get; init; }
     public decimal? Width { get; init; }
     public decimal? Height { get; init; }
     public decimal? Depth { get; init; }

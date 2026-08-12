@@ -105,7 +105,7 @@ test('TASK-014A: project settlement atomically completes the project and remains
     where notification.idempotency_key='sales-settlement:project:${projectId}:completed'
       and delivery.channel <> 'Mail';
   `)).toBe('0');
-  expect(queryDatabase(`
+  await expect.poll(() => queryDatabase(`
     select (
       select count(*)
       from notification_deliveries delivery
@@ -118,7 +118,7 @@ test('TASK-014A: project settlement atomically completes the project and remains
       join departments department on department.id = user_account.department_id
       where user_account.is_active = true and department.code = 'sales'
     );
-  `)).toBe('t');
+  `), { timeout: 15_000 }).toBe('t');
 
   const afterCompletionPending = await request.post(`${apiBaseUrl}/api/pending`, {
     headers: devHeaders('dev-sales'),

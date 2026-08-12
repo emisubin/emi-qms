@@ -30,10 +30,12 @@ import type {
   PendingActionPhoto,
   PendingIssue,
   PendingIssueType,
+  PendingListScope,
   PendingListResponse,
   PendingPriority,
   PendingReinspection,
-  PendingStatus
+  PendingStatus,
+  PendingStatusGroup
 } from './pending';
 import type { PendingTypeOption } from './pendingTypes';
 import { buildPendingTimeline } from './pendingTimeline';
@@ -45,6 +47,8 @@ type PendingPageProps = {
   pendingId?: string;
   initialProjectId?: string;
   canManage: boolean;
+  departmentCode: string | null;
+  isSystemAdministrator: boolean;
   onOpenPending: (pendingId: string) => void;
   onOpenProjectPending: (projectId: string) => void;
   onBackToList: () => void;
@@ -80,6 +84,17 @@ const statusOptions: Array<{ value: PendingStatus | ''; label: string }> = [
   { value: 'Closed', label: '종결' }
 ];
 
+const operationalDepartmentCodes = new Set([
+  'sales',
+  'design',
+  'production-planning',
+  'procurement',
+  'materials',
+  'manufacturing',
+  'quality',
+  'logistics'
+]);
+
 const transitionLabels: Record<PendingStatus, string> = {
   Registered: '등록',
   ActionRequested: '조치 요청',
@@ -98,6 +113,8 @@ function PendingListView({
   developmentUserKey,
   initialProjectId,
   canManage,
+  departmentCode,
+  isSystemAdministrator,
   onOpenPending,
   onOpenProjectPending,
   onBackToList,
@@ -106,6 +123,13 @@ function PendingListView({
   const { isMobile } = useAdaptiveLayout();
   const [state, setState] = useState<AsyncState<PendingListResponse>>({ kind: 'loading' });
   const [status, setStatus] = useState<PendingStatus | ''>('');
+  const defaultScope: PendingListScope = initialProjectId
+    ? 'All'
+    : !isSystemAdministrator && departmentCode && operationalDepartmentCodes.has(departmentCode)
+      ? 'Department'
+      : 'All';
+  const [listScope, setListScope] = useState<PendingListScope>(defaultScope);
+  const [statusGroup, setStatusGroup] = useState<PendingStatusGroup>('Open');
   const [issueType, setIssueType] = useState<PendingIssueType | ''>('');
   const [priority, setPriority] = useState<PendingPriority | ''>('');
   const [projectOptions, setProjectOptions] = useState<ProjectListItem[]>([]);
@@ -118,6 +142,8 @@ function PendingListView({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [draftStatus, setDraftStatus] = useState<PendingStatus | ''>('');
+  const [draftListScope, setDraftListScope] = useState<PendingListScope>(defaultScope);
+  const [draftStatusGroup, setDraftStatusGroup] = useState<PendingStatusGroup>('Open');
   const [draftIssueType, setDraftIssueType] = useState<PendingIssueType | ''>('');
   const [draftPriority, setDraftPriority] = useState<PendingPriority | ''>('');
   const mobileFilterTriggerRef = useRef<HTMLButtonElement>(null);
@@ -129,13 +155,15 @@ function PendingListView({
         status: status || undefined,
         issueType: issueType || undefined,
         priority: priority || undefined,
-        projectId: initialProjectId || undefined
+        projectId: initialProjectId || undefined,
+        scope: listScope,
+        statusGroup
       });
       setState({ kind: 'ready', data });
     } catch (error) {
       setState({ kind: 'error', message: messageForError(error) });
     }
-  }, [developmentUserKey, initialProjectId, issueType, priority, status]);
+  }, [developmentUserKey, initialProjectId, issueType, listScope, priority, status, statusGroup]);
 
   useEffect(() => {
     let active = true;
@@ -201,19 +229,32 @@ function PendingListView({
       status: status || undefined,
       issueType: issueType || undefined,
       priority: priority || undefined,
-      projectId: initialProjectId || undefined
+      projectId: initialProjectId || undefined,
+      scope: listScope,
+      statusGroup
     }).then((data) => {
       if (active) setState({ kind: 'ready', data });
     }).catch((error) => {
       if (active) setState({ kind: 'error', message: messageForError(error) });
     });
     return () => { active = false; };
-  }, [developmentUserKey, initialProjectId, issueType, priority, status]);
+  }, [developmentUserKey, initialProjectId, issueType, listScope, priority, status, statusGroup]);
 
   const items = state.kind === 'ready' ? state.data.items : [];
   const pendingVisibleIds = items.map((item) => item.pendingId);
   const pendingSelection = useSelectedRows(pendingVisibleIds);
   const activeFilterCount = [status, issueType, priority].filter(Boolean).length;
+  const scopeControls = (
+    <PendingScopeControls
+      listScope={listScope}
+      statusGroup={statusGroup}
+      onScopeChange={setListScope}
+      onStatusGroupChange={(next) => {
+        setStatusGroup(next);
+        setStatus('');
+      }}
+    />
+  );
 
   if (!initialProjectId) {
     if (state.kind === 'loading' || !projectsLoaded) {
@@ -249,7 +290,8 @@ function PendingListView({
             { label: '기한 초과', value: state.data.summary.overdueCount, helper: '조치 기한 경과', tone: 'warning' },
             { label: '재검사 대기', value: state.data.summary.reinspectionCount, helper: '품질 판정 필요' }
           ]}
-          projects={projectOptions.map((project) => {
+          controls={scopeControls}
+          projects={projectOptions.filter((project) => issuesByProject.has(project.projectId)).map((project) => {
             const projectIssues = issuesByProject.get(project.projectId) ?? [];
             const openCount = projectIssues.filter((item) => item.status !== 'Closed').length;
             const urgentCount = projectIssues.filter((item) => item.status !== 'Closed' && item.priority === 'Urgent').length;
@@ -344,12 +386,14 @@ function PendingListView({
             aria-expanded={mobileFiltersOpen}
             onClick={() => {
               setDraftStatus(status);
+              setDraftListScope(listScope);
+              setDraftStatusGroup(statusGroup);
               setDraftIssueType(issueType);
               setDraftPriority(priority);
               setMobileFiltersOpen(true);
             }}
           >
-            <span><strong>Pending 필터</strong><small>{activeFilterCount ? `${activeFilterCount}개 조건 적용 중` : '긴급도·상태·유형으로 찾기'}</small></span>
+            <span><strong>Pending 필터</strong><small>{listScope === 'Department' ? '우리 부서' : '전체 부서'} · {statusGroupLabel(statusGroup)}{activeFilterCount ? ` · 세부 조건 ${activeFilterCount}개` : ''}</small></span>
             <span aria-hidden="true">⌕</span>
           </button>
           <MobileSheet
@@ -362,13 +406,15 @@ function PendingListView({
             fullScreen
             footer={(
               <>
-                <button type="button" onClick={() => { setDraftStatus(''); setDraftIssueType(''); setDraftPriority(''); }}>초기화</button>
+                <button type="button" onClick={() => { setDraftListScope(defaultScope); setDraftStatusGroup('Open'); setDraftStatus(''); setDraftIssueType(''); setDraftPriority(''); }}>초기화</button>
                 <button type="button" onClick={() => setMobileFiltersOpen(false)}>취소</button>
                 <button
                   type="button"
                   className="primary-button"
                   onClick={() => {
                     setStatus(draftStatus);
+                    setListScope(draftListScope);
+                    setStatusGroup(draftStatusGroup);
                     setIssueType(draftIssueType);
                     setPriority(draftPriority);
                     setMobileFiltersOpen(false);
@@ -380,7 +426,9 @@ function PendingListView({
             )}
           >
             <div className="mobile-filter-form">
-              <label><span>상태</span><select data-autofocus value={draftStatus} onChange={(event) => setDraftStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              <label><span>조회 범위</span><select data-autofocus value={draftListScope} onChange={(event) => setDraftListScope(event.target.value as PendingListScope)}><option value="Department">우리 부서</option><option value="All">전체</option></select></label>
+              <label><span>처리 상태</span><select value={draftStatusGroup} onChange={(event) => { setDraftStatusGroup(event.target.value as PendingStatusGroup); setDraftStatus(''); }}><option value="Open">오픈</option><option value="Closed">종결</option><option value="All">전체</option></select></label>
+              <label><span>세부 상태</span><select disabled={draftStatusGroup === 'Closed'} value={draftStatus} onChange={(event) => setDraftStatus(event.target.value as PendingStatus | '')}>{statusOptionsForGroup(draftStatusGroup).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
               <label><span>유형</span><select disabled={typeOptions === null || typeOptionsError} value={draftIssueType} onChange={(event) => setDraftIssueType(event.target.value as PendingIssueType | '')}><option value="">전체 유형</option>{typeOptions?.map((option) => <option key={option.code} value={option.code}>{option.displayName}{option.isActive ? '' : ' · 사용 중지'}</option>)}</select></label>
               <label><span>긴급도</span><select value={draftPriority} onChange={(event) => setDraftPriority(event.target.value as PendingPriority | '')}><option value="">전체 긴급도</option><option value="Urgent">긴급</option><option value="Normal">일반</option></select></label>
             </div>
@@ -388,10 +436,11 @@ function PendingListView({
         </>
       ) : (
         <div className="pending-filter-bar pending-filter-bar--project" aria-label="Pending 필터">
-          <label><span>상태</span><select value={status} onChange={(event) => setStatus(event.target.value as PendingStatus | '')}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          {scopeControls}
+          <label><span>세부 상태</span><select disabled={statusGroup === 'Closed'} value={status} onChange={(event) => setStatus(event.target.value as PendingStatus | '')}>{statusOptionsForGroup(statusGroup).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <label><span>유형</span><select disabled={typeOptions === null || typeOptionsError} value={issueType} onChange={(event) => setIssueType(event.target.value as PendingIssueType | '')}><option value="">전체 유형</option>{typeOptions?.map((option) => <option key={option.code} value={option.code}>{option.displayName}{option.isActive ? '' : ' · 사용 중지'}</option>)}</select></label>
           <label><span>긴급도</span><select value={priority} onChange={(event) => setPriority(event.target.value as PendingPriority | '')}><option value="">전체 긴급도</option><option value="Urgent">긴급</option><option value="Normal">일반</option></select></label>
-          <button type="button" onClick={() => { setStatus(''); setIssueType(''); setPriority(''); }}>필터 초기화</button>
+          <button type="button" onClick={() => { setListScope(defaultScope); setStatusGroup('Open'); setStatus(''); setIssueType(''); setPriority(''); }}>필터 초기화</button>
         </div>
       )}
 
@@ -403,7 +452,7 @@ function PendingListView({
           selectedIds={pendingSelection.selectedIds}
           allSelected={pendingSelection.allSelected}
           busy={pendingSelection.busy}
-          filters={{ status: status || undefined, issueType: issueType || undefined, priority: priority || undefined, projectId: initialProjectId }}
+          filters={{ status: status || undefined, issueType: issueType || undefined, priority: priority || undefined, projectId: initialProjectId, scope: listScope, statusGroup }}
           onBusyChange={pendingSelection.setBusy}
           onToggleAll={pendingSelection.toggleAll}
           onClear={pendingSelection.clear}
@@ -464,6 +513,7 @@ function PendingCard({ item, selected, selectionBusy, onSelectionChange, onOpen 
       <div className="pending-card-main">
         <div className="pending-card-badges">
           <span className="pending-number">P-{padIssueNumber(item.issueNumber)}</span>
+          <span className="pending-lifecycle-badge" data-state={item.status === 'Closed' ? 'closed' : 'open'}>{item.status === 'Closed' ? '종결' : '오픈'}</span>
           <span className="status-badge" data-tone={pendingStatusTone(item.status)}>{item.statusLabel}</span>
           <span className="status-badge" data-tone={item.priority === 'Urgent' ? 'danger' : 'neutral'}>{item.priorityLabel}</span>
           <span className="status-badge" data-tone="info">{item.issueTypeLabel}</span>
@@ -480,6 +530,35 @@ function PendingCard({ item, selected, selectionBusy, onSelectionChange, onOpen 
       <button type="button" onClick={onOpen}>상세 보기</button>
     </article>
   );
+}
+
+function PendingScopeControls({
+  listScope,
+  statusGroup,
+  onScopeChange,
+  onStatusGroupChange
+}: {
+  listScope: PendingListScope;
+  statusGroup: PendingStatusGroup;
+  onScopeChange: (value: PendingListScope) => void;
+  onStatusGroupChange: (value: PendingStatusGroup) => void;
+}) {
+  return (
+    <div className="pending-scope-controls" aria-label="Pending 기본 조회 조건">
+      <label><span>조회 범위</span><select value={listScope} onChange={(event) => onScopeChange(event.target.value as PendingListScope)}><option value="Department">우리 부서</option><option value="All">전체</option></select></label>
+      <label><span>처리 상태</span><select value={statusGroup} onChange={(event) => onStatusGroupChange(event.target.value as PendingStatusGroup)}><option value="Open">오픈</option><option value="Closed">종결</option><option value="All">전체</option></select></label>
+    </div>
+  );
+}
+
+function statusOptionsForGroup(statusGroup: PendingStatusGroup) {
+  if (statusGroup === 'Open') return statusOptions.filter((option) => option.value !== 'Closed');
+  if (statusGroup === 'Closed') return [{ value: '' as const, label: '종결 전체' }];
+  return statusOptions;
+}
+
+function statusGroupLabel(statusGroup: PendingStatusGroup) {
+  return statusGroup === 'Open' ? '오픈' : statusGroup === 'Closed' ? '종결' : '전체 상태';
 }
 
 function PendingCreateDialog({

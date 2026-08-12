@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useAdaptiveLayout } from './adaptive-layout';
 import { DsBreadcrumbs, DsEmptyState, DsReadOnlyBanner } from './design-system';
 
@@ -35,6 +36,7 @@ export function OperationalProjectDashboard({
   emptyMessage,
   primaryAction,
   readOnlyDescription,
+  controls,
   onOpenProject
 }: {
   testId: string;
@@ -59,6 +61,7 @@ export function OperationalProjectDashboard({
     onClick: () => void;
   };
   readOnlyDescription?: string;
+  controls?: ReactNode;
   onOpenProject: (projectId: string) => void;
 }) {
   const { isMobile } = useAdaptiveLayout();
@@ -87,6 +90,7 @@ export function OperationalProjectDashboard({
       </header>
 
       {readOnlyDescription ? <DsReadOnlyBanner description={readOnlyDescription} /> : null}
+      {controls}
 
       <div className="operational-dashboard-kpis" aria-label={`${title} KPI`}>
         {metrics.map((metric) => (

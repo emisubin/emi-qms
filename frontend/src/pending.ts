@@ -1,6 +1,8 @@
 export type PendingIssueType = string;
 export type PendingStatus = 'Registered' | 'ActionRequested' | 'InProgress' | 'ReinspectionRequested' | 'Closed';
 export type PendingPriority = 'Normal' | 'Urgent';
+export type PendingListScope = 'Department' | 'All';
+export type PendingStatusGroup = 'Open' | 'Closed' | 'All';
 
 export interface PendingSummary {
   openCount: number;

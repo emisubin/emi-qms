@@ -9,6 +9,7 @@ type ProjectRecord = {
   item: string;
   projectCode: string;
   projectTitle: string;
+  lseTaskNumber: string | null;
   activePanelCount: number;
   qrEligibleCount: number;
   manufacturingCompletedCount: number;
@@ -53,9 +54,12 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
 
   await page.getByRole('button', { name: '신규 프로젝트' }).first().click();
   await fillProjectForm(page, 'PJT-003A', 'TASK-003A E2E', '4');
+  await page.getByLabel('LSE TASK NO').fill('LSE-E2E-003A');
   await page.getByRole('button', { name: '등록' }).click();
 
   await expect(page.getByRole('heading', { name: 'TASK-003A E2E' })).toBeVisible();
+  await page.getByText('기본정보 전체 보기').click();
+  await expect(page.getByText('LSE-E2E-003A')).toBeVisible();
   await page.getByRole('tab', { name: '설계' }).click();
   await expect(page.getByRole('table', { name: '설계' })).toContainText('제조 전');
   await expect(page.getByRole('table', { name: '설계' })).toContainText('생성 불가');
@@ -87,6 +91,50 @@ test('mock UI smoke: Sales registers a project, manufacturing can read it, and S
   await page.getByLabel('사유').fill('고객 일정 확인');
   await page.getByRole('button', { name: '확인' }).click();
   await expect(page.locator('.status-badge', { hasText: '보류' })).toBeVisible();
+});
+
+test('mock UI smoke: Pending starts with my department and open, then clearly shows closed items', async ({ page }) => {
+  const store = createStore();
+  await routeApi(page, store);
+
+  await page.goto('/projects');
+  await page.getByRole('button', { name: '신규 프로젝트' }).first().click();
+  await fillProjectForm(page, 'PJT-PENDING', 'PENDING SCOPE E2E', '1');
+  await page.getByRole('button', { name: '등록' }).click();
+  await expect(page.getByRole('heading', { name: 'PENDING SCOPE E2E' })).toBeVisible();
+
+  const openRequest = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === '/api/pending'
+      && url.searchParams.get('scope') === 'Department'
+      && url.searchParams.get('statusGroup') === 'Open';
+  });
+  await page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: 'Pending' }).click();
+  await openRequest;
+
+  await expect(page.getByTestId('pending-dashboard')).toBeVisible();
+  await expect(page.getByLabel('조회 범위')).toHaveValue('Department');
+  await expect(page.getByLabel('처리 상태')).toHaveValue('Open');
+
+  const closedRequest = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === '/api/pending'
+      && url.searchParams.get('scope') === 'Department'
+      && url.searchParams.get('statusGroup') === 'Closed';
+  });
+  await page.getByLabel('처리 상태').selectOption('Closed');
+  await closedRequest;
+  await page.getByRole('button', { name: /PENDING SCOPE E2E/ }).click();
+  await expect(page.getByLabel('조회 범위')).toHaveValue('All');
+  const projectClosedRequest = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === '/api/pending'
+      && url.searchParams.get('projectId') === projectId
+      && url.searchParams.get('statusGroup') === 'Closed';
+  });
+  await page.getByLabel('처리 상태').selectOption('Closed');
+  await projectClosedRequest;
+  await expect(page.locator('.pending-lifecycle-badge', { hasText: '종결' })).toBeVisible();
 });
 
 async function fillProjectForm(page: Page, projectCode: string, projectTitle: string, panelCount: string) {
@@ -184,6 +232,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
         item: string;
         projectCode: string;
         projectTitle: string;
+        lseTaskNumber?: string | null;
         panelCount: number;
         deliveryDate: string;
         packagingMethod: 'WoodenCrate' | 'StretchWrap' | 'HeavyDutyBox';
@@ -201,6 +250,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
         item: body.item,
         projectCode: body.projectCode,
         projectTitle: body.projectTitle.trim(),
+        lseTaskNumber: body.lseTaskNumber ?? null,
         activePanelCount: body.panelCount,
         qrEligibleCount: 0,
         manufacturingCompletedCount: 0,
@@ -227,6 +277,52 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
     if (path === '/api/projects' && method === 'GET') {
       const items = store.project ? [filterProject(store.project, userKey)] : [];
       return fulfillJson(route, { items, page: 1, pageSize: 20, totalCount: items.length });
+    }
+
+    if (path === '/api/pending' && method === 'GET') {
+      const project = requireProject(store);
+      const closed = url.searchParams.get('statusGroup') === 'Closed';
+      return fulfillJson(route, {
+        summary: {
+          openCount: closed ? 0 : 1,
+          urgentCount: 0,
+          overdueCount: 0,
+          reinspectionCount: 0,
+          closedCount: closed ? 1 : 0
+        },
+        items: [{
+          pendingId: '88000000-0000-0000-0000-000000000001',
+          issueNumber: 1,
+          projectId,
+          projectCode: project.projectCode,
+          projectTitle: project.projectTitle,
+          targetType: 'Project',
+          targetId: projectId,
+          targetLabel: null,
+          issueType: 'Other',
+          issueTypeLabel: '기타',
+          title: '합성 Pending',
+          description: '부서 및 상태 필터 검증',
+          status: closed ? 'Closed' : 'Registered',
+          statusLabel: closed ? '종결' : '등록',
+          priority: 'Normal',
+          priorityLabel: '일반',
+          actionDepartmentCode: 'sales',
+          assigneeUserId: null,
+          assigneeDisplayName: null,
+          dueDate: null,
+          isOverdue: false,
+          version: 1,
+          createdByUserId: salesOwnerId,
+          createdByDisplayName: '합성 사용자',
+          createdAtUtc: '2026-08-12T00:00:00Z',
+          updatedAtUtc: '2026-08-12T00:00:00Z'
+        }]
+      });
+    }
+
+    if (path === '/api/pending-types/filter-options') {
+      return fulfillJson(route, []);
     }
 
     if (path === `/api/projects/${projectId}` && method === 'GET') {
@@ -288,6 +384,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
         manufacturingCompletedCount: 0,
         inspectionCompletedCount: 0,
         duplicatePanelNameGroupCount: 0,
+        supportsPanelGrouping: true,
         projectPanelInformationCompleted: false,
         panelInformationStatusMessage: null,
         panels: panels.map((panel) => ({
@@ -297,6 +394,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
           panelNumber: `No.${panel.sequenceNumber}`,
           displayCode: panel.displayCode,
           panelName: panel.panelName,
+          drawingNumber: null,
           displayName: `No.${panel.sequenceNumber} · ${panel.panelName ?? '패널명 미입력'}`,
           widthMm: panel.width,
           heightMm: panel.height,
@@ -307,6 +405,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
           qrEligible: panel.qrEligible,
           hasDuplicateName: false,
           duplicateNameCount: 0,
+          panelGroupNumber: null,
           panelInfoVersion: 0,
           createdAt: panel.createdAt,
           updatedAt: panel.updatedAt,
@@ -370,8 +469,8 @@ function currentUser(userKey: string) {
     authProvider: 'Dev',
     isActive: true,
     approvalPending: false,
-    department: 'test',
-    departmentName: '합성 테스트',
+    department: userKey === 'dev-sales' ? 'sales' : userKey === 'dev-manufacturing' ? 'manufacturing' : 'test',
+    departmentName: userKey === 'dev-sales' ? '영업' : userKey === 'dev-manufacturing' ? '제조' : '합성 테스트',
     profilePhotoVersion: null,
     roles: [userKey.replace('dev-', '')]
   };

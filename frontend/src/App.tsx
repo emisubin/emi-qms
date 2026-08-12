@@ -314,7 +314,7 @@ type View =
   | { kind: 'pending-detail'; pendingId: string }
   | { kind: 'pending-types' }
   | { kind: 'admin-dashboard' }
-  | { kind: 'admin-users' }
+  | { kind: 'admin-users'; filter?: 'approval-pending' }
   | { kind: 'admin-user-notification-preferences'; userId: string }
   | { kind: 'admin-departments' }
   | { kind: 'admin-calendar-holidays' }
@@ -399,6 +399,7 @@ type ProjectFormValues = {
   item: string;
   projectCode: string;
   projectTitle: string;
+  lseTaskNumber: string;
   panelCount: string;
   deliveryDate: string;
   salesOwnerUserId: string;
@@ -442,6 +443,7 @@ const emptyForm: ProjectFormValues = {
   item: '',
   projectCode: '',
   projectTitle: '',
+  lseTaskNumber: '',
   panelCount: '1',
   deliveryDate: '',
   salesOwnerUserId: '',
@@ -679,7 +681,8 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/admin/users') {
-    return { kind: 'admin-users' };
+    const filter = new URLSearchParams(window.location.search).get('filter');
+    return { kind: 'admin-users', filter: filter === 'approval-pending' ? filter : undefined };
   }
 
   const adminNotificationPreferencesMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/notification-settings$/);
@@ -1254,7 +1257,7 @@ function pathForView(view: View) {
     case 'admin-dashboard':
       return '/admin';
     case 'admin-users':
-      return '/admin/users';
+      return `/admin/users${view.filter === 'approval-pending' ? '?filter=approval-pending' : ''}`;
     case 'admin-user-notification-preferences':
       return `/admin/users/${view.userId}/notification-settings`;
     case 'admin-departments':
@@ -2299,6 +2302,8 @@ function QmsAppShellContent({
           pendingId={view.kind === 'pending-detail' ? view.pendingId : undefined}
           initialProjectId={view.kind === 'pending' ? view.projectId : undefined}
           canManage={canManagePending}
+          departmentCode={currentUser.data.department}
+          isSystemAdministrator={isSystemAdministrator}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
           onOpenProjectPending={(projectId) => setView({ kind: 'pending', projectId })}
           onBackToList={() => setView({ kind: 'pending' })}
@@ -2620,6 +2625,7 @@ function QmsAppShellContent({
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-users' ? (
         <AdminUsersPage
           developmentUserKey={developmentUserKey}
+          filter={view.filter}
           onOpenNotificationSettings={(userId) => setView({ kind: 'admin-user-notification-preferences', userId })}
         />
       ) : null}
@@ -3760,9 +3766,11 @@ function summarizeBulkAction(result: AdminBulkActionResponse, fallback: string) 
 
 function AdminUsersPage({
   developmentUserKey,
+  filter,
   onOpenNotificationSettings
 }: {
   developmentUserKey: string;
+  filter?: 'approval-pending';
   onOpenNotificationSettings: (userId: string) => void;
 }) {
   const [state, setState] = useState<LoadState<AdminUsersResponse>>({ kind: 'loading' });
@@ -3779,17 +3787,17 @@ function AdminUsersPage({
 
   const load = useCallback(() => {
     setState({ kind: 'loading' });
-    getAdminUsers(developmentUserKey)
+    getAdminUsers(developmentUserKey, filter)
       .then((data) => {
         setState({ kind: 'ready', data });
         setSelectedUserIds([]);
       })
       .catch((error: unknown) => setState(toLoadError(error, '사용자 목록을 불러올 수 없습니다.')));
-  }, [developmentUserKey]);
+  }, [developmentUserKey, filter]);
 
   useEffect(() => {
     let cancelled = false;
-    getAdminUsers(developmentUserKey)
+    getAdminUsers(developmentUserKey, filter)
       .then((data) => {
         if (!cancelled) {
           setState({ kind: 'ready', data });
@@ -3805,7 +3813,7 @@ function AdminUsersPage({
     return () => {
       cancelled = true;
     };
-  }, [developmentUserKey]);
+  }, [developmentUserKey, filter]);
 
   const startEdit = (user: AdminUser) => {
     setEditingUserId(user.userId);
@@ -3953,7 +3961,9 @@ function AdminUsersPage({
     }
   };
 
-  const visibleUsers = state.kind === 'ready' ? state.data.users : [];
+  const visibleUsers = state.kind === 'ready'
+    ? state.data.users.filter((user) => filter !== 'approval-pending' || user.approvalPending)
+    : [];
   const selectableUserIds = visibleUsers.filter((user) => !user.isReadOnly).map((user) => user.userId);
   const allUsersSelected = selectableUserIds.length > 0 && selectableUserIds.every((id) => selectedUserIds.includes(id));
   const draftDefaultRoleCode = state.kind === 'ready'
@@ -3965,10 +3975,14 @@ function AdminUsersPage({
       <DsPageHeader
         className="page-header"
         eyebrow="System Administrator"
-        title="사용자 관리"
+        title={filter === 'approval-pending' ? '승인 대기 사용자' : '사용자 관리'}
         actions={<button type="button" onClick={load}>새로고침</button>}
       />
-      <p className="muted-text">부서를 선택하면 기본 역할이 자동 지정됩니다. 부서장 체크 시 양식관리 대상 부서에는 승인 권한도 함께 부여되며, 한 부서에 여러 명을 지정할 수 있습니다. Dev 사용자는 읽기 전용입니다.</p>
+      <p className="muted-text">
+        {filter === 'approval-pending'
+          ? '역할이 아직 부여되지 않은 활성 Microsoft 사용자만 표시합니다. 부서와 역할을 지정하면 승인 대기 목록에서 제외됩니다.'
+          : '부서를 선택하면 기본 역할이 자동 지정됩니다. 부서장 체크 시 양식관리 대상 부서에는 승인 권한도 함께 부여되며, 한 부서에 여러 명을 지정할 수 있습니다. Dev 사용자는 읽기 전용입니다.'}
+      </p>
       {isMobile ? (
         <button
           type="button"
@@ -3981,7 +3995,7 @@ function AdminUsersPage({
         </button>
       ) : null}
       <ActionFeedback message={message} tone={message.includes('없습니다') || message.includes('수 없습니다') ? 'error' : message ? 'success' : 'neutral'} />
-      {state.kind === 'ready' ? (
+      {state.kind === 'ready' && visibleUsers.length > 0 ? (
         <SelectedExportTray
           developmentUserKey={developmentUserKey}
           screen="admin-users"
@@ -3994,7 +4008,7 @@ function AdminUsersPage({
           onClear={() => setSelectedUserIds([])}
         />
       ) : null}
-      {state.kind === 'ready' ? (
+      {state.kind === 'ready' && visibleUsers.length > 0 ? (
         <div className="bulk-action-bar">
           <span>선택 {selectedUserIds.length}건</span>
           <button type="button" onClick={() => void bulkDeleteUsers()} disabled={selectedUserIds.length === 0}>선택 삭제</button>
@@ -4003,7 +4017,12 @@ function AdminUsersPage({
       ) : null}
       {state.kind === 'loading' ? <p>사용자 목록을 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
-      {state.kind === 'ready' ? (
+      {state.kind === 'ready' && visibleUsers.length === 0 ? (
+        <p className="empty-text">
+          {filter === 'approval-pending' ? '현재 승인 대기 중인 사용자가 없습니다.' : '표시할 사용자가 없습니다.'}
+        </p>
+      ) : null}
+      {state.kind === 'ready' && visibleUsers.length > 0 ? (
         <div className="table-scroll">
           <table>
             <thead>
@@ -4027,7 +4046,7 @@ function AdminUsersPage({
               </tr>
             </thead>
             <tbody>
-              {state.data.users.map((user) => {
+              {visibleUsers.map((user) => {
                 const editing = editingUserId === user.userId;
                 return (
                   <tr key={user.userId}>
@@ -4719,7 +4738,7 @@ function AdminDashboardPage({
         <DsKpiGrid className="admin-dashboard-grid">
           <DsKpiCard className="admin-dashboard-card" label="승인 대기 사용자" value={<>{state.data.pendingUserCount}건</>}>
             <p>역할이 부여되지 않은 Entra 사용자입니다.</p>
-            <button type="button" onClick={() => onNavigate({ kind: 'admin-users' })}>사용자 관리</button>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-users', filter: 'approval-pending' })}>승인 대기 사용자 보기</button>
           </DsKpiCard>
           <DsKpiCard className="admin-dashboard-card" tone="danger" label="발송 실패" value={<>{state.data.failedDeliveryCount}건</>}>
             <p>외부 알림 발송이 실패한 건입니다. 상세에서 실패 채널, 수신자, 오류 사유를 확인하세요.</p>
@@ -4732,13 +4751,6 @@ function AdminDashboardPage({
           <DsKpiCard className="admin-dashboard-card" tone="warning" label="발송 처리 중" value={<>{state.data.processingDeliveryCount}건</>}>
             <p>한 worker가 claim lease 안에서 처리 중인 외부 알림입니다.</p>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Processing' })}>처리 중 알림 보기</button>
-          </DsKpiCard>
-          <DsKpiCard className="admin-dashboard-card" label="발송 완료" value={<>{state.data.sentDeliveryCount}건</>}>
-            <p>외부 provider가 요청을 수락해 완료된 알림입니다.</p>
-            <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Sent' })}>완료 알림 보기</button>
-          </DsKpiCard>
-          <DsKpiCard className="admin-dashboard-card" label="마지막 일일 요약" value={formatNullableDateTime(state.data.lastDailyDigestSentAtUtc)}>
-            <p>Daily Digest가 마지막으로 발송 또는 dry-run 처리된 시각입니다.</p>
           </DsKpiCard>
           <DsKpiCard className="admin-dashboard-card admin-dashboard-card-wide" tone="warning" label="진행 중 에스컬레이션" value={<>{state.data.activeEscalationCount}건</>}>
             <p>예정일 임박 또는 초과 상태로 아직 해소되지 않은 업무입니다. 완료/취소 시 해소됩니다.</p>
@@ -4755,10 +4767,6 @@ function AdminDashboardPage({
               ))}
             </div>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-work-item-escalations', status: 'Active' })}>진행 중 에스컬레이션 보기</button>
-          </DsKpiCard>
-          <DsKpiCard className="admin-dashboard-card" label="최근 기준정보 변경" value={<>{state.data.recentMasterChangeCount}건</>}>
-            <p>최근 7일 기준정보 변경 이력입니다.</p>
-            <button type="button" onClick={() => onNavigate({ kind: 'admin-master-change-logs' })}>변경 이력 보기</button>
           </DsKpiCard>
         </DsKpiGrid>
       ) : null}
@@ -11033,6 +11041,12 @@ type PanelInformationRowForm = {
   originalPanelName: string;
   currentPanelName: string;
   panelNameDirty: boolean;
+  originalDrawingNumber: string;
+  currentDrawingNumber: string;
+  drawingNumberDirty: boolean;
+  originalPanelGroupNumber: number | null;
+  currentPanelGroupNumber: number | null;
+  panelGroupDirty: boolean;
   originalWidthMm: string | null;
   originalHeightMm: string | null;
   originalDepthMm: string | null;
@@ -15623,6 +15637,7 @@ function FlatPanelInformationEditPage({
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const [showExcel, setShowExcel] = useState(false);
   const [duplicateConfirm, setDuplicateConfirm] = useState<PanelNameDuplicateGroup[] | null>(null);
+  const [selectedPanelIds, setSelectedPanelIds] = useState<string[]>([]);
   const requestIdRef = useRef(0);
   const dirtyRef = useRef(false);
   const editInputUnitRef = useRef<PanelInputUnit>('Mm');
@@ -15640,6 +15655,7 @@ function FlatPanelInformationEditPage({
     setMessage('');
     setMessageTone('neutral');
     setDuplicateConfirm(null);
+    setSelectedPanelIds([]);
 
     Promise.all([
       getProject(developmentUserKey, projectId),
@@ -15686,6 +15702,7 @@ function FlatPanelInformationEditPage({
       || row.panelNumber.toLowerCase().includes(query)
       || row.displayCode.toLowerCase().includes(query)
       || row.currentPanelName.toLowerCase().includes(query)
+      || row.currentDrawingNumber.toLowerCase().includes(query)
       || (panel.panelName ?? '').toLowerCase().includes(query);
     return matchesFilter && matchesSearch;
   });
@@ -15697,6 +15714,71 @@ function FlatPanelInformationEditPage({
     setRows((current) => current.map((row) => row.panelId === panelId
       ? { ...row, currentPanelName: value, panelNameDirty: true }
       : row));
+  }
+
+  function setDrawingNumber(panelId: string, value: string) {
+    dirtyRef.current = true;
+    setRows((current) => current.map((row) => row.panelId === panelId
+      ? { ...row, currentDrawingNumber: value, drawingNumberDirty: true }
+      : row));
+  }
+
+  function togglePanelSelection(panelId: string, checked: boolean) {
+    setSelectedPanelIds((current) => checked
+      ? [...new Set([...current, panelId])]
+      : current.filter((id) => id !== panelId));
+  }
+
+  function groupSelectedPanels() {
+    if (selectedPanelIds.length < 2) {
+      setMessageTone('error');
+      setMessage('열반할 패널을 2면 이상 선택해 주세요.');
+      return;
+    }
+
+    dirtyRef.current = true;
+    setRows((current) => {
+      const selected = new Set(selectedPanelIds);
+      const previousGroups = new Set(current
+        .filter((row) => selected.has(row.panelId) && row.currentPanelGroupNumber !== null)
+        .map((row) => row.currentPanelGroupNumber!));
+      const temporaryGroupNumber = Math.max(0, ...current.map((row) => row.currentPanelGroupNumber ?? 0)) + 1;
+      const initiallyUpdated = current.map((row) => selected.has(row.panelId)
+        ? { ...row, currentPanelGroupNumber: temporaryGroupNumber, panelGroupDirty: true }
+        : row);
+      const withoutSingleMemberGroups = initiallyUpdated.map((row) => {
+        if (row.currentPanelGroupNumber === null || !previousGroups.has(row.currentPanelGroupNumber)) {
+          return row;
+        }
+        const remainingCount = initiallyUpdated.filter((candidate) => candidate.currentPanelGroupNumber === row.currentPanelGroupNumber).length;
+        return remainingCount < 2
+          ? { ...row, currentPanelGroupNumber: null, panelGroupDirty: true }
+          : row;
+      });
+      return normalizeEditablePanelGroupNumbers(withoutSingleMemberGroups);
+    });
+    setSelectedPanelIds([]);
+    setMessageTone('neutral');
+    setMessage('선택한 패널을 하나의 열반으로 표시했습니다. 저장하면 반영됩니다.');
+  }
+
+  function ungroupSelectedPanels() {
+    const selectedGroups = new Set(rows
+      .filter((row) => selectedPanelIds.includes(row.panelId) && row.currentPanelGroupNumber !== null)
+      .map((row) => row.currentPanelGroupNumber!));
+    if (selectedGroups.size === 0) {
+      setMessageTone('error');
+      setMessage('해제할 열반의 패널을 선택해 주세요.');
+      return;
+    }
+
+    dirtyRef.current = true;
+    setRows((current) => normalizeEditablePanelGroupNumbers(current.map((row) => row.currentPanelGroupNumber !== null && selectedGroups.has(row.currentPanelGroupNumber)
+      ? { ...row, currentPanelGroupNumber: null, panelGroupDirty: true }
+      : row)));
+    setSelectedPanelIds([]);
+    setMessageTone('neutral');
+    setMessage('선택한 패널이 속한 열반을 해제했습니다. 저장하면 반영됩니다.');
   }
 
   function setSizeInput(panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) {
@@ -15752,6 +15834,7 @@ function FlatPanelInformationEditPage({
       setReason('');
       setState({ kind: 'ready', data: saved });
       setRows(saved.panels.map((panel) => panelToRowForm(panel, editInputUnit)));
+      setSelectedPanelIds([]);
       onSaved({ tone: 'success', message: '패널 설계 정보를 저장했습니다.' });
     } catch (error) {
       setMessageTone('error');
@@ -15803,7 +15886,7 @@ function FlatPanelInformationEditPage({
   return (
     <section className="page-surface panel-info-section">
       {data ? (
-        <DsInputFlow title="설계 정보 입력" description={`${formatPackagingMethod(projectState.data.packagingMethod)} 기준으로 패널명과 치수를 행에서 바로 입력하세요.`}>
+        <DsInputFlow title="설계 정보 입력" description={`${formatPackagingMethod(projectState.data.packagingMethod)} 기준으로 패널명, 도번과 치수를 행에서 바로 입력하세요.`}>
           <DsInputSection
             number={1}
             title="입력 대상과 단위"
@@ -15859,30 +15942,50 @@ function FlatPanelInformationEditPage({
               </label>
               <label>
                 <span>검색</span>
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="No 또는 패널명" />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="No, 패널명 또는 도번" />
               </label>
             </div>
           </DsInputSection>
-          <DsInputSection number={2} title="패널 정보 입력" description="패널명과 W/H/D를 같은 행에서 입력합니다. 일부 입력 상태도 저장할 수 있습니다.">
+          <DsInputSection number={2} title="패널 정보 입력" description="패널명, 도번과 W/H/D를 같은 행에서 입력합니다. 일부 입력 상태도 저장할 수 있습니다.">
             {canUpdatePanelInfo ? (
-              <div className="panel-template-help">
-                <strong>입력 단위: {editInputUnit === 'Inch' ? 'inch' : 'mm'}</strong>
-                <span>일반 포장은 패널명, 목포장은 패널명과 W/H/D가 완료 기준입니다.</span>
-                <span>사이즈를 입력하는 경우 W/H/D를 모두 입력해야 합니다.</span>
+              <div className="panel-required-guide" aria-label="이 프로젝트의 설계 필수 입력값">
+                <strong>이 프로젝트의 필수 입력</strong>
+                <span>{projectState.data.packagingMethod === 'WoodenCrate' ? '패널명 · W · H · D' : '패널명'}</span>
+                <span>선택 입력: 도번{data.supportsPanelGrouping ? ' · 패널 열반' : ''}</span>
+                <small>입력 단위 {editInputUnit === 'Inch' ? 'inch' : 'mm'} · 사이즈는 W/H/D를 모두 입력합니다.</small>
+              </div>
+            ) : null}
+            {data.supportsPanelGrouping ? (
+              <div className="panel-group-toolbar" aria-label="패널 열반 설정">
+                <span>{selectedPanelIds.length > 0 ? `${selectedPanelIds.length}면 선택` : '패널을 선택해 열반을 설정하세요.'}</span>
+                <div>
+                  <button type="button" onClick={groupSelectedPanels} disabled={!canEdit || selectedPanelIds.length < 2}>선택 패널 열반</button>
+                  <button type="button" onClick={ungroupSelectedPanels} disabled={!canEdit || selectedPanelIds.length === 0}>선택 열반 해제</button>
+                </div>
               </div>
             ) : null}
             <PanelInfoEditDesktop
               rows={visibleRows}
+              allRows={rows}
               displayUnit={displayUnit}
               canEdit={canEdit}
+              supportsPanelGrouping={data.supportsPanelGrouping}
+              selectedPanelIds={selectedPanelIds}
+              onSelectionChange={togglePanelSelection}
               onPanelNameChange={setPanelName}
+              onDrawingNumberChange={setDrawingNumber}
               onSizeChange={setSizeInput}
             />
             <PanelInfoEditMobile
               rows={visibleRows}
+              allRows={rows}
               displayUnit={displayUnit}
               canEdit={canEdit}
+              supportsPanelGrouping={data.supportsPanelGrouping}
+              selectedPanelIds={selectedPanelIds}
+              onSelectionChange={togglePanelSelection}
               onPanelNameChange={setPanelName}
+              onDrawingNumberChange={setDrawingNumber}
               onSizeChange={setSizeInput}
             />
           </DsInputSection>
@@ -15936,25 +16039,38 @@ function FlatPanelInformationEditPage({
 
 function PanelInfoEditDesktop({
   rows,
+  allRows,
   displayUnit,
   canEdit,
+  supportsPanelGrouping,
+  selectedPanelIds,
+  onSelectionChange,
   onPanelNameChange,
+  onDrawingNumberChange,
   onSizeChange
 }: {
   rows: PanelInformationRowForm[];
+  allRows: PanelInformationRowForm[];
   displayUnit: PanelInputUnit;
   canEdit: boolean;
+  supportsPanelGrouping: boolean;
+  selectedPanelIds: string[];
+  onSelectionChange: (panelId: string, checked: boolean) => void;
   onPanelNameChange: (panelId: string, value: string) => void;
+  onDrawingNumberChange: (panelId: string, value: string) => void;
   onSizeChange: (panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) => void;
 }) {
   return (
     <div className="panel-info-table panel-info-edit-desktop" role="table" aria-label="설계 정보 직접 입력" data-testid="panel-info-edit-desktop">
       <div className="panel-info-table-head" role="row">
+        <span>선택</span>
         <span>No</span>
         <span>패널명</span>
-        <span>W</span>
+        <span>도번</span>
+        <span className="panel-size-heading">W <PanelSizeInfoTip /></span>
         <span>H</span>
         <span>D</span>
+        <span>열반</span>
         <span>패널정보</span>
         <span>QR</span>
       </div>
@@ -15962,9 +16078,14 @@ function PanelInfoEditDesktop({
         <PanelInformationEditableRow
           key={row.panelId}
           row={row}
+          allRows={allRows}
           displayUnit={displayUnit}
           canEdit={canEdit && row.original.panelStatus === 'Active'}
+          supportsPanelGrouping={supportsPanelGrouping}
+          selected={selectedPanelIds.includes(row.panelId)}
+          onSelectionChange={onSelectionChange}
           onPanelNameChange={onPanelNameChange}
+          onDrawingNumberChange={onDrawingNumberChange}
           onSizeChange={onSizeChange}
         />
       ))}
@@ -15974,15 +16095,25 @@ function PanelInfoEditDesktop({
 
 function PanelInfoEditMobile({
   rows,
+  allRows,
   displayUnit,
   canEdit,
+  supportsPanelGrouping,
+  selectedPanelIds,
+  onSelectionChange,
   onPanelNameChange,
+  onDrawingNumberChange,
   onSizeChange
 }: {
   rows: PanelInformationRowForm[];
+  allRows: PanelInformationRowForm[];
   displayUnit: PanelInputUnit;
   canEdit: boolean;
+  supportsPanelGrouping: boolean;
+  selectedPanelIds: string[];
+  onSelectionChange: (panelId: string, checked: boolean) => void;
   onPanelNameChange: (panelId: string, value: string) => void;
+  onDrawingNumberChange: (panelId: string, value: string) => void;
   onSizeChange: (panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) => void;
 }) {
   return (
@@ -15991,9 +16122,14 @@ function PanelInfoEditMobile({
         <PanelInformationCard
           key={row.panelId}
           row={row}
+          allRows={allRows}
           displayUnit={displayUnit}
           canEdit={canEdit && row.original.panelStatus === 'Active'}
+          supportsPanelGrouping={supportsPanelGrouping}
+          selected={selectedPanelIds.includes(row.panelId)}
+          onSelectionChange={onSelectionChange}
           onPanelNameChange={onPanelNameChange}
+          onDrawingNumberChange={onDrawingNumberChange}
           onSizeChange={onSizeChange}
         />
       ))}
@@ -16003,24 +16139,39 @@ function PanelInfoEditMobile({
 
 function PanelInformationEditableRow({
   row,
+  allRows,
   displayUnit,
   canEdit,
+  supportsPanelGrouping,
+  selected,
+  onSelectionChange,
   onPanelNameChange,
+  onDrawingNumberChange,
   onSizeChange
 }: {
   row: PanelInformationRowForm;
+  allRows: PanelInformationRowForm[];
   displayUnit: PanelInputUnit;
   canEdit: boolean;
+  supportsPanelGrouping: boolean;
+  selected: boolean;
+  onSelectionChange: (panelId: string, checked: boolean) => void;
   onPanelNameChange: (panelId: string, value: string) => void;
+  onDrawingNumberChange: (panelId: string, value: string) => void;
   onSizeChange: (panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) => void;
 }) {
   return (
     <div className="panel-info-table-row" role="row">
+      <label className="panel-select-cell">
+        <input type="checkbox" aria-label={`${row.panelNumber} 열반 선택`} checked={selected} disabled={!canEdit || !supportsPanelGrouping} onChange={(event) => onSelectionChange(row.panelId, event.target.checked)} />
+      </label>
       <strong>{row.sequenceNumber}<small>{row.displayCode}</small></strong>
       <input aria-label={`${row.panelNumber} 패널명`} value={row.currentPanelName} disabled={!canEdit} onChange={(event) => onPanelNameChange(row.panelId, event.target.value)} />
+      <input aria-label={`${row.panelNumber} 도번`} value={row.currentDrawingNumber} disabled={!canEdit} onChange={(event) => onDrawingNumberChange(row.panelId, event.target.value)} />
       <input aria-label={`${row.panelNumber} W`} inputMode="decimal" value={row.widthInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'widthInput', event.target.value)} />
       <input aria-label={`${row.panelNumber} H`} inputMode="decimal" value={row.heightInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'heightInput', event.target.value)} />
       <input aria-label={`${row.panelNumber} D`} inputMode="decimal" value={row.depthInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'depthInput', event.target.value)} />
+      <span className="panel-group-cell">{formatEditablePanelGroup(row, allRows)}</span>
       <span className={row.original.panelInfoCompleted ? undefined : 'negative-text'}>{row.original.panelInfoCompleted ? '입력 완료' : '미입력'}</span>
       <span className={row.original.qrEligible ? undefined : 'negative-text'}>{row.original.qrEligible ? '생성 가능' : '생성 불가'}</span>
       <small className="panel-display-size">{formatPanelSizeInUnit(row.original, displayUnit)}</small>
@@ -16030,26 +16181,44 @@ function PanelInformationEditableRow({
 
 function PanelInformationCard({
   row,
+  allRows,
   displayUnit,
   canEdit,
+  supportsPanelGrouping,
+  selected,
+  onSelectionChange,
   onPanelNameChange,
+  onDrawingNumberChange,
   onSizeChange
 }: {
   row: PanelInformationRowForm;
+  allRows: PanelInformationRowForm[];
   displayUnit: PanelInputUnit;
   canEdit: boolean;
+  supportsPanelGrouping: boolean;
+  selected: boolean;
+  onSelectionChange: (panelId: string, checked: boolean) => void;
   onPanelNameChange: (panelId: string, value: string) => void;
+  onDrawingNumberChange: (panelId: string, value: string) => void;
   onSizeChange: (panelId: string, field: 'widthInput' | 'heightInput' | 'depthInput', value: string) => void;
 }) {
   return (
     <article className="panel-info-card" data-testid="panel-info-edit-card">
       <div className="subsection-header">
         <h3>{row.panelNumber}</h3>
-        <span>{row.displayCode}</span>
+        <label className="panel-mobile-selection">
+          <input type="checkbox" checked={selected} disabled={!canEdit || !supportsPanelGrouping} onChange={(event) => onSelectionChange(row.panelId, event.target.checked)} />
+          <span>열반 선택</span>
+        </label>
       </div>
+      <small>{row.displayCode}</small>
       <FormField label="패널명">
         <input value={row.currentPanelName} disabled={!canEdit} onChange={(event) => onPanelNameChange(row.panelId, event.target.value)} />
       </FormField>
+      <FormField label="도번">
+        <input value={row.currentDrawingNumber} disabled={!canEdit} onChange={(event) => onDrawingNumberChange(row.panelId, event.target.value)} />
+      </FormField>
+      <div className="panel-mobile-size-heading"><strong>사이즈</strong><PanelSizeInfoTip /></div>
       <div className="dimension-grid">
         <FormField label="W">
           <input inputMode="decimal" value={row.widthInput} disabled={!canEdit} onChange={(event) => onSizeChange(row.panelId, 'widthInput', event.target.value)} />
@@ -16062,6 +16231,7 @@ function PanelInformationCard({
         </FormField>
       </div>
       <dl className="mini-status-grid">
+        {supportsPanelGrouping ? <div><dt>열반</dt><dd>{formatEditablePanelGroup(row, allRows)}</dd></div> : null}
         <div><dt>패널정보</dt><dd className={row.original.panelInfoCompleted ? undefined : 'negative-text'}>{row.original.panelInfoCompleted ? '입력 완료' : '미입력'}</dd></div>
         <div><dt>QR</dt><dd className={row.original.qrEligible ? undefined : 'negative-text'}>{row.original.qrEligible ? '생성 가능' : '생성 불가'}</dd></div>
         <div><dt>표시</dt><dd>{formatPanelSizeInUnit(row.original, displayUnit)}</dd></div>
@@ -16069,6 +16239,35 @@ function PanelInformationCard({
       {row.original.hasDuplicateName ? <p className="muted-text">동일 명칭 {row.original.duplicateNameCount}면</p> : null}
     </article>
   );
+}
+
+function PanelSizeInfoTip() {
+  return (
+    <span className="panel-size-info-tip">
+      <button type="button" aria-label="사이즈 입력 안내" title="포장 업무에 필요한 패널의 최외곽 사이즈를 기재해주세요.">i</button>
+      <span role="tooltip">포장 업무에 필요한 패널의 최외곽 사이즈를 기재해주세요.</span>
+    </span>
+  );
+}
+
+function formatEditablePanelGroup(row: PanelInformationRowForm, rows: PanelInformationRowForm[]) {
+  if (row.currentPanelGroupNumber === null) {
+    return '-';
+  }
+
+  const members = rows.filter((candidate) => candidate.currentPanelGroupNumber === row.currentPanelGroupNumber);
+  const widths = members.map((member) => decimalOrNull(member.widthInput));
+  const heights = members.map((member) => decimalOrNull(member.heightInput));
+  const depths = members.map((member) => decimalOrNull(member.depthInput));
+  if ([...widths, ...heights, ...depths].some((value) => value === null)) {
+    return `열반 ${row.currentPanelGroupNumber} · 사이즈 입력 필요`;
+  }
+
+  const width = widths.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+  const height = Math.max(...heights.map((value) => value ?? 0));
+  const depth = Math.max(...depths.map((value) => value ?? 0));
+  const unit = row.sizeInputUnit === 'Inch' ? 'inch' : 'mm';
+  return `열반 ${row.currentPanelGroupNumber} · ${formatPanelDimension(width)} × ${formatPanelDimension(height)} × ${formatPanelDimension(depth)} ${unit}`;
 }
 
 function PanelDuplicateNameConfirmDialog({
@@ -16286,6 +16485,7 @@ function ExcelPreviewDesktop({ rows }: { rows: PanelInformationExcelPreviewRespo
           <strong>Row {row.excelRowNumber}</strong>
           <span>{row.no ? `No.${row.no}` : 'No 없음'}</span>
           <span>{row.panelName ?? '패널명 없음'}</span>
+          <span>{row.drawingNumber ?? '도번 없음'}</span>
           <span>{row.widthMm ?? '-'} / {row.heightMm ?? '-'} / {row.depthMm ?? '-'}</span>
           <span>{row.resultType}</span>
           <small>{row.errorMessages.join(' ')}</small>
@@ -16310,6 +16510,13 @@ function ExcelPreviewMobile({ rows }: { rows: PanelInformationExcelPreviewRespon
               <dd>
                 <span>기존: {row.currentValue?.panelName ?? '-'}</span>
                 <span>변경: {row.panelName ?? '-'}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>도번</dt>
+              <dd>
+                <span>기존: {row.currentValue?.drawingNumber ?? '-'}</span>
+                <span>변경: {row.drawingNumber ?? '-'}</span>
               </dd>
             </div>
             <div>
@@ -17075,6 +17282,9 @@ function ProjectForm({
             <FormField label="PJT Title*" error={errors.projectTitle}>
               <input name="projectTitle" value={form.projectTitle} onChange={(event) => setField('projectTitle', event.target.value)} />
             </FormField>
+            <FormField label="LSE TASK NO" error={errors.lseTaskNumber}>
+              <input name="lseTaskNumber" maxLength={100} value={form.lseTaskNumber} onChange={(event) => setField('lseTaskNumber', event.target.value)} />
+            </FormField>
             {useUl891SetInput ? (
               <div className="form-field ul891-derived-field ds-field-span">
                 <span>처리 단위</span>
@@ -17336,6 +17546,7 @@ function ProjectSummary({
           <summary>기본정보 전체 보기</summary>
           <dl className="detail-grid project-summary-more">
             <div><dt>PJT Code</dt><dd>{project.projectCode}</dd></div>
+            <div><dt>LSE TASK NO</dt><dd>{project.lseTaskNumber ?? '-'}</dd></div>
             <div><dt>영업담당자</dt><dd>{project.salesOwnerName}</dd></div>
             <div><dt>포장방식</dt><dd>{formatPackagingMethod(project.packagingMethod)}</dd></div>
             <div><dt>납품장소</dt><dd>{project.deliveryLocation ?? '-'}</dd></div>
@@ -17353,6 +17564,7 @@ function ProjectSummary({
     <dl className="detail-grid">
       {primaryItems}
       <div><dt>PJT Code</dt><dd>{project.projectCode}</dd></div>
+      <div><dt>LSE TASK NO</dt><dd>{project.lseTaskNumber ?? '-'}</dd></div>
       <div><dt>영업담당자</dt><dd>{project.salesOwnerName}</dd></div>
       <div><dt>포장방식</dt><dd>{formatPackagingMethod(project.packagingMethod)}</dd></div>
       <div><dt>납품장소</dt><dd>{project.deliveryLocation ?? '-'}</dd></div>
@@ -17540,36 +17752,67 @@ function PanelListDesktop({
   displayUnit: PanelInputUnit;
   onOpenPanel: (panelId: string) => void;
 }) {
+  const displayGroups = buildPanelDisplayGroups(panels);
   return (
     <div className="product-panel-table product-panel-desktop" role="table" aria-label="설계" data-testid="project-panel-list-desktop">
       <div className="product-panel-table-head" role="row">
         <span>No</span>
         <span>패널명</span>
+        <span>도번</span>
         <span>사이즈</span>
         <span>패널정보</span>
         <span>QR</span>
         <span>상태</span>
       </div>
-      {panels.map((panel) => (
-        <button key={panel.panelId} type="button" className="product-panel-row" role="row" onClick={() => onOpenPanel(panel.panelId)}>
-          <span>{panel.sequenceNumber}</span>
-          <span>
-            <strong className={panel.panelName ? undefined : 'negative-text'}>{panel.panelName ?? '미입력'}</strong>
-            {panel.hasDuplicateName ? <small>동일 명칭 {panel.duplicateNameCount}면</small> : null}
-          </span>
-          <span className={panelSizeClass(panel, packagingMethod)}>
-            {formatPanelSizeForPackaging(panel, displayUnit, packagingMethod)}
-          </span>
-          <span className={panel.panelInfoCompleted ? undefined : 'negative-text'}>
-            {panel.panelInfoCompleted ? '입력 완료' : '미입력'}
-          </span>
-          <span className={panel.qrEligible ? undefined : 'negative-text'}>
-            {panel.qrEligible ? '생성 가능' : '생성 불가'}
-          </span>
-          <span>{formatWorkflowStage(panel.workflowStage)}</span>
-        </button>
+      {displayGroups.map((group) => group.groupNumber === null ? (
+        <PanelListDesktopRow
+          key={group.panels[0].panelId}
+          panel={group.panels[0]}
+          packagingMethod={packagingMethod}
+          displayUnit={displayUnit}
+          onOpenPanel={onOpenPanel}
+        />
+      ) : (
+        <div key={`group-${group.groupNumber}`} className="product-panel-group" role="rowgroup">
+          <div className="product-panel-group-summary">
+            <strong>열반 {group.groupNumber}</strong>
+            <span>{group.panels.map((panel) => panel.panelNumber).join(', ')}</span>
+            <span>열반 사이즈 {formatPanelGroupSize(group.panels, displayUnit)}</span>
+            <small>W 합산 · H/D 최외곽</small>
+          </div>
+          {group.panels.map((panel) => (
+            <PanelListDesktopRow key={panel.panelId} panel={panel} packagingMethod={packagingMethod} displayUnit={displayUnit} onOpenPanel={onOpenPanel} />
+          ))}
+        </div>
       ))}
     </div>
+  );
+}
+
+function PanelListDesktopRow({
+  panel,
+  packagingMethod,
+  displayUnit,
+  onOpenPanel
+}: {
+  panel: PanelInformationPanel;
+  packagingMethod: PackagingMethod | null;
+  displayUnit: PanelInputUnit;
+  onOpenPanel: (panelId: string) => void;
+}) {
+  return (
+    <button type="button" className="product-panel-row" role="row" onClick={() => onOpenPanel(panel.panelId)}>
+      <span>{panel.sequenceNumber}</span>
+      <span>
+        <strong className={panel.panelName ? undefined : 'negative-text'}>{panel.panelName ?? '미입력'}</strong>
+        {panel.hasDuplicateName ? <small>동일 명칭 {panel.duplicateNameCount}면</small> : null}
+      </span>
+      <span>{panel.drawingNumber ?? '-'}</span>
+      <span className={panelSizeClass(panel, packagingMethod)}>{formatPanelSizeForPackaging(panel, displayUnit, packagingMethod)}</span>
+      <span className={panel.panelInfoCompleted ? undefined : 'negative-text'}>{panel.panelInfoCompleted ? '입력 완료' : '미입력'}</span>
+      <span className={panel.qrEligible ? undefined : 'negative-text'}>{panel.qrEligible ? '생성 가능' : '생성 불가'}</span>
+      <span>{formatWorkflowStage(panel.workflowStage)}</span>
+    </button>
   );
 }
 
@@ -17584,9 +17827,19 @@ function PanelListMobile({
   displayUnit: PanelInputUnit;
   onOpenPanel: (panelId: string) => void;
 }) {
+  const displayGroups = buildPanelDisplayGroups(panels);
   return (
     <div className="product-panel-cards product-panel-mobile" data-testid="project-panel-list-mobile">
-      {panels.map((panel) => (
+      {displayGroups.map((group) => (
+        <section key={group.groupNumber === null ? group.panels[0].panelId : `group-${group.groupNumber}`} className={group.groupNumber === null ? undefined : 'product-panel-group product-panel-group-mobile'}>
+          {group.groupNumber !== null ? (
+            <div className="product-panel-group-summary">
+              <strong>열반 {group.groupNumber}</strong>
+              <span>열반 사이즈 {formatPanelGroupSize(group.panels, displayUnit)}</span>
+              <small>W 합산 · H/D 최외곽</small>
+            </div>
+          ) : null}
+          {group.panels.map((panel) => (
         <article key={panel.panelId} className="product-panel-card" data-testid="project-panel-card">
           <div className="subsection-header">
             <h3>{panel.panelNumber}</h3>
@@ -17599,6 +17852,10 @@ function PanelListMobile({
                 <strong className={panel.panelName ? undefined : 'negative-text'}>{panel.panelName ?? '미입력'}</strong>
                 {panel.hasDuplicateName ? <small>동일 명칭 {panel.duplicateNameCount}면</small> : null}
               </dd>
+            </div>
+            <div>
+              <dt>도번</dt>
+              <dd>{panel.drawingNumber ?? '-'}</dd>
             </div>
             <div>
               <dt>사이즈</dt>
@@ -17618,6 +17875,8 @@ function PanelListMobile({
             </div>
           </dl>
         </article>
+          ))}
+        </section>
       ))}
     </div>
   );
@@ -17761,7 +18020,7 @@ function AuditHistory({ events }: { events: AuditEvent[] }) {
       {events.map((event) => (
         <li key={event.auditEventId}>
           <strong>{event.panelDisplayName ?? event.action}</strong>
-          <span>{event.fieldName ? `${event.fieldName}: ${event.oldValue ?? '-'} → ${event.newValue ?? '-'}` : event.reason ?? '-'}</span>
+          <span>{event.fieldName ? `${formatPanelInformationFieldName(event.fieldName)}: ${event.oldValue ?? '-'} → ${event.newValue ?? '-'}` : event.reason ?? '-'}</span>
           {event.entityType === 'Panel' ? <small>입력 방식: {formatInputSource(event.inputSource)}</small> : null}
           {event.importFileName ? <small>입력 파일: {event.importFileName}</small> : null}
           {event.inputUnit ? <small>입력 단위: {formatInputUnit(event.inputUnit)}</small> : null}
@@ -17804,7 +18063,7 @@ function GroupedHistory({
               {group.changes.map((change, index) => (
                 <li key={`${group.groupId}-${change.entityId}-${change.fieldName ?? index}-${index}`}>
                   <strong>{change.panelDisplayName ?? change.panelNumber ?? change.displayCode ?? change.entityType}</strong>
-                  <span>{change.fieldName ?? '-'}: {change.oldValue ?? '-'} → {change.newValue ?? '-'}</span>
+                  <span>{formatPanelInformationFieldName(change.fieldName)}: {change.oldValue ?? '-'} → {change.newValue ?? '-'}</span>
                   {change.originalInputValue ? (
                     <small>원본 입력값: {change.originalInputValue}{change.inputUnit ? ` ${formatInputUnit(change.inputUnit)}` : ''}</small>
                   ) : null}
@@ -17894,6 +18153,17 @@ function formatInputSource(source: AuditEvent['inputSource']) {
 
 function formatInputUnit(unit: PanelInputUnit) {
   return unit === 'Inch' ? 'inch' : 'mm';
+}
+
+function formatPanelInformationFieldName(fieldName: string | null | undefined) {
+  return ({
+    PanelName: '패널명',
+    DrawingNumber: '도번',
+    PanelGroupNumber: '패널 열반',
+    WidthMm: 'W',
+    HeightMm: 'H',
+    DepthMm: 'D'
+  } as Record<string, string>)[fieldName ?? ''] ?? fieldName ?? '-';
 }
 
 function formatProcurementFieldName(fieldName: string | null) {
@@ -17999,6 +18269,10 @@ function validateProjectForm(form: ProjectFormValues, includeReason: boolean, pr
 
   if (form.salesAmount.trim() && !/^[A-Z]{3}$/.test(form.currencyCode.trim())) {
     errors.currencyCode = '통화는 3자리 대문자여야 합니다.';
+  }
+
+  if (form.lseTaskNumber.trim().length > 100) {
+    errors.lseTaskNumber = 'LSE TASK NO는 100자 이하로 입력해 주세요.';
   }
 
   if (includeReason && !form.reason.trim()) {
@@ -18137,6 +18411,7 @@ function toCreateRequest(form: ProjectFormValues, ul891SetSpecs?: CreateUl891Set
     item: form.item.trim(),
     projectCode: form.projectCode.trim(),
     projectTitle: form.projectTitle.trim(),
+    lseTaskNumber: form.lseTaskNumber.trim() || null,
     panelCount: ul891SetSpecs ? null : Number(form.panelCount),
     deliveryDate: form.deliveryDate,
     salesOwnerUserId: form.salesOwnerUserId,
@@ -18162,6 +18437,7 @@ function projectToForm(project: ProjectDetail): ProjectFormValues {
     item: project.item,
     projectCode: project.projectCode,
     projectTitle: project.projectTitle,
+    lseTaskNumber: project.lseTaskNumber ?? '',
     panelCount: String(project.activePanelCount),
     deliveryDate: project.deliveryDate,
     salesOwnerUserId: project.salesOwnerUserId,
@@ -18348,6 +18624,7 @@ function fieldLabel(field: string): string {
     item: 'Item',
     projectCode: 'PJT Code',
     projectTitle: 'PJT Title',
+    lseTaskNumber: 'LSE TASK NO',
     panelCount: '면수',
     deliveryDate: '납기일',
     salesOwnerUserId: '영업담당자',
@@ -18896,6 +19173,12 @@ function panelToRowForm(panel: PanelInformationPanel, inputUnit: PanelInputUnit)
     originalPanelName: panel.panelName ?? '',
     currentPanelName: panel.panelName ?? '',
     panelNameDirty: false,
+    originalDrawingNumber: panel.drawingNumber ?? '',
+    currentDrawingNumber: panel.drawingNumber ?? '',
+    drawingNumberDirty: false,
+    originalPanelGroupNumber: panel.panelGroupNumber,
+    currentPanelGroupNumber: panel.panelGroupNumber,
+    panelGroupDirty: false,
     originalWidthMm,
     originalHeightMm,
     originalDepthMm,
@@ -18940,7 +19223,10 @@ function decimalOrNull(value: string) {
 }
 
 function panelRowChanged(row: PanelInformationRowForm) {
-  return panelNameActuallyChanged(row) || sizeActuallyChanged(row);
+  return panelNameActuallyChanged(row)
+    || drawingNumberActuallyChanged(row)
+    || panelGroupActuallyChanged(row)
+    || sizeActuallyChanged(row);
 }
 
 function findPanelNameDuplicateGroups(rows: PanelInformationRowForm[]): PanelNameDuplicateGroup[] {
@@ -18977,6 +19263,8 @@ function panelRowNeedsReason(row: PanelInformationRowForm) {
   }
 
   return (panelNameActuallyChanged(row) && row.originalPanelName !== '')
+    || (drawingNumberActuallyChanged(row) && row.originalDrawingNumber !== '')
+    || (panelGroupActuallyChanged(row) && row.originalPanelGroupNumber !== null)
     || (sizeActuallyChanged(row) && (
       row.originalWidthMm !== null
       || row.originalHeightMm !== null
@@ -18986,6 +19274,14 @@ function panelRowNeedsReason(row: PanelInformationRowForm) {
 
 function panelNameActuallyChanged(row: PanelInformationRowForm) {
   return row.panelNameDirty && row.currentPanelName.trim() !== row.originalPanelName;
+}
+
+function drawingNumberActuallyChanged(row: PanelInformationRowForm) {
+  return row.drawingNumberDirty && row.currentDrawingNumber.trim() !== row.originalDrawingNumber;
+}
+
+function panelGroupActuallyChanged(row: PanelInformationRowForm) {
+  return row.panelGroupDirty && row.currentPanelGroupNumber !== row.originalPanelGroupNumber;
 }
 
 function sizeActuallyChanged(row: PanelInformationRowForm) {
@@ -19015,6 +19311,8 @@ function panelRowToUpdateRequest(row: PanelInformationRowForm) {
     panelId: string;
     expectedPanelInfoVersion: number;
     panelNameUpdate?: { isChanged: boolean; value: string | null };
+    drawingNumberUpdate?: { isChanged: boolean; value: string | null };
+    groupNumberUpdate?: { isChanged: boolean; value: number | null };
     sizeUpdate?: {
       isChanged: boolean;
       clear: boolean;
@@ -19032,6 +19330,20 @@ function panelRowToUpdateRequest(row: PanelInformationRowForm) {
     request.panelNameUpdate = {
       isChanged: true,
       value: row.currentPanelName.trim() || null
+    };
+  }
+
+  if (drawingNumberActuallyChanged(row)) {
+    request.drawingNumberUpdate = {
+      isChanged: true,
+      value: row.currentDrawingNumber.trim() || null
+    };
+  }
+
+  if (panelGroupActuallyChanged(row)) {
+    request.groupNumberUpdate = {
+      isChanged: true,
+      value: row.currentPanelGroupNumber
     };
   }
 
@@ -19268,6 +19580,97 @@ function formatPanelSizeInUnit(panel: PanelInformationPanel, unit: PanelInputUni
   }
 
   return `${trimTrailingZeros(panel.widthMm.toFixed(3))} × ${trimTrailingZeros(panel.heightMm.toFixed(3))} × ${trimTrailingZeros(panel.depthMm.toFixed(3))} mm`;
+}
+
+type PanelDisplayGroup = {
+  groupNumber: number | null;
+  panels: PanelInformationPanel[];
+};
+
+function buildPanelDisplayGroups(panels: PanelInformationPanel[]): PanelDisplayGroup[] {
+  const activeGroupCounts = new Map<number, number>();
+  for (const panel of panels) {
+    if (panel.panelStatus === 'Active' && panel.panelGroupNumber !== null) {
+      activeGroupCounts.set(panel.panelGroupNumber, (activeGroupCounts.get(panel.panelGroupNumber) ?? 0) + 1);
+    }
+  }
+
+  const result: PanelDisplayGroup[] = [];
+  const grouped = new Map<number, PanelInformationPanel[]>();
+  for (const panel of [...panels].sort((left, right) => left.sequenceNumber - right.sequenceNumber)) {
+    const groupNumber = panel.panelStatus === 'Active'
+      && panel.panelGroupNumber !== null
+      && (activeGroupCounts.get(panel.panelGroupNumber) ?? 0) >= 2
+      ? panel.panelGroupNumber
+      : null;
+    if (groupNumber === null) {
+      result.push({ groupNumber: null, panels: [panel] });
+      continue;
+    }
+
+    const members = grouped.get(groupNumber) ?? [];
+    members.push(panel);
+    grouped.set(groupNumber, members);
+    if (members.length === 1) {
+      result.push({ groupNumber, panels: members });
+    }
+  }
+  return result;
+}
+
+function formatPanelGroupSize(panels: PanelInformationPanel[], unit: PanelInputUnit) {
+  if (panels.some((panel) => panel.widthMm === null || panel.heightMm === null || panel.depthMm === null)) {
+    return '입력 필요';
+  }
+
+  const widthMm = panels.reduce((sum, panel) => sum + (panel.widthMm ?? 0), 0);
+  const heightMm = Math.max(...panels.map((panel) => panel.heightMm ?? 0));
+  const depthMm = Math.max(...panels.map((panel) => panel.depthMm ?? 0));
+  if (unit === 'Inch') {
+    return `${formatPanelDimension(widthMm / 25.4)} × ${formatPanelDimension(heightMm / 25.4)} × ${formatPanelDimension(depthMm / 25.4)} inch`;
+  }
+  return `${formatPanelDimension(widthMm)} × ${formatPanelDimension(heightMm)} × ${formatPanelDimension(depthMm)} mm`;
+}
+
+function formatPanelDimension(value: number) {
+  return trimTrailingZeros(round3(value).toFixed(3));
+}
+
+function normalizeEditablePanelGroupNumbers(rows: PanelInformationRowForm[]) {
+  const activeGroups = new Map<number, { count: number; firstSequence: number }>();
+  for (const row of rows) {
+    if (row.original.panelStatus !== 'Active' || row.currentPanelGroupNumber === null) {
+      continue;
+    }
+
+    const current = activeGroups.get(row.currentPanelGroupNumber);
+    activeGroups.set(row.currentPanelGroupNumber, {
+      count: (current?.count ?? 0) + 1,
+      firstSequence: Math.min(current?.firstSequence ?? row.sequenceNumber, row.sequenceNumber)
+    });
+  }
+
+  const normalizedNumbers = new Map(
+    [...activeGroups.entries()]
+      .filter(([, group]) => group.count >= 2)
+      .sort((left, right) => left[1].firstSequence - right[1].firstSequence)
+      .map(([groupNumber], index) => [groupNumber, index + 1] as const)
+  );
+
+  return rows.map((row) => {
+    if (row.original.panelStatus !== 'Active') {
+      return row;
+    }
+
+    const nextGroupNumber = row.currentPanelGroupNumber === null
+      ? null
+      : normalizedNumbers.get(row.currentPanelGroupNumber) ?? null;
+    return {
+      ...row,
+      currentPanelGroupNumber: nextGroupNumber,
+      panelGroupDirty: nextGroupNumber !== row.originalPanelGroupNumber
+    };
+  });
 }
 
 function formatPanelSizeForPackaging(

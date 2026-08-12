@@ -135,6 +135,9 @@ public sealed partial class PanelInformationExcelParser
                 var rowErrors = new List<string>();
                 var noText = ReadCellText(worksheet.Cell(rowNumber, headerResult.Headers["no"]), rowErrors, "No");
                 var panelName = ReadCellText(worksheet.Cell(rowNumber, headerResult.Headers["panel name"]), rowErrors, "panel name");
+                var drawingNumber = headerResult.Headers.TryGetValue("도번", out var drawingColumn)
+                    ? ReadCellText(worksheet.Cell(rowNumber, drawingColumn), rowErrors, "도번")
+                    : null;
                 var width = ReadOptionalDecimal(worksheet, rowNumber, headerResult.Headers, "w", rowErrors);
                 var height = ReadOptionalDecimal(worksheet, rowNumber, headerResult.Headers, "h", rowErrors);
                 var depth = ReadOptionalDecimal(worksheet, rowNumber, headerResult.Headers, "d", rowErrors);
@@ -157,6 +160,7 @@ public sealed partial class PanelInformationExcelParser
                     rowNumber,
                     sequenceNumber,
                     ProjectInputNormalizer.TrimToNull(panelName),
+                    ProjectInputNormalizer.TrimToNull(drawingNumber),
                     width,
                     height,
                     depth,
@@ -538,6 +542,7 @@ public sealed record ParsedPanelInformationExcelRow(
     int ExcelRowNumber,
     int? No,
     string? PanelName,
+    string? DrawingNumber,
     decimal? Width,
     decimal? Height,
     decimal? Depth,

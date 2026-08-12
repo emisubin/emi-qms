@@ -39,25 +39,9 @@ public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connec
                 ) as processing_delivery_count,
                 (
                     select count(*)::integer
-                    from notification_deliveries
-                    where status = 'Sent'
-                ) as sent_delivery_count,
-                (
-                    select max(sent_at_utc)
-                    from notification_deliveries
-                    where delivery_type = 'DailyDigest'
-                      and status in ('Sent', 'DryRunSent')
-                ) as last_digest_sent_at_utc,
-                (
-                    select count(*)::integer
                     from work_item_escalations
                     where status = 'Active'
-                ) as active_escalation_count,
-                (
-                    select count(*)::integer
-                    from admin_master_change_logs
-                    where changed_at_utc >= now() - interval '7 days'
-                ) as recent_master_change_count;
+                ) as active_escalation_count;
             """);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         await reader.ReadAsync(cancellationToken);
@@ -65,10 +49,7 @@ public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connec
         var failedDeliveryCount = reader.GetInt32(1);
         var pendingDeliveryCount = reader.GetInt32(2);
         var processingDeliveryCount = reader.GetInt32(3);
-        var sentDeliveryCount = reader.GetInt32(4);
-        DateTimeOffset? lastDailyDigestSentAtUtc = reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5);
-        var activeEscalationCount = reader.GetInt32(6);
-        var recentMasterChangeCount = reader.GetInt32(7);
+        var activeEscalationCount = reader.GetInt32(4);
         await reader.CloseAsync();
 
         var activeEscalationLevels = await ReadActiveEscalationLevelsAsync(dataSource, cancellationToken);
@@ -78,10 +59,7 @@ public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connec
             failedDeliveryCount,
             pendingDeliveryCount,
             processingDeliveryCount,
-            sentDeliveryCount,
-            lastDailyDigestSentAtUtc,
             activeEscalationCount,
-            recentMasterChangeCount,
             activeEscalationLevels);
     }
 

@@ -141,10 +141,18 @@ public static class IdentityEndpointExtensions
         .WithName("GetProjectOverview");
 
         api.MapGet("/admin/users", async (
+            string? filter,
             IUserAdministrationStore userAdministrationStore,
             CancellationToken cancellationToken) =>
         {
             var snapshot = await userAdministrationStore.GetSnapshotAsync(cancellationToken);
+            if (string.Equals(filter, "approval-pending", StringComparison.OrdinalIgnoreCase))
+            {
+                snapshot = snapshot with
+                {
+                    Users = snapshot.Users.Where(user => user.ApprovalPending).ToList()
+                };
+            }
             return Results.Ok(AdminUsersResponse.From(snapshot));
         })
         .RequireAuthorization(QmsPolicies.AdminUsersRead)

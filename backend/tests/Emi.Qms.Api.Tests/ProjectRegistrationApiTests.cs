@@ -800,6 +800,68 @@ public sealed partial class ProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task AdminDashboard_ReturnsOnlyActionableKpis()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+
+        using var response = await adminClient.GetAsync("/api/admin/dashboard", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await ReadJsonAsync(response);
+
+        Assert.True(body.RootElement.TryGetProperty("pendingUserCount", out _));
+        Assert.True(body.RootElement.TryGetProperty("failedDeliveryCount", out _));
+        Assert.True(body.RootElement.TryGetProperty("pendingDeliveryCount", out _));
+        Assert.True(body.RootElement.TryGetProperty("processingDeliveryCount", out _));
+        Assert.True(body.RootElement.TryGetProperty("activeEscalationCount", out _));
+        Assert.True(body.RootElement.TryGetProperty("activeEscalationLevels", out _));
+        Assert.False(body.RootElement.TryGetProperty("sentDeliveryCount", out _));
+        Assert.False(body.RootElement.TryGetProperty("lastDailyDigestSentAtUtc", out _));
+        Assert.False(body.RootElement.TryGetProperty("recentMasterChangeCount", out _));
+    }
+
+    [Fact]
+    public async Task AdminUsers_ApprovalPendingFilterReturnsOnlyActiveEntraUsersWithoutRoles()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        var pendingUserId = Guid.NewGuid();
+        var approvedUserId = Guid.NewGuid();
+        var inactiveUserId = Guid.NewGuid();
+
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, is_active, auth_provider,
+                entra_object_id, email
+            ) values
+                ('{pendingUserId}', 'approval-filter-pending', 'Approval Filter Pending', true, 'EntraId',
+                 'approval-filter-pending', 'approval-filter-pending@example.invalid'),
+                ('{approvedUserId}', 'approval-filter-approved', 'Approval Filter Approved', true, 'EntraId',
+                 'approval-filter-approved', 'approval-filter-approved@example.invalid'),
+                ('{inactiveUserId}', 'approval-filter-inactive', 'Approval Filter Inactive', false, 'EntraId',
+                 'approval-filter-inactive', 'approval-filter-inactive@example.invalid');
+
+            insert into user_roles (user_id, role_id)
+            select '{approvedUserId}', id
+            from roles
+            where code = 'sales';
+            """);
+
+        using var response = await adminClient.GetAsync(
+            "/api/admin/users?filter=approval-pending",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await ReadJsonAsync(response);
+        var users = body.RootElement.GetProperty("users").EnumerateArray().ToArray();
+
+        var pending = Assert.Single(users, item => item.GetProperty("userId").GetGuid() == pendingUserId);
+        Assert.True(pending.GetProperty("approvalPending").GetBoolean());
+        Assert.DoesNotContain(users, item => item.GetProperty("userId").GetGuid() == approvedUserId);
+        Assert.DoesNotContain(users, item => item.GetProperty("userId").GetGuid() == inactiveUserId);
+        Assert.All(users, item => Assert.True(item.GetProperty("approvalPending").GetBoolean()));
+    }
+
+    [Fact]
     public async Task ProjectDetail_SummarizesWorkflowStagesAndQrEligibleOverActivePanels()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();

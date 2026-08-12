@@ -5,10 +5,7 @@ public sealed record AdminDashboardResponse(
     int FailedDeliveryCount,
     int PendingDeliveryCount,
     int ProcessingDeliveryCount,
-    int SentDeliveryCount,
-    DateTimeOffset? LastDailyDigestSentAtUtc,
     int ActiveEscalationCount,
-    int RecentMasterChangeCount,
     IReadOnlyList<AdminDashboardEscalationLevelResponse> ActiveEscalationLevels);
 
 public sealed record AdminDashboardEscalationLevelResponse(

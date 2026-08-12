@@ -314,7 +314,7 @@ type View =
   | { kind: 'pending-detail'; pendingId: string }
   | { kind: 'pending-types' }
   | { kind: 'admin-dashboard' }
-  | { kind: 'admin-users' }
+  | { kind: 'admin-users'; filter?: 'approval-pending' }
   | { kind: 'admin-user-notification-preferences'; userId: string }
   | { kind: 'admin-departments' }
   | { kind: 'admin-calendar-holidays' }
@@ -681,7 +681,8 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/admin/users') {
-    return { kind: 'admin-users' };
+    const filter = new URLSearchParams(window.location.search).get('filter');
+    return { kind: 'admin-users', filter: filter === 'approval-pending' ? filter : undefined };
   }
 
   const adminNotificationPreferencesMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/notification-settings$/);
@@ -1256,7 +1257,7 @@ function pathForView(view: View) {
     case 'admin-dashboard':
       return '/admin';
     case 'admin-users':
-      return '/admin/users';
+      return `/admin/users${view.filter === 'approval-pending' ? '?filter=approval-pending' : ''}`;
     case 'admin-user-notification-preferences':
       return `/admin/users/${view.userId}/notification-settings`;
     case 'admin-departments':
@@ -2624,6 +2625,7 @@ function QmsAppShellContent({
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-users' ? (
         <AdminUsersPage
           developmentUserKey={developmentUserKey}
+          filter={view.filter}
           onOpenNotificationSettings={(userId) => setView({ kind: 'admin-user-notification-preferences', userId })}
         />
       ) : null}
@@ -3764,9 +3766,11 @@ function summarizeBulkAction(result: AdminBulkActionResponse, fallback: string) 
 
 function AdminUsersPage({
   developmentUserKey,
+  filter,
   onOpenNotificationSettings
 }: {
   developmentUserKey: string;
+  filter?: 'approval-pending';
   onOpenNotificationSettings: (userId: string) => void;
 }) {
   const [state, setState] = useState<LoadState<AdminUsersResponse>>({ kind: 'loading' });
@@ -3783,17 +3787,17 @@ function AdminUsersPage({
 
   const load = useCallback(() => {
     setState({ kind: 'loading' });
-    getAdminUsers(developmentUserKey)
+    getAdminUsers(developmentUserKey, filter)
       .then((data) => {
         setState({ kind: 'ready', data });
         setSelectedUserIds([]);
       })
       .catch((error: unknown) => setState(toLoadError(error, '사용자 목록을 불러올 수 없습니다.')));
-  }, [developmentUserKey]);
+  }, [developmentUserKey, filter]);
 
   useEffect(() => {
     let cancelled = false;
-    getAdminUsers(developmentUserKey)
+    getAdminUsers(developmentUserKey, filter)
       .then((data) => {
         if (!cancelled) {
           setState({ kind: 'ready', data });
@@ -3809,7 +3813,7 @@ function AdminUsersPage({
     return () => {
       cancelled = true;
     };
-  }, [developmentUserKey]);
+  }, [developmentUserKey, filter]);
 
   const startEdit = (user: AdminUser) => {
     setEditingUserId(user.userId);
@@ -3957,7 +3961,9 @@ function AdminUsersPage({
     }
   };
 
-  const visibleUsers = state.kind === 'ready' ? state.data.users : [];
+  const visibleUsers = state.kind === 'ready'
+    ? state.data.users.filter((user) => filter !== 'approval-pending' || user.approvalPending)
+    : [];
   const selectableUserIds = visibleUsers.filter((user) => !user.isReadOnly).map((user) => user.userId);
   const allUsersSelected = selectableUserIds.length > 0 && selectableUserIds.every((id) => selectedUserIds.includes(id));
   const draftDefaultRoleCode = state.kind === 'ready'
@@ -3969,10 +3975,14 @@ function AdminUsersPage({
       <DsPageHeader
         className="page-header"
         eyebrow="System Administrator"
-        title="사용자 관리"
+        title={filter === 'approval-pending' ? '승인 대기 사용자' : '사용자 관리'}
         actions={<button type="button" onClick={load}>새로고침</button>}
       />
-      <p className="muted-text">부서를 선택하면 기본 역할이 자동 지정됩니다. 부서장 체크 시 양식관리 대상 부서에는 승인 권한도 함께 부여되며, 한 부서에 여러 명을 지정할 수 있습니다. Dev 사용자는 읽기 전용입니다.</p>
+      <p className="muted-text">
+        {filter === 'approval-pending'
+          ? '역할이 아직 부여되지 않은 활성 Microsoft 사용자만 표시합니다. 부서와 역할을 지정하면 승인 대기 목록에서 제외됩니다.'
+          : '부서를 선택하면 기본 역할이 자동 지정됩니다. 부서장 체크 시 양식관리 대상 부서에는 승인 권한도 함께 부여되며, 한 부서에 여러 명을 지정할 수 있습니다. Dev 사용자는 읽기 전용입니다.'}
+      </p>
       {isMobile ? (
         <button
           type="button"
@@ -3985,7 +3995,7 @@ function AdminUsersPage({
         </button>
       ) : null}
       <ActionFeedback message={message} tone={message.includes('없습니다') || message.includes('수 없습니다') ? 'error' : message ? 'success' : 'neutral'} />
-      {state.kind === 'ready' ? (
+      {state.kind === 'ready' && visibleUsers.length > 0 ? (
         <SelectedExportTray
           developmentUserKey={developmentUserKey}
           screen="admin-users"
@@ -3998,7 +4008,7 @@ function AdminUsersPage({
           onClear={() => setSelectedUserIds([])}
         />
       ) : null}
-      {state.kind === 'ready' ? (
+      {state.kind === 'ready' && visibleUsers.length > 0 ? (
         <div className="bulk-action-bar">
           <span>선택 {selectedUserIds.length}건</span>
           <button type="button" onClick={() => void bulkDeleteUsers()} disabled={selectedUserIds.length === 0}>선택 삭제</button>
@@ -4007,7 +4017,12 @@ function AdminUsersPage({
       ) : null}
       {state.kind === 'loading' ? <p>사용자 목록을 불러오는 중입니다.</p> : null}
       {state.kind !== 'loading' && state.kind !== 'ready' ? <StateMessage state={state} /> : null}
-      {state.kind === 'ready' ? (
+      {state.kind === 'ready' && visibleUsers.length === 0 ? (
+        <p className="empty-text">
+          {filter === 'approval-pending' ? '현재 승인 대기 중인 사용자가 없습니다.' : '표시할 사용자가 없습니다.'}
+        </p>
+      ) : null}
+      {state.kind === 'ready' && visibleUsers.length > 0 ? (
         <div className="table-scroll">
           <table>
             <thead>
@@ -4031,7 +4046,7 @@ function AdminUsersPage({
               </tr>
             </thead>
             <tbody>
-              {state.data.users.map((user) => {
+              {visibleUsers.map((user) => {
                 const editing = editingUserId === user.userId;
                 return (
                   <tr key={user.userId}>
@@ -4723,7 +4738,7 @@ function AdminDashboardPage({
         <DsKpiGrid className="admin-dashboard-grid">
           <DsKpiCard className="admin-dashboard-card" label="승인 대기 사용자" value={<>{state.data.pendingUserCount}건</>}>
             <p>역할이 부여되지 않은 Entra 사용자입니다.</p>
-            <button type="button" onClick={() => onNavigate({ kind: 'admin-users' })}>사용자 관리</button>
+            <button type="button" onClick={() => onNavigate({ kind: 'admin-users', filter: 'approval-pending' })}>승인 대기 사용자 보기</button>
           </DsKpiCard>
           <DsKpiCard className="admin-dashboard-card" tone="danger" label="발송 실패" value={<>{state.data.failedDeliveryCount}건</>}>
             <p>외부 알림 발송이 실패한 건입니다. 상세에서 실패 채널, 수신자, 오류 사유를 확인하세요.</p>
@@ -4736,13 +4751,6 @@ function AdminDashboardPage({
           <DsKpiCard className="admin-dashboard-card" tone="warning" label="발송 처리 중" value={<>{state.data.processingDeliveryCount}건</>}>
             <p>한 worker가 claim lease 안에서 처리 중인 외부 알림입니다.</p>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Processing' })}>처리 중 알림 보기</button>
-          </DsKpiCard>
-          <DsKpiCard className="admin-dashboard-card" label="발송 완료" value={<>{state.data.sentDeliveryCount}건</>}>
-            <p>외부 provider가 요청을 수락해 완료된 알림입니다.</p>
-            <button type="button" onClick={() => onNavigate({ kind: 'admin-notification-deliveries', status: 'Sent' })}>완료 알림 보기</button>
-          </DsKpiCard>
-          <DsKpiCard className="admin-dashboard-card" label="마지막 일일 요약" value={formatNullableDateTime(state.data.lastDailyDigestSentAtUtc)}>
-            <p>Daily Digest가 마지막으로 발송 또는 dry-run 처리된 시각입니다.</p>
           </DsKpiCard>
           <DsKpiCard className="admin-dashboard-card admin-dashboard-card-wide" tone="warning" label="진행 중 에스컬레이션" value={<>{state.data.activeEscalationCount}건</>}>
             <p>예정일 임박 또는 초과 상태로 아직 해소되지 않은 업무입니다. 완료/취소 시 해소됩니다.</p>
@@ -4759,10 +4767,6 @@ function AdminDashboardPage({
               ))}
             </div>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-work-item-escalations', status: 'Active' })}>진행 중 에스컬레이션 보기</button>
-          </DsKpiCard>
-          <DsKpiCard className="admin-dashboard-card" label="최근 기준정보 변경" value={<>{state.data.recentMasterChangeCount}건</>}>
-            <p>최근 7일 기준정보 변경 이력입니다.</p>
-            <button type="button" onClick={() => onNavigate({ kind: 'admin-master-change-logs' })}>변경 이력 보기</button>
           </DsKpiCard>
         </DsKpiGrid>
       ) : null}

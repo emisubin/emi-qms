@@ -1017,6 +1017,7 @@ Excel 출력 대상 후보:
 | 3.2 | TASK-012A 후속 품질 | NEW_FEATURE | Canonical Pending / Experiment Complete | 본체와 Change 003~005 Checklist/Aggregate·Pending 재검사·사진 필수 LQC/OQC 항목의 inline 사진·서버 확정 검증·사용자 검수 완료 / `USER_VALIDATION_COMPLETE` | TASK-009A·011A experiment scope 완료 | 실제 LQC/OQC/FAT 양식 content는 template 입력 후속 | Yes | 완료 scope 재구현 금지; 현업 content는 별도 change |
 | 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Experiment Complete | 2-pass planning·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-009A·011A·012A experiment model | 실제 운영 양식 content 입력은 후속 change | Yes | 재구현 금지; 최종 일괄 검수 |
 | 3.3D | TASK-ADMIN-003 사용자 부서·역할·부서장 연결 보정 | P2_REMEDIATION | Production Rollout Complete | 표준 10개 한글 부서·부서 기본 역할·복수 부서장과 기존 양식관리 binding·audit 동기화를 구현하고 사용자 검수·PR #93 CI·main 병합·migration `0072`·Backend/Frontend 운영 교체를 완료 | TASK-ADMIN-001 사용자·부서 관리, TASK-ADMIN-002 양식관리 binding, migration `0071` | 없음 | Yes | 운영 사용자 등록·부서장 권한 관찰 |
+| 3.3I | TASK-ADMIN-001 Change 001 관리자 홈 조치 항목 정리 | BUGFIX | User Validation Complete / Publication Approved | 조치 가치가 낮은 KPI 3개를 홈에서 제거하고 승인 대기 카드가 활성 Entra·역할 없음 사용자만 여는 전용 필터로 이동하도록 구현·검증·사용자 검수 완료 | TASK-ADMIN-001·TASK-ADMIN-003 | 없음 | Yes | 단일 통합 PR `CI Gate` → Azure 공개배포 |
 | 3.3A | TASK-PRODUCTION-CONTROL-001 Item별 생산계획·자동 실적·가로 막대 일정 | NEW_FEATURE / BUGFIX | Change 010 Main Merged / Azure Released | 본체와 Change 002~009의 원격 main 반영·사용자 검수 완료. Change 010은 같은 현재 양식의 후행 재선택이 빠른 편집 진입을 취소하던 P2를 최소 보정하고 PR #81·main CI 뒤 Change 020 Azure 운영 image에 동기화 | TASK-ADMIN-002·생산계획·구매·자재·제조·품질·물류 원본 데이터 | 기존 프로젝트는 Legacy/snapshot 유지 | Yes | 운영 관찰. 제품 다음 Gate는 별도 승인 Task |
 | 3.3B | TASK-UL891-PRODUCTION-PLAN-001 실물 세트별 생산계획 | NEW_FEATURE | Change 004 Main Merged / Azure Released / User Validation Complete | Fable 2-pass 본체와 Change 002~008의 전체 세트 기본계획·실적 연결 편집·일정표 색/날짜선/테두리·담당자 표시를 통합 원격 `main` 기준선에 이식. UL891 단일 현재 설계·활성 42면 projection·migration `0068`과 제조·품질·물류 현재 순번 `1..42`·영구 code `P52` 분리를 자동·실제 화면에서 검증. Change 020 최신 main 운영 release로 통합 image 동기화 완료 | TASK-PRODUCTION-CONTROL-001·TASK-UL891-SET-001·DESIGN-000 Change 006·TASK-EXPERIMENT-PROMOTION-001 Change 002 | 없음. 운영 관찰 유지 | Yes | 완료 scope 재구현 금지; 운영 관찰 |
 | 3.3C | TASK-TEAMS-PWA-001 — Teams 실행 화면·PWA 설치·브랜드 통일 | BUGFIX / P2_REMEDIATION | Change 011 Production Rollout Complete | Change 001~003·007·009·010·011 운영 rollout 완료. 새 웹 제품 logo, 로그인 보안 안내와 오산·청주 회사 footer를 반영하고 PWA·Teams icon을 보존했으며 사용자 검수·PR #93·Azure release `31452524156` 완료 | Azure Easy Auth·Teams Activity 10종·기존 웹 MSAL·PWA icon·TASK-DESIGN-LOGIN-001 Change 010·TASK-ADMIN-003 통합 branch | Web Push는 별도 NEW_FEATURE | Yes | 운영 PC·모바일 브랜드·footer 관찰 |
@@ -1113,12 +1114,13 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 
 ### TASK-ADMIN-001: 관리자 기준정보 페이지
 
-- 상태: 완료
+- 상태: 본체 완료 / Change 001 사용자 검수 완료·통합 게시 승인
 - 목적: 시스템 관리 중심의 관리자 홈과 사용자/부서/휴일/이력/모니터 화면을 제공한다.
 - 포함 범위: 관리자 홈, 사용자 관리 재사용/확장, 부서 관리, 휴일 관리 재사용, 삭제 예정/복구/일괄 action, 권한 매트릭스 read-only, 기준정보 변경 이력, 업무 시작/완료 이력, 알림 발송 상태 조회와 실패/대기 상세 추적, 에스컬레이션 상태 조회와 L0~L3 breakdown, 부서 field-level validation
 - 제외 범위: Item 관리, 포장방식 관리, 생산계획 단계 관리, 구매 필수 항목 관리, 권한 편집, role master 편집, Pending/검사/제조 템플릿, due_date 정책 관리, Teams Activity actual
 - 선행조건: 권한/관리자 정책 확정
 - 주요 테스트: backend 전체 test, Admin targeted tests, Migration tests, Authorization tests, Calendar/Holiday tests, User/Identity tests, frontend lint/typecheck/unit/build, mock UI smoke, Full-Stack E2E, UAT admin browser/deletion smoke, secret scan
+- Change 001: 관리자 홈에서 `발송 완료`, `마지막 일일 요약`, `최근 기준정보 변경` KPI와 불필요한 집계를 제거했다. 원본 알림·Daily Digest·기준정보 변경 이력 기능은 보존한다. 승인 대기 KPI는 `/admin/users?filter=approval-pending`으로 이동해 활성 Entra 사용자 중 역할이 없는 사용자만 표시하며, 일반 사용자 관리는 전체 목록을 유지한다.
 
 ### BASELINE-GOV-001: 개인정보 및 Task 거버넌스 기준선 정비
 
@@ -2229,6 +2231,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-11 | `TASK-NOTIFY-POLICY-001`에서 자동 업무·Pending·프로젝트 lifecycle 채널과 수신자, 복수 부서장 fallback, 일정 원본 due_date, 평일 Digest와 L0·L1을 확정 | 인앱·Teams·메일·PWA가 서로 다른 수신자를 만들거나 제조 중단·묶음 작업이 중복 알림을 만드는 문제를 막고, 담당자 부재와 기한 알림을 실제 부서·일정 원본에 맞추기 위함. 새 TeamsChannel과 L2·L3 확대 발송은 중단하되 과거 schema·handler·이력은 보존 | 3.3G, TASK-NOTIFY-POLICY-001 planning·review·Change 001 |
 | 2026-08-12 | `TASK-PWA-PUSH-001`·`TASK-NOTIFY-POLICY-001`의 사용자 화면 검수를 완료하고 원격 `main` 병합과 `TASK-AZURE-DEPLOY-001 Change 022` 공개 배포를 승인 | 구버전 영업·관리자 fallback 문구를 현재의 복수 부서장 공유·미등록 차단 규칙으로 정합화하고, migration `0074`·`0075`와 Backend·Frontend를 필수 `CI Gate` 뒤 exact main SHA로 운영 반영하기 위함. 새 Web Push 실제 provider는 운영 key·실기기 검수 전 중지·시험 모드를 유지 | 3.3F·3.3G·6.2, TASK-NOTIFY-POLICY-001 Change 002, TASK-AZURE-DEPLOY-001 Change 022 |
 | 2026-08-12 | `TASK-PROJECT-PENDING-001`에서 LSE TASK NO와 부서별 Pending·오픈/종결 구분을 한 Task로 구현하고 공개배포는 우선순위 3 뒤로 묶는다 | 단순 기본정보 필드와 같은 Pending 조회 화면을 함께 검수하되, 전체 화면은 운영 부서의 오픈 업무 집중에 맞추고 프로젝트 화면은 타 부서 조치를 숨기지 않도록 전체 범위를 기본값으로 유지하기 위함. 현재 흑백 wireframe과 일반 테두리를 재사용하고 강조선은 추가하지 않는다. | 3.3H, TASK-PROJECT-PENDING-001 planning·implementation report |
+| 2026-08-12 | `TASK-ADMIN-001 Change 001`로 관리자 홈을 조치 대상 중심으로 정리하고 승인 대기 사용자 전용 목록을 추가 | 완료 발송·마지막 일일 요약·최근 기준정보 변경은 관리자 홈의 즉시 조치 KPI로서 가치가 낮고, 기존 승인 대기 카드가 전체 사용자 목록으로 이동해 실제 대상을 구분하기 어려웠기 때문. 알림·Digest·변경 이력 원본 기능과 일반 전체 사용자 관리는 보존한다. | 23장~25장, TASK-ADMIN-001 Change 001 |
 
 ## 26. 용어 사전
 

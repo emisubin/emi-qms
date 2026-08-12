@@ -653,8 +653,14 @@ export async function getHomeDepartmentMetrics(
   return fetchJson<HomeMetricsResponse>('/api/home/department-metrics', developmentUserKey);
 }
 
-export async function getAdminUsers(developmentUserKey?: string): Promise<AdminUsersResponse> {
-  return fetchJson<AdminUsersResponse>('/api/admin/users', developmentUserKey);
+export async function getAdminUsers(
+  developmentUserKey?: string,
+  filter?: 'approval-pending'
+): Promise<AdminUsersResponse> {
+  return fetchJson<AdminUsersResponse>(
+    `/api/admin/users${filter === 'approval-pending' ? '?filter=approval-pending' : ''}`,
+    developmentUserKey
+  );
 }
 
 export async function getNotificationPreferences(

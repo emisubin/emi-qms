@@ -155,10 +155,7 @@ export interface AdminDashboardResponse {
   failedDeliveryCount: number;
   pendingDeliveryCount: number;
   processingDeliveryCount: number;
-  sentDeliveryCount: number;
-  lastDailyDigestSentAtUtc: string | null;
   activeEscalationCount: number;
-  recentMasterChangeCount: number;
   activeEscalationLevels: AdminDashboardEscalationLevel[];
 }
 

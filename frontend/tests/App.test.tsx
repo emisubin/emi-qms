@@ -1196,7 +1196,20 @@ describe('App', () => {
     expect(screen.getByText('발송 실패')).toBeInTheDocument();
     expect(screen.getByText('L0 예정일 임박')).toBeInTheDocument();
     expect(screen.getByText('L1 초과')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '실패 알림 보기' }));
+    expect(screen.queryByText('발송 완료')).not.toBeInTheDocument();
+    expect(screen.queryByText('마지막 일일 요약')).not.toBeInTheDocument();
+    expect(screen.queryByText('최근 기준정보 변경')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '승인 대기 사용자 보기' }));
+    expect(await screen.findByRole('heading', { name: '승인 대기 사용자' })).toBeInTheDocument();
+    expect(screen.getByText('Entra Pending User')).toBeInTheDocument();
+    expect(screen.queryByText('Entra Sales User')).not.toBeInTheDocument();
+    expect(screen.queryByText('Dev System Administrator')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/admin/users');
+    expect(window.location.search).toBe('?filter=approval-pending');
+
+    fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
+    fireEvent.click(await screen.findByRole('button', { name: '실패 알림 보기' }));
     expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
     expect(screen.getByText('현재 필터:')).toBeInTheDocument();
     expect(screen.getAllByText('발송 실패').length).toBeGreaterThan(0);
@@ -3268,12 +3281,12 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (path.startsWith('/api/admin/users')) {
     const updated = init?.method === 'PATCH';
+    const approvalPendingFilter = new URL(String(input), 'http://localhost').searchParams.get('filter') === 'approval-pending';
     if (path.endsWith('/schedule-deletion')) {
       adminUserDeletionScheduled = true;
     }
     const scheduledDeletion = adminUserDeletionScheduled;
-    return json({
-      users: [
+    const adminUsers = [
         {
           userId: '50000000-0000-0000-0000-000000000002',
           developmentUserKey: '',
@@ -3339,8 +3352,32 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
           lifecycleStatus: 'Active',
           lifecycleStatusLabel: '활성',
           scheduledHardDeleteLabel: null
+        },
+        {
+          userId: '50000000-0000-0000-0000-000000000004',
+          developmentUserKey: '',
+          displayName: 'Entra Pending User',
+          email: 'pending@example.invalid',
+          authProvider: 'EntraId',
+          isActive: true,
+          approvalPending: true,
+          departmentId: null,
+          departmentCode: null,
+          departmentName: null,
+          roles: [],
+          isReadOnly: false,
+          isDepartmentHead: false,
+          deletionRequestedAtUtc: null,
+          scheduledHardDeleteAtUtc: null,
+          purgeBlockedAtUtc: null,
+          purgeBlockedReason: null,
+          lifecycleStatus: 'Active',
+          lifecycleStatusLabel: '활성',
+          scheduledHardDeleteLabel: null
         }
-      ],
+      ];
+    return json({
+      users: approvalPendingFilter ? adminUsers.filter((user) => user.approvalPending) : adminUsers,
       departments: [
         { departmentId: '10000000-0000-0000-0000-000000000001', code: 'administration', name: '관리', defaultRoleCode: 'system-administrator' },
         { departmentId: '10000000-0000-0000-0000-000000000002', code: 'sales', name: '영업', defaultRoleCode: 'sales' }
@@ -3358,10 +3395,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       failedDeliveryCount: 2,
 	      pendingDeliveryCount: 3,
       processingDeliveryCount: 1,
-      sentDeliveryCount: 8,
-	      lastDailyDigestSentAtUtc: '2026-07-07T07:30:00Z',
 	      activeEscalationCount: 4,
-	      recentMasterChangeCount: 5,
 	      activeEscalationLevels: [
 	        { level: 'L0', label: '예정일 임박', count: 1 },
 	        { level: 'L1', label: '예정일 초과', count: 2 },

@@ -35,6 +35,233 @@
     sans-serif;
 }
 
+/* TASK-PANEL-DESIGN-001: existing monochrome wireframe language, without accent rails. */
+.panel-required-guide {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 18px;
+  margin: 10px 0 14px;
+  border-top: 1px solid #d9d9de;
+  border-bottom: 1px solid #d9d9de;
+  padding: 12px 2px;
+  color: #4d4c54;
+  font-size: 0.78rem;
+}
+
+.panel-required-guide strong {
+  color: #171717;
+  font-size: 0.84rem;
+}
+
+.panel-required-guide small {
+  grid-column: 1 / -1;
+  color: #74737c;
+}
+
+.panel-group-toolbar {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+  border: 1px solid #d9d9de;
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 7px 9px;
+}
+
+.panel-group-toolbar > span {
+  color: #55545d;
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.panel-group-toolbar > div {
+  display: flex;
+  gap: 6px;
+}
+
+.panel-info-table-head,
+.panel-info-table-row {
+  grid-template-columns: 50px 70px minmax(142px, 1.15fr) minmax(130px, 1fr) repeat(3, minmax(72px, 0.58fr)) minmax(145px, 1fr) minmax(88px, 0.7fr) minmax(78px, 0.62fr);
+  min-width: 1130px;
+}
+
+.panel-select-cell {
+  display: grid;
+  place-items: center;
+}
+
+.panel-select-cell input,
+.panel-mobile-selection input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #171717;
+}
+
+.panel-size-heading,
+.panel-mobile-size-heading,
+.panel-mobile-selection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.panel-mobile-selection {
+  color: #55545d;
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.panel-mobile-size-heading {
+  margin-top: 4px;
+}
+
+.panel-size-info-tip {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+
+.panel-size-info-tip > button {
+  display: grid;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  place-items: center;
+  border: 1px solid #77777f;
+  border-radius: 50%;
+  background: #ffffff;
+  padding: 0;
+  color: #3f3e45;
+  font: 800 0.68rem/1 inherit;
+}
+
+.panel-size-info-tip > span {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  z-index: calc(var(--z-sticky) + 1);
+  display: none;
+  width: 270px;
+  transform: translateX(-50%);
+  border: 1px solid #252525;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 9px 10px;
+  color: #202020;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.45;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 8%);
+}
+
+.panel-size-info-tip:hover > span,
+.panel-size-info-tip:focus-within > span {
+  display: block;
+}
+
+.panel-group-cell {
+  color: #333239;
+  font-size: 0.72rem;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.product-panel-table-head,
+.product-panel-row {
+  grid-template-columns: 60px minmax(138px, 1.05fr) minmax(125px, 0.95fr) minmax(170px, 1.1fr) minmax(98px, 0.72fr) minmax(88px, 0.66fr) minmax(112px, 0.82fr);
+  min-width: 930px;
+}
+
+.panel-info-section .excel-preview-table .excel-preview-row {
+  grid-template-columns: 68px 76px minmax(130px, 1fr) minmax(120px, 0.9fr) minmax(150px, 1.05fr) 90px minmax(120px, 1fr);
+  min-width: 860px;
+}
+
+.product-panel-group {
+  display: grid;
+  gap: 6px;
+  border: 2px solid #202020;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 7px;
+}
+
+.product-panel-group-summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px 16px;
+  border-bottom: 1px solid #d5d5da;
+  padding: 3px 4px 9px;
+  color: #35343b;
+  font-size: 0.76rem;
+}
+
+.product-panel-group-summary strong {
+  color: #171717;
+  font-size: 0.82rem;
+}
+
+.product-panel-group-summary small {
+  grid-column: 1 / -1;
+  color: #73727b;
+}
+
+.product-panel-group .product-panel-row {
+  border-color: #d5d5da;
+  box-shadow: none;
+}
+
+.product-panel-group-mobile {
+  gap: 8px;
+}
+
+@media (max-width: 700px) {
+  .panel-required-guide {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .panel-required-guide small {
+    grid-column: auto;
+  }
+
+  .panel-group-toolbar {
+    display: grid;
+  }
+
+  .panel-group-toolbar > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel-group-toolbar button {
+    width: 100%;
+  }
+
+  .panel-size-info-tip > span {
+    right: 0;
+    left: auto;
+    width: min(250px, calc(100vw - 56px));
+    transform: none;
+  }
+
+  .product-panel-group-summary {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .product-panel-group-summary small {
+    grid-column: auto;
+  }
+}
+
 .web-push-settings {
   display: grid;
   gap: 16px;
@@ -22959,5 +23186,92 @@ body {
 
   .pwa-install-dialog {
     max-height: 94dvh;
+  }
+}
+
+/* Keep panel design overrides after the application skin so the wireframe grid remains canonical. */
+.panel-info-table-head,
+.panel-info-table-row {
+  grid-template-columns: 50px 70px minmax(142px, 1.15fr) minmax(130px, 1fr) repeat(3, minmax(72px, 0.58fr)) minmax(145px, 1fr) minmax(88px, 0.7fr) minmax(78px, 0.62fr);
+  min-width: 1130px;
+}
+
+.product-panel-table-head,
+.product-panel-row {
+  grid-template-columns: 60px minmax(138px, 1.05fr) minmax(125px, 0.95fr) minmax(170px, 1.1fr) minmax(98px, 0.72fr) minmax(88px, 0.66fr) minmax(112px, 0.82fr);
+  min-width: 930px;
+}
+
+.app-shell .product-panel-table > .product-panel-group {
+  border: 2px solid #202020 !important;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.product-panel-group .product-panel-row,
+.product-panel-group .product-panel-row:hover {
+  border-color: #d5d5da;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.panel-required-guide,
+.panel-group-toolbar,
+.panel-info-section .panel-info-table-head,
+.panel-info-section .panel-info-table-row,
+.panel-info-section .product-panel-table-head,
+.panel-info-section > .product-panel-table > .product-panel-row {
+  border-color: #d9d9de;
+  background: #ffffff;
+  color: #282828;
+  box-shadow: none;
+}
+
+.panel-info-section .panel-info-table-head,
+.panel-info-section .product-panel-table-head {
+  background: #f4f4f7;
+  color: #55545d;
+}
+
+.panel-info-section .panel-info-table-row:hover,
+.panel-info-section .product-panel-row:hover {
+  border-color: #b9b9c0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.panel-required-guide {
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+
+.panel-info-section .panel-group-toolbar button {
+  border-color: #b9b9c0;
+  background: #ffffff;
+  color: #282828;
+  box-shadow: none;
+}
+
+.panel-info-section .panel-group-toolbar button:enabled:hover {
+  border-color: #282828;
+  background: #f4f4f7;
+}
+
+.panel-info-section .panel-group-toolbar button:disabled {
+  border-color: #dedee3;
+  background: #f7f7f8;
+  color: #a0a0a7;
+}
+
+@media (max-width: 700px) {
+  .panel-required-guide,
+  .product-panel-group-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-required-guide small,
+  .product-panel-group-summary small {
+    grid-column: auto;
   }
 }

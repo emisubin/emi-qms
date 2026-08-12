@@ -7,6 +7,7 @@ namespace Emi.Qms.Api.PanelInformation;
 public static partial class PanelInformationDomain
 {
     public const int PanelNameMaxLength = 200;
+    public const int DrawingNumberMaxLength = 200;
     public const decimal MaxDimensionMm = 100000m;
     public const decimal InchToMm = 25.4m;
     public const int MaxExcelRows = 500;
@@ -61,6 +62,11 @@ public static partial class PanelInformationDomain
     {
         var trimmed = ProjectInputNormalizer.TrimToNull(value);
         return trimmed is null ? null : trimmed;
+    }
+
+    public static string? NormalizeDrawingNumber(string? value)
+    {
+        return ProjectInputNormalizer.TrimToNull(value);
     }
 
     public static string? NormalizeDuplicateName(string? value)
@@ -144,6 +150,10 @@ public sealed record NormalizedPanelInformationUpdateItem(
     int ExpectedPanelInfoVersion,
     bool PanelNameChanged,
     string? PanelName,
+    bool DrawingNumberChanged,
+    string? DrawingNumber,
+    bool GroupNumberChanged,
+    int? PanelGroupNumber,
     bool SizeChanged,
     decimal? WidthMm,
     decimal? HeightMm,
@@ -204,6 +214,24 @@ public static class PanelInformationRequestValidator
                 continue;
             }
 
+            var drawingNumberChanged = panel.DrawingNumberUpdate?.IsChanged == true;
+            var drawingNumber = drawingNumberChanged
+                ? PanelInformationDomain.NormalizeDrawingNumber(panel.DrawingNumberUpdate?.Value)
+                : null;
+            if (drawingNumberChanged && drawingNumber is not null && drawingNumber.Length > PanelInformationDomain.DrawingNumberMaxLength)
+            {
+                validation.Add($"{fieldPrefix}.DrawingNumberUpdate.Value", $"도번은 최대 {PanelInformationDomain.DrawingNumberMaxLength}자까지 입력할 수 있습니다.");
+                continue;
+            }
+
+            var groupNumberChanged = panel.GroupNumberUpdate?.IsChanged == true;
+            var panelGroupNumber = groupNumberChanged ? panel.GroupNumberUpdate?.Value : null;
+            if (groupNumberChanged && panelGroupNumber is <= 0)
+            {
+                validation.Add($"{fieldPrefix}.GroupNumberUpdate.Value", "패널 열반 번호는 1 이상의 정수여야 합니다.");
+                continue;
+            }
+
             var sizeChanged = panel.SizeUpdate?.IsChanged == true;
             var sizeInputUnit = (string?)null;
             NormalizedPanelSize? size = null;
@@ -241,6 +269,10 @@ public static class PanelInformationRequestValidator
                 panel.ExpectedPanelInfoVersion.Value,
                 panelNameChanged,
                 panelName,
+                drawingNumberChanged,
+                drawingNumber,
+                groupNumberChanged,
+                panelGroupNumber,
                 sizeChanged,
                 size?.WidthMm,
                 size?.HeightMm,

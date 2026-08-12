@@ -97,6 +97,45 @@ test('TASK-003B-1 A: read/detail split keeps detail fixed and edit page accepts 
   await expect(page.getByLabel('No.2 패널명')).toHaveValue('PNL-1');
 });
 
+test('TASK-PANEL-DESIGN-001: drawing numbers and panel rows persist and display their full combined size', async ({ page, request }) => {
+  const unique = Date.now();
+  const projectTitle = `Panel Design Group ${unique}`;
+  const projectId = await createProjectByApi(request, `PANEL-GROUP-${unique}`, projectTitle, 'WoodenCrate', 3);
+
+  await page.goto('/projects');
+  await page.getByLabel('개발 사용자').selectOption('dev-design');
+  await openProject(page, projectTitle);
+  await page.getByRole('button', { name: '패널명·사이즈 수정' }).click();
+  await expect(page.getByLabel('이 프로젝트의 설계 필수 입력값')).toContainText('패널명 · W · H · D');
+  await expect(page.getByRole('button', { name: '사이즈 입력 안내' }).first()).toHaveAttribute('title', '포장 업무에 필요한 패널의 최외곽 사이즈를 기재해주세요.');
+
+  await page.getByLabel('No.1 패널명').fill('GROUP-A');
+  await page.getByLabel('No.1 도번').fill('DWG-A');
+  await page.getByLabel('No.1 W').fill('800');
+  await page.getByLabel('No.1 H').fill('1800');
+  await page.getByLabel('No.1 D').fill('400');
+  await page.getByLabel('No.2 패널명').fill('GROUP-B');
+  await page.getByLabel('No.2 도번').fill('DWG-B');
+  await page.getByLabel('No.2 W').fill('900');
+  await page.getByLabel('No.2 H').fill('1700');
+  await page.getByLabel('No.2 D').fill('350');
+  await page.getByLabel('No.1 열반 선택').check();
+  await page.getByLabel('No.2 열반 선택').check();
+  await page.getByRole('button', { name: '선택 패널 열반' }).click();
+  await expect(page.getByTestId('panel-info-edit-desktop').getByText('열반 1 · 1700 × 1800 × 400 mm')).toHaveCount(2);
+  await page.getByRole('button', { name: '직접 입력 저장' }).click();
+
+  const designTable = page.getByRole('table', { name: '설계' });
+  const groupedBlock = designTable.locator('.product-panel-group');
+  await expect(groupedBlock).toHaveCount(1);
+  await expect(groupedBlock).toContainText('열반 사이즈 1700 × 1800 × 400 mm');
+  await expect(groupedBlock).toContainText('DWG-A');
+  await expect(groupedBlock).toContainText('800 × 1800 × 400 mm');
+  await expect(groupedBlock).toContainText('DWG-B');
+  await expect(groupedBlock).toContainText('900 × 1700 × 350 mm');
+  expect(await queryDatabaseValue(`select count(*)::text from panel_placeholders where project_id = '${projectId}' and panel_group_number = 1 and drawing_number in ('DWG-A','DWG-B');`)).toBe('2');
+});
+
 test('TASK-003B B: WoodenCrate name-only is QR eligible and unit switch does not drift size', async ({ page, request }) => {
   const unique = Date.now();
   const projectTitle = `TASK 003B Drift ${unique}`;
@@ -1099,7 +1138,7 @@ test('TASK-003B-1 D: admin grouped history summarizes one direct bulk save', asy
   await page.getByText('변경 상세').first().click();
   await expect(page.getByText('No.1 · GROUP-1').first()).toBeVisible();
   await expect(page.getByText('No.2 · GROUP-2').first()).toBeVisible();
-  await expect(page.getByText('WidthMm: → 800').first()).toBeVisible();
+  await expect(page.getByText('W: → 800').first()).toBeVisible();
 });
 
 test('TASK-003B-1 C: partial Excel preview/apply skips blank rows and admin sees grouped audit', async ({ page, request }, testInfo) => {

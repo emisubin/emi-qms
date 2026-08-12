@@ -384,6 +384,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
         manufacturingCompletedCount: 0,
         inspectionCompletedCount: 0,
         duplicatePanelNameGroupCount: 0,
+        supportsPanelGrouping: true,
         projectPanelInformationCompleted: false,
         panelInformationStatusMessage: null,
         panels: panels.map((panel) => ({
@@ -393,6 +394,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
           panelNumber: `No.${panel.sequenceNumber}`,
           displayCode: panel.displayCode,
           panelName: panel.panelName,
+          drawingNumber: null,
           displayName: `No.${panel.sequenceNumber} · ${panel.panelName ?? '패널명 미입력'}`,
           widthMm: panel.width,
           heightMm: panel.height,
@@ -403,6 +405,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
           qrEligible: panel.qrEligible,
           hasDuplicateName: false,
           duplicateNameCount: 0,
+          panelGroupNumber: null,
           panelInfoVersion: 0,
           createdAt: panel.createdAt,
           updatedAt: panel.updatedAt,

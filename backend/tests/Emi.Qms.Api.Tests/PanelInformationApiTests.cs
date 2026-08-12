@@ -149,6 +149,160 @@ public sealed class PanelInformationApiTests
         Assert.Equal("Completed", completedDesignStage.GetProperty("status").GetString());
     }
 
+    [Fact]
+    public async Task DesignUser_CanSaveDrawingNumbersAndValidPanelGroupsAtomically()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var created = await CreateProjectAsync(salesClient, "PANEL-GROUP-001", "Panel Drawing Group", "StretchWrap", 3);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        using var before = await ReadPanelInformationAsync(designClient, projectId);
+        Assert.True(before.RootElement.GetProperty("supportsPanelGrouping").GetBoolean());
+        var panels = before.RootElement.GetProperty("panels").EnumerateArray().ToList();
+
+        using var response = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                Panels = panels.Take(2).Select((panel, index) => new
+                {
+                    PanelId = panel.GetProperty("panelId").GetGuid(),
+                    ExpectedPanelInfoVersion = panel.GetProperty("panelInfoVersion").GetInt32(),
+                    DrawingNumberUpdate = new { IsChanged = true, Value = $"DWG-{index + 1}" },
+                    GroupNumberUpdate = new { IsChanged = true, Value = 1 }
+                }).ToArray()
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = await ReadJsonAsync(response);
+        var saved = json.RootElement.GetProperty("panels").EnumerateArray().ToList();
+        Assert.Equal("DWG-1", saved[0].GetProperty("drawingNumber").GetString());
+        Assert.Equal("DWG-2", saved[1].GetProperty("drawingNumber").GetString());
+        Assert.Equal(1, saved[0].GetProperty("panelGroupNumber").GetInt32());
+        Assert.Equal(1, saved[1].GetProperty("panelGroupNumber").GetInt32());
+        Assert.Equal(JsonValueKind.Null, saved[2].GetProperty("panelGroupNumber").ValueKind);
+        Assert.Equal(4, await context.CountPanelAuditEventsAsync(projectId));
+    }
+
+    [Fact]
+    public async Task DesignUser_GroupWithOneActivePanel_IsRejectedWithoutPartialDrawingSave()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var created = await CreateProjectAsync(salesClient, "PANEL-GROUP-INVALID", "Panel Invalid Group", "StretchWrap", 2);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        using var before = await ReadPanelInformationAsync(designClient, projectId);
+        var panel = before.RootElement.GetProperty("panels")[0];
+
+        using var response = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                Panels = new[]
+                {
+                    new
+                    {
+                        PanelId = panel.GetProperty("panelId").GetGuid(),
+                        ExpectedPanelInfoVersion = panel.GetProperty("panelInfoVersion").GetInt32(),
+                        DrawingNumberUpdate = new { IsChanged = true, Value = "MUST-ROLLBACK" },
+                        GroupNumberUpdate = new { IsChanged = true, Value = 7 }
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var after = await ReadPanelInformationAsync(designClient, projectId);
+        Assert.Equal(JsonValueKind.Null, after.RootElement.GetProperty("panels")[0].GetProperty("drawingNumber").ValueKind);
+        Assert.Equal(JsonValueKind.Null, after.RootElement.GetProperty("panels")[0].GetProperty("panelGroupNumber").ValueKind);
+        Assert.Equal(0, await context.CountPanelAuditEventsAsync(projectId));
+    }
+
+    [Fact]
+    public async Task DesignUser_GroupingWithAnyStaleVersion_RollsBackTheWholeRequest()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var created = await CreateProjectAsync(salesClient, "PANEL-GROUP-STALE", "Panel Group Stale", "StretchWrap", 2);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        using var before = await ReadPanelInformationAsync(designClient, projectId);
+        var panels = before.RootElement.GetProperty("panels").EnumerateArray().ToList();
+        await context.TouchPanelVersionAsync(panels[1].GetProperty("panelId").GetGuid());
+
+        using var response = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                Panels = panels.Select((panel, index) => new
+                {
+                    PanelId = panel.GetProperty("panelId").GetGuid(),
+                    ExpectedPanelInfoVersion = panel.GetProperty("panelInfoVersion").GetInt32(),
+                    DrawingNumberUpdate = new { IsChanged = true, Value = $"STALE-{index + 1}" },
+                    GroupNumberUpdate = new { IsChanged = true, Value = 1 }
+                }).ToArray()
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        using var after = await ReadPanelInformationAsync(designClient, projectId);
+        Assert.All(after.RootElement.GetProperty("panels").EnumerateArray(), panel =>
+        {
+            Assert.Equal(JsonValueKind.Null, panel.GetProperty("drawingNumber").ValueKind);
+            Assert.Equal(JsonValueKind.Null, panel.GetProperty("panelGroupNumber").ValueKind);
+        });
+        Assert.Equal(0, await context.CountPanelAuditEventsAsync(projectId));
+    }
+
+    [Fact]
+    public async Task DesignUser_Ul891Project_DoesNotSupportPanelGrouping()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var created = await salesClient.PostAsJsonAsync(
+            "/api/projects",
+            new
+            {
+                CustomerName = "Panel Info Customer",
+                Item = "UL891",
+                ProjectCode = "PANEL-GROUP-UL891",
+                ProjectTitle = "Panel Ul891 Group",
+                PanelCount = (int?)null,
+                DeliveryDate = "2026-10-10",
+                SalesOwnerUserId,
+                PackagingMethod = "StretchWrap",
+                Ul891SetSpecs = new[] { new { Name = "Group Exclusion Set", Quantity = 1, PanelCount = 2 } }
+            },
+            TestContext.Current.CancellationToken);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        using var before = await ReadPanelInformationAsync(designClient, projectId);
+        Assert.False(before.RootElement.GetProperty("supportsPanelGrouping").GetBoolean());
+        var panels = before.RootElement.GetProperty("panels").EnumerateArray().ToList();
+
+        using var response = await designClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/panel-information",
+            new
+            {
+                Panels = panels.Select(panel => new
+                {
+                    PanelId = panel.GetProperty("panelId").GetGuid(),
+                    ExpectedPanelInfoVersion = panel.GetProperty("panelInfoVersion").GetInt32(),
+                    GroupNumberUpdate = new { IsChanged = true, Value = 1 }
+                }).ToArray()
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     [Theory]
     [InlineData("dev-sales", HttpStatusCode.OK)]
     [InlineData("dev-production", HttpStatusCode.OK)]
@@ -254,6 +408,52 @@ public sealed class PanelInformationApiTests
         Assert.Equal(HttpStatusCode.OK, apply.StatusCode);
         Assert.Equal(1, await context.CountExcelImportBatchesAsync(projectId));
         Assert.False(await context.ExcelBinaryColumnExistsAsync());
+    }
+
+    [Fact]
+    public async Task ExcelPreviewAndApply_PersistsDrawingNumber()
+    {
+        await using var context = await PanelInfoTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designClient = context.CreateClient("dev-design");
+        using var created = await CreateProjectAsync(salesClient, "PANEL-EXCEL-DRAWING", "Panel Excel Drawing", "StretchWrap", 1);
+        using var createdJson = await ReadJsonAsync(created);
+        var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
+        var file = CreateExcelFileWithDrawing(["1", "DWG-XLSX-1", "EXCEL-PANEL", "", "", ""]);
+
+        using var previewContent = new MultipartFormDataContent { { new ByteArrayContent(file), "file", "drawing.xlsx" } };
+        using var preview = await designClient.PostAsync(
+            $"/api/projects/{projectId}/panel-information/import/preview",
+            previewContent,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
+        using var previewJson = await ReadJsonAsync(preview);
+        var previewRow = previewJson.RootElement.GetProperty("rows")[0];
+        Assert.Equal("DWG-XLSX-1", previewRow.GetProperty("drawingNumber").GetString());
+        var versions = new[]
+        {
+            new
+            {
+                PanelId = previewRow.GetProperty("panelId").GetGuid(),
+                ExpectedPanelInfoVersion = previewRow.GetProperty("expectedPanelInfoVersion").GetInt32()
+            }
+        };
+
+        using var applyContent = new MultipartFormDataContent
+        {
+            { new ByteArrayContent(file), "file", "drawing.xlsx" },
+            { new StringContent(previewJson.RootElement.GetProperty("fileSha256").GetString()!), "expectedFileSha256" },
+            { new StringContent(previewJson.RootElement.GetProperty("expectedPackagingMethod").GetString()!), "expectedPackagingMethod" },
+            { new StringContent(JsonSerializer.Serialize(versions)), "expectedVersions" }
+        };
+        using var apply = await designClient.PostAsync(
+            $"/api/projects/{projectId}/panel-information/import/apply",
+            applyContent,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, apply.StatusCode);
+        using var appliedJson = await ReadJsonAsync(apply);
+        Assert.Equal("DWG-XLSX-1", appliedJson.RootElement.GetProperty("panels")[0].GetProperty("drawingNumber").GetString());
     }
 
     [Fact]
@@ -1314,14 +1514,15 @@ public sealed class PanelInformationApiTests
         string projectCode,
         string projectTitle,
         string packagingMethod,
-        int panelCount)
+        int panelCount,
+        string item = "UL67")
     {
         return await client.PostAsJsonAsync(
             "/api/projects",
             new
             {
                 CustomerName = "Panel Info Customer",
-                Item = "UL67",
+                Item = item,
                 ProjectCode = projectCode,
                 ProjectTitle = projectTitle,
                 PanelCount = panelCount,
@@ -1391,6 +1592,28 @@ public sealed class PanelInformationApiTests
         worksheet.Cell(1, 3).Value = header.Width;
         worksheet.Cell(1, 4).Value = header.Height;
         worksheet.Cell(1, 5).Value = header.Depth;
+        for (var index = 0; index < rows.Length; index++)
+        {
+            for (var column = 0; column < rows[index].Length; column++)
+            {
+                worksheet.Cell(index + 2, column + 1).Value = rows[index][column];
+            }
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateExcelFileWithDrawing(params string[][] rows)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("Panels");
+        var headers = new[] { "No", "도번", "panel name", "w", "h", "d" };
+        for (var column = 0; column < headers.Length; column++)
+        {
+            worksheet.Cell(1, column + 1).Value = headers[column];
+        }
         for (var index = 0; index < rows.Length; index++)
         {
             for (var column = 0; column < rows[index].Length; column++)

@@ -12,6 +12,14 @@ test('UX-001 A2 mock visual: panel editor validation, Excel feedback, and mobile
   await page.goto(`/projects/${projectId}/panel-information/edit`);
   await expect(page.getByRole('heading', { name: '설계 정보 입력' })).toBeVisible();
   await expect(page.getByTestId('panel-info-edit-desktop')).toBeVisible();
+  await expect(page.getByLabel('이 프로젝트의 설계 필수 입력값')).toContainText('패널명 · W · H · D');
+  const sizeGuideButtons = page.getByRole('button', { name: '사이즈 입력 안내' });
+  expect(await sizeGuideButtons.count()).toBeGreaterThanOrEqual(1);
+  await expect(sizeGuideButtons.first()).toHaveAttribute('title', '포장 업무에 필요한 패널의 최외곽 사이즈를 기재해주세요.');
+  await expect(page.locator('.panel-required-guide')).toHaveCSS('border-left-width', '0px');
+  await expect(page.locator('.panel-required-guide')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.panel-group-toolbar')).toHaveCSS('border-left-style', 'solid');
+  await expect(page.locator('.panel-group-toolbar')).toHaveCSS('border-left-width', '1px');
   await capture(page, '01-panel-editor-desktop-1440.jpg');
 
   await page.getByLabel('No.1 패널명').fill('MCC-A REV');
@@ -36,8 +44,20 @@ test('UX-001 A2 mock visual: panel editor validation, Excel feedback, and mobile
   await expect(page.locator('.app-shell')).toHaveAttribute('data-layout-mode', 'mobile');
   await expect(page.getByTestId('panel-info-edit-mobile')).toBeVisible();
   await expect(page.getByRole('button', { name: '메뉴 열기' })).toBeVisible();
+  await expect(page.getByLabel('이 프로젝트의 설계 필수 입력값')).toBeVisible();
   await assertNoHorizontalOverflow(page);
   await capture(page, '04-panel-editor-mobile-390.jpg');
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/projects/${projectId}`);
+  await page.getByRole('tab', { name: '설계' }).click();
+  const groupedBlock = page.getByTestId('project-panel-list-desktop').locator('.product-panel-group');
+  await expect(groupedBlock).toHaveCount(1);
+  await expect(groupedBlock).toContainText('열반 사이즈 1700 × 1800 × 400 mm');
+  await expect(groupedBlock).toHaveCSS('border-left-width', '2px');
+  await expect(groupedBlock).toHaveCSS('border-left-style', 'solid');
+  await expect(groupedBlock).toHaveCSS('border-left-color', 'rgb(32, 32, 32)');
+  await page.screenshot({ path: '/tmp/panel-design-group-desktop-1440.jpg', animations: 'disabled', fullPage: true });
 });
 
 async function routeApi(page: Page) {
@@ -144,24 +164,26 @@ function project() {
 
 function panelInformation() {
   const panels = Array.from({ length: 3 }, (_, index) => {
-    const completed = index === 0;
+    const completed = index <= 1;
     return {
       panelId: `72000000-0000-0000-0000-00000000002${index + 1}`,
       projectId,
       sequenceNumber: index + 1,
       panelNumber: `No.${index + 1}`,
       displayCode: `P0${index + 1}`,
-      panelName: completed ? 'MCC-A' : null,
-      displayName: completed ? 'No.1 · MCC-A' : `No.${index + 1} · 패널명 미입력`,
-      widthMm: completed ? 800 : null,
-      heightMm: completed ? 1800 : null,
-      depthMm: completed ? 400 : null,
+      panelName: completed ? `MCC-${index === 0 ? 'A' : 'B'}` : null,
+      drawingNumber: completed ? `DWG-${index === 0 ? 'A' : 'B'}` : null,
+      displayName: completed ? `No.${index + 1} · MCC-${index === 0 ? 'A' : 'B'}` : `No.${index + 1} · 패널명 미입력`,
+      widthMm: completed ? 800 + index * 100 : null,
+      heightMm: completed ? 1800 - index * 100 : null,
+      depthMm: completed ? 400 - index * 50 : null,
       panelStatus: 'Active',
       workflowStage: 'BeforeManufacturing',
       panelInfoCompleted: completed,
       qrEligible: completed,
       hasDuplicateName: false,
       duplicateNameCount: 0,
+      panelGroupNumber: completed ? 1 : null,
       panelInfoVersion: completed ? 2 : 0,
       createdAt: '2026-07-19T00:00:00Z',
       updatedAt: '2026-07-19T00:00:00Z',
@@ -172,7 +194,8 @@ function panelInformation() {
   });
   return {
     projectId, projectStatus: 'Active', packagingMethod: 'WoodenCrate', activePanelCount: 3,
-    panelInfoCompletedCount: 1, panelInfoPendingCount: 2, qrEligibleCount: 1,
+    panelInfoCompletedCount: 2, panelInfoPendingCount: 1, qrEligibleCount: 2,
+    supportsPanelGrouping: true,
     manufacturingCompletedCount: 0, inspectionCompletedCount: 0,
     duplicatePanelNameGroupCount: 0, projectPanelInformationCompleted: false,
     panelInformationStatusMessage: null, panels

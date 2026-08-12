@@ -2008,6 +2008,94 @@ describe('App', () => {
     expect(savedBody.panels[0].sizeUpdate).toBeUndefined();
   });
 
+  it('edits drawing numbers and renumbers current panel rows from one after regrouping', async () => {
+    const savedRequests: Array<{
+      panels: Array<{
+        panelId: string;
+        drawingNumberUpdate?: { isChanged: boolean; value: string | null };
+        groupNumberUpdate?: { isChanged: boolean; value: number | null };
+      }>;
+    }> = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === `/api/projects/${projectId}/panel-information` && init?.method === 'PATCH') {
+        savedRequests.push(JSON.parse(String(init.body)));
+        return Promise.resolve(json(panelInformation(projectId)));
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
+    await screen.findByRole('button', { name: '신규 프로젝트' });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
+    fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
+
+    expect(await screen.findByLabelText('이 프로젝트의 설계 필수 입력값')).toHaveTextContent('패널명 · W · H · D');
+    expect(screen.getAllByRole('button', { name: '사이즈 입력 안내' })[0]).toHaveAttribute('title', '포장 업무에 필요한 패널의 최외곽 사이즈를 기재해주세요.');
+    fireEvent.change(screen.getByLabelText('No.1 도번'), { target: { value: 'DWG-101' } });
+    fireEvent.click(screen.getByLabelText('No.1 열반 선택'));
+    fireEvent.click(screen.getByLabelText('No.2 열반 선택'));
+    fireEvent.click(screen.getByRole('button', { name: '선택 패널 열반' }));
+    expect(screen.getAllByText('열반 1 · 사이즈 입력 필요').length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(screen.getByLabelText('No.3 열반 선택'));
+    fireEvent.click(screen.getByLabelText('No.4 열반 선택'));
+    fireEvent.click(screen.getByRole('button', { name: '선택 패널 열반' }));
+    expect(screen.getAllByText('열반 2 · 사이즈 입력 필요').length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(screen.getByLabelText('No.1 열반 선택'));
+    fireEvent.click(screen.getByRole('button', { name: '선택 열반 해제' }));
+    expect(screen.queryByText('열반 2 · 사이즈 입력 필요')).not.toBeInTheDocument();
+    expect(screen.getAllByText('열반 1 · 사이즈 입력 필요').length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(screen.getByRole('button', { name: '직접 입력 저장' }));
+
+    await waitFor(() => expect(savedRequests).toHaveLength(1));
+    const first = savedRequests[0].panels.find((panel) => panel.panelId === panelIds[0]);
+    const third = savedRequests[0].panels.find((panel) => panel.panelId === panelIds[2]);
+    const fourth = savedRequests[0].panels.find((panel) => panel.panelId === panelIds[3]);
+    expect(first?.drawingNumberUpdate).toEqual({ isChanged: true, value: 'DWG-101' });
+    expect(first?.groupNumberUpdate).toBeUndefined();
+    expect(third?.groupNumberUpdate).toEqual({ isChanged: true, value: 1 });
+    expect(fourth?.groupNumberUpdate).toEqual({ isChanged: true, value: 1 });
+  });
+
+  it('shows panel rows with the full combined W H D size in the design tab', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === `/api/projects/${projectId}/panel-information`) {
+        const grouped = panelInformation(projectId);
+        Object.assign(grouped.panels[0], {
+          panelName: 'GROUP-A', drawingNumber: 'DWG-A', widthMm: 800, heightMm: 1800, depthMm: 400,
+          panelGroupNumber: 1, panelInfoCompleted: true, qrEligible: true
+        });
+        Object.assign(grouped.panels[1], {
+          panelName: 'GROUP-B', drawingNumber: 'DWG-B', widthMm: 900, heightMm: 1700, depthMm: 350,
+          panelGroupNumber: 1, panelInfoCompleted: true, qrEligible: true
+        });
+        return Promise.resolve(json(grouped));
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
+
+    const designTable = await screen.findByRole('table', { name: '설계' });
+    const group = designTable.querySelector('.product-panel-group') as HTMLElement;
+    expect(group).toBeInTheDocument();
+    expect(group).toHaveTextContent('열반 1');
+    expect(group).toHaveTextContent('No.1, No.2');
+    expect(group).toHaveTextContent('열반 사이즈 1700 × 1800 × 400 mm');
+    expect(group).toHaveTextContent('GROUP-A');
+    expect(group).toHaveTextContent('DWG-A');
+    expect(group).toHaveTextContent('800 × 1800 × 400 mm');
+    expect(group).toHaveTextContent('GROUP-B');
+    expect(group).toHaveTextContent('900 × 1700 × 350 mm');
+  });
+
   it('confirms duplicate panel names before direct save', async () => {
     const savedRequests: unknown[] = [];
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -2060,7 +2148,7 @@ describe('App', () => {
     fireEvent.click(screen.getAllByText('변경 상세')[0]);
     expect(screen.getByText('원본 입력값: 31.5 inch')).toBeInTheDocument();
     expect(screen.getByText('입력단위: inch')).toBeInTheDocument();
-    expect(screen.getByText('WidthMm: 700 → 800.1')).toBeInTheDocument();
+    expect(screen.getByText('W: 700 → 800.1')).toBeInTheDocument();
   });
 
   it('keeps procurement read-only on project detail and exposes edit only to Procurement', async () => {
@@ -4667,6 +4755,7 @@ function panelInformation(id = projectId) {
     manufacturingCompletedCount: 0,
     inspectionCompletedCount: 0,
     duplicatePanelNameGroupCount: 0,
+    supportsPanelGrouping: true,
     projectPanelInformationCompleted: false,
     panelInformationStatusMessage: null,
     panels: panelIds.map((panelId, index) => ({
@@ -4676,6 +4765,7 @@ function panelInformation(id = projectId) {
       panelNumber: `No.${index + 1}`,
       displayCode: `P0${index + 1}`,
       panelName: null,
+      drawingNumber: null,
       displayName: `No.${index + 1} · 패널명 미입력`,
       widthMm: null,
       heightMm: null,
@@ -4686,6 +4776,7 @@ function panelInformation(id = projectId) {
       qrEligible: false,
       hasDuplicateName: false,
       duplicateNameCount: 0,
+      panelGroupNumber: null,
       panelInfoVersion: 0,
       createdAt: '2026-06-25T00:00:00Z',
       updatedAt: '2026-06-25T00:00:00Z',

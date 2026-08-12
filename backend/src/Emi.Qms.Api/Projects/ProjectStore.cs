@@ -1372,6 +1372,7 @@ public sealed class ProjectStore(
                     command.CommandText = """
                         update panel_placeholders
                         set status = 'Cancelled',
+                            panel_group_number = null,
                             updated_at_utc = now(),
                             cancelled_by_user_id = @changed_by_user_id,
                             cancelled_at_utc = now(),

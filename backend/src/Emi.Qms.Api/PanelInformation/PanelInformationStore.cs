@@ -119,7 +119,7 @@ public sealed class PanelInformationStore(
         foreach (var panel in activePanels)
         {
             worksheet.Cell(rowNumber, 1).Value = panel.SequenceNumber;
-            worksheet.Cell(rowNumber, 2).Value = "";
+            worksheet.Cell(rowNumber, 2).Value = panel.DrawingNumber ?? "";
             worksheet.Cell(rowNumber, 3).Value = panel.PanelName ?? "";
             SetDimensionCell(worksheet.Cell(rowNumber, 4), panel.WidthMm, normalizedUnit);
             SetDimensionCell(worksheet.Cell(rowNumber, 5), panel.HeightMm, normalizedUnit);
@@ -365,6 +365,10 @@ public sealed class PanelInformationStore(
                     expectedVersion,
                     PanelNameChanged: row.PanelName is not null,
                     PanelInformationDomain.NormalizePanelName(row.PanelName),
+                    DrawingNumberChanged: row.DrawingNumber is not null,
+                    PanelInformationDomain.NormalizeDrawingNumber(row.DrawingNumber),
+                    GroupNumberChanged: false,
+                    PanelGroupNumber: null,
                     SizeChanged: row.WidthMm is not null && row.HeightMm is not null && row.DepthMm is not null,
                     row.WidthMm,
                     row.HeightMm,
@@ -438,12 +442,21 @@ public sealed class PanelInformationStore(
             return PanelInformationMutationResult<PanelInformationResponse>.Conflict("포장방식을 먼저 지정한 후 Excel을 적용해 주세요.");
         }
 
-        var panels = lockedPanels ?? await LockPanelsAsync(
-            connection,
-            transaction,
-            projectId,
-            input.Panels.Select(panel => panel.PanelId).ToArray(),
-            cancellationToken);
+        var groupingChanged = input.Panels.Any(panel => panel.GroupNumberChanged);
+        if (groupingChanged && string.Equals(project.Item, "UL891", StringComparison.OrdinalIgnoreCase))
+        {
+            return PanelInformationMutationResult<PanelInformationResponse>.Validation(
+                new Dictionary<string, string[]> { ["Panels"] = ["UL891 프로젝트는 세트 구조를 사용하므로 패널 열반을 설정할 수 없습니다."] });
+        }
+
+        var panels = lockedPanels ?? (groupingChanged
+            ? await LockAllPanelsAsync(connection, transaction, projectId, cancellationToken)
+            : await LockPanelsAsync(
+                connection,
+                transaction,
+                projectId,
+                input.Panels.Select(panel => panel.PanelId).ToArray(),
+                cancellationToken));
         if (panels.Count < input.Panels.Select(panel => panel.PanelId).Distinct().Count())
         {
             return PanelInformationMutationResult<PanelInformationResponse>.Validation(
@@ -468,6 +481,32 @@ public sealed class PanelInformationStore(
             if (panel.PanelInfoVersion != item.ExpectedPanelInfoVersion)
             {
                 return PanelInformationMutationResult<PanelInformationResponse>.Conflict(PanelInformationDomain.StaleVersionMessage);
+            }
+        }
+
+        if (groupingChanged)
+        {
+            var updateByPanelId = input.Panels.ToDictionary(item => item.PanelId);
+            var touchedGroups = input.Panels
+                .SelectMany(item => new[] { panelById[item.PanelId].PanelGroupNumber, item.PanelGroupNumber })
+                .Where(groupNumber => groupNumber is not null)
+                .Select(groupNumber => groupNumber!.Value)
+                .ToHashSet();
+            var invalidGroups = panels
+                .Where(panel => panel.PanelStatus == "Active")
+                .Select(panel => updateByPanelId.TryGetValue(panel.PanelId, out var update) && update.GroupNumberChanged
+                    ? update.PanelGroupNumber
+                    : panel.PanelGroupNumber)
+                .Where(groupNumber => groupNumber is not null && touchedGroups.Contains(groupNumber.Value))
+                .GroupBy(groupNumber => groupNumber!.Value)
+                .Where(group => group.Count() < 2)
+                .Select(group => group.Key)
+                .OrderBy(groupNumber => groupNumber)
+                .ToArray();
+            if (invalidGroups.Length > 0)
+            {
+                return PanelInformationMutationResult<PanelInformationResponse>.Validation(
+                    new Dictionary<string, string[]> { ["Panels"] = ["패널 열반은 취소되지 않은 패널 2면 이상으로 구성해야 합니다."] });
             }
         }
 
@@ -601,6 +640,7 @@ public sealed class PanelInformationStore(
                     PanelNumber = PanelInformationDomain.PanelNumber(panel.SequenceNumber),
                     DisplayCode = panel.DisplayCode,
                     PanelName = panel.PanelName,
+                    DrawingNumber = panel.DrawingNumber,
                     DisplayName = PanelInformationDomain.DisplayName(panel.SequenceNumber, panel.PanelName),
                     WidthMm = panel.WidthMm,
                     HeightMm = panel.HeightMm,
@@ -611,6 +651,7 @@ public sealed class PanelInformationStore(
                     QrEligible = qrEligible,
                     HasDuplicateName = duplicateCount > 1,
                     DuplicateNameCount = duplicateCount,
+                    PanelGroupNumber = panel.PanelGroupNumber,
                     PanelInfoVersion = panel.PanelInfoVersion,
                     CreatedAt = panel.CreatedAt,
                     UpdatedAt = panel.UpdatedAt,
@@ -641,6 +682,7 @@ public sealed class PanelInformationStore(
             ManufacturingCompletedCount = manufacturingCompletedCount,
             InspectionCompletedCount = inspectionCompletedCount,
             DuplicatePanelNameGroupCount = duplicateGroupCount,
+            SupportsPanelGrouping = !string.Equals(project.Item, "UL891", StringComparison.OrdinalIgnoreCase),
             ProjectPanelInformationCompleted = activePanels.Count > 0 && activePanels.All(panel => panel.PanelInfoCompleted),
             PanelInformationStatusMessage = project.PackagingMethod is null ? "포장방식 미지정" : null,
             Panels = panels
@@ -681,13 +723,20 @@ public sealed class PanelInformationStore(
 
             var panelName = PanelInformationDomain.NormalizePanelName(parsedRow.PanelName);
             var panelNameChanged = panelName is not null;
+            var drawingNumber = PanelInformationDomain.NormalizeDrawingNumber(parsedRow.DrawingNumber);
+            var drawingNumberChanged = drawingNumber is not null;
             var suppliedSizeCount = new[] { parsedRow.Width, parsedRow.Height, parsedRow.Depth }.Count(value => value is not null);
             var sizeChanged = suppliedSizeCount > 0;
-            var hasEditableInput = panelNameChanged || sizeChanged || parsedRow.ErrorMessages.Count > 0;
+            var hasEditableInput = panelNameChanged || drawingNumberChanged || sizeChanged || parsedRow.ErrorMessages.Count > 0;
 
             if (panelName is not null && panelName.Length > PanelInformationDomain.PanelNameMaxLength)
             {
                 errors.Add($"panel name은 최대 {PanelInformationDomain.PanelNameMaxLength}자까지 입력할 수 있습니다.");
+            }
+
+            if (drawingNumber is not null && drawingNumber.Length > PanelInformationDomain.DrawingNumberMaxLength)
+            {
+                errors.Add($"도번은 최대 {PanelInformationDomain.DrawingNumberMaxLength}자까지 입력할 수 있습니다.");
             }
 
             var unitValidation = new ProjectValidationResult();
@@ -726,6 +775,10 @@ public sealed class PanelInformationStore(
                     current.PanelInfoVersion,
                     PanelNameChanged: panelNameChanged,
                     panelName,
+                    DrawingNumberChanged: drawingNumberChanged,
+                    drawingNumber,
+                    GroupNumberChanged: false,
+                    PanelGroupNumber: null,
                     SizeChanged: sizeChanged,
                     size?.WidthMm,
                     size?.HeightMm,
@@ -753,6 +806,7 @@ public sealed class PanelInformationStore(
                 No = parsedRow.No,
                 PanelId = current?.PanelId,
                 PanelName = panelName,
+                DrawingNumber = drawingNumber,
                 Width = parsedRow.Width,
                 Height = parsedRow.Height,
                 Depth = parsedRow.Depth,
@@ -790,6 +844,7 @@ public sealed class PanelInformationStore(
     private static bool IsInitialPanelInput(PanelInformationPanelSnapshot panel)
     {
         return panel.PanelName is null
+            && panel.DrawingNumber is null
             && panel.WidthMm is null
             && panel.HeightMm is null
             && panel.DepthMm is null;
@@ -812,6 +867,16 @@ public sealed class PanelInformationStore(
             Add(changes, "PanelName", panel.PanelName, item.PanelName, item.PanelName, null);
         }
 
+        if (item.DrawingNumberChanged)
+        {
+            Add(changes, "DrawingNumber", panel.DrawingNumber, item.DrawingNumber, item.DrawingNumber, null);
+        }
+
+        if (item.GroupNumberChanged)
+        {
+            Add(changes, "PanelGroupNumber", panel.PanelGroupNumber, item.PanelGroupNumber, item.PanelGroupNumber, null);
+        }
+
         if (item.SizeChanged)
         {
             Add(changes, "WidthMm", panel.WidthMm, item.WidthMm, item.OriginalWidth, item.SizeInputUnit);
@@ -828,6 +893,8 @@ public sealed class PanelInformationStore(
     {
         return new EffectivePanelValues(
             item.PanelNameChanged ? item.PanelName : panel.PanelName,
+            item.DrawingNumberChanged ? item.DrawingNumber : panel.DrawingNumber,
+            item.GroupNumberChanged ? item.PanelGroupNumber : panel.PanelGroupNumber,
             item.SizeChanged ? item.WidthMm : panel.WidthMm,
             item.SizeChanged ? item.HeightMm : panel.HeightMm,
             item.SizeChanged ? item.DepthMm : panel.DepthMm);
@@ -902,7 +969,7 @@ public sealed class PanelInformationStore(
         CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand($"""
-            select id, project_title, status, packaging_method, deleted_at_utc
+            select id, project_title, status, packaging_method, item, deleted_at_utc
             from projects
             where id = @project_id
               {(includeDeleted ? "" : "and deleted_at_utc is null")};
@@ -920,7 +987,8 @@ public sealed class PanelInformationStore(
             reader.GetString(1),
             reader.GetString(2),
             reader.IsDBNull(3) ? null : reader.GetString(3),
-            reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4));
+            reader.GetString(4),
+            reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5));
     }
 
     private static async Task<PanelInformationProjectSnapshot?> LockProjectAsync(
@@ -932,7 +1000,7 @@ public sealed class PanelInformationStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select id, project_title, status, packaging_method, deleted_at_utc
+            select id, project_title, status, packaging_method, item, deleted_at_utc
             from projects
             where id = @project_id
             for update;
@@ -950,7 +1018,8 @@ public sealed class PanelInformationStore(
             reader.GetString(1),
             reader.GetString(2),
             reader.IsDBNull(3) ? null : reader.GetString(3),
-            reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4));
+            reader.GetString(4),
+            reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5));
     }
 
     private static async Task<IReadOnlyList<PanelInformationPanelSnapshot>> ReadPanelSnapshotsAsync(
@@ -965,6 +1034,8 @@ public sealed class PanelInformationStore(
                    panel_placeholders.sequence_number,
                    panel_placeholders.display_code,
                    panel_placeholders.panel_name,
+                   panel_placeholders.drawing_number,
+                   panel_placeholders.panel_group_number,
                    panel_placeholders.width_mm,
                    panel_placeholders.height_mm,
                    panel_placeholders.depth_mm,
@@ -1008,6 +1079,8 @@ public sealed class PanelInformationStore(
                    sequence_number,
                    display_code,
                    panel_name,
+                   drawing_number,
+                   panel_group_number,
                    width_mm,
                    height_mm,
                    depth_mm,
@@ -1031,6 +1104,42 @@ public sealed class PanelInformationStore(
         return await ReadPanelSnapshotsAsync(command, cancellationToken);
     }
 
+    private static async Task<IReadOnlyList<PanelInformationPanelSnapshot>> LockAllPanelsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select id,
+                   project_id,
+                   sequence_number,
+                   display_code,
+                   panel_name,
+                   drawing_number,
+                   panel_group_number,
+                   width_mm,
+                   height_mm,
+                   depth_mm,
+                   status,
+                   workflow_stage,
+                   created_at_utc,
+                   updated_at_utc,
+                   panel_info_version,
+                   panel_info_updated_at_utc,
+                   panel_info_updated_by_user_id,
+                   null::text as display_name
+            from panel_placeholders
+            where project_id = @project_id
+            order by sequence_number
+            for update;
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        return await ReadPanelSnapshotsAsync(command, cancellationToken);
+    }
+
     private static async Task<IReadOnlyList<PanelInformationPanelSnapshot>> LockPanelsBySequenceAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -1051,6 +1160,8 @@ public sealed class PanelInformationStore(
                    sequence_number,
                    display_code,
                    panel_name,
+                   drawing_number,
+                   panel_group_number,
                    width_mm,
                    height_mm,
                    depth_mm,
@@ -1088,17 +1199,19 @@ public sealed class PanelInformationStore(
                 reader.GetInt32(2),
                 reader.GetString(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetDecimal(5),
-                reader.IsDBNull(6) ? null : reader.GetDecimal(6),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetInt32(6),
                 reader.IsDBNull(7) ? null : reader.GetDecimal(7),
-                reader.GetString(8),
-                reader.GetString(9),
-                reader.GetFieldValue<DateTimeOffset>(10),
-                reader.GetFieldValue<DateTimeOffset>(11),
-                reader.GetInt32(12),
-                reader.IsDBNull(13) ? null : reader.GetFieldValue<DateTimeOffset>(13),
-                reader.IsDBNull(14) ? null : reader.GetGuid(14),
-                reader.IsDBNull(15) ? null : reader.GetString(15)));
+                reader.IsDBNull(8) ? null : reader.GetDecimal(8),
+                reader.IsDBNull(9) ? null : reader.GetDecimal(9),
+                reader.GetString(10),
+                reader.GetString(11),
+                reader.GetFieldValue<DateTimeOffset>(12),
+                reader.GetFieldValue<DateTimeOffset>(13),
+                reader.GetInt32(14),
+                reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
+                reader.IsDBNull(16) ? null : reader.GetGuid(16),
+                reader.IsDBNull(17) ? null : reader.GetString(17)));
         }
 
         return panels;
@@ -1119,6 +1232,8 @@ public sealed class PanelInformationStore(
         command.CommandText = """
             update panel_placeholders
             set panel_name = @panel_name,
+                drawing_number = @drawing_number,
+                panel_group_number = @panel_group_number,
                 width_mm = @width_mm,
                 height_mm = @height_mm,
                 depth_mm = @depth_mm,
@@ -1131,6 +1246,8 @@ public sealed class PanelInformationStore(
             where id = @panel_id;
             """;
         command.Parameters.Add("panel_name", NpgsqlDbType.Text).Value = values.PanelName ?? (object)DBNull.Value;
+        command.Parameters.Add("drawing_number", NpgsqlDbType.Text).Value = values.DrawingNumber ?? (object)DBNull.Value;
+        command.Parameters.Add("panel_group_number", NpgsqlDbType.Integer).Value = values.PanelGroupNumber ?? (object)DBNull.Value;
         command.Parameters.Add("width_mm", NpgsqlDbType.Numeric).Value = values.WidthMm ?? (object)DBNull.Value;
         command.Parameters.Add("height_mm", NpgsqlDbType.Numeric).Value = values.HeightMm ?? (object)DBNull.Value;
         command.Parameters.Add("depth_mm", NpgsqlDbType.Numeric).Value = values.DepthMm ?? (object)DBNull.Value;
@@ -1500,6 +1617,7 @@ public sealed class PanelInformationStore(
         string ProjectTitle,
         string Status,
         string? PackagingMethod,
+        string Item,
         DateTimeOffset? DeletedAtUtc);
 
     private sealed record PanelInformationPanelSnapshot(
@@ -1508,6 +1626,8 @@ public sealed class PanelInformationStore(
         int SequenceNumber,
         string DisplayCode,
         string? PanelName,
+        string? DrawingNumber,
+        int? PanelGroupNumber,
         decimal? WidthMm,
         decimal? HeightMm,
         decimal? DepthMm,
@@ -1529,6 +1649,8 @@ public sealed class PanelInformationStore(
 
     private sealed record EffectivePanelValues(
         string? PanelName,
+        string? DrawingNumber,
+        int? PanelGroupNumber,
         decimal? WidthMm,
         decimal? HeightMm,
         decimal? DepthMm);

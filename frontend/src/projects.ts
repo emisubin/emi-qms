@@ -60,6 +60,7 @@ export interface ProjectListItem {
   item: string;
   projectCode: string;
   projectTitle: string;
+  lseTaskNumber?: string | null;
   activePanelCount: number;
   deliveryDate: string;
   salesOwnerUserId: string;
@@ -591,6 +592,7 @@ export interface CreateProjectRequest {
   item: string;
   projectCode: string;
   projectTitle: string;
+  lseTaskNumber: string | null;
   panelCount: number | null;
   deliveryDate: string;
   salesOwnerUserId: string;
@@ -607,6 +609,7 @@ export interface UpdateProjectRequest {
   item: string;
   projectCode: string;
   projectTitle: string;
+  lseTaskNumber: string | null;
   deliveryDate: string;
   salesOwnerUserId: string;
   packagingMethod: PackagingMethod | null;

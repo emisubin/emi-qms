@@ -1239,6 +1239,8 @@ export async function listPendingIssues(
     priority?: PendingPriority;
     assigneeUserId?: string;
     projectId?: string;
+    scope?: import('./pending').PendingListScope;
+    statusGroup?: import('./pending').PendingStatusGroup;
   } = {}
 ): Promise<PendingListResponse> {
   const params = new URLSearchParams();
@@ -1247,6 +1249,8 @@ export async function listPendingIssues(
   if (filters.priority) params.set('priority', filters.priority);
   if (filters.assigneeUserId) params.set('assigneeUserId', filters.assigneeUserId);
   if (filters.projectId) params.set('projectId', filters.projectId);
+  if (filters.scope) params.set('scope', filters.scope);
+  if (filters.statusGroup) params.set('statusGroup', filters.statusGroup);
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<PendingListResponse>(`/api/pending${query}`, developmentUserKey);
 }

@@ -18,13 +18,29 @@ public static class PendingEndpointExtensions
             string? priority,
             Guid? assigneeUserId,
             Guid? projectId,
+            string? scope,
+            string? statusGroup,
             PendingStore store,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
-            return HasPermission(user, QmsPermissions.PendingRead)
-                ? Results.Ok(await store.ListAsync(status, issueType, priority, assigneeUserId, projectId, cancellationToken))
-                : Results.Forbid();
+            if (!HasPermission(user, QmsPermissions.PendingRead))
+            {
+                return Results.Forbid();
+            }
+            var actor = GetActor(user);
+            return actor is null
+                ? Results.Unauthorized()
+                : Results.Ok(await store.ListAsync(
+                    status,
+                    issueType,
+                    priority,
+                    assigneeUserId,
+                    projectId,
+                    scope,
+                    statusGroup,
+                    actor,
+                    cancellationToken));
         })
         .WithName("ListPendingIssues");
 

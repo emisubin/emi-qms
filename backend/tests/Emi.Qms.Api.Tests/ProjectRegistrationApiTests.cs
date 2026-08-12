@@ -1159,6 +1159,118 @@ public sealed partial class ProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task ProjectLseTaskNumber_CanBeCreatedReadUpdatedAndCleared()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var client = context.CreateClient("dev-sales");
+
+        using var createResponse = await client.PostAsJsonAsync(
+            "/api/projects",
+            NewProjectRequest("LSE-TASK-001", "LSE Task Number") with { LseTaskNumber = "  LSE-104-105  " },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using var createJson = await ReadJsonAsync(createResponse);
+        var projectId = createJson.RootElement.GetProperty("projectId").GetGuid();
+        Assert.Equal("LSE-104-105", createJson.RootElement.GetProperty("lseTaskNumber").GetString());
+
+        using var updateResponse = await client.PatchAsJsonAsync(
+            $"/api/projects/{projectId}",
+            NewUpdateProjectRequest("LSE-TASK-001", "LSE Task Number") with
+            {
+                LseTaskNumber = "LSE-104-106",
+                Reason = "LSE 업무번호 정정"
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+
+        using var detail = await ReadJsonAsync(await client.GetAsync($"/api/projects/{projectId}", TestContext.Current.CancellationToken));
+        Assert.Equal("LSE-104-106", detail.RootElement.GetProperty("lseTaskNumber").GetString());
+        using var adminClient = context.CreateClient("dev-admin");
+        Assert.Equal(1, await CountAuditFieldChangesAsync(adminClient, projectId, "LseTaskNumber"));
+
+        using var clearResponse = await client.PatchAsJsonAsync(
+            $"/api/projects/{projectId}",
+            NewUpdateProjectRequest("LSE-TASK-001", "LSE Task Number") with
+            {
+                LseTaskNumber = "  ",
+                Reason = "LSE 업무번호 제거"
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, clearResponse.StatusCode);
+        using var clearedJson = await ReadJsonAsync(clearResponse);
+        Assert.Equal(JsonValueKind.Null, clearedJson.RootElement.GetProperty("lseTaskNumber").ValueKind);
+
+        using var tooLong = await client.PostAsJsonAsync(
+            "/api/projects",
+            NewProjectRequest("LSE-TASK-LONG", "LSE Task Number Too Long") with { LseTaskNumber = new string('X', 101) },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+    }
+
+    [Fact]
+    public async Task PendingList_DepartmentScopeUsesActionDepartmentThenAssigneeDepartmentAndStatusGroup()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        var projectId = await CreateProjectAndReadIdAsync(salesClient, "PENDING-SCOPE", "Pending Department Scope", 1);
+
+        var qualityDirectId = Guid.NewGuid();
+        var qualityFallbackId = Guid.NewGuid();
+        var manufacturingOverrideId = Guid.NewGuid();
+        var qualityClosedId = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into pending_issues (
+                id, project_id, target_type, target_id, issue_type, title, description,
+                status, priority, action_department_code, assignee_user_id,
+                closed_by_user_id, closed_at_utc,
+                created_by_user_id, updated_by_user_id)
+            values
+                ('{qualityDirectId}', '{projectId}', 'Project', '{projectId}', 'Other',
+                 '품질 직접 담당', '품질 부서가 직접 담당하는 오픈 Pending입니다.',
+                 'Registered', 'Normal', 'quality', null, null, null,
+                 '{SalesOwnerUserId}', '{SalesOwnerUserId}'),
+                ('{qualityFallbackId}', '{projectId}', 'Project', '{projectId}', 'Other',
+                 '품질 담당자 기준', '조치 부서가 없고 품질 담당자 부서를 사용하는 Pending입니다.',
+                 'ActionRequested', 'Normal', null, '50000000-0000-0000-0000-000000000005', null, null,
+                 '{SalesOwnerUserId}', '{SalesOwnerUserId}'),
+                ('{manufacturingOverrideId}', '{projectId}', 'Project', '{projectId}', 'Other',
+                 '제조 부서 우선', '담당자는 품질이지만 조치 부서가 제조인 Pending입니다.',
+                 'ActionRequested', 'Normal', 'manufacturing', '50000000-0000-0000-0000-000000000005', null, null,
+                 '{SalesOwnerUserId}', '{SalesOwnerUserId}'),
+                ('{qualityClosedId}', '{projectId}', 'Project', '{projectId}', 'Other',
+                 '품질 종결', '품질 부서에서 이미 종결한 Pending입니다.',
+                 'Closed', 'Normal', 'quality', '50000000-0000-0000-0000-000000000005',
+                 '50000000-0000-0000-0000-000000000005', now(),
+                 '{SalesOwnerUserId}', '{SalesOwnerUserId}');
+            """);
+
+        using var qualityClient = context.CreateClient("dev-quality");
+        using var openJson = await ReadJsonAsync(await qualityClient.GetAsync(
+            $"/api/pending?projectId={projectId}&scope=Department&statusGroup=Open",
+            TestContext.Current.CancellationToken));
+        var openIds = openJson.RootElement.GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("pendingId").GetGuid())
+            .ToHashSet();
+        Assert.Contains(qualityDirectId, openIds);
+        Assert.Contains(qualityFallbackId, openIds);
+        Assert.DoesNotContain(manufacturingOverrideId, openIds);
+        Assert.DoesNotContain(qualityClosedId, openIds);
+        Assert.Equal(2, openJson.RootElement.GetProperty("summary").GetProperty("openCount").GetInt32());
+        Assert.Equal(1, openJson.RootElement.GetProperty("summary").GetProperty("closedCount").GetInt32());
+
+        using var closedJson = await ReadJsonAsync(await qualityClient.GetAsync(
+            $"/api/pending?projectId={projectId}&scope=Department&statusGroup=Closed",
+            TestContext.Current.CancellationToken));
+        var closed = Assert.Single(closedJson.RootElement.GetProperty("items").EnumerateArray());
+        Assert.Equal(qualityClosedId, closed.GetProperty("pendingId").GetGuid());
+
+        using var allJson = await ReadJsonAsync(await qualityClient.GetAsync(
+            $"/api/pending?projectId={projectId}&scope=All&statusGroup=All",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(4, allJson.RootElement.GetProperty("items").GetArrayLength());
+    }
+
+    [Fact]
     public async Task ProjectFatRequired_CanBeCreatedReadAndUpdated()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
@@ -3033,6 +3145,7 @@ public sealed partial class ProjectRegistrationApiTests
             "UL67",
             projectCode,
             projectTitle,
+            null,
             2,
             "2026-10-10",
             SalesOwnerUserId,
@@ -3050,6 +3163,7 @@ public sealed partial class ProjectRegistrationApiTests
             "UL67",
             projectCode,
             projectTitle,
+            null,
             "2026-10-10",
             SalesOwnerUserId,
             "WoodenCrate",
@@ -3172,6 +3286,7 @@ public sealed partial class ProjectRegistrationApiTests
         string Item,
         string ProjectCode,
         string ProjectTitle,
+        string? LseTaskNumber,
         int PanelCount,
         string DeliveryDate,
         Guid SalesOwnerUserId,
@@ -3186,6 +3301,7 @@ public sealed partial class ProjectRegistrationApiTests
         string Item,
         string ProjectCode,
         string ProjectTitle,
+        string? LseTaskNumber,
         string DeliveryDate,
         Guid SalesOwnerUserId,
         string? PackagingMethod,

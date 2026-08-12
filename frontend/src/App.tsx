@@ -399,6 +399,7 @@ type ProjectFormValues = {
   item: string;
   projectCode: string;
   projectTitle: string;
+  lseTaskNumber: string;
   panelCount: string;
   deliveryDate: string;
   salesOwnerUserId: string;
@@ -442,6 +443,7 @@ const emptyForm: ProjectFormValues = {
   item: '',
   projectCode: '',
   projectTitle: '',
+  lseTaskNumber: '',
   panelCount: '1',
   deliveryDate: '',
   salesOwnerUserId: '',
@@ -2299,6 +2301,8 @@ function QmsAppShellContent({
           pendingId={view.kind === 'pending-detail' ? view.pendingId : undefined}
           initialProjectId={view.kind === 'pending' ? view.projectId : undefined}
           canManage={canManagePending}
+          departmentCode={currentUser.data.department}
+          isSystemAdministrator={isSystemAdministrator}
           onOpenPending={(pendingId) => setView({ kind: 'pending-detail', pendingId })}
           onOpenProjectPending={(projectId) => setView({ kind: 'pending', projectId })}
           onBackToList={() => setView({ kind: 'pending' })}
@@ -17075,6 +17079,9 @@ function ProjectForm({
             <FormField label="PJT Title*" error={errors.projectTitle}>
               <input name="projectTitle" value={form.projectTitle} onChange={(event) => setField('projectTitle', event.target.value)} />
             </FormField>
+            <FormField label="LSE TASK NO" error={errors.lseTaskNumber}>
+              <input name="lseTaskNumber" maxLength={100} value={form.lseTaskNumber} onChange={(event) => setField('lseTaskNumber', event.target.value)} />
+            </FormField>
             {useUl891SetInput ? (
               <div className="form-field ul891-derived-field ds-field-span">
                 <span>처리 단위</span>
@@ -17336,6 +17343,7 @@ function ProjectSummary({
           <summary>기본정보 전체 보기</summary>
           <dl className="detail-grid project-summary-more">
             <div><dt>PJT Code</dt><dd>{project.projectCode}</dd></div>
+            <div><dt>LSE TASK NO</dt><dd>{project.lseTaskNumber ?? '-'}</dd></div>
             <div><dt>영업담당자</dt><dd>{project.salesOwnerName}</dd></div>
             <div><dt>포장방식</dt><dd>{formatPackagingMethod(project.packagingMethod)}</dd></div>
             <div><dt>납품장소</dt><dd>{project.deliveryLocation ?? '-'}</dd></div>
@@ -17353,6 +17361,7 @@ function ProjectSummary({
     <dl className="detail-grid">
       {primaryItems}
       <div><dt>PJT Code</dt><dd>{project.projectCode}</dd></div>
+      <div><dt>LSE TASK NO</dt><dd>{project.lseTaskNumber ?? '-'}</dd></div>
       <div><dt>영업담당자</dt><dd>{project.salesOwnerName}</dd></div>
       <div><dt>포장방식</dt><dd>{formatPackagingMethod(project.packagingMethod)}</dd></div>
       <div><dt>납품장소</dt><dd>{project.deliveryLocation ?? '-'}</dd></div>
@@ -18001,6 +18010,10 @@ function validateProjectForm(form: ProjectFormValues, includeReason: boolean, pr
     errors.currencyCode = '통화는 3자리 대문자여야 합니다.';
   }
 
+  if (form.lseTaskNumber.trim().length > 100) {
+    errors.lseTaskNumber = 'LSE TASK NO는 100자 이하로 입력해 주세요.';
+  }
+
   if (includeReason && !form.reason.trim()) {
     errors.reason = '수정사유는 필수입니다.';
   }
@@ -18137,6 +18150,7 @@ function toCreateRequest(form: ProjectFormValues, ul891SetSpecs?: CreateUl891Set
     item: form.item.trim(),
     projectCode: form.projectCode.trim(),
     projectTitle: form.projectTitle.trim(),
+    lseTaskNumber: form.lseTaskNumber.trim() || null,
     panelCount: ul891SetSpecs ? null : Number(form.panelCount),
     deliveryDate: form.deliveryDate,
     salesOwnerUserId: form.salesOwnerUserId,
@@ -18162,6 +18176,7 @@ function projectToForm(project: ProjectDetail): ProjectFormValues {
     item: project.item,
     projectCode: project.projectCode,
     projectTitle: project.projectTitle,
+    lseTaskNumber: project.lseTaskNumber ?? '',
     panelCount: String(project.activePanelCount),
     deliveryDate: project.deliveryDate,
     salesOwnerUserId: project.salesOwnerUserId,
@@ -18348,6 +18363,7 @@ function fieldLabel(field: string): string {
     item: 'Item',
     projectCode: 'PJT Code',
     projectTitle: 'PJT Title',
+    lseTaskNumber: 'LSE TASK NO',
     panelCount: '면수',
     deliveryDate: '납기일',
     salesOwnerUserId: '영업담당자',

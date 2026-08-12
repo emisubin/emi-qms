@@ -32,13 +32,23 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         string? priority,
         Guid? assigneeUserId,
         Guid? projectId,
+        string? scope,
+        string? statusGroup,
+        PendingActor actor,
         CancellationToken cancellationToken)
     {
         var normalizedStatus = PendingStatuses.All.Contains(status ?? "") ? status : null;
         var normalizedType = string.IsNullOrWhiteSpace(issueType) ? null : issueType.Trim();
         var normalizedPriority = PendingPriorities.All.Contains(priority ?? "") ? priority : null;
+        var normalizedScope = PendingListScopes.Values.Contains(scope ?? "") ? scope! : PendingListScopes.All;
+        var normalizedStatusGroup = PendingStatusGroups.Values.Contains(statusGroup ?? "")
+            ? statusGroup!
+            : PendingStatusGroups.All;
 
         await using var dataSource = CreateDataSource();
+        var departmentCode = normalizedScope == PendingListScopes.Department
+            ? await ReadUserDepartmentCodeAsync(dataSource, actor.UserId, cancellationToken)
+            : null;
         await using var command = dataSource.CreateCommand("""
             select
                 pi.id,
@@ -69,12 +79,25 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             join qms_users creator on creator.id = pi.created_by_user_id
             join pending_issue_type_catalog issue_type on issue_type.code = pi.issue_type
             left join qms_users assignee on assignee.id = pi.assignee_user_id
+            left join departments assignee_department on assignee_department.id = assignee.department_id
             left join panel_placeholders panel on panel.id = pi.target_id and pi.target_type = 'Panel'
             where (@status is null or pi.status = @status)
+              and (
+                    @status_group = 'All'
+                    or (@status_group = 'Open' and pi.status <> 'Closed')
+                    or (@status_group = 'Closed' and pi.status = 'Closed')
+                  )
               and (@issue_type is null or pi.issue_type = @issue_type)
               and (@priority is null or pi.priority = @priority)
               and (@assignee_user_id is null or pi.assignee_user_id = @assignee_user_id)
               and (@project_id is null or pi.project_id = @project_id)
+              and (
+                    @department_scope = false
+                    or (
+                        @department_code is not null
+                        and coalesce(pi.action_department_code, assignee_department.code) = @department_code
+                    )
+                  )
             order by
                 case when pi.status = 'Closed' then 1 else 0 end,
                 case pi.priority when 'Urgent' then 0 else 1 end,
@@ -82,10 +105,13 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 pi.updated_at_utc desc;
             """);
         AddNullableText(command, "status", normalizedStatus);
+        command.Parameters.AddWithValue("status_group", normalizedStatusGroup);
         AddNullableText(command, "issue_type", normalizedType);
         AddNullableText(command, "priority", normalizedPriority);
         AddNullableUuid(command, "assignee_user_id", assigneeUserId);
         AddNullableUuid(command, "project_id", projectId);
+        command.Parameters.AddWithValue("department_scope", normalizedScope == PendingListScopes.Department);
+        AddNullableText(command, "department_code", departmentCode);
 
         var items = new List<PendingListItemResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -95,7 +121,12 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         }
 
         await reader.DisposeAsync();
-        var summary = await ReadSummaryAsync(dataSource, projectId, cancellationToken);
+        var summary = await ReadSummaryAsync(
+            dataSource,
+            projectId,
+            normalizedScope == PendingListScopes.Department,
+            departmentCode,
+            cancellationToken);
         return new PendingListResponse(summary, items);
     }
 
@@ -1319,6 +1350,8 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
     private static async Task<PendingSummaryResponse> ReadSummaryAsync(
         NpgsqlDataSource dataSource,
         Guid? projectId,
+        bool departmentScope,
+        string? departmentCode,
         CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand("""
@@ -1328,14 +1361,42 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
                 count(*) filter (where status <> 'Closed' and due_date < current_date)::int,
                 count(*) filter (where status = 'ReinspectionRequested')::int,
                 count(*) filter (where status = 'Closed')::int
-            from pending_issues
-            where (@project_id is null or project_id = @project_id);
+            from pending_issues pi
+            left join qms_users assignee on assignee.id = pi.assignee_user_id
+            left join departments assignee_department on assignee_department.id = assignee.department_id
+            where (@project_id is null or pi.project_id = @project_id)
+              and (
+                    @department_scope = false
+                    or (
+                        @department_code is not null
+                        and coalesce(pi.action_department_code, assignee_department.code) = @department_code
+                    )
+                  );
             """);
         AddNullableUuid(command, "project_id", projectId);
+        command.Parameters.AddWithValue("department_scope", departmentScope);
+        AddNullableText(command, "department_code", departmentCode);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
             ? new PendingSummaryResponse(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3), reader.GetInt32(4))
             : new PendingSummaryResponse(0, 0, 0, 0, 0);
+    }
+
+    private static async Task<string?> ReadUserDepartmentCodeAsync(
+        NpgsqlDataSource dataSource,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand("""
+            select department.code
+            from qms_users qms_user
+            join departments department on department.id = qms_user.department_id
+            where qms_user.id = @user_id
+              and qms_user.is_active = true
+              and department.is_active = true;
+            """);
+        command.Parameters.AddWithValue("user_id", userId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
     }
 
     private static async Task<PendingListItemResponse?> ReadIssueAsync(

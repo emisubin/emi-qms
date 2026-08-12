@@ -14,6 +14,7 @@ public sealed record CreateProjectRequest(
     string? Item,
     string? ProjectCode,
     string? ProjectTitle,
+    string? LseTaskNumber,
     int? PanelCount,
     DateOnly? DeliveryDate,
     Guid? SalesOwnerUserId,
@@ -29,6 +30,7 @@ public sealed record UpdateProjectRequest(
     string? Item,
     string? ProjectCode,
     string? ProjectTitle,
+    string? LseTaskNumber,
     DateOnly? DeliveryDate,
     Guid? SalesOwnerUserId,
     string? PackagingMethod,
@@ -155,6 +157,7 @@ public sealed record PanelStageDistributionResponse(
 
 public sealed class ProjectDetailResponse : ProjectListItemResponse
 {
+    public string? LseTaskNumber { get; init; }
     public string IqcRoutingPolicy { get; init; } = ProjectIqcRoutingPolicies.AllReceipts;
     public string? StatusReason { get; init; }
     public int PanelInfoCompletedCount { get; init; }

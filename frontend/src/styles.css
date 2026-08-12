@@ -19806,11 +19806,48 @@ body {
 }
 
 .pending-page--project .pending-filter-bar--project {
-  grid-template-columns: repeat(3, minmax(150px, 1fr)) auto;
+  grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
   border-color: var(--line);
   border-radius: 0;
   background: #fff;
   box-shadow: none;
+}
+
+.pending-scope-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 220px));
+  gap: 10px;
+  align-items: end;
+}
+
+.pending-filter-bar--project .pending-scope-controls {
+  display: contents;
+}
+
+.pending-scope-controls label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.pending-lifecycle-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink);
+  font-size: .7rem;
+  font-weight: 900;
+}
+
+.pending-lifecycle-badge[data-state='closed'] {
+  background: var(--ink);
+  color: #fff;
 }
 
 .pending-page--project .pending-list {
@@ -19865,6 +19902,10 @@ body {
 }
 
 @media (max-width: 900px) {
+  .pending-scope-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .operational-dashboard-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

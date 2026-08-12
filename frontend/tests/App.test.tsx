@@ -1431,6 +1431,31 @@ describe('App', () => {
     expect(screen.getByText('포장방식은 필수 선택값입니다.')).toBeInTheDocument();
   });
 
+  it('creates and displays the optional LSE TASK NO in project basic information', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/projects' && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        requestBodies.push(body);
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: '신규 프로젝트' }));
+    await screen.findByRole('option', { name: 'Dev Sales User' });
+    fillCreateForm('LSE-UI-001', 'LSE UI Project');
+    fireEvent.change(screen.getByLabelText('LSE TASK NO'), { target: { value: ' LSE-104-105 ' } });
+    fireEvent.click(screen.getByRole('button', { name: '등록' }));
+
+    await waitFor(() => expect(requestBodies).toHaveLength(1));
+    expect(requestBodies[0].lseTaskNumber).toBe('LSE-104-105');
+
+    fireEvent.click((await screen.findAllByText('TASK-003A Demo'))[0]);
+    expect(await screen.findByText('LSE-104-105')).toBeInTheDocument();
+  });
+
   it('shows project edit validation next to the invalid field', async () => {
     render(<App />);
 
@@ -2955,8 +2980,44 @@ describe('App', () => {
   });
 
   it('separates multi-work menus from their project dashboards', async () => {
+    const pendingQueries: URLSearchParams[] = [];
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const path = new URL(String(input)).pathname;
+      const url = new URL(String(input));
+      const path = url.pathname;
+      if (path === '/api/pending') {
+        pendingQueries.push(url.searchParams);
+        return json({
+          summary: { openCount: 1, urgentCount: 0, overdueCount: 0, reinspectionCount: 0, closedCount: 0 },
+          items: [{
+            pendingId: '88000000-0000-0000-0000-000000000001',
+            issueNumber: 1,
+            projectId,
+            projectCode: 'PJT-003A',
+            projectTitle: 'TASK-003A Demo',
+            targetType: 'Project',
+            targetId: projectId,
+            targetLabel: null,
+            issueType: 'Other',
+            issueTypeLabel: '기타',
+            title: 'Synthetic Pending',
+            description: '대시보드 진입을 검증하는 테스트 Pending입니다.',
+            status: 'Registered',
+            statusLabel: '등록',
+            priority: 'Normal',
+            priorityLabel: '일반',
+            actionDepartmentCode: 'sales',
+            assigneeUserId: null,
+            assigneeDisplayName: null,
+            dueDate: null,
+            isOverdue: false,
+            version: 1,
+            createdByUserId: '50000000-0000-0000-0000-000000000002',
+            createdByDisplayName: 'dev-sales',
+            createdAtUtc: '2026-08-12T00:00:00Z',
+            updatedAtUtc: '2026-08-12T00:00:00Z'
+          }]
+        });
+      }
       if (path === '/api/manufacturing/queue') {
         return json({
           projects: [{
@@ -3017,10 +3078,14 @@ describe('App', () => {
 
     fireEvent.click(within(commonNavigation).getByRole('button', { name: 'Pending' }));
     const pendingDashboard = await screen.findByTestId('pending-dashboard');
+    await waitFor(() => expect(pendingQueries.length).toBeGreaterThan(0));
+    expect(pendingQueries.at(-1)?.get('scope')).toBe('Department');
+    expect(pendingQueries.at(-1)?.get('statusGroup')).toBe('Open');
     expect(within(pendingDashboard).getByRole('heading', { name: 'Pending 프로젝트' })).toBeInTheDocument();
     expect(within(pendingDashboard).getByRole('table', { name: 'Pending 프로젝트 프로젝트 목록' })).toBeInTheDocument();
     fireEvent.click(within(pendingDashboard).getByRole('button', { name: /TASK-003A Demo/ }));
     expect(await screen.findByRole('heading', { name: 'TASK-003A Demo' })).toBeInTheDocument();
+    expect(screen.getByLabelText('조회 범위')).toHaveValue('All');
     expect(screen.getByRole('button', { name: 'Pending 프로젝트' })).toBeInTheDocument();
   });
 
@@ -4456,6 +4521,7 @@ function projectDetail(
 ) {
   return {
     ...projectListItem(includeSalesAmount ? 'dev-sales' : 'dev-manufacturing', status, title, id),
+    lseTaskNumber: 'LSE-104-105',
     qrEligibleCount: 0,
     manufacturingCompletedCount: 0,
     inspectionCompletedCount: 0,

@@ -657,7 +657,8 @@ public sealed class ProjectStore(
                       and version.lifecycle_status = 'Active'
                       and version.is_active = true
                 ), 0) as oqc_step_count,
-                projects.iqc_routing_policy
+                projects.iqc_routing_policy,
+                projects.lse_task_number
             from projects
             left join qms_users on qms_users.id = projects.sales_owner_user_id
             left join lateral (
@@ -881,6 +882,7 @@ public sealed class ProjectStore(
         var manufacturingStepCount = reader.GetInt32(31);
         var oqcStepCount = reader.GetInt32(32);
         var iqcRoutingPolicy = reader.GetString(33);
+        var lseTaskNumber = reader.IsDBNull(34) ? null : reader.GetString(34);
         await reader.DisposeAsync();
         var panelInfoSummary = await ReadPanelInformationSummaryAsync(dataSource, projectId, cancellationToken);
         return new ProjectDetailResponse
@@ -905,6 +907,7 @@ public sealed class ProjectStore(
             UpdatedAt = baseItem.UpdatedAt,
             SalesAmount = baseItem.SalesAmount,
             CurrencyCode = baseItem.CurrencyCode,
+            LseTaskNumber = lseTaskNumber,
             IqcRoutingPolicy = iqcRoutingPolicy,
             StatusReason = statusReason,
             PanelInfoCompletedCount = panelInfoSummary.CompletedCount,
@@ -977,6 +980,7 @@ public sealed class ProjectStore(
                         project_code,
                         project_title,
                         project_title_normalized,
+                        lse_task_number,
                         packaging_method,
                         delivery_date,
                         sales_owner_user_id,
@@ -1002,6 +1006,7 @@ public sealed class ProjectStore(
                         @project_code,
                         @project_title,
                         @project_title_normalized,
+                        @lse_task_number,
                         @packaging_method,
                         @delivery_date,
                         @sales_owner_user_id,
@@ -1178,6 +1183,7 @@ public sealed class ProjectStore(
                         project_code = @project_code,
                         project_title = @project_title,
                         project_title_normalized = @project_title_normalized,
+                        lse_task_number = @lse_task_number,
                         packaging_method = @packaging_method,
                         delivery_date = @delivery_date,
                         sales_owner_user_id = @sales_owner_user_id,
@@ -2416,6 +2422,7 @@ public sealed class ProjectStore(
                 row.Item,
                 row.ProjectCode,
                 row.ProjectTitle,
+                null,
                 row.PanelCount,
                 row.DeliveryDate,
                 owner?.UserId,
@@ -2641,6 +2648,7 @@ public sealed class ProjectStore(
                     project_code,
                     project_title,
                     project_title_normalized,
+                    lse_task_number,
                     packaging_method,
                     delivery_date,
                     sales_owner_user_id,
@@ -2665,6 +2673,7 @@ public sealed class ProjectStore(
                     @project_code,
                     @project_title,
                     @project_title_normalized,
+                    @lse_task_number,
                     @packaging_method,
                     @delivery_date,
                     @sales_owner_user_id,
@@ -3364,6 +3373,7 @@ public sealed class ProjectStore(
             input.ProjectCode,
             input.ProjectTitle,
             input.ProjectTitleNormalized,
+            input.LseTaskNumber,
             input.PackagingMethod,
             input.DeliveryDate,
             input.SalesOwnerUserId,
@@ -3390,6 +3400,7 @@ public sealed class ProjectStore(
             input.ProjectCode,
             input.ProjectTitle,
             input.ProjectTitleNormalized,
+            input.LseTaskNumber,
             input.PackagingMethod,
             input.DeliveryDate,
             input.SalesOwnerUserId,
@@ -3407,6 +3418,7 @@ public sealed class ProjectStore(
         string projectCode,
         string projectTitle,
         string projectTitleNormalized,
+        string? lseTaskNumber,
         string packagingMethod,
         DateOnly deliveryDate,
         Guid salesOwnerUserId,
@@ -3421,6 +3433,7 @@ public sealed class ProjectStore(
         command.Parameters.AddWithValue("project_code", projectCode);
         command.Parameters.AddWithValue("project_title", projectTitle);
         command.Parameters.AddWithValue("project_title_normalized", projectTitleNormalized);
+        command.Parameters.Add("lse_task_number", NpgsqlDbType.Text).Value = lseTaskNumber ?? (object)DBNull.Value;
         command.Parameters.AddWithValue("packaging_method", packagingMethod);
         command.Parameters.AddWithValue("delivery_date", deliveryDate);
         command.Parameters.AddWithValue("sales_owner_user_id", salesOwnerUserId);
@@ -3760,6 +3773,7 @@ public sealed class ProjectStore(
                    coalesce(project_code, project_number),
                    coalesce(project_title, name),
                    coalesce(project_title_normalized, upper(regexp_replace(btrim(name), '\s+', ' ', 'g'))),
+                   lse_task_number,
                    packaging_method,
                    coalesce(delivery_date, current_date),
                    sales_owner_user_id,
@@ -3796,14 +3810,15 @@ public sealed class ProjectStore(
             reader.GetString(5),
             reader.GetString(6),
             reader.IsDBNull(7) ? null : reader.GetString(7),
-            reader.GetFieldValue<DateOnly>(8),
-            reader.IsDBNull(9) ? Guid.Empty : reader.GetGuid(9),
-            reader.IsDBNull(10) ? null : reader.GetDecimal(10),
-            reader.IsDBNull(11) ? null : reader.GetString(11),
+            reader.IsDBNull(8) ? null : reader.GetString(8),
+            reader.GetFieldValue<DateOnly>(9),
+            reader.IsDBNull(10) ? Guid.Empty : reader.GetGuid(10),
+            reader.IsDBNull(11) ? null : reader.GetDecimal(11),
             reader.IsDBNull(12) ? null : reader.GetString(12),
-            !reader.IsDBNull(13) && reader.GetBoolean(13),
-            reader.GetString(14),
-            reader.IsDBNull(15) ? null : reader.GetString(15));
+            reader.IsDBNull(13) ? null : reader.GetString(13),
+            !reader.IsDBNull(14) && reader.GetBoolean(14),
+            reader.GetString(15),
+            reader.IsDBNull(16) ? null : reader.GetString(16));
     }
 
     private static async Task<ProjectLockSnapshot?> LockProjectForUpdateAsync(
@@ -3933,6 +3948,7 @@ public sealed class ProjectStore(
         string ProjectCode,
         string ProjectTitle,
         string ProjectTitleNormalized,
+        string? LseTaskNumber,
         string? PackagingMethod,
         DateOnly DeliveryDate,
         Guid SalesOwnerUserId,
@@ -3950,6 +3966,7 @@ public sealed class ProjectStore(
             Add(changes, "Item", Item, input.Item, false);
             Add(changes, "ProjectCode", ProjectCode, input.ProjectCode, false);
             Add(changes, "ProjectTitle", ProjectTitle, input.ProjectTitle, false);
+            Add(changes, "LseTaskNumber", LseTaskNumber, input.LseTaskNumber, false);
             Add(changes, "PackagingMethod", PackagingMethod, input.PackagingMethod, false);
             Add(changes, "DeliveryDate", DeliveryDate, input.DeliveryDate, false);
             Add(changes, "SalesOwnerUserId", SalesOwnerUserId, input.SalesOwnerUserId, false);

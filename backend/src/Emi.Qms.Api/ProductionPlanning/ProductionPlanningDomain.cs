@@ -112,6 +112,19 @@ public static class ProductionPlanningDomain
         };
     }
 
+    public static IReadOnlyList<string> ResponsibilitiesForDepartment(string departmentCode)
+    {
+        return Responsibilities
+            .Where(responsibility => string.Equals(RoleForResponsibility(responsibility), departmentCode, StringComparison.Ordinal))
+            .ToArray();
+    }
+
+    public static bool CanDepartmentHeadDelegateAssignees(string departmentCode)
+    {
+        return !string.Equals(departmentCode, "production-planning", StringComparison.Ordinal)
+            && ResponsibilitiesForDepartment(departmentCode).Count > 0;
+    }
+
     public static string? LegacyResponsibilityAlias(string responsibilityType)
     {
         return responsibilityType switch

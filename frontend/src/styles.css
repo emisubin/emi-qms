@@ -7237,6 +7237,8 @@ h3 {
 }
 
 .production-schedule-priority {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   padding: 16px;
   border: 1px solid #dde5f3;
   border-radius: 14px 4px 14px 4px;
@@ -7251,15 +7253,16 @@ h3 {
 
 .production-priority-heading {
   display: flex;
+  min-width: 0;
   align-items: end;
   justify-content: space-between;
   gap: 12px;
 }
 
-.production-priority-heading > div { display: grid; gap: 2px; }
+.production-priority-heading > div { display: grid; min-width: 0; gap: 2px; }
 .production-priority-heading span { color: #315efb; font-size: 9px; font-weight: 900; letter-spacing: .13em; }
 .production-priority-heading h4 { margin: 0; color: #27324a; font-size: 16px; }
-.production-priority-heading small { color: #7b8498; font-size: 11px; }
+.production-priority-heading small { min-width: 0; color: #7b8498; font-size: 11px; overflow-wrap: anywhere; }
 
 .production-project-table,
 .production-plan-table {
@@ -18292,6 +18295,18 @@ body {
 .form-item-options { display: flex; align-items: end; gap: 10px; }
 .form-item-options label { display: flex; align-items: center; gap: 5px; color: #687388; font-size: 11px; }
 .form-item-options label:first-child { display: grid; gap: 3px; }
+.app-shell .form-template-page input[type="checkbox"] {
+  box-sizing: border-box;
+  flex: 0 0 18px;
+  width: 18px;
+  min-width: 18px;
+  max-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  max-height: 18px;
+  margin: 0;
+  padding: 0;
+}
 .material-category-iqc-selector { align-items: end; flex-wrap: wrap; }
 .material-category-iqc-selector label { display: grid; gap: 4px; min-width: 180px; color: #727c90; font-size: 11px; font-weight: 700; }
 .material-category-iqc-selector input,
@@ -21734,13 +21749,17 @@ body {
 }
 
 .production-control-plan-table {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
   border: 1px solid #111;
 }
 
 .production-control-plan-head,
 .production-control-plan-row {
   display: grid;
-  grid-template-columns: minmax(170px, 1.15fr) minmax(125px, .82fr) minmax(125px, .82fr) minmax(115px, .72fr) minmax(95px, .58fr) minmax(110px, .72fr) 86px minmax(150px, 1fr);
+  grid-template-columns: minmax(170px, 1.15fr) minmax(125px, .82fr) minmax(125px, .82fr) minmax(150px, .95fr) minmax(115px, .72fr) minmax(95px, .58fr) minmax(110px, .72fr) 86px minmax(150px, 1fr);
   align-items: stretch;
 }
 
@@ -22027,7 +22046,7 @@ body {
   border-bottom: 0;
 }
 
-.production-control-project-fields.is-structure-only .production-control-project-required {
+.production-control-project-fields .production-control-project-required {
   display: inline-flex;
   width: max-content;
   min-height: 42px;
@@ -22038,12 +22057,14 @@ body {
   color: #111;
 }
 
-.production-control-project-fields.is-structure-only .production-control-project-required input[type="checkbox"] {
+.production-control-project-fields .production-control-project-required input[type="checkbox"] {
   flex: 0 0 20px;
   width: 20px;
   min-width: 20px;
+  max-width: 20px;
   height: 20px;
   min-height: 20px;
+  max-height: 20px;
   margin: 0;
   padding: 0;
 }

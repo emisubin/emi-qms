@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Globalization;
 using System.Text.Json;
 using ClosedXML.Excel;
 using Emi.Qms.Api.Authorization;
@@ -20,7 +21,185 @@ public sealed class ProductionPlanningApiTests
     private static readonly Guid TestDesignHeadTwoUserId = new("60000000-0000-0000-0000-000000000302");
     private static readonly Guid DevAdminUserId = new("50000000-0000-0000-0000-000000000001");
     private static readonly Guid DevSalesUserId = new("50000000-0000-0000-0000-000000000002");
+    private static readonly Guid DevProductionUserId = new("50000000-0000-0000-0000-000000000003");
+    private static readonly Guid DevQualityUserId = new("50000000-0000-0000-0000-000000000005");
+    private static readonly Guid DevDesignUserId = new("50000000-0000-0000-0000-000000000010");
     private static readonly Guid DevProcurementUserId = new("50000000-0000-0000-0000-000000000011");
+
+    [Fact]
+    public async Task DepartmentHeads_AssignOnlyOwnDepartment_AndProjectCreationRequestsAssignment()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var bootstrapClient = context.CreateClient("dev-admin");
+        Assert.Equal(HttpStatusCode.OK, (await bootstrapClient.GetAsync("/health/ready", TestContext.Current.CancellationToken)).StatusCode);
+        await InsertRoleUserAsync(context, TestDesignPrimaryUserId, "test-design-member", "Test Design Member", "design", "design");
+        await context.ExecuteSqlAsync("""
+            update qms_users
+            set is_department_head = development_user_key in ('dev-design', 'dev-quality', 'dev-production')
+            where development_user_key in ('dev-design', 'dev-quality', 'dev-production');
+            """);
+
+        using var salesClient = context.CreateClient("dev-sales");
+        using var designHeadClient = context.CreateClient("dev-design");
+        using var qualityHeadClient = context.CreateClient("dev-quality");
+        using var productionHeadClient = context.CreateClient("dev-production");
+        var projectId = await CreateProjectAndReadIdAsync(context, salesClient, "DEPT-ASSIGNEE", "Department Assignee Delegation");
+
+        Assert.Equal(1, await context.ReadScalarAsync<int>($"""
+            select count(*)::integer
+            from notifications notification
+            join notification_recipients recipient on recipient.notification_id = notification.id
+            where notification.project_id = '{projectId}'
+              and notification.source_kind = 'WorkAssignment'
+              and notification.title = '프로젝트 담당자를 지정해 주세요.'
+              and recipient.user_id = '{DevDesignUserId}';
+            """));
+        Assert.Equal(1, await context.ReadScalarAsync<int>($"""
+            select count(*)::integer
+            from notifications notification
+            join notification_recipients recipient on recipient.notification_id = notification.id
+            where notification.project_id = '{projectId}'
+              and notification.source_kind = 'WorkAssignment'
+              and notification.title = '프로젝트 담당자를 지정해 주세요.'
+              and recipient.user_id = '{DevQualityUserId}';
+            """));
+        Assert.Equal(0, await context.ReadScalarAsync<int>($"""
+            select count(*)::integer
+            from notifications notification
+            join notification_recipients recipient on recipient.notification_id = notification.id
+            where notification.project_id = '{projectId}'
+              and notification.source_kind = 'WorkAssignment'
+              and notification.title = '프로젝트 담당자를 지정해 주세요.'
+              and recipient.user_id in ('{TestDesignPrimaryUserId}', '{DevProductionUserId}');
+            """));
+
+        var designScopeResponse = await designHeadClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning/department-assignees",
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            designScopeResponse.StatusCode == HttpStatusCode.OK,
+            $"Expected OK but got {designScopeResponse.StatusCode}. Body: {await designScopeResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)}. Logs: {context.ErrorLogs()}");
+        using var designScope = await ReadJsonAsync(designScopeResponse);
+        Assert.Equal("design", designScope.RootElement.GetProperty("departmentCode").GetString());
+        Assert.Equal(
+            ["DesignPrimary", "DesignSecondary"],
+            designScope.RootElement.GetProperty("assignees").EnumerateArray()
+                .Select(item => item.GetProperty("responsibilityType").GetString()!)
+                .ToArray());
+        Assert.All(
+            designScope.RootElement.GetProperty("assigneeCandidates").EnumerateArray(),
+            candidateGroup => Assert.DoesNotContain(
+                candidateGroup.GetProperty("users").EnumerateArray(),
+                candidate => candidate.GetProperty("userId").GetGuid() == DevQualityUserId));
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await productionHeadClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning/department-assignees",
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await productionHeadClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning",
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var assignDesign = await designHeadClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning/department-assignees",
+            new
+            {
+                reason = (string?)null,
+                assignees = new[]
+                {
+                    new
+                    {
+                        responsibilityType = "DesignPrimary",
+                        assigneeId = (Guid?)null,
+                        expectedRowVersion = 0,
+                        assignedUserId = TestDesignPrimaryUserId,
+                        note = (string?)null
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, assignDesign.StatusCode);
+        using var assignedDesign = await ReadJsonAsync(assignDesign);
+        Assert.Equal(
+            TestDesignPrimaryUserId,
+            assignedDesign.RootElement.GetProperty("assignees").EnumerateArray()
+                .Single(item => item.GetProperty("responsibilityType").GetString() == "DesignPrimary")
+                .GetProperty("assignedUserId").GetGuid());
+        Assert.Equal(DevDesignUserId, await context.ReadScalarAsync<Guid>($"""
+            select changed_by_user_id
+            from project_audit_events
+            where project_id = '{projectId}'
+              and entity_type = 'ProjectAssignee'
+              and field_name = '설계 정'
+            order by changed_at_utc desc
+            limit 1;
+            """));
+
+        var crossDepartment = await designHeadClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning/department-assignees",
+            new
+            {
+                reason = "다른 부서 변경 시도",
+                assignees = new[]
+                {
+                    new
+                    {
+                        responsibilityType = "QualityOQC",
+                        assigneeId = (Guid?)null,
+                        expectedRowVersion = 0,
+                        assignedUserId = DevQualityUserId,
+                        note = (string?)null
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, crossDepartment.StatusCode);
+
+        var wrongDepartmentCandidate = await designHeadClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning/department-assignees",
+            new
+            {
+                reason = "후보 차단 검증",
+                assignees = new[]
+                {
+                    new
+                    {
+                        responsibilityType = "DesignSecondary",
+                        assigneeId = (Guid?)null,
+                        expectedRowVersion = 0,
+                        assignedUserId = DevQualityUserId,
+                        note = (string?)null
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, wrongDepartmentCandidate.StatusCode);
+
+        await context.ExecuteSqlAsync("""
+            update qms_users set is_department_head = false where development_user_key = 'dev-design';
+            """);
+        var ordinaryMutation = await designHeadClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning/department-assignees",
+            new { reason = (string?)null, assignees = Array.Empty<object>() },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, ordinaryMutation.StatusCode);
+
+        using var qualityScope = await ReadJsonAsync(await qualityHeadClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning/department-assignees",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(8, qualityScope.RootElement.GetProperty("assignees").GetArrayLength());
+        Assert.All(
+            qualityScope.RootElement.GetProperty("assignees").EnumerateArray(),
+            assignee => Assert.StartsWith("Quality", assignee.GetProperty("responsibilityType").GetString(), StringComparison.Ordinal));
+
+        Assert.Equal(1, await context.ReadScalarAsync<int>($"""
+            select count(*)::integer
+            from notifications notification
+            join notification_recipients recipient on recipient.notification_id = notification.id
+            where notification.project_id = '{projectId}'
+              and notification.title = '프로젝트 담당자로 지정되었습니다.'
+              and recipient.user_id = '{TestDesignPrimaryUserId}';
+            """));
+    }
 
     [Fact]
     public async Task Workflow_ProjectCreation_BroadcastsOperationalNotificationWithoutStartingWork()
@@ -789,7 +968,9 @@ public sealed class ProductionPlanningApiTests
                 }
             },
             TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, partial.StatusCode);
+        var partialBody = await partial.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(partial.StatusCode == HttpStatusCode.OK,
+            $"Expected OK but got {partial.StatusCode}. Body: {partialBody}. Logs: {context.ErrorLogs()}");
         using var partialJson = await ReadJsonAsync(partial);
         Assert.Equal("Planning", partialJson.RootElement.GetProperty("planStatus").GetString());
         Assert.Equal("InProgress", await context.ReadScalarAsync<string>($"""
@@ -917,7 +1098,9 @@ public sealed class ProductionPlanningApiTests
                 assignees = Array.Empty<object>()
             },
             TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        var completedBody = await completed.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(completed.StatusCode == HttpStatusCode.OK,
+            $"Expected OK but got {completed.StatusCode}. Body: {completedBody}. Logs: {context.ErrorLogs()}");
         using var completedJson = await ReadJsonAsync(completed);
         Assert.Equal("Planned", completedJson.RootElement.GetProperty("planStatus").GetString());
         Assert.Equal("Completed", await context.ReadScalarAsync<string>($"""
@@ -2028,6 +2211,243 @@ public sealed class ProductionPlanningApiTests
     }
 
     [Fact]
+    public async Task ProductionControl_LegacyProjectUsesUnifiedConnectionsAndNormalizesDeletedRows()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
+
+        var projectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"PC-UNIFIED-{Guid.NewGuid():N}"[..28],
+            "기존 프로젝트 통합 생산계획");
+        using var initial = await ReadJsonAsync(await salesClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning",
+            TestContext.Current.CancellationToken));
+        Assert.Equal("LEGACY", initial.RootElement.GetProperty("modelVersion").GetString());
+        var initialItems = initial.RootElement.GetProperty("items").EnumerateArray().ToList();
+        Assert.NotEmpty(initialItems);
+        var legacyManufacturingKey = Assert.Single(
+            initial.RootElement.GetProperty("manufacturingSteps").EnumerateArray().Take(1))
+            .GetProperty("definitionKey").GetGuid();
+        var lqcSource = initial.RootElement.GetProperty("availableSources").EnumerateArray()
+            .Single(source => source.GetProperty("code").GetString() == ProductionControlSourceCodes.LqcPassed);
+        Assert.False(lqcSource.GetProperty("isOperational").GetBoolean());
+        Assert.Contains("기존 방식 프로젝트", lqcSource.GetProperty("operationalMessage").GetString());
+
+        var firstSaveItems = initialItems.Select((item, index) => new ProductionPlanItemUpdateRequest(
+            item.GetProperty("itemId").GetGuid(),
+            item.GetProperty("templateStepId").ValueKind == JsonValueKind.Null
+                ? null
+                : item.GetProperty("templateStepId").GetGuid(),
+            item.GetProperty("stepName").GetString(),
+            index + 10,
+            item.GetProperty("isRequired").GetBoolean(),
+            item.GetProperty("rowVersion").GetInt32(),
+            null,
+            new DateOnly(2026, 9, 1 + index),
+            new DateOnly(2026, 9, 2 + index),
+            null,
+            null,
+            null,
+            false,
+            item.GetProperty("definitionKey").ValueKind == JsonValueKind.Null
+                ? null
+                : item.GetProperty("definitionKey").GetGuid(),
+            [new ProductionControlConnectionResponse(
+                index == 0 ? ProductionControlSourceCodes.ManufacturingStepCompleted : ProductionControlSourceCodes.Packed,
+                index == 0 ? legacyManufacturingKey : null)]))
+            .Concat([
+                new ProductionPlanItemUpdateRequest(
+                    null, null, "추가 계획 A", 100, false, null, null,
+                    new DateOnly(2026, 9, 20), new DateOnly(2026, 9, 21),
+                    null, null, null, false, Guid.NewGuid(),
+                    [new ProductionControlConnectionResponse(ProductionControlSourceCodes.Departed, null)]),
+                new ProductionPlanItemUpdateRequest(
+                    null, null, "추가 계획 B", 100, false, null, null,
+                    new DateOnly(2026, 9, 22), new DateOnly(2026, 9, 23),
+                    null, null, null, false, Guid.NewGuid(),
+                    [new ProductionControlConnectionResponse(ProductionControlSourceCodes.Delivered, null)])
+            ])
+            .ToArray();
+
+        using var firstSaved = await ReadJsonAsync(await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                initial.RootElement.GetProperty("productTypeId").GetGuid(),
+                initial.RootElement.GetProperty("rowVersion").GetInt32(),
+                "기존 프로젝트 전용 계획",
+                "계획 기간과 실적 연결 통합",
+                firstSaveItems,
+                []),
+            TestContext.Current.CancellationToken));
+        Assert.Equal("LEGACY", firstSaved.RootElement.GetProperty("modelVersion").GetString());
+        Assert.Equal("2026-09-01", firstSaved.RootElement.GetProperty("items")[0].GetProperty("plannedStartDate").GetString());
+        Assert.Equal("2026-09-02", firstSaved.RootElement.GetProperty("items")[0].GetProperty("plannedEndDate").GetString());
+        Assert.Equal(Enumerable.Range(1, firstSaveItems.Length), firstSaved.RootElement.GetProperty("items").EnumerateArray()
+            .OrderBy(item => item.GetProperty("sequenceNumber").GetInt32())
+            .Select(item => item.GetProperty("sequenceNumber").GetInt32()));
+
+        await context.ExecuteSqlAsync($"""
+            with active_template as (
+                select version.id as version_id, item.label
+                from manufacturing_step_template_versions version
+                join manufacturing_step_templates template on template.id=version.template_id
+                join manufacturing_step_template_items item
+                  on item.template_version_id=version.id and item.id='{legacyManufacturingKey}'
+                where template.template_code='PANEL_MANUFACTURING'
+                  and version.lifecycle_status='Active' and version.is_active
+            ), executions as (
+                insert into panel_manufacturing_executions (
+                    project_id, panel_id, status, started_by_user_id, started_at_utc,
+                    completed_by_user_id, completed_at_utc, template_version_id
+                )
+                select '{projectId}', panel.id, 'Completed',
+                       '50000000-0000-0000-0000-000000000004', now(),
+                       '50000000-0000-0000-0000-000000000004', now(), active_template.version_id
+                from panel_placeholders panel
+                cross join active_template
+                where panel.project_id='{projectId}' and panel.status='Active'
+                returning id, template_version_id
+            )
+            insert into panel_manufacturing_execution_steps (
+                execution_id, sequence_number, step_name, checked_by_user_id, checked_at_utc
+            )
+            select executions.id, 1, active_template.label,
+                   '50000000-0000-0000-0000-000000000004', now()
+            from executions
+            join active_template on active_template.version_id=executions.template_version_id;
+            """);
+
+        using var projected = await ReadJsonAsync(await salesClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning",
+            TestContext.Current.CancellationToken));
+        var manufacturingItem = projected.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("connections")[0].GetProperty("sourceCode").GetString()
+                == ProductionControlSourceCodes.ManufacturingStepCompleted);
+        Assert.True(manufacturingItem.GetProperty("totalTargetCount").GetInt32() > 0);
+        Assert.Equal(100, manufacturingItem.GetProperty("progressPercent").GetInt32());
+
+        var savedRows = projected.RootElement.GetProperty("items").EnumerateArray()
+            .OrderBy(item => item.GetProperty("sequenceNumber").GetInt32())
+            .ToList();
+        var deletedRow = savedRows.Single(item => item.GetProperty("stepName").GetString() == "추가 계획 A");
+        var secondSaveItems = savedRows.Select(item =>
+        {
+            var connection = Assert.Single(item.GetProperty("connections").EnumerateArray());
+            return new ProductionPlanItemUpdateRequest(
+                item.GetProperty("itemId").GetGuid(),
+                item.GetProperty("templateStepId").ValueKind == JsonValueKind.Null
+                    ? null
+                    : item.GetProperty("templateStepId").GetGuid(),
+                item.GetProperty("stepName").GetString(),
+                1,
+                item.GetProperty("isRequired").GetBoolean(),
+                item.GetProperty("rowVersion").GetInt32(),
+                null,
+                DateOnly.Parse(item.GetProperty("plannedStartDate").GetString()!, CultureInfo.InvariantCulture),
+                DateOnly.Parse(item.GetProperty("plannedEndDate").GetString()!, CultureInfo.InvariantCulture),
+                null,
+                null,
+                item.GetProperty("note").ValueKind == JsonValueKind.Null ? null : item.GetProperty("note").GetString(),
+                item.GetProperty("itemId").GetGuid() == deletedRow.GetProperty("itemId").GetGuid(),
+                item.GetProperty("definitionKey").ValueKind == JsonValueKind.Null
+                    ? null
+                    : item.GetProperty("definitionKey").GetGuid(),
+                [new ProductionControlConnectionResponse(
+                    connection.GetProperty("sourceCode").GetString()!,
+                    connection.GetProperty("sourceDefinitionKey").ValueKind == JsonValueKind.Null
+                        ? null
+                        : connection.GetProperty("sourceDefinitionKey").GetGuid())]);
+        }).Append(new ProductionPlanItemUpdateRequest(
+            null, null, "삭제 후 재추가 계획", 1, false, null, null,
+            new DateOnly(2026, 9, 24), new DateOnly(2026, 9, 25),
+            null, null, null, false, Guid.NewGuid(),
+            [new ProductionControlConnectionResponse(ProductionControlSourceCodes.Delivered, null)]))
+            .ToArray();
+
+        using var secondResponse = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                projected.RootElement.GetProperty("productTypeId").GetGuid(),
+                projected.RootElement.GetProperty("rowVersion").GetInt32(),
+                "기존 프로젝트 전용 계획",
+                "행 삭제 후 재추가",
+                secondSaveItems,
+                []),
+            TestContext.Current.CancellationToken);
+        var secondBody = await secondResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(secondResponse.IsSuccessStatusCode,
+            $"Expected success but got {secondResponse.StatusCode}. Body: {secondBody}. Logs: {context.ErrorLogs()}");
+        using var secondSaved = JsonDocument.Parse(secondBody);
+        var activeRows = secondSaved.RootElement.GetProperty("items").EnumerateArray()
+            .OrderBy(item => item.GetProperty("sequenceNumber").GetInt32())
+            .ToList();
+        Assert.Equal(Enumerable.Range(1, activeRows.Count), activeRows.Select(item => item.GetProperty("sequenceNumber").GetInt32()));
+        Assert.DoesNotContain(activeRows, item => item.GetProperty("itemId").GetGuid() == deletedRow.GetProperty("itemId").GetGuid());
+        Assert.Contains(activeRows, item => item.GetProperty("stepName").GetString() == "삭제 후 재추가 계획");
+        Assert.Equal(activeRows.Count, await context.ReadScalarAsync<int>($"""
+            select count(*)::integer
+            from project_production_plan_items item
+            join project_production_plans plan on plan.id=item.production_plan_id
+            where plan.project_id='{projectId}' and item.is_active;
+            """));
+    }
+
+    [Fact]
+    public async Task ProductionControl_ProjectWithoutPlanCanStartUnifiedLegacyPlan()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
+
+        var projectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"PC-EMPTY-{Guid.NewGuid():N}"[..28],
+            "생산계획 미생성 프로젝트");
+        await context.ExecuteSqlAsync($"""
+            delete from project_production_plan_items
+            where production_plan_id in (
+                select id from project_production_plans where project_id='{projectId}'
+            );
+            delete from project_production_plans where project_id='{projectId}';
+            """);
+
+        using var emptyPlan = await ReadJsonAsync(await productionClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning",
+            TestContext.Current.CancellationToken));
+        Assert.Equal("LEGACY", emptyPlan.RootElement.GetProperty("modelVersion").GetString());
+        Assert.Empty(emptyPlan.RootElement.GetProperty("items").EnumerateArray());
+        Assert.NotEmpty(emptyPlan.RootElement.GetProperty("availableSources").EnumerateArray());
+        Assert.NotEmpty(emptyPlan.RootElement.GetProperty("manufacturingSteps").EnumerateArray());
+
+        using var response = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                null,
+                0,
+                null,
+                "첫 프로젝트 전용 생산계획",
+                [new ProductionPlanItemUpdateRequest(
+                    null, null, "첫 계획 항목", 99, true, null, null,
+                    new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 2),
+                    null, null, null, false, Guid.NewGuid(),
+                    [new ProductionControlConnectionResponse(ProductionControlSourceCodes.Packed, null)])],
+                []),
+            TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(response.IsSuccessStatusCode,
+            $"Expected success but got {response.StatusCode}. Body: {body}. Logs: {context.ErrorLogs()}");
+        using var saved = JsonDocument.Parse(body);
+        Assert.Equal("LEGACY", saved.RootElement.GetProperty("modelVersion").GetString());
+        var item = Assert.Single(saved.RootElement.GetProperty("items").EnumerateArray());
+        Assert.Equal(1, item.GetProperty("sequenceNumber").GetInt32());
+        Assert.Equal("PACKED", item.GetProperty("connections")[0].GetProperty("sourceCode").GetString());
+    }
+
+    [Fact]
     public async Task ProductionControl_CurrentTemplateEditsInPlaceAndPlanRequiresOneConnection()
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();
@@ -2577,8 +2997,8 @@ public sealed class ProductionPlanningApiTests
         bool isDepartmentHead = false)
     {
         return context.ExecuteSqlAsync($"""
-            insert into qms_users (id, development_user_key, display_name, department_id, is_active, is_department_head)
-            select '{userId}', '{developmentUserKey}', '{displayName}', departments.id, true, {isDepartmentHead.ToString().ToLowerInvariant()}
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active, is_department_head, auth_provider)
+            select '{userId}', '{developmentUserKey}', '{displayName}', departments.id, true, {isDepartmentHead.ToString().ToLowerInvariant()}, 'Dev'
             from departments
             where departments.code = '{departmentCode}'
             on conflict (id) do update
@@ -2586,7 +3006,8 @@ public sealed class ProductionPlanningApiTests
                 display_name = excluded.display_name,
                 department_id = excluded.department_id,
                 is_active = true,
-                is_department_head = excluded.is_department_head;
+                is_department_head = excluded.is_department_head,
+                auth_provider = 'Dev';
 
             insert into user_roles (user_id, role_id)
             select '{userId}', roles.id

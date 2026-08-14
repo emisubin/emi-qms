@@ -821,9 +821,8 @@ test('TASK-005A production planning page, project section, edit, permissions, an
   await expect(page.getByLabel('영업 담당자 지정')).toHaveAttribute('data-tone', 'sales');
   await expect(page.getByLabel('품질 검사 담당자').locator('[data-tone="quality"]')).toHaveCount(4);
   await page.locator('details.ds-input-section').filter({ hasText: '생산계획표 입력' }).locator('summary').click();
-  const planEditTable = page.getByRole('table', { name: '생산계획 수정' });
-  await expect(planEditTable.locator('input[name="items[0].stepName"]')).toHaveValue('자재 입고');
-  await expect(planEditTable).not.toContainText('No');
+  const planEditRows = page.locator('.production-control-project-rows > article');
+  await expect(planEditRows.first().getByLabel('계획 항목')).toHaveValue('자재 입고');
   await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Excel 업로드' })).toBeVisible();
   await page.getByRole('button', { name: 'Excel 업로드' }).click();
@@ -833,60 +832,26 @@ test('TASK-005A production planning page, project section, edit, permissions, an
   await expect(projectProductionExcelDialog.getByRole('button', { name: 'Preview' })).toBeVisible();
   await projectProductionExcelDialog.getByRole('button', { name: '닫기' }).click();
   await expect(projectProductionExcelDialog).toHaveCount(0);
-  await planEditTable.locator('input[type="date"]').nth(0).fill('2026-07-01');
-  await planEditTable.locator('input[type="date"]').nth(1).fill('2026-07-15');
-  await planEditTable.locator('input[type="date"]').nth(2).fill('2026-07-31');
-  await planEditTable.locator('input[type="date"]').nth(3).fill('2026-08-15');
+  const plannedDates = ['2026-07-01', '2026-07-15', '2026-07-31', '2026-08-15'];
+  for (let index = 0; index < await planEditRows.count(); index += 1) {
+    const plannedDate = plannedDates[Math.min(index, plannedDates.length - 1)];
+    const row = planEditRows.nth(index);
+    await row.locator('input[type="date"]').nth(0).fill(plannedDate);
+    await row.locator('input[type="date"]').nth(1).fill(plannedDate);
+    await row.locator('.production-control-project-connection-select select').selectOption({ index: 1 });
+  }
   await page.getByLabel('구매 정').selectOption('50000000-0000-0000-0000-000000000011');
   await page.getByLabel('생산관리 정').selectOption('50000000-0000-0000-0000-000000000003');
   await page.getByRole('button', { name: '저장' }).click();
   await expect(page.getByRole('heading', { name: projectTitle })).toBeVisible();
   await expect(page.getByRole('tab', { name: '생산관리' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('계획 완료').first()).toBeVisible();
-  const planItemsTable = page.getByRole('table', { name: '생산계획 항목' });
+  const planItemsTable = page.getByRole('table', { name: '생산계획표' });
   await expect(planItemsTable).not.toContainText('No');
-  const calendarTable = page.getByRole('table', { name: '생산계획 캘린더 표' });
-  await expect(calendarTable.getByRole('columnheader', { name: /^7\/3\b/ })).toHaveClass(/calendar-red-day/);
-  await expect(page.getByText('공식 대체공휴일')).toBeVisible();
-  const calendarWrap = page.locator('.production-calendar-table-wrap').first();
-  const stageHeader = calendarTable.locator('thead th.production-calendar-stage-cell');
-  const stageCell = calendarTable.locator('tbody th.production-calendar-stage-cell').first();
-  const dateCell = calendarTable.locator('thead th.production-calendar-date-cell').nth(10);
-  const beforeSticky = {
-    header: await stageHeader.boundingBox(),
-    cell: await stageCell.boundingBox(),
-    date: await dateCell.boundingBox()
-  };
-  await calendarWrap.evaluate((element) => {
-    element.scrollLeft = 520;
-  });
-  await page.waitForTimeout(100);
-  const afterSticky = {
-    header: await stageHeader.boundingBox(),
-    cell: await stageCell.boundingBox(),
-    date: await dateCell.boundingBox()
-  };
-  expect(beforeSticky.header).not.toBeNull();
-  expect(beforeSticky.cell).not.toBeNull();
-  expect(beforeSticky.date).not.toBeNull();
-  expect(afterSticky.header).not.toBeNull();
-  expect(afterSticky.cell).not.toBeNull();
-  expect(afterSticky.date).not.toBeNull();
-  expect(Math.abs(afterSticky.header!.x - beforeSticky.header!.x)).toBeLessThanOrEqual(2);
-  expect(Math.abs(afterSticky.cell!.x - beforeSticky.cell!.x)).toBeLessThanOrEqual(2);
-  expect(afterSticky.date!.x).toBeLessThan(beforeSticky.date!.x - 100);
-  const calendarWidths = await calendarTable.evaluate((table) => {
-    const dateHeaders = Array.from(table.querySelectorAll('thead th.production-calendar-date-cell')).slice(0, 8);
-    return {
-      stageHeaderWidth: table.querySelector('thead th.production-calendar-stage-cell')?.getBoundingClientRect().width ?? 0,
-      stageCellWidth: table.querySelector('tbody th.production-calendar-stage-cell')?.getBoundingClientRect().width ?? 0,
-      dateWidths: dateHeaders.map((cell) => Math.round(cell.getBoundingClientRect().width)),
-      pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
-    };
-  });
-  expect(Math.abs(calendarWidths.stageHeaderWidth - calendarWidths.stageCellWidth)).toBeLessThanOrEqual(1);
-  expect(new Set(calendarWidths.dateWidths).size).toBe(1);
-  expect(calendarWidths.pageOverflow).toBeFalsy();
+  await expect(planItemsTable).toContainText('연결 실적');
+  await expect(page.getByLabel('생산계획 계획 실적 일정표')).toBeVisible();
+  await expect(page.getByRole('table', { name: '생산계획 캘린더 표' })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
   await expect(page.getByLabel('담당자 지정 현황')).toContainText('Dev Procurement User');
   await expect(page.getByLabel('영업 담당자')).toContainText('정');
   await expect(page.getByLabel('영업 담당자')).toContainText('부');

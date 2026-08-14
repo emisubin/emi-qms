@@ -114,10 +114,14 @@ test('12면 혼합 자재·분할 지연 입고·반복 제조 Pending을 최종
   await page.getByLabel('선택 프로젝트 생산계획').getByRole('button', { name: '생산계획 수정' }).click();
   await page.waitForLoadState('networkidle');
   await openInputSection(page, '생산계획표 입력');
-  const planDates = page.getByRole('table', { name: '생산계획 수정' }).locator('input[type="date"]');
+  const planRows = page.locator('.production-control-project-rows > article');
   const plannedDates = ['2026-07-15', '2026-07-20', '2026-08-05', '2026-08-20'];
-  for (let index = 0; index < await planDates.count(); index += 1) {
-    await planDates.nth(index).fill(plannedDates[Math.min(index, plannedDates.length - 1)]);
+  for (let index = 0; index < await planRows.count(); index += 1) {
+    const plannedDate = plannedDates[Math.min(index, plannedDates.length - 1)];
+    const row = planRows.nth(index);
+    await row.locator('input[type="date"]').nth(0).fill(plannedDate);
+    await row.locator('input[type="date"]').nth(1).fill(plannedDate);
+    await row.locator('.production-control-project-connection-select select').selectOption({ index: 1 });
   }
   const assignees: Array<[string, string]> = [
     ['영업 정', salesUserId], ['영업 부', salesUserId],

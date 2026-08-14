@@ -2553,40 +2553,47 @@ describe('App', () => {
     expect(assigneeSummary).not.toHaveTextContent('알림 기준');
     expect(assigneeSummary).not.toHaveTextContent('fallback');
     expect(within(assigneeSummary).queryByRole('combobox')).not.toBeInTheDocument();
-    const planItemsTable = await screen.findByRole('table', { name: '생산계획 항목' });
-    expect(planItemsTable).toHaveTextContent('계획 항목필수예정일담당자필요 인원코멘트');
+    const planItemsTable = await screen.findByRole('table', { name: '생산계획표' });
+    expect(planItemsTable).toHaveTextContent('계획 항목계획 기간실적 기간연결 실적진행상태담당자필요 인원코멘트');
+    expect(planItemsTable).toHaveTextContent('물류 · 포장 완료');
     expect(planItemsTable).toHaveTextContent('Dev Production Planning User');
     expect(planItemsTable).toHaveTextContent('3명');
     expect(planItemsTable).not.toHaveTextContent('No');
-    const calendarTable = await screen.findByRole('table', { name: '생산계획 캘린더 표' });
-    expect(calendarTable).toHaveTextContent('생산단계');
-    expect(calendarTable).toHaveAttribute('style', expect.stringContaining('--production-calendar-stage-column-width'));
-    expect(within(calendarTable).getByRole('columnheader', { name: '생산단계' })).toHaveClass('production-calendar-stage-cell');
-    expect(within(calendarTable).getByRole('rowheader', { name: /자재 입고/ })).toHaveClass('production-calendar-stage-cell');
-    expect(within(calendarTable).getByRole('columnheader', { name: /7\/1/ })).toHaveClass('production-calendar-date-cell');
-    expect(calendarTable).toHaveTextContent('7/1');
-    expect(calendarTable).toHaveTextContent('7/2');
-    expect(within(calendarTable).getByRole('columnheader', { name: /7\/2/ })).toHaveClass('calendar-company-holiday');
-    expect(within(calendarTable).getByRole('columnheader', { name: /7\/3/ })).toHaveClass('calendar-red-day');
-    expect(within(calendarTable).getByRole('row', { name: /자재 입고/ })).toHaveTextContent('✓');
-    expect(await screen.findByText(/회사 창립기념 휴일/)).toBeInTheDocument();
-    expect(await screen.findByText(/공식 대체공휴일/)).toBeInTheDocument();
-    expect(screen.getByLabelText('날짜 미입력 생산단계')).toHaveTextContent('조립 시작');
-    expect(screen.getByLabelText('날짜 미입력 생산단계')).toHaveTextContent('필수 미입력');
+    const gantt = await screen.findByLabelText('생산계획 계획 실적 일정표');
+    expect(gantt.querySelector('[data-bar="plan"]')).not.toBeNull();
+    expect(gantt.querySelector('[data-bar="actual"]')).not.toBeNull();
+    expect(screen.queryByRole('table', { name: '생산계획 캘린더 표' })).not.toBeInTheDocument();
     expect(screen.queryByText('검수 공휴일')).not.toBeInTheDocument();
     expect(planItemsTable.compareDocumentPosition(assigneeSummary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(calendarTable.compareDocumentPosition(assigneeSummary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(gantt.compareDocumentPosition(assigneeSummary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '생산계획 수정' }));
     const projectContext = await screen.findByTestId('project-context-summary');
     expect(projectContext).toHaveTextContent('TASK-003A Demo');
     expect(projectContext).toHaveTextContent('PJT-003A');
     expect(projectContext).not.toHaveTextContent('Active');
-    const planEditTable = await screen.findByRole('table', { name: '생산계획 수정' });
-    expect(planEditTable).toHaveTextContent('계획 항목필수예정일담당자필요 인원생산관리 코멘트작업');
-    expect(planEditTable).not.toHaveTextContent('No');
-    expect(within(planEditTable).getAllByLabelText('담당자')[0]).toHaveValue('50000000-0000-0000-0000-000000000003');
-    expect(within(planEditTable).getAllByLabelText('필요 인원')[0]).toHaveValue(3);
+    const planEditSection = (await screen.findByRole('heading', { name: '프로젝트 생산계획표' })).closest('section');
+    expect(planEditSection).not.toBeNull();
+    expect(planEditSection).toHaveTextContent('계획 시작');
+    expect(planEditSection).toHaveTextContent('계획 종료');
+    expect(planEditSection).toHaveTextContent('실적 데이터 1:1 연결');
+    expect(within(planEditSection!).getAllByLabelText('담당자')[0]).toHaveValue('50000000-0000-0000-0000-000000000003');
+    expect(within(planEditSection!).getAllByLabelText('필요 인원')[0]).toHaveValue(3);
+    const addPlanRowButton = within(planEditSection!).getByRole('button', { name: '계획 항목 추가' });
+    fireEvent.click(addPlanRowButton);
+    fireEvent.click(addPlanRowButton);
+    let planNameInputs = within(planEditSection!).getAllByLabelText('계획 항목');
+    fireEvent.change(planNameInputs.at(-2)!, { target: { value: '추가 계획 유지' } });
+    fireEvent.change(planNameInputs.at(-1)!, { target: { value: '추가 계획 삭제' } });
+    let connectionSelects = within(planEditSection!).getAllByRole('combobox', { name: /연결할 실적/ });
+    fireEvent.change(connectionSelects.at(-2)!, { target: { value: 'PACKED:' } });
+    fireEvent.change(connectionSelects.at(-1)!, { target: { value: 'PACKED:' } });
+    fireEvent.click(within(planEditSection!).getAllByRole('button', { name: '삭제' }).at(-1)!);
+    fireEvent.click(addPlanRowButton);
+    planNameInputs = within(planEditSection!).getAllByLabelText('계획 항목');
+    fireEvent.change(planNameInputs.at(-1)!, { target: { value: '삭제 후 재추가 계획' } });
+    connectionSelects = within(planEditSection!).getAllByRole('combobox', { name: /연결할 실적/ });
+    fireEvent.change(connectionSelects.at(-1)!, { target: { value: 'PACKED:' } });
     expect(screen.getByRole('button', { name: 'Excel 양식 다운로드' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Excel 업로드' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Excel 업로드' }));
@@ -2623,6 +2630,15 @@ describe('App', () => {
     expect(assigneeEditSection!).not.toHaveTextContent('fallback');
     expect(assigneeEditSection!).not.toHaveTextContent('알림 기준');
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    const saveCall = vi.mocked(fetch).mock.calls.find(([input, init]) =>
+      String(input).includes(`/api/projects/${projectId}/production-planning`) && init?.method === 'PATCH');
+    expect(saveCall).toBeDefined();
+    const savedPayload = JSON.parse(String(saveCall![1]?.body));
+    expect(savedPayload.items.map((item: { sequenceNumber: number }) => item.sequenceNumber))
+      .toEqual(savedPayload.items.map((_: unknown, index: number) => index + 1));
+    expect(savedPayload.items.map((item: { stepName: string }) => item.stepName)).toContain('추가 계획 유지');
+    expect(savedPayload.items.map((item: { stepName: string }) => item.stepName)).toContain('삭제 후 재추가 계획');
+    expect(savedPayload.items.map((item: { stepName: string }) => item.stepName)).not.toContain('추가 계획 삭제');
     expect(await screen.findByText('프로젝트 단위 계획과 담당자 지정')).toBeInTheDocument();
     expect(screen.getByLabelText('최근 저장 결과')).toHaveTextContent('생산계획을 저장했습니다.');
 
@@ -2643,6 +2659,40 @@ describe('App', () => {
     expect(await screen.findByLabelText('생산계획 요약')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel 업로드' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel 양식 다운로드' })).not.toBeInTheDocument();
+  });
+
+  it('lets a department head edit only their own project assignees', async () => {
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '생산관리' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: '생산계획 수정' }));
+    expect(await screen.findByRole('heading', { name: '설계 담당자 지정' })).toBeInTheDocument();
+    expect(screen.getByText('본인 부서 담당자만 지정할 수 있습니다. 생산계획과 다른 부서 담당자는 프로젝트 조회 화면에서 확인하세요.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '설계' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '영업' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '생산관리' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '프로젝트 생산계획표' })).not.toBeInTheDocument();
+    expect(screen.queryByText('실적 데이터 1:1 연결')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('설계 정'), {
+      target: { value: '50000000-0000-0000-0000-000000000010' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: '담당자 저장' }));
+
+    await waitFor(() => {
+      const saveCall = vi.mocked(fetch).mock.calls.find(([input, init]) =>
+        String(input).includes(`/api/projects/${projectId}/production-planning/department-assignees`)
+        && init?.method === 'PATCH');
+      expect(saveCall).toBeDefined();
+      const payload = JSON.parse(String(saveCall![1]?.body));
+      expect(payload.assignees.map((assignee: { responsibilityType: string }) => assignee.responsibilityType))
+        .toEqual(['DesignPrimary', 'DesignSecondary']);
+    });
+    expect(await screen.findByText('프로젝트 단위 계획과 담당자 지정')).toBeInTheDocument();
+    expect(screen.getByLabelText('최근 저장 결과')).toHaveTextContent('설계 담당자를 저장했습니다.');
   });
 
   it('opens UL891 production planning on the all-set default and renders readable schedule marks and assignees', async () => {
@@ -4398,6 +4448,14 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(productionPlanningResponse('Planned'), userKey === 'dev-production' ? 200 : 403);
   }
 
+  if (path === `/api/projects/${projectId}/production-planning/department-assignees` && init?.method === 'PATCH') {
+    return json(departmentAssigneeScopeResponse(), userKey === 'dev-design' ? 200 : 403);
+  }
+
+  if (path === `/api/projects/${projectId}/production-planning/department-assignees`) {
+    return json(departmentAssigneeScopeResponse(), userKey === 'dev-design' ? 200 : 403);
+  }
+
   if (path === `/api/projects/${projectId}/production-planning/set-defaults` && init?.method === 'PATCH') {
     return json(productionPlanningSetScopedResponse('Planned'), userKey === 'dev-production' ? 200 : 403);
   }
@@ -5300,6 +5358,7 @@ function productionPlanningResponse(status: 'NotPlanned' | 'Planning' | 'Planned
     projectTitle: id === onHoldProjectId ? 'OnHold Project' : 'TASK-003A Demo',
     projectCode: 'PJT-003A',
     deliveryDate: '2026-10-10',
+    modelVersion: 'LEGACY',
     planId: '77000000-0000-0000-0000-000000000301',
     rowVersion: 1,
     planStatus: status,
@@ -5309,19 +5368,48 @@ function productionPlanningResponse(status: 'NotPlanned' | 'Planning' | 'Planned
     productTypeCode: productType.code,
     productTypeName: productType.name,
     notes: '생산계획 검수',
-    items: productType.steps.map((step, index) => ({
+    manufacturingSteps: [],
+    availableSources: [{
+      code: 'PACKED',
+      departmentLabel: '물류',
+      label: '포장 완료',
+      requiresManufacturingDefinition: false,
+      definitionKind: 'None',
+      definitions: [],
+      isOperational: true,
+      operationalMessage: null
+    }],
+    items: productType.steps.map((step, index) => {
+      const plannedDate = planned || index === 0 || index === 2 ? `2026-07-0${index + 1}` : null;
+      return ({
       itemId: `77000000-0000-0000-0000-00000000040${index + 1}`,
       templateStepId: step.templateStepId,
       sequenceNumber: step.sequenceNumber,
       stepName: step.stepName,
       isRequired: step.isRequired,
-      plannedDate: planned || index === 0 || index === 2 ? `2026-07-0${index + 1}` : null,
+      isCustom: false,
+      definitionKey: `77000000-0000-0000-0000-00000000060${index + 1}`,
+      plannedDate,
+      plannedStartDate: plannedDate,
+      plannedEndDate: plannedDate,
+      actualStartDate: index === 0 ? '2026-07-01' : null,
+      actualEndDate: index === 0 ? '2026-07-01' : null,
       assignedUserId: index === 0 ? '50000000-0000-0000-0000-000000000003' : null,
       assignedUserName: index === 0 ? 'Dev Production Planning User' : null,
       requiredHeadcount: index === 0 ? 3 : null,
+      completedTargetCount: index === 0 ? 1 : 0,
+      totalTargetCount: 1,
+      progressPercent: index === 0 ? 100 : 0,
+      scheduleStatus: index === 0 ? 'Completed' : 'NotStarted',
+      scheduleStatusLabel: index === 0 ? '완료' : '대기',
+      delayDays: 0,
+      isBlocked: false,
+      connections: [{ sourceCode: 'PACKED', sourceDefinitionKey: null }],
+      evidence: [],
       note: index === 0 ? '입고 확인' : null,
       rowVersion: 0
-    })),
+    });
+    }),
     assignees: responsibilityFixtures().map((item, index) => ({
       assigneeId: item.assignedUserId ? `77000000-0000-0000-0000-0000000005${String(index + 1).padStart(2, '0')}` : null,
       responsibilityType: item.responsibilityType,
@@ -5341,6 +5429,32 @@ function productionPlanningResponse(status: 'NotPlanned' | 'Planning' | 'Planned
       userId: item.assignedUserId ?? salesOwnerId,
       displayName: item.assignedUserName ?? 'Dev Sales User',
       sourceLabel: item.assignedUserId ? '지정 담당자' : '영업담당자'
+    }))
+  };
+}
+
+function departmentAssigneeScopeResponse() {
+  const designAssignees = responsibilityFixtures()
+    .filter((fixture) => fixture.responsibilityType === 'DesignPrimary' || fixture.responsibilityType === 'DesignSecondary')
+    .map((fixture, index) => ({
+      assigneeId: `77000000-0000-0000-0000-0000000007${index + 1}`,
+      responsibilityType: fixture.responsibilityType,
+      responsibilityLabel: fixture.responsibilityLabel,
+      assignedUserId: fixture.assignedUserId,
+      assignedUserName: fixture.assignedUserName,
+      note: null,
+      rowVersion: 1
+    }));
+  return {
+    projectId,
+    projectTitle: 'TASK-003A Demo',
+    projectCode: 'PJT-003A',
+    departmentCode: 'design',
+    departmentName: '설계',
+    assignees: designAssignees,
+    assigneeCandidates: designAssignees.map((assignee) => ({
+      responsibilityType: assignee.responsibilityType,
+      users: [{ userId: '50000000-0000-0000-0000-000000000010', displayName: 'Dev Design User' }]
     }))
   };
 }

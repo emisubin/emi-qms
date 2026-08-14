@@ -278,6 +278,74 @@ public static class ProductionPlanningEndpointExtensions
         .RequireAuthorization(QmsPolicies.ProductionPlanUpdate)
         .WithName("UpdateProjectProductionPlanning");
 
+        projectApi.MapGet("/department-assignees", async (
+            Guid projectId,
+            ProjectStore projectStore,
+            ProductionPlanningStore store,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null)
+            {
+                return access;
+            }
+
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var scope = await store.GetDepartmentAssigneeScopeAsync(projectId, userId.Value, cancellationToken);
+            return scope is null ? Results.Forbid() : Results.Ok(scope);
+        })
+        .RequireAuthorization()
+        .WithName("GetProjectDepartmentAssignees");
+
+        projectApi.MapPatch("/department-assignees", async (
+            Guid projectId,
+            UpdateDepartmentAssigneesRequest request,
+            ProjectStore projectStore,
+            ProductionPlanningStore store,
+            WorkflowStore workflowStore,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var access = await AuthorizeProjectReadAsync(projectStore, user, projectId, cancellationToken);
+            if (access is not null)
+            {
+                return access;
+            }
+
+            var userId = GetCurrentUserId(user);
+            if (userId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await store.UpdateDepartmentAssigneesAsync(
+                projectId,
+                request,
+                userId.Value,
+                httpContext.TraceIdentifier,
+                cancellationToken);
+
+            if (result.Status == ProductionPlanningMutationStatus.Success)
+            {
+                await workflowStore.GenerateProductionPlanningAssigneeFollowUpsAsync(
+                    projectId,
+                    userId.Value,
+                    httpContext.TraceIdentifier,
+                    cancellationToken);
+            }
+
+            return ToResult(result, Results.Ok);
+        })
+        .RequireAuthorization()
+        .WithName("UpdateProjectDepartmentAssignees");
+
         projectApi.MapPatch("/set-defaults", async (
             Guid projectId,
             UpdateProductionPlanSetDefaultRequest request,
@@ -514,6 +582,7 @@ public static class ProductionPlanningEndpointExtensions
             ProductionPlanningMutationStatus.Conflict => Results.Problem(
                 title: result.Message ?? "요청한 작업을 수행할 수 없습니다.",
                 statusCode: StatusCodes.Status409Conflict),
+            ProductionPlanningMutationStatus.Forbidden => Results.Forbid(),
             _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
         };
     }

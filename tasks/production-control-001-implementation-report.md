@@ -1,6 +1,6 @@
 # TASK-PRODUCTION-CONTROL-001 구현 보고 — Item별 생산계획·자동 실적·가로 막대 일정
 
-상태: `기존 기능 원격 main 반영·사용자 검수 완료 / Change 010 원격 main 병합·main CI 완료`
+상태: `기존 기능·Change 010 원격 main 반영 완료 / Change 011 사용자 최종 일괄 검수·게시 승인`
 
 ## 기준선과 범위
 
@@ -288,5 +288,57 @@ Open P0/P1/P2: `0/0/0`.
 | Implementation report | 작성됨 | 본 문서 |
 | SOP | 포함됨 | 본 문서 `사용자 사용 방법` |
 | User manual | 포함됨 | 본 문서 `사용자 사용 방법` |
-| Roadmap update | Change 010 갱신됨 | `docs/00-product-roadmap.md` |
-| User validation checklist | 기존 기능 사용자 검수 완료 / Change 010 자동 회귀 추가 | `tasks/production-control-001-user-validation-checklist.md` |
+| Roadmap update | Change 011 사용자 최종 일괄 검수·게시 승인까지 갱신됨 | `docs/00-product-roadmap.md` |
+| User validation checklist | 기존 기능·Change 010 완료 / Change 011 최종 게시 승인 | `tasks/production-control-001-user-validation-checklist.md` |
+
+## Change 011 — 모든 프로젝트의 전용 계획·실적 연결과 조회 화면 단일화
+
+### 승인 계약과 구현
+
+- 양식 관리의 Item별 생산계획·실적 연결은 저장 뒤 생성되는 프로젝트의 초기 snapshot에만 적용하며 기존 프로젝트를 소급 변경하지 않는다.
+- 기존 `Legacy` 프로젝트도 프로젝트 안에서 기존 행을 유지한 채 계획 시작·종료와 항목별 실적 데이터 하나를 저장한다. 기존 단일 예정일은 첫 진입에서 같은 날의 시작·종료로 정규화한다.
+- Legacy 제조 실적은 저장 당시 양식 version이 달라도 안정된 제조 항목 코드가 같으면 과거·현재 실행 근거를 함께 projection한다. 과거 프로젝트에 세부 제조 identity가 남지 않은 LQC는 오연결 방지를 위해 신규 연결 선택만 중지한다.
+- 생산계획 header가 아직 없는 오래된 프로젝트에도 실적 선택 목록과 제조 항목을 제공하고, 첫 저장 transaction에서 프로젝트 전용 Legacy 계획을 만든다.
+- 프로젝트 조회는 model version과 관계없이 `연결 실적`을 포함한 단일 생산계획표와 계획 흰색·실적 검은색 2중 막대 일정표를 사용한다. 날짜별 체크형 캘린더와 해당 영업일 조회 요청은 실제 사용자 경로에서 제거했다.
+- 미저장 추가 행은 삭제 시 즉시 제거하고, 저장된 행은 비활성화 대상으로 보존한다. 화면 저장 전과 서버 저장 시 활성 행 순서를 `1..N`으로 다시 부여하며 삭제 행은 필수값·연결·순번 검증에서 제외한다.
+- 반복 저장에서 비활성 행의 과거 순번과 활성 행의 새 순번이 충돌하지 않도록 현재 활성 행만 사용 가능한 임시 순번 구간으로 옮긴 뒤 최종 `1..N`을 적용한다.
+- UL891 세트 공통 구조·전체 기본계획·세트별 일정 overlay와 프로젝트 snapshot 불변조건은 유지했다.
+- DB schema와 migration은 변경하지 않았다.
+
+### 변경 위치
+
+- Backend: `backend/src/Emi.Qms.Api/ProductionPlanning/ProductionPlanningStore.cs`
+- Backend 회귀: `backend/tests/Emi.Qms.Api.Tests/ProductionPlanningApiTests.cs`
+- Frontend: `frontend/src/App.tsx`, `frontend/src/styles.css`
+- Frontend unit·Full-Stack 회귀: `frontend/tests/App.test.tsx`, `frontend/e2e/full-stack/project-registration.full-stack.spec.ts`, `project-lifecycle-user-validation.full-stack.spec.ts`, `project-lifecycle-stress-user-validation.full-stack.spec.ts`
+- 계약: `tasks/production-control-001-change-011.md`
+
+### 자동 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Backend Release build | PASS — 경고 0, 오류 0 |
+| 생산계획 Backend API 전체 class | PASS — `26/26` |
+| Legacy 기간·연결·기존 제조 실적·행 삭제 순번 집중 회귀 | PASS |
+| Frontend lint | PASS — error 0, 기존 `src/main.tsx` Fast Refresh warning 1 |
+| Frontend typecheck | PASS |
+| Frontend 전체 unit | PASS — `29 files`, `213/213` |
+| Frontend production build | PASS — 기존 500kB 초과 chunk warning만 유지 |
+| Full-Stack 회귀 source 동기화 | PASS — 단일 예정일·체크 달력 기대를 기간·1:1 연결·2중 막대 기준으로 갱신 |
+| PR #101 첫 Full-Stack 보정 | PASS — 삭제된 체크 달력의 잔여 장기 검수 계약을 현재 화면으로 갱신하고, 1280px 9열 표를 페이지가 아닌 표 내부 스크롤로 제한 |
+| PR #101 실패 지점 집중 재검증 | PASS — 생산계획 연관 파일 `17/17`, 18단계 영업 등록→세금계산서 장기 흐름 `1/1`, 1280px 문서 overflow `0px` |
+| `git diff --check` | PASS |
+
+Change 011 Open P0/P1/P2는 `0/0/0`이다. 사용자는 실제 5174 화면 확인 뒤 2026-08-14 원격 `main` 병합과 Azure 공개배포를 명시 승인했다. 표준 전체 Backend·Frontend·Full-Stack 검증은 Ready PR의 필수 `CI Gate`에서 실행한다.
+
+### 사용자 검수·게시 승인
+
+1. 기존 프로젝트 생산계획 수정에서 각 행의 시작·종료일과 연결할 실적을 저장한다.
+2. 여러 행을 추가하고 중간 행을 삭제한 뒤 다시 추가·저장해 오류 없이 순번이 1부터 연속인지 확인한다.
+3. 조회 화면에 날짜별 체크 달력이 없고, `연결 실적` 열과 계획 흰색·실적 검은색 막대가 표시되는지 확인한다.
+4. 새 프로젝트는 생성 당시 양식 기본값으로 시작하고, 기존 프로젝트의 수정값은 다른 프로젝트와 양식 관리 기본값을 바꾸지 않는지 확인한다.
+
+### 게시 경계
+
+- 사용자는 다른 추가 작업과 함께 최종 일괄 검수한 뒤 2026-08-14 commit·push·PR·main merge와 Azure 공개배포를 명시 승인했다.
+- 병합 전 Ready PR 최신 head의 필수 `CI Gate`, 병합 뒤 exact `main` SHA의 승인형 Azure release와 공개 보안 smoke를 완료해야 한다.

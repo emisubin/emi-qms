@@ -234,6 +234,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         if (string.Equals(stageCode, WorkflowStageCodes.SalesProjectCreated, StringComparison.Ordinal))
         {
             await CreateAllDepartmentsReferenceNotificationAsync(connection, transaction, project, eventId, cancellationToken);
+            await CreateDepartmentHeadAssigneeRequestNotificationAsync(connection, transaction, project, eventId, cancellationToken);
         }
         else if (string.Equals(stageCode, WorkflowStageCodes.ProcurementInfo, StringComparison.Ordinal))
         {
@@ -2189,6 +2190,68 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             users.Add(reader.GetGuid(0));
         }
 
+        return users;
+    }
+
+    private static async Task CreateDepartmentHeadAssigneeRequestNotificationAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ProjectWorkflowSnapshot project,
+        Guid eventId,
+        CancellationToken cancellationToken)
+    {
+        var recipients = await ReadActiveDelegatedDepartmentHeadIdsAsync(connection, transaction, cancellationToken);
+        await CreateNotificationAsync(
+            connection,
+            transaction,
+            project.ProjectId,
+            "Reference",
+            "Info",
+            "프로젝트 담당자를 지정해 주세요.",
+            $"{project.ProjectTitle} 프로젝트의 본인 부서 담당자를 지정해 주세요.",
+            LinkUrlForStage(project.ProjectId, WorkflowStageCodes.ProductionPlanning),
+            eventId,
+            $"project:{project.ProjectId}:stage:{WorkflowStageCodes.SalesProjectCreated}:department-head-assignee-request",
+            recipients,
+            cancellationToken,
+            NotificationSourceKinds.WorkAssignment);
+    }
+
+    private static async Task<IReadOnlyList<Guid>> ReadActiveDelegatedDepartmentHeadIdsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select distinct users.id
+            from qms_users users
+            join departments department on department.id = users.department_id
+            where users.is_active = true
+              and users.is_department_head = true
+              and department.is_active = true
+              and department.code = any(@department_codes)
+              and not exists (
+                  select 1
+                  from user_roles excluded_user_role
+                  join roles excluded_role on excluded_role.id = excluded_user_role.role_id
+                  where excluded_user_role.user_id = users.id
+                    and excluded_role.code in ('system-administrator', 'read-only')
+              )
+            order by users.id;
+            """;
+        command.Parameters.AddWithValue("department_codes", new[]
+        {
+            "sales", "design", "procurement", "materials", "manufacturing", "quality", "logistics"
+        });
+
+        var users = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            users.Add(reader.GetGuid(0));
+        }
         return users;
     }
 

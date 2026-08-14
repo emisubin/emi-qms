@@ -295,6 +295,126 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         return result.Status == ProductionPlanningReadStatus.Success ? result.Value : null;
     }
 
+    public async Task<DepartmentAssigneeScopeResponse?> GetDepartmentAssigneeScopeAsync(
+        Guid projectId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var project = await ReadProjectAsync(connection, null, projectId, cancellationToken);
+        var scope = await ReadDepartmentHeadScopeAsync(connection, null, userId, cancellationToken);
+        if (project is null
+            || !string.Equals(project.Status, "Active", StringComparison.Ordinal)
+            || scope is null
+            || !ProductionPlanningDomain.CanDepartmentHeadDelegateAssignees(scope.DepartmentCode))
+        {
+            return null;
+        }
+
+        return await BuildDepartmentAssigneeScopeAsync(connection, null, project, scope, cancellationToken);
+    }
+
+    public async Task<ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>> UpdateDepartmentAssigneesAsync(
+        Guid projectId,
+        UpdateDepartmentAssigneesRequest request,
+        Guid changedByUserId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var project = await LockProjectAsync(connection, transaction, projectId, cancellationToken);
+        if (project is null)
+        {
+            return ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.NotFound();
+        }
+
+        if (!string.Equals(project.Status, "Active", StringComparison.Ordinal))
+        {
+            return ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Conflict("현재 프로젝트 상태에서는 담당자를 수정할 수 없습니다.");
+        }
+
+        var scope = await ReadDepartmentHeadScopeAsync(connection, transaction, changedByUserId, cancellationToken);
+        if (scope is null || !ProductionPlanningDomain.CanDepartmentHeadDelegateAssignees(scope.DepartmentCode))
+        {
+            return ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Forbidden();
+        }
+
+        var updates = request.Assignees ?? [];
+        if (updates.Any(update => string.IsNullOrWhiteSpace(update.ResponsibilityType)))
+        {
+            return ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Validation(
+                new Dictionary<string, string[]> { [nameof(request.Assignees)] = ["담당자 구분을 다시 확인해 주세요."] });
+        }
+
+        var duplicateResponsibility = updates
+            .GroupBy(update => update.ResponsibilityType!, StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1)?.Key;
+        if (duplicateResponsibility is not null)
+        {
+            return ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Validation(
+                new Dictionary<string, string[]> { [duplicateResponsibility] = ["같은 담당자 구분을 중복 저장할 수 없습니다."] });
+        }
+
+        var allowedResponsibilities = ProductionPlanningDomain.ResponsibilitiesForDepartment(scope.DepartmentCode);
+        if (updates.Any(update => !allowedResponsibilities.Contains(update.ResponsibilityType!, StringComparer.Ordinal)))
+        {
+            return ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Forbidden();
+        }
+
+        foreach (var update in updates.Where(update => update.AssignedUserId is not null))
+        {
+            if (!await IsActiveDepartmentUserAsync(
+                    connection,
+                    transaction,
+                    update.AssignedUserId!.Value,
+                    scope.DepartmentCode,
+                    cancellationToken))
+            {
+                return ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Validation(
+                    new Dictionary<string, string[]>
+                    {
+                        [update.ResponsibilityType!] = ["본인 부서의 활성 사용자 중에서 담당자를 선택해 주세요."]
+                    });
+            }
+        }
+
+        var fullRequest = new UpdateProductionPlanningRequest(
+            null,
+            null,
+            null,
+            request.Reason,
+            null,
+            updates);
+        var assigneeFailure = await UpdateAssigneesAsync(
+            connection,
+            transaction,
+            projectId,
+            fullRequest,
+            changedByUserId,
+            correlationId,
+            cancellationToken);
+        if (assigneeFailure is not null)
+        {
+            return assigneeFailure.Status switch
+            {
+                ProductionPlanningMutationStatus.Validation => ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Validation(assigneeFailure.Errors),
+                ProductionPlanningMutationStatus.NotFound => ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.NotFound(),
+                ProductionPlanningMutationStatus.Conflict => ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Conflict(assigneeFailure.Message ?? "다른 사용자가 먼저 수정했습니다."),
+                ProductionPlanningMutationStatus.Forbidden => ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Forbidden(),
+                _ => ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Conflict("담당자를 저장하지 못했습니다.")
+            };
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        var updated = await GetDepartmentAssigneeScopeAsync(projectId, changedByUserId, cancellationToken);
+        return updated is null
+            ? ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Forbidden()
+            : ProductionPlanningMutationResult<DepartmentAssigneeScopeResponse>.Success(updated);
+    }
+
     public async Task<ProductionPlanningReadResult> GetProjectPlanAsync(
         Guid projectId,
         Guid? setInstanceId,
@@ -310,6 +430,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
         var plan = await ReadPlanHeaderAsync(connection, null, projectId, cancellationToken);
         var items = plan is null ? [] : await ReadPlanItemsAsync(connection, null, plan.PlanId, cancellationToken);
+        items = NormalizeUnifiedPlanPeriods(items);
         IReadOnlyList<ProductionPlanSetScopeResponse> scopes = [];
         ProductionPlanSetScopeResponse? selectedScope = null;
         ProductionPlanSetDefaultResponse? setDefault = null;
@@ -345,34 +466,38 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 items = AggregateSetItemValues(items, scopes, values);
             }
         }
-        if (plan?.ModelVersion == ProductionControlModelVersions.LinkedV1)
+        if (plan is not null)
         {
             items = await EnrichLinkedPlanItemsAsync(connection, null, project, items, setInstanceId, cancellationToken);
         }
-        var manufacturingSteps = plan?.ModelVersion == ProductionControlModelVersions.LinkedV1
-            ? await ReadProjectManufacturingStepsAsync(connection, null, projectId, cancellationToken)
-            : [];
-        IReadOnlyList<ProductionControlSourceCatalogItemResponse> availableSources = [];
-        if (plan?.ModelVersion == ProductionControlModelVersions.LinkedV1)
-        {
-            var lqcOperational = await WorkflowStageOperations.IsStageOperationalForProjectAsync(
-                connection,
-                null,
-                WorkflowStageCodes.LQC,
-                projectId,
-                cancellationToken);
-            availableSources = (await ProductionControlTemplateStore.ReadSourceCatalogAsync(connection, null, cancellationToken))
-                .Select(source => source.Code == ProductionControlSourceCodes.LqcPassed
-                    ? source with
-                    {
-                        IsOperational = lqcOperational,
-                        OperationalMessage = lqcOperational
+        var effectiveModelVersion = plan?.ModelVersion ?? ProductionControlModelVersions.Legacy;
+        var manufacturingSteps = await ReadProjectManufacturingStepsAsync(
+            connection,
+            null,
+            projectId,
+            effectiveModelVersion,
+            cancellationToken);
+        var lqcOperational = await WorkflowStageOperations.IsStageOperationalForProjectAsync(
+            connection,
+            null,
+            WorkflowStageCodes.LQC,
+            projectId,
+            cancellationToken);
+        var legacyPlan = effectiveModelVersion == ProductionControlModelVersions.Legacy;
+        IReadOnlyList<ProductionControlSourceCatalogItemResponse> availableSources =
+            (await ProductionControlTemplateStore.ReadSourceCatalogAsync(connection, null, cancellationToken))
+            .Select(source => source.Code == ProductionControlSourceCodes.LqcPassed
+                ? source with
+                {
+                    IsOperational = !legacyPlan && lqcOperational,
+                    OperationalMessage = legacyPlan
+                        ? "기존 방식 프로젝트는 LQC 세부 제조 식별 정보를 보존하지 않아 새 LQC 실적 연결을 지원하지 않습니다. 제조 단계 완료 등 다른 실적을 선택해 주세요."
+                        : lqcOperational
                             ? null
                             : "이 프로젝트는 생성 당시 LQC 운영 중지로 확정되었습니다. 기존 연결은 제조 단계 완료 실적으로 대체됩니다."
-                    }
-                    : source)
-                .ToArray();
-        }
+                }
+                : source)
+            .ToArray();
         var assignees = await ReadAssigneesAsync(connection, null, projectId, cancellationToken);
         var candidates = await ReadAssigneeCandidatesAsync(connection, null, cancellationToken);
         var fallbacks = await BuildFallbacksAsync(connection, null, project, assignees, cancellationToken);
@@ -640,7 +765,48 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             return ProductionPlanningMutationResult<ProductionPlanningResponse>.Conflict("다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도해 주세요.");
         }
 
-        if (currentPlan?.ModelVersion == ProductionControlModelVersions.LinkedV1)
+        if (currentPlan is null)
+        {
+            var initialProductType = await ReadActiveProductTypeByCodeAsync(
+                connection,
+                transaction,
+                project.Item,
+                cancellationToken);
+            if (initialProductType is null)
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(
+                    new Dictionary<string, string[]> { [nameof(request.ProductTypeId)] = ["현재 프로젝트의 Item이 등록된 Item 기준값과 일치하지 않습니다. 프로젝트 정보를 수정한 후 생산계획을 입력해 주세요."] });
+            }
+            if (request.ProductTypeId is not null && request.ProductTypeId.Value != initialProductType.ProductTypeId)
+            {
+                return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(
+                    new Dictionary<string, string[]> { [nameof(request.ProductTypeId)] = ["프로젝트 Item과 선택 기준값이 일치하지 않습니다. 프로젝트 정보를 다시 확인해 주세요."] });
+            }
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    insert into project_production_plans (
+                        id, project_id, product_type_id, template_id, notes,
+                        created_by_user_id, updated_by_user_id
+                    )
+                    values (
+                        @id, @project_id, @product_type_id, @template_id, null,
+                        @user_id, @user_id
+                    );
+                    """;
+                command.Parameters.AddWithValue("id", Guid.NewGuid());
+                command.Parameters.AddWithValue("project_id", projectId);
+                command.Parameters.AddWithValue("product_type_id", initialProductType.ProductTypeId);
+                command.Parameters.AddWithValue("template_id", initialProductType.TemplateId);
+                command.Parameters.AddWithValue("user_id", changedByUserId);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+            currentPlan = await ReadPlanHeaderAsync(connection, transaction, projectId, cancellationToken);
+        }
+
+        if (currentPlan is not null)
         {
             return await UpdateLinkedProjectPlanAsync(
                 connection,
@@ -1395,9 +1561,74 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var requestedItems = request.Items ?? [];
-        var errors = ValidateLinkedPlanItemUpdates(requestedItems);
-        if (project.StructureMode == "Ul891Set")
+        var existing = await ReadPlanItemsAsync(connection, transaction, currentPlan.PlanId, cancellationToken);
+        var requestedItems = NormalizeRequestedPlanItemSequences(request.Items ?? []);
+        if (currentPlan.ModelVersion == ProductionControlModelVersions.Legacy)
+        {
+            var savedConnections = await ReadLinkedPlanConnectionsAsync(
+                connection,
+                transaction,
+                existing.Where(item => item.ItemId is not null).Select(item => item.ItemId!.Value).ToArray(),
+                cancellationToken);
+            requestedItems = requestedItems.Select(item =>
+            {
+                var current = item.ItemId is not null
+                    ? existing.FirstOrDefault(candidate => candidate.ItemId == item.ItemId)
+                    : item.TemplateStepId is not null
+                        ? existing.FirstOrDefault(candidate => candidate.TemplateStepId == item.TemplateStepId)
+                        : null;
+                var currentConnections = current?.ItemId is not null
+                    && savedConnections.TryGetValue(current.ItemId.Value, out var connections)
+                        ? connections
+                        : [];
+                return item with
+                {
+                    ItemId = item.ItemId ?? current?.ItemId,
+                    StepName = TrimToNull(item.StepName) ?? current?.StepName,
+                    IsRequired = item.IsRequired ?? current?.IsRequired,
+                    ExpectedRowVersion = item.ExpectedRowVersion ?? current?.RowVersion,
+                    PlannedStartDate = item.PlannedStartDate ?? item.PlannedDate,
+                    PlannedEndDate = item.PlannedEndDate ?? item.PlannedDate ?? item.PlannedStartDate,
+                    DefinitionKey = item.DefinitionKey ?? current?.DefinitionKey,
+                    Connections = item.Connections ?? currentConnections
+                };
+            }).ToArray();
+
+            var requestedItemIds = requestedItems
+                .Where(item => item.ItemId is not null)
+                .Select(item => item.ItemId!.Value)
+                .ToHashSet();
+            var preservedItems = existing
+                .Where(item => item.ItemId is not null && !requestedItemIds.Contains(item.ItemId.Value))
+                .Select(item => new ProductionPlanItemUpdateRequest(
+                    item.ItemId,
+                    item.TemplateStepId,
+                    item.StepName,
+                    item.SequenceNumber,
+                    item.IsRequired,
+                    item.RowVersion,
+                    item.PlannedDate,
+                    item.PlannedStartDate ?? item.PlannedDate,
+                    item.PlannedEndDate ?? item.PlannedDate ?? item.PlannedStartDate,
+                    item.AssignedUserId,
+                    item.RequiredHeadcount,
+                    item.Note,
+                    false,
+                    item.DefinitionKey,
+                    savedConnections.TryGetValue(item.ItemId.GetValueOrDefault(), out var connections)
+                        ? connections
+                        : []));
+            requestedItems = NormalizeRequestedPlanItemSequences(requestedItems.Concat(preservedItems).ToArray());
+        }
+        var errors = ValidateLinkedPlanItemUpdates(
+            requestedItems,
+            requireConnection: currentPlan.ModelVersion == ProductionControlModelVersions.LinkedV1);
+        if (request.Items is not null && requestedItems.All(item => item.IsDeleted == true))
+        {
+            errors["items"] = ["생산계획 항목은 하나 이상 남겨 주세요."];
+        }
+        if (currentPlan.ModelVersion == ProductionControlModelVersions.LinkedV1
+            && project.StructureMode == "Ul891Set")
         {
             for (var index = 0; index < requestedItems.Count; index++)
             {
@@ -1440,7 +1671,6 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(errors);
         }
 
-        var existing = await ReadPlanItemsAsync(connection, transaction, currentPlan.PlanId, cancellationToken);
         var existingById = existing
             .Where(item => item.ItemId is not null)
             .ToDictionary(item => item.ItemId!.Value);
@@ -1468,6 +1698,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             connection,
             transaction,
             project.ProjectId,
+            currentPlan.ModelVersion,
             cancellationToken);
         var qualityDefinitionKeys = await ReadQualityDefinitionKeysAsync(
             connection,
@@ -1490,6 +1721,12 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 if (!ProductionControlSourceCodes.IsSupported(source.SourceCode))
                 {
                     errors[field] = ["지원하지 않는 실적 연결값입니다."];
+                    continue;
+                }
+                if (source.SourceCode == ProductionControlSourceCodes.LqcPassed
+                    && currentPlan.ModelVersion == ProductionControlModelVersions.Legacy)
+                {
+                    errors[field] = ["기존 방식 프로젝트는 LQC 세부 실적을 새로 연결할 수 없습니다. 제조 단계 완료 등 다른 실적을 선택해 주세요."];
                     continue;
                 }
                 if (source.SourceCode == ProductionControlSourceCodes.LqcPassed && !lqcOperational)
@@ -1543,14 +1780,22 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
         if (request.Items is not null)
         {
+            var sequenceShift = await FindAvailableSequenceShiftAsync(
+                connection,
+                transaction,
+                currentPlan.PlanId,
+                existing.Select(item => item.SequenceNumber).ToArray(),
+                cancellationToken);
             await using var shiftCommand = connection.CreateCommand();
             shiftCommand.Transaction = transaction;
             shiftCommand.CommandText = """
                 update project_production_plan_items
-                set sequence_number = sequence_number + 1000000
-                where production_plan_id = @plan_id;
+                set sequence_number = sequence_number + @sequence_shift
+                where production_plan_id = @plan_id
+                  and is_active = true;
                 """;
             shiftCommand.Parameters.AddWithValue("plan_id", currentPlan.PlanId);
+            shiftCommand.Parameters.AddWithValue("sequence_shift", sequenceShift);
             await shiftCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -1558,8 +1803,6 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         foreach (var requested in requestedItems)
         {
             var existingItem = requested.ItemId is not null ? existingById[requested.ItemId.Value] : null;
-            var sequence = requested.SequenceNumber is > 0 ? requested.SequenceNumber.Value : nextSequence;
-            nextSequence = Math.Max(nextSequence + 1, sequence + 1);
             if (requested.IsDeleted == true)
             {
                 if (existingItem is not null)
@@ -1569,17 +1812,16 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                     deleteCommand.CommandText = """
                         update project_production_plan_items
                         set is_active = false,
-                            sequence_number = @sequence_number,
                             row_version = row_version + 1,
                             updated_at_utc = now()
                         where id = @item_id;
                         """;
                     deleteCommand.Parameters.AddWithValue("item_id", existingItem.ItemId!.Value);
-                    deleteCommand.Parameters.AddWithValue("sequence_number", 2000000000 - sequence);
                     await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
                 }
                 continue;
             }
+            var sequence = nextSequence++;
 
             var itemId = existingItem?.ItemId ?? Guid.NewGuid();
             var definitionKey = existingItem?.DefinitionKey ?? requested.DefinitionKey ?? Guid.NewGuid();
@@ -1602,7 +1844,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                     )
                     values (
                         @id, @plan_id, null, @sequence_number, @step_name,
-                        @is_required, true, null, @planned_start_date, @planned_end_date,
+                        @is_required, true, @planned_date, @planned_start_date, @planned_end_date,
                         @definition_key, @assigned_user_id, @required_headcount, @note
                     );
                     """;
@@ -1611,6 +1853,10 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 insertCommand.Parameters.AddWithValue("sequence_number", sequence);
                 insertCommand.Parameters.AddWithValue("step_name", stepName);
                 insertCommand.Parameters.AddWithValue("is_required", isRequired);
+                insertCommand.Parameters.Add("planned_date", NpgsqlDbType.Date).Value =
+                    currentPlan.ModelVersion == ProductionControlModelVersions.Legacy
+                        ? start ?? (object)DBNull.Value
+                        : (object)DBNull.Value;
                 insertCommand.Parameters.Add("planned_start_date", NpgsqlDbType.Date).Value = start ?? (object)DBNull.Value;
                 insertCommand.Parameters.Add("planned_end_date", NpgsqlDbType.Date).Value = end ?? (object)DBNull.Value;
                 insertCommand.Parameters.AddWithValue("definition_key", definitionKey);
@@ -1628,7 +1874,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                     set sequence_number = @sequence_number,
                         step_name_snapshot = @step_name,
                         is_required = @is_required,
-                        planned_date = null,
+                        planned_date = @planned_date,
                         planned_start_date = @planned_start_date,
                         planned_end_date = @planned_end_date,
                         assigned_user_id = @assigned_user_id,
@@ -1642,6 +1888,10 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 updateCommand.Parameters.AddWithValue("sequence_number", sequence);
                 updateCommand.Parameters.AddWithValue("step_name", stepName);
                 updateCommand.Parameters.AddWithValue("is_required", isRequired);
+                updateCommand.Parameters.Add("planned_date", NpgsqlDbType.Date).Value =
+                    currentPlan.ModelVersion == ProductionControlModelVersions.Legacy
+                        ? start ?? (object)DBNull.Value
+                        : (object)DBNull.Value;
                 updateCommand.Parameters.Add("planned_start_date", NpgsqlDbType.Date).Value = start ?? (object)DBNull.Value;
                 updateCommand.Parameters.Add("planned_end_date", NpgsqlDbType.Date).Value = end ?? (object)DBNull.Value;
                 updateCommand.Parameters.Add("assigned_user_id", NpgsqlDbType.Uuid).Value = assignedUserId ?? (object)DBNull.Value;
@@ -1725,7 +1975,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             }
         }
 
-        if (project.StructureMode == "Ul891Set")
+        if (currentPlan.ModelVersion == ProductionControlModelVersions.LinkedV1
+            && project.StructureMode == "Ul891Set")
         {
             await EnsureSetPlanScopeAsync(
                 connection,
@@ -1769,8 +2020,61 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             (await GetProjectPlanAsync(project.ProjectId, cancellationToken))!);
     }
 
-    private static Dictionary<string, string[]> ValidateLinkedPlanItemUpdates(
+    private static async Task<int> FindAvailableSequenceShiftAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid planId,
+        IReadOnlyList<int> activeSequences,
+        CancellationToken cancellationToken)
+    {
+        if (activeSequences.Count == 0)
+        {
+            return 10_000;
+        }
+
+        var inactiveSequences = new HashSet<int>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select sequence_number
+                from project_production_plan_items
+                where production_plan_id = @plan_id
+                  and is_active = false;
+                """;
+            command.Parameters.AddWithValue("plan_id", planId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                inactiveSequences.Add(reader.GetInt32(0));
+            }
+        }
+
+        const int stride = 10_000;
+        var largestActiveSequence = activeSequences.Max();
+        for (var shift = stride; shift <= int.MaxValue - largestActiveSequence - stride; shift += stride)
+        {
+            if (activeSequences.All(sequence => !inactiveSequences.Contains(sequence + shift)))
+            {
+                return shift;
+            }
+        }
+
+        throw new InvalidOperationException("생산계획 항목 순서를 안전하게 재배치할 공간이 없습니다.");
+    }
+
+    private static IReadOnlyList<ProductionPlanItemUpdateRequest> NormalizeRequestedPlanItemSequences(
         IReadOnlyList<ProductionPlanItemUpdateRequest> items)
+    {
+        var nextSequence = 1;
+        return items.Select(item => item.IsDeleted == true
+            ? item
+            : item with { SequenceNumber = nextSequence++ }).ToArray();
+    }
+
+    private static Dictionary<string, string[]> ValidateLinkedPlanItemUpdates(
+        IReadOnlyList<ProductionPlanItemUpdateRequest> items,
+        bool requireConnection = true)
     {
         var errors = new Dictionary<string, string[]>();
         if (items.Count == 0)
@@ -1813,7 +2117,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             {
                 errors[$"{prefix}.plannedEndDate"] = ["계획 종료일은 시작일보다 빠를 수 없습니다."];
             }
-            if ((item.Connections ?? []).Count != 1)
+            var connectionCount = (item.Connections ?? []).Count;
+            if ((requireConnection && connectionCount != 1) || connectionCount > 1)
             {
                 errors[$"{prefix}.connections"] = ["실적 데이터 하나를 선택해 주세요."];
             }
@@ -1873,15 +2178,24 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid projectId,
+        string modelVersion,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            select definition_key
-            from project_manufacturing_step_snapshots
-            where project_id = @project_id and is_active;
-            """;
+        command.CommandText = modelVersion == ProductionControlModelVersions.LinkedV1
+            ? """
+                select definition_key
+                from project_manufacturing_step_snapshots
+                where project_id = @project_id and is_active;
+                """
+            : """
+                select item.id
+                from manufacturing_step_template_items item
+                join manufacturing_step_template_versions version on version.id = item.template_version_id
+                join manufacturing_step_templates template on template.id = version.template_id
+                where template.template_code = 'PANEL_MANUFACTURING';
+                """;
         command.Parameters.AddWithValue("project_id", projectId);
         var result = new HashSet<Guid>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -1919,16 +2233,39 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         NpgsqlConnection connection,
         NpgsqlTransaction? transaction,
         Guid projectId,
+        string modelVersion,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            select definition_key, sequence_number, step_name_snapshot
-            from project_manufacturing_step_snapshots
-            where project_id = @project_id and is_active
-            order by sequence_number;
-            """;
+        command.CommandText = modelVersion == ProductionControlModelVersions.LinkedV1
+            ? """
+                select definition_key, sequence_number, step_name_snapshot
+                from project_manufacturing_step_snapshots
+                where project_id = @project_id and is_active
+                order by sequence_number;
+                """
+            : """
+                select item.id, item.display_order, item.label
+                from manufacturing_step_template_items item
+                join manufacturing_step_template_versions version on version.id = item.template_version_id
+                join manufacturing_step_templates template on template.id = version.template_id
+                where template.template_code = 'PANEL_MANUFACTURING'
+                  and (
+                    (version.lifecycle_status = 'Active' and version.is_active = true)
+                    or item.id in (
+                        select connection.source_definition_key
+                        from project_production_plan_connections connection
+                        join project_production_plan_items plan_item
+                          on plan_item.id = connection.production_plan_item_id
+                        join project_production_plans plan
+                          on plan.id = plan_item.production_plan_id
+                        where plan.project_id = @project_id
+                          and connection.source_code in ('MANUFACTURING_STEP_COMPLETED', 'LQC_PASSED')
+                    )
+                  )
+                order by item.display_order;
+                """;
         command.Parameters.AddWithValue("project_id", projectId);
         var result = new List<ProjectManufacturingStepResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -3208,7 +3545,8 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         string? assignedUserName,
         int? requiredHeadcount,
         string? note,
-        int rowVersion) => new()
+        int rowVersion,
+        bool preservePlannedDate = false) => new()
     {
         ItemId = item.ItemId,
         TemplateStepId = item.TemplateStepId,
@@ -3217,7 +3555,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         IsRequired = item.IsRequired,
         IsCustom = item.IsCustom,
         DefinitionKey = item.DefinitionKey,
-        PlannedDate = null,
+        PlannedDate = preservePlannedDate ? item.PlannedDate : null,
         PlannedStartDate = plannedStartDate,
         PlannedEndDate = plannedEndDate,
         AssignedUserId = assignedUserId,
@@ -3228,6 +3566,19 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         Note = note,
         RowVersion = rowVersion
     };
+
+    private static IReadOnlyList<ProductionPlanItemResponse> NormalizeUnifiedPlanPeriods(
+        IReadOnlyList<ProductionPlanItemResponse> items)
+        => items.Select(item => CopyPlanItemWithSchedule(
+            item,
+            item.PlannedStartDate ?? item.PlannedDate,
+            item.PlannedEndDate ?? item.PlannedDate ?? item.PlannedStartDate,
+            item.AssignedUserId,
+            item.AssignedUserName,
+            item.RequiredHeadcount,
+            item.Note,
+            item.RowVersion,
+            preservePlannedDate: true)).ToList();
 
     private static async Task<IReadOnlyList<ProductionPlanItemResponse>> EnrichLinkedPlanItemsAsync(
         NpgsqlConnection connection,
@@ -3497,14 +3848,29 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                        step.checked_at_utc is not null
                 from panel_placeholders panel
                 left join lateral (
-                    select candidate.id, candidate.started_at_utc
+                    select candidate.id, candidate.started_at_utc, candidate.template_version_id
                     from panel_manufacturing_executions candidate
                     where candidate.panel_id = panel.id and candidate.status <> 'Cancelled'
                     order by candidate.started_at_utc desc
                     limit 1
                 ) execution on true
                 left join panel_manufacturing_execution_steps step
-                  on step.execution_id = execution.id and step.definition_key = @source_definition_key
+                  on step.execution_id = execution.id
+                 and (
+                    step.definition_key = @source_definition_key
+                    or (
+                        step.definition_key is null
+                        and exists (
+                            select 1
+                            from manufacturing_step_template_items selected_item
+                            join manufacturing_step_template_items execution_item
+                              on execution_item.item_code = selected_item.item_code
+                             and execution_item.template_version_id = execution.template_version_id
+                             and execution_item.display_order = step.sequence_number
+                            where selected_item.id = @source_definition_key
+                        )
+                    )
+                 )
                 where panel.project_id = @project_id and panel.status = 'Active'
                 order by panel.sequence_number
                 """,
@@ -4078,6 +4444,120 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             result.Add(new AssigneeCandidateResponse(responsibility, users));
         }
         return result;
+    }
+
+    private static async Task<DepartmentAssigneeScopeResponse> BuildDepartmentAssigneeScopeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        ProjectSnapshot project,
+        DepartmentHeadScope scope,
+        CancellationToken cancellationToken)
+    {
+        var responsibilities = ProductionPlanningDomain.ResponsibilitiesForDepartment(scope.DepartmentCode);
+        var current = await ReadAssigneesAsync(connection, transaction, project.ProjectId, cancellationToken);
+        var assignees = responsibilities
+            .Select(responsibility => FindAssigneeForResponsibility(current, responsibility) ?? new ProjectAssigneeResponse
+            {
+                ResponsibilityType = responsibility,
+                ResponsibilityLabel = ProductionPlanningDomain.ResponsibilityLabel(responsibility)
+            })
+            .ToArray();
+        var users = await ReadActiveDepartmentUsersAsync(connection, transaction, scope.DepartmentCode, cancellationToken);
+        var candidates = responsibilities
+            .Select(responsibility => new AssigneeCandidateResponse(responsibility, users))
+            .ToArray();
+
+        return new DepartmentAssigneeScopeResponse(
+            project.ProjectId,
+            project.ProjectTitle,
+            project.ProjectCode,
+            scope.DepartmentCode,
+            scope.DepartmentName,
+            assignees,
+            candidates);
+    }
+
+    private static async Task<DepartmentHeadScope?> ReadDepartmentHeadScopeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select department.code, department.name
+            from qms_users users
+            join departments department on department.id = users.department_id
+            where users.id = @user_id
+              and users.is_active = true
+              and users.is_department_head = true
+              and department.is_active = true
+              and not exists (
+                  select 1
+                  from user_roles excluded_user_role
+                  join roles excluded_role on excluded_role.id = excluded_user_role.role_id
+                  where excluded_user_role.user_id = users.id
+                    and excluded_role.code in ('system-administrator', 'read-only')
+              );
+            """;
+        command.Parameters.AddWithValue("user_id", userId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? new DepartmentHeadScope(reader.GetString(0), reader.GetString(1))
+            : null;
+    }
+
+    private static async Task<IReadOnlyList<UserOptionResponse>> ReadActiveDepartmentUsersAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        string departmentCode,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select users.id, users.display_name
+            from qms_users users
+            join departments department on department.id = users.department_id
+            where users.is_active = true
+              and department.is_active = true
+              and department.code = @department_code
+            order by users.display_name, users.id;
+            """;
+        command.Parameters.AddWithValue("department_code", departmentCode);
+        var users = new List<UserOptionResponse>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            users.Add(new UserOptionResponse(reader.GetGuid(0), reader.GetString(1)));
+        }
+        return users;
+    }
+
+    private static async Task<bool> IsActiveDepartmentUserAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid userId,
+        string departmentCode,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select exists (
+                select 1
+                from qms_users users
+                join departments department on department.id = users.department_id
+                where users.id = @user_id
+                  and users.is_active = true
+                  and department.is_active = true
+                  and department.code = @department_code
+            );
+            """;
+        command.Parameters.AddWithValue("user_id", userId);
+        command.Parameters.AddWithValue("department_code", departmentCode);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
     private static async Task<IReadOnlyList<NotificationFallbackResponse>> BuildFallbacksAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, ProjectSnapshot project, IReadOnlyList<ProjectAssigneeResponse> assignees, CancellationToken cancellationToken)
@@ -4884,6 +5364,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         Guid? SalesOwnerUserId,
         bool FatRequired,
         string? StructureMode = null);
+    private sealed record DepartmentHeadScope(string DepartmentCode, string DepartmentName);
     private sealed record PlanHeader(
         Guid PlanId,
         Guid? ProductTypeId,

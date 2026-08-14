@@ -129,12 +129,16 @@ test('영업 등록부터 세금계산서 완료까지 역할별 화면 입력�
   await page.getByLabel('선택 프로젝트 생산계획').getByRole('button', { name: '생산계획 수정' }).click();
   await page.waitForLoadState('networkidle');
   await openInputSection(page, '생산계획표 입력');
-  const planDates = page.getByRole('table', { name: '생산계획 수정' }).locator('input[type="date"]');
+  const planRows = page.locator('.production-control-project-rows > article');
   const plannedDates = ['2026-07-20', '2026-08-10', '2026-09-10', '2026-10-10'];
-  for (let index = 0; index < await planDates.count(); index += 1) {
+  for (let index = 0; index < await planRows.count(); index += 1) {
     const plannedDate = plannedDates[Math.min(index, plannedDates.length - 1)];
-    await planDates.nth(index).fill(plannedDate);
-    await expect(planDates.nth(index)).toHaveValue(plannedDate);
+    const row = planRows.nth(index);
+    await row.locator('input[type="date"]').nth(0).fill(plannedDate);
+    await row.locator('input[type="date"]').nth(1).fill(plannedDate);
+    await row.locator('.production-control-project-connection-select select').selectOption({ index: 1 });
+    await expect(row.locator('input[type="date"]').nth(0)).toHaveValue(plannedDate);
+    await expect(row.locator('input[type="date"]').nth(1)).toHaveValue(plannedDate);
   }
   const assignees: Array<[string, string]> = [
     ['영업 정', salesUserId], ['영업 부', salesUserId],
@@ -787,7 +791,7 @@ async function captureProjectDepartmentTabs(page: Page, projectId: string) {
   const tabList = page.getByRole('tablist', { name: '프로젝트 상세 섹션' });
   const tabs = [
     { label: '전체 흐름', filename: '19-project-tab-workflow.jpg', kind: 'workflow', section: null, expectedText: '프로젝트 전체 흐름' },
-    { label: '생산관리', filename: '20-project-tab-production.jpg', kind: 'planning', section: null, expectedText: '계획 항목과 일정' },
+    { label: '생산관리', filename: '20-project-tab-production.jpg', kind: 'planning', section: null, expectedText: '계획·실적 일정표' },
     { label: '설계', filename: '21-project-tab-design.jpg', kind: 'design', section: null, expectedText: '패널명' },
     { label: '구매', filename: '22-project-tab-procurement.jpg', kind: 'procurement', section: null, expectedText: '제어반 외함' },
     { label: '제조', filename: '23-project-tab-manufacturing.jpg', kind: 'panel', section: 'manufacturing', expectedText: '패널별 제조 착수' },
@@ -862,11 +866,12 @@ async function captureProductionPlanningTabs(page: Page, projectId: string) {
 
   await tabList.getByRole('tab', { name: '생산관리' }).click();
   await expect(page.locator('.workflow-stage-item')).toHaveCount(0);
-  await expect(page.getByRole('table', { name: '생산계획 항목' })).toBeVisible();
-  await expect(page.getByRole('table', { name: '생산계획 캘린더 표' })).toBeVisible();
+  await expect(page.getByRole('table', { name: '생산계획표' })).toBeVisible();
+  await expect(page.getByLabel('생산계획 계획 실적 일정표')).toBeVisible();
+  await expect(page.getByRole('table', { name: '생산계획 캘린더 표' })).toHaveCount(0);
   await expect(page.getByLabel('담당자 지정 현황')).toBeVisible();
   await expect.poll(() => page.evaluate(() => {
-    const schedule = document.querySelector('[aria-label="생산계획 일정"]');
+    const schedule = document.querySelector('[aria-label="연결형 생산계획 일정"]');
     const assignees = document.querySelector('[aria-label="담당자 지정 현황"]');
     if (!schedule || !assignees) return false;
     return Boolean(schedule.compareDocumentPosition(assignees) & Node.DOCUMENT_POSITION_FOLLOWING);

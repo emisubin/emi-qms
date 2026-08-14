@@ -22,6 +22,14 @@
 | Roadmap update | PR #101·main·Azure 결과 반영 완료 | `docs/00-product-roadmap.md` |
 | User validation checklist | 제품 검수·게시 완료 상태 반영 | 생산계획·부서 담당자 위임 각 checklist |
 
+## Change 022 후속 — Web Push 운영 검수와 Azure 재배포 보존
+
+- 운영 Web Push를 `Enabled=true`, `DryRun=false`로 활성화하고 iPhone·Android를 포함한 검수 사용자 3명의 PWA·Teams 수신과 알림 상세 이동을 확인했다.
+- VAPID 공개키·비밀키는 Azure Key Vault에 보관하며 Backend identity에 두 secret의 exact resource scope 읽기만 부여했다. vault 전체 범위 역할은 없다.
+- 직원별 PWA 설치와 알림 허용은 자율이다. 미설치·미허용 사용자는 인앱 알림을 유지하고 PWA만 받지 않으며, 나중에 허용하면 이후 새 인앱 알림부터 받는다.
+- `TASK-PWA-PUSH-001 Change 002`에서 현재 운영 설정과 두 Key Vault 참조를 Bicep·ARM·검증 계약에 동기화했다. 이 후속 변경은 아직 게시·운영 재배포하지 않았다.
+- 현재 운영에서 먼저 생성된 Frontend access-gate와 Web Push 두 secret role은 선택 role-name 입력으로 인수한다. 실제 운영 이름을 비추적 입력으로 사용한 `what-if`에서 role assignment Create/Delete/Modify `0/0/0`을 확인했다.
+
 ## Change 020 — 지정 로그인·내부 로고 main 운영 release
 
 - 사용자 승인 범위: `TASK-DESIGN-LOGIN-001 Change 010`과 `TASK-TEAMS-PWA-001 Change 007`을 원격 main에 병합하고 Azure 공개 운영에 반영한다.

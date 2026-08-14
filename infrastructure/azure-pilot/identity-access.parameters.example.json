@@ -16,6 +16,15 @@
     },
     "keyVaultName": {
       "value": "FROM_FOUNDATION_OUTPUT"
+    },
+    "frontendAccessGateRoleAssignmentName": {
+      "value": ""
+    },
+    "backendWebPushVapidPublicKeyRoleAssignmentName": {
+      "value": ""
+    },
+    "backendWebPushVapidPrivateKeyRoleAssignmentName": {
+      "value": ""
     }
   }
 }

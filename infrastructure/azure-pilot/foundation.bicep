@@ -534,4 +534,6 @@ output requiredKeyVaultSecretNames array = [
   'gmail-username'
   'gmail-app-password'
   'teams-activity-client-secret'
+  'web-push-vapid-public-key'
+  'web-push-vapid-private-key'
 ]

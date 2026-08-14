@@ -21,7 +21,7 @@ Portal 업로드 순서는 다음과 같다.
 
 1. `foundation.json`
 2. Frontend 사전 인증용 single-tenant Entra web app과 공개 callback을 준비
-3. Key Vault에 secret 9개 직접 입력
+3. Key Vault에 secret 11개 직접 입력
 4. `identity-access.json`
 5. GitHub Actions에서 Backend·Frontend image 게시
 6. `workloads.json`을 `activateWorkloads=false`, `enableExternalNotifications=false`로 배포
@@ -138,6 +138,8 @@ Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력�
 | `gmail-username` | 발송 계정 |
 | `gmail-app-password` | Gmail app password |
 | `teams-activity-client-secret` | Teams activity용 Entra application secret |
+| `web-push-vapid-public-key` | PWA Web Push VAPID 공개키. Backend만 읽음 |
+| `web-push-vapid-private-key` | PWA Web Push VAPID 비밀키. Backend만 읽음 |
 
 세 DB 연결은 같은 host, port와 database를 가리켜야 하고 세 username·password는 서로 달라야 한다. Secret 원문은 CLI 인자, shell history, deployment output, screenshot과 문서에 남기지 않는다. Portal의 Key Vault secret 입력 화면을 사용하고, 만료일을 설정한다.
 
@@ -145,12 +147,14 @@ Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력�
 
 | Identity | 허용 secret |
 | --- | --- |
-| Backend | runtime DB, 비상 관리자 목록, Gmail 계정·app password, Teams activity client secret |
+| Backend | runtime DB, 비상 관리자 목록, Gmail 계정·app password, Teams activity client secret, Web Push VAPID 공개키·비밀키 |
 | Frontend | Front Door origin verification token, Entra access gate client secret |
 | Migration | migration DB |
 | Database bootstrap | admin DB, migration DB, runtime DB |
 
-`identity-access.bicep`은 위 11개 조합을 secret resource scope로만 만든다. vault scope의 `Key Vault Secrets User`는 금지한다.
+`identity-access.bicep`은 위 13개 조합을 secret resource scope로만 만든다. vault scope의 `Key Vault Secrets User`는 금지한다.
+
+새 환경에서는 세 role-name 선택 입력을 빈 값으로 두면 배포 정의가 결정적 이름을 만든다. 현재 운영처럼 Portal·CLI에서 먼저 만든 동일 역할을 코드가 인수해야 할 때는 `frontendAccessGateRoleAssignmentName`, `backendWebPushVapidPublicKeyRoleAssignmentName`, `backendWebPushVapidPrivateKeyRoleAssignmentName`에 기존 role assignment 이름을 ignored `identity-access.parameters.local.json`으로 전달한다. 기존 역할을 먼저 삭제하지 않으며, `what-if`에서 role assignment Create/Delete가 모두 `0`인지 확인한 뒤 배포한다. 실제 이름은 Repository에 기록하지 않는다.
 
 이전 단일 `runtime` identity 배포를 실제 Azure에 한 적이 있다면 incremental Bicep은 삭제된 role assignment를 자동 제거하지 않는다. Key Vault의 **액세스 제어(IAM)**에서 그 identity의 vault-scope `Key Vault Secrets User`를 먼저 제거하고, 더 이상 workload가 참조하지 않는 것을 확인한 뒤 기존 identity도 정리한다. vault-scope workload assignment가 0이 아니면 migration·serving workload를 실행하지 않는다.
 
@@ -188,8 +192,8 @@ scripts/validate-azure-pilot-artifacts.sh --compile
 1. 사용자가 budget 알림을 먼저 만든다.
 2. Foundation local parameter 파일을 만들고 Azure resource를 생성한다.
 3. Frontend 사전 인증용 single-tenant Entra web app과 공개 callback을 준비하고 client identifier를 workload 입력으로 보존한다.
-4. Key Vault에 위 9개 secret을 직접 입력한다.
-5. `identity-access.bicep`을 적용하고 11개 role assignment가 secret scope인지 확인한다. RBAC 전파가 끝나기 전에는 다음 단계로 가지 않는다.
+4. Key Vault에 위 11개 secret을 직접 입력한다.
+5. `identity-access.bicep`을 적용하고 13개 role assignment가 secret scope인지 확인한다. RBAC 전파가 끝나기 전에는 다음 단계로 가지 않는다.
 6. 같은 Git commit에서 Backend·Frontend image를 build하고 ACR에 push한 뒤 digest를 고정한다.
 7. `activateWorkloads=false`, `enableExternalNotifications=false`로 workload와 두 manual job을 배치한다.
 8. `database-role-bootstrap` job을 한 번 실행해 `pms_migrator`와 `pms_app`을 만들고 권한 probe를 통과시킨다.
@@ -200,6 +204,8 @@ scripts/validate-azure-pilot-artifacts.sh --compile
 13. 익명 비브라우저 Front Door root·핵심 asset·manifest·API는 `401`, 브라우저는 EMI PMS shell·bundle 없는 인증 화면, `/health/live`와 Teams 실행 전용 정적 파일만 `200`인지 확인한다. Teams 실행 화면이 핵심 app bundle을 참조하지 않는지 확인하고 Direct origin도 인증 전 EMI PMS shell을 제공하지 않아야 한다.
 14. Entra API·SPA·Frontend access gate redirect URI와 Teams manifest를 최종 주소로 갱신한다.
 15. 실제 provider smoke가 성공한 뒤에만 `enableExternalNotifications=true`로 바꾼다.
+
+2026-08-12 Web Push 실제 provider와 iPhone·Android 실기기 검수를 완료했다. 이후 운영 workload 전체 재배포는 `enableExternalNotifications=true`를 사용하며, 이 값은 Teams·메일과 함께 Web Push를 `Enabled=true`, `DryRun=false`로 유지한다. 직원별 PWA 설치·알림 허용은 사용자 선택이고 배포 완료 조건이 아니다.
 
 2026-08-06 Change 017에서 사용자 승인 아래 동일 계약을 운영 Backend에 적용했다. Latest revision Ready, 최신 수동 Teams Activity `6/6 Sent`, Mail `3/3 Sent`, Open Pending/Processing/Failed `0`을 확인했다. 실제 식별자·주소·secret은 기록하지 않았다.
 

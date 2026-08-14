@@ -1,6 +1,6 @@
 # TASK-NOTIFY-POLICY-001 — 알림 운영 SOP
 
-> 상태: local 구현 기준 / 실제 provider·Persistent UAT·Azure 운영 적용 전
+> 상태: Azure 운영 적용·실제 Teams·메일·PWA 발송과 실기기 검수 완료
 
 ## 운영 원칙
 
@@ -9,6 +9,7 @@
 - Teams·메일·PWA 발송 실패는 원래 업무 저장을 되돌리지 않는다.
 - 새 자동 Teams 공용 채널 delivery는 만들지 않는다. 기존 이력과 관리자 조회는 삭제하지 않는다.
 - 개발·자동검사 환경에서는 Teams·메일·PWA 실제 provider를 비활성화하거나 dry-run으로 유지한다.
+- 운영 PWA 설치와 알림 허용은 직원이 직접 선택한다. 미설치·미허용 사용자는 인앱 알림을 유지하며 나중에 활성화한 이후 새 알림부터 PWA로 받는다.
 
 ## 사건별 운영 기준
 
@@ -50,7 +51,7 @@ PWA push는 위 표를 별도로 복제하지 않고 실제 인앱 알림 가시
 - 제조 중단은 별도 생산관리 참고 알림을 만들지 않고 긴급 Pending 한 건으로 처리한다.
 - 기존 idempotency, claim/lease, attempt lineage와 재시도 제한을 유지한다.
 
-## 운영 적용 전 점검
+## 운영 적용·재배포 점검
 
 1. migration `0074`와 `0075`가 순서대로 적용되는지 확인한다.
 2. 각 업무 부서에 최소 한 명의 활성 부서장이 있는지 확인한다.
@@ -59,6 +60,8 @@ PWA push는 위 표를 별도로 복제하지 않고 실제 인앱 알림 가시
 5. Gmail SMTP와 PWA VAPID secret은 Repository가 아닌 운영 secret으로 주입한다.
 6. 실제 provider를 켜기 전 dry-run으로 사건별 delivery 수와 수신자를 확인한다.
 7. 실제 발송은 별도 승인 후 synthetic 알림으로 채널별 1건씩 확인한다.
+
+위 최초 적용 점검은 2026-08-12 완료했다. 이후 전체 workload 재배포에서는 Azure 배포 정의의 외부 알림 활성값과 VAPID Key Vault 참조를 유지하고, secret 원문 없이 Backend ready 상태·채널 활성 상태·synthetic 수신만 확인한다. 직원별 PWA 등록률은 배포 완료 조건이 아니다.
 
 ## 장애 대응과 rollback
 

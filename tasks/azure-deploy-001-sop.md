@@ -9,9 +9,9 @@
 - DB role bootstrap·migration: Azure `0069 Exact`, 최신 migration job execution `Succeeded`
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
 - Active workload: Backend·Frontend·ClamAV `3/3 Running` / Frontend Change 013 image와 Backend exact internal host allowlist 적용 / latest revision ready / ClamAV unchanged
-- Teams·PWA: 제공 EMI 원본 기반 PWA 반영 완료, 공개 Teams `1.0.4` 관리자 승인·사용자 설치 보고 완료 / synthetic actual Activity Graph `204`·Teams web 표시 / Change 017 worker actual 활성화·최신 Teams Activity `6/6 Sent`
+- Teams·PWA: 제공 EMI 원본 기반 PWA와 Web Push 운영 반영 완료 / 실제 iPhone·Android PWA 수신·알림 상세 이동 확인 / 직원 설치·알림 허용은 자율 / 공개 Teams `1.0.4` 관리자 승인·사용자 설치 보고 완료 / synthetic actual Activity Graph `204`·Teams web 표시 / Change 017 worker actual 활성화·최신 Teams Activity `6/6 Sent`
 - DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / 공개 root·PWA `200`, direct origin 업무 route `403`
-- 공개 traffic: HTTP→HTTPS, 익명 비브라우저 root·asset·PWA·API `401`, 브라우저는 PMS shell·bundle 없는 Easy Auth 인증 화면, `/health/live` `200` / Dispatcher·Teams Activity·Mail actual 활성화
+- 공개 traffic: HTTP→HTTPS, 익명 비브라우저 root·asset·PWA·API `401`, 브라우저는 PMS shell·bundle 없는 Easy Auth 인증 화면, `/health/live` `200` / Dispatcher·Teams Activity·Mail·Web Push actual 활성화
 - 로그인·권한: 현재 비상 관리자 계정의 Entra 로그인과 관리자 전용 메뉴·사용자 관리 화면 접근 확인. bootstrap 목록 순서는 권한 우선순위가 아니므로 secret 재정렬은 하지 않음
 - Frontend 사전 인증: Change 015 운영 적용·실제 계정 로그인 검수 완료. `/health/live` 외 shell·bundle·PWA·API proxy는 Entra 인증 전 제공하지 않음
 - 실제 Teams·Gmail: 최신 수동 Teams Activity `6/6 Sent`, Mail `3/3 Sent`, Open Pending/Processing/Failed `0` / 사용자 client·메일함 실제 수신 확인 완료
@@ -40,8 +40,9 @@
 2. 실제 package 생성 시 최종 hostname, 기존 Teams manifest ID, activity client ID·resource와 증가된 SemVer를 builder argument로만 전달한다. 실제 identifier는 tracked 파일이나 보고에 기록하지 않는다.
 3. 공개 운영 package는 v1.19 schema와 10개 Activity type을 통과한 `1.0.4`다. 사용자가 Teams Admin Center 승인 요청을 제출했으며 승인 뒤 조직 catalog·설치·actual Activity를 검수한다.
 4. PWA manifest와 icon은 Frontend image의 Vite build output에 자동 포함된다. 별도 파일 업로드는 하지 않는다.
-5. PWA는 standalone install metadata만 제공하며 Service Worker·offline cache는 현재 범위에 없다.
-6. 최종 hostname에서 manifest·icon HTTP `200`, install name·icon·standalone launch를 확인한 뒤 완료로 기록한다.
+5. PWA Service Worker는 알림 수신과 알림 선택 이동만 담당한다. offline cache·background sync는 제공하지 않는다.
+6. 최종 hostname에서 manifest·icon HTTP `200`, install name·icon·standalone launch와 iPhone·Android 실제 푸시 수신을 확인했다.
+7. 직원별 PWA 설치와 알림 허용은 사용자가 직접 선택한다. 미설치·미허용 사용자는 인앱 알림을 계속 사용하며, 나중에 허용하면 그 이후 새 인앱 알림부터 PWA로 받는다.
 
 ## 2.2 터미널 없는 웹 실행 Gate
 
@@ -51,6 +52,8 @@
 2. GitHub `Actions → Azure Pilot Release (Manual) → Run workflow`
 
 Portal에는 `foundation.json → identity-access.json → workloads.json → edge.json` 순으로 업로드한다. 각 JSON은 같은 이름의 Bicep 원본에서 생성되며 generator metadata를 제외한 구조 동등성을 자동 검사한다.
+
+현재 운영 identity-access 재배포는 기존 Frontend access-gate와 Web Push 두 secret role assignment 이름을 비추적 local parameter로 전달해 수동 생성 역할을 인수한다. 역할을 먼저 삭제하지 않으며 `what-if`에서 role assignment Create/Delete `0/0`을 확인한 뒤 실행한다. 새 환경은 세 선택 입력을 빈 값으로 두어 결정적 이름을 생성한다.
 
 GitHub 운영 release 전 `azure-pilot-image-publish` Environment, `main` branch 제한, Environment secret·비식별 resource variable, federated credential을 구성한다. OIDC service principal에는 ACR 한 개의 `AcrPush`, Backend·Frontend 각 한 개의 `Container Apps Contributor`, migration job 한 개의 `Container Apps Jobs Contributor`만 exact resource 범위로 부여한다. Client secret과 subscription/resource group 범위 `Contributor`는 사용하지 않는다.
 
@@ -76,6 +79,7 @@ Image 게시 뒤에는 현재 Backend·Frontend가 single revision이고 migrati
 - Front Door origin random token
 - Gmail username/app password
 - Teams activity client secret
+- Web Push VAPID public/private key
 
 ## 4. 배포 Gate
 

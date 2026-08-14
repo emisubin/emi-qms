@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "198881677867568634"
+      "templateHash": "14694995643951412858"
     }
   },
   "parameters": {
@@ -37,6 +37,27 @@
       "type": "string",
       "metadata": {
         "description": "Key Vault name from foundation.bicep. All required secrets must exist before this deployment."
+      }
+    },
+    "frontendAccessGateRoleAssignmentName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional existing role assignment name used to adopt a manually created Frontend Entra access-gate secret assignment during redeployment."
+      }
+    },
+    "backendWebPushVapidPublicKeyRoleAssignmentName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional existing role assignment name used to adopt a manually created Backend Web Push VAPID public-key secret assignment during redeployment."
+      }
+    },
+    "backendWebPushVapidPrivateKeyRoleAssignmentName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional existing role assignment name used to adopt a manually created Backend Web Push VAPID private-key secret assignment during redeployment."
       }
     }
   },
@@ -102,6 +123,28 @@
     {
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'web-push-vapid-public-key')]",
+      "name": "[if(empty(parameters('backendWebPushVapidPublicKeyRoleAssignmentName')), guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'web-push-vapid-public-key'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser'), parameters('backendWebPushVapidPublicKeyRoleAssignmentName'))]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'web-push-vapid-private-key')]",
+      "name": "[if(empty(parameters('backendWebPushVapidPrivateKeyRoleAssignmentName')), guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'web-push-vapid-private-key'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser'), parameters('backendWebPushVapidPrivateKeyRoleAssignmentName'))]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
       "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'front-door-origin-verify-token')]",
       "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'front-door-origin-verify-token'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
       "properties": {
@@ -114,7 +157,7 @@
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
       "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'entra-access-gate-client-secret')]",
-      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'entra-access-gate-client-secret'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "name": "[if(empty(parameters('frontendAccessGateRoleAssignmentName')), guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'entra-access-gate-client-secret'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/'))), 'KeyVaultSecretsUser'), parameters('frontendAccessGateRoleAssignmentName'))]",
       "properties": {
         "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('frontendIdentityId'), '/'))), '2023-01-31').principalId]",
         "principalType": "ServicePrincipal",
@@ -169,7 +212,7 @@
   "outputs": {
     "secretScopedRoleAssignmentCount": {
       "type": "int",
-      "value": 11
+      "value": 13
     }
   }
 }

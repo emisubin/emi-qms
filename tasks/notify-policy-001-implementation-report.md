@@ -1,6 +1,6 @@
 # TASK-NOTIFY-POLICY-001 — Implementation report
 
-> 상태: local 구현·자동 검증·사용자 화면 검수 완료 / 게시·Azure 공개 배포 승인
+> 상태: 원격 main·Azure 운영 적용·사용자 화면·실제 PWA 수신 검수 완료
 > branch: `feat/task-notify-policy-001-policy-alignment`
 > 기준선: `origin/main` `30a0c2970611f76cee0c96ebb8f0e6472d7e7aee`
 
@@ -11,7 +11,7 @@
 ## 포함·제외 범위
 
 - 포함: `tasks/notify-policy-001-planning.md`, Codex review와 `change-001` 승인 계약, `TASK-PWA-PUSH-001` local 통합.
-- 제외: 실제 Teams·메일·PWA provider 발송, 운영 VAPID key, Persistent UAT migration·runtime, 원격 push·PR·merge·Azure 배포, L2·L3 확대 에스컬레이션 신규 운영.
+- 최초 구현 제외: 실제 Teams·메일·PWA provider 발송, 운영 VAPID key, Persistent UAT migration·runtime, 원격 push·PR·merge·Azure 배포, L2·L3 확대 에스컬레이션 신규 운영. 게시·운영 적용과 PWA 실발송 검수는 후속 승인으로 완료했으며 L2·L3는 계속 제외한다.
 
 ## 구현 결정
 
@@ -59,12 +59,13 @@
 - 실제 이름·회사 이메일·전화번호·UPN과 provider secret을 Task 산출물에 기록하지 않는다.
 - 기존 개인정보 안내의 승인된 문의 연락처는 변경하지 않았으며, 이번 diff에 실제 연락처를 추가하지 않았다.
 - PWA endpoint와 암호화 key는 API·화면·로그·문서에 노출하지 않는다.
-- 실제 Teams·메일·push provider 호출은 수행하지 않았다.
+- 최초 local 구현 검증에서는 실제 Teams·메일·push provider를 호출하지 않았다. 후속 운영 검수는 secret·endpoint 원문 없이 채널 결과와 실기기 수신만 확인했다.
 
 ## Finding과 잔여 위험
 
 - Open P0/P1/P2: `0/0/0`.
-- 실제 외부 채널 수신과 실기기 PWA 수신은 별도 provider·운영 승인 뒤 검수해야 한다.
+- 실제 Teams·PWA 수신과 PWA 알림 선택 시 인앱 상세 이동을 운영 기기에서 확인했다.
+- 직원별 PWA 설치·알림 허용은 자율이며 중앙 등록률을 운영 완료 조건으로 사용하지 않는다.
 - 부서장 fallback은 운영 적용 전 모든 업무 부서에 활성 부서장이 있는지 확인해야 한다.
 
 ## Rollback·복구
@@ -81,4 +82,4 @@
 | SOP | 완료 | `tasks/notify-policy-001-sop.md` |
 | User manual | 완료 | `tasks/notify-policy-001-user-manual.md` |
 | Roadmap update | 완료 | `docs/00-product-roadmap.md` 3.3G·6.5·Decision Log |
-| User validation checklist | 자동 검증·사용자 화면 검수 완료 / 실제 PWA provider 수신 별도 | `tasks/notify-policy-001-user-validation-checklist.md` |
+| User validation checklist | 자동 검증·사용자 화면·실제 PWA provider 수신 완료 | `tasks/notify-policy-001-user-validation-checklist.md` |

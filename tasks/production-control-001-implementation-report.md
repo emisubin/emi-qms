@@ -325,6 +325,8 @@ Open P0/P1/P2: `0/0/0`.
 | Frontend 전체 unit | PASS — `29 files`, `213/213` |
 | Frontend production build | PASS — 기존 500kB 초과 chunk warning만 유지 |
 | Full-Stack 회귀 source 동기화 | PASS — 단일 예정일·체크 달력 기대를 기간·1:1 연결·2중 막대 기준으로 갱신 |
+| PR #101 첫 Full-Stack 보정 | PASS — 삭제된 체크 달력의 잔여 장기 검수 계약을 현재 화면으로 갱신하고, 1280px 9열 표를 페이지가 아닌 표 내부 스크롤로 제한 |
+| PR #101 실패 지점 집중 재검증 | PASS — 생산계획 연관 파일 `17/17`, 18단계 영업 등록→세금계산서 장기 흐름 `1/1`, 1280px 문서 overflow `0px` |
 | `git diff --check` | PASS |
 
 Change 011 Open P0/P1/P2는 `0/0/0`이다. 사용자는 실제 5174 화면 확인 뒤 2026-08-14 원격 `main` 병합과 Azure 공개배포를 명시 승인했다. 표준 전체 Backend·Frontend·Full-Stack 검증은 Ready PR의 필수 `CI Gate`에서 실행한다.

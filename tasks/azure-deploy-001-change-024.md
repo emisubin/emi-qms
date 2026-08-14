@@ -44,3 +44,12 @@
 - 운영 게시 후 실제 PR·SHA·release 결과를 source of truth 문서에 동기화해야 할 경우, 현재 5174 검수 runtime의 source를 바꾸지 않기 위해 최신 `origin/main` 기준의 bounded documentation worktree를 사용할 수 있다.
 - owner는 현재 Codex 게시 작업이며 목적은 Change 024의 실제 운영 결과 기록으로 제한한다.
 - 문서 PR 병합 후 clean, process 미사용과 commit reachable을 확인하고 승인된 범위 안에서 worktree만 제거한다.
+
+## PR #101 첫 CI 결과와 보정
+
+- 첫 Ready PR CI run `31770698395`에서 Change Classification, Backend, Frontend와 Workflow Validation은 통과했으나 Full-Stack E2E가 `59/61`로 실패해 `main` 병합과 Azure 운영 배포를 시작하지 않았다.
+- 첫 실패는 삭제된 날짜별 체크형 생산계획표를 여전히 기대한 장기 사용자 흐름 검수의 오래된 계약이었다. 새 `생산계획표`와 `계획·실적 일정표`가 보이고 과거 캘린더 표는 없어야 한다는 현재 제품 계약으로 갱신했다.
+- 두 번째 실패는 1280px에서 9열 생산계획표의 최소 폭이 상위 페이지까지 확장된 반응형 결함이었다. 9열 규격은 보존하고 해당 표 컨테이너 안에서만 가로 스크롤하도록 범위를 제한했다.
+- 로컬 1280px 실제 화면에서 문서 폭과 화면 폭이 일치하고 표 내부 스크롤만 남는 것을 확인했다.
+- 실패했던 생산계획 Full-Stack 시나리오를 포함한 연관 파일 회귀는 `17/17`, 영업 등록부터 세금계산서까지 18단계 장기 흐름은 `1/1`로 통과했다.
+- 보정 commit의 새 Ready PR 전체 `CI Gate`를 다시 통과하기 전에는 `main` 병합과 Azure 운영 배포를 진행하지 않는다.

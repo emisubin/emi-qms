@@ -7237,6 +7237,8 @@ h3 {
 }
 
 .production-schedule-priority {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   padding: 16px;
   border: 1px solid #dde5f3;
   border-radius: 14px 4px 14px 4px;
@@ -7251,15 +7253,16 @@ h3 {
 
 .production-priority-heading {
   display: flex;
+  min-width: 0;
   align-items: end;
   justify-content: space-between;
   gap: 12px;
 }
 
-.production-priority-heading > div { display: grid; gap: 2px; }
+.production-priority-heading > div { display: grid; min-width: 0; gap: 2px; }
 .production-priority-heading span { color: #315efb; font-size: 9px; font-weight: 900; letter-spacing: .13em; }
 .production-priority-heading h4 { margin: 0; color: #27324a; font-size: 16px; }
-.production-priority-heading small { color: #7b8498; font-size: 11px; }
+.production-priority-heading small { min-width: 0; color: #7b8498; font-size: 11px; overflow-wrap: anywhere; }
 
 .production-project-table,
 .production-plan-table {
@@ -21746,6 +21749,10 @@ body {
 }
 
 .production-control-plan-table {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
   border: 1px solid #111;
 }
 

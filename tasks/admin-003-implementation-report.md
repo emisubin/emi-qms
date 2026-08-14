@@ -7,7 +7,7 @@
 - Task 유형: `P2_REMEDIATION`
 - Branch/base: `fix/task-admin-003-user-departments` / `origin/main` `7c05175001d9e0beb23a161639c846f98e05dbb7`
 - Git 게시·운영: PR #93 squash merge, main SHA `8ae3645d66543c0f234777cf19e8487324f21217`, Azure release `31452524156` 성공. migration `0072`→Backend→Frontend와 공개 보안 smoke를 완료했다.
-- Change 002 상태: 부서장별 양식 관리 범위 재정의 구현·자동 검증·사용자 검수 완료. 2026-08-14 원격 `main` 병합과 Azure 공개배포 승인을 받았다.
+- Change 002 상태: 부서장별 양식 관리 범위 재정의 구현·자동 검증·사용자 검수·원격 main 병합·Azure 공개배포 완료. PR #103, main SHA `58c089993587deea30513cb6edee0b8396a1d474`, release `31786040822`에서 migration `0078`→Backend→Frontend와 공개 보안 검사를 완료했다.
 
 ## 2. 해결한 업무 문제
 
@@ -195,7 +195,7 @@ Open P0/P1/P2: `0/0/0`. 기존 Frontend Fast Refresh·chunk-size warning과 전�
 | 격리 Full-Stack Chromium | 통과 | 품질·제조·생산관리 부서장 전환과 1440px·390px overflow `1/1` |
 | C# 변경 allowlist format | 통과 | `dotnet format --verify-no-changes` |
 | 사용자 검수 | 완료 | 사용자 일괄 검수 뒤 2026-08-14 게시·공개배포 승인 |
-| PR CI·Azure | 미실행 | 게시·운영 적용은 별도 승인 경계 |
+| PR CI·Azure | 통과 | PR #103 CI run `31784473124`, main CI `31786026056`, Azure release `31786040822` `PASS` |
 
 ### Finding gate
 
@@ -258,9 +258,9 @@ Open P0/P1/P2: `0/0/0`.
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
-| Implementation report | 완료 | 이 문서 1~10장 |
-| SOP | 완료 | 이 문서 11장 |
-| User manual | 완료 | 이 문서 12장 |
+| Implementation report | Change 001·002 완료 | 이 문서 1~10장·13장 |
+| SOP | Change 001 운영 절차·Change 002 forward-fix 완료 | 이 문서 11장·13장 |
+| User manual | Change 001·002 사용자 안내 완료 | 이 문서 12장·13장 |
 | Roadmap update | 완료 | `docs/00-product-roadmap.md` TASK-ADMIN-003 행·Decision Log |
 | User validation checklist — Change 001 | 사용자 검수 완료 | 이 문서 14장 |
-| User validation checklist — Change 002 | 사용자 검수 완료 | 이 문서 13장 `Change 002` 체크리스트 |
+| User validation checklist — Change 002 | 사용자 검수·게시 완료 | 이 문서 13장 `Change 002` 체크리스트 |

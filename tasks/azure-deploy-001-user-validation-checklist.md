@@ -1,5 +1,14 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 025 — 부서장별 양식 권한·PWA 운영 정의 통합 release
+
+- [x] PR #103의 Backend·Frontend·Full-Stack·Workflow Validation과 필수 `CI Gate`가 모두 통과했다.
+- [x] exact main SHA `58c089993587deea30513cb6edee0b8396a1d474`의 Azure release run `31786040822`가 성공했다.
+- [x] migration `0078` 실행이 성공한 뒤 Backend·Frontend latest revision과 ready revision이 각각 일치하고 Running이다.
+- [x] 공개 health `200`, 익명 root·`/api/me` `401/401`을 확인했다.
+- [x] Web Push `Enabled=true`, `DryRun=false`와 공개키·비밀키 Key Vault secret reference가 재배포 뒤에도 유지됐다.
+- [x] 미완성 공통 매뉴얼 작업, 운영 secret 원문, 사용자별 구독과 업무 data는 변경하지 않았다.
+
 ## Change 022 후속 — Web Push 운영 검수와 재배포 보존
 
 - [x] 운영 Web Push가 `Enabled=true`, `DryRun=false`이며 Backend latest revision과 ready revision이 일치하고 Running 상태다.

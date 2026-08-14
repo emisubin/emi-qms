@@ -6,7 +6,7 @@
 - taskType: `UAT_RUNTIME`
 - instructionChainRead: `true`
 - roadmapSequenceMatch: `true`
-- 상태: 사용자 검수·게시 승인 완료 — Ready PR 필수 CI 대기
+- 상태: 운영 게시 완료 — PR #103, exact `main` SHA와 Azure 공개 검증 완료
 - 구현 기준선: `origin/main` `a5f13cf64bc09d0840e11ea6be0e5a507f185d0c`
 - 사용자 승인: 2026-08-14 원격 `main` 병합과 Azure 공개배포 명시 승인
 - mainMergeApprovalCount: `1`
@@ -54,8 +54,27 @@
 ## Finding
 
 - `PUBLICATION-GITHUB-AUTH-PROJECTION-001` / P2 / `RESOLVED`: 게시 도구 사전 확인에서 원격 인증 상태의 계정 metadata가 현재 로컬 terminal 출력에 포함됐다. tracked 파일·Git diff·원격 PR에는 기록되지 않았고 credential 값 노출은 없었다. 이후 인증 확인은 성공 여부만 반환하는 privacy-safe projection으로 제한하며 실제 계정 식별정보를 산출물에 복사하지 않는다.
+- `PUBLICATION-GITHUB-CONNECTOR-MERGE-001` / P3 / `RESOLVED`: GitHub connector의 PR merge가 현재 private repository를 찾지 못해 mutation 없이 종료됐다. 같은 승인 범위와 expected head SHA를 고정한 authenticated GitHub API로 병합했고 PR #103의 squash merge 결과를 다시 읽어 확인했다.
+- `PUBLICATION-AZURE-ACR-TAG-PROJECTION-001` / P3 / `RESOLVED`: 첫 ACR read-only tag 조회가 tag 없는 manifest의 null 값을 처리하지 못해 실패했다. null tag를 제외하는 projection으로 재실행해 exact source tag와 두 운영 digest의 일치를 확인했으며 resource mutation은 없었다.
+- `GHA-AZURE-RUNNER-WARNINGS-001` / P3 / `BACKLOG`: 성공한 release에 기존 Node.js action runtime 전환 안내와 Azure CLI version parse 경고가 남았다. 배포 결과에는 영향이 없으며 기존 Azure runner 유지보수 backlog에서 추적한다.
 - Open P0/P1/P2: `0/0/0`.
 
-## 완료 기록
+## 운영 게시 결과
 
-PR·exact `main` SHA·CI run·Azure release·migration·revision과 공개 검증 결과는 실행 후 이 문서와 implementation report·Roadmap에 동기화한다.
+| Gate | 결과 |
+| --- | --- |
+| Ready PR | PR #103 squash merge 완료 |
+| PR 필수 CI | run `31784473124` `PASS` — Backend·Frontend·Full-Stack·Workflow Validation·`CI Gate` 통과 |
+| 원격 `main` | `58c089993587deea30513cb6edee0b8396a1d474` |
+| main push CI | run `31786026056` `PASS` |
+| Azure 운영 release | run `31786040822` `PASS` |
+| 변경 분류 결과 | migration `PASS`, Backend `PASS`, Frontend `PASS`, public security `PASS` |
+| migration execution | 최신 실행 `Succeeded`, manual trigger 유지 |
+| 운영 revision | Backend `backend--0000027`, Frontend `frontend--0000018`; latest=ready·Running |
+| exact image source | Backend·Frontend 운영 digest가 exact `main` SHA tag와 각각 일치 |
+| 공개 검증 | health `200`, 익명 root·`/api/me` `401/401` |
+| Web Push 보존 | `Enabled=true`, `DryRun=false`, 공개키·비밀키 Key Vault secret reference 유지 |
+| Open Finding | P0/P1/P2 `0/0/0` |
+
+- 사용자가 미완성으로 남기도록 지시한 공통 매뉴얼 worktree는 변경하지 않았다.
+- 운영 secret 원문, 사용자별 구독과 업무 data를 조회·출력·변경하지 않았다.

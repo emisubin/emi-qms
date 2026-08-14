@@ -68,3 +68,10 @@
 6. 실제 운영 Backend의 현재 Web Push 활성·Key Vault binding·ready 상태는 변경 없이 유지된다.
 7. 실제 운영 입력을 사용한 identity-access `what-if`에서 role assignment Create/Delete가 `0/0`이다.
 8. Open P0/P1/P2가 `0/0/0`이다.
+
+## 게시 결과
+
+- PR #103 필수 CI를 통과해 exact main SHA `58c089993587deea30513cb6edee0b8396a1d474`에 병합했다.
+- Azure release `31786040822`가 migration·Backend·Frontend와 public security를 모두 `PASS`로 완료했다.
+- 재배포 뒤 Backend는 `Enabled=true`, `DryRun=false`이고 공개키·비밀키 Key Vault secret reference를 유지하며 latest revision과 ready revision이 일치하고 Running이다.
+- 운영 secret 원문·사용자별 구독·인앱·Teams·메일 수신자 정책은 변경하지 않았다.

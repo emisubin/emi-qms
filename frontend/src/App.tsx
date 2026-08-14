@@ -77,6 +77,7 @@ import {
   getPanelInformation,
   getPanelInformationHistory,
   getProject,
+  getProjectDepartmentAssignees,
   getUl891SetStructure,
   getProjectWorkflow,
   getProjectProductionPlanning,
@@ -152,6 +153,7 @@ import {
   updateAdminUser,
   updateProjectProductionPlanSetDefault,
   updateProjectProductionPlanSetScope,
+  updateProjectDepartmentAssignees,
   updateProjectProductionPlanning,
   updateProductionTemplateSettings,
   updateProcurementRequiredItemSettings,
@@ -224,6 +226,7 @@ import type {
   CalendarHolidayExcelPreviewResponse,
   DeletedProjectDetail,
   DeletedProjectListItem,
+  DepartmentAssigneeScopeResponse,
   PanelInformationExcelPreviewResponse,
   PanelInformationHistoryResponse,
   PanelInformationPanel,
@@ -2437,13 +2440,22 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'production-planning-edit' ? (
-        <ProductionPlanningEditPage
-          developmentUserKey={developmentUserKey}
-          projectId={view.projectId}
-          canUpdateProductionPlanning={canUpdateProductionPlanning}
-          onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'production-planning' })}
-          onSaved={(feedback) => returnToProjectWithFeedback(view.projectId, 'production-planning', feedback)}
-        />
+        canUpdateProductionPlanning ? (
+          <ProductionPlanningEditPage
+            developmentUserKey={developmentUserKey}
+            projectId={view.projectId}
+            canUpdateProductionPlanning
+            onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'production-planning' })}
+            onSaved={(feedback) => returnToProjectWithFeedback(view.projectId, 'production-planning', feedback)}
+          />
+        ) : (
+          <DepartmentAssigneeEditPage
+            developmentUserKey={developmentUserKey}
+            projectId={view.projectId}
+            onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'production-planning' })}
+            onSaved={(feedback) => returnToProjectWithFeedback(view.projectId, 'production-planning', feedback)}
+          />
+        )
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'production-planning-dashboard' ? (
@@ -9919,7 +9931,8 @@ function ProjectDetailPage({
           <ProductionPlanningSection
             developmentUserKey={developmentUserKey}
             state={productionPlanningState}
-            canUpdateProductionPlanning={canUpdateProductionPlanning && project.status === 'Active'}
+            canUpdateProductionPlanning={canUpdateProductionPlanning}
+            isProjectActive={project.status === 'Active'}
             onEdit={onEditProductionPlanning}
           />
         ) : null}
@@ -11290,6 +11303,13 @@ type ProductionPlanRowForm = {
   rowVersion: number;
 };
 
+function normalizeProductionPlanRowSequences(rows: ProductionPlanRowForm[]) {
+  let nextSequence = 1;
+  return rows.map((row) => row.isDeleted
+    ? row
+    : { ...row, sequenceNumber: nextSequence++ });
+}
+
 type ProjectAssigneeForm = {
   assigneeId: string | null;
   responsibilityType: ResponsibilityType;
@@ -12393,13 +12413,34 @@ function ProductionPlanningSection({
   developmentUserKey,
   state,
   canUpdateProductionPlanning,
+  isProjectActive,
   onEdit
 }: {
   developmentUserKey: string;
   state: LoadState<ProductionPlanningResponse>;
   canUpdateProductionPlanning: boolean;
+  isProjectActive: boolean;
   onEdit: () => void;
 }) {
+  const [canDelegateDepartmentAssignees, setCanDelegateDepartmentAssignees] = useState(false);
+  const projectId = state.kind === 'ready' ? state.data.projectId : null;
+
+  useEffect(() => {
+    if (canUpdateProductionPlanning || !isProjectActive || !projectId) {
+      queueMicrotask(() => setCanDelegateDepartmentAssignees(false));
+      return;
+    }
+
+    const controller = new AbortController();
+    getProjectDepartmentAssignees(developmentUserKey, projectId, controller.signal)
+      .then(() => setCanDelegateDepartmentAssignees(true))
+      .catch(() => {
+        if (!controller.signal.aborted) setCanDelegateDepartmentAssignees(false);
+      });
+    return () => controller.abort();
+  }, [canUpdateProductionPlanning, developmentUserKey, isProjectActive, projectId]);
+
+  const canEdit = isProjectActive && (canUpdateProductionPlanning || canDelegateDepartmentAssignees);
   return (
     <section className="subsection production-planning-section">
       <div className="subsection-header">
@@ -12407,12 +12448,12 @@ function ProductionPlanningSection({
           <h3>생산계획</h3>
           <span>프로젝트 단위 계획과 담당자 지정</span>
         </div>
-        {canUpdateProductionPlanning ? <button type="button" className="primary-button" onClick={onEdit}>생산계획 수정</button> : null}
+        {canEdit ? <button type="button" className="primary-button" onClick={onEdit}>생산계획 수정</button> : null}
       </div>
       {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
       {state.kind === 'empty' ? <p className="empty-text">생산계획을 불러올 수 없습니다.</p> : null}
       {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
-      {state.kind === 'ready' ? <ProductionPlanningReadOnly developmentUserKey={developmentUserKey} plan={state.data} showCalendar /> : null}
+      {state.kind === 'ready' ? <ProductionPlanningReadOnly developmentUserKey={developmentUserKey} plan={state.data} /> : null}
     </section>
   );
 }
@@ -12473,7 +12514,7 @@ function ProductionPlanningReadOnly({
     </article>
   );
 
-  if (plan.modelVersion === 'LINKED_V1') {
+  if (plan.modelVersion === 'LINKED_V1' || plan.modelVersion === 'LEGACY') {
     return <ProductionControlLinkedPlanReadOnly developmentUserKey={developmentUserKey} plan={plan} />;
   }
 
@@ -12701,6 +12742,7 @@ function ProductionControlLinkedPlanReadOnly({
                 <dl>
                   <div><dt>계획</dt><dd>{formatProductionPeriod(item.plannedStartDate, item.plannedEndDate)}</dd></div>
                   <div><dt>실적</dt><dd>{formatProductionPeriod(item.actualStartDate, item.actualEndDate)}</dd></div>
+                  <div><dt>연결 실적</dt><dd>{productionPlanConnectionLabel(plan, item)}</dd></div>
                   <div><dt>진행</dt><dd>{item.completedTargetCount}/{item.totalTargetCount} · {item.progressPercent}%</dd></div>
                   <div><dt>담당자</dt><dd>{emptyDash(item.assignedUserName)}</dd></div>
                   <div><dt>필요 인원</dt><dd>{item.requiredHeadcount ? `${item.requiredHeadcount}명` : '-'}</dd></div>
@@ -12715,7 +12757,7 @@ function ProductionControlLinkedPlanReadOnly({
         ) : (
           <div className="production-control-plan-table" role="table" aria-label="생산계획표">
             <div className="production-control-plan-head" role="row">
-              <span>계획 항목</span><span>계획 기간</span><span>실적 기간</span><span>진행</span><span>상태</span><span>담당자</span><span>필요 인원</span><span>코멘트</span>
+              <span>계획 항목</span><span>계획 기간</span><span>실적 기간</span><span>연결 실적</span><span>진행</span><span>상태</span><span>담당자</span><span>필요 인원</span><span>코멘트</span>
             </div>
             {displayItems.map((item) => (
               <div className="production-control-plan-record" key={item.itemId ?? item.sequenceNumber}>
@@ -12723,6 +12765,7 @@ function ProductionControlLinkedPlanReadOnly({
                   <span><b>{item.sequenceNumber}. {item.stepName}</b>{item.isRequired ? <small>필수</small> : <small>선택</small>}</span>
                   <span>{formatProductionPeriod(item.plannedStartDate, item.plannedEndDate)}</span>
                   <span>{formatProductionPeriod(item.actualStartDate, item.actualEndDate)}</span>
+                  <span>{productionPlanConnectionLabel(plan, item)}</span>
                   <span><b>{item.progressPercent}%</b><i className="production-control-progress"><i style={{ width: `${item.progressPercent}%` }} /></i><small>{item.completedTargetCount}/{item.totalTargetCount}</small></span>
                   <span><i className="production-control-status" data-status={item.scheduleStatus}>{item.scheduleStatusLabel}</i>{item.delayDays ? <small>{item.delayDays}일</small> : null}</span>
                   <span>{emptyDash(item.assignedUserName)}</span>
@@ -13114,7 +13157,7 @@ function ProductionPlanningEditPage({
   }
 
   function addCustomRow() {
-    setRows((current) => [
+    setRows((current) => normalizeProductionPlanRowSequences([
       ...current,
       {
         itemId: null,
@@ -13134,11 +13177,15 @@ function ProductionPlanningEditPage({
         note: '',
         rowVersion: 0
       }
-    ]);
+    ]));
   }
 
   function deleteCustomRow(index: number) {
-    setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, isDeleted: true } : row));
+    setRows((current) => normalizeProductionPlanRowSequences(
+      current[index]?.itemId
+        ? current.map((row, rowIndex) => rowIndex === index ? { ...row, isDeleted: true } : row)
+        : current.filter((_, rowIndex) => rowIndex !== index)
+    ));
   }
 
   function updateAssignee(index: number, next: Partial<ProjectAssigneeForm>) {
@@ -13219,13 +13266,14 @@ function ProductionPlanningEditPage({
     if (state.kind !== 'ready') {
       return;
     }
+    const normalizedRows = normalizeProductionPlanRowSequences(rows);
+    setRows(normalizedRows);
     const validationRows = state.data.isSetScoped && editMode === 'structure'
-      ? rows.map((row) => ({ ...row, plannedStartDate: '', plannedEndDate: '', assignedUserId: '', requiredHeadcount: '', note: '' }))
-      : rows;
+      ? normalizedRows.map((row) => ({ ...row, plannedStartDate: '', plannedEndDate: '', assignedUserId: '', requiredHeadcount: '', note: '' }))
+      : normalizedRows;
     const validation = validateProductionPlanningForm(
       selectedProductTypeId,
       validationRows,
-      state.data.modelVersion,
       { validateConnections: !state.data.isSetScoped || editMode === 'structure' }
     );
     if (!state.data.isSetScoped || editMode === 'structure') {
@@ -13258,7 +13306,7 @@ function ProductionPlanningEditPage({
         await updateProjectProductionPlanSetScope(developmentUserKey, projectId, selectedSetInstanceId, {
           expectedRowVersion: state.data.selectedScope.rowVersion,
           reason: reason.trim() || null,
-          items: rows
+          items: normalizedRows
             .filter((row) => !row.isDeleted && row.itemId)
             .map((row) => ({
               itemId: row.itemId!,
@@ -13283,7 +13331,7 @@ function ProductionPlanningEditPage({
           expectedRowVersion: state.data.setDefault.rowVersion,
           overwriteExisting: overwriteSetSchedules,
           reason: reason.trim() || null,
-          items: rows
+          items: normalizedRows
             .filter((row) => !row.isDeleted && row.itemId)
             .map((row) => ({
               itemId: row.itemId!,
@@ -13305,14 +13353,14 @@ function ProductionPlanningEditPage({
         expectedRowVersion: state.data.rowVersion,
         notes: notes.trim() || null,
         reason: reason.trim() || null,
-        items: rows.map((row) => ({
+        items: normalizedRows.map((row) => ({
           itemId: row.itemId,
           templateStepId: row.templateStepId,
           stepName: row.stepName,
           sequenceNumber: row.sequenceNumber,
           isRequired: row.isRequired,
           expectedRowVersion: row.rowVersion,
-          plannedDate: row.plannedDate || null,
+          plannedDate: null,
           plannedStartDate: state.data.isSetScoped ? null : row.plannedStartDate || null,
           plannedEndDate: state.data.isSetScoped ? null : row.plannedEndDate || null,
           assignedUserId: state.data.isSetScoped ? null : row.assignedUserId || null,
@@ -13464,12 +13512,10 @@ function ProductionPlanningEditPage({
                 ) : null}
               </section>
             ) : null}
-            <DsInputSection number={2} title={plan.isSetScoped && editMode === 'structure' ? '계획 구조 입력' : editMode === 'default' ? '전체 세트 기본계획 입력' : '생산계획표 입력'} description={plan.modelVersion === 'LINKED_V1' ? (plan.isSetScoped && editMode === 'structure' ? '모든 세트가 공유할 항목과 실적 연결을 구성합니다.' : editMode === 'default' ? '한 번 입력한 기본값은 빈 세트와 이후 추가되는 세트에 적용됩니다.' : '계획 기간·담당자·필요 인원·코멘트를 입력합니다.') : '필요한 단계의 날짜·담당자·필요 인원·코멘트를 행에서 바로 입력합니다.'} collapsible>
-              {plan.modelVersion === 'LINKED_V1' && plan.isSetScoped && (editMode === 'set' || editMode === 'default')
+            <DsInputSection number={2} title={plan.isSetScoped && editMode === 'structure' ? '계획 구조 입력' : editMode === 'default' ? '전체 세트 기본계획 입력' : '생산계획표 입력'} description={plan.isSetScoped && editMode === 'structure' ? '모든 세트가 공유할 항목과 실적 연결을 구성합니다.' : editMode === 'default' ? '한 번 입력한 기본값은 빈 세트와 이후 추가되는 세트에 적용됩니다.' : '계획 기간·담당자·필요 인원·코멘트와 실적 연결을 입력합니다.'} collapsible>
+              {plan.isSetScoped && (editMode === 'set' || editMode === 'default')
                 ? <ProductionControlSetScheduleEditableList plan={plan} rows={rows} errors={errors} onChange={updateRow} />
-                : plan.modelVersion === 'LINKED_V1'
-                ? <ProductionControlLinkedEditableList plan={plan} rows={rows} errors={errors} onChange={updateRow} onAddRow={addCustomRow} onDeleteRow={deleteCustomRow} structureOnly={Boolean(plan.isSetScoped)} />
-                : <ProductionPlanningEditableList plan={plan} rows={rows} errors={errors} onChange={updateRow} onAddRow={addCustomRow} onDeleteRow={deleteCustomRow} />}
+                : <ProductionControlLinkedEditableList plan={plan} rows={rows} errors={errors} onChange={updateRow} onAddRow={addCustomRow} onDeleteRow={deleteCustomRow} structureOnly={Boolean(plan.isSetScoped)} />}
             </DsInputSection>
             {!plan.isSetScoped || editMode === 'structure' ? (
               <DsInputSection number={3} title="담당자 지정" description="각 업무의 정·부 담당자를 지정합니다." collapsible>
@@ -13494,6 +13540,170 @@ function ProductionPlanningEditPage({
   );
 }
 
+function DepartmentAssigneeEditPage({
+  developmentUserKey,
+  projectId,
+  onBack,
+  onSaved
+}: {
+  developmentUserKey: string;
+  projectId: string;
+  onBack: () => void;
+  onSaved: (feedback: ActionFeedbackState) => void;
+}) {
+  const [state, setState] = useState<LoadState<DepartmentAssigneeScopeResponse>>({ kind: 'loading' });
+  const [assignees, setAssignees] = useState<ProjectAssigneeForm[]>([]);
+  const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<ActionFeedbackTone>('neutral');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    setErrors({});
+    setMessage('');
+    setMessageTone('neutral');
+    getProjectDepartmentAssignees(developmentUserKey, projectId)
+      .then((scope) => {
+        setState({ kind: 'ready', data: scope });
+        setAssignees(scope.assignees.map(projectAssigneeToForm));
+      })
+      .catch((error: unknown) => setState(toLoadError(error, '담당자 지정 범위를 불러올 수 없습니다.')));
+  }, [developmentUserKey, projectId]);
+
+  useEffect(() => {
+    queueMicrotask(load);
+  }, [load]);
+
+  function updateAssignee(index: number, next: Partial<ProjectAssigneeForm>) {
+    setAssignees((current) => current.map((assignee, assigneeIndex) => assigneeIndex === index
+      ? { ...assignee, ...next }
+      : assignee));
+  }
+
+  async function save() {
+    if (state.kind !== 'ready') return;
+    setErrors({});
+    setMessage('');
+    setMessageTone('neutral');
+    setIsSaving(true);
+    try {
+      await updateProjectDepartmentAssignees(developmentUserKey, projectId, {
+        reason: reason.trim() || null,
+        assignees: assignees.map((assignee) => ({
+          responsibilityType: assignee.responsibilityType,
+          assigneeId: assignee.assigneeId,
+          expectedRowVersion: assignee.rowVersion,
+          assignedUserId: assignee.assignedUserId || null,
+          note: assignee.note.trim() || null
+        }))
+      });
+      onSaved({ tone: 'success', message: `${state.data.departmentName} 담당자를 저장했습니다.` });
+    } catch (error) {
+      setMessageTone('error');
+      handleFormError(error, setErrors, setMessage);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const scope = state.kind === 'ready' ? state.data : null;
+  const visibleResponsibilities = new Set(assignees.map((assignee) => assignee.responsibilityType));
+  const groups = [...departmentAssigneeGroups, ...qualityAssigneeGroups]
+    .filter((group) => visibleResponsibilities.has(group.primary) || visibleResponsibilities.has(group.secondary));
+
+  function renderAssigneeSlot(responsibilityType: ResponsibilityType, label: string) {
+    if (!scope) return null;
+    const index = assignees.findIndex((assignee) => assignee.responsibilityType === responsibilityType);
+    if (index < 0) return null;
+    const assignee = assignees[index];
+    const candidates = scope.assigneeCandidates.find((candidate) => candidate.responsibilityType === responsibilityType)?.users ?? [];
+    const current = scope.assignees.find((candidate) => candidate.responsibilityType === responsibilityType);
+    const selectedIsUnavailable = Boolean(
+      assignee.assignedUserId
+      && !candidates.some((candidate) => candidate.userId === assignee.assignedUserId)
+      && current?.assignedUserName
+    );
+    const error = fieldError(errors, responsibilityType, `assignees[${index}].assignedUserId`);
+    return (
+      <label className={error ? 'form-field has-error' : 'form-field'} key={responsibilityType}>
+        <span>{label}</span>
+        <select
+          aria-label={assignee.responsibilityLabel}
+          value={assignee.assignedUserId}
+          onChange={(event) => updateAssignee(index, { assignedUserId: event.target.value })}
+        >
+          <option value="">미지정</option>
+          {selectedIsUnavailable ? <option value={assignee.assignedUserId}>{current!.assignedUserName} · 현재 지정</option> : null}
+          {candidates.map((candidate) => <option key={candidate.userId} value={candidate.userId}>{candidate.displayName}</option>)}
+        </select>
+        <FieldErrorMessage field={responsibilityType} message={error} />
+      </label>
+    );
+  }
+
+  return (
+    <section className="page-surface production-planning-section department-assignee-edit-page">
+      {state.kind === 'loading' ? <p className="muted-text">담당자 지정 범위를 확인하는 중입니다.</p> : null}
+      {state.kind !== 'ready' && state.kind !== 'loading' ? <StateMessage state={state} /> : null}
+      {scope ? (
+        <>
+          <div className="panel-info-summary project-workflow-summary" aria-label="프로젝트 기본 정보">
+            <StatusChip label="프로젝트" value={scope.projectTitle} />
+            <StatusChip label="Code" value={scope.projectCode} />
+            <StatusChip label="담당 부서" value={scope.departmentName} />
+          </div>
+          <DsInputFlow
+            title={`${scope.departmentName} 담당자 지정`}
+            description="본인 부서 담당자만 지정할 수 있습니다. 생산계획과 다른 부서 담당자는 프로젝트 조회 화면에서 확인하세요."
+          >
+            <fieldset className="production-edit-lock" disabled={isSaving}>
+              <legend className="sr-only">부서 담당자 지정</legend>
+              <FormErrorSummary errors={errors} />
+              <DsInputSection
+                number={1}
+                title="담당자 선택"
+                description={`${scope.departmentName} 소속 활성 사용자 중 정·부 담당자를 지정합니다.`}
+              >
+                <div className="assignee-edit-grid department-assignee-scope-grid">
+                  {groups.map((group) => (
+                    <article className="assignee-card assignee-group-card" data-tone={group.tone} aria-label={`${group.title} 담당자 지정`} key={group.title}>
+                      <h4>{group.title}</h4>
+                      {renderAssigneeSlot(group.primary, '정 담당자')}
+                      {renderAssigneeSlot(group.secondary, '부 담당자')}
+                    </article>
+                  ))}
+                </div>
+              </DsInputSection>
+              <DsInputSection
+                number={2}
+                title="수정사유"
+                description="기존 담당자를 변경하거나 해제할 때는 사유를 입력해 주세요."
+              >
+                <label className={fieldError(errors, 'reason') ? 'form-field panel-reason-field has-error' : 'form-field panel-reason-field'}>
+                  <span>수정사유</span>
+                  <textarea name="reason" value={reason} onChange={(event) => setReason(event.target.value)} />
+                  <FieldErrorMessage field="reason" message={fieldError(errors, 'reason')} />
+                </label>
+              </DsInputSection>
+            </fieldset>
+            <DsActionBar
+              description="저장한 담당자는 프로젝트 전체 조회 화면에 바로 반영됩니다."
+              feedback={message ? <ActionFeedback message={message} tone={messageTone} focusOnAttention /> : undefined}
+            >
+              <button type="button" onClick={onBack}>취소</button>
+              <button type="button" className="primary-button" disabled={isSaving} onClick={save}>{isSaving ? '저장 중' : '담당자 저장'}</button>
+            </DsActionBar>
+          </DsInputFlow>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+// Kept only as a source-compatible reference while older saved drafts are normalized by the unified editor.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ProductionPlanningEditableList({
   plan,
   rows,
@@ -13871,6 +14081,22 @@ function preferredProjectPlanConnection(connections: ProductionPlanRowForm['conn
     'PURCHASE_ORDERED'
   ];
   return [...connections].sort((left, right) => priority.indexOf(left.sourceCode) - priority.indexOf(right.sourceCode))[0];
+}
+
+function productionPlanConnectionLabel(
+  plan: ProductionPlanningResponse,
+  item: ProductionPlanningResponse['items'][number]
+) {
+  const connection = preferredProjectPlanConnection(item.connections ?? []);
+  if (!connection) return '미연결';
+  const source = (plan.availableSources ?? []).find((candidate) => candidate.code === connection.sourceCode);
+  if (!source) return connection.sourceCode;
+  if (!connection.sourceDefinitionKey) return `${source.departmentLabel} · ${source.label}`;
+  const definition = projectSourceDefinitionOptions(plan, source)
+    .find((candidate) => candidate.definitionKey === connection.sourceDefinitionKey);
+  return definition
+    ? `${source.departmentLabel} · ${source.label} · ${definition.label}`
+    : `${source.departmentLabel} · ${source.label}`;
 }
 
 function ProductionAssigneeEditor({
@@ -18285,7 +18511,6 @@ function validateProjectForm(form: ProjectFormValues, includeReason: boolean, pr
 function validateProductionPlanningForm(
   productTypeId: string,
   rows: ProductionPlanRowForm[],
-  modelVersion: ProductionPlanningResponse['modelVersion'] = 'LEGACY',
   options: { validateConnections?: boolean } = {}
 ): Record<string, string> {
   const errors: Record<string, string> = {};
@@ -18317,15 +18542,13 @@ function validateProductionPlanningForm(
       }
     }
 
-    if (modelVersion === 'LINKED_V1') {
-      if (Boolean(row.plannedStartDate) !== Boolean(row.plannedEndDate)) {
-        errors[`items[${index}].plannedEndDate`] = '계획 시작일과 종료일을 함께 입력해 주세요.';
-      } else if (row.plannedStartDate && row.plannedEndDate && row.plannedEndDate < row.plannedStartDate) {
-        errors[`items[${index}].plannedEndDate`] = '계획 종료일은 시작일보다 빠를 수 없습니다.';
-      }
-      if ((options.validateConnections ?? true) && row.connections.length !== 1) {
-        errors[`items[${index}].connections`] = '실적 데이터 하나를 선택해 주세요.';
-      }
+    if (Boolean(row.plannedStartDate) !== Boolean(row.plannedEndDate)) {
+      errors[`items[${index}].plannedEndDate`] = '계획 시작일과 종료일을 함께 입력해 주세요.';
+    } else if (row.plannedStartDate && row.plannedEndDate && row.plannedEndDate < row.plannedStartDate) {
+      errors[`items[${index}].plannedEndDate`] = '계획 종료일은 시작일보다 빠를 수 없습니다.';
+    }
+    if ((options.validateConnections ?? true) && row.connections.length !== 1) {
+      errors[`items[${index}].connections`] = '실적 데이터 하나를 선택해 주세요.';
     }
 
     if (row.requiredHeadcount) {

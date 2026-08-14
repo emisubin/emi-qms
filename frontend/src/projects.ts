@@ -1091,6 +1091,16 @@ export interface ProductionPlanningResponse {
   setDefault?: ProductionPlanSetDefault | null;
 }
 
+export interface DepartmentAssigneeScopeResponse {
+  projectId: string;
+  projectTitle: string;
+  projectCode: string;
+  departmentCode: string;
+  departmentName: string;
+  assignees: ProjectAssignee[];
+  assigneeCandidates: AssigneeCandidate[];
+}
+
 export interface ProductionPlanSetDefault {
   defaultId: string;
   rowVersion: number;
@@ -1365,6 +1375,11 @@ export interface UpdateProductionPlanningRequest {
   notes: string | null;
   reason: string | null;
   items: ProductionPlanItemUpdateRequest[];
+  assignees: ProjectAssigneeUpdateRequest[];
+}
+
+export interface UpdateDepartmentAssigneesRequest {
+  reason: string | null;
   assignees: ProjectAssigneeUpdateRequest[];
 }
 

@@ -190,6 +190,14 @@ DB 원칙은 다음과 같다.
 - 품질도 같은 테이블에서 `responsibility_type`으로 구분한다.
 - 담당자 변경 이력은 field-level audit 또는 project workflow event로 추적한다.
 
+프로젝트 담당자 입력 권한은 다음과 같이 나눈다.
+
+- 생산관리 권한 사용자는 기존 생산계획 수정 화면에서 생산계획·실적 연결과 모든 부서 담당자를 함께 관리한다.
+- 생산관리 이외 활성 부서장은 같은 `생산계획 수정` 진입점에서 자기 부서 담당자만 지정한다. 영업·설계·구매·자재·제조·물류는 정·부 2명, 품질은 IQC·LQC·OQC·전진검수/FAT 정·부 8명이다.
+- 부서장 전용 화면에는 생산계획 항목, 날짜, 실적 연결과 다른 부서 담당자를 표시하지 않는다. 프로젝트 상세 조회 화면은 기존처럼 전체 계획과 전체 담당자를 표시한다.
+- 일반 사용자는 부서장 전용 진입점과 저장 API를 사용할 수 없다. 서버가 활성 상태, 부서장 여부, 소속 부서, 책임 구분과 후보 사용자 소속을 저장 시점마다 다시 검증한다.
+- 프로젝트 생성 시 생산관리 이외 지원 부서의 활성 부서장에게 담당자 지정 요청을 추가한다. 이 요청은 인앱 원본을 기준으로 Teams Activity와 PWA push가 따르며, 기존 프로젝트 생성 전체 공지 메일은 중복 발송하지 않는다.
+
 responsibility_type 예시는 다음과 같다.
 
 | responsibility_type | 사용자 표시명 | 설명 |
@@ -561,6 +569,8 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 - Pending List 관리
 - 전체 진행상황 관리
 
+생산관리 이외 부서장은 생산계획 자체를 수정하지 않는다. 프로젝트 상세의 같은 수정 진입점에서 자기 부서 담당자만 지정하며, 생산계획과 다른 부서 담당자는 조회 화면에서만 확인한다.
+
 생산계획 기준은 다음과 같다.
 
 - 프로젝트 단위로 관리한다.
@@ -571,7 +581,7 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 - 설정 변경 이후 새 프로젝트에만 자동 반영한다.
 - 기존 프로젝트에는 자동 반영하지 않는다.
 - 유효한 `LinkedV1` 생산계획 양식과 제조 양식이 모두 사용 중인 Item의 새 프로젝트만 두 양식과 연결 관계를 한 세트로 snapshot한다.
-- `LinkedV1` 프로젝트별 생산계획에서는 단계명·필수 여부·계획 시작/종료·담당자·필요 인원·생산관리 코멘트와 항목별 1:1 실적 연결을 수정할 수 있다.
+- 생성 시점 model과 관계없이 프로젝트별 생산계획에서는 단계명·필수 여부·계획 시작/종료·담당자·필요 인원·생산관리 코멘트와 항목별 1:1 실적 연결을 수정할 수 있다.
 - 프로젝트별 수정은 해당 프로젝트 snapshot에만 적용된다.
 - master template에는 영향이 없다.
 - 제조 snapshot과 자동 실적 값은 프로젝트 생산계획 화면에서 수정하지 않는다.
@@ -579,14 +589,13 @@ QR 기준은 시스템 생성 기준과 현장 부착 기준을 구분한다.
 - 제조·LQC 연결은 프로젝트에 snapshot된 제조 단계의 불변 `definition_key`를 사용하며 이름·순서 변경으로 재연결하지 않는다.
 - IQC 실적 연결은 검사 항목별 identity를 사용하고, OQC 실적 연결은 내부 검사 단계 수와 무관하게 패널별 최종 `OQC 합격` 사건 한 건을 사용한다.
 - 생산계획 항목은 순서와 계획 시작일을 기준으로 표시한다.
-- 프로젝트 상세 생산관리 section에 담당자·필요 인원·코멘트를 포함한 8열 생산계획표, 근거 펼침과 계획/실적 가로 막대 일정표를 표시한다. 내부 실적 연결 설정은 조회 표에서 숨긴다.
-- 생산계획 캘린더는 생산단계 열 sticky, 날짜 열 고정 폭을 유지한다.
-- 생산관리 목록 펼침에는 캘린더를 표시하지 않는다.
+- 프로젝트 상세 생산관리 section에 연결 실적·담당자·필요 인원·코멘트를 포함한 9열 생산계획표, 근거 펼침과 계획/실적 가로 막대 일정표를 표시한다.
+- 기존 날짜별 체크형 생산계획 캘린더는 제거하고 계획·실적 2중 막대 일정표만 사용한다.
 
 생산계획 완료 기준은 다음과 같다.
 
-- `Legacy`는 필수 단계의 단일 예정일이 모두 입력되어야 완료다.
-- `LinkedV1`은 필수 항목의 계획 시작일과 종료일이 모두 입력되어야 계획 완료다.
+- `Legacy`의 기존 단일 예정일은 같은 날의 계획 시작·종료로 정규화하고, 이후 프로젝트 전용 기간으로 저장한다.
+- 모든 프로젝트는 필수 항목의 계획 시작일과 종료일이 모두 입력되어야 계획 완료다.
 - 일부만 입력되면 진행 중이다.
 - 날짜가 전혀 없으면 미등록 또는 대기 상태로 본다.
 - 담당자 지정도 workflow 완료 판정에 포함될 수 있으나, 구체 필수 담당자 기준은 TASK별로 명시한다.
@@ -942,11 +951,11 @@ Excel 출력 대상 후보:
 | 포장방식 | StretchWrap/WoodenCrate 등 기본 포장방식 | 포장방식 관리자 기준정보화 |
 | 구매정보 | 직접 입력, Excel preview/apply, 업체, 입고 완료, 완료일시 표시, grouped history | 구매처 master 또는 업체 기준정보화 |
 | 자재 | 자재 입고 입력 기반 | 자재 도착/IQC 요청/입고 확정/키팅 분리 |
-| 생산관리 | 메뉴, 목록, 프로젝트 펼침, 생산계획 조회/수정, 담당자 지정, 확장 담당자 구조, Excel 업로드, `LinkedV1` 프로젝트의 생산계획표·계획 담당자·필요 인원·코멘트·자동 실적·근거·가로 막대 일정 | 운영 양식 content 입력과 최종 사용자 검수 |
-| 생산계획 | Legacy Item 단계와 기존 프로젝트 불변 보존, Item별 단일 현재 제조·계획 양식, 항목별 1:1 실적 연결, 프로젝트 생성 transaction snapshot, 계획 시작/종료·담당자·필요 인원·코멘트·프로젝트 override, 구매·자재·제조·LQC·IQC 항목/OQC 최종 합격·전진검수/FAT·물류 원본 기반 자동 실적 projection, desktop 8열 생산계획표·mobile 카드·계획/실적 Gantt | 대량 프로젝트 성능은 실측 후 cache/query 최적화, 운영 양식 content 입력 |
+| 생산관리 | 메뉴, 목록, 프로젝트 펼침, 생산계획 조회/수정, 전체 부서 담당자 지정, 비생산관리 부서장의 자기 부서 담당자 직접 지정, 확장 담당자 구조, Excel 업로드, 모든 프로젝트의 생산계획표·프로젝트 전용 기간/실적 연결·계획 담당자·필요 인원·코멘트·자동 실적·근거·가로 막대 일정 | 운영 양식 content 입력, Change 011·TASK-PROJECT-ASSIGNEE-DELEGATION-001 운영 배포와 runtime 관찰 |
+| 생산계획 | Legacy Item 단계·이력과 신규 프로젝트 snapshot 불변 보존, Item별 단일 현재 제조·계획 양식, 모든 프로젝트 항목별 1:1 실적 연결, 프로젝트 생성 transaction snapshot, 계획 시작/종료·담당자·필요 인원·코멘트·프로젝트 override, 구매·자재·제조·LQC·IQC 항목/OQC 최종 합격·전진검수/FAT·물류 원본 기반 자동 실적 projection, desktop 9열 생산계획표·mobile 카드·계획/실적 Gantt | 대량 프로젝트 성능은 실측 후 cache/query 최적화, 운영 양식 content 입력, Change 011 마지막 일괄 사용자 검수 |
 | 구매 필수 항목 | Item별 필수 구매 항목 설정, 새 프로젝트 skeleton 자동 생성 | 업체/발주정보 입력 기준과 완료 판정 보강 |
 | 내 업무 | 목록, KPI, 프로젝트별 그룹, 실제 입력 페이지 이동, 시작/완료 동기화 | 시작/완료 이력 관리자 화면 |
-| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 인앱 원본·수신자 snapshot, Teams Activity Feed actual provider와 자동 업무·Pending·프로젝트 lifecycle coverage, Gmail SMTP, PWA 활성 기기별 파생 delivery, 평일 07:30 Daily Digest, L0·L1 단순 에스컬레이션, 생산계획·구매 일정 기반 미완료 업무 due_date 동기화, 담당자 미지정 시 해당 부서 복수 부서장 공유·첫 처리자 동기화 종료, 패널별 업무/묶음 알림, Pending→Processing claim/lease·retry·attempt lineage·관리자 조회 | 실제 PWA VAPID key·외부 push service 검수, 운영 Teams manifest URL 전환, Gmail SMTP 장기 운영 적합성, terminal Failed 수동 재처리 신규 기능(Deferred) |
+| 알림 | 전체/읽음/읽지 않음, 프로젝트별 그룹, 인앱 원본·수신자 snapshot, Teams Activity Feed actual provider와 자동 업무·Pending·프로젝트 lifecycle coverage, 프로젝트 생성 시 비생산관리 부서장 담당자 지정 요청, Gmail SMTP, PWA 활성 기기별 파생 delivery, 평일 07:30 Daily Digest, L0·L1 단순 에스컬레이션, 생산계획·구매 일정 기반 미완료 업무 due_date 동기화, 담당자 미지정 시 해당 부서 복수 부서장 공유·첫 처리자 동기화 종료, 패널별 업무/묶음 알림, Pending→Processing claim/lease·retry·attempt lineage·관리자 조회 | 실제 PWA VAPID key·외부 push service 검수, 운영 Teams manifest URL 전환, Gmail SMTP 장기 운영 적합성, terminal Failed 수동 재처리 신규 기능(Deferred) |
 | workflow | 18단계 stage, 프로젝트 workflow 요약, 기존 페이지 hook, 미구현 stage workflow fallback | 후속 실제 화면 단계 연결 |
 | 로그인/권한 | Microsoft 365 로그인 기반, EntraId JIT 사용자 생성, 승인 대기, bootstrap admin, 최소 사용자 관리, Dev user read-only, System Administrator 검수 사용자 전환, 로그인 상태 유지와 Figma 기본/Variant 2, dev auth/E2E 보존, PostgreSQL transaction 기반 마지막 active System Administrator 보호, purge 전용 malformed lifecycle defense-in-depth, latest-main Development controlled runtime 적용, 승인된 Figma 기반 인증 공통 shell, Desktop exact geometry와 PC viewport 등비 canvas, Loading control 제거·빨간 회전 indicator, Change 010 모바일 흑백 wireframe·지정 로그인 logo 운영 반영 | Auth break-glass 계정·복구 rehearsal, Production/Staging dev auth 및 AdminUserSwitch 비활성 검수, 실제 PC·iPhone·Android 인증 후 지정 logo 육안 검수 |
 | 공휴일/영업일 | `system_holidays.holiday_type`, BusinessDayCalculator, `/api/calendar/business-days`, 생산계획 캘린더 연동, System Administrator 휴일 관리 API/UI, Excel 양식 다운로드/preview/apply, 회사휴일 Company type, UAT DB 보존 | 공식 공휴일 API service key 연동, 국가공휴일 자동 sync scheduler, 회사 자체 근무일 지정 필요성 검토, 운영 휴일 데이터 검수 |
@@ -1018,7 +1027,8 @@ Excel 출력 대상 후보:
 | 3.3 | TASK-ADMIN-002 Template 관리 | NEW_FEATURE | Experiment Complete | 2-pass planning·implementation·automated/isolated browser validation complete / `BATCHED_FINAL` | TASK-009A·011A·012A experiment model | 실제 운영 양식 content 입력은 후속 change | Yes | 재구현 금지; 최종 일괄 검수 |
 | 3.3D | TASK-ADMIN-003 사용자 부서·역할·부서장 연결 보정 | P2_REMEDIATION | Production Rollout Complete | 표준 10개 한글 부서·부서 기본 역할·복수 부서장과 기존 양식관리 binding·audit 동기화를 구현하고 사용자 검수·PR #93 CI·main 병합·migration `0072`·Backend/Frontend 운영 교체를 완료 | TASK-ADMIN-001 사용자·부서 관리, TASK-ADMIN-002 양식관리 binding, migration `0071` | 없음 | Yes | 운영 사용자 등록·부서장 권한 관찰 |
 | 3.3I | TASK-ADMIN-001 Change 001 관리자 홈 조치 항목 정리 | BUGFIX | User Validation Complete / Publication Approved | 조치 가치가 낮은 KPI 3개를 홈에서 제거하고 승인 대기 카드가 활성 Entra·역할 없음 사용자만 여는 전용 필터로 이동하도록 구현·검증·사용자 검수 완료 | TASK-ADMIN-001·TASK-ADMIN-003 | 없음 | Yes | 단일 통합 PR `CI Gate` → Azure 공개배포 |
-| 3.3A | TASK-PRODUCTION-CONTROL-001 Item별 생산계획·자동 실적·가로 막대 일정 | NEW_FEATURE / BUGFIX | Change 010 Main Merged / Azure Released | 본체와 Change 002~009의 원격 main 반영·사용자 검수 완료. Change 010은 같은 현재 양식의 후행 재선택이 빠른 편집 진입을 취소하던 P2를 최소 보정하고 PR #81·main CI 뒤 Change 020 Azure 운영 image에 동기화 | TASK-ADMIN-002·생산계획·구매·자재·제조·품질·물류 원본 데이터 | 기존 프로젝트는 Legacy/snapshot 유지 | Yes | 운영 관찰. 제품 다음 Gate는 별도 승인 Task |
+| 3.3A | TASK-PRODUCTION-CONTROL-001 Item별 생산계획·자동 실적·가로 막대 일정 | NEW_FEATURE / BUGFIX | Change 011 User Validation Accepted / Publication Approved | 본체와 Change 002~010의 원격 main·운영 반영 완료. Change 011은 모든 프로젝트의 전용 기간·실적 연결·9열 표·단일 2중 막대 일정과 행 삭제 순번 보정을 구현·자동검증하고 실제 5174 검수 뒤 main·Azure 공개배포 승인을 받았다. | TASK-ADMIN-002·생산계획·구매·자재·제조·품질·물류 원본 데이터 | 기존 프로젝트는 Legacy 행·실행 이력을 유지하며 프로젝트별 override만 저장 | Yes | Ready PR `CI Gate` → exact main SHA Azure release |
+| 3.3K | TASK-PROJECT-ASSIGNEE-DELEGATION-001 — 부서장 자기 부서 담당자 직접 지정 | NEW_FEATURE | User Validation Accepted / Publication Approved | 생산관리 전체 편집은 유지하고 비생산관리 활성 부서장은 자기 부서 담당자만 조회·저장한다. 프로젝트 생성 시 해당 부서장에게 담당자 지정 요청 인앱 원본을 추가해 Teams Activity·PWA가 따르게 했으며, 서버 권한·후보·감사·중복 방지와 desktop·390px 화면을 검증했다. 설계 부서장 실제 화면 확인 뒤 main·Azure 공개배포 승인을 받았다. | TASK-PRODUCTION-CONTROL-001 Change 011·TASK-ADMIN-003 부서장·TASK-NOTIFY-POLICY-001 | DB migration 없음. 일반 사용자·다른 부서 mutation은 서버 차단 | Yes | Ready PR `CI Gate` → exact main SHA Azure release·운영 smoke |
 | 3.3B | TASK-UL891-PRODUCTION-PLAN-001 실물 세트별 생산계획 | NEW_FEATURE | Change 004 Main Merged / Azure Released / User Validation Complete | Fable 2-pass 본체와 Change 002~008의 전체 세트 기본계획·실적 연결 편집·일정표 색/날짜선/테두리·담당자 표시를 통합 원격 `main` 기준선에 이식. UL891 단일 현재 설계·활성 42면 projection·migration `0068`과 제조·품질·물류 현재 순번 `1..42`·영구 code `P52` 분리를 자동·실제 화면에서 검증. Change 020 최신 main 운영 release로 통합 image 동기화 완료 | TASK-PRODUCTION-CONTROL-001·TASK-UL891-SET-001·DESIGN-000 Change 006·TASK-EXPERIMENT-PROMOTION-001 Change 002 | 없음. 운영 관찰 유지 | Yes | 완료 scope 재구현 금지; 운영 관찰 |
 | 3.3C | TASK-TEAMS-PWA-001 — Teams 실행 화면·PWA 설치·브랜드 통일 | BUGFIX / P2_REMEDIATION | Change 011 Production Rollout Complete | Change 001~003·007·009·010·011 운영 rollout 완료. 새 웹 제품 logo, 로그인 보안 안내와 오산·청주 회사 footer를 반영하고 PWA·Teams icon을 보존했으며 사용자 검수·PR #93·Azure release `31452524156` 완료 | Azure Easy Auth·Teams Activity 10종·기존 웹 MSAL·PWA icon·TASK-DESIGN-LOGIN-001 Change 010·TASK-ADMIN-003 통합 branch | Web Push는 별도 NEW_FEATURE | Yes | 운영 PC·모바일 브랜드·footer 관찰 |
 | 3.3F | TASK-PWA-PUSH-001 — 인앱 연동 PWA 기기 푸시 | APPROVED_FEATURE_IMPLEMENTATION | Local Implementation / Automated Validation Complete / Publication Approved | 인앱 가시성 기준 기기별 구독·delivery, 현재/전체 기기 해제, 최소 Service Worker, 설치형 PWA 1회 안내와 본인 설정을 구현. migration `0074`, 기본 `Enabled=false`·`DryRun=true`. Backend `513/513`, Frontend `210/210`, isolated Full-Stack `1/1`, desktop·390px 화면 검증 완료 | TASK-TEAMS-PWA-001 설치 경험·TASK-NOTIFY-004 delivery worker·현재 인앱 알림 수신자 정책 | 운영 VAPID key·실제 외부 push service 수신 검수는 별도. 이번 공개 배포에서도 중지·시험 모드 유지 | Yes | 통합 PR `CI Gate` → migration·앱 배포; 실제 provider 활성화는 별도 승인 |
@@ -1837,6 +1847,7 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 - TASK-PRODUCTION-CONTROL-001 Change 008은 프로젝트 생산계획 항목에 선택 담당자·필요 인원·생산관리 코멘트를 추가하고 조회 제목을 `생산계획표`로 통일했다. 조회 표의 내부 실적 연결 열은 숨기고 담당자·필요 인원·코멘트를 표시하지만 1:1 연결과 자동 실적 계산은 그대로 유지한다. migration `0063`은 기존 행을 nullable로 보존하고 필요 인원 1~999와 담당자 FK를 강제한다.
 - TASK-PRODUCTION-CONTROL-001 Change 010은 양식 카탈로그가 같은 현재 version을 후행 재선택하면서 빠른 `수정` 진입을 조회 상태로 되돌릴 수 있던 P2를 제거한다. Item·domain이 실제로 바뀔 때만 행과 편집 상태를 초기화하며 Backend·API·DB·권한·화면 디자인은 바꾸지 않는다.
 - Change 010은 PR #81과 merge SHA main CI의 Backend·Frontend·Full-Stack `3/3`을 모두 통과해 원격 `main`에 병합됐다. Azure 운영 image 재배포는 수정 게시 승인에 포함되지 않아 별도 승인 Gate로 남긴다.
+- TASK-PRODUCTION-CONTROL-001 Change 011은 생성 시점 model과 관계없이 프로젝트 자체 계획 행에 기간과 실적 1:1 연결을 저장하고, 조회를 `연결 실적`이 보이는 생산계획표와 계획·실적 2중 막대 일정표로 단일화한다. 양식 관리 기본값은 이후 생성 프로젝트에만 적용하고 Legacy 행·실행 이력과 UL891 세트 계약은 보존한다. 행 추가·삭제·재추가 저장은 활성 순번 `1..N` 재부여와 충돌 없는 임시 순번 이동으로 보정했다. Backend 생산계획 API `26/26`, Frontend `213/213`·lint·typecheck·build를 통과했으며 실제 Full-Stack runtime과 사용자 검수·Git 게시는 마지막 일괄 검수 Gate로 대기한다.
 - TASK-UL891-PRODUCTION-PLAN-001은 Ul891Set+LinkedV1의 공통 계획 항목·1:1 실적 연결은 한 벌로 유지하고 실제 실물 세트마다 기간·담당자·필요 인원·코멘트 overlay를 저장한다. 생산관리 탭의 전체/세트 선택이 생산계획표와 일정표를 함께 바꾸며 패널 실적은 선택 세트, 구매·자재·IQC는 프로젝트 공통으로 집계한다. migration `0064`, Backend `430/430`, Frontend `142/142`, PC·390px·일반/stress lifecycle 증빙을 완료하고 누적 checkpoint `e6f3fa6`에 포함했다.
 - DESIGN-001 화면 통일 실험은 구현·자동 검증·페이지별 screenshot을 완료해 `EXPERIMENT_COMPLETE / BATCHED_FINAL`이다. 같은 전체 화면 통일을 다시 기획하지 않는다.
 - DESIGN-000 token foundation도 `EXPERIMENT_COMPLETE / BATCHED_FINAL`이며 Figma file/library publish만 범위 밖이다. 후속 화면은 신규 임의 값보다 foundation token과 primitive를 먼저 사용한다.
@@ -2234,6 +2245,9 @@ TASK-008A와 TASK-010A는 데이터·rollback·검증 경계가 다르므로 하
 | 2026-08-12 | `TASK-PROJECT-PENDING-001`에서 LSE TASK NO와 부서별 Pending·오픈/종결 구분을 한 Task로 구현하고 공개배포는 우선순위 3 뒤로 묶는다 | 단순 기본정보 필드와 같은 Pending 조회 화면을 함께 검수하되, 전체 화면은 운영 부서의 오픈 업무 집중에 맞추고 프로젝트 화면은 타 부서 조치를 숨기지 않도록 전체 범위를 기본값으로 유지하기 위함. 현재 흑백 wireframe과 일반 테두리를 재사용하고 강조선은 추가하지 않는다. | 3.3H, TASK-PROJECT-PENDING-001 planning·implementation report |
 | 2026-08-12 | `TASK-ADMIN-001 Change 001`로 관리자 홈을 조치 대상 중심으로 정리하고 승인 대기 사용자 전용 목록을 추가 | 완료 발송·마지막 일일 요약·최근 기준정보 변경은 관리자 홈의 즉시 조치 KPI로서 가치가 낮고, 기존 승인 대기 카드가 전체 사용자 목록으로 이동해 실제 대상을 구분하기 어려웠기 때문. 알림·Digest·변경 이력 원본 기능과 일반 전체 사용자 관리는 보존한다. | 23장~25장, TASK-ADMIN-001 Change 001 |
 | 2026-08-12 | `TASK-PROJECT-PENDING-001`·`TASK-ADMIN-001 Change 001`·`TASK-PANEL-DESIGN-001 Change 001` 사용자 검수를 모두 완료하고 단일 PR의 원격 `main` 병합과 `TASK-AZURE-DEPLOY-001 Change 023` 공개 배포를 승인 | LSE TASK NO·부서 Pending, 관리자 조치 화면, 일반 Item의 도번·필수값·열반을 같은 기준선에서 검증하고 migration `0076`·`0077`과 Backend·Frontend를 필수 `CI Gate` 뒤 exact main SHA로 운영 반영하기 위함. UL891과 기존 운영 인증·알림·데이터는 보존한다. | 3.3H·3.3I·3.3J·6.2, TASK-AZURE-DEPLOY-001 Change 023 |
+| 2026-08-14 | `TASK-PRODUCTION-CONTROL-001 Change 011`에서 모든 프로젝트의 전용 계획 기간·실적 1:1 연결과 단일 계획·실적 일정표를 적용하고 행 삭제 후 저장 순번 충돌을 보정 | 양식 관리 기본값을 기존 프로젝트에 소급하지 않으면서도 프로젝트 안에서 실제 계획과 연결 원본을 수정하게 하고, Legacy 체크형 달력과 현재 2중 막대 화면의 이원화 및 추가·삭제·재추가 저장 오류를 함께 해소하기 위함. UL891 세트와 기존 실행 이력은 보존하며 사용자 지시에 따라 다른 변경과 마지막 일괄 검수·게시를 대기한다. | 10장·13장·23장~25장, TASK-PRODUCTION-CONTROL-001 Change 011 |
+| 2026-08-14 | `TASK-PROJECT-ASSIGNEE-DELEGATION-001`에서 생산관리 이외 부서장이 프로젝트별 자기 부서 담당자를 직접 지정하고 프로젝트 생성 시 담당자 지정 요청을 받도록 구현 | 생산관리팀이 모든 부서에 연락해 담당자를 취합·대신 입력하는 병목을 없애되, 생산계획·실적 연결과 다른 부서 담당자 수정 권한은 생산관리에 유지하기 위함. 부서장 전용 화면과 API는 자기 부서만 반환·저장하고 일반 사용자·다른 부서 mutation을 서버에서 차단하며, 생성 요청은 인앱 원본을 통해 Teams Activity·PWA가 따르게 한다. 사용자 지시에 따라 Change 011과 마지막 일괄 검수·게시를 대기한다. | 5장·6장·10장·23장~25장, TASK-PROJECT-ASSIGNEE-DELEGATION-001 |
+| 2026-08-14 | `TASK-PRODUCTION-CONTROL-001 Change 011`과 `TASK-PROJECT-ASSIGNEE-DELEGATION-001`의 원격 `main` 병합·Azure 공개배포를 승인 | 모든 프로젝트의 전용 계획·실적 연결과 부서장 자기 부서 담당자 지정 화면을 실제 검수 환경에서 확인했고, 전체 자동검증은 Ready PR의 변경 인지형 `CI Gate`, 운영 반영은 병합된 exact main SHA의 수동 승인형 Azure release로 닫기 위함. 신규 migration은 없으며 Backend·Frontend만 변경 대상으로 분류한다. | 3.3A·3.3K·23장~25장, TASK-AZURE-DEPLOY-001 Change 024 |
 
 ## 26. 용어 사전
 

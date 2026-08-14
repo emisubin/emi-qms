@@ -137,6 +137,15 @@ public sealed record AssigneeCandidateResponse(
 
 public sealed record UserOptionResponse(Guid UserId, string DisplayName);
 
+public sealed record DepartmentAssigneeScopeResponse(
+    Guid ProjectId,
+    string ProjectTitle,
+    string ProjectCode,
+    string DepartmentCode,
+    string DepartmentName,
+    IReadOnlyList<ProjectAssigneeResponse> Assignees,
+    IReadOnlyList<AssigneeCandidateResponse> AssigneeCandidates);
+
 public sealed record NotificationFallbackResponse(
     string ResponsibilityType,
     string ResponsibilityLabel,
@@ -276,6 +285,10 @@ public sealed record ProjectAssigneeUpdateRequest(
     Guid? AssignedUserId,
     string? Note);
 
+public sealed record UpdateDepartmentAssigneesRequest(
+    string? Reason,
+    IReadOnlyList<ProjectAssigneeUpdateRequest>? Assignees);
+
 public sealed record ProductionPlanningTemplateDownload(
     byte[] Content,
     string FileName,
@@ -351,6 +364,7 @@ public sealed record ProductionPlanningMutationResult<T>(
     public static ProductionPlanningMutationResult<T> Validation(IReadOnlyDictionary<string, string[]> errors) => new(ProductionPlanningMutationStatus.Validation, default, errors, null);
     public static ProductionPlanningMutationResult<T> NotFound() => new(ProductionPlanningMutationStatus.NotFound, default, new Dictionary<string, string[]>(), null);
     public static ProductionPlanningMutationResult<T> Conflict(string message) => new(ProductionPlanningMutationStatus.Conflict, default, new Dictionary<string, string[]>(), message);
+    public static ProductionPlanningMutationResult<T> Forbidden() => new(ProductionPlanningMutationStatus.Forbidden, default, new Dictionary<string, string[]>(), null);
 }
 
 public sealed record ProductionPlanningReadResult(
@@ -380,5 +394,6 @@ public enum ProductionPlanningMutationStatus
     Success,
     Validation,
     NotFound,
-    Conflict
+    Conflict,
+    Forbidden
 }

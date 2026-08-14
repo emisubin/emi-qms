@@ -138,6 +138,7 @@ import type {
   DeletedProjectDetail,
   DeletedProjectListResponse,
   DeleteProjectRequest,
+  DepartmentAssigneeScopeResponse,
   PanelPlaceholder,
   PanelInformationBulkUpdateRequest,
   PanelInformationExcelPreviewResponse,
@@ -182,6 +183,7 @@ import type {
   SystemHoliday,
   UpsertAdminCalendarHolidayRequest,
   UpdateAdminDepartmentRequest,
+  UpdateDepartmentAssigneesRequest,
   UpdateProductionPlanSetDefaultRequest,
   UpdateProductionPlanSetScopeRequest,
   UpdateProductionPlanningRequest,
@@ -2836,6 +2838,33 @@ export async function updateProjectProductionPlanning(
     method: 'PATCH',
     body: JSON.stringify(request)
   });
+}
+
+export async function getProjectDepartmentAssignees(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  signal?: AbortSignal
+): Promise<DepartmentAssigneeScopeResponse> {
+  return fetchJson<DepartmentAssigneeScopeResponse>(
+    `/api/projects/${projectId}/production-planning/department-assignees`,
+    developmentUserKey,
+    { signal }
+  );
+}
+
+export async function updateProjectDepartmentAssignees(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  request: UpdateDepartmentAssigneesRequest
+): Promise<DepartmentAssigneeScopeResponse> {
+  return fetchJson<DepartmentAssigneeScopeResponse>(
+    `/api/projects/${projectId}/production-planning/department-assignees`,
+    developmentUserKey,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(request)
+    }
+  );
 }
 
 export async function updateProjectProductionPlanSetScope(

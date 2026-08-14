@@ -1,5 +1,14 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 025 — 부서장별 양식 권한·PWA 운영 정의 통합 release
+
+- 사용자 검수·게시 승인: 2026-08-14 완료
+- 게시 대상: `TASK-ADMIN-003 Change 002`, `TASK-PWA-PUSH-001 Change 002`
+- source 기준선: `origin/main` `a5f13cf64bc09d0840e11ea6be0e5a507f185d0c`
+- 배포 경계: migration `0078` → Backend → Frontend, 기존 Web Push 활성·Key Vault 참조 보존
+- 상태: Ready PR 필수 `CI Gate` 대기. 실제 PR·main SHA·Azure release 결과는 게시 후 동기화한다.
+- 상세 계약: `tasks/azure-deploy-001-change-025.md`
+
 ## Change 024 — 생산계획·부서 담당자 위임 운영 release
 
 - 사용자 검수·게시 승인: 2026-08-14 완료

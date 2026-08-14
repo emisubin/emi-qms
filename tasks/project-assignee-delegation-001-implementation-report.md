@@ -2,9 +2,9 @@
 
 ## 1. 상태와 범위
 
-- 상태: Local implementation 및 자동 검증 완료
+- 상태: 사용자 검수·원격 main 병합·Azure 공개배포 완료
 - 사용자 검수: 설계 부서장 실제 화면 확인·최종 게시 승인
-- Git 게시·병합·운영 배포: 사용자 명시 승인·실행 대기
+- Git 게시·병합·운영 배포: PR #101·exact main SHA·Azure 운영 release 완료
 - 기준 branch: `feat/task-production-control-001-unified-project-plans`
 - 기준선 HEAD: `4520e641b98c1c464243e9988b1a373d57d49bed`
 - 기획 source: [Codex 기획](project-assignee-delegation-001-planning.md)
@@ -79,7 +79,7 @@
 - 부서 권한은 UI 숨김이 아니라 서버 mutation에서 재검증한다.
 - 사용자 후보는 자기 부서 활성 사용자만 반환한다.
 - secret, token, 실제 사용자 개인정보와 외부 발송 증빙은 추가하지 않았다.
-- 운영 배포와 runtime smoke가 남아 있으므로 아직 운영 반영 완료로 표현하지 않는다.
+- 운영 release와 public security smoke가 통과했으며 Open P0/P1/P2는 `0/0/0`이다.
 
 ## 7. 기술적 결정과 검토한 대안
 
@@ -96,7 +96,9 @@
 
 - Codex 화면 검증: 완료
 - 사용자 검수: 설계 부서장 실제 화면 확인 뒤 2026-08-14 원격 `main` 병합·Azure 공개배포 승인
-- 남은 작업: Ready PR 필수 `CI Gate`, main 병합, exact main SHA Azure release와 운영 smoke
+- 게시 결과: PR #101 필수 CI run `31772777562`, main SHA `8b19483e40655ce99c13cb470217ccddf444b1c0`, main push CI run `31774158616`, Azure release run `31774236257` 모두 통과
+- 운영 결과: Backend·Frontend ready, public security smoke 통과, database migration 없음
+- 남은 작업: 운영 관찰. 별도 기능 변경이나 재배포 대기 없음
 - 사용자 검수 위치: [체크리스트](project-assignee-delegation-001-user-validation-checklist.md)
 
 ## 10. SOP
@@ -123,8 +125,8 @@
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
-| Implementation report | 자동 검증 완료·사용자 최종 게시 승인 | 이 문서 |
+| Implementation report | 자동 검증·사용자 검수·운영 게시 완료 | 이 문서 |
 | SOP | 작성 완료 | 이 문서 `10. SOP` |
 | User manual | 작성 완료 | 이 문서 `11. User Manual` |
-| Roadmap update | 작성 완료·게시 승인 | `docs/00-product-roadmap.md` |
-| User validation checklist | 설계 실제 화면 확인·최종 게시 승인 | `tasks/project-assignee-delegation-001-user-validation-checklist.md` |
+| Roadmap update | 원격 main·Azure 운영 게시 완료 반영 | `docs/00-product-roadmap.md` |
+| User validation checklist | 설계 실제 화면 확인·운영 게시 완료 | `tasks/project-assignee-delegation-001-user-validation-checklist.md` |

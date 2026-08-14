@@ -6,8 +6,9 @@
 - taskType: `UAT_RUNTIME`
 - instructionChainRead: `true`
 - roadmapSequenceMatch: `true`
-- 상태: 운영 게시 승인 — PR CI, `main` 병합과 Azure 운영 검증 대기
-- 기준선: `origin/main` `4520e641b98c1c464243e9988b1a373d57d49bed`
+- 상태: 운영 게시 완료 — PR #101, exact `main` SHA와 Azure 공개 검증 완료
+- 구현 기준선: `origin/main` `4520e641b98c1c464243e9988b1a373d57d49bed`
+- 게시 source: `origin/main` `8b19483e40655ce99c13cb470217ccddf444b1c0`
 - 사용자 승인: 2026-08-14 원격 `main` 병합과 Azure 공개 배포 명시 승인
 - mainMergeApprovalCount: `1`
 - productionDeploymentApproved: `true`
@@ -45,6 +46,23 @@
 - owner는 현재 Codex 게시 작업이며 목적은 Change 024의 실제 운영 결과 기록으로 제한한다.
 - 문서 PR 병합 후 clean, process 미사용과 commit reachable을 확인하고 승인된 범위 안에서 worktree만 제거한다.
 
+## 운영 게시 결과
+
+| Gate | 결과 |
+| --- | --- |
+| Ready PR | PR #101 squash merge 완료 |
+| PR 필수 CI | run `31772777562` `PASS` — Backend·Frontend·Full-Stack·Workflow Validation·`CI Gate` 통과 |
+| 원격 `main` | `8b19483e40655ce99c13cb470217ccddf444b1c0` |
+| main push CI | run `31774158616` `PASS` |
+| Azure 운영 release | run `31774236257` `PASS` |
+| 변경 분류 | Backend `true`, Frontend `true`, migration `false` |
+| 운영 적용 | Backend ready → Frontend ready 순서 완료 |
+| 공개 검증 | public security smoke `PASS` |
+| Open Finding | P0/P1/P2 `0/0/0` |
+
+- 이번 변경에는 database migration이 없어 migration job을 실행하지 않았다.
+- Azure login action의 Node runtime 전환 안내와 Azure CLI version parse 경고는 release 결과에 영향을 주지 않은 기존 P3 유지보수 항목으로 남긴다.
+
 ## PR #101 첫 CI 결과와 보정
 
 - 첫 Ready PR CI run `31770698395`에서 Change Classification, Backend, Frontend와 Workflow Validation은 통과했으나 Full-Stack E2E가 `59/61`로 실패해 `main` 병합과 Azure 운영 배포를 시작하지 않았다.
@@ -52,4 +70,4 @@
 - 두 번째 실패는 1280px에서 9열 생산계획표의 최소 폭이 상위 페이지까지 확장된 반응형 결함이었다. 9열 규격은 보존하고 해당 표 컨테이너 안에서만 가로 스크롤하도록 범위를 제한했다.
 - 로컬 1280px 실제 화면에서 문서 폭과 화면 폭이 일치하고 표 내부 스크롤만 남는 것을 확인했다.
 - 실패했던 생산계획 Full-Stack 시나리오를 포함한 연관 파일 회귀는 `17/17`, 영업 등록부터 세금계산서까지 18단계 장기 흐름은 `1/1`로 통과했다.
-- 보정 commit의 새 Ready PR 전체 `CI Gate`를 다시 통과하기 전에는 `main` 병합과 Azure 운영 배포를 진행하지 않는다.
+- 보정 commit의 새 Ready PR 전체 `CI Gate`가 통과한 뒤에만 `main` 병합과 Azure 운영 배포를 진행했고, 위 운영 게시 결과로 완료했다.

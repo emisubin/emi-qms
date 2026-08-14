@@ -1,6 +1,6 @@
 # TASK-PRODUCTION-CONTROL-001 사용자 검수 체크리스트
 
-상태: `기존 기능·Change 010 사용자 검수 및 원격 main 병합 완료 / Change 011 최종 일괄 검수·게시 승인`
+상태: `Change 011 사용자 검수·원격 main 병합·Azure 공개배포 완료`
 
 고정 검수 환경:
 
@@ -103,4 +103,5 @@
 
 - Change 010은 PR #81과 merge SHA main CI를 통과하고 원격 `main`에 병합됐다.
 - Change 011은 자동 검증과 실제 5174 화면 확인 뒤 사용자가 2026-08-14 원격 `main` 병합·Azure 공개배포를 명시 승인했다.
-- Persistent UAT·Azure 운영 재배포·실제 provider mutation은 Change 010 게시 승인에 포함되지 않아 수행하지 않았다.
+- Change 011은 PR #101 필수 CI, 원격 `main` SHA `8b19483e40655ce99c13cb470217ccddf444b1c0`, Azure release run `31774236257`과 public security smoke를 통과했다.
+- database migration은 없어서 실행하지 않았고, 알림 provider 정책·설정은 변경하지 않았다.

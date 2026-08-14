@@ -1,7 +1,7 @@
 # TASK-NOTIFY-POLICY-001 — 사용자 검수 체크리스트
 
-> 상태: 자동 검증·사용자 화면 검수 완료 / 실제 PWA provider 수신 검수 별도
-> 환경: 실제 Teams·메일·PWA provider 차단 local candidate
+> 상태: 자동 검증·사용자 화면·운영 provider·실기기 검수 완료
+> 환경: Azure 운영, Teams·메일·PWA 실제 발송 활성
 
 ## 자동 검증
 
@@ -31,11 +31,12 @@
 - [x] 부서장도 없는 경우 어느 부서장을 지정해야 하는지 이해할 수 있는 안내가 나온다.
 - [x] 프로젝트 생성·납기·상태 변경과 17단계 납품 완료 수신자가 확정 범위와 맞는다.
 - [x] 18단계 최종 완료가 일반 사용자 인앱·Teams에는 보이지 않고 영업팀 메일 대상으로만 기록된다.
-- [ ] Android·iPhone·태블릿에서 PWA를 켠 각 기기에 인앱 대상 알림이 동일하게 온다.
+- [x] Android·iPhone에서 PWA를 켠 각 검수 기기에 인앱 대상 알림이 동일하게 오고, 선택하면 해당 인앱 알림 상세로 이동한다.
+- [x] 직원별 PWA 설치·알림 허용은 자율이며 미등록·미허용 사용자는 인앱 알림을 유지한다.
 
 ## 판정
 
 - 자동 검증 판정: PASS, Open P0/P1/P2 `0/0/0`
 - 사용자 화면 검수 판정: PASS (`2026-08-12`, 사용자 명시 확인)
-- 실제 PWA provider·실기기 수신 판정: 대기
-- Persistent migration·Git 게시·Azure 배포: 승인, 실행 대기
+- 실제 PWA provider·실기기 수신 판정: PASS (`2026-08-12`)
+- Persistent migration·Git 게시·Azure 배포: 완료

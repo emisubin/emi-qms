@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "6164106230484438008"
+      "templateHash": "12262370716555261010"
     }
   },
   "parameters": {
@@ -172,7 +172,7 @@
       "type": "bool",
       "defaultValue": false,
       "metadata": {
-        "description": "Enable actual Teams and Gmail delivery after provider smoke succeeds."
+        "description": "Enable actual Teams, Gmail, and Web Push delivery after provider smoke succeeds."
       }
     },
     "activateWorkloads": {
@@ -382,6 +382,16 @@
               "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
               "keyVaultUrl": "[format('{0}teams-activity-client-secret', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
               "name": "teams-activity-client-secret"
+            },
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}web-push-vapid-public-key', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "web-push-vapid-public-key"
+            },
+            {
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
+              "keyVaultUrl": "[format('{0}web-push-vapid-private-key', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
+              "name": "web-push-vapid-private-key"
             }
           ]
         },
@@ -560,6 +570,22 @@
                 {
                   "name": "Notifications__TeamsActivity__TopicWebUrl",
                   "value": "[variables('publicOrigin')]"
+                },
+                {
+                  "name": "Notifications__WebPush__Enabled",
+                  "value": "[variables('enabled')]"
+                },
+                {
+                  "name": "Notifications__WebPush__DryRun",
+                  "value": "[variables('disabled')]"
+                },
+                {
+                  "name": "Notifications__WebPush__PublicKey",
+                  "secretRef": "web-push-vapid-public-key"
+                },
+                {
+                  "name": "Notifications__WebPush__PrivateKey",
+                  "secretRef": "web-push-vapid-private-key"
                 },
                 {
                   "name": "Notifications__Mail__Enabled",

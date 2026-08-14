@@ -15,6 +15,15 @@ param databaseBootstrapIdentityId string
 @description('Key Vault name from foundation.bicep. All required secrets must exist before this deployment.')
 param keyVaultName string
 
+@description('Optional existing role assignment name used to adopt a manually created Frontend Entra access-gate secret assignment during redeployment.')
+param frontendAccessGateRoleAssignmentName string = ''
+
+@description('Optional existing role assignment name used to adopt a manually created Backend Web Push VAPID public-key secret assignment during redeployment.')
+param backendWebPushVapidPublicKeyRoleAssignmentName string = ''
+
+@description('Optional existing role assignment name used to adopt a manually created Backend Web Push VAPID private-key secret assignment during redeployment.')
+param backendWebPushVapidPrivateKeyRoleAssignmentName string = ''
+
 var keyVaultSecretsUserRoleId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   '4633458b-17de-408a-b874-0445c86b69e6'
@@ -85,6 +94,16 @@ resource teamsActivitySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' exis
   name: 'teams-activity-client-secret'
 }
 
+resource webPushVapidPublicKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: keyVault
+  name: 'web-push-vapid-public-key'
+}
+
+resource webPushVapidPrivateKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: keyVault
+  name: 'web-push-vapid-private-key'
+}
+
 resource backendDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(databaseRuntimeSecret.id, backendIdentity.id, 'KeyVaultSecretsUser')
   scope: databaseRuntimeSecret
@@ -135,6 +154,30 @@ resource backendTeamsSecretRole 'Microsoft.Authorization/roleAssignments@2022-04
   }
 }
 
+resource backendWebPushVapidPublicKeySecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: empty(backendWebPushVapidPublicKeyRoleAssignmentName)
+    ? guid(webPushVapidPublicKeySecret.id, backendIdentity.id, 'KeyVaultSecretsUser')
+    : backendWebPushVapidPublicKeyRoleAssignmentName
+  scope: webPushVapidPublicKeySecret
+  properties: {
+    principalId: backendIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource backendWebPushVapidPrivateKeySecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: empty(backendWebPushVapidPrivateKeyRoleAssignmentName)
+    ? guid(webPushVapidPrivateKeySecret.id, backendIdentity.id, 'KeyVaultSecretsUser')
+    : backendWebPushVapidPrivateKeyRoleAssignmentName
+  scope: webPushVapidPrivateKeySecret
+  properties: {
+    principalId: backendIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
 resource frontendOriginSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(originVerificationSecret.id, frontendIdentity.id, 'KeyVaultSecretsUser')
   scope: originVerificationSecret
@@ -146,7 +189,9 @@ resource frontendOriginSecretRole 'Microsoft.Authorization/roleAssignments@2022-
 }
 
 resource frontendAccessGateSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(entraAccessGateSecret.id, frontendIdentity.id, 'KeyVaultSecretsUser')
+  name: empty(frontendAccessGateRoleAssignmentName)
+    ? guid(entraAccessGateSecret.id, frontendIdentity.id, 'KeyVaultSecretsUser')
+    : frontendAccessGateRoleAssignmentName
   scope: entraAccessGateSecret
   properties: {
     principalId: frontendIdentity.properties.principalId
@@ -195,4 +240,4 @@ resource bootstrapRuntimeDatabaseSecretRole 'Microsoft.Authorization/roleAssignm
   }
 }
 
-output secretScopedRoleAssignmentCount int = 11
+output secretScopedRoleAssignmentCount int = 13

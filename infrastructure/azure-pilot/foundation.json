@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "7386391903362883429"
+      "templateHash": "3809841659438192778"
     }
   },
   "parameters": {
@@ -696,7 +696,9 @@
         "entra-access-gate-client-secret",
         "gmail-username",
         "gmail-app-password",
-        "teams-activity-client-secret"
+        "teams-activity-client-secret",
+        "web-push-vapid-public-key",
+        "web-push-vapid-private-key"
       ]
     }
   }

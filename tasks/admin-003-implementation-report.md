@@ -7,12 +7,13 @@
 - Task 유형: `P2_REMEDIATION`
 - Branch/base: `fix/task-admin-003-user-departments` / `origin/main` `7c05175001d9e0beb23a161639c846f98e05dbb7`
 - Git 게시·운영: PR #93 squash merge, main SHA `8ae3645d66543c0f234777cf19e8487324f21217`, Azure release `31452524156` 성공. migration `0072`→Backend→Frontend와 공개 보안 smoke를 완료했다.
+- Change 002 상태: 부서장별 양식 관리 범위 재정의 구현·자동 검증·사용자 검수 완료. 2026-08-14 원격 `main` 병합과 Azure 공개배포 승인을 받았다.
 
 ## 2. 해결한 업무 문제
 
 운영 migration은 설계·구매·자재 3개 부서만 만들고 개발 seed만 10개 부서를 가지고 있어, 실제 사용자 등록 화면에서 선택 가능한 부서가 적었다. 부서와 역할도 별개 입력이라 관리자가 같은 의미를 두 번 선택해야 했고 서로 어긋날 수 있었다. 양식관리 부서장 지정은 별도 화면에만 있어 사용자 승인 시 한 번에 처리할 수 없었다.
 
-이번 보정으로 표준 10개 부서를 운영 schema에 추가하고 이름을 한글로 통일했다. 사용자 관리에서 부서를 바꾸면 기본 역할을 즉시 선택하며, 서버도 그 역할을 빠뜨릴 수 없게 강제한다. `부서장` 체크는 복수 지정이 가능하고 품질·제조·생산관리 부서에서는 기존 양식관리 승인 binding과 자동 동기화한다.
+Change 001에서 표준 10개 부서를 운영 schema에 추가하고 이름을 한글로 통일했다. 사용자 관리에서 부서를 바꾸면 기본 역할을 즉시 선택하며, 서버도 그 역할을 빠뜨릴 수 없게 강제한다. Change 002에서는 `부서장` 체크와 양식관리 승인 binding의 자동 동기화를 품질·생산관리 부서에만 적용하고 제조 부서장은 일반 부서장 상태만 유지한다.
 
 ## 3. 포함·제외 범위
 
@@ -23,7 +24,7 @@
 - 사용자 관리의 부서 선택 → 기본 역할 자동 선택
 - 서버 저장 시 기본 역할 강제 포함
 - 사용자별 부서장 체크·표시, 한 부서 복수 부서장
-- 품질·제조·생산관리 부서장의 기존 양식관리 binding·audit 동기화
+- 품질·생산관리 부서장의 양식관리 binding·audit 동기화와 제조 부서장 기존 binding 해제
 - 기존 활성 양식관리자의 부서장 상태 backfill
 
 ### 제외
@@ -150,10 +151,81 @@ Open P0/P1/P2: `0/0/0`. 기존 Frontend Fast Refresh·chunk-size warning과 전�
 - 부서를 선택하면 기본 역할이 자동으로 체크되며 직접 해제할 수 없다.
 - 다른 추가 역할은 기존과 같이 선택할 수 있다.
 - 부서장 체크는 한 부서에서 여러 사용자에게 할 수 있다.
-- 품질·제조·생산관리 부서장은 양식관리 대상 범위의 승인 권한도 함께 가진다.
+- 품질·생산관리 부서장은 각자 지정된 양식관리 범위의 승인 권한도 함께 가진다. 제조 부서장과 기타 부서장은 일반 부서장 상태만 유지한다.
+- Change 002부터 품질 부서장은 품질 양식·구매품별 IQC·LQC 운영 상태를 관리하고, 생산관리 부서장은 생산계획·실적 연결과 Item별 제조 양식을 함께 관리한다. 제조 부서장과 일반 품질 사용자는 양식 관리 메뉴를 사용하지 않는다.
 - 사용자 비활성화·삭제 예약과 마지막 시스템 관리자 보호는 기존과 같다.
 
-## 13. 사용자 검수 체크리스트
+## 13. Change 002 — 부서장별 양식 관리 범위 정합화
+
+### 구현 결과
+
+- System Administrator의 전체 품질·제조·생산계획 양식 관리와 부서장 지정 기능을 유지했다.
+- 품질 부서장은 IQC·LQC·OQC, 구매품별 IQC와 구매품 구분만 표시·수정한다. LQC 운영 중·운영 중지도 변경할 수 있다.
+- 생산관리 부서장은 생산계획·실적 연결과 Item별 제조 양식을 표시·수정한다. 하나의 `ProductionPlanning` binding을 서버가 `Manufacturing` 유효 scope로도 해석해 부서장 지정·해제 단위를 하나로 유지한다.
+- 제조 부서장, 일반 품질 사용자와 기타 부서장은 양식 관리 메뉴를 보지 못하며 서버 mutation도 거부한다.
+- migration `0078_department_head_form_template_scope.sql`은 기존 활성 `Manufacturing` 관리자 binding을 audit와 함께 해제하고, 품질·생산관리 부서장 binding 누락분만 보강한다. `is_department_head` 상태와 기존 양식·프로젝트 snapshot은 변경하지 않는다.
+- Development seed는 품질·생산관리 부서장 검수 persona만 양식 binding을 가지며, 과거 migration schema에서도 존재하는 domain만 넣도록 version fence를 적용했다.
+
+### 변경 파일
+
+- `database/migrations/0078_department_head_form_template_scope.sql`
+- `backend/src/Emi.Qms.Api/Identity/DepartmentIdentityPolicy.cs`
+- `backend/src/Emi.Qms.Api/Identity/DevelopmentIdentitySeeder.cs`
+- `backend/src/Emi.Qms.Api/Identity/UserAdministrationStore.cs`의 기존 동기화 경로가 새 부서 mapping을 사용
+- `backend/src/Emi.Qms.Api/Admin/FormTemplateStore.cs`
+- `backend/src/Emi.Qms.Api/Admin/MaterialCategoryStore.cs`
+- `backend/src/Emi.Qms.Api/ProductionPlanning/ProductionControlTemplateStore.cs`
+- `frontend/src/App.tsx`, `frontend/src/FormTemplateManagementPage.tsx`
+- 관련 Backend·Frontend·migration 회귀 및 부서장별 Full-Stack browser test와 Change 002 계약 문서
+
+### 검증 결과
+
+| 검증 | 결과 | 근거 |
+| --- | --- | --- |
+| `git diff --check` | 통과 | whitespace 오류 0 |
+| Backend Release build | 통과 | warning/error `0/0` |
+| 핵심 authorization·store·migration | 통과 | 품질·제조·생산관리·일반 품질·관리자 및 `0078` `6/6` |
+| 부서장별 실제 저장 권한 matrix | 통과 | 품질 부서장 일반 품질 양식·구매품별 IQC·구매품 구분, 생산관리 부서장 제조·계획 저장 성공과 제조 부서장·일반 품질 사용자 대표 mutation 차단 `4/4` |
+| Backend 전체 | 조건부 통과 | 최초 최신 구현 기준 `525/527`; 실패 2건은 기존 test fixture의 중복 품질 binding과 과거 `0044` schema seed 충돌이었다. 두 fixture를 보정하고 실패 2건+핵심 4건을 최신 build에서 `6/6` 재검증했다. 사용자 지시에 따라 이미 통과한 525건은 반복하지 않는다. |
+| Frontend lint | 통과 | error 0, 기존 Fast Refresh warning 1 |
+| Frontend typecheck | 통과 | error 0 |
+| Frontend 전체 unit | 통과 | `216/216` |
+| Frontend 최신 변경 집중 회귀 | 통과 | App·양식 관리 `92/92` |
+| Frontend production build | 통과 | 기존 chunk-size warning 유지 |
+| 격리 Full-Stack Chromium | 통과 | 품질·제조·생산관리 부서장 전환과 1440px·390px overflow `1/1` |
+| C# 변경 allowlist format | 통과 | `dotnet format --verify-no-changes` |
+| 사용자 검수 | 완료 | 사용자 일괄 검수 뒤 2026-08-14 게시·공개배포 승인 |
+| PR CI·Azure | 미실행 | 게시·운영 적용은 별도 승인 경계 |
+
+### Finding gate
+
+| Finding | Severity | 상태 | 원인·영향 | 해소 |
+| --- | --- | --- | --- | --- |
+| `ADMIN003-FORM-SCOPE-OVEREXPOSURE` | P2 | RESOLVED | 제조 부서장과 일반 품질 사용자에게 양식 관리 scope 또는 화면이 노출 | 부서 binding·서버 mutation·App menu를 같은 scope로 제한 |
+| `ADMIN003-PRODUCTION-FORM-SCOPE-GAP` | P2 | RESOLVED | 생산관리 부서장이 제조 양식과 생산계획 연결을 함께 조정할 수 없음 | ProductionPlanning 유효 scope에 Manufacturing을 포함하고 두 workspace만 표시 |
+| `ADMIN003-LQC-HEAD-STATUS-GAP` | P2 | RESOLVED | 품질 부서장이 LQC 항목은 바꾸지만 운영 상태는 바꿀 수 없음 | Quality binding에 운영 상태 mutation 허용, audit·CAS 유지 |
+| `ADMIN003-LEGACY-SEED-SCHEMA-DRIFT` | P2 | RESOLVED | 최신 개발 seed가 ProductionPlanning domain 도입 전 schema에서 제약조건 충돌 | migration version fence로 해당 domain 도입 뒤에만 seed |
+| `ADMIN003-PRODUCTION-HEAD-MUTATION-MATRIX` | P2 | RESOLVED | 화면 표시와 scope만으로는 직접 API 저장 권한을 충분히 입증하지 못함 | 품질·생산관리 부서장 대표 저장 성공과 제조 부서장·일반 품질 사용자 대표 mutation 403을 endpoint 수준 `4/4`로 보강 |
+| `ADMIN003-CHANGE002-ARTIFACT-STATUS-DRIFT` | P2 | RESOLVED | Change 001 완료 상태와 Change 002 검수 대기가 5종 산출물 표에서 구분되지 않음 | 아래 표에 Change 001 완료와 Change 002 사용자 검수 대기를 별도 행으로 명시 |
+
+Open P0/P1/P2: `0/0/0`.
+
+### 사용자 검수 체크리스트
+
+- [x] System Administrator에서 기존 7개 양식과 부서장 지정 기능이 모두 보인다.
+- [x] 품질 부서장에서 IQC·LQC·OQC·구매품별 IQC·구매품 구분만 보이고 LQC 운영 상태를 바꿀 수 있다.
+- [x] 품질 부서장에서 Item별 제조 양식과 생산계획·실적 연결이 보이지 않는다.
+- [x] 생산관리 부서장에서 생산계획·실적 연결과 Item별 제조 양식만 보이고 두 양식의 수정 버튼이 활성화된다.
+- [x] 제조 부서장과 일반 품질 사용자에서 양식 관리 메뉴가 보이지 않는다.
+- [x] Desktop과 390px Mobile에서 허용된 양식 목록과 편집 화면이 기존 흑백 wireframe 안에서 정상 표시된다.
+
+### Rollback·forward-fix
+
+- 게시 전에는 Change 002 branch 변경만 폐기한다.
+- 게시 후 코드는 해당 commit revert를 사용한다. 적용된 `0078`을 삭제·수정하거나 DB를 초기화하지 않는다.
+- 운영 binding 복구가 필요하면 다음 additive migration과 관리자 사용자 관리 저장 경로로 forward-fix하고 audit를 보존한다.
+
+## 14. 사용자 검수 체크리스트
 
 - 자동 검증 상태: `완료`
 - 사용자 직접 검수 상태: `사용자 검수 완료`
@@ -167,7 +239,7 @@ Open P0/P1/P2: `0/0/0`. 기존 Frontend Fast Refresh·chunk-size warning과 전�
 - [x] 부서 변경 후 이전 부서 양식 권한이 남지 않는다.
 - [x] Desktop과 Mobile 전체 필드 보기에서 부서장 열과 작업 버튼이 겹치지 않는다.
 
-## 14. 사용자 검수 결과와 남은 항목
+## 15. 사용자 검수 결과와 남은 항목
 
 - 자동 검증과 격리 browser 검증은 완료했다.
 - 실제 사용자 화면 검수는 2026-08-11 완료했다.
@@ -176,13 +248,13 @@ Open P0/P1/P2: `0/0/0`. 기존 Frontend Fast Refresh·chunk-size warning과 전�
 - 운영 공개 확인은 `/health/live` `200`, 익명 `/`·`/api/me` `401/401`로 통과했다.
 - 사용자 검수에서 문제가 확인되면 `TASK-ADMIN-003`의 다음 change로 보정한다.
 
-## 15. Rollback·forward-fix
+## 16. Rollback·forward-fix
 
 - 코드: 게시 전에는 이 branch의 변경만 폐기하면 된다. 게시 후에는 해당 commit을 revert한다.
 - DB: 적용된 `0072`를 수정·삭제하거나 DB를 초기화하지 않는다. 부서명·flag·binding 문제는 다음 additive migration으로 forward-fix한다.
 - 잘못 지정된 부서장은 사용자 관리에서 체크 해제해 기존 soft-revoke·audit 경로로 복구한다.
 
-## 16. 5종 종료 산출물
+## 17. 5종 종료 산출물
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
@@ -190,4 +262,5 @@ Open P0/P1/P2: `0/0/0`. 기존 Frontend Fast Refresh·chunk-size warning과 전�
 | SOP | 완료 | 이 문서 11장 |
 | User manual | 완료 | 이 문서 12장 |
 | Roadmap update | 완료 | `docs/00-product-roadmap.md` TASK-ADMIN-003 행·Decision Log |
-| User validation checklist | 사용자 검수 완료 | 이 문서 13장 |
+| User validation checklist — Change 001 | 사용자 검수 완료 | 이 문서 14장 |
+| User validation checklist — Change 002 | 사용자 검수 완료 | 이 문서 13장 `Change 002` 체크리스트 |

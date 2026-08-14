@@ -55,7 +55,7 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         await DemandAccessAsync(connection, null, userId, isSystemAdministrator, "Quality", token);
         return new(
             true,
-            isSystemAdministrator,
+            true,
             await ReadLqcItemsAsync(connection, null, token));
     }
 
@@ -66,13 +66,13 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         bool isSystemAdministrator,
         CancellationToken token)
     {
-        if (!isSystemAdministrator) throw new FormTemplateForbiddenException();
         if (productTypeId == Guid.Empty || request.ExpectedRowVersion < 1)
             throw new ArgumentException("Item과 최신 설정 version을 확인해 주세요.", "productTypeId");
 
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(token);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, token);
+        await DemandAccessAsync(connection, transaction, actorUserId, isSystemAdministrator, "Quality", token);
         var current = await LockLqcItemSettingAsync(connection, transaction, productTypeId, token)
             ?? throw new ArgumentException("LQC 설정을 찾을 수 없습니다.", "productTypeId");
         if (current.RowVersion != request.ExpectedRowVersion)
@@ -423,7 +423,6 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         var expectedDepartment = domain switch
         {
             "Quality" => "quality",
-            "Manufacturing" => "manufacturing",
             "ProductionPlanning" => "production-planning",
             _ => throw new ArgumentException("지원하지 않는 양식 관리 영역입니다.", "domain")
         };
@@ -685,6 +684,7 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
         var result = new HashSet<string>(StringComparer.Ordinal);
         await using var reader = await command.ExecuteReaderAsync(token);
         while (await reader.ReadAsync(token)) result.Add(reader.GetString(0));
+        if (result.Contains("ProductionPlanning")) result.Add("Manufacturing");
         return result;
     }
 
@@ -950,11 +950,11 @@ public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectio
     private static async Task<FormTemplateManagersResponse> ReadManagersAsync(NpgsqlConnection connection, CancellationToken token)
     {
         var bindings = new List<FormTemplateManagerBindingResponse>(); await using (var command = connection.CreateCommand()) { command.CommandText = "select binding.id,user_account.id,user_account.display_name,department.id,department.code,department.name,binding.domain,binding.assigned_at_utc,binding.revoked_at_utc from form_template_manager_bindings binding join qms_users user_account on user_account.id=binding.user_id join departments department on department.id=binding.department_id order by binding.revoked_at_utc nulls first,department.code,user_account.display_name;"; await using var reader = await command.ExecuteReaderAsync(token); while (await reader.ReadAsync(token)) bindings.Add(new(reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetGuid(3), reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetFieldValue<DateTimeOffset>(7), reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8))); }
-        var candidates = new List<FormTemplateManagerCandidateResponse>(); await using (var command = connection.CreateCommand()) { command.CommandText = "select user_account.id,user_account.display_name,department.id,department.code,department.name from qms_users user_account join departments department on department.id=user_account.department_id where user_account.is_active and department.code in ('quality','manufacturing','production-planning') order by department.code,user_account.display_name;"; await using var reader = await command.ExecuteReaderAsync(token); while (await reader.ReadAsync(token)) candidates.Add(new(reader.GetGuid(0), reader.GetString(1), reader.GetGuid(2), reader.GetString(3), reader.GetString(4))); }
+        var candidates = new List<FormTemplateManagerCandidateResponse>(); await using (var command = connection.CreateCommand()) { command.CommandText = "select user_account.id,user_account.display_name,department.id,department.code,department.name from qms_users user_account join departments department on department.id=user_account.department_id where user_account.is_active and department.code in ('quality','production-planning') order by department.code,user_account.display_name;"; await using var reader = await command.ExecuteReaderAsync(token); while (await reader.ReadAsync(token)) candidates.Add(new(reader.GetGuid(0), reader.GetString(1), reader.GetGuid(2), reader.GetString(3), reader.GetString(4))); }
         return new(bindings, candidates);
     }
 
-    private static string NormalizeDomain(string value) => value is "Quality" or "Manufacturing" or "ProductionPlanning" ? value : throw new ArgumentException("지원하지 않는 양식 관리 영역입니다.", "domain");
+    private static string NormalizeDomain(string value) => value is "Quality" or "ProductionPlanning" ? value : throw new ArgumentException("지원하지 않는 양식 관리 영역입니다.", "domain");
     private static FamilySource Source(TemplateDescriptor descriptor) => descriptor.Family switch
     { "IqcReport" => new("iqc_report_template_versions", "iqc_report_template_items", "template_id", "(select id from iqc_report_templates where template_code=@key)", "'자재 수입검사 v' || version_number"), "PanelQualityStage" => new("panel_quality_template_versions", "panel_quality_template_items", "stage_code", "@key and product_type_id is null", "display_name"), _ => new("manufacturing_step_template_versions", "manufacturing_step_template_items", "template_id", "(select id from manufacturing_step_templates where template_code=@key)", "display_name") };
 

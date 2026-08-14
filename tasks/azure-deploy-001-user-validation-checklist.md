@@ -1,5 +1,15 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 022 후속 — Web Push 운영 검수와 재배포 보존
+
+- [x] 운영 Web Push가 `Enabled=true`, `DryRun=false`이며 Backend latest revision과 ready revision이 일치하고 Running 상태다.
+- [x] VAPID 공개키·비밀키는 Key Vault secret reference로만 Backend에 연결되고 원문이 Repository·문서·검증 출력에 노출되지 않는다.
+- [x] Backend identity의 두 VAPID secret exact-scope 역할 `2/2`, vault-scope 역할 `0`을 확인했다.
+- [x] iPhone·Android를 포함한 검수 사용자 3명이 PWA와 Teams 알림을 받고 알림 선택 시 인앱 상세로 이동하는 것을 확인했다.
+- [x] 직원별 PWA 설치·알림 허용은 자율이며 중앙 등록률을 배포 완료 조건으로 사용하지 않는다.
+- [x] 향후 Azure workload 전체 재배포에서 `enableExternalNotifications=true`를 사용하면 Web Push 활성·실발송과 VAPID Key Vault 참조가 유지된다.
+- [x] 현재 운영의 기존 role assignment 이름을 비추적 입력으로 전달한 identity-access `what-if`에서 role assignment Create/Delete `0/0`을 확인했다.
+
 ## Change 020 — 지정 로그인·내부 로고 main 운영 release
 
 - [x] 로그인 PR #83과 내부 공통 로고 PR #84가 원격 `main`에 squash merge됐고 각각의 PR CI가 성공했다.
@@ -105,7 +115,7 @@
 - [x] Change 007 image와 migration `0068`을 Azure revision에 반영했다.
 - [x] Change 010 문서 merge 뒤 Change 009 포함 최종 main Backend·Frontend image를 ACR에 게시했다. (`2026-08-05`)
 - [x] 최종 main Backend·Frontend image를 Azure revision에 적용하고 두 revision의 Healthy·latest ready를 확인했다. (`2026-08-05`)
-- [ ] 최종 hostname에서 PWA 설치 icon·이름·standalone 실행을 확인한다.
+- [x] 최종 hostname에서 PWA 설치 icon·이름·standalone 실행과 실제 iPhone·Android 푸시 수신을 확인했다.
 - [ ] Change 009의 공개 알림 `1.0.4` package를 update하고 테스트 사용자에게 새 icon이 표시되는지 확인한다.
 
 ## Change 005 — Active workload readiness

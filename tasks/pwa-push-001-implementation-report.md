@@ -1,8 +1,8 @@
 # TASK-PWA-PUSH-001 — Implementation report
 
-> 상태: local 구현·자동 검증 완료 / Git 게시·Azure runtime 적용 승인 / 실제 push service·실기기 검수 대기
-> branch: `feat/task-pwa-push-001-web-push`
-> 기준선: `origin/main` `30a0c2970611f76cee0c96ebb8f0e6472d7e7aee`
+> 상태: 원격 main·Azure 운영 적용·실제 push service·실기기 사용자 검수 완료 / Change 002 Azure 재배포 보존 구현·자동 검증 완료
+> branch: `fix/task-pwa-push-001-operationalization`
+> Change 002 기준선: `origin/main` `af796547ffb260ae427932a4734894af23c21ae6`
 
 ## 해결한 업무 문제
 
@@ -11,7 +11,7 @@
 ## 포함·제외 범위
 
 - 포함: `tasks/pwa-push-001-planning.md`, Codex review와 `change-001`의 승인 계약.
-- 제외: 실제 운영 VAPID key 생성·보관, 외부 push service actual 호출, Persistent UAT/Azure DB·runtime·배포, Microsoft 365 원격 로그아웃, 이벤트별 푸시 선택, 기기 목록·이름 관리, offline cache·background sync.
+- 최초 구현 제외: 실제 운영 VAPID key 생성·보관, 외부 push service actual 호출, Persistent UAT/Azure DB·runtime·배포, Microsoft 365 원격 로그아웃, 이벤트별 푸시 선택, 기기 목록·이름 관리, offline cache·background sync. 운영 VAPID·actual provider·Azure 적용은 사용자 후속 승인과 Change 002에서 완료했다.
 
 ## 구현 결정
 
@@ -54,7 +54,17 @@
 | Frontend production build | PASS | build 성공; 기존 large bundle warning 유지 |
 | Isolated Full-Stack | PASS | 1/1, 2개 구독→2개 dry-run delivery·현재/전체 해제·Service Worker·self/admin UI |
 | Desktop/mobile 화면 검증 | PASS | 1440px·390px 흑백 wireframe 확인 |
-| 실제 Android/iPhone 수신 | PENDING | 검증용 VAPID key와 외부 발송 별도 승인 필요 |
+| 실제 Android/iPhone 수신 | PASS | 운영 VAPID·실발송 활성화 뒤 iPhone·Android를 포함한 검수 사용자 3명의 PWA·Teams 수신과 알림 상세 이동 확인 |
+
+## Change 002 — 운영 활성화·실기기 검수와 Azure 재배포 보존
+
+- 2026-08-12 운영 VAPID 공개키·비밀키를 Azure Key Vault에 보관하고 Backend Container App에서 secret reference로 연결했다.
+- 운영값을 `Enabled=true`, `DryRun=false`로 전환한 뒤 iPhone·Android를 포함한 검수 사용자 3명이 Teams와 PWA 알림을 수신하고, 푸시 선택 시 인앱 알림 상세로 이동하는 것을 확인했다.
+- PWA 설치·알림 허용은 직원 자율로 확정했다. 미등록·미허용 사용자는 인앱 알림을 계속 사용하고 PWA 푸시만 받지 않는다. 나중에 활성화하면 활성화 이후 새 인앱 알림부터 받으며 소급 발송은 없다.
+- 현재 Azure runtime에 직접 적용한 두 VAPID secret reference와 활성 설정을 `foundation.bicep`, `identity-access.bicep`, `workloads.bicep`에 반영해 향후 전체 workload 재배포에서도 보존한다.
+- 운영에서 수동 생성된 Frontend access-gate와 Web Push 두 secret role은 선택 role-name parameter로 인수한다. 기존 권한을 삭제·재생성하지 않고 운영값을 비추적 local parameter로 전달해 `what-if` Create/Delete `0/0`을 확인한다.
+- Bicep→ARM 동일성, Azure artifact validator, release·change scope script, Public Deployment Security `42/42`를 통과했다. 실제 Azure는 latest/ready 일치·Running, Web Push 활성·실발송과 두 secret reference를 유지하며 Backend identity의 두 VAPID secret exact-scope role `2/2`, vault-scope role `0`을 확인했다. 기존 운영 role 이름을 비추적 입력으로 적용한 identity-access `what-if`도 role Create/Delete/Modify `0/0/0`이다.
+- 기존 Teams·메일·인앱 수신자와 발송 시점, DB schema, application source는 변경하지 않는다.
 
 ## 개인정보·secret 검토
 
@@ -67,7 +77,7 @@
 ## Finding과 잔여 위험
 
 - Open P0/P1/P2: 0/0/0.
-- 실제 브라우저 push service는 승인 경계 때문에 호출하지 않았다. 자동 검증은 dry-run과 fake protocol client로 영구/일시 오류 분류를 확인했다.
+- 실제 브라우저 push service 운영 호출과 실기기 수신 검수를 완료했다. 영구/일시 오류 분류는 기존 자동 검증 결과를 유지한다.
 - 푸시 서비스의 `Sent`는 접수이며 실제 사용자 열람 확인이 아니다.
 - 현재 범위는 원격 기기 목록을 제공하지 않는다. 분실 시 모든 기기 푸시를 일괄 해제하고 Microsoft 365 session은 회사 보안 절차로 별도 처리한다.
 
@@ -85,4 +95,4 @@
 | SOP | 완료 | `docs/49-pwa-push-operations-sop.md` |
 | User manual | 완료 | `docs/50-pwa-push-user-manual.md` |
 | Roadmap update | 완료 | `docs/00-product-roadmap.md` 3.3F·Decision Log |
-| User validation checklist | 자동 검증 완료 / 실기기 대기 | `tasks/pwa-push-001-user-validation-checklist.md` |
+| User validation checklist | 사용자 검수 완료 | `tasks/pwa-push-001-user-validation-checklist.md` |

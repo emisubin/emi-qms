@@ -743,6 +743,7 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         var result = new HashSet<string>(StringComparer.Ordinal);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken)) result.Add(reader.GetString(0));
+        if (result.Contains("ProductionPlanning")) result.Add("Manufacturing");
         return result;
     }
 

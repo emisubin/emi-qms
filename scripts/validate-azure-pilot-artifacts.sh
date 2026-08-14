@@ -124,6 +124,11 @@ const checks = [
   [identityAccess, 'scope: databaseAdminSecret'],
   [identityAccess, 'scope: originVerificationSecret'],
   [identityAccess, 'scope: entraAccessGateSecret'],
+  [identityAccess, 'scope: webPushVapidPublicKeySecret'],
+  [identityAccess, 'scope: webPushVapidPrivateKeySecret'],
+  [identityAccess, 'frontendAccessGateRoleAssignmentName'],
+  [identityAccess, 'backendWebPushVapidPublicKeyRoleAssignmentName'],
+  [identityAccess, 'backendWebPushVapidPrivateKeyRoleAssignmentName'],
   [workloads, "resource frontendAuth 'Microsoft.App/containerApps/authConfigs@2024-03-01'"],
   [workloads, "unauthenticatedClientAction: 'RedirectToLoginPage'"],
   [workloads, "redirectToProvider: 'azureactivedirectory'"],
@@ -139,6 +144,12 @@ const checks = [
   [workloads, "keyVaultUrl:"],
   [workloads, "workloadProfileName: 'Consumption'"],
   [workloads, "name: 'database-role-bootstrap'"],
+  [workloads, "name: 'web-push-vapid-public-key'"],
+  [workloads, "name: 'web-push-vapid-private-key'"],
+  [workloads, "name: 'Notifications__WebPush__Enabled'\n    value: enabled"],
+  [workloads, "name: 'Notifications__WebPush__DryRun'\n    value: disabled"],
+  [workloads, "name: 'Notifications__WebPush__PublicKey'\n    secretRef: 'web-push-vapid-public-key'"],
+  [workloads, "name: 'Notifications__WebPush__PrivateKey'\n    secretRef: 'web-push-vapid-private-key'"],
   [workloads, "'--bootstrap-database-roles'"],
   [workloads, "'--migrate-only'"],
   [edge, "linkToDefaultDomain: 'Disabled'"],
@@ -199,7 +210,7 @@ if (identityAccess.includes("scope: keyVault\n")
 }
 
 const secretScopes = identityAccess.match(/scope: \w+Secret$/gmu) ?? [];
-if (secretScopes.length !== 11) {
+if (secretScopes.length !== 13) {
   process.exit(1);
 }
 
@@ -351,6 +362,7 @@ for (const name of [
     normalize(join(azure, name)),
     normalize(join(temporary, name))
   )) {
+    console.error(`azurePilotTemplateMismatch=${name}`);
     process.exit(1);
   }
 }

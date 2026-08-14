@@ -319,7 +319,21 @@ public sealed class ProcurementApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
         using var qualityClient = context.CreateClient("dev-quality");
-        using var adminClient = context.CreateClient("dev-admin");
+        await context.ExecuteSqlAsync("""
+            update qms_users
+            set department_id=(select id from departments where code='quality'),
+                is_department_head=false
+            where development_user_key='dev-viewer';
+            delete from user_roles
+            where user_id=(select id from qms_users where development_user_key='dev-viewer');
+            insert into user_roles (user_id,role_id)
+            select user_account.id, role.id
+            from qms_users user_account
+            cross join roles role
+            where user_account.development_user_key='dev-viewer'
+              and role.code='quality';
+            """);
+        using var ordinaryQualityClient = context.CreateClient("dev-viewer");
         var projectId = await CreateProjectAsync(salesClient, "PROC-CATEGORY-IQC", "Category IQC Routing");
 
         var missingCategory = await procurementClient.PatchAsJsonAsync(
@@ -361,8 +375,12 @@ public sealed class ProcurementApiTests
             .Single(item => item.GetProperty("orderItem").GetString() == "차단기");
         Assert.True(enclosure.GetProperty("materialCategoryRequiresIqc").GetBoolean());
         Assert.False(breaker.GetProperty("materialCategoryRequiresIqc").GetBoolean());
-        Assert.Equal(HttpStatusCode.Forbidden, (await qualityClient.GetAsync(
+        Assert.Equal(HttpStatusCode.Forbidden, (await ordinaryQualityClient.GetAsync(
             "/api/form-templates/material-category-iqc",
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await ordinaryQualityClient.PostAsJsonAsync(
+            "/api/form-templates/material-categories",
+            new { displayName = "일반 품질 사용자 차단", displayOrder = 60, requiresIqc = true },
             TestContext.Current.CancellationToken)).StatusCode);
         using (var createdCategory = await ReadJsonAsync(await qualityClient.PostAsJsonAsync(
                    "/api/form-templates/material-categories",
@@ -375,14 +393,33 @@ public sealed class ProcurementApiTests
             Assert.Equal("ScanBased", created.GetProperty("iqcDecisionMode").GetString());
         }
 
-        using (var settings = await ReadJsonAsync(await adminClient.GetAsync(
+        using (var settings = await ReadJsonAsync(await qualityClient.GetAsync(
                    "/api/form-templates/material-category-iqc",
                    TestContext.Current.CancellationToken)))
         {
             Assert.True(settings.RootElement.GetProperty("canManage").GetBoolean());
             var enclosureCategory = settings.RootElement.GetProperty("items").EnumerateArray()
                 .Single(item => item.GetProperty("materialCategoryCode").GetString() == "ENCLOSURE");
-            var masterUpdate = await adminClient.PutAsJsonAsync(
+            var ordinarySettingUpdate = await ordinaryQualityClient.PutAsJsonAsync(
+                $"/api/form-templates/material-category-iqc/{enclosureCategory.GetProperty("materialCategoryId").GetGuid()}/setting",
+                new
+                {
+                    expectedRowVersion = enclosureCategory.GetProperty("settingRowVersion").GetInt32(),
+                    isEnabled = false,
+                    decisionMode = "ScanBased"
+                },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, ordinarySettingUpdate.StatusCode);
+            var ordinaryTemplateUpdate = await ordinaryQualityClient.PutAsJsonAsync(
+                $"/api/form-templates/material-category-iqc/{enclosureCategory.GetProperty("materialCategoryId").GetGuid()}/current",
+                new
+                {
+                    expectedTemplateRowVersion = enclosureCategory.GetProperty("templateRowVersion").GetInt32(),
+                    items = Array.Empty<object>()
+                },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, ordinaryTemplateUpdate.StatusCode);
+            var masterUpdate = await qualityClient.PutAsJsonAsync(
                 $"/api/form-templates/material-category-iqc/{enclosureCategory.GetProperty("materialCategoryId").GetGuid()}/setting",
                 new
                 {
@@ -626,29 +663,18 @@ public sealed class ProcurementApiTests
         using var procurementClient = context.CreateClient("dev-procurement");
         using var materialsClient = context.CreateClient("dev-materials");
         using var qualityClient = context.CreateClient("dev-quality");
-        using var adminClient = context.CreateClient("dev-admin");
-
-        using var managers = await ReadJsonAsync(await adminClient.GetAsync(
-            "/api/form-templates/managers",
-            TestContext.Current.CancellationToken));
-        var qualityManager = managers.RootElement.GetProperty("candidates").EnumerateArray()
-            .Single(candidate => candidate.GetProperty("departmentCode").GetString() == "quality");
-        Assert.Equal(HttpStatusCode.OK, (await adminClient.PostAsJsonAsync(
-            "/api/form-templates/managers",
-            new { userId = qualityManager.GetProperty("userId").GetGuid(), domain = "Quality" },
-            TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await qualityClient.GetAsync(
             "/api/form-templates/material-category-iqc",
             TestContext.Current.CancellationToken)).StatusCode);
 
-        using var initialCatalog = await ReadJsonAsync(await adminClient.GetAsync(
+        using var initialCatalog = await ReadJsonAsync(await qualityClient.GetAsync(
             "/api/form-templates/material-category-iqc",
             TestContext.Current.CancellationToken));
         var other = initialCatalog.RootElement.GetProperty("items").EnumerateArray()
             .Single(item => item.GetProperty("materialCategoryCode").GetString() == "OTHER");
         var categoryId = other.GetProperty("materialCategoryId").GetGuid();
 
-        var emptyDetailed = await adminClient.PutAsJsonAsync(
+        var emptyDetailed = await qualityClient.PutAsJsonAsync(
             $"/api/form-templates/material-category-iqc/{categoryId}/setting",
             new
             {
@@ -659,7 +685,7 @@ public sealed class ProcurementApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.BadRequest, emptyDetailed.StatusCode);
 
-        using var firstTemplateCatalog = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
+        using var firstTemplateCatalog = await ReadJsonAsync(await qualityClient.PutAsJsonAsync(
             $"/api/form-templates/material-category-iqc/{categoryId}/current",
             new
             {
@@ -682,7 +708,7 @@ public sealed class ProcurementApiTests
             TestContext.Current.CancellationToken));
         var firstTemplate = firstTemplateCatalog.RootElement.GetProperty("items").EnumerateArray()
             .Single(item => item.GetProperty("materialCategoryId").GetGuid() == categoryId);
-        var staleTemplateSave = await adminClient.PutAsJsonAsync(
+        var staleTemplateSave = await qualityClient.PutAsJsonAsync(
             $"/api/form-templates/material-category-iqc/{categoryId}/current",
             new
             {
@@ -691,7 +717,7 @@ public sealed class ProcurementApiTests
             },
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Conflict, staleTemplateSave.StatusCode);
-        using var enabledCatalog = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
+        using var enabledCatalog = await ReadJsonAsync(await qualityClient.PutAsJsonAsync(
             $"/api/form-templates/material-category-iqc/{categoryId}/setting",
             new
             {
@@ -727,7 +753,7 @@ public sealed class ProcurementApiTests
         Assert.Equal("Detailed", savedItem.GetProperty("materialCategoryIqcDecisionMode").GetString());
 
         var preservedDefinitionKey = enabled.GetProperty("items")[0].GetProperty("definitionKey").GetGuid();
-        using var arrivalTemplateCatalog = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
+        using var arrivalTemplateCatalog = await ReadJsonAsync(await qualityClient.PutAsJsonAsync(
             $"/api/form-templates/material-category-iqc/{categoryId}/current",
             new
             {
@@ -765,7 +791,7 @@ public sealed class ProcurementApiTests
         Assert.Equal("Detailed", initialized.RootElement.GetProperty("decisionMode").GetString());
         Assert.Equal("성적서 최초 열기 시점 양식", initialized.RootElement.GetProperty("items")[0].GetProperty("label").GetString());
 
-        using var latestCatalog = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
+        using var latestCatalog = await ReadJsonAsync(await qualityClient.PutAsJsonAsync(
             $"/api/form-templates/material-category-iqc/{categoryId}/current",
             new
             {

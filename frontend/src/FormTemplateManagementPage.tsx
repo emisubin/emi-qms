@@ -22,9 +22,21 @@ import { useActionFeedback } from './useActionFeedback';
 import { ProductionControlTemplateWorkspace } from './ProductionControlTemplateWorkspace';
 
 type LoadState = { kind: 'loading' } | { kind: 'ready'; items: FormTemplateCatalogItem[] } | { kind: 'error'; message: string };
+type WorkspaceMode = 'inspection' | 'production-manufacturing' | 'production-planning' | 'material-category-iqc' | 'material-categories';
 
-export function FormTemplateManagementPage({ developmentUserKey, isSystemAdministrator }: { developmentUserKey: string | undefined; isSystemAdministrator: boolean }) {
+export function FormTemplateManagementPage({
+  developmentUserKey,
+  isSystemAdministrator,
+  domains
+}: {
+  developmentUserKey: string | undefined;
+  isSystemAdministrator: boolean;
+  domains: string[];
+}) {
   const { isMobile } = useAdaptiveLayout();
+  const canManageQuality = isSystemAdministrator || domains.includes('Quality');
+  const canManageManufacturing = isSystemAdministrator || domains.includes('Manufacturing');
+  const canManageProductionPlanning = isSystemAdministrator || domains.includes('ProductionPlanning');
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [selectedKey, setSelectedKey] = useState('');
   const [versions, setVersions] = useState<FormTemplateVersions | null>(null);
@@ -34,7 +46,11 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
   const [managerPanelOpen, setManagerPanelOpen] = useState(false);
   const [managers, setManagers] = useState<FormTemplateManagers | null>(null);
   const [candidateUserId, setCandidateUserId] = useState('');
-  const [workspaceMode, setWorkspaceMode] = useState<'inspection' | 'production-manufacturing' | 'production-planning' | 'material-category-iqc' | 'material-categories'>('inspection');
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(() => defaultWorkspaceMode(
+    canManageQuality,
+    canManageManufacturing,
+    canManageProductionPlanning
+  ));
   const actions = useActionFeedback();
 
   const selectedTemplate = state.kind === 'ready' ? state.items.find((item) => `${item.family}:${item.templateKey}` === selectedKey) ?? null : null;
@@ -65,17 +81,15 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
         }
       }
     } catch (error) {
-      try {
-        await getMaterialCategories(developmentUserKey, true);
-        setState({ kind: 'ready', items: [] });
-        setWorkspaceMode('material-categories');
-      } catch {
-        setState({ kind: 'error', message: error instanceof Error ? error.message : '양식 목록을 불러오지 못했습니다.' });
-      }
+      setState({ kind: 'error', message: error instanceof Error ? error.message : '양식 목록을 불러오지 못했습니다.' });
     }
   }, [developmentUserKey, loadVersions, selectedKey]);
 
   useEffect(() => { queueMicrotask(() => void load()); }, [developmentUserKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (workspaceAllowed(workspaceMode, canManageQuality, canManageManufacturing, canManageProductionPlanning)) return;
+    setWorkspaceMode(defaultWorkspaceMode(canManageQuality, canManageManufacturing, canManageProductionPlanning));
+  }, [canManageManufacturing, canManageProductionPlanning, canManageQuality, workspaceMode]);
 
   async function chooseTemplate(template: FormTemplateCatalogItem) {
     setWorkspaceMode('inspection');
@@ -126,9 +140,7 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
     if (!candidate) return;
     const domain = candidate.departmentCode === 'quality'
       ? 'Quality'
-      : candidate.departmentCode === 'production-planning'
-        ? 'ProductionPlanning'
-        : 'Manufacturing';
+      : 'ProductionPlanning';
     await actions.run('manager:assign', async () => {
       setManagers(await assignFormTemplateManager(developmentUserKey, candidate.userId, domain));
       setCandidateUserId('');
@@ -158,24 +170,24 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
 
       <div className={`form-template-workspace${workspaceMode === 'inspection' ? '' : ' has-production-control'}`}>
         <nav className="form-template-catalog" aria-label="양식 종류">
-          <header><strong>양식 종류</strong><small>{state.items.length + (state.items.length > 0 ? 4 : 1)}개</small></header>
+          <header><strong>양식 종류</strong><small>{state.items.length + (canManageQuality ? 2 : 0) + (canManageManufacturing ? 1 : 0) + (canManageProductionPlanning ? 1 : 0)}개</small></header>
           {state.items.map((template) => <button key={`${template.family}:${template.templateKey}`} type="button" className={workspaceMode === 'inspection' && selectedKey === `${template.family}:${template.templateKey}` ? 'is-active' : ''} onClick={() => void chooseTemplate(template)}><span><b>{template.displayName}</b><small>{template.family === 'PanelQualityStage' && template.templateKey === 'LQC' ? '품질 · Item별 운영 상태·검사 항목' : template.family === 'IqcReport' ? '품질 · 기존 방식 프로젝트 전용' : '품질 · 현재 양식'}</small></span></button>)}
-          {state.items.length > 0 ? <button type="button" className={workspaceMode === 'material-category-iqc' ? 'is-active' : ''} onClick={() => setWorkspaceMode('material-category-iqc')}>
+          {canManageQuality ? <button type="button" className={workspaceMode === 'material-category-iqc' ? 'is-active' : ''} onClick={() => setWorkspaceMode('material-category-iqc')}>
             <span><b>구매품별 IQC 양식</b><small>품질 · 구분별 검사 방식·항목</small></span>
           </button> : null}
-          {state.items.length > 0 ? <button type="button" className={workspaceMode === 'production-manufacturing' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-manufacturing')}>
+          {canManageManufacturing ? <button type="button" className={workspaceMode === 'production-manufacturing' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-manufacturing')}>
             <span><b>Item별 제조 양식</b><small>제조 · Item별 현재 양식</small></span>
           </button> : null}
-          {state.items.length > 0 ? <button type="button" className={workspaceMode === 'production-planning' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-planning')}>
+          {canManageProductionPlanning ? <button type="button" className={workspaceMode === 'production-planning' ? 'is-active' : ''} onClick={() => setWorkspaceMode('production-planning')}>
             <span><b>생산계획·실적 연결</b><small>생산관리 · Item별 1:1 연결</small></span>
           </button> : null}
-          <button type="button" className={workspaceMode === 'material-categories' ? 'is-active' : ''} onClick={() => setWorkspaceMode('material-categories')}>
+          {canManageQuality ? <button type="button" className={workspaceMode === 'material-categories' ? 'is-active' : ''} onClick={() => setWorkspaceMode('material-categories')}>
             <span><b>구매품 구분 관리</b><small>품질 · 이름·사용 상태·순서</small></span>
-          </button>
+          </button> : null}
         </nav>
 
         {workspaceMode === 'inspection' && selectedTemplate?.family === 'PanelQualityStage' && selectedTemplate.templateKey === 'LQC' ? (
-          <LqcItemTemplateWorkspace developmentUserKey={developmentUserKey} isSystemAdministrator={isSystemAdministrator} />
+          <LqcItemTemplateWorkspace developmentUserKey={developmentUserKey} />
         ) : workspaceMode === 'inspection' ? (
         <section className="form-template-editor form-template-current-editor" aria-label="현재 양식 항목 편집">
           {!selectedVersion ? <p>현재 양식을 불러오지 못했습니다.</p> : <>
@@ -209,20 +221,36 @@ export function FormTemplateManagementPage({ developmentUserKey, isSystemAdminis
 
       {managerPanelOpen && isSystemAdministrator ? <section className="form-manager-panel">
         <header><div><p className="eyebrow">부서장 권한</p><h3>부서 양식 관리자 지정</h3></div><button type="button" onClick={() => setManagerPanelOpen(false)}>닫기</button></header>
-        <div className="form-manager-assign"><select value={candidateUserId} onChange={(event) => setCandidateUserId(event.target.value)}><option value="">품질·제조·생산관리 부서 사용자 선택</option>{managers?.candidates.map((candidate) => <option key={candidate.userId} value={candidate.userId}>{candidate.departmentName} · {candidate.displayName}</option>)}</select><button type="button" className="primary-button" disabled={!candidateUserId} onClick={() => void assignManager()}>부서장 지정</button></div>
+        <div className="form-manager-assign"><select value={candidateUserId} onChange={(event) => setCandidateUserId(event.target.value)}><option value="">품질·생산관리 부서 사용자 선택</option>{managers?.candidates.map((candidate) => <option key={candidate.userId} value={candidate.userId}>{candidate.departmentName} · {candidate.displayName}</option>)}</select><button type="button" className="primary-button" disabled={!candidateUserId} onClick={() => void assignManager()}>부서장 지정</button></div>
         <div className="form-manager-list">{managers?.bindings.filter((binding) => !binding.revokedAtUtc).map((binding) => <article key={binding.bindingId}><span><strong>{binding.displayName}</strong><small>{binding.departmentName} · {binding.domain === 'Quality' ? '품질 양식' : binding.domain === 'ProductionPlanning' ? '생산계획 양식' : '제조 양식'}</small></span><button type="button" onClick={() => void revokeManager(binding.bindingId)}>지정 해제</button></article>)}</div>
       </section> : null}
     </section>
   );
 }
 
-function LqcItemTemplateWorkspace({
-  developmentUserKey,
-  isSystemAdministrator
-}: {
-  developmentUserKey: string | undefined;
-  isSystemAdministrator: boolean;
-}) {
+function defaultWorkspaceMode(
+  canManageQuality: boolean,
+  canManageManufacturing: boolean,
+  canManageProductionPlanning: boolean
+): WorkspaceMode {
+  if (canManageQuality) return 'inspection';
+  if (canManageProductionPlanning) return 'production-planning';
+  if (canManageManufacturing) return 'production-manufacturing';
+  return 'inspection';
+}
+
+function workspaceAllowed(
+  mode: WorkspaceMode,
+  canManageQuality: boolean,
+  canManageManufacturing: boolean,
+  canManageProductionPlanning: boolean
+) {
+  if (mode === 'inspection' || mode === 'material-category-iqc' || mode === 'material-categories') return canManageQuality;
+  if (mode === 'production-manufacturing') return canManageManufacturing;
+  return canManageProductionPlanning;
+}
+
+function LqcItemTemplateWorkspace({ developmentUserKey }: { developmentUserKey: string | undefined }) {
   const [catalog, setCatalog] = useState<LqcItemTemplates | null>(null);
   const [selectedProductTypeId, setSelectedProductTypeId] = useState('');
   const [draftItems, setDraftItems] = useState<FormTemplateItem[]>([]);
@@ -328,7 +356,7 @@ function LqcItemTemplateWorkspace({
       </div>
 
       <div className="form-item-options">
-        <label title={!isSystemAdministrator ? '시스템 관리자만 LQC 운영 상태를 변경할 수 있습니다.' : undefined}>
+        <label title={!catalog.canChangeOperatingStatus ? '현재 계정에는 LQC 운영 상태 변경 권한이 없습니다.' : undefined}>
           <input
             type="checkbox"
             role="switch"
@@ -338,7 +366,7 @@ function LqcItemTemplateWorkspace({
           />
           {selectedItem.isOperational ? '운영 중' : '운영 중지'}
         </label>
-        {!catalog.canChangeOperatingStatus ? <span className="form-manager-badge">운영 상태 변경 · 시스템 관리자 전용</span> : null}
+        {!catalog.canChangeOperatingStatus ? <span className="form-manager-badge">운영 상태 변경 권한 없음</span> : null}
       </div>
 
       {latestFeedback ? <p className="form-template-feedback" data-tone={latestFeedback.tone} role={latestFeedback.tone === 'error' ? 'alert' : 'status'}>{latestFeedback.message}</p> : null}

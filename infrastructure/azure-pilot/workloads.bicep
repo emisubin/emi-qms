@@ -78,7 +78,7 @@ param teamsCatalogAppId string
 @description('Teams manifest external identifier.')
 param teamsManifestExternalId string
 
-@description('Enable actual Teams and Gmail delivery after provider smoke succeeds.')
+@description('Enable actual Teams, Gmail, and Web Push delivery after provider smoke succeeds.')
 param enableExternalNotifications bool = false
 
 @description('Activate minimum replicas only after migration and readiness gates pass.')
@@ -165,6 +165,16 @@ var backendSecrets = [
     identity: backendIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}teams-activity-client-secret'
     name: 'teams-activity-client-secret'
+  }
+  {
+    identity: backendIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}web-push-vapid-public-key'
+    name: 'web-push-vapid-public-key'
+  }
+  {
+    identity: backendIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}web-push-vapid-private-key'
+    name: 'web-push-vapid-private-key'
   }
 ]
 var servingBackendEnvironment = [
@@ -339,6 +349,22 @@ var servingBackendEnvironment = [
   {
     name: 'Notifications__TeamsActivity__TopicWebUrl'
     value: publicOrigin
+  }
+  {
+    name: 'Notifications__WebPush__Enabled'
+    value: enabled
+  }
+  {
+    name: 'Notifications__WebPush__DryRun'
+    value: disabled
+  }
+  {
+    name: 'Notifications__WebPush__PublicKey'
+    secretRef: 'web-push-vapid-public-key'
+  }
+  {
+    name: 'Notifications__WebPush__PrivateKey'
+    secretRef: 'web-push-vapid-private-key'
   }
   {
     name: 'Notifications__Mail__Enabled'

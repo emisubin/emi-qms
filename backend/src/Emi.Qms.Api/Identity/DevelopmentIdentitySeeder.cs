@@ -214,6 +214,59 @@ public sealed class DevelopmentIdentitySeeder(
         where qms_users.development_user_key <> 'dev-no-role'
         on conflict do nothing;
 
+        do $seed_form_template_managers$
+        begin
+            if to_regclass('form_template_manager_bindings') is null then
+                return;
+            end if;
+
+            execute $sql$
+                update form_template_manager_bindings binding
+                set revoked_by_user_id = binding.assigned_by_user_id,
+                    revoked_at_utc = now()
+                from qms_users user_account
+                where binding.user_id = user_account.id
+                  and user_account.development_user_key = 'dev-manufacturing'
+                  and binding.revoked_at_utc is null;
+
+                insert into form_template_manager_bindings (
+                    id, user_id, department_id, domain, assigned_by_user_id
+                )
+                select
+                    uuid_generate_v4(), user_account.id, user_account.department_id,
+                    'Quality', administrator.id
+                from qms_users user_account
+                cross join qms_users administrator
+                where user_account.development_user_key = 'dev-quality'
+                  and administrator.development_user_key = 'dev-admin'
+                on conflict (user_id, department_id, domain)
+                    where revoked_at_utc is null
+                    do nothing
+            $sql$;
+
+            if exists (
+                select 1 from schema_migrations
+                where version = '0058_production_control_linked_plans'
+            ) then
+                execute $sql$
+                    insert into form_template_manager_bindings (
+                        id, user_id, department_id, domain, assigned_by_user_id
+                    )
+                    select
+                        uuid_generate_v4(), user_account.id, user_account.department_id,
+                        'ProductionPlanning', administrator.id
+                    from qms_users user_account
+                    cross join qms_users administrator
+                    where user_account.development_user_key = 'dev-production'
+                      and administrator.development_user_key = 'dev-admin'
+                    on conflict (user_id, department_id, domain)
+                        where revoked_at_utc is null
+                        do nothing
+                $sql$;
+            end if;
+        end
+        $seed_form_template_managers$;
+
         insert into user_project_access (user_id, project_id)
         select qms_users.id, projects.id
         from qms_users

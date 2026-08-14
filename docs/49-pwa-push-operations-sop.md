@@ -1,12 +1,16 @@
 # EMI PMS PWA 푸시 운영 절차
 
-## 목적과 기본 상태
+## 목적과 현재 운영 상태
 
 PWA 푸시는 기존 인앱 알림을 사용자가 허용한 휴대폰·태블릿에 추가로 전달한다. 인앱 알림, Teams Activity와 메일의 수신 정책은 변경하지 않는다.
 
-- 기본값: `Enabled=false`, `DryRun=true`
-- 운영 VAPID key와 실제 외부 발송은 별도 승인 전 활성화하지 않는다.
+- 현재 운영값: `Enabled=true`, `DryRun=false`
+- 운영 VAPID 공개키·비밀키는 Azure Key Vault에 보관하며 Backend identity만 두 secret을 읽는다.
+- 사용자는 PWA 설치와 알림 허용을 직접 선택한다. 미설치·미허용 사용자는 인앱 알림은 정상적으로 보고 PWA 푸시만 받지 않는다.
+- 사용자가 나중에 푸시를 켜면 그 이후 생성된 새 인앱 알림부터 받으며 과거 알림을 소급 발송하지 않는다.
 - 푸시 장애가 업무 저장이나 인앱 알림 생성을 되돌리지 않는다.
+
+2026-08-12 실제 운영 검수에서 iPhone·Android의 PWA 수신, Teams 동시 수신과 알림 선택 시 인앱 알림 상세 이동을 확인했다. 직원별 설치 현황을 중앙에서 관리하거나 강제 설치하지 않는다.
 
 필수 운영 설정:
 
@@ -18,14 +22,17 @@ PWA 푸시는 기존 인앱 알림을 사용자가 허용한 휴대폰·태블�
 
 VAPID key 형식, 허용 host 목록 또는 기기 상한이 올바르지 않으면 Backend 시작 검증이 실패한다. 구독 등록 시에도 허용되지 않은 endpoint와 잘못된 암호화 key를 거부한다.
 
-## 최초 활성화 순서
+## 최초 활성화·재배포 순서
 
 1. 운영 DB backup·migration 상태를 확인하고 additive migration `0074_web_push_subscriptions`를 적용한다.
 2. VAPID public/private key를 승인된 secret 저장소에서 생성·보관한다. private key를 Repository, 문서, 화면, 일반 로그에 기록하지 않는다.
 3. Backend 환경값에 Subject, PublicKey, 허용 endpoint host와 기기 상한을 넣고 `Enabled=true`, `DryRun=true`로 시작한다. PrivateKey는 실제 발송 전환 전까지 주입하지 않아도 된다.
 4. Backend를 교체하고 migration ledger가 `Exact`, latest `0074_web_push_subscriptions`인지 확인한다.
 5. 검수 계정의 설치형 PWA에서 기기 푸시를 켜고, 새 인앱 알림에 기기별 `DryRunSent` delivery가 생기는지 확인한다.
-6. 실제 push service 호출은 별도 승인과 실기기 검수 계획을 받은 뒤에만 `DryRun=false`로 전환한다.
+6. 실제 push service 호출은 별도 승인과 실기기 검수 계획을 받은 뒤에만 `DryRun=false`로 전환한다. 이 단계는 2026-08-12 완료됐다.
+7. Azure workload 전체 재배포에서는 `enableExternalNotifications=true`를 명시한다. 그러면 Teams·메일과 함께 Web Push의 `Enabled=true`, `DryRun=false` 및 VAPID Key Vault 참조가 보존된다.
+8. 현재 운영의 identity-access를 다시 배포할 때는 ignored local parameter에 기존 Frontend access-gate와 Web Push 두 role assignment 이름을 전달해 기존 수동 권한을 인수한다. 먼저 삭제하거나 새 이름으로 중복 생성하지 않는다.
+9. `what-if`에서 role assignment Create/Delete가 `0`인지 확인한 뒤 배포하고, secret 원문 없이 Backend latest/ready revision 일치, Web Push 활성·실발송 값, 두 secret reference 존재와 공개 보안 상태만 확인한다.
 
 ## 운영 확인
 
@@ -35,6 +42,7 @@ VAPID key 형식, 허용 host 목록 또는 기기 상한이 올바르지 않으
 - 사용자가 `모든 기기 연결 해제`를 실행하면 그 사용자의 푸시만 모두 꺼진다. Microsoft 365 로그인은 원격 해제되지 않는다.
 - 계정을 비활성화하거나 삭제 예약하면 해당 계정의 모든 푸시 구독도 사유와 함께 비활성화된다. 계정을 복구해도 예전 기기 구독은 자동으로 다시 켜지지 않으며 사용자가 보유 기기에서 직접 다시 허용해야 한다.
 - 발송 대기 중 기기 연결이 해제·재등록되면 이전 연결 세대의 delivery는 새 연결로 넘겨 보내지 않고 `발송 제외` 처리한다.
+- 직원별 등록 완료율은 운영 성공 조건이 아니다. 푸시를 원하는 사용자가 본인 기기에서 설치·허용하면 되고, 그 전에는 인앱·Teams·메일의 기존 정책만 적용된다.
 
 ## 장애·중지·복구
 

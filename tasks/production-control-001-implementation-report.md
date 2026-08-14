@@ -1,6 +1,6 @@
 # TASK-PRODUCTION-CONTROL-001 구현 보고 — Item별 생산계획·자동 실적·가로 막대 일정
 
-상태: `기존 기능·Change 010 원격 main 반영 완료 / Change 011 사용자 최종 일괄 검수·게시 승인`
+상태: `Change 011 사용자 검수·원격 main 병합·Azure 공개배포 완료`
 
 ## 기준선과 범위
 
@@ -288,8 +288,8 @@ Open P0/P1/P2: `0/0/0`.
 | Implementation report | 작성됨 | 본 문서 |
 | SOP | 포함됨 | 본 문서 `사용자 사용 방법` |
 | User manual | 포함됨 | 본 문서 `사용자 사용 방법` |
-| Roadmap update | Change 011 사용자 최종 일괄 검수·게시 승인까지 갱신됨 | `docs/00-product-roadmap.md` |
-| User validation checklist | 기존 기능·Change 010 완료 / Change 011 최종 게시 승인 | `tasks/production-control-001-user-validation-checklist.md` |
+| Roadmap update | Change 011 원격 main·Azure 운영 게시 완료까지 갱신됨 | `docs/00-product-roadmap.md` |
+| User validation checklist | Change 011 사용자 검수·게시 완료 | `tasks/production-control-001-user-validation-checklist.md` |
 
 ## Change 011 — 모든 프로젝트의 전용 계획·실적 연결과 조회 화면 단일화
 
@@ -329,7 +329,9 @@ Open P0/P1/P2: `0/0/0`.
 | PR #101 실패 지점 집중 재검증 | PASS — 생산계획 연관 파일 `17/17`, 18단계 영업 등록→세금계산서 장기 흐름 `1/1`, 1280px 문서 overflow `0px` |
 | `git diff --check` | PASS |
 
-Change 011 Open P0/P1/P2는 `0/0/0`이다. 사용자는 실제 5174 화면 확인 뒤 2026-08-14 원격 `main` 병합과 Azure 공개배포를 명시 승인했다. 표준 전체 Backend·Frontend·Full-Stack 검증은 Ready PR의 필수 `CI Gate`에서 실행한다.
+Change 011 Open P0/P1/P2는 `0/0/0`이다. 사용자는 실제 5174 화면 확인 뒤 2026-08-14 원격 `main` 병합과 Azure 공개배포를 명시 승인했다. 표준 전체 Backend·Frontend·Full-Stack 검증은 Ready PR의 필수 `CI Gate`에서 실행해 통과했다.
+
+Ready PR #101의 최초 Full-Stack `59/61` 실패에서 오래된 체크 달력 기대와 1280px 페이지 overflow를 보정했다. 새 head의 PR CI run `31772777562`에서 Backend·Frontend·Full-Stack·Workflow Validation·`CI Gate`가 모두 통과했고, PR #101을 원격 `main` SHA `8b19483e40655ce99c13cb470217ccddf444b1c0`로 squash merge했다. main push CI run `31774158616`과 Azure 운영 release run `31774236257`도 통과했다. Backend·Frontend를 교체하고 public security smoke를 확인했으며 database migration은 없어서 실행하지 않았다.
 
 ### 사용자 검수·게시 승인
 
@@ -341,4 +343,4 @@ Change 011 Open P0/P1/P2는 `0/0/0`이다. 사용자는 실제 5174 화면 확�
 ### 게시 경계
 
 - 사용자는 다른 추가 작업과 함께 최종 일괄 검수한 뒤 2026-08-14 commit·push·PR·main merge와 Azure 공개배포를 명시 승인했다.
-- 병합 전 Ready PR 최신 head의 필수 `CI Gate`, 병합 뒤 exact `main` SHA의 승인형 Azure release와 공개 보안 smoke를 완료해야 한다.
+- 병합 전 Ready PR 최신 head의 필수 `CI Gate`, 병합 뒤 exact `main` SHA의 승인형 Azure release와 공개 보안 smoke를 모두 완료했다.

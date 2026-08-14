@@ -1,5 +1,27 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 024 — 생산계획·부서 담당자 위임 운영 release
+
+- 사용자 검수·게시 승인: 2026-08-14 완료
+- Git 게시: PR #101 필수 CI run `31772777562` 통과 뒤 squash merge
+- 운영 source: `8b19483e40655ce99c13cb470217ccddf444b1c0`
+- main 검증: push CI run `31774158616` 통과
+- Azure 운영 release: run `31774236257` `PASS`
+- 배포 분류: Backend·Frontend 적용, database migration 없음
+- runtime: Backend ready 뒤 Frontend ready, public security smoke 통과
+- Finding: PR 첫 CI의 오래된 체크 달력 기대와 1280px 페이지 overflow P2를 보정하고 재실행 통과. Open P0/P1/P2 `0/0/0`
+- 비차단 경고: Azure login action Node runtime 안내와 Azure CLI version parse 경고는 기존 P3 유지보수로 추적한다.
+
+### Change 024 종료 산출물
+
+| 산출물 | 상태 | 위치 |
+| --- | --- | --- |
+| Implementation report | 운영 release 결과 반영 완료 | 이 문서 |
+| SOP | 기존 승인형 exact-main release·rollback 절차 유지 | `tasks/azure-deploy-001-sop.md` |
+| User manual | 기존 GitHub 수동 운영 release 절차 유지 | `infrastructure/azure-pilot/README.md` |
+| Roadmap update | PR #101·main·Azure 결과 반영 완료 | `docs/00-product-roadmap.md` |
+| User validation checklist | 제품 검수·게시 완료 상태 반영 | 생산계획·부서 담당자 위임 각 checklist |
+
 ## Change 020 — 지정 로그인·내부 로고 main 운영 release
 
 - 사용자 승인 범위: `TASK-DESIGN-LOGIN-001 Change 010`과 `TASK-TEAMS-PWA-001 Change 007`을 원격 main에 병합하고 Azure 공개 운영에 반영한다.
@@ -915,4 +937,5 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - Change 018: 승인형 GitHub 운영 release source·mock 검증, Environment variable `4/4`와 OIDC exact resource 역할 `3/3`+기존 ACR `AcrPush` 설정 완료. PR #76 원격 `main` 병합 완료. Merge SHA Full-Stack P2는 `TASK-E2E-FULL-SUITE-001 Change 012` PR #77과 merge SHA CI `3/3`으로 해소했다. 별도 명시 운영 release는 Change 019 보정 뒤 완료했다.
 - Change 019: PR #79 원격 `main` squash merge, PR CI `3/3`, merge SHA main CI 최종 `3/3`, 운영 release run `31145661267` 성공. 정상 revision 상태 판정 P1과 main CI 일시 표시 지연 P2를 해소했고 action/CLI 경고 2건은 P3 backlog로 분리했다.
 - Change 020: PR #83·#84 원격 main squash merge, 최종 main SHA CI `3/3`, 운영 release run `31354814082` 성공. 지정 로그인·내부 공통 logo와 Production Control Change 010까지 운영 image에 동기화했다.
-- 미포함: 사용자 실제 PC·iPhone·Android 육안 검수와 원격 main에 아직 병합되지 않은 별도 branch.
+- Change 024: PR #101 필수 CI 통과 뒤 원격 `main`에 squash merge하고 exact main SHA `8b19483e40655ce99c13cb470217ccddf444b1c0`로 운영 release run `31774236257`을 완료했다. Backend·Frontend ready와 public security smoke가 통과했고 migration은 변경 없음으로 실행하지 않았다.
+- Change 024 이외 원격 main에 아직 병합되지 않은 별도 branch는 이번 release에 포함하지 않았다.

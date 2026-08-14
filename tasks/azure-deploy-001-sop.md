@@ -2,13 +2,13 @@
 
 ## 1. 현재 판정
 
-- Deployment source: Change 019 PR #79 원격 `main` 병합·CI 완료 / merge SHA `8d6ae914e8f748430337a5dd0ad79e7565730733` / 운영 release run `31145661267` 성공
+- Deployment source: Change 025 PR #103 원격 `main` 병합·CI 완료 / merge SHA `58c089993587deea30513cb6edee0b8396a1d474` / 운영 release run `31786040822` 성공
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
 - GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
-- DB role bootstrap·migration: Azure `0069 Exact`, 최신 migration job execution `Succeeded`
+- DB role bootstrap·migration: Azure migration `0078` 적용, 최신 migration job execution `Succeeded`
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Backend·Frontend·ClamAV `3/3 Running` / Frontend Change 013 image와 Backend exact internal host allowlist 적용 / latest revision ready / ClamAV unchanged
+- Active workload: Backend `backend--0000027`, Frontend `frontend--0000018` latest revision ready·Running / exact Change 025 main image digest 적용 / ClamAV unchanged
 - Teams·PWA: 제공 EMI 원본 기반 PWA와 Web Push 운영 반영 완료 / 실제 iPhone·Android PWA 수신·알림 상세 이동 확인 / 직원 설치·알림 허용은 자율 / 공개 Teams `1.0.4` 관리자 승인·사용자 설치 보고 완료 / synthetic actual Activity Graph `204`·Teams web 표시 / Change 017 worker actual 활성화·최신 Teams Activity `6/6 Sent`
 - DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / 공개 root·PWA `200`, direct origin 업무 route `403`
 - 공개 traffic: HTTP→HTTPS, 익명 비브라우저 root·asset·PWA·API `401`, 브라우저는 PMS shell·bundle 없는 Easy Auth 인증 화면, `/health/live` `200` / Dispatcher·Teams Activity·Mail·Web Push actual 활성화

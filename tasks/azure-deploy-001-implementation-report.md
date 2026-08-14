@@ -6,8 +6,24 @@
 - 게시 대상: `TASK-ADMIN-003 Change 002`, `TASK-PWA-PUSH-001 Change 002`
 - source 기준선: `origin/main` `a5f13cf64bc09d0840e11ea6be0e5a507f185d0c`
 - 배포 경계: migration `0078` → Backend → Frontend, 기존 Web Push 활성·Key Vault 참조 보존
-- 상태: Ready PR 필수 `CI Gate` 대기. 실제 PR·main SHA·Azure release 결과는 게시 후 동기화한다.
+- Git 게시: PR #103, 필수 CI run `31784473124` 통과 뒤 squash merge
+- 운영 source: `58c089993587deea30513cb6edee0b8396a1d474`; main CI run `31786026056` `PASS`
+- Azure 운영 release: run `31786040822` `PASS`
+- 운영 결과: migration `0078` 성공 → Backend `backend--0000027` ready → Frontend `frontend--0000018` ready, public security `PASS`
+- PWA 보존: `Enabled=true`, `DryRun=false`, 두 VAPID Key Vault secret reference 유지
+- 공개 확인: health `200`, 익명 root·`/api/me` `401/401`
+- Open P0/P1/P2: `0/0/0`; `GHA-AZURE-RUNNER-WARNINGS-001` P3 backlog 유지
 - 상세 계약: `tasks/azure-deploy-001-change-025.md`
+
+### Change 025 종료 산출물
+
+| 산출물 | 상태 | 위치 |
+| --- | --- | --- |
+| Implementation report | PR·main·Azure 운영 결과 반영 완료 | 이 문서 |
+| SOP | Change 025 exact-main·migration·revision 기준선 반영 완료 | `tasks/azure-deploy-001-sop.md` |
+| User manual | 기존 승인형 release와 PWA 자율 설치 안내 유지 | `infrastructure/azure-pilot/README.md`, `docs/50-pwa-push-user-manual.md` |
+| Roadmap update | PR #103·main·Azure 결과 반영 완료 | `docs/00-product-roadmap.md` |
+| User validation checklist | Change 025 운영 검증 반영 완료 | `tasks/azure-deploy-001-user-validation-checklist.md` |
 
 ## Change 024 — 생산계획·부서 담당자 위임 운영 release
 

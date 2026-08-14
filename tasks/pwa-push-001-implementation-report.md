@@ -1,6 +1,6 @@
 # TASK-PWA-PUSH-001 — Implementation report
 
-> 상태: 원격 main·Azure 운영 적용·실제 push service·실기기 사용자 검수 완료 / Change 002 Azure 재배포 보존 구현·자동 검증 완료
+> 상태: 원격 main·Azure 운영 적용·실제 push service·실기기 사용자 검수 완료 / Change 002 PR #103·Azure release `31786040822` 게시 완료
 > branch: `fix/task-pwa-push-001-operationalization`
 > Change 002 기준선: `origin/main` `af796547ffb260ae427932a4734894af23c21ae6`
 

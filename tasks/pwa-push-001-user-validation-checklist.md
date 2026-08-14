@@ -37,6 +37,6 @@
 
 - 자동 검증 판정: PASS
 - 사용자 검수 판정: 완료
-- Git 게시·Azure migration/runtime 적용: 완료
+- Git 게시·Azure migration/runtime 적용: PR #103, exact main SHA `58c089993587deea30513cb6edee0b8396a1d474`, release `31786040822` 완료
 - 실제 외부 발송·운영 key·실기기 수신: 완료
 - 직원별 PWA 등록: 중앙 완료 조건이 아닌 사용자 선택 사항

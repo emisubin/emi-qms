@@ -49,7 +49,7 @@ describe('FormTemplateManagementPage', () => {
       return json(versionsResponse([activeVersion]));
     }));
 
-    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator />);
+    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator domains={['Quality', 'Manufacturing', 'ProductionPlanning']} />);
 
     const editButton = await screen.findByRole('button', { name: '수정' });
     expect(editButton).toBeEnabled();
@@ -86,7 +86,7 @@ describe('FormTemplateManagementPage', () => {
       return json(versionsResponse([activeVersion]));
     }));
 
-    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator />);
+    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator domains={['Quality', 'Manufacturing', 'ProductionPlanning']} />);
 
     const catalog = await screen.findByRole('navigation', { name: '양식 종류' });
     expect(catalog).toHaveTextContent('Item별 제조 양식');
@@ -164,7 +164,7 @@ describe('FormTemplateManagementPage', () => {
       return json({ ...versionsResponse([activeVersion]), family: 'PanelQualityStage', templateKey: 'LQC', displayName: 'Item별 LQC 검사' });
     }));
 
-    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator />);
+    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator domains={['Quality', 'Manufacturing', 'ProductionPlanning']} />);
 
     expect(await screen.findByRole('button', { name: /Item별 LQC 검사.*Item별 운영 상태.*검사 항목/ })).toBeInTheDocument();
     expect(await screen.findByText(/이미 만들어진 프로젝트에는 영향을 주지 않습니다/)).toBeInTheDocument();
@@ -216,7 +216,7 @@ describe('FormTemplateManagementPage', () => {
       return json(versionsResponse([activeVersion]));
     }));
 
-    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator />);
+    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator domains={['Quality', 'Manufacturing', 'ProductionPlanning']} />);
     fireEvent.click(await screen.findByRole('button', { name: /구매품별 IQC 양식/ }));
     expect(await screen.findByRole('heading', { name: '기타 수입검사' })).toBeInTheDocument();
     expect(screen.getByText(/이미 저장된 구매품과 시작된 검사에는 영향을 주지 않습니다/)).toBeInTheDocument();
@@ -275,7 +275,7 @@ describe('FormTemplateManagementPage', () => {
       return json(versionsResponse([activeVersion]));
     }));
 
-    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator />);
+    render(<FormTemplateManagementPage developmentUserKey="dev-admin" isSystemAdministrator domains={['Quality', 'Manufacturing', 'ProductionPlanning']} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /Item별 제조 양식/ }));
     expect(await screen.findByRole('combobox', { name: '적용 Item' })).toHaveValue('product-ul67');
@@ -297,6 +297,64 @@ describe('FormTemplateManagementPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('연결이 끊긴 생산계획 항목이 1개');
     expect(await screen.findByRole('button', { name: /제조 착수.*연결 재설정 필요/ })).toBeInTheDocument();
     expect(calls.filter((call) => call.path.endsWith('/manufacturing-v1') && call.method === 'PUT')).toHaveLength(2);
+  });
+
+  it('shows only quality forms and allows the quality department head to change LQC operation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+      if (url.pathname === '/api/form-templates') {
+        return json({ templates: [
+          { family: 'IqcReport', templateKey: 'MATERIAL_IQC', displayName: '자재 수입검사', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 },
+          { family: 'PanelQualityStage', templateKey: 'LQC', displayName: 'Item별 LQC 검사', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 },
+          { family: 'PanelQualityStage', templateKey: 'OQC', displayName: 'OQC 자체검수', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 }
+        ] });
+      }
+      if (url.pathname === '/api/form-templates/lqc-items') return json(lqcItemCatalog(true));
+      return json(versionsResponse([activeVersion]));
+    }));
+
+    render(<FormTemplateManagementPage developmentUserKey="quality-head" isSystemAdministrator={false} domains={['Quality']} />);
+
+    const navigation = await screen.findByRole('navigation', { name: '양식 종류' });
+    expect(navigation).toHaveTextContent('자재 수입검사');
+    expect(navigation).toHaveTextContent('Item별 LQC 검사');
+    expect(navigation).toHaveTextContent('OQC 자체검수');
+    expect(navigation).toHaveTextContent('구매품별 IQC 양식');
+    expect(navigation).toHaveTextContent('구매품 구분 관리');
+    expect(navigation).not.toHaveTextContent('Item별 제조 양식');
+    expect(navigation).not.toHaveTextContent('생산계획·실적 연결');
+
+    fireEvent.click(screen.getByRole('button', { name: /Item별 LQC 검사/ }));
+    expect(await screen.findByRole('switch')).toBeEnabled();
+    expect(screen.queryByText(/운영 상태 변경 권한 없음/)).not.toBeInTheDocument();
+  });
+
+  it('shows and enables only manufacturing and planning forms for the production department head', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+      if (url.pathname === '/api/form-templates') return json({ templates: [] });
+      if (url.pathname === '/api/production-control/templates') return json(productionControlCatalog(false));
+      return json({ title: 'not found' }, 404);
+    }));
+
+    render(<FormTemplateManagementPage
+      developmentUserKey="production-head"
+      isSystemAdministrator={false}
+      domains={['Manufacturing', 'ProductionPlanning']}
+    />);
+
+    const navigation = await screen.findByRole('navigation', { name: '양식 종류' });
+    expect(navigation).toHaveTextContent('Item별 제조 양식');
+    expect(navigation).toHaveTextContent('생산계획·실적 연결');
+    expect(navigation).not.toHaveTextContent('자재 수입검사');
+    expect(navigation).not.toHaveTextContent('구매품별 IQC 양식');
+    expect(navigation).not.toHaveTextContent('구매품 구분 관리');
+    expect(await screen.findByRole('heading', { name: '생산계획·실적 연결' })).toBeInTheDocument();
+    expect(screen.getByText('편집 가능')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Item별 제조 양식/ }));
+    expect(await screen.findByRole('heading', { name: 'Item별 제조 항목' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '수정' })).toBeEnabled();
   });
 });
 

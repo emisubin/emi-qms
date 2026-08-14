@@ -2448,6 +2448,110 @@ public sealed class ProductionPlanningApiTests
     }
 
     [Fact]
+    public async Task ProductionControl_ProductionHeadCanSaveBothDomainsWhileManufacturingHeadAndGeneralUserAreForbidden()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var productionHeadClient = context.CreateClient("dev-production");
+        using var manufacturingHeadClient = context.CreateClient("dev-manufacturing");
+        using var generalUserClient = context.CreateClient("dev-viewer");
+
+        using var initial = await ReadJsonAsync(await productionHeadClient.GetAsync(
+            "/api/production-control/templates",
+            TestContext.Current.CancellationToken));
+        Assert.True(initial.RootElement.GetProperty("canManageManufacturing").GetBoolean());
+        Assert.True(initial.RootElement.GetProperty("canManageProductionPlanning").GetBoolean());
+        var productTypeId = initial.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("productTypeCode").GetString() == "UL67")
+            .GetProperty("productTypeId").GetGuid();
+
+        using var manufacturingCurrent = await ReadJsonAsync(await productionHeadClient.PostAsJsonAsync(
+            $"/api/production-control/templates/manufacturing/{productTypeId}/current",
+            new { expectedActiveRowVersion = (int?)null },
+            TestContext.Current.CancellationToken));
+        var manufacturingVersion = Assert.Single(
+            manufacturingCurrent.RootElement.GetProperty("items").EnumerateArray()
+                .Single(item => item.GetProperty("productTypeId").GetGuid() == productTypeId)
+                .GetProperty("manufacturingVersions").EnumerateArray());
+        var manufacturingVersionId = manufacturingVersion.GetProperty("versionId").GetGuid();
+        var manufacturingRequest = new
+        {
+            expectedRowVersion = manufacturingVersion.GetProperty("rowVersion").GetInt32(),
+            items = new[]
+            {
+                new { definitionKey = (Guid?)null, displayOrder = 1, label = "생산관리 제조 저장" }
+            }
+        };
+
+        var manufacturingHeadSave = await manufacturingHeadClient.PutAsJsonAsync(
+            $"/api/production-control/templates/manufacturing/{productTypeId}/versions/{manufacturingVersionId}",
+            manufacturingRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, manufacturingHeadSave.StatusCode);
+        var generalManufacturingSave = await generalUserClient.PutAsJsonAsync(
+            $"/api/production-control/templates/manufacturing/{productTypeId}/versions/{manufacturingVersionId}",
+            manufacturingRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, generalManufacturingSave.StatusCode);
+        using var manufacturingSaved = await ReadJsonAsync(await productionHeadClient.PutAsJsonAsync(
+            $"/api/production-control/templates/manufacturing/{productTypeId}/versions/{manufacturingVersionId}",
+            manufacturingRequest,
+            TestContext.Current.CancellationToken));
+        Assert.Equal("생산관리 제조 저장", Assert.Single(
+            Assert.Single(manufacturingSaved.RootElement.GetProperty("items").EnumerateArray()
+                .Single(item => item.GetProperty("productTypeId").GetGuid() == productTypeId)
+                .GetProperty("manufacturingVersions").EnumerateArray())
+                .GetProperty("items").EnumerateArray()).GetProperty("label").GetString());
+
+        using var planningCurrent = await ReadJsonAsync(await productionHeadClient.PostAsJsonAsync(
+            $"/api/production-control/templates/planning/{productTypeId}/current",
+            new { expectedActiveRowVersion = (int?)null },
+            TestContext.Current.CancellationToken));
+        var planningVersion = Assert.Single(
+            planningCurrent.RootElement.GetProperty("items").EnumerateArray()
+                .Single(item => item.GetProperty("productTypeId").GetGuid() == productTypeId)
+                .GetProperty("planVersions").EnumerateArray());
+        var planningVersionId = planningVersion.GetProperty("versionId").GetGuid();
+        var planningRequest = new
+        {
+            expectedRowVersion = planningVersion.GetProperty("rowVersion").GetInt32(),
+            items = new[]
+            {
+                new
+                {
+                    definitionKey = (Guid?)null,
+                    displayOrder = 1,
+                    label = "생산관리 계획 저장",
+                    isRequired = true,
+                    connections = new[]
+                    {
+                        new { sourceCode = "OQC_PASSED", sourceDefinitionKey = (Guid?)null }
+                    }
+                }
+            }
+        };
+
+        var manufacturingHeadPlanSave = await manufacturingHeadClient.PutAsJsonAsync(
+            $"/api/production-control/templates/planning/{productTypeId}/versions/{planningVersionId}",
+            planningRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, manufacturingHeadPlanSave.StatusCode);
+        var generalPlanSave = await generalUserClient.PutAsJsonAsync(
+            $"/api/production-control/templates/planning/{productTypeId}/versions/{planningVersionId}",
+            planningRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, generalPlanSave.StatusCode);
+        using var planningSaved = await ReadJsonAsync(await productionHeadClient.PutAsJsonAsync(
+            $"/api/production-control/templates/planning/{productTypeId}/versions/{planningVersionId}",
+            planningRequest,
+            TestContext.Current.CancellationToken));
+        Assert.Equal("생산관리 계획 저장", Assert.Single(
+            Assert.Single(planningSaved.RootElement.GetProperty("items").EnumerateArray()
+                .Single(item => item.GetProperty("productTypeId").GetGuid() == productTypeId)
+                .GetProperty("planVersions").EnumerateArray())
+                .GetProperty("items").EnumerateArray()).GetProperty("label").GetString());
+    }
+
+    [Fact]
     public async Task ProductionControl_CurrentTemplateEditsInPlaceAndPlanRequiresOneConnection()
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();

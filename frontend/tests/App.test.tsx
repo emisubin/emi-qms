@@ -261,6 +261,27 @@ describe('App', () => {
     expect(within(topbarActions as HTMLElement).queryByRole('button', { name: '자재' })).not.toBeInTheDocument();
   });
 
+  it('shows form management to quality and production department heads but not manufacturing heads', async () => {
+    window.history.pushState(null, '', '/');
+    render(<App />);
+
+    const userSelector = await screen.findByLabelText('개발 사용자');
+    const navigation = screen.getByRole('navigation', { name: '공통 메뉴' });
+    expect(within(navigation).queryByRole('button', { name: '양식 관리' })).not.toBeInTheDocument();
+
+    fireEvent.change(userSelector, { target: { value: 'dev-quality' } });
+    await waitFor(() => expect(userSelector).toHaveValue('dev-quality'));
+    expect(await within(navigation).findByRole('button', { name: '양식 관리' })).toBeInTheDocument();
+
+    fireEvent.change(userSelector, { target: { value: 'dev-manufacturing' } });
+    await waitFor(() => expect(userSelector).toHaveValue('dev-manufacturing'));
+    await waitFor(() => expect(within(navigation).queryByRole('button', { name: '양식 관리' })).not.toBeInTheDocument());
+
+    fireEvent.change(userSelector, { target: { value: 'dev-production' } });
+    await waitFor(() => expect(userSelector).toHaveValue('dev-production'));
+    expect(await within(navigation).findByRole('button', { name: '양식 관리' })).toBeInTheDocument();
+  });
+
   it('opens the customer-supplied overdue material queue from the Materials Home metric', async () => {
     window.history.pushState(null, '', '/');
     render(<App />);
@@ -3345,9 +3366,16 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
   if (path === '/api/form-templates/my-scope') {
-    return json(userKey === 'dev-admin'
-      ? { canManage: true, isSystemAdministrator: true, domains: ['Quality', 'Manufacturing'] }
-      : { canManage: false, isSystemAdministrator: false, domains: [] });
+    if (userKey === 'dev-admin') {
+      return json({ canManage: true, isSystemAdministrator: true, domains: ['Quality', 'Manufacturing', 'ProductionPlanning'] });
+    }
+    if (userKey === 'dev-production') {
+      return json({ canManage: true, isSystemAdministrator: false, domains: ['Manufacturing', 'ProductionPlanning'] });
+    }
+    if (userKey === 'dev-quality') {
+      return json({ canManage: true, isSystemAdministrator: false, domains: ['Quality'] });
+    }
+    return json({ canManage: false, isSystemAdministrator: false, domains: [] });
   }
 
   if (path === '/api/sales/kpi') {

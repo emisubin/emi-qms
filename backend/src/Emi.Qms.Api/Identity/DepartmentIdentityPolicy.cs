@@ -27,7 +27,6 @@ public static class DepartmentIdentityPolicy
         return departmentCode switch
         {
             "quality" => "Quality",
-            "manufacturing" => "Manufacturing",
             "production-planning" => "ProductionPlanning",
             _ => null
         };

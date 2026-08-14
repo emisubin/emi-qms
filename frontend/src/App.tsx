@@ -1927,7 +1927,6 @@ function QmsAppShellContent({
   const canManagePendingTypes = permissions.includes('PendingType.Manage');
   const canSettleSales = permissions.includes('sales.settle');
   const canViewSalesProjectTab = user?.effectiveUser.department === 'sales';
-  const canManageMaterialCategories = user?.effectiveUser.department === 'quality';
   const canManageSalesTargets = permissions.includes('Sales.Target.Manage');
   const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
@@ -1988,7 +1987,7 @@ function QmsAppShellContent({
     ...departmentNavigationItems
       .filter((item) => item.label !== departmentNavigationLabel)
       .map((item) => ({ ...item, group: '공통 조회' as const })),
-    ...(formTemplateScope?.canManage || canManageMaterialCategories ? [
+    ...(formTemplateScope?.canManage ? [
       { label: '양식 관리', view: { kind: 'form-templates' } as View, active: view.kind === 'form-templates', group: '관리' as const }
     ] : []),
     ...(canManagePendingTypes ? [
@@ -2262,8 +2261,12 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'form-templates' ? (
-        <FormTemplateManagementPage developmentUserKey={developmentUserKey} isSystemAdministrator={isSystemAdministrator} />
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'form-templates' && formTemplateScope?.canManage ? (
+        <FormTemplateManagementPage
+          developmentUserKey={developmentUserKey}
+          isSystemAdministrator={isSystemAdministrator}
+          domains={formTemplateScope.domains}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'pending-types' ? (

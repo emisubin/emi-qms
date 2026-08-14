@@ -254,11 +254,15 @@ public sealed class MaterialCategoryStore(
         await using var command = dataSource.CreateCommand("""
             select exists (
                 select 1
-                from qms_users users
-                join departments department on department.id=users.department_id
-                where users.id=@user_id
-                  and users.is_active
-                  and department.code='quality'
+                from form_template_manager_bindings binding
+                join qms_users users on users.id=binding.user_id
+                    and users.department_id=binding.department_id
+                    and users.is_active
+                join departments department on department.id=binding.department_id
+                    and department.code='quality'
+                where binding.user_id=@user_id
+                  and binding.domain='Quality'
+                  and binding.revoked_at_utc is null
             );
             """);
         command.Parameters.AddWithValue("user_id", userId);

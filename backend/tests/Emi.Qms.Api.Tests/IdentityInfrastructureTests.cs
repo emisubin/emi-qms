@@ -3,6 +3,7 @@ using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
+using Emi.Qms.Api.ProductionPlanning;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -550,6 +551,7 @@ public sealed class IdentityInfrastructureTests
         var identityStore = context.Services.GetRequiredService<DbIdentityStore>();
         var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
         var formTemplates = context.Services.GetRequiredService<FormTemplateStore>();
+        var productionControlTemplates = context.Services.GetRequiredService<ProductionControlTemplateStore>();
         var admin = await identityStore.GetOrCreateEntraProfileAsync(
             "department-head-admin",
             "Department Head Admin",
@@ -565,12 +567,26 @@ public sealed class IdentityInfrastructureTests
             "Quality Head Second",
             "quality-head-second@example.invalid",
             TestContext.Current.CancellationToken);
+        var productionHead = await identityStore.GetOrCreateEntraProfileAsync(
+            "production-head",
+            "Production Head",
+            "production-head@example.invalid",
+            TestContext.Current.CancellationToken);
+        var manufacturingHead = await identityStore.GetOrCreateEntraProfileAsync(
+            "manufacturing-head",
+            "Manufacturing Head",
+            "manufacturing-head@example.invalid",
+            TestContext.Current.CancellationToken);
 
         Assert.NotNull(admin);
         Assert.NotNull(firstHead);
         Assert.NotNull(secondHead);
+        Assert.NotNull(productionHead);
+        Assert.NotNull(manufacturingHead);
         var snapshot = await administration.GetSnapshotAsync(TestContext.Current.CancellationToken);
         var qualityDepartment = Assert.Single(snapshot.Departments, department => department.Code == "quality");
+        var productionDepartment = Assert.Single(snapshot.Departments, department => department.Code == "production-planning");
+        var manufacturingDepartment = Assert.Single(snapshot.Departments, department => department.Code == "manufacturing");
 
         foreach (var targetUserId in new[] { firstHead.User.Id, secondHead.User.Id })
         {
@@ -585,18 +601,59 @@ public sealed class IdentityInfrastructureTests
             Assert.True(updated.IsDepartmentHead);
         }
 
-        Assert.Equal(2L, await context.ReadScalarAsync<long>("""
+        Assert.Equal(2L, await context.ReadScalarAsync<long>($"""
             select count(*)
             from form_template_manager_bindings binding
             join departments department on department.id=binding.department_id
             where department.code='quality'
               and binding.domain='Quality'
+              and binding.user_id in ('{firstHead.User.Id}','{secondHead.User.Id}')
               and binding.revoked_at_utc is null;
             """));
         var firstScope = await formTemplates.GetScopeAsync(firstHead.User.Id, false, TestContext.Current.CancellationToken);
         var secondScope = await formTemplates.GetScopeAsync(secondHead.User.Id, false, TestContext.Current.CancellationToken);
         Assert.Contains("Quality", firstScope.Domains);
         Assert.Contains("Quality", secondScope.Domains);
+
+        var productionResult = await administration.UpdateEntraUserAsync(
+            productionHead.User.Id,
+            new UpdateUserAdministrationRequest(productionDepartment.Id, [], true, true),
+            admin.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.True(productionResult.Succeeded, productionResult.ErrorMessage);
+        var updatedProductionHead = Assert.Single(productionResult.Snapshot!.Users, user => user.UserId == productionHead.User.Id);
+        Assert.Contains(QmsRoles.ProductionPlanning, updatedProductionHead.Roles);
+        Assert.True(updatedProductionHead.IsDepartmentHead);
+        var productionScope = await formTemplates.GetScopeAsync(
+            productionHead.User.Id,
+            false,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(["Manufacturing", "ProductionPlanning"], productionScope.Domains.Order());
+        var productionCatalog = await productionControlTemplates.GetCatalogAsync(
+            productionHead.User.Id,
+            false,
+            TestContext.Current.CancellationToken);
+        Assert.True(productionCatalog.CanManageManufacturing);
+        Assert.True(productionCatalog.CanManageProductionPlanning);
+
+        var manufacturingResult = await administration.UpdateEntraUserAsync(
+            manufacturingHead.User.Id,
+            new UpdateUserAdministrationRequest(manufacturingDepartment.Id, [], true, true),
+            admin.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.True(manufacturingResult.Succeeded, manufacturingResult.ErrorMessage);
+        var updatedManufacturingHead = Assert.Single(manufacturingResult.Snapshot!.Users, user => user.UserId == manufacturingHead.User.Id);
+        Assert.Contains(QmsRoles.Manufacturing, updatedManufacturingHead.Roles);
+        Assert.True(updatedManufacturingHead.IsDepartmentHead);
+        Assert.False((await formTemplates.GetScopeAsync(
+            manufacturingHead.User.Id,
+            false,
+            TestContext.Current.CancellationToken)).CanManage);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from form_template_manager_bindings
+            where user_id='{manufacturingHead.User.Id}' and revoked_at_utc is null;
+            """));
 
         var revoked = await administration.UpdateEntraUserAsync(
             firstHead.User.Id,
@@ -605,10 +662,12 @@ public sealed class IdentityInfrastructureTests
             TestContext.Current.CancellationToken);
         Assert.True(revoked.Succeeded, revoked.ErrorMessage);
         Assert.False(Assert.Single(revoked.Snapshot!.Users, user => user.UserId == firstHead.User.Id).IsDepartmentHead);
-        Assert.Equal(1L, await context.ReadScalarAsync<long>("""
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"""
             select count(*)
             from form_template_manager_bindings
-            where domain='Quality' and revoked_at_utc is null;
+            where domain='Quality'
+              and user_id in ('{firstHead.User.Id}','{secondHead.User.Id}')
+              and revoked_at_utc is null;
             """));
         Assert.False((await formTemplates.GetScopeAsync(firstHead.User.Id, false, TestContext.Current.CancellationToken)).CanManage);
         Assert.True((await formTemplates.GetScopeAsync(secondHead.User.Id, false, TestContext.Current.CancellationToken)).CanManage);

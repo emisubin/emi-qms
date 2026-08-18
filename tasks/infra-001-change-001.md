@@ -35,6 +35,7 @@
 3. 일반 사용자·일반 System Administrator·Dev persona에는 적용하지 않는다.
 4. Frontend는 `/api/me`의 기존 역할·permission 응답을 사용하므로 별도 인증 우회 UI를 만들지 않는다.
 5. Azure는 `development-operator-emails` Key Vault secret을 Backend identity에만 읽기 허용하고 Backend 환경변수로 연결한다.
+   Container Apps 내부 secret reference는 20자 제한을 지키는 `development-ops`를 사용한다.
 6. actual email, tenant·object ID와 secret 원문은 코드·문서·test artifact에 기록하지 않는다.
 
 ## 검증 계약

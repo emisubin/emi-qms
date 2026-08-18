@@ -331,9 +331,10 @@ public sealed class PublicDeploymentSecurityTests
         Assert.Contains("web-push-vapid-private-key", workloads, StringComparison.Ordinal);
         Assert.Contains("development-operator-emails", workloads, StringComparison.Ordinal);
         Assert.Contains(
-            "name: 'Authentication__DevelopmentOperatorEmails'\n    secretRef: 'development-operator-emails'",
+            "name: 'Authentication__DevelopmentOperatorEmails'\n    secretRef: 'development-ops'",
             workloads,
             StringComparison.Ordinal);
+        Assert.DoesNotContain("name: 'development-operator-emails'", workloads, StringComparison.Ordinal);
         Assert.Contains("frontendAccessGateRoleAssignmentName", identityAccess, StringComparison.Ordinal);
         Assert.Contains("backendWebPushVapidPublicKeyRoleAssignmentName", identityAccess, StringComparison.Ordinal);
         Assert.Contains("backendWebPushVapidPrivateKeyRoleAssignmentName", identityAccess, StringComparison.Ordinal);

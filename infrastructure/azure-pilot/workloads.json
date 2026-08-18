@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "3937657220435287289"
+      "templateHash": "6818577442622291798"
     }
   },
   "parameters": {
@@ -371,7 +371,7 @@
             {
               "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
               "keyVaultUrl": "[format('{0}development-operator-emails', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "development-operator-emails"
+              "name": "development-ops"
             },
             {
               "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
@@ -426,7 +426,7 @@
                 },
                 {
                   "name": "Authentication__DevelopmentOperatorEmails",
-                  "secretRef": "development-operator-emails"
+                  "secretRef": "development-ops"
                 },
                 {
                   "name": "AzureAd__Instance",

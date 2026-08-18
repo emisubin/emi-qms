@@ -125,7 +125,7 @@ const checks = [
   [identityAccess, 'scope: originVerificationSecret'],
   [identityAccess, 'scope: developmentOperatorsSecret'],
   [workloads, "name: 'Authentication__DevelopmentOperatorEmails'"],
-  [workloads, "secretRef: 'development-operator-emails'"],
+  [workloads, "secretRef: 'development-ops'"],
   [identityAccess, 'scope: entraAccessGateSecret'],
   [identityAccess, 'scope: webPushVapidPublicKeySecret'],
   [identityAccess, 'scope: webPushVapidPrivateKeySecret'],

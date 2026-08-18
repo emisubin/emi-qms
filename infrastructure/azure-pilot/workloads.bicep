@@ -154,7 +154,7 @@ var backendSecrets = [
   {
     identity: backendIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}development-operator-emails'
-    name: 'development-operator-emails'
+    name: 'development-ops'
   }
   {
     identity: backendIdentity.id
@@ -205,7 +205,7 @@ var servingBackendEnvironment = [
   }
   {
     name: 'Authentication__DevelopmentOperatorEmails'
-    secretRef: 'development-operator-emails'
+    secretRef: 'development-ops'
   }
   {
     name: 'AzureAd__Instance'

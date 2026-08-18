@@ -2841,7 +2841,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             "Completed" => "완료",
             WorkflowStatuses.PartiallyCompleted => "부분 완료",
             "InProgress" => "진행 중",
-            "Requested" => "내 업무 생성됨",
+            "Requested" => "업무 요청됨",
             "Blocked" => "차단",
             "Skipped" => "제외",
             _ => "미시작"

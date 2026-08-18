@@ -377,6 +377,38 @@ public sealed class ProductionPlanningApiTests
     }
 
     [Fact]
+    public async Task Workflow_RequestedStage_UsesNeutralRequestLabel()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+
+        var projectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"WF-LABEL-{Guid.NewGuid():N}",
+            "Workflow Request Label");
+        await context.ExecuteSqlAsync($"""
+            insert into work_items (
+                project_id, target_type, target_id, workflow_stage_code, responsibility_type,
+                assigned_user_id, assigned_role_code, title, description, status, priority,
+                idempotency_key, created_by_user_id)
+            values (
+                '{projectId}', 'Project', '{projectId}', 'SalesSettlementCompleted', 'SalesPrimary',
+                '{DevSalesUserId}', 'sales', '영업 정산 업무', '상태 표시 검증', 'Requested', 'Normal',
+                'test:workflow-request-label:{projectId}', '{DevSalesUserId}');
+            """);
+
+        using var workflow = await ReadJsonAsync(await salesClient.GetAsync(
+            $"/api/projects/{projectId}/workflow",
+            TestContext.Current.CancellationToken));
+        var requestedStage = workflow.RootElement.GetProperty("stages").EnumerateArray()
+            .Single(stage => stage.GetProperty("stageCode").GetString() == "SalesSettlementCompleted");
+
+        Assert.Equal("Requested", requestedStage.GetProperty("status").GetString());
+        Assert.Equal("업무 요청됨", requestedStage.GetProperty("statusLabel").GetString());
+    }
+
+    [Fact]
     public async Task Workflow_ProductionPlanningSave_GeneratesProcurementWorkOnce()
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();

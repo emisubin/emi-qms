@@ -17853,7 +17853,6 @@ function ProjectWorkflowSummary({ state }: { state: LoadState<ProjectWorkflowRes
         <div className="button-row workflow-summary-meta">
           <StatusChip label="진행률" value={`${state.data.progressPercent}%`} />
           <StatusChip label="완료" value={`${state.data.completedRequiredStageCount}/${state.data.requiredStageCount}`} />
-          <StatusChip label="내 업무" value={`${state.data.generatedWorkItemCount}`} />
         </div>
       </div>
 
@@ -17879,7 +17878,7 @@ function ProjectWorkflowSummary({ state }: { state: LoadState<ProjectWorkflowRes
             <span className="workflow-stage-number">{stage.sequenceNumber}</span>
             <div>
               <strong>{displayWorkflowStageLabel(stage.departmentLabel, stage.stageCode, stage.stageName)}{stage.isOptional && stage.stageCode !== 'KittingCompleted' ? ' (선택)' : ''}</strong>
-              <small>{stage.statusLabel}{stage.workItemCount > 0 ? ` · 내 업무 ${stage.workItemCount}건` : ''}</small>
+              <small>{stage.statusLabel}</small>
             </div>
           </li>
         ))}

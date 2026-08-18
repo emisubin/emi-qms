@@ -26,6 +26,8 @@ test('WORKFLOW-CONTINUITY-001: arrival, IQC pending, automatic reinspection, and
   await page.goto(`/projects/${projectId}`);
   await expect(page.getByRole('tab', { name: '전체 흐름' })).toHaveAttribute('aria-selected', 'true');
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`, 'u'));
+  const workflowBoard = page.getByRole('region', { name: '프로젝트 workflow 요약' });
+  await expect(workflowBoard).not.toContainText('내 업무');
   await capture(page, '01-project-default-workflow-desktop.png');
 
   await page.getByRole('tab', { name: '구매', exact: true }).click();
@@ -98,6 +100,9 @@ test('WORKFLOW-CONTINUITY-001: arrival, IQC pending, automatic reinspection, and
   await capture(page, '08-iqc-completed-workflow-desktop.png');
 
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/projects/${projectId}`);
+  await expect(page.getByRole('region', { name: '프로젝트 workflow 요약' })).not.toContainText('내 업무');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   await page.goto(`/projects/${projectId}?section=materials`);
   await expect(page.getByRole('tab', { name: '구매', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: '자재', exact: true })).toHaveCount(0);

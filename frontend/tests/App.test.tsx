@@ -2588,6 +2588,8 @@ describe('App', () => {
     expect(workflowBoard).toHaveTextContent('물류 / 포장');
     expect(workflowBoard).toHaveTextContent('물류 / 납품');
     expect(workflowBoard).toHaveTextContent('영업 / 세금계산서');
+    expect(workflowBoard).toHaveTextContent('업무 요청됨');
+    expect(workflowBoard).not.toHaveTextContent('내 업무');
     fireEvent.click(screen.getByRole('tab', { name: '생산관리' }));
     expect(await screen.findByText('프로젝트 단위 계획과 담당자 지정')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '프로젝트 전체 흐름' })).not.toBeInTheDocument();
@@ -5272,7 +5274,7 @@ function projectWorkflowResponse(id = projectId) {
         stageName: '생산계획·담당자',
         isOptional: false,
         status: 'Requested',
-        statusLabel: '내 업무 생성됨',
+        statusLabel: '업무 요청됨',
         workItemCount: 1,
         completedAtUtc: null
       },

@@ -1,6 +1,6 @@
 # TASK-PRODUCTION-CONTROL-001 구현 보고 — Item별 생산계획·자동 실적·가로 막대 일정
 
-상태: `Change 011 사용자 검수·원격 main 병합·Azure 공개배포 완료 / Change 012·013 로컬 구현·자동 검증 완료·게시 승인·배포 후 사용자 운영 검수 대기`
+상태: `Change 011 사용자 검수·원격 main 병합·Azure 공개배포 완료 / Change 012·013 원격 main 병합·Azure 공개배포·사용자 운영 검수 진행 / Change 014 구현·자동 검증 완료·원격 main 병합 및 Azure 공개배포 승인`
 
 ## 기준선과 범위
 
@@ -410,3 +410,68 @@ Ready PR #101의 최초 Full-Stack `59/61` 실패에서 오래된 체크 달력 
 
 - `PC-C013-CATEGORY-EVIDENCE-GAP-001`, `PC-C013-MANUFACTURING-SNAPSHOT-DRIFT-001`은 구현과 대표 회귀로 `RESOLVED`다.
 - 사용자 검수 완료는 별도로 보고되지 않았다. 사용자는 이 상태와 자동검증 결과를 확인한 뒤 commit·push·PR·main 병합, migration 적용과 Azure 공개배포를 명시 승인했으며 사용자 운영 검수는 배포 후 수행한다.
+
+## Change 014 — 기존 Item 제조양식 snapshot 배포 보정
+
+### 해결한 업무 문제
+
+- 공개 운영의 현재 Item 제조양식과 기존 프로젝트의 제조 단계 snapshot 수가 달라, 생산계획 수정의 `제조 단계 완료` 실적 선택지가 일부만 표시됐다.
+- Change 013은 새 코드가 실행 중일 때 제조양식을 다시 저장하는 경로만 기존 프로젝트와 동기화했다. 배포 전에 이미 어긋난 데이터는 migration 적용만으로 보정되지 않았다.
+
+### 기술적 결정과 구현
+
+- 제조양식 저장 동기화 대상을 `project_production_plans.product_type_id` 보유 프로젝트에서 삭제되지 않은 프로젝트의 실제 Item 코드 일치 대상으로 넓혔다. 생산계획 header가 없어도 같은 Item이면 현재 제조양식이 적용된다.
+- additive migration `0080_item_manufacturing_snapshot_backfill`은 항목이 하나 이상인 활성 Item 제조양식을 기준으로 기존 활성 snapshot을 비활성화한 뒤 현재 definition·순서·이름을 활성화한다.
+- 현재 제조양식이 비어 있는 Item은 기존 snapshot을 지우지 않는다.
+- 제조 execution·execution step·완료 상태와 생산계획 항목·기간·담당자·실적 연결은 변경하지 않는다.
+
+### 시행착오 및 폐기한 접근
+
+- 최초 migration은 기존 snapshot 비활성화와 현재 항목 삽입을 하나의 data-modifying CTE로 묶었다. 기존 DB 회귀에서 활성 순번 고유 제약 충돌을 재현해 폐기했다.
+- 최종 migration은 비활성화와 삽입을 별도 SQL 문장으로 순서화해 unique 충돌 없이 적용한다.
+
+### 변경 위치
+
+- Backend: `backend/src/Emi.Qms.Api/ProductionPlanning/ProductionControlTemplateStore.cs`
+- Migration: `database/migrations/0080_item_manufacturing_snapshot_backfill.sql`
+- 회귀: `backend/tests/Emi.Qms.Api.Tests/ProductionPlanningApiTests.cs`, `backend/tests/Emi.Qms.Api.Tests/PostgreSqlMigrationTests.cs`
+- 계약: `tasks/production-control-001-change-014.md`
+- 사용자 검수: `tasks/production-control-001-user-validation-checklist.md`
+
+### 자동 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| 제조양식 저장·기존 DB 집중 회귀 | PASS — 생산계획 header 없는 같은 Item 프로젝트 동기화, `0079 → 0080` 기존 snapshot 보정, 빈 현재 양식 보존 `2/2` |
+| Backend Release build | PASS — warning `0`, error `0` |
+| Backend 전체 회귀 | PASS — `537/537` |
+| 운영형 migration image | PASS — fresh apply, existing apply, migration ledger `80/80` |
+| Frontend | N/A — Frontend 코드·계약·화면 변경 없음. 표준 PR CI의 change routing과 Full-Stack 결과를 게시 Gate로 확인한다. |
+| `git diff --check` | PASS |
+
+### 개인정보·보안·외부 연동 영향
+
+- 실제 프로젝트명·사용자명·ID·연락처와 secret을 코드·테스트·문서에 기록하지 않았다. 테스트는 고정 합성 데이터만 사용한다.
+- 권한, 인증, Teams·메일·PWA 알림 provider와 외부 발송은 변경하지 않았다.
+- Excel, PDF, 첨부파일과 사용자 화면 디자인은 변경하지 않았다.
+
+### Finding·사용자 검수·게시 경계
+
+- `PC-C014-DEPLOY-BACKFILL-GAP-001` P1은 migration `0080`과 회귀로 `RESOLVED`다. Open P0/P1/P2는 `0/0/0`이다.
+- 사용자는 원인과 보정 방향을 확인한 뒤 2026-08-18 원격 `main` 병합·migration 적용·Azure 공개배포를 명시 승인했다.
+- 사용자 운영 검수는 배포 후 같은 Item의 현재 제조양식 단계 수와 기존 프로젝트 실적 선택지 수가 일치하는지 확인하는 항목으로 남긴다.
+
+### 복구와 forward-fix
+
+- 기존 migration을 수정하지 않는 additive migration이다. destructive down migration은 만들지 않는다.
+- 문제 발생 시 애플리케이션을 직전 image로 되돌리고, 현재 Item 제조양식으로 snapshot을 다시 생성하는 forward-fix를 사용한다.
+
+### 종료 산출물
+
+| 산출물 | 상태 | 위치 |
+| --- | --- | --- |
+| Implementation report | Change 014 자동 검증 완료·게시 승인 기록 | 본 문서 `Change 014` |
+| SOP | 기존 사용 방법 유지·운영 적용 순서 추가 | 본 문서 `사용자 사용 방법`, `Change 014 복구와 forward-fix` |
+| User manual | 화면 변경 없음·기존 제조양식 사용 방법 유지 | 본 문서 `사용자 사용 방법` |
+| Roadmap update | Change 014 상태 추적 | `docs/00-product-roadmap.md` |
+| User validation checklist | 배포 후 사용자 검수 대기 | `tasks/production-control-001-user-validation-checklist.md` `Change 014` |

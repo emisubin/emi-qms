@@ -3088,6 +3088,12 @@ public sealed class ProductionPlanningApiTests
             salesClient,
             $"PC-BEFORE-{Guid.NewGuid():N}"[..28],
             "제조 양식 변경 전 프로젝트");
+        var projectWithoutPlanId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"PC-NOPLAN-{Guid.NewGuid():N}"[..28],
+            "생산계획 행 없는 제조 양식 동기화 프로젝트");
+        await context.ExecuteSqlAsync($"delete from project_production_plans where project_id='{projectWithoutPlanId}';");
 
         using var renamedManufacturing = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
             $"/api/production-control/templates/manufacturing/{productTypeId}/versions/{manufacturingVersionId}",
@@ -3119,6 +3125,11 @@ public sealed class ProductionPlanningApiTests
         Assert.Equal("조립 이름 변경", await context.ReadScalarAsync<string>($"""
             select step_name_snapshot
             from project_manufacturing_step_snapshots
+            where project_id='{projectWithoutPlanId}' and is_active;
+            """));
+        Assert.Equal("조립 이름 변경", await context.ReadScalarAsync<string>($"""
+            select step_name_snapshot
+            from project_manufacturing_step_snapshots
             where project_id='{renamedProjectId}' and is_active;
             """));
 
@@ -3144,6 +3155,11 @@ public sealed class ProductionPlanningApiTests
             select definition_key
             from project_manufacturing_step_snapshots
             where project_id='{existingProjectId}' and is_active;
+            """));
+        Assert.Equal(replacementManufacturingDefinitionKey, await context.ReadScalarAsync<Guid>($"""
+            select definition_key
+            from project_manufacturing_step_snapshots
+            where project_id='{projectWithoutPlanId}' and is_active;
             """));
         Assert.Equal("신규 조립", await context.ReadScalarAsync<string>($"""
             select step_name_snapshot

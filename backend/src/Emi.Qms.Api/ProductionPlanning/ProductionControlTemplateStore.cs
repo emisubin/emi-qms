@@ -449,11 +449,14 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         {
             command.Transaction = transaction;
             command.CommandText = """
-                select plan.project_id
-                from project_production_plans plan
-                where plan.product_type_id=@product_type_id
-                order by plan.project_id
-                for update of plan;
+                select project.id
+                from projects project
+                join production_product_types product_type
+                  on product_type.id=@product_type_id
+                 and upper(btrim(project.item))=upper(btrim(product_type.code))
+                where project.deleted_at_utc is null
+                order by project.id
+                for update of project;
                 """;
             command.Parameters.AddWithValue("product_type_id", productTypeId);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
